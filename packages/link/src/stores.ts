@@ -49,7 +49,7 @@ export function browserDeviceStore(name: string, db = 'byokit-link'): KeptDevice
   };
   let pending = Promise.resolve();
   const locked = <T>(fn: () => Promise<T>): Promise<T> => {
-    if (typeof navigator !== 'undefined' && navigator.locks) return navigator.locks.request(`byokit-link:${db}:${name}`, fn);
+    if (typeof navigator !== 'undefined' && navigator.locks) return navigator.locks.request<Promise<T>>(`byokit-link:${db}:${name}`, fn).then((value) => value);
     const work = pending.then(fn);
     pending = work.then(() => {}, () => {});
     return work;
@@ -74,9 +74,9 @@ export function browserDeviceStore(name: string, db = 'byokit-link'): KeptDevice
       const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: sealed.iv }, await key(), sealed.data);
       return grantOf(new TextDecoder().decode(plain));
     }),
-    async save(g) {
-      const started = await generation();
-      await locked(async () => {
+    save(g) {
+      return locked(async () => {
+        const started = await generation();
         const iv = crypto.getRandomValues(new Uint8Array(12));
         const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await key(), new TextEncoder().encode(JSON.stringify(g)));
         await run('grants', 'readwrite', (s) => {

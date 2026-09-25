@@ -136,6 +136,45 @@ test('K4: the grant in IndexedDB, sealed by a non-extractable AES-GCM key; the s
         await store.save(g);
         return store.load();
       }, grant), grant);
+
+      await page.evaluate(() => {
+        delete (crypto.subtle as any).encrypt;
+        const open = indexedDB.open.bind(indexedDB);
+        let first = true;
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => { release = resolve; });
+        (globalThis as any).releaseRead = release;
+        Object.defineProperty(indexedDB, 'open', { configurable: true, value: (...args: Parameters<IDBFactory['open']>) => {
+          const request = open(...args);
+          if (first) {
+            first = false;
+            Object.defineProperty(request, 'onsuccess', { configurable: true, set(fn: (event: Event) => void) {
+              request.addEventListener('success', (event) => {
+                (globalThis as any).readStalled = true;
+                void held.then(() => fn.call(request, event));
+              }, { once: true });
+            } });
+          }
+          return request;
+        } });
+      });
+      const stalledSave = page.evaluate(async (g) => {
+        const { browserDeviceStore } = await import('/stores.js' as string);
+        await browserDeviceStore('kitchen').save({ ...g, hostName: 'Stalled read' });
+      }, grant);
+      await page.waitForFunction(() => (globalThis as any).readStalled === true);
+      const laterClear = otherTab.evaluate(async () => {
+        (globalThis as any).secondClearStarted = true;
+        const { browserDeviceStore } = await import('/stores.js' as string);
+        await browserDeviceStore('kitchen').clear();
+      });
+      await otherTab.waitForFunction(() => (globalThis as any).secondClearStarted === true);
+      await page.evaluate(() => (globalThis as any).releaseRead());
+      await Promise.all([stalledSave, laterClear]);
+      assert.equal(await otherTab.evaluate(async () => {
+        const { browserDeviceStore } = await import('/stores.js' as string);
+        return browserDeviceStore('kitchen').load();
+      }), null);
     } finally { await browser.close(); site.close(); }
   });
 
