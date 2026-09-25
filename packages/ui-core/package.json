@@ -20,6 +20,10 @@
     "./phase": {
       "types": "./dist/phase.d.ts",
       "default": "./dist/phase.js"
+    },
+    "./route": {
+      "types": "./dist/route.d.ts",
+      "default": "./dist/route.js"
     }
   },
   "files": [

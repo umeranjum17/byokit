@@ -11,7 +11,7 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "build": "tsc -b packages/accounts packages/link packages/decide packages/ui-core",
+    "build": "tsc -b packages/accounts packages/link packages/decide packages/ui-core packages/reach",
     "check": "tsc -p tsconfig.json",
     "test": "sh scripts/test.sh",
     "test:browser": "sh scripts/test.sh 'examples/pwa/*.test.ts'"
