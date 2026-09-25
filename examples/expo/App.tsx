@@ -9,7 +9,8 @@ import * as SecureStore from 'expo-secure-store';
 import { fetch as streamingFetch } from 'expo/fetch';
 import { Accounts, say, secureStore, type Status } from '@byokit/accounts';
 import { answerer, decide } from '@byokit/decide';
-import { DeviceLink, pairWithOffer, secureDeviceStore, type LinkStatus } from '@byokit/link';
+import { DeviceLink, secureDeviceStore, type LinkStatus } from '@byokit/link';
+import { pairInput } from './pairing.ts';
 import { linkWords, pairingView, useSignIn, type PairPhase } from '@byokit/ui-core';
 
 const ME = 1;
@@ -83,6 +84,7 @@ function Ask() {
 /** Pair with a computer from its pairing code (scanned or pasted), compare the two words, then use the link. */
 function Pair() {
   const [offer, setOffer] = useState('');
+  const [hostUrl, setHostUrl] = useState(process.env.EXPO_PUBLIC_LINK_URL ?? '');
   const [phase, setPhase] = useState<PairPhase>('scan');
   const [words, setWords] = useState<string>();
   const [error, setError] = useState<string>();
@@ -90,7 +92,7 @@ function Pair() {
   const [hostName, setHostName] = useState<string>();
   const [reply, setReply] = useState('');
   const link = useRef<DeviceLink | null>(null);
-  const use = (grant: Awaited<ReturnType<typeof pairWithOffer>>) => {
+  const use = (grant: Awaited<ReturnType<typeof pairInput>>) => {
     setHostName(grant.hostName); setPhase('paired');
     link.current = new DeviceLink(grant, { store: deviceStore, onStatus: setStatus });
   };
@@ -98,7 +100,7 @@ function Pair() {
   const pair = async () => {
     setError(undefined);
     try {
-      use(await pairWithOffer(offer.trim(), { name: `${Platform.OS} phone`, onWords: (w) => { setWords(w); setPhase('compare'); } }));
+      use(await pairInput(offer, hostUrl, { name: `${Platform.OS} phone`, onWords: (w) => { setWords(w); setPhase('compare'); } }));
       await deviceStore.save(link.current!.grant);
     } catch (e: any) { setError(e.message); setPhase('failed'); }
   };
@@ -115,7 +117,8 @@ function Pair() {
         {!!reply && <Text testID="reply" style={s.small}>{reply}</Text>}
         <Button id="unpair" label="Forget this computer" onPress={async () => { link.current?.stop(); await deviceStore.clear(); setPhase('scan'); setStatus(undefined); setReply(''); setHostName(undefined); setWords(undefined); }} />
       </> : <>
-        <TextInput testID="offer" value={offer} onChangeText={setOffer} placeholder="Pairing code" autoCapitalize="none" autoCorrect={false} style={s.input} />
+        <TextInput testID="offer" value={offer} onChangeText={setOffer} placeholder="Pairing code or link" autoCapitalize="none" autoCorrect={false} style={s.input} />
+        <TextInput testID="hostUrl" value={hostUrl} onChangeText={setHostUrl} placeholder="Computer address for typed codes (ws://…)" autoCapitalize="none" autoCorrect={false} style={s.input} />
         <Button id="pair" label="Pair" onPress={pair} />
       </>}
     </View>

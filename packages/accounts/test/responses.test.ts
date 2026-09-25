@@ -24,6 +24,15 @@ test('sse.json: the streamed answer, whole or a character at a time, or the erro
   }
 });
 
+test('a partial stream fails and completed output wins over partial deltas', () => {
+  const partial = sseReader();
+  partial.push('data: {"type":"response.output_text.delta","delta":"Hel"}\n\n');
+  assert.throws(() => partial.end(), (e: any) => e instanceof ResponseError && e.kind === 'network');
+  const complete = sseReader();
+  complete.push('data: {"type":"response.output_text.delta","delta":"Hel"}\n\ndata: {"type":"response.completed","response":{"output":[{"content":[{"type":"output_text","text":"Hello."}]}]}}\n\n');
+  assert.equal(complete.end(), 'Hello.');
+});
+
 test('limit-responses.json: an HTTP error as the kind, when to come back, and the words', () => {
   const f = fixture('limit-responses.json');
   for (const c of f.cases) assert.deepEqual(limitResponse(c.status, c.body, f.now), { kind: c.kind, until: c.until, message: c.message }, c.body);
@@ -82,6 +91,17 @@ test('respond distinguishes an undated rate limit from a plan exclusion', async 
   }
 });
 
+test('respond acts on coded failures in both SSE event forms', async () => {
+  for (const [event, kind, state] of [
+    [{ type: 'error', code: 'rate_limit_exceeded', message: 'Slow down' }, 'rate_limit', 'resting'],
+    [{ type: 'response.failed', response: { error: { code: 'usage_not_included', message: 'Not included' } } }, 'not_included', 'not_included'],
+  ] as const) {
+    const a = await signedIn({ fetch: (async () => new Response(`data: ${JSON.stringify(event)}\n\n`, { headers: { 'content-type': 'text/event-stream' } })) as typeof fetch });
+    await assert.rejects(a.respond(1, { instructions: '', input: 'hi' }), (e: any) => e.kind === kind);
+    assert.equal((await a.status(1, 'chatgpt')).state, state);
+  }
+});
+
 test('respond preserves a failed refresh as a network failure, not sign-out', async () => {
   openai.state.expiresIn = 0;
   const a = await signedIn();
@@ -93,6 +113,16 @@ test('respond preserves a failed refresh as a network failure, not sign-out', as
     await assert.rejects(a.respond(1, { instructions: '', input: 'hi' }), (e: any) => e instanceof ResponseError && e.kind === 'network');
     assert.equal((await a.status(1, 'chatgpt')).state, 'ready');
   } finally { globalThis.fetch = original; }
+});
+
+test('respond treats a refused refresh as signed out and needs another sign-in', async () => {
+  openai.state.expiresIn = 0;
+  const a = await signedIn();
+  openai.state.expiresIn = 864_000;
+  openai.state.live.clear();
+  await assert.rejects(a.respond(1, { instructions: '', input: 'hi' }), (e: any) => e instanceof ResponseError && e.kind === 'signed_out');
+  assert.equal((await a.status(1, 'chatgpt')).state, 'needs_again');
+  assert.equal(await a.plan(1), null);
 });
 
 test('respond failures: a usage limit rests the account; signed out says so in plain words', async () => {

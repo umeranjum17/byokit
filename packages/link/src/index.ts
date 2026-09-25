@@ -6,6 +6,7 @@ export {
   DeviceLink, LINK_WORDS, LinkError, PublicLinkError, pairWithCode, pairWithOffer, pendingGrant,
   type DeviceGrant, type DeviceStore, type Dial, type LinkOptions, type LinkProblem, type LinkStatus, type RequestOptions,
 } from './device.ts';
+export { normalizeCode } from './pairing.ts';
 export { LinkStream, WINDOW } from './stream.ts';
 export type { PairOffer } from './pairing.ts';
 export { browserDeviceStore, secureDeviceStore, type KeptDevice, type SecureStoreLike } from './stores.ts';

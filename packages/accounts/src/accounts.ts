@@ -255,7 +255,14 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const rt = await this.runtime(member);
     let access: string | undefined;
     try { access = (await rt.getAuth(p.pi))?.auth?.apiKey; }
-    catch { throw new ResponseError('ChatGPT could not refresh its sign-in. Try again when the network is back.', 'network'); }
+    catch (e: any) {
+      if ([400, 401, 403].includes(e?.status)) {
+        await rt.credentialStore.delete(p.pi);
+        this.forget(member, key);
+        throw new ResponseError(say('status.needsAgain', { name: p.name }), 'signed_out');
+      }
+      throw new ResponseError('ChatGPT could not refresh its sign-in. Try again when the network is back.', 'network');
+    }
     const c = await rt.readCredential(p.pi).catch(() => undefined);
     if (!access || c?.type !== 'oauth') throw new ResponseError(say('status.signedOut', { name: p.name }), 'signed_out');
     try {

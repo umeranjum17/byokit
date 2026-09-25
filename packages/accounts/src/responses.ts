@@ -3,6 +3,9 @@
 // Native's own) still works: the whole answer arrives at once. Expo's `fetch` from 'expo/fetch' streams.
 import { classify, type Kind } from './limits.ts';
 
+const limitKind = (code: string): Kind | null => code === 'usage_not_included' ? 'not_included'
+  : /^(usage_limit_reached|rate_limit_exceeded)$/.test(code) ? 'rate_limit' : null;
+
 /** A failed answer: the words to show, and the kind an app acts on (null for one that isn't about the account). */
 export class ResponseError extends Error {
   kind: Kind | null;
@@ -16,11 +19,11 @@ export function limitResponse(status: number, body: string, now = Date.now()): {
   let err: any = {};
   try { err = JSON.parse(body)?.error ?? {}; } catch {}
   const code = String(err.code || err.type || '');
-  if (/^(usage_limit_reached|usage_not_included|rate_limit_exceeded)$/.test(code) || status === 429) {
+  if (limitKind(code) || status === 429) {
     const resets = typeof err.resets_at === 'number' ? err.resets_at * 1000 : null;
     const message = 'You have hit your ChatGPT usage limit' + (err.plan_type ? ` (${String(err.plan_type).toLowerCase()} plan)` : '') + '.' +
       (resets ? ` Try again in ~${Math.max(0, Math.round((resets - now) / 60_000))} min.` : '');
-    return { kind: code === 'usage_not_included' ? 'not_included' : 'rate_limit', until: resets, message };
+    return { kind: limitKind(code) ?? 'rate_limit', until: resets, message };
   }
   const kind: Kind | null = status === 401 || status === 403 ? 'signed_out' : [500, 502, 503, 504].includes(status) ? 'overloaded' : null;
   return { kind, until: null, message: (typeof err.message === 'string' && err.message) || body || 'Request failed' };
@@ -29,7 +32,8 @@ export function limitResponse(status: number, body: string, now = Date.now()): {
 /** Reads a streamed answer (fixtures/conformance/sse.json): `push` each piece as it arrives, `end` for the whole text.
  *  An error event throws a ResponseError. */
 export function sseReader(onText?: (delta: string) => void) {
-  let buffer = '', text = '', completed = '';
+  let buffer = '', text = '', completed: string | undefined;
+  let done = false;
   const event = (block: string) => {
     const data = block.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).replace(/^ /, '')).join('\n');
     if (!data || data === '[DONE]') return;
@@ -37,13 +41,14 @@ export function sseReader(onText?: (delta: string) => void) {
     try { e = JSON.parse(data); } catch { return; }
     if (e.type === 'response.output_text.delta' && typeof e.delta === 'string') { text += e.delta; onText?.(e.delta); }
     if (e.type === 'response.completed') {
-      completed = (e.response?.output ?? []).flatMap((o: any) => o?.content ?? []).filter((c: any) => c?.type === 'output_text').map((c: any) => c.text ?? '').join('');
+      done = true;
+      if (Array.isArray(e.response?.output)) completed = e.response.output.flatMap((o: any) => o?.content ?? []).filter((c: any) => c?.type === 'output_text').map((c: any) => c.text ?? '').join('');
     }
     const failed = e.type === 'error' ? e : e.type === 'response.failed' ? e.response?.error : undefined;
     if (failed) {
       const message = String(failed.message ?? 'Request failed');
       const c = classify(message);
-      throw new ResponseError(message, c?.kind ?? null, c?.until ?? 0);
+      throw new ResponseError(message, limitKind(String(failed.code ?? failed.type ?? '')) ?? c?.kind ?? null, c?.until ?? 0);
     }
   };
   const drain = (final: boolean) => {
@@ -55,7 +60,11 @@ export function sseReader(onText?: (delta: string) => void) {
     push(chunk: string) { buffer += chunk; drain(false); },
     end() {
       drain(true);
-      if (!text && completed) { text = completed; onText?.(completed); }
+      if (!done) throw new ResponseError('ChatGPT stopped before completing its answer.', 'network');
+      if (completed !== undefined && completed !== text) {
+        if (completed.startsWith(text)) onText?.(completed.slice(text.length));
+        return completed;
+      }
       return text;
     },
   };
