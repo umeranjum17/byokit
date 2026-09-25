@@ -14,8 +14,20 @@
   },
   "exports": {
     ".": {
+      "react-native": {
+        "types": "./dist/portable.d.ts",
+        "default": "./dist/portable.js"
+      },
+      "browser": {
+        "types": "./dist/portable.d.ts",
+        "default": "./dist/portable.js"
+      },
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./portable": {
+      "types": "./dist/portable.d.ts",
+      "default": "./dist/portable.js"
     },
     "./isolate": {
       "types": "./dist/isolate.d.ts",

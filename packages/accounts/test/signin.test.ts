@@ -23,7 +23,9 @@ const realFetch = globalThis.fetch;
 globalThis.fetch = (async (input: any, init?: any) => {
   const url = String(input?.url ?? input);
   if (url === 'https://auth.openai.com/oauth/token') {
-    const code = new URLSearchParams(String(init?.body)).get('code');
+    const form = new URLSearchParams(String(init?.body));
+    if (form.get('grant_type') === 'refresh_token') return Response.json({ access_token: jwt(openai.plan, openai.email), refresh_token: 'r2', expires_in: 864_000 });
+    const code = form.get('code');
     if (openai.exchange !== 200 || code !== 'good') return new Response('{"error":{"code":"token_expired"}}', { status: 401 });
     return Response.json({ access_token: jwt(openai.plan, openai.email), refresh_token: 'r', expires_in: 3600 });
   }
@@ -140,4 +142,15 @@ test('a work ChatGPT is recognised from the sign-in itself, so the app can steer
     await a.finished(OWNER, 'chatgpt');
     assert.deepEqual(await a.plan(OWNER), { plan: 'business', email: 'sara@acme.com', work: true });
   } finally { Object.assign(openai, { plan: 'plus', email: 'sara@example.com' }); a.stop(); }
+});
+
+test("recheck on Pi's engine: a sign-in that still refreshes is kept (asking a year's validity forces the refresh)", async () => {
+  const { a } = accounts();
+  try {
+    const v = (await a.login(OWNER, 'chatgpt'))!;
+    await back({ code: 'good', state: stateOf(v.url!) });
+    await a.finished(OWNER, 'chatgpt');
+    assert.equal(await a.recheck(OWNER, 'chatgpt'), true);
+    assert.equal(await a.signedIn(OWNER, 'chatgpt'), true);
+  } finally { a.stop(); }
 });

@@ -1,11 +1,10 @@
 // Sign in with the AI plan you already pay for, one person at a time, into that person's own store. Sharing one
 // person's plan breaks the vendors' terms, so every sign-in, rest and refresh is keyed by member and account.
-// Pi's own sign-in flows do the work; the app only shows the provider's page to open or the code to type.
-import { createServer, type Server } from 'node:http';
+// The engine does the signing in (Pi's own flows on a computer, portableEngine on phones and in browsers); the app only
+// shows the provider's page to open or the code to type. No Node import here: see index.ts for the computer's side.
 import type { AuthPrompt, CredentialStore, Models } from '@earendil-works/pi-ai';
-import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { offered, provider, type Provider } from './catalogue.ts';
-import { emptyAuthContext } from './isolate.ts';
+import { claims, PORTABLE, portableEngine } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
 import { memoryStore } from './stores.ts';
 import { callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';
@@ -21,6 +20,13 @@ export type Status = { account: string; name: string; state: 'ready' | 'signing'
 type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text: string) => void; refuse?: (e: Error) => void; timedOut?: boolean; toCode?: boolean;
   oauthState?: string; done?: Promise<void>; shown?: () => void };
 
+/** Listens on this computer for the provider's page coming back: each request's path in, the page to answer with out. */
+export type Loopback = (port: number, handle: (path: string) => Promise<{ status: number; html: string }>) => Promise<{ close(): void }>;
+/** What differs by platform: the engine that signs in, which providers it can, and (on a computer) a loopback listener. */
+export type Platform = { engine: (credentials: CredentialStore) => AuthHost; signsIn: (pi: string) => boolean; loopback?: Loopback };
+/** Phones and browsers: ChatGPT by device code, no listener. */
+export const portable: Platform = { engine: (c) => portableEngine(c), signsIn: (pi) => PORTABLE.includes(pi) };
+
 export type AccountsOptions<M extends Member = Member> = {
   /** The accounts this app offers, in order. Default: every provider not hidden (ChatGPT, OpenRouter). */
   offer?: readonly string[];
@@ -34,14 +40,17 @@ export type AccountsOptions<M extends Member = Member> = {
   redirectMs?: number;
   /** Listen here for the provider's redirect instead of its fixed port (tests, so they never meet a real sign-in). */
   callbackPort?: number;
+  /** The engine for one member's store, instead of this platform's own (a stand-in OpenAI for tests and demos:
+   *  `(c) => portableEngine(c, { base })`). Overriding `open(member)` does the same with the member in hand. */
+  engine?: (credentials: CredentialStore) => AuthHost;
 };
 
 /** The ChatGPT plan behind a sign-in, from its own token: a work plan (Business, Enterprise, Edu) follows the employer's rules. */
 export function planOf(access: string): { plan: string; email: string; work: boolean } {
-  let claims: any = {};
-  try { claims = JSON.parse(Buffer.from(access.split('.')[1] ?? '', 'base64url').toString()); } catch {}
-  const plan = String(claims['https://api.openai.com/auth']?.chatgpt_plan_type ?? '').toLowerCase();
-  return { plan, email: String(claims['https://api.openai.com/profile']?.email ?? claims.email ?? ''), work: /^(team|business|enterprise|edu|education|k12)/.test(plan) };
+  let c: any = {};
+  try { c = claims(access); } catch {}
+  const plan = String(c['https://api.openai.com/auth']?.chatgpt_plan_type ?? '').toLowerCase();
+  return { plan, email: String(c['https://api.openai.com/profile']?.email ?? c.email ?? ''), work: /^(team|business|enterprise|edu|education|k12)/.test(plan) };
 }
 
 const offline = (e: any) => failure(String(e?.message)) === 'offline';
@@ -77,7 +86,13 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   onExpired?: (member: M, key: string) => void;
   onSignOutError?: (member: M, key: string, error: Error) => void;
 
-  constructor(opts: AccountsOptions<M> = {}) { this.opts = opts; this.providers = offered(opts.offer); }
+  private platform: Platform;
+  /** Offered: the providers named in `offer`, else every provider not hidden that this platform can sign in to. */
+  constructor(opts: AccountsOptions<M> = {}, platform: Platform = portable) {
+    this.opts = opts;
+    this.platform = platform;
+    this.providers = opts.offer ? offered(opts.offer) : offered().filter((p) => platform.signsIn(p.pi));
+  }
 
   /** A member's own store. */
   protected store(member: M) {
@@ -147,15 +162,13 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     };
   }
 
-  protected engine(member: M, raw: CredentialStore): Promise<R> {
-    const credentials = this.boundStore(member, raw);
-    return Promise.resolve(Object.assign(builtinModels({ credentials, authContext: emptyAuthContext }), {
-      credentialStore: credentials, readCredential: (id: string) => credentials.read(id),
-    }) as unknown as R);
-  }
-
   /** A member's engine, holding only their own sign-ins (`store(member)`). Override to use another engine with the same seam. */
-  protected open(member: M): Promise<R> { return this.engine(member, this.store(member)); }
+  protected open(member: M): Promise<R> {
+    const credentials = this.boundStore(member, this.store(member));
+    return Promise.resolve(Object.assign((this.opts.engine ?? this.platform.engine)(credentials), {
+      credentialStore: credentials, readCredential: (id: string) => credentials.read(id),
+    }) as R);
+  }
 
   runtime(member: M) {
     let r = this.runtimes.get(String(member));
@@ -312,7 +325,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const stuck = setTimeout(() => this.toCode(flow), this.opts.redirectMs ?? 3 * 60_000);
     // Listen where the provider sends the browser back (the engine then finds the port taken and waits to be handed the address).
     const port = p.callbackPort && (this.opts.callbackPort ?? p.callbackPort);
-    const catcher = port && body.via !== 'code' ? await this.catchRedirect(flow, p.name, port).catch(() => null) : undefined;
+    const catcher = port && body.via !== 'code' && this.platform.loopback ? await this.catchRedirect(this.platform.loopback, flow, p.name, port).catch(() => null) : undefined;
     try {
       if (catcher === null) throw Object.assign(new Error('port busy'), { why: 'busy' as const });
       try { await attempt(body.via ?? (catcher ? 'browser' : undefined)); } catch (e) {
@@ -320,7 +333,6 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         if (!flow.toCode && (catcher || body.via === 'code' || !codeOffered || flow.abort.signal.aborted)) throw e;
         Object.assign(flow, { url: undefined, code: undefined, via: 'code' });
         catcher?.close();
-        catcher?.closeIdleConnections();
         await attempt('code');
       }
       if (flow.generation !== (this.generations.get(id) ?? 0) || flow.state !== 'waiting') return;
@@ -342,30 +354,27 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       clearTimeout(timer);
       clearTimeout(stuck);
       catcher?.close();
-      catcher?.closeIdleConnections();
       this.onChange?.(member, key);
     }
   }
 
   /** Listen where the provider sends the browser back; rejects if something else on this computer already listens there. */
-  private catchRedirect(flow: Flow, name: string, port: number) {
+  private catchRedirect(loopback: Loopback, flow: Flow, name: string, port: number) {
     const app = this.opts.app ?? 'the app';
-    const server = createServer(async (req, res) => {
-      const q = new URL(req.url ?? '/', 'http://localhost').searchParams;
-      // No keep-alive: a browser must never land on a listener from an earlier try.
-      const page = (status: number, words: string, close = false) => { res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', connection: 'close' }); res.end(callbackPage(this.opts.app ?? name, words, close)); };
+    const page = (status: number, words: string, close = false) => ({ status, html: callbackPage(this.opts.app ?? name, words, close) });
+    return loopback(port, async (path) => {
+      const q = new URL(path, 'http://localhost').searchParams;
       if (!flow.oauthState || q.get('state') !== flow.oauthState || flow.state !== 'waiting') return page(400, say('callback.outOfDate', { app, name }));
       if (q.get('error')) flow.refuse?.(new Error(q.get('error')!));
       // The engine only reads the query; the address it expects is the provider's registered one, on its fixed port.
-      else flow.paste?.(`http://localhost:${port}${req.url}`);
+      else flow.paste?.(`http://localhost:${port}${path}`);
       // The tab waits for the real outcome (a few seconds at most), so it never says "signed in" before it is.
-      await Promise.race([flow.done, new Promise((r) => setTimeout(r, 30_000).unref())]);
+      await Promise.race([flow.done, new Promise((r) => (setTimeout(r, 30_000) as any).unref?.())]);
       const end = flow.state as SignIn['state'];
       if (end === 'done') return page(200, say('callback.done', { app }), true);
       if (flow.why === 'declined') return page(200, say('callback.declined', { app }), true);
-      page(200, end === 'failed' ? say('callback.failed', { app, error: flow.error ?? '' }) : say('callback.nearly', { app }));
+      return page(200, end === 'failed' ? say('callback.failed', { app, error: flow.error ?? '' }) : say('callback.nearly', { app }));
     });
-    return new Promise<Server>((resolve, reject) => { server.once('error', reject).listen(port, '127.0.0.1', () => resolve(server)); });
   }
 
   /** The redirect address (or a code) pasted back, for when the browser couldn't return to this computer by itself. */
@@ -395,7 +404,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** After the account turned a request away: true if its sign-in still refreshes; if not, it is signed out for good. */
   async recheck(member: M, key: string) {
-    const ok = await (await this.runtime(member)).getAuth(this.offer(key).pi, { minOAuthValidityMs: 365 * 86_400_000 }).then(Boolean, offline);
+    // Asking for a year's validity forces a refresh; the fresh token then "expires too soon" for that year, which is fine.
+    const ok = await (await this.runtime(member)).getAuth(this.offer(key).pi, { minOAuthValidityMs: 365 * 86_400_000 })
+      .then(Boolean, (e) => offline(e) || /expires too soon/.test(String(e?.message)));
     if (!ok) { await this.logout(member, key).catch(() => {}); this.forget(member, key); }
     return ok;
   }
