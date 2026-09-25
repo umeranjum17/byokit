@@ -29,7 +29,7 @@ export class LinkStream {
   private allowance = WINDOW; // bytes the other side may still send us
   private inbox: (Uint8Array | { end?: string })[] = [];
   private reader?: (chunk: Uint8Array) => void | Promise<void>;
-  private ender?: (error?: string) => void;
+  private ender?: (error?: string) => void | Promise<void>;
   private pumping = false;
   private wake?: () => void;
   private tail: Promise<void> = Promise.resolve();
@@ -49,7 +49,7 @@ export class LinkStream {
    *  arrive before this is set wait for it. */
   set onData(fn: (chunk: Uint8Array) => void | Promise<void>) { this.reader = fn; void this.pump(); }
   /** Once, when the stream is over: `error` is unset when either side ended it cleanly. */
-  set onEnd(fn: (error?: string) => void) { this.ender = fn; this.notifyEnd(); void this.pump(); }
+  set onEnd(fn: (error?: string) => void | Promise<void>) { this.ender = fn; this.notifyEnd(); void this.pump(); }
 
   /** Sends bytes (a string goes as UTF-8). Resolves once they're on the socket, which waits while the other side's
    *  window is full: await each write to move bulk data at the reader's pace. Rejects if the stream ends first. */
@@ -100,9 +100,11 @@ export class LinkStream {
     void Promise.resolve().then(() => this.deliverEnd(ender, next.end));
   }
 
-  private deliverEnd(ender: (error?: string) => void, error?: string) {
-    try { ender(error); } catch (e) { try { this.wire.report?.(e); } catch {} }
+  private async deliverEnd(ender: (error?: string) => void | Promise<void>, error?: string) {
+    try { await ender(error); } catch (e) { this.report(e); }
   }
+
+  private report(e: unknown) { try { this.wire.report?.(e); } catch {} }
 
   private async pump() {
     if (this.pumping) return;
@@ -112,7 +114,7 @@ export class LinkStream {
       if (!(next instanceof Uint8Array)) {
         if (!this.ender) break;
         this.inbox.shift();
-        this.deliverEnd(this.ender, next.end);
+        void this.deliverEnd(this.ender, next.end);
         continue;
       }
       if (!this.reader) {
@@ -121,7 +123,10 @@ export class LinkStream {
         continue;
       }
       this.inbox.shift();
-      try { await this.reader(next); } catch (e) { if (!this.closed) this.end(this.wire.reason?.(e) ?? 'failed'); }
+      try { await this.reader(next); } catch (e) {
+        if (this.closed) this.report(e);
+        else this.end(this.wire.reason?.(e) ?? 'failed');
+      }
       this.took(next.byteLength);
     }
     this.pumping = false;
@@ -191,7 +196,7 @@ export class Streams {
     const s = this.add(this.next++, op, args);
     const opened = s.waitOpened();
     try { this.wire.send({ t: 'open', s: s.id, op, args, credit: WINDOW }); }
-    catch (e) { s.ended(String(e)); }
+    catch (e) { s.ended('failed'); return opened.catch(() => { throw e; }); }
     return opened;
   }
 

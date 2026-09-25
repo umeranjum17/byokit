@@ -296,6 +296,7 @@ export class DeviceLink {
     try {
       return await this.streams.open(op, args);
     } catch (e) {
+      if (e instanceof Error) throw e;
       if (!known(e)) throw new PublicLinkError(String(e)); // the host app's own words for why not
       throw new LinkError(e, e !== 'unreachable' && e !== 'stopped');
     }
