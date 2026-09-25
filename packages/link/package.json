@@ -29,6 +29,7 @@
     "b4a": "1.9.0",
     "noise-handshake": "4.2.0",
     "sodium-javascript": "0.8.0",
+    "sodium-native": "5.1.0",
     "sodium-universal": "5.0.1"
   },
   "publishConfig": {

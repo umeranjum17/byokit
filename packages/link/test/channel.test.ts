@@ -116,7 +116,7 @@ test('big messages go in pieces; one past 16 MB drops the socket; the 32-bit cou
   assert.equal(hc.open(frames[0]), undefined);
   assert.equal(hc.open(frames[1]), undefined);
   assert.equal(hc.open(frames[2]).text.length, 150_000);
-  assert.throws(() => { for (const f of dc.seal({ text: 'y'.repeat(17 << 20) })) hc.open(f); }, /too large/);
+  assert.throws(() => dc.seal({ text: 'y'.repeat(17 << 20) }), /too large/);
   const worn = ik();
   (worn.dc as any).tx.nonce = 2 ** 32 - 1;
   assert.throws(() => worn.dc.seal({}), /reconnect/);

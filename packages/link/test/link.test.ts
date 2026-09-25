@@ -6,10 +6,12 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import {
-  DeviceLink, Host, LinkError, b64url, hostId, keyPair, keyPairFrom, unb64url, pairWithCode, pairWithOffer, parseOffer,
+  DeviceLink, Host, LinkError, b64url, hostId, keyPair, keyPairFrom, unb64url, pairWithCode as pairCode, pairWithOffer as pairOffer, parseOffer,
   type DeviceGrant, type Grant, type HostOptions, type LinkStatus, type PairRequest,
 } from '../src/index.ts';
 
+const pairWithOffer = (text: string, o: { name: string; onWords?: (w: string) => void }) => pairOffer(text, { ...o, onWords: o.onWords ?? (() => {}) });
+const pairWithCode = (url: string, code: string, o: { name: string; onWords?: (w: string) => void }) => pairCode(url, code, { ...o, onWords: o.onWords ?? (() => {}) });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function until<T>(fn: () => T | undefined | false | Promise<T | undefined | false>, ms = 5000): Promise<T> {
   for (const end = Date.now() + ms; Date.now() < end; await sleep(20)) { const v = await fn(); if (v) return v; }
@@ -29,7 +31,7 @@ async function startHost(o: Partial<HostOptions> = {}) {
     grants: { load: () => saved, save: (g) => { saved = g; } },
     confirm: (p) => { asked.push(p); return true; },
     canView: (r) => r.op.startsWith('get.'),
-    handle: async (r, dev) => { ran.push(`${dev.name}:${r.op}`); if (r.op === 'slow') await sleep(300); if (r.op === 'fail') throw new Error('nope'); return { op: r.op, args: r.args, by: dev.id }; },
+    handle: async (r, dev) => { ran.push(`${dev.name}:${r.op}`); if (r.op === 'slow') await sleep(300); if (r.op === 'fail') throw Object.assign(new Error('nope'), { expose: true }); if (r.op === 'secret-fail') throw new Error('secret-token'); return { op: r.op, args: r.args, by: dev.id }; },
     ...o,
   });
   const sockets: WsSocket[] = [];
@@ -115,7 +117,8 @@ test('grants: control can act, view-only can only look; answers come from the ho
   assert.deepEqual(await viewer.link.request('get.state'), { op: 'get.state', by: viewer.link.grant.device.id });
   await assert.rejects(viewer.link.request('send.message'), (e: LinkError) => e.code === 'view-only' && e.message === 'This device can watch but not make changes.');
   await assert.rejects(control.link.request('fail'), /nope/);
-  assert.deepEqual(h.ran, ['Phone:send.message', 'Tablet:get.state', 'Phone:fail']);
+  await assert.rejects(control.link.request('secret-fail'), (e: LinkError) => e.code === 'failed' && !e.message.includes('secret-token'));
+  assert.deepEqual(h.ran, ['Phone:send.message', 'Tablet:get.state', 'Phone:fail', 'Phone:secret-fail']);
   h.host.broadcast({ kind: 'hello' }, (g) => g.role === 'control');
   await until(() => control.events.length);
   assert.deepEqual(control.events, [{ kind: 'hello' }]);
@@ -138,6 +141,46 @@ test('reconnect and resume: a request cut off mid-flight is answered once after 
   for (const ws of h.sockets) ws.terminate();
   const queued = d.link.request('send.later');
   assert.deepEqual(await queued, { op: 'send.later', by: d.link.grant.device.id });
+});
+
+test('unacknowledged answers survive more than 200 responses and a reconnect', async () => {
+  const h = await startHost();
+  const d = connect(await pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' }));
+  await until(() => d.link.status === 'online');
+  const ws = h.sockets.at(-1)!;
+  ws.send = (() => {}) as typeof ws.send;
+  const answers = Array.from({ length: 210 }, (_, n) => d.link.request(`op.${n}`));
+  await until(() => h.ran.length === 210);
+  ws.terminate();
+  assert.equal((await Promise.all(answers)).length, 210);
+  assert.equal(h.ran.length, 210, 'lost answers did not run again after reconnect');
+});
+
+test('failed grant saves leave memory unchanged and concurrent confirmations respect the device cap', async () => {
+  let saved: Grant[] = [];
+  let fail = false;
+  const h = await startHost({
+    grants: { load: () => saved, save: (g) => { if (fail) throw new Error('disk full'); saved = g; } },
+  });
+  const first = await pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'One' });
+  fail = true;
+  await assert.rejects(h.host.revoke(first.device.id), /disk full/);
+  assert.equal(h.host.devices().length, 1);
+  await assert.rejects(pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Two' }), (e: LinkError) => e.code === 'failed');
+  assert.equal(h.host.devices().length, 1);
+  fail = false;
+  await h.host.revoke(first.device.id);
+  assert.equal(saved.length, 0);
+
+  const confirms: ((yes: boolean) => void)[] = [];
+  const cap = await startHost({ maxDevices: 1, confirm: () => new Promise<boolean>((r) => { confirms.push(r); }) });
+  const a = pairWithOffer(cap.host.offer({ role: 'control', urls: [cap.url] }).text, { name: 'A' });
+  const b = pairWithOffer(cap.host.offer({ role: 'control', urls: [cap.url] }).text, { name: 'B' });
+  await until(() => confirms.length === 2);
+  confirms.forEach((resolve) => resolve(true));
+  const results = await Promise.allSettled([a, b]);
+  assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
+  assert.equal(cap.host.devices().length, 1);
 });
 
 test('revoke closes the live socket, says so inside the channel, and the key is refused from then on', async () => {
@@ -167,6 +210,16 @@ test('a device whose host answers with another key stops and keeps its grant (no
   await until(() => d.link.status === 'refused');
   assert.ok(d.store.g, 'grant kept');
   assert.equal(impostor.asked.length, 0);
+});
+
+test('wrong host at one address does not prevent a later pinned address', async () => {
+  const h = await startHost();
+  const impostor = await startHost();
+  const scanned = h.host.offer({ role: 'control', urls: [impostor.url, h.url] }).text;
+  const grant = await pairWithOffer(scanned, { name: 'Phone' });
+  const d = connect({ ...grant, urls: [impostor.url, h.url] });
+  assert.deepEqual(await d.link.request('get.state'), { op: 'get.state', by: grant.device.id });
+  assert.equal(d.link.status, 'online');
 });
 
 test('through a relay that routes on a header and never sees plaintext', async () => {

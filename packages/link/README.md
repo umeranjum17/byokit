@@ -28,13 +28,15 @@ host.devices(); await host.revoke(id); host.broadcast(event);
 ```
 
 `offer({ base: 'https://app.example/pair' })` makes a link a browser can open instead of a bare QR text.
+Handler errors reveal their message to devices only when the thrown error has `expose === true`; otherwise the device sees “Your computer couldn't do that.”
 
 ## Device
 
 ```ts
 import { DeviceLink, pairWithOffer, pairWithCode } from '@byokit/link';
 
-const grant = await pairWithOffer(scanned, { name: 'Pixel 9', onWords: (w) => show(w) });  // or pairWithCode(url, typed, …)
+const grant = await pairWithOffer(scanned, { name: 'Pixel 9', onWords: (w) => show(w) });
+// Or pairWithCode(url, typed, { name: 'Pixel 9', onWords: (w) => show(w) });
 await secureStore.save(grant);                    // it holds this device's secret key
 const link = new DeviceLink(grant, { store: secureStore, onStatus, onEvent });
 await link.request('send.message', { text: 'hi' });  // waits through reconnects; a retry runs once

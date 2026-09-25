@@ -20,7 +20,7 @@ test('anything else is refused in plain words, before any connection', () => {
   const junk = ['', 'WIFI:S:home;;', 'https://example.com', 'byokit-link:1:%%%', 'byokit-link:1:' + b64url(new TextEncoder().encode('{"v":2}'))];
   for (const j of junk) assert.throws(() => parseOffer(j), /isn't a pairing code/, j);
   const bad: Partial<PairOffer>[] = [
-    { host: 'short' }, { ticket: b64url(new Uint8Array(8)) }, { urls: [] }, { urls: ['http://192.168.1.20/link'] },
+    { host: 'short' }, { host: '!'.repeat(43) }, { ticket: b64url(new Uint8Array(8)) }, { ticket: '!'.repeat(22) }, { urls: [] }, { urls: ['http://192.168.1.20/link'] },
     { urls: ['ws://user:pass@192.168.1.20/link'] }, { urls: Array(9).fill('ws://a/link') }, { expires: NaN },
   ];
   for (const b of bad) assert.throws(() => parseOffer(offerText(offer(b))), /isn't a pairing code/, JSON.stringify(b));

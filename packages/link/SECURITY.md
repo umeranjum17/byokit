@@ -22,14 +22,14 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 | Handshake, typed code | `Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b`, PSK = BLAKE2b-256(`byokit-link-code-v1` ‖ code). Only a holder of the code can finish; each side learns the other's static key. |
 | Library | `noise-handshake` 4.2.0 (Holepunch, Apache-2.0) over libsodium: `sodium-native` in Node, `sodium-javascript` 0.8.0 in browsers and React Native. Pinned exactly. No crypto of our own. |
 | Conformance | `noise-handshake` is checked against the cacophony vectors for IK, XX and NNpsk0, which together cover every token of both handshakes (`test/channel.test.ts`). |
-| Frames | One Noise transport message per WebSocket text frame, base64. Per-direction CipherStates; the implicit nonce counter rejects any replayed, dropped, reordered or reflected frame, and any bad frame closes the socket. Messages over 60 KB are chunked; a reassembled message over 16 MB closes the socket. |
+| Frames | One Noise transport message per WebSocket text frame, base64. Per-direction CipherStates; the implicit nonce counter rejects any replayed, dropped, reordered or reflected frame, and any bad frame closes the socket. Messages over 60 KB are chunked; encoding over 16 MB is refused before sending, and a reassembled message over 16 MB closes the socket. |
 | QR / pairing link | `byokit-link:1:<base64url JSON>`: `{v, host (X25519 public key), name, urls, ticket (128 bits), expires}`. As a link, it rides after `#`, which browsers never send to a server. |
 | Typed code | 12 characters from a 31-character unambiguous alphabet (about 59 bits), `XXXX-XXXX-XXXX`. |
 | Pairing rules | Tickets and codes are single use (burned at first presentation, even when expired or refused), live 5 minutes, and 5 wrong tries withdraw every open code. Nothing is stored until the person at the host approves; both screens show the same **two confirmation words**, derived from the handshake hash. Optional device cap. |
 | Grants | Held by the host: `{id, key, name, role: control or view, created, lastSeen, meta}`. Durable until revoked (muxr decision 0001). Every handshake checks the device key against the list; every request re-checks it. View-only devices may only make the requests the app's `canView` allows (default: none). |
 | Revoke | Deletes the grant, sends a sealed `revoked` to its live sockets, then closes them. No key rotation is needed: there are no shared keys. |
 | Refusals | A host that can read the device's handshake answers refusals (`not-paired`, `expired`, `declined`, `full`) inside the channel, so the device can trust them (e.g. forget its grant). Anything unauthenticated (a plaintext close) only changes what the device *says*, never what it deletes. |
-| Requests | `{t:'req', id, key, op, args}`. The key makes a retried request run once, including after a reconnect. Answers are cached per device (last 200) in memory. |
+| Requests | `{t:'req', id, key, op, args}`. The key makes a retried request run once, including after a reconnect. Each request acknowledges up to 64 received answer keys; the host removes acknowledged answers from its per-device in-memory cache. Unacknowledged answers survive reconnects, subject to a hard 1000-answer cap. |
 | Relay | Routes by URL (`<relay>/link/v1/<host id>`, host id = BLAKE2b-128 of the host key) and, host-side, by a `{c, f}` / `{c, end}` wrapper. Frames pass through byte for byte. The relay is not part of v0.1. |
 
 ## Adversaries and what stops them
@@ -59,7 +59,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
    `crypto_kx` + `secretstream`, still reviewed crypto.
 5. **Denial of service.** No rate limit on handshakes (each costs the host a few X25519 operations). Apps expose the
    socket only on loopback/tailnet/LAN by default (Crewhouse does) or behind a relay that limits.
-6. **Idempotency survives reconnects, not host restarts.** The answer cache is in memory.
+6. **Idempotency survives reconnects, not host restarts.** The answer cache is in memory. A device that never acknowledges answers can hit the hard 1000-answer per-device safety cap; the oldest unanswered key then loses once-only retry protection.
 7. **Key storage is the app's job.** Host key: OS keychain (Electron `safeStorage`) or a 0600 file. React Native:
    `expo-secure-store`. Browser: IndexedDB, wrapped by a non-extractable WebCrypto AES-GCM key (muxr decision 0003);
    a live XSS can still use an unlocked key, so browsers should default to view-only. Android native: X25519 wrapped
@@ -84,7 +84,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 - [ ] Nothing is stored before `confirm` returns true; `confirm` failing or timing out means no.
 - [ ] Every connection's device key is checked against the grants at `auth`; every request re-checks the grant;
       `revoke` removes the grant before closing sockets.
-- [ ] View-only is enforced in the host before the app handler, and defaults closed.
+- [ ] View-only is enforced in the host before the app handler, and defaults closed. Only errors explicitly marked `expose === true` disclose their message to devices; other handler failures return plain `failed`.
 - [ ] A device forgets its grant only on a sealed `revoked` or sealed `not-paired`.
 - [ ] Names shown to people are stripped of control and direction-flipping characters and capped at 60.
 - [ ] `parseOffer` accepts only `ws:`/`wss:` addresses without credentials, at most 8, a 32-byte key and 16-byte

@@ -25,11 +25,12 @@ export function parseOffer(scanned: string, now = Date.now()): PairOffer {
   try {
     if (at < 0 || scanned.length > 8192) throw new Error();
     o = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(unb64url(scanned.slice(at + TAG.length).trim())));
+    if (typeof o?.host !== 'string' || unb64url(o.host).length !== 32 ||
+        typeof o.ticket !== 'string' || unb64url(o.ticket).length !== 16) throw new Error();
   } catch {
     throw new Error("That isn't a pairing code.");
   }
-  const ok = o?.v === 1 && typeof o.host === 'string' && unb64url(o.host).length === 32
-    && typeof o.ticket === 'string' && unb64url(o.ticket).length === 16 && Number.isFinite(o.expires)
+  const ok = o?.v === 1 && Number.isFinite(o.expires)
     && Array.isArray(o.urls) && o.urls.length > 0 && o.urls.length <= 8 && o.urls.every(wsUrl);
   if (!ok) throw new Error("That isn't a pairing code.");
   if (o.expires < now) throw new Error('That pairing code has run out. Show a new one.');

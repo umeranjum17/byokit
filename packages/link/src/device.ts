@@ -28,6 +28,7 @@ export const LINK_WORDS = {
   removed: 'This device was removed on your computer.',
   'view-only': 'This device can watch but not make changes.',
   timeout: "Your computer didn't answer in time.",
+  failed: "Your computer couldn't do that.",
 } as const;
 export type LinkProblem = keyof typeof LINK_WORDS;
 
@@ -116,7 +117,7 @@ function granted(me: KeyPair, hostKey: string, url: string, urls: string[], read
 
 /** A scanned QR (or opened pairing link) in, a grant out, once the person at the host says yes. `onWords` gets the
  *  two words to show while they decide. Tries each address in the code until one answers. */
-export async function pairWithOffer(scanned: string, o: Dial & { name: string; onWords?: (w: string) => void }): Promise<DeviceGrant> {
+export async function pairWithOffer(scanned: string, o: Dial & { name: string; onWords: (w: string) => void }): Promise<DeviceGrant> {
   const offer = parseOffer(scanned);
   const me = keyPair();
   let last = new LinkError('unreachable');
@@ -127,14 +128,14 @@ export async function pairWithOffer(scanned: string, o: Dial & { name: string; o
       return granted(me, offer.host, url, offer.urls, l.ready);
     } catch (e: any) {
       last = e instanceof LinkError ? e : new LinkError('unreachable');
-      if (last.code !== 'unreachable' && last.code !== 'timeout') break; // the host answered; other addresses won't help
+      if (last.code !== 'unreachable' && last.code !== 'timeout' && last.code !== 'wrong-host') break;
     }
   }
   throw last;
 }
 
 /** A typed code in, a grant out. `url` is where the host is (a page served by the host knows its own address). */
-export async function pairWithCode(url: string, typed: string, o: Dial & { name: string; onWords?: (w: string) => void }): Promise<DeviceGrant> {
+export async function pairWithCode(url: string, typed: string, o: Dial & { name: string; onWords: (w: string) => void }): Promise<DeviceGrant> {
   if (!normalizeCode(typed)) throw new LinkError('wrong-code');
   const me = keyPair();
   const l = await dial(url, me, { psk: codeKey(typed) }, { t: 'code', name: o.name }, o);
@@ -156,6 +157,8 @@ export class DeviceLink {
   private tries = 0;
   private stopped = false;
   private wake: any;
+  private connecting = false;
+  private acked: string[] = [];
 
   constructor(grant: DeviceGrant, o: Dial & { store?: DeviceStore; onEvent?: (e: unknown) => void; onStatus?: (s: LinkStatus) => void } = {}) {
     this.grant = grant;
@@ -166,31 +169,35 @@ export class DeviceLink {
   private set(s: LinkStatus) { if (s !== this.status) { this.status = s; this.o.onStatus?.(s); } }
 
   private async connect() {
-    if (this.stopped) return;
-    const me = keyPairFrom(unb64url(this.grant.secretKey));
-    for (const url of this.grant.urls) {
-      try {
-        const l = await dial(url, me, { key: unb64url(this.grant.host) }, { t: 'auth' }, this.o, {
-          message: (m) => this.message(m),
-          close: () => { this.conn = null; if (!this.stopped) { this.set('offline'); this.again(); } },
-        });
-        if (this.stopped) return l.close();
-        this.conn = l;
-        this.tries = 0;
-        this.grant = { ...this.grant, urls: [url, ...this.grant.urls.filter((u) => u !== url)], device: l.ready.device }; // the one that worked goes first
-        void this.o.store?.save(this.grant);
-        this.set('online');
-        for (const p of this.pending.values()) l.send(p.msg); // same keys: the host runs each once
-        return;
-      } catch (e: any) {
-        if (e?.sealed && e.code === 'not-paired') return this.removed();
-        // Something answered, but not with the key this device paired with. That is not proof the host changed, so
-        // keep the grant and let the person decide (try again, or pair again) rather than forget it on a stranger's word.
-        if (e?.code === 'wrong-host') { this.stopped = true; return this.set('refused'); }
+    if (this.stopped || this.connecting || this.conn) return;
+    this.connecting = true;
+    try {
+      const me = keyPairFrom(unb64url(this.grant.secretKey));
+      let wrongHost = false;
+      for (const url of this.grant.urls) {
+        try {
+          let active: Open;
+          const l = await dial(url, me, { key: unb64url(this.grant.host) }, { t: 'auth' }, this.o, {
+            message: (m) => { if (this.conn === active) this.message(m); },
+            close: () => { if (this.conn !== active) return; this.conn = null; if (!this.stopped) { this.set('offline'); this.again(); } },
+          });
+          active = l;
+          if (this.stopped) return l.close();
+          this.conn = l;
+          this.tries = 0;
+          this.grant = { ...this.grant, urls: [url, ...this.grant.urls.filter((u) => u !== url)], device: l.ready.device }; // the one that worked goes first
+          void this.o.store?.save(this.grant);
+          this.set('online');
+          for (const p of this.pending.values()) l.send(p.msg); // same keys: the host runs each once
+          return;
+        } catch (e: any) {
+          if (e?.sealed && e.code === 'not-paired') return this.removed();
+          if (e?.code === 'wrong-host') wrongHost = true;
+        }
       }
-    }
-    this.set('offline');
-    this.again();
+      if (wrongHost) { this.stopped = true; this.set('refused'); }
+      else { this.set('offline'); this.again(); }
+    } finally { this.connecting = false; }
   }
 
   private again() {
@@ -204,6 +211,8 @@ export class DeviceLink {
     const p = m.t === 'res' ? this.pending.get(m.id) : undefined;
     if (!p) return;
     this.pending.delete(m.id);
+    this.acked.push(p.msg.key);
+    if (this.acked.length > 64) this.acked.shift();
     if (m.ok) p.resolve(m.value);
     else p.reject(known(m.error) ? new LinkError(m.error, true) : new Error(String(m.error)));
   }
@@ -222,7 +231,7 @@ export class DeviceLink {
     if (this.status === 'removed') return Promise.reject(new LinkError('removed', true));
     return new Promise((resolve, reject) => {
       const id = ++this.n;
-      const msg = { t: 'req', id, op, args, key: b64url(random(12)) };
+      const msg = { t: 'req', id, op, args, key: b64url(random(12)), acked: this.acked.splice(0, 64) };
       this.pending.set(id, { msg, resolve, reject });
       this.conn?.send(msg);
     });
@@ -230,7 +239,7 @@ export class DeviceLink {
 
   /** After `refused` or `offline`: try again now. */
   retry() {
-    if (this.status === 'removed') return;
+    if (this.status === 'removed' || this.conn) return;
     clearTimeout(this.wake);
     this.stopped = false;
     this.tries = 0;

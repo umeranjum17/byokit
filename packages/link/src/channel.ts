@@ -119,6 +119,7 @@ export class Channel {
   /** One or more frames; send them in order. */
   seal(msg: unknown): string[] {
     const body = encode(msg);
+    if (body.byteLength > MAX_MESSAGE) throw new Error('message too large');
     const out: string[] = [];
     for (let at = 0; at === 0 || at < body.length; at += CHUNK) {
       if (this.tx.nonce >= MAX_FRAMES) throw new Error('this connection has carried all it can; reconnect');

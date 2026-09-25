@@ -41,7 +41,7 @@ type Pending = { role: Role; meta?: unknown; expires: number };
 
 const HANDSHAKE_MS = 15_000;
 const MAX_TRIES = 5; // wrong codes before every open code is withdrawn
-const REMEMBERED = 200; // answered requests kept per device, for retries after a reconnect
+const MAX_ANSWERS = 1000;
 const later = (ms: number, fn: () => void) => { const t: any = setTimeout(fn, ms); t.unref?.(); return t; };
 
 export class Host {
@@ -56,6 +56,7 @@ export class Host {
   private tries = 0;
   private live = new Map<Conn, { dev: Grant; ch: Channel }>();
   private answered = new Map<string, Map<string, Promise<unknown>>>(); // device id -> request key -> answer
+  private changes: Promise<void> = Promise.resolve();
 
   private constructor(opts: HostOptions, grants: Grant[]) {
     this.opts = opts;
@@ -71,7 +72,12 @@ export class Host {
 
   private now() { return this.opts.now?.() ?? Date.now(); }
   private get pairMs() { return this.opts.pairMs ?? 300_000; }
-  private async save() { await this.store?.save(this.grants.map((g) => ({ ...g }))); }
+  private async change<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.changes.then(fn);
+    this.changes = next.then(() => {}, () => {});
+    return next;
+  }
+  private async save(grants: Grant[]) { await this.store?.save(grants.map((g) => ({ ...g }))); }
 
   /** A QR's text for one device. `urls` are where a device can reach this host (direct `ws://`, or a relay's
    *  `wss://…/link/v1/<id>`); `base` makes it a link a browser can open. Single use, gone after `pairMs`. */
@@ -104,14 +110,20 @@ export class Host {
   /** Adds a device this app already trusts some other way: for moving devices paired under an older protocol onto
    *  this one without pairing again. Only call it with a key that arrived over an authenticated channel. */
   async enrol(g: { key: Uint8Array; name: string; role: Role; meta?: unknown }): Promise<Grant> {
-    return this.grant(b64url(g.key), cleanName(g.name, 'Device'), g.role, g.meta);
+    const added = await this.grant(b64url(g.key), cleanName(g.name, 'Device'), g.role, g.meta);
+    if (!added) throw new Error('Your computer has all the devices it allows. Remove one there first.');
+    return added;
   }
 
   /** Removes a device: its grant goes, its open connections close, and its key is refused from now on. */
   async revoke(id: string) {
-    this.grants = this.grants.filter((g) => g.id !== id);
-    this.answered.delete(id);
-    await this.save();
+    await this.change(async () => {
+      const next = this.grants.filter((g) => g.id !== id);
+      if (next.length === this.grants.length) return;
+      await this.save(next);
+      this.grants = next;
+      this.answered.delete(id);
+    });
     for (const [conn, s] of this.live) {
       if (s.dev.id !== id) continue;
       // Said inside the encrypted channel: a close reason is plaintext, and a device must not drop its grant on one.
@@ -173,12 +185,16 @@ export class Host {
     if (++this.tries >= MAX_TRIES) this.stopPairing();
   }
 
-  private async grant(key: string, name: string, role: Role, meta: unknown): Promise<Grant> {
-    const now = this.now();
-    const g: Grant = { id: b64url(random(9)), key, name, role, created: now, lastSeen: now, ...(meta === undefined ? {} : { meta }) };
-    this.grants = [...this.grants.filter((x) => x.key !== key), g]; // pairing the same device again replaces its grant
-    await this.save();
-    return g;
+  private grant(key: string, name: string, role: Role, meta: unknown): Promise<Grant | null> {
+    return this.change(async () => {
+      if (this.opts.maxDevices && this.grants.length >= this.opts.maxDevices && !this.grants.some((g) => g.key === key)) return null;
+      const now = this.now();
+      const g: Grant = { id: b64url(random(9)), key, name, role, created: now, lastSeen: now, ...(meta === undefined ? {} : { meta }) };
+      const next = [...this.grants.filter((x) => x.key !== key), g];
+      await this.save(next);
+      this.grants = next;
+      return g;
+    });
   }
 
   private connection(conn: Conn): Handler {
@@ -194,7 +210,6 @@ export class Host {
 
     const pair = async (key: Uint8Array, name: unknown, p: Pending, how: 'scan' | 'code') => {
       const k = b64url(key);
-      if (this.opts.maxDevices && this.grants.length >= this.opts.maxDevices && !this.grants.some((g) => g.key === k)) return refuse('full');
       busy = true;
       clearTimeout(timer);
       const req: PairRequest = { name: cleanName(name, 'Device'), role: p.role, words: hs!.words, how, ...(p.meta === undefined ? {} : { meta: p.meta }) };
@@ -204,16 +219,20 @@ export class Host {
       ]);
       if (gone) return;
       if (!yes) return refuse('declined');
-      attach(await this.grant(k, req.name, p.role, p.meta));
+      try {
+        const added = await this.grant(k, req.name, p.role, p.meta);
+        if (gone) return;
+        if (added) attach(added);
+        else refuse('full');
+      } catch { if (!gone) refuse('failed'); }
     };
 
     const attach = (g: Grant) => {
       if (gone) return;
-      dev = { ...g, lastSeen: this.now() };
+      if (!this.grants.some((x) => x.id === g.id)) return refuse('not-paired');
+      dev = g;
       busy = false;
       clearTimeout(timer);
-      this.grants = this.grants.map((x) => (x.id === g.id ? dev! : x));
-      void Promise.resolve(this.save()).catch(() => {});
       this.live.set(conn, { dev, ch: ch! });
       this.sealed(conn, ch!, { t: 'ready', device: { id: g.id, name: g.name, role: g.role }, host: { name: this.opts.name } });
     };
@@ -280,21 +299,24 @@ export class Host {
     const answer = (r: object) => { const s = this.live.get(conn); if (s) this.sealed(conn, s.ch, { t: 'res', id, ...r }); };
     const g = this.grants.find((x) => x.id === dev.id);
     if (!g) return answer({ ok: false, error: 'removed' });
+    const seen = this.answered.get(g.id) ?? new Map<string, Promise<unknown>>();
+    this.answered.set(g.id, seen);
+    if (Array.isArray(m.acked) && m.acked.length <= 64) {
+      for (const key of m.acked) if (typeof key === 'string' && key.length <= 80) seen.delete(key);
+    }
     const req: LinkRequest = { op: String(m.op ?? ''), args: m.args };
     if (g.role !== 'control' && !(this.opts.canView?.(req) ?? false)) return answer({ ok: false, error: 'view-only' });
     // A retried request carries the same key, so it runs once and every retry gets the first answer.
     const key = typeof m.key === 'string' ? m.key.slice(0, 80) : '';
-    const seen = this.answered.get(g.id) ?? new Map<string, Promise<unknown>>();
-    this.answered.set(g.id, seen);
     let p = key ? seen.get(key) : undefined;
     if (!p) {
       p = Promise.resolve().then(() => this.opts.handle(req, g));
       p.catch(() => {});
       if (key) {
         seen.set(key, p);
-        if (seen.size > REMEMBERED) seen.delete(seen.keys().next().value!);
+        if (seen.size > MAX_ANSWERS) seen.delete(seen.keys().next().value!);
       }
     }
-    try { answer({ ok: true, value: await p }); } catch (e: any) { answer({ ok: false, error: String(e?.message ?? e) }); }
+    try { answer({ ok: true, value: await p }); } catch (e: any) { answer({ ok: false, error: e?.expose === true ? String(e.message) : 'failed' }); }
   }
 }
