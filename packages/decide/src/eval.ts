@@ -34,8 +34,10 @@ export async function evaluate(cases: Case[], ask: (c: Case) => Promise<Answer>)
     const a = await ask(c);
     ms.push(a.ms);
     const right = c.expect === null ? [] : Array.isArray(c.expect) ? c.expect : [c.expect];
-    if (a.abstained) r.abstained++;
-    else if (right.includes(a.answer as never)) r.agree++;
+    if (a.abstained) {
+      r.abstained++;
+      if (c.expect === null) r.agree++;
+    } else if (right.includes(a.answer as never)) r.agree++;
     else r.clearWrong++, r.wrong.push({ line: i + 2, expect: c.expect, got: a.answer, confidence: a.confidence });
   }
   ms.sort((a, b) => a - b);

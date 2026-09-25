@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { decide, jev, resolve, rules, type Question } from '../src/index.ts';
-import { evaluate, format, parse, replay } from '../src/eval.ts';
+import { evaluate, format, parse, replay, summary } from '../src/eval.ts';
 
 const intent: Question = { kind: 'choice', options: { task: 'A new job', followup: 'About an earlier job', chat: 'Just talk' } };
 const p = (task: number, followup: number, chat: number) => ({ task, followup, chat });
@@ -185,6 +185,17 @@ test('eval: agreement, clear-but-wrong and abstains from recorded answers; the C
       assert.equal(spawnSync(process.execPath, [cli, wrong, flag, value], { encoding: 'utf8' }).status, 2, `${flag} ${value}`);
     }
   }
+});
+
+test('eval counts expected abstention as agreement without changing abstention count', async () => {
+  const q: Question = { kind: 'yesno', question: 'Urgent?' };
+  const cases = [
+    { state: 'unclear', expect: null, jev: { type: 'noul', noul: 0.5 } },
+    { state: 'also unclear', expect: false, jev: { type: 'noul', noul: 0.5 } },
+  ];
+  const r = await evaluate(cases, replay(q));
+  assert.deepEqual([r.cases, r.agree, r.abstained, r.clearWrong], [2, 1, 2, 0]);
+  assert.match(summary('urgent', 'recorded', r), /agree 1\/2 {3}clear-but-wrong 0 \(0%\) {3}abstained 2 \(100%\)/);
 });
 
 test('live recording preserves failed cases and labels partial refresh', () => {
