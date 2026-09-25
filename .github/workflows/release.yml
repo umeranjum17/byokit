@@ -1,0 +1,31 @@
+name: Release
+
+# Publishes one package to npm with provenance, through npm's trusted publishing (OIDC): no token is stored anywhere.
+# Each package's trusted publisher must name this repository and this workflow file (npm trust github).
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package to publish
+        type: choice
+        options: [accounts, ui-core]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npm run check
+      - run: npm test
+      - run: npm publish -w "@byokit/${{ inputs.package }}" --access public --provenance

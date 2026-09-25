@@ -1,0 +1,52 @@
+{
+  "chatgpt": {
+    "pi": "openai-codex",
+    "name": "ChatGPT",
+    "company": "OpenAI",
+    "models": {
+      "strong": "gpt-6-sol",
+      "fast": "gpt-6-luna"
+    },
+    "callbackPort": 1455,
+    "terms": "grey",
+    "hidden": false,
+    "why": "Signs in through Codex's own sign-in. OpenAI documents it for Codex, not for other apps, and has endorsed one other app using it.",
+    "source": "https://developers.openai.com/codex/auth"
+  },
+  "openrouter": {
+    "pi": "openrouter",
+    "name": "OpenRouter",
+    "company": "OpenRouter",
+    "models": {
+      "strong": "moonshotai/kimi-k2.6"
+    },
+    "terms": "allowed",
+    "hidden": false,
+    "why": "Documented sign-in for any app, no registration. Pay-as-you-go credits, not a subscription.",
+    "source": "https://openrouter.ai/docs/guides/overview/auth/oauth"
+  },
+  "grok": {
+    "pi": "xai",
+    "name": "Grok",
+    "company": "xAI",
+    "models": {
+      "strong": "grok-4.7"
+    },
+    "terms": "partner",
+    "hidden": true,
+    "why": "xAI allows plan sign-in only in apps it has partnered with.",
+    "source": "https://x.ai/news/grok-opencode"
+  },
+  "copilot": {
+    "pi": "github-copilot",
+    "name": "GitHub Copilot",
+    "company": "GitHub",
+    "models": {
+      "strong": "gpt-5.4"
+    },
+    "terms": "partner",
+    "hidden": true,
+    "why": "GitHub allows Copilot sign-in only in apps it has partnered with; this uses VS Code's client.",
+    "source": "https://github.blog/changelog/2026-01-16-github-copilot-now-supports-opencode"
+  }
+}
