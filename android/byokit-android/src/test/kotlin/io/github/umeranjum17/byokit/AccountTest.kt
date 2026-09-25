@@ -47,6 +47,7 @@ class AccountTest {
         assertEquals("gpt-6-sol", body.getString("model"))
         assertEquals(false, body.getBoolean("store"))
         assertEquals("Be brief.", body.getString("instructions"))
+        assertEquals("none", body.getJSONObject("reasoning").getString("effort"))
         assertEquals("hello", body.getJSONArray("input").getJSONObject(0).getJSONArray("content").getJSONObject(0).getString("text"))
     }
 

@@ -1,0 +1,32 @@
+{
+  "rule": "Signing out ends the sign-in at ChatGPT too, as Codex does (openai/codex#17825), best effort: one JSON POST to url (10 s timeout). With a refresh token: {token: refresh, token_type_hint: \"refresh_token\", client_id: clientId}; without one: {token: access, token_type_hint: \"access_token\"} and no client_id. A failed revoke is not retried. The sign-in is deleted here whatever ChatGPT answers (any status, or no network). Nothing stored: no request. `answer` is the revoke endpoint's status, or \"offline\"; `request` is the one JSON body sent, or null.",
+  "url": "https://auth.openai.com/oauth/revoke",
+  "clientId": "app_EMoamEEZ73f0CkXaXp7hrann",
+  "cases": [
+    {
+      "credential": { "type": "oauth", "access": "at_1", "refresh": "rt_1", "expires": 1790003600000, "accountId": "acct_test_123" },
+      "answer": 200,
+      "request": { "token": "rt_1", "token_type_hint": "refresh_token", "client_id": "app_EMoamEEZ73f0CkXaXp7hrann" }
+    },
+    {
+      "credential": { "type": "oauth", "access": "at_2", "refresh": "", "expires": 1790003600000, "accountId": "acct_test_123" },
+      "answer": 200,
+      "request": { "token": "at_2", "token_type_hint": "access_token" }
+    },
+    {
+      "credential": { "type": "oauth", "access": "at_3", "refresh": "rt_3", "expires": 1790003600000, "accountId": "acct_test_123" },
+      "answer": 500,
+      "request": { "token": "rt_3", "token_type_hint": "refresh_token", "client_id": "app_EMoamEEZ73f0CkXaXp7hrann" }
+    },
+    {
+      "credential": { "type": "oauth", "access": "at_4", "refresh": "rt_4", "expires": 1790003600000, "accountId": "acct_test_123" },
+      "answer": "offline",
+      "request": { "token": "rt_4", "token_type_hint": "refresh_token", "client_id": "app_EMoamEEZ73f0CkXaXp7hrann" }
+    },
+    {
+      "credential": null,
+      "answer": 200,
+      "request": null
+    }
+  ]
+}

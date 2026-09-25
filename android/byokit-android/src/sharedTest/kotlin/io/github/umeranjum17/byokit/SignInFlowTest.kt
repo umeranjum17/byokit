@@ -4,6 +4,7 @@ import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -28,6 +29,7 @@ class SignInFlowTest {
     private val tokenBodies = CopyOnWriteArrayList<String>()
     @Volatile private var pendingPolls = 1
     @Volatile private var usercodeStatus = 200
+    @Volatile private var droppedPolls = 0
     private lateinit var account: ChatGptAccount
     private val states = CopyOnWriteArrayList<SignIn.State>()
 
@@ -36,7 +38,8 @@ class SignInFlowTest {
             override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
                 "/api/accounts/deviceauth/usercode" -> if (usercodeStatus != 200) MockResponse().setResponseCode(usercodeStatus)
                     else json("""{"device_auth_id":"da_1","user_code":"ABCD-12345","interval":"0"}""")
-                "/api/accounts/deviceauth/token" -> if (polls.incrementAndGet() <= pendingPolls) MockResponse().setResponseCode(403)
+                "/api/accounts/deviceauth/token" -> if (polls.incrementAndGet() <= droppedPolls) MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST)
+                    else if (polls.get() <= droppedPolls + pendingPolls) MockResponse().setResponseCode(403)
                     else json("""{"authorization_code":"ac_device","code_verifier":"cv_device"}""")
                 "/oauth/token" -> {
                     tokenBodies += request.body.readUtf8()
@@ -47,7 +50,7 @@ class SignInFlowTest {
         }
         server.start(InetAddress.getByName("127.0.0.1"), 0)
         val base = server.url("/").toString().trimEnd('/')
-        account = ChatGptAccount(MemoryStore(), ChatGpt(authBase = base, apiBase = base))
+        account = ChatGptAccount(MemoryStore(), ChatGpt(authBase = base, apiBase = base), browserSignIn = true)
     }
 
     @After fun tearDown() = server.shutdown()
@@ -101,6 +104,14 @@ class SignInFlowTest {
         assertNotNull(account.store.read("chatgpt"))
     }
 
+    @Test fun pollsThatCantGetThroughWaitForTheNext() {
+        droppedPolls = 2 // the app behind the browser on Android 15+: its network is cut for a while
+        val (s, t) = start(SignIn.Via.CODE)
+        t.join(15_000)
+        assertEquals(SignIn.Phase.DONE, s.state.phase)
+        assertEquals(4, polls.get())
+    }
+
     @Test fun pastedAddressFinishesTheBrowserFlow() {
         val (s, t) = start(SignIn.Via.BROWSER)
         val state = query(waiting().url!!)["state"]
@@ -108,6 +119,18 @@ class SignInFlowTest {
         t.join(10_000)
         assertEquals(SignIn.Phase.DONE, s.state.phase)
         assertTrue(tokenBodies.single().contains("code=ac_pasted"))
+    }
+
+    @Test fun codeIsTheDefaultAndBrowserNeedsTheFlag() {
+        val s = account.signIn { states += it } // a code by default, even with the browser allowed
+        thread { s.run() }.join(15_000)
+        assertEquals("ABCD-12345", states.first { it.phase == SignIn.Phase.WAITING }.code)
+        states.clear()
+        account = ChatGptAccount(MemoryStore(), account.api)
+        val b = SignIn(account, SignIn.Via.BROWSER, { states += it })
+        thread { b.run() }.join(15_000)
+        assertEquals("ABCD-12345", states.first { it.phase == SignIn.Phase.WAITING }.code) // no flag: a code, never the loopback
+        assertEquals(SignIn.Phase.DONE, b.state.phase)
     }
 
     @Test fun busyPortFallsBackToACode() {

@@ -14,6 +14,7 @@ those same files.
 | `conformance/token-responses.json` | A token response → the stored credential (same shape as pi-ai's `{type:"oauth",access,refresh,expires,accountId}`). |
 | `conformance/device-code.json` | Device-code start and poll responses → parsed result. |
 | `conformance/paste.json` | What a person pastes back ("Having trouble?") → code and state. |
+| `conformance/revoke.json` | Signing out → the one revoke request sent to ChatGPT (or none), and the sign-in deleted whatever it answers. |
 | `conformance/sse.json` | A streamed ChatGPT answer → its text, or the error it ended with. |
 | `conformance/plain-words.json` | The pattern no sentence in `words.json` may match. |
 

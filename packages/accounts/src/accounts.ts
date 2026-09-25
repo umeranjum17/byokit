@@ -45,6 +45,13 @@ export function planOf(access: string): { plan: string; email: string; work: boo
 
 const offline = (e: any) => failure(String(e?.message)) === 'offline';
 
+/** Ends a sign-in on the provider's side, as Codex's own logout does (openai/codex#17825): the refresh token, else the
+ *  access token, never retried (fixtures/conformance/revoke.json). */
+async function revoke(p: Provider, c: { access: string; refresh: string }) {
+  const body = c.refresh ? { token: c.refresh, token_type_hint: 'refresh_token', client_id: p.clientId } : { token: c.access, token_type_hint: 'access_token' };
+  await fetch(p.revoke!, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
+}
+
 export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> {
   readonly providers: Provider[];
   private opts: AccountsOptions<M>;
@@ -316,8 +323,13 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     return ok;
   }
 
+  /** Signs out here, and at the provider too where it can end a sign-in (ChatGPT), best effort: the sign-in is deleted
+   *  here whatever the provider answers. */
   async logout(member: M, key: string) {
-    await (await this.runtime(member)).logout(this.offer(key).pi);
+    const p = this.offer(key);
+    const c = p.revoke ? await this.store(member).read(p.pi).catch(() => undefined) : undefined;
+    if (c?.type === 'oauth') await revoke(p, c).catch(() => {});
+    await (await this.runtime(member)).logout(p.pi);
     this.ready.set(`${member}:${key}`, false);
     this.onChange?.(member, key);
   }

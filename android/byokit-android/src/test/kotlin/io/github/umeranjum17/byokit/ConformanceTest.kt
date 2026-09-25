@@ -1,5 +1,8 @@
 package io.github.umeranjum17.byokit
 
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -16,6 +19,7 @@ class ConformanceTest {
     private fun JSONArray.each(f: (JSONObject) -> Unit) = (0 until length()).forEach { f(getJSONObject(it)) }
     private fun JSONObject.long(k: String) = if (isNull(k)) 0L else getLong(k)
     private fun JSONObject.str(k: String): String? = if (isNull(k)) null else getString(k)
+    private fun JSONObject.flat() = keys().asSequence().associateWith { get(it) }
 
     @Test fun signInErrors() = fixture("signin-errors.json").getJSONArray("cases").each {
         assertEquals(it.getString("error"), it.getString("words"), signInWords(it.getString("error")))
@@ -85,6 +89,35 @@ class ConformanceTest {
             val e = got.exceptionOrNull() as? ChatGptException ?: return@each fail("expected an error: $it")
             assertEquals(err.getString("message"), e.message)
             assertEquals(err.getString("kind"), e.limit?.kind?.name?.lowercase())
+        }
+    }
+
+    @Test fun revoke() {
+        val f = fixture("revoke.json")
+        assertEquals(f.getString("url"), ChatGpt().authBase + "/oauth/revoke")
+        assertEquals(f.getString("clientId"), ChatGpt.CLIENT_ID)
+        assertEquals(f.getString("clientId"), Byokit.provider("chatgpt").getString("clientId"))
+        f.getJSONArray("cases").each {
+            val server = MockWebServer()
+            server.enqueue(if (it.get("answer") == "offline") MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST)
+                else MockResponse().setResponseCode(it.getInt("answer")))
+            server.start()
+            try {
+                val account = ChatGptAccount(MemoryStore(), ChatGpt(authBase = server.url("/").toString().trimEnd('/')))
+                it.optJSONObject("credential")?.let { c -> account.store.write(account.id, Credential.fromJson(c)) }
+                account.signOut()
+                assertEquals(it.toString(), false, account.signedIn) // deleted here whatever ChatGPT answered
+                val want = it.optJSONObject("request")
+                assertEquals(it.toString(), if (want == null) 0 else 1, server.requestCount)
+                if (want != null) {
+                    val r = server.takeRequest()
+                    assertEquals("/oauth/revoke", r.path)
+                    assertTrue(r.getHeader("Content-Type")!!.startsWith("application/json"))
+                    assertEquals(want.flat(), JSONObject(r.body.readUtf8()).flat())
+                }
+            } finally {
+                server.shutdown()
+            }
         }
     }
 

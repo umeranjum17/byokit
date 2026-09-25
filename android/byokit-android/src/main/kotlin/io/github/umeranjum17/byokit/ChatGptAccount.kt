@@ -15,6 +15,12 @@ class ChatGptAccount(
     val store: CredentialStore,
     val api: ChatGpt = ChatGpt(),
     val id: String = "chatgpt",
+    /**
+     * Lets [SignIn.Via.BROWSER] run (the sign-in page in a Custom Tab, caught back on 127.0.0.1:1455). Off by default:
+     * on Android 15+ it needs the app's own short foreground service (README), and its return to the app is not yet proven
+     * on a phone. Off, every sign-in uses a code, the flow proven on a phone.
+     */
+    val browserSignIn: Boolean = false,
 ) {
     private val entry = Byokit.provider("chatgpt")
     val name: String = entry.getString("name")
@@ -29,11 +35,18 @@ class ChatGptAccount(
     @Volatile private var busy = false
 
     /** Starts "Sign in with ChatGPT". Run [SignIn.run] on a background thread; show [SignIn.State] as it changes. */
-    fun signIn(via: SignIn.Via = SignIn.Via.BROWSER, onChange: (SignIn.State) -> Unit) = SignIn(this, via, onChange)
+    fun signIn(via: SignIn.Via = SignIn.Via.CODE, onChange: (SignIn.State) -> Unit) = SignIn(this, via, onChange)
 
     val signedIn: Boolean get() = store.read(id) != null
 
-    fun signOut() = store.write(id, null)
+    /**
+     * Signs out here and at ChatGPT, so the sign-in no longer works anywhere. Best effort: the sign-in is deleted here
+     * whatever ChatGPT answers, offline too. Network I/O (up to 10 s), so call it off the main thread.
+     */
+    fun signOut() {
+        runCatching { store.read(id)?.let(api::revoke) }
+        store.write(id, null)
+    }
 
     /**
      * A credential good for at least [minValidityMs], refreshed if needed; null when signed out. Only the account refusing
