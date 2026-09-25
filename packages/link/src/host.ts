@@ -21,7 +21,7 @@ export type AnswerStore = {
   put(device: string, key: string, answer: object): void | Promise<void>;
   drop(device: string, keys?: string[]): void | Promise<void>;
 };
-export type LinkRequest = { op: string; args?: unknown };
+export type LinkRequest = { op: string; args?: unknown; key?: string };
 /** What the person at the host is asked to approve. `words` are on the device's screen too. */
 export type PairRequest = { name: string; role: Role; words: string; how: 'scan' | 'code'; kind?: string; lifetime?: number; meta?: unknown };
 /** Anything shaped like a browser WebSocket or a `ws` one. */
@@ -275,14 +275,18 @@ export class Host {
     const now = Date.now();
     const limits: [string, number][] = [['', this.opts.handshakes?.perMinute ?? 300]];
     if (peer) limits.push([`peer:${peer}`, this.opts.handshakes?.perPeer ?? 30]);
+    for (const [k, times] of this.recent) {
+      const fresh = times.filter((t) => t > now - 60_000);
+      if (fresh.length) this.recent.set(k, fresh);
+      else this.recent.delete(k);
+    }
     const windows = limits.map(([k, max]) => {
-      const w = (this.recent.get(k) ?? []).filter((t) => t > now - 60_000);
+      const w = this.recent.get(k) ?? [];
       this.recent.set(k, w);
       return [w, max] as const;
     });
     if (windows.some(([w, max]) => w.length >= max)) return false;
     for (const [w] of windows) w.push(now);
-    if (this.recent.size > 10_000) for (const [k, w] of this.recent) if (!w.length) this.recent.delete(k);
     return true;
   }
 
@@ -502,7 +506,7 @@ export class Host {
     let entry = seen.get(key);
     if (!entry) {
       if (seen.size >= MAX_ANSWERS) return answer({ ok: false, error: 'busy' });
-      const req: LinkRequest = { op: String(m.op ?? ''), args: m.args };
+      const req: LinkRequest = { op: String(m.op ?? ''), args: m.args, key: `${g.id}:${key}` };
       const store = this.opts.answers;
       const reply = Promise.resolve().then(async (): Promise<object> => {
         if (store) {
@@ -532,7 +536,10 @@ export class Host {
       const ok = this.opts.allow ? await this.opts.allow(req, g) : g.role === 'control' || (this.opts.canView?.(req) ?? false);
       if (ok !== true) return { ok: false, error: g.role === 'control' ? 'not-allowed' : 'view-only' };
     } catch (e) { this.report(e); return { ok: false, error: g.role === 'control' ? 'not-allowed' : 'view-only' }; }
-    try { return checked({ ok: true, value: await this.opts.handle(req, g) }); }
+    const current = this.grants.find((x) => x.id === g.id);
+    if (!current || this.ended(current) || current.key !== g.key || current.role !== g.role) return { ok: false, error: 'removed' };
+    if (typeof notValidAfter === 'number' && this.now() > notValidAfter) return { ok: false, error: 'too-late' };
+    try { return checked({ ok: true, value: await this.opts.handle(req, current) }); }
     catch (e) {
       if (e instanceof PublicLinkError) {
         try { return checked({ ok: false, error: 'public', message: e.message }); }

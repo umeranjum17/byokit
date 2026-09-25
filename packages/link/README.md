@@ -37,7 +37,9 @@ More host policy, all optional:
 - `allow: (req, device) => boolean` decides every request (e.g. from capabilities kept in `meta`); without it,
   control devices may do anything and view-only ones what `canView` allows.
 - `caps: { peer: 16 }` limits devices per kind; `maxDevices` limits them all.
-- `answers: { get, put, drop }` keeps answers across host restarts, so a retried request still runs once.
+- `answers: { get, put, drop }` keeps completed answers across host restarts. `req.key` is stable per device and retry;
+  handlers with transactional effects can store it alongside the effect to avoid repeating work after a crash between
+  the handler and `answers.put`.
 - `handshakes: { perMinute, perPeer }` limits new handshakes; pass `host.accept(ws, { peer: ip })` to count per source.
 
 `offer({ base: 'https://app.example/pair' })` makes a link a browser can open instead of a bare QR text.
@@ -57,7 +59,8 @@ await link.request('send.message', { text: 'hi' }, { timeoutMs: 20_000, notValid
 ```
 
 - Save `pendingGrant(scanned, { name })` before pairing and pass its key (`pairWithOffer(scanned, { …, key })`): if
-  the app dies while the person decides, a `DeviceLink` made from it still connects once the host said yes.
+  the app dies while the person decides, a `DeviceLink` made from it retries until approval (up to five minutes
+  after the offer expires), then forgets it if the host still has not approved.
 - `resolve: (url) => …` runs before each dial (e.g. open an SSH tunnel and return `ws://127.0.0.1:<port>/…`);
   `link.addUrl(url)` adds an address found later (a wrong host there just fails its handshake).
 - A quiet connection is pinged (`pingMs`, default 20 s) and redialled when the host stops answering; at most

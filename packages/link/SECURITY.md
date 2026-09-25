@@ -65,7 +65,9 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
    limits connections.
 6. **Idempotency survives reconnects within one app session, and host restarts only with an `answers` store.**
    Without one, the answer cache is in memory. A store that fails to read refuses the request rather than risk running
-   it twice; a request can also carry `notValidAfter` so a stale retry is never started. A fresh authenticated app session discards the previous session's abandoned replies. A device with 1000 unacknowledged replies receives `busy` for new requests until it acknowledges earlier replies; no reply is evicted during the same session.
+   it twice; `answers.put` happens after the handler, so a host crash between its effect and the put can repeat the
+   request unless the handler records `req.key` in the same transaction as its effect. A failed put is reported and
+   the answer is still sent. A request can also carry `notValidAfter` so a stale retry is never started. A fresh authenticated app session discards the previous session's abandoned replies. A device with 1000 unacknowledged replies receives `busy` for new requests until it acknowledges earlier replies; no reply is evicted during the same session.
 7. **Key storage is the app's job.** Host key: OS keychain (Electron `safeStorage`) or a 0600 file. React Native:
    `expo-secure-store`. Browser: IndexedDB, wrapped by a non-extractable WebCrypto AES-GCM key (muxr decision 0003);
    a live XSS can still use an unlocked key, so browsers should default to view-only. Android native: X25519 wrapped

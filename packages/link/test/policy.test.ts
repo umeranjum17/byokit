@@ -51,6 +51,23 @@ test('R5: an allow policy decides every request before the handler, from what th
   assert.equal(h.errors.length, 1);
 });
 
+test('R4/R5: approval cannot outlive a changed or expired grant', async () => {
+  for (const expire of [false, true]) {
+    let release!: (yes: boolean) => void;
+    let now = Date.now();
+    const h = await startHost({ now: () => now, allow: () => new Promise<boolean>((r) => { release = r; }) });
+    const d = connect(await paired(h, expire ? { lifetime: 10_000 } : {}));
+    await until(() => d.link.status === 'online');
+    const reply = d.link.request('pay.bill');
+    await until(() => !!release);
+    if (expire) now += 11_000;
+    else await h.host.revoke(d.link.grant.device.id);
+    release(true);
+    await assert.rejects(reply, (e: LinkError) => e.code === 'removed');
+    assert.deepEqual(h.ran, []);
+  }
+});
+
 test('M3: per-kind caps count only that kind', async () => {
   const h = await startHost({ caps: { peer: 1 } });
   await h.host.enrol({ key: keyPair().publicKey, name: 'Laptop', role: 'view', kind: 'peer' });
@@ -89,12 +106,18 @@ test('C6: answers kept in a store survive a host restart; a request past its mom
   let grants: Grant[] = [];
   const store = { load: () => grants, save: (g: Grant[]) => { grants = g; } };
   const keys = keyPair();
-  const first = await startHost({ keys, answers, grants: store });
+  let handledKey = '';
+  const first = await startHost({ keys, answers, grants: store, handle: (r, g) => {
+    handledKey = r.key!;
+    first.ran.push(`${g.name}:${r.op}`);
+    return { op: r.op, args: r.args, by: g.id };
+  } });
   const d = connect(await paired(first));
   await until(() => d.link.status === 'online');
   first.sockets.at(-1)!.send = (() => {}) as any; // the answer is lost on the way back
   const answer = d.link.request('pay.bill', { amount: 5 });
   await until(() => first.ran.length === 1 && kept.size === 1);
+  assert.ok(handledKey.startsWith(`${d.link.grant.device.id}:`));
   first.stop();
   const second = await startHost({ keys, answers, grants: store }); // the computer restarted, same key and grants
   d.link.addUrl(second.url); // T6 too: an address found later
@@ -118,12 +141,28 @@ test('P6: a grant kept before pairing works after the app dies before saving the
   assert.equal(d.link.grant.device.id, h.host.devices()[0].id, 'the host fills in the id');
 
   // Said no instead: the kept grant hears so from the host and is forgotten.
-  const no = await startHost({ confirm: () => false });
+  let approve!: (yes: boolean) => void;
+  const deciding = await startHost({ confirm: () => new Promise<boolean>((resolve) => { approve = resolve; }) });
+  const waiting = deciding.host.offer({ role: 'control', urls: [deciding.url] }).text;
+  const saved = pendingGrant(waiting, { name: 'Phone' });
+  const pairing = pairWithOffer(waiting, { name: 'Phone', key: keyPairFrom(unb64url(saved.secretKey)) });
+  await until(() => !!approve);
+  const restarted = connect(saved);
+  await until(() => restarted.link.status === 'offline');
+  assert.deepEqual(restarted.store.g, saved);
+  approve(true);
+  await pairing;
+  restarted.link.retry();
+  await until(() => restarted.link.status === 'online');
+  assert.equal(restarted.link.grant.pendingUntil, undefined);
+
+  const no = await startHost({ pairMs: 50, confirm: () => false });
   const refused = no.host.offer({ role: 'control', urls: [no.url] }).text;
   const kept = pendingGrant(refused, { name: 'Phone' });
   await assert.rejects(pairWithOffer(refused, { name: 'Phone', key: keyPairFrom(unb64url(kept.secretKey)) }));
-  const orphan = connect(kept);
+  const orphan = connect({ ...kept, pendingUntil: Date.now() - 1 });
   await until(() => orphan.link.status === 'removed');
+  assert.equal(orphan.store.g, null);
 });
 
 test('N3: a resolve hook picks the address to dial (e.g. an SSH tunnel) and the grant keeps the original', async () => {
@@ -182,6 +221,17 @@ test('X2a: rekey moves a device to a fresh key without a moment where no key wor
   await until(() => staged.link.status === 'online');
   assert.equal(staged.link.grant.secretKey, g2.secretKey);
   assert.equal(staged.link.grant.nextSecretKey, undefined);
+});
+
+test('X2a: a failed staged-key save never sends rekey', async () => {
+  const h = await startHost();
+  const grant = await paired(h);
+  const errors: unknown[] = [];
+  const d = connect(grant, { store: { save: (g) => { if (g.nextSecretKey) throw new Error('save failed'); }, clear: () => {} }, onError: (e) => errors.push(e) });
+  await until(() => d.link.status === 'online');
+  await assert.rejects(d.link.rekey(), /save failed/);
+  assert.equal(h.host.devices()[0].nextKey, undefined);
+  assert.ok(errors.length);
 });
 
 test('T8: too many new handshakes from one place are turned away before any key work', async () => {

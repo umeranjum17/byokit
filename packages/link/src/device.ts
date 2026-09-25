@@ -9,7 +9,7 @@ import { Streams, type LinkStream } from './stream.ts';
 
 /** What a device keeps (in secure storage: it holds the device's secret key). `nextSecretKey` is only there while
  *  a rekey is under way. */
-export type DeviceGrant = { v: 1; secretKey: string; nextSecretKey?: string; host: string; hostName: string; urls: string[]; device: { id: string; name: string; role: Role } };
+export type DeviceGrant = { v: 1; secretKey: string; nextSecretKey?: string; pendingUntil?: number; host: string; hostName: string; urls: string[]; device: { id: string; name: string; role: Role } };
 export type DeviceStore = { save(g: DeviceGrant): void | Promise<void>; clear(): void | Promise<void> };
 export type LinkStatus = 'connecting' | 'online' | 'offline' | 'refused' | 'removed';
 type WebSocketLike = {
@@ -143,7 +143,7 @@ type PairOptions = Dial & { name: string; onWords: (w: string) => void; key?: Ke
 export function pendingGrant(scanned: string, o: { name: string; key?: KeyPair }): DeviceGrant {
   const offer = parseOffer(scanned);
   const me = o.key ?? keyPair();
-  return { v: 1, secretKey: b64url(me.secretKey), host: offer.host, hostName: offer.name, urls: offer.urls,
+  return { v: 1, secretKey: b64url(me.secretKey), pendingUntil: offer.expires + 300_000, host: offer.host, hostName: offer.name, urls: offer.urls,
     device: { id: '', name: cleanName(o.name, 'Device'), role: offer.role ?? 'view' } };
 }
 
@@ -222,8 +222,9 @@ export class DeviceLink {
   private set(s: LinkStatus) { if (s !== this.status) { this.status = s; this.o.onStatus?.(s); } }
   private report(e: unknown) { try { (this.o.onError ?? console.error)(e); } catch {} }
   private persist(action: () => void | Promise<void>): Promise<void> {
-    this.storing = this.storing.then(action).catch((e) => this.report(e));
-    return this.storing;
+    const next = this.storing.then(action);
+    this.storing = next.catch((e) => this.report(e));
+    return next;
   }
   private receivedReply(id: number) {
     this.received.add(id);
@@ -258,10 +259,10 @@ export class DeviceLink {
           this.heard = Date.now();
           this.features = Array.isArray(l.ready.features) ? l.ready.features : [];
           this.tries = 0;
-          const { nextSecretKey, ...rest } = this.grant;
+          const { nextSecretKey, pendingUntil, ...rest } = this.grant;
           this.grant = { ...rest, secretKey: secret, urls: [url, ...this.grant.urls.filter((u) => u !== url)], device: l.ready.device }; // what worked goes first
           const current = this.grant;
-          void this.persist(() => this.o.store?.save(current));
+          void this.persist(() => this.o.store?.save(current)).catch(() => {});
           for (const [id, p] of this.pending) this.sendPending(l, id, p);
           if (this.features.includes('ping')) this.ping(l);
           online = true;
@@ -269,6 +270,7 @@ export class DeviceLink {
         } catch (e: any) {
           if (e?.sealed && (e.code === 'not-paired' || e.code === 'ended')) {
             if (secret !== this.grant.secretKey) continue; // the new key was never taken: try the old one
+            if (this.grant.pendingUntil && Date.now() < this.grant.pendingUntil) break;
             return () => this.removed();
           }
           if (e?.code === 'wrong-host') wrongHosts++;
@@ -345,7 +347,7 @@ export class DeviceLink {
     this.conn?.close();
     this.drop('removed');
     for (const id of [...this.pending.keys()]) this.settle(id)?.reject(new LinkError('removed', true));
-    void this.persist(() => this.o.store?.clear());
+    void this.persist(() => this.o.store?.clear()).catch(() => {});
     this.set('removed');
   }
 
@@ -387,7 +389,7 @@ export class DeviceLink {
     if (this.grant.urls.includes(url)) return;
     this.grant = { ...this.grant, urls: [...this.grant.urls, url] };
     const current = this.grant;
-    void this.persist(() => this.o.store?.save(current));
+    void this.persist(() => this.o.store?.save(current)).catch(() => {});
     if (this.status === 'offline') this.retry();
   }
 
