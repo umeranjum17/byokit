@@ -1,0 +1,22 @@
+{
+  "rule": "TypeScript-only: a successful stream requires response.completed, whose output_text overrides partial deltas. SSE error codes usage_not_included and rate_limit_exceeded preserve their kinds even when messages are generic.",
+  "cases": [
+    {
+      "stream": "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"usage_not_included\",\"message\":\"Not included\"}}}\n\n",
+      "error": { "kind": "not_included", "message": "Not included" }
+    },
+    {
+      "stream": "event: error\ndata: {\"type\":\"error\",\"code\":\"rate_limit_exceeded\",\"message\":\"Slow down\"}\n\n",
+      "error": { "kind": "rate_limit", "message": "Slow down" }
+    },
+    {
+      "stream": "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hel\"}\n\n",
+      "error": { "kind": "network", "message": "ChatGPT stopped before completing its answer." }
+    },
+    {
+      "stream": "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Wrong\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"content\":[{\"type\":\"output_text\",\"text\":\"Hello.\"}]}]}}\n\n",
+      "text": "Hello.",
+      "deltas": "Wrong"
+    }
+  ]
+}

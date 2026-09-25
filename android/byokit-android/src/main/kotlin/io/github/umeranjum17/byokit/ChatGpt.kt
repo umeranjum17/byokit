@@ -218,7 +218,7 @@ class ChatGpt(
                 val plan = err?.optString("plan_type")?.ifEmpty { null }?.let { " (${it.lowercase()} plan)" } ?: ""
                 val resets = err?.optLong("resets_at", 0) ?: 0
                 val mins = if (resets > 0) " Try again in ~${maxOf(0, Math.round((resets * 1000 - now) / 60_000.0))} min." else ""
-                return Limit(if (code == "usage_not_included") Kind.NOT_INCLUDED else Kind.RATE_LIMIT, resets * 1000) to "You have hit your ChatGPT usage limit$plan.$mins"
+                return Limit(Kind.RATE_LIMIT, resets * 1000) to "You have hit your ChatGPT usage limit$plan.$mins"
             }
             val message = err?.optString("message")?.ifEmpty { null } ?: body.ifEmpty { "Request failed" }
             val kind = when (status) {
@@ -242,8 +242,8 @@ class ChatGpt(
                 when (e.optString("type")) {
                     "response.output_text.delta" -> text.append(e.optString("delta"))
                     "response.completed" -> completed = e.optJSONObject("response")
-                    "error" -> fail(e, now)
-                    "response.failed" -> fail(e.optJSONObject("response")?.optJSONObject("error") ?: JSONObject(), now)
+                    "error" -> fail(e.optString("message", "ChatGPT stopped answering"), now)
+                    "response.failed" -> fail(e.optJSONObject("response")?.optJSONObject("error")?.optString("message") ?: "ChatGPT stopped answering", now)
                 }
             }
             while (true) {
@@ -251,10 +251,8 @@ class ChatGpt(
                 if (line.isEmpty()) event() else if (line.startsWith("data:")) data.append(line.substring(5).trim()).append('\n')
             }
             event()
-            if (completed == null) fail("ChatGPT stopped before completing its answer.", now, Limit(Kind.NETWORK, 0))
-            val output = completed?.optJSONArray("output")
-            if (output != null) {
-                text.setLength(0)
+            if (text.isEmpty()) {
+                val output = completed?.optJSONArray("output") ?: JSONArray()
                 for (i in 0 until output.length()) {
                     val content = output.getJSONObject(i).optJSONArray("content") ?: continue
                     for (j in 0 until content.length()) content.getJSONObject(j).takeIf { it.optString("type") == "output_text" }
@@ -264,16 +262,7 @@ class ChatGpt(
             return text.toString()
         }
 
-        private fun fail(e: JSONObject, now: Long): Nothing {
-            val message = e.optString("message", "ChatGPT stopped answering")
-            val kind = when (e.optString("code")) {
-                "usage_not_included" -> Kind.NOT_INCLUDED
-                "usage_limit_reached", "rate_limit_exceeded" -> Kind.RATE_LIMIT
-                else -> null
-            }
-            fail(message, now, kind?.let { Limit(it, 0) } ?: classify(message, now))
-        }
-        private fun fail(message: String, now: Long, limit: Limit? = classify(message, now)): Nothing = throw ChatGptException(message, limit)
+        private fun fail(message: String, now: Long): Nothing = throw ChatGptException(message, classify(message, now))
 
         /** "Having trouble?": what a person pasted back → (code, state). */
         fun parsePaste(input: String): Pair<String?, String?> {

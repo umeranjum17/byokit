@@ -10,8 +10,8 @@ const fixture = (name: string) => JSON.parse(readFileSync(new URL(`../../../fixt
 const openai = await mockOpenAI();
 after(() => openai.close());
 
-test('sse.json: the streamed answer, whole or a character at a time, or the error it ended with', () => {
-  for (const c of fixture('sse.json').cases) for (const pieces of [[c.stream], [...c.stream]]) {
+test('shared and TypeScript SSE cases: streaming, completion, and errors', () => {
+  for (const c of [...fixture('sse.json').cases, ...fixture('sse-typescript.json').cases]) for (const pieces of [[c.stream], [...c.stream]]) {
     const deltas: string[] = [];
     const r = sseReader((d) => deltas.push(d));
     const run = () => { for (const p of pieces) r.push(p); return r.end(); };
@@ -19,23 +19,16 @@ test('sse.json: the streamed answer, whole or a character at a time, or the erro
       assert.throws(run, (e: any) => e instanceof ResponseError && e.message === c.error.message && e.kind === c.error.kind);
     } else {
       assert.equal(run(), c.text);
-      assert.equal(deltas.join(''), c.text, 'onText saw every piece');
+      assert.equal(deltas.join(''), c.deltas ?? c.text, 'onText saw every piece');
     }
   }
 });
 
-test('a partial stream fails and completed output wins over partial deltas', () => {
-  const partial = sseReader();
-  partial.push('data: {"type":"response.output_text.delta","delta":"Hel"}\n\n');
-  assert.throws(() => partial.end(), (e: any) => e instanceof ResponseError && e.kind === 'network');
-  const complete = sseReader();
-  complete.push('data: {"type":"response.output_text.delta","delta":"Hel"}\n\ndata: {"type":"response.completed","response":{"output":[{"content":[{"type":"output_text","text":"Hello."}]}]}}\n\n');
-  assert.equal(complete.end(), 'Hello.');
-});
-
-test('limit-responses.json: an HTTP error as the kind, when to come back, and the words', () => {
-  const f = fixture('limit-responses.json');
-  for (const c of f.cases) assert.deepEqual(limitResponse(c.status, c.body, f.now), { kind: c.kind, until: c.until, message: c.message }, c.body);
+test('shared and TypeScript HTTP errors preserve their kind and message', () => {
+  const shared = fixture('limit-responses.json');
+  const cases = new Map(shared.cases.map((c: any) => [c.body, c]));
+  for (const c of fixture('limit-responses-typescript.json').cases) cases.set(c.body, c);
+  for (const c of cases.values()) assert.deepEqual(limitResponse(c.status, c.body, shared.now), { kind: c.kind, until: c.until, message: c.message }, c.body);
 });
 
 async function signedIn(opts: { fetch?: typeof fetch } = {}) {

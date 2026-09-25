@@ -1,0 +1,13 @@
+{
+  "rule": "TypeScript HTTP errors preserve the provider's code: usage_not_included is not_included, usage_limit_reached and rate_limit_exceeded or status 429 are rate_limit. The shared HTTP cases otherwise keep their messages and reset times.",
+  "now": 1790000000000,
+  "cases": [
+    {
+      "status": 400,
+      "body": "{\"error\":{\"type\":\"usage_not_included\",\"message\":\"Not included\"}}",
+      "kind": "not_included",
+      "until": null,
+      "message": "You have hit your ChatGPT usage limit."
+    }
+  ]
+}
