@@ -1,6 +1,6 @@
 # Security boundaries
 
-The relay routes `@byokit/link` device frames as ciphertext and does not authenticate devices; the host authenticates them during the link handshake. The relay does see host addresses, connection metadata, push subscriptions and notification actions.
+The relay routes `@byokit/link` device frames as ciphertext and does not authenticate link devices; the host authenticates them during the link handshake. The relay does see host addresses, connection metadata, push subscriptions, device grant IDs used for push, and notification actions.
 
 Push notification text is the exception to the no-plaintext link boundary. The relay reads the notification title and any body or data the host explicitly includes. `RelayClient.notify` omits body and data by default; `{ includeContent: true }` forwards them. Use generic titles and fetch private details over the link. Expo and its delivery providers can read Expo notification text. Web Push payloads are encrypted for the browser by the relay, so the relay reads them before encryption even though the push service cannot decrypt them.
 

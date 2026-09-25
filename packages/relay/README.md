@@ -82,6 +82,7 @@ const { code } = host.code({ role: 'control' });  // e.g. 7KQ4-M2XP-9RTH, for li
 
 ```ts
 import { findHost } from '@byokit/relay/device';
+import { pairWithCode } from '@byokit/link';
 const url = await findHost('https://relay.example', short);   // wss://relay.example/link/v1/<host id>
 const grant = await pairWithCode(url, code, { name: 'Pixel 9' });
 ```
@@ -96,30 +97,22 @@ id), and notifies:
 ```ts
 await relay.subscribe(device.id, { expo: 'ExponentPushToken[…]' });            // or { web: pushSubscription.toJSON() }
 await relay.notify({ id: 'evt-42', title: 'Agent update', to: [device.id], actions: ['yes', 'no'] });
-await relay.revoke(device.id);   // link's revoke, and the device's subscriptions go too
+await relay.revoke(device.id);   // link's revoke, then remove relay subscriptions
 ```
 
 A browser subscribes with the relay's Web Push key (`relay.vapidKey`, sent to it over the link). A notification with the
-same `id` is sent once. Expo tokens a device dropped (`DeviceNotRegistered`) and Web Push subscriptions that are gone
-(404, 410) are removed. Web Push endpoints must use HTTPS on `fcm.googleapis.com`, a subdomain of `push.apple.com`,
+same `id` is deduplicated while the relay runs; a restart can deliver a retried notification twice. Expo tokens a device
+dropped (`DeviceNotRegistered`) and Web Push subscriptions that are gone (404, 410) are removed. Web Push endpoints must use HTTPS on `fcm.googleapis.com`, a subdomain of `push.apple.com`,
 `updates.push.services.mozilla.com`, or a subdomain of `notify.windows.com`. `push.hosts` in `Relay.open` can narrow
 these destinations (including to an exact subdomain), never expand them. Redirects are not followed, and disallowed
 subscriptions restored from storage are removed before delivery. `RelayClient.notify` sends the title but omits `body`
 and `data` by default, even if supplied. Pass `{ includeContent: true }` as its second argument to forward them. Choose a
 generic title too: the relay reads push text, Expo reads Expo notification text, and Web Push encrypts the browser payload
-only after the relay handles it. See [SECURITY.md](SECURITY.md).
+only after the relay handles it. See [SECURITY.md](SECURITY.md), including the offline device-revoke limit.
 
 With `actions`, each device's notification carries its own one-use `action` token. Pressing a button posts
 `{ token, action }` to `/relay/v1/push/action`; the relay asks the host (`onAction`) and waits up to 15 seconds for the
 answer, which goes back to the device.
-
-## What the relay sees
-
-- Link frames: ciphertext only. It never learns a device's name, id or requests, or a pairing code from link frames.
-- Which host each device socket is for, when, and from which address.
-- Push notifications are the plaintext exception: the relay sees their title and, only when explicitly opted in, their
-  body and data. Expo sees the text sent to it; Web Push payloads are encrypted to the browser after the relay reads them.
-  Keep titles generic, and let the device fetch private details over the link.
 
 ## Limits
 

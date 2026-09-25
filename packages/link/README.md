@@ -94,10 +94,11 @@ Frames are the same bytes on every path; a relay only routes them and cannot rea
   frames, exactly as on a direct socket. Put that address in the offer's `urls`.
 - The host keeps one socket to the relay and passes it to `host.relay(ws)`. Each message on it is
   `{"c": "<connection id>", "f": "<frame>"}`, or `{"c": "…", "end": <code>}` when either side closes.
-- The relay authenticates the host's socket and limits abuse its own way. It never needs a device id: the host checks
-  devices itself on every handshake.
+- The relay authenticates the host's socket and limits abuse its own way. Link routing needs no device id: the host
+  checks devices itself on every handshake.
 
-The relay is not part of v0.1.
+`@byokit/link` does not include a relay server; use [`@byokit/relay`](../relay) for the standalone server,
+reconnecting host client and device code lookup.
 
 ## Moving already-paired devices (muxr)
 
