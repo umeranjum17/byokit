@@ -13,7 +13,10 @@ a() { adb -s "$serial" "$@"; }
 log=$(mktemp)
 node ../../packages/accounts/src/testing/mock-openai.ts "$port" >"$log" 2>&1 &
 mock=$!
-trap 'kill $mock 2>/dev/null; rm -f "$log"' EXIT
+cleanup() { kill "$mock" 2>/dev/null || true; rm -f "$log"; }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 [ -d android ] || CI=1 npx expo prebuild --platform android --no-install
 (cd android && EXPO_PUBLIC_OPENAI_BASE="http://10.0.2.2:$port" NODE_ENV=production ./gradlew assembleRelease --rerun-tasks -q)
 

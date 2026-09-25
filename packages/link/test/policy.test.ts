@@ -3,8 +3,8 @@
 // N = routes, T = transports, K = keys.
 import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
 import { LinkError, b64url, keyPair, keyPairFrom, pendingGrant, unb64url, type Grant, type GrantTerms } from '../src/index.ts';
 import { hostKeyFile } from '../src/node.ts';
@@ -584,7 +584,7 @@ test('T8: too many new handshakes from one place are turned away before any key 
 });
 
 test('K1: the host key file is private, reused, and never replaced when it cannot be read', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-key-'));
+  const dir = scratchDir('key');
   const path = join(dir, 'link', 'host.key');
   const a = hostKeyFile(path);
   assert.equal(lstatSync(path).mode & 0o777, 0o600);
@@ -615,7 +615,7 @@ test('R4: an invalid lifetime cannot turn expiring access into unlimited access'
 });
 
 test('K1: existing key and parent permissions must protect the host secret', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-permissions-'));
+  const dir = scratchDir('permissions');
   const folder = join(dir, 'link');
   const path = join(folder, 'host.key');
   const key = hostKeyFile(path);

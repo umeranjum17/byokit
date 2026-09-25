@@ -3,10 +3,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { tmpdir } from 'node:os';
+import { scratchDir, trackChild } from '../../test-support.ts';
 import { join } from 'node:path';
 import { build } from 'esbuild';
 import { WebSocketServer } from 'ws';
@@ -52,9 +52,9 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
   const { text } = host.offer({ role: 'view', urls: [base.replace('http', 'ws') + '/link'], base: `${base}/pair` });
   assert.match(text, /^http:\/\/127\.0\.0\.1:\d+\/pair#byokit-link:1:/);
 
-  const profile = mkdtempSync(join(tmpdir(), 'byokit-chrome-'));
-  const browser = spawn(chrome!, ['--headless=new', '--no-sandbox', '--disable-gpu', `--user-data-dir=${profile}`, '--no-first-run',
-    '--disable-background-networking', '--disable-component-update', '--disable-sync', '--no-default-browser-check', text], { stdio: 'ignore', detached: true });
+  const profile = scratchDir('chrome');
+  const browser = trackChild(spawn(chrome!, ['--headless=new', '--no-sandbox', '--disable-gpu', `--user-data-dir=${profile}`, '--no-first-run',
+    '--disable-background-networking', '--disable-component-update', '--disable-sync', '--no-default-browser-check', text], { stdio: 'ignore', detached: true }));
   try {
     let timer: any;
     const r = await Promise.race([reported, new Promise((_, no) => { timer = setTimeout(() => no(new Error('the browser never reported')), 60_000); })])

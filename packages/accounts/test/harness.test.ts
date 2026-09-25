@@ -4,13 +4,14 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { scratchDir } from '../../test-support.ts';
 import { decoy, traceFs, CANARY } from '../src/testing/index.ts';
 
 const run = (d: ReturnType<typeof decoy>, code: string) =>
   spawnSync(process.execPath, ['--import', traceFs, '--input-type=module', '-e', code], { env: { ...process.env, ...d.env }, encoding: 'utf8' });
 
 test('a clean run leaves the decoy untouched', () => {
-  const d = decoy();
+  const d = decoy(scratchDir('decoy'));
   const r = run(d, `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(join(d.root, 'app.txt'))}, 'mine');`);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(d.touched(), '');
@@ -19,7 +20,7 @@ test('a clean run leaves the decoy untouched', () => {
 });
 
 test('reading, rewriting or copying from the decoy is caught', () => {
-  const d = decoy();
+  const d = decoy(scratchDir('decoy'));
   const auth = join(d.home, '.pi', 'agent', 'auth.json');
   const app = join(d.root, 'app');
   mkdirSync(app);

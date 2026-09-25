@@ -4,8 +4,8 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
-import { mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
+import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { Accounts, fileStore, planOf } from '../src/index.ts';
@@ -40,7 +40,7 @@ after(() => { globalThis.fetch = realFetch; });
 
 const OWNER = 1;
 function accounts() {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-signin-'));
+  const dir = scratchDir('signin');
   const path = (m: number) => join(dir, String(m), 'auth.json');
   return { a: new Accounts<any, number>({ app: 'Crewhouse', store: (m) => fileStore(path(m)), callbackPort: port, redirectMs: 600 }), path };
 }

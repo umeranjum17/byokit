@@ -2,8 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
 import { decide, jev, resolve, rules, type Question } from '../src/index.ts';
 import { evaluate, format, parse, replay, summary } from '../src/eval.ts';
@@ -173,7 +173,7 @@ test('eval: agreement, clear-but-wrong and abstains from recorded answers; the C
 
   const cli = new URL('../src/cli.ts', import.meta.url).pathname;
   assert.match(execFileSync(process.execPath, [cli, path], { encoding: 'utf8' }), /agree 4\/5 {3}clear-but-wrong 0 \(0%\) {3}abstained 1 \(20%\)/);
-  const wrong = join(mkdtempSync(join(tmpdir(), 'byokit-eval-')), 'wrong.jsonl');
+  const wrong = join(scratchDir('eval'), 'wrong.jsonl');
   writeFileSync(wrong, format({ ...f, cases: [{ state: 'x', expect: false, jev: { type: 'noul', noul: 0.9 } }] }));
   const run = spawnSync(process.execPath, [cli, wrong], { encoding: 'utf8' });
   assert.equal(run.status, 1);
@@ -200,7 +200,7 @@ test('eval counts expected abstention as agreement without changing abstention c
 
 test('live recording preserves failed cases and labels partial refresh', () => {
   const cli = new URL('../src/cli.ts', import.meta.url).pathname;
-  const path = join(mkdtempSync(join(tmpdir(), 'byokit-record-')), 'answers.jsonl');
+  const path = join(scratchDir('record'), 'answers.jsonl');
   const question: Question = { kind: 'yesno', question: 'Urgent?' };
   const old = { type: 'noul', noul: 0.9 };
   writeFileSync(path, format({ decision: 'urgent', question, note: 'hand-made, not recorded', cases: [
