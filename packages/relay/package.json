@@ -1,6 +1,6 @@
 {
   "name": "@byokit/relay",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A blind relay for @byokit/link: hosts dial out, devices reach them by address; host proof of key, enrolment, push notifications.",
   "license": "Apache-2.0",
   "type": "module",
@@ -30,7 +30,7 @@
     "prepack": "tsc -b"
   },
   "dependencies": {
-    "@byokit/link": "0.2.0",
+    "@byokit/link": "0.2.1",
     "web-push": "3.6.7",
     "ws": "8.21.3"
   },
