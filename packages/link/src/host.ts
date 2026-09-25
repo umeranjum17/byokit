@@ -1,7 +1,7 @@
 // The host: the computer that owns the credentials. It pairs devices (scanned or typed code, then a person says yes),
 // keeps one durable grant per device, answers their requests, and removes them. It never listens on anything itself:
 // the app hands it WebSockets (`accept`), or one relay socket that carries many devices (`relay`).
-import { Handshake, b64url, firstFrame, hostId, random, type Channel, type KeyPair } from './channel.ts';
+import { Handshake, b64url, firstFrame, hostId, messageBytes, random, type Channel, type KeyPair } from './channel.ts';
 import { cleanName, codeKey, newCode, normalizeCode, offerText, type PairOffer } from './pairing.ts';
 import { PublicLinkError } from './device.ts';
 
@@ -44,6 +44,7 @@ type Pending = { role: Role; meta?: unknown; expires: number };
 const HANDSHAKE_MS = 15_000;
 const MAX_TRIES = 5; // wrong codes before every open code is withdrawn
 const MAX_ANSWERS = 1000;
+class PairExpired extends Error {}
 const later = (ms: number, fn: () => void) => { const t: any = setTimeout(fn, ms); t.unref?.(); return t; };
 
 export class Host {
@@ -199,9 +200,10 @@ export class Host {
     if (++this.tries >= MAX_TRIES) this.stopPairing();
   }
 
-  private async grant(key: string, name: string, role: Role, meta: unknown): Promise<Grant | null> {
+  private async grant(key: string, name: string, role: Role, meta: unknown, expires?: number): Promise<Grant | null> {
     let added: Grant | null = null;
     await this.transition((grants) => {
+      if (expires !== undefined && expires < this.now()) throw new PairExpired();
       if (this.opts.maxDevices && grants.length >= this.opts.maxDevices && !grants.some((g) => g.key === key)) return null;
       const now = this.now();
       added = { id: b64url(random(9)), key, name, role, created: now, lastSeen: now, ...(meta === undefined ? {} : { meta }) };
@@ -233,11 +235,11 @@ export class Host {
       if (gone) return;
       if (!yes) return refuse('declined');
       try {
-        const added = await this.grant(k, req.name, p.role, p.meta);
+        const added = await this.grant(k, req.name, p.role, p.meta, p.expires);
         if (gone) return;
         if (added) await attach(added, true);
         else refuse('full');
-      } catch { if (!gone) refuse('failed'); }
+      } catch (e) { if (!gone) refuse(e instanceof PairExpired ? 'expired' : 'failed'); }
     };
 
     const attach = async (g: Grant, paired = false) => {
@@ -301,7 +303,11 @@ export class Host {
           if (dev) return m.t === 'req' ? void this.request(conn, dev, m) : undefined;
           if (m.t === 'auth') {
             const g = this.grants.find((x) => x.key === b64url(hs!.remoteKey));
-            if (g) { this.acknowledge(g.id, m.session, m.ack); void attach(g); }
+            if (g) {
+              if (m.fresh === true) this.answered.delete(g.id);
+              else this.acknowledge(g.id, m.session, m.ack);
+              void attach(g);
+            }
             else refuse('not-paired');
             return;
           }
@@ -341,12 +347,20 @@ export class Host {
       if (seen.size >= MAX_ANSWERS) return answer({ ok: false, error: 'busy' });
       const req: LinkRequest = { op: String(m.op ?? ''), args: m.args };
       const reply = Promise.resolve().then(async () => {
+        const checked = (result: object) => {
+          const snapshot = JSON.parse(JSON.stringify(result));
+          messageBytes({ t: 'res', id, ...snapshot });
+          return snapshot;
+        };
         try {
           if (g.role !== 'control' && !(this.opts.canView?.(req) ?? false)) return { ok: false, error: 'view-only' };
         } catch (e) { this.report(e); return { ok: false, error: 'view-only' }; }
-        try { return { ok: true, value: await this.opts.handle(req, g) }; }
+        try { return checked({ ok: true, value: await this.opts.handle(req, g) }); }
         catch (e) {
-          if (e instanceof PublicLinkError) return { ok: false, error: 'public', message: e.message };
+          if (e instanceof PublicLinkError) {
+            try { return checked({ ok: false, error: 'public', message: e.message }); }
+            catch (invalid) { e = invalid; }
+          }
           this.report(e);
           return { ok: false, error: 'failed' };
         }

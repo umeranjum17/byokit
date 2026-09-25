@@ -1,7 +1,9 @@
 // What a person scans, opens or types, and the words they read.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CODE_ALPHABET, CONFIRM_WORDS, LINK_WORDS, b64url, keyPair, newCode, normalizeCode, offerText, parseOffer, type PairOffer } from '../src/index.ts';
+import { LINK_WORDS, b64url, keyPair } from '../src/index.ts';
+import { CODE_ALPHABET, newCode, normalizeCode, offerText, parseOffer, type PairOffer } from '../src/pairing.ts';
+import { CONFIRM_WORDS } from '../src/confirm-words.ts';
 
 const offer = (o: Partial<PairOffer> = {}): PairOffer => ({
   v: 1, host: b64url(keyPair().publicKey), name: 'Kitchen computer', urls: ['ws://192.168.1.20:7300/link', 'wss://relay.example/link/v1/abc'],

@@ -6,9 +6,10 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import {
-  DeviceLink, Host, LinkError, PublicLinkError, b64url, hostId, keyPair, keyPairFrom, unb64url, pairWithCode as pairCode, pairWithOffer as pairOffer, parseOffer,
+  DeviceLink, Host, LinkError, PublicLinkError, b64url, hostId, keyPair, keyPairFrom, unb64url, pairWithCode as pairCode, pairWithOffer as pairOffer,
   type DeviceGrant, type Grant, type HostOptions, type LinkStatus, type PairRequest,
 } from '../src/index.ts';
+import { parseOffer } from '../src/pairing.ts';
 
 const pairWithOffer = (text: string, o: { name: string; onWords?: (w: string) => void }) => pairOffer(text, { ...o, onWords: o.onWords ?? (() => {}) });
 const pairWithCode = (url: string, code: string, o: { name: string; onWords?: (w: string) => void }) => pairCode(url, code, { ...o, onWords: o.onWords ?? (() => {}) });
@@ -100,6 +101,22 @@ test('pairing lifetime cannot exceed five minutes', async () => {
   assert.equal(h.host.code({ role: 'view' }).expires, now + 300_000);
 });
 
+test('slow approval cannot grant an expired QR or typed code', async () => {
+  for (const how of ['scan', 'code'] as const) {
+    let now = Date.now();
+    let approve!: (yes: boolean) => void;
+    const h = await startHost({ now: () => now, pairMs: 1000, confirm: () => new Promise<boolean>((resolve) => { approve = resolve; }) });
+    const pairing = how === 'scan'
+      ? pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' })
+      : pairWithCode(h.url, h.host.code({ role: 'control' }).code, { name: 'Phone' });
+    await until(() => !!approve);
+    now += 1001;
+    approve(true);
+    await assert.rejects(pairing, (e: LinkError) => e.code === 'expired' && e.sealed);
+    assert.deepEqual(h.saved(), []);
+  }
+});
+
 test('typed code: pairs once, and five wrong codes withdraw every open code', async () => {
   const h = await startHost();
   const { code } = h.host.code({ role: 'view' });
@@ -134,6 +151,19 @@ test('grants: control can act, view-only can only look; answers come from the ho
   assert.deepEqual(control.events, [{ kind: 'hello' }]);
   assert.deepEqual(viewer.events, []);
   assert.deepEqual(h.host.devices().map((d) => [d.name, d.role, d.online]), [['Phone', 'control', true], ['Tablet', 'view', true]]);
+});
+
+test('unserializable answers fail plainly instead of poisoning a connection or its cache', async () => {
+  const errors: unknown[] = [];
+  const cyclic: any = {}; cyclic.self = cyclic;
+  const h = await startHost({
+    handle: (r) => r.op === 'bigint' ? 1n : r.op === 'cyclic' ? cyclic : { ok: true },
+    onError: (e) => errors.push(e),
+  });
+  const d = connect(await pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' }));
+  for (const op of ['bigint', 'cyclic']) await assert.rejects(d.link.request(op), (e: LinkError) => e.code === 'failed' && e.sealed);
+  assert.deepEqual(await d.link.request('get.state'), { ok: true });
+  assert.equal(errors.length, 2);
 });
 
 test('a throwing view policy refuses without running the handler', async () => {
@@ -204,6 +234,21 @@ test('unacknowledged capacity refuses new work without evicting answers', async 
   assert.equal((await Promise.all(answers)).length, 1000);
   assert.equal(h.ran.length, 1000);
   assert.deepEqual(await d.link.request('get.state'), { op: 'get.state', by: d.link.grant.device.id });
+});
+
+test('a fresh app session clears abandoned replies without rerunning them', async () => {
+  const h = await startHost();
+  const grant = await pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' });
+  const old = connect(grant);
+  await until(() => old.link.status === 'online');
+  h.sockets.at(-1)!.send = (() => {}) as WsSocket['send'];
+  const settled = Promise.allSettled(Array.from({ length: 1000 }, (_, n) => old.link.request(`op.${n}`)));
+  await until(() => h.ran.length === 1000);
+  old.link.stop();
+  assert.ok((await settled).every((r) => r.status === 'rejected'));
+  const fresh = connect(grant);
+  assert.deepEqual(await fresh.link.request('get.state'), { op: 'get.state', by: grant.device.id });
+  assert.equal(h.ran.length, 1001);
 });
 
 test('reconnect authentication acknowledges received replies before new work', async () => {

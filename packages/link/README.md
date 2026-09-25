@@ -67,14 +67,17 @@ The relay is not part of v0.1.
 
 ## Moving already-paired devices (muxr)
 
-muxr's devices (about 25) are paired with signed grants and shared-root envelopes. They move without pairing again:
+muxr's existing X25519 box keys can be used as link static keys without an exchange or re-pairing:
 
-1. The muxr host starts a byokit `Host` beside its current transport (dual stack).
-2. Over each device's **existing authenticated channel**, the device generates a byokit key pair, sends its public
-   key, and receives the host's public key and link addresses.
-3. The host calls `host.enrol({ key, name, role, meta })`: `observe` becomes `view`, `control` stays `control`, and
-   `meta` keeps muxr's device id and kind. The device stores a `DeviceGrant` and connects with `DeviceLink`.
-4. Once a device connects over byokit, the host stops accepting its old transport; when every device has moved (or
-   after a set period), the old transport is turned off and remaining devices pair again with a QR.
+1. Run `Host` beside the old transport with `keys: keyPairFrom(machineBoxSecretKey)`. Enrol each existing
+   `devicePublicKey` with `host.enrol({ key, name, role, meta })`: `observe` becomes `view`, `control` stays
+   `control`, and `meta` keeps the muxr device id and kind. No device-to-host key exchange is needed.
+2. Route link sockets through the relay's `/link/v1/<hostId>` path or an existing Tailscale/SSH route.
+3. On app update, build a `DeviceGrant` using the **stored** device box secret key and machine box public key
+   (base64 to base64url only), the route and a placeholder device id. `DeviceLink` authenticates with the same
+   keys; `ready` fills the enrolled id, name and role. No re-pairing is needed.
+4. Once a device connects over link, refuse its old transport. Turn the old transport off when all devices have
+   moved; keep enrolments so offline devices can migrate whenever they return. Revoke both transports during cutover.
 
-Devices that are offline for the whole period pair again. Revocation on either side during the move revokes both.
+The same X25519 key serves nacl.box and Noise while both transports run; a later rekey can rotate it. Muxr phones
+share one key across machines. Muxr parity beyond this migration is tracked separately.

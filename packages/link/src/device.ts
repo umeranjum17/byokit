@@ -55,7 +55,7 @@ const problem = (why: unknown): LinkProblem => (known(why) ? why : 'unreachable'
 const later = (ms: number, fn: () => void) => { const t: any = setTimeout(fn, ms); t.unref?.(); return t; };
 
 type Open = { ready: any; hostKey: Uint8Array; send: (m: unknown) => void; close: () => void };
-type Hello = { t: 'auth'; session: string; ack: number } | { t: 'pair'; ticket: string; name: string } | { t: 'code'; name: string };
+type Hello = { t: 'auth'; session: string; ack: number; fresh: boolean } | { t: 'pair'; ticket: string; name: string } | { t: 'code'; name: string };
 
 /** One socket: the handshake, the first request (`auth` or `pair`), and the host's `ready`. */
 function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Uint8Array }, hello: Hello, o: Dial & { onWords?: (w: string) => void },
@@ -165,6 +165,7 @@ export class DeviceLink {
   private wake: any;
   private connecting = false;
   private readonly session = b64url(random(12));
+  private fresh = true;
   private ack = 0;
   private received = new Set<number>();
   private storing: Promise<void> = Promise.resolve();
@@ -195,12 +196,13 @@ export class DeviceLink {
       for (const url of this.grant.urls) {
         try {
           let active: Open;
-          const l = await dial(url, me, { key: unb64url(this.grant.host) }, { t: 'auth', session: this.session, ack: this.ack }, this.o, {
+          const l = await dial(url, me, { key: unb64url(this.grant.host) }, { t: 'auth', session: this.session, ack: this.ack, fresh: this.fresh }, this.o, {
             message: (m) => { if (this.conn === active) this.message(m); },
             close: () => { if (this.conn !== active) return; this.conn = null; if (!this.stopped && !this.connecting) { this.again(); this.set('offline'); } },
           });
           active = l;
           if (this.stopped) return l.close();
+          this.fresh = false;
           this.conn = l;
           this.tries = 0;
           this.grant = { ...this.grant, urls: [url, ...this.grant.urls.filter((u) => u !== url)], device: l.ready.device }; // the one that worked goes first
@@ -279,6 +281,9 @@ export class DeviceLink {
 
   stop() {
     this.stopped = true;
+    this.fresh = true;
+    this.ack = this.n;
+    this.received.clear();
     clearTimeout(this.wake);
     const conn = this.conn;
     this.conn = null;

@@ -51,7 +51,11 @@ export function random(bytes: number): Uint8Array {
 /** The host's address on a relay: a hash of its public key, so the relay needs nothing else. */
 export const hostId = (hostKey: Uint8Array): string => b64url(hash(16, 'byokit-link-host-id-v1', hostKey));
 
-const encode = (msg: unknown) => b4a.from(JSON.stringify(msg));
+export function messageBytes(msg: unknown): Uint8Array {
+  const body = b4a.from(JSON.stringify(msg));
+  if (body.byteLength > MAX_MESSAGE) throw new Error('message too large');
+  return body;
+}
 const decode = (bytes: Uint8Array) => (bytes.byteLength ? JSON.parse(b4a.toString(b4a.from(bytes))) : {});
 
 /** One handshake. The first frame an initiator writes carries its mode in the clear (`ik:` or `code:`), so the host
@@ -70,7 +74,7 @@ export class Handshake {
   }
 
   write(payload: unknown = {}): string {
-    const frame = b64(this.hs.send(encode(payload)));
+    const frame = b64(this.hs.send(messageBytes(payload)));
     if (!this.first) return frame;
     this.first = false;
     return `${this.mode}:${frame}`;
@@ -115,8 +119,7 @@ export class Channel {
 
   /** One or more frames; send them in order. */
   seal(msg: unknown): string[] {
-    const body = encode(msg);
-    if (body.byteLength > MAX_MESSAGE) throw new Error('message too large');
+    const body = messageBytes(msg);
     const out: string[] = [];
     for (let at = 0; at === 0 || at < body.length; at += CHUNK) {
       if (this.tx.nonce >= MAX_FRAMES) throw new Error('this connection has carried all it can; reconnect');
