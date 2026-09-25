@@ -72,6 +72,7 @@ test('an error while connecting does not close recursively or schedule duplicate
   assert.equal(socket.closes, 0);
   socket.dispatchEvent(Object.assign(new Event('close'), { code: 1006, reason: 'failed' }));
   assert.equal(client.status, 'offline');
+  assert.ok((client as any).timer, 'retry is scheduled with the existing backoff');
   client.stop();
 });
 
