@@ -3,7 +3,7 @@
 // N = routes, T = transports, K = keys.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lstatSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LinkError, b64url, keyPair, keyPairFrom, pendingGrant, unb64url, type Grant, type GrantTerms } from '../src/index.ts';
@@ -258,6 +258,41 @@ test('K1: the host key file is private, reused, and never replaced when it canno
   const link = join(dir, 'elsewhere.key');
   symlinkSync(path, link);
   assert.throws(() => hostKeyFile(link), /not a plain file/);
+});
+
+test('R4: an invalid lifetime cannot turn expiring access into unlimited access', async () => {
+  const h = await startHost();
+  const key = keyPair().publicKey;
+  for (const lifetime of [0, -1, NaN, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(() => h.host.offer({ role: 'view', urls: [h.url], lifetime }), /positive whole number/);
+    assert.throws(() => h.host.code({ role: 'view', lifetime }), /positive whole number/);
+    await assert.rejects(h.host.enrol({ role: 'view', key, name: 'Phone', lifetime }), /positive whole number/);
+  }
+  assert.deepEqual(h.host.devices(), []);
+  const unlimited = await h.host.enrol({ role: 'view', key, name: 'Phone' });
+  assert.equal(unlimited.expires, undefined);
+  assert.equal(h.host.offer({ role: 'view', urls: [h.url] }).expires > Date.now(), true);
+});
+
+test('K1: existing key and parent permissions must protect the host secret', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'byokit-permissions-'));
+  const folder = join(dir, 'link');
+  const path = join(folder, 'host.key');
+  const key = hostKeyFile(path);
+  const saved = readFileSync(path, 'utf8');
+  chmodSync(path, 0o644);
+  assert.throws(() => hostKeyFile(path), /allows others to read or write/);
+  assert.equal(readFileSync(path, 'utf8'), saved);
+  chmodSync(path, 0o600);
+  chmodSync(folder, 0o777);
+  assert.throws(() => hostKeyFile(path), /allows others to write/);
+  assert.equal(readFileSync(path, 'utf8'), saved);
+  assert.equal(lstatSync(folder).mode & 0o777, 0o777);
+  const openFolder = join(dir, 'new');
+  mkdirSync(openFolder, { mode: 0o777 });
+  chmodSync(openFolder, 0o777);
+  assert.throws(() => hostKeyFile(join(openFolder, 'host.key')), /allows others to write/);
+  assert.deepEqual(hostKeyFile(join(dir, 'safe.key')).publicKey.length, key.publicKey.length);
 });
 
 test('R4 (0.1 review): a store that commits after the pairing code ran out does not leave a grant', async () => {

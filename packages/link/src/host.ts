@@ -151,8 +151,9 @@ export class Host {
   }
 
   private pending(o: GrantTerms): Pending {
+    this.checkLifetime(o.lifetime);
     return { role: o.role, expires: this.now() + this.pairMs,
-      ...(o.kind === undefined ? {} : { kind: String(o.kind) }), ...(o.lifetime ? { lifetime: o.lifetime } : {}), ...(o.meta === undefined ? {} : { meta: o.meta }) };
+      ...(o.kind === undefined ? {} : { kind: String(o.kind) }), ...(o.lifetime === undefined ? {} : { lifetime: o.lifetime }), ...(o.meta === undefined ? {} : { meta: o.meta }) };
   }
 
   /** A QR's text for one device. `urls` are where a device can reach this host (direct `ws://`, or a relay's
@@ -163,7 +164,7 @@ export class Host {
     this.tickets.set(ticket, p);
     this.tries = 0;
     const offer: PairOffer = { v: 1, host: b64url(this.keys.publicKey), name: cleanName(this.opts.name, 'your computer'), urls: o.urls, ticket,
-      expires: p.expires, role: p.role, ...(p.lifetime ? { lifetime: p.lifetime } : {}) };
+      expires: p.expires, role: p.role, ...(p.lifetime === undefined ? {} : { lifetime: p.lifetime }) };
     return { text: offerText(offer, o.base), expires: p.expires };
   }
 
@@ -290,7 +291,12 @@ export class Host {
     return true;
   }
 
+  private checkLifetime(lifetime?: number) {
+    if (lifetime !== undefined && (!Number.isSafeInteger(lifetime) || lifetime <= 0)) throw new Error('A lifetime must be a positive whole number of milliseconds.');
+  }
+
   private async grant(key: string, name: string, t: GrantTerms, pairExpires?: number): Promise<Grant | null> {
+    this.checkLifetime(t.lifetime);
     let added: Grant | null = null;
     await this.transition((grants) => {
       if (pairExpires !== undefined && pairExpires < this.now()) throw new PairExpired();
@@ -300,7 +306,7 @@ export class Host {
       if (cap !== undefined && others.filter((g) => g.kind === t.kind).length >= cap) return null;
       const now = this.now();
       added = { id: b64url(random(9)), key, name, role: t.role, created: now, lastSeen: now,
-        ...(t.kind === undefined ? {} : { kind: t.kind }), ...(t.lifetime ? { expires: now + t.lifetime } : {}), ...(t.meta === undefined ? {} : { meta: t.meta }) };
+        ...(t.kind === undefined ? {} : { kind: t.kind }), ...(t.lifetime === undefined ? {} : { expires: now + t.lifetime }), ...(t.meta === undefined ? {} : { meta: t.meta }) };
       return [...others, added];
     });
     // A slow store can commit after the code ran out: the five-minute life holds through the save too.
