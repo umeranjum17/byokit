@@ -70,6 +70,6 @@ doesn't answer other web pages), so a PWA's model calls go through the app's own
   account; `keepFresh()` refreshes ahead of expiry. Limits come from errors only; no undocumented usage endpoint is read.
 - **Isolation**: ambient discovery is off (no environment variable or credential file is ever consulted), and
   `@byokit/accounts/testing` has the decoy-HOME harness and fs tracer to prove it in your own tests.
-- **A stand-in OpenAI**: `mockOpenAI()` from `@byokit/accounts/testing` (or `node .../testing/mock-openai.ts 1455`)
+- **A stand-in OpenAI**: `mockOpenAI()` from `@byokit/accounts/testing` (or `node .../testing/mock-openai.ts [port]`)
   answers device code, its page where a person types the code, token exchange, refresh and revoke, so tests and demos
   sign in end to end with no account. Point the kit at it with `new Accounts({ authBase })`.

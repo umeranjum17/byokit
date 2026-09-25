@@ -9,7 +9,9 @@ Bring your own AI plan and devices. Apache-2.0.
 | [`@byokit/link`](packages/link) | Scan a code to pair a phone or browser with the home computer over one encrypted link; muxr parity tracked separately | 0.1.0 |
 | [`@byokit/decide`](packages/decide) | Typed questions in, a typed answer with confidence out, abstaining below a floor; rules and Jev backends, evals | v0.1 |
 
+Examples that sign in end to end with a stand-in OpenAI: [`examples/expo`](examples/expo) (React Native, iOS and
+Android) and [`examples/pwa`](examples/pwa) (a web page you can install).
+
 byokit never touches a person's other AI tools: not their `~/.pi`, `~/.codex` or `~/.claude`, not their CLIs.
 Library code never reads environment keys; the explicitly invoked [decide eval CLI](packages/decide#evals) can use one
-for a live run.
-The tests prove isolation; see [CONTRIBUTING.md](CONTRIBUTING.md).
+for a live run. The tests prove isolation; see [CONTRIBUTING.md](CONTRIBUTING.md).

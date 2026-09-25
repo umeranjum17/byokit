@@ -1,6 +1,6 @@
 // "Sign in with ChatGPT" on a phone (iOS and Android), with @byokit/accounts' device-code sign-in kept in the phone's
 // secure storage, and @byokit/ui-core's sheet phases. Point it at the stand-in OpenAI for a demo with no account:
-//   EXPO_PUBLIC_OPENAI_BASE=http://10.0.2.2:1455 npx expo run:android   (after `npm run mock` in this folder)
+//   EXPO_PUBLIC_OPENAI_BASE=http://10.0.2.2:21455 npx expo run:android   (after `npm run mock` in this folder)
 import { useEffect, useState } from 'react';
 import { Linking, Platform, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 import * as SecureStore from 'expo-secure-store';

@@ -1,7 +1,7 @@
 // OpenAI's sign-in, stood in for: device code, its page where a person types the code, token exchange and refresh
 // (rotating), revoke, and the same CORS answer the real endpoints give, so a web page, a phone app or a test signs in
 // end to end with no account and no real network. Run it alone for a demo or an emulator:
-//   node packages/accounts/src/testing/mock-openai.ts [port]      (then approve on its /codex/device page)
+//   node packages/accounts/src/testing/mock-openai.ts [port]      (21455 by default, never ChatGPT's own 1455)
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -100,6 +100,6 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const m = await mockOpenAI({ port: Number(process.argv[2] ?? 1455), host: '0.0.0.0', log: (line) => console.log(new Date().toISOString().slice(11, 19), line) });
+  const m = await mockOpenAI({ port: Number(process.argv[2] ?? 21455), host: '0.0.0.0', log: (line) => console.log(new Date().toISOString().slice(11, 19), line) });
   console.log(`stand-in OpenAI on ${m.base}; approve codes at ${m.base}/codex/device`);
 }
