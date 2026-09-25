@@ -3,10 +3,10 @@
 // computer's file sealed with Electron's safeStorage.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { tmpdir } from 'node:os';
+import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
 import { build } from 'esbuild';
 import { chromium } from 'playwright';
@@ -200,7 +200,7 @@ test('K4: the grant in IndexedDB, sealed by a non-extractable AES-GCM key; the s
   });
 
 test('a computer grant does not follow a predictable temp symlink and cleans failed writes', async () => {
-  const folder = mkdtempSync(join(tmpdir(), 'byokit-link-grant-'));
+  const folder = scratchDir('link-grant');
   const path = join(folder, 'grant');
   const decoy = join(folder, 'decoy');
   writeFileSync(decoy, 'untouched');
@@ -219,7 +219,7 @@ test('a computer grant does not follow a predictable temp symlink and cleans fai
 
 test("a computer's grant: a 0600 file, sealed with Electron's safeStorage when given", async () => {
   const grant = await pair();
-  const path = join(mkdtempSync(join(tmpdir(), 'byokit-link-')), 'device', 'grant');
+  const path = join(scratchDir('link'), 'device', 'grant');
   const safeStorage = {
     encryptString: (text: string) => Buffer.from([...Buffer.from(text)].map((b) => b ^ 0x5a)),
     decryptString: (data: Buffer) => Buffer.from([...data].map((b) => b ^ 0x5a)).toString(),
