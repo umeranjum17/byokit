@@ -75,7 +75,7 @@ const HANDSHAKE_MS = 15_000;
 const MAX_TRIES = 5; // wrong codes before every open code is withdrawn
 const MAX_ANSWERS = 1000;
 const MAX_TIMER = 2 ** 31 - 1; // setTimeout's limit (about 24 days)
-/** What a 0.2 host understands beyond 0.1, told to devices in `ready`. */
+/** What a 0.3 host understands beyond 0.1, told to devices in `ready`. */
 export const FEATURES = ['ping', 'unpair', 'rekey'];
 class PairExpired extends Error {}
 const later = (ms: number, fn: () => void) => { const t: any = setTimeout(fn, ms); t.unref?.(); return t; };

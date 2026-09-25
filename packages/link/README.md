@@ -1,6 +1,6 @@
-# @byokit/link
+# @byokit/link 0.3.0
 
-Muxr parity is tracked separately. Host policy, relay routing, and streams are available.
+Muxr parity is tracked separately. Host policy and streams are available; relay routing is in `@byokit/relay`.
 
 Scan a code to pair a phone or browser with the home computer, then talk over one encrypted link. The computer (the
 **host**) keeps every credential; a device holds only its own key and a grant, and asks the host to do things.
@@ -29,6 +29,9 @@ const { text } = host.offer({ role: 'control', urls: ['ws://192.168.1.20:7300/li
 const { code } = host.code({ role: 'view' });     // or a code to type: "7KQ4-M2XP-9RTH"
 host.devices(); await host.revoke(id); host.broadcast(event);
 ```
+
+`hostKeyFile(path)` from `@byokit/link/node` wants a path in its own private (`0700`) folder; it refuses an
+existing folder with another mode rather than changing its permissions.
 
 More host policy, all optional:
 

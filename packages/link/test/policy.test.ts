@@ -1,4 +1,4 @@
-// link 0.2: host policy and device robustness. Each test is named after the muxr parity checklist row it carries
+// link 0.3: host policy and device robustness. Each test is named after the muxr parity checklist row it carries
 // (data/byk-muxr-parity/report.md): R = approval and revoke, M = many devices, C = reconnect, P = pairing,
 // N = routes, T = transports, K = keys.
 import { test } from 'node:test';
@@ -329,14 +329,16 @@ test('K1: existing key and parent permissions must protect the host secret', () 
   assert.throws(() => hostKeyFile(path), /allows others to read or write/);
   assert.equal(readFileSync(path, 'utf8'), saved);
   chmodSync(path, 0o600);
-  chmodSync(folder, 0o777);
-  assert.throws(() => hostKeyFile(path), /allows others to write/);
-  assert.equal(readFileSync(path, 'utf8'), saved);
-  assert.equal(lstatSync(folder).mode & 0o777, 0o777);
+  for (const mode of [0o755, 0o777]) {
+    chmodSync(folder, mode);
+    assert.throws(() => hostKeyFile(path), /private 0700 folder/);
+    assert.equal(readFileSync(path, 'utf8'), saved);
+    assert.equal(lstatSync(folder).mode & 0o777, mode);
+  }
   const openFolder = join(dir, 'new');
-  mkdirSync(openFolder, { mode: 0o777 });
-  chmodSync(openFolder, 0o777);
-  assert.throws(() => hostKeyFile(join(openFolder, 'host.key')), /allows others to write/);
+  mkdirSync(openFolder, { mode: 0o755 });
+  chmodSync(openFolder, 0o755);
+  assert.throws(() => hostKeyFile(join(openFolder, 'host.key')), /private 0700 folder/);
   assert.deepEqual(hostKeyFile(join(dir, 'safe.key')).publicKey.length, key.publicKey.length);
 });
 

@@ -10,7 +10,7 @@ import { b64url, keyPair, keyPairFrom, random, unb64url, type KeyPair } from './
 export function hostKeyFile(path: string): KeyPair {
   const folder = dirname(path);
   mkdirSync(folder, { recursive: true, mode: 0o700 });
-  if (lstatSync(folder).mode & 0o022) throw new Error(`${folder} allows others to write; refusing to use it for the link key`);
+  if ((lstatSync(folder).mode & 0o777) !== 0o700) throw new Error(`${folder} must be a private 0700 folder for the link key`);
   const existing = () => {
     const st = lstatSync(path);
     if (!st.isFile()) throw new Error(`${path} is not a plain file; refusing to use it as the link key`);

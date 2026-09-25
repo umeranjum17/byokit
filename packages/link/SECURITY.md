@@ -1,6 +1,6 @@
 # @byokit/link: threat model and review checklist
 
-Muxr parity is tracked separately.
+Version 0.3.0. Muxr parity is tracked separately.
 
 ## What it protects
 
