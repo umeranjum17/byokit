@@ -26,7 +26,7 @@ test('shared and TypeScript SSE cases: streaming, completion, and errors', () =>
 
 test('shared and TypeScript HTTP errors preserve their kind and message', () => {
   const shared = fixture('limit-responses.json');
-  const cases = new Map(shared.cases.map((c: any) => [c.body, c]));
+  const cases = new Map<string, { status: number; body: string; kind: string; until?: number; message: string }>(shared.cases.map((c: any) => [c.body, c]));
   for (const c of fixture('limit-responses-typescript.json').cases) cases.set(c.body, c);
   for (const c of cases.values()) assert.deepEqual(limitResponse(c.status, c.body, shared.now), { kind: c.kind, until: c.until, message: c.message }, c.body);
 });
