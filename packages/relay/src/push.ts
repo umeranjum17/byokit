@@ -1,7 +1,7 @@
 // Push notifications, so a sleeping phone hears from its host. Subscriptions (Expo tokens and Web Push) belong to a
 // host and one of its devices; the host adds and removes them over its relay socket, because only the host knows which
-// devices it has. What a notification says is up to the host, and the relay, Expo and the browser's push service all
-// read it: keep it generic ("An agent needs you") and let the device fetch details over the link.
+// devices it has. The relay reads notification text before Web Push encryption; Expo and its delivery providers can
+// also read Expo notification text. Keep it generic and let the device fetch details over the link.
 import webpush from 'web-push';
 
 export type WebSubscription = { endpoint: string; keys: { p256dh: string; auth: string } };

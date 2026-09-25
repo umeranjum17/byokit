@@ -6,7 +6,7 @@ them. Push notification text is the exception: the relay can read the title and 
 It also keeps what a sleeping phone needs (push notifications), a short code a person can type to find a host,
 and the owner's list of which hosts may use it.
 
-Node only (the device side, `@byokit/relay/device`, runs anywhere). Stacks on `@byokit/link` 0.1 and doesn't change its
+Node only (the device side, `@byokit/relay/device`, runs anywhere). Depends on `@byokit/link` (see [package.json](package.json) for the version) and doesn't change its
 wire format or crypto.
 
 ## Relay
@@ -84,7 +84,7 @@ const { code } = host.code({ role: 'control' });  // e.g. 7KQ4-M2XP-9RTH, for li
 import { findHost } from '@byokit/relay/device';
 import { pairWithCode } from '@byokit/link';
 const url = await findHost('https://relay.example', short);   // wss://relay.example/link/v1/<host id>
-const grant = await pairWithCode(url, code, { name: 'Pixel 9' });
+const grant = await pairWithCode(url, code, { name: 'Pixel 9', onWords: (words) => console.log('Verify on host:', words) });
 ```
 
 The relay only ever learns which host a short code points to, never link's code.
@@ -107,8 +107,7 @@ dropped (`DeviceNotRegistered`) and Web Push subscriptions that are gone (404, 4
 these destinations (including to an exact subdomain), never expand them. Redirects are not followed, and disallowed
 subscriptions restored from storage are removed before delivery. `RelayClient.notify` sends the title but omits `body`
 and `data` by default, even if supplied. Pass `{ includeContent: true }` as its second argument to forward them. Choose a
-generic title too: the relay reads push text, Expo reads Expo notification text, and Web Push encrypts the browser payload
-only after the relay handles it. See [SECURITY.md](SECURITY.md), including the offline device-revoke limit.
+generic title too; see [SECURITY.md](SECURITY.md) for the push-content boundary and offline device-revoke limit.
 
 With `actions`, each device's notification carries its own one-use `action` token. Pressing a button posts
 `{ token, action }` to `/relay/v1/push/action`; the relay asks the host (`onAction`) and waits up to 15 seconds for the

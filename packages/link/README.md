@@ -1,4 +1,4 @@
-# @byokit/link 0.1.0
+# @byokit/link
 
 Muxr parity is tracked separately.
 
