@@ -1,7 +1,7 @@
 {
   "name": "byokit-monorepo",
   "private": true,
-  "description": "Bring your own AI plan and devices: accounts, link, decide.",
+  "description": "Bring your own AI plan and devices: accounts, link, relay, reach, decide.",
   "license": "Apache-2.0",
   "type": "module",
   "workspaces": [
