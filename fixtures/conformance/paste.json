@@ -1,0 +1,30 @@
+{
+  "rule": "Trimmed input. A URL -> its code and state query parameters. Else \"code#state\" -> split on the first #. Else containing \"code=\" -> parsed as a query string. Else the whole input is the code. Missing parts are null; empty input -> both null.",
+  "cases": [
+    {
+      "input": "http://localhost:1455/auth/callback?code=ac_1&state=st_1",
+      "code": "ac_1",
+      "state": "st_1"
+    },
+    {
+      "input": "  ac_2#st_2  ",
+      "code": "ac_2",
+      "state": "st_2"
+    },
+    {
+      "input": "code=ac_3&state=st_3",
+      "code": "ac_3",
+      "state": "st_3"
+    },
+    {
+      "input": "ac_4",
+      "code": "ac_4",
+      "state": null
+    },
+    {
+      "input": "",
+      "code": null,
+      "state": null
+    }
+  ]
+}

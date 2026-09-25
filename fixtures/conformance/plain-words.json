@@ -1,0 +1,24 @@
+{
+  "rule": "No value in words.json may contain any of these (case-insensitive, whole word).",
+  "banned": [
+    "token",
+    "oauth",
+    "api",
+    "credential",
+    "endpoint",
+    "json",
+    "http",
+    "401",
+    "403",
+    "429",
+    "error code",
+    "authenticate",
+    "authorization",
+    "refresh",
+    "pkce",
+    "localhost",
+    "callback",
+    "provider",
+    "backend"
+  ]
+}

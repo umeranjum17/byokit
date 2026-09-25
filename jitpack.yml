@@ -1,0 +1,5 @@
+# byokit-android lives in android/; JitPack builds it from there.
+jdk:
+  - openjdk17
+install:
+  - cd android && ./gradlew :byokit-android:publishToMavenLocal

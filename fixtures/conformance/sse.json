@@ -1,0 +1,27 @@
+{
+  "rule": "Server-sent events split on blank lines; data: lines joined; [DONE] ignored. text = concatenated response.output_text.delta deltas, or, when there were none, the output_text parts of response.completed.response.output. An event of type error (message, code) or response.failed (response.error) ends with an error whose message is the event message and kind = classify(message).kind.",
+  "cases": [
+    {
+      "stream": "event: response.created\ndata: {\"type\":\"response.created\"}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Hel\"}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"lo.\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\ndata: [DONE]\n\n",
+      "text": "Hello."
+    },
+    {
+      "stream": "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"reasoning\"},{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"Only here.\"}]}]}}\n\n",
+      "text": "Only here."
+    },
+    {
+      "stream": "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"x\"}\n\nevent: error\ndata: {\"type\":\"error\",\"code\":\"rate_limit_exceeded\",\"message\":\"Rate limit reached. Try again in ~5 min.\"}\n\n",
+      "error": {
+        "kind": "rate_limit",
+        "message": "Rate limit reached. Try again in ~5 min."
+      }
+    },
+    {
+      "stream": "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"server_error\",\"message\":\"The model is overloaded.\"}}}\n\n",
+      "error": {
+        "kind": "overloaded",
+        "message": "The model is overloaded."
+      }
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "rule": "Needs string access_token, string refresh_token and numeric expires_in, else error. credential = {type:\"oauth\", access, refresh, expires: now + expires_in*1000, accountId}. accountId = base64url-decoded JWT payload of access_token, claim [\"https://api.openai.com/auth\"].chatgpt_account_id; missing -> error.",
+  "now": 1790000000000,
+  "cases": [
+    {
+      "response": {
+        "access_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF90ZXN0XzEyMyJ9LCJleHAiOjE3OTAwMDM2MDB9.sig",
+        "refresh_token": "rt_1",
+        "expires_in": 3600,
+        "id_token": "x"
+      },
+      "credential": {
+        "type": "oauth",
+        "access": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF90ZXN0XzEyMyJ9LCJleHAiOjE3OTAwMDM2MDB9.sig",
+        "refresh": "rt_1",
+        "expires": 1790003600000,
+        "accountId": "acct_test_123"
+      }
+    },
+    {
+      "response": {
+        "access_token": "eyJhbGciOiJub25lIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF8_Pn4wIn19.sig",
+        "refresh_token": "rt_3",
+        "expires_in": 864000
+      },
+      "credential": {
+        "type": "oauth",
+        "access": "eyJhbGciOiJub25lIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF8_Pn4wIn19.sig",
+        "refresh": "rt_3",
+        "expires": 1790864000000,
+        "accountId": "acct_?>~0"
+      }
+    },
+    {
+      "response": {
+        "access_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJuby1hY2NvdW50In0.sig",
+        "refresh_token": "rt_2",
+        "expires_in": 3600
+      },
+      "error": true
+    },
+    {
+      "response": {
+        "access_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF90ZXN0XzEyMyJ9LCJleHAiOjE3OTAwMDM2MDB9.sig",
+        "expires_in": 3600
+      },
+      "error": true
+    },
+    {
+      "response": {
+        "access_token": "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiYWNjdF90ZXN0XzEyMyJ9LCJleHAiOjE3OTAwMDM2MDB9.sig",
+        "refresh_token": "rt",
+        "expires_in": "3600"
+      },
+      "error": true
+    }
+  ]
+}
