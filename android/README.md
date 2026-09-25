@@ -4,6 +4,8 @@ The Kotlin mirror of `@byokit/accounts`: "Continue with ChatGPT" done entirely o
 app's own Android Keystore key, refresh, "resting until 3:40 pm", and one-question model calls to the person's ChatGPT
 plan. minSdk 26, no dependencies beyond the Kotlin standard library.
 
+Frozen and unpublished; known issue: sign-out can race a token refresh or a pending sign-in.
+
 It bundles the TypeScript package's own `catalogue.json` and `words.json` (`../packages/accounts/src`) and passes the same
 conformance fixtures (`../fixtures/conformance`), so both say the same plain sentences and classify failures the same way.
 
@@ -12,7 +14,7 @@ conformance fixtures (`../fixtures/conformance`), so both say the same plain sen
 | Flow | How | Works on a phone? |
 |---|---|---|
 | **Code** (default, `SignIn.Via.CODE`) | The person types a code at `auth.openai.com/codex/device`, on this phone or any other screen. The app only polls outward. | **Yes, proven on a real phone** (OnePlus 13, Android 16): code on screen in 0.5 s, signed in, renewed and answering with GPT-6 Sol, no computer involved. ChatGPT may first need "device code sign-in" turned on (Settings, Security); the words for that are `signIn.deviceCodeOff`. |
-| **Browser, loopback return** (`SignIn.Via.BROWSER`, only with `browserSignIn = true`) | The app listens on `127.0.0.1:1455`, opens ChatGPT's sign-in in a Custom Tab, and catches the browser coming back to `http://localhost:1455/auth/callback`. Nothing to type; falls back to the code if port 1455 is taken. | **Not yet proven, so off by default.** On Android 15+ the phone cuts even loopback traffic to an app in the background, so once the Custom Tab covers the app the port stops answering within 5–45 s. A short foreground service fixes that (below); Custom Tabs' `KEEP_ALIVE` does not. The authorize page and the listener work on a phone, but the real sign-in's return to the app is still to be proven there. Without the flag, `Via.BROWSER` uses a code. |
+| **Browser, loopback return** (`SignIn.Via.BROWSER`, explicit opt-in) | The app listens on `127.0.0.1:1455`, opens ChatGPT's sign-in in a Custom Tab, and catches the browser coming back to `http://localhost:1455/auth/callback`. Nothing to type; falls back to the code if port 1455 is taken. | **Not yet proven on a phone.** On Android 15+ the phone cuts even loopback traffic to an app in the background, so once the Custom Tab covers the app the port stops answering within 5–45 s. A short foreground service fixes that (below); Custom Tabs' `KEEP_ALIVE` does not. The authorize page and the listener work on a phone, but the real sign-in's return to the app is still to be proven there. |
 | App-owned redirect (`yourapp://…`) | – | **No.** The client belongs to OpenAI (Codex) and has no app-registered redirects, and OpenAI offers no third-party program to register one. |
 
 Terms: ChatGPT is `grey` in the catalogue. Show `account.termsLine` ("Uses your ChatGPT plan. OpenAI may change this at
@@ -82,10 +84,10 @@ suspend fun draft(prompt: String): String = withContext(Dispatchers.IO) {
   deletes it here whatever ChatGPT answers, offline included. Without that, the sign-in would stay listed (as "Codex")
   in the person's ChatGPT Settings, Security, until it expired.
 
-## The browser sign-in (behind a flag)
+## The browser sign-in (explicit opt-in)
 
-Only for trying the browser flow on a device until its return to the app is proven. Turn it on with
-`ChatGptAccount(store, browserSignIn = true)` and `chatgpt.signIn(SignIn.Via.BROWSER) { … }`; then, when the state is
+Only for trying the browser flow on a device until its return to the app is proven. Use
+`chatgpt.signIn(SignIn.Via.BROWSER) { … }`; then, when the state is
 `WAITING` with a `url` and no `code`, open `state.url` in a Custom Tab.
 
 On Android 15+ hold a short foreground service for as long as the sign-in waits, or the phone blocks `127.0.0.1:1455`

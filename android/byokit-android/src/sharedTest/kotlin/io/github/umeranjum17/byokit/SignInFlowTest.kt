@@ -52,7 +52,7 @@ class SignInFlowTest {
         }
         server.start(InetAddress.getByName("127.0.0.1"), 0)
         val base = server.url("/").toString().trimEnd('/')
-        account = ChatGptAccount(MemoryStore(), ChatGpt(authBase = base, apiBase = base), browserSignIn = true)
+        account = ChatGptAccount(MemoryStore(), ChatGpt(authBase = base, apiBase = base))
     }
 
     @After fun tearDown() = server.shutdown()
@@ -123,16 +123,11 @@ class SignInFlowTest {
         assertTrue(tokenBodies.single().contains("code=ac_pasted"))
     }
 
-    @Test fun codeIsTheDefaultAndBrowserNeedsTheFlag() {
-        val s = account.signIn { states += it } // a code by default, even with the browser allowed
+    @Test fun codeIsTheDefault() {
+        val s = account.signIn { states += it }
         thread { s.run() }.join(15_000)
         assertEquals("ABCD-12345", states.first { it.phase == SignIn.Phase.WAITING }.code)
-        states.clear()
-        account = ChatGptAccount(MemoryStore(), account.api)
-        val b = SignIn(account, SignIn.Via.BROWSER, { states += it })
-        thread { b.run() }.join(15_000)
-        assertEquals("ABCD-12345", states.first { it.phase == SignIn.Phase.WAITING }.code) // no flag: a code, never the loopback
-        assertEquals(SignIn.Phase.DONE, b.state.phase)
+        assertEquals(SignIn.Phase.DONE, s.state.phase)
     }
 
     @Test fun busyPortFallsBackToACode() {

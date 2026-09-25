@@ -75,6 +75,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   onSignedIn?: (member: M, key: string) => void;
   /** Said once when a sign-in can no longer be refreshed. */
   onExpired?: (member: M, key: string) => void;
+  onSignOutError?: (member: M, key: string, error: Error) => void;
 
   constructor(opts: AccountsOptions<M> = {}) { this.opts = opts; this.providers = offered(opts.offer); }
 
@@ -103,7 +104,14 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         const started = options?.signal ? this.signals.get(options.signal) ?? this.generations.get(account) ?? 0 : this.generations.get(account) ?? 0;
         const discard = async (next: Awaited<ReturnType<CredentialStore['read']>>) => {
           const p = this.providers.find((p) => p.pi === id);
-          if (next?.type === 'oauth' && p?.revoke) await revoke(p, next);
+          if (next?.type === 'oauth' && p?.revoke) {
+            try { await revoke(p, next); } catch (e) {
+              const error = e instanceof Error ? e : new Error(String(e));
+              if (this.onSignOutError) this.onSignOutError(member, p.key, error);
+              else console.error(`sign-out ${p.key} for member ${member}:`, error);
+              throw error;
+            }
+          }
         };
         return this.serial(account, async () => {
           if (started !== (this.generations.get(account) ?? 0)) {

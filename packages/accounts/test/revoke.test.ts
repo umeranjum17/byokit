@@ -110,17 +110,22 @@ test('refresh completing after sign-out revokes the rotated token before deletin
   assert.equal(await a.external.read('openai-codex'), undefined);
 });
 
-test('a late sign-in cannot restore credentials after sign-out', async () => {
-  const a = new RaceKit();
-  answer = 200;
-  sent.length = 0;
-  await a.login(1, 'chatgpt', { via: 'code' });
-  await a.loginStarted.promise;
-  const finished = a.finished(1, 'chatgpt');
-  await a.logout(1, 'chatgpt');
-  a.releaseLogin.resolve();
-  await finished;
-  assert.deepEqual(sent.map((s) => (s.body as any).token), ['rt_1']);
-  assert.equal(await a.external.read('openai-codex'), undefined);
-  assert.equal(await a.signedIn(1, 'chatgpt'), false);
+test('a late sign-in cannot restore credentials and reports a failed revoke', async () => {
+  for (const status of [200, 500]) {
+    const a = new RaceKit();
+    const errors: string[] = [];
+    a.onSignOutError = (member, key, error) => errors.push(`${member}:${key}: ${error.message}`);
+    answer = status;
+    sent.length = 0;
+    await a.login(1, 'chatgpt', { via: 'code' });
+    await a.loginStarted.promise;
+    const finished = a.finished(1, 'chatgpt');
+    await a.logout(1, 'chatgpt');
+    a.releaseLogin.resolve();
+    await finished;
+    assert.deepEqual(sent.map((s) => (s.body as any).token), ['rt_1']);
+    assert.deepEqual(errors, status === 200 ? [] : ['1:chatgpt: ChatGPT sign-out failed (500)']);
+    assert.equal(await a.external.read('openai-codex'), undefined);
+    assert.equal(await a.signedIn(1, 'chatgpt'), false);
+  }
 });

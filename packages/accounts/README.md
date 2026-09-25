@@ -26,7 +26,8 @@ const shown = await accounts.login(1, 'chatgpt', { via: 'code' }); // { state: '
 - **Sign-out**: `logout(member, key)` also ends a ChatGPT sign-in at OpenAI (`POST auth.openai.com/oauth/revoke`, as
   Codex's own sign-out does), then deletes it here whatever OpenAI answers. An overridden `open(member)` must return an
   engine whose `credentialStore` is made with `boundStore(member, engineStore)` and whose `readCredential(id)` reads that
-  store. Revoke failures reject after local deletion.
+  store. Revoke failures reject after local deletion; if a cancelled sign-in finishes late, `onSignOutError` reports a
+  failed revoke of its discarded credential (or it is logged when no handler is set).
 - **One person, one store**: `memoryStore()` or `fileStore(path)` (0600, the same shape as Pi's `auth.json`). Never a
   shared fallback. Using another engine with the same seam (Pi's coding-agent `ModelRuntime`)? Override `open(member)`.
 - **Limits**: `failed(member, key, error)` rests an account until the provider said (or a default), marks a plan that

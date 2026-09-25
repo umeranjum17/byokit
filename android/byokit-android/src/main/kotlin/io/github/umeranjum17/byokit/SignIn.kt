@@ -16,7 +16,7 @@ import kotlin.concurrent.thread
  *
  * - [Via.CODE] (default): a code the person types at auth.openai.com/codex/device, on this phone or any other screen.
  *   Proven on a phone; ChatGPT may need "device code sign-in" switched on in its Security settings first.
- * - [Via.BROWSER], only with [ChatGptAccount.browserSignIn]: the app listens on 127.0.0.1:1455 (the only return address
+ * - [Via.BROWSER]: the app listens on 127.0.0.1:1455 (the only return address
  *   Codex's sign-in accepts), shows [State.url] for the app to open in a Custom Tab, and catches the browser coming back.
  *   On Android 15+ the app must hold a short foreground service meanwhile, or the phone cuts the loopback once the app
  *   is behind the browser. Falls back to a code when port 1455 is taken.
@@ -59,7 +59,7 @@ class SignIn internal constructor(
         emit(state)
         val end = try {
             val cred = when (via) {
-                Via.BROWSER -> (if (account.browserSignIn) browser() else null) ?: code()
+                Via.BROWSER -> browser() ?: code()
                 Via.CODE -> code()
             }
             if (!account.complete(this, generation, cred)) throw Stop(State(Phase.CANCELLED, say("signIn.cancelled")))

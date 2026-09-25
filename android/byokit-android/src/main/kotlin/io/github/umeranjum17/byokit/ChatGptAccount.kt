@@ -15,12 +15,6 @@ class ChatGptAccount(
     val store: CredentialStore,
     val api: ChatGpt = ChatGpt(),
     val id: String = "chatgpt",
-    /**
-     * Lets [SignIn.Via.BROWSER] run (the sign-in page in a Custom Tab, caught back on 127.0.0.1:1455). Off by default:
-     * on Android 15+ it needs the app's own short foreground service (README), and its return to the app is not yet proven
-     * on a phone. Off, every sign-in uses a code, the flow proven on a phone.
-     */
-    val browserSignIn: Boolean = false,
 ) {
     private val entry = Byokit.provider("chatgpt")
     val name: String = entry.getString("name")

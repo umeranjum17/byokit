@@ -87,7 +87,7 @@ class ChatGpt(
     fun revoke(cred: Credential) {
         val body = if (cred.refresh.isNotEmpty()) JSONObject().put("token", cred.refresh).put("token_type_hint", "refresh_token").put("client_id", CLIENT_ID)
             else JSONObject().put("token", cred.access).put("token_type_hint", "access_token")
-        val (status, text) = request("$authBase/oauth/revoke", "application/json", body.toString(), timeoutMs = 10_000)
+        val (status, text) = request("$authBase/oauth/revoke", "application/json", body.toString(), timeoutMs = 10_000, noReplay = true)
         if (status !in 200..299) throw ChatGptException("ChatGPT sign-out failed ($status): $text")
     }
 
@@ -116,8 +116,8 @@ class ChatGpt(
 
     private fun post(url: String, json: JSONObject) = request(url, "application/json", json.toString())
 
-    private fun request(url: String, type: String, body: String, timeoutMs: Int = 120_000): Pair<Int, String> {
-        val c = open(url, type, body, timeoutMs = timeoutMs)
+    private fun request(url: String, type: String, body: String, timeoutMs: Int = 120_000, noReplay: Boolean = false): Pair<Int, String> {
+        val c = open(url, type, body, timeoutMs = timeoutMs, noReplay = noReplay)
         try {
             val status = c.responseCode
             val text = (if (status in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
@@ -127,7 +127,7 @@ class ChatGpt(
         }
     }
 
-    private fun open(url: String, type: String, body: String, headers: Map<String, String> = emptyMap(), timeoutMs: Int = 120_000): HttpURLConnection {
+    private fun open(url: String, type: String, body: String, headers: Map<String, String> = emptyMap(), timeoutMs: Int = 120_000, noReplay: Boolean = false): HttpURLConnection {
         val c = URL(url).openConnection() as HttpURLConnection
         c.requestMethod = "POST"
         c.connectTimeout = minOf(15_000, timeoutMs)
@@ -138,7 +138,7 @@ class ChatGpt(
         c.setRequestProperty("User-Agent", "byokit-android/0.1")
         headers.forEach(c::setRequestProperty)
         val bytes = body.toByteArray()
-        c.setFixedLengthStreamingMode(bytes.size) // a streamed body is never replayed: no silent second POST on a dropped connection
+        if (noReplay) c.setFixedLengthStreamingMode(bytes.size)
         c.outputStream.use { it.write(bytes) }
         return c
     }
