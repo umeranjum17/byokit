@@ -101,6 +101,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       list: (options) => raw.list(options),
       modify: (id, fn, options) => {
         const account = key(id);
+        const stale = Symbol();
         const started = options?.signal ? this.signals.get(options.signal) ?? this.generations.get(account) ?? 0 : this.generations.get(account) ?? 0;
         const discard = async (next: Awaited<ReturnType<CredentialStore['read']>>) => {
           const p = this.providers.find((p) => p.pi === id);
@@ -116,16 +117,21 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         return this.serial(account, async () => {
           if (started !== (this.generations.get(account) ?? 0)) {
             await discard(await fn(undefined));
-            return raw.read(id);
+            return undefined;
           }
-          return raw.modify(id, async (current) => {
-            const next = await fn(current);
-            if (started !== (this.generations.get(account) ?? 0)) {
-              await discard(next);
-              return undefined;
-            }
-            return next;
-          }, options);
+          try {
+            return await raw.modify(id, async (current) => {
+              const next = await fn(current);
+              if (started !== (this.generations.get(account) ?? 0)) {
+                await discard(next);
+                throw stale;
+              }
+              return next;
+            }, options);
+          } catch (e) {
+            if (e === stale) return undefined;
+            throw e;
+          }
         });
       },
       delete: (id, options) => this.serial(key(id), () => raw.delete(id, options)),

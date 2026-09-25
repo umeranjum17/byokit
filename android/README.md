@@ -4,7 +4,7 @@ The Kotlin mirror of `@byokit/accounts`: "Continue with ChatGPT" done entirely o
 app's own Android Keystore key, refresh, "resting until 3:40 pm", and one-question model calls to the person's ChatGPT
 plan. minSdk 26, no dependencies beyond the Kotlin standard library.
 
-Frozen and unpublished; known issue: sign-out can race a token refresh or a pending sign-in.
+Frozen and unpublished; known issue: sign-out can race a token refresh or a pending sign-in; revoke uses fixed-length streaming (other requests do not), and its client id constant and authBase come from Kotlin rather than catalogue.json.
 
 It bundles the TypeScript package's own `catalogue.json` and `words.json` (`../packages/accounts/src`) and passes the same
 conformance fixtures (`../fixtures/conformance`), so both say the same plain sentences and classify failures the same way.

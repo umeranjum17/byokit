@@ -66,6 +66,8 @@ class RaceKit extends Accounts {
   readonly external = memoryStore();
   readonly refreshStarted = deferred<void>();
   readonly releaseRefresh = deferred<void>();
+  readonly holdStarted = deferred<void>();
+  readonly releaseHold = deferred<void>();
   readonly loginStarted = deferred<void>();
   readonly releaseLogin = deferred<void>();
   protected open(member: Member) {
@@ -76,12 +78,12 @@ class RaceKit extends Accounts {
       checkAuth: async (id: string) => (await credentials.read(id)) ? { type: 'oauth' } : undefined,
       logout: (id: string) => credentials.delete(id),
       getAuth: async (id: string) => {
-        await credentials.modify(id, async (old) => {
+        const credential = await credentials.modify(id, async (old) => {
           this.refreshStarted.resolve();
           await this.releaseRefresh.promise;
           return old?.type === 'oauth' ? { ...old, refresh: 'rt_rotated' } : undefined;
         });
-        return { auth: {} };
+        return credential ? { auth: {} } : undefined;
       },
       login: async (id: string, _type: string, interaction: any) => {
         interaction.notify({ type: 'device_code', userCode: 'ABCD', verificationUri: 'https://example.test', expiresInSeconds: 900 });
@@ -101,12 +103,36 @@ test('refresh completing after sign-out revokes the rotated token before deletin
   assert.equal(await a.signedIn(1, 'chatgpt'), true);
   answer = 200;
   sent.length = 0;
-  const refresh = a.keepFresh([1]);
+  const refresh = (await a.runtime(1)).getAuth('openai-codex');
   await a.refreshStarted.promise;
   const logout = a.logout(1, 'chatgpt');
   a.releaseRefresh.resolve();
-  await Promise.all([refresh, logout]);
+  assert.equal(await refresh, undefined);
+  await logout;
   assert.deepEqual(sent.map((s) => (s.body as any).token), ['rt_rotated', 'rt_1']);
+  assert.equal(await a.external.read('openai-codex'), undefined);
+});
+
+test('a queued stale refresh cannot return the old stored credential', async () => {
+  const a = new RaceKit();
+  await a.external.modify('openai-codex', async () => fixture.cases[0].credential);
+  answer = 200;
+  sent.length = 0;
+  const rt = await a.runtime(1);
+  const hold = rt.credentialStore.modify('openai-codex', async () => {
+    a.holdStarted.resolve();
+    await a.releaseHold.promise;
+    return undefined;
+  });
+  await a.holdStarted.promise;
+  const refresh = rt.getAuth('openai-codex');
+  const logout = a.logout(1, 'chatgpt');
+  a.releaseRefresh.resolve();
+  a.releaseHold.resolve();
+  await hold;
+  assert.equal(await refresh, undefined);
+  await logout;
+  assert.deepEqual(sent.map((s) => (s.body as any).token), ['rt_1']);
   assert.equal(await a.external.read('openai-codex'), undefined);
 });
 
