@@ -349,6 +349,7 @@ export class Relay {
     if (m?.t === 'push.remove') {
       if (!device) throw new Error('bad device');
       const sub = m.sub === undefined ? undefined : parseSubscription(m.sub, this.pushHosts);
+      if (m.sub !== undefined && !sub) throw new Error('bad subscription');
       this.state.push = this.state.push.filter((p) => !(p.host === host && p.device === device
         && (!sub || ('expo' in sub ? 'expo' in p && p.expo === sub.expo : 'web' in p && p.web.endpoint === sub.web.endpoint))));
       for (const [t, v] of this.tokens) if (v.host === host && v.device === device) this.tokens.delete(t);

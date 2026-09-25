@@ -109,11 +109,29 @@ test('push host options only narrow the default service list', async () => {
   assert.equal(r.saved()!.push.length, 2);
 });
 
+test('a supplied invalid subscription never means remove all', async () => {
+  const r = await startRelay({ push: { hosts: ['fcm.googleapis.com'] } });
+  const p = await paired(r);
+  const first = webSub('https://fcm.googleapis.com/first');
+  const second = webSub('https://fcm.googleapis.com/second');
+  await p.client.subscribe('phone', first);
+  await p.client.subscribe('phone', second);
+  await assert.rejects(p.client.unsubscribe('phone', webSub('https://web.push.apple.com/old')), /bad subscription/);
+  await assert.rejects(p.client.unsubscribe('phone', { expo: 'ExponentPushToken[phone]', ...first }), /bad subscription/);
+  await assert.rejects(p.client.subscribe('phone', { expo: 'ExponentPushToken[phone]', ...first }), /bad subscription/);
+  assert.deepEqual(r.saved()!.push.map((s) => 'web' in s && s.web.endpoint), [first.web.endpoint, second.web.endpoint]);
+  await p.client.unsubscribe('phone', first);
+  assert.deepEqual(r.saved()!.push.map((s) => 'web' in s && s.web.endpoint), [second.web.endpoint]);
+  await p.client.unsubscribe('phone');
+  assert.deepEqual(r.saved()!.push, []);
+});
+
 test('saved unapproved push destinations are removed without sending to them', async () => {
   const first = await startRelay();
   const p = await paired(first);
   const state = structuredClone(first.saved()!);
   state.push.push({ host: p.host.id, device: 'bad', added: 0, ...webSub('https://push.example.com/steal') });
+  state.push.push({ host: p.host.id, device: 'mixed', added: 0, expo: 'ExponentPushToken[mixed]', ...webSub('https://push.example.com/mixed') });
   state.push.push({ host: p.host.id, device: 'good', added: 0, ...webSub('https://fcm.googleapis.com/good') });
   let saved = state;
   const requested: string[] = [];
@@ -126,6 +144,7 @@ test('saved unapproved push destinations are removed without sending to them', a
   assert.deepEqual(await h.client.notify({ id: 'saved-1', title: 'Hello', body: 'World' }), { sent: 1 });
   assert.deepEqual(requested, ['https://fcm.googleapis.com/good']);
   assert.deepEqual(saved.push.map((s) => 'web' in s && s.web.endpoint), ['https://fcm.googleapis.com/good']);
+  assert.equal(requested.some((url) => url.includes('exp.host')), false);
 });
 
 test('push services cannot redirect a notification to an internal address', async () => {

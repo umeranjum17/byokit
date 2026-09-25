@@ -47,8 +47,9 @@ export function isAllowedEndpoint(value: unknown, hosts: readonly string[] = DEF
 
 /** A subscription as a host sent it, checked; undefined if it is not one. */
 export function parseSubscription(s: any, hosts?: readonly string[]): Subscription | undefined {
-  if (isExpoToken(s?.expo)) return { expo: s.expo };
-  const w = s?.web;
+  if (!s || typeof s !== 'object' || ('expo' in s) === ('web' in s)) return undefined;
+  if ('expo' in s) return isExpoToken(s.expo) ? { expo: s.expo } : undefined;
+  const w = s.web;
   if (isAllowedEndpoint(w?.endpoint, hosts) && text(w?.keys?.p256dh, 256) && text(w?.keys?.auth, 256)) {
     return { web: { endpoint: w.endpoint, keys: { p256dh: w.keys.p256dh, auth: w.keys.auth } } };
   }
