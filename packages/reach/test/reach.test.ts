@@ -10,18 +10,20 @@ import { advertise, inspectServe, reach, routes, serve, tailscaleName, unserve, 
 const dir = mkdtempSync(join(tmpdir(), 'byokit-reach-'));
 const bin = join(dir, 'tailscale');
 const log = join(dir, 'tailscale.log');
+const state = join(dir, 'serve.json');
 const tailscale = { bin, timeoutMs: 3_000 };
 process.env.PATH = dir;
 const sq = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
-function fake(status: unknown, { serveStatus = '{}', serveStatusExit = 0, apply = 'exit 0' } = {}) {
+function fake(status: unknown, { serveStatus = '{}', serveStatusExit = 0, apply = ':', afterApply = ours, afterOff = '{}' } = {}) {
+  writeFileSync(state, serveStatus);
   writeFileSync(bin, `#!/bin/sh
 [ "$TAILSCALE_BE_CLI" = 1 ] || exit 2
 printf '%s\\n' "$*" >> ${sq(log)}
 case "$*" in
   "status --json") printf '%s' ${sq(JSON.stringify(status))} ;;
-  "serve status --json") printf '%s' ${sq(serveStatus)}; exit ${serveStatusExit} ;;
-  "serve --yes --bg --https=443 http://127.0.0.1:8792") ${apply} ;;
-  "serve --https=443 --set-path=/ off") exit 0 ;;
+  "serve status --json") /bin/cat ${sq(state)}; exit ${serveStatusExit} ;;
+  "serve --yes --bg --https=443 http://127.0.0.1:8792") ${apply}; [ "$?" = 0 ] || exit 1; printf '%s' ${sq(afterApply)} > ${sq(state)} ;;
+  "serve --https=443 --set-path=/ off") printf '%s' ${sq(afterOff)} > ${sq(state)} ;;
   *) exit 1 ;;
 esac
 `);
@@ -56,6 +58,14 @@ test('only a root matching a prior app-created fingerprint can be reused', async
   assert.match(since(at), /serve --yes/);
 });
 
+test('a changed root after Serve setup is reported as occupied without touching it again', async () => {
+  fake(self, { afterApply: occupied });
+  const at = mark();
+  await assert.rejects(reach({ port: 8792, tailscale }), /already owned.*another service took the Serve root/);
+  assert.equal((await inspectServe(8792, owned.dnsName, tailscale)).status, 'occupied');
+  assert.doesNotMatch(since(at), /^serve --https=443 --set-path=\/ off$/m);
+});
+
 test('an occupied root handler is refused and never claimed or reset', async () => {
   fake(self, { serveStatus: occupied });
   const at = mark();
@@ -66,6 +76,14 @@ test('an occupied root handler is refused and never claimed or reset', async () 
   fake(self, { serveStatus: JSON.stringify({ Web: { 'dev.tailnet.ts.net:443': { Handlers: { '/': { Text: 'taken' } } } } }) });
   await assert.rejects(reach({ port: 8792, tailscale }), /already owned/);
   assert.equal(await unserve(owned, tailscale), false);
+});
+
+test('a changed root after Serve removal is reported as occupied without further writes', async () => {
+  fake(self, { serveStatus: ours, afterOff: occupied });
+  const at = mark();
+  await assert.rejects(unserve(owned, tailscale), /already owned.*another service took the Serve root/);
+  assert.equal((await inspectServe(8792, owned.dnsName, tailscale)).status, 'occupied');
+  assert.equal(since(at).split('\n').filter((line) => line.startsWith('serve --https=443 --set-path=/ off')).length, 1);
 });
 
 test('Serve disabled on the tailnet names the enable link; a hung Serve times out', async () => {
@@ -91,6 +109,18 @@ test('no MagicDNS name or an invalid one fails loudly instead of exposing the LA
   await assert.rejects(reach({ port: 8792, tailscale }), /installed but unavailable: logged out/);
   writeFileSync(bin, '#!/bin/sh\necho nope\n');
   await assert.rejects(reach({ port: 8792, tailscale }), /invalid status JSON/);
+});
+
+test('a DNS rename removes the recorded old root before serving the new one', async () => {
+  const old = { ...owned, dnsName: 'old.tailnet.ts.net' };
+  const oldRoot = JSON.stringify({ Web: { 'old.tailnet.ts.net:443': { Handlers: { '/': { Proxy: owned.proxy } } } } });
+  fake(self, { serveStatus: oldRoot });
+  const at = mark();
+  assert.deepEqual(await reach({ port: 8792, previous: old, tailscale }), { urls: ['wss://dev.tailnet.ts.net'], bind: '127.0.0.1', ingress: owned });
+  assert.deepEqual(since(at).trim().split('\n'), [
+    'status --json', 'serve status --json', 'serve --https=443 --set-path=/ off', 'serve status --json',
+    'serve status --json', 'serve --yes --bg --https=443 http://127.0.0.1:8792', 'serve status --json',
+  ]);
 });
 
 test('direct Tailscale is the fallback and the rollback: it removes only the mapping it owns', async () => {

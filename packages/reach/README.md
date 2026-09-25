@@ -37,6 +37,10 @@ These are the rules from muxr's decision 0004.
   `previous` records the matching app-created mapping. Pick `tailscale-direct` or remove an unrelated mapping yourself.
 - **Ownership fingerprint.** Persist the returned `ingress` (`{ port, dnsName, proxy }`) and pass it as `previous`.
   `unserve` and `reach({ previous })` remove only `/` while it still points at that proxy; sibling paths remain.
+  On a DNS rename, the recorded old root is removed before the new one is served. After setup or removal, the root
+  is inspected again; if another service took it, setup stops and reports it as occupied without further changes.
+  The Tailscale CLI has no compare-and-set: a change between inspection and a write can still be overwritten.
+  Verify-after-write detects a conflicting final state but cannot eliminate that race.
 - **Direct fallback and rollback.** If Serve is disabled on the tailnet (the error includes the admin link), times
   out, or is taken, use `via: 'tailscale-direct'`. With `previous`, that also removes the mapping this package made.
 

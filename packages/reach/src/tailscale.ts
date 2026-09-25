@@ -112,6 +112,7 @@ export async function inspectServe(port: number, dnsName: string, o?: TailscaleO
 export async function serve(port: number, o?: TailscaleOptions, previous?: ServeIngress): Promise<{ url: string; ingress: ServeIngress } | undefined> {
   const dnsName = await tailscaleName(o);
   if (dnsName === undefined) return undefined;
+  if (previous?.port === port && previous.dnsName !== dnsName) await unserve(previous, o);
   const proxy = loopback(port);
   const recorded = previous?.kind === 'tailscale-serve' && previous.port === port && previous.dnsName === dnsName && previous.proxy === proxy;
   const root = await inspectServe(port, dnsName, { ...o, ...(recorded ? { proxy } : {}) });
@@ -120,6 +121,9 @@ export async function serve(port: number, o?: TailscaleOptions, previous?: Serve
   if (root.status === 'free') {
     const r = await run(['serve', '--yes', '--bg', '--https=443', proxy], o);
     if (r.code !== 0 || r.error) throw new Error(serveFailure(r));
+    if ((await inspectServe(port, dnsName, { ...o, proxy })).status !== 'ours') {
+      throw new Error(`${SERVE_OWNED_ERROR}; another service took the Serve root after setup`);
+    }
   }
   return { url: `wss://${dnsName}`, ingress: { kind: 'tailscale-serve', port, dnsName, proxy } };
 }
@@ -132,5 +136,8 @@ export async function unserve(ingress: ServeIngress | undefined, o?: TailscaleOp
   if (root.status !== 'ours') throw new Error('cannot inspect the previous Tailscale Serve route; leaving it unchanged');
   const r = await run(['serve', '--https=443', '--set-path=/', 'off'], o);
   if (r.code !== 0 || r.error) throw new Error(`could not remove the previous Tailscale Serve route: ${serveFailure(r)}`);
+  const after = await inspectServe(ingress.port, ingress.dnsName, { ...o, proxy: ingress.proxy });
+  if (after.status === 'occupied') throw new Error(`${SERVE_OWNED_ERROR}; another service took the Serve root after removal`);
+  if (after.status !== 'free') throw new Error('could not verify removal of the previous Tailscale Serve route');
   return true;
 }
