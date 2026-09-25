@@ -49,7 +49,7 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
 
   const profile = mkdtempSync(join(tmpdir(), 'byokit-chrome-'));
   const browser = spawn(chrome!, ['--headless=new', '--no-sandbox', '--disable-gpu', `--user-data-dir=${profile}`, '--no-first-run',
-    '--disable-background-networking', '--disable-component-update', '--disable-sync', '--no-default-browser-check', text], { stdio: 'ignore' });
+    '--disable-background-networking', '--disable-component-update', '--disable-sync', '--no-default-browser-check', text], { stdio: 'ignore', detached: true });
   try {
     let timer: any;
     const r = await Promise.race([reported, new Promise((_, no) => { timer = setTimeout(() => no(new Error('the browser never reported')), 30_000); })])
@@ -62,9 +62,9 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
     assert.deepEqual(host.devices().map((d) => [d.name, d.online]), [['Browser tab', true]]);
   } finally {
     const exited = browser.exitCode !== null || new Promise((r) => browser.once('exit', r));
-    browser.kill();
+    try { process.kill(-browser.pid!, 'SIGKILL'); } catch {} // the whole group: Chrome's helpers outlive the main process
     host.close(); wss.close(); server.close();
-    await exited; // Chrome keeps writing its profile until it has exited
-    rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
+    await exited;
+    try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch {} // ponytail: a stray helper may still hold it; it is in tmp
   }
 });
