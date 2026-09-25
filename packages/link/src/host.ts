@@ -92,6 +92,7 @@ export class Host {
   private tries = 0;
   private live = new Map<Conn, { dev: Grant; ch: Channel; streams: Streams }>();
   private answered = new Map<string, Map<string, Answer>>();
+  private answerWork = new Map<string, Promise<void>>();
   private changes: Promise<void> = Promise.resolve();
   private recent = new Map<string, number[]>(); // handshake times, per peer and in all ('')
 
@@ -121,9 +122,16 @@ export class Host {
   }
   private async save(grants: Grant[]) { await this.store?.save(grants.map((g) => ({ ...g }))); }
   private report(error: unknown) { try { (this.opts.onError ?? console.error)(error); } catch {} }
+  private answerTask<T>(device: string, action: () => T | Promise<T>): Promise<T> {
+    const next = (this.answerWork.get(device) ?? Promise.resolve()).then(action);
+    const tail = next.then(() => {}, () => {});
+    this.answerWork.set(device, tail);
+    void tail.then(() => { if (this.answerWork.get(device) === tail) this.answerWork.delete(device); });
+    return next;
+  }
   private async drop(device: string, keys?: string[]) {
     if (!keys) this.answered.delete(device);
-    if (this.opts.answers && (!keys || keys.length)) await this.opts.answers.drop(device, keys);
+    if (this.opts.answers && (!keys || keys.length)) await this.answerTask(device, () => this.opts.answers!.drop(device, keys));
   }
 
   /** Every grant change goes through here, one at a time: store first, then memory, then the live sockets. */
@@ -195,6 +203,11 @@ export class Host {
     const added = await this.grant(b64url(g.key), cleanName(g.name, 'Device'), g);
     if (!added) throw new Error('Your computer has all the devices it allows. Remove one there first.');
     return added;
+  }
+
+  async setMeta(id: string, meta: unknown): Promise<void> {
+    const updated = await this.transition((grants) => grants.some((g) => g.id === id) ? grants.map((g) => g.id === id ? { ...g, meta } : g) : null);
+    if (!updated) throw new Error('Device not found.');
   }
 
   /** Removes a device: its grant goes, its open connections close, and its key is refused from now on. */
@@ -533,24 +546,25 @@ export class Host {
     if (!key || !session || !Number.isSafeInteger(id) || id < 1) return answer({ ok: false, error: 'failed' });
     const req: LinkRequest = { op: String(m.op ?? ''), args: m.args, key: `${g.id}:${key}` };
     let entry = seen.get(key);
+    let cached = !!entry;
     if (!entry) {
       if (seen.size >= MAX_ANSWERS) return answer({ ok: false, error: 'busy' });
       const store = this.opts.answers;
       const reply = Promise.resolve().then(async (): Promise<object> => {
         if (store) {
           let kept: unknown;
-          try { kept = await store.get(g.id, key); } catch (e) { this.report(e); return { ok: false, error: 'failed' }; } // unknown: never run twice
-          if (kept && typeof kept === 'object') return kept;
+          try { kept = await this.answerTask(g.id, () => store.get(g.id, key)); } catch (e) { this.report(e); return { ok: false, error: 'failed' }; } // unknown: never run twice
+          if (kept && typeof kept === 'object') { cached = true; return kept; }
         }
         const result = await this.run(req, g, m.notValidAfter, authenticatedKey);
-        if (store) try { await store.put(g.id, key, result); } catch (e) { this.report(e); }
+        if (store) try { await this.answerTask(g.id, () => store.put(g.id, key, result)); } catch (e) { this.report(e); }
         return result;
       });
       entry = { id, session, reply };
       seen.set(key, entry);
     }
     const reply = await entry.reply;
-    const admitted = await this.admitRequest(req, g, authenticatedKey);
+    const admitted = await this.admitRequest(req, g, authenticatedKey, cached);
     if ('error' in admitted) {
       answer({ ok: false, error: admitted.error });
       if (admitted.error === 'ended') void this.revoke(g.id, 'ended').catch((e) => this.report(e));
@@ -559,11 +573,12 @@ export class Host {
     answer(reply);
   }
 
-  private async admitRequest(req: LinkRequest, g: Grant, authenticatedKey: string): Promise<{ grant: Grant } | { error: 'removed' | 'ended' | 'not-allowed' | 'view-only' }> {
+  private async admitRequest(req: LinkRequest, g: Grant, authenticatedKey: string, checkPolicy = true): Promise<{ grant: Grant } | { error: 'removed' | 'ended' | 'not-allowed' | 'view-only' }> {
     const current = this.grants.find((x) => x.id === g.id);
     if (!current || current.key !== g.key || current.role !== g.role) return { error: 'removed' };
     if (this.ended(current)) return { error: 'ended' };
     if (!this.currentGrant(this.grants, g.id, authenticatedKey)) return { error: 'removed' };
+    if (!checkPolicy) return { grant: current };
     const denied = current.role === 'control' ? 'not-allowed' : 'view-only';
     try {
       const ok = this.opts.allow ? await this.opts.allow(req, current) : current.role === 'control' || (this.opts.canView?.(req) ?? false);
@@ -573,7 +588,7 @@ export class Host {
     if (!latest || latest.key !== g.key || latest.role !== g.role) return { error: 'removed' };
     if (this.ended(latest)) return { error: 'ended' };
     if (!this.currentGrant(this.grants, g.id, authenticatedKey)) return { error: 'removed' };
-    if (latest.meta !== current.meta) return { error: denied };
+    if (latest !== current) return { error: denied };
     return { grant: latest };
   }
 

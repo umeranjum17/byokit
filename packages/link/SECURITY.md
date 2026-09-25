@@ -81,6 +81,9 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
    staged key before that point keeps using the old key.
 11. **`unpair` needs the host.** Offline, against a 0.1 host, or when saving removal fails, the device keeps its
    grant and reports failure. It forgets locally only after the host confirms removal.
+12. **Policy decisions are point-in-time.** `allow` decides when asked; work already started is not rolled back.
+   Replace a grant's metadata with `host.setMeta(id, newMeta)` or revoke it to withdraw access. Do not mutate
+   `meta` in place: the post-policy identity check requires a replacement grant object.
 9. **Metadata.** The relay sees the host id, timing, sizes, device IP addresses and whether a first message is a
    typed-code attempt (`code:` prefix).
 

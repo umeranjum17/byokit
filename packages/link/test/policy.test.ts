@@ -81,22 +81,23 @@ test('R5: an allow policy decides every request before the handler, from what th
   await assert.rejects(d.link.request('start.session'), (e: LinkError) => e.code === 'not-allowed' && e.message === "This device isn't allowed to do that.");
   await assert.rejects(d.link.request('boom'), (e: LinkError) => e.code === 'not-allowed', 'a throwing policy refuses');
   assert.deepEqual(h.ran, ['Phone:list.sessions'], 'refused requests never reach the handler');
-  assert.equal(h.errors.length, 2);
+  assert.equal(h.errors.length, 1);
 });
 
 test('R4/R5: approval cannot outlive a changed or expired grant', async () => {
-  for (const expire of [false, true]) {
+  for (const change of ['revoke', 'expire', 'meta']) {
     let release!: (yes: boolean) => void;
     let now = Date.now();
     const h = await startHost({ now: () => now, allow: () => new Promise<boolean>((r) => { release = r; }) });
-    const d = connect(await paired(h, expire ? { lifetime: 10_000 } : {}));
+    const d = connect(await paired(h, change === 'expire' ? { lifetime: 10_000 } : {}));
     await until(() => d.link.status === 'online');
     const reply = d.link.request('pay.bill');
     await until(() => !!release);
-    if (expire) now += 11_000;
-    else await h.host.revoke(d.link.grant.device.id);
+    if (change === 'expire') now += 11_000;
+    else if (change === 'revoke') await h.host.revoke(d.link.grant.device.id);
+    else await h.host.setMeta(d.link.grant.device.id, { caps: [] });
     release(true);
-    await assert.rejects(reply, (e: LinkError) => e.code === (expire ? 'ended' : 'removed'));
+    await assert.rejects(reply, (e: LinkError) => e.code === (change === 'expire' ? 'ended' : change === 'meta' ? 'not-allowed' : 'removed'));
     assert.deepEqual(h.ran, []);
   }
 });
@@ -117,7 +118,7 @@ test('R5: withdrawn policy refuses cached replies in memory and after restart', 
     first.sockets.at(-1)!.send = (() => {}) as any;
     const reply = d.link.request('list');
     await until(() => first.ran.length === 1 && (!stored || kept.size === 1));
-    (grants[0].meta as any).caps = [];
+    await first.host.setMeta(d.link.grant.device.id, { caps: [] });
     if (stored) {
       first.stop();
       const second = await startHost(opts);
@@ -254,6 +255,28 @@ test('C6: fresh auth waits for answer deletion before accepting new requests', a
       assert.equal(kept.size, 1);
     }
   }
+});
+
+test('C6: fresh deletion and another socket’s answer write are ordered per device', async () => {
+  const kept = new Map<string, object>();
+  let entered!: () => void, release!: () => void;
+  const dropping = new Promise<void>((r) => { entered = r; });
+  const gate = new Promise<void>((r) => { release = r; });
+  let drops = 0;
+  const h = await startHost({ answers: { get: (d, k) => kept.get(`${d}/${k}`), put: (d, k, a) => { kept.set(`${d}/${k}`, a); },
+    drop: async () => { if (++drops === 2) { entered(); await gate; } kept.clear(); } } });
+  const grant = await paired(h);
+  const old = connect(grant);
+  await until(() => old.link.status === 'online');
+  const fresh = connect(grant);
+  await dropping;
+  const reply = old.link.request('get.state');
+  await sleep(40);
+  assert.equal(h.ran.length, 0);
+  release();
+  await until(() => fresh.link.status === 'online');
+  assert.ok(await reply);
+  assert.equal(kept.size, 1);
 });
 
 test('P6: a grant kept before pairing works after the app dies before saving the result', async () => {

@@ -38,8 +38,9 @@ More host policy, all optional:
 
 - `offer`/`code`/`enrol` take `kind` (e.g. `'browser'`, `'peer'`), `lifetime` (ms; access then ends like a removal)
   and `meta`. The offer carries `role` and `lifetime`, so the device can show what it is agreeing to.
-- `allow: (req, device) => boolean` decides every request (e.g. from capabilities kept in `meta`); without it,
-  control devices may do anything and view-only ones what `canView` allows.
+- `allow: (req, device) => boolean` decides when asked (e.g. from capabilities kept in `meta`); without it,
+  control devices may do anything and view-only ones what `canView` allows. Do not mutate a grant's `meta` in place:
+  use `await host.setMeta(id, newMeta)` or revoke it to withdraw access. Work already started is not rolled back.
 - `caps: { peer: 16 }` limits devices per kind; `maxDevices` limits them all.
 - `answers: { get, put, drop }` keeps completed answers across host restarts. `req.key` is stable per device and retry;
   handlers with transactional effects can store it alongside the effect to avoid repeating work after a crash between
