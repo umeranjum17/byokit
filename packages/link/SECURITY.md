@@ -25,20 +25,20 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 | Frames | One Noise transport message per WebSocket text frame, base64. Per-direction CipherStates; the implicit nonce counter rejects any replayed, dropped, reordered or reflected frame, and any bad frame closes the socket. Messages over 60 KB are chunked; encoding over 16 MB is refused before sending, and a reassembled message over 16 MB closes the socket. |
 | QR / pairing link | `byokit-link:1:<base64url JSON>`: `{v, host (X25519 public key), name, urls, ticket (128 bits), expires}`. As a link, it rides after `#`, which browsers never send to a server. |
 | Typed code | 12 characters from a 31-character unambiguous alphabet (about 59 bits), `XXXX-XXXX-XXXX`. |
-| Pairing rules | Tickets and codes are single use (burned at first presentation, even when expired or refused), live 5 minutes through grant creation, and 5 wrong tries withdraw every open code. Nothing is stored until the person at the host approves; both screens show the same **two confirmation words**, derived from the handshake hash. Optional device cap. |
+| Pairing rules | Tickets and codes are single use (burned at first presentation, even when expired or refused), live 5 minutes through grant creation, and 5 wrong tries withdraw every open ticket and code. Nothing is stored until the person at the host approves; both screens show the same **two confirmation words**, derived from the handshake hash. Optional device cap. |
 | Grants | Held by the host: `{id, key, name, role: control or view, created, lastSeen, meta}`. Durable until revoked (muxr decision 0001). Every handshake checks the device key against the list; every request re-checks it. View-only devices may only make the requests the app's `canView` allows (default: none). |
 | Revoke | Deletes the grant, sends a sealed `revoked` to its live sockets, then closes them. No key rotation is needed: there are no shared keys. |
 | Refusals | A host that can read the device's handshake answers refusals (`not-paired`, `expired`, `declined`, `full`) inside the channel, so the device can trust them (e.g. forget its grant). Anything unauthenticated (a plaintext close) only changes what the device *says*, never what it deletes. |
 | Requests | `{t:'req', id, key, session, ack, op, args}`. The device sends its highest contiguous received reply id on each request and reconnect authentication. The host retains replies until acknowledged across reconnects; a fresh app session clears abandoned replies because they can no longer be retried. At 1000 unacknowledged replies it refuses new requests with `busy`, without evicting answers. The cache is in memory. |
-| Relay | Routes by URL (`<relay>/link/v1/<host id>`, host id = BLAKE2b-128 of the host key) and, host-side, by a `{c, f}` / `{c, end}` wrapper. Frames pass through byte for byte. The relay is not part of v0.1. |
+| Relay | Routes by URL (`<relay>/link/v1/<host id>`, host id = BLAKE2b-128(`byokit-link-host-id-v1` ‖ host key)) and, host-side, by a `{c, f}` / `{c, end}` wrapper. Frames pass through byte for byte. The relay is not part of v0.1. |
 
 ## Adversaries and what stops them
 
 | Adversary | Can | Cannot, because |
 |---|---|---|
-| **Passive network observer** (LAN, tailnet, relay operator) | See that a device talks to a host, when, how much; the host id; for typed codes, message 1 | Read anything: IK hides the device's static key; everything after is AEAD. Offline-guess a typed code within its 5 minutes: 59 bits, each guess a full Noise message-1 check. |
-| **Active network attacker** (ARP/DNS spoofing, malicious relay) | Drop, delay, reorder traffic; close sockets; forge plaintext closes | Impersonate the host (needs the host's static secret; the device pins the key from the QR/grant). Impersonate a device (needs its static secret). Replay or splice frames (nonces). Make a device forget its grant (only sealed refusals do that). Use a stolen QR ticket without the host key, or redirect pairing: the ticket is only readable by the real host. |
-| **Someone who sees or photographs the QR / code** | Race the real device to pair in the 5 minutes | Get in unnoticed: the person at the host must approve, sees the device name and the two words, and the real device fails with "code already used". |
+| **Passive network observer** (LAN, tailnet, relay operator) | See that a device talks to a host, when, how much; the host id; for typed codes, message 1 | Read plaintext payloads: IK hides the device's static key; everything after is AEAD. A captured typed-code handshake permits offline guessing even after expiry, but the code has about 59 bits of entropy. |
+| **Active network attacker** (ARP/DNS spoofing, malicious relay) | Drop, delay, reorder traffic; close sockets; forge plaintext closes | Impersonate the host (needs the host's static secret; the device pins the key from the QR/grant). Impersonate a device (needs its static secret). Replay or splice frames (nonces). Make a device forget its grant (only sealed refusals do that). Turn a stolen QR ticket into a grant without host-side approval: the QR also contains the host's public key, so its secrecy is not a defense. |
+| **Someone who sees or photographs the QR / code** | Race the real device to pair in the 5 minutes | Get in unnoticed: the person at the host must approve, sees the device name and the two words, and a later attempt with the same ticket or code is refused. |
 | **A lost or stolen device** | Everything its grant allows, until revoked | Anything after revoke, which is immediate. It never held the host's credentials. |
 | **A paired view-only device** | The requests `canView` allows | Mutating requests: refused by the host before the app's handler sees them. |
 | **A malicious relay** | Deny service; learn metadata above | Read, change or inject traffic; pair itself (tickets and codes are sealed or PSK-bound end to end). An impostor host registration only causes denial of service: devices' handshakes fail. |
@@ -46,8 +46,9 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 ## Known limits
 
 1. **Typed-code offline guessing.** XXpsk0 puts the PSK in message 1, so an observer can test guesses against it
-   offline. 59 bits for 5 minutes is out of reach; a longer window or shorter code is not. PSK at message 3 (XXpsk3)
-   would limit the oracle to an active attacker, but `noise-handshake` does not implement it. **Upgrade path: a PAKE
+   offline even after the code expires. The 59-bit search space is the defense; expiry limits pairing, not
+   captured-handshake guessing. A shorter code would weaken it. PSK at message 3 (XXpsk3) would limit the oracle to
+   an active attacker, but `noise-handshake` does not implement it. **Upgrade path: a PAKE
    (CPace) for typed codes**, which also makes shorter codes safe.
 2. **The two words are 16 bits.** They confirm "this is the device in my hand", not the channel: an active attacker
    who already holds a live code could grind 16 bits. The host key in the QR (IK) and the code (PSK) carry the real
@@ -80,7 +81,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 - [ ] The host sends nothing but a plaintext close before a handshake it can verify; no request is served before
       `ready`.
 - [ ] Tickets and codes: 128-bit and 59-bit, single use (deleted on first presentation), 5-minute expiry checked at
-      presentation and before persisting the grant, 5 wrong tries withdraw all codes.
+      presentation and before persisting the grant, 5 wrong tries withdraw all open tickets and codes.
 - [ ] Nothing is stored before `confirm` returns true; `confirm` failing or timing out means no.
 - [ ] Every connection's device key is checked against the grants at `auth`; every request re-checks the grant;
       `revoke` removes the grant before closing sockets.

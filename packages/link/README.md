@@ -41,12 +41,13 @@ const grant = await pairWithOffer(scanned, { name: 'Pixel 9', onWords: (w) => sh
 // Or pairWithCode(url, typed, { name: 'Pixel 9', onWords: (w) => show(w) });
 await secureStore.save(grant);                    // it holds this device's secret key
 const link = new DeviceLink(grant, { store: secureStore, onStatus, onEvent });
-await link.request('send.message', { text: 'hi' });  // waits through reconnects; a retry runs once
+await link.request('send.message', { text: 'hi' });  // waits through reconnects
 ```
 
 Statuses: `connecting`, `online`, `offline` (it keeps retrying), `refused` (every address answered with another host key; the grant is
 kept, `retry()` or pair again), `removed` (the host removed this device; the grant is forgotten). Every failure is a
 `LinkError` with a plain `message` and a `code`. `stop()` rejects unanswered and new requests until `retry()`.
+Retry guarantees and their limits: [SECURITY.md](SECURITY.md#known-limits).
 
 For React Native, install a `crypto.getRandomValues` polyfill such as `react-native-get-random-values` (or use
 `expo-crypto`) and import it **before** `@byokit/link`. Metro resolves `sodium-universal` to `sodium-javascript`
