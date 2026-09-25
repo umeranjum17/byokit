@@ -464,13 +464,14 @@ export class Host {
       if (m.t === 'req') return void this.request(conn, d, m, b64url(hs!.remoteKey));
       if (m.t === 'ping') return this.sealed(conn, ch!, { t: 'pong', n: m.n });
       if (m.t === 'unpair') { // the device forgets this computer, and asks it to forget the device too
+        const live = this.live.get(conn);
         this.live.delete(conn); // so the removal below leaves this socket open for the answer
         return void this.transition((grants) => this.currentGrant(grants, d.id, b64url(hs!.remoteKey)) ? grants.filter((g) => g.id !== d.id) : null)
           .then((ok) => { if (!ok) return refuse('not-paired'); this.sealed(conn, ch!, { t: 'unpaired' }); later(1000, () => end(1000, 'unpaired')); })
           .catch((e) => {
             this.report(e);
             const current = this.grants.find((g) => g.id === d.id);
-            if (current) this.live.set(conn, { dev: current, ch: ch! });
+            if (current && live && !gone) this.live.set(conn, { ...live, dev: current });
             this.sealed(conn, ch!, { t: 'unpair-failed' });
           });
       }
@@ -491,7 +492,7 @@ export class Host {
           const m = ch.open(text); // throws unless this is the device's next authentic frame
           if (m === undefined || busy) return;
           if (dev) {
-            if (m.t === 'open') return this.openStream(dev, this.live.get(conn)!.streams, m);
+            if (m.t === 'open') return void this.openStream(dev, this.live.get(conn)!.streams, m, b64url(hs!.remoteKey)).catch(() => end(4400, 'bad stream message'));
             if (this.live.get(conn)?.streams.message(m)) return;
             return inner(dev, m);
           }
@@ -517,18 +518,18 @@ export class Host {
     };
   }
 
-  private openStream(dev: Grant, streams: Streams, m: any) {
+  private async openStream(dev: Grant, streams: Streams, m: any, authenticatedKey: string) {
     const id = m.s, credit = m.credit;
     if (!Number.isInteger(id) || id < 1 || id > 2 ** 32 - 1 || streams.has(id) || !Number.isInteger(credit) || credit < 0) throw new Error('bad stream message');
     const s = streams.add(id, String(m.op ?? ''), m.args);
-    const g = this.grants.find((x) => x.id === dev.id);
     const req: LinkRequest = { op: s.op, args: s.args };
-    let viewable = false;
-    try { viewable = g?.role === 'control' || (this.opts.canView?.(req) ?? false); } catch (e) { this.report(e); }
-    const why = !this.opts.stream ? 'not-supported' : !g ? 'removed' : streams.size > MAX_STREAMS ? 'busy' : !viewable ? 'view-only' : undefined;
-    if (why) return s.end(why);
+    if (!this.opts.stream) return s.end('not-supported');
+    if (streams.size > MAX_STREAMS) return s.end('busy');
+    const admitted = await this.admitRequest(req, dev, authenticatedKey);
+    if ('error' in admitted) return s.end(admitted.error);
+    if (!streams.has(id)) return;
     s.accept(Math.min(credit, 2 ** 31));
-    void Promise.resolve().then(() => this.opts.stream!(s, req, g!)).catch((e) => s.end(this.reason(e)));
+    try { await this.opts.stream(s, req, admitted.grant); } catch (e) { s.end(this.reason(e)); }
   }
 
   private acknowledge(device: string, session: unknown, ack: unknown) {

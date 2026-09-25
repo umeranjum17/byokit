@@ -146,6 +146,20 @@ test('T4: the stream handler gets the authenticated grant, so the app keeps one 
   await until(() => ob.text() === 'Phone B controls p1');
 });
 
+test('R5: stream opens obey the same allow policy as requests', async () => {
+  const opened: string[] = [];
+  const h = await startHost({
+    allow: (req) => req.op === 'watch',
+    stream: (s, req) => { opened.push(req.op); s.end(); },
+  });
+  const d = await device(h, 'Phone');
+  await assert.rejects(d.link.stream('terminal'), (e: LinkError) => e.code === 'not-allowed' && e.sealed);
+  assert.deepEqual(opened, []);
+  await d.link.stream('watch');
+  await until(() => opened.length === 1);
+  assert.deepEqual(opened, ['watch']);
+});
+
 test('T4: an async stream handler can await its first write, then end with a public or generic error', async () => {
   const h = await startHost({ stream: async (s, req) => {
     if (req.op === 'public') throw new PublicLinkError('No such pane.');
