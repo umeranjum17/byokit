@@ -46,7 +46,7 @@ fun signInWords(error: String): String = when {
 }
 
 /** Why a model call failed, in the kinds an app acts on, and until when the account rests (0 = it didn't say). */
-enum class Kind { RATE_LIMIT, OVERLOADED, SIGNED_OUT, NETWORK }
+enum class Kind { RATE_LIMIT, NOT_INCLUDED, OVERLOADED, SIGNED_OUT, NETWORK }
 data class Limit(val kind: Kind, val until: Long)
 
 /** A failure message → its kind (fixtures/conformance/classify.json); null when it is none of them. */

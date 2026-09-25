@@ -16,11 +16,11 @@ export function limitResponse(status: number, body: string, now = Date.now()): {
   let err: any = {};
   try { err = JSON.parse(body)?.error ?? {}; } catch {}
   const code = String(err.code || err.type || '');
-  if (/usage_limit_reached|usage_not_included|rate_limit_exceeded/.test(code) || status === 429) {
+  if (/^(usage_limit_reached|usage_not_included|rate_limit_exceeded)$/.test(code) || status === 429) {
     const resets = typeof err.resets_at === 'number' ? err.resets_at * 1000 : null;
     const message = 'You have hit your ChatGPT usage limit' + (err.plan_type ? ` (${String(err.plan_type).toLowerCase()} plan)` : '') + '.' +
       (resets ? ` Try again in ~${Math.max(0, Math.round((resets - now) / 60_000))} min.` : '');
-    return { kind: 'rate_limit', until: resets, message };
+    return { kind: code === 'usage_not_included' ? 'not_included' : 'rate_limit', until: resets, message };
   }
   const kind: Kind | null = status === 401 || status === 403 ? 'signed_out' : [500, 502, 503, 504].includes(status) ? 'overloaded' : null;
   return { kind, until: null, message: (typeof err.message === 'string' && err.message) || body || 'Request failed' };

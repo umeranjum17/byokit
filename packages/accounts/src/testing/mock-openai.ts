@@ -91,7 +91,7 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
           return send(401, { error: { message: 'Provided authentication token is expired. Please try signing in again.' } });
         const text = `You said: ${json().input?.[0]?.content?.[0]?.text ?? ''}`;
         res.writeHead(200, { 'content-type': 'text/event-stream' });
-        for (const delta of text.match(/.{1,4}/g) ?? []) {
+        for (const delta of text.match(/[\s\S]{1,4}/g) ?? []) {
           res.write(`event: response.output_text.delta\ndata: ${JSON.stringify({ type: 'response.output_text.delta', delta })}\n\n`);
           await new Promise((r) => setTimeout(r, 5));
         }

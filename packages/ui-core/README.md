@@ -13,7 +13,7 @@ without provenance, 100.64/10 is labeled Private network rather than assumed to 
 Pairing with `@byokit/link`, from `@byokit/ui-core/link` (no React either):
 
 - `qrMatrix(offer.text)`: the pairing QR as rows of dark and light modules, with its quiet border, to draw in any UI.
-- `consentWords({ hostName, role, lifetime })`: the question before pairing ("Pair with Kitchen computer? This device
+- `consentWords({ hostName, role })`: the question before pairing ("Pair with Kitchen computer? This device
   will be able to see and change things on it, until you remove it there.").
 - `pairingView({ phase, hostName, words, error })`: scan, compare the two words, waiting for a yes, paired, failed.
 - `linkWords(status, hostName)`: the link's status in one sentence.

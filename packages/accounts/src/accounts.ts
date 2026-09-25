@@ -249,23 +249,25 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   /** Ask ChatGPT with this member's own sign-in, the answer streaming into `onText`; refreshed first when due. A
    *  failure about the account (a limit, a lapsed sign-in) is acted on as `failed()` does, then thrown as a
    *  ResponseError with the words to show. */
-  async respond(member: M, ask: Ask, key = 'chatgpt'): Promise<string> {
+  async respond(member: M, ask: Ask): Promise<string> {
+    const key = 'chatgpt';
     const p = this.offer(key);
-    if (p.pi !== 'openai-codex') throw new ResponseError(`${p.name} can't answer here yet.`, null);
     const rt = await this.runtime(member);
-    const access = (await rt.getAuth(p.pi).catch(() => undefined))?.auth?.apiKey;
+    let access: string | undefined;
+    try { access = (await rt.getAuth(p.pi))?.auth?.apiKey; }
+    catch { throw new ResponseError('ChatGPT could not refresh its sign-in. Try again when the network is back.', 'network'); }
     const c = await rt.readCredential(p.pi).catch(() => undefined);
     if (!access || c?.type !== 'oauth') throw new ResponseError(say('status.signedOut', { name: p.name }), 'signed_out');
     try {
       return await respond({ ...ask, access, accountId: String(c.accountId ?? ''), model: ask.model ?? p.models.strong, base: this.opts.apiBase, fetch: this.opts.fetch });
     } catch (e: any) {
-      if (e instanceof ResponseError && e.kind && e.kind !== 'network') await this.failed(member, key, e.message);
+      if (e instanceof ResponseError && e.kind && e.kind !== 'network') await this.failed(member, key, e);
       throw e;
     }
   }
 
-  async failed(member: M, key: string, error: string) {
-    const c = classify(error);
+  async failed(member: M, key: string, error: string | ResponseError) {
+    const c = error instanceof ResponseError ? error.kind && { kind: error.kind, until: error.until } : classify(error);
     if (!c || c.kind === 'network') return c;
     if (c.kind === 'signed_out' && await this.recheck(member, key)) c.kind = 'overloaded';
     if (c.kind === 'not_included') this.notIncluded(member, key, true);

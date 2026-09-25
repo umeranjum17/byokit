@@ -10,10 +10,9 @@ export const qrMatrix = (text: string): boolean[][] => encode(text, { ecc: 'M', 
 export type Role = 'control' | 'view';
 
 /** The question before pairing: which computer, what this device may do, and for how long. */
-export function consentWords(o: { hostName: string; role: Role; lifetime?: 'session' | 'eight hours' | '30 days' | 'until removed' }): string {
+export function consentWords(o: { hostName: string; role: Role }): string {
   const may = o.role === 'control' ? 'see and change things on it' : 'see it, but not change anything';
-  const time = !o.lifetime || o.lifetime === 'until removed' ? 'until you remove it there' : o.lifetime === 'session' ? 'until you close this page' : `for ${o.lifetime}`;
-  return `Pair with ${o.hostName}? This device will be able to ${may}, ${time}.`;
+  return `Pair with ${o.hostName}? This device will be able to ${may}, until you remove it there.`;
 }
 
 /** The pairing sheet's phases: `scan` the QR (or type the code), `compare` the two words with the computer, `waiting`

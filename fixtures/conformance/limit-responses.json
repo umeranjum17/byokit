@@ -1,5 +1,5 @@
 {
-  "rule": "err = body.error, code = err.code || err.type || \"\". If code matches usage_limit_reached|usage_not_included|rate_limit_exceeded or status is 429: kind rate_limit, until = err.resets_at*1000 or null, message = \"You have hit your ChatGPT usage limit\" + (plan_type ? \" (\"+lowercase(plan_type)+\" plan)\" : \"\") + \".\" + (resets_at ? \" Try again in ~\"+max(0, round((resets_at*1000-now)/60000))+\" min.\" : \"\"). Else 401/403 -> signed_out; 500/502/503/504 -> overloaded; else null. For non-rate kinds until is null and message = err.message, else the raw body, else \"Request failed\".",
+  "rule": "err = body.error, code = err.code || err.type || \"\". If code is usage_not_included: kind not_included; else if code matches usage_limit_reached|rate_limit_exceeded or status is 429: kind rate_limit, until = err.resets_at*1000 or null, message = \"You have hit your ChatGPT usage limit\" + (plan_type ? \" (\"+lowercase(plan_type)+\" plan)\" : \"\") + \".\" + (resets_at ? \" Try again in ~\"+max(0, round((resets_at*1000-now)/60000))+\" min.\" : \"\"). Else 401/403 -> signed_out; 500/502/503/504 -> overloaded; else null. For non-rate kinds until is null and message = err.message, else the raw body, else \"Request failed\".",
   "now": 1790000000000,
   "cases": [
     {
@@ -12,7 +12,7 @@
     {
       "status": 400,
       "body": "{\"error\":{\"type\":\"usage_not_included\",\"message\":\"Not included\"}}",
-      "kind": "rate_limit",
+      "kind": "not_included",
       "until": null,
       "message": "You have hit your ChatGPT usage limit."
     },

@@ -43,7 +43,7 @@ export function browserDeviceStore(name: string, db = 'byokit-link'): KeptDevice
         const t = d.transaction(table, mode);
         const r = fn(t.objectStore(table));
         t.oncomplete = () => resolve(r.result);
-        t.onerror = t.onabort = () => reject(t.error);
+        t.onabort = () => reject(t.error ?? r.error);
       });
     } finally { d.close(); }
   };
@@ -51,8 +51,13 @@ export function browserDeviceStore(name: string, db = 'byokit-link'): KeptDevice
     const kept = await run<CryptoKey | undefined>('keys', 'readonly', (s) => s.get(name));
     if (kept) return kept;
     const made = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-    await run('keys', 'readwrite', (s) => s.put(made, name));
-    return made;
+    try {
+      await run('keys', 'readwrite', (s) => s.add(made, name));
+      return made;
+    } catch (e) {
+      if ((e as DOMException)?.name !== 'ConstraintError') throw e;
+      return (await run<CryptoKey>('keys', 'readonly', (s) => s.get(name)))!;
+    }
   };
   return {
     async load() {

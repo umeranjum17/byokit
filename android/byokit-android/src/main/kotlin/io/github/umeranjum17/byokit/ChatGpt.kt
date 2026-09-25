@@ -218,7 +218,7 @@ class ChatGpt(
                 val plan = err?.optString("plan_type")?.ifEmpty { null }?.let { " (${it.lowercase()} plan)" } ?: ""
                 val resets = err?.optLong("resets_at", 0) ?: 0
                 val mins = if (resets > 0) " Try again in ~${maxOf(0, Math.round((resets * 1000 - now) / 60_000.0))} min." else ""
-                return Limit(Kind.RATE_LIMIT, resets * 1000) to "You have hit your ChatGPT usage limit$plan.$mins"
+                return Limit(if (code == "usage_not_included") Kind.NOT_INCLUDED else Kind.RATE_LIMIT, resets * 1000) to "You have hit your ChatGPT usage limit$plan.$mins"
             }
             val message = err?.optString("message")?.ifEmpty { null } ?: body.ifEmpty { "Request failed" }
             val kind = when (status) {

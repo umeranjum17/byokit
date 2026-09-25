@@ -59,7 +59,18 @@ test('K4: the grant in IndexedDB, sealed by a non-extractable AES-GCM key; the s
       const r = await page.evaluate(async (g) => {
         const { browserDeviceStore } = await import('/stores.js' as string);
         const store = browserDeviceStore('kitchen');
-        await store.save(g);
+        const other = { ...g, host: g.host + '-second' };
+        const generate = crypto.subtle.generateKey.bind(crypto.subtle);
+        let arrived = 0;
+        let release!: () => void;
+        const both = new Promise<void>((resolve) => { release = resolve; });
+        Object.defineProperty(crypto.subtle, 'generateKey', { configurable: true, value: async (...args: Parameters<typeof generate>) => {
+          const key = await generate(...args);
+          if (++arrived === 2) release();
+          await both;
+          return key;
+        } });
+        await Promise.all([store.save(g), browserDeviceStore('kitchen').save(other)]);
         const back = await browserDeviceStore('kitchen').load();
         const raw = await new Promise<any>((resolve) => {
           const o = indexedDB.open('byokit-link');
@@ -73,9 +84,11 @@ test('K4: the grant in IndexedDB, sealed by a non-extractable AES-GCM key; the s
         const exported = await crypto.subtle.exportKey('raw', raw.key).then(() => 'exported', () => 'refused');
         const stored = new TextDecoder('latin1').decode(new Uint8Array(raw.grant.data));
         await store.clear();
-        return { back, extractable: raw.key.extractable, exported, leaks: stored.includes(g.secretKey) || stored.includes('Kitchen'), cleared: await store.load() };
+        return { back, arrived, extractable: raw.key.extractable, exported, leaks: stored.includes(g.secretKey) || stored.includes('Kitchen'), cleared: await store.load() };
       }, grant);
-      assert.deepEqual(r.back, grant);
+      assert.equal(r.arrived, 2, 'both first saves generated a key');
+      assert.ok(r.back.host === grant.host || r.back.host === grant.host + '-second');
+      assert.equal(r.back.secretKey, grant.secretKey);
       assert.equal(r.extractable, false);
       assert.equal(r.exported, 'refused');
       assert.equal(r.leaks, false);

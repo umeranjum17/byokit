@@ -30,11 +30,9 @@ test('P1: the QR of a real pairing offer scans back to the same text', async () 
 test('P5: consent says which computer, what this device may do, and for how long', () => {
   assert.equal(consentWords({ hostName: 'Kitchen computer', role: 'control' }),
     'Pair with Kitchen computer? This device will be able to see and change things on it, until you remove it there.');
-  assert.equal(consentWords({ hostName: 'Kitchen computer', role: 'view', lifetime: 'eight hours' }),
-    'Pair with Kitchen computer? This device will be able to see it, but not change anything, for eight hours.');
-  assert.match(consentWords({ hostName: 'Kitchen computer', role: 'view', lifetime: 'session' }), /until you close this page\.$/);
-  for (const role of ['control', 'view'] as const) for (const lifetime of ['session', 'eight hours', '30 days', 'until removed'] as const)
-    plain(consentWords({ hostName: 'Kitchen computer', role, lifetime }));
+  assert.equal(consentWords({ hostName: 'Kitchen computer', role: 'view' }),
+    'Pair with Kitchen computer? This device will be able to see it, but not change anything, until you remove it there.');
+  for (const role of ['control', 'view'] as const) plain(consentWords({ hostName: 'Kitchen computer', role }));
 });
 
 test('N2: the route a link takes, in words', () => {

@@ -7,9 +7,7 @@ export const REST_MS: Record<Kind, number> = { rate_limit: 60 * 60_000, overload
 export function classify(error: string): { kind: Kind; until: number } | null {
   const m = /try again in ~?(\d+)\s*(min|h)/i.exec(error);
   const until = m ? Date.now() + Number(m[1]) * (m[2].toLowerCase() === 'h' ? 3_600_000 : 60_000) : 0;
-  // ChatGPT words "your plan doesn't include this" (usage_not_included) like a limit, but with no time to come back.
-  // ponytail: told apart by the missing "try again"; a real limit always says when it resets.
-  if (/usage limit/i.test(error) && !m) return { kind: 'not_included', until };
+  if (/your plan doesn't include/i.test(error)) return { kind: 'not_included', until };
   if (/usage limit|rate.?limit|quota|too many requests|\b429\b/i.test(error)) return { kind: 'rate_limit', until };
   if (/overloaded|high demand|\b50[234]\b|unavailable/i.test(error)) return { kind: 'overloaded', until };
   if (/unauthori[sz]ed|\b40[13]\b|sign in again|expired|invalid.*token|authentication/i.test(error)) return { kind: 'signed_out', until };

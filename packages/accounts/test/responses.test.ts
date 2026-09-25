@@ -60,6 +60,41 @@ test("respond with a fetch that can't stream (React Native's own): the whole ans
   assert.equal(pieces.join(''), 'You said: hi');
 });
 
+test('respond preserves newlines in streamed and whole answers', async () => {
+  const a = await signedIn();
+  const pieces: string[] = [];
+  const answer = 'You said: first\nsecond';
+  assert.equal(await a.respond(1, { instructions: '', input: 'first\nsecond', onText: (d) => pieces.push(d) }), answer);
+  assert.equal(pieces.join(''), answer);
+});
+
+test('respond distinguishes an undated rate limit from a plan exclusion', async () => {
+  for (const [body, kind, state] of [
+    ['slow down', 'rate_limit', 'resting'],
+    [JSON.stringify({ error: { code: 'rate_limit_exceeded' } }), 'rate_limit', 'resting'],
+    [JSON.stringify({ error: { type: 'usage_not_included' } }), 'not_included', 'not_included'],
+  ]) {
+    const a = await signedIn();
+    openai.state.fail = { status: body === 'slow down' ? 429 : 400, body };
+    await assert.rejects(a.respond(1, { instructions: '', input: 'hi' }), (e: any) => e.kind === kind);
+    assert.equal((await a.status(1, 'chatgpt')).state, state);
+    if (kind === 'rate_limit') assert.ok(a.restingUntil(1, 'chatgpt') > Date.now());
+  }
+});
+
+test('respond preserves a failed refresh as a network failure, not sign-out', async () => {
+  openai.state.expiresIn = 0;
+  const a = await signedIn();
+  openai.state.expiresIn = 864_000;
+  const original = globalThis.fetch;
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+    String(input) === `${openai.base}/oauth/token` ? Promise.reject(new Error('fetch failed')) : original(input, init)) as typeof fetch;
+  try {
+    await assert.rejects(a.respond(1, { instructions: '', input: 'hi' }), (e: any) => e instanceof ResponseError && e.kind === 'network');
+    assert.equal((await a.status(1, 'chatgpt')).state, 'ready');
+  } finally { globalThis.fetch = original; }
+});
+
 test('respond failures: a usage limit rests the account; signed out says so in plain words', async () => {
   const a = await signedIn();
   openai.state.fail = { status: 429, body: JSON.stringify({ error: { code: 'usage_limit_reached', plan_type: 'PLUS', resets_at: Math.floor(Date.now() / 1000) + 3600 } }) };
