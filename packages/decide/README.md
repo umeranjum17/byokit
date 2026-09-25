@@ -40,12 +40,13 @@ is right; `jev` is a Jev-shaped answer, replayed offline so CI never calls a mod
 not a live recording.
 
 ```sh
-npx byokit-eval evals/intent.jsonl                    # replay: agreement, clear-but-wrong, abstains, latency
-npx byokit-eval evals/intent.jsonl --floor 0.7        # try another floor on the same answers
-TYPESAFE_API_KEY=… npx byokit-eval evals/intent.jsonl --live typesafe --record   # ask Jev, write its answers back
+npx --package=@byokit/decide byokit-eval evals/intent.jsonl                    # replay stored answers
+npx --package=@byokit/decide byokit-eval evals/intent.jsonl --floor 0.7        # try another floor
+TYPESAFE_API_KEY=… npx --package=@byokit/decide byokit-eval evals/intent.jsonl --live typesafe --record
 ```
 
-Clear-but-wrong (answered, and wrong) is the number that must stay near 0; the command exits 1 when its rate is above
+Agreement counts right answers and correctly expected abstentions; abstentions are also reported separately. Clear-but-wrong
+(answered, and wrong) is the number that must stay near 0; the command exits 1 when its rate is above
 `--max-clear-wrong` (default 0). Set floors from the eval, not by guessing. `evaluate()` in `@byokit/decide/eval` runs the
 same report over any backends, including your rules. `--record` keeps previous answers when a live refresh fails and
 marks a partially refreshed file as such. `evals/example-urgent.jsonl` shows the format.
