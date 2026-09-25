@@ -45,7 +45,7 @@ test('K3: the grant in expo-secure-store, one small value; after a restart the d
 const chrome = existsSync(chromium.executablePath()) ? undefined
   : [process.env.BYOKIT_CHROME, '/usr/bin/chromium', '/usr/bin/google-chrome'].find((p) => p && existsSync(p));
 test('K4: the grant in IndexedDB, sealed by a non-extractable AES-GCM key; the stored record reveals nothing', async () => {
-    const grant = await pair();
+    let grant = await pair();
     const js = (await build({ entryPoints: [new URL('../src/stores.ts', import.meta.url).pathname], bundle: true, platform: 'browser', format: 'esm', write: false })).outputFiles[0].text;
     const site = createServer((req, res) => {
       if (req.url === '/stores.js') return res.writeHead(200, { 'content-type': 'text/javascript' }).end(js);
@@ -98,6 +98,7 @@ test('K4: the grant in IndexedDB, sealed by a non-extractable AES-GCM key; the s
       assert.equal(r.leaks, false);
       assert.equal(r.cleared, null);
 
+      grant = await pair();
       const otherTab = await context.newPage();
       await otherTab.goto(siteUrl);
       await page.evaluate(async (g) => {
@@ -130,6 +131,7 @@ test('K4: the grant in IndexedDB, sealed by a non-extractable AES-GCM key; the s
         const { browserDeviceStore } = await import('/stores.js' as string);
         return browserDeviceStore('kitchen').load();
       }), null);
+      grant = await pair();
       assert.deepEqual(await otherTab.evaluate(async (g) => {
         const { browserDeviceStore } = await import('/stores.js' as string);
         const store = browserDeviceStore('kitchen');
@@ -175,6 +177,25 @@ test('K4: the grant in IndexedDB, sealed by a non-extractable AES-GCM key; the s
         const { browserDeviceStore } = await import('/stores.js' as string);
         return browserDeviceStore('kitchen').load();
       }), null);
+
+      await page.evaluate(async (g) => {
+        const { browserDeviceStore } = await import('/stores.js' as string);
+        await browserDeviceStore('kitchen').save(g);
+      }, grant);
+      assert.equal(await otherTab.evaluate(async () => {
+        const { browserDeviceStore } = await import('/stores.js' as string);
+        return browserDeviceStore('kitchen').load();
+      }), null);
+      const fresh = await pair();
+      assert.notEqual(fresh.device.id, grant.device.id);
+      await otherTab.evaluate(async (g) => {
+        const { browserDeviceStore } = await import('/stores.js' as string);
+        await browserDeviceStore('kitchen').save(g);
+      }, fresh);
+      assert.deepEqual(await page.evaluate(async () => {
+        const { browserDeviceStore } = await import('/stores.js' as string);
+        return browserDeviceStore('kitchen').load();
+      }), fresh);
     } finally { await browser.close(); site.close(); }
   });
 

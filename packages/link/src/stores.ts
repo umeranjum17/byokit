@@ -67,13 +67,14 @@ export function browserDeviceStore(name: string, db = 'byokit-link'): KeptDevice
       return (await run<CryptoKey>('keys', 'readonly', (s) => s.get(name)))!;
     }
   };
+  const read = async (): Promise<DeviceGrant | null> => {
+    const sealed = await run<{ iv?: Uint8Array<ArrayBuffer>; data?: ArrayBuffer } | undefined>('grants', 'readonly', (s) => s.get(name));
+    if (!sealed?.iv || !sealed.data) return null;
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: sealed.iv }, await key(), sealed.data);
+    return grantOf(new TextDecoder().decode(plain));
+  };
   return {
-    load: () => locked(async () => {
-      const sealed = await run<{ iv?: Uint8Array<ArrayBuffer>; data?: ArrayBuffer } | undefined>('grants', 'readonly', (s) => s.get(name));
-      if (!sealed?.iv || !sealed.data) return null;
-      const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: sealed.iv }, await key(), sealed.data);
-      return grantOf(new TextDecoder().decode(plain));
-    }),
+    load: () => locked(read),
     save(g) {
       return locked(async () => {
         const started = await generation();
@@ -81,15 +82,16 @@ export function browserDeviceStore(name: string, db = 'byokit-link'): KeptDevice
         const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await key(), new TextEncoder().encode(JSON.stringify(g)));
         await run('grants', 'readwrite', (s) => {
           const r = s.get(name);
-          r.onsuccess = () => { if ((r.result?.generation ?? 0) === started) s.put({ iv, data, generation: started }, name); };
+          r.onsuccess = () => { if ((r.result?.generation ?? 0) === started && r.result?.forgottenId !== g.device.id) s.put({ iv, data, generation: started }, name); };
           return r;
         });
       });
     },
     clear: () => locked(async () => {
+      const forgottenId = (await read().catch(() => null))?.device?.id;
       await run('grants', 'readwrite', (s) => {
         const r = s.get(name);
-        r.onsuccess = () => { s.put({ generation: (r.result?.generation ?? 0) + 1 }, name); };
+        r.onsuccess = () => { s.put({ generation: (r.result?.generation ?? 0) + 1, forgottenId: forgottenId ?? r.result?.forgottenId }, name); };
         return r;
       });
     }),

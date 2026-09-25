@@ -5,5 +5,5 @@
 SECURITY: Node hostKeyFile/device store wrote the device secret through a predictable temp path that followed symlinks; now a random O_EXCL 0600 temp file
 
 - React Native `secureDeviceStore` keeps device grants in platform secure storage.
-- Browser `browserDeviceStore` seals grants in IndexedDB and orders saves with clears across tabs.
+- Browser `browserDeviceStore` seals grants in IndexedDB, orders saves with clears across tabs, and rejects late saves of forgotten device IDs.
 - Node/Electron `fileDeviceStore` persists grants in a private file, optionally sealed by Electron safeStorage.
