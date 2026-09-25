@@ -174,6 +174,6 @@ export class RelayClient {
       const ms = Math.min(30_000, 1000 * 2 ** this.tries++) * (0.5 + Math.random() / 2);
       this.timer = later(ms, () => this.connect());
     });
-    ws.addEventListener('error', () => ws.close());
+    ws.addEventListener('error', () => { if (ws.readyState === 1) ws.close(); });
   }
 }

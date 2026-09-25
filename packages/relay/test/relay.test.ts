@@ -57,6 +57,25 @@ test('the host reconnects after the relay restarts, and requests queued meanwhil
   assert.equal(r.relay.count(p.host.id), 1);
 });
 
+test('an error while connecting does not close recursively or schedule duplicate reconnects', async () => {
+  class FakeSocket extends EventTarget {
+    readyState = 0;
+    closes = 0;
+    send() {}
+    close() { this.closes++; this.dispatchEvent(new Event('error')); }
+    constructor(_url: string) { super(); }
+  }
+  const host = await startHost();
+  let socket!: FakeSocket;
+  const client = new RelayClient(host, { url: 'ws://unused', WebSocket: (class extends FakeSocket { constructor(url: string) { super(url); socket = this; } }) as any });
+  socket.dispatchEvent(new Event('error'));
+  assert.equal(socket.closes, 0);
+  socket.dispatchEvent(Object.assign(new Event('close'), { code: 1006, reason: 'failed' }));
+  assert.equal(client.status, 'offline');
+  assert.ok((client as any).timer, 'retry is scheduled with the existing backoff');
+  client.stop();
+});
+
 test('a dropped socket retains no more than 64 unanswered outbound calls', async () => {
   class FakeSocket extends EventTarget {
     readyState = 1;
