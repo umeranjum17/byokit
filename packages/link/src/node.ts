@@ -23,13 +23,15 @@ export function hostKeyFile(path: string): KeyPair {
   try { return existing(); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; }
   const keys = keyPair();
   const tmp = `${path}.${process.pid}.${b64url(random(6))}.tmp`;
+  let created = false;
   try {
     const fd = openSync(tmp, 'wx', 0o600);
+    created = true;
     try { writeSync(fd, JSON.stringify({ v: 1, secretKey: b64url(keys.secretKey) })); fsyncSync(fd); }
     finally { closeSync(fd); }
     try { linkSync(tmp, path); } catch (e: any) { if (e?.code === 'EEXIST') return existing(); throw e; }
     return keys;
-  } finally { try { unlinkSync(tmp); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; } }
+  } finally { if (created) try { unlinkSync(tmp); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; } }
 }
 
 // A computer's device store (Node, Electron's main process): the grant in a 0600 file the app chooses; newly created
@@ -50,8 +52,15 @@ export function fileDeviceStore(path: string, safeStorage?: SafeStorageLike): Ke
     save(g) {
       const text = JSON.stringify(g);
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-      writeFileSync(`${path}.tmp`, safeStorage ? safeStorage.encryptString(text) : text, { mode: 0o600 });
-      renameSync(`${path}.tmp`, path);
+      const tmp = `${path}.${process.pid}.${b64url(random(6))}.tmp`;
+      let created = false;
+      try {
+        const fd = openSync(tmp, 'wx', 0o600);
+        created = true;
+        try { writeFileSync(fd, safeStorage ? safeStorage.encryptString(text) : text); fsyncSync(fd); }
+        finally { closeSync(fd); }
+        renameSync(tmp, path);
+      } finally { if (created) try { unlinkSync(tmp); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; } }
     },
     clear() { rmSync(path, { force: true }); },
   };

@@ -28,10 +28,6 @@
     "./link": {
       "types": "./dist/link.d.ts",
       "default": "./dist/link.js"
-    },
-    "./route": {
-      "types": "./dist/route.d.ts",
-      "default": "./dist/route.js"
     }
   },
   "files": [

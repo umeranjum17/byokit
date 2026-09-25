@@ -103,7 +103,10 @@ function Pair() {
   };
   useEffect(() => {
     const current = generation.current.next();
-    kept.current.load().then((g) => { if (g) use(g, current); });
+    kept.current.load().then(
+      (g) => { if (g) use(g, current); },
+      (e) => { if (generation.current.isCurrent(current)) { setError(String(e?.message ?? e)); setPhase('failed'); } },
+    );
     return () => { generation.current.next(); link.current?.stop(); };
   }, []);
   const pair = async () => {

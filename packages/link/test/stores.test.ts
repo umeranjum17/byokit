@@ -3,7 +3,7 @@
 // computer's file sealed with Electron's safeStorage.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -95,6 +95,24 @@ test('K4: the grant in IndexedDB, sealed by a non-extractable AES-GCM key; the s
       assert.equal(r.cleared, null);
     } finally { await browser.close(); site.close(); }
   });
+
+test('a computer grant does not follow a predictable temp symlink and cleans failed writes', async () => {
+  const folder = mkdtempSync(join(tmpdir(), 'byokit-link-grant-'));
+  const path = join(folder, 'grant');
+  const decoy = join(folder, 'decoy');
+  writeFileSync(decoy, 'untouched');
+  symlinkSync(decoy, `${path}.tmp`);
+  const grant = await pair();
+  const store = fileDeviceStore(path);
+  await store.save(grant);
+  assert.equal(readFileSync(decoy, 'utf8'), 'untouched');
+  assert.equal(statSync(path).mode & 0o777, 0o600);
+  assert.deepEqual(await store.load(), grant);
+  const occupied = join(folder, 'occupied');
+  mkdirSync(occupied);
+  assert.throws(() => fileDeviceStore(occupied).save(grant));
+  assert.equal(readdirSync(folder).filter((name) => name.startsWith('occupied.')).length, 0);
+});
 
 test("a computer's grant: a 0600 file, sealed with Electron's safeStorage when given", async () => {
   const grant = await pair();
