@@ -1,6 +1,6 @@
 # @byokit/link: threat model and review checklist
 
-Status: v0.1, **held for the owner's security review**. Not published.
+Version 0.1.0. Muxr parity is tracked separately.
 
 ## What it protects
 
@@ -29,7 +29,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 | Grants | Held by the host: `{id, key, name, role: control or view, created, lastSeen, meta}`. Durable until revoked (muxr decision 0001). Every handshake checks the device key against the list; every request re-checks it. View-only devices may only make the requests the app's `canView` allows (default: none). |
 | Revoke | Deletes the grant, sends a sealed `revoked` to its live sockets, then closes them. No key rotation is needed: there are no shared keys. |
 | Refusals | A host that can read the device's handshake answers refusals (`not-paired`, `expired`, `declined`, `full`) inside the channel, so the device can trust them (e.g. forget its grant). Anything unauthenticated (a plaintext close) only changes what the device *says*, never what it deletes. |
-| Requests | `{t:'req', id, key, op, args}`. The key makes a retried request run once, including after a reconnect. Each request acknowledges up to 64 received answer keys; the host removes acknowledged answers from its per-device in-memory cache. Unacknowledged answers survive reconnects, subject to a hard 1000-answer cap. |
+| Requests | `{t:'req', id, key, session, ack, op, args}`. The device sends its highest contiguous received reply id on each request and reconnect authentication. The host retains replies until acknowledged, including across reconnects. At 1000 unacknowledged replies it refuses new requests with `busy`, without evicting answers. The cache is in memory. |
 | Relay | Routes by URL (`<relay>/link/v1/<host id>`, host id = BLAKE2b-128 of the host key) and, host-side, by a `{c, f}` / `{c, end}` wrapper. Frames pass through byte for byte. The relay is not part of v0.1. |
 
 ## Adversaries and what stops them
@@ -43,7 +43,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 | **A paired view-only device** | The requests `canView` allows | Mutating requests: refused by the host before the app's handler sees them. |
 | **A malicious relay** | Deny service; learn metadata above | Read, change or inject traffic; pair itself (tickets and codes are sealed or PSK-bound end to end). An impostor host registration only causes denial of service: devices' handshakes fail. |
 
-## Known limits (decide in review)
+## Known limits
 
 1. **Typed-code offline guessing.** XXpsk0 puts the PSK in message 1, so an observer can test guesses against it
    offline. 59 bits for 5 minutes is out of reach; a longer window or shorter code is not. PSK at message 3 (XXpsk3)
@@ -59,7 +59,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
    `crypto_kx` + `secretstream`, still reviewed crypto.
 5. **Denial of service.** No rate limit on handshakes (each costs the host a few X25519 operations). Apps expose the
    socket only on loopback/tailnet/LAN by default (Crewhouse does) or behind a relay that limits.
-6. **Idempotency survives reconnects, not host restarts.** The answer cache is in memory. A device that never acknowledges answers can hit the hard 1000-answer per-device safety cap; the oldest unanswered key then loses once-only retry protection.
+6. **Idempotency survives reconnects, not host restarts.** The answer cache is in memory. A device with 1000 unacknowledged replies receives `busy` for new requests until it acknowledges earlier replies; no unacknowledged answer is evicted.
 7. **Key storage is the app's job.** Host key: OS keychain (Electron `safeStorage`) or a 0600 file. React Native:
    `expo-secure-store`. Browser: IndexedDB, wrapped by a non-extractable WebCrypto AES-GCM key (muxr decision 0003);
    a live XSS can still use an unlocked key, so browsers should default to view-only. Android native: X25519 wrapped
@@ -84,7 +84,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 - [ ] Nothing is stored before `confirm` returns true; `confirm` failing or timing out means no.
 - [ ] Every connection's device key is checked against the grants at `auth`; every request re-checks the grant;
       `revoke` removes the grant before closing sockets.
-- [ ] View-only is enforced in the host before the app handler, and defaults closed. Only errors explicitly marked `expose === true` disclose their message to devices; other handler failures return plain `failed`.
+- [ ] View-only is enforced in the host before the app handler, and defaults closed. Only an explicit `PublicLinkError` discloses its chosen message; other handler failures are logged on the host and return plain `failed`.
 - [ ] A device forgets its grant only on a sealed `revoked` or sealed `not-paired`.
 - [ ] Names shown to people are stripped of control and direction-flipping characters and capped at 60.
 - [ ] `parseOffer` accepts only `ws:`/`wss:` addresses without credentials, at most 8, a 32-byte key and 16-byte

@@ -6,7 +6,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import {
-  DeviceLink, Host, LinkError, b64url, hostId, keyPair, keyPairFrom, unb64url, pairWithCode as pairCode, pairWithOffer as pairOffer, parseOffer,
+  DeviceLink, Host, LinkError, PublicLinkError, b64url, hostId, keyPair, keyPairFrom, unb64url, pairWithCode as pairCode, pairWithOffer as pairOffer, parseOffer,
   type DeviceGrant, type Grant, type HostOptions, type LinkStatus, type PairRequest,
 } from '../src/index.ts';
 
@@ -26,12 +26,14 @@ async function startHost(o: Partial<HostOptions> = {}) {
   const asked: PairRequest[] = [];
   let saved: Grant[] = [];
   const ran: string[] = [];
+  const errors: unknown[] = [];
   const host = await Host.open({
     keys: keyPair(), name: 'Kitchen computer',
     grants: { load: () => saved, save: (g) => { saved = g; } },
     confirm: (p) => { asked.push(p); return true; },
     canView: (r) => r.op.startsWith('get.'),
-    handle: async (r, dev) => { ran.push(`${dev.name}:${r.op}`); if (r.op === 'slow') await sleep(300); if (r.op === 'fail') throw Object.assign(new Error('nope'), { expose: true }); if (r.op === 'secret-fail') throw new Error('secret-token'); return { op: r.op, args: r.args, by: dev.id }; },
+    onError: (e) => { errors.push(e); },
+    handle: async (r, dev) => { ran.push(`${dev.name}:${r.op}`); if (r.op === 'slow') await sleep(300); if (r.op === 'fail') throw new PublicLinkError('nope'); if (r.op === 'secret-fail') throw new Error('secret-token'); return { op: r.op, args: r.args, by: dev.id }; },
     ...o,
   });
   const sockets: WsSocket[] = [];
@@ -41,7 +43,7 @@ async function startHost(o: Partial<HostOptions> = {}) {
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}/link`;
   closers.push(() => { host.close(); wss.close(); server.close(); });
-  return { host, url, asked, ran, sockets, saved: () => saved };
+  return { host, url, asked, ran, errors, sockets, saved: () => saved };
 }
 
 /** A device's live link, with its statuses and events recorded and an in-memory store. */
@@ -126,11 +128,35 @@ test('grants: control can act, view-only can only look; answers come from the ho
   await assert.rejects(control.link.request('fail'), /nope/);
   await assert.rejects(control.link.request('secret-fail'), (e: LinkError) => e.code === 'failed' && !e.message.includes('secret-token'));
   assert.deepEqual(h.ran, ['Phone:send.message', 'Tablet:get.state', 'Phone:fail', 'Phone:secret-fail']);
+  assert.equal((h.errors[0] as Error).message, 'secret-token');
   h.host.broadcast({ kind: 'hello' }, (g) => g.role === 'control');
   await until(() => control.events.length);
   assert.deepEqual(control.events, [{ kind: 'hello' }]);
   assert.deepEqual(viewer.events, []);
   assert.deepEqual(h.host.devices().map((d) => [d.name, d.role, d.online]), [['Phone', 'control', true], ['Tablet', 'view', true]]);
+});
+
+test('a throwing view policy refuses without running the handler', async () => {
+  const h = await startHost({ canView: () => { throw new Error('private policy detail'); } });
+  const d = connect(await pairWithOffer(h.host.offer({ role: 'view', urls: [h.url] }).text, { name: 'Tablet' }));
+  await assert.rejects(d.link.request('get.state'), (e: LinkError) => e.code === 'view-only' && !e.message.includes('private'));
+  assert.deepEqual(h.ran, []);
+  assert.equal((h.errors[0] as Error).message, 'private policy detail');
+});
+
+test('device store failures are observed for save and sealed removal', async () => {
+  const h = await startHost();
+  const grant = await pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' });
+  const errors: unknown[] = [];
+  const d = new DeviceLink(grant, {
+    store: { save: async () => { throw new Error('save failed'); }, clear: async () => { throw new Error('clear failed'); } },
+    onError: (e) => errors.push(e),
+  });
+  closers.push(() => d.stop());
+  await until(() => d.status === 'online' && errors.length === 1);
+  await h.host.revoke(grant.device.id);
+  await until(() => d.status === 'removed' && errors.length === 2);
+  assert.deepEqual(errors.map((e) => (e as Error).message), ['save failed', 'clear failed']);
 });
 
 test('reconnect and resume: a request cut off mid-flight is answered once after the device comes back', async () => {
@@ -163,6 +189,33 @@ test('unacknowledged answers survive more than 200 responses and a reconnect', a
   assert.equal(h.ran.length, 210, 'lost answers did not run again after reconnect');
 });
 
+test('unacknowledged capacity refuses new work without evicting answers', async () => {
+  const h = await startHost();
+  const d = connect(await pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' }));
+  await until(() => d.link.status === 'online');
+  const ws = h.sockets.at(-1)!;
+  const send = ws.send.bind(ws);
+  let dropped = 0;
+  ws.send = ((frame: any) => { if (dropped++ < 1000) return; send(frame); }) as typeof ws.send;
+  const answers = Array.from({ length: 1000 }, (_, n) => d.link.request(`op.${n}`));
+  await until(() => h.ran.length === 1000);
+  await assert.rejects(d.link.request('overflow'), (e: LinkError) => e.code === 'busy');
+  ws.terminate();
+  assert.equal((await Promise.all(answers)).length, 1000);
+  assert.equal(h.ran.length, 1000);
+  assert.deepEqual(await d.link.request('get.state'), { op: 'get.state', by: d.link.grant.device.id });
+});
+
+test('reconnect authentication acknowledges received replies before new work', async () => {
+  const h = await startHost();
+  const d = connect(await pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' }));
+  await until(() => d.link.status === 'online');
+  assert.equal((await Promise.all(Array.from({ length: 1000 }, (_, n) => d.link.request(`op.${n}`)))).length, 1000);
+  h.sockets.at(-1)!.terminate();
+  await until(() => d.link.status === 'offline');
+  assert.deepEqual(await d.link.request('get.state'), { op: 'get.state', by: d.link.grant.device.id });
+});
+
 test('failed grant saves leave memory unchanged and concurrent confirmations respect the device cap', async () => {
   let saved: Grant[] = [];
   let fail = false;
@@ -192,6 +245,26 @@ test('failed grant saves leave memory unchanged and concurrent confirmations res
   const results = await Promise.allSettled([a, b]);
   assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
   assert.equal(cap.host.devices().length, 1);
+});
+
+test('failed last-seen save refuses authentication without changing the stored grant', async () => {
+  let saved: Grant[] = [];
+  let fail = false;
+  let now = Date.now();
+  const h = await startHost({ now: () => now, grants: { load: () => saved, save: (g) => { if (fail) throw new Error('disk full'); saved = g; } } });
+  const grant = await pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' });
+  const before = saved[0].lastSeen;
+  now += 1000;
+  fail = true;
+  const d = connect(grant);
+  await until(() => d.link.status === 'offline');
+  assert.equal(saved[0].lastSeen, before);
+  assert.equal(h.host.devices()[0].lastSeen, before);
+  d.link.stop();
+  fail = false;
+  const reconnected = connect(grant);
+  await until(() => reconnected.link.status === 'online');
+  assert.equal(saved[0].lastSeen, now);
 });
 
 test('stop rejects pending and new requests until retry reconnects', async () => {

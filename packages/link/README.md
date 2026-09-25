@@ -1,4 +1,6 @@
-# @byokit/link
+# @byokit/link 0.1.0
+
+Muxr parity is tracked separately.
 
 Scan a code to pair a phone or browser with the home computer, then talk over one encrypted link. The computer (the
 **host**) keeps every credential; a device holds only its own key and a grant, and asks the host to do things.
@@ -28,7 +30,7 @@ host.devices(); await host.revoke(id); host.broadcast(event);
 ```
 
 `offer({ base: 'https://app.example/pair' })` makes a link a browser can open instead of a bare QR text.
-Handler errors reveal their message to devices only when the thrown error has `expose === true`; otherwise the device sees “Your computer couldn't do that.”
+Handler errors are logged on the host (`onError` can receive them). Devices see “Your computer couldn't do that.” unless the handler explicitly throws `new PublicLinkError('A message safe to show.')`.
 
 ## Device
 

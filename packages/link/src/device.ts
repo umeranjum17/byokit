@@ -29,6 +29,7 @@ export const LINK_WORDS = {
   'view-only': 'This device can watch but not make changes.',
   timeout: "Your computer didn't answer in time.",
   failed: "Your computer couldn't do that.",
+  busy: 'Your computer is still catching up. Try again in a moment.',
   stopped: 'This link is stopped. Try connecting again.',
 } as const;
 export type LinkProblem = keyof typeof LINK_WORDS;
@@ -45,12 +46,16 @@ export class LinkError extends Error {
   }
 }
 
+export class PublicLinkError extends LinkError {
+  constructor(message: string) { super('failed', true); this.message = message; }
+}
+
 const known = (why: unknown): why is LinkProblem => typeof why === 'string' && Object.hasOwn(LINK_WORDS, why);
 const problem = (why: unknown): LinkProblem => (known(why) ? why : 'unreachable');
 const later = (ms: number, fn: () => void) => { const t: any = setTimeout(fn, ms); t.unref?.(); return t; };
 
 type Open = { ready: any; hostKey: Uint8Array; send: (m: unknown) => void; close: () => void };
-type Hello = { t: 'auth' } | { t: 'pair'; ticket: string; name: string } | { t: 'code'; name: string };
+type Hello = { t: 'auth'; session: string; ack: number } | { t: 'pair'; ticket: string; name: string } | { t: 'code'; name: string };
 
 /** One socket: the handshake, the first request (`auth` or `pair`), and the host's `ready`. */
 function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Uint8Array }, hello: Hello, o: Dial & { onWords?: (w: string) => void },
@@ -151,7 +156,7 @@ type Pending = { msg: any; resolve: (v: unknown) => void; reject: (e: Error) => 
 export class DeviceLink {
   grant: DeviceGrant;
   status: LinkStatus = 'connecting';
-  private o: Dial & { store?: DeviceStore; onEvent?: (e: unknown) => void; onStatus?: (s: LinkStatus) => void };
+  private o: Dial & { store?: DeviceStore; onEvent?: (e: unknown) => void; onStatus?: (s: LinkStatus) => void; onError?: (e: unknown) => void };
   private conn: Open | null = null;
   private pending = new Map<number, Pending>();
   private n = 0;
@@ -159,38 +164,51 @@ export class DeviceLink {
   private stopped = false;
   private wake: any;
   private connecting = false;
-  private acked: string[] = [];
+  private readonly session = b64url(random(12));
+  private ack = 0;
+  private received = new Set<number>();
+  private storing: Promise<void> = Promise.resolve();
 
-  constructor(grant: DeviceGrant, o: Dial & { store?: DeviceStore; onEvent?: (e: unknown) => void; onStatus?: (s: LinkStatus) => void } = {}) {
+  constructor(grant: DeviceGrant, o: Dial & { store?: DeviceStore; onEvent?: (e: unknown) => void; onStatus?: (s: LinkStatus) => void; onError?: (e: unknown) => void } = {}) {
     this.grant = grant;
     this.o = o;
     void this.connect();
   }
 
   private set(s: LinkStatus) { if (s !== this.status) { this.status = s; this.o.onStatus?.(s); } }
+  private report(e: unknown) { try { (this.o.onError ?? console.error)(e); } catch {} }
+  private persist(action: () => void | Promise<void>) {
+    this.storing = this.storing.then(action).catch((e) => this.report(e));
+  }
+  private receivedReply(id: number) {
+    this.received.add(id);
+    while (this.received.delete(this.ack + 1)) this.ack++;
+  }
 
   private async connect() {
     if (this.stopped || this.connecting || this.conn) return;
     this.connecting = true;
     let wrongHosts = 0;
+    let online = false;
     try {
       const me = keyPairFrom(unb64url(this.grant.secretKey));
       for (const url of this.grant.urls) {
         try {
           let active: Open;
-          const l = await dial(url, me, { key: unb64url(this.grant.host) }, { t: 'auth' }, this.o, {
+          const l = await dial(url, me, { key: unb64url(this.grant.host) }, { t: 'auth', session: this.session, ack: this.ack }, this.o, {
             message: (m) => { if (this.conn === active) this.message(m); },
-            close: () => { if (this.conn !== active) return; this.conn = null; if (!this.stopped) { this.again(); this.set('offline'); } },
+            close: () => { if (this.conn !== active) return; this.conn = null; if (!this.stopped && !this.connecting) { this.again(); this.set('offline'); } },
           });
           active = l;
           if (this.stopped) return l.close();
           this.conn = l;
           this.tries = 0;
           this.grant = { ...this.grant, urls: [url, ...this.grant.urls.filter((u) => u !== url)], device: l.ready.device }; // the one that worked goes first
-          void this.o.store?.save(this.grant);
-          this.set('online');
+          const current = this.grant;
+          this.persist(() => this.o.store?.save(current));
           for (const [id, p] of this.pending) this.sendPending(l, id, p);
-          return;
+          online = true;
+          break;
         } catch (e: any) {
           if (e?.sealed && e.code === 'not-paired') return this.removed();
           if (e?.code === 'wrong-host') wrongHosts++;
@@ -198,14 +216,15 @@ export class DeviceLink {
       }
     } finally { this.connecting = false; }
     if (this.stopped) return;
-    if (wrongHosts > 0 && wrongHosts === this.grant.urls.length) { this.stopped = true; this.set('refused'); }
+    if (online && this.conn) this.set('online');
+    else if (wrongHosts > 0 && wrongHosts === this.grant.urls.length) { this.stopped = true; this.set('refused'); }
     else { this.again(); this.set('offline'); }
   }
 
   private sendPending(l: Open, id: number, p: Pending) {
     try { l.send(p.msg); } catch {
       this.pending.delete(id);
-      this.acked = [...p.msg.acked, ...this.acked].slice(-64);
+      this.receivedReply(id);
       p.reject(new Error('Your device could not send that request.'));
     }
   }
@@ -221,10 +240,9 @@ export class DeviceLink {
     const p = m.t === 'res' ? this.pending.get(m.id) : undefined;
     if (!p) return;
     this.pending.delete(m.id);
-    this.acked.push(p.msg.key);
-    if (this.acked.length > 64) this.acked.shift();
+    this.receivedReply(m.id);
     if (m.ok) p.resolve(m.value);
-    else p.reject(known(m.error) ? new LinkError(m.error, true) : new Error(String(m.error)));
+    else p.reject(m.error === 'public' ? new PublicLinkError(String(m.message)) : new LinkError(problem(m.error), true));
   }
 
   private removed() {
@@ -232,7 +250,7 @@ export class DeviceLink {
     this.conn?.close();
     for (const p of this.pending.values()) p.reject(new LinkError('removed', true));
     this.pending.clear();
-    void this.o.store?.clear();
+    this.persist(() => this.o.store?.clear());
     this.set('removed');
   }
 
@@ -242,7 +260,7 @@ export class DeviceLink {
     if (this.stopped) return Promise.reject(new LinkError('stopped'));
     return new Promise((resolve, reject) => {
       const id = ++this.n;
-      const msg = { t: 'req', id, op, args, key: b64url(random(12)), acked: this.acked.splice(0, 64) };
+      const msg = { t: 'req', id, op, args, key: b64url(random(12)), session: this.session, ack: this.ack };
       const p = { msg, resolve, reject };
       this.pending.set(id, p);
       if (this.conn) this.sendPending(this.conn, id, p);
