@@ -34,6 +34,11 @@ test('an option\'s own floor is checked on its probability; a runner-up must cle
   assert.equal(tie.reason, 'runner-up tie');
   // Others without a declared floor need the global 0.6 on their probability to be taken instead.
   assert.equal(resolve({ ...intent, floors: { followup: 0.5 } }, { probabilities: p(0.2, 0.45, 0.35), confidence: 0.3, pick: 'followup' }).abstained, true);
+  const shadow: Question = { kind: 'choice', options: Object.fromEntries([['toString', 'Shadow'], ['task', 'Task']]), floors: { task: 0.9 } };
+  assert.deepEqual(resolve(shadow, { probabilities: Object.fromEntries([['toString', 0.8], ['task', 0.2]]), confidence: 0.8, pick: 'toString' }).answer, 'toString');
+  const fallback: Question = { ...shadow, floors: Object.fromEntries([['toString', 0.95], ['task', 0.1]]) };
+  const second = resolve(fallback, { probabilities: Object.fromEntries([['toString', 0.8], ['task', 0.2]]), pick: 'toString' });
+  assert.deepEqual([second.answer, second.confidence], ['task', 0.2]);
 });
 
 test('a malformed answer or a tie is an abstain, never an error', () => {
@@ -142,6 +147,9 @@ test('a backend ignoring abort cannot answer late or block the next backend', as
   const never = { ...late, ask: async () => new Promise<Record<string, never>>(() => {}) };
   const second = await decide('x', { intent }, { privacy: 'stays-here', backends: [never, next], timeoutMs: 10 });
   assert.deepEqual([second.intent.answer, second.intent.by], ['task', 'rules']);
+  const entry = new URL('../src/index.ts', import.meta.url).href;
+  const script = `import { decide, rules } from ${JSON.stringify(entry)}; const never = { name: 'never', leaves: false, ask: () => new Promise(() => {}) }; const result = await decide('x', { intent: ${JSON.stringify(intent)} }, { privacy: 'stays-here', backends: [never, rules(() => 'task')], timeoutMs: 10 }); console.log(result.intent.answer);`;
+  assert.equal(execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', timeout: 2000 }).trim(), 'task');
 });
 
 test('decision names that shadow object properties work for rules and Jev', async () => {

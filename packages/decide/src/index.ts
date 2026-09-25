@@ -39,7 +39,7 @@ export const FLOOR = 0.6;
 /** Asks each backend in order for the questions still unanswered; a failed or slow backend answers nothing. */
 export async function decide(state: unknown, questions: Record<string, Question>, opts: Options): Promise<Record<string, Answer>> {
   const out: Record<string, Answer> = Object.create(null);
-  const open = () => Object.fromEntries(Object.entries(questions).filter(([k]) => !out[k] || out[k].abstained));
+  const open = () => Object.fromEntries(Object.entries(questions).filter(([k]) => !Object.hasOwn(out, k) || out[k].abstained));
   for (const b of opts.backends) {
     if (b.leaves && opts.privacy !== 'may-leave') continue;
     const todo = open();
@@ -47,27 +47,27 @@ export async function decide(state: unknown, questions: Record<string, Question>
     const t0 = Date.now();
     let raws: Record<string, Raw | undefined> = {};
     let failed = '';
-    const signal = AbortSignal.timeout(opts.timeoutMs ?? 5000);
-    const timedOut = () => rejectTimeout(new Error('timed out'));
-    let rejectTimeout!: (reason: Error) => void;
-    const deadline = new Promise<never>((_, reject) => { rejectTimeout = reject; });
-    signal.addEventListener('abort', timedOut, { once: true });
+    const controller = new AbortController();
+    let timer!: ReturnType<typeof setTimeout>;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => { controller.abort(); reject(new Error('timed out')); }, opts.timeoutMs ?? 5000);
+    });
     try {
-      raws = await Promise.race([b.ask(state, todo, signal), deadline]);
+      raws = await Promise.race([b.ask(state, todo, controller.signal), deadline]);
     } catch (e) {
       failed = `${b.name} failed: ${(e as Error).message}`;
     } finally {
-      signal.removeEventListener('abort', timedOut);
+      clearTimeout(timer);
     }
     const ms = Date.now() - t0;
     for (const [k, q] of Object.entries(todo)) {
       const raw = Object.hasOwn(raws, k) ? raws[k] : undefined;
       const a = { ...resolve(q, raw), by: b.name, ms };
       if (!raw && failed) a.reason = failed;
-      if (!out[k] || !a.abstained || a.probabilities) out[k] = a;
+      if (!Object.hasOwn(out, k) || !a.abstained || a.probabilities) out[k] = a;
     }
   }
-  for (const k of Object.keys(questions)) out[k] ??= { answer: null, confidence: 0, abstained: true, reason: 'no backend answered', by: 'none', ms: 0 };
+  for (const k of Object.keys(questions)) if (!Object.hasOwn(out, k)) out[k] = { answer: null, confidence: 0, abstained: true, reason: 'no backend answered', by: 'none', ms: 0 };
   return out;
 }
 
@@ -75,7 +75,7 @@ export async function decide(state: unknown, questions: Record<string, Question>
 export function resolve(q: Question, raw: Raw | undefined): Omit<Answer, 'by' | 'ms'> {
   const keys = q.kind === 'choice' ? Object.keys(q.options) : q.kind === 'yesno' ? ['true', 'false'] : q.levels.map((_, i) => String(i));
   const p = raw?.probabilities;
-  const ok = p && Object.keys(p).length === keys.length && keys.every((k) => typeof p[k] === 'number' && p[k] >= 0 && p[k] <= 1)
+  const ok = p && Object.keys(p).length === keys.length && keys.every((k) => Object.hasOwn(p, k) && typeof p[k] === 'number' && p[k] >= 0 && p[k] <= 1)
     && Math.abs(keys.reduce((s, k) => s + p[k], 0) - 1) <= 0.01
     && (raw.confidence === undefined || (raw.confidence >= 0 && raw.confidence <= 1))
     && (raw.pick === undefined || keys.includes(raw.pick));
@@ -84,13 +84,13 @@ export function resolve(q: Question, raw: Raw | undefined): Omit<Answer, 'by' | 
   const picked = raw.pick ?? ranked[0];
   const confidence = raw.confidence ?? p[picked];
   const floor = q.floor ?? FLOOR;
-  const own = (k: string) => (q.kind === 'choice' ? q.floors?.[k] : undefined) ?? floor;
+  const own = (k: string) => (q.kind === 'choice' && q.floors && Object.hasOwn(q.floors, k) ? q.floors[k] : undefined) ?? floor;
   const typed = (k: string) => (q.kind === 'choice' ? k : q.kind === 'yesno' ? k === 'true' : Number(k));
   const done = (k: string, reason?: string) => ({ answer: typed(k), confidence: k === picked ? confidence : p[k], probabilities: p, abstained: false, ...(reason && { reason }) });
   const abstain = (reason: string) => ({ answer: null, confidence, probabilities: p, abstained: true, reason });
   if (p[ranked[0]] === p[ranked[1]]) return abstain('tie');
   // Without a declared floor on the pick, the one floor applies to the answer's confidence, exactly as firstmate's.
-  if (!(q.kind === 'choice' && q.floors && picked in q.floors)) return confidence >= floor ? done(picked) : abstain(`confidence ${confidence} below floor ${floor}`);
+  if (!(q.kind === 'choice' && q.floors && Object.hasOwn(q.floors, picked))) return confidence >= floor ? done(picked) : abstain(`confidence ${confidence} below floor ${floor}`);
   if (p[picked] >= own(picked)) return done(picked);
   // A runner-up never needs weaker support than it would as the pick: it must clear its own floor.
   const clear = ranked.filter((k) => k !== picked && p[k] >= own(k));
