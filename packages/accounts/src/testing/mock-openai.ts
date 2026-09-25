@@ -6,7 +6,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 
-export type MockOpenAIOptions = { port?: number; host?: string; plan?: string; email?: string; expiresIn?: number };
+export type MockOpenAIOptions = { port?: number; host?: string; plan?: string; email?: string; expiresIn?: number; log?: (line: string) => void };
 
 /** An access token as OpenAI shapes it: the account, the plan and the email in its claims. */
 export const mockJwt = (plan = 'plus', email = 'sara@example.com', n = 0) => ['eyJhbGciOiJub25lIn0', Buffer.from(JSON.stringify({
@@ -15,7 +15,7 @@ export const mockJwt = (plan = 'plus', email = 'sara@example.com', n = 0) => ['e
   scp: ['openid', 'profile', 'email', 'offline_access'], pad: 'x'.repeat(1200),
 })).toString('base64url'), 'sig'].join('.');
 
-export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', email = 'sara@example.com', expiresIn = 864_000 }: MockOpenAIOptions = {}) {
+export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', email = 'sara@example.com', expiresIn = 864_000, log }: MockOpenAIOptions = {}) {
   const codes = new Map<string, { device: string; approved?: boolean; denied?: boolean }>();
   let issued = 0, asked = 0;
   const state = {
@@ -26,6 +26,8 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
     refuse: false,
     /** Seconds each issued token lives. */
     expiresIn,
+    /** Drop this many device-code polls on the floor, as a phone does to a backgrounded app. */
+    dropPolls: 0,
   };
   const issue = () => {
     const refresh = `rt_${++issued}`;
@@ -45,13 +47,14 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
     let body = '';
     for await (const chunk of req) body += chunk;
     const url = new URL(req.url ?? '/', 'http://x');
+    const form = new URLSearchParams(body);
     state.requests.push({ path: url.pathname, body });
+    log?.(`${req.method} ${url.pathname} ${form.get('grant_type') ?? ''}`.trim());
     const send = (status: number, data: unknown, type = 'application/json') => {
       res.writeHead(status, { 'content-type': type, 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'POST, GET, OPTIONS' });
       res.end(typeof data === 'string' ? data : JSON.stringify(data));
     };
     const json = () => { try { return JSON.parse(body); } catch { return {}; } };
-    const form = new URLSearchParams(body);
     if (req.method === 'OPTIONS') return send(200, '');
     switch (url.pathname) {
       case '/api/accounts/deviceauth/usercode': {
@@ -60,6 +63,7 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
         return send(200, { device_auth_id: codes.get(userCode)!.device, user_code: userCode, interval: '1' });
       }
       case '/api/accounts/deviceauth/token': {
+        if (state.dropPolls > 0 && state.dropPolls--) return req.socket.destroy();
         const { device_auth_id, user_code } = json();
         const c = codes.get(user_code);
         if (!c || c.device !== device_auth_id) return send(400, { error: { code: 'deviceauth_invalid' } });
@@ -96,6 +100,6 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const m = await mockOpenAI({ port: Number(process.argv[2] ?? 1455), host: '0.0.0.0' });
+  const m = await mockOpenAI({ port: Number(process.argv[2] ?? 1455), host: '0.0.0.0', log: (line) => console.log(new Date().toISOString().slice(11, 19), line) });
   console.log(`stand-in OpenAI on ${m.base}; approve codes at ${m.base}/codex/device`);
 }

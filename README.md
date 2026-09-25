@@ -4,8 +4,8 @@ Bring your own AI plan and devices. Apache-2.0.
 
 | Package | What it does | State |
 |---|---|---|
-| [`@byokit/accounts`](packages/accounts) | Sign in with the AI plan you already pay for, into your app's own store; limits, refresh, plain words | v0.1 |
-| [`@byokit/ui-core`](packages/ui-core) | Headless sign-in state for any UI | v0.1 |
+| [`@byokit/accounts`](packages/accounts) | Sign in with the AI plan you already pay for, into your app's own store; limits, refresh, plain words. Node, Electron, browsers and PWAs, React Native on iOS and Android | v0.2 |
+| [`@byokit/ui-core`](packages/ui-core) | Headless sign-in state for any UI (React, React Native, or none) | v0.1 |
 | [`@byokit/link`](packages/link) | Scan a code to pair a phone or browser with the home computer over one encrypted link; muxr parity tracked separately | 0.1.0 |
 | [`@byokit/decide`](packages/decide) | Typed questions in, a typed answer with confidence out, abstaining below a floor; rules and Jev backends, evals | v0.1 |
 

@@ -23,9 +23,9 @@ type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text
 /** Listens on this computer for the provider's page coming back: each request's path in, the page to answer with out. */
 export type Loopback = (port: number, handle: (path: string) => Promise<{ status: number; html: string }>) => Promise<{ close(): void }>;
 /** What differs by platform: the engine that signs in, which providers it can, and (on a computer) a loopback listener. */
-export type Platform = { engine: (credentials: CredentialStore) => AuthHost; signsIn: (pi: string) => boolean; loopback?: Loopback };
+export type Platform = { engine: (credentials: CredentialStore, authBase?: string) => AuthHost; signsIn: (pi: string) => boolean; loopback?: Loopback };
 /** Phones and browsers: ChatGPT by device code, no listener. */
-export const portable: Platform = { engine: (c) => portableEngine(c), signsIn: (pi) => PORTABLE.includes(pi) };
+export const portable: Platform = { engine: (c, base) => portableEngine(c, { base }), signsIn: (pi) => PORTABLE.includes(pi) };
 
 export type AccountsOptions<M extends Member = Member> = {
   /** The accounts this app offers, in order. Default: every provider not hidden (ChatGPT, OpenRouter). */
@@ -40,9 +40,10 @@ export type AccountsOptions<M extends Member = Member> = {
   redirectMs?: number;
   /** Listen here for the provider's redirect instead of its fixed port (tests, so they never meet a real sign-in). */
   callbackPort?: number;
-  /** The engine for one member's store, instead of this platform's own (a stand-in OpenAI for tests and demos:
-   *  `(c) => portableEngine(c, { base })`). Overriding `open(member)` does the same with the member in hand. */
-  engine?: (credentials: CredentialStore) => AuthHost;
+  /** Where OpenAI's sign-in lives, for a stand-in in tests and demos (`mockOpenAI()` from `@byokit/accounts/testing`).
+   *  Phones and browsers sign in and sign out there; on a computer Pi's engine always calls OpenAI, and only sign-out's
+   *  revoke goes here. */
+  authBase?: string;
 };
 
 /** The ChatGPT plan behind a sign-in, from its own token: a work plan (Business, Enterprise, Edu) follows the employer's rules. */
@@ -57,9 +58,9 @@ const offline = (e: any) => failure(String(e?.message)) === 'offline';
 
 /** Ends a sign-in on the provider's side, as Codex's own logout does (openai/codex#17825): the refresh token, else the
  *  access token, never retried (fixtures/conformance/revoke.json). */
-async function revoke(p: Provider, c: { access: string; refresh: string }) {
-  const body = c.refresh ? { token: c.refresh, token_type_hint: 'refresh_token', client_id: p.clientId } : { token: c.access, token_type_hint: 'access_token' };
-  const response = await fetch(p.revoke!, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
+async function revoke(url: string, clientId: string | undefined, c: { access: string; refresh: string }) {
+  const body = c.refresh ? { token: c.refresh, token_type_hint: 'refresh_token', client_id: clientId } : { token: c.access, token_type_hint: 'access_token' };
+  const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
   if (!response.ok) throw new Error(`ChatGPT sign-out failed (${response.status})`);
 }
 
@@ -121,7 +122,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         const discard = async (next: Awaited<ReturnType<CredentialStore['read']>>) => {
           const p = this.providers.find((p) => p.pi === id);
           if (next?.type === 'oauth' && p?.revoke) {
-            try { await revoke(p, next); } catch (e) {
+            try { await revoke(this.opts.authBase ? `${this.opts.authBase}/oauth/revoke` : p.revoke!, p.clientId, next); } catch (e) {
               const error = e instanceof Error ? e : new Error(String(e));
               if (this.onSignOutError) this.onSignOutError(member, p.key, error);
               else console.error(`sign-out ${p.key} for member ${member}:`, error);
@@ -154,7 +155,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         let error: unknown;
         try {
           const c = await raw.read(id);
-          if (c?.type === 'oauth') await revoke(p, c);
+          if (c?.type === 'oauth') await revoke(this.opts.authBase ? `${this.opts.authBase}/oauth/revoke` : p.revoke!, p.clientId, c);
         } catch (e) { error = e; }
         await raw.delete(id);
         if (error) throw error;
@@ -162,13 +163,15 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     };
   }
 
-  /** A member's engine, holding only their own sign-ins (`store(member)`). Override to use another engine with the same seam. */
-  protected open(member: M): Promise<R> {
-    const credentials = this.boundStore(member, this.store(member));
-    return Promise.resolve(Object.assign((this.opts.engine ?? this.platform.engine)(credentials), {
+  protected engine(member: M, raw: CredentialStore): Promise<R> {
+    const credentials = this.boundStore(member, raw);
+    return Promise.resolve(Object.assign((this.opts.engine ?? this.platform.engine)(credentials, this.opts.authBase), {
       credentialStore: credentials, readCredential: (id: string) => credentials.read(id),
     }) as R);
   }
+
+  /** A member's engine, holding only their own sign-ins (`store(member)`). Override to use another engine with the same seam. */
+  protected open(member: M): Promise<R> { return this.engine(member, this.store(member)); }
 
   runtime(member: M) {
     let r = this.runtimes.get(String(member));

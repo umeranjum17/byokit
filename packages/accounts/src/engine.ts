@@ -104,8 +104,11 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
       let interval = Math.max(1000, start.intervalSeconds * 1000);
       for (const deadline = Date.now() + CODE_LIVES_S * 1000; ;) {
         if (Date.now() >= deadline) throw new Error('Device flow timed out');
-        const r = await post('/api/accounts/deviceauth/token', { device_auth_id: start.deviceAuthId, user_code: start.userCode }, false, signal);
-        const p = devicePoll(r.status, r.body);
+        // A poll that can't get through waits for the next: a phone cuts a backgrounded app's network while the person
+        // is typing the code in the browser (Android 15 and later), which isn't the sign-in failing.
+        const r = await post('/api/accounts/deviceauth/token', { device_auth_id: start.deviceAuthId, user_code: start.userCode }, false, signal)
+          .catch((e) => { if (signal?.aborted) throw e; return { status: 0, body: '' }; });
+        const p: Poll = r.status ? devicePoll(r.status, r.body) : { status: 'pending' };
         if (p.status === 'failed') throw new Error(p.message);
         if (p.status === 'complete') {
           const c = await tokens('exchange', await post('/oauth/token', {

@@ -4,13 +4,13 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Accounts, credentialOf, devicePoll, deviceStart, memoryStore, portableEngine, secureStore, type SecureStoreLike } from '../src/portable.ts';
+import { Accounts, credentialOf, devicePoll, deviceStart, memoryStore, secureStore, type SecureStoreLike } from '../src/portable.ts';
 import { mockOpenAI } from '../src/testing/index.ts';
 
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`../../../fixtures/conformance/${name}`, import.meta.url), 'utf8'));
 const openai = await mockOpenAI();
 after(() => openai.close());
-const kit = (store?: ReturnType<typeof memoryStore>) => new Accounts<any, number>({ app: 'Ownvoice', store: () => store ?? memoryStore(), engine: (c) => portableEngine(c, { base: openai.base }) });
+const kit = (store?: ReturnType<typeof memoryStore>) => new Accounts<any, number>({ app: 'Ownvoice', store: () => store ?? memoryStore(), authBase: openai.base });
 async function until(what: string, fn: () => boolean | Promise<boolean>, ms = 5000) {
   for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 25))) if (await fn()) return;
   throw new Error(`timed out: ${what}`);
@@ -67,6 +67,16 @@ test('sign in with ChatGPT by device code: the code and page to show, approved t
   assert.equal(await a.signedIn(2, 'chatgpt'), false, 'one person, one store');
 });
 
+test("a poll that can't get through (a backgrounded phone) waits for the next instead of failing", async () => {
+  const a = kit();
+  openai.state.dropPolls = 2;
+  const v = (await a.login(1, 'chatgpt'))!;
+  await until('both polls dropped', () => openai.state.dropPolls === 0);
+  openai.approve(v.code!);
+  await a.finished(1, 'chatgpt');
+  assert.equal(a.view(1, 'chatgpt')!.state, 'done');
+});
+
 test('declined on the page, cancelled here, or refused at the exchange: one plain sentence, nothing kept', async () => {
   const a = kit();
   let v = (await a.login(1, 'chatgpt'))!;
@@ -113,14 +123,16 @@ test('signing out while a refresh is under way: the sign-out wins, nothing comes
   const store = memoryStore();
   const a = kit(store);
   openai.state.expiresIn = 60; // already inside the five-minute window
+  const earlier = new Set(openai.state.live);
   const v = (await a.login(1, 'chatgpt'))!;
   openai.approve(v.code!);
   await a.finished(1, 'chatgpt');
   const rt = await a.runtime(1);
   const refreshing = rt.getAuth('openai-codex');
   await a.logout(1, 'chatgpt');
-  await refreshing;
+  await refreshing.catch(() => {});
   assert.equal(await store.read('openai-codex'), undefined);
+  assert.deepEqual([...openai.state.live].filter((t) => !earlier.has(t)), [], 'the token a refresh rotated to was the one ended at OpenAI');
   assert.equal(await rt.getAuth('openai-codex'), undefined, 'no refresh after sign-out');
   assert.equal(await a.signedIn(1, 'chatgpt'), false);
   openai.state.expiresIn = 864_000;
