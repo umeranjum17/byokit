@@ -1,6 +1,6 @@
 # Conformance fixtures
 
-Shared fixtures remain the frozen `byokit-android` Kotlin baseline. TypeScript-only rules live in `*-typescript.json`; `@byokit/accounts` tests apply their cases over the shared HTTP cases and alongside the shared SSE cases. Change a rule in its owning fixture first.
+The shared fixtures, including `revoke.json`, are the frozen `byokit-android` Kotlin baseline. TypeScript-only additions live in `*-typescript.json`; `@byokit/accounts` tests apply those alongside the shared cases (replacing a shared HTTP case with the same body where needed). Change a rule in its owning fixture first.
 
 The shared data itself has one copy, `packages/accounts/src/catalogue.json` and `words.json`; the Kotlin build bundles
 those same files.
