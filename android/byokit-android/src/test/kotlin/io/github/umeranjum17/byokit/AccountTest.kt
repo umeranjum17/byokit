@@ -63,7 +63,7 @@ class AccountTest {
         server.enqueue(MockResponse().setResponseCode(401).setBody("""{"error":"invalid_grant"}"""))
         assertNull(account.credential())
         assertEquals(Status.State.SIGNED_OUT, account.status().state)
-        assertEquals("ChatGPT is signed out. Tap Sign in with ChatGPT to connect it again.", account.status().words)
+        assertEquals("ChatGPT isn't signed in yet.", account.status().words)
     }
 
     @Test fun flakyRefreshKeepsTheSignIn() {
@@ -101,7 +101,7 @@ class AccountTest {
         signedIn()
         server.enqueue(sse("""{"type":"response.failed","response":{"error":{"message":"The model is overloaded."}}}"""))
         assertEquals(Kind.OVERLOADED, asking().limit?.kind)
-        assertEquals("ChatGPT is busy right now. Try again in a few minutes.", account.status().words)
+        assertEquals("ChatGPT is busy right now.", account.status().words)
     }
 
     @Test fun signedOutAskNeedsNoNetwork() {

@@ -1,4 +1,9 @@
 {
+  "signIn.opening": "Opening {name}…",
+  "signIn.waitingUrl": "Sign in on the {name} page that just opened.",
+  "signIn.waitingCode": "On the {name} page, type this code: {code}",
+  "signIn.pasteHint": "Having trouble? Copy the address from the browser and paste it here.",
+  "signIn.cancelled": "Sign-in stopped. Nothing was kept.",
   "signIn.expired": "The code expired before it was used. Tap Sign in with {name} for a new one.",
   "signIn.declined": "The sign-in was declined on the {name} page. Tap Sign in with {name} to try again.",
   "signIn.offline": "Couldn't reach {name}. Check the internet connection, then tap Sign in again.",

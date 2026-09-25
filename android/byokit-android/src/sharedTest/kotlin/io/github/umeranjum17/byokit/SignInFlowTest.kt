@@ -76,7 +76,7 @@ class SignInFlowTest {
         assertEquals("On the ChatGPT page, type this code: ABCD-12345", w.words)
         t.join(15_000)
         assertEquals(SignIn.Phase.DONE, s.state.phase)
-        assertEquals("ChatGPT connected.", s.state.words)
+        assertEquals("ChatGPT is connected.", s.state.words)
         assertEquals("acct_test_123", account.store.read("chatgpt")?.accountId)
         assertTrue(tokenBodies.single().contains("code=ac_device"))
         assertTrue(tokenBodies.single().contains("code_verifier=cv_device"))

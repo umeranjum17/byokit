@@ -4,15 +4,15 @@ The Kotlin mirror of `@byokit/accounts`: "Continue with ChatGPT" done entirely o
 app's own Android Keystore key, refresh, "resting until 3:40 pm", and one-question model calls to the person's ChatGPT
 plan. minSdk 26, no dependencies beyond the Kotlin standard library.
 
-It reads the same `catalogue.json` and `words.json` as the TypeScript package and passes the same conformance fixtures
-(`../fixtures`), so both say the same plain sentences and classify failures the same way.
+It bundles the TypeScript package's own `catalogue.json` and `words.json` (`../packages/accounts/src`) and passes the same
+conformance fixtures (`../fixtures/conformance`), so both say the same plain sentences and classify failures the same way.
 
 ## Which sign-in works from a phone
 
 | Flow | How | Works on a phone? |
 |---|---|---|
 | **Browser, loopback return** (default) | The app listens on `127.0.0.1:1455`, opens ChatGPT's sign-in in a Custom Tab, and catches the browser coming back to `http://localhost:1455/auth/callback`. | **Yes, by design.** It is the only return address Codex's sign-in client accepts (Codex CLI and pi-ai use it too). Nothing to type. If port 1455 is taken, it falls back to the code by itself. Proven on an emulator against a mock ChatGPT; the live round trip is waiting on an arranged test sign-in. |
-| **Code** (`SignIn.Via.CODE`) | The person types a code at `auth.openai.com/codex/device`. Plain HTTPS only. | **Yes, anywhere**, but ChatGPT first needs "device code sign-in" turned on (Settings, Security). The words for that are in `words.json` (`signin.code_off`). |
+| **Code** (`SignIn.Via.CODE`) | The person types a code at `auth.openai.com/codex/device`. Plain HTTPS only. | **Yes, anywhere**, but ChatGPT first needs "device code sign-in" turned on (Settings, Security). The words for that are in `words.json` (`signIn.deviceCodeOff`). |
 | App-owned redirect (`yourapp://…`) | – | **No.** The client belongs to OpenAI (Codex) and has no app-registered redirects, and OpenAI offers no third-party program to register one. |
 
 Terms: ChatGPT is `grey` in the catalogue. Show `account.termsLine` ("Uses your ChatGPT plan. OpenAI may change this at

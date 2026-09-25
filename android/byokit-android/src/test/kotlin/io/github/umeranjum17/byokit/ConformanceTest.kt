@@ -89,16 +89,13 @@ class ConformanceTest {
     }
 
     @Test fun wordsArePlain() {
-        val banned = fixture("plain-words.json").getJSONArray("banned")
-        val words = JSONObject(File(dir, "words.json").readText())
-        for (key in words.keys()) for (i in 0 until banned.length()) {
-            val word = banned.getString(i)
-            assertFalse("$key says \"$word\"", Regex("\\b${Regex.escape(word)}\\b", RegexOption.IGNORE_CASE).containsMatchIn(words.getString(key)))
-        }
+        val banned = Regex(fixture("plain-words.json").getString("pattern"), RegexOption.IGNORE_CASE)
+        val words = JSONObject(Byokit::class.java.getResourceAsStream("/byokit/words.json")!!.bufferedReader().readText())
+        for (key in words.keys()) assertFalse(key, banned.containsMatchIn(words.getString(key).replace(Regex("\\{\\w+\\}"), "X")))
     }
 
     @Test fun catalogueHasNoClaude() {
-        val ids = Byokit.catalogue.getJSONArray("providers").let { a -> (0 until a.length()).map { a.getJSONObject(it).getString("pi") } }
+        val ids = Byokit.catalogue.keys().asSequence().map { Byokit.catalogue.getJSONObject(it).getString("pi") }.toList()
         assertFalse(ids.contains("anthropic"))
         assertEquals("gpt-6-sol", ChatGptAccount(MemoryStore()).strongModel)
         assertEquals("Uses your ChatGPT plan. OpenAI may change this at any time.", ChatGptAccount(MemoryStore()).termsLine)

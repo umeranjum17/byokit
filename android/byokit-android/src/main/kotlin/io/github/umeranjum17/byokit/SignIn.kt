@@ -44,7 +44,7 @@ class SignIn internal constructor(
     private val api = account.api
     private val name = account.name
     private val deadline = api.now() + timeoutMs
-    @Volatile var state: State = State(Phase.OPENING, say("signin.opening"))
+    @Volatile var state: State = State(Phase.OPENING, say("signIn.opening"))
         private set
 
     fun cancel() = events.put(Event.Cancel)
@@ -60,15 +60,15 @@ class SignIn internal constructor(
                 Via.CODE -> code()
             }
             account.store.write(account.id, cred) // usable: it carries the account id every call needs
-            State(Phase.DONE, say("signin.done"))
+            State(Phase.DONE, say("status.ready"))
         } catch (e: Stop) {
             e.state
         } catch (e: Exception) {
             val offline = e is UnknownHostException || e is ConnectException || e is SocketTimeoutException
-            val key = if (offline) "signin.offline" else signInWords(e.message ?: "")
+            val key = if (offline) "signIn.offline" else signInWords(e.message ?: "")
             State(when (key) {
-                "signin.expired" -> Phase.EXPIRED
-                "signin.offline" -> Phase.OFFLINE
+                "signIn.expired" -> Phase.EXPIRED
+                "signIn.offline" -> Phase.OFFLINE
                 else -> Phase.FAILED
             }, say(key))
         }
@@ -87,7 +87,7 @@ class SignIn internal constructor(
         val expected = ChatGpt.randomToken(16)
         val listener = thread(name = "byokit-loopback", isDaemon = true) { serve(server, expected) }
         try {
-            emit(State(Phase.WAITING, say("signin.waiting_url"), url = api.authorizeUrl(ChatGpt.challengeOf(verifier), expected)))
+            emit(State(Phase.WAITING, say("signIn.waitingUrl"), url = api.authorizeUrl(ChatGpt.challengeOf(verifier), expected)))
             while (true) {
                 val code = when (val e = next(deadline - api.now())) {
                     is Event.Callback -> e.code
@@ -127,7 +127,7 @@ class SignIn internal constructor(
 
     private fun code(): Credential {
         val dc = api.startDeviceCode()
-        emit(State(Phase.WAITING, say("signin.waiting_code", mapOf("code" to dc.userCode)),
+        emit(State(Phase.WAITING, say("signIn.waitingCode", mapOf("code" to dc.userCode)),
             url = ChatGpt.DEVICE_VERIFICATION_URI, code = dc.userCode, expiresAt = deadline))
         var intervalMs = maxOf(1000L, dc.intervalSeconds * 1000)
         while (true) {
@@ -143,10 +143,10 @@ class SignIn internal constructor(
 
     /** Waits up to [ms] for an event; a cancel or the deadline ends the sign-in. */
     private fun next(ms: Long): Event? {
-        if (ms <= 0 && api.now() >= deadline) throw Stop(State(Phase.EXPIRED, say("signin.too_long")))
+        if (ms <= 0 && api.now() >= deadline) throw Stop(State(Phase.EXPIRED, say("signIn.tooLong")))
         val e = events.poll(maxOf(ms, 0), TimeUnit.MILLISECONDS)
-        if (e == Event.Cancel) throw Stop(State(Phase.CANCELLED, say("signin.cancelled")))
-        if (e == null && api.now() >= deadline) throw Stop(State(Phase.EXPIRED, say("signin.too_long")))
+        if (e == Event.Cancel) throw Stop(State(Phase.CANCELLED, say("signIn.cancelled")))
+        if (e == null && api.now() >= deadline) throw Stop(State(Phase.EXPIRED, say("signIn.tooLong")))
         return e
     }
 

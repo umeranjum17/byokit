@@ -19,9 +19,9 @@ class ChatGptAccount(
     private val entry = Byokit.provider("chatgpt")
     val name: String = entry.getString("name")
     /** The grey-terms line to show next to the button: "Uses your ChatGPT plan. OpenAI may change this at any time." */
-    val termsLine: String = Byokit.say("terms.grey", mapOf("name" to name, "vendor" to entry.getString("vendor")))
+    val termsLine: String = Byokit.say("terms.grey", mapOf("name" to name, "company" to entry.getString("company")))
     val strongModel: String = entry.getJSONObject("models").getString("strong")
-    val fastModel: String = entry.getJSONObject("models").getString("fast")
+    val fastModel: String = entry.getJSONObject("models").optString("fast", strongModel)
 
     /** 0 when the account can be used; otherwise when it stops resting. */
     @Volatile var restingUntil: Long = 0
@@ -86,9 +86,9 @@ class ChatGptAccount(
     fun status(): Status {
         val vars = mapOf("name" to name)
         return when {
-            !signedIn -> Status(Status.State.SIGNED_OUT, 0, Byokit.say("status.signed_out", vars))
+            !signedIn -> Status(Status.State.SIGNED_OUT, 0, Byokit.say("status.signedOut", vars))
             restingUntil > api.now() -> Status(Status.State.RESTING, restingUntil,
-                Byokit.say("status.resting", vars + ("time" to Byokit.clock(restingUntil))))
+                Byokit.say("status.resting", vars + ("until" to Byokit.clock(restingUntil))))
             busy -> Status(Status.State.READY, 0, Byokit.say("status.busy", vars))
             else -> Status(Status.State.READY, 0, Byokit.say("status.ready", vars))
         }

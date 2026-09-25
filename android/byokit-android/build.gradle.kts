@@ -4,10 +4,10 @@ plugins {
     `maven-publish`
 }
 
-// The catalogue and words ship inside the library, straight from the shared fixtures folder.
+// The catalogue and words ship inside the library, from the one copy @byokit/accounts uses.
 val shared = layout.buildDirectory.dir("generated/byokit-shared")
 val copyShared by tasks.registering(Copy::class) {
-    from(rootDir.resolve("../fixtures")) { include("catalogue.json", "words.json") }
+    from(rootDir.resolve("../packages/accounts/src")) { include("catalogue.json", "words.json") }
     into(shared.map { it.dir("byokit") })
 }
 

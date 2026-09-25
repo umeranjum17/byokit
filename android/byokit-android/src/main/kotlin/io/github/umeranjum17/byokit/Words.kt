@@ -7,7 +7,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-/** The shared `catalogue.json` and `words.json` (fixtures/ in the byokit repo), bundled into the library. */
+/** The shared `catalogue.json` and `words.json` (packages/accounts/src in the byokit repo), bundled into the library. */
 object Byokit {
     private fun resource(name: String) =
         Byokit::class.java.getResourceAsStream("/byokit/$name")!!.bufferedReader().use { it.readText() }
@@ -16,15 +16,12 @@ object Byokit {
     private val words: JSONObject by lazy { JSONObject(resource("words.json")) }
 
     /** One provider's catalogue entry, by id ("chatgpt"). */
-    fun provider(id: String): JSONObject {
-        val all = catalogue.getJSONArray("providers")
-        for (i in 0 until all.length()) if (all.getJSONObject(i).getString("id") == id) return all.getJSONObject(i)
-        throw IllegalArgumentException("no such AI account: $id")
-    }
+    fun provider(id: String): JSONObject =
+        catalogue.optJSONObject(id) ?: throw IllegalArgumentException("no such AI account: $id")
 
-    /** A plain sentence from words.json with its `{placeholders}` filled in. */
+    /** A plain sentence from words.json with its `{slots}` filled in (a missing slot becomes empty, as in TypeScript). */
     fun say(key: String, vars: Map<String, String> = emptyMap()): String =
-        vars.entries.fold(words.getString(key)) { s, (k, v) -> s.replace("{$k}", v) }
+        Regex("\\{(\\w+)\\}").replace(words.getString(key)) { vars[it.groupValues[1]] ?: "" }
 
     /** "3:40 pm", or "Fri 3:40 pm" when it is not today: the time in "resting until …". */
     fun clock(t: Long, zone: ZoneId = ZoneId.systemDefault()): String {
@@ -40,11 +37,12 @@ private fun re(p: String) = Regex(p, RegexOption.IGNORE_CASE)
 
 /** A failed sign-in's message → the words.json key to show (fixtures/conformance/signin-errors.json). */
 fun signInWords(error: String): String = when {
-    re("expired|expire").containsMatchIn(error) -> "signin.expired"
-    re("denied|declined|access_denied|rejected").containsMatchIn(error) -> "signin.declined"
-    re(NETWORK).containsMatchIn(error) -> "signin.offline"
-    re("device code.*(disabled|not enabled)|enable device").containsMatchIn(error) -> "signin.code_off"
-    else -> "signin.failed"
+    re("token exchange failed|missing fields|accountId").containsMatchIn(error) -> "signIn.failed" // said yes, refused after
+    re("expired|expire").containsMatchIn(error) -> "signIn.expired"
+    re("denied|declined|access_denied|rejected|cancel").containsMatchIn(error) -> "signIn.declined"
+    re(NETWORK).containsMatchIn(error) -> "signIn.offline"
+    re("device code.*(disabled|not enabled)|enable device").containsMatchIn(error) -> "signIn.deviceCodeOff"
+    else -> "signIn.failed"
 }
 
 /** Why a model call failed, in the kinds an app acts on, and until when the account rests (0 = it didn't say). */

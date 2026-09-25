@@ -1,45 +1,57 @@
 {
-  "rule": "First match wins, case-insensitive: expired|expire -> signin.expired; denied|declined|access_denied|rejected -> signin.declined; NETWORK -> signin.offline; device code.*(disabled|not enabled)|enable device -> signin.code_off; else signin.failed. NETWORK = fetch failed|network|ENOTFOUND|EAI_AGAIN|ECONN|timed? ?out|socket|unable to resolve host|failed to connect|connection (refused|reset)",
+  "rule": "First match wins, case-insensitive: token exchange failed|missing fields|accountId -> signIn.failed; expired|expire -> signIn.expired; denied|declined|access_denied|rejected|cancel -> signIn.declined; NETWORK -> signIn.offline; device code.*(disabled|not enabled)|enable device -> signIn.deviceCodeOff; else signIn.failed. NETWORK = fetch failed|network|ENOTFOUND|EAI_AGAIN|ECONN|timed? ?out|socket|unable to resolve host|failed to connect|connection (refused|reset) (the last three are how Android's networking says it).",
   "cases": [
     {
       "error": "OpenAI Codex device auth failed with status 400: {\"error\":{\"code\":\"deviceauth_expired\"}}",
-      "words": "signin.expired"
+      "words": "signIn.expired"
     },
     {
       "error": "access_denied: The user declined",
-      "words": "signin.declined"
+      "words": "signIn.declined"
     },
     {
       "error": "fetch failed",
-      "words": "signin.offline"
+      "words": "signIn.offline"
     },
     {
       "error": "getaddrinfo ENOTFOUND auth.openai.com",
-      "words": "signin.offline"
+      "words": "signIn.offline"
     },
     {
       "error": "Unable to resolve host \"auth.openai.com\": No address associated with hostname",
-      "words": "signin.offline"
+      "words": "signIn.offline"
     },
     {
       "error": "failed to connect to auth.openai.com/104.18.0.1 (port 443) after 10000ms",
-      "words": "signin.offline"
+      "words": "signIn.offline"
     },
     {
       "error": "Read timed out",
-      "words": "signin.offline"
+      "words": "signIn.offline"
     },
     {
       "error": "OpenAI Codex device code login is not enabled for this server. Use browser login or verify the server URL.",
-      "words": "signin.code_off"
+      "words": "signIn.deviceCodeOff"
     },
     {
       "error": "OpenAI Codex token exchange failed (400): invalid_grant",
-      "words": "signin.failed"
+      "words": "signIn.failed"
     },
     {
       "error": "State mismatch",
-      "words": "signin.failed"
+      "words": "signIn.failed"
+    },
+    {
+      "error": "Login cancelled",
+      "words": "signIn.declined"
+    },
+    {
+      "error": "Failed to extract accountId from token",
+      "words": "signIn.failed"
+    },
+    {
+      "error": "Token response missing fields",
+      "words": "signIn.failed"
     }
   ]
 }
