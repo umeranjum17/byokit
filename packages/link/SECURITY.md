@@ -26,11 +26,11 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 | QR / pairing link | `byokit-link:1:<base64url JSON>`: `{v, host (X25519 public key), name, urls, ticket (128 bits), expires}`. As a link, it rides after `#`, which browsers never send to a server. |
 | Typed code | 12 characters from a 31-character unambiguous alphabet (about 59 bits), `XXXX-XXXX-XXXX`. |
 | Pairing rules | Tickets and codes are single use (burned at first presentation, even when expired or refused), live 5 minutes through grant creation, and 5 wrong tries withdraw every open ticket and code. Nothing is stored until the person at the host approves; both screens show the same **two confirmation words**, derived from the handshake hash. Optional device cap. |
-| Grants | Held by the host: `{id, key, name, role: control or view, created, lastSeen, meta}`. Durable until revoked (muxr decision 0001). Every handshake checks the device key against the list; every request re-checks it. View-only devices may only make the requests the app's `canView` allows (default: none). |
+| Grants | Held by the host with a device key and role; optional `kind`, `expires`, `nextKey` and `meta` support caps, expiry, rekey and app policy. Every handshake and request checks the grant. `allow` decides access when supplied; otherwise control is allowed and view-only uses `canView` (default: none). |
 | Revoke | Deletes the grant, sends a sealed `revoked` to its live sockets, then closes them. No key rotation is needed: there are no shared keys. |
 | Refusals | A host that can read the device's handshake answers refusals (`not-paired`, `expired`, `declined`, `full`) inside the channel, so the device can trust them (e.g. forget its grant). Anything unauthenticated (a plaintext close) only changes what the device *says*, never what it deletes. |
-| Requests | `{t:'req', id, key, session, ack, op, args}`. The device sends its highest contiguous received reply id on each request and reconnect authentication. The host retains replies until acknowledged across reconnects; a fresh app session clears abandoned replies because they can no longer be retried. At 1000 unacknowledged replies it refuses new requests with `busy`, without evicting answers. The cache is in memory. |
-| Streams | Opened by the device (`{t:'open', s, op, args, credit}`), answered `{t:'opened', s, credit}` or `{t:'end', s, error}`; then `{t:'credit', s, n}` and `{t:'end', s, error?}` either way, and the bytes as a binary inner message (frame flag 2/3: 4-byte stream id, then raw bytes), all sealed in the same channel and nonce sequence. On a direct socket the host offers `binary: 1` in `ready` and stream frames then go as binary WebSocket messages (the same Noise message, not base64); through a relay they stay base64 text. A binary message before the handshake closes the socket. Offered only by a host that says `streams: 1` in `ready`, so an older peer never gets one. Opening re-checks the grant and view-only (`canView`) before sending `opened` and credit, then runs the app's `stream` handler with the grant; handler failures end an already-opened stream (only `PublicLinkError` exposes its message). A side that sends past the window it was granted (256 KB per stream, at most 64 streams per connection) is cut off. Streams end with their socket and on revoke. |
+| Requests | `{t:'req', id, key, session, ack, op, args, notValidAfter?}`. The device sends its highest contiguous received reply id on each request and reconnect authentication. The host retains replies until acknowledged across reconnects; a fresh app session clears abandoned replies. At 1000 unacknowledged replies it refuses new requests with `busy`, without evicting answers. The cache is in memory unless the app supplies an `answers` store. |
+| Streams | Opened by the device (`{t:'open', s, op, args, credit}`), answered `{t:'opened', s, credit}` or `{t:'end', s, error}`; then `{t:'credit', s, n}` and `{t:'end', s, error?}` either way, and the bytes as a binary inner message (frame flag 2/3: 4-byte stream id, then raw bytes), all sealed in the same channel and nonce sequence. On a direct socket the host offers `binary: 1` in `ready` and stream frames then go as binary WebSocket messages (the same Noise message, not base64); through a relay they stay base64 text. A binary message before the handshake closes the socket. Offered only by a host that says `streams: 1` in `ready`, so an older peer never gets one. Opening re-checks the grant and policy (`allow`, or `canView` for view-only when `allow` is absent) before sending `opened` and credit, then runs the app's `stream` handler with the grant; handler failures end an already-opened stream (only `PublicLinkError` exposes its message). A side that sends past the window it was granted (256 KB per stream, at most 64 streams per connection) is cut off. Streams end with their socket and on revoke. |
 | Relay | Routes by URL (`<relay>/link/v1/<host id>`, host id = BLAKE2b-128(`byokit-link-host-id-v1` ‖ host key)) and, host-side, by a `{c, f}` / `{c, end}` wrapper. Frames pass through byte for byte. The separate [`@byokit/relay`](../relay) package supplies the relay server; its push-content exception and store boundaries are in [its security guide](../relay/SECURITY.md). |
 
 ## Adversaries and what stops them
@@ -41,7 +41,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 | **Active network attacker** (ARP/DNS spoofing, malicious relay) | Drop, delay, reorder traffic; close sockets; forge plaintext closes | Impersonate the host (needs the host's static secret; the device pins the key from the QR/grant). Impersonate a device (needs its static secret). Replay or splice frames (nonces). Make a device forget its grant (only sealed refusals do that). Turn a stolen QR ticket into a grant without host-side approval: the QR also contains the host's public key, so its secrecy is not a defense. |
 | **Someone who sees or photographs the QR / code** | Race the real device to pair in the 5 minutes | Get in unnoticed: the person at the host must approve, sees the device name and the two words, and a later attempt with the same ticket or code is refused. |
 | **A lost or stolen device** | Everything its grant allows, until revoked | Anything after revoke, which is immediate. It never held the host's credentials. |
-| **A paired view-only device** | The requests `canView` allows | Mutating requests: refused by the host before the app's handler sees them. |
+| **A paired view-only device** | Requests permitted by the app's `allow`, or by `canView` when `allow` is absent | Requests denied by that policy: refused by the host before the app's handler sees them. |
 | **A malicious relay** | Deny service; learn metadata above | Read, change or inject traffic; pair itself (tickets and codes are sealed or PSK-bound end to end). An impostor host registration only causes denial of service: devices' handshakes fail. |
 
 ## Known limits
@@ -65,9 +65,13 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
    limits connections.
 6. **Idempotency survives reconnects within one app session, and host restarts only with an `answers` store.**
    Without one, the answer cache is in memory. A store that fails to read refuses the request rather than risk running
-   it twice; `answers.put` happens after the handler, so a host crash between its effect and the put can repeat the
-   request unless the handler records `req.key` in the same transaction as its effect. A failed put is reported and
-   the answer is still sent. A request can also carry `notValidAfter` so a stale retry is never started. A fresh authenticated app session discards the previous session's abandoned replies. A device with 1000 unacknowledged replies receives `busy` for new requests until it acknowledges earlier replies; no reply is evicted during the same session.
+   it twice; stored answers are bound to the original operation and JSON-encoded arguments, and a mismatched or
+   malformed record is refused without running the handler. `answers.put` happens after the handler, so a host crash
+   between its effect and the put can repeat the request unless the handler records `req.key` in the same transaction
+   as its effect. A failed put is reported and the answer is still sent. A request can also carry `notValidAfter` so a
+   stale retry is never started. A fresh authenticated app session discards the previous session's abandoned replies.
+   A device with 1000 unacknowledged replies receives `busy` for new requests until it acknowledges earlier replies;
+   no reply is evicted during the same session.
 7. **Key storage is the app's job.** Host key: OS keychain (Electron `safeStorage`) or a 0600 file. React Native:
    `expo-secure-store`. Browser: IndexedDB, wrapped by a non-extractable WebCrypto AES-GCM key (muxr decision 0003);
    a live XSS can still use an unlocked key, so browsers should default to view-only. Android native: X25519 wrapped
@@ -76,15 +80,15 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
    browser grants per decision 0003). An expired grant is removed like a revoke: refused at `auth`, on the next
    request, and on a timer for open sockets. Expiry uses the host's clock (`now`, which exists for tests); an app
    that freezes it keeps codes and grants alive.
-10. **Rekey keeps two keys valid for a moment.** After `rekey`, the host accepts the old key and the staged new one
+9. **Rekey keeps two keys valid for a moment.** After `rekey`, the host accepts the old key and the staged new one
    until the device first connects with the new one; from then on only the new key works. A device that loses the
    staged key before that point keeps using the old key.
-11. **`unpair` needs the host.** Offline, against a 0.1 host, or when saving removal fails, the device keeps its
+10. **`unpair` needs the host.** Offline, against a 0.1 host, or when saving removal fails, the device keeps its
    grant and reports failure. It forgets locally only after the host confirms removal.
-12. **Policy decisions are point-in-time.** `allow` decides when asked; work already started is not rolled back.
+11. **Policy decisions are point-in-time.** `allow` decides when asked; work already started is not rolled back.
    Replace a grant's metadata with `host.setMeta(id, newMeta)` or revoke it to withdraw access. Do not mutate
    `meta` in place: the post-policy identity check requires a replacement grant object.
-9. **Metadata.** The relay sees the host id, timing, sizes, device IP addresses and whether a first message is a
+12. **Metadata.** The relay sees the host id, timing, sizes, device IP addresses and whether a first message is a
    typed-code attempt (`code:` prefix).
 
 ## Review checklist

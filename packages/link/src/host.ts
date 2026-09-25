@@ -14,8 +14,9 @@ export type Grant = {
   kind?: string; expires?: number; nextKey?: string; meta?: unknown;
 };
 export type GrantStore = { load(): Grant[] | Promise<Grant[]>; save(grants: Grant[]): void | Promise<void> };
-/** Keeps answers across host restarts, so a request retried after one still runs once. `drop` without keys drops
- *  every answer for that device. Stored answers are small JSON objects. */
+/** Keeps completed answers across host restarts. Store `{ op, args, reply }` as passed to `put` unchanged;
+ *  `args` is JSON.stringify of the request arguments (or null). A missing answer after a crash may run again.
+ *  `drop` without keys drops every answer for that device. */
 export type AnswerStore = {
   get(device: string, key: string): unknown | Promise<unknown>;
   put(device: string, key: string, answer: object): void | Promise<void>;
