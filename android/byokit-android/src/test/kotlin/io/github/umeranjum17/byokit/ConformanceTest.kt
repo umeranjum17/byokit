@@ -1,0 +1,103 @@
+package io.github.umeranjum17.byokit
+
+import org.json.JSONArray
+import org.json.JSONObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
+import org.junit.Test
+import java.io.File
+
+/** The shared fixtures (fixtures/conformance) that @byokit/accounts passes too. */
+class ConformanceTest {
+    private val dir = File(System.getProperty("byokit.fixtures")!!)
+    private fun fixture(name: String) = JSONObject(File(dir, "conformance/$name").readText())
+    private fun JSONArray.each(f: (JSONObject) -> Unit) = (0 until length()).forEach { f(getJSONObject(it)) }
+    private fun JSONObject.long(k: String) = if (isNull(k)) 0L else getLong(k)
+    private fun JSONObject.str(k: String): String? = if (isNull(k)) null else getString(k)
+
+    @Test fun signInErrors() = fixture("signin-errors.json").getJSONArray("cases").each {
+        assertEquals(it.getString("error"), it.getString("words"), signInWords(it.getString("error")))
+    }
+
+    @Test fun classifies() {
+        val f = fixture("classify.json")
+        f.getJSONArray("cases").each {
+            val got = classify(it.getString("error"), f.getLong("now"))
+            assertEquals(it.getString("error"), it.str("kind"), got?.kind?.name?.lowercase())
+            assertEquals(it.getString("error"), it.long("until"), got?.until ?: 0L)
+        }
+    }
+
+    @Test fun limitResponses() {
+        val f = fixture("limit-responses.json")
+        f.getJSONArray("cases").each {
+            val (limit, message) = ChatGpt.limitFrom(it.getInt("status"), it.getString("body"), f.getLong("now"))
+            assertEquals(it.getString("body"), it.str("kind"), limit?.kind?.name?.lowercase())
+            assertEquals(it.long("until"), limit?.until ?: 0L)
+            assertEquals(it.getString("message"), message)
+        }
+    }
+
+    @Test fun tokenResponses() {
+        val f = fixture("token-responses.json")
+        f.getJSONArray("cases").each {
+            val got = runCatching { ChatGpt.credentialFrom(it.getJSONObject("response"), f.getLong("now")) }
+            if (it.optBoolean("error")) assertTrue(it.toString(), got.isFailure)
+            else it.getJSONObject("credential").let { want ->
+                assertEquals(want.getString("type"), got.getOrThrow().toJson().getString("type"))
+                assertEquals(Credential.fromJson(want), got.getOrThrow())
+            }
+        }
+    }
+
+    @Test fun deviceCode() {
+        val f = fixture("device-code.json")
+        f.getJSONArray("start").each {
+            val got = runCatching { ChatGpt.parseDeviceCode(it.getInt("status"), it.getString("body")) }
+            if (it.optBoolean("error")) assertTrue(it.toString(), got.isFailure)
+            else it.getJSONObject("result").let { r ->
+                assertEquals(DeviceCode(r.getString("deviceAuthId"), r.getString("userCode"), r.getLong("intervalSeconds")), got.getOrThrow())
+            }
+        }
+        f.getJSONArray("poll").each {
+            val got = ChatGpt.parsePoll(it.getInt("status"), it.getString("body"))
+            val want = when (it.getString("result")) {
+                "complete" -> Poll.Complete(it.getString("authorizationCode"), it.getString("codeVerifier"))
+                "pending" -> Poll.Pending
+                "slow_down" -> Poll.SlowDown
+                else -> null
+            }
+            if (want == null) assertTrue(it.toString(), got is Poll.Failed) else assertEquals(it.toString(), want, got)
+        }
+    }
+
+    @Test fun paste() = fixture("paste.json").getJSONArray("cases").each {
+        assertEquals(it.getString("input"), it.str("code") to it.str("state"), ChatGpt.parsePaste(it.getString("input")))
+    }
+
+    @Test fun sse() = fixture("sse.json").getJSONArray("cases").each {
+        val got = runCatching { ChatGpt.readSse(it.getString("stream").reader().buffered(), 0) }
+        val err = it.optJSONObject("error")
+        if (err == null) assertEquals(it.getString("text"), got.getOrThrow())
+        else {
+            val e = got.exceptionOrNull() as? ChatGptException ?: return@each fail("expected an error: $it")
+            assertEquals(err.getString("message"), e.message)
+            assertEquals(err.getString("kind"), e.limit?.kind?.name?.lowercase())
+        }
+    }
+
+    @Test fun wordsArePlain() {
+        val banned = Regex(fixture("plain-words.json").getString("pattern"), RegexOption.IGNORE_CASE)
+        val words = JSONObject(Byokit::class.java.getResourceAsStream("/byokit/words.json")!!.bufferedReader().readText())
+        for (key in words.keys()) assertFalse(key, banned.containsMatchIn(words.getString(key).replace(Regex("\\{\\w+\\}"), "X")))
+    }
+
+    @Test fun catalogueHasNoClaude() {
+        val ids = Byokit.catalogue.keys().asSequence().map { Byokit.catalogue.getJSONObject(it).getString("pi") }.toList()
+        assertFalse(ids.contains("anthropic"))
+        assertEquals("gpt-6-sol", ChatGptAccount(MemoryStore()).strongModel)
+        assertEquals("Uses your ChatGPT plan. OpenAI may change this at any time.", ChatGptAccount(MemoryStore()).termsLine)
+    }
+}

@@ -1,0 +1,56 @@
+{
+  "rule": "until = now + N*60000 when /try again in ~?(\\d+)\\s*min/i matches, else null. kind, first match wins, case-insensitive: usage limit|rate.?limit|quota|too many requests|\\b429\\b -> rate_limit; overloaded|high demand|\\b50[234]\\b|unavailable -> overloaded; unauthori[sz]ed|\\b40[13]\\b|sign in again|expired|invalid.*token|authentication -> signed_out; NETWORK (see signin-errors.json) -> network; else null.",
+  "now": 1790000000000,
+  "cases": [
+    {
+      "error": "You have hit your ChatGPT usage limit (plus plan). Try again in ~42 min.",
+      "kind": "rate_limit",
+      "until": 1790002520000
+    },
+    {
+      "error": "429 Too Many Requests",
+      "kind": "rate_limit",
+      "until": null
+    },
+    {
+      "error": "You exceeded your current quota",
+      "kind": "rate_limit",
+      "until": null
+    },
+    {
+      "error": "The model is overloaded. Please try again later.",
+      "kind": "overloaded",
+      "until": null
+    },
+    {
+      "error": "503 Service Unavailable",
+      "kind": "overloaded",
+      "until": null
+    },
+    {
+      "error": "401 Unauthorized",
+      "kind": "signed_out",
+      "until": null
+    },
+    {
+      "error": "Your authentication token has expired. Please sign in again.",
+      "kind": "signed_out",
+      "until": null
+    },
+    {
+      "error": "Unable to resolve host \"chatgpt.com\"",
+      "kind": "network",
+      "until": null
+    },
+    {
+      "error": "fetch failed",
+      "kind": "network",
+      "until": null
+    },
+    {
+      "error": "The instructions field is required",
+      "kind": null,
+      "until": null
+    }
+  ]
+}

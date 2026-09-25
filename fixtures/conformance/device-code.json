@@ -1,0 +1,77 @@
+{
+  "rule": "start: needs device_auth_id, user_code and interval (a number or a numeric string, >= 0) -> {deviceAuthId, userCode, intervalSeconds}, else error; HTTP 404 -> error \"device code login is not enabled\". poll: 200 with authorization_code and code_verifier -> complete; 200 without them -> failed; 403/404 -> pending; body error.code (or error when it is a string) deviceauth_authorization_pending -> pending, slow_down -> slow_down; anything else -> failed.",
+  "start": [
+    {
+      "status": 200,
+      "body": "{\"device_auth_id\":\"da_1\",\"user_code\":\"ABCD-EFGHI\",\"interval\":\"5\"}",
+      "result": {
+        "deviceAuthId": "da_1",
+        "userCode": "ABCD-EFGHI",
+        "intervalSeconds": 5
+      }
+    },
+    {
+      "status": 200,
+      "body": "{\"device_auth_id\":\"da_2\",\"user_code\":\"WXYZ-12345\",\"interval\":3}",
+      "result": {
+        "deviceAuthId": "da_2",
+        "userCode": "WXYZ-12345",
+        "intervalSeconds": 3
+      }
+    },
+    {
+      "status": 200,
+      "body": "{\"device_auth_id\":\"da_3\",\"user_code\":\"X\"}",
+      "error": true
+    },
+    {
+      "status": 404,
+      "body": "",
+      "error": true
+    }
+  ],
+  "poll": [
+    {
+      "status": 200,
+      "body": "{\"authorization_code\":\"ac_1\",\"code_verifier\":\"cv_1\"}",
+      "result": "complete",
+      "authorizationCode": "ac_1",
+      "codeVerifier": "cv_1"
+    },
+    {
+      "status": 200,
+      "body": "{}",
+      "result": "failed"
+    },
+    {
+      "status": 403,
+      "body": "",
+      "result": "pending"
+    },
+    {
+      "status": 404,
+      "body": "",
+      "result": "pending"
+    },
+    {
+      "status": 400,
+      "body": "{\"error\":{\"code\":\"deviceauth_authorization_pending\"}}",
+      "result": "pending"
+    },
+    {
+      "status": 400,
+      "body": "{\"error\":\"slow_down\"}",
+      "result": "slow_down"
+    },
+    {
+      "status": 400,
+      "body": "{\"error\":{\"code\":\"deviceauth_expired\"}}",
+      "result": "failed"
+    },
+    {
+      "status": 500,
+      "body": "oops",
+      "result": "failed"
+    }
+  ]
+}

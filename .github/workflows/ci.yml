@@ -29,3 +29,21 @@ jobs:
       - run: npm run build
       - run: npm run check
       - run: npm test # throwaway HOME, mocks only: no account, no network, no model
+
+  # byokit-android: JVM unit tests, including every case in fixtures/conformance, in a throwaway HOME. No device needed.
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - run: android/test.sh
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-reports
+          path: android/byokit-android/build/reports/tests/

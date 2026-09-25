@@ -1,0 +1,4 @@
+{
+  "rule": "With every {slot} replaced by X, no sentence in words.json may match this case-insensitive pattern (the same one packages/accounts/test/units.test.ts uses): no codes, commands, paths, model ids or jargon a person would have to look up.",
+  "pattern": "\\b(oauth|token|api|cli|http|json|error|exception|null|undefined|status|config|env|localhost|\\d{3}|gpt-|pi\\b|codex|device_code|credential|refresh)|[`$~\\/\\\\]|%"
+}
