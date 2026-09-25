@@ -165,6 +165,24 @@ test('direct Tailscale is the fallback and the rollback: it removes only the map
   await assert.rejects(reach({ port: 8792, via: 'tailscale-direct', tailscale }), /no Tailscale address/);
 });
 
+test('unavailable explicit destinations leave the working Serve mapping intact', async () => {
+  fake({ Self: { DNSName: 'dev.tailnet.ts.net.', TailscaleIPs: [] } }, { serveStatus: ours });
+  const at = mark();
+  await assert.rejects(reach({ port: 8792, via: 'tailscale-direct', previous: owned, tailscale }), /no Tailscale address/);
+  await assert.rejects(reach({ port: 8792, via: 'lan', previous: owned, tailscale, interfaces: {} }), /no LAN address/);
+  await assert.rejects(reach({ port: 8792, via: 'private', previous: owned, tailscale, interfaces: {} }), /no private network address/);
+  assert.doesNotMatch(since(at), /^serve --https=443 --set-path=\/ off$/m);
+  assert.equal((await inspectServe(8792, owned.dnsName, { ...tailscale, proxy: owned.proxy })).status, 'ours');
+});
+
+test('auto LAN fallback keeps the old fingerprint when Tailscale disappears', async () => {
+  const missing = { bin: join(dir, 'not-installed') };
+  const interfaces = { eno1: [{ family: 'IPv4', internal: false, address: '192.168.1.8' }] } as never;
+  assert.deepEqual(await reach({ port: 8792, previous: owned, tailscale: missing, interfaces }), {
+    urls: ['ws://192.168.1.8:8792'], bind: '0.0.0.0', pendingCleanup: owned,
+  });
+});
+
 test('disabled Serve does not block direct rollback and retains the cleanup fingerprint', async () => {
   fake(self, { serveStatus: 'Serve is not enabled on your tailnet', serveStatusExit: 1 });
   const at = mark();

@@ -8,7 +8,7 @@ on:
       package:
         description: Package to publish
         type: choice
-        options: [accounts, ui-core, decide]
+        options: [accounts, ui-core, decide, link, reach, relay]
 
 permissions:
   contents: read

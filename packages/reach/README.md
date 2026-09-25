@@ -50,7 +50,9 @@ These are the rules from muxr's decision 0004.
 - **Direct fallback and rollback.** If Serve is disabled on the tailnet (the error includes the admin link), times
   out, or is taken, use `via: 'tailscale-direct'`. With `previous`, that also removes the mapping this package made.
   If cleanup cannot be verified, the requested route is still returned with `pendingCleanup: previous`; persist that
-  fingerprint and retry `unserve(pendingCleanup)` later. A successful cleanup omits `pendingCleanup`.
+  fingerprint and retry `unserve(pendingCleanup)` later. `auto` also retains `previous` when Tailscale disappears
+  and it falls back to LAN. An explicit route switch checks for addresses before removing a working Serve mapping.
+  A successful cleanup omits `pendingCleanup`.
   If a Serve write succeeds but its status cannot be verified, the thrown error also carries
   `error.pendingCleanup`; persist it before reporting the error, then inspect or retry cleanup later.
 

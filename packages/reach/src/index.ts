@@ -58,6 +58,16 @@ export type Reach = {
 export async function reach(o: { port: number; via?: Via; previous?: ServeIngress; tailscale?: TailscaleOptions; interfaces?: Interfaces }): Promise<Reach> {
   const { port, via = 'auto', previous, tailscale: ts } = o;
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('port must be 1-65535');
+  let addresses: string[] | undefined;
+  if (via === 'tailscale-direct') {
+    const ip = (await tailscaleStatus(ts))?.ips.find(cgnat);
+    if (!ip) throw new Error('no Tailscale address; sign in to Tailscale or choose LAN');
+    addresses = [ip];
+  } else if (via === 'private' || via === 'lan') {
+    const found = routes(o.interfaces, via === 'private' ? (await tailscaleStatus(ts).catch(() => undefined))?.ips : undefined);
+    addresses = via === 'private' ? found.private.map((r) => r.address) : found.lan;
+    if (addresses.length === 0) throw new Error(via === 'private' ? 'no private network address' : 'no LAN address; connect to a network or choose Tailscale');
+  }
   let pendingCleanup: ServeIngress | undefined;
   if (previous && (via === 'tailscale-direct' || via === 'private' || via === 'lan' || previous.port !== port)) {
     try { await unserve(previous, ts); }
@@ -73,15 +83,10 @@ export async function reach(o: { port: number; via?: Via; previous?: ServeIngres
       return { urls: [served.url], bind: '127.0.0.1', ingress: served.ingress, ...(pending ? { pendingCleanup: pending } : {}) };
     }
     if (via === 'tailscale') throw new Error('Tailscale is not installed');
+    if (previous?.port === port) pendingCleanup ??= previous;
   }
-  if (via === 'tailscale-direct') {
-    const ip = (await tailscaleStatus(ts))?.ips.find(cgnat);
-    if (!ip) throw new Error('no Tailscale address; sign in to Tailscale or choose LAN');
-    return { urls: [`ws://${ip}:${port}`], bind: '0.0.0.0', ...(pendingCleanup ? { pendingCleanup } : {}) };
-  }
-  const found = routes(o.interfaces, via === 'private' ? (await tailscaleStatus(ts).catch(() => undefined))?.ips : undefined);
-  const addresses = via === 'private' ? found.private.map((r) => r.address) : found.lan;
-  if (addresses.length === 0) throw new Error(via === 'private' ? 'no private network address' : 'no LAN address; connect to a network or choose Tailscale');
+  addresses ??= routes(o.interfaces).lan;
+  if (addresses.length === 0) throw new Error('no LAN address; connect to a network or choose Tailscale');
   return { urls: addresses.map((a) => `ws://${a}:${port}`), bind: '0.0.0.0', ...(pendingCleanup ? { pendingCleanup } : {}) };
 }
 
