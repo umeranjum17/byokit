@@ -121,9 +121,9 @@ export class Host {
   }
   private async save(grants: Grant[]) { await this.store?.save(grants.map((g) => ({ ...g }))); }
   private report(error: unknown) { try { (this.opts.onError ?? console.error)(error); } catch {} }
-  private drop(device: string, keys?: string[]) {
+  private async drop(device: string, keys?: string[]) {
     if (!keys) this.answered.delete(device);
-    if (this.opts.answers && (!keys || keys.length)) void Promise.resolve().then(() => this.opts.answers!.drop(device, keys)).catch((e) => this.report(e));
+    if (this.opts.answers && (!keys || keys.length)) await this.opts.answers.drop(device, keys);
   }
 
   /** Every grant change goes through here, one at a time: store first, then memory, then the live sockets. */
@@ -140,7 +140,7 @@ export class Host {
           for (const [conn, s] of this.live) if (s.dev.id === old.id) this.live.set(conn, { ...s, dev: current });
           continue;
         }
-        if (!current) this.drop(old.id);
+        if (!current) void this.drop(old.id).catch((e) => this.report(e));
         for (const [conn, s] of this.live) if (s.dev.id === old.id) {
           this.live.delete(conn);
           s.streams.closeAll(why ? 'removed' : 'unreachable');
@@ -379,8 +379,11 @@ export class Host {
           return refuse('ended');
         }
         if (!paired && !this.currentGrant(this.grants, g.id, b64url(hs!.remoteKey))) return refuse('not-paired');
-        if (auth?.fresh === true) this.drop(current.id);
-        else if (auth) this.acknowledge(current.id, auth.session, auth.ack);
+        if (auth?.fresh === true) {
+          try { await this.drop(current.id); }
+          catch (e) { this.report(e); return refuse('failed'); }
+        } else if (auth) this.acknowledge(current.id, auth.session, auth.ack);
+        if (gone) return;
         dev = g = current;
         busy = false;
         clearTimeout(timer);
@@ -513,7 +516,7 @@ export class Host {
     const seen = this.answered.get(device);
     const gone: string[] = [];
     if (seen) for (const [key, entry] of seen) if (entry.session === session && entry.id <= (ack as number)) { seen.delete(key); gone.push(key); }
-    this.drop(device, gone);
+    void this.drop(device, gone).catch((e) => this.report(e));
   }
 
   private async request(conn: Conn, dev: Grant, m: any, authenticatedKey: string) {
@@ -528,10 +531,10 @@ export class Host {
     const key = typeof m.key === 'string' && m.key.length <= 80 ? m.key : '';
     const session = typeof m.session === 'string' && m.session.length <= 80 ? m.session : '';
     if (!key || !session || !Number.isSafeInteger(id) || id < 1) return answer({ ok: false, error: 'failed' });
+    const req: LinkRequest = { op: String(m.op ?? ''), args: m.args, key: `${g.id}:${key}` };
     let entry = seen.get(key);
     if (!entry) {
       if (seen.size >= MAX_ANSWERS) return answer({ ok: false, error: 'busy' });
-      const req: LinkRequest = { op: String(m.op ?? ''), args: m.args, key: `${g.id}:${key}` };
       const store = this.opts.answers;
       const reply = Promise.resolve().then(async (): Promise<object> => {
         if (store) {
@@ -539,7 +542,7 @@ export class Host {
           try { kept = await store.get(g.id, key); } catch (e) { this.report(e); return { ok: false, error: 'failed' }; } // unknown: never run twice
           if (kept && typeof kept === 'object') return kept;
         }
-        const result = await this.run(req, g, m.notValidAfter);
+        const result = await this.run(req, g, m.notValidAfter, authenticatedKey);
         if (store) try { await store.put(g.id, key, result); } catch (e) { this.report(e); }
         return result;
       });
@@ -547,16 +550,34 @@ export class Host {
       seen.set(key, entry);
     }
     const reply = await entry.reply;
-    const current = this.grants.find((x) => x.id === g.id);
-    if (!current || current.key !== g.key || current.role !== g.role || (!this.ended(current) && !this.currentGrant(this.grants, g.id, authenticatedKey))) return answer({ ok: false, error: 'removed' });
-    if (this.ended(current)) {
-      answer({ ok: false, error: 'ended' });
-      return void this.revoke(current.id, 'ended').catch((e) => this.report(e));
+    const admitted = await this.admitRequest(req, g, authenticatedKey);
+    if ('error' in admitted) {
+      answer({ ok: false, error: admitted.error });
+      if (admitted.error === 'ended') void this.revoke(g.id, 'ended').catch((e) => this.report(e));
+      return;
     }
     answer(reply);
   }
 
-  private async run(req: LinkRequest, g: Grant, notValidAfter: unknown): Promise<object> {
+  private async admitRequest(req: LinkRequest, g: Grant, authenticatedKey: string): Promise<{ grant: Grant } | { error: 'removed' | 'ended' | 'not-allowed' | 'view-only' }> {
+    const current = this.grants.find((x) => x.id === g.id);
+    if (!current || current.key !== g.key || current.role !== g.role) return { error: 'removed' };
+    if (this.ended(current)) return { error: 'ended' };
+    if (!this.currentGrant(this.grants, g.id, authenticatedKey)) return { error: 'removed' };
+    const denied = current.role === 'control' ? 'not-allowed' : 'view-only';
+    try {
+      const ok = this.opts.allow ? await this.opts.allow(req, current) : current.role === 'control' || (this.opts.canView?.(req) ?? false);
+      if (ok !== true) return { error: denied };
+    } catch (e) { this.report(e); return { error: denied }; }
+    const latest = this.grants.find((x) => x.id === g.id);
+    if (!latest || latest.key !== g.key || latest.role !== g.role) return { error: 'removed' };
+    if (this.ended(latest)) return { error: 'ended' };
+    if (!this.currentGrant(this.grants, g.id, authenticatedKey)) return { error: 'removed' };
+    if (latest.meta !== current.meta) return { error: denied };
+    return { grant: latest };
+  }
+
+  private async run(req: LinkRequest, g: Grant, notValidAfter: unknown, authenticatedKey: string): Promise<object> {
     const checked = (result: object) => {
       const snapshot = JSON.parse(JSON.stringify(result));
       messageBytes({ t: 'res', id: 0, ...snapshot });
@@ -564,14 +585,10 @@ export class Host {
     };
     // A request that arrives after the moment its sender said it stops making sense is not run at all.
     if (typeof notValidAfter === 'number' && this.now() > notValidAfter) return { ok: false, error: 'too-late' };
-    try {
-      const ok = this.opts.allow ? await this.opts.allow(req, g) : g.role === 'control' || (this.opts.canView?.(req) ?? false);
-      if (ok !== true) return { ok: false, error: g.role === 'control' ? 'not-allowed' : 'view-only' };
-    } catch (e) { this.report(e); return { ok: false, error: g.role === 'control' ? 'not-allowed' : 'view-only' }; }
-    const current = this.grants.find((x) => x.id === g.id);
-    if (!current || this.ended(current) || current.key !== g.key || current.role !== g.role) return { ok: false, error: 'removed' };
+    const admitted = await this.admitRequest(req, g, authenticatedKey);
+    if ('error' in admitted) return { ok: false, error: admitted.error };
     if (typeof notValidAfter === 'number' && this.now() > notValidAfter) return { ok: false, error: 'too-late' };
-    try { return checked({ ok: true, value: await this.opts.handle(req, current) }); }
+    try { return checked({ ok: true, value: await this.opts.handle(req, admitted.grant) }); }
     catch (e) {
       if (e instanceof PublicLinkError) {
         try { return checked({ ok: false, error: 'public', message: e.message }); }

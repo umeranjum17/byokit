@@ -81,7 +81,7 @@ test('R5: an allow policy decides every request before the handler, from what th
   await assert.rejects(d.link.request('start.session'), (e: LinkError) => e.code === 'not-allowed' && e.message === "This device isn't allowed to do that.");
   await assert.rejects(d.link.request('boom'), (e: LinkError) => e.code === 'not-allowed', 'a throwing policy refuses');
   assert.deepEqual(h.ran, ['Phone:list.sessions'], 'refused requests never reach the handler');
-  assert.equal(h.errors.length, 1);
+  assert.equal(h.errors.length, 2);
 });
 
 test('R4/R5: approval cannot outlive a changed or expired grant', async () => {
@@ -98,6 +98,37 @@ test('R4/R5: approval cannot outlive a changed or expired grant', async () => {
     release(true);
     await assert.rejects(reply, (e: LinkError) => e.code === (expire ? 'ended' : 'removed'));
     assert.deepEqual(h.ran, []);
+  }
+});
+
+test('R5: withdrawn policy refuses cached replies in memory and after restart', async () => {
+  for (const stored of [false, true]) {
+    let grants: Grant[] = [];
+    const grantStore = { load: () => grants, save: (g: Grant[]) => { grants = g; } };
+    const keys = keyPair();
+    const kept = new Map<string, object>();
+    const answers = { get: (d: string, k: string) => kept.get(`${d}/${k}`), put: (d: string, k: string, a: object) => { kept.set(`${d}/${k}`, a); },
+      drop: (d: string, keys?: string[]) => { for (const k of [...kept.keys()]) if (k.startsWith(`${d}/`) && (!keys || keys.includes(k.slice(d.length + 1)))) kept.delete(k); } };
+    const allow = (req: { op: string }, g: Grant) => ((g.meta as any).caps as string[]).includes(req.op);
+    const opts = { keys, grants: grantStore, allow, ...(stored ? { answers } : {}) };
+    const first = await startHost(opts);
+    const d = connect(await paired(first, { meta: { caps: ['list'] } }));
+    await until(() => d.link.status === 'online');
+    first.sockets.at(-1)!.send = (() => {}) as any;
+    const reply = d.link.request('list');
+    await until(() => first.ran.length === 1 && (!stored || kept.size === 1));
+    (grants[0].meta as any).caps = [];
+    if (stored) {
+      first.stop();
+      const second = await startHost(opts);
+      d.link.addUrl(second.url);
+      await assert.rejects(reply, (e: LinkError) => e.code === 'not-allowed');
+      assert.deepEqual(second.ran, []);
+    } else {
+      first.sockets.at(-1)!.terminate();
+      await assert.rejects(reply, (e: LinkError) => e.code === 'not-allowed');
+    }
+    assert.deepEqual(first.ran, ['Phone:list']);
   }
 });
 
@@ -196,6 +227,32 @@ test('R4: a reply finishing after expiry is refused from memory or the answers s
     release();
     await assert.rejects(reply, (e: LinkError) => e.code === 'ended' || e.code === 'removed');
     await until(() => d.link.status === 'removed');
+  }
+});
+
+test('C6: fresh auth waits for answer deletion before accepting new requests', async () => {
+  for (const fail of [false, true]) {
+    let entered!: () => void, release!: () => void;
+    const dropping = new Promise<void>((r) => { entered = r; });
+    const gate = new Promise<void>((r) => { release = r; });
+    const kept = new Map<string, object>();
+    const h = await startHost({ answers: { get: (d, k) => kept.get(`${d}/${k}`), put: (d, k, a) => { kept.set(`${d}/${k}`, a); },
+      drop: async () => { entered(); await gate; if (fail) throw new Error('drop failed'); kept.clear(); } } });
+    const d = connect(await paired(h));
+    const reply = d.link.request('get.state', undefined, { timeoutMs: 1000 });
+    await dropping;
+    assert.equal(h.ran.length, 0);
+    assert.notEqual(d.link.status, 'online');
+    release();
+    if (fail) {
+      await until(() => d.link.status === 'offline');
+      await assert.rejects(reply, (e: LinkError) => e.code === 'timeout');
+      assert.ok(h.errors.some((e) => (e as Error).message === 'drop failed'));
+      assert.equal(h.ran.length, 0);
+    } else {
+      assert.ok(await reply);
+      assert.equal(kept.size, 1);
+    }
   }
 });
 
