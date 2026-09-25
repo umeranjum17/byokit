@@ -13,10 +13,11 @@ and review checklist:
 ## Host
 
 ```ts
-import { Host, keyPair } from '@byokit/link';
+import { Host } from '@byokit/link';
+import { hostKeyFile } from '@byokit/link/node';
 
 const host = await Host.open({
-  keys: hostKeyFile(path),                // from '@byokit/link/node': made once, 0600, never replaced; or your keychain
+  keys: hostKeyFile('./link-secret/host.key'), // made once in its own 0700 folder; or use your keychain
   name: 'Kitchen computer',
   grants: { load: () => db.grants(), save: (g) => db.setGrants(g) },
   confirm: ({ name, words, role }) => ui.ask(`Pair ${name}? Check it shows “${words}”.`),
@@ -68,8 +69,8 @@ await link.request('send.message', { text: 'hi' }, { timeoutMs: 20_000, notValid
   `link.addUrl(url)` adds an address found later (a wrong host there just fails its handshake).
 - A quiet connection is pinged (`pingMs`, default 20 s) and redialled when the host stops answering; at most
   `maxPending` requests (default 1000) wait at once.
-- `link.rekey()` moves the device to a fresh key without a moment where no key works; `link.unpair()` forgets the
-  computer and asks it to forget this device.
+- `link.rekey()` moves the device to a fresh key without a moment where no key works; `link.unpair()` asks the
+  computer to remove the grant and forgets it locally only after confirmation. Offline or failed removal keeps the grant.
 
 Statuses: `connecting`, `online`, `offline` (it keeps retrying), `refused` (every address answered with another host key; the grant is
 kept, `retry()` or pair again), `removed` (the host removed this device; the grant is forgotten). Every failure is a

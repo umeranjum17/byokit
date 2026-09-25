@@ -434,7 +434,12 @@ export class Host {
         this.live.delete(conn); // so the removal below leaves this socket open for the answer
         return void this.transition((grants) => grants.some((g) => g.id === d.id) ? grants.filter((g) => g.id !== d.id) : null)
           .then(() => { this.sealed(conn, ch!, { t: 'unpaired' }); later(1000, () => end(1000, 'unpaired')); })
-          .catch((e) => { this.report(e); end(4400, 'failed'); });
+          .catch((e) => {
+            this.report(e);
+            const current = this.grants.find((g) => g.id === d.id);
+            if (current) this.live.set(conn, { dev: current, ch: ch! });
+            this.sealed(conn, ch!, { t: 'unpair-failed' });
+          });
       }
       if (m.t === 'rekey') { // a fresh device key, valid alongside the old one until the device first uses it
         let key: string;
@@ -532,7 +537,14 @@ export class Host {
       entry = { id, session, reply };
       seen.set(key, entry);
     }
-    answer(await entry.reply);
+    const reply = await entry.reply;
+    const current = this.grants.find((x) => x.id === g.id);
+    if (!current || current.key !== g.key || current.role !== g.role) return answer({ ok: false, error: 'removed' });
+    if (this.ended(current)) {
+      answer({ ok: false, error: 'ended' });
+      return void this.revoke(current.id, 'ended').catch((e) => this.report(e));
+    }
+    answer(reply);
   }
 
   private async run(req: LinkRequest, g: Grant, notValidAfter: unknown): Promise<object> {

@@ -96,7 +96,7 @@ test('R4/R5: approval cannot outlive a changed or expired grant', async () => {
     if (expire) now += 11_000;
     else await h.host.revoke(d.link.grant.device.id);
     release(true);
-    await assert.rejects(reply, (e: LinkError) => e.code === 'removed');
+    await assert.rejects(reply, (e: LinkError) => e.code === (expire ? 'ended' : 'removed'));
     assert.deepEqual(h.ran, []);
   }
 });
@@ -132,6 +132,20 @@ test('C2: requests can time out, too many waiting are refused, and a silent sock
   assert.deepEqual(await d.link.request('after'), { ok: 'after' });
 });
 
+test('C2: events and mismatched pongs cannot keep a half-open socket alive', async () => {
+  const h = await startHost();
+  const d = connect(await paired(h), { pingMs: 100 });
+  await until(() => d.link.status === 'online');
+  const sealed = (h.host as any).sealed.bind(h.host);
+  (h.host as any).sealed = (conn: unknown, ch: unknown, msg: any) =>
+    sealed(conn, ch, msg.t === 'pong' ? { ...msg, n: msg.n + 1 } : msg);
+  const events = setInterval(() => h.host.broadcast('still here'), 20);
+  try {
+    await until(() => d.seen.includes('offline'), 2000);
+    assert.ok(d.events.length > 2);
+  } finally { clearInterval(events); (h.host as any).sealed = sealed; }
+});
+
 test('C6: answers kept in a store survive a host restart; a request past its moment is not run', async () => {
   const kept = new Map<string, object>();
   const answers = { get: (d: string, k: string) => kept.get(`${d}/${k}`), put: (d: string, k: string, a: object) => { kept.set(`${d}/${k}`, a); },
@@ -161,6 +175,28 @@ test('C6: answers kept in a store survive a host restart; a request past its mom
 
   await assert.rejects(d.link.request('send.late', undefined, { notValidAfter: Date.now() - 1 }), (e: LinkError) => e.code === 'too-late');
   assert.ok(!second.ran.includes('Phone:send.late'));
+});
+
+test('R4: a reply finishing after expiry is refused from memory or the answers store', async () => {
+  for (const stored of [false, true]) {
+    let now = Date.now();
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const waiting = new Promise<void>((r) => { entered = r; });
+    const h = await startHost({ now: () => now,
+      ...(stored ? { answers: { get: async () => { entered(); await gate; return { ok: true, value: 'secret' }; }, put: () => {}, drop: () => {} } } :
+        { handle: async () => { entered(); await gate; return 'secret'; } }),
+    });
+    const d = connect(await paired(h, { lifetime: 10_000 }));
+    await until(() => d.link.status === 'online');
+    const reply = d.link.request('pay.bill');
+    await waiting;
+    now += 11_000;
+    release();
+    await assert.rejects(reply, (e: LinkError) => e.code === 'ended' || e.code === 'removed');
+    await until(() => d.link.status === 'removed');
+  }
 });
 
 test('P6: a grant kept before pairing works after the app dies before saving the result', async () => {
@@ -230,6 +266,35 @@ test('R9: a device can unpair itself, and the host forgets it too', async () => 
   assert.equal(d.link.status, 'removed');
   assert.equal(d.store.g, null);
   assert.deepEqual(h.host.devices(), []);
+});
+
+test('R9: failed or unacknowledged unpair keeps the grant and live connection', async () => {
+  let grants: Grant[] = [];
+  let fail = false;
+  const h = await startHost({ grants: { load: () => grants, save: (next) => {
+    if (fail && !next.length) throw new Error('save failed');
+    grants = next;
+  } } });
+  const d = connect(await paired(h));
+  await until(() => d.link.status === 'online');
+  fail = true;
+  await assert.rejects(d.link.unpair(), (e: LinkError) => e.code === 'failed' && e.sealed);
+  assert.ok(d.store.g && h.host.devices().length === 1);
+  assert.ok(await d.link.request('get.state'));
+  const l = (d.link as any).conn;
+  const send = l.send;
+  l.send = () => { throw new Error('send failed'); };
+  await assert.rejects(d.link.unpair(), (e: LinkError) => e.code === 'timeout' && !e.sealed);
+  l.send = send;
+  assert.ok(d.store.g && h.host.devices().length === 1);
+  fail = false;
+  await d.link.unpair();
+  assert.equal(d.store.g, null);
+  assert.deepEqual(h.host.devices(), []);
+  const offline = connect({ ...await paired(h), urls: ['ws://127.0.0.1:1/link'] });
+  await until(() => offline.link.status === 'offline');
+  await assert.rejects(offline.link.unpair(), (e: LinkError) => e.code === 'unreachable');
+  assert.ok(offline.store.g);
 });
 
 test('X2a: rekey moves a device to a fresh key without a moment where no key works', async () => {

@@ -210,8 +210,9 @@ export class DeviceLink {
   private ack = 0;
   private received = new Set<number>();
   private storing: Promise<void> = Promise.resolve();
-  private waiting = new Map<string, () => void>(); // 'rekeyed' and 'unpaired'
+  private waiting = new Map<string, (result: true | 'failed') => void>();
   private heard = 0;
+  private pingId = 0;
 
   constructor(grant: DeviceGrant, o: LinkOptions = {}) {
     this.grant = grant;
@@ -248,7 +249,7 @@ export class DeviceLink {
         try {
           let active: Open;
           const l = await dial(url, keyPairFrom(unb64url(secret)), { key: unb64url(this.grant.host) }, { t: 'auth', session: this.session, ack: this.ack, fresh: this.fresh }, this.o, {
-            message: (m) => { if (this.conn === active) { this.heard = Date.now(); this.message(m); } },
+            message: (m) => { if (this.conn === active) { if (m.t === 'pong' && m.n === this.pingId) this.heard = Date.now(); this.message(m); } },
             close: () => { if (this.conn === active) this.lost(); },
           });
           active = l;
@@ -256,6 +257,7 @@ export class DeviceLink {
           this.fresh = false;
           this.conn = l;
           this.streams = l.ready.streams === 1 ? new Streams({ send: l.send, data: l.data, reason: (e) => { this.report(e); return 'failed'; }, report: (e) => this.report(e) }) : null;
+          this.pingId = 0;
           this.heard = Date.now();
           this.features = Array.isArray(l.ready.features) ? l.ready.features : [];
           this.tries = 0;
@@ -294,11 +296,10 @@ export class DeviceLink {
   /** A half-open socket (the phone changed networks) looks alive forever; a ping it never answers shows it isn't. */
   private ping(l: Open) {
     const every = this.o.pingMs ?? 20_000;
-    let n = 0;
     const tick = () => {
       if (this.conn !== l) return;
       if (Date.now() - this.heard > 2 * every) { l.close(); return this.lost(); }
-      try { l.send({ t: 'ping', n: ++n }); } catch {}
+      try { l.send({ t: 'ping', n: ++this.pingId }); } catch {}
       later(every, tick);
     };
     later(every, tick);
@@ -335,7 +336,8 @@ export class DeviceLink {
     if (m.t === 'revoked') return this.removed(); // sealed by the host, so it is really the host saying it
     if (this.streams?.message(m)) return;
     if (m.t === 'event') return this.o.onEvent?.(m.e);
-    if (m.t === 'rekeyed' || m.t === 'unpaired') return this.waiting.get(m.t)?.();
+    if (m.t === 'rekeyed' || m.t === 'unpaired') return this.waiting.get(m.t)?.(true);
+    if (m.t === 'unpair-failed') return this.waiting.get('unpaired')?.('failed');
     const p = m.t === 'res' && this.pending.has(m.id) ? this.settle(m.id) : undefined;
     if (!p) return;
     if (m.ok) p.resolve(m.value);
@@ -393,10 +395,10 @@ export class DeviceLink {
     if (this.status === 'offline') this.retry();
   }
 
-  private answer(what: 'rekeyed' | 'unpaired', send: () => void, ms = 10_000): Promise<boolean> {
+  private answer(what: 'rekeyed' | 'unpaired', send: () => void, ms = 10_000): Promise<true | 'failed' | false> {
     return new Promise((resolve) => {
       const timer = later(ms, () => { this.waiting.delete(what); resolve(false); });
-      this.waiting.set(what, () => { clearTimeout(timer); this.waiting.delete(what); resolve(true); });
+      this.waiting.set(what, (result) => { clearTimeout(timer); this.waiting.delete(what); resolve(result); });
       try { send(); } catch { clearTimeout(timer); this.waiting.delete(what); resolve(false); }
     });
   }
@@ -417,11 +419,13 @@ export class DeviceLink {
     if (this.grant.nextSecretKey || this.grant.secretKey !== b64url(next.secretKey)) throw new LinkError('failed');
   }
 
-  /** Forgets this computer, and asks it to forget this device. Offline (or with an older computer), only this device
-   *  forgets; the computer keeps listing it until someone removes it there. */
+  /** Asks the computer to forget this device, then forgets it locally once the computer confirms. */
   async unpair(): Promise<void> {
     const l = this.conn;
-    if (l && this.features.includes('unpair')) await this.answer('unpaired', () => l.send({ t: 'unpair' }));
+    if (!l) throw new LinkError('unreachable');
+    if (!this.features.includes('unpair')) throw new LinkError('unsupported');
+    const reply = await this.answer('unpaired', () => l.send({ t: 'unpair' }));
+    if (reply !== true) throw new LinkError(reply === 'failed' ? 'failed' : 'timeout', reply === 'failed');
     this.removed();
     await this.storing;
   }

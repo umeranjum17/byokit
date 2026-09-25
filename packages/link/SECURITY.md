@@ -79,8 +79,8 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 10. **Rekey keeps two keys valid for a moment.** After `rekey`, the host accepts the old key and the staged new one
    until the device first connects with the new one; from then on only the new key works. A device that loses the
    staged key before that point keeps using the old key.
-11. **`unpair` needs the host.** Offline, or against a 0.1 host, a device only forgets locally and the host keeps
-   listing it until someone removes it there.
+11. **`unpair` needs the host.** Offline, against a 0.1 host, or when saving removal fails, the device keeps its
+   grant and reports failure. It forgets locally only after the host confirms removal.
 9. **Metadata.** The relay sees the host id, timing, sizes, device IP addresses and whether a first message is a
    typed-code attempt (`code:` prefix).
 
