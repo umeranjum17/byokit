@@ -7,15 +7,18 @@ import { cleanName, codeKey, normalizeCode, parseOffer } from './pairing.ts';
 import type { Role } from './host.ts';
 import { Streams, type LinkStream } from './stream.ts';
 
-/** What a device keeps (in secure storage: it holds the device's secret key). */
-export type DeviceGrant = { v: 1; secretKey: string; host: string; hostName: string; urls: string[]; device: { id: string; name: string; role: Role } };
+/** What a device keeps (in secure storage: it holds the device's secret key). `nextSecretKey` is only there while
+ *  a rekey is under way. */
+export type DeviceGrant = { v: 1; secretKey: string; nextSecretKey?: string; host: string; hostName: string; urls: string[]; device: { id: string; name: string; role: Role } };
 export type DeviceStore = { save(g: DeviceGrant): void | Promise<void>; clear(): void | Promise<void> };
 export type LinkStatus = 'connecting' | 'online' | 'offline' | 'refused' | 'removed';
 type WebSocketLike = {
   send(data: string | Uint8Array): void; close(code?: number, reason?: string): void; binaryType?: string;
   onopen: any; onmessage: any; onclose: any; onerror: any;
 };
-export type Dial = { WebSocket?: new (url: string) => WebSocketLike; timeoutMs?: number };
+/** `resolve` runs before each connection and returns the address to dial: e.g. open an SSH tunnel to the host and
+ *  return `ws://127.0.0.1:<port>/…`. The grant keeps the original address. */
+export type Dial = { WebSocket?: new (url: string) => WebSocketLike; timeoutMs?: number; resolve?: (url: string) => string | Promise<string> };
 
 /** Every way the link can fail, in words a person can act on. */
 export const LINK_WORDS = {
@@ -33,6 +36,10 @@ export const LINK_WORDS = {
   busy: 'Your computer is still catching up. Try again in a moment.',
   stopped: 'This link is stopped. Try connecting again.',
   'not-supported': "The app on your computer can't do this yet. Update it there.",
+  ended: "This device's access has run out. Pair it again on your computer.",
+  'not-allowed': "This device isn't allowed to do that.",
+  'too-late': "That reached your computer too late, so it wasn't done.",
+  unsupported: 'Your computer needs an update for that.',
 } as const;
 export type LinkProblem = keyof typeof LINK_WORDS;
 
@@ -60,8 +67,10 @@ type Open = { ready: any; hostKey: Uint8Array; send: (m: unknown) => void; data:
 type Hello = { t: 'auth'; session: string; ack: number; fresh: boolean } | { t: 'pair'; ticket: string; name: string } | { t: 'code'; name: string };
 
 /** One socket: the handshake, the first request (`auth` or `pair`), and the host's `ready`. */
-function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Uint8Array }, hello: Hello, o: Dial & { onWords?: (w: string) => void },
+async function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Uint8Array }, hello: Hello, o: Dial & { onWords?: (w: string) => void },
   on: { message: (m: any) => void; close: (e: LinkError) => void } = { message: () => {}, close: () => {} }): Promise<Open> {
+  let target = url;
+  try { if (o.resolve) target = await o.resolve(url); } catch { throw new LinkError('unreachable'); }
   return new Promise((resolve, reject) => {
     const WS = o.WebSocket ?? (globalThis as any).WebSocket;
     const mode: Mode = hello.t === 'code' ? 'code' : 'ik';
@@ -80,7 +89,7 @@ function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Uint8Arr
       try { ws.close(); } catch {}
     };
     let timer = later(o.timeoutMs ?? 8000, () => fail(new LinkError('timeout')));
-    try { ws = new WS(url); ws.binaryType = 'arraybuffer'; } catch { return fail(new LinkError('unreachable')); }
+    try { ws = new WS(target); ws.binaryType = 'arraybuffer'; } catch { return fail(new LinkError('unreachable')); }
     let binary = false; // the host said this socket reaches it directly, so stream bytes may go as binary messages
     const send = (m: unknown) => { for (const f of ch!.seal(m)) ws.send(f); };
     const data = (s: number, d: Uint8Array) => { for (const f of ch!.sealData(s, d)) ws.send(binary ? f : b64(f)); };
@@ -126,11 +135,23 @@ function granted(me: KeyPair, hostKey: string, url: string, urls: string[], read
     device: ready.device };
 }
 
+type PairOptions = Dial & { name: string; onWords: (w: string) => void; key?: KeyPair };
+
+/** The grant a scanned code will become, to keep in secure storage *before* pairing. If the app dies while the person
+ *  at the host decides, a `DeviceLink` made from it later connects once the host has said yes (or learns it said no),
+ *  instead of leaving the host holding a grant for a key nobody has. Pass its key to `pairWithOffer`. */
+export function pendingGrant(scanned: string, o: { name: string; key?: KeyPair }): DeviceGrant {
+  const offer = parseOffer(scanned);
+  const me = o.key ?? keyPair();
+  return { v: 1, secretKey: b64url(me.secretKey), host: offer.host, hostName: offer.name, urls: offer.urls,
+    device: { id: '', name: cleanName(o.name, 'Device'), role: offer.role ?? 'view' } };
+}
+
 /** A scanned QR (or opened pairing link) in, a grant out, once the person at the host says yes. `onWords` gets the
  *  two words to show while they decide. Tries each address in the code until one answers. */
-export async function pairWithOffer(scanned: string, o: Dial & { name: string; onWords: (w: string) => void }): Promise<DeviceGrant> {
+export async function pairWithOffer(scanned: string, o: PairOptions): Promise<DeviceGrant> {
   const offer = parseOffer(scanned);
-  const me = keyPair();
+  const me = o.key ?? keyPair();
   let last = new LinkError('unreachable');
   for (const url of offer.urls) {
     try {
@@ -146,37 +167,53 @@ export async function pairWithOffer(scanned: string, o: Dial & { name: string; o
 }
 
 /** A typed code in, a grant out. `url` is where the host is (a page served by the host knows its own address). */
-export async function pairWithCode(url: string, typed: string, o: Dial & { name: string; onWords: (w: string) => void }): Promise<DeviceGrant> {
+export async function pairWithCode(url: string, typed: string, o: PairOptions): Promise<DeviceGrant> {
   if (!normalizeCode(typed)) throw new LinkError('wrong-code');
-  const me = keyPair();
+  const me = o.key ?? keyPair();
   const l = await dial(url, me, { psk: codeKey(typed) }, { t: 'code', name: o.name }, o);
   const hostKey = b64url(l.hostKey);
   l.close();
   return granted(me, hostKey, url, [url], l.ready);
 }
 
-type Pending = { msg: any; resolve: (v: unknown) => void; reject: (e: Error) => void };
+type Pending = { msg: any; resolve: (v: unknown) => void; reject: (e: Error) => void; timer?: any };
+export type LinkOptions = Dial & {
+  store?: DeviceStore; onEvent?: (e: unknown) => void; onStatus?: (s: LinkStatus) => void; onError?: (e: unknown) => void;
+  /** How often to check a quiet connection is still there (default 20 s); it is dropped after two silent rounds. */
+  pingMs?: number;
+  /** Requests waiting at once before new ones are refused as busy (default 1000, what a host keeps per device). */
+  maxPending?: number;
+};
+export type RequestOptions = {
+  /** Give up waiting after this long. The host may still have done it; a retry is a new request. */
+  timeoutMs?: number;
+  /** A clock time (ms) after which the host must not start it. */
+  notValidAfter?: number;
+};
 
 /** The device's live link: connects, reconnects forever with backoff, resends unanswered requests after a reconnect. */
 export class DeviceLink {
   grant: DeviceGrant;
   status: LinkStatus = 'connecting';
-  private o: Dial & { store?: DeviceStore; onEvent?: (e: unknown) => void; onStatus?: (s: LinkStatus) => void; onError?: (e: unknown) => void };
+  private o: LinkOptions;
   private conn: Open | null = null;
   private streams: Streams | null = null;
+  private features: string[] = [];
   private pending = new Map<number, Pending>();
   private n = 0;
   private tries = 0;
   private stopped = false;
   private wake: any;
-  private connecting = false;
+  private connecting: Promise<void> | null = null;
   private readonly session = b64url(random(12));
   private fresh = true;
   private ack = 0;
   private received = new Set<number>();
   private storing: Promise<void> = Promise.resolve();
+  private waiting = new Map<string, () => void>(); // 'rekeyed' and 'unpaired'
+  private heard = 0;
 
-  constructor(grant: DeviceGrant, o: Dial & { store?: DeviceStore; onEvent?: (e: unknown) => void; onStatus?: (s: LinkStatus) => void; onError?: (e: unknown) => void } = {}) {
+  constructor(grant: DeviceGrant, o: LinkOptions = {}) {
     this.grant = grant;
     this.o = o;
     void this.connect();
@@ -184,58 +221,100 @@ export class DeviceLink {
 
   private set(s: LinkStatus) { if (s !== this.status) { this.status = s; this.o.onStatus?.(s); } }
   private report(e: unknown) { try { (this.o.onError ?? console.error)(e); } catch {} }
-  private persist(action: () => void | Promise<void>) {
+  private persist(action: () => void | Promise<void>): Promise<void> {
     this.storing = this.storing.then(action).catch((e) => this.report(e));
+    return this.storing;
   }
   private receivedReply(id: number) {
     this.received.add(id);
     while (this.received.delete(this.ack + 1)) this.ack++;
   }
 
-  private async connect() {
-    if (this.stopped || this.connecting || this.conn) return;
-    this.connecting = true;
+  private connect(): Promise<void> {
+    if (this.stopped || this.conn) return Promise.resolve();
+    // The status is set after the attempt is over, so an app can call retry() from onStatus.
+    this.connecting ??= this.attempt().then((after) => { this.connecting = null; after(); }, (e) => { this.connecting = null; this.report(e); });
+    return this.connecting;
+  }
+
+  private async attempt(): Promise<() => void> {
     let wrongHosts = 0;
     let online = false;
-    try {
-      const me = keyPairFrom(unb64url(this.grant.secretKey));
-      for (const url of this.grant.urls) {
+    // Mid-rekey, the new key goes first; if the host never took it, the old one still works.
+    const keys = [this.grant.nextSecretKey, this.grant.secretKey].filter((k): k is string => !!k);
+    urls: for (const url of this.grant.urls) {
+      for (const secret of keys) {
         try {
           let active: Open;
-          const l = await dial(url, me, { key: unb64url(this.grant.host) }, { t: 'auth', session: this.session, ack: this.ack, fresh: this.fresh }, this.o, {
-            message: (m) => { if (this.conn === active) this.message(m); },
-            close: () => { if (this.conn !== active) return; this.drop('unreachable'); if (!this.stopped && !this.connecting) { this.again(); this.set('offline'); } },
+          const l = await dial(url, keyPairFrom(unb64url(secret)), { key: unb64url(this.grant.host) }, { t: 'auth', session: this.session, ack: this.ack, fresh: this.fresh }, this.o, {
+            message: (m) => { if (this.conn === active) { this.heard = Date.now(); this.message(m); } },
+            close: () => { if (this.conn === active) this.lost(); },
           });
           active = l;
-          if (this.stopped) return l.close();
+          if (this.stopped) { l.close(); return () => {}; }
           this.fresh = false;
           this.conn = l;
           this.streams = l.ready.streams === 1 ? new Streams({ send: l.send, data: l.data, reason: (e) => { this.report(e); return 'failed'; }, report: (e) => this.report(e) }) : null;
+          this.heard = Date.now();
+          this.features = Array.isArray(l.ready.features) ? l.ready.features : [];
           this.tries = 0;
-          this.grant = { ...this.grant, urls: [url, ...this.grant.urls.filter((u) => u !== url)], device: l.ready.device }; // the one that worked goes first
+          const { nextSecretKey, ...rest } = this.grant;
+          this.grant = { ...rest, secretKey: secret, urls: [url, ...this.grant.urls.filter((u) => u !== url)], device: l.ready.device }; // what worked goes first
           const current = this.grant;
-          this.persist(() => this.o.store?.save(current));
+          void this.persist(() => this.o.store?.save(current));
           for (const [id, p] of this.pending) this.sendPending(l, id, p);
+          if (this.features.includes('ping')) this.ping(l);
           online = true;
-          break;
+          break urls;
         } catch (e: any) {
-          if (e?.sealed && e.code === 'not-paired') return this.removed();
+          if (e?.sealed && (e.code === 'not-paired' || e.code === 'ended')) {
+            if (secret !== this.grant.secretKey) continue; // the new key was never taken: try the old one
+            return () => this.removed();
+          }
           if (e?.code === 'wrong-host') wrongHosts++;
+          break; // this address is the problem, not the key
         }
       }
-    } finally { this.connecting = false; }
-    if (this.stopped) return;
-    if (online && this.conn) this.set('online');
-    else if (wrongHosts > 0 && wrongHosts === this.grant.urls.length) { this.stopped = true; this.set('refused'); }
-    else { this.again(); this.set('offline'); }
+    }
+    return () => {
+      if (this.stopped) return;
+      if (online && this.conn) this.set('online');
+      else if (wrongHosts > 0 && wrongHosts === this.grant.urls.length) { this.stopped = true; this.set('refused'); }
+      else { this.again(); this.set('offline'); }
+    };
+  }
+
+  private lost() {
+    this.drop('unreachable');
+    if (!this.stopped && !this.connecting) { this.again(); this.set('offline'); }
+  }
+
+  /** A half-open socket (the phone changed networks) looks alive forever; a ping it never answers shows it isn't. */
+  private ping(l: Open) {
+    const every = this.o.pingMs ?? 20_000;
+    let n = 0;
+    const tick = () => {
+      if (this.conn !== l) return;
+      if (Date.now() - this.heard > 2 * every) { l.close(); return this.lost(); }
+      try { l.send({ t: 'ping', n: ++n }); } catch {}
+      later(every, tick);
+    };
+    later(every, tick);
   }
 
   private sendPending(l: Open, id: number, p: Pending) {
     try { l.send(p.msg); } catch {
-      this.pending.delete(id);
-      this.receivedReply(id);
+      this.settle(id);
       p.reject(new Error('Your device could not send that request.'));
     }
+  }
+
+  private settle(id: number) {
+    const p = this.pending.get(id);
+    clearTimeout(p?.timer);
+    this.pending.delete(id);
+    this.receivedReply(id);
+    return p;
   }
 
   private again() {
@@ -254,10 +333,9 @@ export class DeviceLink {
     if (m.t === 'revoked') return this.removed(); // sealed by the host, so it is really the host saying it
     if (this.streams?.message(m)) return;
     if (m.t === 'event') return this.o.onEvent?.(m.e);
-    const p = m.t === 'res' ? this.pending.get(m.id) : undefined;
+    if (m.t === 'rekeyed' || m.t === 'unpaired') return this.waiting.get(m.t)?.();
+    const p = m.t === 'res' && this.pending.has(m.id) ? this.settle(m.id) : undefined;
     if (!p) return;
-    this.pending.delete(m.id);
-    this.receivedReply(m.id);
     if (m.ok) p.resolve(m.value);
     else p.reject(m.error === 'public' ? new PublicLinkError(String(m.message)) : new LinkError(problem(m.error), true));
   }
@@ -266,20 +344,22 @@ export class DeviceLink {
     this.stopped = true;
     this.conn?.close();
     this.drop('removed');
-    for (const p of this.pending.values()) p.reject(new LinkError('removed', true));
-    this.pending.clear();
-    this.persist(() => this.o.store?.clear());
+    for (const id of [...this.pending.keys()]) this.settle(id)?.reject(new LinkError('removed', true));
+    void this.persist(() => this.o.store?.clear());
     this.set('removed');
   }
 
-  /** Asks the host to do `op`. Waits through reconnects; resolves only with the host's answer. */
-  request(op: string, args?: unknown): Promise<unknown> {
+  /** Asks the host to do `op`. Waits through reconnects (or until `timeoutMs`); resolves only with the host's answer. */
+  request(op: string, args?: unknown, o: RequestOptions = {}): Promise<unknown> {
     if (this.status === 'removed') return Promise.reject(new LinkError('removed', true));
     if (this.stopped) return Promise.reject(new LinkError('stopped'));
+    if (this.pending.size >= (this.o.maxPending ?? 1000)) return Promise.reject(new LinkError('busy'));
     return new Promise((resolve, reject) => {
       const id = ++this.n;
-      const msg = { t: 'req', id, op, args, key: b64url(random(12)), session: this.session, ack: this.ack };
-      const p = { msg, resolve, reject };
+      const msg = { t: 'req', id, op, args, key: b64url(random(12)), session: this.session, ack: this.ack,
+        ...(o.notValidAfter === undefined ? {} : { notValidAfter: o.notValidAfter }) };
+      const p: Pending = { msg, resolve, reject };
+      if (o.timeoutMs !== undefined) p.timer = later(o.timeoutMs, () => { if (this.pending.get(id) === p) { this.settle(id); reject(new LinkError('timeout')); } });
       this.pending.set(id, p);
       if (this.conn) this.sendPending(this.conn, id, p);
     });
@@ -302,6 +382,48 @@ export class DeviceLink {
     }
   }
 
+  /** Another address to try, e.g. one found on the home network. A wrong host there simply fails its handshake. */
+  addUrl(url: string) {
+    if (this.grant.urls.includes(url)) return;
+    this.grant = { ...this.grant, urls: [...this.grant.urls, url] };
+    const current = this.grant;
+    void this.persist(() => this.o.store?.save(current));
+    if (this.status === 'offline') this.retry();
+  }
+
+  private answer(what: 'rekeyed' | 'unpaired', send: () => void, ms = 10_000): Promise<boolean> {
+    return new Promise((resolve) => {
+      const timer = later(ms, () => { this.waiting.delete(what); resolve(false); });
+      this.waiting.set(what, () => { clearTimeout(timer); this.waiting.delete(what); resolve(true); });
+      try { send(); } catch { clearTimeout(timer); this.waiting.delete(what); resolve(false); }
+    });
+  }
+
+  /** Moves this device to a fresh key. The new key is stored before the host hears of it, and the old one keeps working
+   *  until the new one has connected, so a crash at any point leaves a key that works. */
+  async rekey(): Promise<void> {
+    const l = this.conn;
+    if (!l) throw new LinkError('unreachable');
+    if (!this.features.includes('rekey')) throw new LinkError('unsupported');
+    const next = keyPair();
+    this.grant = { ...this.grant, nextSecretKey: b64url(next.secretKey) };
+    const staged = this.grant;
+    await this.persist(() => this.o.store?.save(staged));
+    if (!(await this.answer('rekeyed', () => l.send({ t: 'rekey', key: b64url(next.publicKey) })))) throw new LinkError('timeout');
+    if (this.conn === l) { this.conn = null; l.close(); }
+    await this.connect();
+    if (this.grant.nextSecretKey || this.grant.secretKey !== b64url(next.secretKey)) throw new LinkError('failed');
+  }
+
+  /** Forgets this computer, and asks it to forget this device. Offline (or with an older computer), only this device
+   *  forgets; the computer keeps listing it until someone removes it there. */
+  async unpair(): Promise<void> {
+    const l = this.conn;
+    if (l && this.features.includes('unpair')) await this.answer('unpaired', () => l.send({ t: 'unpair' }));
+    this.removed();
+    await this.storing;
+  }
+
   /** After `refused` or `offline`: try again now. */
   retry() {
     if (this.status === 'removed' || this.conn) return;
@@ -321,7 +443,6 @@ export class DeviceLink {
     const conn = this.conn;
     this.drop('stopped');
     conn?.close();
-    for (const p of this.pending.values()) p.reject(new LinkError('stopped'));
-    this.pending.clear();
+    for (const [id, p] of [...this.pending]) { clearTimeout(p.timer); this.pending.delete(id); p.reject(new LinkError('stopped')); }
   }
 }

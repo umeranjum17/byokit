@@ -59,16 +59,26 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 4. **Library activity.** `noise-handshake` (pushed 2025-12) and `sodium-javascript` (2022) are low-activity; the
    Noise pattern set is frozen and the vectors pin behaviour. If the handshake implementation is abandoned, a
    reviewed replacement must preserve the authenticated protocol and existing wire format.
-5. **Denial of service.** No rate limit on handshakes (each costs the host a few X25519 operations). Apps expose the
-   socket only on loopback/tailnet/LAN by default (Crewhouse does) or behind a relay that limits.
-6. **Idempotency survives reconnects within one app session, not app or host restarts.** The answer cache is in memory. A fresh authenticated app session discards the previous session's abandoned replies. A device with 1000 unacknowledged replies receives `busy` for new requests until it acknowledges earlier replies; no reply is evicted during the same session.
+5. **Denial of service.** New handshakes are limited before any key work: 300 a minute in all and 30 per `peer`
+   (the app passes the source address to `accept`; relayed connections count only toward the total). That caps CPU,
+   not a flood of sockets: apps still expose the link only on loopback/tailnet/LAN by default, or behind a relay that
+   limits connections.
+6. **Idempotency survives reconnects within one app session, and host restarts only with an `answers` store.**
+   Without one, the answer cache is in memory. A store that fails to read refuses the request rather than risk running
+   it twice; a request can also carry `notValidAfter` so a stale retry is never started. A fresh authenticated app session discards the previous session's abandoned replies. A device with 1000 unacknowledged replies receives `busy` for new requests until it acknowledges earlier replies; no reply is evicted during the same session.
 7. **Key storage is the app's job.** Host key: OS keychain (Electron `safeStorage`) or a 0600 file. React Native:
    `expo-secure-store`. Browser: IndexedDB, wrapped by a non-extractable WebCrypto AES-GCM key (muxr decision 0003);
    a live XSS can still use an unlocked key, so browsers should default to view-only. Android native: X25519 wrapped
    by a Keystore key (not hardware-bound; plan decision D3).
-8. **No per-grant expiry.** Grants last until revoked, by design (muxr decision 0001). Short-lived browser grants
-   (muxr decision 0003: eight hours) would be an app-level `meta.expires` checked in `canView`/`handle`, or a small
-   addition here.
+8. **Grant expiry is opt-in.** Grants last until revoked unless made with a `lifetime` (muxr decision 0001; short
+   browser grants per decision 0003). An expired grant is removed like a revoke: refused at `auth`, on the next
+   request, and on a timer for open sockets. Expiry uses the host's clock (`now`, which exists for tests); an app
+   that freezes it keeps codes and grants alive.
+10. **Rekey keeps two keys valid for a moment.** After `rekey`, the host accepts the old key and the staged new one
+   until the device first connects with the new one; from then on only the new key works. A device that loses the
+   staged key before that point keeps using the old key.
+11. **`unpair` needs the host.** Offline, or against a 0.1 host, a device only forgets locally and the host keeps
+   listing it until someone removes it there.
 9. **Metadata.** The relay sees the host id, timing, sizes, device IP addresses and whether a first message is a
    typed-code attempt (`code:` prefix).
 
@@ -96,4 +106,14 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
       or stream data that isn't a binary inner message, drops the socket; streams end on disconnect and revoke.
 - [ ] The link relay test shows no plaintext, device name, request or device id in routed link frames (push metadata has a separate [boundary](../relay/SECURITY.md)).
 - [ ] The browser bundle has no Node built-ins, and the headless-browser test pairs and makes requests.
-- [ ] Nothing in the package reads or writes files, environment variables or other programs.
+- [ ] Grant changes (pair, enrol, revoke, expiry, unpair, rekey, last seen) all go through one serialized
+      transition that saves before memory changes, then closes or updates that device's live sockets.
+- [ ] `allow` (or, without it, role plus `canView`) runs before `handle`; a throwing policy refuses.
+- [ ] Expired grants are refused at `auth` and on requests, and live sockets close when access runs out.
+- [ ] Per-kind caps and `maxDevices` are checked inside the grant transition, so concurrent approvals can't exceed them.
+- [ ] A rekey's new key is stored on the device before the host hears it; the host promotes it only when the device
+      authenticates with it.
+- [ ] The handshake limiter runs before any Diffie-Hellman.
+- [ ] Nothing in the main entry reads or writes files, environment variables or other programs.
+      `@byokit/link/node` `hostKeyFile(path)` touches only that path: 0600 in 0700, atomic, never replaces a file it
+      can't read, refuses symlinks.

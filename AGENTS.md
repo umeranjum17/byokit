@@ -11,7 +11,7 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 - `android/` is its own Gradle project (byokit-android, the Kotlin mirror, frozen: React Native apps use the TypeScript kit): `android/test.sh [serial]` runs its tests in a throwaway HOME (JDK 17+ in `JAVA_HOME`, `ANDROID_HOME`); CI's `android` job runs it without a device.
 - `@byokit/reach` tests run a fake tailscale CLI (`bin` option, PATH set to the fake's dir) and a fake mDNS publisher; never the real binary or network.
 - `@byokit/decide` never reads an environment variable: the host passes Jev's key to `jev({ key })`; only `byokit-eval --live` reads `TYPESAFE_API_KEY`/`OPENROUTER_API_KEY`. Tests mock `fetch`; eval files replay answers offline.
-- Publishing: only from merged main; `.github/workflows/release.yml` offers accounts, ui-core, decide, link, reach and relay via npm trusted publishing with provenance. Changes to published package code bump its version. `@byokit/link`'s muxr parity is tracked separately; its crypto deps are pinned exactly, and its browser test needs Chrome/Chromium (skipped locally without one, required in CI). `@byokit/relay` depends on link.
+- Publishing: only from merged main; `.github/workflows/release.yml` offers accounts, ui-core, decide, link, reach and relay via npm trusted publishing with provenance. Changes to published package code bump its version. `@byokit/link`'s muxr parity is tracked separately; `@byokit/link/node` is its only Node-only entry. Its crypto deps are pinned exactly, and its browser test needs Chrome/Chromium (skipped locally without one, required in CI). `@byokit/relay` depends on link.
 
 ## Maintaining this file
 

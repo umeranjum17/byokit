@@ -1,6 +1,6 @@
 # @byokit/link
 
-Muxr parity is tracked separately.
+Muxr parity is tracked separately. Host policy, relay routing, and streams are available.
 
 Scan a code to pair a phone or browser with the home computer, then talk over one encrypted link. The computer (the
 **host**) keeps every credential; a device holds only its own key and a grant, and asks the host to do things.
@@ -16,7 +16,7 @@ and review checklist:
 import { Host, keyPair } from '@byokit/link';
 
 const host = await Host.open({
-  keys,                                   // keyPair() once, then keep it in the OS keychain or a 0600 file
+  keys: hostKeyFile(path),                // from '@byokit/link/node': made once, 0600, never replaced; or your keychain
   name: 'Kitchen computer',
   grants: { load: () => db.grants(), save: (g) => db.setGrants(g) },
   confirm: ({ name, words, role }) => ui.ask(`Pair ${name}? Check it shows “${words}”.`),
@@ -29,6 +29,16 @@ const { text } = host.offer({ role: 'control', urls: ['ws://192.168.1.20:7300/li
 const { code } = host.code({ role: 'view' });     // or a code to type: "7KQ4-M2XP-9RTH"
 host.devices(); await host.revoke(id); host.broadcast(event);
 ```
+
+More host policy, all optional:
+
+- `offer`/`code`/`enrol` take `kind` (e.g. `'browser'`, `'peer'`), `lifetime` (ms; access then ends like a removal)
+  and `meta`. The offer carries `role` and `lifetime`, so the device can show what it is agreeing to.
+- `allow: (req, device) => boolean` decides every request (e.g. from capabilities kept in `meta`); without it,
+  control devices may do anything and view-only ones what `canView` allows.
+- `caps: { peer: 16 }` limits devices per kind; `maxDevices` limits them all.
+- `answers: { get, put, drop }` keeps answers across host restarts, so a retried request still runs once.
+- `handshakes: { perMinute, perPeer }` limits new handshakes; pass `host.accept(ws, { peer: ip })` to count per source.
 
 `offer({ base: 'https://app.example/pair' })` makes a link a browser can open instead of a bare QR text.
 Handler errors are logged on the host (`onError` can receive them). Devices see “Your computer couldn't do that.” unless the handler explicitly throws `new PublicLinkError('A message safe to show.')`.
@@ -43,7 +53,17 @@ const grant = await pairWithOffer(scanned, { name: 'Pixel 9', onWords: (w) => sh
 await secureStore.save(grant);                    // it holds this device's secret key
 const link = new DeviceLink(grant, { store: secureStore, onStatus, onEvent });
 await link.request('send.message', { text: 'hi' });  // waits through reconnects
+await link.request('send.message', { text: 'hi' }, { timeoutMs: 20_000, notValidAfter: Date.now() + 60_000 });
 ```
+
+- Save `pendingGrant(scanned, { name })` before pairing and pass its key (`pairWithOffer(scanned, { …, key })`): if
+  the app dies while the person decides, a `DeviceLink` made from it still connects once the host said yes.
+- `resolve: (url) => …` runs before each dial (e.g. open an SSH tunnel and return `ws://127.0.0.1:<port>/…`);
+  `link.addUrl(url)` adds an address found later (a wrong host there just fails its handshake).
+- A quiet connection is pinged (`pingMs`, default 20 s) and redialled when the host stops answering; at most
+  `maxPending` requests (default 1000) wait at once.
+- `link.rekey()` moves the device to a fresh key without a moment where no key works; `link.unpair()` forgets the
+  computer and asks it to forget this device.
 
 Statuses: `connecting`, `online`, `offline` (it keeps retrying), `refused` (every address answered with another host key; the grant is
 kept, `retry()` or pair again), `removed` (the host removed this device; the grant is forgotten). Every failure is a
@@ -76,7 +96,7 @@ await s.write('ls\r');
 s.end();
 ```
 
-View-only devices open only the streams `canView` allows. A host without `stream` tells devices so
+View-only devices open only the streams `allow` permits (or `canView` when `allow` is absent). A host without `stream` tells devices so
 (`LinkError` `not-supported`), and so does a host older than streams.
 
 On a direct socket, stream bytes go as binary WebSocket messages (without base64 overhead); through a relay, whose

@@ -1,0 +1,231 @@
+// link 0.2: host policy and device robustness. Each test is named after the muxr parity checklist row it carries
+// (data/byk-muxr-parity/report.md): R = approval and revoke, M = many devices, C = reconnect, P = pairing,
+// N = routes, T = transports, K = keys.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { lstatSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { LinkError, b64url, keyPair, keyPairFrom, pendingGrant, unb64url, type Grant, type GrantTerms } from '../src/index.ts';
+import { hostKeyFile } from '../src/node.ts';
+import { parseOffer } from '../src/pairing.ts';
+import { connect, pairWithOffer, sleep, startHost, until } from './helpers.ts';
+
+const paired = async (h: Awaited<ReturnType<typeof startHost>>, o: Partial<GrantTerms> = {}) =>
+  pairWithOffer(h.host.offer({ role: 'control', urls: [h.url], ...o }).text, { name: 'Phone' });
+
+test('R4: access that runs out ends like a removal, live or at the next connection', async () => {
+  const h = await startHost();
+  const { text } = h.host.offer({ role: 'view', urls: [h.url], lifetime: 400, kind: 'browser' });
+  assert.deepEqual([parseOffer(text).role, parseOffer(text).lifetime], ['view', 400], 'the device can say what it agrees to before connecting');
+  const d = connect(await pairWithOffer(text, { name: 'Browser tab' }));
+  assert.equal(h.asked[0].lifetime, 400, 'and so can the person at the host');
+  await until(() => d.link.status === 'online');
+  const g = h.host.devices()[0];
+  assert.ok(g.expires! - g.created === 400 && g.kind === 'browser');
+  await until(() => d.link.status === 'removed', 3000);
+  assert.equal(d.store.g, null, 'the device forgets it');
+  assert.deepEqual(h.host.devices(), []);
+
+  // Offline when it ran out: its next connection hears so from the host itself.
+  const key = keyPair();
+  const enrolled = await h.host.enrol({ key: key.publicKey, name: 'Old tab', role: 'view', lifetime: 50 });
+  await sleep(80);
+  const late = connect({ v: 1, secretKey: b64url(key.secretKey), host: b64url(h.host.keys.publicKey), hostName: '', urls: [h.url], device: { id: enrolled.id, name: 'Old tab', role: 'view' } });
+  await until(() => late.link.status === 'removed');
+  assert.deepEqual(h.host.devices(), []);
+});
+
+test('R5: an allow policy decides every request before the handler, from what the app keeps in the grant', async () => {
+  const h = await startHost({
+    allow: (req, g) => {
+      if (req.op === 'boom') throw new Error('policy bug');
+      return ((g.meta as any)?.caps ?? []).includes(req.op.split('.')[0]);
+    },
+  });
+  const d = connect(await paired(h, { kind: 'peer', meta: { caps: ['list', 'read'] } }));
+  assert.ok(await d.link.request('list.sessions'));
+  await assert.rejects(d.link.request('start.session'), (e: LinkError) => e.code === 'not-allowed' && e.message === "This device isn't allowed to do that.");
+  await assert.rejects(d.link.request('boom'), (e: LinkError) => e.code === 'not-allowed', 'a throwing policy refuses');
+  assert.deepEqual(h.ran, ['Phone:list.sessions'], 'refused requests never reach the handler');
+  assert.equal(h.errors.length, 1);
+});
+
+test('M3: per-kind caps count only that kind', async () => {
+  const h = await startHost({ caps: { peer: 1 } });
+  await h.host.enrol({ key: keyPair().publicKey, name: 'Laptop', role: 'view', kind: 'peer' });
+  await assert.rejects(h.host.enrol({ key: keyPair().publicKey, name: 'Desktop', role: 'view', kind: 'peer' }), /all the devices/);
+  await assert.rejects(paired(h, { kind: 'peer' }), (e: LinkError) => e.code === 'full');
+  await h.host.enrol({ key: keyPair().publicKey, name: 'Phone', role: 'control', kind: 'native' });
+  assert.deepEqual(h.host.devices().map((g) => g.kind), ['peer', 'native']);
+});
+
+test('C2: requests can time out, too many waiting are refused, and a silent socket is dropped and redialled', async () => {
+  const waiting: (() => void)[] = [];
+  const release = () => { for (const ok of waiting.splice(0)) ok(); };
+  const h = await startHost({ handle: (r) => (r.op === 'hang' ? new Promise((ok) => { waiting.push(() => ok('late')); }) : { ok: r.op }) });
+  const d = connect(await paired(h), { pingMs: 100, maxPending: 2 });
+  await until(() => d.link.status === 'online');
+  await assert.rejects(d.link.request('hang', undefined, { timeoutMs: 100 }), (e: LinkError) => e.code === 'timeout');
+  release();
+  const a = d.link.request('hang'), b = d.link.request('hang');
+  await assert.rejects(d.link.request('third'), (e: LinkError) => e.code === 'busy');
+  await until(() => waiting.length === 2);
+  release();
+  await Promise.all([a, b]);
+
+  // Half-open: the host's side goes quiet without closing. Pings go unanswered, so the device redials.
+  const quiet = h.sockets.at(-1)!;
+  quiet.send = (() => {}) as typeof quiet.send;
+  await until(() => d.seen.includes('offline'), 2000);
+  await until(() => d.link.status === 'online', 5000);
+  assert.deepEqual(await d.link.request('after'), { ok: 'after' });
+});
+
+test('C6: answers kept in a store survive a host restart; a request past its moment is not run', async () => {
+  const kept = new Map<string, object>();
+  const answers = { get: (d: string, k: string) => kept.get(`${d}/${k}`), put: (d: string, k: string, a: object) => { kept.set(`${d}/${k}`, a); },
+    drop: (d: string, keys?: string[]) => { for (const k of [...kept.keys()]) if (k.startsWith(`${d}/`) && (!keys || keys.includes(k.slice(d.length + 1)))) kept.delete(k); } };
+  let grants: Grant[] = [];
+  const store = { load: () => grants, save: (g: Grant[]) => { grants = g; } };
+  const keys = keyPair();
+  const first = await startHost({ keys, answers, grants: store });
+  const d = connect(await paired(first));
+  await until(() => d.link.status === 'online');
+  first.sockets.at(-1)!.send = (() => {}) as any; // the answer is lost on the way back
+  const answer = d.link.request('pay.bill', { amount: 5 });
+  await until(() => first.ran.length === 1 && kept.size === 1);
+  first.stop();
+  const second = await startHost({ keys, answers, grants: store }); // the computer restarted, same key and grants
+  d.link.addUrl(second.url); // T6 too: an address found later
+  assert.deepEqual(await answer, { op: 'pay.bill', args: { amount: 5 }, by: d.link.grant.device.id });
+  assert.equal(second.ran.length, 0, 'answered from the store, not run again');
+  await d.link.request('get.x'); // carries the acknowledgement of the first answer
+  await until(() => kept.size === 1, 3000); // so only this latest, unacknowledged answer is still kept
+
+  await assert.rejects(d.link.request('send.late', undefined, { notValidAfter: Date.now() - 1 }), (e: LinkError) => e.code === 'too-late');
+  assert.ok(!second.ran.includes('Phone:send.late'));
+});
+
+test('P6: a grant kept before pairing works after the app dies before saving the result', async () => {
+  const h = await startHost();
+  const { text } = h.host.offer({ role: 'control', urls: [h.url] });
+  const pending = pendingGrant(text, { name: 'Phone' }); // the app saves this first
+  assert.equal(pending.device.role, 'control');
+  await pairWithOffer(text, { name: 'Phone', key: keyPairFrom(unb64url(pending.secretKey)) }); // …then dies before saving the result
+  const d = connect(pending);
+  await until(() => d.link.status === 'online');
+  assert.equal(d.link.grant.device.id, h.host.devices()[0].id, 'the host fills in the id');
+
+  // Said no instead: the kept grant hears so from the host and is forgotten.
+  const no = await startHost({ confirm: () => false });
+  const refused = no.host.offer({ role: 'control', urls: [no.url] }).text;
+  const kept = pendingGrant(refused, { name: 'Phone' });
+  await assert.rejects(pairWithOffer(refused, { name: 'Phone', key: keyPairFrom(unb64url(kept.secretKey)) }));
+  const orphan = connect(kept);
+  await until(() => orphan.link.status === 'removed');
+});
+
+test('N3: a resolve hook picks the address to dial (e.g. an SSH tunnel) and the grant keeps the original', async () => {
+  const h = await startHost();
+  const grant = await paired(h);
+  const tunnel = 'ws://tunnel.example/link';
+  const dialled: string[] = [];
+  const d = connect({ ...grant, urls: [tunnel] }, { resolve: (u) => { dialled.push(u); return h.url; } });
+  await until(() => d.link.status === 'online');
+  assert.deepEqual(dialled, [tunnel]);
+  assert.deepEqual(d.link.grant.urls, [tunnel]);
+});
+
+test('T6: an address added later is tried, and a wrong host there just fails its handshake', async () => {
+  const h = await startHost();
+  const grant = await paired(h);
+  const d = connect({ ...grant, urls: ['ws://127.0.0.1:1/nothing'] });
+  await until(() => d.link.status === 'offline');
+  const stranger = await startHost();
+  d.link.addUrl(stranger.url);
+  d.link.addUrl(h.url);
+  await until(() => d.link.status === 'online', 8000);
+  assert.equal(d.link.grant.urls[0], h.url);
+  assert.equal(d.store.g!.urls.length, 3, 'kept');
+});
+
+test('R9: a device can unpair itself, and the host forgets it too', async () => {
+  const h = await startHost();
+  const d = connect(await paired(h));
+  await until(() => d.link.status === 'online');
+  await d.link.unpair();
+  assert.equal(d.link.status, 'removed');
+  assert.equal(d.store.g, null);
+  assert.deepEqual(h.host.devices(), []);
+});
+
+test('X2a: rekey moves a device to a fresh key without a moment where no key works', async () => {
+  const h = await startHost();
+  const grant = await paired(h);
+  const d = connect(grant);
+  await until(() => d.link.status === 'online');
+  await d.link.rekey();
+  const now = d.link.grant;
+  assert.notEqual(now.secretKey, grant.secretKey);
+  assert.equal(now.nextSecretKey, undefined);
+  assert.equal(h.host.devices()[0].key, b64url(keyPairFrom(unb64url(now.secretKey)).publicKey));
+  assert.equal(h.host.devices()[0].nextKey, undefined);
+  d.link.stop();
+  const old = connect(grant);
+  await until(() => old.link.status === 'removed'); // the old key is refused
+
+  // A crash mid-rekey, host never heard: the staged key is refused, the old one still works.
+  const h2 = await startHost();
+  const g2 = await paired(h2);
+  const staged = connect({ ...g2, nextSecretKey: b64url(keyPair().secretKey) });
+  await until(() => staged.link.status === 'online');
+  assert.equal(staged.link.grant.secretKey, g2.secretKey);
+  assert.equal(staged.link.grant.nextSecretKey, undefined);
+});
+
+test('T8: too many new handshakes from one place are turned away before any key work', async () => {
+  const h = await startHost({ peers: true, handshakes: { perPeer: 2 } });
+  const { text } = h.host.offer({ role: 'control', urls: [h.url] });
+  await pairWithOffer(text, { name: 'One' });
+  await assert.rejects(pairWithOffer(text, { name: 'Two' }), (e: LinkError) => e.code === 'expired', 'second handshake still admitted');
+  await assert.rejects(pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Three' }), (e: LinkError) => e.code === 'unreachable');
+  assert.equal(h.asked.length, 1);
+});
+
+test('K1: the host key file is private, reused, and never replaced when it cannot be read', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'byokit-key-'));
+  const path = join(dir, 'link', 'host.key');
+  const a = hostKeyFile(path);
+  assert.equal(lstatSync(path).mode & 0o777, 0o600);
+  assert.equal(lstatSync(join(dir, 'link')).mode & 0o777, 0o700);
+  assert.deepEqual(hostKeyFile(path).publicKey, a.publicKey, 'the same key every time');
+  writeFileSync(path, '{"v":1,"secretKey":"tr');
+  assert.throws(() => hostKeyFile(path));
+  assert.equal(readFileSync(path, 'utf8'), '{"v":1,"secretKey":"tr', 'a corrupt key is left for a person to look at');
+  writeFileSync(path, '{"v":1}');
+  assert.throws(() => hostKeyFile(path), /refusing to replace/);
+  const link = join(dir, 'elsewhere.key');
+  symlinkSync(path, link);
+  assert.throws(() => hostKeyFile(link), /not a plain file/);
+});
+
+test('R4 (0.1 review): a store that commits after the pairing code ran out does not leave a grant', async () => {
+  let grants: Grant[] = [];
+  const h = await startHost({ pairMs: 150, grants: { load: () => grants, save: async (g) => { await sleep(250); grants = g; } } });
+  await assert.rejects(paired(h), (e: LinkError) => e.code === 'expired' && e.sealed);
+  assert.deepEqual(h.host.devices(), []);
+  assert.deepEqual(grants, []);
+});
+
+test('0.1 compatibility: a device ignores what it does not know, and old offers still parse', async () => {
+  const h = await startHost();
+  const d = connect(await paired(h));
+  await until(() => d.link.status === 'online');
+  h.host.broadcast({ kind: 'x' });
+  await until(() => d.events.length);
+  const old = { v: 1, host: b64url(keyPair().publicKey), name: 'Old', urls: ['ws://a/link'], ticket: b64url(new Uint8Array(16)), expires: Date.now() + 60_000 };
+  const parsed = parseOffer(`byokit-link:1:${Buffer.from(JSON.stringify(old)).toString('base64url')}`);
+  assert.equal(parsed.role, undefined);
+  assert.equal(pendingGrant(`byokit-link:1:${Buffer.from(JSON.stringify(old)).toString('base64url')}`, { name: 'P' }).device.role, 'view', 'unknown role: assume the lesser');
+});
