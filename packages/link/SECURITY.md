@@ -20,9 +20,9 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 |---|---|
 | Handshake, every connection | `Noise_IK_25519_ChaChaPoly_BLAKE2b`, prologue `byokit-link-v1`. The device knows the host's static key (from the QR, then its grant); its own static key travels encrypted in message 1. Fresh ephemerals per connection: forward secrecy. |
 | Handshake, typed code | `Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b`, PSK = BLAKE2b-256(`byokit-link-code-v1` ‖ code). Only a holder of the code can finish; each side learns the other's static key. |
-| Library | Handshakes: `noise-handshake` 4.2.0 (Holepunch, Apache-2.0) over libsodium: `sodium-native` in Node, `sodium-javascript` 0.8.0 in browsers and React Native. Frames after the handshake: ChaCha20-Poly1305 from `@noble/ciphers` 2.4.0 (Paul Miller, MIT, audited, no dependencies) on every platform, because sodium-javascript's ChaCha20 halves a phone's stream throughput (`bench/hermes.sh`). Same cipher, same Noise nonce, byte-identical frames: no wire change. Pinned exactly. No crypto of our own. |
+| Library | Handshakes: `noise-handshake` 4.2.0 (Holepunch, Apache-2.0) over libsodium: `sodium-native` in Node, `sodium-javascript` 0.8.0 in browsers and React Native. Frames after the handshake: ChaCha20-Poly1305 from `@noble/ciphers` 2.4.0 (Paul Miller, MIT, audited, no dependencies) on every platform, because sodium-javascript's ChaCha20 was slower in a Hermes CLI benchmark on a desktop CPU (`bench/hermes.sh`); this is not a phone measurement. Same cipher, same Noise nonce, byte-identical frames: no wire change. Pinned exactly. No crypto of our own. |
 | Conformance | `noise-handshake` is checked against the cacophony vectors for IK, XX and NNpsk0, which together cover every token of both handshakes; `@noble/ciphers` against the RFC 8439 AEAD vectors; and the transport against noise-handshake's own CipherState (sodium-native) and sodium-javascript, sealing and opening both ways (`test/channel.test.ts`). |
-| Frames | One Noise transport message per WebSocket text frame, base64. Per-direction CipherStates; the implicit nonce counter rejects any replayed, dropped, reordered or reflected frame, and any bad frame closes the socket. Messages over 60 KB are chunked; a reassembled message over 16 MB closes the socket. |
+| Frames | One Noise transport message per WebSocket frame. JSON control messages use base64 text; see Streams below for data frames. Per-direction CipherStates; the implicit nonce counter rejects any replayed, dropped, reordered or reflected frame, and any bad frame closes the socket. Messages over 60 KB are chunked; a reassembled message over 16 MB closes the socket. |
 | QR / pairing link | `byokit-link:1:<base64url JSON>`: `{v, host (X25519 public key), name, urls, ticket (128 bits), expires}`. As a link, it rides after `#`, which browsers never send to a server. |
 | Typed code | 12 characters from a 31-character unambiguous alphabet (about 59 bits), `XXXX-XXXX-XXXX`. |
 | Pairing rules | Tickets and codes are single use (burned at first presentation, even when expired or refused), live 5 minutes through grant creation, and 5 wrong tries withdraw every open ticket and code. Nothing is stored until the person at the host approves; both screens show the same **two confirmation words**, derived from the handshake hash. Optional device cap. |
@@ -54,11 +54,11 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 2. **The two words are 16 bits.** They confirm "this is the device in my hand", not the channel: an active attacker
    who already holds a live code could grind 16 bits. The host key in the QR (IK) and the code (PSK) carry the real
    authentication.
-3. **32-bit nonce counter.** `noise-handshake` writes the counter into 4 bytes. The channel refuses to send or
-   receive past 2³² − 1 frames per direction (the socket must reconnect); it never wraps.
+3. **32-bit nonce counter.** For compatibility with `noise-handshake`'s 32-bit counter, the channel refuses to send
+   or receive past 2³² − 1 frames per direction (the socket must reconnect); it never wraps.
 4. **Library activity.** `noise-handshake` (pushed 2025-12) and `sodium-javascript` (2022) are low-activity; the
-   Noise pattern set is frozen and the vectors pin behaviour. Fallback if either is abandoned: libsodium
-   `crypto_kx` + `secretstream`, still reviewed crypto.
+   Noise pattern set is frozen and the vectors pin behaviour. If the handshake implementation is abandoned, a
+   reviewed replacement must preserve the authenticated protocol and existing wire format.
 5. **Denial of service.** No rate limit on handshakes (each costs the host a few X25519 operations). Apps expose the
    socket only on loopback/tailnet/LAN by default (Crewhouse does) or behind a relay that limits.
 6. **Idempotency survives reconnects within one app session, not app or host restarts.** The answer cache is in memory. A fresh authenticated app session discards the previous session's abandoned replies. A device with 1000 unacknowledged replies receives `busy` for new requests until it acknowledges earlier replies; no reply is evicted during the same session.

@@ -1,7 +1,7 @@
 // Stream throughput: link's stream bytes (`Channel.sealData`) in binary WebSocket frames and in text frames (a relay),
 // the same bytes as base64 inside JSON, and muxr's tweetnacl envelopes today. `sh bench/hermes.sh` runs it in
 // Hermes on the React Native graph (sodium-javascript, b4a/browser); `node bench/streams.ts` runs it in Node. Needs
-// tweetnacl, which is not a dependency: `npm i --no-save tweetnacl@1.0.3`.
+// tweetnacl, pinned as a root dev dependency.
 import b4a from 'b4a';
 import nacl from 'tweetnacl';
 import { Handshake, keyPair, b64, unb64 } from '../src/channel.ts';
@@ -20,7 +20,7 @@ const te = new TextEncoder(), td = new TextDecoder();
 function bytes(n: number) { const u = new Uint8Array(n); for (let j = 0; j < n; j++) u[j] = (j * 31 + 7) & 255; return u; }
 
 const cases: Record<string, (p: Uint8Array) => number> = {
-  // What a stream chunk costs on link 0.1's text frames: base64 inside JSON inside ChaCha inside base64.
+  // The pre-stream JSON/text encoding cost: base64 inside JSON inside ChaCha inside base64.
   'link text (json+b64)': (p) => {
     const frames = tx.seal({ t: 'data', s: 1, d: b64(p) });
     let m: any; for (const f of frames) m = rx.open(f);

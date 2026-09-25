@@ -5,8 +5,9 @@ Muxr parity is tracked separately.
 Scan a code to pair a phone or browser with the home computer, then talk over one encrypted link. The computer (the
 **host**) keeps every credential; a device holds only its own key and a grant, and asks the host to do things.
 
-Noise IK over WebSocket (`noise-handshake` + libsodium; frames sealed by `@noble/ciphers`), in Node, browsers/PWAs and React Native. No listener, no
-files, no environment: the app hands the host its sockets and stores. Threat model and review checklist:
+Noise IK over WebSocket (`noise-handshake` + libsodium; frames sealed by `@noble/ciphers`), in Node, browsers/PWAs
+and React Native. No listener, no files, no environment: the app hands the host its sockets and stores. Threat model
+and review checklist:
 [SECURITY.md](SECURITY.md).
 
 ## Host
@@ -65,7 +66,7 @@ const host = await Host.open({ …, stream: (s, req, device) => {
   const pty = panes.attach(req.args.pane, device.id);        // your code
   s.onData = (keys) => pty.write(keys);                       // return a promise to hold the device back
   s.onEnd = () => pty.detach();
-  pty.onOutput((bytes) => s.write(bytes));                    // await it to go at the device's pace
+  pty.onOutput((bytes) => s.write(bytes));                    // have the producer await this promise for backpressure
 } });
 
 // Device: only while online. A stream ends with its socket (`onEnd('unreachable')`); open it again on `online`.
@@ -78,11 +79,11 @@ s.end();
 View-only devices open only the streams `canView` allows. A host without `stream` tells devices so
 (`LinkError` `not-supported`), and so does a host older than streams.
 
-On a direct socket, stream bytes go as binary WebSocket messages (one wire byte per byte); through a relay, whose
+On a direct socket, stream bytes go as binary WebSocket messages (without base64 overhead); through a relay, whose
 host wrapper is text, the same frames go as base64 text. The host says which in `ready`; everything else stays text.
 
-Speed, measured on Hermes (the CLI, v0.13, on a desktop CPU; `bench/hermes.sh`): a phone opens about 4.8 MB/s of
-stream bytes on a direct socket and 3.9 MB/s through a relay, where muxr's tweetnacl opens its binary preview tunnel at
+Speed, measured with Hermes (the CLI, v0.13, on a desktop CPU; `bench/hermes.sh`, not a phone measurement): the device
+path opens about 4.8 MB/s of stream bytes on a direct socket and 3.9 MB/s through a relay, where muxr's tweetnacl opens its binary preview tunnel at
 about 4.6 MB/s. Frames are sealed with `@noble/ciphers`; sodium-javascript's ChaCha20 managed about 2.5.
 
 ## Through a relay
