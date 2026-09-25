@@ -195,7 +195,7 @@ test('C6: reused answer keys cannot substitute another operation or arguments', 
 });
 
 test('C6: malformed stored answers are refused without executing or framing fields', async () => {
-  for (const reply of [{ ok: true, value: 'secret', id: 999 }, { ok: true, value: 'secret', t: 'revoked' }, { ok: true }, { ok: false, error: 12 }]) {
+  for (const reply of [{ ok: true, value: 'secret', id: 999 }, { ok: true, value: 'secret', t: 'revoked' }, { ok: false, error: 12 }]) {
     const h = await startHost({ answers: { get: () => ({ op: 'get.state', args: 'null', reply }), put: () => {}, drop: () => {} } });
     const d = connect(await paired(h));
     await assert.rejects(d.link.request('get.state'), (e: LinkError) => e.code === 'failed');
@@ -278,6 +278,26 @@ test('C6: answers kept in a store survive a host restart; a request past its mom
 
   await assert.rejects(d.link.request('send.late', undefined, { notValidAfter: Date.now() - 1 }), (e: LinkError) => e.code === 'too-late');
   assert.ok(!second.ran.includes('Phone:send.late'));
+});
+
+test('C6: a stored successful undefined answer survives restart', async () => {
+  let grants: Grant[] = [];
+  const keys = keyPair();
+  const kept = new Map<string, object>();
+  const opts = { keys, grants: { load: () => grants, save: (g: Grant[]) => { grants = g; } },
+    answers: { get: (d: string, k: string) => kept.get(`${d}/${k}`), put: (d: string, k: string, a: object) => { kept.set(`${d}/${k}`, a); },
+      drop: (d: string, ks?: string[]) => { for (const k of [...kept.keys()]) if (k.startsWith(`${d}/`) && (!ks || ks.includes(k.slice(d.length + 1)))) kept.delete(k); } } };
+  const first = await startHost({ ...opts, handle: () => undefined });
+  const d = connect(await paired(first));
+  await until(() => d.link.status === 'online');
+  first.sockets.at(-1)!.send = (() => {}) as any;
+  const reply = d.link.request('get.empty');
+  await until(() => kept.size === 1);
+  first.stop();
+  const second = await startHost(opts);
+  d.link.addUrl(second.url);
+  assert.equal(await reply, undefined);
+  assert.deepEqual(second.ran, []);
 });
 
 test('R4: a reply finishing after expiry is refused from memory or the answers store', async () => {

@@ -116,6 +116,13 @@ export class Host {
     const g = grants.find((x) => x.id === id);
     return g && !this.ended(g) && (g.key === key || g.nextKey === key) ? g : undefined;
   }
+  private admitGrant(g: Grant, key: string): { grant: Grant } | { error: 'removed' | 'ended' } {
+    const current = this.grants.find((x) => x.id === g.id);
+    if (!current || current.key !== g.key || current.role !== g.role) return { error: 'removed' };
+    if (this.ended(current)) return { error: 'ended' };
+    if (!this.currentGrant(this.grants, g.id, key)) return { error: 'removed' };
+    return { grant: current };
+  }
   private async change<T>(fn: () => Promise<T>): Promise<T> {
     const next = this.changes.then(fn);
     this.changes = next.then(() => {}, () => {});
@@ -134,6 +141,14 @@ export class Host {
     if (!keys) this.answered.delete(device);
     if (this.opts.answers && (!keys || keys.length)) await this.answerTask(device, () => this.opts.answers!.drop(device, keys));
   }
+  private endLive(id: string, why: 'revoked' | 'ended') {
+    for (const [conn, s] of this.live) if (s.dev.id === id) {
+      this.live.delete(conn);
+      s.streams.closeAll('removed');
+      this.sealed(conn, s.ch, { t: 'revoked', why });
+      later(1000, () => conn.close(4401, 'removed'));
+    }
+  }
 
   /** Every grant change goes through here, one at a time: store first, then memory, then the live sockets. */
   private transition(next: (grants: Grant[]) => Grant[] | null, why?: 'revoked' | 'ended'): Promise<Grant[] | null> {
@@ -150,13 +165,11 @@ export class Host {
           continue;
         }
         if (!current) void this.drop(old.id).catch((e) => this.report(e));
-        for (const [conn, s] of this.live) if (s.dev.id === old.id) {
+        if (why) this.endLive(old.id, why);
+        else for (const [conn, s] of this.live) if (s.dev.id === old.id) {
           this.live.delete(conn);
-          s.streams.closeAll(why ? 'removed' : 'unreachable');
-          if (why) {
-            this.sealed(conn, s.ch, { t: 'revoked', why });
-            later(1000, () => conn.close(4401, 'removed')); // some platforms surface a close before a frame sent just ahead of it
-          } else try { conn.close(1001, 'grant changed'); } catch {}
+          s.streams.closeAll('unreachable');
+          try { conn.close(1001, 'grant changed'); } catch {}
         }
       }
       return updated;
@@ -213,6 +226,7 @@ export class Host {
 
   /** Removes a device: its grant goes, its open connections close, and its key is refused from now on. */
   async revoke(id: string, why: 'revoked' | 'ended' = 'revoked') {
+    if (why === 'ended') this.endLive(id, why);
     await this.transition((grants) => grants.some((g) => g.id === id) ? grants.filter((g) => g.id !== id) : null, why);
   }
 
@@ -492,7 +506,20 @@ export class Host {
           const m = ch.open(text); // throws unless this is the device's next authentic frame
           if (m === undefined || busy) return;
           if (dev) {
-            if (m.t === 'open') return void this.openStream(dev, this.live.get(conn)!.streams, m, b64url(hs!.remoteKey)).catch(() => end(4400, 'bad stream message'));
+            const key = b64url(hs!.remoteKey);
+            if (['open', 'data', 'credit', 'end', 'opened'].includes(m.t)) {
+              const admitted = this.admitGrant(dev, key);
+              if ('error' in admitted) {
+                if (admitted.error === 'ended') void this.revoke(dev.id, 'ended').catch((e) => this.report(e));
+                else {
+                  this.live.get(conn)?.streams.closeAll('removed');
+                  this.live.delete(conn);
+                  end(4401, 'not-paired');
+                }
+                return;
+              }
+            }
+            if (m.t === 'open') return void this.openStream(dev, this.live.get(conn)!.streams, m, key).catch(() => end(4400, 'bad stream message'));
             if (this.live.get(conn)?.streams.message(m)) return;
             return inner(dev, m);
           }
@@ -526,7 +553,10 @@ export class Host {
     if (!this.opts.stream) return s.end('not-supported');
     if (streams.size > MAX_STREAMS) return s.end('busy');
     const admitted = await this.admitRequest(req, dev, authenticatedKey);
-    if ('error' in admitted) return s.end(admitted.error);
+    if ('error' in admitted) {
+      if (admitted.error === 'ended') void this.revoke(dev.id, 'ended').catch((e) => this.report(e));
+      return s.end(admitted.error);
+    }
     if (!streams.has(id)) return;
     s.accept(Math.min(credit, 2 ** 31));
     try { await this.opts.stream(s, req, admitted.grant); } catch (e) { s.end(this.reason(e)); }
@@ -570,9 +600,9 @@ export class Host {
             if (record.op !== req.op || record.args !== args || !record.reply || typeof record.reply !== 'object' || Array.isArray(record.reply)) return { ok: false, error: 'failed' };
             const r = record.reply as Record<string, unknown>;
             const fields = Object.keys(r);
-            if (r.ok === true && fields.length === 2 && fields.includes('ok') && fields.includes('value')) {
+            if (r.ok === true && fields.includes('ok') && fields.every((f) => f === 'ok' || f === 'value')) {
               cached = true;
-              return { ok: true, value: r.value };
+              return fields.includes('value') ? { ok: true, value: r.value } : { ok: true };
             }
             if (r.ok === false && typeof r.error === 'string' && fields.includes('ok') && fields.includes('error') && fields.every((f) => f === 'ok' || f === 'error' || f === 'message') && (fields.length === 2 || (fields.length === 3 && typeof r.message === 'string'))) {
               cached = true;
@@ -599,22 +629,19 @@ export class Host {
   }
 
   private async admitRequest(req: LinkRequest, g: Grant, authenticatedKey: string, checkPolicy = true): Promise<{ grant: Grant } | { error: 'removed' | 'ended' | 'not-allowed' | 'view-only' }> {
-    const current = this.grants.find((x) => x.id === g.id);
-    if (!current || current.key !== g.key || current.role !== g.role) return { error: 'removed' };
-    if (this.ended(current)) return { error: 'ended' };
-    if (!this.currentGrant(this.grants, g.id, authenticatedKey)) return { error: 'removed' };
-    if (!checkPolicy) return { grant: current };
+    const before = this.admitGrant(g, authenticatedKey);
+    if ('error' in before) return before;
+    const current = before.grant;
+    if (!checkPolicy) return before;
     const denied = current.role === 'control' ? 'not-allowed' : 'view-only';
     try {
       const ok = this.opts.allow ? await this.opts.allow(req, current) : current.role === 'control' || (this.opts.canView?.(req) ?? false);
       if (ok !== true) return { error: denied };
     } catch (e) { this.report(e); return { error: denied }; }
-    const latest = this.grants.find((x) => x.id === g.id);
-    if (!latest || latest.key !== g.key || latest.role !== g.role) return { error: 'removed' };
-    if (this.ended(latest)) return { error: 'ended' };
-    if (!this.currentGrant(this.grants, g.id, authenticatedKey)) return { error: 'removed' };
-    if (latest !== current) return { error: denied };
-    return { grant: latest };
+    const after = this.admitGrant(g, authenticatedKey);
+    if ('error' in after) return after;
+    if (after.grant !== current) return { error: denied };
+    return after;
   }
 
   private async run(req: LinkRequest, g: Grant, notValidAfter: unknown, authenticatedKey: string): Promise<object> {
