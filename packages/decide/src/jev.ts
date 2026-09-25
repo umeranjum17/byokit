@@ -5,8 +5,8 @@ import type { Backend, Question, Raw } from './index.ts';
 
 const BASE = { typesafe: 'https://api.typesafe.ai', openrouter: 'https://openrouter.ai/api' };
 
-export function jev(opts: { key: string; via?: 'typesafe' | 'openrouter'; model?: string; fetch?: typeof fetch }): Backend {
-  const { key, via = 'typesafe', model = 'jev-latest', fetch: f = globalThis.fetch } = opts;
+export function jev(opts: { key: string; via?: 'typesafe' | 'openrouter'; fetch?: typeof fetch }): Backend {
+  const { key, via = 'typesafe', fetch: f = globalThis.fetch } = opts;
   if (!key) throw new Error('jev needs a key');
   return {
     name: 'jev',
@@ -16,11 +16,11 @@ export function jev(opts: { key: string; via?: 'typesafe' | 'openrouter'; model?
         method: 'POST',
         signal,
         headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-        body: JSON.stringify({ model, state, questions: Object.fromEntries(Object.entries(questions).map(([k, q]) => [k, wire(q)])) }),
+        body: JSON.stringify({ model: 'jev-latest', state, questions: Object.fromEntries(Object.entries(questions).map(([k, q]) => [k, wire(q)])) }),
       });
       if (!res.ok) throw new Error(`http ${res.status}`);
       const answers = ((await res.json()) as { answers?: Record<string, unknown> })?.answers ?? {};
-      return Object.fromEntries(Object.entries(questions).map(([k, q]) => [k, raw(q, answers[k])]));
+      return Object.fromEntries(Object.entries(questions).map(([k, q]) => [k, raw(q, Object.hasOwn(answers, k) ? answers[k] : undefined)]));
     },
   };
 }

@@ -26,6 +26,7 @@ test('an option\'s own floor is checked on its probability; a runner-up must cle
   assert.equal(resolve(q, { probabilities: p(0.96, 0.03, 0.01), confidence: 0.9, pick: 'task' }).answer, 'task');
   const fell = resolve(q, { probabilities: p(0.88, 0.1, 0.02), confidence: 0.85, pick: 'task' });
   assert.equal(fell.answer, 'followup');
+  assert.equal(fell.confidence, 0.1);
   assert.match(fell.reason!, /fell to followup/);
   // chat has no declared floor, so it needs the global 0.6; followup's 0.02 is under its own 0.05.
   assert.equal(resolve(q, { probabilities: p(0.9, 0.02, 0.08), confidence: 0.85, pick: 'task' }).abstained, true);
@@ -130,6 +131,30 @@ test('decide: privacy skips Jev, rules answer the obvious, a failed or slow Jev 
   assert.deepEqual((await decide('x', { intent }, { privacy: 'may-leave', backends: [] })).intent.reason, 'no backend answered');
 });
 
+test('a backend ignoring abort cannot answer late or block the next backend', async () => {
+  const late = { name: 'late', leaves: false, ask: async () => {
+    await new Promise((done) => setTimeout(done, 50));
+    return { intent: { probabilities: p(0, 0, 1) } };
+  } };
+  const next = rules(() => 'task');
+  const out = await decide('x', { intent }, { privacy: 'stays-here', backends: [late, next], timeoutMs: 10 });
+  assert.deepEqual([out.intent.answer, out.intent.by], ['task', 'rules']);
+  const never = { ...late, ask: async () => new Promise<Record<string, never>>(() => {}) };
+  const second = await decide('x', { intent }, { privacy: 'stays-here', backends: [never, next], timeoutMs: 10 });
+  assert.deepEqual([second.intent.answer, second.intent.by], ['task', 'rules']);
+});
+
+test('decision names that shadow object properties work for rules and Jev', async () => {
+  const qs = Object.fromEntries(['toString', '__proto__'].map((k) => [k, intent]));
+  const answers = Object.fromEntries(['toString', '__proto__'].map((k) => [k, { choice: 'chat', confidence: 0.9, probabilities: p(0, 0, 1) }]));
+  const j = jev({ key: 'host-key', fetch: mockJev(answers) });
+  const answered = await decide('x', qs, { privacy: 'may-leave', backends: [rules((_s, k) => k === 'toString' ? 'task' : undefined), j] });
+  assert.deepEqual([answered.toString.answer, answered['__proto__'].answer], ['task', 'chat']);
+  const allJev = await decide('x', qs, { privacy: 'may-leave', backends: [j] });
+  assert.deepEqual([allJev.toString.answer, allJev['__proto__'].answer], ['chat', 'chat']);
+  assert.deepEqual(Object.keys(answered).sort(), ['__proto__', 'toString']);
+});
+
 test('eval: agreement, clear-but-wrong and abstains from recorded answers; the CLI gates on clear-but-wrong', async () => {
   const path = new URL('../evals/example-urgent.jsonl', import.meta.url).pathname;
   const f = parse(readFileSync(path, 'utf8'));
@@ -147,4 +172,32 @@ test('eval: agreement, clear-but-wrong and abstains from recorded answers; the C
   assert.match(run.stdout, /wrong: line 2 expected false, got true at 0.9/);
   const live = spawnSync(process.execPath, [cli, wrong, '--live', 'typesafe'], { encoding: 'utf8', env: { PATH: process.env.PATH } });
   assert.equal(live.status, 2, 'no key, no live run');
+  for (const flag of ['--floor', '--max-clear-wrong']) {
+    for (const value of ['nope', 'Infinity', '-0.1', '1.1', '']) {
+      assert.equal(spawnSync(process.execPath, [cli, wrong, flag, value], { encoding: 'utf8' }).status, 2, `${flag} ${value}`);
+    }
+  }
+});
+
+test('live recording preserves failed cases and labels partial refresh', () => {
+  const cli = new URL('../src/cli.ts', import.meta.url).pathname;
+  const path = join(mkdtempSync(join(tmpdir(), 'byokit-record-')), 'answers.jsonl');
+  const question: Question = { kind: 'yesno', question: 'Urgent?' };
+  const old = { type: 'noul', noul: 0.9 };
+  writeFileSync(path, format({ decision: 'urgent', question, note: 'hand-made, not recorded', cases: [
+    { state: 'fail', expect: true, jev: old, ms: 42 },
+    { state: 'ok', expect: false, jev: old, ms: 43 },
+  ] }));
+  const before = readFileSync(path, 'utf8');
+  const env = { PATH: process.env.PATH, TYPESAFE_API_KEY: 'test-key' };
+  const fail = 'data:text/javascript,' + encodeURIComponent('globalThis.fetch = async () => new Response("", { status: 401 })');
+  spawnSync(process.execPath, ['--import', fail, cli, path, '--live', 'typesafe', '--record'], { env, encoding: 'utf8' });
+  assert.equal(readFileSync(path, 'utf8'), before);
+  const partial = 'data:text/javascript,' + encodeURIComponent(`let n = 0; globalThis.fetch = async () => n++ ? new Response(JSON.stringify({answers:{urgent:{type:'noul',noul:0.1}}})) : new Response('', {status:401})`);
+  const run = spawnSync(process.execPath, ['--import', partial, cli, path, '--live', 'typesafe', '--record'], { env, encoding: 'utf8' });
+  assert.equal(run.status, 0);
+  const f = parse(readFileSync(path, 'utf8'));
+  assert.deepEqual([f.cases[0].jev, f.cases[0].ms], [old, 42]);
+  assert.deepEqual(f.cases[1].jev, { type: 'noul', noul: 0.1 });
+  assert.match(f.note!, /partial live refresh 1\/2.*hand-made, not recorded/);
 });
