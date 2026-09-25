@@ -52,8 +52,8 @@ export type Reach = {
 
 /**
  * Work out the addresses for a server on `port`, setting up Tailscale Serve when that's the route. Pass the `ingress`
- * from the last run as `previous`: leaving Serve (or moving port) removes that mapping, but only if Serve still points
- * where it recorded.
+ * from the last run as `previous`: leaving Serve (or moving port) attempts to remove that mapping, but only if Serve
+ * still points where it recorded. If cleanup fails, the result carries `pendingCleanup` for a later retry.
  */
 export async function reach(o: { port: number; via?: Via; previous?: ServeIngress; tailscale?: TailscaleOptions; interfaces?: Interfaces }): Promise<Reach> {
   const { port, via = 'auto', previous, tailscale: ts } = o;

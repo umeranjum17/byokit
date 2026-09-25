@@ -21,7 +21,7 @@ const code = host.offer({ urls });
 | `tailscale` | `wss://<MagicDNS name>` through Tailscale Serve | `127.0.0.1` |
 | `tailscale-direct` | `ws://<tailnet IP>:<port>` | `0.0.0.0` |
 | `private` | another overlay network (NetBird, WireGuard, ZeroTier, …) | `0.0.0.0` |
-| `lan` | every physical LAN address (no Docker, VM or VPN bridges) | `0.0.0.0` |
+| `lan` | private IPv4 addresses on physical-looking interfaces (no known Docker, VM or VPN bridges) | `0.0.0.0` |
 
 IPv6-only networks: not yet.
 
@@ -31,7 +31,7 @@ Tailscale is transport only. Link's handshake still checks every device key.
 
 These are the rules from muxr's decision 0004.
 
-- **Never Funnel.** The only Serve command is `tailscale serve --yes --bg --https=443 http://127.0.0.1:<port>`, which
+- **Never Funnel.** Setup uses `tailscale serve --yes --bg --https=443 http://127.0.0.1:<port>`, which
   is visible only inside the tailnet. A root already enabled for Funnel is refused, including when its proxy matches
   the recorded mapping; turn Funnel off before changing routes or DNS names.
 - **The server stays on loopback** behind Serve (`bind: '127.0.0.1'`).
@@ -41,8 +41,10 @@ These are the rules from muxr's decision 0004.
   `previous` records the matching app-created mapping. Pick `tailscale-direct` or remove an unrelated mapping yourself.
 - **Ownership fingerprint.** Persist the returned `ingress` (`{ port, dnsName, proxy }`) and pass it as `previous`.
   `unserve` and `reach({ previous })` remove only `/` while it still points at that proxy; sibling paths remain.
-  On a DNS rename, the recorded old root is removed before the new one is served. After setup or removal, the root
-  is inspected again; if another service took it, setup stops and reports it as occupied without further changes.
+  On a DNS rename, removal of the recorded old root is attempted before the new one is served; a failed cleanup
+  returns its fingerprint in `pendingCleanup`, except that Funnel on the old root stops the transition. After setup
+  or removal, the root is inspected again; an occupied root after setup is reported without further changes, while
+  failed cleanup on a route switch retains `pendingCleanup`.
   The Tailscale CLI has no compare-and-set: a change between inspection and a write can still be overwritten.
   Verify-after-write detects a conflicting final state but cannot eliminate that race.
 - **Direct fallback and rollback.** If Serve is disabled on the tailnet (the error includes the admin link), times
