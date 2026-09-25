@@ -19,6 +19,8 @@ import java.net.URI
 import java.net.URL
 import java.net.URLDecoder
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 
@@ -151,6 +153,35 @@ class SignInFlowTest {
         assertEquals(SignIn.Phase.CANCELLED, s.state.phase)
         assertEquals("Sign-in stopped. Nothing was kept.", s.state.words)
         assertNull(account.store.read("chatgpt"))
+    }
+
+    @Test fun signOutDiscardsAnExchangeAlreadyInFlight() {
+        val exchanging = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val revoked = CopyOnWriteArrayList<String>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/api/accounts/deviceauth/usercode" -> json("""{"device_auth_id":"da_1","user_code":"ABCD-12345","interval":"0"}""")
+                "/api/accounts/deviceauth/token" -> json("""{"authorization_code":"ac_device","code_verifier":"cv_device"}""")
+                "/oauth/token" -> {
+                    exchanging.countDown()
+                    assertTrue(release.await(5, TimeUnit.SECONDS))
+                    json("""{"access_token":"$JWT","refresh_token":"rt_late","expires_in":3600}""")
+                }
+                "/oauth/revoke" -> {
+                    revoked += request.body.readUtf8()
+                    MockResponse().setResponseCode(200)
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val (s, t) = start(SignIn.Via.CODE)
+        assertTrue(exchanging.await(10, TimeUnit.SECONDS))
+        try { account.signOut() } finally { release.countDown() }
+        t.join(10_000)
+        assertEquals(SignIn.Phase.CANCELLED, s.state.phase)
+        assertNull(account.store.read("chatgpt"))
+        assertTrue(revoked.single().contains("rt_late"))
     }
 
     @Test fun tooLongExpires() {

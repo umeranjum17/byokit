@@ -3,7 +3,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Accounts, PROVIDERS, memoryStore, type Member } from '../src/index.ts';
+import { Accounts, PROVIDERS, memoryStore, type AuthHost, type Member } from '../src/index.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/revoke.json', import.meta.url), 'utf8'));
 let answer: number | 'offline' = 200;
@@ -37,7 +37,7 @@ for (const [i, c] of fixture.cases.entries()) test(`sign-out, revoke case ${i}: 
 
 class ExternalKit extends Accounts {
   readonly external = memoryStore();
-  protected open(member: Member) { return new Accounts({ store: () => this.external }).runtime(member); }
+  protected open(member: Member) { return this.engine(member, this.external); }
 }
 
 test('an overridden engine revokes from its own store before deleting, including on failure', async () => {
@@ -54,4 +54,73 @@ test('an overridden engine revokes from its own store before deleting, including
     assert.equal(await a.external.read('openai-codex'), undefined);
     assert.equal(await a.signedIn(1, 'chatgpt'), false);
   }
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => { resolve = r; });
+  return { promise, resolve };
+}
+
+class RaceKit extends Accounts {
+  readonly external = memoryStore();
+  readonly refreshStarted = deferred<void>();
+  readonly releaseRefresh = deferred<void>();
+  readonly loginStarted = deferred<void>();
+  readonly releaseLogin = deferred<void>();
+  protected open(member: Member) {
+    const credentials = this.boundStore(member, this.external);
+    return Promise.resolve({
+      credentialStore: credentials,
+      readCredential: credentials.read,
+      checkAuth: async (id: string) => (await credentials.read(id)) ? { type: 'oauth' } : undefined,
+      logout: (id: string) => credentials.delete(id),
+      getAuth: async (id: string) => {
+        await credentials.modify(id, async (old) => {
+          this.refreshStarted.resolve();
+          await this.releaseRefresh.promise;
+          return old?.type === 'oauth' ? { ...old, refresh: 'rt_rotated' } : undefined;
+        });
+        return { auth: {} };
+      },
+      login: async (id: string, _type: string, interaction: any) => {
+        interaction.notify({ type: 'device_code', userCode: 'ABCD', verificationUri: 'https://example.test', expiresInSeconds: 900 });
+        this.loginStarted.resolve();
+        await this.releaseLogin.promise;
+        const credential = fixture.cases[0].credential;
+        await credentials.modify(id, async () => credential, { signal: interaction.signal });
+        return credential;
+      },
+    } as unknown as AuthHost);
+  }
+}
+
+test('refresh completing after sign-out revokes the rotated token before deleting', async () => {
+  const a = new RaceKit();
+  await a.external.modify('openai-codex', async () => fixture.cases[0].credential);
+  assert.equal(await a.signedIn(1, 'chatgpt'), true);
+  answer = 200;
+  sent.length = 0;
+  const refresh = a.keepFresh([1]);
+  await a.refreshStarted.promise;
+  const logout = a.logout(1, 'chatgpt');
+  a.releaseRefresh.resolve();
+  await Promise.all([refresh, logout]);
+  assert.deepEqual(sent.map((s) => (s.body as any).token), ['rt_rotated', 'rt_1']);
+  assert.equal(await a.external.read('openai-codex'), undefined);
+});
+
+test('a late sign-in cannot restore credentials after sign-out', async () => {
+  const a = new RaceKit();
+  answer = 200;
+  sent.length = 0;
+  await a.login(1, 'chatgpt', { via: 'code' });
+  await a.loginStarted.promise;
+  const finished = a.finished(1, 'chatgpt');
+  await a.logout(1, 'chatgpt');
+  a.releaseLogin.resolve();
+  await finished;
+  assert.deepEqual(sent.map((s) => (s.body as any).token), ['rt_1']);
+  assert.equal(await a.external.read('openai-codex'), undefined);
+  assert.equal(await a.signedIn(1, 'chatgpt'), false);
 });

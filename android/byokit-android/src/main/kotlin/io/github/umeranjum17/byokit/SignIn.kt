@@ -43,6 +43,7 @@ class SignIn internal constructor(
     }
 
     private val events = LinkedBlockingQueue<Event>()
+    private val generation = account.register(this)
     private val api = account.api
     private val name = account.name
     private val deadline = api.now() + timeoutMs
@@ -61,7 +62,7 @@ class SignIn internal constructor(
                 Via.BROWSER -> (if (account.browserSignIn) browser() else null) ?: code()
                 Via.CODE -> code()
             }
-            account.store.write(account.id, cred) // usable: it carries the account id every call needs
+            if (!account.complete(this, generation, cred)) throw Stop(State(Phase.CANCELLED, say("signIn.cancelled")))
             State(Phase.DONE, say("status.ready"))
         } catch (e: Stop) {
             e.state
@@ -74,6 +75,7 @@ class SignIn internal constructor(
                 else -> Phase.FAILED
             }, say(key))
         }
+        account.finished(this)
         emit(end)
         return end
     }

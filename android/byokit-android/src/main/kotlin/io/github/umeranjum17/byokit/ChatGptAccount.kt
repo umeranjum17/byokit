@@ -33,9 +33,25 @@ class ChatGptAccount(
     @Volatile var restingUntil: Long = 0
         private set
     @Volatile private var busy = false
+    private var generation = 0L
+    private val signIns = mutableSetOf<SignIn>()
 
     /** Starts "Sign in with ChatGPT". Run [SignIn.run] on a background thread; show [SignIn.State] as it changes. */
     fun signIn(via: SignIn.Via = SignIn.Via.CODE, onChange: (SignIn.State) -> Unit) = SignIn(this, via, onChange)
+
+    @Synchronized internal fun register(signIn: SignIn): Long = generation.also { signIns.add(signIn) }
+
+    @Synchronized internal fun complete(signIn: SignIn, started: Long, cred: Credential): Boolean {
+        signIns.remove(signIn)
+        if (started != generation) {
+            runCatching { api.revoke(cred) }
+            return false
+        }
+        store.write(id, cred)
+        return true
+    }
+
+    @Synchronized internal fun finished(signIn: SignIn) { signIns.remove(signIn) }
 
     val signedIn: Boolean get() = store.read(id) != null
 
@@ -44,6 +60,8 @@ class ChatGptAccount(
      * whatever ChatGPT answers, offline too. Network I/O (up to 10 s), so call it off the main thread.
      */
     @Synchronized fun signOut() {
+        generation++
+        signIns.forEach(SignIn::cancel)
         try {
             store.read(id)?.let(api::revoke)
         } finally {
