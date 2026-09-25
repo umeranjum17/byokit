@@ -158,6 +158,7 @@ export class RelayClient {
       // Whatever the relay had not answered goes again on the next socket: each of these is safe to repeat.
       this.queue.unshift(...this.inflight.values());
       this.inflight.clear();
+      while (this.queue.length > QUEUE) this.queue.pop()!.reject(new Error('relay queue full'));
       const stop = STOPS[e?.code];
       if (stop) {
         this.stopped = true;

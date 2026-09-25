@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { hostId, keyPair, pairWithCode } from '@byokit/link';
-import { CLOSE, LIMITS, findHost } from '../src/index.ts';
+import { CLOSE, LIMITS, RelayClient, findHost } from '../src/index.ts';
 import { closed, device, hostClient, paired, sleep, startHost, startRelay, until } from './helpers.ts';
 
 test('a device reaches its host through the relay, which routes by host address and never sees plaintext', async () => {
@@ -57,6 +57,24 @@ test('the host reconnects after the relay restarts, and requests queued meanwhil
   assert.equal(r.relay.count(p.host.id), 1);
 });
 
+test('a dropped socket retains no more than 64 unanswered outbound calls', async () => {
+  class FakeSocket extends EventTarget {
+    readyState = 1;
+    send() {}
+    close(code = 1000) { this.readyState = 3; this.dispatchEvent(Object.assign(new Event('close'), { code })); }
+    constructor(_url: string) { super(); queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', { data: JSON.stringify({ t: 'ready', id: 'host', vapid: 'key' }) }))); }
+  }
+  const host = await startHost();
+  const client = new RelayClient(host, { url: 'ws://unused', WebSocket: FakeSocket as any });
+  await until(() => client.status === 'online');
+  const calls = Array.from({ length: 70 }, () => client.code().then(() => 'ok', (e: Error) => e.message));
+  (client as any).ws.close(1006);
+  await until(() => client.status === 'offline');
+  client.stop();
+  const results = await Promise.all(calls);
+  assert.equal(results.filter((v) => v === 'relay queue full').length, 6);
+});
+
 test('typed pairing through the relay: a short code finds the host, and the relay never learns the pairing code', async () => {
   const r = await startRelay();
   const host = await startHost();
@@ -75,6 +93,15 @@ test('typed pairing through the relay: a short code finds the host, and the rela
   let status = 0;
   for (let i = 0; i < LIMITS.code + 1 && status !== 429; i++) status = (await fetch(`${r.http}/relay/v1/codes/${short}`)).status;
   assert.equal(status, 429);
+});
+
+test('owner routes are not subject to an extra blanket HTTP limit', async () => {
+  const r = await startRelay({ ownerToken: 'owner' });
+  for (let i = 0; i < 301; i++) {
+    const res = await fetch(`${r.http}/relay/v1/hosts`, { headers: { authorization: 'Bearer owner' } });
+    assert.equal(res.status, 200);
+    await res.arrayBuffer();
+  }
 });
 
 test('a device for a host that is not online is closed, and sockets past the per-address limit are refused', async () => {

@@ -12,9 +12,9 @@ test('push endpoints must be public https push services: no internal, private or
     'https://[::ffff:c0a8:101]/push', 'https://[0:0:0:0:0:ffff:c0a8:101]/push', 'https://[::ffff:192.168.1.1]/push', // muxr's mapped-IPv6 cases
     'https://10.0.0.1/p', 'https://127.0.0.1/p', 'https://169.254.169.254/latest', 'https://[fe80::1]/p', 'https://[fd00::1]/p', 'https://[::1]/p',
     'https://0x7f.1/p', 'https://100.64.1.1/p', 'https://metadata/p', 'https://printer.local/p', 'https://svc.internal/p',
-    'https://user:pw@push.example.com/p', 'ftp://push.example.com/p', 'http://push.example.com/p', 'not a url', 'https://a.com/' + 'x'.repeat(2048),
+    'https://user:pw@push.example.com/p', 'ftp://push.example.com/p', 'http://push.example.com/p', 'http://127.0.0.1:9/stub', 'http://[::1]/stub', 'not a url', 'https://a.com/' + 'x'.repeat(2048),
   ]) assert.equal(isAllowedEndpoint(bad), false, bad);
-  for (const good of ['https://push.example.com/push', 'https://fcm.googleapis.com/fcm/send/abc', 'https://web.push.apple.com/Qx', 'https://8.8.8.8/p', 'http://127.0.0.1:9/stub']) {
+  for (const good of ['https://push.example.com/push', 'https://fcm.googleapis.com/fcm/send/abc', 'https://web.push.apple.com/Qx', 'https://8.8.8.8/p']) {
     assert.equal(isAllowedEndpoint(good), true, good);
   }
   assert.equal(isExpoToken('ExponentPushToken[abc_DEF-1]'), true);
@@ -94,6 +94,79 @@ test("revoking a device removes its subscriptions; revoking the host removes all
   assert.deepEqual(r.saved()!.push.map((s) => s.device), ['kept', other.grant.device.id]);
   await r.relay.revoke(p.host.id);
   assert.deepEqual(r.saved()!.push.map((s) => s.device), [other.grant.device.id]);
+});
+
+test('only the host receiving an action may answer it', async () => {
+  const world = pushWorld();
+  const r = await startRelay({ push: { fetch: world.fetch }, actionMs: 1000 });
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  const a = await paired(r, 'Phone', { onAction: async () => { await blocked; return 'real'; } });
+  let other!: WebSocket;
+  class Captured extends WebSocket { constructor(url: string) { super(url); other = this; } }
+  const b = await paired(r, 'Other', { WebSocket: Captured as any });
+  await a.client.subscribe(a.grant.device.id, { expo: 'ExponentPushToken[phone]' });
+  await a.client.notify({ id: 'action-1', title: 'Approve', body: 'Wait', actions: ['yes'] });
+  const token = world.sent.at(-1)!.body[0].data.action;
+  const press = fetch(`${r.http}/relay/v1/push/action`, { method: 'POST', body: JSON.stringify({ token, action: 'yes' }) });
+  const id = await until(() => a.wire.map((s) => { try { return JSON.parse(s); } catch { return {}; } }).find((m) => m.t === 'push.action')?.id as string | undefined);
+  other.send(JSON.stringify({ t: 'answer', id, ok: true, value: 'forged' }));
+  let settled = false;
+  void press.then(() => { settled = true; });
+  await sleep(30);
+  assert.equal(settled, false);
+  release();
+  assert.deepEqual(await (await press).json(), { ok: true, value: 'real' });
+  assert.equal(b.client.status, 'online');
+});
+
+test('a delayed subscription save cannot restore a revoked host', async () => {
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  let saved: any;
+  let entered = false;
+  const r = await startRelay({ store: {
+    load: () => saved,
+    save: async (state) => {
+      if (state.push.length && !entered) { entered = true; await blocked; }
+      saved = state;
+    },
+  } });
+  const p = await paired(r);
+  const subscribing = p.client.subscribe('phone', { expo: 'ExponentPushToken[phone]' });
+  await until(() => entered);
+  const revoking = r.relay.revoke(p.host.id);
+  release();
+  await Promise.all([subscribing.catch(() => {}), revoking]);
+  assert.deepEqual(saved.hosts, []);
+  assert.deepEqual(saved.push, []);
+});
+
+test('concurrent notification IDs reserve delivery and retry when no service accepts', async () => {
+  let release!: () => void;
+  let entered = false;
+  let accept = true;
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  const calls: string[] = [];
+  const fake = (async (url: string) => {
+    calls.push(url);
+    if (calls.length === 1) { entered = true; await blocked; }
+    return Response.json({ data: [{ status: accept ? 'ok' : 'error' }] });
+  }) as typeof fetch;
+  const r = await startRelay({ push: { fetch: fake } });
+  const p = await paired(r);
+  await p.client.subscribe('phone', { expo: 'ExponentPushToken[phone]' });
+  const n = { id: 'same', title: 'Hello', body: 'World' };
+  const first = p.client.notify(n);
+  await until(() => entered);
+  assert.deepEqual(await p.client.notify(n), { sent: 0, duplicate: true });
+  accept = false;
+  release();
+  assert.deepEqual(await first, { sent: 0 });
+  accept = true;
+  assert.deepEqual(await p.client.notify(n), { sent: 1 });
+  assert.equal(calls.length, 2);
+  assert.deepEqual(await p.client.notify(n), { sent: 0, duplicate: true });
 });
 
 test('a notification button reaches the host and its answer comes back; one use, known buttons only, within the time limit (15 s by default)', async () => {

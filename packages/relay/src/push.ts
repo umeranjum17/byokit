@@ -24,15 +24,13 @@ const text = (v: unknown, max: number) => typeof v === 'string' && v.length > 0 
 
 export const isExpoToken = (v: unknown): v is string => typeof v === 'string' && v.length <= 256 && /^(?:Exponent|Expo)PushToken\[[A-Za-z0-9_-]+\]$/.test(v);
 
-/** A push subscription's endpoint must be a public https push service with no credentials in it (or plain http to
- *  loopback, for local stubs): a subscription must never point the relay at an internal address. */
+/** A push subscription's endpoint must be a public https push service with no credentials in it. */
 export function isAllowedEndpoint(value: unknown): value is string {
   if (typeof value !== 'string' || value === '' || value.length > 2048) return false;
   let u: URL;
   try { u = new URL(value); } catch { return false; }
   if (u.username || u.password || !u.hostname || /\s/.test(u.hostname)) return false;
   const host = u.hostname.toLowerCase();
-  if (u.protocol === 'http:') return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
   return u.protocol === 'https:' && !internal(host);
 }
 

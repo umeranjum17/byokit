@@ -21,6 +21,8 @@ test('a machine enrols once with an owner-created enrolment, and its relay addre
   assert.equal(res.status, 201);
   const { token, expires } = (await res.json()) as { token: string; expires: number };
   assert.equal(expires, now + 5 * 60_000);
+  assert.equal((await r.relay.enrolment({ ttlMs: 600_000 })).expires, now + 5 * 60_000);
+  assert.equal((await r.relay.enrolment({ ttlMs: 1000 })).expires, now + 1000);
   assert.doesNotMatch(JSON.stringify(r.saved()), new RegExp(token.split('.')[1]!), 'only a hash of the claim is kept');
 
   const a = await startHost();
@@ -28,7 +30,7 @@ test('a machine enrols once with an owner-created enrolment, and its relay addre
   await until(() => ca.client.status === 'online');
   assert.equal(ca.client.id, hostId(a.keys.publicKey));
   assert.deepEqual(r.relay.hosts().map((h) => [h.id, h.name]), [[a.id, 'Build server']]);
-  assert.equal(r.saved()!.enrolments.length, 0, 'used up');
+  assert.equal(r.saved()!.enrolments.length, 2, 'only this claim is used up');
 
   // A replay by another machine is refused, and so is a machine with no enrolment at all.
   const b = await startHost();
@@ -43,7 +45,7 @@ test('a machine enrols once with an owner-created enrolment, and its relay addre
   now += 5 * 60_000 + 1;
   const tooLate = hostClient(b, r.ws, { enrol: late.token });
   await until(() => tooLate.client.status === 'refused');
-  assert.equal(r.saved()!.enrolments.length, 0);
+  assert.equal(r.saved()!.enrolments.some((e) => e.id === late.token.split('.')[0]), false);
 
   // Once enrolled, the machine reconnects with no enrolment.
   ca.client.stop();
@@ -80,6 +82,27 @@ test('revoking machine B closes B and its devices, refuses B from then on, and l
   assert.deepEqual(await a.dev.link.request('still'), { op: 'still', by: a.grant.device.id });
   const list = (await (await fetch(`${r.http}/relay/v1/hosts`, { headers: bearer(owner) })).json()) as { hosts: { id: string }[] };
   assert.deepEqual(list.hosts.map((h) => h.id), [a.host.id]);
+});
+
+test('revocation during an enrolment save cannot install a live host', async () => {
+  let release!: () => void;
+  let saved: any;
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  const r = await startRelay({ store: {
+    load: () => saved,
+    save: async (state) => { if (state.hosts.length) await blocked; saved = state; },
+  } });
+  const { token } = await r.relay.enrolment();
+  const host = await startHost();
+  const client = hostClient(host, r.ws, { enrol: token });
+  await until(() => r.relay.hosts().some((h) => h.id === host.id));
+  const revoked = r.relay.revoke(host.id);
+  release();
+  await revoked;
+  await until(() => client.client.status === 'refused');
+  assert.equal(r.relay.hosts().length, 0);
+  assert.equal(r.relay.count(host.id), 0);
+  assert.deepEqual(saved.hosts, []);
 });
 
 test('a machine cannot register under another machine\'s address: the proof is for the key it presents', async () => {

@@ -39,7 +39,6 @@ export type RelayOptions = {
 /** Per-client-address limits in a one-minute window, the same as muxr's relay. */
 export const LIMITS = {
   ws: 60, // WebSocket connections, host or device
-  http: 300, // every HTTP request
   code: 10, // short-code lookups (muxr: pair-code)
   action: 20, // push actions (muxr: claim)
   enrol: 10, // enrolment claims
@@ -54,7 +53,7 @@ const MAX_PAYLOAD = 2 << 20;
 const DEDUP = 2048; // notification ids remembered per host
 
 type Live = { id: string; ws: WebSocket; devices: Map<string, WebSocket>; next: number };
-type Waiting = (answer: { ok: boolean; value?: unknown; error?: string }) => void;
+type Waiting = { live: Live; resolve: (answer: { ok: boolean; value?: unknown; error?: string }) => void };
 
 // Short codes use link's typed-code alphabet (no 0, 1, I, L, O), so a person types both kinds the same way.
 const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
@@ -76,6 +75,8 @@ export class Relay {
   private tokens = new Map<string, { host: string; device: string; event: string; actions: string[]; expires: number }>();
   private sent = new Map<string, string[]>(); // host -> recent notification ids
   private waiting = new Map<string, Waiting>();
+  private pending = new Map<string, Set<string>>();
+  private saves: Promise<void> = Promise.resolve();
   private seq = 0;
 
   private constructor(opts: RelayOptions, state: RelayState) {
@@ -92,9 +93,11 @@ export class Relay {
   }
 
   private now() { return this.opts.now?.() ?? Date.now(); }
-  private async save() {
+  private save(): Promise<void> {
     const s = this.state;
-    await this.opts.store?.save(structuredClone({ hosts: s.hosts, enrolments: s.enrolments, push: s.push, vapid: s.vapid }));
+    const snapshot = structuredClone({ hosts: s.hosts, enrolments: s.enrolments, push: s.push, vapid: s.vapid });
+    this.saves = this.saves.catch(() => {}).then(() => this.opts.store?.save(snapshot));
+    return this.saves;
   }
 
   /** Serves the relay's WebSocket and HTTP routes on this server; anything else gets a 404. */
@@ -124,7 +127,6 @@ export class Relay {
     const url = new URL(req.url ?? '/', 'http://relay');
     const path = url.pathname;
     if (!path.startsWith('/relay/v1/')) return false;
-    if (this.limited('http', req)) { json(res, 429, { error: 'too many requests' }); return true; }
     try {
       // Anyone may look up a code or press a notification's button: both carry their own unguessable capability.
       const code = /^\/relay\/v1\/codes\/([A-Za-z0-9-]{1,16})$/.exec(path);
@@ -179,7 +181,7 @@ export class Relay {
     const id = b64url(randomBytes(9));
     const claim = b64url(randomBytes(32));
     const now = this.now();
-    const expires = now + (o.ttlMs ?? ENROL_MS);
+    const expires = now + Math.min(o.ttlMs ?? ENROL_MS, ENROL_MS);
     this.state.enrolments = [...this.state.enrolments.filter((e) => e.expires > now), { id, hash: sha(claim), expires, ...(o.name ? { name: cleanName(o.name, 'Computer') } : {}) }];
     await this.save();
     return { token: `${id}.${claim}`, expires };
@@ -288,6 +290,7 @@ export class Relay {
       await this.admit(key, e.name ?? m.name);
     }
     if (ws.readyState !== ws.OPEN) return undefined;
+    if (!this.state.hosts.some((h) => h.id === id)) return fail(CLOSE.revoked, 'host revoked');
     const old = this.live.get(id);
     if (old) this.drop(old, CLOSE.replaced, 'replaced by a newer host');
     const l: Live = { id, ws, devices: new Map(), next: 0 };
@@ -297,6 +300,7 @@ export class Relay {
   }
 
   private fromHost(l: Live, m: any) {
+    if (this.live.get(l.id) !== l) return;
     if (typeof m?.c === 'string') {
       const d = l.devices.get(m.c);
       if (!d) return;
@@ -305,9 +309,11 @@ export class Relay {
       return;
     }
     if (m?.t === 'answer') {
-      const w = this.waiting.get(String(m.id));
-      this.waiting.delete(String(m.id));
-      return w?.({ ok: m.ok === true, value: m.value, error: typeof m.error === 'string' ? m.error.slice(0, 200) : undefined });
+      const id = String(m.id);
+      const w = this.waiting.get(id);
+      if (w?.live !== l) return;
+      this.waiting.delete(id);
+      return w.resolve({ ok: m.ok === true, value: m.value, error: typeof m.error === 'string' ? m.error.slice(0, 200) : undefined });
     }
     const reply = (r: object) => { if (this.live.get(l.id) === l) l.ws.send(JSON.stringify({ t: 'res', id: m?.id, ...r })); };
     void this.control(l.id, m).then((r) => reply({ ok: true, ...r }), (e) => reply({ ok: false, error: String(e?.message ?? e) }));
@@ -356,7 +362,11 @@ export class Relay {
     if (!n) throw new Error('bad notification');
     const seen = this.sent.get(host) ?? [];
     // ponytail: remembered in memory, so a relay restart can deliver a retried notification twice.
-    if (seen.includes(n.id)) return { sent: 0, duplicate: true };
+    if (seen.includes(n.id) || this.pending.get(host)?.has(n.id)) return { sent: 0, duplicate: true };
+    const pending = this.pending.get(host) ?? new Set<string>();
+    this.pending.set(host, pending);
+    pending.add(n.id);
+    try {
     const subs = this.state.push.filter((p) => p.host === host && (!n.to || n.to.includes(p.device)));
     const action = new Map<string, string>();
     if (n.actions?.length) {
@@ -372,12 +382,16 @@ export class Relay {
       subs, n, action, vapid: this.state.vapid!, subject: this.opts.push?.subject ?? 'https://github.com/umeranjum17/byokit',
       fetch: this.opts.push?.fetch ?? fetch,
     });
-    if (sent > 0) this.sent.set(host, [...seen, n.id].slice(-DEDUP)); // only once a push service took it, so a retry can succeed
+    if (sent > 0) this.sent.set(host, [...(this.sent.get(host) ?? []), n.id].slice(-DEDUP)); // only once a push service took it, so a retry can succeed
     if (gone.length) {
       this.state.push = this.state.push.filter((p) => !gone.includes(p));
       await this.save();
     }
     return { sent };
+    } finally {
+      pending.delete(n.id);
+      if (!pending.size) this.pending.delete(host);
+    }
   }
 
   private lookup(raw: string): string | undefined {
@@ -396,8 +410,8 @@ export class Relay {
     this.tokens.delete(token); // one use from here: the host may act on it
     const id = `a${++this.seq}`;
     const answer = await new Promise<Parameters<Waiting>[0] | undefined>((resolve) => {
-      const timer = later(this.opts.actionMs ?? 15_000, () => { this.waiting.delete(id); resolve(undefined); });
-      this.waiting.set(id, (a) => { clearTimeout(timer); resolve(a); });
+      const timer = later(Math.min(this.opts.actionMs ?? 15_000, 15_000), () => { this.waiting.delete(id); resolve(undefined); });
+      this.waiting.set(id, { live: l, resolve: (a) => { clearTimeout(timer); resolve(a); } });
       l.ws.send(JSON.stringify({ t: 'push.action', id, device: t.device, event: t.event, action }));
     });
     if (!answer) return { status: 504, body: { error: 'computer did not answer in time' } };
