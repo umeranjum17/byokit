@@ -71,7 +71,7 @@ export class Host {
   }
 
   private now() { return this.opts.now?.() ?? Date.now(); }
-  private get pairMs() { return this.opts.pairMs ?? 300_000; }
+  private get pairMs() { return Math.min(this.opts.pairMs ?? 300_000, 300_000); }
   private async change<T>(fn: () => Promise<T>): Promise<T> {
     const next = this.changes.then(fn);
     this.changes = next.then(() => {}, () => {});

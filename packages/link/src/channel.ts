@@ -25,9 +25,6 @@ const MAX_MESSAGE = 16 << 20; // what one reassembled message may grow to before
 // ponytail: noise-handshake writes a 32-bit nonce counter, so a socket stops at 2^32 frames; rekey if one ever gets close.
 const MAX_FRAMES = 2 ** 32 - 1;
 
-const text = new TextEncoder();
-const untext = new TextDecoder('utf-8', { fatal: true });
-
 export const b64 = (u: Uint8Array): string => b4a.toString(b4a.from(u), 'base64');
 export const unb64 = (s: string): Uint8Array => b4a.from(s, 'base64');
 export const b64url = (u: Uint8Array): string => b64(u).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -41,7 +38,7 @@ export const keyPairFrom = (secretKey: Uint8Array): KeyPair => dh.generateKeyPai
 
 export function hash(bytes: number, ...parts: (Uint8Array | string)[]): Uint8Array {
   const out = b4a.alloc(bytes);
-  sodium.crypto_generichash(out, b4a.concat(parts.map((p) => (typeof p === 'string' ? b4a.from(text.encode(p)) : b4a.from(p)))));
+  sodium.crypto_generichash(out, b4a.concat(parts.map((p) => typeof p === 'string' ? b4a.from(p) : b4a.from(p))));
   return out;
 }
 
@@ -54,8 +51,8 @@ export function random(bytes: number): Uint8Array {
 /** The host's address on a relay: a hash of its public key, so the relay needs nothing else. */
 export const hostId = (hostKey: Uint8Array): string => b64url(hash(16, 'byokit-link-host-id-v1', hostKey));
 
-const encode = (msg: unknown) => b4a.from(text.encode(JSON.stringify(msg)));
-const decode = (bytes: Uint8Array) => (bytes.byteLength ? JSON.parse(untext.decode(bytes)) : {});
+const encode = (msg: unknown) => b4a.from(JSON.stringify(msg));
+const decode = (bytes: Uint8Array) => (bytes.byteLength ? JSON.parse(b4a.toString(b4a.from(bytes))) : {});
 
 /** One handshake. The first frame an initiator writes carries its mode in the clear (`ik:` or `code:`), so the host
  *  knows which handshake to run; everything after that is bare base64. */
@@ -69,7 +66,7 @@ export class Handshake {
     this.first = initiator;
     this.hs = new Noise(mode === 'ik' ? 'IK' : 'XXpsk0', initiator, { publicKey: b4a.from(me.publicKey), secretKey: b4a.from(me.secretKey) },
       mode === 'code' ? { psk: b4a.from(opt.psk!) } : undefined);
-    this.hs.initialise(b4a.from(text.encode(PROLOGUE)), opt.remote ? b4a.from(opt.remote) : undefined);
+    this.hs.initialise(b4a.from(PROLOGUE), opt.remote ? b4a.from(opt.remote) : undefined);
   }
 
   write(payload: unknown = {}): string {

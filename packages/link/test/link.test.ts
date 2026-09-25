@@ -91,6 +91,13 @@ test('a pairing code runs out, a person can say no, and a host can be full', asy
   await assert.rejects(pairWithOffer(full.host.offer({ role: 'control', urls: [full.url] }).text, { name: 'Two' }), (e: LinkError) => e.code === 'full');
 });
 
+test('pairing lifetime cannot exceed five minutes', async () => {
+  const now = Date.now();
+  const h = await startHost({ now: () => now, pairMs: 900_000 });
+  assert.equal(h.host.offer({ role: 'view', urls: [h.url] }).expires, now + 300_000);
+  assert.equal(h.host.code({ role: 'view' }).expires, now + 300_000);
+});
+
 test('typed code: pairs once, and five wrong codes withdraw every open code', async () => {
   const h = await startHost();
   const { code } = h.host.code({ role: 'view' });
@@ -187,6 +194,19 @@ test('failed grant saves leave memory unchanged and concurrent confirmations res
   assert.equal(cap.host.devices().length, 1);
 });
 
+test('stop rejects pending and new requests until retry reconnects', async () => {
+  const h = await startHost();
+  const d = connect(await pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' }));
+  await until(() => d.link.status === 'online');
+  const pending = d.link.request('slow');
+  await until(() => h.ran.includes('Phone:slow'));
+  d.link.stop();
+  await assert.rejects(pending, (e: LinkError) => e.code === 'stopped');
+  await assert.rejects(d.link.request('get.state'), (e: LinkError) => e.code === 'stopped');
+  d.link.retry();
+  assert.deepEqual(await d.link.request('get.state'), { op: 'get.state', by: d.link.grant.device.id });
+});
+
 test('replacing a grant retires its old socket and answers under the new role', async () => {
   const h = await startHost();
   const first = await pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' });
@@ -240,6 +260,17 @@ test('wrong host at one address does not prevent a later pinned address', async 
   const d = connect({ ...grant, urls: [impostor.url, h.url] });
   assert.deepEqual(await d.link.request('get.state'), { op: 'get.state', by: grant.device.id });
   assert.equal(d.link.status, 'online');
+});
+
+test('an unreachable alternate address keeps retrying after a wrong-host answer', async () => {
+  const h = await startHost();
+  const impostor = await startHost();
+  const grant = await pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' });
+  const d = connect({ ...grant, urls: [impostor.url, 'ws://127.0.0.1:1/unreachable'] });
+  await until(() => d.link.status === 'offline');
+  assert.notEqual(d.link.status, 'refused');
+  d.link.grant = { ...d.link.grant, urls: [impostor.url, h.url] };
+  assert.deepEqual(await d.link.request('get.state'), { op: 'get.state', by: grant.device.id });
 });
 
 test('retry from a refused callback starts a new attempt', async () => {

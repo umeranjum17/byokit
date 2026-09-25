@@ -29,6 +29,7 @@ export const LINK_WORDS = {
   'view-only': 'This device can watch but not make changes.',
   timeout: "Your computer didn't answer in time.",
   failed: "Your computer couldn't do that.",
+  stopped: 'This link is stopped. Try connecting again.',
 } as const;
 export type LinkProblem = keyof typeof LINK_WORDS;
 
@@ -171,7 +172,7 @@ export class DeviceLink {
   private async connect() {
     if (this.stopped || this.connecting || this.conn) return;
     this.connecting = true;
-    let wrongHost = false;
+    let wrongHosts = 0;
     try {
       const me = keyPairFrom(unb64url(this.grant.secretKey));
       for (const url of this.grant.urls) {
@@ -192,12 +193,12 @@ export class DeviceLink {
           return;
         } catch (e: any) {
           if (e?.sealed && e.code === 'not-paired') return this.removed();
-          if (e?.code === 'wrong-host') wrongHost = true;
+          if (e?.code === 'wrong-host') wrongHosts++;
         }
       }
-      if (wrongHost) this.stopped = true;
     } finally { this.connecting = false; }
-    if (wrongHost) this.set('refused');
+    if (this.stopped) return;
+    if (wrongHosts > 0 && wrongHosts === this.grant.urls.length) { this.stopped = true; this.set('refused'); }
     else { this.again(); this.set('offline'); }
   }
 
@@ -238,6 +239,7 @@ export class DeviceLink {
   /** Asks the host to do `op`. Waits through reconnects; resolves only with the host's answer. */
   request(op: string, args?: unknown): Promise<unknown> {
     if (this.status === 'removed') return Promise.reject(new LinkError('removed', true));
+    if (this.stopped) return Promise.reject(new LinkError('stopped'));
     return new Promise((resolve, reject) => {
       const id = ++this.n;
       const msg = { t: 'req', id, op, args, key: b64url(random(12)), acked: this.acked.splice(0, 64) };
@@ -257,5 +259,13 @@ export class DeviceLink {
     void this.connect();
   }
 
-  stop() { this.stopped = true; clearTimeout(this.wake); this.conn?.close(); }
+  stop() {
+    this.stopped = true;
+    clearTimeout(this.wake);
+    const conn = this.conn;
+    this.conn = null;
+    conn?.close();
+    for (const p of this.pending.values()) p.reject(new LinkError('stopped'));
+    this.pending.clear();
+  }
 }

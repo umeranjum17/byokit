@@ -1,4 +1,5 @@
 // What pairing puts in front of a person: the QR's text (or a link that carries it), and the typed code.
+import b4a from 'b4a';
 import { b64url, hash, random, unb64url } from './channel.ts';
 
 /** What a scanned QR (or opened pairing link) holds. The ticket is single-use and short-lived. */
@@ -14,7 +15,7 @@ export const cleanName = (name: unknown, fallback: string): string =>
 /** The QR's text. Give a web address (`https://…/pair`) to get a link a browser can open instead: the offer rides in
  *  the part after `#`, which browsers never send to a server. */
 export function offerText(offer: PairOffer, base?: string): string {
-  const body = TAG + b64url(new TextEncoder().encode(JSON.stringify(offer)));
+  const body = TAG + b64url(b4a.from(JSON.stringify(offer)));
   return base ? `${base}#${body}` : body;
 }
 
@@ -24,7 +25,7 @@ export function parseOffer(scanned: string, now = Date.now()): PairOffer {
   let o: any;
   try {
     if (at < 0 || scanned.length > 8192) throw new Error();
-    o = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(unb64url(scanned.slice(at + TAG.length).trim())));
+    o = JSON.parse(b4a.toString(b4a.from(unb64url(scanned.slice(at + TAG.length).trim()))));
     if (typeof o?.host !== 'string' || unb64url(o.host).length !== 32 ||
         typeof o.ticket !== 'string' || unb64url(o.ticket).length !== 16) throw new Error();
   } catch {
