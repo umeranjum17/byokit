@@ -26,7 +26,7 @@ runtime-tested here because no simulator is available.
   never uses their environment's API keys (except the explicitly invoked [live eval CLI](packages/decide#evals)), and
   never runs their CLIs. Tests use the harness in `packages/accounts/src/testing` (a decoy HOME, an fs tracer, canary
   tokens) and must never need a real account, the network or a model call. `npm test` fails if your own `~/.pi` changed during the run.
-- **One package per concern**, small and dependency-light: `accounts`, `link`, `decide`, `ui-core`. Prefer deleting to adding.
+- **One package per concern**, small and dependency-light. Prefer deleting to adding.
 - **Platform boundary.** See [accounts' platform guide](packages/accounts/README.md#which-sign-in-works-where).
   Its `react-native` and `browser` exports must not import Node modules; computer-only flows belong in the default export.
 - Sources are TypeScript that Node runs directly (type stripping): no enums, namespaces or parameter properties, and
