@@ -49,7 +49,7 @@ export class LinkStream {
    *  arrive before this is set wait for it. */
   set onData(fn: (chunk: Uint8Array) => void | Promise<void>) { this.reader = fn; void this.pump(); }
   /** Once, when the stream is over: `error` is unset when either side ended it cleanly. */
-  set onEnd(fn: (error?: string) => void) { this.ender = fn; void this.pump(); }
+  set onEnd(fn: (error?: string) => void) { this.ender = fn; this.notifyEnd(); void this.pump(); }
 
   /** Sends bytes (a string goes as UTF-8). Resolves once they're on the socket, which waits while the other side's
    *  window is full: await each write to move bulk data at the reader's pace. Rejects if the stream ends first. */
@@ -84,13 +84,20 @@ export class LinkStream {
     this.closed = true;
     this.gone();
     this.wake?.();
-    if (tell) {
-      this.wire.send({ t: 'end', s: this.id, ...(error === undefined ? {} : { error }) });
-      this.inbox = []; // ended here: nothing more to read
-    }
+    if (tell) this.wire.send({ t: 'end', s: this.id, ...(error === undefined ? {} : { error }) });
+    if (tell || error !== undefined) this.inbox = [];
     this.settle?.reject(error ?? 'ended');
     this.inbox.push({ end: error });
+    this.notifyEnd();
     void this.pump();
+  }
+
+  private notifyEnd() {
+    const next = this.inbox.at(-1);
+    if (!this.ender || !next || next instanceof Uint8Array || next.end === undefined) return;
+    this.inbox = [];
+    const ender = this.ender;
+    void Promise.resolve().then(() => ender(next.end));
   }
 
   private async pump() {
@@ -110,7 +117,7 @@ export class LinkStream {
         continue;
       }
       this.inbox.shift();
-      try { await this.reader(next); } catch (e) { this.end(this.wire.reason?.(e) ?? 'failed'); }
+      try { await this.reader(next); } catch (e) { if (!this.closed) this.end(this.wire.reason?.(e) ?? 'failed'); }
       this.took(next.byteLength);
     }
     this.pumping = false;

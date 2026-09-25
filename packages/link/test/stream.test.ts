@@ -134,7 +134,9 @@ test('T4: the stream handler gets the authenticated grant, so the app keeps one 
   const sa = await a.link.stream('terminal', { pane: 'p1' });
   const oa = collect(sa);
   await until(() => oa.text() === 'Phone A controls p1');
-  await assert.rejects(b.link.stream('terminal', { pane: 'p1' }), (e: LinkError) => e instanceof PublicLinkError && e.message === 'Someone else is typing in this pane.');
+  const blocked = collect(await b.link.stream('terminal', { pane: 'p1' }));
+  await until(() => blocked.got.ended);
+  assert.equal(blocked.got.end, 'Someone else is typing in this pane.');
   await assert.rejects(v.link.stream('terminal', { pane: 'p2' }), (e: LinkError) => e.code === 'view-only' && e.sealed, 'refused before the app sees it');
   const ov = collect(await v.link.stream('watch', { pane: 'p1' }));
   await until(() => ov.text() === 'watching p1');
@@ -142,6 +144,23 @@ test('T4: the stream handler gets the authenticated grant, so the app keeps one 
   await until(() => !controller.has('p1'));
   const ob = collect(await b.link.stream('terminal', { pane: 'p1' }));
   await until(() => ob.text() === 'Phone B controls p1');
+});
+
+test('T4: an async stream handler can await its first write, then end with a public or generic error', async () => {
+  const h = await startHost({ stream: async (s, req) => {
+    if (req.op === 'public') throw new PublicLinkError('No such pane.');
+    if (req.op === 'bug') throw new Error('secret path /home/x');
+    await s.write('welcome');
+  } });
+  const d = await device(h, 'Phone');
+  const welcome = collect(await d.link.stream('welcome'));
+  await until(() => welcome.text() === 'welcome');
+  for (const [op, reason] of [['public', 'No such pane.'], ['bug', 'failed']]) {
+    const s = collect(await d.link.stream(op));
+    await until(() => s.got.ended);
+    assert.equal(s.got.end, reason);
+  }
+  assert.match(String(h.errors.at(-1)), /secret path/);
 });
 
 test('T4: output-only streams release on peer end and host shutdown', async () => {
@@ -170,6 +189,28 @@ test('T4: output-only streams release on peer end and host shutdown', async () =
   await until(() => ended.includes('shutdown:unreachable'));
 });
 
+test('T4: revoke ends both sides even with readers stalled', async () => {
+  let hostRead = false, deviceRead = false;
+  let releaseHost!: () => void, releaseDevice!: () => void;
+  const heldHost = new Promise<void>((resolve) => { releaseHost = resolve; });
+  const heldDevice = new Promise<void>((resolve) => { releaseDevice = resolve; });
+  let hostEnd: string | undefined, deviceEnd: string | undefined;
+  const h = await startHost({ stream: async (s) => {
+    s.onData = async () => { hostRead = true; await heldHost; };
+    s.onEnd = (error) => { hostEnd = error; };
+    await s.write('output');
+  } });
+  const d = await device(h, 'Phone');
+  const s = await d.link.stream('terminal');
+  s.onData = async () => { deviceRead = true; await heldDevice; };
+  s.onEnd = (error) => { deviceEnd = error; };
+  await s.write('input');
+  await until(() => hostRead && deviceRead);
+  await h.host.revoke(d.id);
+  await until(() => hostEnd === 'removed' && deviceEnd === 'removed');
+  releaseHost(); releaseDevice();
+});
+
 test('T4: streams end with their connection and on revoke; requests carry on; old hosts and refusals are told apart', async () => {
   const open: LinkStream[] = [];
   const h = await startHost({ stream: (s, req) => {
@@ -185,8 +226,12 @@ test('T4: streams end with their connection and on revoke; requests carry on; ol
   await until(() => d.link.status === 'online');
   assert.equal(await d.link.request('still.works'), 'still.works');
   const again = collect(await d.link.stream('terminal', { pane: 'p1' })); // open it again on the next online
-  await assert.rejects(d.link.stream('nope'), (e: Error) => e instanceof PublicLinkError && e.message === 'No such pane.');
-  await assert.rejects(d.link.stream('bug'), (e: LinkError) => e.code === 'failed' && !/secret/.test(e.message), "the app's own error stays on the host");
+  const noPane = collect(await d.link.stream('nope'));
+  await until(() => noPane.got.ended);
+  assert.equal(noPane.got.end, 'No such pane.');
+  const bug = collect(await d.link.stream('bug'));
+  await until(() => bug.got.ended);
+  assert.equal(bug.got.end, 'failed', "the app's own error stays on the host");
   assert.match(String(h.errors.at(-1)), /secret path/, 'and goes to onError');
   await h.host.revoke(d.id);
   await until(() => again.got.ended);

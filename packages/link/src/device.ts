@@ -287,7 +287,7 @@ export class DeviceLink {
 
   /** Opens a duplex stream that the host's `stream` handler takes: a terminal pane, a tunnelled connection, a call.
    *  Only while `online`. A stream ends when its connection drops (`onEnd('unreachable')`); open it again on the next
-   *  `online`. Rejects with the host's reason when it says no (a `PublicLinkError` for the app's own words). */
+   *  `online`. Host permission refusals reject; errors from the app handler end an opened stream via `onEnd`. */
   async stream(op: string, args?: unknown): Promise<LinkStream> {
     if (this.status === 'removed') throw new LinkError('removed', true);
     if (this.stopped) throw new LinkError('stopped');

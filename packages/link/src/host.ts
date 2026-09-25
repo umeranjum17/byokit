@@ -29,8 +29,9 @@ export type HostOptions = {
   /** Asks the person at the host whether this device may join; nothing is stored until it says yes. */
   confirm: (p: PairRequest) => boolean | Promise<boolean>;
   /** Takes a stream a device opened with `link.stream(op, args)` (a terminal pane, a tunnelled connection, a call):
-   *  set `onData` and `onEnd`, `write`, `end`. Throw to refuse it: a `PublicLinkError`'s message reaches the device,
-   *  anything else goes to `onError` and the device hears `failed`. `device` is the authenticated grant, so the app
+   *  set `onData` and `onEnd`, `write`, `end`. The stream opens before this handler runs; a thrown
+   *  `PublicLinkError` ends it with a message for the device, while other errors go to `onError` and end it with
+   *  `failed`. `device` is the authenticated grant, so the app
    *  can decide, say, that a pane has one controller at a time. Without this, devices are told this host has no
    *  streams. */
   stream?: (s: LinkStream, req: LinkRequest, device: Grant) => void | Promise<void>;
@@ -376,9 +377,8 @@ export class Host {
     try { viewable = g?.role === 'control' || (this.opts.canView?.(req) ?? false); } catch (e) { this.report(e); }
     const why = !this.opts.stream ? 'not-supported' : !g ? 'removed' : streams.size > MAX_STREAMS ? 'busy' : !viewable ? 'view-only' : undefined;
     if (why) return s.end(why);
-    void Promise.resolve().then(() => this.opts.stream!(s, req, g!)).then(
-      () => { if (streams.has(id)) s.accept(Math.min(credit, 2 ** 31)); }, // unless the app already ended it
-      (e) => s.end(this.reason(e)));
+    s.accept(Math.min(credit, 2 ** 31));
+    void Promise.resolve().then(() => this.opts.stream!(s, req, g!)).catch((e) => s.end(this.reason(e)));
   }
 
   private acknowledge(device: string, session: unknown, ack: unknown) {

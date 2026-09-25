@@ -59,8 +59,8 @@ For what doesn't fit a request: a terminal pane, a tunnelled TCP connection, a c
 carries bytes; each direction has a 256 KB window, so a slow reader holds the writer back instead of filling memory.
 
 ```ts
-// Host: take streams devices open. `device` is the authenticated grant (one controller per pane…). Throw to refuse:
-// a `PublicLinkError`'s message reaches the device; any other error goes to `onError` and the device hears `failed`.
+// Host: take streams devices open. `device` is the authenticated grant (one controller per pane…). The stream
+// opens first; a thrown `PublicLinkError` ends it with its message, while other errors go to `onError` and end it with `failed`.
 const host = await Host.open({ …, stream: (s, req, device) => {
   const pty = panes.attach(req.args.pane, device.id);        // your code
   s.onData = (keys) => pty.write(keys);                       // return a promise to hold the device back
