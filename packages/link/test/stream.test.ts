@@ -244,6 +244,28 @@ test('T4: streams end with their connection and on revoke; requests carry on; ol
   assert.equal(await o.link.request('ping'), 'ping');
 });
 
+test('T4: failed opens settle and throwing end callbacks are reported without escaping', async () => {
+  const failed = new Streams({ send: () => { throw new Error('message too large'); }, data: () => {} });
+  await assert.rejects(failed.open('terminal', { pane: 'p1' }), /message too large/);
+  assert.equal(failed.size, 0);
+  failed.closeAll('unreachable');
+
+  const errors: unknown[] = [];
+  const streams = new Streams({ send: () => {}, data: () => {}, report: (e) => { errors.push(e); } });
+  const clean = streams.add(1, 'terminal', {});
+  clean.onEnd = () => { throw new Error('clean cleanup'); };
+  clean.end();
+  await until(() => errors.length === 1);
+  const disconnected = streams.add(2, 'terminal', {});
+  disconnected.onEnd = () => { throw new Error('disconnect cleanup'); };
+  streams.closeAll('unreachable');
+  const late = streams.add(3, 'terminal', {});
+  late.ended('removed');
+  late.onEnd = () => { throw new Error('late cleanup'); };
+  await until(() => errors.length === 3);
+  assert.deepEqual(errors.map(String), ['Error: clean cleanup', 'Error: disconnect cleanup', 'Error: late cleanup']);
+});
+
 test('T4: a peer that sends past its window, or data that is not bytes, is cut off', () => {
   const sent: object[] = [];
   const streams = new Streams({ send: (m) => sent.push(m), data: () => {} });

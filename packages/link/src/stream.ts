@@ -15,7 +15,7 @@ export const MAX_STREAMS = 64; // open at once on one connection
 const text = new TextEncoder();
 
 /** How a stream reaches the socket. `reason` turns an error thrown in `onData` into what the other side is told. */
-export type StreamWire = { send(m: object): void; data(s: number, bytes: Uint8Array): void; reason?: (e: unknown) => string };
+export type StreamWire = { send(m: object): void; data(s: number, bytes: Uint8Array): void; reason?: (e: unknown) => string; report?: (e: unknown) => void };
 
 export class LinkStream {
   readonly id: number;
@@ -97,7 +97,11 @@ export class LinkStream {
     if (!this.ender || !next || next instanceof Uint8Array || next.end === undefined) return;
     this.inbox = [];
     const ender = this.ender;
-    void Promise.resolve().then(() => ender(next.end));
+    void Promise.resolve().then(() => this.deliverEnd(ender, next.end));
+  }
+
+  private deliverEnd(ender: (error?: string) => void, error?: string) {
+    try { ender(error); } catch (e) { try { this.wire.report?.(e); } catch {} }
   }
 
   private async pump() {
@@ -108,7 +112,7 @@ export class LinkStream {
       if (!(next instanceof Uint8Array)) {
         if (!this.ender) break;
         this.inbox.shift();
-        this.ender(next.end);
+        this.deliverEnd(this.ender, next.end);
         continue;
       }
       if (!this.reader) {
@@ -186,7 +190,8 @@ export class Streams {
   open(op: string, args: unknown): Promise<LinkStream> {
     const s = this.add(this.next++, op, args);
     const opened = s.waitOpened();
-    this.wire.send({ t: 'open', s: s.id, op, args, credit: WINDOW });
+    try { this.wire.send({ t: 'open', s: s.id, op, args, credit: WINDOW }); }
+    catch (e) { s.ended(String(e)); }
     return opened;
   }
 

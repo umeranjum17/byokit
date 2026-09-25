@@ -292,7 +292,7 @@ export class Host {
         const data = conn.binary
           ? (s: number, d: Uint8Array) => { try { for (const f of c.sealData(s, d)) conn.binary!(f); } catch { conn.close(4400, 'send failed'); } }
           : (s: number, d: Uint8Array) => this.out(conn, () => c.sealData(s, d).map(b64));
-        const streams = new Streams({ send: (m) => this.sealed(conn, c, m), data, reason: (e) => this.reason(e) });
+        const streams = new Streams({ send: (m) => this.sealed(conn, c, m), data, reason: (e) => this.reason(e), report: (e) => this.report(e) });
         this.live.set(conn, { dev, ch: c, streams });
         this.sealed(conn, c, { t: 'ready', device: { id: g.id, name: g.name, role: g.role }, host: { name: this.opts.name },
           ...(this.opts.stream ? { streams: 1, ...(conn.binary ? { binary: 1 } : {}) } : {}) });

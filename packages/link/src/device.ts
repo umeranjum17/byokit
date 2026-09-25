@@ -210,7 +210,7 @@ export class DeviceLink {
           if (this.stopped) return l.close();
           this.fresh = false;
           this.conn = l;
-          this.streams = l.ready.streams === 1 ? new Streams({ send: l.send, data: l.data, reason: (e) => { this.report(e); return 'failed'; } }) : null;
+          this.streams = l.ready.streams === 1 ? new Streams({ send: l.send, data: l.data, reason: (e) => { this.report(e); return 'failed'; }, report: (e) => this.report(e) }) : null;
           this.tries = 0;
           this.grant = { ...this.grant, urls: [url, ...this.grant.urls.filter((u) => u !== url)], device: l.ready.device }; // the one that worked goes first
           const current = this.grant;
