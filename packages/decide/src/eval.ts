@@ -1,11 +1,11 @@
 // An eval file is JSONL: a header line `{ decision, question, note? }`, then one labelled case per line,
 // `{ state, expect, jev?, ms? }`. `expect` is the right answer, a list of right answers, or null when only an abstain is
-// right. `jev` is Jev's answer to replay offline (CI never calls a model); a live run with --record refreshes it.
+// right. `jev` is a stored Jev-shaped answer replayed offline (CI never calls a model); --live --record refreshes it.
 import { resolve, type Answer, type Question } from './index.ts';
 import { raw } from './jev.ts';
 
 export type Case = { state: unknown; expect: string | boolean | number | null | Array<string | boolean | number>; jev?: unknown; ms?: number };
-/** `note` says where the recorded answers came from. */
+/** `note` says where the stored answers came from. */
 export type EvalFile = { decision: string; question: Question; note?: string; cases: Case[] };
 export type Report = {
   cases: number; agree: number; abstained: number;
@@ -43,7 +43,7 @@ export async function evaluate(cases: Case[], ask: (c: Case) => Promise<Answer>)
   return r;
 }
 
-/** Jev's recorded answer through the same floors a live answer takes. */
+/** A stored Jev-shaped answer through the same floors a live answer takes. */
 export function replay(q: Question): (c: Case) => Promise<Answer> {
   return async (c) => ({ ...resolve(q, raw(q, c.jev)), by: 'jev (recorded)', ms: c.ms ?? 0 });
 }

@@ -9,5 +9,7 @@ Bring your own AI plan and devices. Apache-2.0.
 | `@byokit/link` | Scan a code to pair a phone or browser with the home computer over one encrypted link | placeholder |
 | [`@byokit/decide`](packages/decide) | Typed questions in, a typed answer with confidence out, abstaining below a floor; rules and Jev backends, evals | v0.1 |
 
-byokit never touches a person's other AI tools: not their `~/.pi`, `~/.codex` or `~/.claude`, not their environment's
-keys, not their CLIs. The tests prove it; see [CONTRIBUTING.md](CONTRIBUTING.md).
+byokit never touches a person's other AI tools: not their `~/.pi`, `~/.codex` or `~/.claude`, not their CLIs.
+Library code never reads environment keys; the explicitly invoked [decide eval CLI](packages/decide#evals) can use one
+for a live run.
+The tests prove isolation; see [CONTRIBUTING.md](CONTRIBUTING.md).

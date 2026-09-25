@@ -36,7 +36,8 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
 
 Each decision gets a labelled file, `evals/<decision>.jsonl`: a header `{ decision, question, note }`, then one case per
 line, `{ state, expect, jev, ms }`. `expect` is the right answer, a list of right answers, or `null` when only an abstain
-is right; `jev` is Jev's answer, replayed offline so CI never calls a model.
+is right; `jev` is a Jev-shaped answer, replayed offline so CI never calls a model. The included example is hand-made,
+not a live recording.
 
 ```sh
 npx byokit-eval evals/intent.jsonl                    # replay: agreement, clear-but-wrong, abstains, latency
@@ -46,4 +47,5 @@ TYPESAFE_API_KEY=… npx byokit-eval evals/intent.jsonl --live typesafe --record
 
 Clear-but-wrong (answered, and wrong) is the number that must stay near 0; the command exits 1 when its rate is above
 `--max-clear-wrong` (default 0). Set floors from the eval, not by guessing. `evaluate()` in `@byokit/decide/eval` runs the
-same report over any backends, including your rules. `evals/example-urgent.jsonl` shows the format.
+same report over any backends, including your rules. `--record` keeps previous answers when a live refresh fails and
+marks a partially refreshed file as such. `evals/example-urgent.jsonl` shows the format.

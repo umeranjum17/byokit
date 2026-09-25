@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // byokit-eval <file.jsonl>... [--floor N] [--max-clear-wrong RATE] [--live typesafe|openrouter [--record]]
-// Offline by default: replays each case's recorded Jev answer. --live asks Jev with the key the person running it put in
-// TYPESAFE_API_KEY (or OPENROUTER_API_KEY with --live openrouter), and --record writes the answers back into the file.
+// Offline by default: replays stored Jev-shaped answers. --live asks Jev with the caller's TYPESAFE_API_KEY
+// (or OPENROUTER_API_KEY with --live openrouter); --record writes successful refreshes back into the file.
 // Exits 1 when a file's clear-but-wrong rate is above --max-clear-wrong (default 0).
 import { readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
