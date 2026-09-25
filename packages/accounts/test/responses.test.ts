@@ -118,6 +118,13 @@ test('respond treats a refused refresh as signed out and needs another sign-in',
   assert.equal(await a.plan(1), null);
 });
 
+test('respond reports a passing 401 as the overload it acts on', async () => {
+  const a = await signedIn();
+  openai.state.fail = { status: 401, body: JSON.stringify({ error: { message: 'Provided authentication token is expired.' } }) };
+  await assert.rejects(a.respond(1, { instructions: '', input: 'hi' }), (e: any) => e instanceof ResponseError && e.kind === 'overloaded' && e.until > Date.now());
+  assert.equal((await a.status(1, 'chatgpt')).state, 'resting');
+});
+
 test('respond failures: a usage limit rests the account; signed out says so in plain words', async () => {
   const a = await signedIn();
   openai.state.fail = { status: 429, body: JSON.stringify({ error: { code: 'usage_limit_reached', plan_type: 'PLUS', resets_at: Math.floor(Date.now() / 1000) + 3600 } }) };

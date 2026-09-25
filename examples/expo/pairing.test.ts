@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer } from 'ws';
 import { Host, keyPair, type DeviceGrant } from '@byokit/link';
-import { forgettableStore, pairInput } from './pairing.ts';
+import { forgettableStore, pairInput, pairingGeneration } from './pairing.ts';
 
 test('typed code and offer both pair with the computer', async () => {
   const host = await Host.open({ keys: keyPair(), name: 'Kitchen computer', confirm: () => true, handle: () => ({}) });
@@ -19,6 +19,28 @@ test('typed code and offer both pair with the computer', async () => {
     assert.equal((await pairInput(`  ${code.toLowerCase()}  `, url, options)).hostName, 'Kitchen computer');
     assert.equal((await pairInput(`  ${host.offer({ role: 'control', urls: [url] }).text}  `, '', options)).hostName, 'Kitchen computer');
   } finally { host.close(); wss.close(); server.close(); }
+});
+
+test('late load and pairing completions cannot restore a forgotten generation', async () => {
+  const generation = pairingGeneration();
+  const applied: string[] = [];
+  let finishLoad!: (name: string) => void;
+  let finishPair!: (name: string) => void;
+  const load = new Promise<string>((resolve) => { finishLoad = resolve; });
+  const pair = new Promise<string>((resolve) => { finishPair = resolve; });
+  const accept = async (pending: Promise<string>, current: number) => {
+    const name = await pending;
+    if (generation.isCurrent(current)) applied.push(name);
+  };
+  const loading = accept(load, generation.next());
+  const pairing = accept(pair, generation.next());
+  generation.next();
+  finishLoad('old stored computer'); finishPair('old pending pair');
+  await Promise.all([loading, pairing]);
+  assert.deepEqual(applied, []);
+  const next = generation.next();
+  await accept(Promise.resolve('new pair'), next);
+  assert.deepEqual(applied, ['new pair']);
 });
 
 test('forget waits for an in-flight save and suppresses queued reconnect saves', async () => {

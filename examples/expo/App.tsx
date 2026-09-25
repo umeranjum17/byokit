@@ -10,7 +10,7 @@ import { fetch as streamingFetch } from 'expo/fetch';
 import { Accounts, say, secureStore, type Status } from '@byokit/accounts';
 import { answerer, decide } from '@byokit/decide';
 import { DeviceLink, secureDeviceStore, type LinkStatus } from '@byokit/link';
-import { forgettableStore, pairInput } from './pairing.ts';
+import { forgettableStore, pairInput, pairingGeneration } from './pairing.ts';
 import { linkWords, pairingView, useSignIn, type PairPhase } from '@byokit/ui-core';
 
 const ME = 1;
@@ -95,17 +95,29 @@ function Pair() {
   const link = useRef<DeviceLink | null>(null);
   const kept = useRef(forgettableStore(deviceStore));
   const forgetting = useRef(false);
-  const use = (grant: Awaited<ReturnType<typeof pairInput>>) => {
+  const generation = useRef(pairingGeneration());
+  const use = (grant: Awaited<ReturnType<typeof pairInput>>, current: number) => {
+    if (!generation.current.isCurrent(current)) return;
     setHostName(grant.hostName); setPhase('paired');
-    link.current = new DeviceLink(grant, { store: kept.current, onStatus: setStatus });
+    link.current = new DeviceLink(grant, { store: kept.current, onStatus: (s) => { if (generation.current.isCurrent(current)) setStatus(s); } });
   };
-  useEffect(() => { kept.current.load().then((g) => g && use(g)); return () => link.current?.stop(); }, []);
+  useEffect(() => {
+    const current = generation.current.next();
+    kept.current.load().then((g) => { if (g) use(g, current); });
+    return () => { generation.current.next(); link.current?.stop(); };
+  }, []);
   const pair = async () => {
+    if (forgetting.current) return;
+    const current = generation.current.next();
     setError(undefined);
     try {
-      use(await pairInput(offer, hostUrl, { name: `${Platform.OS} phone`, onWords: (w) => { setWords(w); setPhase('compare'); } }));
+      const grant = await pairInput(offer, hostUrl, { name: `${Platform.OS} phone`, onWords: (w) => {
+        if (generation.current.isCurrent(current)) { setWords(w); setPhase('compare'); }
+      } });
+      if (!generation.current.isCurrent(current)) return;
+      use(grant, current);
       await kept.current.save(link.current!.grant);
-    } catch (e: any) { setError(e.message); setPhase('failed'); }
+    } catch (e: any) { if (generation.current.isCurrent(current)) { setError(e.message); setPhase('failed'); } }
   };
   const view = pairingView({ phase, hostName, words, error });
   return (
@@ -121,6 +133,7 @@ function Pair() {
         <Button id="unpair" label="Forget this computer" onPress={async () => {
           if (forgetting.current) return;
           forgetting.current = true;
+          generation.current.next();
           link.current?.stop();
           try {
             await kept.current.forget();

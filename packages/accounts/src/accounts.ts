@@ -268,7 +268,10 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     try {
       return await respond({ ...ask, access, accountId: String(c.accountId ?? ''), model: ask.model ?? p.models.strong, base: this.opts.apiBase, fetch: this.opts.fetch });
     } catch (e: any) {
-      if (e instanceof ResponseError && e.kind && e.kind !== 'network') await this.failed(member, key, e);
+      if (e instanceof ResponseError && e.kind && e.kind !== 'network') {
+        const acted = await this.failed(member, key, e);
+        if (acted && acted.kind !== e.kind) throw new ResponseError(e.message, acted.kind, acted.until);
+      }
       throw e;
     }
   }

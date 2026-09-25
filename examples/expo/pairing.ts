@@ -5,6 +5,11 @@ export function pairInput(input: string, hostUrl: string, options: Parameters<ty
   return code ? pairWithCode(hostUrl.trim(), code, options) : pairWithOffer(input.trim(), options);
 }
 
+export function pairingGeneration() {
+  let current = 0;
+  return { next: () => ++current, isCurrent: (generation: number) => generation === current };
+}
+
 export function forgettableStore(store: KeptDevice) {
   let forgotten = false;
   let pending = Promise.resolve();
