@@ -355,12 +355,15 @@ export class Host {
         if (!paired) {
           const key = b64url(hs!.remoteKey);
           // A device that rekeyed proves its new key by using it; from then on only that key works.
-          const updated = await this.transition((grants) => grants.some((x) => x.id === g.id)
-            ? grants.map((x) => {
+          const updated = await this.transition((grants) => {
+            const current = grants.find((x) => x.id === g.id);
+            if (!current || (current.key !== key && current.nextKey !== key)) return null;
+            return grants.map((x) => {
               if (x.id !== g.id) return x;
               const { nextKey, ...rest } = x;
               return nextKey === key ? { ...rest, key, lastSeen: this.now() } : { ...x, lastSeen: this.now() };
-            }) : null);
+            });
+          });
           if (!updated) return refuse('not-paired');
           g = updated.find((x) => x.id === g.id)!;
         }
@@ -428,7 +431,7 @@ export class Host {
     };
 
     const inner = (d: Grant, m: any) => {
-      if (m.t === 'req') return void this.request(conn, d, m);
+      if (m.t === 'req') return void this.request(conn, d, m, b64url(hs!.remoteKey));
       if (m.t === 'ping') return this.sealed(conn, ch!, { t: 'pong', n: m.n });
       if (m.t === 'unpair') { // the device forgets this computer, and asks it to forget the device too
         this.live.delete(conn); // so the removal below leaves this socket open for the answer
@@ -507,11 +510,11 @@ export class Host {
     this.drop(device, gone);
   }
 
-  private async request(conn: Conn, dev: Grant, m: any) {
+  private async request(conn: Conn, dev: Grant, m: any, authenticatedKey: string) {
     const id = m.id;
     const answer = (r: object) => { const s = this.live.get(conn); if (s) this.sealed(conn, s.ch, { t: 'res', id, ...r }); };
     const g = this.grants.find((x) => x.id === dev.id);
-    if (!g) return answer({ ok: false, error: 'removed' });
+    if (!g || (g.key !== authenticatedKey && g.nextKey !== authenticatedKey)) return answer({ ok: false, error: 'removed' });
     if (this.ended(g)) { answer({ ok: false, error: 'ended' }); return void this.revoke(g.id, 'ended').catch((e) => this.report(e)); }
     this.acknowledge(g.id, m.session, m.ack);
     const seen = this.answered.get(g.id) ?? new Map<string, Answer>();
@@ -539,7 +542,7 @@ export class Host {
     }
     const reply = await entry.reply;
     const current = this.grants.find((x) => x.id === g.id);
-    if (!current || current.key !== g.key || current.role !== g.role) return answer({ ok: false, error: 'removed' });
+    if (!current || current.key !== g.key || current.role !== g.role || (current.key !== authenticatedKey && current.nextKey !== authenticatedKey)) return answer({ ok: false, error: 'removed' });
     if (this.ended(current)) {
       answer({ ok: false, error: 'ended' });
       return void this.revoke(current.id, 'ended').catch((e) => this.report(e));

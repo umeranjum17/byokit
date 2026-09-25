@@ -321,6 +321,32 @@ test('X2a: rekey moves a device to a fresh key without a moment where no key wor
   assert.equal(staged.link.grant.nextSecretKey, undefined);
 });
 
+test('X2a: queued old-key auth is refused after the staged key is promoted', async () => {
+  const old = keyPair(), staged = keyPair();
+  const nextKey = b64url(staged.publicKey);
+  let grants: Grant[] = [{ id: 'device', key: b64url(old.publicKey), nextKey, name: 'Phone', role: 'control', created: Date.now() }];
+  let entered!: () => void, release!: () => void;
+  const saving = new Promise<void>((r) => { entered = r; });
+  const gate = new Promise<void>((r) => { release = r; });
+  let blocked = true, authenticated = 0;
+  const h = await startHost({
+    grants: { load: () => grants, save: async (g) => { if (blocked && g[0]?.key === nextKey) { entered(); await gate; } grants = g; } },
+    answers: { get: () => undefined, put: () => {}, drop: () => { authenticated++; } },
+  });
+  const device = (secretKey: Uint8Array) => ({ v: 1 as const, secretKey: b64url(secretKey), host: b64url(h.host.keys.publicKey),
+    hostName: '', urls: [h.url], device: { id: 'device', name: 'Phone', role: 'control' as const } });
+  const fresh = connect(device(staged.secretKey));
+  await saving;
+  const retired = connect(device(old.secretKey));
+  await until(() => authenticated === 2);
+  blocked = false;
+  release();
+  await until(() => fresh.link.status === 'online');
+  await until(() => retired.link.status === 'removed');
+  assert.equal(h.host.devices()[0].key, nextKey);
+  assert.deepEqual(h.ran, []);
+});
+
 test('X2a: enrolment with a staged key replaces the old grant', async () => {
   const old = keyPair(), staged = keyPair();
   let grants: Grant[] = [{ id: 'old', key: b64url(old.publicKey), nextKey: b64url(staged.publicKey), name: 'Phone', role: 'control', created: Date.now() }];
