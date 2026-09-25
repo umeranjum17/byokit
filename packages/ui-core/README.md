@@ -17,4 +17,3 @@ Pairing with `@byokit/link`, from `@byokit/ui-core/link` (no React either):
   will be able to see and change things on it, until you remove it there.").
 - `pairingView({ phase, hostName, words, error })`: scan, compare the two words, waiting for a yes, paired, failed.
 - `linkWords(status, hostName)`: the link's status in one sentence.
-
