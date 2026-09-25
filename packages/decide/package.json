@@ -1,12 +1,17 @@
 {
   "name": "@byokit/decide",
-  "version": "0.0.0",
-  "description": "Typed questions in, a typed answer with confidence out, abstaining below a floor. Placeholder: arrives in plan step 3.",
+  "version": "0.1.0",
+  "description": "Typed questions in, a typed answer with confidence out, abstaining below a floor. Rules and Jev backends, and an eval runner.",
   "license": "Apache-2.0",
   "type": "module",
   "repository": { "type": "git", "url": "git+https://github.com/umeranjum17/byokit.git", "directory": "packages/decide" },
   "engines": { "node": ">=22.18" },
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "files": ["dist"],
-  "scripts": { "prepack": "tsc -b" }
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./eval": { "types": "./dist/eval.d.ts", "default": "./dist/eval.js" }
+  },
+  "bin": { "byokit-eval": "dist/cli.js" },
+  "files": ["dist", "evals"],
+  "scripts": { "prepack": "tsc -b" },
+  "publishConfig": { "access": "public" }
 }
