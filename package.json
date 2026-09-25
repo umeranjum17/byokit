@@ -4,8 +4,12 @@
   "description": "Bring your own AI plan and devices: accounts, link, decide.",
   "license": "Apache-2.0",
   "type": "module",
-  "workspaces": ["packages/*"],
-  "engines": { "node": ">=22.18" },
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "build": "tsc -b packages/accounts packages/link packages/decide packages/ui-core",
     "check": "tsc -p tsconfig.json",
@@ -13,6 +17,10 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "typescript": "^5.9.0"
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.2",
+    "tweetnacl": "1.0.3",
+    "typescript": "^5.9.0",
+    "ws": "^8.21.3"
   }
 }
