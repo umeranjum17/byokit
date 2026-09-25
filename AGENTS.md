@@ -8,7 +8,8 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 - `@earendil-works/pi-ai` is pinned exactly in `packages/accounts/package.json`; bump only with the isolation test green. Provider terms are data in `catalogue.json`; Claude plan sign-in is never added.
 - `fixtures/conformance/*.json` holds the cases every implementation must pass (see `fixtures/README.md`); `packages/accounts/src/{catalogue,words}.json` is the one copy of the shared data, which the Kotlin build bundles too. Change a rule in the fixture first.
 - `android/` is its own Gradle project (byokit-android, the Kotlin mirror): `android/test.sh [serial]` runs its tests in a throwaway HOME (JDK 17+ in `JAVA_HOME`, `ANDROID_HOME`); CI's `android` job runs it without a device.
-- Publishing: `.github/workflows/release.yml` (npm trusted publishing with provenance). `@byokit/link` and `@byokit/decide` are placeholders and are not published.
+- `@byokit/decide` never reads an environment variable: the host passes Jev's key to `jev({ key })`; only `byokit-eval --live` reads `TYPESAFE_API_KEY`/`OPENROUTER_API_KEY`. Tests mock `fetch`; eval files replay answers offline.
+- Publishing: `.github/workflows/release.yml` (npm trusted publishing with provenance). `@byokit/decide` is not in its options yet (the token lacks the `workflow` scope), so it is published with `npm publish -w @byokit/decide`. `@byokit/link` is a placeholder and is not published.
 
 ## Maintaining this file
 

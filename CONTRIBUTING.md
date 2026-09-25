@@ -17,9 +17,9 @@ npm test        # every test in a throwaway HOME, then a byte-for-byte check of 
 ## Rules
 
 - **Isolation first.** byokit never reads or writes a person's `~/.pi`, `~/.codex`, `~/.claude` or cloud credential files,
-  never uses their environment's API keys, and never runs their CLIs. Tests use the harness in
-  `packages/accounts/src/testing` (a decoy HOME, an fs tracer, canary tokens) and must never need a real account, the
-  network or a model call. `npm test` fails if your own `~/.pi` changed during the run.
+  never uses their environment's API keys (except the explicitly invoked [live eval CLI](packages/decide#evals)), and
+  never runs their CLIs. Tests use the harness in `packages/accounts/src/testing` (a decoy HOME, an fs tracer, canary
+  tokens) and must never need a real account, the network or a model call. `npm test` fails if your own `~/.pi` changed during the run.
 - **One package per concern**, small and dependency-light: `accounts`, `link`, `decide`, `ui-core`. Prefer deleting to adding.
 - Sources are TypeScript that Node runs directly (type stripping): no enums, namespaces or parameter properties, and
   relative imports carry the `.ts` extension.

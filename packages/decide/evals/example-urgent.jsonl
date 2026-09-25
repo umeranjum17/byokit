@@ -1,0 +1,6 @@
+{"decision":"urgent","question":{"kind":"yesno","question":"Does this message need an answer today?","yes":"Something is time-sensitive today","no":"It can wait"},"note":"example: hand-made answers in Jev's shape, not recorded; refresh with byokit-eval --live typesafe --record"}
+{"state":"The school called, Maya has a fever, can someone pick her up before 2?","expect":true,"jev":{"type":"noul","noul":0.97},"ms":180}
+{"state":"When you get a chance, send me that lasagna recipe.","expect":false,"jev":{"type":"noul","noul":0.04},"ms":165}
+{"state":"Dinner at grandma's is still on for Sunday, right?","expect":false,"jev":{"type":"noul","noul":0.31},"ms":172}
+{"state":"The plumber is here and wants to know if he can turn the water off now.","expect":true,"jev":{"type":"noul","noul":0.93},"ms":190}
+{"state":"Can you look at the car insurance renewal sometime?","expect":[true,false],"jev":{"type":"noul","noul":0.52},"ms":201}
