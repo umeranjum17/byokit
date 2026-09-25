@@ -123,14 +123,13 @@ export class Host {
       await this.save(next);
       this.grants = next;
       this.answered.delete(id);
+      for (const [conn, s] of this.live) {
+        if (s.dev.id !== id) continue;
+        this.sealed(conn, s.ch, { t: 'revoked' });
+        this.live.delete(conn);
+        later(1000, () => conn.close(4401, 'removed'));
+      }
     });
-    for (const [conn, s] of this.live) {
-      if (s.dev.id !== id) continue;
-      // Said inside the encrypted channel: a close reason is plaintext, and a device must not drop its grant on one.
-      this.sealed(conn, s.ch, { t: 'revoked' });
-      this.live.delete(conn);
-      later(1000, () => conn.close(4401, 'removed')); // some platforms surface a close before a frame sent just ahead of it
-    }
   }
 
   /** An event for every connected device (or those `to` picks). */
@@ -190,9 +189,17 @@ export class Host {
       if (this.opts.maxDevices && this.grants.length >= this.opts.maxDevices && !this.grants.some((g) => g.key === key)) return null;
       const now = this.now();
       const g: Grant = { id: b64url(random(9)), key, name, role, created: now, lastSeen: now, ...(meta === undefined ? {} : { meta }) };
+      const old = this.grants.find((x) => x.key === key);
       const next = [...this.grants.filter((x) => x.key !== key), g];
       await this.save(next);
       this.grants = next;
+      if (old) {
+        this.answered.delete(old.id);
+        for (const [conn, s] of this.live) if (s.dev.id === old.id) {
+          this.live.delete(conn);
+          try { conn.close(1001, 'grant changed'); } catch {}
+        }
+      }
       return g;
     });
   }

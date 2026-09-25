@@ -171,15 +171,15 @@ export class DeviceLink {
   private async connect() {
     if (this.stopped || this.connecting || this.conn) return;
     this.connecting = true;
+    let wrongHost = false;
     try {
       const me = keyPairFrom(unb64url(this.grant.secretKey));
-      let wrongHost = false;
       for (const url of this.grant.urls) {
         try {
           let active: Open;
           const l = await dial(url, me, { key: unb64url(this.grant.host) }, { t: 'auth' }, this.o, {
             message: (m) => { if (this.conn === active) this.message(m); },
-            close: () => { if (this.conn !== active) return; this.conn = null; if (!this.stopped) { this.set('offline'); this.again(); } },
+            close: () => { if (this.conn !== active) return; this.conn = null; if (!this.stopped) { this.again(); this.set('offline'); } },
           });
           active = l;
           if (this.stopped) return l.close();
@@ -188,16 +188,25 @@ export class DeviceLink {
           this.grant = { ...this.grant, urls: [url, ...this.grant.urls.filter((u) => u !== url)], device: l.ready.device }; // the one that worked goes first
           void this.o.store?.save(this.grant);
           this.set('online');
-          for (const p of this.pending.values()) l.send(p.msg); // same keys: the host runs each once
+          for (const [id, p] of this.pending) this.sendPending(l, id, p);
           return;
         } catch (e: any) {
           if (e?.sealed && e.code === 'not-paired') return this.removed();
           if (e?.code === 'wrong-host') wrongHost = true;
         }
       }
-      if (wrongHost) { this.stopped = true; this.set('refused'); }
-      else { this.set('offline'); this.again(); }
+      if (wrongHost) this.stopped = true;
     } finally { this.connecting = false; }
+    if (wrongHost) this.set('refused');
+    else { this.again(); this.set('offline'); }
+  }
+
+  private sendPending(l: Open, id: number, p: Pending) {
+    try { l.send(p.msg); } catch {
+      this.pending.delete(id);
+      this.acked = [...p.msg.acked, ...this.acked].slice(-64);
+      p.reject(new Error('Your device could not send that request.'));
+    }
   }
 
   private again() {
@@ -232,8 +241,9 @@ export class DeviceLink {
     return new Promise((resolve, reject) => {
       const id = ++this.n;
       const msg = { t: 'req', id, op, args, key: b64url(random(12)), acked: this.acked.splice(0, 64) };
-      this.pending.set(id, { msg, resolve, reject });
-      this.conn?.send(msg);
+      const p = { msg, resolve, reject };
+      this.pending.set(id, p);
+      if (this.conn) this.sendPending(this.conn, id, p);
     });
   }
 

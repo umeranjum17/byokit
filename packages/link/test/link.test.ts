@@ -163,13 +163,17 @@ test('failed grant saves leave memory unchanged and concurrent confirmations res
     grants: { load: () => saved, save: (g) => { if (fail) throw new Error('disk full'); saved = g; } },
   });
   const first = await pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'One' });
+  const live = connect(first);
+  await until(() => live.link.status === 'online');
   fail = true;
   await assert.rejects(h.host.revoke(first.device.id), /disk full/);
   assert.equal(h.host.devices().length, 1);
+  assert.ok(await live.link.request('get.state'), 'failed revoke leaves the socket authorized');
   await assert.rejects(pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Two' }), (e: LinkError) => e.code === 'failed');
   assert.equal(h.host.devices().length, 1);
   fail = false;
   await h.host.revoke(first.device.id);
+  await until(() => live.link.status === 'removed');
   assert.equal(saved.length, 0);
 
   const confirms: ((yes: boolean) => void)[] = [];
@@ -181,6 +185,22 @@ test('failed grant saves leave memory unchanged and concurrent confirmations res
   const results = await Promise.allSettled([a, b]);
   assert.equal(results.filter((r) => r.status === 'fulfilled').length, 1);
   assert.equal(cap.host.devices().length, 1);
+});
+
+test('replacing a grant retires its old socket and answers under the new role', async () => {
+  const h = await startHost();
+  const first = await pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' });
+  const d = connect(first);
+  await until(() => d.link.status === 'online');
+  const replacement = await h.host.enrol({ key: keyPairFrom(unb64url(first.secretKey)).publicKey, name: 'Phone', role: 'view' });
+  assert.notEqual(replacement.id, first.device.id);
+  await until(() => d.link.status === 'online' && d.link.grant.device.id === replacement.id);
+  await assert.rejects(d.link.request('send.message'), (e: LinkError) => e.code === 'view-only');
+  assert.deepEqual(await d.link.request('get.state'), { op: 'get.state', by: replacement.id });
+  h.host.broadcast('control-only', (g) => g.role === 'control');
+  await sleep(30);
+  assert.deepEqual(d.events, []);
+  assert.deepEqual(h.host.devices().map((g) => [g.id, g.role, g.online]), [[replacement.id, 'view', true]]);
 });
 
 test('revoke closes the live socket, says so inside the channel, and the key is refused from then on', async () => {
@@ -220,6 +240,35 @@ test('wrong host at one address does not prevent a later pinned address', async 
   const d = connect({ ...grant, urls: [impostor.url, h.url] });
   assert.deepEqual(await d.link.request('get.state'), { op: 'get.state', by: grant.device.id });
   assert.equal(d.link.status, 'online');
+});
+
+test('retry from a refused callback starts a new attempt', async () => {
+  const h = await startHost();
+  const impostor = await startHost();
+  const grant = await pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' });
+  let d!: DeviceLink;
+  d = new DeviceLink({ ...grant, urls: [impostor.url] }, {
+    onStatus: (status) => { if (status === 'refused') { d.grant = { ...d.grant, urls: [h.url] }; d.retry(); } },
+  });
+  closers.push(() => d.stop());
+  assert.deepEqual(await d.request('get.state'), { op: 'get.state', by: grant.device.id });
+  assert.equal(d.status, 'online');
+});
+
+test('an unsendable request is removed both online and during replay', async () => {
+  const h = await startHost();
+  const d = connect(await pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' }));
+  await until(() => d.link.status === 'online');
+  const huge = { text: 'x'.repeat(17 << 20) };
+  await assert.rejects(d.link.request('too.big', huge), /could not send/);
+  assert.deepEqual(await d.link.request('get.state'), { op: 'get.state', by: d.link.grant.device.id });
+  h.sockets.at(-1)!.terminate();
+  await until(() => d.link.status === 'offline');
+  const queued = d.link.request('too.big', huge);
+  await assert.rejects(queued, /could not send/);
+  await until(() => d.link.status === 'online');
+  assert.deepEqual(await d.link.request('get.state'), { op: 'get.state', by: d.link.grant.device.id });
+  assert.ok(!h.ran.includes('Phone:too.big'));
 });
 
 test('through a relay that routes on a header and never sees plaintext', async () => {
