@@ -2,16 +2,17 @@
 // the host's credentials. It pairs once (scan or typed code), then keeps one socket open, reconnecting on its own, and
 // its requests survive a reconnect: each carries a key, so a retried tap runs once. Uses only the platform's
 // WebSocket, so the same code runs in browsers, React Native and Node.
-import { Handshake, b64url, keyPair, keyPairFrom, random, unb64url, type KeyPair, type Mode } from './channel.ts';
+import { Handshake, b64, b64url, keyPair, keyPairFrom, random, unb64url, type KeyPair, type Mode } from './channel.ts';
 import { cleanName, codeKey, normalizeCode, parseOffer } from './pairing.ts';
 import type { Role } from './host.ts';
+import { Streams, type LinkStream } from './stream.ts';
 
 /** What a device keeps (in secure storage: it holds the device's secret key). */
 export type DeviceGrant = { v: 1; secretKey: string; host: string; hostName: string; urls: string[]; device: { id: string; name: string; role: Role } };
 export type DeviceStore = { save(g: DeviceGrant): void | Promise<void>; clear(): void | Promise<void> };
 export type LinkStatus = 'connecting' | 'online' | 'offline' | 'refused' | 'removed';
 type WebSocketLike = {
-  send(data: string): void; close(code?: number, reason?: string): void;
+  send(data: string | Uint8Array): void; close(code?: number, reason?: string): void; binaryType?: string;
   onopen: any; onmessage: any; onclose: any; onerror: any;
 };
 export type Dial = { WebSocket?: new (url: string) => WebSocketLike; timeoutMs?: number };
@@ -31,6 +32,7 @@ export const LINK_WORDS = {
   failed: "Your computer couldn't do that.",
   busy: 'Your computer is still catching up. Try again in a moment.',
   stopped: 'This link is stopped. Try connecting again.',
+  'not-supported': "The app on your computer can't do this yet. Update it there.",
 } as const;
 export type LinkProblem = keyof typeof LINK_WORDS;
 
@@ -54,7 +56,7 @@ const known = (why: unknown): why is LinkProblem => typeof why === 'string' && O
 const problem = (why: unknown): LinkProblem => (known(why) ? why : 'unreachable');
 const later = (ms: number, fn: () => void) => { const t: any = setTimeout(fn, ms); t.unref?.(); return t; };
 
-type Open = { ready: any; hostKey: Uint8Array; send: (m: unknown) => void; close: () => void };
+type Open = { ready: any; hostKey: Uint8Array; send: (m: unknown) => void; data: (s: number, d: Uint8Array) => void; close: () => void };
 type Hello = { t: 'auth'; session: string; ack: number; fresh: boolean } | { t: 'pair'; ticket: string; name: string } | { t: 'code'; name: string };
 
 /** One socket: the handshake, the first request (`auth` or `pair`), and the host's `ready`. */
@@ -78,8 +80,10 @@ function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Uint8Arr
       try { ws.close(); } catch {}
     };
     let timer = later(o.timeoutMs ?? 8000, () => fail(new LinkError('timeout')));
-    try { ws = new WS(url); } catch { return fail(new LinkError('unreachable')); }
+    try { ws = new WS(url); ws.binaryType = 'arraybuffer'; } catch { return fail(new LinkError('unreachable')); }
+    let binary = false; // the host said this socket reaches it directly, so stream bytes may go as binary messages
     const send = (m: unknown) => { for (const f of ch!.seal(m)) ws.send(f); };
+    const data = (s: number, d: Uint8Array) => { for (const f of ch!.sealData(s, d)) ws.send(binary ? f : b64(f)); };
     ws.onopen = () => ws.send(hs.write(mode === 'ik' ? { v: 1 } : {}));
     ws.onerror = () => fail(new LinkError('unreachable'));
     // Before the handshake finishes nothing is authenticated, so these only choose what to say, never what to forget.
@@ -88,7 +92,7 @@ function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Uint8Arr
       if (settled && !up) return;
       try {
         if (!ch) {
-          try { hs.read(String(ev.data)); } catch { return fail(new LinkError('wrong-host')); } // only the right host can answer
+          try { if (typeof ev.data !== 'string') throw new Error('binary'); hs.read(ev.data); } catch { return fail(new LinkError('wrong-host')); } // only the right host can answer
           if (hello.t === 'code') ws.send(hs.write({ name: hello.name }));
           ch = hs.channel();
           if (hello.t !== 'code') send(hello);
@@ -99,14 +103,15 @@ function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Uint8Arr
           }
           return;
         }
-        const m = ch.open(String(ev.data)); // throws unless it is the host's next authentic frame
+        const m = ch.open(typeof ev.data === 'string' ? ev.data : new Uint8Array(ev.data)); // throws unless it is the host's next authentic frame
         if (m === undefined) return;
         if (!up && m.t === 'refused') return fail(new LinkError(problem(m.why), true));
         if (!up && m.t === 'ready') {
           up = true;
           settled = true;
+          binary = m.binary === 1;
           clearTimeout(timer);
-          return resolve({ ready: m, hostKey: hs.remoteKey, send, close: () => { up = false; ws.close(); } });
+          return resolve({ ready: m, hostKey: hs.remoteKey, send, data, close: () => { up = false; ws.close(); } });
         }
         if (up) on.message(m);
       } catch {
@@ -158,6 +163,7 @@ export class DeviceLink {
   status: LinkStatus = 'connecting';
   private o: Dial & { store?: DeviceStore; onEvent?: (e: unknown) => void; onStatus?: (s: LinkStatus) => void; onError?: (e: unknown) => void };
   private conn: Open | null = null;
+  private streams: Streams | null = null;
   private pending = new Map<number, Pending>();
   private n = 0;
   private tries = 0;
@@ -198,12 +204,13 @@ export class DeviceLink {
           let active: Open;
           const l = await dial(url, me, { key: unb64url(this.grant.host) }, { t: 'auth', session: this.session, ack: this.ack, fresh: this.fresh }, this.o, {
             message: (m) => { if (this.conn === active) this.message(m); },
-            close: () => { if (this.conn !== active) return; this.conn = null; if (!this.stopped && !this.connecting) { this.again(); this.set('offline'); } },
+            close: () => { if (this.conn !== active) return; this.drop('unreachable'); if (!this.stopped && !this.connecting) { this.again(); this.set('offline'); } },
           });
           active = l;
           if (this.stopped) return l.close();
           this.fresh = false;
           this.conn = l;
+          this.streams = l.ready.streams === 1 ? new Streams({ send: l.send, data: l.data, reason: (e) => { this.report(e); return 'failed'; }, report: (e) => this.report(e) }) : null;
           this.tries = 0;
           this.grant = { ...this.grant, urls: [url, ...this.grant.urls.filter((u) => u !== url)], device: l.ready.device }; // the one that worked goes first
           const current = this.grant;
@@ -236,8 +243,16 @@ export class DeviceLink {
     this.wake = later(ms, () => void this.connect());
   }
 
+  /** The socket is gone: so are its streams. */
+  private drop(why: string) {
+    this.conn = null;
+    this.streams?.closeAll(why);
+    this.streams = null;
+  }
+
   private message(m: any) {
     if (m.t === 'revoked') return this.removed(); // sealed by the host, so it is really the host saying it
+    if (this.streams?.message(m)) return;
     if (m.t === 'event') return this.o.onEvent?.(m.e);
     const p = m.t === 'res' ? this.pending.get(m.id) : undefined;
     if (!p) return;
@@ -250,6 +265,7 @@ export class DeviceLink {
   private removed() {
     this.stopped = true;
     this.conn?.close();
+    this.drop('removed');
     for (const p of this.pending.values()) p.reject(new LinkError('removed', true));
     this.pending.clear();
     this.persist(() => this.o.store?.clear());
@@ -269,6 +285,23 @@ export class DeviceLink {
     });
   }
 
+  /** Opens a duplex stream that the host's `stream` handler takes: a terminal pane, a tunnelled connection, a call.
+   *  Only while `online`. A stream ends when its connection drops (`onEnd('unreachable')`); open it again on the next
+   *  `online`. Host permission refusals reject; errors from the app handler end an opened stream via `onEnd`. */
+  async stream(op: string, args?: unknown): Promise<LinkStream> {
+    if (this.status === 'removed') throw new LinkError('removed', true);
+    if (this.stopped) throw new LinkError('stopped');
+    if (!this.conn) throw new LinkError('unreachable');
+    if (!this.streams) throw new LinkError('not-supported', true);
+    try {
+      return await this.streams.open(op, args);
+    } catch (e) {
+      if (e instanceof Error) throw e;
+      if (!known(e)) throw new PublicLinkError(String(e)); // the host app's own words for why not
+      throw new LinkError(e, e !== 'unreachable' && e !== 'stopped');
+    }
+  }
+
   /** After `refused` or `offline`: try again now. */
   retry() {
     if (this.status === 'removed' || this.conn) return;
@@ -286,7 +319,7 @@ export class DeviceLink {
     this.received.clear();
     clearTimeout(this.wake);
     const conn = this.conn;
-    this.conn = null;
+    this.drop('stopped');
     conn?.close();
     for (const p of this.pending.values()) p.reject(new LinkError('stopped'));
     this.pending.clear();

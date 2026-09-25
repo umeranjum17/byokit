@@ -1,5 +1,6 @@
-// The link's crypto. None of it is ours: the handshakes are Noise from noise-handshake, and the primitives are libsodium
-// (sodium-native in Node, sodium-javascript in browsers and React Native). See SECURITY.md.
+// The link's crypto. None of it is ours: the handshakes are Noise from noise-handshake over libsodium (sodium-native in
+// Node, sodium-javascript in browsers and React Native), and after the handshake each frame is sealed with
+// ChaCha20-Poly1305 from @noble/ciphers, which is twice as fast as sodium-javascript on a phone. See SECURITY.md.
 //
 // - Scanned code, and every later connection: Noise_IK_25519_ChaChaPoly_BLAKE2b. The device knows the host's static
 //   key (from the QR, then its grant) and sends its own static key encrypted in the first message.
@@ -10,7 +11,7 @@
 // reordered or reflected frame.
 import b4a from 'b4a';
 import Noise from 'noise-handshake';
-import Cipher from 'noise-handshake/cipher.js';
+import { chacha20poly1305 } from '@noble/ciphers/chacha.js';
 import dh from 'noise-handshake/dh.js';
 import sodium from 'sodium-universal';
 import { CONFIRM_WORDS } from './confirm-words.ts';
@@ -105,42 +106,94 @@ function confirmWords(handshakeHash: Uint8Array): string {
   return `${CONFIRM_WORDS[h[0]]} ${CONFIRM_WORDS[h[1]]}`;
 }
 
-/** One socket's two Noise CipherStates. Frames are base64 text, so every WebSocket and every relay carries them. */
+/** Noise's CipherState for one direction: ChaCha20-Poly1305 with the key the handshake gave it, a nonce of four zero
+ *  bytes and the 64-bit little-endian frame counter, and no associated data. The same bytes as noise-handshake's own
+ *  (test/channel.test.ts checks both ways); a frame that fails to open doesn't move the counter. */
+export class Transport {
+  nonce = 0;
+  private key: Uint8Array;
+
+  constructor(key: Uint8Array) { this.key = new Uint8Array(key); }
+
+  private iv(): Uint8Array {
+    const iv = new Uint8Array(12);
+    const v = new DataView(iv.buffer);
+    v.setUint32(4, this.nonce >>> 0, true);
+    v.setUint32(8, Math.floor(this.nonce / 2 ** 32), true);
+    return iv;
+  }
+
+  encrypt(plain: Uint8Array): Uint8Array {
+    const sealed = chacha20poly1305(this.key, this.iv()).encrypt(plain);
+    this.nonce++;
+    return sealed;
+  }
+
+  /** Throws unless `sealed` is the next authentic frame. */
+  decrypt(sealed: Uint8Array): Uint8Array {
+    if (sealed.byteLength > 65535) throw new Error('frame too large'); // Noise's limit
+    const plain = chacha20poly1305(this.key, this.iv()).decrypt(sealed);
+    this.nonce++;
+    return plain;
+  }
+}
+
+/** One socket's two Noise CipherStates. Frames are base64 text, so every WebSocket and every relay carries them; a
+ *  stream's bytes may also go as the same frame in a binary WebSocket message, where both ends are direct.
+ *  Inside, each frame's first byte says what it carries: 0 or 1 a JSON message (1: more frames follow), 2 or 3 a
+ *  stream's bytes (a 4-byte stream id, then raw bytes), so a stream chunk isn't base64 inside JSON as well. */
 export class Channel {
-  private tx: any;
-  private rx: any;
+  private tx: Transport;
+  private rx: Transport;
   private parts: Uint8Array[] = [];
   private size = 0;
+  private kind = 0; // 0 JSON, 2 stream bytes: what the message being reassembled is
 
   constructor(hs: any) {
-    this.tx = new Cipher(hs.tx);
-    this.rx = new Cipher(hs.rx);
+    this.tx = new Transport(hs.tx);
+    this.rx = new Transport(hs.rx);
   }
 
   /** One or more frames; send them in order. */
   seal(msg: unknown): string[] {
-    const body = messageBytes(msg);
-    const out: string[] = [];
+    return this.frames(messageBytes(msg), 0).map(b64);
+  }
+
+  /** A stream's bytes as raw frames: send each as a binary WebSocket message, or `b64` it where only text goes (a
+   *  relay). `open` gives them back as `{ t: 'data', s, d }`. Only for a peer that speaks streams. */
+  sealData(s: number, data: Uint8Array): Uint8Array[] {
+    const head = b4a.alloc(4);
+    new DataView(head.buffer, head.byteOffset, 4).setUint32(0, s);
+    return this.frames(b4a.concat([head, b4a.from(data)]), 2);
+  }
+
+  private frames(body: Uint8Array, kind: number): Uint8Array[] {
+    const out: Uint8Array[] = [];
     for (let at = 0; at === 0 || at < body.length; at += CHUNK) {
       if (this.tx.nonce >= MAX_FRAMES) throw new Error('this connection has carried all it can; reconnect');
       const more = at + CHUNK < body.length ? 1 : 0;
-      out.push(b64(this.tx.encrypt(b4a.concat([b4a.from([more]), body.subarray(at, at + CHUNK)]))));
+      out.push(this.tx.encrypt(b4a.concat([b4a.from([kind | more]), body.subarray(at, at + CHUNK)])));
     }
     return out;
   }
 
   /** The whole message once its last frame arrives, else undefined. Throws on any frame that is not the next
    *  authentic one from the other end, and on a message that grows past 16 MB. */
-  open(frame: string): any {
+  open(frame: string | Uint8Array): any {
     if (this.rx.nonce >= MAX_FRAMES) throw new Error('this connection has carried all it can; reconnect');
-    const plain: Uint8Array = this.rx.decrypt(unb64(frame));
+    const plain: Uint8Array = this.rx.decrypt(typeof frame === 'string' ? unb64(frame) : frame);
+    const flag = plain[0];
+    if (flag > 3 || (this.parts.length && (flag & 2) !== this.kind)) throw new Error('bad frame');
+    this.kind = flag & 2;
     this.size += plain.byteLength - 1;
     if (this.size > MAX_MESSAGE) throw new Error('message too large');
     this.parts.push(plain.subarray(1));
-    if (plain[0] === 1) return undefined;
-    const whole = b4a.concat(this.parts);
+    if (flag & 1) return undefined;
+    const whole: Uint8Array = b4a.concat(this.parts);
     this.parts = [];
     this.size = 0;
-    return decode(whole);
+    if (!this.kind) return decode(whole);
+    if (whole.byteLength < 4) throw new Error('bad frame');
+    return { t: 'data', s: new DataView(whole.buffer, whole.byteOffset, 4).getUint32(0), d: whole.subarray(4) };
   }
 }
