@@ -110,6 +110,10 @@ export class Host {
   private now() { return this.opts.now?.() ?? Date.now(); }
   private get pairMs() { return Math.min(this.opts.pairMs ?? 300_000, 300_000); }
   private ended(g: Grant) { return g.expires !== undefined && g.expires <= this.now(); }
+  private currentGrant(grants: Grant[], id: string, key: string): Grant | undefined {
+    const g = grants.find((x) => x.id === id);
+    return g && !this.ended(g) && (g.key === key || g.nextKey === key) ? g : undefined;
+  }
   private async change<T>(fn: () => Promise<T>): Promise<T> {
     const next = this.changes.then(fn);
     this.changes = next.then(() => {}, () => {});
@@ -348,7 +352,7 @@ export class Host {
       } catch (e) { if (!gone) refuse(e instanceof PairExpired ? 'expired' : 'failed'); }
     };
 
-    const attach = async (g: Grant, paired = false) => {
+    const attach = async (g: Grant, paired = false, auth?: any) => {
       if (gone) return;
       busy = true;
       try {
@@ -356,8 +360,8 @@ export class Host {
           const key = b64url(hs!.remoteKey);
           // A device that rekeyed proves its new key by using it; from then on only that key works.
           const updated = await this.transition((grants) => {
-            const current = grants.find((x) => x.id === g.id);
-            if (!current || (current.key !== key && current.nextKey !== key)) return null;
+            const current = this.currentGrant(grants, g.id, key);
+            if (!current) return null;
             return grants.map((x) => {
               if (x.id !== g.id) return x;
               const { nextKey, ...rest } = x;
@@ -374,6 +378,9 @@ export class Host {
           void this.revoke(current.id, 'ended').catch((e) => this.report(e));
           return refuse('ended');
         }
+        if (!paired && !this.currentGrant(this.grants, g.id, b64url(hs!.remoteKey))) return refuse('not-paired');
+        if (auth?.fresh === true) this.drop(current.id);
+        else if (auth) this.acknowledge(current.id, auth.session, auth.ack);
         dev = g = current;
         busy = false;
         clearTimeout(timer);
@@ -435,8 +442,8 @@ export class Host {
       if (m.t === 'ping') return this.sealed(conn, ch!, { t: 'pong', n: m.n });
       if (m.t === 'unpair') { // the device forgets this computer, and asks it to forget the device too
         this.live.delete(conn); // so the removal below leaves this socket open for the answer
-        return void this.transition((grants) => grants.some((g) => g.id === d.id) ? grants.filter((g) => g.id !== d.id) : null)
-          .then(() => { this.sealed(conn, ch!, { t: 'unpaired' }); later(1000, () => end(1000, 'unpaired')); })
+        return void this.transition((grants) => this.currentGrant(grants, d.id, b64url(hs!.remoteKey)) ? grants.filter((g) => g.id !== d.id) : null)
+          .then((ok) => { if (!ok) return refuse('not-paired'); this.sealed(conn, ch!, { t: 'unpaired' }); later(1000, () => end(1000, 'unpaired')); })
           .catch((e) => {
             this.report(e);
             const current = this.grants.find((g) => g.id === d.id);
@@ -447,8 +454,8 @@ export class Host {
       if (m.t === 'rekey') { // a fresh device key, valid alongside the old one until the device first uses it
         let key: string;
         try { key = b64url(unb64url(String(m.key))); if (unb64url(key).length !== 32) throw new Error(); } catch { return end(4400, 'bad key'); }
-        return void this.transition((grants) => grants.some((g) => g.id === d.id) ? grants.map((g) => g.id === d.id ? { ...g, nextKey: key } : g) : null)
-          .then((ok) => { if (ok) this.sealed(conn, ch!, { t: 'rekeyed' }); })
+        return void this.transition((grants) => this.currentGrant(grants, d.id, b64url(hs!.remoteKey)) ? grants.map((g) => g.id === d.id ? { ...g, nextKey: key } : g) : null)
+          .then((ok) => { if (ok) this.sealed(conn, ch!, { t: 'rekeyed' }); else refuse('not-paired'); })
           .catch((e) => { this.report(e); end(4400, 'failed'); });
       }
     };
@@ -470,9 +477,8 @@ export class Host {
             const g = this.grants.find((x) => x.key === k || x.nextKey === k);
             if (!g) return refuse('not-paired');
             if (this.ended(g)) { void this.revoke(g.id, 'ended').catch((e) => this.report(e)); return refuse('ended'); }
-            if (m.fresh === true) this.drop(g.id);
-            else this.acknowledge(g.id, m.session, m.ack);
-            return void attach(g);
+            if (!this.currentGrant(this.grants, g.id, k)) return refuse('not-paired');
+            return void attach(g, false, m);
           }
           if (m.t === 'pair' && hs!.mode === 'ik') {
             const p = typeof m.ticket === 'string' ? this.take(this.tickets, m.ticket) : undefined;
@@ -514,7 +520,7 @@ export class Host {
     const id = m.id;
     const answer = (r: object) => { const s = this.live.get(conn); if (s) this.sealed(conn, s.ch, { t: 'res', id, ...r }); };
     const g = this.grants.find((x) => x.id === dev.id);
-    if (!g || (g.key !== authenticatedKey && g.nextKey !== authenticatedKey)) return answer({ ok: false, error: 'removed' });
+    if (!g || (!this.ended(g) && !this.currentGrant(this.grants, dev.id, authenticatedKey))) return answer({ ok: false, error: 'removed' });
     if (this.ended(g)) { answer({ ok: false, error: 'ended' }); return void this.revoke(g.id, 'ended').catch((e) => this.report(e)); }
     this.acknowledge(g.id, m.session, m.ack);
     const seen = this.answered.get(g.id) ?? new Map<string, Answer>();
@@ -542,7 +548,7 @@ export class Host {
     }
     const reply = await entry.reply;
     const current = this.grants.find((x) => x.id === g.id);
-    if (!current || current.key !== g.key || current.role !== g.role || (current.key !== authenticatedKey && current.nextKey !== authenticatedKey)) return answer({ ok: false, error: 'removed' });
+    if (!current || current.key !== g.key || current.role !== g.role || (!this.ended(current) && !this.currentGrant(this.grants, g.id, authenticatedKey))) return answer({ ok: false, error: 'removed' });
     if (this.ended(current)) {
       answer({ ok: false, error: 'ended' });
       return void this.revoke(current.id, 'ended').catch((e) => this.report(e));

@@ -338,13 +338,46 @@ test('X2a: queued old-key auth is refused after the staged key is promoted', asy
   const fresh = connect(device(staged.secretKey));
   await saving;
   const retired = connect(device(old.secretKey));
-  await until(() => authenticated === 2);
+  await until(() => h.sockets.length === 2);
+  await sleep(30);
   blocked = false;
   release();
   await until(() => fresh.link.status === 'online');
   await until(() => retired.link.status === 'removed');
+  assert.equal(authenticated, 1);
   assert.equal(h.host.devices()[0].key, nextKey);
   assert.deepEqual(h.ran, []);
+});
+
+test('X2a: retired sockets cannot rekey or unpair after promotion', async () => {
+  for (const action of ['rekey', 'unpair']) {
+    const oldKey = keyPair(), staged = keyPair();
+    const nextKey = b64url(staged.publicKey);
+    let grants: Grant[] = [{ id: 'device', key: b64url(oldKey.publicKey), nextKey, name: 'Phone', role: 'control', created: Date.now() }];
+    let entered!: () => void, release!: () => void;
+    const saving = new Promise<void>((r) => { entered = r; });
+    const gate = new Promise<void>((r) => { release = r; });
+    let blocked = false;
+    const h = await startHost({ grants: { load: () => grants, save: async (g) => {
+      if (blocked && g[0]?.key === nextKey) { entered(); await gate; }
+      grants = g;
+    } } });
+    const device = (secretKey: Uint8Array) => ({ v: 1 as const, secretKey: b64url(secretKey), host: b64url(h.host.keys.publicKey),
+      hostName: '', urls: [h.url], device: { id: 'device', name: 'Phone', role: 'control' as const } });
+    const old = connect(device(oldKey.secretKey));
+    await until(() => old.link.status === 'online');
+    blocked = true;
+    const fresh = connect(device(staged.secretKey));
+    await saving;
+    (old.link as any).conn.send({ t: action, key: b64url(keyPair().publicKey) });
+    await sleep(30);
+    blocked = false;
+    release();
+    await until(() => fresh.link.status === 'online');
+    await until(() => old.link.status !== 'online', 3000);
+    await sleep(100);
+    assert.deepEqual(h.host.devices().map((g) => [g.key, g.nextKey]), [[nextKey, undefined]]);
+  }
 });
 
 test('X2a: enrolment with a staged key replaces the old grant', async () => {
