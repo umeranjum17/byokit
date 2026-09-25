@@ -61,7 +61,7 @@ test('a host notifies its devices by Web Push and Expo; gone subscriptions are p
   assert.deepEqual(r.saved()!.push.map((s) => ('expo' in s ? s.expo : s.web.endpoint)), ['https://fcm.googleapis.com/a', 'https://fcm.googleapis.com/b', 'ExponentPushToken[new]', 'https://fcm.googleapis.com/c']);
 
   world.gone.add('https://fcm.googleapis.com/b');
-  const out = await p.client.notify({ id: 'evt-1', title: 'Agent update', body: 'Needs you', to: [phone], urgency: 'high', ttl: 600 });
+  const out = await p.client.notify({ id: 'evt-1', title: 'Agent update', body: 'Needs you', to: [phone], urgency: 'high', ttl: 600 }, { includeContent: true });
   assert.deepEqual(out, { sent: 2 });
   const web = world.sent.find((s) => s.url === 'https://fcm.googleapis.com/a')!;
   assert.equal(web.headers.TTL, '600');
@@ -81,6 +81,24 @@ test('a host notifies its devices by Web Push and Expo; gone subscriptions are p
   await p.client.notify({ id: 'evt-2', title: 'Agent update', body: 'Done' });
   assert.ok(!r.saved()!.push.some((s) => 'expo' in s), 'DeviceNotRegistered prunes the token');
   await assert.rejects(p.client.notify({ id: 'bad id!', title: 't', body: 'b' }), /bad notification/);
+});
+
+test('notifications omit body and data by default and forward them only by explicit opt-in', async () => {
+  const world = pushWorld();
+  const r = await startRelay({ push: { fetch: world.fetch } });
+  const p = await paired(r);
+  await p.client.subscribe('phone', { expo: 'ExponentPushToken[phone]' });
+  const input = { id: 'generic', title: 'Agent update', body: 'Private message', data: { secret: 'private data' } };
+  await p.client.notify(input);
+  const frames = () => p.wire.map((s) => { try { return JSON.parse(s); } catch { return {}; } }).filter((m) => m.t === 'push.notify');
+  assert.deepEqual(frames().at(-1)!.n, { id: 'generic', title: 'Agent update' });
+  assert.deepEqual(world.sent.at(-1)!.body[0].data, { id: 'generic', title: 'Agent update' });
+  assert.equal('body' in world.sent.at(-1)!.body[0], false);
+  assert.equal(input.body, 'Private message');
+  await p.client.notify({ ...input, id: 'included' }, { includeContent: true });
+  assert.deepEqual(frames().at(-1)!.n, { ...input, id: 'included' });
+  assert.deepEqual(world.sent.at(-1)!.body[0].data, { ...input, id: 'included' });
+  assert.equal(world.sent.at(-1)!.body[0].body, input.body);
 });
 
 test("revoking a device removes its subscriptions; revoking the host removes all of the host's", async () => {

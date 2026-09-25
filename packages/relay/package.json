@@ -23,7 +23,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "SECURITY.md"
   ],
   "scripts": {
     "prepack": "tsc -b"

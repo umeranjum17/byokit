@@ -11,7 +11,7 @@ export type Vapid = { publicKey: string; privateKey: string };
 /** What a host sends. `to` picks devices (grant ids); default every device with a subscription. `actions` are the
  *  buttons the device may show; pressing one reaches the host's `onAction` through the relay. */
 export type Notification = {
-  id: string; title: string; body: string; data?: Record<string, unknown>;
+  id: string; title: string; body?: string; data?: Record<string, unknown>;
   to?: string[]; actions?: string[]; urgency?: 'very-low' | 'low' | 'normal' | 'high'; ttl?: number;
 };
 /** One stored subscription. */
@@ -58,14 +58,15 @@ export function parseSubscription(s: any, hosts?: readonly string[]): Subscripti
 
 /** A notification as a host sent it, checked; undefined if it is not one. */
 export function parseNotification(n: any): Notification | undefined {
-  if (!(typeof n?.id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(n.id) && text(n.title, 120) && text(n.body, 400))) return undefined;
+  if (!(typeof n?.id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(n.id) && text(n.title, 120))) return undefined;
+  if (n.body !== undefined && !text(n.body, 400)) return undefined;
   if (n.data !== undefined && (typeof n.data !== 'object' || n.data === null || Array.isArray(n.data) || JSON.stringify(n.data).length > 2048)) return undefined;
   if (n.to !== undefined && !(Array.isArray(n.to) && n.to.length <= 256 && n.to.every((d: unknown) => text(d, 128)))) return undefined;
   if (n.actions !== undefined && !(Array.isArray(n.actions) && n.actions.length <= 4 && n.actions.every((a: unknown) => text(a, 32)))) return undefined;
   if (n.urgency !== undefined && !['very-low', 'low', 'normal', 'high'].includes(n.urgency)) return undefined;
   if (n.ttl !== undefined && !(Number.isInteger(n.ttl) && n.ttl >= 0 && n.ttl <= 28 * 86_400)) return undefined;
   const { id, title, body, data, to, actions, urgency, ttl } = n;
-  return { id, title, body, ...(data && { data }), ...(to && { to }), ...(actions && { actions }), ...(urgency && { urgency }), ...(ttl !== undefined && { ttl }) };
+  return { id, title, ...(body !== undefined && { body }), ...(data && { data }), ...(to && { to }), ...(actions && { actions }), ...(urgency && { urgency }), ...(ttl !== undefined && { ttl }) };
 }
 
 export const vapidKeys = (): Vapid => webpush.generateVAPIDKeys();
@@ -78,7 +79,7 @@ export async function deliver(o: {
   const { n } = o;
   const ttl = n.ttl ?? 86_400;
   const payload = (device: string) => ({
-    id: n.id, title: n.title, body: n.body, ...(n.data && { data: n.data }),
+    id: n.id, title: n.title, ...(n.body !== undefined && { body: n.body }), ...(n.data && { data: n.data }),
     ...(o.action.has(device) && { actions: n.actions, action: o.action.get(device) }),
   });
   const gone = o.subs.filter((s) => !parseSubscription(s, o.hosts));
@@ -100,7 +101,7 @@ export async function deliver(o: {
       const res = await o.fetch(EXPO_SEND, {
         method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(5000),
         body: JSON.stringify(expo.map((s) => ({
-          to: s.expo, title: n.title, body: n.body, sound: 'default', collapseId: n.id, ttl,
+          to: s.expo, title: n.title, ...(n.body !== undefined && { body: n.body }), sound: 'default', collapseId: n.id, ttl,
           priority: n.urgency === 'high' ? 'high' : 'normal', data: payload(s.device),
         }))),
       });
