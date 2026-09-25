@@ -9,8 +9,9 @@ import { build } from 'esbuild';
 const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
 const TYPES: Record<string, string> = { html: 'text/html', js: 'text/javascript', webmanifest: 'application/manifest+json', png: 'image/png' };
 
-export async function serve(port = 0) {
-  const bundle = await build({ entryPoints: [here('app.ts')], bundle: true, platform: 'browser', format: 'esm', write: false, logLevel: 'silent' });
+export async function serve(port = 0, authBase?: string) {
+  const bundle = await build({ entryPoints: [here('app.ts')], bundle: true, platform: 'browser', format: 'esm', write: false, logLevel: 'silent',
+    define: { __BYOKIT_AUTH_BASE__: JSON.stringify(authBase) ?? 'undefined' } });
   const app = bundle.outputFiles[0].text;
   const server = createServer((req, res) => {
     const name = new URL(req.url ?? '/', 'http://x').pathname.slice(1) || 'index.html';

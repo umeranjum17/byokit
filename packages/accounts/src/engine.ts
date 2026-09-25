@@ -48,7 +48,7 @@ export function devicePoll(status: number, body: string): Poll {
 /** A token response as the stored credential, the same shape Pi keeps. */
 export function credentialOf(j: any, now = Date.now()): OAuthCredential {
   if (typeof j?.access_token !== 'string' || typeof j.refresh_token !== 'string' || typeof j.expires_in !== 'number')
-    throw new Error(`OpenAI Codex token response missing fields: ${JSON.stringify(j)}`);
+    throw new Error('OpenAI Codex token response missing fields');
   let accountId: unknown;
   try { accountId = claims(j.access_token)['https://api.openai.com/auth']?.chatgpt_account_id; } catch {}
   if (typeof accountId !== 'string' || !accountId) throw new Error('Failed to extract accountId from token');
@@ -84,7 +84,7 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
     }
   };
   const tokens = async (what: 'exchange' | 'refresh', r: { status: number; body: string }) => {
-    if (r.status < 200 || r.status > 299) throw new Error(`OpenAI Codex token ${what} failed (${r.status}): ${r.body}`);
+    if (r.status < 200 || r.status > 299) throw new Error(`OpenAI Codex token ${what} failed (${r.status})`);
     return credentialOf(json(r.body));
   };
   const refresh = async (c: OAuthCredential) => {
@@ -134,7 +134,6 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
       if (soon(c)) {
         c = await credentials.modify(id, async (now) => (now?.type === 'oauth' && soon(now) ? refresh(now) : undefined));
         if (c?.type !== 'oauth') return undefined;
-        if (minOAuthValidityMs !== undefined && soon(c)) throw new Error('OAuth refresh returned a token that expires too soon for openai-codex');
       }
       return { auth: { apiKey: c.access }, source: 'OAuth' };
     },

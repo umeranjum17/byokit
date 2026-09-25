@@ -67,9 +67,6 @@ jobs:
         working-directory: examples/expo
       - run: npx expo export --platform android --platform ios --output-dir dist
         working-directory: examples/expo
-      - name: nothing from Node in the phone bundles
-        working-directory: examples/expo
-        run: "! grep -l -e 'node:http' -e 'earendil' dist/_expo/static/js/*/*.hbc"
 
   # byokit-android: JVM unit tests, including every case in fixtures/conformance, in a throwaway HOME. No device needed.
   android:

@@ -9,8 +9,10 @@ Bring your own AI plan and devices. Apache-2.0.
 | [`@byokit/link`](packages/link) | Scan a code to pair a phone or browser with the home computer over one encrypted link; muxr parity tracked separately | 0.1.0 |
 | [`@byokit/decide`](packages/decide) | Typed questions in, a typed answer with confidence out, abstaining below a floor; rules and Jev backends, evals | v0.1 |
 
-Examples that sign in end to end with a stand-in OpenAI: [`examples/expo`](examples/expo) (React Native, iOS and
-Android) and [`examples/pwa`](examples/pwa) (a web page you can install).
+Examples: [`examples/expo`](examples/expo) (React Native, iOS and Android) and [`examples/pwa`](examples/pwa)
+(an installable web page). The PWA signs in end to end against a stand-in OpenAI in browser tests. Run
+`examples/expo/e2e-android.sh <emulator>` locally for Android emulator sign-in evidence and include the result in the PR;
+CI checks both platform bundles. iOS is typechecked and built, not runtime-tested here because no simulator is available.
 
 byokit never touches a person's other AI tools: not their `~/.pi`, `~/.codex` or `~/.claude`, not their CLIs.
 Library code never reads environment keys; the explicitly invoked [decide eval CLI](packages/decide#evals) can use one

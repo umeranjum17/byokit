@@ -1,6 +1,6 @@
 # Conformance fixtures
 
-Every byokit implementation (`@byokit/accounts` in TypeScript, `byokit-android` in Kotlin) must pass these cases. Change
+Every byokit implementation (`@byokit/accounts` in TypeScript, `byokit-android` in Kotlin) must pass these cases except `revoke.json`, which is TypeScript-only while the Kotlin mirror is frozen. Change
 a rule here first; the implementations' tests then fail until they agree.
 
 The shared data itself has one copy, `packages/accounts/src/catalogue.json` and `words.json`; the Kotlin build bundles

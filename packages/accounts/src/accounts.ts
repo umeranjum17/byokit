@@ -98,7 +98,19 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   /** A member's own store. */
   protected store(member: M) {
     let s = this.stores.get(String(member));
-    if (!s) this.stores.set(String(member), s = (this.opts.store ?? memoryStore)(member));
+    if (!s) {
+      const base = (this.opts.store ?? memoryStore)(member);
+      let chain: Promise<unknown> = Promise.resolve();
+      const serial = <T>(fn: () => Promise<T>) => { const result = chain.then(fn); chain = result.catch(() => {}); return result; };
+      s = {
+        read: (id) => base.read(id),
+        list: () => base.list(),
+        modify: (id, fn) => serial(() => base.modify(id, fn)),
+        delete: (id) => serial(() => base.delete(id)),
+        end: (id, fn) => serial(async () => { try { await fn(await base.read(id)); } finally { await base.delete(id); } }),
+      };
+      this.stores.set(String(member), s);
+    }
     return s;
   }
 
@@ -407,9 +419,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** After the account turned a request away: true if its sign-in still refreshes; if not, it is signed out for good. */
   async recheck(member: M, key: string) {
-    // Asking for a year's validity forces a refresh; the fresh token then "expires too soon" for that year, which is fine.
-    const ok = await (await this.runtime(member)).getAuth(this.offer(key).pi, { minOAuthValidityMs: 365 * 86_400_000 })
-      .then(Boolean, (e) => offline(e) || /expires too soon/.test(String(e?.message)));
+    const ok = await (await this.runtime(member)).getAuth(this.offer(key).pi, { minOAuthValidityMs: 365 * 86_400_000 }).then(Boolean, offline);
     if (!ok) { await this.logout(member, key).catch(() => {}); this.forget(member, key); }
     return ok;
   }

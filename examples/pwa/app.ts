@@ -1,14 +1,14 @@
 // "Sign in with ChatGPT" in a web page: @byokit/accounts' browser side (device code, straight to OpenAI, whose sign-in
-// endpoints answer any web page), kept in this browser's IndexedDB, with @byokit/ui-core's phases. `?openai=<url>`
-// points it at a stand-in OpenAI (`node packages/accounts/src/testing/mock-openai.ts`) for a demo with no account.
+// endpoints answer any web page), kept in this browser's IndexedDB, with @byokit/ui-core's phases.
 import { Accounts, browserStore, say } from '@byokit/accounts';
 import { phaseOf } from '@byokit/ui-core/phase';
 
+declare const __BYOKIT_AUTH_BASE__: string | undefined;
 const ME = 1;
 const accounts = new Accounts<any, number>({
   app: 'byokit example',
   store: (member) => browserStore(`person-${member}`),
-  authBase: new URLSearchParams(location.search).get('openai') ?? undefined,
+  authBase: __BYOKIT_AUTH_BASE__,
 });
 const $ = (id: string) => document.getElementById(id)!;
 const show = (id: string, on: boolean) => { $(id).hidden = !on; };

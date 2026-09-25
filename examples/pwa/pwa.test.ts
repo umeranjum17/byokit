@@ -11,7 +11,7 @@ import { serve } from './serve.ts';
 // Playwright's own Chromium (CI installs it); else the system's, for a machine without Playwright's download.
 const executablePath = existsSync(chromium.executablePath()) ? undefined : process.env.BYOKIT_CHROME ?? '/usr/bin/chromium';
 const openai = await mockOpenAI();
-const site = await serve();
+const site = await serve(0, openai.base);
 const browser = await chromium.launch({ executablePath });
 after(async () => { await browser.close(); site.close(); await openai.close(); });
 
@@ -20,7 +20,7 @@ test('sign in with ChatGPT in a browser: device code, kept across a reload, refr
   const page = await context.newPage();
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto(`${site.url}?openai=${encodeURIComponent(openai.base)}`);
+  await page.goto(`${site.url}?openai=https://attacker.example`);
   const status = page.locator('#status');
   await assert.doesNotReject(status.filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor());
 
