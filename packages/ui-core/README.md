@@ -7,5 +7,5 @@ page), code, done, work (a work plan: offer a personal one), cancelled, busy, ex
 "Having trouble? Use a code instead". Your app keeps its own look. `@byokit/ui-core/phase` has no React dependency.
 
 `describeRoute(url, kind?)` (also `@byokit/ui-core/route`, no React) names the route a dial address takes, for a pairing or
-settings screen. Pass `tailscale`, `direct`, `private`, or `lan` from reach when known; without provenance, 100.64/10
-is labeled Private network rather than assumed to be Tailscale.
+settings screen. Pass `tailscale`, `direct`, `private`, or `lan` when known (map reach's `tailscale-direct` to `direct`);
+without provenance, 100.64/10 is labeled Private network rather than assumed to be Tailscale.
