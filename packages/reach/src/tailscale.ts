@@ -130,15 +130,19 @@ export async function serve(port: number, o?: TailscaleOptions, previous?: Serve
   const root = await inspectServe(port, dnsName, { ...o, ...(recorded ? { proxy } : {}) });
   if (root.status === 'disabled' || root.status === 'inconclusive' || root.status === 'funnel') throw new Error(root.reason);
   if (root.status === 'occupied') throw new Error(SERVE_OWNED_ERROR);
+  const ingress: ServeIngress = { kind: 'tailscale-serve', port, dnsName, proxy };
   if (root.status === 'free') {
     const r = await run(['serve', '--yes', '--bg', '--https=443', proxy], o);
     if (r.code !== 0 || r.error) throw new Error(serveFailure(r));
     const after = await inspectServe(port, dnsName, { ...o, proxy });
     if (after.status === 'funnel') throw new Error(after.reason);
     if (after.status === 'occupied') throw new Error(`${SERVE_OWNED_ERROR}; another service took the Serve root after setup`);
+    if (after.status === 'disabled' || after.status === 'inconclusive') {
+      throw Object.assign(new Error('could not verify the Tailscale Serve route after setup'), { pendingCleanup: ingress });
+    }
     if (after.status !== 'ours') throw new Error('could not verify the Tailscale Serve route after setup');
   }
-  return { url: `wss://${dnsName}`, ingress: { kind: 'tailscale-serve', port, dnsName, proxy }, ...(pendingCleanup ? { pendingCleanup } : {}) };
+  return { url: `wss://${dnsName}`, ingress, ...(pendingCleanup ? { pendingCleanup } : {}) };
 }
 
 /** Remove a mapping `serve` made, only while Serve still points where it recorded. Returns whether it removed one. */

@@ -81,11 +81,18 @@ test('Funnel-enabled roots are never reused, removed or accepted after writes', 
   await assert.rejects(unserve(owned, tailscale), /Funnel is on.*reach never uses Funnel/);
 });
 
-test('a successful Serve write with inconclusive status is unverifiable, not occupied', async () => {
+test('an unverifiable Serve write exposes its fingerprint for later cleanup', async () => {
   fake(self, { afterApply: 'not json' });
   const at = mark();
-  await assert.rejects(serve(8792, tailscale), (error: Error) => /could not verify/.test(error.message) && !/occupied|another service/.test(error.message));
+  let pending: ServeIngress | undefined;
+  await assert.rejects(reach({ port: 8792, tailscale }), (error: Error & { pendingCleanup?: ServeIngress }) => {
+    pending = error.pendingCleanup;
+    return /could not verify/.test(error.message) && !/occupied|another service/.test(error.message);
+  });
+  assert.deepEqual(pending, owned);
   assert.doesNotMatch(since(at), /^serve --https=443 --set-path=\/ off$/m);
+  fake(self, { serveStatus: ours });
+  assert.equal(await unserve(pending, tailscale), true);
 });
 
 test('an occupied root handler is refused and never claimed or reset', async () => {

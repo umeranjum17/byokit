@@ -49,6 +49,8 @@ These are the rules from muxr's decision 0004.
   out, or is taken, use `via: 'tailscale-direct'`. With `previous`, that also removes the mapping this package made.
   If cleanup cannot be verified, the requested route is still returned with `pendingCleanup: previous`; persist that
   fingerprint and retry `unserve(pendingCleanup)` later. A successful cleanup omits `pendingCleanup`.
+  If a Serve write succeeds but its status cannot be verified, the thrown error also carries
+  `error.pendingCleanup`; persist it before reporting the error, then inspect or retry cleanup later.
 
 The CLI is `tailscale` on `PATH`, then the macOS app. Pass `tailscale: { bin, timeoutMs }` to choose another. The
 lower-level steps are exported too: `tailscaleStatus`, `tailscaleName`, `inspectServe`, `serve`, `unserve`, and
