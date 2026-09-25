@@ -1,6 +1,6 @@
 {
   "name": "@byokit/link",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Scan a code to pair a phone or browser with the home computer over one encrypted link (Noise IK over WebSocket).",
   "license": "Apache-2.0",
   "type": "module",
