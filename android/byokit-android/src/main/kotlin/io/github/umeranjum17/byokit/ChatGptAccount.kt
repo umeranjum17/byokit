@@ -43,9 +43,12 @@ class ChatGptAccount(
      * Signs out here and at ChatGPT, so the sign-in no longer works anywhere. Best effort: the sign-in is deleted here
      * whatever ChatGPT answers, offline too. Network I/O (up to 10 s), so call it off the main thread.
      */
-    fun signOut() {
-        runCatching { store.read(id)?.let(api::revoke) }
-        store.write(id, null)
+    @Synchronized fun signOut() {
+        try {
+            store.read(id)?.let(api::revoke)
+        } finally {
+            store.write(id, null)
+        }
     }
 
     /**

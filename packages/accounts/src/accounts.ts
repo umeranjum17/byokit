@@ -11,7 +11,7 @@ import { memoryStore } from './stores.ts';
 import { callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';
 
 /** What signing in needs from an engine: Pi's `Models`, or anything shaped like it (the coding agent's `ModelRuntime`). */
-export type AuthHost = Pick<Models, 'login' | 'logout' | 'checkAuth' | 'getAuth'>;
+export type AuthHost = Pick<Models, 'login' | 'logout' | 'checkAuth' | 'getAuth'> & { readCredential: CredentialStore['read'] };
 export type Member = string | number;
 /** What the person sees while signing in: the provider's own page to open (`via: 'browser'`), or a code to type there
  *  (`via: 'code'`), never the engine's own prompts. `why` names how a failed one failed, for apps that word it themselves. */
@@ -49,7 +49,8 @@ const offline = (e: any) => failure(String(e?.message)) === 'offline';
  *  access token, never retried (fixtures/conformance/revoke.json). */
 async function revoke(p: Provider, c: { access: string; refresh: string }) {
   const body = c.refresh ? { token: c.refresh, token_type_hint: 'refresh_token', client_id: p.clientId } : { token: c.access, token_type_hint: 'access_token' };
-  await fetch(p.revoke!, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
+  const response = await fetch(p.revoke!, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
+  if (!response.ok) throw new Error(`ChatGPT sign-out failed (${response.status})`);
 }
 
 export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> {
@@ -81,7 +82,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** A member's engine, holding only their own sign-ins (`store(member)`). Override to use another engine with the same seam. */
   protected open(member: M): Promise<R> {
-    return Promise.resolve(builtinModels({ credentials: this.store(member), authContext: emptyAuthContext }) as unknown as R);
+    const credentials = this.store(member);
+    return Promise.resolve(Object.assign(builtinModels({ credentials, authContext: emptyAuthContext }), { readCredential: (id: string) => credentials.read(id) }) as unknown as R);
   }
 
   runtime(member: M) {
@@ -106,7 +108,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** Which ChatGPT the member signed in with: its plan, email, and whether it is a work account. Null when not signed in. */
   async plan(member: M) {
-    const c = await this.store(member).read(this.offer('chatgpt').pi).catch(() => undefined);
+    const c = await (await this.runtime(member)).readCredential(this.offer('chatgpt').pi).catch(() => undefined);
     return c?.type === 'oauth' ? planOf(c.access) : null;
   }
 
@@ -327,11 +329,16 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    *  here whatever the provider answers. */
   async logout(member: M, key: string) {
     const p = this.offer(key);
-    const c = p.revoke ? await this.store(member).read(p.pi).catch(() => undefined) : undefined;
-    if (c?.type === 'oauth') await revoke(p, c).catch(() => {});
-    await (await this.runtime(member)).logout(p.pi);
+    const rt = await this.runtime(member);
+    let error: unknown;
+    try {
+      const c = p.revoke ? await rt.readCredential(p.pi) : undefined;
+      if (c?.type === 'oauth') await revoke(p, c);
+    } catch (e) { error = e; }
+    await rt.logout(p.pi);
     this.ready.set(`${member}:${key}`, false);
     this.onChange?.(member, key);
+    if (error) throw error;
   }
 
   view(member: M, key: string): SignIn | null {

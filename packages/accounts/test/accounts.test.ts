@@ -11,6 +11,7 @@ function engine(script: (i: AuthInteraction, attempt: number) => Promise<void>) 
   const signed = new Set<string>();
   let attempts = 0, refresh: 'ok' | 'refused' | 'offline' = 'ok';
   const host: AuthHost = {
+    readCredential: async () => undefined,
     login: async (id, _type, i) => { await script(i, ++attempts); signed.add(id); return { type: 'oauth', access: 'a', refresh: 'r', expires: Date.now() + 3_600_000 }; },
     logout: async (id) => { signed.delete(id); },
     checkAuth: async (id) => (signed.has(id) ? { type: 'oauth' } : undefined),

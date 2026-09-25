@@ -1,7 +1,9 @@
 package io.github.umeranjum17.byokit
 
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -9,6 +11,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /** Staying signed in, asking, and resting, against a fake ChatGPT. */
 class AccountTest {
@@ -57,6 +61,40 @@ class AccountTest {
         assertEquals("rt_new", account.credential()?.refresh)
         assertEquals("rt_new", account.store.read("chatgpt")?.refresh)
         assertTrue(server.takeRequest().body.readUtf8().contains("grant_type=refresh_token&refresh_token=rt_old"))
+    }
+
+    @Test fun signOutWaitsForRefreshAndRevokesRotatedToken() {
+        signedIn(expires = now)
+        val refreshing = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/oauth/token" -> {
+                    refreshing.countDown()
+                    if (!release.await(5, TimeUnit.SECONDS)) throw AssertionError("refresh was not released")
+                    token()
+                }
+                "/oauth/revoke" -> MockResponse().setResponseCode(200)
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        var refreshed: Credential? = null
+        val refresh = Thread { refreshed = account.credential() }.apply { start() }
+        assertTrue(refreshing.await(5, TimeUnit.SECONDS))
+        val signOut = Thread { account.signOut() }.apply { start() }
+        try {
+            assertTrue((1..100).any {
+                if (signOut.state == Thread.State.BLOCKED) true else { Thread.sleep(10); false }
+            })
+        } finally {
+            release.countDown()
+            refresh.join(5_000)
+            signOut.join(5_000)
+        }
+        assertEquals("rt_new", refreshed?.refresh)
+        assertTrue(server.takeRequest().body.readUtf8().contains("refresh_token=rt_old"))
+        assertEquals("rt_new", JSONObject(server.takeRequest().body.readUtf8()).getString("token"))
+        assertNull(account.credential())
     }
 
     @Test fun refusedRefreshSignsOut() {

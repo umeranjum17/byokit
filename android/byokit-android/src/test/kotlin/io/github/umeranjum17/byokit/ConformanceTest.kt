@@ -105,7 +105,8 @@ class ConformanceTest {
             try {
                 val account = ChatGptAccount(MemoryStore(), ChatGpt(authBase = server.url("/").toString().trimEnd('/')))
                 it.optJSONObject("credential")?.let { c -> account.store.write(account.id, Credential.fromJson(c)) }
-                account.signOut()
+                val result = runCatching { account.signOut() }
+                assertEquals(it.toString(), it.get("answer") == 200 || it.isNull("request"), result.isSuccess)
                 assertEquals(it.toString(), false, account.signedIn) // deleted here whatever ChatGPT answered
                 val want = it.optJSONObject("request")
                 assertEquals(it.toString(), if (want == null) 0 else 1, server.requestCount)
