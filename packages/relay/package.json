@@ -1,13 +1,13 @@
 {
-  "name": "@byokit/link",
-  "version": "0.2.1",
-  "description": "Scan a code to pair a phone or browser with the home computer over one encrypted link (Noise IK over WebSocket).",
+  "name": "@byokit/relay",
+  "version": "0.1.1",
+  "description": "A blind relay for @byokit/link: hosts dial out, devices reach them by address; host proof of key, enrolment, push notifications.",
   "license": "Apache-2.0",
   "type": "module",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/umeranjum17/byokit.git",
-    "directory": "packages/link"
+    "directory": "packages/relay"
   },
   "engines": {
     "node": ">=22.18"
@@ -16,6 +16,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./device": {
+      "types": "./dist/device.d.ts",
+      "default": "./dist/device.js"
     }
   },
   "files": [
@@ -26,12 +30,12 @@
     "prepack": "tsc -b"
   },
   "dependencies": {
-    "@noble/ciphers": "2.4.0",
-    "b4a": "1.9.0",
-    "noise-handshake": "4.2.0",
-    "sodium-javascript": "0.8.0",
-    "sodium-native": "5.1.0",
-    "sodium-universal": "5.0.1"
+    "@byokit/link": "0.2.1",
+    "web-push": "3.6.7",
+    "ws": "8.21.3"
+  },
+  "devDependencies": {
+    "@types/web-push": "3.6.4"
   },
   "publishConfig": {
     "access": "public"

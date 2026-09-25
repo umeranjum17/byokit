@@ -7,7 +7,7 @@
   "repository": { "type": "git", "url": "git+https://github.com/umeranjum17/byokit.git", "directory": "packages/reach" },
   "engines": { "node": ">=22.18" },
   "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "files": ["dist"],
+  "files": ["dist", "LICENSE"],
   "scripts": { "prepack": "tsc -b" },
   "dependencies": { "bonjour-service": "^1.4.4" },
   "publishConfig": { "access": "public" }

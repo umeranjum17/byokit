@@ -1,6 +1,6 @@
 # @byokit/link: threat model and review checklist
 
-Version 0.1.0. Muxr parity is tracked separately.
+Muxr parity is tracked separately.
 
 ## What it protects
 
@@ -31,7 +31,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 | Refusals | A host that can read the device's handshake answers refusals (`not-paired`, `expired`, `declined`, `full`) inside the channel, so the device can trust them (e.g. forget its grant). Anything unauthenticated (a plaintext close) only changes what the device *says*, never what it deletes. |
 | Requests | `{t:'req', id, key, session, ack, op, args}`. The device sends its highest contiguous received reply id on each request and reconnect authentication. The host retains replies until acknowledged across reconnects; a fresh app session clears abandoned replies because they can no longer be retried. At 1000 unacknowledged replies it refuses new requests with `busy`, without evicting answers. The cache is in memory. |
 | Streams | Opened by the device (`{t:'open', s, op, args, credit}`), answered `{t:'opened', s, credit}` or `{t:'end', s, error}`; then `{t:'credit', s, n}` and `{t:'end', s, error?}` either way, and the bytes as a binary inner message (frame flag 2/3: 4-byte stream id, then raw bytes), all sealed in the same channel and nonce sequence. On a direct socket the host offers `binary: 1` in `ready` and stream frames then go as binary WebSocket messages (the same Noise message, not base64); through a relay they stay base64 text. A binary message before the handshake closes the socket. Offered only by a host that says `streams: 1` in `ready`, so an older peer never gets one. Opening re-checks the grant and view-only (`canView`) before sending `opened` and credit, then runs the app's `stream` handler with the grant; handler failures end an already-opened stream (only `PublicLinkError` exposes its message). A side that sends past the window it was granted (256 KB per stream, at most 64 streams per connection) is cut off. Streams end with their socket and on revoke. |
-| Relay | Routes by URL (`<relay>/link/v1/<host id>`, host id = BLAKE2b-128(`byokit-link-host-id-v1` ‖ host key)) and, host-side, by a `{c, f}` / `{c, end}` wrapper. Frames pass through byte for byte. The relay is not part of v0.1. |
+| Relay | Routes by URL (`<relay>/link/v1/<host id>`, host id = BLAKE2b-128(`byokit-link-host-id-v1` ‖ host key)) and, host-side, by a `{c, f}` / `{c, end}` wrapper. Frames pass through byte for byte. The separate [`@byokit/relay`](../relay) package supplies the relay server; its push-content exception and store boundaries are in [its security guide](../relay/SECURITY.md). |
 
 ## Adversaries and what stops them
 
@@ -94,6 +94,6 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 - [ ] The channel refuses frames past 2³² − 1 and messages over 16 MB.
 - [ ] Stream opens re-check the grant and view-only before the app's `stream` handler; data past a stream's window,
       or stream data that isn't a binary inner message, drops the socket; streams end on disconnect and revoke.
-- [ ] The relay test shows no plaintext, device name, request or device id on the relay's wire.
+- [ ] The link relay test shows no plaintext, device name, request or device id in routed link frames (push metadata has a separate [boundary](../relay/SECURITY.md)).
 - [ ] The browser bundle has no Node built-ins, and the headless-browser test pairs and makes requests.
 - [ ] Nothing in the package reads or writes files, environment variables or other programs.

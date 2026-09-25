@@ -6,7 +6,8 @@ Bring your own AI plan and devices. Apache-2.0.
 |---|---|---|
 | [`@byokit/accounts`](packages/accounts) | Sign in with the AI plan you already pay for, into your app's own store; limits, refresh, plain words. Node, Electron, browsers and PWAs, React Native on iOS and Android | v0.2 |
 | [`@byokit/ui-core`](packages/ui-core) | Headless sign-in state for any UI (React, React Native, or none), and `describeRoute` for a dial address | v0.1 |
-| [`@byokit/link`](packages/link) | Scan a code to pair a phone or browser with the home computer over one encrypted link; muxr parity tracked separately | 0.1.0 |
+| [`@byokit/link`](packages/link) | Scan a code to pair a phone or browser with the home computer over one encrypted link; muxr parity tracked separately | [version](packages/link/package.json) |
+| [`@byokit/relay`](packages/relay) | Routes encrypted link frames; enrolment, typed-code lookup, push ([security boundary](packages/relay/SECURITY.md)) | [version](packages/relay/package.json) |
 | [`@byokit/reach`](packages/reach) | Node only: the addresses a phone dials the home computer on (Tailscale Serve, direct tailnet, LAN) and mDNS advertising | v0.1 |
 | [`@byokit/decide`](packages/decide) | Typed questions in, a typed answer with confidence out, abstaining below a floor; rules and Jev backends, evals | v0.1 |
 
