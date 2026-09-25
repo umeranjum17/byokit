@@ -83,10 +83,12 @@ Where a device keeps its grant, one store per paired computer, each with `load()
 
 - **Phone**: `secureDeviceStore(SecureStore, 'byokit.link.home')` with `expo-secure-store` (Keychain on iOS, Keystore on
   Android); the grant is about 300 bytes, one value.
-- **Browser or PWA**: `browserDeviceStore('home')`: IndexedDB, sealed with AES-GCM by a key made in the browser as
-  non-extractable, so no script can read the key out and the stored record alone opens nothing.
-- **Computer (Node, Electron's main process)**: `fileDeviceStore(path, safeStorage?)` from `@byokit/link/node`: 0600 in
-  a 0700 folder, sealed with Electron's `safeStorage` when given.
+- **Browser or PWA**: `browserDeviceStore('home')`: IndexedDB, sealed with AES-GCM by a non-extractable browser key.
+  The stored record alone opens nothing, but scripts running on the same origin can still use the key to decrypt it;
+  keep untrusted scripts off the page.
+- **Computer (Node, Electron's main process)**: `fileDeviceStore(path, safeStorage?)` from `@byokit/link/node`: a 0600
+  file in a newly created 0700 folder (an existing folder keeps its permissions), sealed with Electron's `safeStorage`
+  when given. Without `safeStorage`, the file contains the grant in plaintext.
 
 ```ts
 const store = secureDeviceStore(SecureStore, 'byokit.link.home');

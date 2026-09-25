@@ -30,9 +30,11 @@ export function hostKeyFile(path: string): KeyPair {
     try { linkSync(tmp, path); } catch (e: any) { if (e?.code === 'EEXIST') return existing(); throw e; }
     return keys;
   } finally { try { unlinkSync(tmp); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; } }
+}
 
-// A computer's device store (Node, Electron's main process): the grant in a file the app chooses, 0600 in a 0700 folder,
-// sealed with Electron's safeStorage (the OS keychain's key) when given.
+// A computer's device store (Node, Electron's main process): the grant in a 0600 file the app chooses; newly created
+// folders are 0700, existing folders keep their permissions. Sealed with Electron's safeStorage when given; otherwise
+// plaintext.
 
 /** The parts of Electron's `safeStorage` this uses; pass `safeStorage` from 'electron' (main process, after `ready`). */
 export type SafeStorageLike = { encryptString(text: string): Uint8Array; decryptString(data: Buffer): string };
