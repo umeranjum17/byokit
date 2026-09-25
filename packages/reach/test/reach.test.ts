@@ -118,7 +118,9 @@ test('without Tailscale, auto falls back to LAN; tailscale mode says it is missi
 test('routes keep physical LAN addresses and overlays apart, and skip Tailscale, Docker and VM bridges', () => {
   const v4 = (address: string) => [{ family: 'IPv4', internal: false, address }];
   const found = routes({
-    lo: [{ family: 'IPv4', internal: true, address: '127.0.0.1' }], docker0: v4('172.17.0.1'), vboxnet0: v4('192.168.56.1'),
+    lo: [{ family: 'IPv4', internal: true, address: '127.0.0.1' }], docker0: v4('100.90.0.2'), vboxnet0: v4('192.168.56.1'),
+    'br-test': v4('100.90.0.3'), veth0: v4('100.90.0.5'), virbr0: v4('100.90.0.6'), podman0: v4('100.90.0.7'),
+    lxc0: v4('100.90.0.8'), vmnet0: v4('100.90.0.9'), hyperv0: v4('100.90.0.10'), wsl0: v4('100.90.0.11'),
     eno1: v4('192.168.1.8'), wlan0: v4('10.0.0.5'), wt0: v4('100.90.0.4'), tailscale0: v4('100.64.0.1'), eth1: v4('8.8.8.8'),
   } as never);
   assert.deepEqual(found, { lan: ['192.168.1.8', '10.0.0.5'], private: [{ address: '100.90.0.4', interface: 'wt0' }] });
@@ -130,6 +132,17 @@ test('private selection excludes Self.TailscaleIPs even on utun interfaces', asy
   fake(self);
   const interfaces = { utun4: [{ family: 'IPv4', internal: false, address: '100.64.0.1' }], utun5: [{ family: 'IPv4', internal: false, address: '100.90.0.4' }] } as never;
   assert.deepEqual(await reach({ port: 8792, via: 'private', tailscale, interfaces }), { urls: ['ws://100.90.0.4:8792'], bind: '0.0.0.0' });
+});
+
+test('private routes remain available when Tailscale cannot answer', async () => {
+  const interfaces = { wt0: [{ family: 'IPv4', internal: false, address: '100.90.0.4' }] } as never;
+  const expected = { urls: ['ws://100.90.0.4:8792'], bind: '0.0.0.0' };
+  for (const script of ['echo "logged out" >&2; exit 1', 'echo not-json', 'exec /bin/sleep 30']) {
+    writeFileSync(bin, `#!/bin/sh\n${script}\n`);
+    chmodSync(bin, 0o755);
+    assert.deepEqual(await reach({ port: 8792, via: 'private', tailscale: { bin, timeoutMs: 50 }, interfaces }), expected);
+  }
+  assert.deepEqual(await reach({ port: 8792, via: 'private', tailscale: { bin: join(dir, 'not-installed') }, interfaces }), expected);
 });
 
 test('unserve removes only the owned root, preserving sibling paths', async () => {

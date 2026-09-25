@@ -22,10 +22,10 @@ export function routes(interfaces: Interfaces = networkInterfaces(), ignore: rea
   const out = { lan: [] as string[], private: [] as PrivateRoute[] };
   for (const [name, list] of Object.entries(interfaces)) {
     for (const e of list ?? []) {
-      if (e.family !== 'IPv4' || e.internal || ignore.includes(e.address) || /^tailscale/i.test(name)) continue;
+      if (e.family !== 'IPv4' || e.internal || ignore.includes(e.address) || /^tailscale/i.test(name) || virtualName.test(name)) continue;
       // ponytail: CGNAT implies an overlay; add route-table evidence if ISP CGNAT false positives show up.
       if (overlayName.test(name) || cgnat(e.address)) out.private.push({ address: e.address, interface: name });
-      else if (privateIpv4(e.address) && !virtualName.test(name)) out.lan.push(e.address);
+      else if (privateIpv4(e.address)) out.lan.push(e.address);
     }
   }
   return out;
@@ -68,7 +68,7 @@ export async function reach(o: { port: number; via?: Via; previous?: ServeIngres
     if (!ip) throw new Error('no Tailscale address; sign in to Tailscale or choose LAN');
     return { urls: [`ws://${ip}:${port}`], bind: '0.0.0.0' };
   }
-  const found = routes(o.interfaces, via === 'private' ? (await tailscaleStatus(ts))?.ips : undefined);
+  const found = routes(o.interfaces, via === 'private' ? (await tailscaleStatus(ts).catch(() => undefined))?.ips : undefined);
   const addresses = via === 'private' ? found.private.map((r) => r.address) : found.lan;
   if (addresses.length === 0) throw new Error(via === 'private' ? 'no private network address' : 'no LAN address; connect to a network or choose Tailscale');
   return { urls: addresses.map((a) => `ws://${a}:${port}`), bind: '0.0.0.0' };
