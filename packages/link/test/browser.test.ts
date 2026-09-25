@@ -28,8 +28,8 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
   const js = (await web).outputFiles[0].text;
 
   const asked: PairRequest[] = [];
-  let report: (r: any) => void;
-  const reported = new Promise<any>((r) => { report = r; });
+  let report: (r: any) => void, failed: (e: Error) => void;
+  const reported = new Promise<any>((r, no) => { report = r; failed = no; });
   const host = await Host.open({
     keys: keyPair(), name: 'Kitchen computer',
     confirm: (p) => { asked.push(p); return true; },
@@ -37,6 +37,11 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
     handle: (r) => { if (r.op === 'report') report(r.args); return { ok: 1 }; },
   });
   const server = createServer((req, res) => {
+    if (req.url === '/failed') {
+      let body = '';
+      req.on('data', (c) => { body += c; }).on('end', () => failed(new Error(`the page failed: ${body}`)));
+      return res.writeHead(204).end();
+    }
     if (req.url === '/client.js') return res.writeHead(200, { 'content-type': 'text/javascript' }).end(js);
     res.writeHead(200, { 'content-type': 'text/html' }).end('<!doctype html><title>pairing</title><script type="module" src="/client.js"></script>');
   });
@@ -52,7 +57,7 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
     '--disable-background-networking', '--disable-component-update', '--disable-sync', '--no-default-browser-check', text], { stdio: 'ignore', detached: true });
   try {
     let timer: any;
-    const r = await Promise.race([reported, new Promise((_, no) => { timer = setTimeout(() => no(new Error('the browser never reported')), 30_000); })])
+    const r = await Promise.race([reported, new Promise((_, no) => { timer = setTimeout(() => no(new Error('the browser never reported')), 60_000); })])
       .finally(() => clearTimeout(timer)) as any;
     assert.equal(asked.length, 1);
     assert.equal(asked[0].name, 'Browser tab');

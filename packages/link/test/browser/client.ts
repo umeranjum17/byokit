@@ -9,4 +9,4 @@ import { DeviceLink, pairWithOffer } from '../../src/index.ts';
   const link = new DeviceLink(grant, { onEvent: (e) => events.push(e) });
   const state = await link.request('get.state');
   await link.request('report', { words: shown[0], state, role: grant.device.role, events, subtle: typeof crypto.subtle });
-})().catch((e) => { document.title = `failed: ${e?.message ?? e}`; });
+})().catch((e) => fetch('/failed', { method: 'POST', body: String(e?.stack ?? e?.message ?? e) })); // so the test says why
