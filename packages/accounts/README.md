@@ -25,13 +25,22 @@ Node), into the phone's secure storage or the browser's IndexedDB:
 
 ```ts
 import * as SecureStore from 'expo-secure-store';
+import { fetch as streamingFetch } from 'expo/fetch'; // optional: React Native's fetch returns the answer at once
 import { Accounts, secureStore } from '@byokit/accounts';
 
-const accounts = new Accounts({ store: (member) => secureStore(SecureStore, `byokit.${member}`) });
+const accounts = new Accounts({ store: (member) => secureStore(SecureStore, `byokit.${member}`), fetch: streamingFetch as unknown as typeof fetch });
 const shown = await accounts.login(1, 'chatgpt'); // { state: 'waiting', via: 'code', code, url }: open url, show code
 ```
 
-Examples: [`examples/expo`](../../examples/expo) (iOS and Android bundles; Android emulator sign-in) and
+Then ask ChatGPT with that sign-in, showing streamed pieces while it runs and the returned final answer when it finishes
+(the completion can correct earlier pieces):
+
+```ts
+const answer = await accounts.respond(1, { instructions: 'Answer briefly.', input: 'Plan my day', onText: (d) => show(d) });
+show(answer);
+```
+
+Examples: [`examples/expo`](../../examples/expo) (iOS and Android bundles; Android emulator sign-in, asking, pairing) and
 [`examples/pwa`](../../examples/pwa) (browser sign-in).
 
 ## Which sign-in works where
@@ -68,6 +77,12 @@ doesn't answer other web pages), so a PWA's model calls go through the app's own
   Never a shared fallback. Browser storage is readable by scripts on your page: avoid untrusted scripts. Using another
   engine with the same seam (Pi's coding-agent `ModelRuntime`)? Override `open(member)` with an engine whose
   `credentialStore` is made with `boundStore(member, engineStore)` and whose `readCredential(id)` reads that store.
+- **Asking**: `respond(member, { instructions, input, model?, onText?, signal? })` asks ChatGPT's own answers endpoint
+  with the member's sign-in, refreshed first when due, and returns the whole text (`onText` gets each piece as it
+  streams; the returned completion is authoritative). A limit or a lapsed sign-in is acted on as `failed()` does, then
+  thrown as a `ResponseError` with the words to show and the kind acted on. Rules: [conformance fixtures](../../fixtures/README.md).
+  A web page can't call this endpoint itself (it answers no other web page): ask from the app's own server or over
+  `@byokit/link`.
 - **Limits**: `failed(member, key, error)` rests an account until the provider said (or a default), marks a plan that
   doesn't include this use, and signs out only a sign-in that no longer refreshes. `ladder()` picks the next usable
   account; `keepFresh()` refreshes ahead of expiry. Limits come from errors only; no undocumented usage endpoint is read.
@@ -75,5 +90,6 @@ doesn't answer other web pages), so a PWA's model calls go through the app's own
   `@byokit/accounts/testing` has the decoy-HOME harness and fs tracer to prove it in your own tests. `decoy(root)`
   writes only under the caller-supplied root; the caller owns its creation and cleanup.
 - **A stand-in OpenAI**: `mockOpenAI()` from `@byokit/accounts/testing` (or `node .../testing/mock-openai.ts [port]`)
-  answers device code, its page where a person types the code, token exchange, refresh and revoke, so tests and demos
-  sign in end to end with no account. Point the kit at it with `new Accounts({ authBase })`.
+  answers device code, its page where a person types the code, token exchange, refresh, revoke and streamed answers
+  (echoing the question), so tests and demos sign in and ask end to end with no account. Point the kit at it with
+  `new Accounts({ authBase, apiBase })`.

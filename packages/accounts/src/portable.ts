@@ -4,5 +4,6 @@ export { Accounts, planOf, portable, type AccountsOptions, type AuthHost, type L
 export { PROVIDERS, offered, provider, type Provider, type Terms } from './catalogue.ts';
 export { PORTABLE, claims, credentialOf, devicePoll, deviceStart, portableEngine, type EngineOptions, type Poll } from './engine.ts';
 export { REST_MS, classify, type Kind } from './limits.ts';
+export { ResponseError, limitResponse, respond, sseReader, type Ask } from './responses.ts';
 export { browserStore, memoryStore, recordStore, secureStore, type SecureStoreLike } from './stores.ts';
 export { WORDS, callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';

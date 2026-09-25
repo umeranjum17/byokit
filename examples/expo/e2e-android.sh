@@ -1,6 +1,8 @@
 #!/bin/sh
 # Sign in with ChatGPT on an Android emulator, end to end against the stand-in OpenAI: device code shown in the app,
-# typed on the stand-in's page, kept in secure storage across a restart, refreshed, signed out (revoked there).
+# typed on the stand-in's page, kept in secure storage across a restart, refreshed, asked (the answer streaming in, then
+# a decision), signed out (revoked there); and paired with a @byokit/link host on this computer (e2e-host.mts), the
+# grant kept in secure storage across a restart.
 #   ./e2e-android.sh <emulator-serial>     (builds the stand-in release APK)
 set -eu
 cd "$(dirname "$0")"
@@ -13,7 +15,10 @@ a() { adb -s "$serial" "$@"; }
 log=$(mktemp)
 node ../../packages/accounts/src/testing/mock-openai.ts "$port" >"$log" 2>&1 &
 mock=$!
-cleanup() { kill "$mock" 2>/dev/null || true; rm -f "$log"; }
+hostlog=$(mktemp)
+node e2e-host.mts "$((port + 1))" >"$hostlog" 2>&1 &
+host=$!
+cleanup() { kill "$mock" "$host" 2>/dev/null || true; rm -f "$log" "$hostlog"; }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -22,7 +27,8 @@ trap 'exit 143' TERM
 
 # What the screen says, and a tap on the element with this testID.
 screen() { a shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1; a exec-out cat /sdcard/ui.xml; }
-words() { screen | grep -o 'text="[^"]*"' | sed 's/text="//; s/"$//' | paste -sd'|'; }
+# uiautomator quotes a text holding " with ' instead.
+words() { screen | grep -oE "text=(\"[^\"]*\"|'[^']*')" | sed "s/^text=.//; s/.\$//" | paste -sd'|'; }
 tap() {
   xy=$(screen | grep -o "resource-id=\"$1\"[^>]*bounds=\"[^\"]*\"" | sed 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]"/\1 \2 \3 \4/' | awk '{print int(($1+$3)/2), int(($2+$4)/2)}')
   [ -n "$xy" ] || { echo "no $1 on screen: $(words)" >&2; exit 1; }
@@ -38,6 +44,22 @@ a install -r "$apk" >/dev/null
 a shell pm clear $app >/dev/null
 start
 expect "ChatGPT isn't signed in yet."
+
+# Pair with the computer: its code pasted in, the two words shown on both, then the link used.
+for _ in $(seq 20); do grep -q '^offer ' "$hostlog" && break; sleep 1; done
+tap offer
+a shell input text "$(sed -n 's/^offer //p' "$hostlog")"
+a shell input keyevent 111 # close the keyboard
+tap pair
+expect "This device is paired with Kitchen computer."
+expect "Connected to Kitchen computer."
+tap ping
+expect '"from":"Kitchen computer"' # the computer's answer, over the link
+start
+expect "Connected to Kitchen computer." # the grant kept in secure storage across a restart
+tap unpair
+expect "Scan the code on your computer"
+
 tap signin
 expect "type this code"
 code=$(words | tr '|' '\n' | grep -E '^MOCK-[0-9]+$')
@@ -50,6 +72,12 @@ start
 expect "ChatGPT is connected." # kept in secure storage across a restart
 tap recheck
 expect "the sign-in was refreshed"
+tap question
+a shell input text "is%sthe%sroof%sleaking"
+a shell input keyevent 111
+tap ask
+expect "You said: is the roof leaking"
+expect "Not sure if it needs doing today." # the stand-in only echoes, so the decision abstains
 tap signout
 expect "ChatGPT isn't signed in yet."
 start

@@ -85,14 +85,14 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
     }
   };
   const tokens = async (what: 'exchange' | 'refresh', r: { status: number; body: string }) => {
-    if (r.status < 200 || r.status > 299) throw new Error(`OpenAI Codex token ${what} failed (${r.status})`);
+    if (r.status < 200 || r.status > 299) throw Object.assign(new Error(`OpenAI Codex token ${what} failed (${r.status})`), { status: r.status });
     return credentialOf(json(r.body));
   };
   const refresh = async (c: OAuthCredential) => {
     const stop = new AbortController();
     const t = setTimeout(() => stop.abort(), 15_000);
     try { return await tokens('refresh', await post('/oauth/token', { grant_type: 'refresh_token', refresh_token: c.refresh, client_id: CLIENT_ID }, true, stop.signal)); }
-    catch (e: any) { throw new Error(`OAuth refresh failed for openai-codex: ${e?.message ?? e}`); }
+    catch (e: any) { throw Object.assign(new Error(`OAuth refresh failed for openai-codex: ${e?.message ?? e}`), { status: e?.status }); }
     finally { clearTimeout(t); }
   };
   const known = (id: string) => { if (!PORTABLE.includes(id)) throw new Error(`${id} can't be signed in to on this device`); };

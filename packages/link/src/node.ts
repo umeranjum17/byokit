@@ -1,8 +1,8 @@
-// Node only (`@byokit/link/node`): the host's key in a file. Kept out of the main entry so browsers and React Native
-// never load a Node module.
-import { closeSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
+// Node only (`@byokit/link/node`): host key and device grant files. Kept out of the main entry for browsers and React Native.
+import { closeSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { b64url, keyPair, keyPairFrom, random, unb64url, type KeyPair } from './channel.ts';
+import type { KeptDevice } from './stores.ts';
 
 /** The host's key pair, kept in `path` (0600, in a 0700 folder, written atomically). The first call makes it.
  *  A file that exists but can't be read as a key is never replaced: a new key would silently cut off every paired
@@ -23,11 +23,45 @@ export function hostKeyFile(path: string): KeyPair {
   try { return existing(); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; }
   const keys = keyPair();
   const tmp = `${path}.${process.pid}.${b64url(random(6))}.tmp`;
+  let created = false;
   try {
     const fd = openSync(tmp, 'wx', 0o600);
+    created = true;
     try { writeSync(fd, JSON.stringify({ v: 1, secretKey: b64url(keys.secretKey) })); fsyncSync(fd); }
     finally { closeSync(fd); }
     try { linkSync(tmp, path); } catch (e: any) { if (e?.code === 'EEXIST') return existing(); throw e; }
     return keys;
-  } finally { try { unlinkSync(tmp); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; } }
+  } finally { if (created) try { unlinkSync(tmp); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; } }
+}
+
+// A computer's device store (Node, Electron's main process): the grant in a 0600 file the app chooses; newly created
+// folders are 0700, existing folders keep their permissions. Sealed with Electron's safeStorage when given; otherwise
+// plaintext.
+
+/** The parts of Electron's `safeStorage` this uses; pass `safeStorage` from 'electron' (main process, after `ready`). */
+export type SafeStorageLike = { encryptString(text: string): Uint8Array; decryptString(data: Buffer): string };
+
+export function fileDeviceStore(path: string, safeStorage?: SafeStorageLike): KeptDevice {
+  return {
+    async load() {
+      let raw: Buffer;
+      try { raw = readFileSync(path); } catch (e: any) { if (e?.code === 'ENOENT') return null; throw e; }
+      const g = JSON.parse(safeStorage ? safeStorage.decryptString(raw) : raw.toString('utf8'));
+      return g?.v === 1 ? g : null;
+    },
+    save(g) {
+      const text = JSON.stringify(g);
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+      const tmp = `${path}.${process.pid}.${b64url(random(6))}.tmp`;
+      let created = false;
+      try {
+        const fd = openSync(tmp, 'wx', 0o600);
+        created = true;
+        try { writeFileSync(fd, safeStorage ? safeStorage.encryptString(text) : text); fsyncSync(fd); }
+        finally { closeSync(fd); }
+        renameSync(tmp, path);
+      } finally { if (created) try { unlinkSync(tmp); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; } }
+    },
+    clear() { rmSync(path, { force: true }); },
+  };
 }

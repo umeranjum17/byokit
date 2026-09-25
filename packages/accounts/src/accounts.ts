@@ -6,6 +6,7 @@ import type { AuthPrompt, CredentialStore, Models } from '@earendil-works/pi-ai'
 import { offered, provider, type Provider } from './catalogue.ts';
 import { claims, PORTABLE, portableEngine } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
+import { respond, ResponseError, type Ask } from './responses.ts';
 import { memoryStore, type EndingStore } from './stores.ts';
 import { callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';
 
@@ -44,6 +45,10 @@ export type AccountsOptions<M extends Member = Member> = {
    *  Phones and browsers sign in and sign out there; on a computer Pi's engine always calls OpenAI, and only sign-out's
    *  revoke goes here. */
   authBase?: string;
+  /** Where ChatGPT answers `respond`, for a stand-in in tests and demos. */
+  apiBase?: string;
+  /** The fetch `respond` asks with: one that streams on a phone (Expo's `expo/fetch`). Default: the platform's. */
+  fetch?: typeof fetch;
 };
 
 /** The ChatGPT plan behind a sign-in, from its own token: a work plan (Business, Enterprise, Edu) follows the employer's rules. */
@@ -241,8 +246,38 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    *  use is marked so. A refusal is checked: a sign-in that no longer refreshes is signed out for real, one that still
    *  does was a passing refusal and rests a few minutes (kind `overloaded`) rather than loop. Returns the kind acted on,
    *  or null for an error that is not about the account; `network` changes nothing. */
-  async failed(member: M, key: string, error: string) {
-    const c = classify(error);
+  /** Ask ChatGPT with this member's own sign-in, the answer streaming into `onText`; refreshed first when due. A
+   *  failure about the account (a limit, a lapsed sign-in) is acted on as `failed()` does, then thrown as a
+   *  ResponseError with the words to show. */
+  async respond(member: M, ask: Ask): Promise<string> {
+    const key = 'chatgpt';
+    const p = this.offer(key);
+    const rt = await this.runtime(member);
+    let access: string | undefined;
+    try { access = (await rt.getAuth(p.pi))?.auth?.apiKey; }
+    catch (e: any) {
+      if ([400, 401, 403].includes(e?.status)) {
+        await rt.credentialStore.delete(p.pi);
+        this.forget(member, key);
+        throw new ResponseError(say('status.needsAgain', { name: p.name }), 'signed_out');
+      }
+      throw new ResponseError('ChatGPT could not refresh its sign-in. Try again when the network is back.', 'network');
+    }
+    const c = await rt.readCredential(p.pi).catch(() => undefined);
+    if (!access || c?.type !== 'oauth') throw new ResponseError(say('status.signedOut', { name: p.name }), 'signed_out');
+    try {
+      return await respond({ ...ask, access, accountId: String(c.accountId ?? ''), model: ask.model ?? p.models.strong, base: this.opts.apiBase, fetch: this.opts.fetch });
+    } catch (e: any) {
+      if (e instanceof ResponseError && e.kind && e.kind !== 'network') {
+        const acted = await this.failed(member, key, e);
+        if (acted && acted.kind !== e.kind) throw new ResponseError(e.message, acted.kind, acted.until);
+      }
+      throw e;
+    }
+  }
+
+  async failed(member: M, key: string, error: string | ResponseError) {
+    const c = error instanceof ResponseError ? error.kind && { kind: error.kind, until: error.until } : classify(error);
     if (!c || c.kind === 'network') return c;
     if (c.kind === 'signed_out' && await this.recheck(member, key)) c.kind = 'overloaded';
     if (c.kind === 'not_included') this.notIncluded(member, key, true);
