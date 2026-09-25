@@ -36,6 +36,39 @@ test('R4: access that runs out ends like a removal, live or at the next connecti
   assert.deepEqual(h.host.devices(), []);
 });
 
+test('R4: expiry during auth save refuses ready and expired sockets receive no events', async () => {
+  let now = Date.now();
+  let grants: Grant[] = [];
+  let pause = false;
+  let entered!: () => void;
+  let release!: () => void;
+  const saving = new Promise<void>((r) => { entered = r; });
+  const gate = new Promise<void>((r) => { release = r; });
+  const h = await startHost({ now: () => now, grants: { load: () => grants, save: async (g) => {
+    if (pause) { entered(); await gate; }
+    grants = g;
+  } } });
+  const key = keyPair();
+  const g = await h.host.enrol({ key: key.publicKey, name: 'Phone', role: 'control', lifetime: 10_000 });
+  pause = true;
+  const d = connect({ v: 1, secretKey: b64url(key.secretKey), host: b64url(h.host.keys.publicKey), hostName: '', urls: [h.url], device: { id: g.id, name: g.name, role: g.role } });
+  await saving;
+  now += 11_000;
+  pause = false;
+  release();
+  await until(() => d.link.status === 'removed');
+  assert.ok(!d.seen.includes('online'));
+  await until(() => h.host.devices().length === 0);
+
+  const live = connect(await paired(h, { lifetime: 10_000 }));
+  await until(() => live.link.status === 'online');
+  h.host.broadcast('before');
+  await until(() => live.events.length === 1);
+  now += 11_000;
+  h.host.broadcast('after');
+  assert.deepEqual(live.events, ['before']);
+});
+
 test('R5: an allow policy decides every request before the handler, from what the app keeps in the grant', async () => {
   const h = await startHost({
     allow: (req, g) => {
@@ -221,6 +254,18 @@ test('X2a: rekey moves a device to a fresh key without a moment where no key wor
   await until(() => staged.link.status === 'online');
   assert.equal(staged.link.grant.secretKey, g2.secretKey);
   assert.equal(staged.link.grant.nextSecretKey, undefined);
+});
+
+test('X2a: enrolment with a staged key replaces the old grant', async () => {
+  const old = keyPair(), staged = keyPair();
+  let grants: Grant[] = [{ id: 'old', key: b64url(old.publicKey), nextKey: b64url(staged.publicKey), name: 'Phone', role: 'control', created: Date.now() }];
+  const h = await startHost({ grants: { load: () => grants, save: (g) => { grants = g; } } });
+  const newGrant = await h.host.enrol({ key: staged.publicKey, name: 'Phone', role: 'view' });
+  assert.deepEqual(h.host.devices().map((g) => [g.id, g.role]), [[newGrant.id, 'view']]);
+  const d = connect({ v: 1, secretKey: b64url(staged.secretKey), host: b64url(h.host.keys.publicKey), hostName: '', urls: [h.url], device: { id: newGrant.id, name: 'Phone', role: 'view' } });
+  await until(() => d.link.status === 'online');
+  await assert.rejects(d.link.request('send.message'), (e: LinkError) => e.code === 'view-only');
+  assert.deepEqual(h.ran, []);
 });
 
 test('X2a: a failed staged-key save never sends rekey', async () => {

@@ -200,7 +200,7 @@ export class Host {
 
   /** An event for every connected device (or those `to` picks). */
   broadcast(e: unknown, to: (g: Grant) => boolean = () => true) {
-    for (const [conn, s] of this.live) if (to(s.dev)) this.sealed(conn, s.ch, { t: 'event', e });
+    for (const [conn, s] of this.live) if (to(s.dev) && !this.ended(s.dev)) this.sealed(conn, s.ch, { t: 'event', e });
   }
 
   /** One WebSocket, straight from a device. `peer` (e.g. its IP address) lets the host slow down one noisy source. */
@@ -300,7 +300,7 @@ export class Host {
     let added: Grant | null = null;
     await this.transition((grants) => {
       if (pairExpires !== undefined && pairExpires < this.now()) throw new PairExpired();
-      const others = grants.filter((g) => g.key !== key); // pairing the same device again replaces its grant
+      const others = grants.filter((g) => g.key !== key && g.nextKey !== key); // pairing the same device again replaces its grant
       if (this.opts.maxDevices && others.length >= this.opts.maxDevices) return null;
       const cap = t.kind === undefined ? undefined : this.opts.caps?.[t.kind];
       if (cap !== undefined && others.filter((g) => g.kind === t.kind).length >= cap) return null;
@@ -365,8 +365,13 @@ export class Host {
           g = updated.find((x) => x.id === g.id)!;
         }
         if (gone) return;
-        if (!this.grants.some((x) => x.id === g.id)) return refuse('not-paired');
-        dev = g;
+        const current = this.grants.find((x) => x.id === g.id);
+        if (!current) return refuse('not-paired');
+        if (this.ended(current)) {
+          void this.revoke(current.id, 'ended').catch((e) => this.report(e));
+          return refuse('ended');
+        }
+        dev = g = current;
         busy = false;
         clearTimeout(timer);
         const c = ch!;
