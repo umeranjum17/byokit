@@ -1,6 +1,6 @@
 # @byokit/link: threat model and review checklist
 
-Version 0.3.0. Muxr parity is tracked separately.
+Muxr parity is tracked separately.
 
 ## What it protects
 
@@ -12,7 +12,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
    pretend to be either end;
 3. a device gets answers, never the host's credentials;
 4. removing a device takes effect immediately, including on its open connections;
-5. a device that is view-only cannot make changes.
+5. a device can make only requests the host app's policy permits.
 
 ## Design in one screen
 
@@ -23,12 +23,12 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 | Library | Handshakes: `noise-handshake` 4.2.0 (Holepunch, Apache-2.0) over libsodium: `sodium-native` in Node, `sodium-javascript` 0.8.0 in browsers and React Native. Frames after the handshake: ChaCha20-Poly1305 from `@noble/ciphers` 2.4.0 (Paul Miller, MIT, audited, no dependencies) on every platform, because sodium-javascript's ChaCha20 was slower in a Hermes CLI benchmark on a desktop CPU (`bench/hermes.sh`); this is not a phone measurement. Same cipher, same Noise nonce, byte-identical frames: no wire change. Pinned exactly. No crypto of our own. |
 | Conformance | `noise-handshake` is checked against the cacophony vectors for IK, XX and NNpsk0, which together cover every token of both handshakes; `@noble/ciphers` against the RFC 8439 AEAD vectors; and the transport against noise-handshake's own CipherState (sodium-native) and sodium-javascript, sealing and opening both ways (`test/channel.test.ts`). |
 | Frames | One Noise transport message per WebSocket frame. JSON control messages use base64 text; see Streams below for data frames. Per-direction CipherStates; the implicit nonce counter rejects any replayed, dropped, reordered or reflected frame, and any bad frame closes the socket. Messages over 60 KB are chunked; a reassembled message over 16 MB closes the socket. |
-| QR / pairing link | `byokit-link:1:<base64url JSON>`: `{v, host (X25519 public key), name, urls, ticket (128 bits), expires}`. As a link, it rides after `#`, which browsers never send to a server. |
+| QR / pairing link | `byokit-link:1:<base64url JSON>`: `{v, host (X25519 public key), name, urls, ticket (128 bits), expires, role?, lifetime?}`. The optional role and access lifetime let the device show the terms; older parsers ignore them. As a link, it rides after `#`, which browsers never send to a server. |
 | Typed code | 12 characters from a 31-character unambiguous alphabet (about 59 bits), `XXXX-XXXX-XXXX`. |
 | Pairing rules | Tickets and codes are single use (burned at first presentation, even when expired or refused), live 5 minutes through grant creation, and 5 wrong tries withdraw every open ticket and code. Nothing is stored until the person at the host approves; both screens show the same **two confirmation words**, derived from the handshake hash. Optional device cap. |
 | Grants | Held by the host with a device key and role; optional `kind`, `expires`, `nextKey` and `meta` support caps, expiry, rekey and app policy. Every handshake and request checks the grant. `allow` decides access when supplied; otherwise control is allowed and view-only uses `canView` (default: none). |
 | Revoke | Deletes the grant, sends a sealed `revoked` to its live sockets, then closes them. No key rotation is needed: there are no shared keys. |
-| Refusals | A host that can read the device's handshake answers refusals (`not-paired`, `expired`, `declined`, `full`) inside the channel, so the device can trust them (e.g. forget its grant). Anything unauthenticated (a plaintext close) only changes what the device *says*, never what it deletes. |
+| Refusals | A host that can read the device's handshake answers refusals (`not-paired`, `expired`, `ended`, `declined`, `full`) inside the channel, so the device can trust them (e.g. forget its grant). Anything unauthenticated (a plaintext close) only changes what the device *says*, never what it deletes. |
 | Requests | `{t:'req', id, key, session, ack, op, args, notValidAfter?}`. The device sends its highest contiguous received reply id on each request and reconnect authentication. The host retains replies until acknowledged across reconnects; a fresh app session clears abandoned replies. At 1000 unacknowledged replies it refuses new requests with `busy`, without evicting answers. The cache is in memory unless the app supplies an `answers` store. |
 | Streams | Opened by the device (`{t:'open', s, op, args, credit}`), answered `{t:'opened', s, credit}` or `{t:'end', s, error}`; then `{t:'credit', s, n}` and `{t:'end', s, error?}` either way, and the bytes as a binary inner message (frame flag 2/3: 4-byte stream id, then raw bytes), all sealed in the same channel and nonce sequence. On a direct socket the host offers `binary: 1` in `ready` and stream frames then go as binary WebSocket messages (the same Noise message, not base64); through a relay they stay base64 text. A binary message before the handshake closes the socket. Offered only by a host that says `streams: 1` in `ready`, so an older peer never gets one. Opening re-checks the grant and policy (`allow`, or `canView` for view-only when `allow` is absent) before sending `opened` and credit, then runs the app's `stream` handler with the grant; handler failures end an already-opened stream (only `PublicLinkError` exposes its message). A side that sends past the window it was granted (256 KB per stream, at most 64 streams per connection) is cut off. Streams end with their socket and on revoke. |
 | Relay | Routes by URL (`<relay>/link/v1/<host id>`, host id = BLAKE2b-128(`byokit-link-host-id-v1` ‖ host key)) and, host-side, by a `{c, f}` / `{c, end}` wrapper. Frames pass through byte for byte. The separate [`@byokit/relay`](../relay) package supplies the relay server; its push-content exception and store boundaries are in [its security guide](../relay/SECURITY.md). |
@@ -40,7 +40,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 | **Passive network observer** (LAN, tailnet, relay operator) | See that a device talks to a host, when, how much; the host id; for typed codes, message 1 | Read plaintext payloads: IK hides the device's static key; everything after is AEAD. A captured typed-code handshake permits offline guessing even after expiry, but the code has about 59 bits of entropy. |
 | **Active network attacker** (ARP/DNS spoofing, malicious relay) | Drop, delay, reorder traffic; close sockets; forge plaintext closes | Impersonate the host (needs the host's static secret; the device pins the key from the QR/grant). Impersonate a device (needs its static secret). Replay or splice frames (nonces). Make a device forget its grant (only sealed refusals do that). Turn a stolen QR ticket into a grant without host-side approval: the QR also contains the host's public key, so its secrecy is not a defense. |
 | **Someone who sees or photographs the QR / code** | Race the real device to pair in the 5 minutes | Get in unnoticed: the person at the host must approve, sees the device name and the two words, and a later attempt with the same ticket or code is refused. |
-| **A lost or stolen device** | Everything its grant allows, until revoked | Anything after revoke, which is immediate. It never held the host's credentials. |
+| **A lost or stolen device** | Everything its grant allows, until revoked or expired | Anything after revoke or expiry. It never held the host's credentials. |
 | **A paired view-only device** | Requests permitted by the app's `allow`, or by `canView` when `allow` is absent | Requests denied by that policy: refused by the host before the app's handler sees them. |
 | **A malicious relay** | Deny service; learn metadata above | Read, change or inject traffic; pair itself (tickets and codes are sealed or PSK-bound end to end). An impostor host registration only causes denial of service: devices' handshakes fail. |
 
@@ -105,18 +105,18 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 - [ ] Nothing is stored before `confirm` returns true; `confirm` failing or timing out means no.
 - [ ] Every connection's device key is checked against the grants at `auth`; every request re-checks the grant;
       `revoke` removes the grant before closing sockets.
-- [ ] View-only is enforced in the host before the app handler, and defaults closed. Only an explicit `PublicLinkError` discloses its chosen message; other handler failures are logged on the host and return plain `failed`.
-- [ ] A device forgets its grant only on a sealed `revoked` or sealed `not-paired`.
+- [ ] Host policy is enforced before the app handler; without `allow`, view-only defaults closed. Only an explicit `PublicLinkError` discloses its chosen message; other handler failures are logged on the host and return plain `failed`.
+- [ ] A device forgets its grant only on a sealed `revoked`, `ended` or `not-paired` (or when a pending pairing expires).
 - [ ] Names shown to people are stripped of control and direction-flipping characters and capped at 60.
 - [ ] `parseOffer` accepts only `ws:`/`wss:` addresses without credentials, at most 8, a 32-byte key and 16-byte
       ticket.
 - [ ] The channel refuses frames past 2³² − 1 and messages over 16 MB.
-- [ ] Stream opens re-check the grant and view-only before the app's `stream` handler; data past a stream's window,
+- [ ] Stream opens re-check the grant and policy before the app's `stream` handler; data past a stream's window,
       or stream data that isn't a binary inner message, drops the socket; streams end on disconnect and revoke.
 - [ ] The link relay test shows no plaintext, device name, request or device id in routed link frames (push metadata has a separate [boundary](../relay/SECURITY.md)).
 - [ ] The browser bundle has no Node built-ins, and the headless-browser test pairs and makes requests.
 - [ ] Grant changes (pair, enrol, revoke, expiry, unpair, rekey, last seen) all go through one serialized
-      transition that saves before memory changes, then closes or updates that device's live sockets.
+      transition that saves before memory changes; expiry closes live sockets even if the removal save fails.
 - [ ] `allow` (or, without it, role plus `canView`) runs before `handle`; a throwing policy refuses.
 - [ ] Expired grants are refused at `auth` and on requests, and live sockets close when access runs out.
 - [ ] Per-kind caps and `maxDevices` are checked inside the grant transition, so concurrent approvals can't exceed them.

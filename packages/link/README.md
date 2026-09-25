@@ -1,4 +1,4 @@
-# @byokit/link 0.3.0
+# @byokit/link
 
 Muxr parity is tracked separately. Host policy and streams are available; relay routing is in `@byokit/relay`.
 
@@ -6,8 +6,8 @@ Scan a code to pair a phone or browser with the home computer, then talk over on
 **host**) keeps every credential; a device holds only its own key and a grant, and asks the host to do things.
 
 Noise IK over WebSocket (`noise-handshake` + libsodium; frames sealed by `@noble/ciphers`), in Node, browsers/PWAs
-and React Native. No listener, no files, no environment: the app hands the host its sockets and stores. Threat model
-and review checklist:
+and React Native. The main entry has no listener, files or environment access: the app hands the host its sockets
+and stores. Threat model and review checklist:
 [SECURITY.md](SECURITY.md).
 
 ## Host
@@ -63,9 +63,10 @@ await link.request('send.message', { text: 'hi' });  // waits through reconnects
 await link.request('send.message', { text: 'hi' }, { timeoutMs: 20_000, notValidAfter: Date.now() + 60_000 });
 ```
 
-- Save `pendingGrant(scanned, { name })` before pairing and pass its key (`pairWithOffer(scanned, { …, key })`): if
-  the app dies while the person decides, a `DeviceLink` made from it retries until approval (up to five minutes
-  after the offer expires), then forgets it if the host still has not approved.
+- For crash-safe pairing, make a `keyPair()`, save `pendingGrant(scanned, { name, key })` before pairing, then pass
+  that same `key` to `pairWithOffer(scanned, { name, key, onWords })`. If the app dies while the person decides,
+  a `DeviceLink` made from the saved pending grant retries until approval (up to five minutes after the offer expires),
+  then forgets it if the host still has not approved.
 - `resolve: (url) => …` runs before each dial (e.g. open an SSH tunnel and return `ws://127.0.0.1:<port>/…`);
   `link.addUrl(url)` adds an address found later (a wrong host there just fails its handshake).
 - A quiet connection is pinged (`pingMs`, default 20 s) and redialled when the host stops answering; at most
