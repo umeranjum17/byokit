@@ -156,14 +156,16 @@ export class RelayClient {
         ).catch(() => {}); // the socket went: the relay answers the device with a timeout
       }
     });
-    ws.addEventListener('close', (e) => {
+    // A failed connect fires 'close' after 'error' on Node 24+, but only 'error' on Node 22: either one ends the socket,
+    // once (the first clears `this.ws`), and schedules the next try.
+    const down = (e?: { code?: number; reason?: string }) => {
       if (this.ws !== ws) return;
       this.ws = undefined;
       // Whatever the relay had not answered goes again on the next socket: each of these is safe to repeat.
       this.queue.unshift(...this.inflight.values());
       this.inflight.clear();
       while (this.queue.length > QUEUE) this.queue.pop()!.reject(new Error('relay queue full'));
-      const stop = STOPS[e?.code];
+      const stop = STOPS[e?.code ?? 0];
       if (stop) {
         this.stopped = true;
         this.set(stop, e?.reason);
@@ -173,7 +175,8 @@ export class RelayClient {
       this.set('offline', e?.reason);
       const ms = Math.min(30_000, 1000 * 2 ** this.tries++) * (0.5 + Math.random() / 2);
       this.timer = later(ms, () => this.connect());
-    });
-    ws.addEventListener('error', () => { if (ws.readyState === 1) ws.close(); });
+    };
+    ws.addEventListener('close', down);
+    ws.addEventListener('error', () => { if (ws.readyState === 0) down(); else if (ws.readyState === 1) ws.close(); });
   }
 }
