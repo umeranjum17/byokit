@@ -407,19 +407,29 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     this.onChange?.(member, key);
   }
 
+  private async refreshed(member: M, key: string, minOAuthValidityMs: number) {
+    const pi = this.offer(key).pi;
+    return (await this.runtime(member)).getAuth(pi, { minOAuthValidityMs }).then(Boolean, async (e: Error) => {
+      if (offline(e)) return true;
+      if (e?.message !== `OAuth refresh returned a token that expires too soon for ${pi}`) return false;
+      const c = await this.store(member).read(pi);
+      return c?.type === 'oauth' && c.expires > Date.now();
+    });
+  }
+
   /** Refresh every signed-in account an hour ahead of expiry (call it now and then), so a sign-in never lapses while
    *  nobody is looking. Only the provider refusing signs it out, and `onExpired` says so once; a network hiccup doesn't. */
   async keepFresh(members: readonly M[]) {
     for (const m of members) for (const p of this.providers) {
       if (this.ready.get(`${m}:${p.key}`) !== true) continue;
-      const ok = await (await this.runtime(m)).getAuth(p.pi, { minOAuthValidityMs: 60 * 60_000 }).then(Boolean, offline);
+      const ok = await this.refreshed(m, p.key, 60 * 60_000);
       if (!ok) { this.forget(m, p.key); this.onExpired?.(m, p.key); }
     }
   }
 
   /** After the account turned a request away: true if its sign-in still refreshes; if not, it is signed out for good. */
   async recheck(member: M, key: string) {
-    const ok = await (await this.runtime(member)).getAuth(this.offer(key).pi, { minOAuthValidityMs: 365 * 86_400_000 }).then(Boolean, offline);
+    const ok = await this.refreshed(member, key, 365 * 86_400_000);
     if (!ok) { await this.logout(member, key).catch(() => {}); this.forget(member, key); }
     return ok;
   }

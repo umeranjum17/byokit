@@ -28,7 +28,7 @@ test('portable entry bundles for a browser and can be imported', async () => {
 test('the shared fixtures: device-code start and poll, token responses', () => {
   const dc = fixture('device-code.json');
   for (const c of dc.start) {
-    if (c.error) assert.throws(() => deviceStart(c.status, c.body), c.body);
+    if (c.error) assert.throws(() => deviceStart(c.status, c.body));
     else assert.deepEqual(deviceStart(c.status, c.body), c.result);
   }
   for (const c of dc.poll) {
@@ -43,8 +43,16 @@ test('the shared fixtures: device-code start and poll, token responses', () => {
   }
 });
 
-test('exchange and refresh errors never expose token response bodies', async () => {
+test('device and token errors never expose response bodies', async () => {
   const secret = 'secret-refresh-token';
+  assert.throws(() => deviceStart(500, secret), (e: Error) => !e.message.includes(secret));
+  assert.throws(() => deviceStart(200, JSON.stringify({ device_auth_id: secret })), (e: Error) => !e.message.includes(secret));
+  for (const [status, body] of [[200, JSON.stringify({ authorization_code: secret })], [400, JSON.stringify({ error: { code: 'deviceauth_expired', token: secret } })], [500, secret]] as const) {
+    const p = devicePoll(status, body);
+    assert.equal(p.status, 'failed');
+    if (p.status === 'failed') assert.ok(!p.message.includes(secret));
+  }
+  assert.equal(devicePoll(400, '{"error":{"code":"deviceauth_expired"}}').status, 'failed');
   assert.throws(() => credentialOf({ access_token: secret, refresh_token: secret }), (e: Error) => !e.message.includes(secret));
   const original = globalThis.fetch;
   const store = memoryStore();

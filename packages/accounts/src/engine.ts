@@ -21,11 +21,11 @@ const json = (body: string) => { try { return JSON.parse(body); } catch { return
 
 export function deviceStart(status: number, body: string) {
   if (status === 404) throw new Error('OpenAI Codex device code login is not enabled for this server. Use browser login or verify the server URL.');
-  if (status < 200 || status > 299) throw new Error(`OpenAI Codex device code request failed with status ${status}${body ? `: ${body}` : ''}`);
+  if (status < 200 || status > 299) throw new Error(`OpenAI Codex device code request failed with status ${status}`);
   const j = json(body);
   const intervalSeconds = typeof j?.interval === 'string' ? Number(j.interval.trim()) : j?.interval;
   if (!j?.device_auth_id || !j.user_code || typeof intervalSeconds !== 'number' || !Number.isFinite(intervalSeconds) || intervalSeconds < 0)
-    throw new Error(`Invalid OpenAI Codex device code response: ${body}`);
+    throw new Error('Invalid OpenAI Codex device code response');
   return { deviceAuthId: String(j.device_auth_id), userCode: String(j.user_code), intervalSeconds };
 }
 
@@ -35,14 +35,15 @@ export function devicePoll(status: number, body: string): Poll {
     const j = json(body);
     return j?.authorization_code && j.code_verifier
       ? { status: 'complete', authorizationCode: j.authorization_code, codeVerifier: j.code_verifier }
-      : { status: 'failed', message: `Invalid OpenAI Codex device auth token response: ${body}` };
+      : { status: 'failed', message: 'Invalid OpenAI Codex device auth token response' };
   }
   if (status === 403 || status === 404) return { status: 'pending' };
   const error = json(body)?.error;
   const code = typeof error === 'object' ? error?.code : error;
   if (code === 'deviceauth_authorization_pending') return { status: 'pending' };
   if (code === 'slow_down') return { status: 'slow_down' };
-  return { status: 'failed', message: `OpenAI Codex device auth failed with status ${status}${body ? `: ${body}` : ''}` };
+  const detail = code === 'deviceauth_expired' || code === 'access_denied' ? `: ${code}` : '';
+  return { status: 'failed', message: `OpenAI Codex device auth failed with status ${status}${detail}` };
 }
 
 /** A token response as the stored credential, the same shape Pi keeps. */

@@ -2,7 +2,7 @@
   "rule": "First match wins, case-insensitive: token exchange failed|missing fields|accountId -> signIn.failed; expired|expire -> signIn.expired; denied|declined|access_denied|rejected|cancel -> signIn.declined; NETWORK -> signIn.offline; device code.*(disabled|not enabled)|enable device -> signIn.deviceCodeOff; else signIn.failed. NETWORK = fetch failed|network|ENOTFOUND|EAI_AGAIN|ECONN|timed? ?out|socket|unable to resolve host|failed to connect|connection (refused|reset) (the last three are how Android's networking says it).",
   "cases": [
     {
-      "error": "OpenAI Codex device auth failed with status 400: {\"error\":{\"code\":\"deviceauth_expired\"}}",
+      "error": "OpenAI Codex device auth failed with status 400: deviceauth_expired",
       "words": "signIn.expired"
     },
     {
