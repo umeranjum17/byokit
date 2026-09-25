@@ -27,13 +27,41 @@ class ChatGptAccount(
     @Volatile var restingUntil: Long = 0
         private set
     @Volatile private var busy = false
+    private var generation = 0L
+    private val signIns = mutableSetOf<SignIn>()
 
     /** Starts "Sign in with ChatGPT". Run [SignIn.run] on a background thread; show [SignIn.State] as it changes. */
-    fun signIn(via: SignIn.Via = SignIn.Via.BROWSER, onChange: (SignIn.State) -> Unit) = SignIn(this, via, onChange)
+    fun signIn(via: SignIn.Via = SignIn.Via.CODE, onChange: (SignIn.State) -> Unit) = SignIn(this, via, onChange)
+
+    @Synchronized internal fun register(signIn: SignIn): Long = generation.also { signIns.add(signIn) }
+
+    @Synchronized internal fun complete(signIn: SignIn, started: Long, cred: Credential): Boolean {
+        signIns.remove(signIn)
+        if (started != generation) {
+            runCatching { api.revoke(cred) }
+            return false
+        }
+        store.write(id, cred)
+        return true
+    }
+
+    @Synchronized internal fun finished(signIn: SignIn) { signIns.remove(signIn) }
 
     val signedIn: Boolean get() = store.read(id) != null
 
-    fun signOut() = store.write(id, null)
+    /**
+     * Signs out here and at ChatGPT, so the sign-in no longer works anywhere. Best effort: the sign-in is deleted here
+     * whatever ChatGPT answers, offline too. Network I/O (up to 10 s), so call it off the main thread.
+     */
+    @Synchronized fun signOut() {
+        generation++
+        signIns.forEach(SignIn::cancel)
+        try {
+            store.read(id)?.let(api::revoke)
+        } finally {
+            store.write(id, null)
+        }
+    }
 
     /**
      * A credential good for at least [minValidityMs], refreshed if needed; null when signed out. Only the account refusing

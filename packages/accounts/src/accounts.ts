@@ -11,13 +11,14 @@ import { memoryStore } from './stores.ts';
 import { callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';
 
 /** What signing in needs from an engine: Pi's `Models`, or anything shaped like it (the coding agent's `ModelRuntime`). */
-export type AuthHost = Pick<Models, 'login' | 'logout' | 'checkAuth' | 'getAuth'>;
+type BoundStore = CredentialStore & { signOut: (id: string, p: Provider) => Promise<void> };
+export type AuthHost = Pick<Models, 'login' | 'logout' | 'checkAuth' | 'getAuth'> & { readCredential: CredentialStore['read']; credentialStore: BoundStore };
 export type Member = string | number;
 /** What the person sees while signing in: the provider's own page to open (`via: 'browser'`), or a code to type there
  *  (`via: 'code'`), never the engine's own prompts. `why` names how a failed one failed, for apps that word it themselves. */
 export type SignIn = { state: 'waiting' | 'done' | 'failed'; via?: 'browser' | 'code'; url?: string; code?: string; expiresAt?: number; error?: string; why?: Why };
 export type Status = { account: string; name: string; state: 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included'; until?: number; words: string };
-type Flow = SignIn & { abort: AbortController; paste?: (text: string) => void; refuse?: (e: Error) => void; timedOut?: boolean; toCode?: boolean;
+type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text: string) => void; refuse?: (e: Error) => void; timedOut?: boolean; toCode?: boolean;
   oauthState?: string; done?: Promise<void>; shown?: () => void };
 
 export type AccountsOptions<M extends Member = Member> = {
@@ -45,11 +46,23 @@ export function planOf(access: string): { plan: string; email: string; work: boo
 
 const offline = (e: any) => failure(String(e?.message)) === 'offline';
 
+/** Ends a sign-in on the provider's side, as Codex's own logout does (openai/codex#17825): the refresh token, else the
+ *  access token, never retried (fixtures/conformance/revoke.json). */
+async function revoke(p: Provider, c: { access: string; refresh: string }) {
+  const body = c.refresh ? { token: c.refresh, token_type_hint: 'refresh_token', client_id: p.clientId } : { token: c.access, token_type_hint: 'access_token' };
+  const response = await fetch(p.revoke!, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
+  if (!response.ok) throw new Error(`ChatGPT sign-out failed (${response.status})`);
+}
+
 export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> {
   readonly providers: Provider[];
   private opts: AccountsOptions<M>;
   private runtimes = new Map<string, Promise<R>>();
   private stores = new Map<string, CredentialStore>();
+  private generations = new Map<string, number>();
+  private signals = new WeakMap<AbortSignal, number>();
+  private chains = new Map<string, Promise<void>>();
+  private signingOut = new Map<string, Promise<void>>();
   private flows = new Map<string, Flow>();
   private ready = new Map<string, boolean>();
   private lapsed = new Set<string>();
@@ -62,6 +75,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   onSignedIn?: (member: M, key: string) => void;
   /** Said once when a sign-in can no longer be refreshed. */
   onExpired?: (member: M, key: string) => void;
+  onSignOutError?: (member: M, key: string, error: Error) => void;
 
   constructor(opts: AccountsOptions<M> = {}) { this.opts = opts; this.providers = offered(opts.offer); }
 
@@ -72,10 +86,76 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     return s;
   }
 
-  /** A member's engine, holding only their own sign-ins (`store(member)`). Override to use another engine with the same seam. */
-  protected open(member: M): Promise<R> {
-    return Promise.resolve(builtinModels({ credentials: this.store(member), authContext: emptyAuthContext }) as unknown as R);
+  private async serial<T>(id: string, fn: () => Promise<T>): Promise<T> {
+    const previous = this.chains.get(id) ?? Promise.resolve();
+    const work = previous.then(fn, fn);
+    const tail = work.then(() => {}, () => {});
+    this.chains.set(id, tail);
+    try { return await work; } finally { if (this.chains.get(id) === tail) this.chains.delete(id); }
   }
+
+  protected boundStore(member: M, raw: CredentialStore): BoundStore {
+    const key = (id: string) => `${member}:${this.providers.find((p) => p.pi === id)?.key ?? id}`;
+    return {
+      read: (id, options) => raw.read(id, options),
+      list: (options) => raw.list(options),
+      modify: (id, fn, options) => {
+        const account = key(id);
+        const stale = Symbol();
+        const started = options?.signal ? this.signals.get(options.signal) ?? this.generations.get(account) ?? 0 : this.generations.get(account) ?? 0;
+        const discard = async (next: Awaited<ReturnType<CredentialStore['read']>>) => {
+          const p = this.providers.find((p) => p.pi === id);
+          if (next?.type === 'oauth' && p?.revoke) {
+            try { await revoke(p, next); } catch (e) {
+              const error = e instanceof Error ? e : new Error(String(e));
+              if (this.onSignOutError) this.onSignOutError(member, p.key, error);
+              else console.error(`sign-out ${p.key} for member ${member}:`, error);
+              throw error;
+            }
+          }
+        };
+        return this.serial(account, async () => {
+          if (started !== (this.generations.get(account) ?? 0)) {
+            await discard(await fn(undefined));
+            return undefined;
+          }
+          try {
+            return await raw.modify(id, async (current) => {
+              const next = await fn(current);
+              if (started !== (this.generations.get(account) ?? 0)) {
+                await discard(next);
+                throw stale;
+              }
+              return next;
+            }, options);
+          } catch (e) {
+            if (e === stale) return undefined;
+            throw e;
+          }
+        });
+      },
+      delete: (id, options) => this.serial(key(id), () => raw.delete(id, options)),
+      signOut: (id, p) => this.serial(key(id), async () => {
+        let error: unknown;
+        try {
+          const c = await raw.read(id);
+          if (c?.type === 'oauth') await revoke(p, c);
+        } catch (e) { error = e; }
+        await raw.delete(id);
+        if (error) throw error;
+      }),
+    };
+  }
+
+  protected engine(member: M, raw: CredentialStore): Promise<R> {
+    const credentials = this.boundStore(member, raw);
+    return Promise.resolve(Object.assign(builtinModels({ credentials, authContext: emptyAuthContext }), {
+      credentialStore: credentials, readCredential: (id: string) => credentials.read(id),
+    }) as unknown as R);
+  }
+
+  /** A member's engine, holding only their own sign-ins (`store(member)`). Override to use another engine with the same seam. */
+  protected open(member: M): Promise<R> { return this.engine(member, this.store(member)); }
 
   runtime(member: M) {
     let r = this.runtimes.get(String(member));
@@ -99,7 +179,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** Which ChatGPT the member signed in with: its plan, email, and whether it is a work account. Null when not signed in. */
   async plan(member: M) {
-    const c = await this.store(member).read(this.offer('chatgpt').pi).catch(() => undefined);
+    const c = await (await this.runtime(member)).readCredential(this.offer('chatgpt').pi).catch(() => undefined);
     return c?.type === 'oauth' ? planOf(c.access) : null;
   }
 
@@ -169,6 +249,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   async login(member: M, key: string, body: { via?: 'code' | 'browser'; fresh?: boolean } = {}): Promise<SignIn | null> {
     this.offer(key);
     const id = `${member}:${key}`;
+    const pending = this.signingOut.get(id);
+    if (pending) await pending.catch(() => {});
     const now = this.flows.get(id);
     if (now?.state === 'waiting' && body.via === 'code' && now.via === 'browser') {
       // "Having trouble?": the same sign-in carries on with a code instead.
@@ -176,7 +258,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       this.toCode(now);
       await Promise.race([visible, now.done]);
     } else if (now?.state !== 'waiting') {
-      const flow: Flow = { state: 'waiting', abort: new AbortController() };
+      const flow: Flow = { state: 'waiting', abort: new AbortController(), generation: this.generations.get(id) ?? 0 };
+      this.signals.set(flow.abort.signal, flow.generation);
       this.flows.set(id, flow);
       const visible = new Promise<void>((r) => (flow.shown = r));
       flow.done = this.signIn(member, key, body, flow);
@@ -240,8 +323,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         catcher?.closeIdleConnections();
         await attempt('code');
       }
-      // Never half signed in: only a sign-in the engine can use counts.
+      if (flow.generation !== (this.generations.get(id) ?? 0) || flow.state !== 'waiting') return;
       if (!(await rt.checkAuth(p.pi).catch(() => undefined))) { await rt.logout(p.pi).catch(() => {}); throw new Error('no usable credential'); }
+      if (flow.generation !== (this.generations.get(id) ?? 0) || flow.state !== 'waiting') return;
       flow.state = 'done';
       this.ready.set(id, true);
       for (const s of [this.lapsed, this.without]) s.delete(id);
@@ -316,10 +400,26 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     return ok;
   }
 
+  /** Signs out here, and at the provider too where it can end a sign-in (ChatGPT), best effort: the sign-in is deleted
+   *  here whatever the provider answers. */
   async logout(member: M, key: string) {
-    await (await this.runtime(member)).logout(this.offer(key).pi);
-    this.ready.set(`${member}:${key}`, false);
-    this.onChange?.(member, key);
+    const p = this.offer(key);
+    const id = `${member}:${key}`;
+    this.generations.set(id, (this.generations.get(id) ?? 0) + 1);
+    this.cancel(member, key);
+    const work = (async () => {
+      const rt = await this.runtime(member);
+      let error: unknown;
+      try {
+        if (p.revoke) await rt.credentialStore.signOut(p.pi, p);
+        else await rt.logout(p.pi);
+      } catch (e) { error = e; }
+      this.ready.set(id, false);
+      this.onChange?.(member, key);
+      if (error) throw error;
+    })();
+    this.signingOut.set(id, work);
+    try { await work; } finally { if (this.signingOut.get(id) === work) this.signingOut.delete(id); }
   }
 
   view(member: M, key: string): SignIn | null {

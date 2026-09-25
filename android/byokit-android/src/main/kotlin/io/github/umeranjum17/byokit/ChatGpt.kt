@@ -79,6 +79,18 @@ class ChatGpt(
         return credentialFrom(json, now())
     }
 
+    /**
+     * Ends a sign-in at ChatGPT too, as Codex's own logout does (openai/codex#17825): the refresh token, else the access
+     * token, one request, never retried (fixtures/conformance/revoke.json). Throws on failure; [ChatGptAccount.signOut]
+     * deletes the sign-in here whatever it answers.
+     */
+    fun revoke(cred: Credential) {
+        val body = if (cred.refresh.isNotEmpty()) JSONObject().put("token", cred.refresh).put("token_type_hint", "refresh_token").put("client_id", CLIENT_ID)
+            else JSONObject().put("token", cred.access).put("token_type_hint", "access_token")
+        val (status, text) = request("$authBase/oauth/revoke", "application/json", body.toString(), timeoutMs = 10_000, noReplay = true)
+        if (status !in 200..299) throw ChatGptException("ChatGPT sign-out failed ($status): $text")
+    }
+
     /** One question, one answer: a streamed Responses call collected into its text. */
     fun respond(cred: Credential, model: String, instructions: String, input: String): String {
         val body = JSONObject().put("model", model).put("store", false).put("stream", true)
@@ -86,6 +98,7 @@ class ChatGpt(
             .put("input", JSONArray().put(JSONObject().put("role", "user")
                 .put("content", JSONArray().put(JSONObject().put("type", "input_text").put("text", input)))))
             .put("text", JSONObject().put("verbosity", "low"))
+            .put("reasoning", JSONObject().put("effort", "none")) // pi-ai's default for gpt-6-sol and -luna (thinking off)
         val c = open("$apiBase/codex/responses", "application/json", body.toString(), mapOf(
             "Authorization" to "Bearer ${cred.access}", "chatgpt-account-id" to cred.accountId,
             "OpenAI-Beta" to "responses=experimental", "accept" to "text/event-stream",
@@ -103,8 +116,8 @@ class ChatGpt(
 
     private fun post(url: String, json: JSONObject) = request(url, "application/json", json.toString())
 
-    private fun request(url: String, type: String, body: String): Pair<Int, String> {
-        val c = open(url, type, body)
+    private fun request(url: String, type: String, body: String, timeoutMs: Int = 120_000, noReplay: Boolean = false): Pair<Int, String> {
+        val c = open(url, type, body, timeoutMs = timeoutMs, noReplay = noReplay)
         try {
             val status = c.responseCode
             val text = (if (status in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
@@ -114,17 +127,19 @@ class ChatGpt(
         }
     }
 
-    private fun open(url: String, type: String, body: String, headers: Map<String, String> = emptyMap()): HttpURLConnection {
+    private fun open(url: String, type: String, body: String, headers: Map<String, String> = emptyMap(), timeoutMs: Int = 120_000, noReplay: Boolean = false): HttpURLConnection {
         val c = URL(url).openConnection() as HttpURLConnection
         c.requestMethod = "POST"
-        c.connectTimeout = 15_000
-        c.readTimeout = 120_000
+        c.connectTimeout = minOf(15_000, timeoutMs)
+        c.readTimeout = timeoutMs
         c.doOutput = true
         c.setRequestProperty("Content-Type", type)
         c.setRequestProperty("originator", originator)
         c.setRequestProperty("User-Agent", "byokit-android/0.1")
         headers.forEach(c::setRequestProperty)
-        c.outputStream.use { it.write(body.toByteArray()) }
+        val bytes = body.toByteArray()
+        if (noReplay) c.setFixedLengthStreamingMode(bytes.size)
+        c.outputStream.use { it.write(bytes) }
         return c
     }
 

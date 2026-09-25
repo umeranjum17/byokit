@@ -4,6 +4,7 @@ import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -18,6 +19,8 @@ import java.net.URI
 import java.net.URL
 import java.net.URLDecoder
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 
@@ -28,6 +31,7 @@ class SignInFlowTest {
     private val tokenBodies = CopyOnWriteArrayList<String>()
     @Volatile private var pendingPolls = 1
     @Volatile private var usercodeStatus = 200
+    @Volatile private var droppedPolls = 0
     private lateinit var account: ChatGptAccount
     private val states = CopyOnWriteArrayList<SignIn.State>()
 
@@ -36,7 +40,8 @@ class SignInFlowTest {
             override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
                 "/api/accounts/deviceauth/usercode" -> if (usercodeStatus != 200) MockResponse().setResponseCode(usercodeStatus)
                     else json("""{"device_auth_id":"da_1","user_code":"ABCD-12345","interval":"0"}""")
-                "/api/accounts/deviceauth/token" -> if (polls.incrementAndGet() <= pendingPolls) MockResponse().setResponseCode(403)
+                "/api/accounts/deviceauth/token" -> if (polls.incrementAndGet() <= droppedPolls) MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST)
+                    else if (polls.get() <= droppedPolls + pendingPolls) MockResponse().setResponseCode(403)
                     else json("""{"authorization_code":"ac_device","code_verifier":"cv_device"}""")
                 "/oauth/token" -> {
                     tokenBodies += request.body.readUtf8()
@@ -101,6 +106,14 @@ class SignInFlowTest {
         assertNotNull(account.store.read("chatgpt"))
     }
 
+    @Test fun pollsThatCantGetThroughWaitForTheNext() {
+        droppedPolls = 2 // the app behind the browser on Android 15+: its network is cut for a while
+        val (s, t) = start(SignIn.Via.CODE)
+        t.join(15_000)
+        assertEquals(SignIn.Phase.DONE, s.state.phase)
+        assertEquals(4, polls.get())
+    }
+
     @Test fun pastedAddressFinishesTheBrowserFlow() {
         val (s, t) = start(SignIn.Via.BROWSER)
         val state = query(waiting().url!!)["state"]
@@ -108,6 +121,13 @@ class SignInFlowTest {
         t.join(10_000)
         assertEquals(SignIn.Phase.DONE, s.state.phase)
         assertTrue(tokenBodies.single().contains("code=ac_pasted"))
+    }
+
+    @Test fun codeIsTheDefault() {
+        val s = account.signIn { states += it }
+        thread { s.run() }.join(15_000)
+        assertEquals("ABCD-12345", states.first { it.phase == SignIn.Phase.WAITING }.code)
+        assertEquals(SignIn.Phase.DONE, s.state.phase)
     }
 
     @Test fun busyPortFallsBackToACode() {
@@ -128,6 +148,35 @@ class SignInFlowTest {
         assertEquals(SignIn.Phase.CANCELLED, s.state.phase)
         assertEquals("Sign-in stopped. Nothing was kept.", s.state.words)
         assertNull(account.store.read("chatgpt"))
+    }
+
+    @Test fun signOutDiscardsAnExchangeAlreadyInFlight() {
+        val exchanging = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val revoked = CopyOnWriteArrayList<String>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/api/accounts/deviceauth/usercode" -> json("""{"device_auth_id":"da_1","user_code":"ABCD-12345","interval":"0"}""")
+                "/api/accounts/deviceauth/token" -> json("""{"authorization_code":"ac_device","code_verifier":"cv_device"}""")
+                "/oauth/token" -> {
+                    exchanging.countDown()
+                    assertTrue(release.await(5, TimeUnit.SECONDS))
+                    json("""{"access_token":"$JWT","refresh_token":"rt_late","expires_in":3600}""")
+                }
+                "/oauth/revoke" -> {
+                    revoked += request.body.readUtf8()
+                    MockResponse().setResponseCode(200)
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val (s, t) = start(SignIn.Via.CODE)
+        assertTrue(exchanging.await(10, TimeUnit.SECONDS))
+        try { account.signOut() } finally { release.countDown() }
+        t.join(10_000)
+        assertEquals(SignIn.Phase.CANCELLED, s.state.phase)
+        assertNull(account.store.read("chatgpt"))
+        assertTrue(revoked.single().contains("rt_late"))
     }
 
     @Test fun tooLongExpires() {

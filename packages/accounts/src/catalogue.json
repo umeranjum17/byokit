@@ -8,6 +8,8 @@
       "fast": "gpt-6-luna"
     },
     "callbackPort": 1455,
+    "clientId": "app_EMoamEEZ73f0CkXaXp7hrann",
+    "revoke": "https://auth.openai.com/oauth/revoke",
     "terms": "grey",
     "hidden": false,
     "why": "Signs in through Codex's own sign-in. OpenAI documents it for Codex, not for other apps, and has endorsed one other app using it.",

@@ -14,10 +14,12 @@ import kotlin.concurrent.thread
 /**
  * "Sign in with ChatGPT", done entirely on the phone.
  *
- * - [Via.BROWSER] (default): the app listens on 127.0.0.1:1455 (the only return address Codex's sign-in accepts),
- *   shows [State.url] for the app to open in a Custom Tab, and catches the browser coming back. No code to type.
- * - [Via.CODE]: a code the person types at auth.openai.com/codex/device. Works anywhere, but ChatGPT needs "device code
- *   sign-in" switched on in its Security settings first. The browser flow falls back to it when port 1455 is taken.
+ * - [Via.CODE] (default): a code the person types at auth.openai.com/codex/device, on this phone or any other screen.
+ *   Proven on a phone; ChatGPT may need "device code sign-in" switched on in its Security settings first.
+ * - [Via.BROWSER]: the app listens on 127.0.0.1:1455 (the only return address
+ *   Codex's sign-in accepts), shows [State.url] for the app to open in a Custom Tab, and catches the browser coming back.
+ *   On Android 15+ the app must hold a short foreground service meanwhile, or the phone cuts the loopback once the app
+ *   is behind the browser. Falls back to a code when port 1455 is taken.
  *
  * Phases: OPENING → WAITING → DONE | CANCELLED | EXPIRED | FAILED | OFFLINE. Nothing is kept unless it ends DONE with a
  * usable sign-in. [run] blocks until then, so call it on a background thread; [cancel] and [paste] work from any thread.
@@ -41,6 +43,7 @@ class SignIn internal constructor(
     }
 
     private val events = LinkedBlockingQueue<Event>()
+    private val generation = account.register(this)
     private val api = account.api
     private val name = account.name
     private val deadline = api.now() + timeoutMs
@@ -59,7 +62,7 @@ class SignIn internal constructor(
                 Via.BROWSER -> browser() ?: code()
                 Via.CODE -> code()
             }
-            account.store.write(account.id, cred) // usable: it carries the account id every call needs
+            if (!account.complete(this, generation, cred)) throw Stop(State(Phase.CANCELLED, say("signIn.cancelled")))
             State(Phase.DONE, say("status.ready"))
         } catch (e: Stop) {
             e.state
@@ -72,6 +75,7 @@ class SignIn internal constructor(
                 else -> Phase.FAILED
             }, say(key))
         }
+        account.finished(this)
         emit(end)
         return end
     }
@@ -131,7 +135,10 @@ class SignIn internal constructor(
             url = ChatGpt.DEVICE_VERIFICATION_URI, code = dc.userCode, expiresAt = deadline))
         var intervalMs = maxOf(1000L, dc.intervalSeconds * 1000)
         while (true) {
-            when (val p = api.pollDeviceCode(dc)) {
+            // Android 15+ cuts an app's network while it is behind the browser: a poll that can't get through waits for
+            // the next, so the sign-in finishes once the person is back rather than ending "offline".
+            val poll = try { api.pollDeviceCode(dc) } catch (e: IOException) { if (e is ChatGptException) throw e else Poll.Pending }
+            when (val p = poll) {
                 is Poll.Complete -> return api.exchange(p.authorizationCode, p.codeVerifier, ChatGpt.DEVICE_REDIRECT_URI)
                 is Poll.Failed -> throw IOException(p.message)
                 Poll.SlowDown -> intervalMs += 5000
