@@ -158,6 +158,42 @@ test('direct Tailscale is the fallback and the rollback: it removes only the map
   await assert.rejects(reach({ port: 8792, via: 'tailscale-direct', tailscale }), /no Tailscale address/);
 });
 
+test('disabled Serve does not block direct rollback and retains the cleanup fingerprint', async () => {
+  fake(self, { serveStatus: 'Serve is not enabled on your tailnet', serveStatusExit: 1 });
+  const at = mark();
+  assert.deepEqual(await reach({ port: 8792, via: 'tailscale-direct', previous: owned, tailscale }), {
+    urls: ['ws://100.64.0.1:8792'], bind: '0.0.0.0', pendingCleanup: owned,
+  });
+  assert.doesNotMatch(since(at), /^serve --https=443 --set-path=\/ off$/m);
+});
+
+test('failed cleanup retains its fingerprint on LAN, private and port transitions', async () => {
+  fake(self, { serveStatus: 'Serve is not enabled on your tailnet', serveStatusExit: 1 });
+  const interfaces = { eno1: [{ family: 'IPv4', internal: false, address: '192.168.1.8' }], wt0: [{ family: 'IPv4', internal: false, address: '100.90.0.4' }] } as never;
+  assert.deepEqual(await reach({ port: 8792, via: 'lan', previous: owned, tailscale, interfaces }), {
+    urls: ['ws://192.168.1.8:8792'], bind: '0.0.0.0', pendingCleanup: owned,
+  });
+  assert.deepEqual(await reach({ port: 8792, via: 'private', previous: owned, tailscale, interfaces }), {
+    urls: ['ws://100.90.0.4:8792'], bind: '0.0.0.0', pendingCleanup: owned,
+  });
+  assert.deepEqual(await reach({ port: 8793, via: 'lan', previous: owned, tailscale, interfaces }), {
+    urls: ['ws://192.168.1.8:8793'], bind: '0.0.0.0', pendingCleanup: owned,
+  });
+  assert.deepEqual(await reach({ port: 8792, via: 'lan', previous: owned, tailscale: { bin: join(dir, 'not-installed') }, interfaces }), {
+    urls: ['ws://192.168.1.8:8792'], bind: '0.0.0.0', pendingCleanup: owned,
+  });
+});
+
+test('DNS rename keeps old cleanup fingerprint when removal fails', async () => {
+  const old = { ...owned, dnsName: 'old.tailnet.ts.net' };
+  fake(self, { serveStatus: JSON.stringify({ AllowFunnel: { 'old.tailnet.ts.net:443': true }, Web: {
+    'old.tailnet.ts.net:443': { Handlers: { '/': { Proxy: owned.proxy } } },
+  } }) });
+  assert.deepEqual(await reach({ port: 8792, previous: old, tailscale }), {
+    urls: ['wss://dev.tailnet.ts.net'], bind: '127.0.0.1', ingress: owned, pendingCleanup: old,
+  });
+});
+
 test('without Tailscale, auto falls back to LAN; tailscale mode says it is missing', async () => {
   const missing = { bin: join(dir, 'not-installed') };
   const interfaces = { eno1: [{ family: 'IPv4', internal: false, address: '192.168.1.8' }] } as never;

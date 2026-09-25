@@ -6,9 +6,10 @@ Serve, direct Tailscale, a private overlay network or the LAN. It can also adver
 ```ts
 import { advertise, reach } from '@byokit/reach';
 
-const { urls, bind, ingress } = await reach({ port: 8792, previous: saved.ingress });
+const { urls, bind, ingress, pendingCleanup } = await reach({ port: 8792, previous: saved.ingress });
 server.listen(8792, bind);        // '127.0.0.1' behind Serve, '0.0.0.0' otherwise
-saved.ingress = ingress;          // the Serve mapping's fingerprint; pass it back next time
+saved.ingress = ingress;
+if (pendingCleanup) saved.pendingCleanup = pendingCleanup; // retry unserve() later
 const code = host.offer({ urls });
 ```
 
@@ -21,6 +22,8 @@ const code = host.offer({ urls });
 | `tailscale-direct` | `ws://<tailnet IP>:<port>` | `0.0.0.0` |
 | `private` | another overlay network (NetBird, WireGuard, ZeroTier, …) | `0.0.0.0` |
 | `lan` | every physical LAN address (no Docker, VM or VPN bridges) | `0.0.0.0` |
+
+IPv6-only networks: not yet.
 
 Tailscale is transport only. Link's handshake still checks every device key.
 
@@ -44,6 +47,8 @@ These are the rules from muxr's decision 0004.
   Verify-after-write detects a conflicting final state but cannot eliminate that race.
 - **Direct fallback and rollback.** If Serve is disabled on the tailnet (the error includes the admin link), times
   out, or is taken, use `via: 'tailscale-direct'`. With `previous`, that also removes the mapping this package made.
+  If cleanup cannot be verified, the requested route is still returned with `pendingCleanup: previous`; persist that
+  fingerprint and retry `unserve(pendingCleanup)` later. A successful cleanup omits `pendingCleanup`.
 
 The CLI is `tailscale` on `PATH`, then the macOS app. Pass `tailscale: { bin, timeoutMs }` to choose another. The
 lower-level steps are exported too: `tailscaleStatus`, `tailscaleName`, `inspectServe`, `serve`, `unserve`, and

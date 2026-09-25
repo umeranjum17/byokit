@@ -113,10 +113,13 @@ export async function inspectServe(port: number, dnsName: string, o?: TailscaleO
  * Publish `127.0.0.1:<port>` at `https://<MagicDNS name>` inside the tailnet (never Funnel). Refuses a root someone else
  * owns; reuses only a mapping recorded by this app. Returns undefined when Tailscale isn't installed.
  */
-export async function serve(port: number, o?: TailscaleOptions, previous?: ServeIngress): Promise<{ url: string; ingress: ServeIngress } | undefined> {
+export async function serve(port: number, o?: TailscaleOptions, previous?: ServeIngress): Promise<{ url: string; ingress: ServeIngress; pendingCleanup?: ServeIngress } | undefined> {
   const dnsName = await tailscaleName(o);
   if (dnsName === undefined) return undefined;
-  if (previous?.port === port && previous.dnsName !== dnsName) await unserve(previous, o);
+  let pendingCleanup: ServeIngress | undefined;
+  if (previous?.port === port && previous.dnsName !== dnsName) {
+    try { await unserve(previous, o); } catch { pendingCleanup = previous; }
+  }
   const proxy = loopback(port);
   const recorded = previous?.kind === 'tailscale-serve' && previous.port === port && previous.dnsName === dnsName && previous.proxy === proxy;
   const root = await inspectServe(port, dnsName, { ...o, ...(recorded ? { proxy } : {}) });
@@ -130,7 +133,7 @@ export async function serve(port: number, o?: TailscaleOptions, previous?: Serve
     if (after.status === 'occupied') throw new Error(`${SERVE_OWNED_ERROR}; another service took the Serve root after setup`);
     if (after.status !== 'ours') throw new Error('could not verify the Tailscale Serve route after setup');
   }
-  return { url: `wss://${dnsName}`, ingress: { kind: 'tailscale-serve', port, dnsName, proxy } };
+  return { url: `wss://${dnsName}`, ingress: { kind: 'tailscale-serve', port, dnsName, proxy }, ...(pendingCleanup ? { pendingCleanup } : {}) };
 }
 
 /** Remove a mapping `serve` made, only while Serve still points where it recorded. Returns whether it removed one. */
@@ -138,7 +141,8 @@ export async function unserve(ingress: ServeIngress | undefined, o?: TailscaleOp
   if (ingress?.kind !== 'tailscale-serve' || ingress.proxy !== loopback(ingress.port)) return false;
   const root = await inspectServe(ingress.port, ingress.dnsName, { ...o, proxy: ingress.proxy });
   if (root.status === 'funnel') throw new Error(root.reason);
-  if (root.missing || root.status === 'free' || root.status === 'occupied') return false;
+  if (root.missing) throw new Error('cannot inspect the previous Tailscale Serve route; leaving it unchanged');
+  if (root.status === 'free' || root.status === 'occupied') return false;
   if (root.status !== 'ours') throw new Error('cannot inspect the previous Tailscale Serve route; leaving it unchanged');
   const r = await run(['serve', '--https=443', '--set-path=/', 'off'], o);
   if (r.code !== 0 || r.error) throw new Error(`could not remove the previous Tailscale Serve route: ${serveFailure(r)}`);
