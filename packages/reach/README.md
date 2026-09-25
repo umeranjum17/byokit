@@ -33,7 +33,7 @@ These are the rules from muxr's decision 0004.
 
 - **Never Funnel.** The only Serve command is `tailscale serve --yes --bg --https=443 http://127.0.0.1:<port>`, which
   is visible only inside the tailnet. A root already enabled for Funnel is refused, including when its proxy matches
-  the recorded mapping.
+  the recorded mapping; turn Funnel off before changing routes or DNS names.
 - **The server stays on loopback** behind Serve (`bind: '127.0.0.1'`).
 - **The machine's own `Self.DNSName` is used.** A missing or invalid MagicDNS name is an error. A logged-out or
   broken Tailscale is an error too. Neither one falls back to the LAN without being asked.

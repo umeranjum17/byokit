@@ -1,6 +1,6 @@
 // The addresses a phone can dial the home computer on, for @byokit/link's `offer({ urls })`. Node only.
 import { hostname, networkInterfaces, type NetworkInterfaceInfo } from 'node:os';
-import { serve, tailscaleStatus, unserve, type ServeIngress, type TailscaleOptions } from './tailscale.ts';
+import { FUNNEL_ERROR, serve, tailscaleStatus, unserve, type ServeIngress, type TailscaleOptions } from './tailscale.ts';
 
 export * from './tailscale.ts';
 
@@ -60,7 +60,11 @@ export async function reach(o: { port: number; via?: Via; previous?: ServeIngres
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('port must be 1-65535');
   let pendingCleanup: ServeIngress | undefined;
   if (previous && (via === 'tailscale-direct' || via === 'private' || via === 'lan' || previous.port !== port)) {
-    try { await unserve(previous, ts); } catch { pendingCleanup = previous; }
+    try { await unserve(previous, ts); }
+    catch (error) {
+      if (error instanceof Error && error.message === FUNNEL_ERROR) throw error;
+      pendingCleanup = previous;
+    }
   }
   if (via === 'auto' || via === 'tailscale') {
     const served = await serve(port, ts, previous);
@@ -94,10 +98,8 @@ export type Bonjour = {
 export async function advertise(o: { type: string; port: number; name?: string; txt?: Record<string, string>; bonjour?: Bonjour }): Promise<{ stop(): Promise<void> }> {
   // bonjour-service's typings give Service.stop as a bare CallableFunction; it takes a callback.
   const bonjour = o.bonjour ?? new (await import('bonjour-service')).default.Bonjour() as unknown as Bonjour;
-  const machine = hostname().toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 40);
   const service = bonjour.publish({
     name: o.name ?? `${o.type}-${hostname()}`,
-    host: `${o.type}-${machine}-${o.port}`,
     type: o.type,
     port: o.port,
     ...(o.txt ? { txt: o.txt } : {}),

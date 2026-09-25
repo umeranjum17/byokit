@@ -14,6 +14,7 @@ export type ServeIngress = { kind: 'tailscale-serve'; port: number; dnsName: str
 export type ServeRoot = 'free' | 'ours' | 'occupied' | 'funnel' | 'disabled' | 'inconclusive';
 
 export const SERVE_OWNED_ERROR = 'Tailscale Serve root is already owned by another service; use direct Tailscale or remove it yourself';
+export const FUNNEL_ERROR = 'Funnel is on for this Serve root; reach never uses Funnel. Turn it off before continuing.';
 
 type Run = { code: number | null; stdout: string; stderr: string; error?: { code?: string | number | null; message: string } };
 
@@ -102,7 +103,7 @@ export async function inspectServe(port: number, dnsName: string, o?: TailscaleO
   try { status = JSON.parse(r.stdout || '{}'); }
   catch { return { status: 'inconclusive', reason: 'Tailscale Serve returned invalid status JSON' }; }
   if (status?.AllowFunnel?.[`${dnsName}:443`] === true) {
-    return { status: 'funnel', reason: 'Funnel is on for this Serve root; reach never uses Funnel. Turn it off before continuing.' };
+    return { status: 'funnel', reason: FUNNEL_ERROR };
   }
   const handler = serveRootProxy(status, dnsName);
   if (handler === undefined) return { status: 'free' };
@@ -118,7 +119,11 @@ export async function serve(port: number, o?: TailscaleOptions, previous?: Serve
   if (dnsName === undefined) return undefined;
   let pendingCleanup: ServeIngress | undefined;
   if (previous?.port === port && previous.dnsName !== dnsName) {
-    try { await unserve(previous, o); } catch { pendingCleanup = previous; }
+    try { await unserve(previous, o); }
+    catch (error) {
+      if (error instanceof Error && error.message === FUNNEL_ERROR) throw error;
+      pendingCleanup = previous;
+    }
   }
   const proxy = loopback(port);
   const recorded = previous?.kind === 'tailscale-serve' && previous.port === port && previous.dnsName === dnsName && previous.proxy === proxy;

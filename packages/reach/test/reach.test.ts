@@ -184,14 +184,24 @@ test('failed cleanup retains its fingerprint on LAN, private and port transition
   });
 });
 
-test('DNS rename keeps old cleanup fingerprint when removal fails', async () => {
+test('DNS rename refuses a Funnel-enabled old root without serving a new one', async () => {
   const old = { ...owned, dnsName: 'old.tailnet.ts.net' };
   fake(self, { serveStatus: JSON.stringify({ AllowFunnel: { 'old.tailnet.ts.net:443': true }, Web: {
     'old.tailnet.ts.net:443': { Handlers: { '/': { Proxy: owned.proxy } } },
   } }) });
-  assert.deepEqual(await reach({ port: 8792, previous: old, tailscale }), {
-    urls: ['wss://dev.tailnet.ts.net'], bind: '127.0.0.1', ingress: owned, pendingCleanup: old,
-  });
+  const at = mark();
+  await assert.rejects(reach({ port: 8792, previous: old, tailscale }), /Funnel is on.*Turn it off before continuing/);
+  assert.doesNotMatch(since(at), /^serve --yes|^serve --https=443 --set-path=\/ off$/m);
+});
+
+test('a Funnel-enabled previous root stops direct, private, LAN and port transitions', async () => {
+  fake(self, { serveStatus: funnel });
+  const at = mark();
+  const interfaces = { eno1: [{ family: 'IPv4', internal: false, address: '192.168.1.8' }], wt0: [{ family: 'IPv4', internal: false, address: '100.90.0.4' }] } as never;
+  for (const [via, port] of [['tailscale-direct', 8792], ['private', 8792], ['lan', 8792], ['lan', 8793]] as const) {
+    await assert.rejects(reach({ via, port, previous: owned, tailscale, interfaces }), /Funnel is on.*Turn it off before continuing/);
+  }
+  assert.doesNotMatch(since(at), /^serve --yes|^serve --https=443 --set-path=\/ off$/m);
 });
 
 test('without Tailscale, auto falls back to LAN; tailscale mode says it is missing', async () => {
@@ -249,8 +259,6 @@ test('advertise publishes one mDNS service and stops it', async () => {
   };
   const ad = await advertise({ type: 'muxr', port: 8792, name: 'Desk', txt: { url: 'ws://192.168.1.8:8792' }, bonjour });
   await ad.stop();
-  const config = calls[0] as { name: string; type: string; port: number; host: string; txt: object };
-  assert.deepEqual([config.name, config.type, config.port, config.txt], ['Desk', 'muxr', 8792, { url: 'ws://192.168.1.8:8792' }]);
-  assert.match(config.host, /^muxr-[a-z0-9-]+-8792$/);
+  assert.deepEqual(calls[0], { name: 'Desk', type: 'muxr', port: 8792, txt: { url: 'ws://192.168.1.8:8792' } });
   assert.deepEqual(calls.slice(1), ['stop', 'destroy']);
 });
