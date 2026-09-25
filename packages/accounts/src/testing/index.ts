@@ -51,3 +51,4 @@ export function decoy(root = mkdtempSync(join(tmpdir(), 'byokit-decoy-'))) {
     ran: () => readdirSync(marks),
   };
 }
+export { mockJwt, mockOpenAI, type MockOpenAIOptions } from './mock-openai.ts';

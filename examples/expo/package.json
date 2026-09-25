@@ -1,0 +1,29 @@
+{
+  "name": "byokit-expo",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "@byokit/accounts": "file:../../packages/accounts",
+    "@byokit/ui-core": "file:../../packages/ui-core",
+    "expo": "~57.0.25",
+    "expo-build-properties": "~57.0.22",
+    "expo-secure-store": "~57.0.4",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-native": "0.86.3"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "mock": "node ../../packages/accounts/src/testing/mock-openai.ts 21455",
+    "typecheck": "tsc --noEmit",
+    "bundle": "expo export --platform android --platform ios --output-dir dist"
+  },
+  "private": true
+}

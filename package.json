@@ -13,12 +13,14 @@
   "scripts": {
     "build": "tsc -b packages/accounts packages/link packages/decide packages/ui-core",
     "check": "tsc -p tsconfig.json",
-    "test": "sh scripts/test.sh"
+    "test": "sh scripts/test.sh",
+    "test:browser": "sh scripts/test.sh 'examples/pwa/*.test.ts'"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/ws": "^8.18.1",
     "esbuild": "^0.28.2",
+    "playwright": "^1.63.0",
     "tweetnacl": "1.0.3",
     "typescript": "^5.9.0",
     "ws": "^8.21.3"

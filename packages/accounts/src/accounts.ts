@@ -1,13 +1,12 @@
 // Sign in with the AI plan you already pay for, one person at a time, into that person's own store. Sharing one
 // person's plan breaks the vendors' terms, so every sign-in, rest and refresh is keyed by member and account.
-// Pi's own sign-in flows do the work; the app only shows the provider's page to open or the code to type.
-import { createServer, type Server } from 'node:http';
+// The engine does the signing in (Pi's own flows on a computer, portableEngine on phones and in browsers); the app only
+// shows the provider's page to open or the code to type. No Node import here: see index.ts for the computer's side.
 import type { AuthPrompt, CredentialStore, Models } from '@earendil-works/pi-ai';
-import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { offered, provider, type Provider } from './catalogue.ts';
-import { emptyAuthContext } from './isolate.ts';
+import { claims, PORTABLE, portableEngine } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
-import { memoryStore } from './stores.ts';
+import { memoryStore, type EndingStore } from './stores.ts';
 import { callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';
 
 /** What signing in needs from an engine: Pi's `Models`, or anything shaped like it (the coding agent's `ModelRuntime`). */
@@ -20,6 +19,13 @@ export type SignIn = { state: 'waiting' | 'done' | 'failed'; via?: 'browser' | '
 export type Status = { account: string; name: string; state: 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included'; until?: number; words: string };
 type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text: string) => void; refuse?: (e: Error) => void; timedOut?: boolean; toCode?: boolean;
   oauthState?: string; done?: Promise<void>; shown?: () => void };
+
+/** Listens on this computer for the provider's page coming back: each request's path in, the page to answer with out. */
+export type Loopback = (port: number, handle: (path: string) => Promise<{ status: number; html: string }>) => Promise<{ close(): void }>;
+/** What differs by platform: the engine that signs in, which providers it can, and (on a computer) a loopback listener. */
+export type Platform = { engine: (credentials: CredentialStore, authBase?: string) => AuthHost; signsIn: (pi: string) => boolean; loopback?: Loopback };
+/** Phones and browsers: ChatGPT by device code, no listener. */
+export const portable: Platform = { engine: (c, base) => portableEngine(c, { base }), signsIn: (pi) => PORTABLE.includes(pi) };
 
 export type AccountsOptions<M extends Member = Member> = {
   /** The accounts this app offers, in order. Default: every provider not hidden (ChatGPT, OpenRouter). */
@@ -34,23 +40,27 @@ export type AccountsOptions<M extends Member = Member> = {
   redirectMs?: number;
   /** Listen here for the provider's redirect instead of its fixed port (tests, so they never meet a real sign-in). */
   callbackPort?: number;
+  /** Where OpenAI's sign-in lives, for a stand-in in tests and demos (`mockOpenAI()` from `@byokit/accounts/testing`).
+   *  Phones and browsers sign in and sign out there; on a computer Pi's engine always calls OpenAI, and only sign-out's
+   *  revoke goes here. */
+  authBase?: string;
 };
 
 /** The ChatGPT plan behind a sign-in, from its own token: a work plan (Business, Enterprise, Edu) follows the employer's rules. */
 export function planOf(access: string): { plan: string; email: string; work: boolean } {
-  let claims: any = {};
-  try { claims = JSON.parse(Buffer.from(access.split('.')[1] ?? '', 'base64url').toString()); } catch {}
-  const plan = String(claims['https://api.openai.com/auth']?.chatgpt_plan_type ?? '').toLowerCase();
-  return { plan, email: String(claims['https://api.openai.com/profile']?.email ?? claims.email ?? ''), work: /^(team|business|enterprise|edu|education|k12)/.test(plan) };
+  let c: any = {};
+  try { c = claims(access); } catch {}
+  const plan = String(c['https://api.openai.com/auth']?.chatgpt_plan_type ?? '').toLowerCase();
+  return { plan, email: String(c['https://api.openai.com/profile']?.email ?? c.email ?? ''), work: /^(team|business|enterprise|edu|education|k12)/.test(plan) };
 }
 
 const offline = (e: any) => failure(String(e?.message)) === 'offline';
 
 /** Ends a sign-in on the provider's side, as Codex's own logout does (openai/codex#17825): the refresh token, else the
  *  access token, never retried (fixtures/conformance/revoke.json). */
-async function revoke(p: Provider, c: { access: string; refresh: string }) {
-  const body = c.refresh ? { token: c.refresh, token_type_hint: 'refresh_token', client_id: p.clientId } : { token: c.access, token_type_hint: 'access_token' };
-  const response = await fetch(p.revoke!, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
+async function revoke(url: string, clientId: string | undefined, c: { access: string; refresh: string }) {
+  const body = c.refresh ? { token: c.refresh, token_type_hint: 'refresh_token', client_id: clientId } : { token: c.access, token_type_hint: 'access_token' };
+  const response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(10_000) });
   if (!response.ok) throw new Error(`ChatGPT sign-out failed (${response.status})`);
 }
 
@@ -58,7 +68,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   readonly providers: Provider[];
   private opts: AccountsOptions<M>;
   private runtimes = new Map<string, Promise<R>>();
-  private stores = new Map<string, CredentialStore>();
+  private stores = new Map<string, EndingStore>();
   private generations = new Map<string, number>();
   private signals = new WeakMap<AbortSignal, number>();
   private chains = new Map<string, Promise<void>>();
@@ -77,12 +87,33 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   onExpired?: (member: M, key: string) => void;
   onSignOutError?: (member: M, key: string, error: Error) => void;
 
-  constructor(opts: AccountsOptions<M> = {}) { this.opts = opts; this.providers = offered(opts.offer); }
+  private platform: Platform;
+  /** Offered: the providers named in `offer`, else every provider not hidden that this platform can sign in to. */
+  constructor(opts: AccountsOptions<M> = {}, platform: Platform = portable) {
+    this.opts = opts;
+    this.platform = platform;
+    this.providers = opts.offer ? offered(opts.offer) : offered().filter((p) => platform.signsIn(p.pi));
+  }
 
   /** A member's own store. */
   protected store(member: M) {
     let s = this.stores.get(String(member));
-    if (!s) this.stores.set(String(member), s = (this.opts.store ?? memoryStore)(member));
+    if (!s) {
+      const base = (this.opts.store ?? memoryStore)(member);
+      let chain: Promise<unknown> = Promise.resolve();
+      const serial = <T>(fn: () => Promise<T>) => { const result = chain.then(fn); chain = result.catch(() => {}); return result; };
+      s = {
+        read: (id) => base.read(id),
+        list: () => base.list(),
+        modify: (id, fn, options) => serial(() => base.modify(id, fn, options)),
+        delete: (id, options) => serial(() => base.delete(id, options)),
+        end: (id, fn) => serial(async () => {
+          if (typeof (base as EndingStore).end === 'function') return (base as EndingStore).end(id, fn);
+          try { await fn(await base.read(id)); } finally { await base.delete(id); }
+        }),
+      };
+      this.stores.set(String(member), s);
+    }
     return s;
   }
 
@@ -106,7 +137,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         const discard = async (next: Awaited<ReturnType<CredentialStore['read']>>) => {
           const p = this.providers.find((p) => p.pi === id);
           if (next?.type === 'oauth' && p?.revoke) {
-            try { await revoke(p, next); } catch (e) {
+            try { await revoke(this.opts.authBase ? `${this.opts.authBase}/oauth/revoke` : p.revoke!, p.clientId, next); } catch (e) {
               const error = e instanceof Error ? e : new Error(String(e));
               if (this.onSignOutError) this.onSignOutError(member, p.key, error);
               else console.error(`sign-out ${p.key} for member ${member}:`, error);
@@ -139,7 +170,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         let error: unknown;
         try {
           const c = await raw.read(id);
-          if (c?.type === 'oauth') await revoke(p, c);
+          if (c?.type === 'oauth') await revoke(this.opts.authBase ? `${this.opts.authBase}/oauth/revoke` : p.revoke!, p.clientId, c);
         } catch (e) { error = e; }
         await raw.delete(id);
         if (error) throw error;
@@ -149,9 +180,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   protected engine(member: M, raw: CredentialStore): Promise<R> {
     const credentials = this.boundStore(member, raw);
-    return Promise.resolve(Object.assign(builtinModels({ credentials, authContext: emptyAuthContext }), {
+    return Promise.resolve(Object.assign(this.platform.engine(credentials, this.opts.authBase), {
       credentialStore: credentials, readCredential: (id: string) => credentials.read(id),
-    }) as unknown as R);
+    }) as R);
   }
 
   /** A member's engine, holding only their own sign-ins (`store(member)`). Override to use another engine with the same seam. */
@@ -312,7 +343,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const stuck = setTimeout(() => this.toCode(flow), this.opts.redirectMs ?? 3 * 60_000);
     // Listen where the provider sends the browser back (the engine then finds the port taken and waits to be handed the address).
     const port = p.callbackPort && (this.opts.callbackPort ?? p.callbackPort);
-    const catcher = port && body.via !== 'code' ? await this.catchRedirect(flow, p.name, port).catch(() => null) : undefined;
+    const catcher = port && body.via !== 'code' && this.platform.loopback ? await this.catchRedirect(this.platform.loopback, flow, p.name, port).catch(() => null) : undefined;
     try {
       if (catcher === null) throw Object.assign(new Error('port busy'), { why: 'busy' as const });
       try { await attempt(body.via ?? (catcher ? 'browser' : undefined)); } catch (e) {
@@ -320,7 +351,6 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         if (!flow.toCode && (catcher || body.via === 'code' || !codeOffered || flow.abort.signal.aborted)) throw e;
         Object.assign(flow, { url: undefined, code: undefined, via: 'code' });
         catcher?.close();
-        catcher?.closeIdleConnections();
         await attempt('code');
       }
       if (flow.generation !== (this.generations.get(id) ?? 0) || flow.state !== 'waiting') return;
@@ -342,30 +372,27 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       clearTimeout(timer);
       clearTimeout(stuck);
       catcher?.close();
-      catcher?.closeIdleConnections();
       this.onChange?.(member, key);
     }
   }
 
   /** Listen where the provider sends the browser back; rejects if something else on this computer already listens there. */
-  private catchRedirect(flow: Flow, name: string, port: number) {
+  private catchRedirect(loopback: Loopback, flow: Flow, name: string, port: number) {
     const app = this.opts.app ?? 'the app';
-    const server = createServer(async (req, res) => {
-      const q = new URL(req.url ?? '/', 'http://localhost').searchParams;
-      // No keep-alive: a browser must never land on a listener from an earlier try.
-      const page = (status: number, words: string, close = false) => { res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', connection: 'close' }); res.end(callbackPage(this.opts.app ?? name, words, close)); };
+    const page = (status: number, words: string, close = false) => ({ status, html: callbackPage(this.opts.app ?? name, words, close) });
+    return loopback(port, async (path) => {
+      const q = new URL(path, 'http://localhost').searchParams;
       if (!flow.oauthState || q.get('state') !== flow.oauthState || flow.state !== 'waiting') return page(400, say('callback.outOfDate', { app, name }));
       if (q.get('error')) flow.refuse?.(new Error(q.get('error')!));
       // The engine only reads the query; the address it expects is the provider's registered one, on its fixed port.
-      else flow.paste?.(`http://localhost:${port}${req.url}`);
+      else flow.paste?.(`http://localhost:${port}${path}`);
       // The tab waits for the real outcome (a few seconds at most), so it never says "signed in" before it is.
-      await Promise.race([flow.done, new Promise((r) => setTimeout(r, 30_000).unref())]);
+      await Promise.race([flow.done, new Promise((r) => (setTimeout(r, 30_000) as any).unref?.())]);
       const end = flow.state as SignIn['state'];
       if (end === 'done') return page(200, say('callback.done', { app }), true);
       if (flow.why === 'declined') return page(200, say('callback.declined', { app }), true);
-      page(200, end === 'failed' ? say('callback.failed', { app, error: flow.error ?? '' }) : say('callback.nearly', { app }));
+      return page(200, end === 'failed' ? say('callback.failed', { app, error: flow.error ?? '' }) : say('callback.nearly', { app }));
     });
-    return new Promise<Server>((resolve, reject) => { server.once('error', reject).listen(port, '127.0.0.1', () => resolve(server)); });
   }
 
   /** The redirect address (or a code) pasted back, for when the browser couldn't return to this computer by itself. */
@@ -383,19 +410,29 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     this.onChange?.(member, key);
   }
 
+  private async refreshed(member: M, key: string, minOAuthValidityMs: number) {
+    const pi = this.offer(key).pi;
+    return (await this.runtime(member)).getAuth(pi, { minOAuthValidityMs }).then(Boolean, async (e: Error) => {
+      if (offline(e)) return true;
+      if (e?.message !== `OAuth refresh returned a token that expires too soon for ${pi}`) return false;
+      const c = await this.store(member).read(pi);
+      return c?.type === 'oauth' && c.expires > Date.now();
+    });
+  }
+
   /** Refresh every signed-in account an hour ahead of expiry (call it now and then), so a sign-in never lapses while
    *  nobody is looking. Only the provider refusing signs it out, and `onExpired` says so once; a network hiccup doesn't. */
   async keepFresh(members: readonly M[]) {
     for (const m of members) for (const p of this.providers) {
       if (this.ready.get(`${m}:${p.key}`) !== true) continue;
-      const ok = await (await this.runtime(m)).getAuth(p.pi, { minOAuthValidityMs: 60 * 60_000 }).then(Boolean, offline);
+      const ok = await this.refreshed(m, p.key, 60 * 60_000);
       if (!ok) { this.forget(m, p.key); this.onExpired?.(m, p.key); }
     }
   }
 
   /** After the account turned a request away: true if its sign-in still refreshes; if not, it is signed out for good. */
   async recheck(member: M, key: string) {
-    const ok = await (await this.runtime(member)).getAuth(this.offer(key).pi, { minOAuthValidityMs: 365 * 86_400_000 }).then(Boolean, offline);
+    const ok = await this.refreshed(member, key, 365 * 86_400_000);
     if (!ok) { await this.logout(member, key).catch(() => {}); this.forget(member, key); }
     return ok;
   }

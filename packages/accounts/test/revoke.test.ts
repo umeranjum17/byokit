@@ -1,5 +1,5 @@
-// Signing out ends the sign-in at ChatGPT too, against a mocked revoke endpoint: the shared cases in
-// fixtures/conformance/revoke.json, which byokit-android passes as well.
+// Signing out ends the sign-in at ChatGPT too, against a mocked revoke endpoint: the TypeScript-only cases in
+// fixtures/conformance/revoke.json.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

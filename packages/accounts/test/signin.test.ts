@@ -18,15 +18,19 @@ const jwt = (plan: string, email = 'sara@example.com') => ['x', Buffer.from(JSON
   'https://api.openai.com/auth': { chatgpt_account_id: 'acct-1', chatgpt_plan_type: plan }, 'https://api.openai.com/profile': { email },
 })).toString('base64url'), 'sig'].join('.');
 
-const openai = { plan: 'plus', email: 'sara@example.com', exchange: 200 };
+const openai = { plan: 'plus', email: 'sara@example.com', exchange: 200, expiresIn: 864_000, refreshes: 0 };
+let onRevoke: (() => Promise<void>) | undefined;
 const realFetch = globalThis.fetch;
 globalThis.fetch = (async (input: any, init?: any) => {
   const url = String(input?.url ?? input);
   if (url === 'https://auth.openai.com/oauth/token') {
-    const code = new URLSearchParams(String(init?.body)).get('code');
+    const form = new URLSearchParams(String(init?.body));
+    if (form.get('grant_type') === 'refresh_token') { openai.refreshes++; return Response.json({ access_token: jwt(openai.plan, openai.email), refresh_token: 'r2', expires_in: openai.expiresIn }); }
+    const code = form.get('code');
     if (openai.exchange !== 200 || code !== 'good') return new Response('{"error":{"code":"token_expired"}}', { status: 401 });
     return Response.json({ access_token: jwt(openai.plan, openai.email), refresh_token: 'r', expires_in: 3600 });
   }
+  if (url === 'https://auth.openai.com/oauth/revoke') { await onRevoke?.(); return Response.json({}); }
   if (url.endsWith('/deviceauth/usercode')) return Response.json({ device_auth_id: 'd1', user_code: 'WB60-FFV06', interval: 1 });
   if (url.endsWith('/deviceauth/token')) return new Response('', { status: 403 }); // still waiting for the person
   if (url.startsWith('http://127.0.0.1:')) return realFetch(input, init);
@@ -140,4 +144,42 @@ test('a work ChatGPT is recognised from the sign-in itself, so the app can steer
     await a.finished(OWNER, 'chatgpt');
     assert.deepEqual(await a.plan(OWNER), { plan: 'business', email: 'sara@acme.com', work: true });
   } finally { Object.assign(openai, { plan: 'plus', email: 'sara@example.com' }); a.stop(); }
+});
+
+test("Pi's engine keeps a successful short-lived refresh for keepFresh and forced recheck", async () => {
+  const { a, path } = accounts();
+  try {
+    const v = (await a.login(OWNER, 'chatgpt'))!;
+    await back({ code: 'good', state: stateOf(v.url!) });
+    await a.finished(OWNER, 'chatgpt');
+    openai.expiresIn = 1800;
+    await a.keepFresh([OWNER]);
+    assert.equal((await a.status(OWNER, 'chatgpt')).state, 'ready');
+    assert.equal(JSON.parse(readFileSync(path(OWNER), 'utf8'))['openai-codex'].refresh, 'r2');
+    assert.equal(await a.recheck(OWNER, 'chatgpt'), true);
+    assert.equal(await a.signedIn(OWNER, 'chatgpt'), true);
+  } finally { openai.expiresIn = 864_000; a.stop(); }
+});
+
+test("Pi's engine cannot refresh between revoke and removal", async () => {
+  const { a, path } = accounts();
+  let entered!: () => void;
+  let release!: () => void;
+  const revoking = new Promise<void>((resolve) => { entered = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  try {
+    const v = (await a.login(OWNER, 'chatgpt'))!;
+    await back({ code: 'good', state: stateOf(v.url!) });
+    await a.finished(OWNER, 'chatgpt');
+    const before = openai.refreshes;
+    onRevoke = () => { entered(); return gate; };
+    const signout = a.logout(OWNER, 'chatgpt');
+    await revoking;
+    const refreshing = (await a.runtime(OWNER)).getAuth('openai-codex', { minOAuthValidityMs: 365 * 86_400_000 });
+    release();
+    await signout;
+    assert.equal(await refreshing, undefined);
+    assert.equal(openai.refreshes, before);
+    assert.deepEqual(JSON.parse(readFileSync(path(OWNER), 'utf8')), {});
+  } finally { release(); onRevoke = undefined; a.stop(); }
 });

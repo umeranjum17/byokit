@@ -12,7 +12,13 @@ npm ci
 npm run build   # tsc -b: each package's dist/
 npm run check   # tsc over sources and tests, strict
 npm test        # every test in a throwaway HOME, then a byte-for-byte check of your real ~/.pi
+npm run test:browser   # the PWA example in headless Chromium (npx playwright install chromium, or BYOKIT_CHROME)
 ```
+
+Phones: `examples/expo` (`npm ci`, `npm run typecheck`, `npm run bundle` for the iOS and Android bundles, and
+`./e2e-android.sh <emulator-serial>` to sign in end to end on an emulator against the stand-in OpenAI).
+Include the Android emulator result in the PR. CI builds both platform bundles; iOS is typechecked and bundled, not
+runtime-tested here because no simulator is available.
 
 ## Rules
 
@@ -21,6 +27,8 @@ npm test        # every test in a throwaway HOME, then a byte-for-byte check of 
   never runs their CLIs. Tests use the harness in `packages/accounts/src/testing` (a decoy HOME, an fs tracer, canary
   tokens) and must never need a real account, the network or a model call. `npm test` fails if your own `~/.pi` changed during the run.
 - **One package per concern**, small and dependency-light: `accounts`, `link`, `decide`, `ui-core`. Prefer deleting to adding.
+- **Platform boundary.** See [accounts' platform guide](packages/accounts/README.md#which-sign-in-works-where).
+  Its `react-native` and `browser` exports must not import Node modules; computer-only flows belong in the default export.
 - Sources are TypeScript that Node runs directly (type stripping): no enums, namespaces or parameter properties, and
   relative imports carry the `.ts` extension.
 - Provider terms are data (`packages/accounts/src/catalogue.json`), with a one-line reason and a source. The kit labels

@@ -9,6 +9,8 @@ pi_state() {
 before=$(pi_state)
 throwaway=$(mktemp -d)
 trap 'rm -rf "$throwaway"' EXIT
-HOME="$throwaway" node --test --test-concurrency=1 'packages/*/test/*.test.ts'
+[ $# -gt 0 ] || set -- 'packages/*/test/*.test.ts'
+# Browsers Playwright installed stay where they are; nothing else of the real HOME is seen.
+PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright} HOME="$throwaway" node --test --test-concurrency=1 "$@"
 [ "$(pi_state)" = "$before" ] || { echo "~/.pi changed while the tests ran" >&2; exit 1; }
 [ -z "$before" ] || echo "~/.pi: sign-ins, settings and extensions unchanged, byte for byte."
