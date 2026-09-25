@@ -157,9 +157,9 @@ test('decision names that shadow object properties work for rules and Jev', asyn
   const answers = Object.fromEntries(['toString', '__proto__'].map((k) => [k, { choice: 'chat', confidence: 0.9, probabilities: p(0, 0, 1) }]));
   const j = jev({ key: 'host-key', fetch: mockJev(answers) });
   const answered = await decide('x', qs, { privacy: 'may-leave', backends: [rules((_s, k) => k === 'toString' ? 'task' : undefined), j] });
-  assert.deepEqual([answered.toString.answer, answered['__proto__'].answer], ['task', 'chat']);
+  assert.deepEqual([answered['toString'].answer, answered['__proto__'].answer], ['task', 'chat']);
   const allJev = await decide('x', qs, { privacy: 'may-leave', backends: [j] });
-  assert.deepEqual([allJev.toString.answer, allJev['__proto__'].answer], ['chat', 'chat']);
+  assert.deepEqual([allJev['toString'].answer, allJev['__proto__'].answer], ['chat', 'chat']);
   assert.deepEqual(Object.keys(answered).sort(), ['__proto__', 'toString']);
 });
 
