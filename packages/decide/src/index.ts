@@ -116,3 +116,29 @@ export function rules(fn: (state: any, name: string, q: Question) => string | bo
     },
   };
 }
+
+/** Any model as a backend: `ask` gets one prompt and returns the model's text (on a phone, the signed-in ChatGPT:
+ *  `(p, signal) => accounts.respond(me, { instructions: '', input: p, signal })`). The model is asked for each option's
+ *  probability as JSON; an answer that isn't that JSON is no answer, so the question abstains. `leaves`: whether the
+ *  state goes off this device (true for any hosted model). */
+export function answerer(o: { name: string; leaves: boolean; ask: (prompt: string, signal: AbortSignal) => Promise<string> }): Backend {
+  return {
+    name: o.name,
+    leaves: o.leaves,
+    async ask(state, questions, signal) {
+      const described = Object.fromEntries(Object.entries(questions).map(([k, q]) => [k,
+        q.kind === 'choice' ? { pick_one_of: q.options, instructions: q.instructions }
+          : q.kind === 'yesno' ? { yes_or_no: q.question, yes: q.yes, no: q.no, answer_keys: ['true', 'false'] }
+            : { rate_on: Object.fromEntries(q.levels.map((l, i) => [String(i), l])), instructions: q.instructions }]));
+      const prompt = 'Answer each question about the state below. For each question give every answer key a probability ' +
+        'between 0 and 1, summing to 1. Reply with JSON only, shaped {"<question>": {"<answer key>": <probability>}}.\n\n' +
+        `State: ${JSON.stringify(state)}\n\nQuestions: ${JSON.stringify(described)}`;
+      const text = await o.ask(prompt, signal);
+      let parsed: any;
+      try { parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)); } catch { return {}; }
+      const out: Record<string, Raw | undefined> = Object.create(null);
+      for (const k of Object.keys(questions)) if (parsed?.[k] && typeof parsed[k] === 'object') out[k] = { probabilities: parsed[k] };
+      return out;
+    },
+  };
+}

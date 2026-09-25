@@ -16,7 +16,8 @@ npm run test:browser   # the PWA example in headless Chromium (npx playwright in
 ```
 
 Phones: `examples/expo` (`npm ci`, `npm run typecheck`, `npm run bundle` for the iOS and Android bundles, and
-`./e2e-android.sh <emulator-serial>` to sign in end to end on an emulator against the stand-in OpenAI).
+`./e2e-android.sh <emulator-serial>` to sign in, ask, decide and pair end to end on an emulator against the stand-in
+OpenAI and a link host on this computer).
 Include the Android emulator result in the PR. CI builds both platform bundles; iOS is typechecked and bundled, not
 runtime-tested here because no simulator is available.
 

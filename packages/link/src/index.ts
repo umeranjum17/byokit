@@ -8,3 +8,4 @@ export {
 } from './device.ts';
 export { LinkStream, WINDOW } from './stream.ts';
 export type { PairOffer } from './pairing.ts';
+export { browserDeviceStore, secureDeviceStore, type KeptDevice, type SecureStoreLike } from './stores.ts';

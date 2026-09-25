@@ -1,6 +1,6 @@
 {
   "name": "@byokit/decide",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Typed questions in, a typed answer with confidence out, abstaining below a floor. Rules and Jev backends, and an eval runner.",
   "license": "Apache-2.0",
   "type": "module",

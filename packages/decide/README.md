@@ -28,6 +28,11 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
 - **Backends** are tried in order for the questions still unanswered. A backend that fails or takes longer than
   `timeoutMs` (default 5 s) answers nothing. `privacy: 'stays-here'` skips every backend the state would leave the
   device for (Jev), so private text never goes to one.
+- **Any model**: `answerer({ name, leaves, ask })` makes a backend of any `(prompt, signal) => text`: on a phone, the
+  ChatGPT the person signed in to (`(p, signal) => accounts.respond(me, { instructions: 'Reply with JSON only.',
+  input: p, signal })`). It asks for each answer's probability as JSON; any other reply is an abstain.
+- **Phones and browsers**: the main entry is plain TypeScript with `fetch` (the eval CLI is its own entry), so it
+  bundles for React Native and the web; `test/react-native.test.ts` runs it where there is no Node.
 - **Keys**: `jev()` takes the key your host read from its own environment or config. The kit never reads an environment
   variable, and the key goes only into the one request header. Never ship a key inside an app: keep it on the home
   computer and let paired devices ask it.

@@ -79,6 +79,22 @@ kept, `retry()` or pair again), `removed` (the host removed this device; the gra
 `LinkError` with a plain `message` and a `code`. `stop()` rejects unanswered and new requests until `retry()`.
 Retry guarantees and their limits: [SECURITY.md](SECURITY.md#known-limits).
 
+Where a device keeps its grant, one store per paired computer, each with `load()` for the next start:
+
+- **Phone**: `secureDeviceStore(SecureStore, 'byokit.link.home')` with `expo-secure-store` (Keychain on iOS, Keystore on
+  Android); the grant is about 300 bytes, one value.
+- **Browser or PWA**: `browserDeviceStore('home')`: IndexedDB, sealed with AES-GCM by a key made in the browser as
+  non-extractable, so no script can read the key out and the stored record alone opens nothing.
+- **Computer (Node, Electron's main process)**: `fileDeviceStore(path, safeStorage?)` from `@byokit/link/node`: 0600 in
+  a 0700 folder, sealed with Electron's `safeStorage` when given.
+
+```ts
+const store = secureDeviceStore(SecureStore, 'byokit.link.home');
+const grant = (await store.load()) ?? await pairWithOffer(scanned, { name: 'Pixel 9', onWords: show });
+await store.save(grant);
+const link = new DeviceLink(grant, { store, onStatus });
+```
+
 For React Native, install a `crypto.getRandomValues` polyfill such as `react-native-get-random-values` (or use
 `expo-crypto`) and import it **before** `@byokit/link`. Metro resolves `sodium-universal` to `sodium-javascript`
 through its browser field. The device uses the platform's WebSocket and needs no Node globals.

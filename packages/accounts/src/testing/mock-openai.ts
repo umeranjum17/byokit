@@ -1,5 +1,6 @@
 // OpenAI's sign-in, stood in for: device code, its page where a person types the code, token exchange and refresh
-// (rotating), revoke, and the same CORS answer the real endpoints give, so a web page, a phone app or a test signs in
+// (rotating), revoke, ChatGPT's streamed answers (`/codex/responses`, echoing the question), and the same CORS answer the
+// real sign-in endpoints give (the answers endpoint, like the real one, answers no web page), so a web page, a phone app or a test signs in
 // end to end with no account and no real network. Run it alone for a demo or an emulator:
 //   node packages/accounts/src/testing/mock-openai.ts [port]      (21455 by default, never ChatGPT's own 1455)
 import { createServer } from 'node:http';
@@ -28,11 +29,15 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
     expiresIn,
     /** Drop this many device-code polls on the floor, as a phone does to a backgrounded app. */
     dropPolls: 0,
+    /** Answer the next question with this HTTP error instead (a limit, a lapsed sign-in), then answer normally. */
+    fail: undefined as { status: number; body: string } | undefined,
   };
+  const accessOf = new Map<string, string>(); // refresh token → the access token issued with it
   const issue = () => {
     const refresh = `rt_${++issued}`;
     state.live.add(refresh);
-    return { access_token: mockJwt(plan, email, issued), refresh_token: refresh, expires_in: state.expiresIn, id_token: 'x' };
+    accessOf.set(refresh, mockJwt(plan, email, issued));
+    return { access_token: accessOf.get(refresh)!, refresh_token: refresh, expires_in: state.expiresIn, id_token: 'x' };
   };
   const approve = (userCode: string, deny = false) => {
     const c = codes.get(userCode.trim().toUpperCase());
@@ -79,6 +84,19 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
         }
         if (state.refuse || !state.live.delete(form.get('refresh_token') ?? '')) return send(401, { error: { code: 'refresh_token_reused', message: 'invalid_grant' } });
         return send(200, issue());
+      case '/codex/responses': {
+        const bearer = req.headers.authorization?.replace(/^Bearer /, '');
+        if (state.fail) { const f = state.fail; state.fail = undefined; return send(f.status, f.body); }
+        if (![...state.live].some((r) => accessOf.get(r) === bearer) || req.headers['chatgpt-account-id'] !== 'acct-1')
+          return send(401, { error: { message: 'Provided authentication token is expired. Please try signing in again.' } });
+        const text = `You said: ${json().input?.[0]?.content?.[0]?.text ?? ''}`;
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        for (const delta of text.match(/.{1,4}/g) ?? []) {
+          res.write(`event: response.output_text.delta\ndata: ${JSON.stringify({ type: 'response.output_text.delta', delta })}\n\n`);
+          await new Promise((r) => setTimeout(r, 5));
+        }
+        return res.end('event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\ndata: [DONE]\n\n');
+      }
       case '/oauth/revoke':
         state.live.delete(json().token);
         return send(200, {});

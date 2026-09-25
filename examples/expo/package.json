@@ -4,9 +4,12 @@
   "main": "index.ts",
   "dependencies": {
     "@byokit/accounts": "file:../../packages/accounts",
+    "@byokit/decide": "file:../../packages/decide",
+    "@byokit/link": "file:../../packages/link",
     "@byokit/ui-core": "file:../../packages/ui-core",
     "expo": "~57.0.25",
     "expo-build-properties": "~57.0.22",
+    "expo-crypto": "~57.0.3",
     "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
