@@ -10,7 +10,7 @@ import { fetch as streamingFetch } from 'expo/fetch';
 import { Accounts, say, secureStore, type Status } from '@byokit/accounts';
 import { answerer, decide } from '@byokit/decide';
 import { DeviceLink, secureDeviceStore, type LinkStatus } from '@byokit/link';
-import { pairInput } from './pairing.ts';
+import { forgettableStore, pairInput } from './pairing.ts';
 import { linkWords, pairingView, useSignIn, type PairPhase } from '@byokit/ui-core';
 
 const ME = 1;
@@ -63,7 +63,8 @@ function Ask() {
   const ask = async () => {
     setAnswer(''); setDecision('');
     try {
-      await accounts.respond(ME, { instructions: 'Answer in one short sentence.', input: question, onText: (d) => setAnswer((a) => a + d) });
+      const finished = await accounts.respond(ME, { instructions: 'Answer in one short sentence.', input: question, onText: (d) => setAnswer((a) => a + d) });
+      setAnswer(finished);
       const { urgent } = await decide({ text: question }, { urgent: { kind: 'yesno', question: 'Does this need doing today?' } }, {
         privacy: 'may-leave',
         backends: [answerer({ name: 'chatgpt', leaves: true, ask: (p, signal) => accounts.respond(ME, { instructions: 'Reply with JSON only.', input: p, signal }) })],
@@ -92,16 +93,18 @@ function Pair() {
   const [hostName, setHostName] = useState<string>();
   const [reply, setReply] = useState('');
   const link = useRef<DeviceLink | null>(null);
+  const kept = useRef(forgettableStore(deviceStore));
+  const forgetting = useRef(false);
   const use = (grant: Awaited<ReturnType<typeof pairInput>>) => {
     setHostName(grant.hostName); setPhase('paired');
-    link.current = new DeviceLink(grant, { store: deviceStore, onStatus: setStatus });
+    link.current = new DeviceLink(grant, { store: kept.current, onStatus: setStatus });
   };
-  useEffect(() => { deviceStore.load().then((g) => g && use(g)); return () => link.current?.stop(); }, []);
+  useEffect(() => { kept.current.load().then((g) => g && use(g)); return () => link.current?.stop(); }, []);
   const pair = async () => {
     setError(undefined);
     try {
       use(await pairInput(offer, hostUrl, { name: `${Platform.OS} phone`, onWords: (w) => { setWords(w); setPhase('compare'); } }));
-      await deviceStore.save(link.current!.grant);
+      await kept.current.save(link.current!.grant);
     } catch (e: any) { setError(e.message); setPhase('failed'); }
   };
   const view = pairingView({ phase, hostName, words, error });
@@ -115,7 +118,18 @@ function Pair() {
           try { setReply(JSON.stringify(await link.current!.request('get.state'))); } catch (e: any) { setReply(e.message); }
         }} />
         {!!reply && <Text testID="reply" style={s.small}>{reply}</Text>}
-        <Button id="unpair" label="Forget this computer" onPress={async () => { link.current?.stop(); await deviceStore.clear(); setPhase('scan'); setStatus(undefined); setReply(''); setHostName(undefined); setWords(undefined); }} />
+        <Button id="unpair" label="Forget this computer" onPress={async () => {
+          if (forgetting.current) return;
+          forgetting.current = true;
+          link.current?.stop();
+          try {
+            await kept.current.forget();
+            kept.current = forgettableStore(deviceStore); link.current = null;
+            setPhase('scan'); setStatus(undefined); setReply(''); setHostName(undefined); setWords(undefined);
+          } catch (e: any) { setError(e.message); }
+          finally { forgetting.current = false; }
+        }} />
+        {!!error && <Text style={s.small}>{error}</Text>
       </> : <>
         <TextInput testID="offer" value={offer} onChangeText={setOffer} placeholder="Pairing code or link" autoCapitalize="none" autoCorrect={false} style={s.input} />
         <TextInput testID="hostUrl" value={hostUrl} onChangeText={setHostUrl} placeholder="Computer address for typed codes (ws://…)" autoCapitalize="none" autoCorrect={false} style={s.input} />

@@ -135,7 +135,7 @@ export function answerer(o: { name: string; leaves: boolean; ask: (prompt: strin
         `State: ${JSON.stringify(state)}\n\nQuestions: ${JSON.stringify(described)}`;
       const text = await o.ask(prompt, signal);
       let parsed: any;
-      try { parsed = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1)); } catch { return {}; }
+      try { parsed = JSON.parse(text.trim()); } catch { return {}; }
       const out: Record<string, Raw | undefined> = Object.create(null);
       for (const k of Object.keys(questions)) if (parsed?.[k] && typeof parsed[k] === 'object') out[k] = { probabilities: parsed[k] };
       return out;

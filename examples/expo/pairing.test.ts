@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer } from 'ws';
-import { Host, keyPair } from '@byokit/link';
-import { pairInput } from './pairing.ts';
+import { Host, keyPair, type DeviceGrant } from '@byokit/link';
+import { forgettableStore, pairInput } from './pairing.ts';
 
 test('typed code and offer both pair with the computer', async () => {
   const host = await Host.open({ keys: keyPair(), name: 'Kitchen computer', confirm: () => true, handle: () => ({}) });
@@ -19,4 +19,26 @@ test('typed code and offer both pair with the computer', async () => {
     assert.equal((await pairInput(`  ${code.toLowerCase()}  `, url, options)).hostName, 'Kitchen computer');
     assert.equal((await pairInput(`  ${host.offer({ role: 'control', urls: [url] }).text}  `, '', options)).hostName, 'Kitchen computer');
   } finally { host.close(); wss.close(); server.close(); }
+});
+
+test('forget waits for an in-flight save and suppresses queued reconnect saves', async () => {
+  const grant: DeviceGrant = { v: 1, host: 'host', hostName: 'Kitchen', secretKey: 'secret', urls: [], device: { id: 'phone', name: 'Phone', role: 'control' } };
+  let stored: DeviceGrant | null = null;
+  let release!: () => void;
+  let entered!: () => void;
+  const writing = new Promise<void>((resolve) => { release = resolve; });
+  const started = new Promise<void>((resolve) => { entered = resolve; });
+  const kept = forgettableStore({
+    load: async () => stored,
+    save: async (g) => { entered(); await writing; stored = g; },
+    clear: async () => { stored = null; },
+  });
+  const first = kept.save(grant);
+  await started;
+  const reconnect = kept.save({ ...grant, hostName: 'Reconnected' });
+  const forgetting = kept.forget();
+  release();
+  await Promise.all([first, reconnect, forgetting]);
+  await kept.save(grant);
+  assert.equal(await kept.load(), null);
 });

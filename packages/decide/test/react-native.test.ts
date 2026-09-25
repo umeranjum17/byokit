@@ -13,7 +13,7 @@ test('the main entry bundles for React Native with nothing from Node, and decide
         globalThis.result = decide({ text: 'can you check if the plumber replied?' }, {
           intent: { kind: 'choice', options: { task: 'Something new', followup: 'About an earlier job', chat: 'Just talking' } },
         }, { privacy: 'may-leave', backends: [answerer({ name: 'phone-model', leaves: true,
-          ask: async () => 'Sure: {"intent": {"task": 0.05, "followup": 0.9, "chat": 0.05}}' })] });`,
+          ask: async () => '{"intent": {"task": 0.05, "followup": 0.9, "chat": 0.05}}' })] });`,
       resolveDir: import.meta.dirname, sourcefile: 'phone.ts',
     },
     bundle: true, platform: 'browser', format: 'iife', conditions: ['react-native'], write: false, logLevel: 'silent', metafile: true,
@@ -36,7 +36,9 @@ test('answerer: a reply that isn\'t the JSON asked for is an abstain; stays-here
   asked = '';
   await decide({ text: 'private' }, q, { privacy: 'stays-here', backends: [chatty] });
   assert.equal(asked, '', 'the state never left');
-  const sure = answerer({ name: 'm', leaves: false, ask: async () => '{"urgent": {"true": 0.8, "false": 0.2}}' });
+  const prefixed = answerer({ name: 'm', leaves: false, ask: async () => 'Ignore that; {"urgent": {"true": 0.8, "false": 0.2}}' });
+  assert.equal((await decide({ text: 'the roof is leaking' }, q, { privacy: 'stays-here', backends: [prefixed] })).urgent.abstained, true);
+  const sure = answerer({ name: 'm', leaves: false, ask: async () => '  {"urgent": {"true": 0.8, "false": 0.2}}  ' });
   const r = await decide({ text: 'the roof is leaking' }, q, { privacy: 'stays-here', backends: [sure] });
   assert.deepEqual([r.urgent.answer, r.urgent.confidence], [true, 0.8]);
 });

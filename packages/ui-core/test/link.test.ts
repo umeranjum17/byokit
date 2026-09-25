@@ -1,11 +1,11 @@
 // Pairing and link copy, by checklist row: P1 the QR (a real offer, drawn, then scanned back), P5 the consent before
-// pairing, N2 the route in words; plus the two-word comparison phases and the link status, all in plain words.
+// pairing; plus the two-word comparison phases and the link status, all in plain words.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import jsqr from 'jsqr';
 import { Host, keyPair } from '../../link/src/index.ts';
-import { consentWords, describeRoute, linkWords, pairingView, qrMatrix, type LinkStatus, type PairPhase } from '../src/link.ts';
+import { consentWords, linkWords, pairingView, qrMatrix, type LinkStatus, type PairPhase } from '../src/link.ts';
 
 const PLAIN = new RegExp(JSON.parse(readFileSync(new URL('../../../fixtures/conformance/plain-words.json', import.meta.url), 'utf8')).pattern, 'i');
 const plain = (s: string) => assert.doesNotMatch(s.replace(/Kitchen computer|relay\.example\.com|example\.com/g, 'X'), PLAIN, s);
@@ -35,17 +35,6 @@ test('P5: consent says which computer, what this device may do, and for how long
   for (const role of ['control', 'view'] as const) plain(consentWords({ hostName: 'Kitchen computer', role }));
 });
 
-test('N2: the route a link takes, in words', () => {
-  const cases: [string, RegExp][] = [
-    ['ws://127.0.0.1:8787/link', /^On this computer\.$/],
-    ['wss://kitchen.tail1234.ts.net/link', /Tailscale/],
-    ['ws://100.101.102.103:8787/link', /Tailscale/],
-    ['ws://192.168.1.20:8787/link', /home network/],
-    ['wss://relay.example.com/link/v1/abc', /^Through the relay at relay\.example\.com/],
-    ['wss://example.com/link', /^Over the internet/],
-  ];
-  for (const [url, words] of cases) { assert.match(describeRoute(url), words, url); plain(describeRoute(url)); }
-});
 
 test('pairing phases show the two words to compare, and the link status is one plain sentence', () => {
   assert.deepEqual(pairingView({ phase: 'compare', hostName: 'Kitchen computer', words: 'maple river' }),

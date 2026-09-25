@@ -1,5 +1,5 @@
 // What a pairing and a link put in front of a person, framework-free: the QR to show, the consent before pairing, the
-// two words to compare, the link's status and the route it takes, each in plain words. Pairs with @byokit/link.
+// two words to compare and the link's status, each in plain words. Pairs with @byokit/link.
 import { encode } from 'uqr';
 
 /** The QR for a pairing offer's text (`offer().text` from @byokit/link) as rows of dark (true) and light modules, with
@@ -40,15 +40,4 @@ export function linkWords(status: LinkStatus, hostName = 'your computer'): strin
     refused: `${hostName} didn't let this device in. Pair it again there.`,
     removed: `This device was removed on ${hostName}.`,
   }[status];
-}
-
-/** How a link's address reaches the computer, in words: a person's own network, Tailscale, a relay, or the internet. */
-export function describeRoute(url: string): string {
-  let host = '';
-  try { host = new URL(url).hostname.replace(/^\[|\]$/g, ''); } catch { return 'An address this device can’t read.'; }
-  if (host === 'localhost' || host === '::1' || /^127\./.test(host)) return 'On this computer.';
-  if (host.endsWith('.ts.net') || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host)) return 'Over your Tailscale network. Both devices need Tailscale on.';
-  if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host) || host.endsWith('.local')) return 'On your home network. Both devices need to be on it.';
-  if (/(^|\.)relay\./.test(host)) return `Through the relay at ${host}, sealed end to end.`;
-  return `Over the internet, through ${host}, sealed end to end.`;
 }
