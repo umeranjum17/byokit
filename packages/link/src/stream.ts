@@ -104,7 +104,11 @@ export class LinkStream {
         this.ender(next.end);
         continue;
       }
-      if (!this.reader) break;
+      if (!this.reader) {
+        if (!this.closed || !this.ender) break;
+        this.inbox.shift();
+        continue;
+      }
       this.inbox.shift();
       try { await this.reader(next); } catch (e) { this.end(this.wire.reason?.(e) ?? 'failed'); }
       this.took(next.byteLength);

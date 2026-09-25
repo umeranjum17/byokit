@@ -199,7 +199,13 @@ export class Host {
     ws.addEventListener('close', () => { for (const h of conns.values()) h.closed(); conns.clear(); });
   }
 
-  close() { for (const conn of this.live.keys()) conn.close(1001, 'host closing'); this.live.clear(); }
+  close() {
+    for (const [conn, { streams }] of this.live) {
+      streams.closeAll('unreachable');
+      conn.close(1001, 'host closing');
+    }
+    this.live.clear();
+  }
 
   private sealed(conn: Conn, ch: Channel, msg: unknown) { this.out(conn, () => ch.seal(msg)); }
 

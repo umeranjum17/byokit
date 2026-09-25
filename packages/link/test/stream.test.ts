@@ -144,6 +144,32 @@ test('T4: the stream handler gets the authenticated grant, so the app keeps one 
   await until(() => ob.text() === 'Phone B controls p1');
 });
 
+test('T4: output-only streams release on peer end and host shutdown', async () => {
+  const ended: string[] = [];
+  const h = await startHost({ stream: (s, req) => {
+    if (req.op === 'reply') {
+      void s.write('output').then(() => s.end());
+      return;
+    }
+    s.onEnd = (error) => { ended.push(`${req.op}:${error ?? 'clean'}`); };
+  } });
+  const d = await device(h, 'Phone');
+  const input = await d.link.stream('input');
+  await input.write('unread');
+  input.end();
+  await until(() => ended.includes('input:clean'));
+
+  const reply = await d.link.stream('reply');
+  let replyEnded = false;
+  reply.onEnd = () => { replyEnded = true; };
+  await until(() => replyEnded);
+
+  const shutdown = await d.link.stream('shutdown');
+  await shutdown.write('unread');
+  h.host.close();
+  await until(() => ended.includes('shutdown:unreachable'));
+});
+
 test('T4: streams end with their connection and on revoke; requests carry on; old hosts and refusals are told apart', async () => {
   const open: LinkStream[] = [];
   const h = await startHost({ stream: (s, req) => {
