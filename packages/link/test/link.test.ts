@@ -1,60 +1,16 @@
 // The link end to end over real WebSockets: a host behind a `ws` server, devices on Node's built-in (browser-shaped)
 // WebSocket. Pairing, grants, revoke, reconnect with idempotent requests, a relay that routes blind, and migration.
-import { test, after } from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import {
-  DeviceLink, Host, LinkError, PublicLinkError, b64url, hostId, keyPair, keyPairFrom, unb64url, pairWithCode as pairCode, pairWithOffer as pairOffer,
+  DeviceLink, Host, LinkError, PublicLinkError, b64url, hostId, keyPair, keyPairFrom, unb64url,
   type DeviceGrant, type Grant, type HostOptions, type LinkStatus, type PairRequest,
 } from '../src/index.ts';
 import { parseOffer } from '../src/pairing.ts';
-
-const pairWithOffer = (text: string, o: { name: string; onWords?: (w: string) => void }) => pairOffer(text, { ...o, onWords: o.onWords ?? (() => {}) });
-const pairWithCode = (url: string, code: string, o: { name: string; onWords?: (w: string) => void }) => pairCode(url, code, { ...o, onWords: o.onWords ?? (() => {}) });
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-async function until<T>(fn: () => T | undefined | false | Promise<T | undefined | false>, ms = 5000): Promise<T> {
-  for (const end = Date.now() + ms; Date.now() < end; await sleep(20)) { const v = await fn(); if (v) return v; }
-  throw new Error('timed out');
-}
-
-const closers: (() => void)[] = [];
-after(() => closers.forEach((c) => c()));
-
-/** A host on a real port. `asked` records every pairing request; `sockets` are the host's side of each connection. */
-async function startHost(o: Partial<HostOptions> = {}) {
-  const asked: PairRequest[] = [];
-  let saved: Grant[] = [];
-  const ran: string[] = [];
-  const errors: unknown[] = [];
-  const host = await Host.open({
-    keys: keyPair(), name: 'Kitchen computer',
-    grants: { load: () => saved, save: (g) => { saved = g; } },
-    confirm: (p) => { asked.push(p); return true; },
-    canView: (r) => r.op.startsWith('get.'),
-    onError: (e) => { errors.push(e); },
-    handle: async (r, dev) => { ran.push(`${dev.name}:${r.op}`); if (r.op === 'slow') await sleep(300); if (r.op === 'fail') throw new PublicLinkError('nope'); if (r.op === 'secret-fail') throw new Error('secret-token'); return { op: r.op, args: r.args, by: dev.id }; },
-    ...o,
-  });
-  const sockets: WsSocket[] = [];
-  const server = createServer();
-  const wss = new WebSocketServer({ server, maxPayload: 1 << 20 });
-  wss.on('connection', (ws) => { sockets.push(ws); host.accept(ws); });
-  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-  const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}/link`;
-  closers.push(() => { host.close(); wss.close(); server.close(); });
-  return { host, url, asked, ran, errors, sockets, saved: () => saved };
-}
-
-/** A device's live link, with its statuses and events recorded and an in-memory store. */
-function connect(grant: DeviceGrant) {
-  const seen: LinkStatus[] = [], events: unknown[] = [];
-  const store = { g: grant as DeviceGrant | null, save(g: DeviceGrant) { this.g = g; }, clear() { this.g = null; } };
-  const link = new DeviceLink(grant, { store, onStatus: (s) => seen.push(s), onEvent: (e) => events.push(e) });
-  closers.push(() => link.stop());
-  return { link, seen, events, store };
-}
+import { closers, connect, pairWithCode, pairWithOffer, sleep, startHost, until } from './helpers.ts';
 
 test('scan to pair: the person at the host sees the same two words, then the device is granted', async () => {
   const h = await startHost();

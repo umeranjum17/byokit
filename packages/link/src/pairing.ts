@@ -1,9 +1,12 @@
 // What pairing puts in front of a person: the QR's text (or a link that carries it), and the typed code.
 import b4a from 'b4a';
 import { b64url, hash, random, unb64url } from './channel.ts';
+import type { Role } from './host.ts';
 
-/** What a scanned QR (or opened pairing link) holds. The ticket is single-use and short-lived. */
-export type PairOffer = { v: 1; host: string; name: string; urls: string[]; ticket: string; expires: number };
+/** What a scanned QR (or opened pairing link) holds. The ticket is single-use and short-lived. `role` and `lifetime`
+ *  (how long the device's access lasts, in ms; absent means until removed) let the device say what it is agreeing to
+ *  before it connects; 0.1 parsers ignore them, and the host's own records decide. */
+export type PairOffer = { v: 1; host: string; name: string; urls: string[]; ticket: string; expires: number; role?: Role; lifetime?: number };
 
 const TAG = 'byokit-link:1:';
 const UNSAFE = /[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu; // control and direction-flipping characters
@@ -35,7 +38,9 @@ export function parseOffer(scanned: string, now = Date.now()): PairOffer {
     && Array.isArray(o.urls) && o.urls.length > 0 && o.urls.length <= 8 && o.urls.every(wsUrl);
   if (!ok) throw new Error("That isn't a pairing code.");
   if (o.expires < now) throw new Error('That pairing code has run out. Show a new one.');
-  return { v: 1, host: o.host, name: cleanName(o.name, 'your computer'), urls: o.urls, ticket: o.ticket, expires: o.expires };
+  return { v: 1, host: o.host, name: cleanName(o.name, 'your computer'), urls: o.urls, ticket: o.ticket, expires: o.expires,
+    ...(o.role === 'control' || o.role === 'view' ? { role: o.role } : {}),
+    ...(Number.isSafeInteger(o.lifetime) && o.lifetime > 0 ? { lifetime: o.lifetime } : {}) };
 }
 
 function wsUrl(u: unknown): boolean {

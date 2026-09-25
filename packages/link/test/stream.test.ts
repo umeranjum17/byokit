@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
-import { DeviceLink, Host, LinkError, PublicLinkError, WINDOW, b64url, keyPair, type HostOptions, type LinkStream, type Role } from '../src/index.ts';
+import { DeviceLink, Host, LinkError, PublicLinkError, WINDOW, b64url, keyPair, type Grant, type HostOptions, type LinkStream, type Role } from '../src/index.ts';
 import { Streams } from '../src/stream.ts';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -39,9 +39,9 @@ async function startHost(o: Partial<HostOptions> = {}) {
 }
 
 /** A device the host enrolled, online. */
-async function device(h: { host: Host; url: string }, name: string, role: Role = 'control', url = h.url) {
+async function device(h: { host: Host; url: string }, name: string, role: Role = 'control', url = h.url, lifetime?: number) {
   const keys = keyPair();
-  const g = await h.host.enrol({ key: keys.publicKey, name, role });
+  const g = await h.host.enrol({ key: keys.publicKey, name, role, lifetime });
   const link = new DeviceLink({ v: 1, secretKey: b64url(keys.secretKey), host: b64url(h.host.keys.publicKey), hostName: '', urls: [url], device: { id: g.id, name, role } });
   closers.push(() => link.stop());
   await until(() => link.status === 'online');
@@ -54,6 +54,32 @@ const collect = (s: LinkStream) => {
   s.onEnd = (e) => { got.end = e; got.ended = true; };
   return { got, text: () => Buffer.concat(got.bytes).toString('latin1') };
 };
+
+test('R4: expired streams end despite failed grant save or an arriving frame', async () => {
+  for (const path of ['timer', 'frame']) {
+    let now = Date.now(), fail = false, received = 0, hostEnded = false, deviceEnded = false;
+    let grants: Grant[] = [];
+    const h = await startHost({ now: path === 'frame' ? () => now : undefined,
+      grants: { load: () => grants, save: (next) => { if (fail) throw new Error('save failed'); grants = next; } },
+      stream: (s) => { s.onData = () => { received++; }; s.onEnd = () => { hostEnded = true; }; } });
+    const d = await device(h, 'Phone', 'control', h.url, path === 'timer' ? 600 : 10_000);
+    const s = await d.link.stream('terminal');
+    s.onEnd = () => { deviceEnded = true; };
+    await s.write('before');
+    await until(() => received === 1);
+    fail = true;
+    if (path === 'frame') {
+      now += 11_000;
+      await s.write('after');
+    }
+    await until(() => d.link.status === 'removed');
+    await until(() => hostEnded && deviceEnded);
+    assert.equal(received, 1);
+    assert.equal(grants.length, 1, 'the failed removal is retried at a later auth or request');
+    await until(() => h.errors.some((e) => (e as Error).message === 'save failed'));
+    await assert.rejects(s.write('late'), /stream ended/);
+  }
+});
 
 test('T4: a terminal-like interactive stream: keystrokes in, output back, both ways at once and in order', async () => {
   const h = await startHost({
@@ -144,6 +170,20 @@ test('T4: the stream handler gets the authenticated grant, so the app keeps one 
   await until(() => !controller.has('p1'));
   const ob = collect(await b.link.stream('terminal', { pane: 'p1' }));
   await until(() => ob.text() === 'Phone B controls p1');
+});
+
+test('R5: stream opens obey the same allow policy as requests', async () => {
+  const opened: string[] = [];
+  const h = await startHost({
+    allow: (req) => req.op === 'watch',
+    stream: (s, req) => { opened.push(req.op); s.end(); },
+  });
+  const d = await device(h, 'Phone');
+  await assert.rejects(d.link.stream('terminal'), (e: LinkError) => e.code === 'not-allowed' && e.sealed);
+  assert.deepEqual(opened, []);
+  await d.link.stream('watch');
+  await until(() => opened.length === 1);
+  assert.deepEqual(opened, ['watch']);
 });
 
 test('T4: an async stream handler can await its first write, then end with a public or generic error', async () => {

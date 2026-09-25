@@ -1,22 +1,23 @@
 # @byokit/link
 
-Muxr parity is tracked separately.
+Muxr parity is tracked separately. Host policy and streams are available; relay routing is in `@byokit/relay`.
 
 Scan a code to pair a phone or browser with the home computer, then talk over one encrypted link. The computer (the
 **host**) keeps every credential; a device holds only its own key and a grant, and asks the host to do things.
 
 Noise IK over WebSocket (`noise-handshake` + libsodium; frames sealed by `@noble/ciphers`), in Node, browsers/PWAs
-and React Native. No listener, no files, no environment: the app hands the host its sockets and stores. Threat model
-and review checklist:
+and React Native. The main entry has no listener, files or environment access: the app hands the host its sockets
+and stores. Threat model and review checklist:
 [SECURITY.md](SECURITY.md).
 
 ## Host
 
 ```ts
-import { Host, keyPair } from '@byokit/link';
+import { Host } from '@byokit/link';
+import { hostKeyFile } from '@byokit/link/node';
 
 const host = await Host.open({
-  keys,                                   // keyPair() once, then keep it in the OS keychain or a 0600 file
+  keys: hostKeyFile('./link-secret/host.key'), // made once in its own 0700 folder; or use your keychain
   name: 'Kitchen computer',
   grants: { load: () => db.grants(), save: (g) => db.setGrants(g) },
   confirm: ({ name, words, role }) => ui.ask(`Pair ${name}? Check it shows “${words}”.`),
@@ -29,6 +30,22 @@ const { text } = host.offer({ role: 'control', urls: ['ws://192.168.1.20:7300/li
 const { code } = host.code({ role: 'view' });     // or a code to type: "7KQ4-M2XP-9RTH"
 host.devices(); await host.revoke(id); host.broadcast(event);
 ```
+
+`hostKeyFile(path)` from `@byokit/link/node` wants a path in its own private (`0700`) folder; it refuses an
+existing folder with another mode rather than changing its permissions.
+
+More host policy, all optional:
+
+- `offer`/`code`/`enrol` take `kind` (e.g. `'browser'`, `'peer'`), `lifetime` (ms; access then ends like a removal)
+  and `meta`. The offer carries `role` and `lifetime`, so the device can show what it is agreeing to.
+- `allow: (req, device) => boolean` decides when asked (e.g. from capabilities kept in `meta`); without it,
+  control devices may do anything and view-only ones what `canView` allows. Do not mutate a grant's `meta` in place:
+  use `await host.setMeta(id, newMeta)` or revoke it to withdraw access. Work already started is not rolled back.
+- `caps: { peer: 16 }` limits devices per kind; `maxDevices` limits them all.
+- `answers: { get, put, drop }` keeps completed answers across host restarts. `req.key` is stable per device and retry;
+  handlers with transactional effects can store it alongside the effect to avoid repeating work after a crash between
+  the handler and `answers.put`.
+- `handshakes: { perMinute, perPeer }` limits new handshakes; pass `host.accept(ws, { peer: ip })` to count per source.
 
 `offer({ base: 'https://app.example/pair' })` makes a link a browser can open instead of a bare QR text.
 Handler errors are logged on the host (`onError` can receive them). Devices see “Your computer couldn't do that.” unless the handler explicitly throws `new PublicLinkError('A message safe to show.')`.
@@ -43,7 +60,19 @@ const grant = await pairWithOffer(scanned, { name: 'Pixel 9', onWords: (w) => sh
 await secureStore.save(grant);                    // it holds this device's secret key
 const link = new DeviceLink(grant, { store: secureStore, onStatus, onEvent });
 await link.request('send.message', { text: 'hi' });  // waits through reconnects
+await link.request('send.message', { text: 'hi' }, { timeoutMs: 20_000, notValidAfter: Date.now() + 60_000 });
 ```
+
+- For crash-safe pairing, make a `keyPair()`, save `pendingGrant(scanned, { name, key })` before pairing, then pass
+  that same `key` to `pairWithOffer(scanned, { name, key, onWords })`. If the app dies while the person decides,
+  a `DeviceLink` made from the saved pending grant retries until approval (up to five minutes after the offer expires),
+  then forgets it if the host still has not approved.
+- `resolve: (url) => …` runs before each dial (e.g. open an SSH tunnel and return `ws://127.0.0.1:<port>/…`);
+  `link.addUrl(url)` adds an address found later (a wrong host there just fails its handshake).
+- A quiet connection is pinged (`pingMs`, default 20 s) and redialled when the host stops answering; at most
+  `maxPending` requests (default 1000) wait at once.
+- `link.rekey()` moves the device to a fresh key without a moment where no key works; `link.unpair()` asks the
+  computer to remove the grant and forgets it locally only after confirmation. Offline or failed removal keeps the grant.
 
 Statuses: `connecting`, `online`, `offline` (it keeps retrying), `refused` (every address answered with another host key; the grant is
 kept, `retry()` or pair again), `removed` (the host removed this device; the grant is forgotten). Every failure is a
@@ -76,7 +105,7 @@ await s.write('ls\r');
 s.end();
 ```
 
-View-only devices open only the streams `canView` allows. A host without `stream` tells devices so
+View-only devices open only the streams `allow` permits (or `canView` when `allow` is absent). A host without `stream` tells devices so
 (`LinkError` `not-supported`), and so does a host older than streams.
 
 On a direct socket, stream bytes go as binary WebSocket messages (without base64 overhead); through a relay, whose
