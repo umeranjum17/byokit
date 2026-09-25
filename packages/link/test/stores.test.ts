@@ -54,12 +54,15 @@ test('K4: the grant in IndexedDB, sealed by a non-extractable AES-GCM key; the s
     await new Promise<void>((r) => site.listen(0, '127.0.0.1', r));
     const browser = await chromium.launch({ executablePath: chrome });
     try {
-      const page = await browser.newPage();
-      await page.goto(`http://127.0.0.1:${(site.address() as AddressInfo).port}/`);
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      const siteUrl = `http://127.0.0.1:${(site.address() as AddressInfo).port}/`;
+      await page.goto(siteUrl);
       const r = await page.evaluate(async (g) => {
         const { browserDeviceStore } = await import('/stores.js' as string);
         const store = browserDeviceStore('kitchen');
         const other = { ...g, host: g.host + '-second' };
+        Object.defineProperty(navigator, 'locks', { configurable: true, value: undefined });
         const generate = crypto.subtle.generateKey.bind(crypto.subtle);
         let arrived = 0;
         let release!: () => void;
@@ -71,6 +74,7 @@ test('K4: the grant in IndexedDB, sealed by a non-extractable AES-GCM key; the s
           return key;
         } });
         await Promise.all([store.save(g), browserDeviceStore('kitchen').save(other)]);
+        delete (navigator as any).locks;
         const back = await browserDeviceStore('kitchen').load();
         const raw = await new Promise<any>((resolve) => {
           const o = indexedDB.open('byokit-link');
@@ -93,6 +97,45 @@ test('K4: the grant in IndexedDB, sealed by a non-extractable AES-GCM key; the s
       assert.equal(r.exported, 'refused');
       assert.equal(r.leaks, false);
       assert.equal(r.cleared, null);
+
+      const otherTab = await context.newPage();
+      await otherTab.goto(siteUrl);
+      await page.evaluate(async (g) => {
+        const { browserDeviceStore } = await import('/stores.js' as string);
+        await browserDeviceStore('kitchen').save(g);
+        const encrypt = crypto.subtle.encrypt.bind(crypto.subtle);
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => { release = resolve; });
+        (globalThis as any).releaseEncrypt = release;
+        Object.defineProperty(crypto.subtle, 'encrypt', { configurable: true, value: async (...args: Parameters<typeof encrypt>) => {
+          (globalThis as any).encryptEntered = true;
+          await held;
+          return encrypt(...args);
+        } });
+      }, grant);
+      const saving = page.evaluate(async (g) => {
+        const { browserDeviceStore } = await import('/stores.js' as string);
+        await browserDeviceStore('kitchen').save({ ...g, hostName: 'Late save' });
+      }, grant);
+      await page.waitForFunction(() => (globalThis as any).encryptEntered === true);
+      const clearing = otherTab.evaluate(async () => {
+        (globalThis as any).clearStarted = true;
+        const { browserDeviceStore } = await import('/stores.js' as string);
+        await browserDeviceStore('kitchen').clear();
+      });
+      await otherTab.waitForFunction(() => (globalThis as any).clearStarted === true);
+      await page.evaluate(() => (globalThis as any).releaseEncrypt());
+      await Promise.all([saving, clearing]);
+      assert.equal(await otherTab.evaluate(async () => {
+        const { browserDeviceStore } = await import('/stores.js' as string);
+        return browserDeviceStore('kitchen').load();
+      }), null);
+      assert.deepEqual(await otherTab.evaluate(async (g) => {
+        const { browserDeviceStore } = await import('/stores.js' as string);
+        const store = browserDeviceStore('kitchen');
+        await store.save(g);
+        return store.load();
+      }, grant), grant);
     } finally { await browser.close(); site.close(); }
   });
 

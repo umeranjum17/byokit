@@ -111,7 +111,8 @@ function Pair() {
   }, []);
   const pair = async () => {
     if (forgetting.current) return;
-    const current = generation.current.next();
+    const current = generation.current.begin();
+    if (current === null) return;
     setError(undefined);
     try {
       const grant = await pairInput(offer, hostUrl, { name: `${Platform.OS} phone`, onWords: (w) => {
@@ -121,6 +122,7 @@ function Pair() {
       use(grant, current);
       await kept.current.save(link.current!.grant);
     } catch (e: any) { if (generation.current.isCurrent(current)) { setError(e.message); setPhase('failed'); } }
+    finally { generation.current.finish(); }
   };
   const view = pairingView({ phase, hostName, words, error });
   return (

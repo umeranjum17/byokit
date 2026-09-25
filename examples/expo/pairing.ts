@@ -6,8 +6,13 @@ export function pairInput(input: string, hostUrl: string, options: Parameters<ty
 }
 
 export function pairingGeneration() {
-  let current = 0;
-  return { next: () => ++current, isCurrent: (generation: number) => generation === current };
+  let current = 0, pairing = false;
+  return {
+    next: () => ++current,
+    begin: () => { if (pairing) return null; pairing = true; return ++current; },
+    finish: () => { pairing = false; },
+    isCurrent: (generation: number) => generation === current,
+  };
 }
 
 export function forgettableStore(store: KeptDevice) {

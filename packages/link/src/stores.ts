@@ -47,6 +47,14 @@ export function browserDeviceStore(name: string, db = 'byokit-link'): KeptDevice
       });
     } finally { d.close(); }
   };
+  let pending = Promise.resolve();
+  const locked = <T>(fn: () => Promise<T>): Promise<T> => {
+    if (typeof navigator !== 'undefined' && navigator.locks) return navigator.locks.request(`byokit-link:${db}:${name}`, fn);
+    const work = pending.then(fn);
+    pending = work.then(() => {}, () => {});
+    return work;
+  };
+  const generation = async () => (await run<{ generation?: number } | undefined>('grants', 'readonly', (s) => s.get(name)))?.generation ?? 0;
   const key = async (): Promise<CryptoKey> => {
     const kept = await run<CryptoKey | undefined>('keys', 'readonly', (s) => s.get(name));
     if (kept) return kept;
@@ -60,17 +68,30 @@ export function browserDeviceStore(name: string, db = 'byokit-link'): KeptDevice
     }
   };
   return {
-    async load() {
-      const sealed = await run<{ iv: Uint8Array<ArrayBuffer>; data: ArrayBuffer } | undefined>('grants', 'readonly', (s) => s.get(name));
-      if (!sealed) return null;
+    load: () => locked(async () => {
+      const sealed = await run<{ iv?: Uint8Array<ArrayBuffer>; data?: ArrayBuffer } | undefined>('grants', 'readonly', (s) => s.get(name));
+      if (!sealed?.iv || !sealed.data) return null;
       const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: sealed.iv }, await key(), sealed.data);
       return grantOf(new TextDecoder().decode(plain));
-    },
+    }),
     async save(g) {
-      const iv = crypto.getRandomValues(new Uint8Array(12));
-      const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await key(), new TextEncoder().encode(JSON.stringify(g)));
-      await run('grants', 'readwrite', (s) => s.put({ iv, data }, name));
+      const started = await generation();
+      await locked(async () => {
+        const iv = crypto.getRandomValues(new Uint8Array(12));
+        const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await key(), new TextEncoder().encode(JSON.stringify(g)));
+        await run('grants', 'readwrite', (s) => {
+          const r = s.get(name);
+          r.onsuccess = () => { if ((r.result?.generation ?? 0) === started) s.put({ iv, data, generation: started }, name); };
+          return r;
+        });
+      });
     },
-    async clear() { await run('grants', 'readwrite', (s) => s.delete(name)); },
+    clear: () => locked(async () => {
+      await run('grants', 'readwrite', (s) => {
+        const r = s.get(name);
+        r.onsuccess = () => { s.put({ generation: (r.result?.generation ?? 0) + 1 }, name); };
+        return r;
+      });
+    }),
   };
 }

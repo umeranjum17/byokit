@@ -2,15 +2,19 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { WebSocketServer } from 'ws';
+import ws from 'ws';
 import { Host, keyPair, type DeviceGrant } from '@byokit/link';
 import { forgettableStore, pairInput, pairingGeneration } from './pairing.ts';
 
 test('typed code and offer both pair with the computer', async () => {
   const host = await Host.open({ keys: keyPair(), name: 'Kitchen computer', confirm: () => true, handle: () => ({}) });
   const server = createServer();
-  const wss = new WebSocketServer({ server });
-  wss.on('connection', (ws) => host.accept(ws));
+  const Server = (ws as unknown as { Server: new (o: { server: typeof server }) => {
+    on(event: 'connection', listener: (socket: Parameters<typeof host.accept>[0]) => void): void;
+    close(): void;
+  } }).Server;
+  const wss = new Server({ server });
+  wss.on('connection', (socket) => host.accept(socket));
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}/link`;
   try {
@@ -41,6 +45,18 @@ test('late load and pairing completions cannot restore a forgotten generation', 
   const next = generation.next();
   await accept(Promise.resolve('new pair'), next);
   assert.deepEqual(applied, ['new pair']);
+});
+
+test('a second Pair tap is ignored until the first finishes', () => {
+  const generation = pairingGeneration();
+  const first = generation.begin();
+  assert.ok(first !== null);
+  assert.equal(generation.begin(), null);
+  assert.equal(generation.isCurrent(first), true);
+  generation.finish();
+  const second = generation.begin();
+  assert.ok(second !== null && second > first);
+  generation.finish();
 });
 
 test('forget waits for an in-flight save and suppresses queued reconnect saves', async () => {
