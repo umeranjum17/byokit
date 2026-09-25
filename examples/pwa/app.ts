@@ -20,7 +20,7 @@ async function draw() {
   const phase = phaseOf({ ready: status.state === 'ready', signIn: view });
   $('status').textContent = status.words;
   $('plan').textContent = plan && status.state === 'ready' ? `${plan.email}, ${plan.plan} plan` : '';
-  show('sheet', phase === 'code' || phase === 'opening');
+  show('sheet', view?.state === 'waiting' && (phase === 'code' || phase === 'opening'));
   $('words').textContent = phase === 'code' ? 'On the ChatGPT page, type this code:' : say('signIn.opening', { name: 'ChatGPT' });
   $('code').textContent = view?.code ?? '';
   ($('open') as HTMLAnchorElement).href = view?.url ?? '#';

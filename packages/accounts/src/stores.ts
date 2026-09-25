@@ -18,7 +18,7 @@ export function recordStore(load: () => Promise<Record>, save: (data: Record) =>
       const current = (await load())[id];
       const next = await fn(current);
       if (next === undefined) return current;
-      options?.signal?.throwIfAborted();
+      if (options?.signal?.aborted) throw new Error('Login cancelled');
       await save({ ...(await load()), [id]: next });
       return next;
     }),

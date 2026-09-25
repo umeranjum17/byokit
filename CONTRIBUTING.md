@@ -25,9 +25,8 @@ Phones: `examples/expo` (`npm ci`, `npm run typecheck`, `npm run bundle` for the
   never runs their CLIs. Tests use the harness in `packages/accounts/src/testing` (a decoy HOME, an fs tracer, canary
   tokens) and must never need a real account, the network or a model call. `npm test` fails if your own `~/.pi` changed during the run.
 - **One package per concern**, small and dependency-light: `accounts`, `link`, `decide`, `ui-core`. Prefer deleting to adding.
-- **Every platform.** The packages run on Node and Electron, in browsers and PWAs, and in React Native on iOS and
-  Android. What only a computer can do (files, a loopback listener, Pi's own flows) sits behind the package's default
-  export condition; the `react-native` and `browser` side imports no Node module.
+- **Platform boundary.** See [accounts' platform guide](packages/accounts/README.md#which-sign-in-works-where).
+  Its `react-native` and `browser` exports must not import Node modules; computer-only flows belong in the default export.
 - Sources are TypeScript that Node runs directly (type stripping): no enums, namespaces or parameter properties, and
   relative imports carry the `.ts` extension.
 - Provider terms are data (`packages/accounts/src/catalogue.json`), with a one-line reason and a source. The kit labels

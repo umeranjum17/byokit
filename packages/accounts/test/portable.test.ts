@@ -5,7 +5,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { build } from 'esbuild';
-import { Accounts, credentialOf, devicePoll, deviceStart, memoryStore, portableEngine, secureStore, type SecureStoreLike } from '../src/portable.ts';
+import { Accounts, credentialOf, devicePoll, deviceStart, memoryStore, portableEngine, recordStore, secureStore, type SecureStoreLike } from '../src/portable.ts';
 import { mockOpenAI } from '../src/testing/index.ts';
 import type { CredentialStore } from '@earendil-works/pi-ai';
 
@@ -214,6 +214,19 @@ test('a refresh queued during revoke cannot rotate the signed-out token', async 
     assert.equal(await refresh, undefined);
     assert.equal(await store.read('openai-codex'), undefined);
   } finally { release(); globalThis.fetch = original; }
+});
+
+test('portable store accepts React Native-style AbortSignal without throwIfAborted and rejects an aborted write', async () => {
+  let data: any = {};
+  const store = recordStore(async () => data, async (next) => { data = next; });
+  const signal = { aborted: false } as AbortSignal;
+  await store.modify('openai-codex', async () => ({ type: 'oauth', access: 'a', refresh: 'r', expires: 1 }), { signal });
+  assert.equal((await store.read('openai-codex'))?.type, 'oauth');
+  await assert.rejects(store.modify('other', async () => {
+    (signal as any).aborted = true;
+    return { type: 'oauth', access: 'b', refresh: 'r', expires: 1 };
+  }, { signal }));
+  assert.equal(await store.read('other'), undefined);
 });
 
 test('secureStore: chunked under the size expo-secure-store allows, and a crash mid-write keeps the old sign-ins', async () => {

@@ -24,6 +24,7 @@ test('sign in with ChatGPT in a browser: device code, kept across a reload, refr
   await page.goto(`${site.url}?openai=https://attacker.example`);
   const status = page.locator('#status');
   await assert.doesNotReject(status.filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor());
+  assert.equal(await page.locator('#sheet').isVisible(), false, 'no sign-in sheet before the person starts');
 
   await page.click('#signin');
   const code = (await page.locator('#code').filter({ hasText: /^MOCK-/ }).textContent())!;
@@ -48,6 +49,7 @@ test('sign in with ChatGPT in a browser: device code, kept across a reload, refr
 
   await page.click('#signout');
   await status.filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor();
+  assert.equal(await page.locator('#sheet').isVisible(), false, 'old code is hidden after sign-out');
   assert.ok(openai.state.requests.some((r) => r.path === '/oauth/revoke'), 'ended at OpenAI too');
   await page.reload();
   await status.filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor();

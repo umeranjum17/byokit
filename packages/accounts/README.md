@@ -30,8 +30,8 @@ const accounts = new Accounts({ store: (member) => secureStore(SecureStore, `byo
 const shown = await accounts.login(1, 'chatgpt'); // { state: 'waiting', via: 'code', code, url }: open url, show code
 ```
 
-Examples that sign in end to end: [`examples/expo`](../../examples/expo) (iOS and Android) and
-[`examples/pwa`](../../examples/pwa).
+Examples: [`examples/expo`](../../examples/expo) (iOS and Android bundles; Android emulator sign-in) and
+[`examples/pwa`](../../examples/pwa) (browser sign-in).
 
 ## Which sign-in works where
 
@@ -55,16 +55,17 @@ doesn't answer other web pages), so a PWA's model calls go through the app's own
   true. A code takes over when asked ("Having trouble?"), when the page never comes back, or when the port is taken by
   another sign-in. A 15-minute cap, nothing kept unless the engine can use it, and every failure is one plain sentence
   (`words.json`) with a `why` for apps that word it themselves. `plan(member)` tells a work ChatGPT from a personal one.
-- **Sign-out**: `logout(member, key)` attempts to end a ChatGPT sign-in at OpenAI (`POST auth.openai.com/oauth/revoke`,
-  as Codex's own sign-out does), then deletes it here even if the request fails. A failed revoke rejects after local
-  deletion; report it because the remote sign-in may remain active. It runs in the store's turn, after any refresh.
-  An overridden `open(member)` must return an engine whose `credentialStore` is made with
-  `boundStore(member, engineStore)` and whose `readCredential(id)` reads that store. If a cancelled sign-in finishes late,
-  `onSignOutError` reports a failed revoke of its discarded credential (or it is logged when no handler is set).
+- **Sign-out**: `logout(member, key)` attempts to revoke a ChatGPT token at OpenAI (`POST auth.openai.com/oauth/revoke`),
+  then deletes the local sign-in even if the revoke fails. A failed revoke rejects after local deletion; report it because
+  the remote sign-in may remain active. Within one store instance, a refresh already in progress finishes first, so
+  sign-out uses its rotated token. If a cancelled sign-in finishes late, `onSignOutError` reports a failed revoke of its
+  discarded credential (or it is logged when no handler is set).
 - **One person, one store**: `memoryStore()`, `fileStore(path)` (0600, the same shape as Pi's `auth.json`),
-  `secureStore(SecureStore, name)` or `browserStore(name)`; any other storage with `recordStore(load, save)`. Every one
-  serializes its writes. Never a shared fallback. Using another engine with the same seam (Pi's coding-agent
-  `ModelRuntime`)? Override `open(member)`.
+  `secureStore(SecureStore, name)` or `browserStore(name)`; any other storage with `recordStore(load, save)`. Writes are
+  serialized within a store instance; `browserStore` also uses Web Locks across tabs for the same provider when available.
+  Never a shared fallback. Browser storage is readable by scripts on your page: avoid untrusted scripts. Using another
+  engine with the same seam (Pi's coding-agent `ModelRuntime`)? Override `open(member)` with an engine whose
+  `credentialStore` is made with `boundStore(member, engineStore)` and whose `readCredential(id)` reads that store.
 - **Limits**: `failed(member, key, error)` rests an account until the provider said (or a default), marks a plan that
   doesn't include this use, and signs out only a sign-in that no longer refreshes. `ladder()` picks the next usable
   account; `keepFresh()` refreshes ahead of expiry. Limits come from errors only; no undocumented usage endpoint is read.
