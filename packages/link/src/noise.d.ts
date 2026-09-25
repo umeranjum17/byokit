@@ -6,3 +6,4 @@ declare module 'noise-handshake/dh.js' {
   export default dh;
 }
 declare module 'sodium-universal' { const sodium: any; export default sodium; }
+declare module 'sodium-javascript' { const sodium: any; export default sodium; }

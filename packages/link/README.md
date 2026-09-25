@@ -5,7 +5,7 @@ Muxr parity is tracked separately.
 Scan a code to pair a phone or browser with the home computer, then talk over one encrypted link. The computer (the
 **host**) keeps every credential; a device holds only its own key and a grant, and asks the host to do things.
 
-Noise IK over WebSocket (`noise-handshake` + libsodium), in Node, browsers/PWAs and React Native. No listener, no
+Noise IK over WebSocket (`noise-handshake` + libsodium; frames sealed by `@noble/ciphers`), in Node, browsers/PWAs and React Native. No listener, no
 files, no environment: the app hands the host its sockets and stores. Threat model and review checklist:
 [SECURITY.md](SECURITY.md).
 
@@ -52,6 +52,38 @@ Retry guarantees and their limits: [SECURITY.md](SECURITY.md#known-limits).
 For React Native, install a `crypto.getRandomValues` polyfill such as `react-native-get-random-values` (or use
 `expo-crypto`) and import it **before** `@byokit/link`. Metro resolves `sodium-universal` to `sodium-javascript`
 through its browser field. The device uses the platform's WebSocket and needs no Node globals.
+
+## Streams
+
+For what doesn't fit a request: a terminal pane, a tunnelled TCP connection, a call's audio. A stream is duplex and
+carries bytes; each direction has a 256 KB window, so a slow reader holds the writer back instead of filling memory.
+
+```ts
+// Host: take streams devices open. `device` is the authenticated grant (one controller per pane…). Throw to refuse:
+// a `PublicLinkError`'s message reaches the device; any other error goes to `onError` and the device hears `failed`.
+const host = await Host.open({ …, stream: (s, req, device) => {
+  const pty = panes.attach(req.args.pane, device.id);        // your code
+  s.onData = (keys) => pty.write(keys);                       // return a promise to hold the device back
+  s.onEnd = () => pty.detach();
+  pty.onOutput((bytes) => s.write(bytes));                    // await it to go at the device's pace
+} });
+
+// Device: only while online. A stream ends with its socket (`onEnd('unreachable')`); open it again on `online`.
+const s = await link.stream('terminal', { pane: 'p1' });
+s.onData = (bytes) => term.write(bytes);
+await s.write('ls\r');
+s.end();
+```
+
+View-only devices open only the streams `canView` allows. A host without `stream` tells devices so
+(`LinkError` `not-supported`), and so does a host older than streams.
+
+On a direct socket, stream bytes go as binary WebSocket messages (one wire byte per byte); through a relay, whose
+host wrapper is text, the same frames go as base64 text. The host says which in `ready`; everything else stays text.
+
+Speed, measured on Hermes (the CLI, v0.13, on a desktop CPU; `bench/hermes.sh`): a phone opens about 4.8 MB/s of
+stream bytes on a direct socket and 3.9 MB/s through a relay, where muxr's tweetnacl opens its binary preview tunnel at
+about 4.6 MB/s. Frames are sealed with `@noble/ciphers`; sodium-javascript's ChaCha20 managed about 2.5.
 
 ## Through a relay
 

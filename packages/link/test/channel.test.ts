@@ -5,8 +5,11 @@ import b4a from 'b4a';
 import Noise from 'noise-handshake';
 import Cipher from 'noise-handshake/cipher.js';
 import dh from 'noise-handshake/dh.js';
+import { chacha20poly1305 } from '@noble/ciphers/chacha.js';
+import sodiumJs from 'sodium-javascript';
 import vectors from './fixtures/noise-vectors.json' with { type: 'json' };
-import { Handshake, firstFrame, keyPair } from '../src/channel.ts';
+import aead from './fixtures/rfc8439-aead.json' with { type: 'json' };
+import { Handshake, Transport, b64, firstFrame, keyPair } from '../src/channel.ts';
 import { codeKey } from '../src/pairing.ts';
 
 const hex = (s: string) => b4a.from(s, 'hex');
@@ -67,6 +70,51 @@ test('IK: both ends finish, the host learns the device key, and both show the sa
   assert.deepEqual(dc.open(hc.seal({ back: 1 })[0]), { back: 1 });
 });
 
+test('RFC 8439: @noble/ciphers ChaCha20-Poly1305 (the transport cipher) matches the AEAD vectors; a flipped bit is refused', () => {
+  for (const v of aead.vectors) {
+    const box = chacha20poly1305(hex(v.key), hex(v.nonce), hex(v.aad));
+    assert.equal(b4a.toString(b4a.from(box.encrypt(hex(v.plaintext))), 'hex'), v.ciphertext + v.tag, `RFC 8439 ${v.name} seals`);
+    const sealed = hex(v.ciphertext + v.tag);
+    assert.equal(b4a.toString(b4a.from(box.decrypt(sealed)), 'hex'), v.plaintext, `RFC 8439 ${v.name} opens`);
+    sealed[5] ^= 1;
+    assert.throws(() => box.decrypt(sealed));
+  }
+});
+
+test('the transport is byte for byte the previous one: noble-sealed frames open with sodium-native and sodium-javascript, and back', () => {
+  const key = hex(aead.vectors[1].key);
+  const noiseNonce = (n: number) => { const b = Buffer.alloc(12); b.writeUInt32LE(n, 4); return b; }; // counters stay under 2^32
+  for (const n of [0, 1, 255, 65_536, 2 ** 32 - 2]) {
+    for (const size of [0, 1, 1000, 60_001]) {
+      const plain = b4a.from(Array.from({ length: size }, (_, i) => (i * 13 + n) & 255));
+      const ours = new Transport(key); ours.nonce = n;
+      const native = new Cipher(b4a.from(key)); native.nonce = n; // noise-handshake over sodium-native, as before
+      const sealed = ours.encrypt(plain);
+      assert.ok(b4a.equals(b4a.from(sealed), native.encrypt(plain)), `same frame at counter ${n}, ${size} bytes`);
+      native.nonce = n;
+      assert.ok(b4a.equals(native.decrypt(b4a.from(sealed)), plain), 'noble seals, sodium-native opens');
+      const back = new Transport(key); back.nonce = n;
+      native.nonce = n;
+      assert.ok(b4a.equals(b4a.from(back.decrypt(native.encrypt(plain))), plain), 'sodium-native seals, noble opens');
+
+      const js = b4a.alloc(size + 16); // sodium-javascript: what browsers and React Native used before
+      sodiumJs.crypto_aead_chacha20poly1305_ietf_encrypt(js, plain, null, null, noiseNonce(n), key);
+      assert.ok(b4a.equals(js, b4a.from(sealed)), 'sodium-javascript seals the same frame');
+      const opened = b4a.alloc(size);
+      sodiumJs.crypto_aead_chacha20poly1305_ietf_decrypt(opened, null, b4a.from(sealed), null, noiseNonce(n), key);
+      assert.ok(b4a.equals(opened, plain), 'noble seals, sodium-javascript opens');
+    }
+  }
+  const t = new Transport(key);
+  const f = t.encrypt(b4a.from('hi'));
+  const r = new Transport(key);
+  f[0] ^= 1;
+  assert.throws(() => r.decrypt(f));
+  f[0] ^= 1;
+  assert.equal(b4a.toString(b4a.from(r.decrypt(f))), 'hi', 'a frame that failed to open left the counter where it was');
+  assert.throws(() => r.decrypt(new Uint8Array(65_536)), /too large/);
+});
+
 test('wrong keys are refused both ways', () => {
   const [device, host, other] = [keyPair(), keyPair(), keyPair()];
   // A device holding a different host key (a forged QR, or the wrong computer) can't reach the host.
@@ -122,3 +170,28 @@ test('big messages go in pieces; one past 16 MB drops the socket; the 32-bit cou
   assert.throws(() => worn.dc.seal({}), /reconnect/);
 });
 
+
+test('T4/F4: stream bytes go as binary inner messages, beside JSON ones; a message that changes kind midway is refused', () => {
+  const { dc, hc } = ik();
+  const bytes = Uint8Array.from({ length: 150_000 }, (_, i) => (i * 7) & 255);
+  const frames = dc.sealData(7, bytes);
+  assert.equal(frames.length, 3, 'chunked like any message');
+  assert.ok(frames.every((f) => f instanceof Uint8Array), 'raw frames, for binary WebSocket messages');
+  assert.ok(frames.reduce((n, f) => n + f.byteLength, 0) < bytes.length * 1.01, 'about one wire byte per byte');
+  assert.equal(hc.open(frames[0]), undefined);
+  assert.equal(hc.open(b64(frames[1])), undefined, 'or base64 text where only text goes (a relay), in the same sequence');
+  const m = hc.open(frames[2]);
+  assert.deepEqual([m.t, m.s], ['data', 7]);
+  assert.deepEqual(new Uint8Array(m.d), bytes, 'byte for byte, no base64 inside');
+  assert.deepEqual(hc.open(dc.seal({ t: 'credit', s: 7, n: 1 })[0]), { t: 'credit', s: 7, n: 1 });
+  assert.equal(hc.open(dc.sealData(1, new Uint8Array(0))[0]).d.length, 0);
+  assert.deepEqual(hc.open(b4a.from(Buffer.from(dc.seal({ json: 1 })[0], 'base64'))), { json: 1 }, 'JSON in a binary message opens too');
+
+  const tx = (dc as any).tx;
+  assert.equal(hc.open(b4a.toString(tx.encrypt(b4a.from([1, 123])), 'base64')), undefined, 'a JSON message begins');
+  assert.throws(() => hc.open(b4a.toString(tx.encrypt(b4a.from([2, 0, 0, 0, 1])), 'base64')), /bad frame/);
+  const fresh = ik();
+  assert.throws(() => fresh.hc.open(b4a.toString((fresh.dc as any).tx.encrypt(b4a.from([4])), 'base64')), /bad frame/, 'an unknown kind');
+  const short = ik();
+  assert.throws(() => short.hc.open(b4a.toString((short.dc as any).tx.encrypt(b4a.from([2, 0])), 'base64')), /bad frame/, 'no room for a stream id');
+});

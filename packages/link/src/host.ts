@@ -1,9 +1,10 @@
 // The host: the computer that owns the credentials. It pairs devices (scanned or typed code, then a person says yes),
 // keeps one durable grant per device, answers their requests, and removes them. It never listens on anything itself:
 // the app hands it WebSockets (`accept`), or one relay socket that carries many devices (`relay`).
-import { Handshake, b64url, firstFrame, hostId, messageBytes, random, type Channel, type KeyPair } from './channel.ts';
+import { Handshake, b64, b64url, firstFrame, hostId, messageBytes, random, type Channel, type KeyPair } from './channel.ts';
 import { cleanName, codeKey, newCode, normalizeCode, offerText, type PairOffer } from './pairing.ts';
 import { PublicLinkError } from './device.ts';
+import { MAX_STREAMS, Streams, type LinkStream } from './stream.ts';
 
 export type Role = 'control' | 'view';
 /** One paired device. `key` is its static public key (base64url); `meta` is the app's own (e.g. which person). */
@@ -14,7 +15,7 @@ export type LinkRequest = { op: string; args?: unknown };
 export type PairRequest = { name: string; role: Role; words: string; how: 'scan' | 'code'; meta?: unknown };
 /** Anything shaped like a browser WebSocket or a `ws` one. */
 export type Socket = {
-  send(data: string): void;
+  send(data: string | Uint8Array): void;
   close(code?: number, reason?: string): void;
   addEventListener(type: string, fn: (e: any) => void): void;
 };
@@ -27,7 +28,13 @@ export type HostOptions = {
   handle: (req: LinkRequest, device: Grant) => unknown;
   /** Asks the person at the host whether this device may join; nothing is stored until it says yes. */
   confirm: (p: PairRequest) => boolean | Promise<boolean>;
-  /** Which requests a view-only device may make. Default: none. */
+  /** Takes a stream a device opened with `link.stream(op, args)` (a terminal pane, a tunnelled connection, a call):
+   *  set `onData` and `onEnd`, `write`, `end`. Throw to refuse it: a `PublicLinkError`'s message reaches the device,
+   *  anything else goes to `onError` and the device hears `failed`. `device` is the authenticated grant, so the app
+   *  can decide, say, that a pane has one controller at a time. Without this, devices are told this host has no
+   *  streams. */
+  stream?: (s: LinkStream, req: LinkRequest, device: Grant) => void | Promise<void>;
+  /** Which requests, and streams, a view-only device may open. Default: none. */
   canView?: (req: LinkRequest) => boolean;
   onError?: (error: unknown) => void;
   grants?: GrantStore;
@@ -37,8 +44,9 @@ export type HostOptions = {
   now?: () => number;
 };
 
-type Conn = { send(text: string): void; close(code: number, reason: string): void };
-type Handler = { message(text: string): void; closed(): void };
+/** `binary` sends a binary WebSocket message: only on a direct socket, since a relay's wrapper is text. */
+type Conn = { send(text: string): void; binary?: (bytes: Uint8Array) => void; close(code: number, reason: string): void };
+type Handler = { message(frame: string | Uint8Array): void; closed(): void };
 type Pending = { role: Role; meta?: unknown; expires: number };
 
 const HANDSHAKE_MS = 15_000;
@@ -57,7 +65,7 @@ export class Host {
   private tickets = new Map<string, Pending>();
   private codes = new Map<string, Pending>();
   private tries = 0;
-  private live = new Map<Conn, { dev: Grant; ch: Channel }>();
+  private live = new Map<Conn, { dev: Grant; ch: Channel; streams: Streams }>();
   private answered = new Map<string, Map<string, { id: number; session: string; reply: Promise<object> }>>();
   private changes: Promise<void> = Promise.resolve();
 
@@ -99,6 +107,7 @@ export class Host {
         for (const [conn, s] of this.live) if (s.dev.id === old.id) {
           if (revoke) this.sealed(conn, s.ch, { t: 'revoked' });
           this.live.delete(conn);
+          s.streams.closeAll(revoke ? 'removed' : 'unreachable');
           if (revoke) later(1000, () => conn.close(4401, 'removed'));
           else try { conn.close(1001, 'grant changed'); } catch {}
         }
@@ -155,8 +164,14 @@ export class Host {
 
   /** One WebSocket, straight from a device. */
   accept(ws: Socket) {
-    const h = this.connection({ send: (t) => ws.send(t), close: (c, r) => ws.close(c, r) });
-    ws.addEventListener('message', (e) => (typeof e.data === 'string' ? h.message(e.data) : ws.close(4400, 'text frames only')));
+    const h = this.connection({ send: (t) => ws.send(t), binary: (b) => ws.send(b), close: (c, r) => ws.close(c, r) });
+    ws.addEventListener('message', (e) => {
+      const d = e.data;
+      if (typeof d === 'string') return h.message(d);
+      if (d instanceof ArrayBuffer) return h.message(new Uint8Array(d));
+      if (ArrayBuffer.isView(d)) return h.message(new Uint8Array(d.buffer, d.byteOffset, d.byteLength)); // ws's Buffer
+      ws.close(4400, 'unexpected frame');
+    });
     ws.addEventListener('close', () => h.closed());
   }
 
@@ -186,8 +201,17 @@ export class Host {
 
   close() { for (const conn of this.live.keys()) conn.close(1001, 'host closing'); this.live.clear(); }
 
-  private sealed(conn: Conn, ch: Channel, msg: unknown) {
-    try { for (const f of ch.seal(msg)) conn.send(f); } catch { conn.close(4400, 'send failed'); }
+  private sealed(conn: Conn, ch: Channel, msg: unknown) { this.out(conn, () => ch.seal(msg)); }
+
+  private out(conn: Conn, frames: () => string[]) {
+    try { for (const f of frames()) conn.send(f); } catch { conn.close(4400, 'send failed'); }
+  }
+
+  /** What the device hears when the app's stream code throws: a `PublicLinkError`'s message, else `failed`. */
+  private reason(e: unknown): string {
+    if (e instanceof PublicLinkError) return e.message.slice(0, 200);
+    this.report(e);
+    return 'failed';
   }
 
   private take(map: Map<string, Pending>, key: string): Pending | undefined {
@@ -257,8 +281,14 @@ export class Host {
         dev = g;
         busy = false;
         clearTimeout(timer);
-        this.live.set(conn, { dev, ch: ch! });
-        this.sealed(conn, ch!, { t: 'ready', device: { id: g.id, name: g.name, role: g.role }, host: { name: this.opts.name } });
+        const c = ch!;
+        const data = conn.binary
+          ? (s: number, d: Uint8Array) => { try { for (const f of c.sealData(s, d)) conn.binary!(f); } catch { conn.close(4400, 'send failed'); } }
+          : (s: number, d: Uint8Array) => this.out(conn, () => c.sealData(s, d).map(b64));
+        const streams = new Streams({ send: (m) => this.sealed(conn, c, m), data, reason: (e) => this.reason(e) });
+        this.live.set(conn, { dev, ch: c, streams });
+        this.sealed(conn, c, { t: 'ready', device: { id: g.id, name: g.name, role: g.role }, host: { name: this.opts.name },
+          ...(this.opts.stream ? { streams: 1, ...(conn.binary ? { binary: 1 } : {}) } : {}) });
       } catch { if (!gone) refuse('failed'); }
     };
 
@@ -297,10 +327,15 @@ export class Host {
       message: (text) => {
         if (gone) return;
         try {
-          if (!ch) return handshake(text);
+          if (!ch) return typeof text === 'string' ? handshake(text) : end(4400, 'text frames only');
           const m = ch.open(text); // throws unless this is the device's next authentic frame
           if (m === undefined || busy) return;
-          if (dev) return m.t === 'req' ? void this.request(conn, dev, m) : undefined;
+          if (dev) {
+            if (m.t === 'req') return void this.request(conn, dev, m);
+            const streams = this.live.get(conn)?.streams;
+            if (m.t === 'open' && streams) return this.openStream(dev, streams, m);
+            return void streams?.message(m);
+          }
           if (m.t === 'auth') {
             const g = this.grants.find((x) => x.key === b64url(hs!.remoteKey));
             if (g) {
@@ -321,8 +356,23 @@ export class Host {
           end(4400, 'bad frame'); // a bad frame ends the socket; the device reconnects with a fresh handshake
         }
       },
-      closed: () => { gone = true; clearTimeout(timer); this.live.delete(conn); },
+      closed: () => { gone = true; clearTimeout(timer); this.live.get(conn)?.streams.closeAll('unreachable'); this.live.delete(conn); },
     };
+  }
+
+  private openStream(dev: Grant, streams: Streams, m: any) {
+    const id = m.s, credit = m.credit;
+    if (!Number.isInteger(id) || id < 1 || id > 2 ** 32 - 1 || streams.has(id) || !Number.isInteger(credit) || credit < 0) throw new Error('bad stream message');
+    const s = streams.add(id, String(m.op ?? ''), m.args);
+    const g = this.grants.find((x) => x.id === dev.id);
+    const req: LinkRequest = { op: s.op, args: s.args };
+    let viewable = false;
+    try { viewable = g?.role === 'control' || (this.opts.canView?.(req) ?? false); } catch (e) { this.report(e); }
+    const why = !this.opts.stream ? 'not-supported' : !g ? 'removed' : streams.size > MAX_STREAMS ? 'busy' : !viewable ? 'view-only' : undefined;
+    if (why) return s.end(why);
+    void Promise.resolve().then(() => this.opts.stream!(s, req, g!)).then(
+      () => { if (streams.has(id)) s.accept(Math.min(credit, 2 ** 31)); }, // unless the app already ended it
+      (e) => s.end(this.reason(e)));
   }
 
   private acknowledge(device: string, session: unknown, ack: unknown) {

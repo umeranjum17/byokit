@@ -20,9 +20,9 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 |---|---|
 | Handshake, every connection | `Noise_IK_25519_ChaChaPoly_BLAKE2b`, prologue `byokit-link-v1`. The device knows the host's static key (from the QR, then its grant); its own static key travels encrypted in message 1. Fresh ephemerals per connection: forward secrecy. |
 | Handshake, typed code | `Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b`, PSK = BLAKE2b-256(`byokit-link-code-v1` ‖ code). Only a holder of the code can finish; each side learns the other's static key. |
-| Library | `noise-handshake` 4.2.0 (Holepunch, Apache-2.0) over libsodium: `sodium-native` in Node, `sodium-javascript` 0.8.0 in browsers and React Native. Pinned exactly. No crypto of our own. |
-| Conformance | `noise-handshake` is checked against the cacophony vectors for IK, XX and NNpsk0, which together cover every token of both handshakes (`test/channel.test.ts`). |
-| Frames | One Noise transport message per WebSocket text frame, base64. Per-direction CipherStates; the implicit nonce counter rejects any replayed, dropped, reordered or reflected frame, and any bad frame closes the socket. Messages over 60 KB are chunked; encoding over 16 MB is refused before sending, and a reassembled message over 16 MB closes the socket. |
+| Library | Handshakes: `noise-handshake` 4.2.0 (Holepunch, Apache-2.0) over libsodium: `sodium-native` in Node, `sodium-javascript` 0.8.0 in browsers and React Native. Frames after the handshake: ChaCha20-Poly1305 from `@noble/ciphers` 2.4.0 (Paul Miller, MIT, audited, no dependencies) on every platform, because sodium-javascript's ChaCha20 halves a phone's stream throughput (`bench/hermes.sh`). Same cipher, same Noise nonce, byte-identical frames: no wire change. Pinned exactly. No crypto of our own. |
+| Conformance | `noise-handshake` is checked against the cacophony vectors for IK, XX and NNpsk0, which together cover every token of both handshakes; `@noble/ciphers` against the RFC 8439 AEAD vectors; and the transport against noise-handshake's own CipherState (sodium-native) and sodium-javascript, sealing and opening both ways (`test/channel.test.ts`). |
+| Frames | One Noise transport message per WebSocket text frame, base64. Per-direction CipherStates; the implicit nonce counter rejects any replayed, dropped, reordered or reflected frame, and any bad frame closes the socket. Messages over 60 KB are chunked; a reassembled message over 16 MB closes the socket. |
 | QR / pairing link | `byokit-link:1:<base64url JSON>`: `{v, host (X25519 public key), name, urls, ticket (128 bits), expires}`. As a link, it rides after `#`, which browsers never send to a server. |
 | Typed code | 12 characters from a 31-character unambiguous alphabet (about 59 bits), `XXXX-XXXX-XXXX`. |
 | Pairing rules | Tickets and codes are single use (burned at first presentation, even when expired or refused), live 5 minutes through grant creation, and 5 wrong tries withdraw every open ticket and code. Nothing is stored until the person at the host approves; both screens show the same **two confirmation words**, derived from the handshake hash. Optional device cap. |
@@ -30,6 +30,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 | Revoke | Deletes the grant, sends a sealed `revoked` to its live sockets, then closes them. No key rotation is needed: there are no shared keys. |
 | Refusals | A host that can read the device's handshake answers refusals (`not-paired`, `expired`, `declined`, `full`) inside the channel, so the device can trust them (e.g. forget its grant). Anything unauthenticated (a plaintext close) only changes what the device *says*, never what it deletes. |
 | Requests | `{t:'req', id, key, session, ack, op, args}`. The device sends its highest contiguous received reply id on each request and reconnect authentication. The host retains replies until acknowledged across reconnects; a fresh app session clears abandoned replies because they can no longer be retried. At 1000 unacknowledged replies it refuses new requests with `busy`, without evicting answers. The cache is in memory. |
+| Streams | Opened by the device (`{t:'open', s, op, args, credit}`), answered `{t:'opened', s, credit}` or `{t:'end', s, error}`; then `{t:'credit', s, n}` and `{t:'end', s, error?}` either way, and the bytes as a binary inner message (frame flag 2/3: 4-byte stream id, then raw bytes), all sealed in the same channel and nonce sequence. On a direct socket the host offers `binary: 1` in `ready` and stream frames then go as binary WebSocket messages (the same Noise message, not base64); through a relay they stay base64 text. A binary message before the handshake closes the socket. Offered only by a host that says `streams: 1` in `ready`, so an older peer never gets one. Opening re-checks the grant and view-only (`canView`) before the app's `stream` handler, which gets the grant. A side that sends past the window it was granted (256 KB per stream, at most 64 streams per connection) is cut off. Streams end with their socket and on revoke. |
 | Relay | Routes by URL (`<relay>/link/v1/<host id>`, host id = BLAKE2b-128(`byokit-link-host-id-v1` ‖ host key)) and, host-side, by a `{c, f}` / `{c, end}` wrapper. Frames pass through byte for byte. The relay is not part of v0.1. |
 
 ## Adversaries and what stops them
@@ -73,7 +74,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 
 ## Review checklist
 
-- [ ] The pinned versions of `noise-handshake`, `sodium-universal`, `sodium-native`, `sodium-javascript`, `b4a` are
+- [ ] The pinned versions of `noise-handshake`, `@noble/ciphers`, `sodium-universal`, `sodium-native`, `sodium-javascript`, `b4a` are
       the ones reviewed; `package-lock.json` integrity hashes match npm.
 - [ ] `test/channel.test.ts` vectors pass: `noise-handshake` matches cacophony for IK, XX, NNpsk0.
 - [ ] `Handshake` uses IK with the remote static key pre-set on the initiator, and XXpsk0 only with a PSK; the
@@ -91,6 +92,8 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 - [ ] `parseOffer` accepts only `ws:`/`wss:` addresses without credentials, at most 8, a 32-byte key and 16-byte
       ticket.
 - [ ] The channel refuses frames past 2³² − 1 and messages over 16 MB.
+- [ ] Stream opens re-check the grant and view-only before the app's `stream` handler; data past a stream's window,
+      or stream data that isn't a binary inner message, drops the socket; streams end on disconnect and revoke.
 - [ ] The relay test shows no plaintext, device name, request or device id on the relay's wire.
 - [ ] The browser bundle has no Node built-ins, and the headless-browser test pairs and makes requests.
 - [ ] Nothing in the package reads or writes files, environment variables or other programs.
