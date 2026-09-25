@@ -5,16 +5,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createECDH, randomBytes } from 'node:crypto';
 import { isAllowedEndpoint, isExpoToken } from '../src/index.ts';
-import { paired, sleep, startRelay, until } from './helpers.ts';
+import { hostClient, paired, sleep, startHost, startRelay, until } from './helpers.ts';
 
 test('push endpoints must be public https push services: no internal, private or credentialed addresses', () => {
   for (const bad of [
     'https://[::ffff:c0a8:101]/push', 'https://[0:0:0:0:0:ffff:c0a8:101]/push', 'https://[::ffff:192.168.1.1]/push', // muxr's mapped-IPv6 cases
     'https://10.0.0.1/p', 'https://127.0.0.1/p', 'https://169.254.169.254/latest', 'https://[fe80::1]/p', 'https://[fd00::1]/p', 'https://[::1]/p',
     'https://0x7f.1/p', 'https://100.64.1.1/p', 'https://metadata/p', 'https://printer.local/p', 'https://svc.internal/p',
-    'https://user:pw@push.example.com/p', 'ftp://push.example.com/p', 'http://push.example.com/p', 'http://127.0.0.1:9/stub', 'http://[::1]/stub', 'not a url', 'https://a.com/' + 'x'.repeat(2048),
+    'https://user:pw@fcm.googleapis.com/p', 'https://push.example.com/p', 'https://push.apple.com/p', 'https://fakepush.apple.com.evil.test/p',
+    'https://fcm.googleapis.com:8443/p', 'ftp://fcm.googleapis.com/p', 'http://fcm.googleapis.com/p', 'http://127.0.0.1:9/stub', 'http://[::1]/stub', 'not a url', 'https://a.com/' + 'x'.repeat(2048),
   ]) assert.equal(isAllowedEndpoint(bad), false, bad);
-  for (const good of ['https://push.example.com/push', 'https://fcm.googleapis.com/fcm/send/abc', 'https://web.push.apple.com/Qx', 'https://8.8.8.8/p']) {
+  for (const good of ['https://fcm.googleapis.com/fcm/send/abc', 'https://web.push.apple.com/Qx', 'https://updates.push.services.mozilla.com/p', 'https://x.notify.windows.com/p']) {
     assert.equal(isAllowedEndpoint(good), true, good);
   }
   assert.equal(isExpoToken('ExponentPushToken[abc_DEF-1]'), true);
@@ -50,18 +51,19 @@ test('a host notifies its devices by Web Push and Expo; gone subscriptions are p
   const phone = p.grant.device.id;
   assert.match(p.client.vapidKey!, /^[A-Za-z0-9_-]{80,}$/, 'the relay hands its Web Push key to the host, for the browser');
 
-  await p.client.subscribe(phone, webSub('https://push.example.com/a'));
-  await p.client.subscribe(phone, webSub('https://push.example.com/b'));
+  await p.client.subscribe(phone, webSub('https://fcm.googleapis.com/a'));
+  await p.client.subscribe(phone, webSub('https://fcm.googleapis.com/b'));
   await p.client.subscribe(phone, { expo: 'ExponentPushToken[old]' });
   await p.client.subscribe(phone, { expo: 'ExponentPushToken[new]' }); // a reinstall: one Expo token per device
-  await p.client.subscribe('laptop', webSub('https://push.example.com/c'));
+  await p.client.subscribe('laptop', webSub('https://fcm.googleapis.com/c'));
   await assert.rejects(p.client.subscribe(phone, webSub('https://169.254.169.254/x')), /bad subscription/);
-  assert.deepEqual(r.saved()!.push.map((s) => ('expo' in s ? s.expo : s.web.endpoint)), ['https://push.example.com/a', 'https://push.example.com/b', 'ExponentPushToken[new]', 'https://push.example.com/c']);
+  await assert.rejects(p.client.subscribe(phone, webSub('https://push.example.com/x')), /bad subscription/);
+  assert.deepEqual(r.saved()!.push.map((s) => ('expo' in s ? s.expo : s.web.endpoint)), ['https://fcm.googleapis.com/a', 'https://fcm.googleapis.com/b', 'ExponentPushToken[new]', 'https://fcm.googleapis.com/c']);
 
-  world.gone.add('https://push.example.com/b');
+  world.gone.add('https://fcm.googleapis.com/b');
   const out = await p.client.notify({ id: 'evt-1', title: 'Agent update', body: 'Needs you', to: [phone], urgency: 'high', ttl: 600 });
   assert.deepEqual(out, { sent: 2 });
-  const web = world.sent.find((s) => s.url === 'https://push.example.com/a')!;
+  const web = world.sent.find((s) => s.url === 'https://fcm.googleapis.com/a')!;
   assert.equal(web.headers.TTL, '600');
   assert.equal(web.headers.Urgency, 'high');
   assert.equal(web.headers['Content-Encoding'], 'aes128gcm', 'encrypted to the browser: the push service cannot read it');
@@ -87,13 +89,80 @@ test("revoking a device removes its subscriptions; revoking the host removes all
   const p = await paired(r);
   const other = await paired(r, 'Other phone');
   await p.client.subscribe(p.grant.device.id, { expo: 'ExponentPushToken[phone]' });
-  await p.client.subscribe('kept', webSub('https://push.example.com/kept'));
+  await p.client.subscribe('kept', webSub('https://fcm.googleapis.com/kept'));
   await other.client.subscribe(other.grant.device.id, { expo: 'ExponentPushToken[other]' });
   await p.client.revoke(p.grant.device.id);
   await until(() => p.dev.link.status === 'removed');
   assert.deepEqual(r.saved()!.push.map((s) => s.device), ['kept', other.grant.device.id]);
   await r.relay.revoke(p.host.id);
   assert.deepEqual(r.saved()!.push.map((s) => s.device), [other.grant.device.id]);
+});
+
+test('push host options only narrow the default service list', async () => {
+  await assert.rejects(startRelay({ push: { hosts: ['evil.example.com'] } }), /outside default allowlist/);
+  const r = await startRelay({ push: { hosts: ['fcm.googleapis.com', 'web.push.apple.com'] } });
+  const p = await paired(r);
+  await p.client.subscribe('phone', webSub('https://fcm.googleapis.com/p'));
+  await p.client.subscribe('phone', webSub('https://web.push.apple.com/p'));
+  await assert.rejects(p.client.subscribe('phone', webSub('https://other.push.apple.com/p')), /bad subscription/);
+  await assert.rejects(p.client.subscribe('phone', webSub('https://updates.push.services.mozilla.com/p')), /bad subscription/);
+  assert.equal(r.saved()!.push.length, 2);
+});
+
+test('saved unapproved push destinations are removed without sending to them', async () => {
+  const first = await startRelay();
+  const p = await paired(first);
+  const state = structuredClone(first.saved()!);
+  state.push.push({ host: p.host.id, device: 'bad', added: 0, ...webSub('https://push.example.com/steal') });
+  state.push.push({ host: p.host.id, device: 'good', added: 0, ...webSub('https://fcm.googleapis.com/good') });
+  let saved = state;
+  const requested: string[] = [];
+  const r = await startRelay({ store: { load: () => saved, save: (s) => { saved = s; } }, push: {
+    fetch: (async (url: string) => { requested.push(String(url)); return new Response(null, { status: 201 }); }) as typeof fetch,
+  } });
+  const second = await startHost(p.host.keys, p.grants);
+  const h = hostClient(second, r.ws);
+  await until(() => h.client.status === 'online');
+  assert.deepEqual(await h.client.notify({ id: 'saved-1', title: 'Hello', body: 'World' }), { sent: 1 });
+  assert.deepEqual(requested, ['https://fcm.googleapis.com/good']);
+  assert.deepEqual(saved.push.map((s) => 'web' in s && s.web.endpoint), ['https://fcm.googleapis.com/good']);
+});
+
+test('push services cannot redirect a notification to an internal address', async () => {
+  const requested: string[] = [];
+  const fake = (async (url: string, init: RequestInit) => {
+    requested.push(String(url));
+    if (init.redirect !== 'error') requested.push('http://127.0.0.1/internal');
+    return new Response(null, { status: 302, headers: { location: 'http://127.0.0.1/internal' } });
+  }) as typeof fetch;
+  const r = await startRelay({ push: { fetch: fake } });
+  const p = await paired(r);
+  await p.client.subscribe('phone', webSub('https://fcm.googleapis.com/redirect'));
+  await p.client.subscribe('phone', { expo: 'ExponentPushToken[phone]' });
+  assert.deepEqual(await p.client.notify({ id: 'redirect-1', title: 'Hello', body: 'World' }), { sent: 0 });
+  assert.deepEqual(requested, ['https://fcm.googleapis.com/redirect', 'https://exp.host/--/api/v2/push/send']);
+});
+
+test('a failed revoke immediately drops the host and can be retried', async () => {
+  let saved: any;
+  let target: string | undefined;
+  let fail = true;
+  const r = await startRelay({ store: {
+    load: () => saved,
+    save: (s) => { if (target && !s.hosts.some((h) => h.id === target) && fail) { fail = false; throw new Error('disk failed'); } saved = s; },
+  } });
+  const p = await paired(r);
+  const other = await paired(r);
+  await p.client.subscribe('phone', { expo: 'ExponentPushToken[phone]' });
+  target = p.host.id;
+  await assert.rejects(r.relay.revoke(target), /disk failed/);
+  await until(() => p.client.status === 'refused');
+  assert.equal(r.relay.hosts().some((h) => h.id === target), false);
+  assert.equal(r.relay.count(target), 0);
+  assert.equal(other.client.status, 'online');
+  await r.relay.revoke(target);
+  assert.deepEqual(saved.hosts.map((h: { id: string }) => h.id), [other.host.id]);
+  assert.deepEqual(saved.push, []);
 });
 
 test('only the host receiving an action may answer it', async () => {

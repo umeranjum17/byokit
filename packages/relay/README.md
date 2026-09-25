@@ -100,7 +100,10 @@ await relay.revoke(device.id);   // link's revoke, and the device's subscription
 
 A browser subscribes with the relay's Web Push key (`relay.vapidKey`, sent to it over the link). A notification with the
 same `id` is sent once. Expo tokens a device dropped (`DeviceNotRegistered`) and Web Push subscriptions that are gone
-(404, 410) are removed. Subscription endpoints must be public https push services, never internal addresses.
+(404, 410) are removed. Web Push endpoints must use HTTPS on `fcm.googleapis.com`, a subdomain of `push.apple.com`,
+`updates.push.services.mozilla.com`, or a subdomain of `notify.windows.com`. `push.hosts` in `Relay.open` can narrow
+these destinations (including to an exact subdomain), never expand them. Redirects are not followed, and disallowed
+subscriptions restored from storage are removed before delivery.
 
 With `actions`, each device's notification carries its own one-use `action` token. Pressing a button posts
 `{ token, action }` to `/relay/v1/push/action`; the relay asks the host (`onAction`) and waits up to 15 seconds for the
@@ -115,5 +118,5 @@ answer, which goes back to the device.
 
 ## Limits
 
-Per client address, per minute, as in muxr's relay: 60 WebSocket connections, 300 HTTP requests, 10 short-code lookups,
+Per client address, per minute, as in muxr's relay: 60 WebSocket connections, 10 short-code lookups,
 20 button presses, 10 enrolment claims and 10 failed host proofs. At most 256 live devices per host.

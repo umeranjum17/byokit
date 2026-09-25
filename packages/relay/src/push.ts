@@ -2,7 +2,6 @@
 // host and one of its devices; the host adds and removes them over its relay socket, because only the host knows which
 // devices it has. What a notification says is up to the host, and the relay, Expo and the browser's push service all
 // read it: keep it generic ("An agent needs you") and let the device fetch details over the link.
-import { isIP } from 'node:net';
 import webpush from 'web-push';
 
 export type WebSubscription = { endpoint: string; keys: { p256dh: string; auth: string } };
@@ -24,49 +23,33 @@ const text = (v: unknown, max: number) => typeof v === 'string' && v.length > 0 
 
 export const isExpoToken = (v: unknown): v is string => typeof v === 'string' && v.length <= 256 && /^(?:Exponent|Expo)PushToken\[[A-Za-z0-9_-]+\]$/.test(v);
 
-/** A push subscription's endpoint must be a public https push service with no credentials in it. */
-export function isAllowedEndpoint(value: unknown): value is string {
+export const DEFAULT_PUSH_HOSTS = ['fcm.googleapis.com', '*.push.apple.com', 'updates.push.services.mozilla.com', '*.notify.windows.com'] as const;
+
+const matches = (host: string, pattern: string) => pattern.startsWith('*.')
+  ? host.endsWith(pattern.slice(1)) && host !== pattern.slice(2)
+  : host === pattern;
+
+export function pushHosts(hosts?: readonly string[]): readonly string[] {
+  if (!hosts) return DEFAULT_PUSH_HOSTS;
+  if (hosts.some((host) => typeof host !== 'string' || !DEFAULT_PUSH_HOSTS.some((pattern) =>
+    host === pattern || (!host.includes('*') && matches(host, pattern))))) throw new Error('push host outside default allowlist');
+  return [...hosts];
+}
+
+/** A push subscription's endpoint must belong to an approved HTTPS push service. */
+export function isAllowedEndpoint(value: unknown, hosts: readonly string[] = DEFAULT_PUSH_HOSTS): value is string {
   if (typeof value !== 'string' || value === '' || value.length > 2048) return false;
   let u: URL;
   try { u = new URL(value); } catch { return false; }
-  if (u.username || u.password || !u.hostname || /\s/.test(u.hostname)) return false;
-  const host = u.hostname.toLowerCase();
-  return u.protocol === 'https:' && !internal(host);
-}
-
-const INTERNAL = ['.localhost', '.local', '.internal', '.lan', '.home', '.corp', '.intranet', '.private', '.test', '.example', '.invalid'];
-
-function internal(host: string): boolean {
-  const name = host.replace(/\.$/, '');
-  const bare = name.startsWith('[') && name.endsWith(']') ? name.slice(1, -1) : name;
-  if (isIP(bare)) return !publicIp(bare);
-  return bare === 'localhost' || !bare.includes('.') || INTERNAL.some((s) => bare.endsWith(s));
-}
-
-// URL parsing has already normalised every spelling of an IPv4-mapped IPv6 address to ::ffff:xxxx:xxxx.
-function mapped(v6: string): string | undefined {
-  const m = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(v6);
-  return m ? [...m[1]!.padStart(4, '0').match(/../g)!, ...m[2]!.padStart(4, '0').match(/../g)!].map((h) => parseInt(h, 16)).join('.') : undefined;
-}
-
-function publicIp(ip: string): boolean {
-  if (isIP(ip) === 4) {
-    const [a, b, c] = ip.split('.').map(Number) as [number, number, number];
-    return !(a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31)
-      || (a === 192 && b === 168) || (a === 192 && b === 0 && c === 2) || (a === 198 && (b === 18 || b === 19))
-      || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113) || (a === 100 && b >= 64 && b <= 127));
-  }
-  const v6 = ip.toLowerCase();
-  const v4 = mapped(v6);
-  if (v4 !== undefined) return publicIp(v4);
-  return !v6.startsWith('::') && !(/^fe[89ab]/.test(v6) || v6.startsWith('fc') || v6.startsWith('fd') || v6.startsWith('ff'));
+  return u.protocol === 'https:' && !u.username && !u.password && !u.port
+    && hosts.some((pattern) => matches(u.hostname, pattern));
 }
 
 /** A subscription as a host sent it, checked; undefined if it is not one. */
-export function parseSubscription(s: any): Subscription | undefined {
+export function parseSubscription(s: any, hosts?: readonly string[]): Subscription | undefined {
   if (isExpoToken(s?.expo)) return { expo: s.expo };
   const w = s?.web;
-  if (isAllowedEndpoint(w?.endpoint) && text(w?.keys?.p256dh, 256) && text(w?.keys?.auth, 256)) {
+  if (isAllowedEndpoint(w?.endpoint, hosts) && text(w?.keys?.p256dh, 256) && text(w?.keys?.auth, 256)) {
     return { web: { endpoint: w.endpoint, keys: { p256dh: w.keys.p256dh, auth: w.keys.auth } } };
   }
   return undefined;
@@ -89,7 +72,7 @@ export const vapidKeys = (): Vapid => webpush.generateVAPIDKeys();
 /** Sends one notification to each subscription. `action` holds each device's one-use action token. Returns how many
  *  were accepted and which subscriptions the push service says are gone for good. */
 export async function deliver(o: {
-  subs: PushRecord[]; n: Notification; action: Map<string, string>; vapid: Vapid; subject: string; fetch: typeof fetch;
+  subs: PushRecord[]; n: Notification; action: Map<string, string>; vapid: Vapid; subject: string; fetch: typeof fetch; hosts: readonly string[];
 }): Promise<{ sent: number; gone: PushRecord[] }> {
   const { n } = o;
   const ttl = n.ttl ?? 86_400;
@@ -97,16 +80,16 @@ export async function deliver(o: {
     id: n.id, title: n.title, body: n.body, ...(n.data && { data: n.data }),
     ...(o.action.has(device) && { actions: n.actions, action: o.action.get(device) }),
   });
-  const web = o.subs.filter((s): s is PushRecord & { web: WebSubscription } => 'web' in s);
-  const expo = o.subs.filter((s): s is PushRecord & { expo: string } => 'expo' in s);
-  const gone: PushRecord[] = [];
+  const gone = o.subs.filter((s) => !parseSubscription(s, o.hosts));
+  const web = o.subs.filter((s): s is PushRecord & { web: WebSubscription } => 'web' in s && !gone.includes(s));
+  const expo = o.subs.filter((s): s is PushRecord & { expo: string } => 'expo' in s && !gone.includes(s));
   let sent = 0;
   await Promise.all(web.map(async (s) => {
     try {
       const r = webpush.generateRequestDetails(s.web, JSON.stringify(payload(s.device)), {
         vapidDetails: { subject: o.subject, publicKey: o.vapid.publicKey, privateKey: o.vapid.privateKey }, TTL: ttl, urgency: n.urgency ?? 'normal',
       });
-      const res = await o.fetch(r.endpoint, { method: 'POST', headers: Object.fromEntries(Object.entries(r.headers).map(([k, v]) => [k, String(v)])), body: r.body as Uint8Array<ArrayBuffer>, signal: AbortSignal.timeout(5000) });
+      const res = await o.fetch(r.endpoint, { method: 'POST', headers: Object.fromEntries(Object.entries(r.headers).map(([k, v]) => [k, String(v)])), body: r.body as Uint8Array<ArrayBuffer>, redirect: 'error', signal: AbortSignal.timeout(5000) });
       if (res.ok) sent++;
       else if (res.status === 404 || res.status === 410) gone.push(s);
     } catch {} // a push service that is down loses this one notification, never the subscription
@@ -114,7 +97,7 @@ export async function deliver(o: {
   if (expo.length) {
     try {
       const res = await o.fetch(EXPO_SEND, {
-        method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, signal: AbortSignal.timeout(5000),
+        method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(5000),
         body: JSON.stringify(expo.map((s) => ({
           to: s.expo, title: n.title, body: n.body, sound: 'default', collapseId: n.id, ttl,
           priority: n.urgency === 'high' ? 'high' : 'normal', data: payload(s.device),

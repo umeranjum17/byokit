@@ -12,7 +12,7 @@ import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { b64url, hostId, unb64url } from '@byokit/link';
 import { CLOSE, challenge } from './proof.ts';
-import { deliver, parseNotification, parseSubscription, vapidKeys, type Notification, type PushRecord, type Vapid } from './push.ts';
+import { deliver, parseNotification, parseSubscription, pushHosts, vapidKeys, type Notification, type PushRecord, type Vapid } from './push.ts';
 
 /** A host allowed to register. `id` is link's `hostId(key)`, the address devices dial. */
 export type HostRecord = { id: string; key: string; name: string; added: number };
@@ -30,7 +30,7 @@ export type RelayOptions = {
   /** Take the client's address from X-Forwarded-For (only behind a proxy you run). */
   trustProxy?: boolean;
   /** Web Push's contact (`mailto:` or `https:`), and the fetch used to reach push services. */
-  push?: { subject?: string; fetch?: typeof fetch };
+  push?: { subject?: string; fetch?: typeof fetch; hosts?: readonly string[] };
   /** How long a push action waits for the host's answer. Default 15 s. */
   actionMs?: number;
   now?: () => number;
@@ -68,6 +68,7 @@ const closeCode = (c: unknown) => (c === 1000 || (Number.isInteger(c) && (c as n
 export class Relay {
   private opts: RelayOptions;
   private state: RelayState;
+  private pushHosts: readonly string[];
   private live = new Map<string, Live>();
   private wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD });
   private buckets = new Map<string, { start: number; n: number }>();
@@ -82,6 +83,7 @@ export class Relay {
   private constructor(opts: RelayOptions, state: RelayState) {
     this.opts = opts;
     this.state = state;
+    this.pushHosts = pushHosts(opts.push?.hosts);
   }
 
   static async open(opts: RelayOptions = {}): Promise<Relay> {
@@ -198,9 +200,9 @@ export class Relay {
     this.state.push = this.state.push.filter((p) => p.host !== id);
     for (const [c, v] of this.codes) if (v.host === id) this.codes.delete(c);
     for (const [t, v] of this.tokens) if (v.host === id) this.tokens.delete(t);
-    await this.save();
     const l = this.live.get(id);
     if (l) this.drop(l, CLOSE.revoked, 'host revoked');
+    await this.save();
     return had;
   }
 
@@ -334,7 +336,7 @@ export class Relay {
     }
     const device = typeof m?.device === 'string' && m.device.length <= 128 ? m.device : undefined;
     if (m?.t === 'push.subscribe') {
-      const sub = parseSubscription(m.sub);
+      const sub = parseSubscription(m.sub, this.pushHosts);
       if (!device || !sub) throw new Error('bad subscription');
       const rec: PushRecord = { host, device, added: now, ...sub };
       // One Expo token per device (a reinstall replaces it); a browser may hold several Web Push subscriptions.
@@ -346,7 +348,7 @@ export class Relay {
     }
     if (m?.t === 'push.remove') {
       if (!device) throw new Error('bad device');
-      const sub = m.sub === undefined ? undefined : parseSubscription(m.sub);
+      const sub = m.sub === undefined ? undefined : parseSubscription(m.sub, this.pushHosts);
       this.state.push = this.state.push.filter((p) => !(p.host === host && p.device === device
         && (!sub || ('expo' in sub ? 'expo' in p && p.expo === sub.expo : 'web' in p && p.web.endpoint === sub.web.endpoint))));
       for (const [t, v] of this.tokens) if (v.host === host && v.device === device) this.tokens.delete(t);
@@ -367,7 +369,8 @@ export class Relay {
     this.pending.set(host, pending);
     pending.add(n.id);
     try {
-    const subs = this.state.push.filter((p) => p.host === host && (!n.to || n.to.includes(p.device)));
+    const invalid = this.state.push.filter((p) => !parseSubscription(p, this.pushHosts));
+    const subs = this.state.push.filter((p) => p.host === host && !invalid.includes(p) && (!n.to || n.to.includes(p.device)));
     const action = new Map<string, string>();
     if (n.actions?.length) {
       const expires = this.now() + (n.ttl ?? 86_400) * 1000;
@@ -380,11 +383,11 @@ export class Relay {
     }
     const { sent, gone } = await deliver({
       subs, n, action, vapid: this.state.vapid!, subject: this.opts.push?.subject ?? 'https://github.com/umeranjum17/byokit',
-      fetch: this.opts.push?.fetch ?? fetch,
+      fetch: this.opts.push?.fetch ?? fetch, hosts: this.pushHosts,
     });
     if (sent > 0) this.sent.set(host, [...(this.sent.get(host) ?? []), n.id].slice(-DEDUP)); // only once a push service took it, so a retry can succeed
-    if (gone.length) {
-      this.state.push = this.state.push.filter((p) => !gone.includes(p));
+    if (gone.length || invalid.length) {
+      this.state.push = this.state.push.filter((p) => !gone.includes(p) && !invalid.includes(p));
       await this.save();
     }
     return { sent };
@@ -409,7 +412,7 @@ export class Relay {
     if (!l) return { status: 503, body: { error: 'computer offline' } }; // the token stays, so pressing again later works
     this.tokens.delete(token); // one use from here: the host may act on it
     const id = `a${++this.seq}`;
-    const answer = await new Promise<Parameters<Waiting>[0] | undefined>((resolve) => {
+    const answer = await new Promise<Parameters<Waiting['resolve']>[0] | undefined>((resolve) => {
       const timer = later(Math.min(this.opts.actionMs ?? 15_000, 15_000), () => { this.waiting.delete(id); resolve(undefined); });
       this.waiting.set(id, { live: l, resolve: (a) => { clearTimeout(timer); resolve(a); } });
       l.ws.send(JSON.stringify({ t: 'push.action', id, device: t.device, event: t.event, action }));
