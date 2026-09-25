@@ -142,7 +142,7 @@ function Pair() {
           } catch (e: any) { setError(e.message); }
           finally { forgetting.current = false; }
         }} />
-        {!!error && <Text style={s.small}>{error}</Text>
+        {!!error && <Text style={s.small}>{error}</Text>}
       </> : <>
         <TextInput testID="offer" value={offer} onChangeText={setOffer} placeholder="Pairing code or link" autoCapitalize="none" autoCorrect={false} style={s.input} />
         <TextInput testID="hostUrl" value={hostUrl} onChangeText={setHostUrl} placeholder="Computer address for typed codes (ws://…)" autoCapitalize="none" autoCorrect={false} style={s.input} />
