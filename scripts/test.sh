@@ -7,6 +7,7 @@ pi_state() {
   (cd "$HOME/.pi/agent" && find auth.json settings.json models.json extensions -type f 2>/dev/null | sort | xargs -r sha256sum)
 }
 before=$(pi_state)
+node --input-type=module -e "import('./packages/test-support.ts').then(({ cleanStaleScratch }) => cleanStaleScratch())"
 tmp_before=$(find "$(node -p 'require("node:os").tmpdir()')" -maxdepth 1 -type d -name 'byokit-*' -printf '%f\n' | sort)
 throwaway=$(mktemp -d)
 trap 'rm -rf "$throwaway"' EXIT
