@@ -1,0 +1,41 @@
+{
+  "name": "@byokit/accounts",
+  "version": "0.1.0",
+  "description": "Sign in with the AI plan you already pay for, into your app's own store.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umeranjum17/byokit.git",
+    "directory": "packages/accounts"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./isolate": {
+      "types": "./dist/isolate.d.ts",
+      "default": "./dist/isolate.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prepack": "tsc -b"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.87.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

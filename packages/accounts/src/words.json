@@ -1,0 +1,22 @@
+{
+  "signIn.expired": "The code expired before it was used. Tap Sign in with {name} for a new one.",
+  "signIn.declined": "The sign-in was declined on the {name} page. Tap Sign in with {name} to try again.",
+  "signIn.offline": "Couldn't reach {name}. Check the internet connection, then tap Sign in again.",
+  "signIn.deviceCodeOff": "{name} needs device sign-in turned on first: in {name}, Settings, Security, turn on device code sign-in, then try again.",
+  "signIn.tooLong": "The sign-in took too long. Tap Sign in with {name} to start again.",
+  "signIn.busy": "Something else on this computer is signing in to {name}. Try again in a minute.",
+  "signIn.failed": "{name} didn't finish the sign-in. Tap Sign in with {name} to try again.",
+  "status.ready": "{name} is connected.",
+  "status.signing": "Signing in to {name}…",
+  "status.resting": "{name} is resting until {until}.",
+  "status.busy": "{name} is busy right now.",
+  "status.signedOut": "{name} isn't signed in yet.",
+  "status.needsAgain": "{name} needs you to sign in again.",
+  "terms.grey": "Uses your {name} plan. {company} may change this at any time.",
+  "status.notIncluded": "Your {name} plan doesn't include this yet.",
+  "callback.done": "You're signed in. You can go back to {app} now.",
+  "callback.declined": "No problem. Nothing was changed. You can go back to {app}.",
+  "callback.failed": "{error} Go back to {app}.",
+  "callback.nearly": "Nearly there. Go back to {app} to finish.",
+  "callback.outOfDate": "This sign-in page is out of date. Go back to {app} and tap Sign in with {name} again."
+}

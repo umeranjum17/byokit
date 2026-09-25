@@ -1,0 +1,13 @@
+byokit
+Copyright 2026 The byokit Authors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+@byokit/accounts depends on @earendil-works/pi-ai (MIT), which provides the
+providers' own sign-in flows. byokit does not modify or redistribute it.
+
+byokit signs a person in to AI plans they already pay for, inside the app they
+run it in. Some providers do not document that use; each one is labelled with
+its terms status in packages/accounts/src/catalogue.json, and the app decides
+what to offer. byokit never offers Claude plan sign-in, which Anthropic
+reserves for its own apps.

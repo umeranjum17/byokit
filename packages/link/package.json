@@ -1,0 +1,12 @@
+{
+  "name": "@byokit/link",
+  "version": "0.0.0",
+  "description": "Scan a code to pair a phone or browser with the home computer over one encrypted link. Placeholder: arrives in plan step 2.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": { "type": "git", "url": "git+https://github.com/umeranjum17/byokit.git", "directory": "packages/link" },
+  "engines": { "node": ">=22.18" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": { "prepack": "tsc -b" }
+}
