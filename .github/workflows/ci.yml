@@ -30,6 +30,47 @@ jobs:
       - run: npm run check
       - run: npm test # throwaway HOME, mocks only: no account, no network, no model
 
+  # Sign-in in a real browser (headless Chromium): the PWA example against a stand-in OpenAI, bundled as a web app would.
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+
+  # React Native (Expo) on iOS and Android: the example typechecks and Metro builds both Hermes bundles from the kit's
+  # react-native side. The emulator run is examples/expo/e2e-android.sh.
+  react-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            examples/expo/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npm ci --no-audit --no-fund
+        working-directory: examples/expo
+      - run: npm run typecheck
+        working-directory: examples/expo
+      - run: npx expo export --platform android --platform ios --output-dir dist
+        working-directory: examples/expo
+      - name: nothing from Node in the phone bundles
+        working-directory: examples/expo
+        run: "! grep -l -e 'node:http' -e 'earendil' dist/_expo/static/js/*/*.hbc"
+
   # byokit-android: JVM unit tests, including every case in fixtures/conformance, in a throwaway HOME. No device needed.
   android:
     runs-on: ubuntu-latest

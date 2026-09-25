@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#111111">
+<title>byokit example</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.png">
+<style>
+  body { font: 18px/1.4 system-ui, sans-serif; max-width: 28em; margin: 3em auto; padding: 0 1em; }
+  button { font: inherit; display: block; width: 100%; margin: .6em 0; padding: .7em; border: 0; border-radius: .6em; background: #111; color: #fff; }
+  #code { font-size: 2em; font-weight: 700; letter-spacing: .1em; }
+  .small { font-size: .85em; color: #555; }
+  [hidden] { display: none; }
+</style>
+<h1>byokit in a browser</h1>
+<p id="status">…</p>
+<p id="plan" class="small"></p>
+<p id="note" class="small"></p>
+<section id="sheet" hidden>
+  <p id="words"></p>
+  <p id="code"></p>
+  <p><a id="open" target="_blank" rel="noopener">Open ChatGPT</a></p>
+  <button id="cancel">Cancel</button>
+</section>
+<button id="signin" hidden>Sign in with ChatGPT</button>
+<button id="recheck" hidden>Check the sign-in</button>
+<button id="signout" hidden>Sign out</button>
+<script type="module" src="app.js"></script>
+</html>

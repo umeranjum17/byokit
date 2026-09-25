@@ -22,6 +22,20 @@ test('the file store: Pi\'s auth.json shape, 0600 in a 0700 folder, serialized w
   assert.deepEqual(await fileStore(path).list(), [{ providerId: 'openai-codex', type: 'oauth' }]);
 });
 
+test("the file store sealed with Electron's safeStorage: no sign-in readable in the file, the same sign-ins back", async () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'byokit-sealed-')), 'auth.json');
+  // Electron's safeStorage stands in: sealed with a key the OS keychain would hold.
+  const safeStorage = {
+    encryptString: (text: string) => Buffer.from([...Buffer.from(text)].map((b) => b ^ 0x5a)),
+    decryptString: (data: Buffer) => Buffer.from([...data].map((b) => b ^ 0x5a)).toString(),
+  };
+  const cred = { type: 'oauth' as const, access: 'secret-access', refresh: 'secret-refresh', expires: 1 };
+  await fileStore(path, safeStorage).modify('openai-codex', async () => cred);
+  assert.doesNotMatch(readFileSync(path, 'latin1'), /secret|openai-codex/);
+  assert.equal(statSync(path).mode & 0o777, 0o600);
+  assert.deepEqual(await fileStore(path, safeStorage).read('openai-codex'), cred);
+});
+
 test('isolate() scrubs inherited Pi settings and provider keys, and pins the engine folder', () => {
   Object.assign(process.env, { PI_CODING_AGENT_DIR: '/home/x/.pi/agent', PI_PACKAGE_DIR: '/x', OPENAI_API_KEY: 'k', GH_TOKEN: 't', AI_AGENT: 'pi', KEEP_ME: '1' });
   const dir = join(mkdtempSync(join(tmpdir(), 'byokit-iso-')), 'engine');
