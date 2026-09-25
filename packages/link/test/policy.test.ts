@@ -1,7 +1,7 @@
 // link 0.3: host policy and device robustness. Each test is named after the muxr parity checklist row it carries
 // (data/byk-muxr-parity/report.md): R = approval and revoke, M = many devices, C = reconnect, P = pairing,
 // N = routes, T = transports, K = keys.
-import { test } from 'node:test';
+import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,6 +13,7 @@ import { connect, pairWithOffer, sleep, startHost, until } from './helpers.ts';
 
 const paired = async (h: Awaited<ReturnType<typeof startHost>>, o: Partial<GrantTerms> = {}) =>
   pairWithOffer(h.host.offer({ role: 'control', urls: [h.url], ...o }).text, { name: 'Phone' });
+const test = (name: string, fn: () => void | Promise<void>) => nodeTest(name, { timeout: 30_000 }, fn);
 
 test('R4: access that runs out ends like a removal, live or at the next connection', async () => {
   const h = await startHost();
@@ -67,6 +68,33 @@ test('R4: expiry during auth save refuses ready and expired sockets receive no e
   now += 11_000;
   h.host.broadcast('after');
   assert.deepEqual(live.events, ['before']);
+});
+
+test('R4/R5: fresh auth checks the grant again after slow deletion', async () => {
+  for (const change of ['revoke', 'expire', 'meta']) {
+    let now = Date.now();
+    let entered!: () => void, release!: () => void;
+    const dropping = new Promise<void>((r) => { entered = r; });
+    const gate = new Promise<void>((r) => { release = r; });
+    const h = await startHost({ now: () => now, answers: { get: () => undefined, put: () => {}, drop: async () => { entered(); await gate; } } });
+    const d = connect(await paired(h, { lifetime: 10_000, meta: { caps: ['read'] } }));
+    await dropping;
+    assert.notEqual(d.link.status, 'online');
+    if (change === 'revoke') await h.host.revoke(d.link.grant.device.id);
+    else if (change === 'expire') now += 11_000;
+    else await h.host.setMeta(d.link.grant.device.id, { caps: [] });
+    release();
+    if (change === 'meta') {
+      await until(() => d.link.status === 'online');
+      h.host.broadcast('current', (g) => { assert.deepEqual(g.meta, { caps: [] }); return true; });
+      await until(() => d.events.length === 1);
+    } else {
+      await until(() => d.link.status === 'removed');
+      assert.ok(!d.seen.includes('online'));
+      h.host.broadcast('leaked');
+      assert.deepEqual(d.events, []);
+    }
+  }
 });
 
 test('R5: an allow policy decides every request before the handler, from what the app keeps in the grant', async () => {

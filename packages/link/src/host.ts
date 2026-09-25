@@ -368,9 +368,19 @@ export class Host {
     const attach = async (g: Grant, paired = false, auth?: any) => {
       if (gone) return;
       busy = true;
+      const key = b64url(hs!.remoteKey);
+      const admit = (): Grant | 'not-paired' | 'ended' => {
+        const current = this.grants.find((x) => x.id === g.id);
+        if (!current) return 'not-paired';
+        if (this.ended(current)) return 'ended';
+        return this.currentGrant(this.grants, g.id, key) ?? 'not-paired';
+      };
+      const reject = (why: 'not-paired' | 'ended') => {
+        if (why === 'ended') void this.revoke(g.id, 'ended').catch((e) => this.report(e));
+        refuse(why);
+      };
       try {
         if (!paired) {
-          const key = b64url(hs!.remoteKey);
           // A device that rekeyed proves its new key by using it; from then on only that key works.
           const updated = await this.transition((grants) => {
             const current = this.currentGrant(grants, g.id, key);
@@ -382,21 +392,17 @@ export class Host {
             });
           });
           if (!updated) return refuse('not-paired');
-          g = updated.find((x) => x.id === g.id)!;
         }
         if (gone) return;
-        const current = this.grants.find((x) => x.id === g.id);
-        if (!current) return refuse('not-paired');
-        if (this.ended(current)) {
-          void this.revoke(current.id, 'ended').catch((e) => this.report(e));
-          return refuse('ended');
-        }
-        if (!paired && !this.currentGrant(this.grants, g.id, b64url(hs!.remoteKey))) return refuse('not-paired');
+        const before = admit();
+        if (typeof before === 'string') return reject(before);
         if (auth?.fresh === true) {
-          try { await this.drop(current.id); }
+          try { await this.drop(before.id); }
           catch (e) { this.report(e); return refuse('failed'); }
-        } else if (auth) this.acknowledge(current.id, auth.session, auth.ack);
+        } else if (auth) this.acknowledge(before.id, auth.session, auth.ack);
         if (gone) return;
+        const current = admit();
+        if (typeof current === 'string') return reject(current);
         dev = g = current;
         busy = false;
         clearTimeout(timer);
