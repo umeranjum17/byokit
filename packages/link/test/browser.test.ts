@@ -61,8 +61,10 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
     assert.equal(r.role, 'view');
     assert.deepEqual(host.devices().map((d) => [d.name, d.online]), [['Browser tab', true]]);
   } finally {
+    const exited = browser.exitCode !== null || new Promise((r) => browser.once('exit', r));
     browser.kill();
     host.close(); wss.close(); server.close();
-    rmSync(profile, { recursive: true, force: true });
+    await exited; // Chrome keeps writing its profile until it has exited
+    rmSync(profile, { recursive: true, force: true, maxRetries: 5 });
   }
 });
