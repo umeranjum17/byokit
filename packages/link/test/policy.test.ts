@@ -161,6 +161,49 @@ test('R5: withdrawn policy refuses cached replies in memory and after restart', 
   }
 });
 
+test('C6: reused answer keys cannot substitute another operation or arguments', async () => {
+  for (const stored of [false, true]) for (const change of ['op', 'args']) {
+    let grants: Grant[] = [];
+    const keys = keyPair();
+    const kept = new Map<string, object>();
+    const answers = { get: (d: string, k: string) => kept.get(`${d}/${k}`), put: (d: string, k: string, a: object) => { kept.set(`${d}/${k}`, a); },
+      drop: (d: string, ks?: string[]) => { for (const k of [...kept.keys()]) if (k.startsWith(`${d}/`) && (!ks || ks.includes(k.slice(d.length + 1)))) kept.delete(k); } };
+    const opts = { keys, grants: { load: () => grants, save: (g: Grant[]) => { grants = g; } },
+      allow: (r: { op: string }, g: Grant) => ((g.meta as any).caps as string[]).includes(r.op), ...(stored ? { answers } : {}) };
+    const first = await startHost(opts);
+    const d = connect(await paired(first, { meta: { caps: ['read.secret', 'get.state'] } }));
+    await until(() => d.link.status === 'online');
+    first.sockets.at(-1)!.send = (() => {}) as any;
+    const reply = d.link.request('read.secret', { scope: 'private' });
+    await until(() => first.ran.length === 1 && (!stored || kept.size === 1));
+    await first.host.setMeta(d.link.grant.device.id, { caps: ['get.state'] });
+    const pending = [...(d.link as any).pending.values()][0].msg;
+    if (change === 'op') pending.op = 'get.state';
+    else pending.args = { scope: 'public' };
+    if (stored) {
+      first.stop();
+      const second = await startHost(opts);
+      d.link.addUrl(second.url);
+      await assert.rejects(reply, (e: LinkError) => e.code === 'failed');
+      assert.deepEqual(second.ran, []);
+    } else {
+      first.sockets.at(-1)!.terminate();
+      await assert.rejects(reply, (e: LinkError) => e.code === 'failed');
+    }
+    assert.deepEqual(first.ran, ['Phone:read.secret']);
+  }
+});
+
+test('C6: malformed stored answers are refused without executing or framing fields', async () => {
+  for (const reply of [{ ok: true, value: 'secret', id: 999 }, { ok: true, value: 'secret', t: 'revoked' }, { ok: true }, { ok: false, error: 12 }]) {
+    const h = await startHost({ answers: { get: () => ({ op: 'get.state', args: 'null', reply }), put: () => {}, drop: () => {} } });
+    const d = connect(await paired(h));
+    await assert.rejects(d.link.request('get.state'), (e: LinkError) => e.code === 'failed');
+    assert.deepEqual(h.ran, []);
+    assert.notEqual(d.link.status, 'removed');
+  }
+});
+
 test('M3: per-kind caps count only that kind', async () => {
   const h = await startHost({ caps: { peer: 1 } });
   await h.host.enrol({ key: keyPair().publicKey, name: 'Laptop', role: 'view', kind: 'peer' });
@@ -245,7 +288,7 @@ test('R4: a reply finishing after expiry is refused from memory or the answers s
     const gate = new Promise<void>((r) => { release = r; });
     const waiting = new Promise<void>((r) => { entered = r; });
     const h = await startHost({ now: () => now,
-      ...(stored ? { answers: { get: async () => { entered(); await gate; return { ok: true, value: 'secret' }; }, put: () => {}, drop: () => {} } } :
+      ...(stored ? { answers: { get: async () => { entered(); await gate; return { op: 'pay.bill', args: 'null', reply: { ok: true, value: 'secret' } }; }, put: () => {}, drop: () => {} } } :
         { handle: async () => { entered(); await gate; return 'secret'; } }),
     });
     const d = connect(await paired(h, { lifetime: 10_000 }));

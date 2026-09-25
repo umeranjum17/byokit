@@ -69,7 +69,7 @@ export type HostOptions = {
 type Conn = { send(text: string): void; binary?: (bytes: Uint8Array) => void; close(code: number, reason: string): void };
 type Handler = { message(frame: string | Uint8Array): void; closed(): void };
 type Pending = GrantTerms & { expires: number };
-type Answer = { id: number; session: string; reply: Promise<object> };
+type Answer = { id: number; session: string; op: string; args: string; reply: Promise<object> };
 
 const HANDSHAKE_MS = 15_000;
 const MAX_TRIES = 5; // wrong codes before every open code is withdrawn
@@ -551,7 +551,9 @@ export class Host {
     const session = typeof m.session === 'string' && m.session.length <= 80 ? m.session : '';
     if (!key || !session || !Number.isSafeInteger(id) || id < 1) return answer({ ok: false, error: 'failed' });
     const req: LinkRequest = { op: String(m.op ?? ''), args: m.args, key: `${g.id}:${key}` };
+    const args = JSON.stringify(req.args ?? null);
     let entry = seen.get(key);
+    if (entry && (entry.op !== req.op || entry.args !== args)) return answer({ ok: false, error: 'failed' });
     let cached = !!entry;
     if (!entry) {
       if (seen.size >= MAX_ANSWERS) return answer({ ok: false, error: 'busy' });
@@ -560,13 +562,28 @@ export class Host {
         if (store) {
           let kept: unknown;
           try { kept = await this.answerTask(g.id, () => store.get(g.id, key)); } catch (e) { this.report(e); return { ok: false, error: 'failed' }; } // unknown: never run twice
-          if (kept && typeof kept === 'object') { cached = true; return kept; }
+          if (kept != null) {
+            if (typeof kept !== 'object' || Array.isArray(kept)) return { ok: false, error: 'failed' };
+            const record = kept as Record<string, unknown>;
+            if (record.op !== req.op || record.args !== args || !record.reply || typeof record.reply !== 'object' || Array.isArray(record.reply)) return { ok: false, error: 'failed' };
+            const r = record.reply as Record<string, unknown>;
+            const fields = Object.keys(r);
+            if (r.ok === true && fields.length === 2 && fields.includes('ok') && fields.includes('value')) {
+              cached = true;
+              return { ok: true, value: r.value };
+            }
+            if (r.ok === false && typeof r.error === 'string' && fields.includes('ok') && fields.includes('error') && fields.every((f) => f === 'ok' || f === 'error' || f === 'message') && (fields.length === 2 || (fields.length === 3 && typeof r.message === 'string'))) {
+              cached = true;
+              return { ok: false, error: r.error, ...(fields.length === 3 ? { message: r.message } : {}) };
+            }
+            return { ok: false, error: 'failed' };
+          }
         }
         const result = await this.run(req, g, m.notValidAfter, authenticatedKey);
-        if (store) try { await this.answerTask(g.id, () => store.put(g.id, key, result)); } catch (e) { this.report(e); }
+        if (store) try { await this.answerTask(g.id, () => store.put(g.id, key, { op: req.op, args, reply: result })); } catch (e) { this.report(e); }
         return result;
       });
-      entry = { id, session, reply };
+      entry = { id, session, op: req.op, args, reply };
       seen.set(key, entry);
     }
     const reply = await entry.reply;
