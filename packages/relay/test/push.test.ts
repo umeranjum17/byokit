@@ -98,6 +98,51 @@ test("revoking a device removes its subscriptions; revoking the host removes all
   assert.deepEqual(r.saved()!.push.map((s) => s.device), [other.grant.device.id]);
 });
 
+test('failed subscription writes leave both memory and storage unchanged', async () => {
+  let saved: any;
+  let fail = false;
+  const r = await startRelay({ store: {
+    load: () => saved,
+    save: (s) => { if (fail) { fail = false; throw new Error('disk failed'); } saved = s; },
+  } });
+  const p = await paired(r);
+  const sub = { expo: 'ExponentPushToken[phone]' };
+  fail = true;
+  await assert.rejects(p.client.subscribe('phone', sub), /disk failed/);
+  assert.deepEqual(saved.push, []);
+  await p.client.subscribe('phone', sub);
+  fail = true;
+  await assert.rejects(p.client.unsubscribe('phone'), /disk failed/);
+  assert.deepEqual(saved.push.map((s: { device: string }) => s.device), ['phone']);
+  await p.client.unsubscribe('phone');
+  assert.deepEqual(saved.push, []);
+});
+
+test('targeted unsubscribe retains action tokens while another address remains', async () => {
+  const world = pushWorld();
+  const r = await startRelay({ push: { fetch: world.fetch } });
+  const p = await paired(r, 'Phone', { onAction: (a) => a.event });
+  const device = p.grant.device.id;
+  const first = webSub('https://fcm.googleapis.com/first');
+  const second = webSub('https://fcm.googleapis.com/second');
+  const expo = { expo: 'ExponentPushToken[phone]' };
+  await p.client.subscribe(device, first);
+  await p.client.subscribe(device, second);
+  await p.client.subscribe(device, expo);
+  await p.client.notify({ id: 'keep-action', title: 'Approve', body: 'Request', actions: ['yes'] });
+  const token = world.sent.find((s) => s.url.startsWith('https://exp.host/'))!.body[0].data.action;
+  await p.client.unsubscribe(device, expo);
+  await p.client.unsubscribe(device, first);
+  assert.deepEqual(r.saved()!.push.map((s) => 'web' in s && s.web.endpoint), [second.web.endpoint]);
+  const press = (value: string) => fetch(`${r.http}/relay/v1/push/action`, { method: 'POST', body: JSON.stringify({ token: value, action: 'yes' }) });
+  assert.deepEqual(await (await press(token)).json(), { ok: true, value: 'keep-action' });
+  await p.client.subscribe(device, expo);
+  await p.client.notify({ id: 'remove-action', title: 'Approve', body: 'Request', actions: ['yes'] });
+  const next = world.sent.filter((s) => s.url.startsWith('https://exp.host/')).at(-1)!.body[0].data.action;
+  await p.client.unsubscribe(device);
+  assert.equal((await press(next)).status, 404);
+});
+
 test('push host options only narrow the default service list', async () => {
   await assert.rejects(startRelay({ push: { hosts: ['evil.example.com'] } }), /outside default allowlist/);
   const r = await startRelay({ push: { hosts: ['fcm.googleapis.com', 'web.push.apple.com'] } });
@@ -162,7 +207,7 @@ test('push services cannot redirect a notification to an internal address', asyn
   assert.deepEqual(requested, ['https://fcm.googleapis.com/redirect', 'https://exp.host/--/api/v2/push/send']);
 });
 
-test('a failed revoke immediately drops the host and can be retried', async () => {
+test('a failed revoke leaves authority intact until a successful retry', async () => {
   let saved: any;
   let target: string | undefined;
   let fail = true;
@@ -175,11 +220,12 @@ test('a failed revoke immediately drops the host and can be retried', async () =
   await p.client.subscribe('phone', { expo: 'ExponentPushToken[phone]' });
   target = p.host.id;
   await assert.rejects(r.relay.revoke(target), /disk failed/);
-  await until(() => p.client.status === 'refused');
-  assert.equal(r.relay.hosts().some((h) => h.id === target), false);
-  assert.equal(r.relay.count(target), 0);
+  assert.equal(p.client.status, 'online');
+  assert.equal(r.relay.hosts().some((h) => h.id === target), true);
+  assert.equal(saved.hosts.some((h: { id: string }) => h.id === target), true);
   assert.equal(other.client.status, 'online');
-  await r.relay.revoke(target);
+  assert.equal(await r.relay.revoke(target), true);
+  await until(() => p.client.status === 'refused');
   assert.deepEqual(saved.hosts.map((h: { id: string }) => h.id), [other.host.id]);
   assert.deepEqual(saved.push, []);
 });

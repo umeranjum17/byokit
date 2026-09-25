@@ -90,16 +90,21 @@ export class Relay {
     const s = await opts.store?.load();
     const state: RelayState = { hosts: [...(s?.hosts ?? [])], enrolments: [...(s?.enrolments ?? [])], push: [...(s?.push ?? [])], vapid: s?.vapid };
     const relay = new Relay(opts, state);
-    if (!state.vapid) { state.vapid = vapidKeys(); await relay.save(); }
+    if (!state.vapid) await relay.change((s) => { s.vapid = vapidKeys(); });
     return relay;
   }
 
   private now() { return this.opts.now?.() ?? Date.now(); }
-  private save(): Promise<void> {
-    const s = this.state;
-    const snapshot = structuredClone({ hosts: s.hosts, enrolments: s.enrolments, push: s.push, vapid: s.vapid });
-    this.saves = this.saves.catch(() => {}).then(() => this.opts.store?.save(snapshot));
-    return this.saves;
+  private change<T>(update: (state: RelayState) => T): Promise<T> {
+    const work = this.saves.then(async () => {
+      const next = structuredClone(this.state);
+      const result = update(next);
+      await this.opts.store?.save(next);
+      this.state = next;
+      return result;
+    });
+    this.saves = work.then(() => {}, () => {});
+    return work;
   }
 
   /** Serves the relay's WebSocket and HTTP routes on this server; anything else gets a 404. */
@@ -172,8 +177,9 @@ export class Relay {
    *  a hosted service's own sign-up). Returns its address. */
   async admit(key: Uint8Array, name = 'Computer'): Promise<string> {
     const id = hostId(key);
-    this.state.hosts = [...this.state.hosts.filter((h) => h.id !== id), { id, key: b64url(key), name: cleanName(name, 'Computer'), added: this.now() }];
-    await this.save();
+    await this.change((s) => {
+      s.hosts = [...s.hosts.filter((h) => h.id !== id), { id, key: b64url(key), name: cleanName(name, 'Computer'), added: this.now() }];
+    });
     return id;
   }
 
@@ -184,8 +190,9 @@ export class Relay {
     const claim = b64url(randomBytes(32));
     const now = this.now();
     const expires = now + Math.min(o.ttlMs ?? ENROL_MS, ENROL_MS);
-    this.state.enrolments = [...this.state.enrolments.filter((e) => e.expires > now), { id, hash: sha(claim), expires, ...(o.name ? { name: cleanName(o.name, 'Computer') } : {}) }];
-    await this.save();
+    await this.change((s) => {
+      s.enrolments = [...s.enrolments.filter((e) => e.expires > now), { id, hash: sha(claim), expires, ...(o.name ? { name: cleanName(o.name, 'Computer') } : {}) }];
+    });
     return { token: `${id}.${claim}`, expires };
   }
 
@@ -195,14 +202,16 @@ export class Relay {
 
   /** Removes a host: its registration, push subscriptions and codes go, and its socket and its devices' close. */
   async revoke(id: string): Promise<boolean> {
-    const had = this.state.hosts.some((h) => h.id === id);
-    this.state.hosts = this.state.hosts.filter((h) => h.id !== id);
-    this.state.push = this.state.push.filter((p) => p.host !== id);
+    const had = await this.change((s) => {
+      const present = s.hosts.some((h) => h.id === id);
+      s.hosts = s.hosts.filter((h) => h.id !== id);
+      s.push = s.push.filter((p) => p.host !== id);
+      return present;
+    });
     for (const [c, v] of this.codes) if (v.host === id) this.codes.delete(c);
     for (const [t, v] of this.tokens) if (v.host === id) this.tokens.delete(t);
     const l = this.live.get(id);
     if (l) this.drop(l, CLOSE.revoked, 'host revoked');
-    await this.save();
     return had;
   }
 
@@ -285,11 +294,16 @@ export class Relay {
       if (typeof m.enrol !== 'string') return fail(CLOSE.notEnrolled, 'not enrolled');
       if (this.limited('enrol', req)) return fail(CLOSE.tooMany, 'too many requests');
       const [eid, claim = ''] = m.enrol.split('.');
-      const e = this.state.enrolments.find((x) => x.id === eid);
-      if (!e || !same(sha(claim), e.hash)) return fail(CLOSE.enrolment, 'enrolment expired or used');
-      this.state.enrolments = this.state.enrolments.filter((x) => x !== e); // one use, gone even if it has run out
-      if (e.expires < this.now()) { await this.save(); return fail(CLOSE.enrolment, 'enrolment expired or used'); }
-      await this.admit(key, e.name ?? m.name);
+      const enrolled = await this.change((s) => {
+        if (s.hosts.some((h) => h.id === id)) return true;
+        const e = s.enrolments.find((x) => x.id === eid);
+        if (!e || !same(sha(claim), e.hash)) return false;
+        s.enrolments = s.enrolments.filter((x) => x !== e);
+        if (e.expires < this.now()) return false;
+        s.hosts = [...s.hosts, { id, key: b64url(key), name: cleanName(e.name ?? m.name, 'Computer'), added: this.now() }];
+        return true;
+      });
+      if (!enrolled) return fail(CLOSE.enrolment, 'enrolment expired or used');
     }
     if (ws.readyState !== ws.OPEN) return undefined;
     if (!this.state.hosts.some((h) => h.id === id)) return fail(CLOSE.revoked, 'host revoked');
@@ -340,20 +354,25 @@ export class Relay {
       if (!device || !sub) throw new Error('bad subscription');
       const rec: PushRecord = { host, device, added: now, ...sub };
       // One Expo token per device (a reinstall replaces it); a browser may hold several Web Push subscriptions.
-      this.state.push = [...this.state.push.filter((p) => !(p.host === host && ('expo' in sub
-        ? 'expo' in p && (p.expo === sub.expo || p.device === device)
-        : 'web' in p && p.web.endpoint === sub.web.endpoint))), rec];
-      await this.save();
+      await this.change((s) => {
+        if (!s.hosts.some((h) => h.id === host)) throw new Error('host revoked');
+        s.push = [...s.push.filter((p) => !(p.host === host && ('expo' in sub
+          ? 'expo' in p && (p.expo === sub.expo || p.device === device)
+          : 'web' in p && p.web.endpoint === sub.web.endpoint))), rec];
+      });
       return {};
     }
     if (m?.t === 'push.remove') {
       if (!device) throw new Error('bad device');
       const sub = m.sub === undefined ? undefined : parseSubscription(m.sub, this.pushHosts);
       if (m.sub !== undefined && !sub) throw new Error('bad subscription');
-      this.state.push = this.state.push.filter((p) => !(p.host === host && p.device === device
-        && (!sub || ('expo' in sub ? 'expo' in p && p.expo === sub.expo : 'web' in p && p.web.endpoint === sub.web.endpoint))));
-      for (const [t, v] of this.tokens) if (v.host === host && v.device === device) this.tokens.delete(t);
-      await this.save();
+      const remaining = await this.change((s) => {
+        if (!s.hosts.some((h) => h.id === host)) throw new Error('host revoked');
+        s.push = s.push.filter((p) => !(p.host === host && p.device === device
+          && (!sub || ('expo' in sub ? 'expo' in p && p.expo === sub.expo : 'web' in p && p.web.endpoint === sub.web.endpoint))));
+        return s.push.some((p) => p.host === host && p.device === device && parseSubscription(p, this.pushHosts));
+      });
+      if (!remaining) for (const [t, v] of this.tokens) if (v.host === host && v.device === device) this.tokens.delete(t);
       return {};
     }
     if (m?.t === 'push.notify') return this.notify(host, m.n);
@@ -388,8 +407,10 @@ export class Relay {
     });
     if (sent > 0) this.sent.set(host, [...(this.sent.get(host) ?? []), n.id].slice(-DEDUP)); // only once a push service took it, so a retry can succeed
     if (gone.length || invalid.length) {
-      this.state.push = this.state.push.filter((p) => !gone.includes(p) && !invalid.includes(p));
-      await this.save();
+      const removed = new Set([...gone, ...invalid].map((p) => JSON.stringify(p)));
+      await this.change((s) => {
+        s.push = s.push.filter((p) => !removed.has(JSON.stringify(p)));
+      });
     }
     return { sent };
     } finally {

@@ -87,15 +87,17 @@ test('revoking machine B closes B and its devices, refuses B from then on, and l
 test('revocation during an enrolment save cannot install a live host', async () => {
   let release!: () => void;
   let saved: any;
+  let entered = false;
   const blocked = new Promise<void>((resolve) => { release = resolve; });
   const r = await startRelay({ store: {
     load: () => saved,
-    save: async (state) => { if (state.hosts.length) await blocked; saved = state; },
+    save: async (state) => { if (state.hosts.length) { entered = true; await blocked; } saved = state; },
   } });
   const { token } = await r.relay.enrolment();
   const host = await startHost();
   const client = hostClient(host, r.ws, { enrol: token });
-  await until(() => r.relay.hosts().some((h) => h.id === host.id));
+  await until(() => entered);
+  assert.equal(r.relay.hosts().length, 0, 'admission is not visible before its save');
   const revoked = r.relay.revoke(host.id);
   release();
   await revoked;
@@ -103,6 +105,50 @@ test('revocation during an enrolment save cannot install a live host', async () 
   assert.equal(r.relay.hosts().length, 0);
   assert.equal(r.relay.count(host.id), 0);
   assert.deepEqual(saved.hosts, []);
+});
+
+test('failed direct admission and enrolment creation leave no in-memory authority', async () => {
+  let saved: any;
+  let fail = false;
+  const r = await startRelay({ store: {
+    load: () => saved,
+    save: (s) => { if (fail) { fail = false; throw new Error('disk failed'); } saved = s; },
+  } });
+  const key = keyPair();
+  fail = true;
+  await assert.rejects(r.relay.admit(key.publicKey), /disk failed/);
+  assert.deepEqual(r.relay.hosts(), []);
+  assert.deepEqual(saved.hosts, []);
+  fail = true;
+  await assert.rejects(r.relay.enrolment(), /disk failed/);
+  assert.deepEqual(saved.enrolments, []);
+  const { token } = await r.relay.enrolment();
+  assert.equal(saved.enrolments.length, 1);
+  const client = hostClient(await startHost(key), r.ws, { enrol: token });
+  await until(() => client.client.status === 'online');
+});
+
+test('failed enrolment admission leaves the claim and authority unchanged', async () => {
+  let saved: any;
+  let fail = true;
+  const r = await startRelay({ store: {
+    load: () => saved,
+    save: (s) => { if (s.hosts.length && fail) { fail = false; throw new Error('disk failed'); } saved = s; },
+  } });
+  const { token } = await r.relay.enrolment();
+  const host = await startHost();
+  const first = hostClient(host, r.ws, { enrol: token });
+  await until(() => first.client.status === 'offline');
+  first.client.stop();
+  assert.equal(r.relay.hosts().length, 0);
+  assert.equal(saved.enrolments.length, 1);
+  const noClaim = hostClient(host, r.ws);
+  await until(() => noClaim.client.status === 'refused');
+  assert.equal(r.relay.hosts().length, 0);
+  const retry = hostClient(host, r.ws, { enrol: token });
+  await until(() => retry.client.status === 'online');
+  assert.equal(r.relay.hosts().length, 1);
+  assert.deepEqual(saved.enrolments, []);
 });
 
 test('a machine cannot register under another machine\'s address: the proof is for the key it presents', async () => {
