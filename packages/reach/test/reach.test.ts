@@ -34,6 +34,7 @@ const since = (at: number) => readFileSync(log, 'utf8').slice(at);
 const self = { Self: { DNSName: 'dev.tailnet.ts.net.', TailscaleIPs: ['100.64.0.1', 'fd7a::1'] } };
 const occupied = JSON.stringify({ TCP: { 443: { HTTPS: true } }, Web: { 'dev.tailnet.ts.net:443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:9999' } } } } });
 const ours = JSON.stringify({ Web: { 'dev.tailnet.ts.net:443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:8792' } } } } });
+const funnel = JSON.stringify({ AllowFunnel: { 'dev.tailnet.ts.net:443': true }, Web: { 'dev.tailnet.ts.net:443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:8792' } } } } });
 const owned: ServeIngress = { kind: 'tailscale-serve', port: 8792, dnsName: 'dev.tailnet.ts.net', proxy: 'http://127.0.0.1:8792' };
 
 test('Serve publishes loopback at the MagicDNS name, never Funnel, and binds the server to loopback', async () => {
@@ -63,6 +64,27 @@ test('a changed root after Serve setup is reported as occupied without touching 
   const at = mark();
   await assert.rejects(reach({ port: 8792, tailscale }), /already owned.*another service took the Serve root/);
   assert.equal((await inspectServe(8792, owned.dnsName, tailscale)).status, 'occupied');
+  assert.doesNotMatch(since(at), /^serve --https=443 --set-path=\/ off$/m);
+});
+
+test('Funnel-enabled roots are never reused, removed or accepted after writes', async () => {
+  fake(self, { serveStatus: funnel });
+  const at = mark();
+  assert.equal((await inspectServe(8792, owned.dnsName, { ...tailscale, proxy: owned.proxy })).status, 'funnel');
+  await assert.rejects(serve(8792, tailscale, owned), /Funnel is on.*reach never uses Funnel/);
+  await assert.rejects(unserve(owned, tailscale), /Funnel is on.*reach never uses Funnel/);
+  assert.doesNotMatch(since(at), /^serve --yes|^serve --https=443 --set-path=\/ off$/m);
+
+  fake(self, { afterApply: funnel });
+  await assert.rejects(serve(8792, tailscale), /Funnel is on.*reach never uses Funnel/);
+  fake(self, { serveStatus: ours, afterOff: funnel });
+  await assert.rejects(unserve(owned, tailscale), /Funnel is on.*reach never uses Funnel/);
+});
+
+test('a successful Serve write with inconclusive status is unverifiable, not occupied', async () => {
+  fake(self, { afterApply: 'not json' });
+  const at = mark();
+  await assert.rejects(serve(8792, tailscale), (error: Error) => /could not verify/.test(error.message) && !/occupied|another service/.test(error.message));
   assert.doesNotMatch(since(at), /^serve --https=443 --set-path=\/ off$/m);
 });
 

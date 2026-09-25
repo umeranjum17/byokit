@@ -11,7 +11,7 @@ export type TailscaleOptions = { bin?: string; timeoutMs?: number };
 /** The Serve mapping this package made: persist it, and pass it back to `unserve` or `reach({ previous })`. */
 export type ServeIngress = { kind: 'tailscale-serve'; port: number; dnsName: string; proxy: string };
 
-export type ServeRoot = 'free' | 'ours' | 'occupied' | 'disabled' | 'inconclusive';
+export type ServeRoot = 'free' | 'ours' | 'occupied' | 'funnel' | 'disabled' | 'inconclusive';
 
 export const SERVE_OWNED_ERROR = 'Tailscale Serve root is already owned by another service; use direct Tailscale or remove it yourself';
 
@@ -98,9 +98,13 @@ export async function inspectServe(port: number, dnsName: string, o?: TailscaleO
   if (r.code !== 0 || r.error) {
     return { status: /serve is not enabled on your tailnet/i.test(`${r.stderr}\n${r.stdout}`) ? 'disabled' : 'inconclusive', reason: serveFailure(r) };
   }
-  let handler: { Proxy?: unknown } | undefined;
-  try { handler = serveRootProxy(JSON.parse(r.stdout || '{}'), dnsName); }
+  let status: { AllowFunnel?: Record<string, boolean> };
+  try { status = JSON.parse(r.stdout || '{}'); }
   catch { return { status: 'inconclusive', reason: 'Tailscale Serve returned invalid status JSON' }; }
+  if (status?.AllowFunnel?.[`${dnsName}:443`] === true) {
+    return { status: 'funnel', reason: 'Funnel is on for this Serve root; reach never uses Funnel. Turn it off before continuing.' };
+  }
+  const handler = serveRootProxy(status, dnsName);
   if (handler === undefined) return { status: 'free' };
   return { status: o?.proxy === loopback(port) && handler.Proxy === o.proxy ? 'ours' : 'occupied' };
 }
@@ -116,14 +120,15 @@ export async function serve(port: number, o?: TailscaleOptions, previous?: Serve
   const proxy = loopback(port);
   const recorded = previous?.kind === 'tailscale-serve' && previous.port === port && previous.dnsName === dnsName && previous.proxy === proxy;
   const root = await inspectServe(port, dnsName, { ...o, ...(recorded ? { proxy } : {}) });
-  if (root.status === 'disabled' || root.status === 'inconclusive') throw new Error(root.reason);
+  if (root.status === 'disabled' || root.status === 'inconclusive' || root.status === 'funnel') throw new Error(root.reason);
   if (root.status === 'occupied') throw new Error(SERVE_OWNED_ERROR);
   if (root.status === 'free') {
     const r = await run(['serve', '--yes', '--bg', '--https=443', proxy], o);
     if (r.code !== 0 || r.error) throw new Error(serveFailure(r));
-    if ((await inspectServe(port, dnsName, { ...o, proxy })).status !== 'ours') {
-      throw new Error(`${SERVE_OWNED_ERROR}; another service took the Serve root after setup`);
-    }
+    const after = await inspectServe(port, dnsName, { ...o, proxy });
+    if (after.status === 'funnel') throw new Error(after.reason);
+    if (after.status === 'occupied') throw new Error(`${SERVE_OWNED_ERROR}; another service took the Serve root after setup`);
+    if (after.status !== 'ours') throw new Error('could not verify the Tailscale Serve route after setup');
   }
   return { url: `wss://${dnsName}`, ingress: { kind: 'tailscale-serve', port, dnsName, proxy } };
 }
@@ -132,11 +137,13 @@ export async function serve(port: number, o?: TailscaleOptions, previous?: Serve
 export async function unserve(ingress: ServeIngress | undefined, o?: TailscaleOptions): Promise<boolean> {
   if (ingress?.kind !== 'tailscale-serve' || ingress.proxy !== loopback(ingress.port)) return false;
   const root = await inspectServe(ingress.port, ingress.dnsName, { ...o, proxy: ingress.proxy });
+  if (root.status === 'funnel') throw new Error(root.reason);
   if (root.missing || root.status === 'free' || root.status === 'occupied') return false;
   if (root.status !== 'ours') throw new Error('cannot inspect the previous Tailscale Serve route; leaving it unchanged');
   const r = await run(['serve', '--https=443', '--set-path=/', 'off'], o);
   if (r.code !== 0 || r.error) throw new Error(`could not remove the previous Tailscale Serve route: ${serveFailure(r)}`);
   const after = await inspectServe(ingress.port, ingress.dnsName, { ...o, proxy: ingress.proxy });
+  if (after.status === 'funnel') throw new Error(after.reason);
   if (after.status === 'occupied') throw new Error(`${SERVE_OWNED_ERROR}; another service took the Serve root after removal`);
   if (after.status !== 'free') throw new Error('could not verify removal of the previous Tailscale Serve route');
   return true;
