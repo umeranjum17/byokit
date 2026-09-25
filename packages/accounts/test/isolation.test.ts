@@ -5,11 +5,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
+import { scratchDir } from '../../test-support.ts';
 import { join, resolve } from 'node:path';
 import { decoy, traceFs } from '../src/testing/index.ts';
 
 test("a sign-in, a stored sign-in and its status never touch anyone else's AI setup", () => {
-  const d = decoy();
+  const d = decoy(scratchDir('decoy'));
   const app = join(d.root, 'app');
   mkdirSync(app);
   const repo = resolve(import.meta.dirname, '..', '..', '..');

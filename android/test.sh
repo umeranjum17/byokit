@@ -7,7 +7,10 @@ set -euo pipefail
 cd "$(dirname "$0")"
 real_home=$HOME
 decoy=$(mktemp -d)
-trap 'rm -rf "$decoy"' EXIT
+cleanup() { rm -rf "$decoy"; }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 for d in .pi/agent .codex .claude; do
   mkdir -p "$decoy/$d"
   echo '{"canary":"do not read"}' > "$decoy/$d/auth.json"

@@ -1,13 +1,13 @@
 // Stores, isolate(), classify and words.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, statSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, statSync } from 'node:fs';
+import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
 import { WORDS, classify, fileStore, isolate, say, signInError } from '../src/index.ts';
 
 test('the file store: Pi\'s auth.json shape, 0600 in a 0700 folder, serialized writes', async () => {
-  const dir = join(mkdtempSync(join(tmpdir(), 'byokit-store-')), 'people', '1');
+  const dir = join(scratchDir('store'), 'people', '1');
   const path = join(dir, 'auth.json');
   const s = fileStore(path);
   assert.equal(await s.read('openai-codex'), undefined);
@@ -23,7 +23,7 @@ test('the file store: Pi\'s auth.json shape, 0600 in a 0700 folder, serialized w
 });
 
 test("the file store sealed with Electron's safeStorage: no sign-in readable in the file, the same sign-ins back", async () => {
-  const path = join(mkdtempSync(join(tmpdir(), 'byokit-sealed-')), 'auth.json');
+  const path = join(scratchDir('sealed'), 'auth.json');
   // Electron's safeStorage stands in: sealed with a key the OS keychain would hold.
   const safeStorage = {
     encryptString: (text: string) => Buffer.from([...Buffer.from(text)].map((b) => b ^ 0x5a)),
@@ -38,7 +38,7 @@ test("the file store sealed with Electron's safeStorage: no sign-in readable in 
 
 test('isolate() scrubs inherited Pi settings and provider keys, and pins the engine folder', () => {
   Object.assign(process.env, { PI_CODING_AGENT_DIR: '/home/x/.pi/agent', PI_PACKAGE_DIR: '/x', OPENAI_API_KEY: 'k', GH_TOKEN: 't', AI_AGENT: 'pi', KEEP_ME: '1' });
-  const dir = join(mkdtempSync(join(tmpdir(), 'byokit-iso-')), 'engine');
+  const dir = join(scratchDir('iso'), 'engine');
   assert.equal(isolate(dir), dir);
   assert.equal(process.env.PI_CODING_AGENT_DIR, dir);
   for (const k of ['PI_PACKAGE_DIR', 'OPENAI_API_KEY', 'GH_TOKEN', 'AI_AGENT']) assert.equal(process.env[k], undefined, k);

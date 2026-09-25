@@ -2,12 +2,12 @@
 // tailscale binary is never run: each call passes `bin`, and PATH holds only the fake's directory.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
 import { advertise, inspectServe, reach, routes, serve, tailscaleName, unserve, type Bonjour, type ServeIngress } from '../src/index.ts';
 
-const dir = mkdtempSync(join(tmpdir(), 'byokit-reach-'));
+const dir = scratchDir('reach');
 const bin = join(dir, 'tailscale');
 const log = join(dir, 'tailscale.log');
 const state = join(dir, 'serve.json');

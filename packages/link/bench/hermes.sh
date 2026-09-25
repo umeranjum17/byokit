@@ -7,6 +7,8 @@ hermes=$(realpath "${1:?path to the hermes CLI}")
 cd "$(dirname "$0")"
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 cat > "$out/globals.js" <<'JS'
 if (typeof globalThis.self === 'undefined') globalThis.self = globalThis;
 if (typeof globalThis.crypto === 'undefined') globalThis.crypto = { getRandomValues(a) { for (let i = 0; i < a.length; i++) a[i] = (Math.random() * 256) | 0; return a; } };

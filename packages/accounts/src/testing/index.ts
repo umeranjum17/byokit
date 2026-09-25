@@ -3,8 +3,7 @@
 // shell inside one of them hands down, and an fs tracer. A run must leave the decoys byte for byte as they were, never
 // touch them at all, and never carry a canary into the app's own files.
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,7 +16,8 @@ const files = (dir: string): string[] => existsSync(dir)
   ? readdirSync(dir, { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).map((e) => join(e.parentPath, e.name)) : [];
 const hashes = (dirs: string[]) => Object.fromEntries(dirs.flatMap(files).map((p) => [p, createHash('sha256').update(readFileSync(p)).digest('hex') + statSync(p).mtimeMs]));
 
-export function decoy(root = mkdtempSync(join(tmpdir(), 'byokit-decoy-'))) {
+/** Build decoy files under a caller-owned directory; this function does not create or remove its root. */
+export function decoy(root: string) {
   const home = join(root, 'home');
   const marks = join(root, 'marks');
   const trace = join(root, 'trace.log');
