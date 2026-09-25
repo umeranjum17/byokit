@@ -73,17 +73,10 @@ export async function tailscaleName(o?: TailscaleOptions): Promise<string | unde
   throw new Error('Tailscale reported an invalid MagicDNS name, so no address was guessed. Check this computer’s DNS name in Tailscale, then retry or choose another connection.');
 }
 
-/** The proxy behind the `/` handler on :443 of `dnsName` (or of the only :443 host when no name is given). */
-export function serveRootProxy(status: unknown, dnsName?: string): string | undefined {
+/** The root handler on :443 of `dnsName`, if present. */
+export function serveRootProxy(status: unknown, dnsName: string): { Proxy?: unknown } | undefined {
   const web = (status as { Web?: Record<string, { Handlers?: Record<string, { Proxy?: unknown }> }> } | null)?.Web;
-  if (web === null || typeof web !== 'object') return undefined;
-  if (dnsName) {
-    const exact = web[`${dnsName}:443`]?.Handlers?.['/']?.Proxy;
-    return typeof exact === 'string' ? exact : undefined;
-  }
-  const roots = Object.entries(web).filter(([address]) => address.endsWith(':443'))
-    .map(([, config]) => config?.Handlers?.['/']?.Proxy).filter((p): p is string => typeof p === 'string');
-  return roots.length === 1 ? roots[0] : undefined;
+  return web?.[`${dnsName}:443`]?.Handlers?.['/'];
 }
 
 function serveFailure(r: Run): string {
@@ -105,24 +98,25 @@ export async function inspectServe(port: number, dnsName: string, o?: TailscaleO
   if (r.code !== 0 || r.error) {
     return { status: /serve is not enabled on your tailnet/i.test(`${r.stderr}\n${r.stdout}`) ? 'disabled' : 'inconclusive', reason: serveFailure(r) };
   }
-  let proxy: string | undefined;
-  try { proxy = serveRootProxy(JSON.parse(r.stdout || '{}'), dnsName); }
+  let handler: { Proxy?: unknown } | undefined;
+  try { handler = serveRootProxy(JSON.parse(r.stdout || '{}'), dnsName); }
   catch { return { status: 'inconclusive', reason: 'Tailscale Serve returned invalid status JSON' }; }
-  if (proxy === undefined) return { status: 'free' };
-  return { status: proxy === (o?.proxy ?? loopback(port)) ? 'ours' : 'occupied' };
+  if (handler === undefined) return { status: 'free' };
+  return { status: o?.proxy === loopback(port) && handler.Proxy === o.proxy ? 'ours' : 'occupied' };
 }
 
 /**
  * Publish `127.0.0.1:<port>` at `https://<MagicDNS name>` inside the tailnet (never Funnel). Refuses a root someone else
- * owns; reuses one that already points here. Returns undefined when Tailscale isn't installed.
+ * owns; reuses only a mapping recorded by this app. Returns undefined when Tailscale isn't installed.
  */
-export async function serve(port: number, o?: TailscaleOptions): Promise<{ url: string; ingress: ServeIngress } | undefined> {
+export async function serve(port: number, o?: TailscaleOptions, previous?: ServeIngress): Promise<{ url: string; ingress: ServeIngress } | undefined> {
   const dnsName = await tailscaleName(o);
   if (dnsName === undefined) return undefined;
-  const root = await inspectServe(port, dnsName, o);
+  const proxy = loopback(port);
+  const recorded = previous?.kind === 'tailscale-serve' && previous.port === port && previous.dnsName === dnsName && previous.proxy === proxy;
+  const root = await inspectServe(port, dnsName, { ...o, ...(recorded ? { proxy } : {}) });
   if (root.status === 'disabled' || root.status === 'inconclusive') throw new Error(root.reason);
   if (root.status === 'occupied') throw new Error(SERVE_OWNED_ERROR);
-  const proxy = loopback(port);
   if (root.status === 'free') {
     const r = await run(['serve', '--yes', '--bg', '--https=443', proxy], o);
     if (r.code !== 0 || r.error) throw new Error(serveFailure(r));
@@ -132,11 +126,11 @@ export async function serve(port: number, o?: TailscaleOptions): Promise<{ url: 
 
 /** Remove a mapping `serve` made, only while Serve still points where it recorded. Returns whether it removed one. */
 export async function unserve(ingress: ServeIngress | undefined, o?: TailscaleOptions): Promise<boolean> {
-  if (ingress?.kind !== 'tailscale-serve') return false;
+  if (ingress?.kind !== 'tailscale-serve' || ingress.proxy !== loopback(ingress.port)) return false;
   const root = await inspectServe(ingress.port, ingress.dnsName, { ...o, proxy: ingress.proxy });
   if (root.missing || root.status === 'free' || root.status === 'occupied') return false;
   if (root.status !== 'ours') throw new Error('cannot inspect the previous Tailscale Serve route; leaving it unchanged');
-  const r = await run(['serve', '--https=443', 'off'], o);
+  const r = await run(['serve', '--https=443', '--set-path=/', 'off'], o);
   if (r.code !== 0 || r.error) throw new Error(`could not remove the previous Tailscale Serve route: ${serveFailure(r)}`);
   return true;
 }

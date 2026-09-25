@@ -33,12 +33,10 @@ These are the rules from muxr's decision 0004.
 - **The server stays on loopback** behind Serve (`bind: '127.0.0.1'`).
 - **The machine's own `Self.DNSName` is used.** A missing or invalid MagicDNS name is an error. A logged-out or
   broken Tailscale is an error too. Neither one falls back to the LAN without being asked.
-- **A root handler someone else owns is refused.** If `/` on `<name>:443` already proxies somewhere else, `reach`
-  throws, and the owner removes that mapping or picks `tailscale-direct`. A root that already points at this port is
-  reused.
-- **Ownership fingerprint.** The returned `ingress` (`{ port, dnsName, proxy }`) records what was set up. `unserve` and
-  `reach({ previous })` run `tailscale serve --https=443 off` only while Serve still points at that proxy, so a later
-  owner is never reset.
+- **An unrecorded root handler is refused.** If `/` on `<name>:443` already has any handler, `reach` throws unless
+  `previous` records the matching app-created mapping. Pick `tailscale-direct` or remove an unrelated mapping yourself.
+- **Ownership fingerprint.** Persist the returned `ingress` (`{ port, dnsName, proxy }`) and pass it as `previous`.
+  `unserve` and `reach({ previous })` remove only `/` while it still points at that proxy; sibling paths remain.
 - **Direct fallback and rollback.** If Serve is disabled on the tailnet (the error includes the admin link), times
   out, or is taken, use `via: 'tailscale-direct'`. With `previous`, that also removes the mapping this package made.
 

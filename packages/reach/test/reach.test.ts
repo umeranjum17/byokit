@@ -21,7 +21,7 @@ case "$*" in
   "status --json") printf '%s' ${sq(JSON.stringify(status))} ;;
   "serve status --json") printf '%s' ${sq(serveStatus)}; exit ${serveStatusExit} ;;
   "serve --yes --bg --https=443 http://127.0.0.1:8792") ${apply} ;;
-  "serve --https=443 off") exit 0 ;;
+  "serve --https=443 --set-path=/ off") exit 0 ;;
   *) exit 1 ;;
 esac
 `);
@@ -43,11 +43,13 @@ test('Serve publishes loopback at the MagicDNS name, never Funnel, and binds the
   assert.doesNotMatch(since(at), /funnel/i);
 });
 
-test('a root that already points here is reused; another host name on another port does not count', async () => {
+test('only a root matching a prior app-created fingerprint can be reused', async () => {
   fake(self, { serveStatus: ours });
   let at = mark();
-  assert.equal((await serve(8792, tailscale))?.url, 'wss://dev.tailnet.ts.net');
+  await assert.rejects(serve(8792, tailscale), /already owned/);
   assert.doesNotMatch(since(at), /serve --yes/);
+  assert.equal((await serve(8792, tailscale, owned))?.url, 'wss://dev.tailnet.ts.net');
+  await assert.rejects(serve(8792, tailscale, { ...owned, dnsName: 'other.tailnet.ts.net' }), /already owned/);
   fake(self, { serveStatus: JSON.stringify({ Web: { 'other.tailnet.ts.net:8443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:1' } } } } }) });
   at = mark();
   assert.equal((await serve(8792, tailscale))?.url, 'wss://dev.tailnet.ts.net');
@@ -60,7 +62,10 @@ test('an occupied root handler is refused and never claimed or reset', async () 
   assert.equal((await inspectServe(8792, 'dev.tailnet.ts.net', tailscale)).status, 'occupied');
   await assert.rejects(reach({ port: 8792, tailscale }), /already owned/);
   assert.equal(await unserve(owned, tailscale), false, 'stale ownership reset a later foreign owner');
-  assert.doesNotMatch(since(at), /serve --yes|serve --https=443 off/);
+  assert.doesNotMatch(since(at), /serve --yes|serve --https=443 .*off/);
+  fake(self, { serveStatus: JSON.stringify({ Web: { 'dev.tailnet.ts.net:443': { Handlers: { '/': { Text: 'taken' } } } } }) });
+  await assert.rejects(reach({ port: 8792, tailscale }), /already owned/);
+  assert.equal(await unserve(owned, tailscale), false);
 });
 
 test('Serve disabled on the tailnet names the enable link; a hung Serve times out', async () => {
@@ -92,7 +97,7 @@ test('direct Tailscale is the fallback and the rollback: it removes only the map
   fake(self, { serveStatus: ours });
   const at = mark();
   assert.deepEqual(await reach({ port: 8792, via: 'tailscale-direct', previous: owned, tailscale }), { urls: ['ws://100.64.0.1:8792'], bind: '0.0.0.0' });
-  assert.match(since(at), /^serve --https=443 off$/m);
+  assert.match(since(at), /^serve --https=443 --set-path=\/ off$/m);
   fake(self);
   const gone = mark();
   assert.equal(await unserve(owned, tailscale), false);
@@ -116,9 +121,23 @@ test('routes keep physical LAN addresses and overlays apart, and skip Tailscale,
     lo: [{ family: 'IPv4', internal: true, address: '127.0.0.1' }], docker0: v4('172.17.0.1'), vboxnet0: v4('192.168.56.1'),
     eno1: v4('192.168.1.8'), wlan0: v4('10.0.0.5'), wt0: v4('100.90.0.4'), tailscale0: v4('100.64.0.1'), eth1: v4('8.8.8.8'),
   } as never);
-  assert.deepEqual(found, { lan: ['192.168.1.8', '10.0.0.5'], private: [{ address: '100.90.0.4', interface: 'wt0', provider: 'NetBird' }] });
-  assert.deepEqual(routes({ utun4: v4('100.64.0.1'), utun5: v4('10.20.0.2') } as never, '100.64.0.1').private,
-    [{ address: '10.20.0.2', interface: 'utun5', provider: 'private network' }]);
+  assert.deepEqual(found, { lan: ['192.168.1.8', '10.0.0.5'], private: [{ address: '100.90.0.4', interface: 'wt0' }] });
+  assert.deepEqual(routes({ utun4: v4('100.64.0.1'), utun5: v4('10.20.0.2') } as never, ['100.64.0.1']).private,
+    [{ address: '10.20.0.2', interface: 'utun5' }]);
+});
+
+test('private selection excludes Self.TailscaleIPs even on utun interfaces', async () => {
+  fake(self);
+  const interfaces = { utun4: [{ family: 'IPv4', internal: false, address: '100.64.0.1' }], utun5: [{ family: 'IPv4', internal: false, address: '100.90.0.4' }] } as never;
+  assert.deepEqual(await reach({ port: 8792, via: 'private', tailscale, interfaces }), { urls: ['ws://100.90.0.4:8792'], bind: '0.0.0.0' });
+});
+
+test('unserve removes only the owned root, preserving sibling paths', async () => {
+  fake(self, { serveStatus: JSON.stringify({ Web: { 'dev.tailnet.ts.net:443': { Handlers: { '/': { Proxy: owned.proxy }, '/other': { Text: 'keep' } } } } }) });
+  const at = mark();
+  assert.equal(await unserve(owned, tailscale), true);
+  assert.match(since(at), /^serve --https=443 --set-path=\/ off$/m);
+  assert.doesNotMatch(since(at), /^serve --https=443 off$/m);
 });
 
 test('advertise publishes one mDNS service and stops it', async () => {

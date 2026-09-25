@@ -7,26 +7,24 @@ export * from './tailscale.ts';
 type Interfaces = NodeJS.Dict<NetworkInterfaceInfo[]>;
 
 /** An overlay network address (NetBird, WireGuard, ZeroTier, …) other than Tailscale's own. */
-export type PrivateRoute = { address: string; interface: string; provider: string };
+export type PrivateRoute = { address: string; interface: string };
 
 const privateIpv4 = (a: string) => /^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(a);
 const cgnat = (a: string) => { const m = a.match(/^100\.(\d+)\./); return m !== null && +m[1]! >= 64 && +m[1]! <= 127; };
 const overlayName = /^(?:wt|netbird|nb|wg|zt|utun|tun|tap)/i;
 const virtualName = /^(?:docker|br-|veth|virbr|podman|lxc|vbox|vmnet|hyperv|wsl)/i;
-const provider = (name: string) =>
-  /^(?:wt|netbird|nb)/i.test(name) ? 'NetBird' : /^wg/i.test(name) ? 'WireGuard' : /^zt/i.test(name) ? 'ZeroTier' : 'private network';
 
 /**
  * This computer's IPv4 routes: `lan` holds private-range addresses on physical interfaces (no Docker, VM or VPN
- * bridges); `private` holds overlay networks other than Tailscale. `ignore` drops one address, such as the tailnet IP.
+ * bridges); `private` holds overlay networks other than Tailscale. `ignore` drops tailnet addresses.
  */
-export function routes(interfaces: Interfaces = networkInterfaces(), ignore?: string): { lan: string[]; private: PrivateRoute[] } {
+export function routes(interfaces: Interfaces = networkInterfaces(), ignore: readonly string[] = []): { lan: string[]; private: PrivateRoute[] } {
   const out = { lan: [] as string[], private: [] as PrivateRoute[] };
   for (const [name, list] of Object.entries(interfaces)) {
     for (const e of list ?? []) {
-      if (e.family !== 'IPv4' || e.internal || e.address === ignore || /^tailscale/i.test(name)) continue;
+      if (e.family !== 'IPv4' || e.internal || ignore.includes(e.address) || /^tailscale/i.test(name)) continue;
       // ponytail: CGNAT implies an overlay; add route-table evidence if ISP CGNAT false positives show up.
-      if (overlayName.test(name) || cgnat(e.address)) out.private.push({ address: e.address, interface: name, provider: provider(name) });
+      if (overlayName.test(name) || cgnat(e.address)) out.private.push({ address: e.address, interface: name });
       else if (privateIpv4(e.address) && !virtualName.test(name)) out.lan.push(e.address);
     }
   }
@@ -47,7 +45,7 @@ export type Reach = {
   urls: string[];
   /** Where the server must listen: loopback behind Serve, every interface otherwise. */
   bind: '127.0.0.1' | '0.0.0.0';
-  /** The Serve mapping made or reused. Persist it; pass it back as `previous` next time. */
+  /** The Serve mapping made or verified against `previous`. Persist it; pass it back next time. */
   ingress?: ServeIngress;
 };
 
@@ -61,7 +59,7 @@ export async function reach(o: { port: number; via?: Via; previous?: ServeIngres
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('port must be 1-65535');
   if (via === 'tailscale-direct' || via === 'private' || via === 'lan' || previous?.port !== port) await unserve(previous, ts);
   if (via === 'auto' || via === 'tailscale') {
-    const served = await serve(port, ts);
+    const served = await serve(port, ts, previous);
     if (served) return { urls: [served.url], bind: '127.0.0.1', ingress: served.ingress };
     if (via === 'tailscale') throw new Error('Tailscale is not installed');
   }
@@ -70,7 +68,7 @@ export async function reach(o: { port: number; via?: Via; previous?: ServeIngres
     if (!ip) throw new Error('no Tailscale address; sign in to Tailscale or choose LAN');
     return { urls: [`ws://${ip}:${port}`], bind: '0.0.0.0' };
   }
-  const found = routes(o.interfaces);
+  const found = routes(o.interfaces, via === 'private' ? (await tailscaleStatus(ts))?.ips : undefined);
   const addresses = via === 'private' ? found.private.map((r) => r.address) : found.lan;
   if (addresses.length === 0) throw new Error(via === 'private' ? 'no private network address' : 'no LAN address; connect to a network or choose Tailscale');
   return { urls: addresses.map((a) => `ws://${a}:${port}`), bind: '0.0.0.0' };
