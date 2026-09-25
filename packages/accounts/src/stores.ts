@@ -4,23 +4,29 @@
 import type { Credential, CredentialStore } from '@earendil-works/pi-ai';
 
 export type Record = { [providerId: string]: Credential };
+export type EndingStore = CredentialStore & { end(id: string, fn: (c: Credential | undefined) => Promise<void>): Promise<void> };
 
 /** A store over one whole record the platform loads and saves. Writes are serialized within this process; a write
  *  re-reads first, so a sign-in that took minutes never overwrites a provider that changed meanwhile. */
-export function recordStore(load: () => Promise<Record>, save: (data: Record) => Promise<void>): CredentialStore {
+export function recordStore(load: () => Promise<Record>, save: (data: Record) => Promise<void>): EndingStore {
   let chain: Promise<unknown> = Promise.resolve();
   const serial = <T>(fn: () => Promise<T>): Promise<T> => { const r = chain.then(fn); chain = r.catch(() => {}); return r; };
   return {
     read: async (id) => (await load())[id],
     list: async () => Object.entries(await load()).map(([providerId, c]) => ({ providerId, type: c.type })),
-    modify: (id, fn) => serial(async () => {
+    modify: (id, fn, options) => serial(async () => {
       const current = (await load())[id];
       const next = await fn(current);
       if (next === undefined) return current;
+      options?.signal?.throwIfAborted();
       await save({ ...(await load()), [id]: next });
       return next;
     }),
     delete: (id) => serial(async () => { const data = await load(); if (id in data) { delete data[id]; await save(data); } }),
+    end: (id, fn) => serial(async () => {
+      try { await fn((await load())[id]); }
+      finally { const data = await load(); if (id in data) { delete data[id]; await save(data); } }
+    }),
   };
 }
 
@@ -62,7 +68,7 @@ export function secureStore(secure: SecureStoreLike, name: string): CredentialSt
 
 /** One person's sign-ins in the browser's IndexedDB (a PWA, or Electron's renderer), under `name`. A browser has no
  *  keychain: anything running on this page could read them, so keep the page free of scripts you don't control. */
-export function browserStore(name: string, db = 'byokit'): CredentialStore {
+export function browserStore(name: string, db = 'byokit'): EndingStore {
   const open = () => new Promise<IDBDatabase>((resolve, reject) => {
     const r = indexedDB.open(db, 1);
     r.onupgradeneeded = () => r.result.createObjectStore('signins');
@@ -80,5 +86,13 @@ export function browserStore(name: string, db = 'byokit'): CredentialStore {
       });
     } finally { d.close(); }
   };
-  return recordStore(async () => (await run<Record | undefined>('readonly', (s) => s.get(name))) ?? {}, (data) => run('readwrite', (s) => s.put(data, name)));
+  const store = recordStore(async () => (await run<Record | undefined>('readonly', (s) => s.get(name))) ?? {}, (data) => run('readwrite', (s) => s.put(data, name)));
+  const locked = async <T>(id: string, fn: () => Promise<T>): Promise<T> =>
+    typeof navigator !== 'undefined' && navigator.locks ? await navigator.locks.request<Promise<T>>(`byokit:${db}:${name}:${id}`, fn) : fn();
+  return {
+    ...store,
+    modify: (id, fn, options) => locked(id, () => store.modify(id, fn, options)),
+    delete: (id, options) => locked(id, () => store.delete(id, options)),
+    end: (id, fn) => locked(id, () => store.end(id, fn)),
+  };
 }

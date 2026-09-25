@@ -5,6 +5,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { chromium } from 'playwright';
+import { build } from 'esbuild';
 import { mockOpenAI } from '../../packages/accounts/src/testing/index.ts';
 import { serve } from './serve.ts';
 
@@ -51,6 +52,38 @@ test('sign in with ChatGPT in a browser: device code, kept across a reload, refr
   await page.reload();
   await status.filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor();
   assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('two tabs serialize sign-out and a queued refresh through Web Locks', async () => {
+  const context = await browser.newContext();
+  const first = await context.newPage();
+  const second = await context.newPage();
+  await Promise.all([first.goto(site.url), second.goto(site.url)]);
+  const bundle = await build({ entryPoints: [new URL('../../packages/accounts/src/portable.ts', import.meta.url).pathname], bundle: true, platform: 'browser', format: 'esm', write: false });
+  const source = bundle.outputFiles[0].text;
+  for (const page of [first, second]) await page.evaluate(async (source) => {
+    const module = await import(URL.createObjectURL(new Blob([source], { type: 'text/javascript' })));
+    (window as any).raceStore = module.browserStore('cross-tab-race');
+  }, source);
+  await first.evaluate(() => (window as any).raceStore.modify('openai-codex', async () => ({ type: 'oauth', access: 'first', refresh: 'first', expires: 0 })));
+  await first.evaluate(() => {
+    (window as any).signout = (window as any).raceStore.end('openai-codex', async () => {
+      (window as any).revoking = true;
+      await new Promise<void>((resolve) => { (window as any).release = resolve; });
+    });
+  });
+  await first.waitForFunction(() => (window as any).revoking === true);
+  await second.evaluate(() => {
+    (window as any).refresh = (window as any).raceStore.modify('openai-codex', async (current: any) => {
+      (window as any).rotated = current?.type === 'oauth';
+      return current?.type === 'oauth' ? { ...current, refresh: 'rotated' } : undefined;
+    });
+  });
+  await first.evaluate(() => (window as any).release());
+  await Promise.all([first.evaluate(() => (window as any).signout), second.evaluate(() => (window as any).refresh)]);
+  assert.equal(await second.evaluate(() => (window as any).rotated), false);
+  assert.equal(await second.evaluate(() => (window as any).raceStore.read('openai-codex')), undefined);
   await context.close();
 });
 

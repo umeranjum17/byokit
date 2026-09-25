@@ -1,7 +1,7 @@
 #!/bin/sh
 # Sign in with ChatGPT on an Android emulator, end to end against the stand-in OpenAI: device code shown in the app,
 # typed on the stand-in's page, kept in secure storage across a restart, refreshed, signed out (revoked there).
-#   ./e2e-android.sh <emulator-serial>     (builds the release APK first if there is none)
+#   ./e2e-android.sh <emulator-serial>     (builds the stand-in release APK)
 set -eu
 cd "$(dirname "$0")"
 serial=${1:?usage: $0 <emulator-serial>}
@@ -14,10 +14,8 @@ log=$(mktemp)
 node ../../packages/accounts/src/testing/mock-openai.ts "$port" >"$log" 2>&1 &
 mock=$!
 trap 'kill $mock 2>/dev/null; rm -f "$log"' EXIT
-if [ ! -f "$apk" ]; then
-  [ -d android ] || CI=1 npx expo prebuild --platform android --no-install
-  (cd android && EXPO_PUBLIC_OPENAI_BASE="http://10.0.2.2:$port" NODE_ENV=production ./gradlew assembleRelease -q)
-fi
+[ -d android ] || CI=1 npx expo prebuild --platform android --no-install
+(cd android && EXPO_PUBLIC_OPENAI_BASE="http://10.0.2.2:$port" NODE_ENV=production ./gradlew assembleRelease --rerun-tasks -q)
 
 # What the screen says, and a tap on the element with this testID.
 screen() { a shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1; a exec-out cat /sdcard/ui.xml; }

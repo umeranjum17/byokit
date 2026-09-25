@@ -105,9 +105,12 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       s = {
         read: (id) => base.read(id),
         list: () => base.list(),
-        modify: (id, fn) => serial(() => base.modify(id, fn)),
-        delete: (id) => serial(() => base.delete(id)),
-        end: (id, fn) => serial(async () => { try { await fn(await base.read(id)); } finally { await base.delete(id); } }),
+        modify: (id, fn, options) => serial(() => base.modify(id, fn, options)),
+        delete: (id, options) => serial(() => base.delete(id, options)),
+        end: (id, fn) => serial(async () => {
+          if (typeof (base as EndingStore).end === 'function') return (base as EndingStore).end(id, fn);
+          try { await fn(await base.read(id)); } finally { await base.delete(id); }
+        }),
       };
       this.stores.set(String(member), s);
     }
@@ -177,7 +180,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   protected engine(member: M, raw: CredentialStore): Promise<R> {
     const credentials = this.boundStore(member, raw);
-    return Promise.resolve(Object.assign((this.opts.engine ?? this.platform.engine)(credentials, this.opts.authBase), {
+    return Promise.resolve(Object.assign(this.platform.engine(credentials, this.opts.authBase), {
       credentialStore: credentials, readCredential: (id: string) => credentials.read(id),
     }) as R);
   }

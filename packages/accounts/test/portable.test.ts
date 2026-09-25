@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { build } from 'esbuild';
 import { Accounts, credentialOf, devicePoll, deviceStart, memoryStore, portableEngine, secureStore, type SecureStoreLike } from '../src/portable.ts';
 import { mockOpenAI } from '../src/testing/index.ts';
+import type { CredentialStore } from '@earendil-works/pi-ai';
 
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`../../../fixtures/conformance/${name}`, import.meta.url), 'utf8'));
 const openai = await mockOpenAI();
@@ -111,6 +112,31 @@ test('declined on the page, cancelled here, or refused at the exchange: one plai
   openai.approve(v.code!);
   await new Promise((r) => setTimeout(r, 1200));
   assert.equal(await a.signedIn(1, 'chatgpt'), false, 'approving a cancelled code signs nobody in');
+});
+
+test('cancelling during a delayed credential write leaves nothing stored', async () => {
+  const base = memoryStore();
+  let entered!: () => void;
+  let release!: () => void;
+  const writing = new Promise<void>((resolve) => { entered = resolve; });
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const slow: CredentialStore = { ...base, modify: (id, fn) => base.modify(id, async (current) => {
+    const next = await fn(current);
+    if (next && !current) { entered(); await gate; }
+    return next;
+  }) };
+  const a = new Accounts<any, number>({ store: () => slow, authBase: openai.base });
+  const v = (await a.login(1, 'chatgpt'))!;
+  const done = a.finished(1, 'chatgpt');
+  openai.approve(v.code!);
+  try {
+    await writing;
+    a.cancel(1, 'chatgpt');
+    release();
+    await done;
+    assert.equal(await base.read('openai-codex'), undefined);
+    assert.equal(a.view(1, 'chatgpt'), null);
+  } finally { release(); }
 });
 
 test('refresh: ahead of expiry, rotating, one at a time; a refusal signs out once; recheck keeps a sign-in that refreshes', async () => {

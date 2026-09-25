@@ -116,7 +116,16 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
             grant_type: 'authorization_code', client_id: CLIENT_ID, code: p.authorizationCode, code_verifier: p.codeVerifier, redirect_uri: `${base}/deviceauth/callback`,
           }, true, signal));
           if (signal?.aborted) throw new Error('Login cancelled');
-          await credentials.modify(id, async () => c);
+          let wrote = false;
+          await credentials.modify(id, async () => {
+            if (signal?.aborted) return undefined;
+            wrote = true;
+            return c;
+          }, { signal });
+          if (signal?.aborted) {
+            if (wrote) await credentials.delete(id);
+            throw new Error('Login cancelled');
+          }
           return c;
         }
         if (p.status === 'slow_down') interval += 5000;
