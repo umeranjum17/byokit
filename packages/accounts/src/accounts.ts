@@ -6,7 +6,7 @@ import type { AuthPrompt, CredentialStore, Models } from '@earendil-works/pi-ai'
 import { offered, provider, type Provider } from './catalogue.ts';
 import { claims, PORTABLE, portableEngine } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
-import { memoryStore } from './stores.ts';
+import { memoryStore, type EndingStore } from './stores.ts';
 import { callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';
 
 /** What signing in needs from an engine: Pi's `Models`, or anything shaped like it (the coding agent's `ModelRuntime`). */
@@ -68,7 +68,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   readonly providers: Provider[];
   private opts: AccountsOptions<M>;
   private runtimes = new Map<string, Promise<R>>();
-  private stores = new Map<string, CredentialStore>();
+  private stores = new Map<string, EndingStore>();
   private generations = new Map<string, number>();
   private signals = new WeakMap<AbortSignal, number>();
   private chains = new Map<string, Promise<void>>();

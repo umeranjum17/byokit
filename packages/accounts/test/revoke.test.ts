@@ -34,7 +34,6 @@ for (const [i, c] of fixture.cases.entries()) test(`sign-out, revoke case ${i}: 
   assert.equal(await store.read('openai-codex'), undefined, 'deleted here whatever ChatGPT answered');
   assert.equal(await a.signedIn(1, 'chatgpt'), false);
 });
-<<<<<<< HEAD
 
 class ExternalKit extends Accounts {
   readonly external = memoryStore();
