@@ -1,0 +1,42 @@
+{
+  "name": "@byokit/relay",
+  "version": "0.1.0",
+  "description": "A blind relay for @byokit/link: hosts dial out, devices reach them by address; host proof of key, enrolment, push notifications.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umeranjum17/byokit.git",
+    "directory": "packages/relay"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./device": {
+      "types": "./dist/device.d.ts",
+      "default": "./dist/device.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prepack": "tsc -b"
+  },
+  "dependencies": {
+    "@byokit/link": "0.1.0",
+    "web-push": "3.6.7",
+    "ws": "8.21.3"
+  },
+  "devDependencies": {
+    "@types/web-push": "3.6.4"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
