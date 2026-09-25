@@ -23,11 +23,12 @@ const shown = await accounts.login(1, 'chatgpt', { via: 'code' }); // { state: '
   true. A code takes over when asked ("Having trouble?"), when the page never comes back, or when the port is taken by
   another sign-in. A 15-minute cap, nothing kept unless the engine can use it, and every failure is one plain sentence
   (`words.json`) with a `why` for apps that word it themselves. `plan(member)` tells a work ChatGPT from a personal one.
-- **Sign-out**: `logout(member, key)` also ends a ChatGPT sign-in at OpenAI (`POST auth.openai.com/oauth/revoke`, as
-  Codex's own sign-out does), then deletes it here whatever OpenAI answers. An overridden `open(member)` must return an
+- **Sign-out**: `logout(member, key)` attempts to end a ChatGPT sign-in at OpenAI (`POST auth.openai.com/oauth/revoke`,
+  as Codex's own sign-out does), then deletes it here even if the request fails. A failed revoke rejects after local
+  deletion; report it because the remote sign-in may remain active. An overridden `open(member)` must return an
   engine whose `credentialStore` is made with `boundStore(member, engineStore)` and whose `readCredential(id)` reads that
-  store. Revoke failures reject after local deletion; if a cancelled sign-in finishes late, `onSignOutError` reports a
-  failed revoke of its discarded credential (or it is logged when no handler is set).
+  store. If a cancelled sign-in finishes late, `onSignOutError` reports a failed revoke of its discarded credential
+  (or it is logged when no handler is set).
 - **One person, one store**: `memoryStore()` or `fileStore(path)` (0600, the same shape as Pi's `auth.json`). Never a
   shared fallback. Using another engine with the same seam (Pi's coding-agent `ModelRuntime`)? Override `open(member)`.
 - **Limits**: `failed(member, key, error)` rests an account until the provider said (or a default), marks a plan that

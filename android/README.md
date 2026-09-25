@@ -60,7 +60,9 @@ fun openCodePage(activity: Activity, state: SignIn.State) {
     CustomTabsIntent.Builder().build().launchUrl(activity, Uri.parse(state.url))
 }
 
-fun signOut() = thread { chatgpt.signOut() }                 // also ends the sign-in at ChatGPT; network, so off the main thread
+fun signOut(onError: (Exception) -> Unit) = thread {        // network, so off the main thread
+    try { chatgpt.signOut() } catch (e: Exception) { onError(e) } // locally deleted; hand error to UI thread
+}
 
 suspend fun draft(prompt: String): String = withContext(Dispatchers.IO) {
     try {
@@ -80,9 +82,9 @@ suspend fun draft(prompt: String): String = withContext(Dispatchers.IO) {
   a network call. Only ChatGPT refusing a refresh signs the person out; a network hiccup never does.
 - Sign-ins live in `noBackupFilesDir/byokit/<name>.sealed`, AES-256-GCM under a Keystore key: a copy of the app's files
   is useless off this phone. Use `KeystoreStore(context, name)` with a different `name` per person.
-- `signOut()` ends the sign-in at ChatGPT too (`POST auth.openai.com/oauth/revoke`, as Codex's own sign-out does), then
-  deletes it here whatever ChatGPT answers, offline included. Without that, the sign-in would stay listed (as "Codex")
-  in the person's ChatGPT Settings, Security, until it expired.
+- `signOut()` attempts to end the sign-in at ChatGPT too (`POST auth.openai.com/oauth/revoke`, as Codex's own sign-out
+  does), then deletes it here even if the request fails. A failed revoke throws after local deletion: report it to the
+  person because the remote sign-in may remain active in ChatGPT Settings, Security.
 
 ## The browser sign-in (explicit opt-in)
 
