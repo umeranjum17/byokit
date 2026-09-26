@@ -133,46 +133,58 @@ test('scan rejects and stops when the scan errors', async () => {
   assert.equal(zc.calls.at(-1), 'stop');
 });
 
-test('concurrent browse and scan time-share one native browser without crossing events or stops', async () => {
+test('a new browse preempts even the same type once, drops old events and never resumes', () => {
   const zc = new FakeZeroconf();
-  const muxr = browse({ type: 'muxr', zeroconf: zc });
-  const alsoMuxr = browse({ type: 'muxr', zeroconf: zc });
-  const names: string[] = [];
-  muxr.on('found', (s) => names.push(`first:${s.name}`));
-  alsoMuxr.on('found', (s) => names.push(`second:${s.name}`));
-  muxr.on('lost', (name) => names.push(`lost:${name}`));
-  alsoMuxr.stop();
-  assert.deepEqual(zc.calls, ['scan muxr tcp local.']);
-  const ssh = scan({ type: 'ssh', ms: 1300, zeroconf: zc });
-  assert.deepEqual(zc.calls, ['scan muxr tcp local.', 'stop', 'scan ssh tcp local.']);
-  zc.emit('resolved', service({ name: 'hostA', fullName: 'hostA._ssh._tcp.local.', port: 22 }));
-  zc.emit('resolved', service({ name: 'wrong', fullName: 'wrong._muxr._tcp.local.' }));
-  zc.emit('remove', 'hostA');
-  assert.deepEqual(names, []);
-  await wait(1100);
-  assert.equal(zc.calls.at(-1), 'scan muxr tcp local.');
-  zc.emit('resolved', service({ name: 'machine', fullName: 'machine._muxr._tcp.local.' }));
-  assert.deepEqual(names, ['first:machine']);
-  assert.deepEqual((await ssh).map((s) => s.name), ['hostA']);
-  assert.equal(zc.calls.at(-1), 'scan muxr tcp local.');
-  zc.emit('remove', 'machine');
-  assert.deepEqual(names, ['first:machine', 'lost:machine']);
-  muxr.stop();
-  assert.equal(zc.calls.at(-1), 'stop');
+  const first = browse({ type: 'muxr', zeroconf: zc });
+  const events: string[] = [];
+  first.on('found', (s) => events.push(`first:${s.name}`));
+  first.on('stopped', ({ reason }) => events.push(reason));
+  zc.emit('resolved', service({ name: 'machine', fullName: 'machine.local._muxr._tcp.' }));
+  const second = browse({ type: 'muxr', zeroconf: zc });
+  second.on('found', (s) => events.push(`second:${s.name}`));
+  assert.deepEqual(events, ['first:machine', 'preempted']);
+  first.stop();
+  first.on('found', () => events.push('late'));
+  zc.emit('resolved', service({ name: 'machine', fullName: 'machine.local._muxr._tcp.' }));
+  assert.deepEqual(events, ['first:machine', 'preempted', 'second:machine']);
+  second.stop();
+  second.stop();
+  zc.emit('resolved', service({ name: 'late' }));
+  assert.deepEqual(events, ['first:machine', 'preempted', 'second:machine']);
+  assert.deepEqual(zc.calls, ['scan muxr tcp local.', 'stop', 'scan muxr tcp local.', 'stop']);
+  assert.equal(zc.count('resolved'), 1);
+  assert.equal(zc.count('remove'), 1);
+  assert.equal(zc.count('error'), 1);
 });
 
-test('an SSH scan error releases only SSH and resumes muxr', async () => {
+test('a timed SSH scan preempts muxr and filters late resolves without auto-resume', async () => {
   const zc = new FakeZeroconf();
   const muxr = browse({ type: 'muxr', zeroconf: zc });
   const seen: string[] = [];
+  muxr.on('stopped', ({ reason }) => seen.push(reason));
   muxr.on('found', (s) => seen.push(s.name));
-  const ssh = scan({ type: 'ssh', ms: 30_000, zeroconf: zc });
-  zc.emit('error', new Error('native failure'));
-  await assert.rejects(ssh, /native failure/);
-  assert.equal(zc.calls.at(-1), 'scan muxr tcp local.');
-  zc.emit('resolved', service({ name: 'machine' }));
+  const ssh = scan({ type: 'ssh', ms: 40, zeroconf: zc });
+  assert.deepEqual(seen, ['preempted']);
+  zc.emit('resolved', service({ name: 'old', fullName: 'old.local._muxr._tcp.' }));
+  zc.emit('remove', 'old');
+  zc.emit('resolved', service({ name: 'hostA', fullName: 'hostA.local._ssh._tcp.', port: 22 }));
+  assert.deepEqual((await ssh).map((s) => s.name), ['hostA']);
+  assert.deepEqual(seen, ['preempted']);
+  assert.deepEqual(zc.calls, ['scan muxr tcp local.', 'stop', 'scan ssh tcp local.', 'stop']);
+});
+
+test('preempting a timed scan rejects it and leaves only the new browse active', async () => {
+  const zc = new FakeZeroconf();
+  const pending = scan({ type: 'ssh', ms: 30_000, zeroconf: zc });
+  const muxr = browse({ type: 'muxr', zeroconf: zc });
+  await assert.rejects(pending, /scan preempted/);
+  const seen: string[] = [];
+  muxr.on('found', (s) => seen.push(s.name));
+  zc.emit('resolved', service({ name: 'old', fullName: 'old.local._ssh._tcp.' }));
+  zc.emit('resolved', service({ name: 'machine', fullName: 'machine.local._muxr._tcp.' }));
   assert.deepEqual(seen, ['machine']);
   muxr.stop();
+  assert.equal(zc.calls.at(-1), 'stop');
 });
 
 test('scan rejects a non-positive window without starting one', async () => {

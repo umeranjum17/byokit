@@ -84,17 +84,21 @@ found.on('found', (s) => console.log(s.name, s.addresses, s.port, s.txt));   // 
 found.on('updated', (s) => console.log('refreshed', s.name));                // a known name resolved again
 found.on('lost', (name) => console.log(name, 'left'));
 found.on('error', (error) => console.log(error.message));
-found.stop();                                            // idempotent; does not stop other handles
+found.on('stopped', ({ reason }) => console.log(reason)); // 'preempted' if another browse starts
+found.stop();                                            // idempotent
 
 // Time-boxed: collect for N ms, then stop. Later resolves replace the earlier entry, first-seen order.
-const hosts = await scan({ type: 'ssh', ms: 8000 });     // rejects if the scan errors
+const hosts = await scan({ type: 'ssh', ms: 8000 });     // rejects on error or preemption
 ```
 
 A `BrowseService` carries `name`, `host`, `addresses`, `port` (`0` when the platform gave none) and `txt` (string
 values only). The pinned `react-native-zeroconf` dependency (`0.14.0`) is supplied by reach, not the app.
-One native browser shares active handles, rotating between service types every second; stopping a handle leaves
-other discovery running. Node and web builds resolve the main entry and never import the native module. Expo
-apps must rebuild their native binary after adding reach. Android emulator note: mDNS multicast does not work on
+One native browser runs one browse at a time. Starting another `browse` or `scan` preempts the current handle,
+including when both request the same type: it receives one `stopped` event with `{ reason: 'preempted' }`, loses its
+known services, and does not resume. A preempted `scan` rejects; callers needing continuous discovery must start
+a fresh browse after their other scan finishes. Native errors and removals carry no scan identifier, so an event
+arriving after a new scan starts cannot always be attributed to its original scan. Node and web builds resolve
+the main entry and never import the native module. Expo apps must rebuild their native binary after adding reach. Android emulator note: mDNS multicast does not work on
 the emulator — test discovery on a real device.
 
 ## Tests

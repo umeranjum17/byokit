@@ -18,6 +18,7 @@ export type BrowseEvents = {
   /** The service left the network; the payload is its name. */
   lost: string;
   error: Error;
+  stopped: { reason: 'preempted' };
 };
 
 export type BrowseEventName = keyof BrowseEvents;
@@ -32,17 +33,20 @@ export type ZeroconfLike = {
 };
 
 export type BrowseHandle = {
-  /** Stops this handle; other discovery continues. Idempotent. */
+  /** Stops this handle. Idempotent. */
   stop(): void;
   /** Listens for one event; ignored after `stop()`. */
   on<K extends BrowseEventName>(event: K, listener: (payload: BrowseEvents[K]) => void): void;
 };
 
 type RawService = { name?: unknown; fullName?: unknown; host?: unknown; addresses?: unknown; port?: unknown; txt?: unknown };
-type Session = { key: string; options: Required<BrowseOptions>; handles: Set<(event: 'resolved' | 'remove' | 'error', value: unknown) => void> };
-type Browser = { sessions: Session[]; active?: Session; timer?: ReturnType<typeof setInterval> };
+type Active = {
+  receive(event: 'resolved' | 'remove' | 'error', value: unknown): void;
+  stop(reason?: 'preempted'): void;
+  options: Required<BrowseOptions>;
+};
+type Browser = { active?: Active };
 const browsers = new WeakMap<ZeroconfLike, Browser>();
-const SLICE_MS = 1000;
 
 const asString = (v: unknown) => (typeof v === 'string' ? v : undefined);
 
@@ -67,16 +71,16 @@ function normalize(raw: RawService): BrowseService | undefined {
 function browser(zc: ZeroconfLike): Browser {
   const existing = browsers.get(zc);
   if (existing) return existing;
-  const state: Browser = { sessions: [] };
+  const state: Browser = {};
   browsers.set(zc, state);
   const deliver = (event: 'resolved' | 'remove' | 'error', value: unknown): void => {
     const active = state.active;
     if (!active) return;
     if (event === 'resolved' && typeof value === 'object' && value !== null) {
       const fullName = asString((value as RawService).fullName);
-      if (fullName && !fullName.toLowerCase().endsWith(`._${active.options.type}._${active.options.protocol}.${active.options.domain}`.toLowerCase())) return;
+      if (fullName && fullName.includes('._') && !fullName.toLowerCase().endsWith(`_${active.options.type}._${active.options.protocol}.`.toLowerCase())) return;
     }
-    for (const handle of [...active.handles]) handle(event, value);
+    active.receive(event, value);
   };
   zc.on('resolved', (value) => deliver('resolved', value));
   zc.on('remove', (value) => deliver('remove', value));
@@ -84,40 +88,14 @@ function browser(zc: ZeroconfLike): Browser {
   return state;
 }
 
-function activate(zc: ZeroconfLike, state: Browser, next?: Session): void {
-  if (state.active === next) return;
-  if (state.active) zc.stop();
-  state.active = next;
-  if (!next) return;
-  try { zc.scan(next.options.type, next.options.protocol, next.options.domain); }
-  catch (cause) { queueMicrotask(() => { for (const handle of [...next.handles]) handle('error', cause); }); }
-}
-
-function schedule(zc: ZeroconfLike, state: Browser): void {
-  if (state.timer) clearInterval(state.timer);
-  state.timer = undefined;
-  if (state.sessions.length < 2) return;
-  state.timer = setInterval(() => {
-    const index = state.sessions.indexOf(state.active!);
-    activate(zc, state, state.sessions[(index + 1) % state.sessions.length]);
-  }, SLICE_MS);
-}
-
 export function browse(o: BrowseOptions & { zeroconf: ZeroconfLike }): BrowseHandle {
   const { zeroconf: zc } = o;
   const options = { type: o.type, protocol: o.protocol ?? 'tcp', domain: o.domain ?? 'local.' };
   const state = browser(zc);
-  const key = JSON.stringify([options.type, options.protocol, options.domain]);
-  let session = state.sessions.find((item) => item.key === key);
-  const first = !session;
-  if (!session) {
-    session = { key, options, handles: new Set() };
-    state.sessions.push(session);
-  }
   let stopped = false;
   const known = new Set<string>();
   const listeners: { [K in BrowseEventName]: Set<(payload: BrowseEvents[K]) => void> } = {
-    found: new Set(), updated: new Set(), lost: new Set(), error: new Set(),
+    found: new Set(), updated: new Set(), lost: new Set(), error: new Set(), stopped: new Set(),
   };
   const fire = <K extends BrowseEventName>(event: K, payload: BrowseEvents[K]): void => {
     for (const listener of listeners[event]) (listener as (p: BrowseEvents[K]) => void)(payload);
@@ -140,27 +118,29 @@ export function browse(o: BrowseOptions & { zeroconf: ZeroconfLike }): BrowseHan
       fire('error', raw instanceof Error ? raw : new Error(message));
     }
   };
-  session.handles.add(receive);
-  const stop = (): void => {
-    if (stopped) return;
-    stopped = true;
-    session.handles.delete(receive);
-    for (const set of Object.values(listeners)) set.clear();
-    if (!session.handles.size) {
-      const index = state.sessions.indexOf(session);
-      state.sessions.splice(index, 1);
-      if (state.active === session) activate(zc, state, state.sessions[index] ?? state.sessions[0]);
-      schedule(zc, state);
-    }
+  const active: Active = {
+    options,
+    receive,
+    stop(reason) {
+      if (stopped) return;
+      stopped = true;
+      if (state.active === active) {
+        state.active = undefined;
+        try { zc.stop(); } catch {}
+      }
+      if (reason) fire('stopped', { reason });
+      for (const set of Object.values(listeners)) set.clear();
+      known.clear();
+    },
   };
+  while (state.active) state.active.stop('preempted');
+  state.active = active;
+  try { zc.scan(options.type, options.protocol, options.domain); }
+  catch (cause) { queueMicrotask(() => receive('error', cause)); }
   const on: BrowseHandle['on'] = (event, listener) => {
     if (!stopped) listeners[event].add(listener);
   };
-  if (first) {
-    activate(zc, state, session);
-    schedule(zc, state);
-  }
-  return { stop, on };
+  return { stop: () => active.stop(), on };
 }
 
 /**
@@ -177,6 +157,7 @@ export function scan(o: BrowseOptions & { ms: number; zeroconf: ZeroconfLike }):
     handle.on('found', collect);
     handle.on('updated', collect);
     handle.on('error', (error) => { clearTimeout(timer); handle.stop(); reject(error); });
+    handle.on('stopped', () => { clearTimeout(timer); reject(new Error('scan preempted')); });
     timer = setTimeout(() => { handle.stop(); resolve([...services.values()]); }, o.ms);
   });
 }
