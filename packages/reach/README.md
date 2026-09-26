@@ -100,9 +100,9 @@ a fresh browse after their other scan finishes. Resolved events must identify th
 removals apply only to names that browse has found. Native errors are ignored for one second after preemption.
 The native module supplies no scan ID: an untyped late removal for a name reused by the new browse, or an error
 after that second, can still be attributed to the new scan; a real error during the quiet second is also ignored.
-Node and web builds resolve the main entry and never import the native module. Expo apps must rebuild their native
-binary after adding reach. Android emulator note: mDNS multicast does not work on the emulator — test discovery
-on a real device.
+The default Node entry does not import the native module; use the `react-native` export condition for browsing.
+Expo apps must rebuild their native binary after adding reach. Android emulator note: mDNS multicast does not work
+on the emulator — test discovery on a real device.
 
 ## Tests
 

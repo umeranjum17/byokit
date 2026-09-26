@@ -149,7 +149,7 @@ export function browse(o: BrowseOptions & { zeroconf: ZeroconfLike }): BrowseHan
 
 /**
  * Collect resolved services for `ms` milliseconds, then stop. Later resolves of a known name replace the earlier
- * entry in first-seen order. Rejects (and stops) if the scan errors.
+ * entry in first-seen order. Rejects on error (and stops) or preemption.
  */
 export function scan(o: BrowseOptions & { ms: number; zeroconf: ZeroconfLike }): Promise<BrowseService[]> {
   if (!(o.ms > 0)) return Promise.reject(new Error('ms must be positive'));

@@ -10,7 +10,7 @@ export function browse(o: BrowseOptions): BrowseHandle {
   return browseWith({ ...o, zeroconf: nativeBrowser });
 }
 
-/** Collect resolved services for `ms` milliseconds, then stop. Rejects if the scan errors. */
+/** Collect resolved services for `ms` milliseconds, then stop. Rejects on error or preemption. */
 export function scan(o: BrowseOptions & { ms: number }): Promise<BrowseService[]> {
   return scanWith({ ...o, zeroconf: nativeBrowser });
 }
