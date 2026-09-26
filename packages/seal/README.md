@@ -15,7 +15,7 @@ const opened = openBox(bundle, recipientSeed); // Uint8Array | null
 const stored = sealJson({ machines: [] }, secretboxKey); // 32-byte key
 const catalog = openJson(stored, secretboxKey); // unknown | null
 const signing = signingKeyPairFromSeed(signingSeed); // 32-byte seed
-const signature = signDetached(plaintext, signing.secretKey); // 64-byte seed | public key secret
+const signature = signDetached(plaintext, signing.secretKey); // 64-byte signature
 verifyDetached(plaintext, signature, signing.publicKey); // boolean
 ```
 
