@@ -9,7 +9,7 @@ Bring your own AI plan and devices. Apache-2.0.
 | [`@byokit/seal`](packages/seal) | Portable NaCl-compatible box and secretbox for data at rest, plus Ed25519 signatures | [version](packages/seal/package.json) |
 | [`@byokit/link`](packages/link) | Scan a code to pair a phone or browser with the home computer over one encrypted link, with device stores for phones, browsers and computers; muxr parity tracked separately | [version](packages/link/package.json) |
 | [`@byokit/relay`](packages/relay) | Routes encrypted link frames; enrolment, typed-code lookup, push ([security boundary](packages/relay/SECURITY.md)) | [version](packages/relay/package.json) |
-| [`@byokit/reach`](packages/reach) | Node only: the addresses a phone dials the home computer on (Tailscale Serve, direct tailnet, LAN) and mDNS advertising | [version](packages/reach/package.json) |
+| [`@byokit/reach`](packages/reach) | The addresses a phone dials the home computer on (Tailscale Serve, direct tailnet, LAN) plus mDNS advertising (Node) and browsing (React Native) | [version](packages/reach/package.json) |
 | [`@byokit/decide`](packages/decide) | Typed questions in, a typed answer with confidence out, abstaining below a floor; rules, Jev or any model (the person's own ChatGPT on a phone), evals | [version](packages/decide/package.json) |
 
 Examples: [`examples/expo`](examples/expo) (React Native, iOS and Android) and [`examples/pwa`](examples/pwa)

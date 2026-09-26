@@ -1,7 +1,8 @@
 # @byokit/reach
 
-Node only. The addresses a phone can dial the home computer on, for `@byokit/link`'s `offer({ urls })`: Tailscale
-Serve, direct Tailscale, a private overlay network or the LAN. It can also advertise the computer over mDNS.
+The addresses a phone can dial the home computer on, for `@byokit/link`'s `offer({ urls })`: Tailscale
+Serve, direct Tailscale, a private overlay network or the LAN. It can also advertise the computer over mDNS
+and, on a phone, browse the mDNS services around it.
 
 ```ts
 import { advertise, reach } from '@byokit/reach';
@@ -62,12 +63,49 @@ lower-level steps are exported too: `tailscaleStatus`, `tailscaleName`, `inspect
 
 ## mDNS
 
+### Advertise (Node)
+
 `advertise({ type, port, name?, txt? })` publishes `_<type>._tcp` with
 [bonjour-service](https://www.npmjs.com/package/bonjour-service) and returns `{ stop }`. Put the dial URL in `txt`.
 bonjour-service answers with every interface's address, so the device should dial the URL in `txt`, not a resolved
 address. A device that finds the wrong computer fails link's handshake, because the host key is pinned.
 
+### Browse (React Native)
+
+Under React Native (the package's `react-native` export condition), `@byokit/reach` also browses the LAN so an app
+can find services without typing an address:
+
+```ts
+import { browse, scan } from '@byokit/reach';
+
+// Stream discovery: start, then stop when done.
+const found = browse({ type: 'muxr' });                  // protocol 'tcp', domain 'local.' by default
+found.on('found', (s) => console.log(s.name, s.addresses, s.port, s.txt));   // first resolve of a name
+found.on('updated', (s) => console.log('refreshed', s.name));                // a known name resolved again
+found.on('lost', (name) => console.log(name, 'left'));
+found.on('error', (error) => console.log(error.message));
+found.on('stopped', ({ reason }) => console.log(reason)); // 'preempted' if another browse starts
+found.stop();                                            // idempotent
+
+// Time-boxed: collect for N ms, then stop. Later resolves replace the earlier entry, first-seen order.
+const hosts = await scan({ type: 'ssh', ms: 8000 });     // rejects on error or preemption
+```
+
+A `BrowseService` carries `name`, `host`, `addresses`, `port` (`0` when the platform gave none) and `txt` (string
+values only). The pinned `react-native-zeroconf` dependency (`0.14.0`) is supplied by reach, not the app.
+One native browser runs one browse at a time. Starting another `browse` or `scan` preempts the current handle,
+including when both request the same type: it receives one `stopped` event with `{ reason: 'preempted' }`, loses its
+known services, and does not resume. A preempted `scan` rejects; callers needing continuous discovery must start
+a fresh browse after their other scan finishes. Resolved events must identify the active service type in `fullName`;
+removals apply only to names that browse has found. Native errors are ignored for one second after preemption.
+The native module supplies no scan ID: an untyped late removal for a name reused by the new browse, or an error
+after that second, can still be attributed to the new scan; a real error during the quiet second is also ignored.
+The default Node entry does not import the native module; use the `react-native` export condition for browsing.
+Expo apps must rebuild their native binary after adding reach. Android emulator note: mDNS multicast does not work
+on the emulator — test discovery on a real device.
+
 ## Tests
 
 `test/reach.test.ts` ports muxr's `checkTailscaleIngress` and uses a fake tailscale CLI that logs every call. The real
-binary never runs, and no packet goes out: mDNS is tested with a fake publisher.
+binary never runs, and no packet goes out: mDNS advertise is tested with a fake publisher, and the React Native
+browse API with a fake zeroconf module.
