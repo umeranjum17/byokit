@@ -45,7 +45,7 @@ type Active = {
   stop(reason?: 'preempted'): void;
   options: Required<BrowseOptions>;
 };
-type Browser = { active?: Active };
+type Browser = { active?: Active; ignoreNativeErrorsUntil?: number };
 const browsers = new WeakMap<ZeroconfLike, Browser>();
 
 const asString = (v: unknown) => (typeof v === 'string' ? v : undefined);
@@ -76,10 +76,11 @@ function browser(zc: ZeroconfLike): Browser {
   const deliver = (event: 'resolved' | 'remove' | 'error', value: unknown): void => {
     const active = state.active;
     if (!active) return;
-    if (event === 'resolved' && typeof value === 'object' && value !== null) {
-      const fullName = asString((value as RawService).fullName);
-      if (fullName && fullName.includes('._') && !fullName.toLowerCase().endsWith(`_${active.options.type}._${active.options.protocol}.`.toLowerCase())) return;
+    if (event === 'resolved') {
+      const fullName = asString((value as RawService | null)?.fullName);
+      if (!fullName?.toLowerCase().endsWith(`_${active.options.type}._${active.options.protocol}.`.toLowerCase())) return;
     }
+    if (event === 'error' && Date.now() < (state.ignoreNativeErrorsUntil ?? 0)) return;
     active.receive(event, value);
   };
   zc.on('resolved', (value) => deliver('resolved', value));
@@ -133,7 +134,10 @@ export function browse(o: BrowseOptions & { zeroconf: ZeroconfLike }): BrowseHan
       known.clear();
     },
   };
+  const preempted = !!state.active;
   while (state.active) state.active.stop('preempted');
+  // ponytail: native errors have no scan id; suppress for 1s after preemption, then attribution is best effort.
+  if (preempted) state.ignoreNativeErrorsUntil = Date.now() + 1000;
   state.active = active;
   try { zc.scan(options.type, options.protocol, options.domain); }
   catch (cause) { queueMicrotask(() => receive('error', cause)); }
@@ -156,6 +160,7 @@ export function scan(o: BrowseOptions & { ms: number; zeroconf: ZeroconfLike }):
     const collect = (service: BrowseService): void => { services.set(service.name, service); };
     handle.on('found', collect);
     handle.on('updated', collect);
+    handle.on('lost', (name) => { services.delete(name); });
     handle.on('error', (error) => { clearTimeout(timer); handle.stop(); reject(error); });
     handle.on('stopped', () => { clearTimeout(timer); reject(new Error('scan preempted')); });
     timer = setTimeout(() => { handle.stop(); resolve([...services.values()]); }, o.ms);

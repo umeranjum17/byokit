@@ -21,7 +21,7 @@ class FakeZeroconf implements ZeroconfLike {
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const service = (over: Record<string, unknown> = {}): unknown => ({
-  name: 'devbox', host: 'devbox.local.', addresses: ['192.168.1.23', 'fe80::1'], port: 8792,
+  name: 'devbox', fullName: 'devbox.local._muxr._tcp.', host: 'devbox.local.', addresses: ['192.168.1.23', 'fe80::1'], port: 8792,
   txt: { machine: 'm1', relay: 'wss://relay' }, ...over,
 });
 
@@ -53,7 +53,7 @@ test('a resolve becomes found with normalized fields, a known name becomes updat
   assert.deepEqual(seen[1], ['updated', { ...seen[0][1] as object, port: 8793 }]);
   // Fields the platform did not deliver normalize to empties; no name, no service.
   zc.emit('resolved', { port: 1 });
-  zc.emit('resolved', { name: 'sparse', addresses: [7, '10.0.0.9'], txt: 'nope' });
+  zc.emit('resolved', { name: 'sparse', fullName: 'sparse.local._muxr._tcp.', addresses: [7, '10.0.0.9'], txt: 'nope' });
   assert.deepEqual(seen[2], ['found', { name: 'sparse', host: '', addresses: ['10.0.0.9'], port: 0, txt: {} }]);
   assert.equal(seen.length, 3);
   handle.stop();
@@ -116,11 +116,12 @@ test('scan collects services for its window, updates in first-seen order, then s
   const zc = new FakeZeroconf();
   const pending = scan({ type: 'ssh', ms: 60, zeroconf: zc });
   await wait(10);
-  zc.emit('resolved', service({ name: 'hostA', port: 22 }));
-  zc.emit('resolved', service({ name: 'hostB', port: 2222, addresses: ['10.0.0.8'] }));
-  zc.emit('resolved', service({ name: 'hostA', port: 23 }));
+  zc.emit('resolved', service({ name: 'hostA', fullName: 'hostA.local._ssh._tcp.', port: 22 }));
+  zc.emit('resolved', service({ name: 'hostB', fullName: 'hostB.local._ssh._tcp.', port: 2222, addresses: ['10.0.0.8'] }));
+  zc.emit('resolved', service({ name: 'hostA', fullName: 'hostA.local._ssh._tcp.', port: 23 }));
+  zc.emit('remove', 'hostB');
   const services = await pending;
-  assert.deepEqual(services.map((s) => [s.name, s.port]), [['hostA', 23], ['hostB', 2222]]);
+  assert.deepEqual(services.map((s) => [s.name, s.port]), [['hostA', 23]]);
   assert.equal(zc.calls.at(-1), 'stop');
 });
 
@@ -166,8 +167,10 @@ test('a timed SSH scan preempts muxr and filters late resolves without auto-resu
   const ssh = scan({ type: 'ssh', ms: 40, zeroconf: zc });
   assert.deepEqual(seen, ['preempted']);
   zc.emit('resolved', service({ name: 'old', fullName: 'old.local._muxr._tcp.' }));
+  zc.emit('resolved', service({ name: 'untyped', fullName: undefined }));
   zc.emit('remove', 'old');
   zc.emit('resolved', service({ name: 'hostA', fullName: 'hostA.local._ssh._tcp.', port: 22 }));
+  zc.emit('remove', 'old');
   assert.deepEqual((await ssh).map((s) => s.name), ['hostA']);
   assert.deepEqual(seen, ['preempted']);
   assert.deepEqual(zc.calls, ['scan muxr tcp local.', 'stop', 'scan ssh tcp local.', 'stop']);
@@ -187,6 +190,21 @@ test('preempting a timed scan rejects it and leaves only the new browse active',
   assert.equal(zc.calls.at(-1), 'stop');
 });
 
+test('late native errors are suppressed briefly after preemption, then active errors flow', async () => {
+  const zc = new FakeZeroconf();
+  const first = browse({ type: 'muxr', zeroconf: zc });
+  const errors: string[] = [];
+  first.on('error', (error) => errors.push(`old:${error.message}`));
+  const second = browse({ type: 'ssh', zeroconf: zc });
+  second.on('error', (error) => errors.push(error.message));
+  zc.emit('error', new Error('late muxr error'));
+  assert.deepEqual(errors, []);
+  await wait(1050);
+  zc.emit('error', new Error('current error'));
+  assert.deepEqual(errors, ['current error']);
+  second.stop();
+});
+
 test('scan rejects a non-positive window without starting one', async () => {
   const zc = new FakeZeroconf();
   await assert.rejects(scan({ type: 'ssh', ms: 0, zeroconf: zc }), /ms must be positive/);
@@ -196,17 +214,17 @@ test('scan rejects a non-positive window without starting one', async () => {
 test('the Node entry never pulls react-native-zeroconf; the react-native condition resolves the browse entry', async () => {
   const node = await build({
     stdin: { contents: `import { advertise, reach } from '../src/index.ts'; reach; advertise;`, resolveDir: import.meta.dirname },
-    bundle: true, platform: 'node', format: 'esm', write: false, logLevel: 'silent',
+    bundle: true, platform: 'node', format: 'esm', write: false, metafile: true, logLevel: 'silent',
   });
-  assert.ok(!node.outputFiles[0].text.includes('react-native-zeroconf'));
-  assert.ok(!node.outputFiles[0].text.includes('removeDeviceListeners'));
+  assert.ok(Object.keys(node.metafile!.inputs).every((path) => !path.endsWith('/rn.ts') && !path.includes('react-native-zeroconf')));
 
   const rn = await build({
     stdin: { contents: `import { browse, scan } from '../src/rn.ts'; browse; scan;`, resolveDir: import.meta.dirname },
-    bundle: true, platform: 'browser', format: 'esm', write: false, logLevel: 'silent',
+    bundle: true, platform: 'browser', format: 'esm', write: false, metafile: true, logLevel: 'silent',
     external: ['react-native-zeroconf'],
   });
-  assert.ok(rn.outputFiles[0].text.includes('from "react-native-zeroconf"'));
+  assert.ok(Object.values(rn.metafile!.outputs).some((output) => output.imports.some((entry) =>
+    entry.path === 'react-native-zeroconf' && entry.external)));
 
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   assert.deepEqual(pkg.exports['.']['react-native'], { types: './dist/rn.d.ts', default: './dist/rn.js' });

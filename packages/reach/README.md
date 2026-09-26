@@ -96,10 +96,13 @@ values only). The pinned `react-native-zeroconf` dependency (`0.14.0`) is suppli
 One native browser runs one browse at a time. Starting another `browse` or `scan` preempts the current handle,
 including when both request the same type: it receives one `stopped` event with `{ reason: 'preempted' }`, loses its
 known services, and does not resume. A preempted `scan` rejects; callers needing continuous discovery must start
-a fresh browse after their other scan finishes. Native errors and removals carry no scan identifier, so an event
-arriving after a new scan starts cannot always be attributed to its original scan. Node and web builds resolve
-the main entry and never import the native module. Expo apps must rebuild their native binary after adding reach. Android emulator note: mDNS multicast does not work on
-the emulator — test discovery on a real device.
+a fresh browse after their other scan finishes. Resolved events must identify the active service type in `fullName`;
+removals apply only to names that browse has found. Native errors are ignored for one second after preemption.
+The native module supplies no scan ID: an untyped late removal for a name reused by the new browse, or an error
+after that second, can still be attributed to the new scan; a real error during the quiet second is also ignored.
+Node and web builds resolve the main entry and never import the native module. Expo apps must rebuild their native
+binary after adding reach. Android emulator note: mDNS multicast does not work on the emulator — test discovery
+on a real device.
 
 ## Tests
 
