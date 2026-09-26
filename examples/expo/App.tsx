@@ -1,6 +1,6 @@
 // byokit on a phone (iOS and Android): "Sign in with ChatGPT" (@byokit/accounts' device code, kept in the phone's
 // secure storage, @byokit/ui-core's sheet phases), asking it with the answer streaming in (expo/fetch), a decision
-// with @byokit/decide's answerer, and pairing with a computer over @byokit/link. For a demo with no account, point it
+// with @byokit/decide's answerer, pairing with a computer over @byokit/link, and sealing data with @byokit/seal. For a demo with no account, point it
 // at the stand-in OpenAI and a link host on this computer (see e2e-android.sh):
 //   EXPO_PUBLIC_OPENAI_BASE=http://10.0.2.2:21455 npx expo run:android   (after `npm run mock` in this folder)
 import { useEffect, useRef, useState } from 'react';
@@ -10,6 +10,7 @@ import { fetch as streamingFetch } from 'expo/fetch';
 import { Accounts, say, secureStore, type Status } from '@byokit/accounts';
 import { answerer, decide } from '@byokit/decide';
 import { DeviceLink, secureDeviceStore, type LinkStatus } from '@byokit/link';
+import { boxKeyPairFromSeed, openBox, openSecretBox, sealBox, sealSecretBox, signDetached, signingKeyPairFromSeed, verifyDetached } from '@byokit/seal';
 import { forgettableStore, pairInput, pairingGeneration } from './pairing.ts';
 import { linkWords, pairingView, useSignIn, type PairPhase } from '@byokit/ui-core';
 
@@ -162,6 +163,19 @@ export default function App() {
   const [plan, setPlan] = useState('');
   const [signing, setSigning] = useState(false);
   const [note, setNote] = useState('');
+  const [sealed, setSealed] = useState('');
+  const trySeal = () => {
+    try {
+      const bytes = new TextEncoder().encode('byokit on a phone');
+      const key = crypto.getRandomValues(new Uint8Array(32));
+      const box = boxKeyPairFromSeed(key);
+      const signer = signingKeyPairFromSeed(key);
+      const matches = (opened: Uint8Array | null) => opened !== null && new TextDecoder().decode(opened) === 'byokit on a phone';
+      setSealed(matches(openBox(sealBox(bytes, box.publicKey), key)) &&
+        matches(openSecretBox(sealSecretBox(bytes, key), key)) &&
+        verifyDetached(bytes, signDetached(bytes, signer.secretKey), signer.publicKey) ? 'Seal works.' : 'Seal failed.');
+    } catch (e) { setSealed(`Seal failed: ${String(e)}`); }
+  };
   const refresh = async () => {
     setStatus(await accounts.status(ME, 'chatgpt'));
     const p = await accounts.plan(ME);
@@ -188,6 +202,8 @@ export default function App() {
           <Ask />
         </> : <Button id="signin" label="Sign in with ChatGPT" onPress={() => setSigning(true)} />}
       <Pair />
+      <Button id="seal" label="Try sealing" onPress={trySeal} />
+      {!!sealed && <Text testID="sealed" style={s.small}>{sealed}</Text>}
     </ScrollView></SafeAreaView>
   );
 }

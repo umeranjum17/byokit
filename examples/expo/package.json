@@ -6,6 +6,7 @@
     "@byokit/accounts": "file:../../packages/accounts",
     "@byokit/decide": "file:../../packages/decide",
     "@byokit/link": "file:../../packages/link",
+    "@byokit/seal": "file:../../packages/seal",
     "@byokit/ui-core": "file:../../packages/ui-core",
     "expo": "~57.0.25",
     "expo-build-properties": "~57.0.22",
