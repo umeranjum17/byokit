@@ -1,6 +1,4 @@
-// The React Native browse API against a fake zeroconf module. The real react-native-zeroconf is never installed
-// here: tests inject a fake, and esbuild proves the Node entry never pulls the native module while the
-// react-native condition resolves the browse entry.
+// The React Native browse API against a fake native browser.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -12,13 +10,11 @@ class FakeZeroconf implements ZeroconfLike {
   listeners = new Map<string, Set<(...args: unknown[]) => void>>();
   scan(type?: string, protocol?: string, domain?: string): void { this.calls.push(`scan ${type} ${protocol} ${domain}`); }
   stop(): void { this.calls.push('stop'); }
-  removeDeviceListeners(): void { this.calls.push('removeDeviceListeners'); }
   on(event: string, listener: (...args: unknown[]) => void): void {
     const set = this.listeners.get(event) ?? new Set();
     set.add(listener);
     this.listeners.set(event, set);
   }
-  removeListener(event: string, listener: (...args: unknown[]) => void): void { this.listeners.get(event)?.delete(listener); }
   emit(event: string, ...args: unknown[]): void { for (const listener of this.listeners.get(event) ?? []) listener(...args); }
   count(event: string): number { return this.listeners.get(event)?.size ?? 0; }
 }
@@ -29,17 +25,15 @@ const service = (over: Record<string, unknown> = {}): unknown => ({
   txt: { machine: 'm1', relay: 'wss://relay' }, ...over,
 });
 
-test('browse scans tcp local. by default; stop is idempotent and removes the zeroconf listeners', () => {
+test('browse scans tcp local. by default; stop is idempotent', () => {
   const zc = new FakeZeroconf();
   const handle = browse({ type: 'muxr', zeroconf: zc });
   assert.deepEqual(zc.calls, ['scan muxr tcp local.']);
   assert.equal(zc.count('resolved'), 1);
   handle.stop();
   handle.stop();
-  assert.deepEqual(zc.calls, ['scan muxr tcp local.', 'stop', 'removeDeviceListeners']);
-  assert.equal(zc.count('resolved'), 0);
-  assert.equal(zc.count('remove'), 0);
-  assert.equal(zc.count('error'), 0);
+  assert.deepEqual(zc.calls, ['scan muxr tcp local.', 'stop']);
+  assert.equal(zc.count('resolved'), 1);
 });
 
 test('a resolve becomes found with normalized fields, a known name becomes updated', () => {
@@ -127,7 +121,7 @@ test('scan collects services for its window, updates in first-seen order, then s
   zc.emit('resolved', service({ name: 'hostA', port: 23 }));
   const services = await pending;
   assert.deepEqual(services.map((s) => [s.name, s.port]), [['hostA', 23], ['hostB', 2222]]);
-  assert.deepEqual(zc.calls.slice(-2), ['stop', 'removeDeviceListeners']);
+  assert.equal(zc.calls.at(-1), 'stop');
 });
 
 test('scan rejects and stops when the scan errors', async () => {
@@ -136,7 +130,49 @@ test('scan rejects and stops when the scan errors', async () => {
   await wait(5);
   zc.emit('error', new Error('nope'));
   await assert.rejects(pending, /nope/);
-  assert.deepEqual(zc.calls.slice(-2), ['stop', 'removeDeviceListeners']);
+  assert.equal(zc.calls.at(-1), 'stop');
+});
+
+test('concurrent browse and scan time-share one native browser without crossing events or stops', async () => {
+  const zc = new FakeZeroconf();
+  const muxr = browse({ type: 'muxr', zeroconf: zc });
+  const alsoMuxr = browse({ type: 'muxr', zeroconf: zc });
+  const names: string[] = [];
+  muxr.on('found', (s) => names.push(`first:${s.name}`));
+  alsoMuxr.on('found', (s) => names.push(`second:${s.name}`));
+  muxr.on('lost', (name) => names.push(`lost:${name}`));
+  alsoMuxr.stop();
+  assert.deepEqual(zc.calls, ['scan muxr tcp local.']);
+  const ssh = scan({ type: 'ssh', ms: 1300, zeroconf: zc });
+  assert.deepEqual(zc.calls, ['scan muxr tcp local.', 'stop', 'scan ssh tcp local.']);
+  zc.emit('resolved', service({ name: 'hostA', fullName: 'hostA._ssh._tcp.local.', port: 22 }));
+  zc.emit('resolved', service({ name: 'wrong', fullName: 'wrong._muxr._tcp.local.' }));
+  zc.emit('remove', 'hostA');
+  assert.deepEqual(names, []);
+  await wait(1100);
+  assert.equal(zc.calls.at(-1), 'scan muxr tcp local.');
+  zc.emit('resolved', service({ name: 'machine', fullName: 'machine._muxr._tcp.local.' }));
+  assert.deepEqual(names, ['first:machine']);
+  assert.deepEqual((await ssh).map((s) => s.name), ['hostA']);
+  assert.equal(zc.calls.at(-1), 'scan muxr tcp local.');
+  zc.emit('remove', 'machine');
+  assert.deepEqual(names, ['first:machine', 'lost:machine']);
+  muxr.stop();
+  assert.equal(zc.calls.at(-1), 'stop');
+});
+
+test('an SSH scan error releases only SSH and resumes muxr', async () => {
+  const zc = new FakeZeroconf();
+  const muxr = browse({ type: 'muxr', zeroconf: zc });
+  const seen: string[] = [];
+  muxr.on('found', (s) => seen.push(s.name));
+  const ssh = scan({ type: 'ssh', ms: 30_000, zeroconf: zc });
+  zc.emit('error', new Error('native failure'));
+  await assert.rejects(ssh, /native failure/);
+  assert.equal(zc.calls.at(-1), 'scan muxr tcp local.');
+  zc.emit('resolved', service({ name: 'machine' }));
+  assert.deepEqual(seen, ['machine']);
+  muxr.stop();
 });
 
 test('scan rejects a non-positive window without starting one', async () => {
@@ -163,6 +199,6 @@ test('the Node entry never pulls react-native-zeroconf; the react-native conditi
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   assert.deepEqual(pkg.exports['.']['react-native'], { types: './dist/rn.d.ts', default: './dist/rn.js' });
   assert.deepEqual(pkg.exports['.'].default, './dist/index.js');
-  assert.deepEqual(pkg.peerDependencies, { 'react-native-zeroconf': '^0.14.0' });
-  assert.deepEqual(pkg.peerDependenciesMeta, { 'react-native-zeroconf': { optional: true } });
+  assert.equal(pkg.dependencies['react-native-zeroconf'], '0.14.0');
+  assert.equal(pkg.peerDependencies?.['react-native-zeroconf'], undefined);
 });

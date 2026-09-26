@@ -1,8 +1,3 @@
-// mDNS browse for React Native phones: start and stop discovery of `_<type>._<protocol>` services, with each
-// service's addresses, port and TXT records, and an error lifecycle. The native side comes from the app's
-// react-native-zeroconf (optional peer dependency): `rn.ts` is the entry that constructs it, and tests pass a
-// fake as `zeroconf`, so nothing here imports the native module.
-
 /** A service seen on the LAN. `txt` keeps only string values. */
 export type BrowseService = {
   /** The advertised name, e.g. `devbox`. */
@@ -34,18 +29,20 @@ export type ZeroconfLike = {
   scan(type?: string, protocol?: string, domain?: string): void;
   stop(): void;
   on(event: string, listener: (...args: unknown[]) => void): void;
-  removeListener(event: string, listener: (...args: unknown[]) => void): void;
-  removeDeviceListeners(): void;
 };
 
 export type BrowseHandle = {
-  /** Stops discovery and detaches every listener. Idempotent. */
+  /** Stops this handle; other discovery continues. Idempotent. */
   stop(): void;
   /** Listens for one event; ignored after `stop()`. */
   on<K extends BrowseEventName>(event: K, listener: (payload: BrowseEvents[K]) => void): void;
 };
 
-type RawService = { name?: unknown; host?: unknown; addresses?: unknown; port?: unknown; txt?: unknown };
+type RawService = { name?: unknown; fullName?: unknown; host?: unknown; addresses?: unknown; port?: unknown; txt?: unknown };
+type Session = { key: string; options: Required<BrowseOptions>; handles: Set<(event: 'resolved' | 'remove' | 'error', value: unknown) => void> };
+type Browser = { sessions: Session[]; active?: Session; timer?: ReturnType<typeof setInterval> };
+const browsers = new WeakMap<ZeroconfLike, Browser>();
+const SLICE_MS = 1000;
 
 const asString = (v: unknown) => (typeof v === 'string' ? v : undefined);
 
@@ -67,12 +64,56 @@ function normalize(raw: RawService): BrowseService | undefined {
   };
 }
 
-/**
- * Start discovering `_<type>._<protocol>` services, e.g. `browse({ type: 'muxr' })`. Most apps import this from
- * `@byokit/reach` under React Native, which supplies the native module; pass `zeroconf` to supply your own.
- */
+function browser(zc: ZeroconfLike): Browser {
+  const existing = browsers.get(zc);
+  if (existing) return existing;
+  const state: Browser = { sessions: [] };
+  browsers.set(zc, state);
+  const deliver = (event: 'resolved' | 'remove' | 'error', value: unknown): void => {
+    const active = state.active;
+    if (!active) return;
+    if (event === 'resolved' && typeof value === 'object' && value !== null) {
+      const fullName = asString((value as RawService).fullName);
+      if (fullName && !fullName.toLowerCase().endsWith(`._${active.options.type}._${active.options.protocol}.${active.options.domain}`.toLowerCase())) return;
+    }
+    for (const handle of [...active.handles]) handle(event, value);
+  };
+  zc.on('resolved', (value) => deliver('resolved', value));
+  zc.on('remove', (value) => deliver('remove', value));
+  zc.on('error', (value) => deliver('error', value));
+  return state;
+}
+
+function activate(zc: ZeroconfLike, state: Browser, next?: Session): void {
+  if (state.active === next) return;
+  if (state.active) zc.stop();
+  state.active = next;
+  if (!next) return;
+  try { zc.scan(next.options.type, next.options.protocol, next.options.domain); }
+  catch (cause) { queueMicrotask(() => { for (const handle of [...next.handles]) handle('error', cause); }); }
+}
+
+function schedule(zc: ZeroconfLike, state: Browser): void {
+  if (state.timer) clearInterval(state.timer);
+  state.timer = undefined;
+  if (state.sessions.length < 2) return;
+  state.timer = setInterval(() => {
+    const index = state.sessions.indexOf(state.active!);
+    activate(zc, state, state.sessions[(index + 1) % state.sessions.length]);
+  }, SLICE_MS);
+}
+
 export function browse(o: BrowseOptions & { zeroconf: ZeroconfLike }): BrowseHandle {
-  const { type, protocol = 'tcp', domain = 'local.', zeroconf: zc } = o;
+  const { zeroconf: zc } = o;
+  const options = { type: o.type, protocol: o.protocol ?? 'tcp', domain: o.domain ?? 'local.' };
+  const state = browser(zc);
+  const key = JSON.stringify([options.type, options.protocol, options.domain]);
+  let session = state.sessions.find((item) => item.key === key);
+  const first = !session;
+  if (!session) {
+    session = { key, options, handles: new Set() };
+    state.sessions.push(session);
+  }
   let stopped = false;
   const known = new Set<string>();
   const listeners: { [K in BrowseEventName]: Set<(payload: BrowseEvents[K]) => void> } = {
@@ -81,44 +122,44 @@ export function browse(o: BrowseOptions & { zeroconf: ZeroconfLike }): BrowseHan
   const fire = <K extends BrowseEventName>(event: K, payload: BrowseEvents[K]): void => {
     for (const listener of listeners[event]) (listener as (p: BrowseEvents[K]) => void)(payload);
   };
-  const onResolved = (raw: unknown): void => {
-    const service = normalize((typeof raw === 'object' && raw !== null ? raw : {}) as RawService);
-    if (stopped || service === undefined) return;
-    const again = known.has(service.name);
-    known.add(service.name);
-    fire(again ? 'updated' : 'found', service);
-  };
-  const onRemoved = (raw: unknown): void => {
-    const name = asString(raw);
-    if (stopped || name === undefined) return;
-    known.delete(name);
-    fire('lost', name);
-  };
-  const onError = (cause: unknown): void => {
+  const receive = (event: 'resolved' | 'remove' | 'error', raw: unknown): void => {
     if (stopped) return;
-    const message = cause instanceof Error ? cause.message
-      : asString((cause as { message?: unknown } | null)?.message) ?? String(cause);
-    fire('error', cause instanceof Error ? cause : new Error(message));
+    if (event === 'resolved') {
+      const service = normalize((typeof raw === 'object' && raw !== null ? raw : {}) as RawService);
+      if (!service) return;
+      const again = known.has(service.name);
+      known.add(service.name);
+      fire(again ? 'updated' : 'found', service);
+    } else if (event === 'remove') {
+      const name = asString(raw);
+      if (name === undefined || !known.delete(name)) return;
+      fire('lost', name);
+    } else {
+      const message = raw instanceof Error ? raw.message
+        : asString((raw as { message?: unknown } | null)?.message) ?? String(raw);
+      fire('error', raw instanceof Error ? raw : new Error(message));
+    }
   };
+  session.handles.add(receive);
   const stop = (): void => {
     if (stopped) return;
     stopped = true;
-    for (const [event, listener] of [['resolved', onResolved], ['remove', onRemoved], ['error', onError]] as const) {
-      try { zc.removeListener(event, listener); } catch { /* teardown is best effort */ }
-    }
-    try { zc.stop(); } catch { /* teardown is best effort */ }
-    try { zc.removeDeviceListeners(); } catch { /* teardown is best effort */ }
+    session.handles.delete(receive);
     for (const set of Object.values(listeners)) set.clear();
+    if (!session.handles.size) {
+      const index = state.sessions.indexOf(session);
+      state.sessions.splice(index, 1);
+      if (state.active === session) activate(zc, state, state.sessions[index] ?? state.sessions[0]);
+      schedule(zc, state);
+    }
   };
   const on: BrowseHandle['on'] = (event, listener) => {
     if (!stopped) listeners[event].add(listener);
   };
-  zc.on('resolved', onResolved);
-  zc.on('remove', onRemoved);
-  zc.on('error', onError);
-  try { zc.scan(type, protocol, domain); }
-  // Deferred so listeners attached right after browse() still see a scan that failed to start.
-  catch (cause) { queueMicrotask(() => onError(cause)); }
+  if (first) {
+    activate(zc, state, session);
+    schedule(zc, state);
+  }
   return { stop, on };
 }
 
