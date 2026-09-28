@@ -2,7 +2,7 @@
 // that leaves the original byte for byte, and a confirm that moves nothing until the gateway itself says so.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { confirmRetainedLogin, migrateRetainedLogin } from '../src/migrate.ts';
 import type { SignInCtx } from '../src/signin.ts';
@@ -66,7 +66,7 @@ test('a path source is staged as the profile store the offline doctor imports, 0
   assert.equal(bytes(house1.path), before, 'the original is never written to');
 });
 
-test('a failed doctor run deletes the staging and leaves the source byte for byte, so the next boot retries', async () => {
+test('a failed doctor run deletes the staging it wrote and leaves the source byte for byte, so the next boot retries', async () => {
   const house1 = house();
   writeFileSync(house1.path, legacy());
   const before = bytes(house1.path);
@@ -80,10 +80,37 @@ test('a failed doctor run deletes the staging and leaves the source byte for byt
   assert.ok(bytes(house1.staging).includes('a-preserved'));
 });
 
-test('an already-staged profile store is not overwritten', async () => {
+test('a failed doctor run never deletes a profile store this call did not write (B4)', async () => {
+  const house1 = house();
+  writeFileSync(house1.path, legacy());
+  mkdirSync(join(house1.staging, '..'), { recursive: true, mode: 0o700 });
+  const live = '{"version":1,"profiles":{"openai:default":{"live":true}}}';
+  writeFileSync(house1.staging, live);
+  house1.doctor.status = 1;
+  assert.equal(await migrateRetainedLogin(house1.ctx, 'm1', { path: house1.path }), 'failed');
+  assert.equal(bytes(house1.staging), live, 'the member\'s live sign-in survives the failed import');
+  assert.equal(bytes(house1.path), legacy());
+});
+
+test('an invalid member id is refused before anything is written (B5)', async () => {
+  const house1 = house();
+  writeFileSync(house1.path, legacy());
+  for (const member of ['../escaped', '../../../escaped', 'A', 'm1/../../escaped', '']) {
+    await assert.rejects(migrateRetainedLogin(house1.ctx, member, { path: house1.path }), /invalid member/, member);
+    await assert.rejects(confirmRetainedLogin(house1.signInCtx, member, { path: house1.path }), /invalid member/, member);
+  }
+  assert.equal(house1.prepared, 0);
+  assert.equal(house1.doctors, 0);
+  assert.equal(existsSync(join(house1.root, '..', 'escaped')), false, 'nothing escaped state/agents');
+  assert.equal(existsSync(join(house1.root, 'state', 'agents', 'm1', 'agent')), false);
+});
+
+test('an already-staged profile store is not overwritten, and the staging directory is private (N7)', async () => {
   const house1 = house();
   writeFileSync(house1.path, legacy({ anthropic: { type: 'token', provider: 'anthropic', token: 'x' } }));
-  mkdirSync(join(house1.staging, '..'), { recursive: true });
+  assert.equal(await migrateRetainedLogin(house1.ctx, 'm1', { path: house1.path }), 'staged');
+  assert.equal(statSync(join(house1.staging, '..')).mode & 0o777, 0o700, 'the agent directory is 0700');
+  assert.deepEqual(readdirSync(join(house1.staging, '..')), ['auth-profiles.json'], 'no staging temp file is left behind');
   writeFileSync(house1.staging, '{"version":1,"profiles":{"openai:default":{"kept":true}}}');
   assert.equal(await migrateRetainedLogin(house1.ctx, 'm1', { path: house1.path }), 'staged');
   assert.equal(bytes(house1.staging), '{"version":1,"profiles":{"openai:default":{"kept":true}}}');

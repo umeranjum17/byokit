@@ -5,9 +5,10 @@ import type { Route } from './types.ts';
 const table = routesJson as Route[];
 
 /** The pin's auth-choice table. `provider` is the id a person's account is known by (the doc's matrix), which for
- *  MiniMax's portal routes is the account-visible `minimax`, not the wizard's internal `minimax-portal`. Only the
- *  pin's bundled provider contracts are listed: install-catalog plugins (external providers needing their own
- *  install) are not contracted by the pin and are deliberately absent. */
+ *  MiniMax's portal routes is the account-visible `minimax`, not the wizard's internal `minimax-portal`. `plugin` is
+ *  the bundled plugin the app must allow for that route to start (5.6). Only the pin's bundled provider contracts are
+ *  listed: install-catalog plugins (external providers needing their own install) are not contracted by the pin and
+ *  are deliberately absent. */
 export function routes(): Route[] {
   return table;
 }

@@ -82,8 +82,19 @@ export function signIn(
 
   /** Hold 127.0.0.1:<callbackPort> for the sign-in's life; a taken port is why the sign-in cannot start. */
   const holdCallback = (): Promise<Server> => {
+    let took = false;
     const held = createServer((req, res) => {
-      const address = `http://${req.headers.host ?? `localhost:${ctx.callbackPort}`}${req.url ?? ''}`;
+      const host = req.headers.host ?? `localhost:${ctx.callbackPort}`;
+      const address = `http://${host}${req.url ?? ''}`;
+      let url: URL;
+      try { url = new URL(address); } catch { url = new URL(`http://${host}/`); }
+      // Only the provider's own callback is pasted: a favicon or any other local page is not a redirect back.
+      if (took || req.method !== 'GET' || url.pathname !== '/auth/callback' || !url.searchParams.has('code')) {
+        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+        res.end('Not found');
+        return;
+      }
+      took = true;
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
       res.end('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width">' +
         `<title>Sign-in</title><body style="font:18px system-ui;margin:3em auto;max-width:26em;padding:0 1em;text-align:center">${words('signin.returned')}</body>`);
@@ -101,10 +112,12 @@ export function signIn(
       if (!server) return { state: 'failed', via, why: 'busy' };
     }
     const { agentId } = await ctx.ensure(member);
+    // The session id is the client's to choose (5.7), so it is set before the call: a cancel while the start is in
+    // flight must still cancel this session, which holds the gateway's single setup admission.
+    sessionId = `byokit-${randomUUID()}`;
     const started = await ctx.request('openclaw.setup.auth.start',
-      { sessionId: `byokit-${randomUUID()}`, agentId, authChoice: o.authChoice },
-      { timeoutMs: START_MS, signal }) as { sessionId?: string; done?: boolean };
-    sessionId = started.sessionId ?? '';
+      { sessionId, agentId, authChoice: o.authChoice },
+      { timeoutMs: START_MS, signal }) as { done?: boolean };
     if (started.done) return { state: 'done', via };
 
     // wizard.next, never wizard.status: the status method answers {status, error} and carries no step.

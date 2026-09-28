@@ -2,7 +2,7 @@
 // drive speaks the contract the gateway actually serves — steps only from wizard.next, one setup admission at a time.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { connect } from 'node:net';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -16,13 +16,31 @@ import type { GatewayTransport, SignInView } from '../../src/types.ts';
 const install = scratchDir('o6-engine-signin');
 const engineDir = join(install, 'engine');
 const stateDir = join(install, 'state');
-// The pin's bundled provider plugins must be allowed for the wizard to run at all: `plugins.allow` is the app's to
-// set (Crewhouse passes its own id, memory-core and openai), and 5.6 keeps the kit's id in that list. Without them
-// the engine answers every sign-in with "blocked by allowlist" — see the PR note on whether the kit should default it.
+// 5.6: the app lists exactly the `Route.plugin` of each route it signs in with, and this file signs in with ChatGPT.
 const engine = new Engine({ stateDir, engineDir, pluginId: 'byokit', tools: [], spawnEngine: true,
-  config: { plugins: { allow: ['openai', 'xai', 'github-copilot', 'openrouter', 'minimax'] } }, onState: () => {}, onExit: () => {} });
+  config: { plugins: { allow: ['openai'] } }, onState: () => {}, onExit: () => {} });
 let transport: GatewayTransport;
 let calls: string[] = [];
+
+/** The pin's own inventory: every bundled manifest's `providerAuthChoices`, and the manifest id that owns each. */
+const pinnedChoices = (): { choices: Map<string, string>; staticChoices: string } => {
+  const pkg = join(engineDir, 'node_modules', 'openclaw');
+  assert.equal(JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8')).version, '2026.8.1', 'the pinned tarball is installed');
+  const choices = new Map<string, string>();
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) { walk(path); continue; }
+      if (entry.name !== 'openclaw.plugin.json') continue;
+      const manifest = JSON.parse(readFileSync(path, 'utf8')) as { id?: string; providerAuthChoices?: { choiceId?: string }[] };
+      for (const choice of manifest.providerAuthChoices ?? []) if (choice.choiceId) choices.set(choice.choiceId, manifest.id ?? '');
+    }
+  };
+  walk(join(pkg, 'dist'));
+  // The one core static choice lives outside every manifest (auth-choice-options.static.ts).
+  const options = readdirSync(join(pkg, 'dist')).filter((name) => name.startsWith('auth-choice-options-'));
+  return { choices, staticChoices: options.map((name) => readFileSync(join(pkg, 'dist', name), 'utf8')).join('\n') };
+};
 
 /** The gateway needs a moment to bind after spawn: connect only once the port answers. */
 export const listening = (port: number): Promise<boolean> => new Promise((resolve) => {
@@ -63,28 +81,59 @@ const signInCtx = () => {
   };
 };
 
-test('every choice id in routes.json exists in the pinned tarball (5.7, 5.12)', { timeout: 120_000 }, () => {
-  const pkg = join(engineDir, 'node_modules', 'openclaw');
-  assert.equal(JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8')).version, '2026.8.1', 'the pinned tarball is installed');
-  const found = new Set<string>();
-  const walk = (dir: string) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const path = join(dir, entry.name);
-      if (entry.isDirectory()) { walk(path); continue; }
-      if (entry.name !== 'openclaw.plugin.json') continue;
-      const manifest = JSON.parse(readFileSync(path, 'utf8')) as { providerAuthChoices?: { choiceId?: string }[] };
-      for (const choice of manifest.providerAuthChoices ?? []) if (choice.choiceId) found.add(choice.choiceId);
-    }
-  };
-  walk(join(pkg, 'dist'));
-  // The one core choice that lives outside a plugin manifest (auth-choice-options.static.ts).
-  const options = readdirSync(join(pkg, 'dist')).filter((name) => name.startsWith('auth-choice-options-'));
-  const staticText = options.map((name) => readFileSync(join(pkg, 'dist', name), 'utf8')).join('\n');
+test('routes.json and the pinned tarball agree in both directions, plugins included (5.7, 5.12)', { timeout: 120_000 }, () => {
+  const { choices, staticChoices } = pinnedChoices();
   for (const route of routes()) {
-    assert.ok(found.has(route.choice) || staticText.includes(`"${route.choice}"`),
+    assert.ok(choices.has(route.choice) || staticChoices.includes(`"${route.choice}"`),
       `${route.choice} is not an auth choice of the pinned tarball (${route.source})`);
   }
   assert.ok(routes().length >= 30, 'the table is the pin\'s whole inventory, not just the offered routes');
+  // The other direction, and the owning plugin of every choice: nothing pinned is unrouted, and no route names the
+  // wrong plugin (an app allows exactly that id, 5.6).
+  for (const [choice, plugin] of choices) {
+    const route = routes().find((entry) => entry.choice === choice);
+    assert.ok(route, `${choice} is a pinned auth choice with no route`);
+    assert.equal(route.plugin, plugin, `${choice} names the wrong owning plugin`);
+  }
+  assert.ok(staticChoices.includes('"custom-api-key"'), 'the pin carries the core static choice');
+  assert.equal(routes().find((entry) => entry.choice === 'custom-api-key')?.plugin, '', 'a core choice has no plugin');
+});
+
+test('every offered route starts on the real engine with only its plugin allowed (5.7, B6)', { timeout: 900_000 }, async () => {
+  for (const route of routes().filter((entry) => entry.offer)) {
+    const dir = scratchDir(`o6-route-${route.choice}`);
+    const state = join(dir, 'state');
+    const probe = new Engine({ stateDir: state, engineDir, pluginId: 'byokit', tools: [], spawnEngine: true,
+      config: { plugins: { allow: [route.plugin] } }, onState: () => {}, onExit: () => {} });
+    let probeTransport: GatewayTransport | undefined;
+    try {
+      const ctx = await probe.start();
+      for (let waited = 0; waited < 120_000; waited += 200) {
+        if (await listening(ctx.port)) break;
+        await delay(200);
+        if (waited >= 119_800) assert.fail(`${route.choice}: the gateway never listened`);
+      }
+      probeTransport = gatewayTransport({ ...ctx, bridgeSock: probe.bridgeSock });
+      await probeTransport.start();
+      const request = probeTransport.request.bind(probeTransport);
+      const list = await request('agents.list') as { agents: { id: string }[] };
+      if (!list.agents.some((agent) => agent.id === 'm1'))
+        await request('agents.create', { name: 'm1', workspace: join(state, 'openclaw', 'workspaces', 'm1') });
+      const sessionId = `byokit-probe-${route.choice}`;
+      const started = await request('openclaw.setup.auth.start',
+        { sessionId, agentId: 'm1', authChoice: route.choice }, { timeoutMs: 60_000 }) as { done?: boolean; error?: string };
+      assert.ok(!started.error, `${route.choice}: ${started.error}`);
+      const pulled = await request('wizard.next', { sessionId }, { timeoutMs: 120_000 }) as { done?: boolean; error?: string; step?: { id?: string } };
+      assert.ok(!pulled.error, `${route.choice}: ${pulled.error}`);
+      assert.doesNotMatch(String(pulled.error ?? ''), /not available|blocked by allowlist/i, route.choice);
+      assert.ok(pulled.step?.id, `${route.choice}: no step arrived (${JSON.stringify(pulled)})`);
+      await request('wizard.cancel', { sessionId }, { timeoutMs: 10_000 }).catch(() => {});
+    } finally {
+      await probeTransport?.stop().catch(() => {});
+      await probe.stop().catch(() => {});
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
 });
 
 test('real gateway: wizard.status carries no step, wizard.next pulls one, cancel frees admission (Crewhouse port)', { timeout: 300_000 }, async () => {

@@ -112,21 +112,23 @@ test('sign-in: a step that asks for a note is acknowledged and its address is su
 
 test('sign-in: giving up cancels its own wizard session, so a retry is not locked out', async () => {
   const fake = scripted({
-    'openclaw.setup.auth.start': () => ({ sessionId: 'byokit-fake-2', done: false }),
+    'openclaw.setup.auth.start': () => ({ done: false }),
     'wizard.next': () => ({ done: false }), // a wizard that never yields a step: the drive runs out its budget
     'wizard.cancel': () => ({ status: 'cancelled' }),
   });
   const end = await signIn(ctx(fake), 'm1', { authChoice: 'openai-device-code', via: 'code' }, () => {}).done;
   assert.equal(end.state, 'failed');
   assert.equal(end.why, 'expired');
+  // The session id is the client's own (5.7), so this is the one and only id the drive can cancel.
   const cancels = fake.calls.filter((call) => call.method === 'wizard.cancel');
-  assert.deepEqual(cancels.map((call) => call.params?.sessionId), ['byokit-fake-2'], 'only this task-owned session is cancelled');
+  assert.deepEqual(cancels.map((call) => call.params?.sessionId), [fake.calls[0]!.params.sessionId], 'only this task-owned session is cancelled');
+  assert.match(String(cancels[0]!.params?.sessionId), /^byokit-/);
 });
 
 test('sign-in: the person cancels, and this session is the one cancelled', async () => {
   let pulls = 0;
   const fake = scripted({
-    'openclaw.setup.auth.start': () => ({ sessionId: 'byokit-fake-3', done: false }),
+    'openclaw.setup.auth.start': () => ({ done: false }),
     'wizard.next': (_params: any, options?: any) => new Promise((resolve, reject) => {
       const timer = setTimeout(() => resolve({ done: false, step: { id: `p${pulls++}`, type: 'progress', message: 'polling' } }), 5_000);
       options?.signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new Error('aborted')); }, { once: true });
@@ -140,7 +142,8 @@ test('sign-in: the person cancels, and this session is the one cancelled', async
   const end = await handle.done;
   assert.deepEqual(end, { state: 'failed', via: 'code', why: 'declined' });
   assert.deepEqual(views.at(-1), end, 'the card is told how it ended');
-  assert.deepEqual(fake.calls.filter((call) => call.method === 'wizard.cancel').map((call) => call.params?.sessionId), ['byokit-fake-3']);
+  assert.deepEqual(fake.calls.filter((call) => call.method === 'wizard.cancel').map((call) => call.params?.sessionId),
+    [fake.calls[0]!.params.sessionId]);
 });
 
 test('sign-in: a start the gateway refuses because another setup is running is why: busy', async () => {
@@ -149,7 +152,10 @@ test('sign-in: a start the gateway refuses because another setup is running is w
   });
   const end = await signIn(ctx(fake), 'm1', { authChoice: 'openai-device-code', via: 'code' }, () => {}).done;
   assert.deepEqual(end, { state: 'failed', via: 'code', why: 'busy' });
-  assert.equal(fake.methods().includes('wizard.cancel'), false, 'no session was started, so none is cancelled');
+  // A start the gateway refused may still have created its session (the id is ours to choose), so the drive cancels
+  // exactly that id — never another session's.
+  assert.deepEqual(fake.calls.filter((call) => call.method === 'wizard.cancel').map((call) => call.params?.sessionId),
+    [fake.calls[0]!.params.sessionId]);
 });
 
 test('browser sign-in: the callback port is held, the redirect is pasted, and the page is in plain words', async () => {
@@ -217,6 +223,66 @@ test('browser sign-in: cancelling while the wizard waits releases the port', asy
     reclaimed.once('error', refuse);
     reclaimed.listen(port, '127.0.0.1', () => { reclaimed.close(() => open()); });
   });
+});
+
+test('sign-in: cancelling while the start is in flight still cancels this session (N5)', async () => {
+  const calls: { method: string; params?: any }[] = [];
+  let releaseStart!: () => void;
+  const request: GatewayTransport['request'] = async (method, params, options) => {
+    calls.push({ method, params: params as any });
+    if (method === 'openclaw.setup.auth.start') {
+      // Like the pinned gateway client: aborting the signal rejects the request still in flight.
+      await new Promise<void>((resolve, reject) => {
+        releaseStart = resolve;
+        options?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+      });
+      return { sessionId: (params as any).sessionId, done: false };
+    }
+    if (method === 'wizard.next') throw new Error('aborted');
+    return {};
+  };
+  const handle = signIn({ request, ensure: async (member) => ({ agentId: member }), callbackPort: 0 },
+    'm1', { authChoice: 'openai-device-code', via: 'code' }, () => {});
+  await delay(20);
+  handle.cancel();
+  await delay(20);
+  releaseStart();
+  assert.equal((await handle.done).why, 'declined');
+  await delay(20);
+  const cancels = calls.filter((call) => call.method === 'wizard.cancel');
+  assert.equal(cancels.length, 1, 'the engine session this start asked for is cancelled');
+  assert.equal(cancels[0]!.params.sessionId, calls.find((call) => call.method === 'openclaw.setup.auth.start')!.params.sessionId);
+  assert.match(String(cancels[0]!.params.sessionId), /^byokit-/);
+});
+
+test('browser sign-in: only the provider callback is pasted, everything else is 404 (N6)', async () => {
+  const port = await freePort();
+  const answered: string[] = [];
+  const fake = scripted({
+    'openclaw.setup.auth.start': () => ({ done: false }),
+    'wizard.next': (params: any) => {
+      if (params.answer) { answered.push(params.answer.value); return { done: true, status: 'done' }; }
+      return { done: false, step: { id: 'step-paste', type: 'text', sensitive: false } };
+    },
+  });
+  const handle = signIn(ctx(fake, { callbackPort: port }), 'm1', { authChoice: 'openai', via: 'browser' }, () => {});
+  let up = false;
+  for (let waited = 0; waited < 5_000 && !up; waited += 25) {
+    up = (await get(port, '/favicon.ico').catch(() => undefined)) !== undefined;
+    if (!up) await delay(25);
+  }
+  assert.ok(up, 'the callback listener never came up');
+  // A browser asks for plenty of things that are not the provider's redirect back.
+  assert.equal((await get(port, '/favicon.ico')).status, 404);
+  assert.equal((await get(port, '/auth/callback')).status, 404, 'no code in the query');
+  assert.equal((await get(port, '/auth/callback?state=s')).status, 404, 'no code in the query');
+  assert.equal((await get(port, '/auth/somewhere?code=one')).status, 404, 'not the callback path');
+  assert.deepEqual(answered, [], 'none of those are a paste');
+  const callback = await get(port, '/auth/callback?code=one-time-code&state=s');
+  assert.equal(callback.status, 200);
+  assert.match(callback.body, new RegExp(words('signin.returned').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  assert.equal((await handle.done).state, 'done');
+  assert.deepEqual(answered, [`http://127.0.0.1:${port}/auth/callback?code=one-time-code&state=s`]);
 });
 
 test('sign-in: a failure is said in at most 200 characters', async () => {

@@ -2,6 +2,7 @@
   {
     "choice": "openai",
     "provider": "openai",
+    "plugin": "openai",
     "billing": "subscription",
     "via": "browser",
     "prerequisite": null,
@@ -12,6 +13,7 @@
   {
     "choice": "openai-device-code",
     "provider": "openai",
+    "plugin": "openai",
     "billing": "subscription",
     "via": "code",
     "prerequisite": null,
@@ -22,28 +24,20 @@
   {
     "choice": "xai-oauth",
     "provider": "xai",
+    "plugin": "xai",
     "billing": "subscription",
-    "via": "browser",
+    "via": "code",
     "prerequisite": null,
     "offer": true,
     "reason": "Grok subscription sign-in through the engine's own wizard.",
     "source": "dist/extensions/xai/openclaw.plugin.json (2026.8.1)"
   },
   {
-    "choice": "xai-device-code",
-    "provider": "xai",
-    "billing": "subscription",
-    "via": "code",
-    "prerequisite": null,
-    "offer": true,
-    "reason": "Grok subscription sign-in by device code.",
-    "source": "dist/extensions/xai/openclaw.plugin.json (2026.8.1)"
-  },
-  {
     "choice": "github-copilot",
     "provider": "github-copilot",
+    "plugin": "github-copilot",
     "billing": "subscription",
-    "via": "browser",
+    "via": "code",
     "prerequisite": null,
     "offer": true,
     "reason": "GitHub Copilot subscription sign-in; the login stays in the engine's own folder.",
@@ -52,28 +46,20 @@
   {
     "choice": "github-copilot-enterprise",
     "provider": "github-copilot",
+    "plugin": "github-copilot",
     "billing": "subscription",
-    "via": "browser",
+    "via": "code",
     "prerequisite": null,
     "offer": true,
     "reason": "GitHub Copilot Enterprise sign-in; the login stays in the engine's own folder.",
     "source": "dist/extensions/github-copilot/openclaw.plugin.json (2026.8.1)"
   },
   {
-    "choice": "openrouter-oauth",
-    "provider": "openrouter",
-    "billing": "subscription",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": true,
-    "reason": "OpenRouter sign-in; pay-as-you-go credits, not a plan.",
-    "source": "dist/extensions/openrouter/openclaw.plugin.json (2026.8.1)"
-  },
-  {
     "choice": "minimax-global-oauth",
     "provider": "minimax",
+    "plugin": "minimax",
     "billing": "subscription",
-    "via": "browser",
+    "via": "code",
     "prerequisite": null,
     "offer": true,
     "reason": "MiniMax subscription sign-in (global endpoint).",
@@ -82,16 +68,40 @@
   {
     "choice": "minimax-cn-oauth",
     "provider": "minimax",
+    "plugin": "minimax",
     "billing": "subscription",
-    "via": "browser",
+    "via": "code",
     "prerequisite": null,
     "offer": true,
     "reason": "MiniMax subscription sign-in (CN endpoint).",
     "source": "dist/extensions/minimax/openclaw.plugin.json (2026.8.1)"
   },
   {
+    "choice": "openrouter-oauth",
+    "provider": "openrouter",
+    "plugin": "openrouter",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; upstream OAuth yields a credit-billed key.",
+    "source": "dist/extensions/openrouter/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "xai-device-code",
+    "provider": "xai",
+    "plugin": "xai",
+    "billing": "subscription",
+    "via": "code",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "Compatibility alias the Gateway does not offer; use xai-oauth.",
+    "source": "dist/extensions/xai/openclaw.plugin.json (2026.8.1)"
+  },
+  {
     "choice": "alibaba-model-studio-api-key",
     "provider": "alibaba",
+    "plugin": "alibaba",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -102,16 +112,18 @@
   {
     "choice": "anthropic-cli",
     "provider": "anthropic",
-    "billing": "api",
+    "plugin": "anthropic",
+    "billing": "subscription",
     "via": "browser",
     "prerequisite": "the Claude CLI, signed in inside the engine's own folder",
     "offer": false,
-    "reason": "Reuses an existing Claude CLI login; never offered (D12): the CLI prerequisite fails the plain-words bar.",
+    "reason": "byokit never adds Claude plan sign-in",
     "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)"
   },
   {
     "choice": "apiKey",
     "provider": "anthropic",
+    "plugin": "anthropic",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -122,6 +134,7 @@
   {
     "choice": "clawrouter-api-key",
     "provider": "clawrouter",
+    "plugin": "clawrouter",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -132,6 +145,7 @@
   {
     "choice": "copilot-proxy",
     "provider": "copilot-proxy",
+    "plugin": "copilot-proxy",
     "billing": "local",
     "via": "browser",
     "prerequisite": null,
@@ -142,6 +156,7 @@
   {
     "choice": "custom-api-key",
     "provider": "custom",
+    "plugin": "",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -152,6 +167,7 @@
   {
     "choice": "fal-api-key",
     "provider": "fal",
+    "plugin": "fal",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -162,6 +178,7 @@
   {
     "choice": "gemini-api-key",
     "provider": "google",
+    "plugin": "google",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -172,6 +189,7 @@
   {
     "choice": "huggingface-api-key",
     "provider": "huggingface",
+    "plugin": "huggingface",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -182,6 +200,7 @@
   {
     "choice": "litellm-api-key",
     "provider": "litellm",
+    "plugin": "litellm",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -192,6 +211,7 @@
   {
     "choice": "lmstudio",
     "provider": "lmstudio",
+    "plugin": "lmstudio",
     "billing": "local",
     "via": "browser",
     "prerequisite": null,
@@ -202,6 +222,7 @@
   {
     "choice": "microsoft-foundry-apikey",
     "provider": "microsoft-foundry",
+    "plugin": "microsoft-foundry",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -212,6 +233,7 @@
   {
     "choice": "microsoft-foundry-entra",
     "provider": "microsoft-foundry",
+    "plugin": "microsoft-foundry",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -222,6 +244,7 @@
   {
     "choice": "minimax-cn-api",
     "provider": "minimax",
+    "plugin": "minimax",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -232,6 +255,7 @@
   {
     "choice": "minimax-global-api",
     "provider": "minimax",
+    "plugin": "minimax",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -242,6 +266,7 @@
   {
     "choice": "nvidia-api-key",
     "provider": "nvidia",
+    "plugin": "nvidia",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -252,6 +277,7 @@
   {
     "choice": "ollama",
     "provider": "ollama",
+    "plugin": "ollama",
     "billing": "local",
     "via": "browser",
     "prerequisite": null,
@@ -262,6 +288,7 @@
   {
     "choice": "ollama-cloud",
     "provider": "ollama-cloud",
+    "plugin": "ollama",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -272,6 +299,7 @@
   {
     "choice": "openai-api-key",
     "provider": "openai",
+    "plugin": "openai",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -282,6 +310,7 @@
   {
     "choice": "opencode-go",
     "provider": "opencode-go",
+    "plugin": "opencode-go",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -292,6 +321,7 @@
   {
     "choice": "openrouter-api-key",
     "provider": "openrouter",
+    "plugin": "openrouter",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -302,6 +332,7 @@
   {
     "choice": "runway-api-key",
     "provider": "runway",
+    "plugin": "runway",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -312,16 +343,18 @@
   {
     "choice": "setup-token",
     "provider": "anthropic",
-    "billing": "api",
+    "plugin": "anthropic",
+    "billing": "subscription",
     "via": "browser",
     "prerequisite": null,
     "offer": false,
-    "reason": "Manual Anthropic token entry, not a subscription; never offered (D12).",
+    "reason": "byokit never adds Claude plan sign-in",
     "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)"
   },
   {
     "choice": "sglang",
     "provider": "sglang",
+    "plugin": "sglang",
     "billing": "local",
     "via": "browser",
     "prerequisite": null,
@@ -332,6 +365,7 @@
   {
     "choice": "together-api-key",
     "provider": "together",
+    "plugin": "together",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,
@@ -342,6 +376,7 @@
   {
     "choice": "vllm",
     "provider": "vllm",
+    "plugin": "vllm",
     "billing": "local",
     "via": "browser",
     "prerequisite": null,
@@ -352,6 +387,7 @@
   {
     "choice": "xai-api-key",
     "provider": "xai",
+    "plugin": "xai",
     "billing": "api",
     "via": "browser",
     "prerequisite": null,

@@ -2,6 +2,7 @@
 // only when the Gateway itself reports every provider signed in.
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { MEMBER_ID } from './members.ts';
 import { providers } from './signin.ts';
 import type { RetainedLogin } from './kit.ts';
 import type { SignInCtx } from './signin.ts';
@@ -50,6 +51,9 @@ export async function migrateRetainedLogin(
   member: Member,
   source: RetainedLogin,
 ): Promise<'staged' | 'nothing' | 'failed'> {
+  // The member id is the only thing between a caller and a credential write, and this runs before any transport
+  // could validate it (D9).
+  if (!MEMBER_ID.test(member)) throw new Error(`invalid member id: ${member}`);
   const path = sourceFile(source);
   if ('path' in source && !path) return 'nothing';
   const legacy = credentials(source, path);
@@ -59,17 +63,24 @@ export async function migrateRetainedLogin(
   await ctx.prepare();
   const agentDir = join(ctx.root, 'state', 'agents', member, 'agent');
   const staged = join(agentDir, 'auth-profiles.json');
-  if (!existsSync(staged)) {
+  // Only a staging this call wrote may ever be removed: the file is the member's live sign-in once the engine has
+  // imported it, and a failed run must not take that with it.
+  const wrote = !existsSync(staged);
+  if (wrote) {
     // Doctor canonicalizes legacy provider ids before importing; staging `auth.json` instead keeps the old id,
     // which looks signed in but cannot authenticate `openai/*` turns.
-    mkdirSync(agentDir, { recursive: true });
-    writeFileSync(staged, JSON.stringify({ version: 1, profiles: Object.fromEntries(
-      Object.entries(legacy).map(([provider, credential]) => [`${provider}:default`, credential])) }), { mode: 0o600 });
+    mkdirSync(agentDir, { recursive: true, mode: 0o700 });
+    const body = JSON.stringify({ version: 1, profiles: Object.fromEntries(
+      Object.entries(legacy).map(([provider, credential]) => [`${provider}:default`, credential])) });
+    // Written beside its home and renamed into place, so a reader never sees half a profile store.
+    const staging = `${staged}.staging-${process.pid}`;
+    writeFileSync(staging, body, { mode: 0o600 });
+    renameSync(staging, staged);
   }
   // The doctor's exit is a weak yes (it exits 0 even when it imports nothing), so a failed run only clears the
   // staging; retiring the original stays confirm's job.
   if (ctx.doctor().status !== 0) {
-    rmSync(staged, { force: true });
+    if (wrote) rmSync(staged, { force: true });
     return 'failed';
   }
   return 'staged';
@@ -81,6 +92,7 @@ export async function migrateRetainedLogin(
  * it was and the next boot retries it without asking the person to sign in again.
  */
 export async function confirmRetainedLogin(ctx: SignInCtx, member: Member, source: RetainedLogin): Promise<boolean> {
+  if (!MEMBER_ID.test(member)) throw new Error(`invalid member id: ${member}`);
   const original = 'path' in source ? source.path : undefined;
   const path = sourceFile(source);
   if (original && !path) return false;
