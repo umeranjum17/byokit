@@ -46,7 +46,7 @@ test('public types keep their frozen shapes (6.2)', () => {
   void [adopt, own, status, ref, start, receipt, blocked, snapshot, event, session, transport];
 });
 
-test('the internal seams are in place; bodies land with their work packages', () => {
+test('the internal seams are in place; bodies land with their work packages', async () => {
   for (const fn of [socketTransport, runCli, openTerminal, createAgents, closePane, closeTab, closeWorkspace, sealNotice, openNotice, herdrLink, serve]) {
     assert.equal(typeof fn, 'function');
   }
@@ -62,8 +62,10 @@ test('the internal seams are in place; bodies land with their work packages', ()
   // behavior lives in test/cli.test.ts and test/terminal.test.ts.
   assert.throws(() => runCli('herdr', {}, ['ok', 'bad\0arg']), /NUL/);
   assert.throws(() => openTerminal('herdr', {}, 'bad\0pane', { mode: 'observe', cols: 80, rows: 24 }), /NUL/);
-  assert.throws(() => closePane(call, 'w1:p1'), /H5/);
-  assert.throws(() => new Blocked({ call }).list(), /H5/);
+  // closePane/Blocked are real since H5: their behavior lives in test/close.test.ts and
+  // test/approvals.test.ts.
+  await assert.rejects(closePane(call, 'w1:p1'), (e: { code?: string }) => e.code === 'pane-unavailable');
+  assert.deepEqual(new Blocked({ call }).list(), []);
   assert.throws(() => sealNotice({} as never, new Uint8Array(32)), /H7/);
   assert.throws(() => herdrLink(null as never, { scopeOf: () => ({ workspaces: 'all' }) }), /H7/);
   assert.throws(() => serve(null as never), /H7/);

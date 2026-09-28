@@ -1,4 +1,7 @@
+import { createAgents, type Call } from './agents.ts';
+import { Blocked } from './approvals.ts';
 import { HERDR_PROTOCOL } from './constants.ts';
+import { closePane, closeTab, closeWorkspace } from './close.ts';
 import { Supervisor } from './supervise.ts';
 import type {
   AgentRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,
@@ -22,17 +25,31 @@ export class HerdrKit {
   private statusStops = new Set<() => void>();
   private generation = 0;
   private readonly o: HerdrKitOptions;
+  private readonly callAny: Call = (method, params, timeoutMs) =>
+    this.call(method as never, params as never, timeoutMs === undefined ? undefined : { timeoutMs });
+  private readonly agents: ReturnType<typeof createAgents>;
+  private readonly blockedList: Blocked;
   constructor(o: HerdrKitOptions) {
     this.o = o;
     this.supervisor = new Supervisor(o, (s) => { this.current = s; o.onState?.(s); });
+    this.agents = createAgents({ call: this.callAny, snapshot: () => this.snapshot() });
+    this.blockedList = new Blocked({ call: this.callAny });
   }
   get state(): HerdrState { return this.current; }
   private publish() { for (const fn of this.listeners) fn(this.snapshot()); }
   private update(e: HerdrEvent) {
     const raw = e as Raw;
-    const paneId = raw.pane_id ?? raw.pane?.pane_id;
-    const pane = this.tree.workspaces.flatMap((w) => w.tabs).flatMap((t) => t.panes).find((p) => p.id === paneId);
-    if (pane && (e.type === 'pane.agent_status_changed' || e.type === 'pane.agent_detected' || e.type === 'pane.updated')) {
+    const paneId = (raw.pane_id ?? raw.pane?.pane_id) as string | undefined;
+    let owner: { workspaceId: string; tabId: string } | undefined;
+    let pane: HerdrSnapshot['workspaces'][number]['tabs'][number]['panes'][number] | undefined;
+    for (const w of this.tree.workspaces) {
+      for (const t of w.tabs) {
+        const found = t.panes.find((p) => p.id === paneId);
+        if (found !== undefined) { pane = found; owner = { workspaceId: w.id, tabId: t.id }; }
+      }
+    }
+    if (pane !== undefined && owner !== undefined &&
+        (e.type === 'pane.agent_status_changed' || e.type === 'pane.agent_detected' || e.type === 'pane.updated')) {
       const a = raw.agent ?? raw.pane ?? raw;
       pane.agent = { status: 'unknown', revision: 0, ...pane.agent,
         ...(a.agent !== undefined ? { kind: a.agent } : {}),
@@ -41,8 +58,12 @@ export class HerdrKit {
         ...(a.launch_pending !== undefined ? { launchPending: a.launch_pending } : {}),
         ...(a.interactive_ready !== undefined ? { interactiveReady: a.interactive_ready } : {}),
       };
+      this.blockedList.update(paneId as string, pane.agent, owner);
     }
-    if (e.type === 'pane.closed') for (const tab of this.tree.workspaces.flatMap((w) => w.tabs)) tab.panes = tab.panes.filter((p) => p.id !== paneId);
+    if (e.type === 'pane.closed') {
+      this.blockedList.update(paneId as string, undefined, owner ?? { workspaceId: '', tabId: '' });
+      for (const tab of this.tree.workspaces.flatMap((w) => w.tabs)) tab.panes = tab.panes.filter((p) => p.id !== paneId);
+    }
     if (e.type === 'tab.closed') for (const w of this.tree.workspaces) w.tabs = w.tabs.filter((t) => t.id !== raw.tab_id);
     if (e.type === 'workspace.closed') this.tree.workspaces = this.tree.workspaces.filter((w) => w.id !== raw.workspace_id);
     this.publish();
@@ -74,6 +95,14 @@ export class HerdrKit {
     this.statusStops.clear();
     this.tree = { connected: true, workspaces };
     for (const event of buffered.splice(0)) this.update(event);
+    // Agents already blocked in the snapshot join the list; entries whose pane is gone resolve.
+    for (const entry of this.blockedList.list()) {
+      const still = this.tree.workspaces.some((w) => w.tabs.some((t) => t.panes.some((p) => p.id === entry.paneId)));
+      if (!still) this.blockedList.update(entry.paneId, undefined, entry);
+    }
+    for (const w of this.tree.workspaces) for (const t of w.tabs) for (const p of t.panes) {
+      if (p.agent?.status === 'blocked') this.blockedList.update(p.id, p.agent, { workspaceId: w.id, tabId: t.id });
+    }
     this.publish();
     for (const pane of this.tree.workspaces.flatMap((w) => w.tabs).flatMap((t) => t.panes)) {
       if (!pane.agent) continue;
@@ -115,6 +144,7 @@ export class HerdrKit {
   }
   async stop(): Promise<void> {
     ++this.generation;
+    for (const entry of this.blockedList.list()) this.blockedList.update(entry.paneId, undefined, entry);
     for (const stop of this.stops) stop(); this.stops.clear(); this.statusStops.clear();
     await this.supervisor.stop();
     this.transport = undefined;
@@ -137,17 +167,17 @@ export class HerdrKit {
   terminal(paneId: string, o: { mode: 'control' | 'observe'; cols: number; rows: number }): TerminalSession { return todo('terminal (H4)'); }
   snapshot(): HerdrSnapshot { return structuredClone(this.tree); }
   onChange(fn: (s: HerdrSnapshot) => void): () => void { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; }
-  startAgent(o: StartAgent): Promise<AgentRef> { return todo('startAgent (H5)'); }
-  prompt(target: AgentRef, text: string, o?: { wait?: { until?: AgentStatus[]; timeoutMs: number } }): Promise<PromptReceipt> { return todo('prompt (H5)'); }
-  sendKeys(target: AgentRef, keys: string[]): Promise<void> { return todo('sendKeys (H5)'); }
-  wait(target: AgentRef, o: { until?: AgentStatus[]; timeoutMs: number }): Promise<AgentStatus> { return todo('wait (H5)'); }
-  read(paneId: string, o?: { source?: 'visible' | 'recent' | 'recent_unwrapped' | 'detection'; lines?: number; ansi?: boolean }): Promise<{ text: string; truncated: boolean }> { return todo('read (H5)'); }
-  blocked(): BlockedAgent[] { return todo('blocked (H5)'); }
-  onBlocked(fn: (b: BlockedAgent, change: 'added' | 'resolved') => void): () => void { return todo('onBlocked (H5)'); }
-  answer(paneId: string, keys: string[], o: { revision: number }): Promise<void> { return todo('answer (H5)'); }
-  closePane(paneId: string): Promise<void> { return todo('closePane (H5)'); }
-  closeTab(tabId: string): Promise<void> { return todo('closeTab (H5)'); }
-  closeWorkspace(workspaceId: string): Promise<void> { return todo('closeWorkspace (H5)'); }
-  agentKinds(): Promise<string[]> { return todo('agentKinds (H5)'); }
-  installedAgentKinds(kinds: readonly string[], o: { path: string[] }): string[] { return todo('installedAgentKinds (H5)'); }
+  startAgent(o: StartAgent): Promise<AgentRef> { return this.agents.startAgent(o); }
+  prompt(target: AgentRef, text: string, o?: { wait?: { until?: AgentStatus[]; timeoutMs: number } }): Promise<PromptReceipt> { return this.agents.prompt(target, text, o); }
+  sendKeys(target: AgentRef, keys: string[]): Promise<void> { return this.agents.sendKeys(target, keys); }
+  wait(target: AgentRef, o: { until?: AgentStatus[]; timeoutMs: number }): Promise<AgentStatus> { return this.agents.wait(target, o); }
+  read(paneId: string, o?: { source?: 'visible' | 'recent' | 'recent_unwrapped' | 'detection'; lines?: number; ansi?: boolean }): Promise<{ text: string; truncated: boolean }> { return this.agents.read(paneId, o); }
+  blocked(): BlockedAgent[] { return this.blockedList.list(); }
+  onBlocked(fn: (b: BlockedAgent, change: 'added' | 'resolved') => void): () => void { return this.blockedList.on(fn); }
+  answer(paneId: string, keys: string[], o: { revision: number }): Promise<void> { return this.blockedList.answer(paneId, keys, o); }
+  closePane(paneId: string): Promise<void> { return closePane(this.callAny, paneId); }
+  closeTab(tabId: string): Promise<void> { return closeTab(this.callAny, tabId); }
+  closeWorkspace(workspaceId: string): Promise<void> { return closeWorkspace(this.callAny, workspaceId); }
+  agentKinds(): Promise<string[]> { return this.agents.agentKinds(); }
+  installedAgentKinds(kinds: readonly string[], o: { path: string[] }): string[] { return this.agents.installedAgentKinds(kinds, o); }
 }
