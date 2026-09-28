@@ -53,6 +53,7 @@ test('raw method connect forms: loopback stays usable, a trailing options object
       socket.once('error', reject);
     });
     assert.throws(() => new Socket().connect(53, '192.0.2.1', {}, () => {}), /byokit tests are offline.*192\.0\.2\.1/);
+    assert.throws(() => new Socket().connect(53, '192.0.2.1', { host: '127.0.0.1' }, () => {}), /byokit tests are offline.*192\.0\.2\.1/);
   } finally {
     await new Promise<void>((r) => server.close(() => r()));
     await new Promise<void>((r) => unix.close(() => r()));
