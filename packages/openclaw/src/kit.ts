@@ -1,5 +1,14 @@
 // The OpenClawKit facade: state, complete pass-through (D6), members, sign-in, runs, approvals, config (5.3).
 // Built in O4 (and O5/O6/O8 for the delegated parts); until then every body refuses to run.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { fileURLToPath } from 'node:url';
+import { PROTOCOL_VERSION } from './constants.ts';
+import { Engine } from './engine.ts';
+import { gatewayTransport } from './transport.ts';
+import { createMembers } from './members.ts';
+import { reconcileConfig, memoryLimited as configMemoryLimited } from './config.ts';
 import type {
   Approval,
   CallOptions,
@@ -44,50 +53,510 @@ export type KitOptions = {
 
 export type RetainedLogin = { path: string } | { record: Record<string, unknown> };
 
+const operatorMethods = new Set<string>([
+  'agent',
+  'agent.identity.get',
+  'agent.wait',
+  'agents.create',
+  'agents.delete',
+  'agents.files.get',
+  'agents.files.list',
+  'agents.files.set',
+  'agents.list',
+  'agents.update',
+  'agents.workspace.get',
+  'agents.workspace.list',
+  'approval.get',
+  'approval.history',
+  'approval.resolve',
+  'artifacts.download',
+  'artifacts.get',
+  'artifacts.list',
+  'assistant.media.get',
+  'attach.grant',
+  'attach.revoke',
+  'audit.activity.list',
+  'audit.list',
+  'audit.run.inspect',
+  'board.action',
+  'board.data.read',
+  'board.event',
+  'board.get',
+  'board.prompt.authorize',
+  'board.update',
+  'board.widget.appView',
+  'board.widget.grant',
+  'board.widget.put',
+  'channels.logout',
+  'channels.pairing.approve',
+  'channels.pairing.dismiss',
+  'channels.pairing.list',
+  'channels.start',
+  'channels.status',
+  'channels.stop',
+  'chat.abort',
+  'chat.history',
+  'chat.inject',
+  'chat.message.get',
+  'chat.metadata',
+  'chat.send',
+  'chat.startup',
+  'chat.toolTitles',
+  'commands.list',
+  'config.apply',
+  'config.get',
+  'config.openFile',
+  'config.patch',
+  'config.schema',
+  'config.schema.lookup',
+  'config.set',
+  'connect',
+  'controlUi.githubPreview',
+  'controlUi.sessionPreview',
+  'controlUi.sessionPullRequests.subscribe',
+  'conversations.list',
+  'conversations.send',
+  'conversations.turn',
+  'conversations.turn.cancel',
+  'cron.add',
+  'cron.get',
+  'cron.list',
+  'cron.remove',
+  'cron.run',
+  'cron.runs',
+  'cron.scratch.get',
+  'cron.scratch.set',
+  'cron.status',
+  'cron.update',
+  'desktop.launch',
+  'desktop.observe',
+  'device.pair.approve',
+  'device.pair.list',
+  'device.pair.reject',
+  'device.pair.remove',
+  'device.pair.rename',
+  'device.pair.setupCode',
+  'device.pair.setupStatus',
+  'device.scopes.requestUpgrade',
+  'device.scopes.waitUpgrade',
+  'device.token.revoke',
+  'device.token.rotate',
+  'diagnostics.lanes',
+  'diagnostics.stability',
+  'doctor.memory.backfillDreamDiary',
+  'doctor.memory.dedupeDreamDiary',
+  'doctor.memory.dreamDiary',
+  'doctor.memory.repairDreamingArtifacts',
+  'doctor.memory.resetDreamDiary',
+  'doctor.memory.resetGroundedShortTerm',
+  'doctor.memory.status',
+  'environments.create',
+  'environments.destroy',
+  'environments.list',
+  'environments.status',
+  'exec.approval.get',
+  'exec.approval.grants.list',
+  'exec.approval.grants.revoke',
+  'exec.approval.list',
+  'exec.approval.request',
+  'exec.approval.resolve',
+  'exec.approval.waitDecision',
+  'exec.approvals.get',
+  'exec.approvals.node.get',
+  'exec.approvals.node.set',
+  'exec.approvals.set',
+  'fs.listDir',
+  'gateway.identity.get',
+  'gateway.restart.preflight',
+  'gateway.restart.request',
+  'gateway.suspend.prepare',
+  'gateway.suspend.resume',
+  'gateway.suspend.status',
+  'health',
+  'hooks.status',
+  'last-heartbeat',
+  'logs.tail',
+  'mcp.app.callTool',
+  'mcp.app.listResourceTemplates',
+  'mcp.app.listResources',
+  'mcp.app.listTools',
+  'mcp.app.readResource',
+  'mcp.app.updateModelContext',
+  'mcp.app.view',
+  'memory.search',
+  'message.action',
+  'migrations.memory.apply',
+  'migrations.memory.plan',
+  'models.authLogout',
+  'models.authStatus',
+  'models.list',
+  'models.probe',
+  'nativeHook.invoke',
+  'node.describe',
+  'node.invoke',
+  'node.list',
+  'node.pair.approve',
+  'node.pair.list',
+  'node.pair.reject',
+  'node.pair.remove',
+  'node.pending.enqueue',
+  'node.rename',
+  'openclaw.approval.list',
+  'openclaw.changes.list',
+  'openclaw.chat',
+  'openclaw.chat.history',
+  'openclaw.setup.activate',
+  'openclaw.setup.auth.start',
+  'openclaw.setup.detect',
+  'openclaw.setup.prepare.start',
+  'openclaw.setup.verify',
+  'plugin.approval.list',
+  'plugin.approval.request',
+  'plugin.approval.resolve',
+  'plugin.approval.waitDecision',
+  'plugin.surface.refresh',
+  'plugins.inspect',
+  'plugins.install',
+  'plugins.list',
+  'plugins.refresh',
+  'plugins.search',
+  'plugins.sessionAction',
+  'plugins.setEnabled',
+  'plugins.uiDescriptors',
+  'plugins.uninstall',
+  'poll',
+  'portal.close',
+  'portal.list',
+  'portal.open',
+  'progressCard.get',
+  'progressCard.put',
+  'projects.add',
+  'projects.list',
+  'projects.register',
+  'projects.remove',
+  'projects.searchRemote',
+  'push.test',
+  'push.web.preferences.get',
+  'push.web.preferences.set',
+  'push.web.subscribe',
+  'push.web.test',
+  'push.web.unsubscribe',
+  'push.web.vapidPublicKey',
+  'question.get',
+  'question.list',
+  'question.request',
+  'question.resolve',
+  'question.waitAnswer',
+  'secrets.reload',
+  'secrets.resolve',
+  'secrets.store.delete',
+  'secrets.store.list',
+  'secrets.store.set',
+  'send',
+  'session.discussion.info',
+  'session.discussion.open',
+  'session.members.add',
+  'session.members.list',
+  'session.members.listEvidence',
+  'session.members.remove',
+  'session.suggestions.add',
+  'session.suggestions.list',
+  'session.suggestions.resolve',
+  'session.typing',
+  'session.visibility.set',
+  'sessions.abort',
+  'sessions.assignOwner',
+  'sessions.branches.list',
+  'sessions.branches.switch',
+  'sessions.catalog.archive',
+  'sessions.catalog.continue',
+  'sessions.catalog.list',
+  'sessions.catalog.read',
+  'sessions.catalog.startTerminal',
+  'sessions.cleanup',
+  'sessions.compact',
+  'sessions.compaction.branch',
+  'sessions.compaction.list',
+  'sessions.compaction.restore',
+  'sessions.companion.ask',
+  'sessions.companion.reset',
+  'sessions.companion.state',
+  'sessions.create',
+  'sessions.delete',
+  'sessions.describe',
+  'sessions.diff',
+  'sessions.dispatch',
+  'sessions.files.get',
+  'sessions.files.list',
+  'sessions.files.reveal',
+  'sessions.files.set',
+  'sessions.fork',
+  'sessions.get',
+  'sessions.github.publish',
+  'sessions.goal.clear',
+  'sessions.goal.update',
+  'sessions.groups.defaults',
+  'sessions.groups.delete',
+  'sessions.groups.list',
+  'sessions.groups.put',
+  'sessions.groups.rename',
+  'sessions.groups.update',
+  'sessions.list',
+  'sessions.messages.subscribe',
+  'sessions.messages.unsubscribe',
+  'sessions.move',
+  'sessions.observer.visibility',
+  'sessions.patch',
+  'sessions.patchMany',
+  'sessions.pluginPatch',
+  'sessions.preview',
+  'sessions.reclaim',
+  'sessions.recover',
+  'sessions.reset',
+  'sessions.resolve',
+  'sessions.rewind',
+  'sessions.search',
+  'sessions.send',
+  'sessions.steer',
+  'sessions.subscribe',
+  'sessions.usage',
+  'sessions.usage.logs',
+  'sessions.usage.timeseries',
+  'sessions.viewers.set',
+  'set-heartbeats',
+  'skills.curator.pin',
+  'skills.curator.restore',
+  'skills.curator.status',
+  'skills.curator.unpin',
+  'skills.detail',
+  'skills.install',
+  'skills.proposals.apply',
+  'skills.proposals.create',
+  'skills.proposals.evaluate',
+  'skills.proposals.events.list',
+  'skills.proposals.historyScan',
+  'skills.proposals.historyStatus',
+  'skills.proposals.inspect',
+  'skills.proposals.list',
+  'skills.proposals.quarantine',
+  'skills.proposals.reject',
+  'skills.proposals.requestRevision',
+  'skills.proposals.revise',
+  'skills.proposals.update',
+  'skills.search',
+  'skills.securityVerdicts',
+  'skills.skillCard',
+  'skills.status',
+  'skills.update',
+  'skills.upload.begin',
+  'skills.upload.chunk',
+  'skills.upload.commit',
+  'status',
+  'system-event',
+  'system-presence',
+  'system.info',
+  'talk.catalog',
+  'talk.client.close',
+  'talk.client.create',
+  'talk.client.steer',
+  'talk.client.toolCall',
+  'talk.client.transcript',
+  'talk.config',
+  'talk.mode',
+  'talk.session.acknowledgeMark',
+  'talk.session.appendAudio',
+  'talk.session.cancelOutput',
+  'talk.session.close',
+  'talk.session.create',
+  'talk.session.steer',
+  'talk.session.submitToolResult',
+  'talk.speak',
+  'taskSuggestions.accept',
+  'taskSuggestions.create',
+  'taskSuggestions.dismiss',
+  'taskSuggestions.list',
+  'tasks.cancel',
+  'tasks.dismiss',
+  'tasks.get',
+  'tasks.list',
+  'tasks.retry',
+  'terminal.attach',
+  'terminal.close',
+  'terminal.input',
+  'terminal.list',
+  'terminal.open',
+  'terminal.resize',
+  'terminal.upload',
+  'tools.catalog',
+  'tools.effective',
+  'tools.github.authorize.cancel',
+  'tools.github.authorize.poll',
+  'tools.github.authorize.start',
+  'tools.github.configure',
+  'tools.github.status',
+  'tools.invoke',
+  'tts.convert',
+  'tts.disable',
+  'tts.enable',
+  'tts.personas',
+  'tts.providers',
+  'tts.setPersona',
+  'tts.setProvider',
+  'tts.speak',
+  'tts.status',
+  'ui.command',
+  'update.hold',
+  'update.run',
+  'update.status',
+  'usage.cost',
+  'usage.status',
+  'users.linkEmail',
+  'users.list',
+  'users.prefs.get',
+  'users.prefs.set',
+  'users.self',
+  'users.setAvatar',
+  'users.setDisplayName',
+  'users.setRole',
+  'voicewake.get',
+  'voicewake.routing.get',
+  'voicewake.set',
+  'wake',
+  'web.login.start',
+  'web.login.wait',
+  'wizard.cancel',
+  'wizard.next',
+  'wizard.start',
+  'wizard.status',
+  'worker.desktop.launch',
+  'worker.desktop.observe',
+  'worktrees.branches',
+  'worktrees.create',
+  'worktrees.gc',
+  'worktrees.list',
+  'worktrees.remove',
+  'worktrees.restore',
+]);
+const nodeMethods = new Set<string>([
+  'node.event',
+  'node.invoke.progress',
+  'node.invoke.result',
+  'node.pending.ack',
+  'node.pending.drain',
+  'node.pending.pull',
+  'node.pluginSurface.refresh',
+  'node.pluginTools.update',
+  'node.runnerInventory.update',
+  'node.skills.update',
+  'skills.bins',
+]);
+
 export class OpenClawKit {
-  constructor(_o: KitOptions) {
-    throw new Error('not built: O4');
+  private readonly engine: Engine;
+  private readonly o: KitOptions;
+  private current: KitState = { phase: 'stopped' };
+  private transport?: GatewayTransport;
+  private greeting?: Hello;
+  private members?: ReturnType<typeof createMembers>;
+  private listeners = new Set<(e: { event: string; payload?: unknown }) => void>();
+  private off: (() => void)[] = [];
+  private starting?: Promise<void>;
+  private stopping = false;
+  private failures = 0;
+
+  constructor(o: KitOptions) {
+    if (o.tools?.length && !o.host) throw new Error('host required when tools are registered');
+    this.o = o;
+    this.engine = new Engine({ ...o, pluginId: o.plugin?.id ?? 'byokit', tools: o.tools ?? [], spawnEngine: o.spawnEngine !== false,
+      onState: (s) => this.setState(s), onExit: () => this.closed('engine exited') });
   }
 
-  get state(): KitState {
-    throw new Error('not built: O4');
-  }
-
-  prepare(): Promise<void> {
-    throw new Error('not built: O4');
-  }
+  private setState(s: KitState): void { this.current = s; this.o.onState?.(s); }
+  get state(): KitState { return this.current; }
+  prepare(): Promise<void> { return this.engine.prepare(); }
 
   start(): Promise<void> {
-    throw new Error('not built: O4');
+    if (this.current.phase === 'ready') return Promise.resolve();
+    if (this.starting) return this.starting;
+    this.stopping = false;
+    const task = this.connect();
+    this.starting = task;
+    void task.finally(() => { if (this.starting === task) this.starting = undefined; }).catch(() => {});
+    return task;
   }
 
-  stop(): Promise<void> {
-    throw new Error('not built: O4');
+  private async connect(): Promise<void> {
+    let transport: GatewayTransport | undefined;
+    try {
+      const ctx = await this.engine.start();
+      if (this.stopping) return;
+      this.setState({ phase: 'starting' });
+      transport = (this.o.transport ?? gatewayTransport)({ ...ctx, bridgeSock: this.engine.bridgeSock });
+      this.transport = transport;
+      this.off = [transport.onEvent((e) => { for (const fn of this.listeners) fn(e); }), transport.onClose((why) => this.closed(why))];
+      const hello = await Promise.race([transport.start(), delay(90_000, undefined, { ref: false }).then(() => { throw new Error('gateway handshake timed out'); })]);
+      if (this.stopping || this.transport !== transport) return;
+      if (hello.protocol !== PROTOCOL_VERSION) {
+        this.setState({ phase: 'needs-update', why: 'version' });
+        throw new Error(`gateway protocol ${hello.protocol} != ${PROTOCOL_VERSION}`);
+      }
+      this.greeting = hello;
+      for (const name of operatorMethods) if (!hello.methods.includes(name)) this.o.log?.(`gateway missing generated method: ${name}`);
+      for (const name of hello.methods) if (!operatorMethods.has(name) && !nodeMethods.has(name)) this.o.log?.(`gateway has unknown method: ${name}`);
+      this.members = createMembers({ request: transport.request.bind(transport), root: this.engine.root });
+      this.failures = 0;
+      this.setState({ phase: 'ready' });
+    } catch (error) {
+      if (transport && this.transport === transport) await this.disconnect();
+      if (this.current.phase !== 'needs-update' && !this.stopping) this.setState({ phase: 'failed', why: 'handshake' });
+      throw error;
+    }
   }
 
-  // complete pass-through (D6)
-  call<M extends GatewayMethod>(_method: M, _params: GatewayParams<M>, _o?: CallOptions): Promise<GatewayResult<M>> {
-    throw new Error('not built: O4');
+  private async disconnect(): Promise<void> {
+    this.off.splice(0).forEach((fn) => fn());
+    const transport = this.transport;
+    this.transport = undefined; this.greeting = undefined; this.members = undefined;
+    await transport?.stop();
   }
 
-  callDynamic(_method: string, _params?: unknown, _o?: CallOptions): Promise<unknown> {
-    throw new Error('not built: O4');
+  private closed(_why: string): void {
+    if (this.stopping || this.current.phase !== 'ready') return;
+    void this.disconnect();
+    if (this.o.spawnEngine === false) { this.setState({ phase: 'failed', why: 'handshake' }); return; }
+    const retryAt = Date.now() + Math.min(30_000, 1000 * 2 ** this.failures++);
+    this.setState({ phase: 'restarting', retryAt });
+    void delay(retryAt - Date.now()).then(() => { if (!this.stopping && this.current.phase === 'restarting') void this.start().catch(() => {}); });
   }
 
-  get hello(): Hello | undefined {
-    throw new Error('not built: O4');
+  async stop(): Promise<void> {
+    this.stopping = true;
+    await this.disconnect();
+    await this.engine.stop();
   }
 
-  onEvent<E extends GatewayEventName>(
-    _event: E | '*',
-    _fn: (payload: GatewayEventPayload<E>, event: E) => void,
-  ): () => void {
-    throw new Error('not built: O4');
+  private request(): GatewayTransport['request'] {
+    if (!this.transport || this.current.phase !== 'ready') throw new Error('gateway not ready');
+    return this.transport.request.bind(this.transport);
   }
-
-  // members
-  ensureMember(_member: Member): Promise<{ agentId: string; workspace: string }> {
-    throw new Error('not built: O4');
+  call<M extends GatewayMethod>(method: M, params: GatewayParams<M>, o?: CallOptions): Promise<GatewayResult<M>> {
+    return this.request()(method, params, o) as Promise<GatewayResult<M>>;
+  }
+  callDynamic(method: string, params?: unknown, o?: CallOptions): Promise<unknown> {
+    if (operatorMethods.has(method) || nodeMethods.has(method)) return Promise.reject(new Error(`use typed call for generated method: ${method}`));
+    try { return this.request()(method, params, o); } catch (error) { return Promise.reject(error); }
+  }
+  get hello(): Hello | undefined { return this.greeting; }
+  onEvent<E extends GatewayEventName>(event: E | '*', fn: (payload: GatewayEventPayload<E>, event: E) => void): () => void {
+    const listener = (e: { event: string; payload?: unknown }) => {
+      if (event === '*' || e.event === event) fn(e.payload as GatewayEventPayload<E>, e.event as E);
+    };
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+  ensureMember(member: Member): Promise<{ agentId: string; workspace: string }> {
+    if (!this.members) return Promise.reject(new Error('gateway not ready'));
+    return this.members.ensure(member);
   }
 
   // sign-in (5.7)
@@ -161,15 +630,19 @@ export class OpenClawKit {
   }
 
   // config
-  patchConfig(_patch: object, _o?: { agentId?: string }): Promise<void> {
-    throw new Error('not built: O4');
+  async patchConfig(patch: object, o?: { agentId?: string }): Promise<void> {
+    const response = await this.request()('config.get') as { hash: string; config?: object };
+    const safe = reconcileConfig(response.config, { root: this.engine.root, stateDir: this.o.stateDir,
+      port: Number(readFileSync(join(this.engine.root, 'port'), 'utf8')), pluginId: this.o.plugin?.id ?? 'byokit',
+      pluginDir: join(this.engine.root, 'plugin'), policyPath: fileURLToPath(new URL('../policy/policy.mjs', import.meta.url)), app: patch,
+      installPolicy: this.o.installPolicy });
+    await this.request()('config.patch', { raw: JSON.stringify(safe), baseHash: response.hash, ...(o?.agentId ? { agentId: o.agentId } : {}) });
   }
 
-  memoryLimited(_member: Member): boolean {
-    throw new Error('not built: O4');
+  memoryLimited(member: Member): boolean {
+    const config = JSON.parse(readFileSync(join(this.engine.root, 'openclaw.json'), 'utf8')) as object;
+    return configMemoryLimited(config, member);
   }
 
-  doctorContext(): { entry: string; env: Record<string, string> } {
-    throw new Error('not built: O4');
-  }
+  doctorContext(): { entry: string; env: Record<string, string> } { return this.engine.doctorContext(); }
 }

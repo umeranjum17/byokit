@@ -1,5 +1,5 @@
 // Every documented export exists on its entry (5.3, 7.1, 7.2), the frozen constants carry the pins (D4, D6), and
-// the stubs refuse to run. Type names are exercised at compile time; value names at runtime.
+// unbuilt stubs refuse to run. Type names are exercised at compile time; value names at runtime.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as kit from '../src/index.ts';
@@ -77,8 +77,9 @@ test('the `./testing` entry exports the fake, the contract suite and the model s
   assert.equal(typeof testing.useModelStub, 'function');
 });
 
-test('every unbuilt stub refuses to run instead of pretending', () => {
-  assert.throws(() => new kit.OpenClawKit({ stateDir: '.' }), /not built: O4/);
+test('the O4 facade constructs without side effects; unbuilt stubs still refuse', () => {
+  const facade = new kit.OpenClawKit({ stateDir: '.' });
+  assert.deepEqual(facade.state, { phase: 'stopped' });
   assert.throws(() => device.openclawDevice({} as never), /not built: O9/);
   assert.throws(() => link.openclawLink(null as never, { memberOf: () => undefined }), /not built: O9/);
 });
