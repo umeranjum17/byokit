@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { createConnection, type AddressInfo, type Socket } from 'node:net';
+import { createConnection, type AddressInfo, Socket } from 'node:net';
 import { Accounts, memoryStore } from '../src/index.ts';
 import { scratchDir } from '../../test-support.ts';
 
@@ -36,7 +36,7 @@ test('Unix-socket IPC still connects', async () => {
   } finally { await new Promise<void>((r) => server.close(() => r())); }
 });
 
-test('flat loopback connect forms stay usable (port with a listener callback, unix path with one)', { skip: !guarded }, async () => {
+test('raw method connect forms: loopback stays usable, a trailing options object cannot shadow a public host', { skip: !guarded }, async () => {
   const path = `${scratchDir('egress')}/sock-flat`;
   const server = createServer(() => {});
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
@@ -45,13 +45,14 @@ test('flat loopback connect forms stay usable (port with a listener callback, un
   const { port } = server.address() as AddressInfo;
   try {
     await new Promise<void>((resolve, reject) => {
-      const socket: Socket = createConnection(port, () => { socket.destroy(); resolve(); });
+      const socket: Socket = new Socket().connect(port, () => { socket.destroy(); resolve(); });
       socket.once('error', reject);
     });
     await new Promise<void>((resolve, reject) => {
-      const socket: Socket = createConnection(path, () => { socket.destroy(); resolve(); });
+      const socket: Socket = new Socket().connect(path, () => { socket.destroy(); resolve(); });
       socket.once('error', reject);
     });
+    assert.throws(() => new Socket().connect(53, '192.0.2.1', {}, () => {}), /byokit tests are offline.*192\.0\.2\.1/);
   } finally {
     await new Promise<void>((r) => server.close(() => r()));
     await new Promise<void>((r) => unix.close(() => r()));
