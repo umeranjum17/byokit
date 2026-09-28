@@ -7,7 +7,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { readFileSync } from 'node:fs';
 import { OpenClawKit } from '../../src/kit.ts';
+import { gatewayTransport } from '../../src/transport.ts';
 
 async function until(there: () => boolean, ms = 30_000): Promise<void> {
   for (let waited = 0; waited < ms; waited += 250) {
@@ -38,17 +40,34 @@ test('a raised exec approval arrives, attributes, and resolves', { timeout: 360_
         await delay(2000);
       }
     }
-    const requested = await kit.call('exec.approval.request', {
-      id: 'engine-exec-1',
-      command: 'echo engine',
-      agentId: 'alice',
-      sessionKey: 'agent:alice:engine:1',
+    // Raised over a second operator connection, like a real run would: the engine broadcasts requested
+    // events to approval-capable connections, and the kit must list, attribute and resolve them.
+    const root = join(stateDir, 'openclaw');
+    const second = gatewayTransport({
+      port: Number(readFileSync(join(root, 'port'), 'utf8')),
+      token: readFileSync(join(root, 'token'), 'utf8').trim(),
+      identityPath: join(root, 'device.json'),
+      bridgeSock: join(root, 'bridge.sock'),
     });
-    assert.equal((requested as { id: string }).id, 'engine-exec-1');
-    await until(() => kit.approvals('alice').some((a) => a.id === 'engine-exec-1'));
-    assert.equal(kit.approvals('alice')[0].source, 'exec');
-    await kit.decide('engine-exec-1', { allow: false });
-    await until(() => kit.approvals().length === 0);
+    await second.start();
+    try {
+      // The request blocks until the approval resolves, so it stays in flight while the kit decides.
+      const pending = second.request('exec.approval.request', {
+        id: 'engine-exec-1',
+        command: 'echo engine',
+        agentId: 'alice',
+        sessionKey: 'agent:alice:engine:1',
+      });
+      await until(() => kit.approvals('alice').some((a) => a.id === 'engine-exec-1'));
+      assert.equal(kit.approvals('alice')[0].source, 'exec');
+      assert.match(kit.approvals('alice')[0].summary, /echo engine/);
+      await kit.decide('engine-exec-1', { allow: false });
+      const requested = await pending;
+      assert.equal((requested as { decision: string }).decision, 'deny');
+      await until(() => kit.approvals().length === 0);
+    } finally {
+      await second.stop();
+    }
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });
