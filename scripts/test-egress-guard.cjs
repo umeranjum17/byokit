@@ -22,13 +22,20 @@ if (!globalThis.__byokitEgressGuard) {
     const flat = args.flat(); // callers spread argument objects, so the real options can sit one level deep
     const object = flat.find((a) => a !== null && typeof a === 'object');
     if (object ? object.path === undefined : true) { // a path is a Unix socket / named pipe, always local
-      const host = object ? object.host : flat[1];
+      const host = object ? object.host : (typeof flat[1] === 'string' ? flat[1] : undefined); // a non-string second arg is the connect listener; the host then defaults to localhost
       if (!loopback(host)) throw deny('an outbound connection', `${host ?? flat[0]}:${object ? object.port : flat[0]}`);
     }
     return connect.apply(this, args);
   };
 
   const dgram = require('node:dgram');
+  const dconnect = dgram.Socket.prototype.connect;
+  dgram.Socket.prototype.connect = function (...args) {
+    const flat = args.flat();
+    const address = typeof flat[1] === 'string' ? flat[1] : undefined; // a non-string second arg is the callback; the address then defaults to loopback
+    if (!loopback(address)) throw deny('an outbound datagram connection', `${address}:${flat[0]}`);
+    return dconnect.apply(this, args);
+  };
   const send = dgram.Socket.prototype.send;
   dgram.Socket.prototype.send = function (...args) {
     const tail = args.filter((a) => a !== undefined);

@@ -36,6 +36,28 @@ test('Unix-socket IPC still connects', async () => {
   } finally { await new Promise<void>((r) => server.close(() => r())); }
 });
 
+test('flat loopback connect forms stay usable (port with a listener callback, unix path with one)', { skip: !guarded }, async () => {
+  const path = `${scratchDir('egress')}/sock-flat`;
+  const server = createServer(() => {});
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const unix = createServer().listen(path);
+  await new Promise<void>((r) => unix.on('listening', r));
+  const { port } = server.address() as AddressInfo;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const socket: Socket = createConnection(port, () => { socket.destroy(); resolve(); });
+      socket.once('error', reject);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const socket: Socket = createConnection(path, () => { socket.destroy(); resolve(); });
+      socket.once('error', reject);
+    });
+  } finally {
+    await new Promise<void>((r) => server.close(() => r()));
+    await new Promise<void>((r) => unix.close(() => r()));
+  }
+});
+
 test('a public address is denied immediately, with no dial', { skip: !guarded }, async () => {
   // 192.0.2.0/24 is documentation-only: reachable nowhere, so the only way this rejects is the guard itself.
   await assert.rejects(fetch('http://192.0.2.1/probe', { signal: AbortSignal.timeout(2_000) }), blocked);
@@ -55,5 +77,6 @@ test('a datagram to a public address is denied', { skip: !guarded }, async () =>
   const socket = createSocket('udp4');
   try {
     assert.throws(() => socket.send(Buffer.from('ping'), 53, '192.0.2.1'), /byokit tests are offline.*192\.0\.2\.1/);
+    assert.throws(() => socket.connect(53, '192.0.2.1'), /byokit tests are offline.*192\.0\.2\.1/);
   } finally { socket.close(); }
 });
