@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { HERDR_PROTOCOL } from '../src/constants.ts';
 import { HerdrKit } from '../src/kit.ts';
@@ -111,9 +111,9 @@ test('own spawns only the task-owned fake binary with explicit isolated environm
   const dir = scratchDir('kit-own');
   const bin = writeBinShim({ dir, socketPath: join(dir, 'unused.sock') });
   const stateDir = join(dir, 'state');
-  const supervisor = new Supervisor({ mode: 'own', bin, stateDir, path: ['/usr/bin', '/bin'], env: { TEST_ONLY: 'yes' } }, () => {});
-  const transport = await supervisor.start();
+  const supervisor = new Supervisor({ mode: 'own', bin, stateDir, path: [dirname(process.execPath), '/usr/bin', '/bin'], env: { TEST_ONLY: 'yes' } }, () => {});
   try {
+    const transport = await supervisor.start();
     assert.equal((await transport.call('ping', {}) as { protocol: number }).protocol, HERDR_PROTOCOL);
     assert.equal(supervisor.env().HOME, join(stateDir, 'herdr/home'));
     assert.equal(supervisor.env().TEST_ONLY, 'yes');
