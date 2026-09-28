@@ -77,9 +77,8 @@ test('the `./testing` entry exports the fake, the contract suite and the model s
   assert.equal(typeof testing.useModelStub, 'function');
 });
 
-test('every stub refuses to run instead of pretending', () => {
+test('every unbuilt stub refuses to run instead of pretending', () => {
   assert.throws(() => new kit.OpenClawKit({ stateDir: '.' }), /not built: O4/);
   assert.throws(() => device.openclawDevice({} as never), /not built: O9/);
   assert.throws(() => link.openclawLink(null as never, { memberOf: () => undefined }), /not built: O9/);
-  assert.throws(() => testing.fakeGateway(), /not built: O7/);
 });
