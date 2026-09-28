@@ -1021,7 +1021,8 @@ examples/herdr-kit/     package.json  host.ts  web/index.html  web/app.ts  READM
 
 ## 9. Tests, CI and isolation
 
-- Every kit test runs under `scripts/test.sh` (throwaway HOME, `~/.pi` byte check, temp-dir leak check); temp dirs
+- Every kit test runs under `scripts/test.sh` (throwaway HOME, `~/.pi` byte check, temp-dir leak check, an egress
+  guard that blocks non-loopback connects and datagrams in every node of the run); temp dirs
   use the `byokit-` prefix helper in `packages/test-support.ts`.
 - Portability: `packages/openclaw/test/portable.test.ts` and `packages/herdr/test/portable.test.ts` bundle
   `./device` for `browser` and `react-native` conditions with esbuild and fail on any `node:*` or Node-only import

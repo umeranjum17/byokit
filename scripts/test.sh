@@ -13,6 +13,9 @@ throwaway=$(mktemp -d)
 trap 'rm -rf "$throwaway"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+# Tests are offline by contract; the guard makes an outbound dial fail loudly instead of leaving the machine.
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $root/scripts/test-egress-guard.cjs"
 [ $# -gt 0 ] || set -- 'packages/*/test/*.test.ts'
 # Browsers Playwright installed stay where they are; nothing else of the real HOME is seen.
 if PLAYWRIGHT_BROWSERS_PATH=${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright} HOME="$throwaway" node --test --test-concurrency=1 "$@"; then test_status=0; else test_status=$?; fi

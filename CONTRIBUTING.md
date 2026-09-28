@@ -11,7 +11,7 @@ Node 22.18 or later.
 npm ci
 npm run build   # tsc -b: each package's dist/
 npm run check   # tsc over sources and tests, strict
-npm test        # every test in a throwaway HOME, then a byte-for-byte check of your real ~/.pi
+npm test        # every test in a throwaway HOME (outbound network blocked; loopback fakes stay usable), then a byte-for-byte check of your real ~/.pi
 npm run test:browser   # the PWA example in headless Chromium (npx playwright install chromium, or BYOKIT_CHROME)
 ```
 
