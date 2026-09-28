@@ -1,8 +1,1322 @@
 {
   "engine": "2026.8.1",
   "protocol": 4,
-  "methods": 0,
-  "matchedParams": 0,
-  "matchedResults": 0,
-  "unmatched": []
+  "package": "openclaw",
+  "methods": 393,
+  "operatorMethods": 382,
+  "nodeMethods": 11,
+  "events": 55,
+  "matchedParams": 301,
+  "matchedResults": 192,
+  "matchedEvents": 21,
+  "unmatched": [
+    {
+      "method": "agent",
+      "slot": "params"
+    },
+    {
+      "method": "agent",
+      "slot": "result"
+    },
+    {
+      "method": "agent.identity.get",
+      "slot": "params"
+    },
+    {
+      "method": "agent.identity.get",
+      "slot": "result"
+    },
+    {
+      "method": "agent.wait",
+      "slot": "result"
+    },
+    {
+      "method": "assistant.media.get",
+      "slot": "params"
+    },
+    {
+      "method": "assistant.media.get",
+      "slot": "result"
+    },
+    {
+      "method": "attach.grant",
+      "slot": "params"
+    },
+    {
+      "method": "attach.grant",
+      "slot": "result"
+    },
+    {
+      "method": "attach.revoke",
+      "slot": "params"
+    },
+    {
+      "method": "attach.revoke",
+      "slot": "result"
+    },
+    {
+      "method": "board.action",
+      "slot": "result"
+    },
+    {
+      "method": "board.data.read",
+      "slot": "result"
+    },
+    {
+      "method": "board.event",
+      "slot": "result"
+    },
+    {
+      "method": "board.get",
+      "slot": "result"
+    },
+    {
+      "method": "board.prompt.authorize",
+      "slot": "result"
+    },
+    {
+      "method": "board.update",
+      "slot": "result"
+    },
+    {
+      "method": "board.widget.grant",
+      "slot": "result"
+    },
+    {
+      "method": "channels.logout",
+      "slot": "result"
+    },
+    {
+      "method": "channels.start",
+      "slot": "result"
+    },
+    {
+      "method": "channels.stop",
+      "slot": "result"
+    },
+    {
+      "method": "chat.abort",
+      "slot": "result"
+    },
+    {
+      "method": "chat.history",
+      "slot": "result"
+    },
+    {
+      "method": "chat.inject",
+      "slot": "result"
+    },
+    {
+      "method": "chat.message.get",
+      "slot": "params"
+    },
+    {
+      "method": "chat.metadata",
+      "slot": "result"
+    },
+    {
+      "event": "chat.metadata.changed",
+      "slot": "payload"
+    },
+    {
+      "method": "chat.send",
+      "slot": "params"
+    },
+    {
+      "method": "chat.send",
+      "slot": "result"
+    },
+    {
+      "method": "chat.startup",
+      "slot": "params"
+    },
+    {
+      "method": "chat.startup",
+      "slot": "result"
+    },
+    {
+      "method": "config.apply",
+      "slot": "result"
+    },
+    {
+      "method": "config.get",
+      "slot": "result"
+    },
+    {
+      "method": "config.openFile",
+      "slot": "params"
+    },
+    {
+      "method": "config.openFile",
+      "slot": "result"
+    },
+    {
+      "method": "config.patch",
+      "slot": "result"
+    },
+    {
+      "method": "config.schema",
+      "slot": "result"
+    },
+    {
+      "method": "config.set",
+      "slot": "result"
+    },
+    {
+      "method": "connect",
+      "slot": "result"
+    },
+    {
+      "event": "connect.challenge",
+      "slot": "payload"
+    },
+    {
+      "method": "controlUi.githubPreview",
+      "slot": "params"
+    },
+    {
+      "method": "controlUi.githubPreview",
+      "slot": "result"
+    },
+    {
+      "method": "controlUi.sessionPreview",
+      "slot": "params"
+    },
+    {
+      "method": "controlUi.sessionPreview",
+      "slot": "result"
+    },
+    {
+      "event": "controlUi.sessionPullRequests.changed",
+      "slot": "payload"
+    },
+    {
+      "method": "controlUi.sessionPullRequests.subscribe",
+      "slot": "params"
+    },
+    {
+      "method": "controlUi.sessionPullRequests.subscribe",
+      "slot": "result"
+    },
+    {
+      "event": "cron",
+      "slot": "payload"
+    },
+    {
+      "method": "cron.get",
+      "slot": "result"
+    },
+    {
+      "method": "cron.list",
+      "slot": "result"
+    },
+    {
+      "method": "cron.remove",
+      "slot": "result"
+    },
+    {
+      "method": "cron.run",
+      "slot": "result"
+    },
+    {
+      "method": "cron.runs",
+      "slot": "result"
+    },
+    {
+      "method": "cron.status",
+      "slot": "result"
+    },
+    {
+      "method": "cron.update",
+      "slot": "result"
+    },
+    {
+      "method": "desktop.launch",
+      "slot": "result"
+    },
+    {
+      "method": "device.pair.approve",
+      "slot": "result"
+    },
+    {
+      "event": "device.pair.changed",
+      "slot": "payload"
+    },
+    {
+      "method": "device.pair.list",
+      "slot": "result"
+    },
+    {
+      "method": "device.pair.reject",
+      "slot": "result"
+    },
+    {
+      "method": "device.pair.remove",
+      "slot": "result"
+    },
+    {
+      "method": "device.pair.rename",
+      "slot": "result"
+    },
+    {
+      "event": "device.pair.requested",
+      "slot": "payload"
+    },
+    {
+      "event": "device.pair.resolved",
+      "slot": "payload"
+    },
+    {
+      "method": "device.scopes.requestUpgrade",
+      "slot": "params"
+    },
+    {
+      "method": "device.scopes.requestUpgrade",
+      "slot": "result"
+    },
+    {
+      "method": "device.scopes.waitUpgrade",
+      "slot": "params"
+    },
+    {
+      "method": "device.scopes.waitUpgrade",
+      "slot": "result"
+    },
+    {
+      "method": "device.token.revoke",
+      "slot": "result"
+    },
+    {
+      "method": "diagnostics.lanes",
+      "slot": "params"
+    },
+    {
+      "method": "diagnostics.lanes",
+      "slot": "result"
+    },
+    {
+      "method": "diagnostics.stability",
+      "slot": "params"
+    },
+    {
+      "method": "diagnostics.stability",
+      "slot": "result"
+    },
+    {
+      "method": "doctor.memory.backfillDreamDiary",
+      "slot": "params"
+    },
+    {
+      "method": "doctor.memory.backfillDreamDiary",
+      "slot": "result"
+    },
+    {
+      "method": "doctor.memory.dedupeDreamDiary",
+      "slot": "params"
+    },
+    {
+      "method": "doctor.memory.dedupeDreamDiary",
+      "slot": "result"
+    },
+    {
+      "method": "doctor.memory.dreamDiary",
+      "slot": "params"
+    },
+    {
+      "method": "doctor.memory.dreamDiary",
+      "slot": "result"
+    },
+    {
+      "method": "doctor.memory.repairDreamingArtifacts",
+      "slot": "params"
+    },
+    {
+      "method": "doctor.memory.repairDreamingArtifacts",
+      "slot": "result"
+    },
+    {
+      "method": "doctor.memory.resetDreamDiary",
+      "slot": "params"
+    },
+    {
+      "method": "doctor.memory.resetDreamDiary",
+      "slot": "result"
+    },
+    {
+      "method": "doctor.memory.resetGroundedShortTerm",
+      "slot": "params"
+    },
+    {
+      "method": "doctor.memory.resetGroundedShortTerm",
+      "slot": "result"
+    },
+    {
+      "method": "doctor.memory.status",
+      "slot": "params"
+    },
+    {
+      "method": "doctor.memory.status",
+      "slot": "result"
+    },
+    {
+      "method": "exec.approval.get",
+      "slot": "result"
+    },
+    {
+      "method": "exec.approval.list",
+      "slot": "params"
+    },
+    {
+      "method": "exec.approval.list",
+      "slot": "result"
+    },
+    {
+      "method": "exec.approval.request",
+      "slot": "result"
+    },
+    {
+      "event": "exec.approval.requested",
+      "slot": "payload"
+    },
+    {
+      "method": "exec.approval.resolve",
+      "slot": "result"
+    },
+    {
+      "event": "exec.approval.resolved",
+      "slot": "payload"
+    },
+    {
+      "method": "exec.approval.waitDecision",
+      "slot": "params"
+    },
+    {
+      "method": "exec.approval.waitDecision",
+      "slot": "result"
+    },
+    {
+      "method": "exec.approvals.get",
+      "slot": "result"
+    },
+    {
+      "method": "exec.approvals.node.get",
+      "slot": "result"
+    },
+    {
+      "method": "exec.approvals.node.set",
+      "slot": "result"
+    },
+    {
+      "method": "exec.approvals.set",
+      "slot": "result"
+    },
+    {
+      "method": "gateway.identity.get",
+      "slot": "params"
+    },
+    {
+      "method": "gateway.identity.get",
+      "slot": "result"
+    },
+    {
+      "method": "gateway.restart.preflight",
+      "slot": "params"
+    },
+    {
+      "method": "gateway.restart.preflight",
+      "slot": "result"
+    },
+    {
+      "method": "gateway.restart.request",
+      "slot": "params"
+    },
+    {
+      "method": "gateway.restart.request",
+      "slot": "result"
+    },
+    {
+      "method": "health",
+      "slot": "params"
+    },
+    {
+      "method": "health",
+      "slot": "result"
+    },
+    {
+      "event": "health",
+      "slot": "payload"
+    },
+    {
+      "event": "heartbeat",
+      "slot": "payload"
+    },
+    {
+      "method": "hooks.status",
+      "slot": "result"
+    },
+    {
+      "method": "last-heartbeat",
+      "slot": "params"
+    },
+    {
+      "method": "last-heartbeat",
+      "slot": "result"
+    },
+    {
+      "method": "mcp.app.callTool",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.callTool",
+      "slot": "result"
+    },
+    {
+      "method": "mcp.app.listResources",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.listResources",
+      "slot": "result"
+    },
+    {
+      "method": "mcp.app.listResourceTemplates",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.listResourceTemplates",
+      "slot": "result"
+    },
+    {
+      "method": "mcp.app.listTools",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.listTools",
+      "slot": "result"
+    },
+    {
+      "method": "mcp.app.readResource",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.readResource",
+      "slot": "result"
+    },
+    {
+      "method": "mcp.app.updateModelContext",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.updateModelContext",
+      "slot": "result"
+    },
+    {
+      "method": "mcp.app.view",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.view",
+      "slot": "result"
+    },
+    {
+      "method": "memory.search",
+      "slot": "params"
+    },
+    {
+      "method": "memory.search",
+      "slot": "result"
+    },
+    {
+      "method": "message.action",
+      "slot": "result"
+    },
+    {
+      "method": "migrations.memory.apply",
+      "slot": "params"
+    },
+    {
+      "method": "migrations.memory.plan",
+      "slot": "params"
+    },
+    {
+      "method": "models.authLogout",
+      "slot": "result"
+    },
+    {
+      "method": "models.authStatus",
+      "slot": "result"
+    },
+    {
+      "method": "nativeHook.invoke",
+      "slot": "params"
+    },
+    {
+      "method": "nativeHook.invoke",
+      "slot": "result"
+    },
+    {
+      "method": "node.describe",
+      "slot": "result"
+    },
+    {
+      "method": "node.invoke",
+      "slot": "result"
+    },
+    {
+      "event": "node.invoke.cancel",
+      "slot": "payload"
+    },
+    {
+      "method": "node.invoke.progress",
+      "slot": "result"
+    },
+    {
+      "event": "node.invoke.request",
+      "slot": "payload"
+    },
+    {
+      "method": "node.invoke.result",
+      "slot": "result"
+    },
+    {
+      "method": "node.list",
+      "slot": "result"
+    },
+    {
+      "method": "node.pair.approve",
+      "slot": "result"
+    },
+    {
+      "method": "node.pair.list",
+      "slot": "result"
+    },
+    {
+      "method": "node.pair.reject",
+      "slot": "result"
+    },
+    {
+      "method": "node.pair.remove",
+      "slot": "result"
+    },
+    {
+      "event": "node.pair.requested",
+      "slot": "payload"
+    },
+    {
+      "event": "node.pair.resolved",
+      "slot": "payload"
+    },
+    {
+      "method": "node.pending.ack",
+      "slot": "result"
+    },
+    {
+      "method": "node.pending.pull",
+      "slot": "params"
+    },
+    {
+      "method": "node.pending.pull",
+      "slot": "result"
+    },
+    {
+      "method": "node.pluginSurface.refresh",
+      "slot": "params"
+    },
+    {
+      "method": "node.pluginSurface.refresh",
+      "slot": "result"
+    },
+    {
+      "method": "node.pluginTools.update",
+      "slot": "result"
+    },
+    {
+      "event": "node.presence",
+      "slot": "payload"
+    },
+    {
+      "method": "node.rename",
+      "slot": "result"
+    },
+    {
+      "event": "node.runnerInventory.changed",
+      "slot": "payload"
+    },
+    {
+      "method": "node.runnerInventory.update",
+      "slot": "params"
+    },
+    {
+      "method": "node.runnerInventory.update",
+      "slot": "result"
+    },
+    {
+      "method": "node.skills.update",
+      "slot": "result"
+    },
+    {
+      "method": "openclaw.approval.list",
+      "slot": "params"
+    },
+    {
+      "method": "openclaw.approval.list",
+      "slot": "result"
+    },
+    {
+      "event": "openclaw.approval.requested",
+      "slot": "payload"
+    },
+    {
+      "event": "openclaw.approval.resolved",
+      "slot": "payload"
+    },
+    {
+      "method": "openclaw.setup.prepare.start",
+      "slot": "result"
+    },
+    {
+      "method": "plugin.approval.list",
+      "slot": "params"
+    },
+    {
+      "method": "plugin.approval.list",
+      "slot": "result"
+    },
+    {
+      "method": "plugin.approval.request",
+      "slot": "result"
+    },
+    {
+      "event": "plugin.approval.requested",
+      "slot": "payload"
+    },
+    {
+      "method": "plugin.approval.resolve",
+      "slot": "result"
+    },
+    {
+      "event": "plugin.approval.resolved",
+      "slot": "payload"
+    },
+    {
+      "method": "plugin.approval.waitDecision",
+      "slot": "params"
+    },
+    {
+      "method": "plugin.approval.waitDecision",
+      "slot": "result"
+    },
+    {
+      "method": "plugin.surface.refresh",
+      "slot": "params"
+    },
+    {
+      "method": "plugin.surface.refresh",
+      "slot": "result"
+    },
+    {
+      "method": "poll",
+      "slot": "result"
+    },
+    {
+      "event": "presence",
+      "slot": "payload"
+    },
+    {
+      "method": "push.web.preferences.get",
+      "slot": "params"
+    },
+    {
+      "method": "push.web.preferences.get",
+      "slot": "result"
+    },
+    {
+      "method": "push.web.preferences.set",
+      "slot": "params"
+    },
+    {
+      "method": "push.web.preferences.set",
+      "slot": "result"
+    },
+    {
+      "method": "push.web.subscribe",
+      "slot": "params"
+    },
+    {
+      "method": "push.web.subscribe",
+      "slot": "result"
+    },
+    {
+      "method": "push.web.unsubscribe",
+      "slot": "params"
+    },
+    {
+      "method": "push.web.unsubscribe",
+      "slot": "result"
+    },
+    {
+      "method": "push.web.vapidPublicKey",
+      "slot": "params"
+    },
+    {
+      "method": "push.web.vapidPublicKey",
+      "slot": "result"
+    },
+    {
+      "method": "secrets.reload",
+      "slot": "params"
+    },
+    {
+      "method": "secrets.reload",
+      "slot": "result"
+    },
+    {
+      "method": "secrets.store.delete",
+      "slot": "result"
+    },
+    {
+      "method": "secrets.store.list",
+      "slot": "params"
+    },
+    {
+      "method": "secrets.store.set",
+      "slot": "result"
+    },
+    {
+      "method": "send",
+      "slot": "params"
+    },
+    {
+      "method": "send",
+      "slot": "result"
+    },
+    {
+      "method": "session.members.add",
+      "slot": "result"
+    },
+    {
+      "method": "session.members.listEvidence",
+      "slot": "params"
+    },
+    {
+      "method": "session.members.remove",
+      "slot": "result"
+    },
+    {
+      "event": "session.message",
+      "slot": "payload"
+    },
+    {
+      "event": "session.observer",
+      "slot": "payload"
+    },
+    {
+      "event": "session.tool",
+      "slot": "payload"
+    },
+    {
+      "method": "sessions.abort",
+      "slot": "result"
+    },
+    {
+      "event": "sessions.changed",
+      "slot": "payload"
+    },
+    {
+      "method": "sessions.cleanup",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.compact",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.describe",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.get",
+      "slot": "params"
+    },
+    {
+      "method": "sessions.get",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.github.publish",
+      "slot": "params"
+    },
+    {
+      "method": "sessions.github.publish",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.goal.clear",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.goal.update",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.groups.delete",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.groups.put",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.groups.rename",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.list",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.messages.subscribe",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.messages.unsubscribe",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.preview",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.reset",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.send",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.steer",
+      "slot": "params"
+    },
+    {
+      "method": "sessions.steer",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.subscribe",
+      "slot": "params"
+    },
+    {
+      "method": "sessions.subscribe",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.usage",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.usage.logs",
+      "slot": "params"
+    },
+    {
+      "method": "sessions.usage.logs",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.usage.timeseries",
+      "slot": "params"
+    },
+    {
+      "method": "sessions.usage.timeseries",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.viewers.set",
+      "slot": "params"
+    },
+    {
+      "method": "sessions.viewers.set",
+      "slot": "result"
+    },
+    {
+      "method": "set-heartbeats",
+      "slot": "params"
+    },
+    {
+      "method": "set-heartbeats",
+      "slot": "result"
+    },
+    {
+      "event": "skills.changed",
+      "slot": "payload"
+    },
+    {
+      "method": "skills.curator.pin",
+      "slot": "params"
+    },
+    {
+      "method": "skills.curator.pin",
+      "slot": "result"
+    },
+    {
+      "method": "skills.curator.restore",
+      "slot": "params"
+    },
+    {
+      "method": "skills.curator.restore",
+      "slot": "result"
+    },
+    {
+      "method": "skills.curator.unpin",
+      "slot": "params"
+    },
+    {
+      "method": "skills.curator.unpin",
+      "slot": "result"
+    },
+    {
+      "method": "skills.install",
+      "slot": "result"
+    },
+    {
+      "method": "skills.proposals.apply",
+      "slot": "result"
+    },
+    {
+      "method": "skills.proposals.create",
+      "slot": "result"
+    },
+    {
+      "method": "skills.proposals.historyStatus",
+      "slot": "result"
+    },
+    {
+      "method": "skills.proposals.quarantine",
+      "slot": "result"
+    },
+    {
+      "method": "skills.proposals.reject",
+      "slot": "result"
+    },
+    {
+      "method": "skills.proposals.revise",
+      "slot": "result"
+    },
+    {
+      "method": "skills.proposals.update",
+      "slot": "result"
+    },
+    {
+      "method": "skills.status",
+      "slot": "result"
+    },
+    {
+      "method": "skills.update",
+      "slot": "result"
+    },
+    {
+      "method": "skills.upload.begin",
+      "slot": "result"
+    },
+    {
+      "method": "skills.upload.chunk",
+      "slot": "result"
+    },
+    {
+      "method": "skills.upload.commit",
+      "slot": "result"
+    },
+    {
+      "method": "status",
+      "slot": "params"
+    },
+    {
+      "method": "status",
+      "slot": "result"
+    },
+    {
+      "method": "system-event",
+      "slot": "params"
+    },
+    {
+      "method": "system-event",
+      "slot": "result"
+    },
+    {
+      "method": "system-presence",
+      "slot": "params"
+    },
+    {
+      "method": "system-presence",
+      "slot": "result"
+    },
+    {
+      "method": "talk.client.close",
+      "slot": "result"
+    },
+    {
+      "method": "talk.client.steer",
+      "slot": "result"
+    },
+    {
+      "method": "talk.client.transcript",
+      "slot": "result"
+    },
+    {
+      "event": "talk.event",
+      "slot": "payload"
+    },
+    {
+      "method": "talk.mode",
+      "slot": "result"
+    },
+    {
+      "event": "talk.mode",
+      "slot": "payload"
+    },
+    {
+      "method": "talk.session.acknowledgeMark",
+      "slot": "result"
+    },
+    {
+      "method": "talk.session.appendAudio",
+      "slot": "result"
+    },
+    {
+      "method": "talk.session.close",
+      "slot": "result"
+    },
+    {
+      "method": "talk.session.steer",
+      "slot": "result"
+    },
+    {
+      "method": "talk.session.submitToolResult",
+      "slot": "result"
+    },
+    {
+      "event": "task",
+      "slot": "payload"
+    },
+    {
+      "method": "tasks.dismiss",
+      "slot": "params"
+    },
+    {
+      "method": "tasks.dismiss",
+      "slot": "result"
+    },
+    {
+      "method": "tasks.retry",
+      "slot": "params"
+    },
+    {
+      "method": "tasks.retry",
+      "slot": "result"
+    },
+    {
+      "method": "terminal.close",
+      "slot": "result"
+    },
+    {
+      "method": "terminal.input",
+      "slot": "result"
+    },
+    {
+      "method": "terminal.list",
+      "slot": "params"
+    },
+    {
+      "method": "terminal.resize",
+      "slot": "result"
+    },
+    {
+      "method": "tools.github.authorize.cancel",
+      "slot": "params"
+    },
+    {
+      "method": "tools.github.authorize.cancel",
+      "slot": "result"
+    },
+    {
+      "method": "tools.github.authorize.poll",
+      "slot": "params"
+    },
+    {
+      "method": "tools.github.authorize.poll",
+      "slot": "result"
+    },
+    {
+      "method": "tools.github.authorize.start",
+      "slot": "params"
+    },
+    {
+      "method": "tools.github.authorize.start",
+      "slot": "result"
+    },
+    {
+      "method": "tools.github.configure",
+      "slot": "params"
+    },
+    {
+      "method": "tools.github.configure",
+      "slot": "result"
+    },
+    {
+      "method": "tools.github.status",
+      "slot": "params"
+    },
+    {
+      "method": "tools.github.status",
+      "slot": "result"
+    },
+    {
+      "method": "tts.convert",
+      "slot": "params"
+    },
+    {
+      "method": "tts.convert",
+      "slot": "result"
+    },
+    {
+      "method": "tts.disable",
+      "slot": "params"
+    },
+    {
+      "method": "tts.disable",
+      "slot": "result"
+    },
+    {
+      "method": "tts.enable",
+      "slot": "params"
+    },
+    {
+      "method": "tts.enable",
+      "slot": "result"
+    },
+    {
+      "method": "tts.personas",
+      "slot": "params"
+    },
+    {
+      "method": "tts.personas",
+      "slot": "result"
+    },
+    {
+      "method": "tts.providers",
+      "slot": "params"
+    },
+    {
+      "method": "tts.providers",
+      "slot": "result"
+    },
+    {
+      "method": "tts.setPersona",
+      "slot": "params"
+    },
+    {
+      "method": "tts.setPersona",
+      "slot": "result"
+    },
+    {
+      "method": "tts.setProvider",
+      "slot": "params"
+    },
+    {
+      "method": "tts.setProvider",
+      "slot": "result"
+    },
+    {
+      "method": "tts.status",
+      "slot": "params"
+    },
+    {
+      "method": "tts.status",
+      "slot": "result"
+    },
+    {
+      "event": "ui.command",
+      "slot": "payload"
+    },
+    {
+      "event": "update.available",
+      "slot": "payload"
+    },
+    {
+      "method": "update.run",
+      "slot": "result"
+    },
+    {
+      "method": "usage.cost",
+      "slot": "params"
+    },
+    {
+      "method": "usage.cost",
+      "slot": "result"
+    },
+    {
+      "method": "usage.status",
+      "slot": "params"
+    },
+    {
+      "method": "usage.status",
+      "slot": "result"
+    },
+    {
+      "event": "voicewake.changed",
+      "slot": "payload"
+    },
+    {
+      "method": "voicewake.get",
+      "slot": "params"
+    },
+    {
+      "method": "voicewake.get",
+      "slot": "result"
+    },
+    {
+      "event": "voicewake.routing.changed",
+      "slot": "payload"
+    },
+    {
+      "method": "voicewake.routing.get",
+      "slot": "params"
+    },
+    {
+      "method": "voicewake.routing.get",
+      "slot": "result"
+    },
+    {
+      "method": "voicewake.set",
+      "slot": "params"
+    },
+    {
+      "method": "voicewake.set",
+      "slot": "result"
+    },
+    {
+      "method": "wake",
+      "slot": "result"
+    },
+    {
+      "method": "web.login.start",
+      "slot": "result"
+    },
+    {
+      "method": "web.login.wait",
+      "slot": "result"
+    },
+    {
+      "method": "wizard.cancel",
+      "slot": "result"
+    },
+    {
+      "method": "worktrees.create",
+      "slot": "result"
+    },
+    {
+      "method": "worktrees.restore",
+      "slot": "result"
+    }
+  ]
 }

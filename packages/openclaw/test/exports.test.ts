@@ -54,10 +54,10 @@ test('the documented type names compile from the `.` entry (5.2, 5.3)', () => {
   const route: Route = { choice: 'c', provider: 'p', billing: 'subscription', via: 'code', prerequisite: null, offer: true, reason: 'r', source: 's' };
   const transport: GatewayTransport = { start: async () => hello, request: async () => null, onEvent: () => () => {}, onClose: () => () => {}, stop: async () => {} };
   const call: CallOptions = { timeoutMs: 1 };
-  // The generated pass-through names exist (empty tables until O2, per 4.6).
-  const noMethod = undefined as GatewayMethod;
-  const noEvent = undefined as GatewayEventName;
-  assert.ok([options, retained, state, hello, member, tool, host, spec, event, end, view, approval, decision, route, transport, call, noMethod, noEvent]);
+  // The generated pass-through names exist (O2 filled the tables, per 4.6).
+  const anyMethod = 'health' as GatewayMethod;
+  const anyEvent = 'agent' as GatewayEventName;
+  assert.ok([options, retained, state, hello, member, tool, host, spec, event, end, view, approval, decision, route, transport, call, anyMethod, anyEvent]);
 });
 
 test('the `./device` entry exports the device client and the portable notice opener (7.2, 7.3)', () => {

@@ -15,7 +15,8 @@
     "check": "tsc -p tsconfig.json",
     "test": "sh scripts/test.sh",
     "test:browser": "sh scripts/test.sh 'examples/pwa/*.test.ts'",
-    "test:engine": "sh scripts/test.sh 'packages/openclaw/test/engine/*.test.ts'"
+    "test:engine": "sh scripts/test.sh 'packages/openclaw/test/engine/*.test.ts'",
+    "gen:openclaw": "node packages/openclaw/scripts/gen-methods.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
