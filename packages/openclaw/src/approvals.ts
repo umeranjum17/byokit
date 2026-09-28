@@ -1,6 +1,7 @@
 // Native approvals: exec.approval.*, plugin.approval.* and question.* surfaced through the same Approval shape (5.9, O5).
 import { randomBytes } from 'node:crypto';
 import type { Bridge } from './bridge.ts';
+import { MEMBER_ID } from './members.ts';
 import type { Approval, Decision, GatewayTransport, Member } from './types.ts';
 
 type NativeSource = 'exec' | 'plugin' | 'question';
@@ -30,26 +31,32 @@ const memberOfKey = (key: string): Member | undefined => {
   return m?.[1];
 };
 
-/** Member attribution: the payload's agent first, else the `agent:<member>:` session key (5.9). */
+/**
+ * Member attribution: the request detail's agent first, else the `agent:<member>:` session key (5.9). The real
+ * engine nests exec/plugin details under `request` (question events stay flat); unattributed approvals carry ''
+ * so they can never match a member id (B2).
+ */
 function attribute(payload: Record<string, unknown>): { member: Member; sessionKey?: string } {
-  const agent = asString(payload.agentId);
-  const key = asString(payload.sessionKey);
+  const detail = isRecord(payload.request) ? payload.request : payload;
+  const agent = asString(detail.agentId);
+  const key = asString(detail.sessionKey);
   const fromKey = key ? memberOfKey(key) : undefined;
-  const member = agent ?? fromKey ?? asString(payload.member) ?? 'unknown';
+  const member = agent ?? fromKey ?? asString(detail.member) ?? '';
   return { member, ...(key ? { sessionKey: key } : {}) };
 }
 
 function summaryOf(source: NativeSource, payload: Record<string, unknown>): string {
-  const ask = asString(payload.ask);
+  const detail = isRecord(payload.request) ? payload.request : payload;
+  const ask = asString(detail.ask);
   if (ask) return ask;
-  const command = asString(payload.command);
+  const command = asString(detail.command);
   if (command) return `run ${command}`;
-  const questions = payload.questions;
+  const questions = detail.questions;
   if (Array.isArray(questions)) {
     const first = questions.map((q) => (isRecord(q) ? asString(q.question) ?? asString(q.header) : undefined)).find(Boolean);
     if (first) return first;
   }
-  const title = asString(payload.title);
+  const title = asString(detail.title);
   if (title) return title;
   return source === 'question' ? 'answer a question' : 'approve an action';
 }
@@ -77,15 +84,16 @@ export class Approvals {
       const id = asString(payload.id) ?? randomBytes(12).toString('base64url');
       if (this.approvals.has(id)) return;
       const { member, sessionKey } = attribute(payload);
+      const detail = isRecord(payload.request) ? payload.request : payload;
       const now = Date.now();
       const approval: Stored = {
         id,
         source,
         member,
         ...(sessionKey ? { sessionKey } : {}),
-        ...(asString(payload.tool) ? { tool: payload.tool as string } : {}),
+        ...(asString(detail.tool) ?? asString(detail.toolName) ? { tool: (asString(detail.tool) ?? asString(detail.toolName)) as string } : {}),
         summary: summaryOf(source, payload),
-        ...('questions' in payload ? { input: payload.questions } : {}),
+        ...('questions' in detail ? { input: detail.questions } : {}),
         at: typeof payload.createdAtMs === 'number' ? payload.createdAtMs : now,
         expires: expiresOf(payload, 180_000),
         native: { source, id },
@@ -98,6 +106,7 @@ export class Approvals {
       const id = asString(payload.id);
       if (id) this.remove(id);
     }
+    return;
   }
 
   add(a: Approval): void {
@@ -115,7 +124,9 @@ export class Approvals {
 
   list(member?: Member): Approval[] {
     const all = [...this.approvals.values()].map(strip);
-    return member === undefined ? all : all.filter((a) => a.member === member);
+    if (member === undefined) return all;
+    if (!MEMBER_ID.test(member)) return [];
+    return all.filter((a) => a.member === member);
   }
 
   on(fn: (a: Approval, change: 'added' | 'resolved') => void): () => void {

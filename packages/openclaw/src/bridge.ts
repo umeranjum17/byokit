@@ -9,6 +9,12 @@ import type { Approval, Decision, Member, RunRef, ToolHost, ToolSpec } from './t
 /** Newline-framed JSON, one request per connection; anything larger is not a gate request. */
 const FRAME_CAP = 1_000_000;
 
+/**
+ * Asks must expire before the plugin's 195 s gate timeout, or the run gets a generic block while the approval
+ * lingers (N3). The kit passes its `approvalTimeoutMs` through; anything above is clamped to this.
+ */
+export const MAX_APPROVAL_TIMEOUT_MS = 190_000;
+
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -85,7 +91,7 @@ export class Bridge {
     this.path = o.path;
     this.host = o.host;
     this.permitted = o.permitted;
-    this.approvalTimeoutMs = o.approvalTimeoutMs;
+    this.approvalTimeoutMs = Math.min(o.approvalTimeoutMs, MAX_APPROVAL_TIMEOUT_MS);
     this.onAsk = o.onAsk;
     this.onAskGone = o.onAskGone;
   }
@@ -144,14 +150,24 @@ export class Bridge {
     if (!p) return false;
     this.parked.delete(id);
     clearTimeout(p.timer);
-    if (d.allow) {
-      const permit = this.mint(p.run.sessionKey, p.tool, p.input);
-      this.reply(p.socket, { allow: true, permit });
-    } else {
-      this.reply(p.socket, { allow: false, reason: d.reason ?? words('approval.expired') });
-    }
+    if (d.allow) this.admit(p.socket, p.run.sessionKey, p.tool, p.input);
+    else this.reply(p.socket, { allow: false, reason: d.reason ?? words('approval.expired') });
     this.onAskGone(id);
     return true;
+  }
+
+  /**
+   * Admit one call: permitted tools get a permit, the rest get a single-use ticket (N1: never both, so no
+   * orphan ticket outlives the approval that created it).
+   */
+  private admit(socket: Socket, key: string, tool: string, input: Record<string, unknown>): void {
+    if (this.permitted(tool)) {
+      this.reply(socket, { allow: true, permit: this.mint(key, tool, input) });
+      return;
+    }
+    this.tickets.push({ key, tool, input: JSON.stringify(input) });
+    while (this.tickets.length > 1024) this.tickets.shift();
+    this.reply(socket, { allow: true });
   }
 
   private mint(key: string, tool: string, input: Record<string, unknown>): string {
@@ -215,7 +231,8 @@ export class Bridge {
       (!armed.input || armed.input(input))
     ) {
       this.armed = undefined;
-      const member = memberOfKey(key) ?? 'unknown';
+      // '' when unattributable: never a member id (B2).
+      const member = memberOfKey(key) ?? '';
       const runRef: RunRef = { sessionKey: key, member };
       return void this.gateRun(socket, runRef, tool, input);
     }
@@ -259,16 +276,18 @@ export class Bridge {
       };
       parked.timer.unref?.();
       this.parked.set(approval.id, parked);
+      // A dead caller (run abort, hook timeout) must not leave an approval nothing will use (N2).
+      socket.once('close', () => {
+        if (this.parked.delete(approval.id)) {
+          clearTimeout(parked.timer);
+          this.onAskGone(approval.id);
+        }
+      });
       this.onAsk(approval);
       return;
     }
     if (result.allow) {
-      const permit = this.mint(run.sessionKey, tool, input);
-      if (!this.permitted(tool)) {
-        this.tickets.push({ key: run.sessionKey, tool, input: JSON.stringify(input) });
-        while (this.tickets.length > 1024) this.tickets.shift();
-      }
-      this.reply(socket, { allow: true, permit });
+      this.admit(socket, run.sessionKey, tool, input);
       return;
     }
     this.deny(socket, result.reason);
@@ -299,7 +318,7 @@ export class Bridge {
       this.tickets.splice(ticket, 1);
     }
     if (!this.host) return this.reply(socket, { ok: false, reason: "can't run this action right now" });
-    const run = this.runs.get(key) ?? { sessionKey: key, member: memberOfKey(key) ?? 'unknown' };
+    const run = this.runs.get(key) ?? { sessionKey: key, member: memberOfKey(key) ?? '' };
     try {
       const controller = new AbortController();
       const text = await this.host.call(run, tool, input, controller.signal);

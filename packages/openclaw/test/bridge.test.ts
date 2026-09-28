@@ -5,7 +5,7 @@ import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { Bridge, writePlugin } from '../src/bridge.ts';
+import { Bridge, MAX_APPROVAL_TIMEOUT_MS, writePlugin } from '../src/bridge.ts';
 import { words } from '../src/words.ts';
 import type { Approval, RunRef, ToolHost } from '../src/types.ts';
 
@@ -133,15 +133,14 @@ test('a permit works once and is bound to the exact input', async () =>
     );
   }));
 
-test('a tool the app did not permit needs no permit', async () =>
+test('a tool the app did not permit needs no permit and leaves no ticket behind', async () =>
   withBridge({ permitted: () => false }, async (bridge, sockPath) => {
     bridge.register({ sessionKey: 'agent:m1:x', member: 'm1' });
     const gate = await askBridge(sockPath, { kind: 'gate', key: 'agent:m1:x', tool: 'note', input: { text: 'hi' } });
-    assert.equal(gate.allow, true);
-    assert.deepEqual(
-      await askBridge(sockPath, { kind: 'call', key: 'agent:m1:x', tool: 'note', input: { text: 'hi' } }),
-      { ok: true, text: 'note: hi' },
-    );
+    assert.deepEqual(gate, { allow: true });
+    const call = { kind: 'call', key: 'agent:m1:x', tool: 'note', input: { text: 'hi' } };
+    assert.deepEqual(await askBridge(sockPath, call), { ok: true, text: 'note: hi' });
+    assert.deepEqual(await askBridge(sockPath, call), { ok: false, reason: 'this call was not allowed' });
   }));
 
 test('allowOnce admits exactly one matching unregistered call', async () =>
@@ -197,6 +196,25 @@ test('an ask parks until decide allows, denies, or expires', async () =>
     assert.deepEqual(await denied, { allow: false, reason: 'not now' });
     assert.equal(bridge.resolveAsk('missing', { allow: true }), false);
   }));
+
+test('a dead asker unparks its ask instead of leaving a permit for nobody', async () =>
+  withBridge({}, async (bridge, sockPath, seen) => {
+    bridge.register({ sessionKey: 'agent:m1:x', member: 'm1' });
+    const { connect: connectSocket } = await import('node:net');
+    const socket = connectSocket(sockPath);
+    await new Promise((resolve) => socket.once('connect', resolve));
+    socket.write(JSON.stringify({ kind: 'gate', key: 'agent:m1:x', tool: 'note', input: { mode: 'ask' } }) + '\n');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(seen.asked.length, 1);
+    socket.destroy();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(seen.gone, [seen.asked[0].id]);
+    assert.equal(bridge.resolveAsk(seen.asked[0].id, { allow: true }), false);
+  }));
+
+test('ask timeouts stay below the plugin gate timeout', async () => {
+  assert.equal(MAX_APPROVAL_TIMEOUT_MS, 190_000);
+});
 
 test('an unanswered ask expires denied with the plain-words reason', async () =>
   withBridge({ approvalTimeoutMs: 60 }, async (bridge, sockPath, seen) => {

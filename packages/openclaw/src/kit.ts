@@ -460,8 +460,10 @@ export class OpenClawKit {
   private transport?: GatewayTransport;
   private greeting?: Hello;
   private members?: ReturnType<typeof createMembers>;
-  private bridge?: Bridge;
-  private approvalsCtl?: Approvals;
+  // One bridge and one approval surface per kit: listeners and run registrations survive reconnects (B3).
+  // Only the socket itself is per-connection. Approvals always reaches the live transport through this.request().
+  private readonly bridge: Bridge;
+  private readonly approvalsCtl: Approvals;
   private listeners = new Set<(e: { event: string; payload?: unknown }) => void>();
   private off: (() => void)[] = [];
   private starting?: Promise<void>;
@@ -473,6 +475,15 @@ export class OpenClawKit {
     this.o = o;
     this.engine = new Engine({ ...o, pluginId: o.plugin?.id ?? 'byokit', tools: o.tools ?? [], spawnEngine: o.spawnEngine !== false,
       onState: (s) => this.setState(s), onExit: () => this.closed('engine exited') });
+    const slot: { bridge?: Pick<Bridge, 'resolveAsk'> } = {};
+    this.approvalsCtl = new Approvals({
+      request: (method, params, co) => this.request()(method, params, co),
+      bridge: { resolveAsk: (id, d) => slot.bridge?.resolveAsk(id, d) ?? false },
+    });
+    this.bridge = new Bridge({ path: this.engine.bridgeSock, host: o.host,
+      permitted: o.permitted ?? (() => true), approvalTimeoutMs: o.approvalTimeoutMs ?? 180_000,
+      onAsk: (a) => this.approvalsCtl.add(a), onAskGone: (id) => this.approvalsCtl.remove(id) });
+    slot.bridge = this.bridge;
   }
 
   private setState(s: KitState): void { this.current = s; this.o.onState?.(s); }
@@ -508,16 +519,9 @@ export class OpenClawKit {
       for (const name of operatorMethods) if (!hello.methods.includes(name)) this.o.log?.(`gateway missing generated method: ${name}`);
       for (const name of hello.methods) if (!operatorMethods.has(name) && !nodeMethods.has(name)) this.o.log?.(`gateway has unknown method: ${name}`);
       this.members = createMembers({ request: transport.request.bind(transport), root: this.engine.root });
-      // The fail-closed tool bridge and the native approvals share one Approval surface (5.9, O5).
-      let approvalsCtl!: Approvals;
-      const bridge = new Bridge({ path: this.engine.bridgeSock, host: this.o.host,
-        permitted: this.o.permitted ?? (() => true), approvalTimeoutMs: this.o.approvalTimeoutMs ?? 180_000,
-        onAsk: (a) => approvalsCtl.add(a), onAskGone: (id) => approvalsCtl.remove(id) });
-      approvalsCtl = new Approvals({ request: transport.request.bind(transport), bridge });
-      await bridge.start();
-      this.bridge = bridge;
-      this.approvalsCtl = approvalsCtl;
-      this.off.push(transport.onEvent((e) => approvalsCtl.handleEvent(e)));
+      // The fail-closed tool bridge feeds the kit's single Approval surface (5.9, O5).
+      await this.bridge.start();
+      this.off.push(transport.onEvent((e) => this.approvalsCtl.handleEvent(e)));
       this.failures = 0;
       this.setState({ phase: 'ready' });
     } catch (error) {
@@ -531,8 +535,7 @@ export class OpenClawKit {
     this.off.splice(0).forEach((fn) => fn());
     const transport = this.transport;
     this.transport = undefined; this.greeting = undefined; this.members = undefined;
-    this.bridge?.stop();
-    this.bridge = undefined; this.approvalsCtl = undefined;
+    this.bridge.stop();
     await transport?.stop();
   }
 
@@ -623,15 +626,14 @@ export class OpenClawKit {
 
   // approvals (5.9)
   approvals(member?: Member): Approval[] {
-    return this.approvalsCtl?.list(member) ?? [];
+    return this.approvalsCtl.list(member);
   }
 
   onApproval(fn: (a: Approval, change: 'added' | 'resolved') => void): () => void {
-    return this.approvalsCtl?.on(fn) ?? (() => {});
+    return this.approvalsCtl.on(fn);
   }
 
   decide(id: string, d: Decision): Promise<void> {
-    if (!this.approvalsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.approvalsCtl.decide(id, d);
   }
 
@@ -639,12 +641,11 @@ export class OpenClawKit {
     rule: { keyPrefix: string; tool: string; input?: (i: Record<string, unknown>) => boolean },
     ms: number,
   ): void {
-    if (!this.bridge) throw new Error('gateway not ready');
     this.bridge.allowOnce(rule, ms);
   }
 
   disallowOnce(): void {
-    this.bridge?.disallowOnce();
+    this.bridge.disallowOnce();
   }
 
   // config

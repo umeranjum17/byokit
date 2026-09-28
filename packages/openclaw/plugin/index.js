@@ -124,15 +124,15 @@ export default {
           const permit = input[PERMIT_PARAM];
           delete input[RUN_PARAM];
           delete input[PERMIT_PARAM];
-          if (typeof run !== 'string' || typeof permit !== 'string') {
+          // The run key is always required; the permit only rides along when the gate minted one (N1).
+          if (typeof run !== 'string') {
             throw new Error('this tool needs approval before it runs');
           }
+          const call = { kind: 'call', key: run, tool: spec.name, input };
+          if (typeof permit === 'string') call.permit = permit;
           let reply;
           try {
-            reply = await bridgeRequest(
-              { kind: 'call', key: run, permit, tool: spec.name, input },
-              { timeoutMs: 195_000, signal },
-            );
+            reply = await bridgeRequest(call, { timeoutMs: 195_000, signal });
           } catch (error) {
             throw new Error(error instanceof Error ? error.message : "can't check this action right now");
           }
@@ -163,10 +163,15 @@ export default {
           blockReason: typeof decision.reason === 'string' ? decision.reason : "can't check this action right now",
         };
       }
-      if (typeof decision.permit !== 'string') {
-        return { block: true, blockReason: "can't check this action right now" };
-      }
-      return { params: { ...(event.params ?? {}), [RUN_PARAM]: key, [PERMIT_PARAM]: decision.permit } };
+      // The bridge mints a permit for permitted tools and admits the rest ticket-side; either way the run key
+      // rides along and execute sends back only what the gate gave it (N1).
+      return {
+        params: {
+          ...(event.params ?? {}),
+          [RUN_PARAM]: key,
+          ...(typeof decision.permit === 'string' ? { [PERMIT_PARAM]: decision.permit } : {}),
+        },
+      };
     });
   },
 };

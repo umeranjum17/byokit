@@ -180,10 +180,12 @@ export function openclawContract(make: () => Promise<ContractFixture>): void {
   test('contract: a native exec approval round-trips', async () => {
     const { kit } = await make();
     try {
-      const requested = await call(kit, 'exec.approval.request', { id: 'contract-exec-1', command: 'echo contract', ask: 'contract approval' });
+      const requested = await call(kit, 'exec.approval.request', { id: 'contract-exec-1', command: 'echo contract',
+        ask: 'contract approval', agentId: 'm1', sessionKey: 'agent:m1:contract:9' });
       assert.equal(requested.id, 'contract-exec-1');
       await until(() => kit.approvals().some((a) => a.id === 'contract-exec-1'));
       assert.equal(kit.approvals()[0].source, 'exec');
+      assert.equal(kit.approvals('m1')[0].id, 'contract-exec-1');
       await kit.decide('contract-exec-1', { allow: true });
       await until(() => kit.approvals().length === 0);
     } finally {
