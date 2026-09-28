@@ -11,6 +11,7 @@ Bring your own AI plan and devices. Apache-2.0.
 | [`@byokit/relay`](packages/relay) | Routes encrypted link frames; enrolment, typed-code lookup, push ([security boundary](packages/relay/SECURITY.md)) | [version](packages/relay/package.json) |
 | [`@byokit/reach`](packages/reach) | The addresses a phone dials the home computer on (Tailscale Serve, direct tailnet, LAN) plus mDNS advertising (Node) and browsing (React Native) | [version](packages/reach/package.json) |
 | [`@byokit/decide`](packages/decide) | Typed questions in, a typed answer with confidence out, abstaining below a floor; rules, Jev or any model (the person's own ChatGPT on a phone), evals | [version](packages/decide/package.json) |
+| [`@byokit/openclaw`](packages/openclaw) | The OpenClaw runtime kit: the pinned engine's full operator surface as typed pass-through calls, plus plain-words helpers for members, sign-in, runs and approvals ([spec](docs/runtime-kits.md)) | in development |
 
 Examples: [`examples/expo`](examples/expo) (React Native, iOS and Android) and [`examples/pwa`](examples/pwa)
 (an installable web page). For platform checks and their limits, see [CONTRIBUTING.md](CONTRIBUTING.md).
