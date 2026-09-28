@@ -6,8 +6,11 @@ import { join } from 'node:path';
 
 export type Shim = { dir: string; bin: string; out: string; dispose(): Promise<void> };
 
-const SHIM = `#!/usr/bin/env node
+const SHIM = `#!${process.execPath}
 import { writeFileSync } from 'node:fs';
+
+// The shebang pins the running Node binary: the kit passes the env verbatim, so the child's PATH may not
+// contain node (CI runners keep it out of /usr/bin:/bin) — /usr/bin/env node would exit 127 there.
 
 // Every mode records { argv, env } to SHIM_OUT when set, so tests can assert what the kit actually passed.
 const record = () => {
