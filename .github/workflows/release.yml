@@ -8,7 +8,7 @@ on:
       package:
         description: Package to publish
         type: choice
-        options: [accounts, ui-core, decide, link, reach, relay, seal, openclaw]
+        options: [accounts, ui-core, decide, link, reach, relay, seal, openclaw, herdr]
 
 permissions:
   contents: read

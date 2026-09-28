@@ -1,0 +1,19 @@
+{
+  "herdr.missing": "This computer needs Herdr installed first.",
+  "herdr.connecting": "Connecting to Herdr…",
+  "herdr.ready": "Connected to Herdr.",
+  "herdr.reconnecting": "Herdr isn't answering. Trying again by itself.",
+  "herdr.needsUpdate": "Herdr on this computer needs an update to work with this app.",
+  "herdr.failed": "Herdr couldn't start on this computer. Restart the app to try again.",
+  "agent.starting": "Starting…",
+  "agent.idle": "Ready for you.",
+  "agent.working": "Working.",
+  "agent.blocked": "Waiting for your answer.",
+  "agent.done": "Finished.",
+  "agent.unknown": "Running.",
+  "agent.signIn": "Sign in inside {agent}: follow its own steps on the screen.",
+  "agent.notReady": "This helper isn't ready yet. Try again in a moment.",
+  "approval.stale": "That question already changed. Look again before answering.",
+  "close.wouldWiden": "Closing this would close more than you picked. Close the bigger one instead.",
+  "link.notAllowed": "This device can't do that. Ask the person at the computer."
+}
