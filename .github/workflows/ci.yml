@@ -45,6 +45,19 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
 
+  openclaw-engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npm run test:engine
+
   # React Native (Expo) on iOS and Android: the example typechecks and Metro builds both Hermes bundles from the kit's
   # react-native side. The emulator run is examples/expo/e2e-android.sh.
   react-native:
