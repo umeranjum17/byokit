@@ -42,7 +42,7 @@ test('an exec approval round-trips with member attribution', async () =>
     assert.equal(mine[0].source, 'exec');
     assert.equal(mine[0].member, 'm1');
     assert.equal(mine[0].sessionKey, 'agent:m1:run:1');
-    assert.equal(mine[0].summary, 'delete /tmp/x?');
+    assert.equal(mine[0].summary, 'run rm -rf /tmp/x');
     assert.equal(approvals.list('m2').length, 0);
     assert.equal(approvals.list().length, 1);
     await approvals.decide('exec-1', { allow: true });
@@ -72,6 +72,18 @@ test('a denied exec approval resolves deny', async () =>
       method: 'exec.approval.resolve',
       params: { id: 'exec-2', decision: 'deny' },
     });
+  }));
+
+test('an exec policy mode never renders as the summary', async () =>
+  withApprovals(async (approvals, fake) => {
+    fake.emit('exec.approval.requested', {
+      approvalKind: 'exec',
+      id: 'mode-1',
+      createdAtMs: 1,
+      expiresAtMs: 2,
+      request: { command: 'echo scout', ask: 'on-miss', agentId: 'm1' },
+    });
+    assert.equal(approvals.list('m1')[0].summary, 'run echo scout');
   }));
 
 test('plugin and question approvals resolve through their own methods', async () =>
@@ -151,8 +163,14 @@ test('a listener registered before start fires and survives a restart', async ()
       request: { command: 'uptime', agentId: 'm1' },
     });
     assert.deepEqual(seen, ['added:restart-1']);
+    // A reconnect drops natives and replays the engine lists (N9): the engine still holds restart-1.
+    fake.handle('exec.approval.list', () => ({
+      approvals: [{ id: 'restart-1', request: { command: 'uptime', agentId: 'm1' } }],
+    }));
     await kit.stop();
     await kit.start();
+    assert.deepEqual(kit.approvals('m1').map((a) => a.id), ['restart-1']);
+    assert.deepEqual(seen, ['added:restart-1', 'resolved:restart-1', 'added:restart-1']);
     fake.emit('exec.approval.requested', {
       approvalKind: 'exec',
       id: 'restart-2',
@@ -160,7 +178,37 @@ test('a listener registered before start fires and survives a restart', async ()
       expiresAtMs: 2,
       request: { command: 'uptime', agentId: 'm1' },
     });
-    assert.deepEqual(seen, ['added:restart-1', 'added:restart-2']);
+    assert.deepEqual(seen, ['added:restart-1', 'resolved:restart-1', 'added:restart-1', 'added:restart-2']);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a reconnect drops stale natives and replays the engine lists', async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o5-resync-'));
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false });
+  const seen: string[] = [];
+  kit.onApproval((a, change) => seen.push(`${change}:${a.id}`));
+  try {
+    await kit.start();
+    fake.emit('exec.approval.requested', {
+      approvalKind: 'exec',
+      id: 'stale-1',
+      createdAtMs: 1,
+      expiresAtMs: 2,
+      request: { command: 'uptime', agentId: 'm1' },
+    });
+    assert.equal(kit.approvals('m1').length, 1);
+    fake.handle('exec.approval.list', () => ({
+      approvals: [{ id: 'live-1', request: { command: 'ls', agentId: 'm1' } }],
+    }));
+    await kit.stop();
+    await kit.start();
+    assert.equal(kit.approvals('m1').map((a) => a.id).join(','), 'live-1');
+    assert.ok(seen.includes('resolved:stale-1'));
+    assert.ok(seen.includes('added:live-1'));
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });

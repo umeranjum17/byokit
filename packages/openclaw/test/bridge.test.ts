@@ -143,6 +143,17 @@ test('a tool the app did not permit needs no permit and leaves no ticket behind'
     assert.deepEqual(await askBridge(sockPath, call), { ok: false, reason: 'this call was not allowed' });
   }));
 
+test('allowOnce admits a non-permitted tool without a registered run', async () =>
+  withBridge({ permitted: () => false }, async (bridge, sockPath) => {
+    bridge.allowOnce({ keyPrefix: 'agent:m9:', tool: 'note' }, 1_000);
+    assert.deepEqual(await askBridge(sockPath, { kind: 'gate', key: 'agent:m9:x', tool: 'note', input: {} }), {
+      allow: true,
+    });
+    const call = { kind: 'call', key: 'agent:m9:x', tool: 'note', input: {} };
+    assert.deepEqual(await askBridge(sockPath, call), { ok: true, text: 'note: ' });
+    assert.deepEqual(await askBridge(sockPath, call), { ok: false, reason: 'this call was not allowed' });
+  }));
+
 test('allowOnce admits exactly one matching unregistered call', async () =>
   withBridge({}, async (bridge, sockPath) => {
     bridge.allowOnce({ keyPrefix: 'agent:m9:', tool: 'note' }, 1_000);
@@ -211,6 +222,32 @@ test('a dead asker unparks its ask instead of leaving a permit for nobody', asyn
     assert.deepEqual(seen.gone, [seen.asked[0].id]);
     assert.equal(bridge.resolveAsk(seen.asked[0].id, { allow: true }), false);
   }));
+
+test('stopping with a parked ask ends it gone', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'byokit-o5-stop-'));
+  const seen = { asked: [] as Approval[], gone: [] as string[] };
+  const bridge = new Bridge({
+    path: join(dir, 'b.sock'),
+    host: host(),
+    permitted: () => true,
+    approvalTimeoutMs: 5_000,
+    onAsk: (a) => seen.asked.push(a),
+    onAskGone: (id) => seen.gone.push(id),
+  });
+  await bridge.start();
+  try {
+    bridge.register({ sessionKey: 'agent:m1:x', member: 'm1' });
+    const pending = askBridge(join(dir, 'b.sock'),
+      { kind: 'gate', key: 'agent:m1:x', tool: 'note', input: { mode: 'ask' } });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(seen.asked.length, 1);
+    bridge.stop();
+    assert.deepEqual(seen.gone, [seen.asked[0].id]);
+    assert.deepEqual(await pending, { allow: false, reason: words('approval.expired') });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('ask timeouts stay below the plugin gate timeout', async () => {
   assert.equal(MAX_APPROVAL_TIMEOUT_MS, 190_000);

@@ -113,9 +113,11 @@ export class Bridge {
 
   stop(): void {
     this.stopped = true;
-    for (const [, p] of this.parked) {
+    for (const [id, p] of this.parked) {
       clearTimeout(p.timer);
       this.reply(p.socket, { allow: false, reason: words('approval.expired') });
+      // Parked gates end here; without this their approvals outlive the connection (N9).
+      this.onAskGone(id);
     }
     this.parked.clear();
     this.server?.close();
@@ -309,10 +311,9 @@ export class Bridge {
       }
       this.permits.delete(permit);
     } else {
-      const run = this.runs.get(key);
-      if (!run || this.permitted(tool)) {
-        return this.reply(socket, { ok: false, reason: 'this call was not allowed' });
-      }
+      // Permitted tools travel by permit only. A ticket is itself proof of a gate allow for this exact
+      // key + tool + input, so no run registration is needed (N10: allowOnce admits unregistered keys).
+      if (this.permitted(tool)) return this.reply(socket, { ok: false, reason: 'this call was not allowed' });
       const ticket = this.tickets.findIndex((t) => t.key === key && t.tool === tool && t.input === wanted);
       if (ticket < 0) return this.reply(socket, { ok: false, reason: 'this call was not allowed' });
       this.tickets.splice(ticket, 1);

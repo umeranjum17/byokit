@@ -524,6 +524,8 @@ export class OpenClawKit {
       this.off.push(transport.onEvent((e) => this.approvalsCtl.handleEvent(e)));
       this.failures = 0;
       this.setState({ phase: 'ready' });
+      // Replays the engine's native approval lists over the now-live transport (N9).
+      await this.approvalsCtl.resync();
     } catch (error) {
       if (transport && this.transport === transport) await this.disconnect();
       if (this.current.phase !== 'needs-update' && !this.stopping) this.setState({ phase: 'failed', why: 'handshake' });

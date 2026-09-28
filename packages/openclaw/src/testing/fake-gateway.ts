@@ -250,7 +250,9 @@ export function fakeGateway(script?: FakeScript): {
       emit('exec.approval.requested', {
         approvalKind: 'exec', id, createdAtMs: now, expiresAtMs: now + 180_000,
         request: {
-          command: p.command, ask: p.ask,
+          command: p.command,
+          // Like the real engine, which normalizes the exec policy mode into request.ask (B8).
+          ask: p.ask ?? 'on-miss',
           agentId: p.agentId ?? p.systemRunPlan?.agentId,
           sessionKey: p.sessionKey ?? p.systemRunPlan?.sessionKey,
         },
@@ -270,6 +272,8 @@ export function fakeGateway(script?: FakeScript): {
       emit('exec.approval.resolved', { id: p.id, decision: p.decision });
       return {};
     },
+    'exec.approval.list': () => ({ approvals: [] }),
+    'plugin.approval.list': () => ({ approvals: [] }),
     'plugin.approval.resolve': (p) => {
       emit('plugin.approval.resolved', { id: p.id, decision: p.decision });
       return {};

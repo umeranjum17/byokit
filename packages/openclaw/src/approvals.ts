@@ -45,20 +45,24 @@ function attribute(payload: Record<string, unknown>): { member: Member; sessionK
   return { member, ...(key ? { sessionKey: key } : {}) };
 }
 
+/** Exec policy modes (`off|on-miss|always`) ride in `request.ask`; they are not something a person said (B8). */
+const POLICY_MODES = new Set(['off', 'on-miss', 'always']);
+
+const askText = (detail: Record<string, unknown>): string | undefined => {
+  const ask = asString(detail.ask);
+  return ask && !POLICY_MODES.has(ask) ? ask : undefined;
+};
+
 function summaryOf(source: NativeSource, payload: Record<string, unknown>): string {
   const detail = isRecord(payload.request) ? payload.request : payload;
-  const ask = asString(detail.ask);
-  if (ask) return ask;
-  const command = asString(detail.command);
-  if (command) return `run ${command}`;
+  if (source === 'exec') return asString(detail.command) ? `run ${detail.command}` : (askText(detail) ?? 'approve an action');
+  if (source === 'plugin') return asString(detail.title) ?? askText(detail) ?? 'approve an action';
   const questions = detail.questions;
   if (Array.isArray(questions)) {
     const first = questions.map((q) => (isRecord(q) ? asString(q.question) ?? asString(q.header) : undefined)).find(Boolean);
     if (first) return first;
   }
-  const title = asString(detail.title);
-  if (title) return title;
-  return source === 'question' ? 'answer a question' : 'approve an action';
+  return 'answer a question';
 }
 
 function expiresOf(payload: Record<string, unknown>, fallbackMs: number): number {
@@ -134,6 +138,40 @@ export class Approvals {
     return () => {
       this.listeners.delete(fn);
     };
+  }
+
+  /**
+   * Drop native approvals and replay the engine's current lists (N9): after a reconnect the engine may have
+   * resolved entries this kit still shows. Gate asks live in the bridge and are untouched. Rows are only
+   * trusted with a string id; anything else is skipped, never invented.
+   */
+  async resync(): Promise<void> {
+    for (const [id, a] of this.approvals) {
+      if (!a.native) continue;
+      this.approvals.delete(id);
+      this.emit(strip(a), 'resolved');
+    }
+    const lists: Record<string, 'exec.approval.requested' | 'plugin.approval.requested'> = {
+      'exec.approval.list': 'exec.approval.requested',
+      'plugin.approval.list': 'plugin.approval.requested',
+    };
+    for (const [method, event] of Object.entries(lists)) {
+      let answer: unknown;
+      try {
+        answer = await this.request(method, {});
+      } catch {
+        continue;
+      }
+      const rows = Array.isArray(answer)
+        ? answer
+        : isRecord(answer)
+          ? (['approvals', 'items', 'records', 'entries'].map((k) => answer[k]).find(Array.isArray) ?? [])
+          : [];
+      for (const row of rows as unknown[]) {
+        if (!isRecord(row) || typeof row.id !== 'string') continue;
+        this.handleEvent({ event, payload: row });
+      }
+    }
   }
 
   async decide(id: string, d: Decision): Promise<void> {

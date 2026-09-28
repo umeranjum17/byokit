@@ -4,6 +4,12 @@ import { GatewayClient } from '@openclaw/gateway-client';
 import { OPERATOR_SCOPES, PROTOCOL_VERSION } from './constants.ts';
 import type { GatewayTransport, Hello } from './types.ts';
 
+/**
+ * Client caps for the operator connection. `approvals` makes this connection an approval client, so the
+ * engine delivers exec/plugin.approval.requested to it (B7); without it the broadcast set is empty.
+ */
+export const GATEWAY_CAPS = ['tool-events', 'approvals'] as const;
+
 export function gatewayTransport(ctx: { port: number; token: string; identityPath: string; bridgeSock: string }): GatewayTransport {
   const pem = JSON.parse(readFileSync(ctx.identityPath, 'utf8')) as { privateKey: string; publicKey: string };
   const publicKey = createPublicKey(pem.publicKey).export({ format: 'der', type: 'spki' }).subarray(-32);
@@ -14,7 +20,7 @@ export function gatewayTransport(ctx: { port: number; token: string; identityPat
   let stopped = false;
   const client = new GatewayClient({
     url: `ws://127.0.0.1:${ctx.port}`, token: ctx.token, role: 'operator', scopes: [...OPERATOR_SCOPES],
-    clientName: 'cli', caps: ['tool-events'], minProtocol: PROTOCOL_VERSION, maxProtocol: PROTOCOL_VERSION,
+    clientName: 'cli', caps: [...GATEWAY_CAPS], minProtocol: PROTOCOL_VERSION, maxProtocol: PROTOCOL_VERSION,
     deviceIdentity: { deviceId: createHash('sha256').update(publicKey).digest('hex'), privateKeyPem: pem.privateKey, publicKeyPem: pem.publicKey },
     hostDeps: {
       signDevicePayload: (key, payload) => sign(null, Buffer.from(payload), createPrivateKey(key)).toString('base64url'),
