@@ -1,1 +1,20 @@
-{}
+{
+  "engine.installing": "Getting things ready on this computer. The first time takes a few minutes.",
+  "engine.starting": "Starting up…",
+  "engine.repairing": "Fixing a small problem with the setup. This takes a moment.",
+  "engine.ready": "Ready.",
+  "engine.restarting": "Something stopped. Starting it again by itself.",
+  "engine.failed": "This computer couldn't start the helper. Restart the app to try again.",
+  "engine.needsUpdate": "This app needs an update to keep working.",
+  "member.signedOut": "Sign in with {name} to start.",
+  "member.resting": "{name} needs a break until {time}.",
+  "member.plan": "Your {name} plan doesn't include this.",
+  "member.network": "Can't reach {name} right now. This keeps trying by itself.",
+  "signin.returned": "Thanks. Finishing the sign-in — you can go back to the app now.",
+  "signin.busy": "Another sign-in is already in progress. Finish or cancel it, then try again.",
+  "signin.expired": "The sign-in took too long. Start it again.",
+  "approval.ask": "{helper} wants to {summary}. Allow it?",
+  "approval.expired": "Nobody answered in time, so this wasn't allowed.",
+  "approval.notice": "Something is waiting for your yes.",
+  "link.notAllowed": "This device can't do that. Ask the person at the computer."
+}

@@ -1,5 +1,4 @@
 // Every sentence a person can see, in one file other languages can read too (5.14). Plain words only (4.3).
-// Filled in O10.
 import wordsJson from './words.json' with { type: 'json' };
 import type { KitState, SignInView } from './types.ts';
 
@@ -9,13 +8,27 @@ export type AccountView = { ready?: boolean; work?: string | boolean; signIn?: S
 export type WordKey = Extract<keyof typeof wordsJson, string>;
 
 export function words(key: WordKey, vars?: Record<string, string>): string {
-  throw new Error('not built: O10');
+  let sentence: string = wordsJson[key];
+  if (vars) for (const [name, value] of Object.entries(vars)) sentence = sentence.replaceAll(`{${name}}`, value);
+  return sentence;
 }
 
+const PHASE_WORDS: Record<Exclude<KitState['phase'], 'stopped'>, WordKey> = {
+  installing: 'engine.installing',
+  starting: 'engine.starting',
+  repairing: 'engine.repairing',
+  ready: 'engine.ready',
+  restarting: 'engine.restarting',
+  failed: 'engine.failed',
+  'needs-update': 'engine.needsUpdate',
+};
+
 export function stateWords(s: KitState): string {
-  throw new Error('not built: O10');
+  // 'stopped' is never on screen (4.3 covers what a person can see), so 5.14 has no row for it.
+  return s.phase === 'stopped' ? '' : words(PHASE_WORDS[s.phase]);
 }
 
 export function toAccountView(view: SignInView | null, ready: boolean): AccountView {
-  throw new Error('not built: O10');
+  // `why` maps 1:1; ui-core's phaseOf reads busy/declined/expired itself (5.14).
+  return { ready, signIn: view };
 }
