@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { PROTOCOL_VERSION } from './constants.ts';
+import { Approvals } from './approvals.ts';
+import { Bridge } from './bridge.ts';
 import { Engine } from './engine.ts';
 import { gatewayTransport } from './transport.ts';
 import { createMembers } from './members.ts';
@@ -458,6 +460,8 @@ export class OpenClawKit {
   private transport?: GatewayTransport;
   private greeting?: Hello;
   private members?: ReturnType<typeof createMembers>;
+  private bridge?: Bridge;
+  private approvalsCtl?: Approvals;
   private listeners = new Set<(e: { event: string; payload?: unknown }) => void>();
   private off: (() => void)[] = [];
   private starting?: Promise<void>;
@@ -504,6 +508,16 @@ export class OpenClawKit {
       for (const name of operatorMethods) if (!hello.methods.includes(name)) this.o.log?.(`gateway missing generated method: ${name}`);
       for (const name of hello.methods) if (!operatorMethods.has(name) && !nodeMethods.has(name)) this.o.log?.(`gateway has unknown method: ${name}`);
       this.members = createMembers({ request: transport.request.bind(transport), root: this.engine.root });
+      // The fail-closed tool bridge and the native approvals share one Approval surface (5.9, O5).
+      let approvalsCtl!: Approvals;
+      const bridge = new Bridge({ path: this.engine.bridgeSock, host: this.o.host,
+        permitted: this.o.permitted ?? (() => true), approvalTimeoutMs: this.o.approvalTimeoutMs ?? 180_000,
+        onAsk: (a) => approvalsCtl.add(a), onAskGone: (id) => approvalsCtl.remove(id) });
+      approvalsCtl = new Approvals({ request: transport.request.bind(transport), bridge });
+      await bridge.start();
+      this.bridge = bridge;
+      this.approvalsCtl = approvalsCtl;
+      this.off.push(transport.onEvent((e) => approvalsCtl.handleEvent(e)));
       this.failures = 0;
       this.setState({ phase: 'ready' });
     } catch (error) {
@@ -517,6 +531,8 @@ export class OpenClawKit {
     this.off.splice(0).forEach((fn) => fn());
     const transport = this.transport;
     this.transport = undefined; this.greeting = undefined; this.members = undefined;
+    this.bridge?.stop();
+    this.bridge = undefined; this.approvalsCtl = undefined;
     await transport?.stop();
   }
 
@@ -606,27 +622,29 @@ export class OpenClawKit {
   }
 
   // approvals (5.9)
-  approvals(_member?: Member): Approval[] {
-    throw new Error('not built: O5');
+  approvals(member?: Member): Approval[] {
+    return this.approvalsCtl?.list(member) ?? [];
   }
 
-  onApproval(_fn: (a: Approval, change: 'added' | 'resolved') => void): () => void {
-    throw new Error('not built: O5');
+  onApproval(fn: (a: Approval, change: 'added' | 'resolved') => void): () => void {
+    return this.approvalsCtl?.on(fn) ?? (() => {});
   }
 
-  decide(_id: string, _d: Decision): Promise<void> {
-    throw new Error('not built: O5');
+  decide(id: string, d: Decision): Promise<void> {
+    if (!this.approvalsCtl) return Promise.reject(new Error('gateway not ready'));
+    return this.approvalsCtl.decide(id, d);
   }
 
   allowOnce(
-    _rule: { keyPrefix: string; tool: string; input?: (i: Record<string, unknown>) => boolean },
-    _ms: number,
+    rule: { keyPrefix: string; tool: string; input?: (i: Record<string, unknown>) => boolean },
+    ms: number,
   ): void {
-    throw new Error('not built: O5');
+    if (!this.bridge) throw new Error('gateway not ready');
+    this.bridge.allowOnce(rule, ms);
   }
 
   disallowOnce(): void {
-    throw new Error('not built: O5');
+    this.bridge?.disallowOnce();
   }
 
   // config
