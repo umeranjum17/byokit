@@ -45,7 +45,10 @@ export function signIn(
   const wantsCallback = via === 'browser' && o.authChoice === 'openai';
   let server: Server | undefined;
   let sessionId = '';
-  let released = false;
+  let starting: Promise<unknown> | undefined;
+  let releasing: Promise<void> | undefined;
+  let settleStart!: () => void;
+  const startingSettled = new Promise<void>((resolve) => { settleStart = resolve; });
   let over = false;
   let settle!: (view: SignInView) => void;
   let pasteIn: ((text: string) => void) | undefined;
@@ -66,17 +69,24 @@ export function signIn(
     on(view);
     settle(view);
   };
-  const release = async (): Promise<void> => {
-    if (released || !sessionId) return;
-    released = true;
-    // The person's exit, not the engine's: only this session is cancelled, so the admission frees for a retry.
-    await ctx.request('wizard.cancel', { sessionId }, { timeoutMs: CANCEL_MS }).catch(() => {});
+  const release = (): Promise<void> => {
+    releasing ??= (async () => {
+      // A cancel never goes out early: the pinned engine holds one setup admission per gateway and registers the
+      // session only as `openclaw.setup.auth.start` settles, so a cancel sent sooner is answered `wizard not found`
+      // and leaves the person locked out of signing in. Waiting for that settlement is what frees the admission.
+      await startingSettled;
+      if (sessionId) await ctx.request('wizard.cancel', { sessionId }, { timeoutMs: CANCEL_MS }).catch(() => {});
+    })();
+    return releasing;
   };
   const paste = (text: string): void => {
     if (pasteIn) pasteIn(text);
     else returned = text; // the browser came back before the wizard asked; held for the text step
   };
   const cancel = (): void => {
+    // Stop the drive now; the start itself is never aborted, and release waits for it to settle before cancelling,
+    // so the gateway's one setup admission is freed by a cancel that the engine can actually find.
+    owner.abort();
     void (async () => { await release(); await finish({ state: 'failed', via, why: 'declined' }); })();
   };
 
@@ -112,12 +122,17 @@ export function signIn(
       if (!server) return { state: 'failed', via, why: 'busy' };
     }
     const { agentId } = await ctx.ensure(member);
-    // The session id is the client's to choose (5.7), so it is set before the call: a cancel while the start is in
-    // flight must still cancel this session, which holds the gateway's single setup admission.
+    // The session id is the client's to choose (5.7), and the start request carries no abort signal: the engine
+    // registers the session as it settles, so a cancel waits for it (release) rather than racing it.
     sessionId = `byokit-${randomUUID()}`;
-    const started = await ctx.request('openclaw.setup.auth.start',
-      { sessionId, agentId, authChoice: o.authChoice },
-      { timeoutMs: START_MS, signal }) as { done?: boolean };
+    let started: { done?: boolean };
+    try {
+      starting = ctx.request('openclaw.setup.auth.start',
+        { sessionId, agentId, authChoice: o.authChoice }, { timeoutMs: START_MS });
+      started = await starting as { done?: boolean };
+    } finally {
+      settleStart();
+    }
     if (started.done) return { state: 'done', via };
 
     // wizard.next, never wizard.status: the status method answers {status, error} and carries no step.
@@ -197,6 +212,7 @@ export function signIn(
       else if (BUSY.test(cut(error))) view = { state: 'failed', via, why: 'busy' };
       else view = { state: 'failed', via, why: 'failed', error: cut(error) };
     }
+    settleStart();
     if (view.state !== 'done') await release();
     await finish(view);
   })();

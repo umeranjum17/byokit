@@ -225,33 +225,36 @@ test('browser sign-in: cancelling while the wizard waits releases the port', asy
   });
 });
 
-test('sign-in: cancelling while the start is in flight still cancels this session (N5)', async () => {
+test('sign-in: a cancel waits for the start to settle, then cancels that session once (N5)', async () => {
+  const log: string[] = [];
   const calls: { method: string; params?: any }[] = [];
-  let releaseStart!: () => void;
+  let settleStart!: () => void;
+  const startSettles = new Promise<void>((resolve) => { settleStart = resolve; });
   const request: GatewayTransport['request'] = async (method, params, options) => {
     calls.push({ method, params: params as any });
     if (method === 'openclaw.setup.auth.start') {
-      // Like the pinned gateway client: aborting the signal rejects the request still in flight.
-      await new Promise<void>((resolve, reject) => {
-        releaseStart = resolve;
-        options?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
-      });
-      return { sessionId: (params as any).sessionId, done: false };
+      // The pinned client's rules: the start is never aborted, and a cancel sent before it settles is not found.
+      assert.ok(options?.signal === undefined, 'the start request carries no abort signal');
+      await startSettles;
+      log.push('start settled');
+      return { done: false };
     }
-    if (method === 'wizard.next') throw new Error('aborted');
+    if (method === 'wizard.next') { log.push('next'); throw new Error('aborted'); }
+    if (method === 'wizard.cancel') { log.push('cancel'); return { status: 'cancelled' }; }
     return {};
   };
   const handle = signIn({ request, ensure: async (member) => ({ agentId: member }), callbackPort: 0 },
     'm1', { authChoice: 'openai-device-code', via: 'code' }, () => {});
   await delay(20);
-  handle.cancel();
+  handle.cancel(); // at 0: before the engine has registered the session
   await delay(20);
-  releaseStart();
-  assert.equal((await handle.done).why, 'declined');
-  await delay(20);
+  assert.deepEqual(log, [], 'nothing is sent while the session does not exist yet');
+  settleStart();
+  assert.equal((await handle.done).why, 'declined', 'the person\'s exit is still the card\'s answer');
+  assert.deepEqual(log, ['start settled', 'cancel'], 'the session is cancelled only once it exists');
   const cancels = calls.filter((call) => call.method === 'wizard.cancel');
-  assert.equal(cancels.length, 1, 'the engine session this start asked for is cancelled');
-  assert.equal(cancels[0]!.params.sessionId, calls.find((call) => call.method === 'openclaw.setup.auth.start')!.params.sessionId);
+  assert.equal(cancels.length, 1, 'one cancel, late enough for the engine to find it');
+  assert.equal(cancels[0]!.params.sessionId, calls[0]!.params.sessionId);
   assert.match(String(cancels[0]!.params.sessionId), /^byokit-/);
 });
 

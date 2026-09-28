@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../../src/engine.ts';
 import { gatewayTransport } from '../../src/transport.ts';
-import { providers, signIn } from '../../src/signin.ts';
+import { providers, signIn, type SignInCtx } from '../../src/signin.ts';
 import { routes } from '../../src/routes.ts';
 import { scratchDir } from '../../../test-support.ts';
 import type { GatewayTransport, SignInView } from '../../src/types.ts';
@@ -81,6 +81,35 @@ const signInCtx = () => {
   };
 };
 
+/** The kit's own ctx over a fresh task-owned gateway: one setup admission each, exactly these plugins allowed (5.6). */
+async function withGateway<T>(plugins: string[], fn: (ctx: SignInCtx, request: GatewayTransport['request'], state: string) => Promise<T>): Promise<T> {
+  const dir = scratchDir(`o6-gateway-${plugins.join('-') || 'none'}`);
+  const state = join(dir, 'state');
+  const probe = new Engine({ stateDir: state, engineDir, pluginId: 'byokit', tools: [], spawnEngine: true,
+    config: { plugins: { allow: plugins } }, onState: () => {}, onExit: () => {} });
+  let probeTransport: GatewayTransport | undefined;
+  try {
+    const seam = await probe.start();
+    for (let waited = 0; waited < 120_000; waited += 200) {
+      if (await listening(seam.port)) break;
+      await delay(200);
+      if (waited >= 119_800) throw new Error('the gateway never listened');
+    }
+    probeTransport = gatewayTransport({ ...seam, bridgeSock: probe.bridgeSock });
+    await probeTransport.start();
+    const transport = probeTransport;
+    const request: GatewayTransport['request'] = (method, params, options) => transport.request(method, params, options);
+    const list = await request('agents.list') as { agents: { id: string }[] };
+    if (!list.agents.some((agent) => agent.id === 'm1'))
+      await request('agents.create', { name: 'm1', workspace: join(state, 'openclaw', 'workspaces', 'm1') });
+    return await fn({ request, ensure: async (member: string) => ({ agentId: member }), callbackPort: 0 }, request, state);
+  } finally {
+    await probeTransport?.stop().catch(() => {});
+    await probe.stop().catch(() => {});
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 test('routes.json and the pinned tarball agree in both directions, plugins included (5.7, 5.12)', { timeout: 120_000 }, () => {
   const { choices, staticChoices } = pinnedChoices();
   for (const route of routes()) {
@@ -101,24 +130,7 @@ test('routes.json and the pinned tarball agree in both directions, plugins inclu
 
 test('every offered route starts on the real engine with only its plugin allowed (5.7, B6)', { timeout: 900_000 }, async () => {
   for (const route of routes().filter((entry) => entry.offer)) {
-    const dir = scratchDir(`o6-route-${route.choice}`);
-    const state = join(dir, 'state');
-    const probe = new Engine({ stateDir: state, engineDir, pluginId: 'byokit', tools: [], spawnEngine: true,
-      config: { plugins: { allow: [route.plugin] } }, onState: () => {}, onExit: () => {} });
-    let probeTransport: GatewayTransport | undefined;
-    try {
-      const ctx = await probe.start();
-      for (let waited = 0; waited < 120_000; waited += 200) {
-        if (await listening(ctx.port)) break;
-        await delay(200);
-        if (waited >= 119_800) assert.fail(`${route.choice}: the gateway never listened`);
-      }
-      probeTransport = gatewayTransport({ ...ctx, bridgeSock: probe.bridgeSock });
-      await probeTransport.start();
-      const request = probeTransport.request.bind(probeTransport);
-      const list = await request('agents.list') as { agents: { id: string }[] };
-      if (!list.agents.some((agent) => agent.id === 'm1'))
-        await request('agents.create', { name: 'm1', workspace: join(state, 'openclaw', 'workspaces', 'm1') });
+    await withGateway([route.plugin], async (_ctx, request) => {
       const sessionId = `byokit-probe-${route.choice}`;
       const started = await request('openclaw.setup.auth.start',
         { sessionId, agentId: 'm1', authChoice: route.choice }, { timeoutMs: 60_000 }) as { done?: boolean; error?: string };
@@ -128,11 +140,7 @@ test('every offered route starts on the real engine with only its plugin allowed
       assert.doesNotMatch(String(pulled.error ?? ''), /not available|blocked by allowlist/i, route.choice);
       assert.ok(pulled.step?.id, `${route.choice}: no step arrived (${JSON.stringify(pulled)})`);
       await request('wizard.cancel', { sessionId }, { timeoutMs: 10_000 }).catch(() => {});
-    } finally {
-      await probeTransport?.stop().catch(() => {});
-      await probe.stop().catch(() => {});
-      rmSync(dir, { recursive: true, force: true });
-    }
+    });
   }
 });
 
@@ -160,6 +168,25 @@ test('real gateway: wizard.status carries no step, wizard.next pulls one, cancel
   }
   assert.ok(retry, 'setup admission still busy 15s after wizard.cancel');
   await client.request('wizard.cancel', { sessionId: retry.sessionId }, { timeoutMs: 10_000 }).catch(() => {});
+});
+
+test('real gateway: a sign-in cancelled at 0 ms frees the setup admission within 5 s (N5)', { timeout: 300_000 }, async () => {
+  await withGateway(['openai'], async (ctx, request) => {
+    const handle = signIn(ctx, 'm1', { authChoice: 'openai-device-code', via: 'code' }, () => {});
+    // Cancelled before the start has settled: the cancel waits for the session the engine registers as it settles.
+    handle.cancel();
+    assert.equal((await handle.done).why, 'declined');
+    const startedAt = Date.now();
+    let retry: { sessionId: string } | undefined;
+    while (!retry && Date.now() - startedAt < 5_000) {
+      retry = await request('openclaw.setup.auth.start',
+        { sessionId: 'byokit-after-cancel-at-zero', agentId: 'm1', authChoice: 'openai-device-code' },
+        { timeoutMs: 30_000 }).catch(() => undefined) as { sessionId: string } | undefined;
+      if (!retry) await delay(100);
+    }
+    assert.ok(retry, `setup admission still busy ${Date.now() - startedAt} ms after a cancel at 0`);
+    await request('wizard.cancel', { sessionId: retry.sessionId }, { timeoutMs: 10_000 }).catch(() => {});
+  });
 });
 
 test('real gateway: the drive shows the code, never asks wizard.status, and cancelling frees its own session', { timeout: 300_000 }, async () => {

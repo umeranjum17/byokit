@@ -422,8 +422,9 @@ Crewhouse's product choices (tool profile and deny list, `skills.allowBundled`, 
 `{ "choice": "openai-device-code", "provider": "openai", "plugin": "openai", "billing": "subscription", "via": "code",
 "prerequisite": null, "offer": true, "reason": "…", "source": "dist/provider-contract-api-*.js (2026.8.1)" }`.
 Seeded from Crewhouse `docs/supported-subscriptions.md`: subscription routes `openai`, `openai-device-code`,
-`xai-oauth`, `xai-device-code`, `github-copilot`, `github-copilot-enterprise`, `openrouter-oauth`,
-`minimax-global-oauth`, `minimax-cn-oauth` (`offer: true`), `anthropic-cli`, `setup-token` (`offer: false`, D12);
+`xai-oauth`, `github-copilot`, `github-copilot-enterprise`, `minimax-global-oauth`, `minimax-cn-oauth`
+(`offer: true`), `anthropic-cli`, `setup-token` (`offer: false`, D12); the seed's other Grok route
+`xai-device-code` is `offer: false` (manual-only upstream), and its `openrouter-oauth` is `offer: false` too (below);
 API routes listed there (`billing: 'api'`, `offer: false`, reason "API billing, not a subscription; shown only when
 an app asks"). `openrouter-oauth` is `billing: 'api'`, `offer: false` (upstream OAuth yields a credit-billed key, not
 a plan; no silent API billing). O6 verifies every choice id against the tarball and adds any the doc missed. Each
