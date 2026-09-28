@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { HERDR_PROTOCOL } from '../constants.ts';
 import type { HerdrKit } from '../kit.ts';
 import type { FakeHerdr } from './fake-herdr/server.ts';
-import type { AgentStatus, HerdrEvent, HerdrSnapshot, HerdrTransport, PromptReceipt } from '../types.ts';
+import type { AgentStatus, HerdrEvent, HerdrSnapshot, HerdrSubscription, HerdrTransport, PromptReceipt } from '../types.ts';
 
 export type HerdrContractBench = {
   kit: HerdrKit;
@@ -132,7 +132,10 @@ export function herdrContract(make: () => Promise<HerdrContractBench>): void {
       try {
         await kit.start().catch(() => {});
         const bootstrapCalls = subscribeCalls;
-        kit.subscribe([{ type: 'pane.agent_status_changed' }], () => {});
+        // Deliberately schema-invalid: the pinned schema (6.7) requires pane_id for this filtered
+        // kind, so the server rejects the batch — the exact answer the transport double gives here.
+        const rejected = { type: 'pane.agent_status_changed' } as unknown as HerdrSubscription;
+        kit.subscribe([rejected], () => {});
         await settle(1200);   // longer than the 1 s reconnect delay a retry would use
         assert.equal(subscribeCalls, bootstrapCalls + 1, 'the rejected subscription is never retried');
       } finally {
@@ -297,7 +300,7 @@ export function herdrContract(make: () => Promise<HerdrContractBench>): void {
         'closing a worktree group parent would close the group',
       );
       // The exact closes still go through.
-      await kit.call('pane.split', { target_pane_id: `${w2}:p1` });
+      await kit.call('pane.split', { target_pane_id: `${w2}:p1`, direction: 'right' });
       await kit.closePane(`${w2}:p1`);
       await kit.call('tab.create', { workspace_id: w2, cwd: '/tmp/h6-other' });
       await kit.closeTab(`${w2}:t1`);
