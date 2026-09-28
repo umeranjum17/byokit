@@ -15,6 +15,9 @@ Bring your own AI plan and devices. Apache-2.0.
 Examples: [`examples/expo`](examples/expo) (React Native, iOS and Android) and [`examples/pwa`](examples/pwa)
 (an installable web page). For platform checks and their limits, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+In design: runtime kits for apps built on OpenClaw or Herdr, where the aggregator holds the subscriptions
+([docs/runtime-kits.md](docs/runtime-kits.md)).
+
 byokit never touches a person's other AI tools: not their `~/.pi`, `~/.codex` or `~/.claude`, not their CLIs.
 Library code never reads environment keys; the explicitly invoked [decide eval CLI](packages/decide#evals) can use one
 for a live run. The tests prove isolation; see [CONTRIBUTING.md](CONTRIBUTING.md).
