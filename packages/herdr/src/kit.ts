@@ -33,7 +33,7 @@ export class HerdrKit {
     const paneId = raw.pane_id ?? raw.pane?.pane_id;
     const pane = this.tree.workspaces.flatMap((w) => w.tabs).flatMap((t) => t.panes).find((p) => p.id === paneId);
     if (pane && (e.type === 'pane.agent_status_changed' || e.type === 'pane.agent_detected' || e.type === 'pane.updated')) {
-      const a = raw.agent ?? raw;
+      const a = raw.agent ?? raw.pane ?? raw;
       pane.agent = { status: 'unknown', revision: 0, ...pane.agent,
         ...(a.agent !== undefined ? { kind: a.agent } : {}),
         ...(a.agent_status !== undefined ? { status: a.agent_status } : {}),
@@ -89,18 +89,27 @@ export class HerdrKit {
     this.transport = await this.supervisor.start();
     const buffered: HerdrEvent[] = [];
     let booting = true;
+    const refresh = () => {
+      if (token !== this.generation || booting) return;
+      booting = true;
+      void this.bootstrap(token, buffered).then(() => { booting = false; }).catch(() => { booting = false; });
+    };
     const stop = this.transport.subscribe(kinds.map((type) => ({ type })), (e) => {
-      if (booting) buffered.push(e); else this.update(e);
+      if (booting) buffered.push(e);
+      else if (e.type === 'pane.agent_detected' || /^(pane|tab|workspace)\.(created|closed|moved|renamed)$/.test(e.type)) {
+        buffered.push(e); refresh();
+      } else this.update(e);
     }, () => {});
     this.stops.add(stop);
-    const control = stop as typeof stop & { ready?: Promise<void>; onReconnect?: (fn: () => void) => void };
-    control.onReconnect?.(() => {
+    const control = stop as typeof stop & { ready?: Promise<boolean>; onReconnect?: (fn: () => void) => void;
+      onDisconnect?: (fn: () => void) => void };
+    control.onDisconnect?.(() => {
       if (token !== this.generation) return;
-      booting = true;
       this.current = { phase: 'reconnecting' }; this.o.onState?.(this.current);
-      void this.bootstrap(token, buffered).then(() => { booting = false; }).catch(() => {});
+      this.tree.connected = false; this.publish();
     });
-    await control.ready;
+    control.onReconnect?.(refresh);
+    if (await control.ready === false) throw new Error('herdr: event subscription rejected');
     await this.bootstrap(token, buffered);
     booting = false;
   }
@@ -113,7 +122,12 @@ export class HerdrKit {
   }
   call<M extends HerdrMethod>(method: M, params: HerdrParams<M>, o?: { timeoutMs?: number }): Promise<HerdrResult<M>> {
     if (!this.transport) return Promise.reject(new Error('herdr: not connected'));
-    return this.transport.call(method, params as Record<string, unknown>, o?.timeoutMs) as Promise<HerdrResult<M>>;
+    const values = params as Record<string, unknown>;
+    const wait = values.wait as { timeout_ms?: number } | undefined;
+    const timeout = o?.timeoutMs ?? (method === 'agent.wait' && typeof values.timeout_ms === 'number'
+      ? values.timeout_ms + 5000 : method === 'agent.prompt' && typeof wait?.timeout_ms === 'number'
+        ? wait.timeout_ms + 5000 : undefined);
+    return this.transport.call(method, values, timeout) as Promise<HerdrResult<M>>;
   }
   subscribe<E extends HerdrEventName>(subs: HerdrSubscription<E>[], on: (e: HerdrEventOf<E>) => void): () => void {
     if (!this.transport) throw new Error('herdr: not connected');

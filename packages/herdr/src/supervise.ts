@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { HERDR_PROTOCOL } from './constants.ts';
 import { socketTransport } from './socket.ts';
@@ -40,10 +40,6 @@ export class Supervisor {
       if (!isAbsolute(this.o.bin) || !existsSync(this.o.bin)) {
         this.state('missing', 'binary'); throw new Error('herdr: executable binary required');
       }
-      try { readFileSync(this.o.bin); } catch {
-        this.state('missing', 'binary'); throw new Error('herdr: binary unavailable');
-      }
-      const { statSync, constants, accessSync } = await import('node:fs');
       try { if (!statSync(this.o.bin).isFile()) throw new Error(); accessSync(this.o.bin, constants.X_OK); } catch {
         this.state('missing', 'binary'); throw new Error('herdr: binary not executable');
       }
@@ -67,7 +63,7 @@ export class Supervisor {
         this.retry = setTimeout(() => { void this.start().catch(() => {}); }, Math.min(30_000, 1000 * 2 ** this.failures++));
       });
       if (child.pid) writeFileSync(pidfile, String(child.pid), { mode: 0o600 });
-      const { closeSync } = await import('node:fs'); closeSync(log);
+      closeSync(log);
     }
     const transport = this.transport ?? this.o.transport ?? socketTransport(this.socketPath);
     this.transport = transport;

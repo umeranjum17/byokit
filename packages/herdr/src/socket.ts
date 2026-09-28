@@ -66,9 +66,10 @@ export function socketTransport(socketPath: string): HerdrTransport {
       let stopped = false;
       let current: Socket | undefined;
       let attempts = 0;
-      let acknowledge: (() => void) | undefined;
-      const ready = new Promise<void>((resolve) => { acknowledge = resolve; });
+      let acknowledge: ((ok: boolean) => void) | undefined;
+      const ready = new Promise<boolean>((resolve) => { acknowledge = resolve; });
       let reconnect: (() => void) | undefined;
+      let disconnect: (() => void) | undefined;
       let connectedBefore = false;
       const open = () => {
         if (stopped || closed) return;
@@ -78,6 +79,7 @@ export function socketTransport(socketPath: string): HerdrTransport {
         current = connect((frame) => {
           if (frame.error && (frame.id === '' || frame.id === id)) {
             rejected = true;
+            acknowledge?.(false);
             onError(String(frame.error.code), String(frame.error.message));
             current?.destroy();
           } else if (frame.id === id) {
@@ -85,7 +87,7 @@ export function socketTransport(socketPath: string): HerdrTransport {
             connectedBefore = true;
             ack = true;
             attempts = 0;
-            acknowledge?.();
+            acknowledge?.(true);
             if (again) reconnect?.();
           } else {
             const data = frame.data ?? frame;
@@ -94,6 +96,7 @@ export function socketTransport(socketPath: string): HerdrTransport {
           }
         }, () => {
           if (stopped || closed || rejected) return;
+          if (ack) disconnect?.();
           later(open, ack ? (subs.some((s) => s.type === 'pane.agent_status_changed') ? 2000 : 1000)
             : [250, 500, 1000, 2000][Math.min(attempts++, 3)]);
         });
@@ -101,7 +104,8 @@ export function socketTransport(socketPath: string): HerdrTransport {
       };
       open();
       const stop = () => { stopped = true; current?.destroy(); };
-      return Object.assign(stop, { ready, onReconnect(fn: () => void) { reconnect = fn; } });
+      return Object.assign(stop, { ready, onReconnect(fn: () => void) { reconnect = fn; },
+        onDisconnect(fn: () => void) { disconnect = fn; } });
     },
     close() {
       closed = true;

@@ -20,14 +20,13 @@ import type {
   PromptReceipt, StartAgent, TerminalSession,
 } from '../src/types.ts';
 
-test('the `.` entry carries the frozen kit surface (6.2)', () => {
+test('the `.` entry carries the frozen kit surface (6.2)', async () => {
   assert.equal(kit.HERDR_VERSION, '0.9.1');
   assert.equal(typeof kit.HERDR_PROTOCOL, 'number');
   assert.equal(typeof kit.HerdrKit, 'function');
   const k = new kit.HerdrKit({ mode: 'adopt', bin: '/usr/local/bin/herdr', socketPath: '/tmp/herdr.sock' });
   assert.deepEqual(k.state, { phase: 'stopped' });
-  assert.throws(() => k.start(), /H3/);
-  assert.throws(() => k.call('ping', {}), /H3/);
+  await assert.rejects(k.call('ping', {}), /not connected/);
 });
 
 test('public types keep their frozen shapes (6.2)', () => {
@@ -54,8 +53,11 @@ test('the internal seams are in place; bodies land with their work packages', ()
   assert.equal(typeof Supervisor, 'function');
   assert.equal(typeof Blocked, 'function');
   const call = (async () => undefined) as Parameters<typeof createAgents>[0]['call'];
-  assert.throws(() => socketTransport('/tmp/herdr.sock'), /H3/);
-  assert.throws(() => new Supervisor({ mode: 'adopt', bin: 'herdr', socketPath: '/tmp/herdr.sock' }, () => {}), /H3/);
+  const transport = socketTransport('/tmp/herdr.sock');
+  assert.equal(typeof transport.call, 'function');
+  transport.close();
+  const supervisor = new Supervisor({ mode: 'adopt', bin: 'herdr', socketPath: '/tmp/herdr.sock' }, () => {});
+  assert.equal(supervisor.env().HERDR_SOCKET_PATH, '/tmp/herdr.sock');
   // runCli/openTerminal are real since H4: they validate synchronously and resolve/reject async, so their
   // behavior lives in test/cli.test.ts and test/terminal.test.ts.
   assert.throws(() => runCli('herdr', {}, ['ok', 'bad\0arg']), /NUL/);
