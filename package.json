@@ -13,6 +13,7 @@
   "scripts": {
     "build": "tsc -b packages/accounts packages/link packages/relay packages/decide packages/ui-core packages/reach packages/seal packages/openclaw packages/herdr",
     "check": "tsc -p tsconfig.json",
+    "gen:herdr": "node packages/herdr/scripts/gen-types.ts",
     "test": "sh scripts/test.sh",
     "test:browser": "sh scripts/test.sh 'examples/pwa/*.test.ts'",
     "test:engine": "sh scripts/test.sh 'packages/openclaw/test/engine/*.test.ts'",
@@ -22,6 +23,7 @@
     "@types/node": "^22.10.0",
     "@types/ws": "^8.18.1",
     "esbuild": "^0.28.2",
+    "json-schema-to-typescript": "16.0.0",
     "jsqr": "1.4.0",
     "playwright": "^1.63.0",
     "tweetnacl": "1.0.3",

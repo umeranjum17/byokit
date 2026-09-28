@@ -20,15 +20,11 @@ export interface HerdrTransport {                        // socket.ts implements
 
 export type HerdrEvent = { type: string; [k: string]: unknown };
 
-// Pass-through typing (docs/runtime-kits.md 4.6). Until H2 generates the table from the pinned schema snapshot,
-// every method is typed `unknown`; `call` and `subscribe` already use these names, so H2 changes nothing else.
-export type HerdrMethods = Record<string, { params: unknown; result: unknown }>;
-export type HerdrMethod = keyof HerdrMethods;
-export type HerdrParams<M extends HerdrMethod> = HerdrMethods[M]['params'];
-export type HerdrResult<M extends HerdrMethod> = HerdrMethods[M]['result'];
-export type HerdrEventName = string;
-export type HerdrEventOf<E extends HerdrEventName> = HerdrEvent;
-export type HerdrSubscription<E extends HerdrEventName = HerdrEventName> = { type: E; [k: string]: unknown };
+// Pass-through typing (docs/runtime-kits.md 4.6): the generated method/event tables from the pinned
+// v0.9.1 schema snapshot (H2). Names and shapes are frozen by 6.2; only the tables' contents come
+// from the schema.
+export type { HerdrMethods, HerdrMethod, HerdrParams, HerdrResult } from './generated/methods.ts';
+export type { HerdrEvents, HerdrEventName, HerdrEventOf, HerdrSubscription } from './generated/events.ts';
 
 export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown';
 export type AgentRef = { paneId: string; name?: string };

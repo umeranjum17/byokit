@@ -1,0 +1,50 @@
+{
+  "herdr": "0.9.1",
+  "protocol": 22,
+  "schemaVersion": 1,
+  "methods": 103,
+  "events": 27,
+  "missing": [],
+  "unmatched": [
+    {
+      "method": "agent.focus",
+      "why": "result type not determined by the snapshot (naming rules, docs and lab probe)"
+    },
+    {
+      "method": "agent.read",
+      "why": "result type not determined by the snapshot (naming rules, docs and lab probe)"
+    },
+    {
+      "method": "agent.send_keys",
+      "why": "result type not determined by the snapshot (naming rules, docs and lab probe)"
+    },
+    {
+      "method": "command.invoke",
+      "why": "result type not determined by the snapshot (naming rules, docs and lab probe)"
+    },
+    {
+      "method": "pane.graphics.set",
+      "why": "result type not determined by the snapshot (naming rules, docs and lab probe)"
+    },
+    {
+      "method": "popup.close",
+      "why": "result type not determined by the snapshot (naming rules, docs and lab probe)"
+    },
+    {
+      "method": "product_announcement.dismiss",
+      "why": "result type not determined by the snapshot (naming rules, docs and lab probe)"
+    },
+    {
+      "method": "release_notes.dismiss",
+      "why": "result type not determined by the snapshot (naming rules, docs and lab probe)"
+    },
+    {
+      "method": "server.live_handoff",
+      "why": "result type not determined by the snapshot (naming rules, docs and lab probe)"
+    },
+    {
+      "method": "server.stop",
+      "why": "result type not determined by the snapshot (naming rules, docs and lab probe)"
+    }
+  ]
+}

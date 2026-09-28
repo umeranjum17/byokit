@@ -77,7 +77,8 @@ test('words: the frozen table answers in plain sentences (6.9)', () => {
   assert.equal(agentWords('blocked'), 'Waiting for your answer.');
 });
 
-// H2 sets HERDR_PROTOCOL from the v0.9.1 schema snapshot; until then this is an expected failure, not a red run.
-todo('HERDR_PROTOCOL comes from the schema snapshot, not the placeholder', () => {
+// H2 landed: HERDR_PROTOCOL is pinned from the v0.9.1 schema snapshot (test/generated.test.ts
+// holds the full snapshot checks).
+test('HERDR_PROTOCOL comes from the schema snapshot, not the placeholder', () => {
   assert.notEqual(HERDR_PROTOCOL, 0);
 });
