@@ -56,8 +56,10 @@ test('the internal seams are in place; bodies land with their work packages', ()
   const call = (async () => undefined) as Parameters<typeof createAgents>[0]['call'];
   assert.throws(() => socketTransport('/tmp/herdr.sock'), /H3/);
   assert.throws(() => new Supervisor({ mode: 'adopt', bin: 'herdr', socketPath: '/tmp/herdr.sock' }, () => {}), /H3/);
-  assert.throws(() => runCli('herdr', {}, ['--version']), /H4/);
-  assert.throws(() => openTerminal('herdr', {}, 'w1:p1', { mode: 'observe', cols: 80, rows: 24 }), /H4/);
+  // runCli/openTerminal are real since H4: they validate synchronously and resolve/reject async, so their
+  // behavior lives in test/cli.test.ts and test/terminal.test.ts.
+  assert.throws(() => runCli('herdr', {}, ['ok', 'bad\0arg']), /NUL/);
+  assert.throws(() => openTerminal('herdr', {}, 'bad\0pane', { mode: 'observe', cols: 80, rows: 24 }), /NUL/);
   assert.throws(() => closePane(call, 'w1:p1'), /H5/);
   assert.throws(() => new Blocked({ call }).list(), /H5/);
   assert.throws(() => sealNotice({} as never, new Uint8Array(32)), /H7/);
