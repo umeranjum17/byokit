@@ -1,1 +1,362 @@
-[]
+[
+  {
+    "choice": "openai",
+    "provider": "openai",
+    "billing": "subscription",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": true,
+    "reason": "ChatGPT/Codex subscription sign-in: the engine writes the redirect to the app's callback port.",
+    "source": "dist/provider-contract-api-*.js (2026.8.1)"
+  },
+  {
+    "choice": "openai-device-code",
+    "provider": "openai",
+    "billing": "subscription",
+    "via": "code",
+    "prerequisite": null,
+    "offer": true,
+    "reason": "ChatGPT subscription sign-in by device code: the code is shown, no browser on this computer needed.",
+    "source": "dist/provider-contract-api-*.js (2026.8.1)"
+  },
+  {
+    "choice": "xai-oauth",
+    "provider": "xai",
+    "billing": "subscription",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": true,
+    "reason": "Grok subscription sign-in through the engine's own wizard.",
+    "source": "dist/extensions/xai/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "xai-device-code",
+    "provider": "xai",
+    "billing": "subscription",
+    "via": "code",
+    "prerequisite": null,
+    "offer": true,
+    "reason": "Grok subscription sign-in by device code.",
+    "source": "dist/extensions/xai/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "github-copilot",
+    "provider": "github-copilot",
+    "billing": "subscription",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": true,
+    "reason": "GitHub Copilot subscription sign-in; the login stays in the engine's own folder.",
+    "source": "dist/extensions/github-copilot/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "github-copilot-enterprise",
+    "provider": "github-copilot",
+    "billing": "subscription",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": true,
+    "reason": "GitHub Copilot Enterprise sign-in; the login stays in the engine's own folder.",
+    "source": "dist/extensions/github-copilot/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "openrouter-oauth",
+    "provider": "openrouter",
+    "billing": "subscription",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": true,
+    "reason": "OpenRouter sign-in; pay-as-you-go credits, not a plan.",
+    "source": "dist/extensions/openrouter/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "minimax-global-oauth",
+    "provider": "minimax",
+    "billing": "subscription",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": true,
+    "reason": "MiniMax subscription sign-in (global endpoint).",
+    "source": "dist/extensions/minimax/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "minimax-cn-oauth",
+    "provider": "minimax",
+    "billing": "subscription",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": true,
+    "reason": "MiniMax subscription sign-in (CN endpoint).",
+    "source": "dist/extensions/minimax/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "alibaba-model-studio-api-key",
+    "provider": "alibaba",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/extensions/alibaba/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "anthropic-cli",
+    "provider": "anthropic",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": "the Claude CLI, signed in inside the engine's own folder",
+    "offer": false,
+    "reason": "Reuses an existing Claude CLI login; never offered (D12): the CLI prerequisite fails the plain-words bar.",
+    "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "apiKey",
+    "provider": "anthropic",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; never offered (D12): no Anthropic API fallback.",
+    "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "clawrouter-api-key",
+    "provider": "clawrouter",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/extensions/clawrouter/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "copilot-proxy",
+    "provider": "copilot-proxy",
+    "billing": "local",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "Local runtime on this computer; no account and no billing.",
+    "source": "dist/extensions/copilot-proxy/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "custom-api-key",
+    "provider": "custom",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/auth-choice-options-BLHNSTXX.js (2026.8.1)"
+  },
+  {
+    "choice": "fal-api-key",
+    "provider": "fal",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/extensions/fal/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "gemini-api-key",
+    "provider": "google",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/provider-contract-api-*.js (2026.8.1)"
+  },
+  {
+    "choice": "huggingface-api-key",
+    "provider": "huggingface",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/extensions/huggingface/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "litellm-api-key",
+    "provider": "litellm",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/extensions/litellm/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "lmstudio",
+    "provider": "lmstudio",
+    "billing": "local",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "Local runtime on this computer; no account and no billing.",
+    "source": "dist/extensions/lmstudio/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "microsoft-foundry-apikey",
+    "provider": "microsoft-foundry",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/extensions/microsoft-foundry/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "microsoft-foundry-entra",
+    "provider": "microsoft-foundry",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/extensions/microsoft-foundry/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "minimax-cn-api",
+    "provider": "minimax",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/extensions/minimax/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "minimax-global-api",
+    "provider": "minimax",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/extensions/minimax/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "nvidia-api-key",
+    "provider": "nvidia",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/extensions/nvidia/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "ollama",
+    "provider": "ollama",
+    "billing": "local",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "Local runtime on this computer; no account and no billing.",
+    "source": "dist/extensions/ollama/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "ollama-cloud",
+    "provider": "ollama-cloud",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/extensions/ollama/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "openai-api-key",
+    "provider": "openai",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/provider-contract-api-*.js (2026.8.1)"
+  },
+  {
+    "choice": "opencode-go",
+    "provider": "opencode-go",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/extensions/opencode-go/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "openrouter-api-key",
+    "provider": "openrouter",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/extensions/openrouter/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "runway-api-key",
+    "provider": "runway",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/extensions/runway/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "setup-token",
+    "provider": "anthropic",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "Manual Anthropic token entry, not a subscription; never offered (D12).",
+    "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "sglang",
+    "provider": "sglang",
+    "billing": "local",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "Local runtime on this computer; no account and no billing.",
+    "source": "dist/extensions/sglang/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "together-api-key",
+    "provider": "together",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/extensions/together/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "vllm",
+    "provider": "vllm",
+    "billing": "local",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "Local runtime on this computer; no account and no billing.",
+    "source": "dist/extensions/vllm/openclaw.plugin.json (2026.8.1)"
+  },
+  {
+    "choice": "xai-api-key",
+    "provider": "xai",
+    "billing": "api",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": false,
+    "reason": "API billing, not a subscription; shown only when an app asks.",
+    "source": "dist/extensions/xai/openclaw.plugin.json (2026.8.1)"
+  }
+]

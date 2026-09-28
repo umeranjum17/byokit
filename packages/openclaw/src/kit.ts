@@ -8,6 +8,9 @@ import { PROTOCOL_VERSION } from './constants.ts';
 import { Engine } from './engine.ts';
 import { gatewayTransport } from './transport.ts';
 import { createMembers } from './members.ts';
+import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLogin } from './migrate.ts';
+import { routes as routeTable } from './routes.ts';
+import { providers as engineProviders, signIn as startSignIn, signOut as engineSignOut, type SignInCtx } from './signin.ts';
 import { reconcileConfig, memoryLimited as configMemoryLimited } from './config.ts';
 import type {
   Approval,
@@ -559,37 +562,42 @@ export class OpenClawKit {
     return this.members.ensure(member);
   }
 
-  // sign-in (5.7)
+  // sign-in (5.7): every body here is the module's, with this kit's transport, members and ports.
+  private signInCtx(): SignInCtx {
+    return { request: (method, params, o) => this.request()(method, params, o),
+      ensure: (member) => this.ensureMember(member), callbackPort: this.o.callbackPort ?? 1455 };
+  }
+
   routes(): Route[] {
-    throw new Error('not built: O6');
+    return routeTable();
   }
 
-  providers(_member: Member): Promise<string[]> {
-    throw new Error('not built: O6');
+  providers(member: Member): Promise<string[]> {
+    return engineProviders(this.signInCtx(), member);
   }
 
-  signedIn(_member: Member, _provider: string): Promise<boolean> {
-    throw new Error('not built: O6');
+  signedIn(member: Member, provider: string): Promise<boolean> {
+    return engineProviders(this.signInCtx(), member).then((names) => names.includes(provider)).catch(() => false);
   }
 
   signIn(
-    _member: Member,
-    _o: { authChoice: string; via?: 'browser' | 'code' },
-    _on: (v: SignInView) => void,
+    member: Member,
+    o: { authChoice: string; via?: 'browser' | 'code' },
+    on: (v: SignInView) => void,
   ): { paste(text: string): void; cancel(): void; done: Promise<SignInView> } {
-    throw new Error('not built: O6');
+    return startSignIn(this.signInCtx(), member, o, on);
   }
 
-  signOut(_member: Member, _provider: string): Promise<void> {
-    throw new Error('not built: O6');
+  signOut(member: Member, provider: string): Promise<void> {
+    return engineSignOut(this.signInCtx(), member, provider);
   }
 
-  migrateRetainedLogin(_member: Member, _source: RetainedLogin): Promise<'staged' | 'nothing' | 'failed'> {
-    throw new Error('not built: O6');
+  migrateRetainedLogin(member: Member, source: RetainedLogin): Promise<'staged' | 'nothing' | 'failed'> {
+    return migrateLogin({ root: this.engine.root, prepare: () => this.prepare(), doctor: () => this.engine.doctor(120_000) }, member, source);
   }
 
-  confirmRetainedLogin(_member: Member, _source: RetainedLogin): Promise<boolean> {
-    throw new Error('not built: O6');
+  confirmRetainedLogin(member: Member, source: RetainedLogin): Promise<boolean> {
+    return confirmLogin(this.signInCtx(), member, source);
   }
 
   // runs (5.8)

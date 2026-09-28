@@ -44,7 +44,7 @@ export function reconcileConfig(saved: object | undefined, o: {
   c.memory ??= {};
   c.memory.search ??= { provider: 'none' };
   safeMemory(c.memory);
-  for (const entry of c.agents.entries ?? []) safeMemory(entry.memory);
+  for (const entry of Object.values(c.agents.entries ?? {})) safeMemory((entry as { memory?: unknown }).memory);
   c.plugins ??= {};
   c.plugins.load ??= {};
   c.plugins.load.paths = [...new Set([...(c.plugins.load.paths ?? []).filter((p: string) => !p.includes('byokit-openclaw-bridge')), o.pluginDir])];
@@ -65,6 +65,6 @@ export function reconcileConfig(saved: object | undefined, o: {
 
 export function memoryLimited(config: object, member: Member): boolean {
   const c = config as Obj;
-  const entry = c.agents?.entries?.find((e: Obj) => e.id === member);
+  const entry = c.agents?.entries?.[member];
   return (entry?.memory ?? c.memory)?.search?.provider === 'none';
 }
