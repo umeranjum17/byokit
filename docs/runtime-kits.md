@@ -354,8 +354,10 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
    → `failed/port`). Write the bridge plugin (5.9) and reconcile config (5.6).
 2. **start()**: kill a stale engine only if `openclaw/gateway.pid`'s `/proc/<pid>/cmdline` contains both the engine
    entry and `gateway` (never another app's pid); spawn `process.execPath <entry> gateway --port <port>` detached,
-   cwd = isolated HOME, env = 5.5, stdout/stderr appended to `logs/openclaw.log` (0600); write the pidfile. Device
-   identity `openclaw/device.json` (ed25519, created once, 0600). Connect the transport; wait up to 90 s for
+    cwd = isolated HOME, env = 5.5, stdout/stderr appended to `logs/openclaw.log` (0600); write the pidfile. Device
+    identity `openclaw/device.json` (ed25519, created once when missing, 0600; the transport reads both the kit's
+    `{ privateKey, publicKey }` shape and the Crewhouse legacy `{ deviceId, publicKeyPem, privateKeyPem }` shape, and
+    never rewrites an existing file so an upgraded house keeps its keys). Connect the transport; wait up to 90 s for
    hello-ok, polling the child every 200 ms. Exit code 78 once → run `doctor --fix --yes --non-interactive` (60 s)
    with state `repairing`, relaunch. Other exit → `failed/exited`. Timeout → `failed/handshake`. Protocol ≠ 4 →
    `needs-update/version`. Then start the bridge socket; state `ready`.
@@ -1174,7 +1176,7 @@ H1, and O12/H10 (README example rows); later merges rebase.
   plugin loaded, memory invariants.
 
 **O4 — transport, facade and pass-through** · Sol · deps: O1, O2
-- Files: `src/transport.ts`, `src/kit.ts`, `src/members.ts`, `test/kit.test.ts`.
+- Files: `src/transport.ts`, `src/kit.ts`, `src/members.ts`, `test/kit.test.ts`, `test/transport.test.ts`.
 - Behavior: real `GatewayTransport` over `GatewayClient` (url `ws://127.0.0.1:<port>`, token, role `operator`,
   `OPERATOR_SCOPES`, `clientName: 'cli'`, device identity + `hostDeps` signing as Crewhouse, `caps: ['tool-events']`);
   hello → `kit.hello`; warn (via `log`) for generated methods missing from `hello.features.methods` and vice versa;
