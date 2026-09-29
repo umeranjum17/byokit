@@ -88,18 +88,23 @@ async function runServer(): Promise<void> {
 // resizes the session and answers one empty frame stamped with the new size; `terminal.release`
 // exits; `{"type":"fake.stream","count":n,"size":b,"progress":file}` streams n frames with full
 // `<i>:` plus b bytes as fast as the pipe takes them, recording the frames-written count in
-// `progress` after each write so a test can see how far a paused reader let the stream run.
+// `progress` after each write so a test can see how far a paused reader let the stream run, then
+// one `{"type":"fake.stream.done","count":n}` line on the same ordered byte stream: when a test sees
+// the marker, every stream frame is already past every frame handler, so the delivery verdict is
+// causal instead of a wall-clock wait (a stall then means a genuinely wedged child, not a slow one).
 function frame(paneId: string, full: string, extra: Record<string, unknown> = {}): string {
   return `${JSON.stringify({ type: 'terminal.frame', pane_id: paneId, data: full, full, bytes: Buffer.byteLength(full), ...extra })}\n`;
 }
 
 async function stream(paneId: string, o: { count?: number; size?: number; progress?: string }): Promise<void> {
+  const count = o.count ?? 0;
   const pad = 'x'.repeat(o.size ?? 1024);
-  for (let i = 0; i < (o.count ?? 0); i += 1) {
+  for (let i = 0; i < count; i += 1) {
     const ok = process.stdout.write(frame(paneId, `${i}:${pad}`));
     if (o.progress) writeFileSync(o.progress, String(i + 1));
     if (!ok) await new Promise((resolve) => process.stdout.once('drain', resolve));
   }
+  process.stdout.write(`${JSON.stringify({ type: 'fake.stream.done', pane_id: paneId, count })}\n`);
 }
 
 function runTerminal(args: string[]): void {

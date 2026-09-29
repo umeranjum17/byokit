@@ -995,7 +995,8 @@ sorted, deterministic; a test regenerates and compares.
   --json` (the snapshot), `server` (runs `startFakeHerdr` at `HERDR_SOCKET_PATH` until SIGTERM or `server.stop`),
   JSON CLI verbs by forwarding to the fake socket, and `terminal session control|observe` (emits one ready frame and
   echoes `send` lines as output frames; a `{"type":"fake.stream",count,size,progress}` line streams numbered frames
-  as fast as the pipe takes them, recording the count written to `progress`, for backpressure tests).
+  as fast as the pipe takes them, recording the count written to `progress`, then one `fake.stream.done` line on
+  the same ordered stream, for backpressure tests).
 - `herdrContract(make)`: ping/protocol gate (newer server → steady `needs-update`, older → throw;
   declared range accepts newer as ready), bootstrap ordering with an event racing the snapshot, rejected
   subscription surfaced once and not retried, per-pane status watch, startAgent in each placement, prompt receipt
