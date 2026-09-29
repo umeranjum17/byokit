@@ -27,7 +27,7 @@ for (const platform of ['browser', 'react-native'] as const) {
       });
       const imports = Object.entries(result.metafile.inputs).flatMap(([from, i]) => i.imports.map((to) => ({ from, to: to.path })));
       assert.deepEqual(imports.filter((i) => i.to.startsWith('node:')), [], 'no node:* import');
-      const native = imports.filter((i) => i.to === 'expo-modules-core');
+      const native = imports.filter((i) => i.to === 'expo-modules-core' || i.to.startsWith('expo-modules-core/'));
       for (const i of native) assert.ok(NATIVE.some((n) => i.from.endsWith(n)), `${i.from} imports expo-modules-core`);
       assert.equal(native.length, platform === 'react-native' ? 1 : 0, 'the native module only on react-native');
       if (platform === 'browser') {
