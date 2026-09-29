@@ -58,7 +58,7 @@ streams over one end-to-end encrypted link. Both screens show the same two words
 
 <p align="center">
   <img src="docs/images/herdr-kit-host.png" alt="A terminal running the Herdr kit example: a pairing QR code, then On the phone, scan this, or open http://192.168.1.144:7310/ and type a code, Codes last five minutes, Connected to Herdr" width="420" /><br/>
-  <sub>The host of <a href="examples/herdr-kit"><code>examples/herdr-kit</code></a> (<code>BYOKIT_EXAMPLE_FAKE=1 npm start -- --via lan --name 'Kitchen computer'</code>) against the kit's stand-in Herdr; the phone's side of the pairing, the two words, is the second screen at the top.</sub>
+  <sub>The host of <a href="examples/herdr-kit"><code>examples/herdr-kit</code></a> (<code>npm start -- --herdr "$(command -v herdr)" --via lan --name 'Kitchen computer'</code>), pictured against the kit's stand-in Herdr (<code>BYOKIT_EXAMPLE_FAKE=1</code>); the phone's side of the pairing, the two words, is the second screen at the top.</sub>
 </p>
 
 ### Drive the agents at home from the phone
@@ -67,7 +67,7 @@ streams over one end-to-end encrypted link. Both screens show the same two words
 to ask. Each agent keeps its own subscription sign-in; the kit never sees a credential.
 
 <p align="center">
-  <img src="examples/herdr-kit/docs/5-answered.png" alt="Answered with y: the question is gone, the agent's screen ends in y, and both pi agents are Ready for you again" width="240" /><br/>
+  <img src="examples/herdr-kit/docs/5-answered.png" alt="Answered with y: the question is gone, the agent's screen ends in y and npm test: 42 passing, and both pi agents are Ready for you again" width="240" /><br/>
   <sub>After answering the question in the last screen at the top: <a href="examples/herdr-kit"><code>examples/herdr-kit</code></a>'s end-to-end test in a phone-sized headless Chromium, against the kit's stand-in Herdr.</sub>
 </p>
 

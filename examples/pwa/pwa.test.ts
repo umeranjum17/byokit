@@ -1,9 +1,11 @@
 // "Sign in with ChatGPT" in a real browser (headless Chromium through Playwright), end to end against the stand-in
 // OpenAI on another origin, as a person does it: the code on the page, typed on the provider's page in another tab,
 // kept in IndexedDB across a reload, refreshed, signed out (revoked there). Plus what makes it an installable PWA.
+// BYOKIT_EXAMPLE_SHOTS=<folder> takes the README pictures, showing the code in OpenAI's own format, not the stand-in's.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { build } from 'esbuild';
 import { mockOpenAI } from '../../packages/accounts/src/testing/index.ts';
@@ -101,5 +103,38 @@ test('an installable PWA: its manifest and a service worker that keeps the page 
   await context.setOffline(true);
   await page.reload();
   assert.equal(await page.title(), 'byokit example');
+  await context.close();
+});
+
+test('the README pictures: signed out, the code, connected', { skip: !process.env.BYOKIT_EXAMPLE_SHOTS }, async () => {
+  const open = async () => {
+    const context = await browser.newContext({ viewport: { width: 390, height: 450 }, deviceScaleFactor: 2 });
+    const page = await context.newPage();
+    await page.goto(site.url);
+    await page.locator('#status').filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor();
+    return { context, page, shot: (name: string) => page.screenshot({ path: join(process.env.BYOKIT_EXAMPLE_SHOTS!, `${name}.png`) }) };
+  };
+  const first = await open();
+  await first.shot('pwa-1-signed-out');
+  // Only the pictured code is swapped, and that sign-in stays waiting: it is never finished.
+  await first.page.route(`${openai.base}/api/accounts/deviceauth/usercode`, async (route) =>
+    route.fulfill({ json: { ...await (await route.fetch()).json(), user_code: 'WDJB-MJHT' } }));
+  await first.page.route(`${openai.base}/api/accounts/deviceauth/token`, (route) =>
+    route.fulfill({ status: 403, json: { error: { code: 'deviceauth_authorization_pending' } }, headers: { 'access-control-allow-origin': '*' } }));
+  await first.page.click('#signin');
+  await first.page.locator('#code').filter({ hasText: 'WDJB-MJHT' }).waitFor();
+  await first.shot('pwa-2-code');
+  await first.context.close();
+
+  const { context, page, shot } = await open();
+  const status = page.locator('#status');
+  await page.click('#signin');
+  const code = (await page.locator('#code').filter({ hasText: /-/ }).textContent())!;
+  const [provider] = await Promise.all([context.waitForEvent('page'), page.click('#open')]);
+  await provider.fill('#code', code);
+  await provider.click('#continue');
+  await provider.close();
+  await status.filter({ hasText: 'ChatGPT is connected.' }).waitFor();
+  await shot('pwa-3-connected');
   await context.close();
 });

@@ -13,10 +13,10 @@ only its own key and a grant, and asks the host to do things. For apps that reac
 phone or browser.</p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/herdr-kit-host.png" width="420" alt="A terminal running BYOKIT_EXAMPLE_FAKE=1 npm start -- --via lan --name 'Kitchen computer', showing a large pairing QR code, then: On the phone, scan this, or open http://192.168.1.144:7310/ and type A937-EYXC-EBCZ. Codes last five minutes. Press Enter for new ones. Connecting to Herdr… Connected to Herdr. (stand-in Herdr)" />
+  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/herdr-kit-host.png" width="420" alt="A terminal running npm start -- --herdr &quot;$(command -v herdr)&quot; --via lan --name 'Kitchen computer', showing a large pairing QR code, then: On the phone, scan this, or open http://192.168.1.144:7310/ and type K3J8-CJZ7-SE4R. Codes last five minutes. Press Enter for new ones. Connecting to Herdr… Connected to Herdr. (stand-in Herdr)" />
   <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/2-compare.png" width="240" alt="A phone page titled Agents, under Pair this phone: Check your computer shows these two words, then say yes there. The words are coast comet." />
 </p>
-<p align="center"><sub>Left: the host terminal of <a href="https://github.com/umeranjum17/byokit/tree/main/examples/herdr-kit">examples/herdr-kit</a> (<code>BYOKIT_EXAMPLE_FAKE=1 npm start -- --via lan --name 'Kitchen computer'</code>; <code>BYOKIT_EXAMPLE_FAKE=1</code> runs the kit's stand-in Herdr) showing the QR and the typed code. Right: the phone in the same example showing the two words to compare.</sub></p>
+<p align="center"><sub>Left: the host terminal of <a href="https://github.com/umeranjum17/byokit/tree/main/examples/herdr-kit">examples/herdr-kit</a> (<code>npm start -- --herdr "$(command -v herdr)" --via lan --name 'Kitchen computer'</code>, pictured against the kit's stand-in Herdr, <code>BYOKIT_EXAMPLE_FAKE=1</code>) showing the QR and the typed code. Right: the phone in the same example showing the two words to compare.</sub></p>
 
 Noise IK over WebSocket (`noise-handshake` + libsodium; frames sealed by `@noble/ciphers`), in Node, browsers/PWAs
 and React Native. The main entry has no listener, files or environment access: the app hands the host its sockets

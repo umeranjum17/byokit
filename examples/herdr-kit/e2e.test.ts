@@ -3,7 +3,8 @@
 // this test ever runs), and a phone-sized headless Chromium going pair → start agent → prompt → receipt → a question
 // → answer y → ready again. Every status a person reads must be the kit's own sentence from its words.json.
 // Third-party dependencies are linked from the repo's installed tree, so the run stays offline.
-// BYOKIT_EXAMPLE_SHOTS=<folder> keeps a screenshot of each step.
+// BYOKIT_EXAMPLE_SHOTS=<folder> keeps a screenshot of each step, for the README: the computer gets a real name and the
+// agent a plausible session (capture-herdr.ts), so the pictures show what a person sees rather than the fake's words.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
@@ -42,7 +43,14 @@ execFileSync('npm', ['run', 'build:web'], { cwd: app, stdio: 'ignore', env: { ..
 const kitDir = join(modules, '@byokit/herdr/dist');
 const WORDS = JSON.parse(readFileSync(join(kitDir, 'words.json'), 'utf8')) as Record<string, string>;
 const { writeBinShim } = await import(pathToFileURL(join(kitDir, 'testing/index.js')).href) as typeof import('@byokit/herdr/testing');
-const fakeHerdr = writeBinShim({ dir: join(dir, 'fake'), socketPath: join(app, '.state/herdr/herdr.sock') });
+const shots = process.env.BYOKIT_EXAMPLE_SHOTS;
+const capture = shots ? await import(pathToFileURL(join(app, 'capture-herdr.ts')).href) as typeof import('./capture-herdr.ts') : undefined;
+const fakeHerdr = capture ? (mkdirSync(join(dir, 'fake')), capture.writeCaptureShim(join(dir, 'fake')))
+  : writeBinShim({ dir: join(dir, 'fake'), socketPath: join(app, '.state/herdr/herdr.sock') });
+const NAME = capture ? 'Kitchen computer' : 'Test computer';
+const PROMPT = capture?.PROMPT ?? 'hello';
+const REPLY = capture?.REPLY ?? 'fake pi: hello';
+const QUESTION_PROMPT = capture?.QUESTION_PROMPT ?? 'ask permission';
 
 // Playwright's own Chromium (CI installs it); else the system's, for a machine without Playwright's download.
 const executablePath = existsSync(chromium.executablePath()) ? undefined : process.env.BYOKIT_CHROME ?? '/usr/bin/chromium';
@@ -52,7 +60,7 @@ const port = await new Promise<number>((resolve) => {
   const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address() as { port: number }; s.close(() => resolve(port)); });
 });
 const host = trackChild(spawn(process.execPath, ['host.ts', '--herdr', fakeHerdr, '--via', 'lan', '--port', String(port),
-  '--name', 'Test computer', '--folder', dir], { cwd: app, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
+  '--name', NAME, '--folder', dir], { cwd: app, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
 after(async () => { await browser.close(); host.kill('SIGTERM'); });
 let said = '';
 host.stdout.on('data', (b: Buffer) => { said += b.toString(); });
@@ -65,7 +73,6 @@ const heard = async (pattern: RegExp, from = 0) => {
 };
 const CODE = /type ([2-9A-Z]{4}-[2-9A-Z]{4}-[2-9A-Z]{4})/;
 
-const shots = process.env.BYOKIT_EXAMPLE_SHOTS;
 const shot = async (page: Page, name: string) => { if (shots) await page.screenshot({ path: join(shots, `${name}.png`), fullPage: true }); };
 const text = async (page: Page, selector: string, want: string) => {
   const found = page.locator(selector).filter({ hasText: want }).first();
@@ -96,7 +103,7 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
   await shot(page, '2-compare');
   host.stdin.write('y\n');
 
-  await text(page, '#link', 'Connected to Test computer.');
+  await text(page, '#link', `Connected to ${NAME}.`);
   await text(page, '#herdr', WORDS['herdr.ready']);
   await text(page, '#tree .agent', `pi${WORDS['agent.idle']}`);
 
@@ -111,16 +118,16 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
   await text(page, '#agent-status', WORDS['agent.idle']);
 
   // A prompt comes back with Herdr's receipt, and the agent's words show up on its screen.
-  await page.fill('#prompt', 'hello');
+  await page.fill('#prompt', PROMPT);
   await page.click('#send');
   await text(page, '#receipt', 'Sent.');
   assert.match((await page.locator('#receipt').getAttribute('data-revision'))!, /^\d+$/);
-  await page.locator('#screen').filter({ hasText: 'fake pi: hello' }).waitFor();
+  await page.locator('#screen').filter({ hasText: REPLY }).waitFor();
   await text(page, '#agent-status', WORDS['agent.idle']);
   await shot(page, '3-agent');
 
   // A question from the agent: it waits for an answer, and y answers it.
-  await page.fill('#prompt', 'ask permission');
+  await page.fill('#prompt', QUESTION_PROMPT);
   await page.click('#send');
   const question = page.locator('#blocked .question');
   await question.waitFor();
@@ -153,9 +160,9 @@ test('a page over plain http from the home network keeps its pairing too', async
   await page.click('#pair-go');
   await heard(/\? \(y\/n\) $/, from);
   host.stdin.write('y\n');
-  await text(page, '#link', 'Connected to Test computer.');
+  await text(page, '#link', `Connected to ${NAME}.`);
   await page.reload();
-  await text(page, '#link', 'Connected to Test computer.');
+  await text(page, '#link', `Connected to ${NAME}.`);
   await text(page, '#herdr', WORDS['herdr.ready']);
   assert.deepEqual(errors, []);
   await context.close();
