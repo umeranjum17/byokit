@@ -39,7 +39,12 @@ if (!bin || !isAbsolute(bin)) {
 }
 const path = flags.path?.split(':').filter(Boolean) ?? [dirname(bin), '/usr/local/bin', '/usr/bin', '/bin'];
 
-const kit = new HerdrKit({ mode: 'own', bin, stateDir: state, path, onState: (s) => { if (s.phase !== 'stopped') console.log(stateWords(s)); } });
+let said = '';
+const kit = new HerdrKit({ mode: 'own', bin, stateDir: state, path, onState: (s) => {
+  const now = stateWords(s);
+  if (now && now !== said) console.log(now);
+  said = now;
+} });
 
 // Paired devices, kept across restarts (0600, written whole then renamed into place).
 const jsonFile = <T>(file: string, empty: T) => ({
@@ -54,11 +59,19 @@ const jsonFile = <T>(file: string, empty: T) => ({
 const grants: GrantStore = jsonFile<Grant[]>(join(state, 'grants.json'), []);
 const ingress = jsonFile<ServeIngress | null>(join(state, 'ingress.json'), null);
 
-// Pairing asks the person here; answers come in order, and an Enter with no question pending shows fresh codes.
+// Pairing asks the person here, one device at a time: a second one asking meanwhile is turned away, and a question
+// nobody answers ends with the pairing window. An Enter with no question open shows fresh codes.
 const input = createInterface({ input: process.stdin });
-const answers: ((line: string) => void)[] = [];
-input.on('line', (line) => { const answer = answers.shift(); if (answer) answer(line); else showCodes(); });
-input.on('close', () => { for (const answer of answers.splice(0)) answer(''); });
+let asking: ((line: string) => void) | undefined;
+let closed = false;
+input.on('line', (line) => { const answer = asking; asking = undefined; if (answer) answer(line); else showCodes(); });
+input.on('close', () => { closed = true; asking?.(''); });
+const ask = (question: string) => new Promise<string>((resolve) => {
+  process.stdout.write(question);
+  const answer = (line: string) => { clearTimeout(timer); if (asking === answer) asking = undefined; resolve(line); };
+  const timer = setTimeout(() => { console.log(''); answer(''); }, 300_000);
+  asking = answer;
+});
 
 // Every device paired here sees all of Herdr (`meta.scope` below); a grant without a scope sees nothing.
 const link = herdrLink(kit, { scopeOf: (g) => (g.meta as { scope?: { workspaces: 'all' | string[] } } | undefined)?.scope ?? { workspaces: [] } });
@@ -67,9 +80,12 @@ const host = await Host.open({
   name: flags.name,
   grants,
   confirm: async (p) => {
+    if (closed || asking) {
+      console.log(`\n${p.name} wants to pair, but ${closed ? 'nobody can answer here' : 'another device is waiting'}: turned away.`);
+      return false;
+    }
     console.log(`\n${p.name} wants to pair. Check it shows these two words: ${p.words}`);
-    process.stdout.write(`Pair ${p.name}? (y/n) `);
-    const yes = /^y(es)?$/i.test((await new Promise<string>((r) => answers.push(r))).trim());
+    const yes = /^y(es)?$/i.test((await ask(`Pair ${p.name}? (y/n) `)).trim());
     console.log(yes ? `${p.name} is paired.` : `${p.name} was turned away.`);
     return yes;
   },

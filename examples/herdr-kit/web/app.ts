@@ -1,6 +1,6 @@
 // The phone side: pair with the computer, then see its Herdr agents, start one, talk to it and answer its questions.
 // Plain DOM; every status a person reads is a sentence from @byokit/herdr's or @byokit/ui-core's words.
-import { DeviceLink, browserDeviceStore, normalizeCode, pairWithCode, pairWithOffer, type DeviceGrant } from '@byokit/link';
+import { DeviceLink, browserDeviceStore, normalizeCode, pairWithCode, pairWithOffer, type DeviceGrant, type KeptDevice } from '@byokit/link';
 import { agentWords, herdrDevice } from '@byokit/herdr/device';
 import type { BlockedAgent, HerdrSnapshot } from '@byokit/herdr'; // types only: nothing from the computer side is bundled
 import { consentWords, linkWords, pairingView, type PairPhase } from '@byokit/ui-core/link';
@@ -15,7 +15,14 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLEl
   return node;
 };
 const said = (e: unknown) => (e instanceof Error ? e.message : String(e));
-const store = browserDeviceStore('herdr-kit');
+// The pairing is sealed in IndexedDB with a key no script can read out, which needs a secure page (https, or this
+// computer). A page over plain http from the home network isn't one; there the pairing is kept unsealed, which
+// costs nothing more: whoever can change that network's traffic could change this page's code anyway.
+const store: KeptDevice = globalThis.isSecureContext ? browserDeviceStore('herdr-kit') : {
+  load: async () => JSON.parse(localStorage.getItem('herdr-kit') ?? 'null') as DeviceGrant | null,
+  save: (g) => localStorage.setItem('herdr-kit', JSON.stringify(g)),
+  clear: () => localStorage.removeItem('herdr-kit'),
+};
 // Keys Herdr sends to the pane exactly as named; the labels are what a person reads.
 const KEYS: [label: string, key: string, spoken: string][] = [['Enter', 'Enter', 'Press Enter'], ['y', 'y', 'Answer y'], ['n', 'n', 'Answer n'], ['Esc', 'Escape', 'Press Esc']];
 
@@ -92,6 +99,7 @@ async function online() {
     // Tree changes and question add/resolve frames; the stream ends when the link drops and reopens on `online`.
     for await (const frame of hd.events() as AsyncIterable<{ type: string; snapshot?: HerdrSnapshot }>) {
       if (frame.type === 'snapshot' && frame.snapshot) { tree = frame.snapshot; drawTree(); }
+      if (!$<HTMLSelectElement>('kind').options.length) setup().catch(() => {}); // Herdr was still starting
       void refresh();
     }
   } catch { /* offline: onStatus says so */ } finally { listening = false; }
@@ -163,15 +171,19 @@ async function drawAgent() {
   if (atEnd) screen.scrollTop = screen.scrollHeight;
 }
 
+// An answer that didn't go through stays said on its question until an answer does (the list redraws often).
+const answerErrors = new Map<string, string>();
 function drawBlocked(list: BlockedAgent[]) {
+  for (const pane of answerErrors.keys()) if (!list.some((b) => b.paneId === pane)) answerErrors.delete(pane);
   $('questions').hidden = list.length === 0;
   $('blocked').replaceChildren(...list.map((b) => {
     const agent = agentAt(b.paneId);
-    const note = el('p', { className: 'error', role: 'alert' } as Partial<HTMLParagraphElement>);
+    const note = el('p', { className: 'error', role: 'alert', textContent: answerErrors.get(b.paneId) ?? '' } as Partial<HTMLParagraphElement>);
     const keys = KEYS.map(([label, key, spoken]) => {
       const button = el('button', { type: 'button', textContent: label, onclick: async () => {
         for (const k of keys) k.disabled = true;
-        try { await hd.answer(b.paneId, [key], b.revision); } catch (e) { note.textContent = said(e); for (const k of keys) k.disabled = false; }
+        try { await hd.answer(b.paneId, [key], b.revision); answerErrors.delete(b.paneId); }
+        catch (e) { answerErrors.set(b.paneId, said(e)); note.textContent = said(e); for (const k of keys) k.disabled = false; }
         void refresh();
       } });
       button.setAttribute('aria-label', `${spoken} to ${agent ? nameOf(agent) : 'the agent'}`);
@@ -210,7 +222,8 @@ $('start-form').onsubmit = async (e) => {
   e.preventDefault();
   const kind = $<HTMLSelectElement>('kind').value;
   const cwd = $<HTMLInputElement>('folder').value.trim();
-  if (!kind || !cwd) return;
+  if (!kind) { $('start-error').textContent = "Herdr hasn't listed its agents yet. Try again in a moment."; void setup().catch(() => {}); return; }
+  if (!cwd) return;
   const button = $<HTMLButtonElement>('start-go');
   button.disabled = true;
   button.textContent = agentWords('starting');

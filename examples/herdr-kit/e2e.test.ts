@@ -25,7 +25,10 @@ cpSync(here, app, { recursive: true, filter: (f) => !/[/\\](node_modules|\.state
 const tgz = join(dir, 'tgz');
 mkdirSync(tgz);
 const packed = Object.values(JSON.parse(execFileSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', tgz,
-  ...PACKAGES.flatMap((p) => ['-w', `packages/${p}`])], { cwd: root, encoding: 'utf8', env: { ...process.env, npm_config_update_notifier: 'false' } }))) as { name: string; filename: string }[]; // an array or keyed by package, by npm version
+  ...PACKAGES.flatMap((p) => ['-w', `packages/${p}`])], { cwd: root, encoding: 'utf8', env: { ...process.env, npm_config_update_notifier: 'false' } }))) as { name: string; version: string; filename: string }[]; // an array or keyed by package, by npm version
+// The example's pins name exactly what the repo packs, so `npm i` gets the code this test proves.
+const pins = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).dependencies as Record<string, string>;
+for (const p of packed) if (pins[p.name]) assert.equal(pins[p.name], p.version, `${p.name} pin is stale`);
 const modules = join(app, 'node_modules');
 for (const p of packed) {
   const into = join(modules, p.name);
@@ -41,24 +44,26 @@ const WORDS = JSON.parse(readFileSync(join(kitDir, 'words.json'), 'utf8')) as Re
 const { writeBinShim } = await import(pathToFileURL(join(kitDir, 'testing/index.js')).href) as typeof import('@byokit/herdr/testing');
 const fakeHerdr = writeBinShim({ dir: join(dir, 'fake'), socketPath: join(app, '.state/herdr/herdr.sock') });
 
+// Playwright's own Chromium (CI installs it); else the system's, for a machine without Playwright's download.
+const executablePath = existsSync(chromium.executablePath()) ? undefined : process.env.BYOKIT_CHROME ?? '/usr/bin/chromium';
+const browser = await chromium.launch({ executablePath });
+
 const port = await new Promise<number>((resolve) => {
   const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address() as { port: number }; s.close(() => resolve(port)); });
 });
 const host = trackChild(spawn(process.execPath, ['host.ts', '--herdr', fakeHerdr, '--via', 'lan', '--port', String(port),
   '--name', 'Test computer', '--folder', dir], { cwd: app, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
+after(async () => { await browser.close(); host.kill('SIGTERM'); });
 let said = '';
 host.stdout.on('data', (b: Buffer) => { said += b.toString(); });
-const heard = async (pattern: RegExp) => {
-  for (let i = 0; i < 300 && !pattern.test(said); i++) await new Promise((r) => setTimeout(r, 50));
-  const m = said.match(pattern);
+/** The host's first line matching `pattern` after `from` characters of what it said. */
+const heard = async (pattern: RegExp, from = 0) => {
+  for (let i = 0; i < 300 && !pattern.test(said.slice(from)); i++) await new Promise((r) => setTimeout(r, 50));
+  const m = said.slice(from).match(pattern);
   assert.ok(m, `host never said ${pattern}; it said:\n${said}`);
   return m;
 };
-
-// Playwright's own Chromium (CI installs it); else the system's, for a machine without Playwright's download.
-const executablePath = existsSync(chromium.executablePath()) ? undefined : process.env.BYOKIT_CHROME ?? '/usr/bin/chromium';
-const browser = await chromium.launch({ executablePath });
-after(async () => { await browser.close(); host.kill('SIGTERM'); });
+const CODE = /type ([2-9A-Z]{4}-[2-9A-Z]{4}-[2-9A-Z]{4})/;
 
 const shots = process.env.BYOKIT_EXAMPLE_SHOTS;
 const shot = async (page: Page, name: string) => { if (shots) await page.screenshot({ path: join(shots, `${name}.png`), fullPage: true }); };
@@ -70,7 +75,7 @@ const text = async (page: Page, selector: string, want: string) => {
 
 test('pair a phone, start an agent, prompt it, answer its question, all in plain words', async () => {
   await heard(/Connected to Herdr\./);
-  const code = (await heard(/type ([2-9A-Z]{4}-[2-9A-Z]{4}-[2-9A-Z]{4})/))[1];
+  const code = (await heard(CODE))[1];
 
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true,
     userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36' });
@@ -129,6 +134,29 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
   await text(page, '#agent-status', WORDS['agent.idle']);
   await shot(page, '5-answered');
 
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('a page over plain http from the home network keeps its pairing too', async () => {
+  // Not a secure context (no sealed store there): the pairing is kept in plain browser storage, across a reload.
+  const from = said.length;
+  host.stdin.write('\n'); // fresh codes
+  const code = (await heard(CODE, from))[1];
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true });
+  await context.addInitScript(() => Object.defineProperty(window, 'isSecureContext', { value: false }));
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on('pageerror', (e) => { errors.push(String(e)); console.error(e); });
+  await page.goto(`http://127.0.0.1:${port}/`);
+  await page.fill('#pair-input', code);
+  await page.click('#pair-go');
+  await heard(/\? \(y\/n\) $/, from);
+  host.stdin.write('y\n');
+  await text(page, '#link', 'Connected to Test computer.');
+  await page.reload();
+  await text(page, '#link', 'Connected to Test computer.');
+  await text(page, '#herdr', WORDS['herdr.ready']);
   assert.deepEqual(errors, []);
   await context.close();
 });

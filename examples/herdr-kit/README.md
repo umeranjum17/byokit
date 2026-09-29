@@ -34,6 +34,10 @@ packed packages, as `e2e.test.ts` does.
 7. When the agent asks something, it appears under **Questions for you**: read its question and tap `Enter`, `y`,
    `n` or `Esc`.
 
+Over Tailscale the page is https and the phone keeps its pairing sealed in the browser. Over your home network it is
+plain http, which browsers don't let a page seal with, so the pairing is kept in the browser's ordinary storage
+there; prefer Tailscale when you can.
+
 Options: `--port` (default 7310), `--via` (`auto`: Tailscale when it is installed, else your home network; or
 `tailscale`, `tailscale-direct`, `private`, `lan`), `--folder` (where new agents start; default here), `--name`
 (what the phone calls this computer), `--path` (where Herdr's panes look for agent programs; default the folder
@@ -70,7 +74,9 @@ Try it without Herdr: `BYOKIT_EXAMPLE_FAKE=1 npm start` runs the kit's stand-in 
 | This helper isn't ready yet. Try again in a moment. | The agent is still starting or signing in; wait until it says Ready for you. |
 | That question already changed. Look again before answering. | The agent moved on before your answer arrived; read the new question and answer again. |
 | This device can't do that. Ask the person at the computer. | This phone was paired to watch only; pair it again from this app's codes. |
-| Can't reach your computer. Check it's on and connected. | Phone and computer need the same network or tailnet; check the address printed in the terminal opens on the phone. |
+| Can't reach your computer. Check it's on and connected. (while pairing) | Phone and computer need the same network or tailnet; check the address printed in the terminal opens on the phone. |
+| Can't reach {computer} right now. This device keeps trying by itself. | The app on the computer stopped, or the phone left its network; start it again with `npm start` and the phone reconnects by itself. |
 | That code didn't match. Check it, or show a new one on your computer. | Press Enter in the terminal for fresh codes and type the new one. |
 | Your computer said no to this device. | Someone answered `n` in the terminal; pair again and answer `y`. |
-| This device was removed on your computer. | Its pairing was deleted from `.state/grants.json`; pair again. |
+| This device was removed on {computer}. | Its pairing was deleted from `.state/grants.json`; pair again. |
+| Herdr hasn't listed its agents yet. Try again in a moment. | Herdr is still starting; if it stays, see the Herdr rows above. |

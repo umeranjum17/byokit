@@ -20,6 +20,7 @@ person's own Herdr, HOME or agent sign-ins.
    buttons at least once over the run (`Enter`, `y`, `n`, `Esc`: the app sends Herdr the key names `Enter`, `y`,
    `n`, `Escape`); the question leaves the list and the agent carries on.
 8. Restart `npm start`: the phone reconnects without pairing again; the agent's sign-in is still there.
+   Once over `--via lan` too (plain http): pair, reload the page, still paired.
 9. Screenshot each step on the phone; record the results below and in the PR.
 
 ## Results
