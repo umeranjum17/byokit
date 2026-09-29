@@ -27,7 +27,10 @@ runtime-tested here because no simulator is available.
 - **Isolation first.** byokit never reads or writes a person's `~/.pi`, `~/.codex`, `~/.claude` or cloud credential files,
   never uses their environment's API keys (except the explicitly invoked [live eval CLI](packages/decide#evals)), and
   never runs their CLIs. Runtime kits drive only the aggregator the app names explicitly (the OpenClaw engine the kit
-  installs, the Herdr binary and socket the app passes); byokit tests use fakes and never a person's Herdr. Tests use
+  installs, the Herdr binary and socket the app passes); byokit tests use fakes and never a person's Herdr. Capability
+  kits ([docs/capability-kits.md](docs/capability-kits.md)) have their own carve-out: `@byokit/compose` may load only
+  its exactly pinned public engine package, and `@byokit/capture` may spawn only a recorder implementing recorder
+  protocol v1 that the app passes by absolute path; their `npm test` runs use fakes only. Tests use
   the harness in `packages/accounts/src/testing` (a decoy HOME, an fs tracer, canary
   tokens) and must never need a real account, the network or a model call. `npm test` fails if your own `~/.pi` changed during the run.
 - **One package per concern**, small and dependency-light. Prefer deleting to adding.
