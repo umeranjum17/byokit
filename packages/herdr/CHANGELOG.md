@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- FIX: `prompt` now reaches an idle agent that was already running when the app connected. The kit
+  read every live status push as the agent kind (the push carries the kind as a plain `agent`
+  string) and dropped the status, so an agent caught at `unknown` stayed there and the readiness
+  gate refused every prompt. The push now lands; and a status change between the snapshot read and
+  the per-pane watch's ack, which reached no socket, is re-read once the watch is live.
+
 - Depends on @byokit/link 0.3.2.
 
 - Opt-in pinned Herdr fetch (G11, `./binary`): `ensureHerdr({ dir, platform? })` (also spelled
