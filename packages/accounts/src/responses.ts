@@ -99,7 +99,9 @@ export type ResponseStreamEvent =
 
 /** Reads a streamed answer (fixtures/conformance/sse.json): `push` each piece as it arrives, `end` for the whole text,
  *  `result` for the text with every output item. `onEvent` sees each tool call and output item as it lands.
- *  An error event throws a ResponseError. */
+ *  Events split on any blank line (LF, CRLF or bare CR). A data line that is not JSON throws a ResponseError;
+ *  a stream ending with nothing to show throws too. The text is the streamed deltas; the completed envelope
+ *  only fills in when no deltas arrived. An error event throws a ResponseError. */
 export function sseReader(onText?: (delta: string) => void, onEvent?: (event: ResponseStreamEvent) => void) {
   let buffer = '', text = '', completed: string | undefined;
   let done = false, finished: ResponseResult | undefined;
@@ -122,7 +124,7 @@ export function sseReader(onText?: (delta: string) => void, onEvent?: (event: Re
     const data = block.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).replace(/^ /, '')).join('\n');
     if (!data || data === '[DONE]') return;
     let e: any;
-    try { e = JSON.parse(data); } catch { return; }
+    try { e = JSON.parse(data); } catch { throw new ResponseError("ChatGPT's answer could not be read.", null); }
     if (e.type === 'response.output_text.delta' && typeof e.delta === 'string') {
       text += e.delta;
       onText?.(e.delta);
@@ -163,19 +165,20 @@ export function sseReader(onText?: (delta: string) => void, onEvent?: (event: Re
     }
   };
   const drain = (final: boolean) => {
-    const blocks = buffer.replace(/\r\n/g, '\n').split('\n\n');
-    buffer = final ? '' : blocks.pop()!;
+    // A trailing CR may be a bare-CR line ending or half of a chunk-split CRLF: hold it until more arrives.
+    let tail = '';
+    if (!final && buffer.endsWith('\r')) { tail = '\r'; buffer = buffer.slice(0, -1); }
+    const blocks = buffer.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n\n');
+    buffer = (final ? '' : blocks.pop()!) + tail;
     for (const b of blocks) event(b);
   };
   const finish = (): ResponseResult => {
     if (!finished) {
       drain(true);
       if (!done) throw new ResponseError('ChatGPT stopped before completing its answer.', 'network');
-      let whole = text;
-      if (completed !== undefined && completed !== text) {
-        if (completed.startsWith(text)) onText?.(completed.slice(text.length));
-        whole = completed;
-      }
+      const whole = text !== '' ? text : (completed ?? '');
+      if (whole === '' && output.length === 0) throw new ResponseError('ChatGPT stopped before completing its answer.', 'network');
+      if (text === '' && whole !== '') onText?.(whole);
       finished = { text: whole, output };
     }
     return finished;
@@ -208,6 +211,8 @@ export type Ask = {
   /** Each tool call and output item as it lands. */
   onEvent?: (event: ResponseStreamEvent) => void;
   signal?: AbortSignal;
+  /** The app's own originator header value. Default: 'byokit'. */
+  originator?: string;
 };
 
 type Access = { access: string; accountId: string; model: string; base?: string; fetch?: typeof fetch };
@@ -226,7 +231,7 @@ export async function respond(o: Ask & Access): Promise<string | ResponseResult>
     method: 'POST', signal: o.signal,
     headers: {
       'content-type': 'application/json', accept: 'text/event-stream', authorization: `Bearer ${o.access}`,
-      'chatgpt-account-id': o.accountId, 'OpenAI-Beta': 'responses=experimental', originator: 'byokit',
+      'chatgpt-account-id': o.accountId, 'OpenAI-Beta': 'responses=experimental', originator: o.originator ?? 'byokit',
     },
     body: JSON.stringify({
       model: o.model, store: false, stream: true, instructions: o.instructions, input,
