@@ -11,6 +11,7 @@ import { Engine } from './engine.ts';
 import { gatewayTransport } from './transport.ts';
 import { createMembers } from './members.ts';
 import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLogin } from './migrate.ts';
+import { createRuns } from './runs.ts';
 import { routes as routeTable } from './routes.ts';
 import { providers as engineProviders, signIn as startSignIn, signOut as engineSignOut, type SignInCtx } from './signin.ts';
 import { reconcileConfig, memoryLimited as configMemoryLimited } from './config.ts';
@@ -621,17 +622,32 @@ export class OpenClawKit {
     return confirmLogin(this.signInCtx(), member, source);
   }
 
-  // runs (5.8)
-  run(_spec: RunSpec, _on?: (e: RunEvent) => void): Promise<RunEnd> {
-    throw new Error('not built: O8');
+  // runs (5.8): the facade owns no run state; every call delegates to the O8 module
+  // with this kit's live transport, member table and bridge (firstmate clearance, O9).
+  private runs(): ReturnType<typeof createRuns> {
+    return createRuns({
+      request: (method, params, o) => this.request()(method, params, o),
+      onEvent: (fn) => {
+        this.listeners.add(fn);
+        return () => {
+          this.listeners.delete(fn);
+        };
+      },
+      ensure: (member) => this.ensureMember(member),
+      bridge: this.bridge,
+    });
   }
 
-  steer(_sessionKey: string, _text: string): Promise<void> {
-    throw new Error('not built: O8');
+  run(spec: RunSpec, on?: (e: RunEvent) => void): Promise<RunEnd> {
+    return this.runs().run(spec, on);
   }
 
-  abort(_sessionKey: string): Promise<void> {
-    throw new Error('not built: O8');
+  steer(sessionKey: string, text: string): Promise<void> {
+    return this.runs().steer(sessionKey, text);
+  }
+
+  abort(sessionKey: string): Promise<void> {
+    return this.runs().abort(sessionKey);
   }
 
   // approvals (5.9)

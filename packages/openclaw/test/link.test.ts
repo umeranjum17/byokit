@@ -1,0 +1,294 @@
+// O9 acceptance: the link adapter over a real Host + DeviceLink pair on loopback with fakeGateway —
+// every op round-trips, view grants and foreign members are refused with link.notAllowed, oc.call is
+// default-refused, notices are sealed with title-only relay, and serve() binds per reach.
+import { test, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
+import {
+  DeviceLink,
+  Host,
+  PublicLinkError,
+  keyPair,
+  pairWithOffer,
+  type DeviceGrant,
+  type Grant,
+} from '@byokit/link';
+import type { PushAction, RelayClient } from '@byokit/relay';
+import { OpenClawKit } from '../src/kit.ts';
+import { openclawLink, serve } from '../src/link.ts';
+import { openclawDevice, LinkRefused } from '../src/device.ts';
+import { openNotice } from '../src/notices.ts';
+import { fakeGateway } from '../src/testing/fake-gateway.ts';
+import { words } from '../src/words.ts';
+
+const NOT_ALLOWED = words('link.notAllowed');
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function until<T>(fn: () => T | undefined | Promise<T | undefined>, ms = 5000): Promise<T> {
+  for (const end = Date.now() + ms; Date.now() < end; await sleep(20)) {
+    const value = await fn();
+    if (value) return value;
+  }
+  throw new Error('timed out');
+}
+
+const closers: (() => void)[] = [];
+after(() => closers.forEach((c) => c()));
+
+type World = {
+  kit: OpenClawKit;
+  fake: ReturnType<typeof fakeGateway>;
+  api: ReturnType<typeof openclawLink>;
+  host: Host;
+  url: string;
+  relayCalls: { n: Record<string, unknown>; o: { includeContent?: boolean } }[];
+  stop(): void;
+};
+
+async function world(o: { passThrough?: (method: string, grant: Grant) => boolean; relay?: boolean } = {}): Promise<World> {
+  const fake = fakeGateway();
+  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o9-'));
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false });
+  await kit.start();
+  const relayCalls: World['relayCalls'] = [];
+  const relay = (o.relay ?? true
+    ? ({ notify: async (n: Record<string, unknown>, options: { includeContent?: boolean } = {}) => {
+        relayCalls.push({ n, o: options });
+        return { sent: 1 };
+      } } as unknown as RelayClient)
+    : undefined);
+  const api = openclawLink(kit, {
+    memberOf: (grant) => (grant.meta as { member?: string } | undefined)?.member,
+    ...(o.passThrough ? { passThrough: o.passThrough } : {}),
+    ...(relay ? { relay } : {}),
+  });
+  const host = await Host.open({ keys: keyPair(), name: 'test computer', confirm: () => true, ...api });
+  const sockets: WsSocket[] = [];
+  const server = createServer();
+  const wss = new WebSocketServer({ server });
+  wss.on('connection', (ws) => {
+    sockets.push(ws);
+    host.accept(ws);
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}/link`;
+  const stop = () => {
+    host.close();
+    for (const s of sockets) s.terminate();
+    wss.close();
+    server.close();
+    void kit.stop().then(() => rmSync(stateDir, { recursive: true, force: true }));
+  };
+  closers.push(stop);
+  return { kit, fake, api, host, url, relayCalls, stop };
+}
+
+async function device(w: World, member: string | undefined, role: 'control' | 'view' = 'control') {
+  const { text } = w.host.offer({ role, urls: [w.url], ...(member === undefined ? {} : { meta: { member } }) });
+  const grant: DeviceGrant = await pairWithOffer(text, { name: `${member ?? 'nobody'}-phone`, onWords: () => {} });
+  const store = { g: grant as DeviceGrant | null, save(g: DeviceGrant) { this.g = g; }, clear() { this.g = null; } };
+  let online = false;
+  const link = new DeviceLink(grant, { store, onStatus: (s) => { online = s === 'online'; } });
+  closers.push(() => link.stop());
+  // Requests wait through reconnects, but streams need a live connection now.
+  await until(() => (online ? true : undefined));
+  return { oc: openclawDevice(link), link, grant };
+}
+
+const rejectsNotAllowed = (p: Promise<unknown>) =>
+  assert.rejects(p, (e: unknown) => e instanceof PublicLinkError && e.message === NOT_ALLOWED);
+
+test('state, routes and member gating round-trip', async () => {
+  const w = await world();
+  const a = await device(w, 'a');
+  const st = await a.oc.state();
+  assert.equal(st.state.phase, 'ready');
+  assert.equal(st.words, words('engine.ready'));
+  const routes = await a.oc.routes();
+  assert.ok(routes.length > 0 && routes.every((r) => r.offer));
+
+  const nobody = await device(w, undefined);
+  await rejectsNotAllowed(nobody.oc.state());
+  await rejectsNotAllowed(nobody.link.request('oc.call', { method: 'health' }));
+});
+
+test('view grant refused on every non-view op with link.notAllowed', async () => {
+  const w = await world();
+  const v = await device(w, 'a', 'view');
+  await v.oc.state();
+  assert.deepEqual(await v.oc.approvals(), []);
+  // A stream refusal arrives after the host accepts the open, so the portable client raises its
+  // link twin with the same words (device.ts cannot import link's class without breaking portability).
+  await assert.rejects(async () => { for await (const _ of v.oc.run('hello')) void _; },
+    (e: unknown) => e instanceof LinkRefused && (e as Error).message === NOT_ALLOWED);
+  await rejectsNotAllowed(v.oc.steer('agent:a:x', 'hi'));
+  await rejectsNotAllowed(v.oc.abort('agent:a:x'));
+  await rejectsNotAllowed(v.oc.decide('nope', { allow: true }));
+  await rejectsNotAllowed(v.oc.call('health'));
+  // View streams still open: events (no frames yet, so just open and close).
+  const it = v.oc.events()[Symbol.asyncIterator]();
+  await it.return?.();
+});
+
+test('member isolation: sessions, steer, approvals and decide', async () => {
+  const w = await world();
+  w.fake.handle('sessions.list', () => ({ sessions: [{ sessionKey: 'agent:a:x' }, { sessionKey: 'agent:b:y' }] }));
+  const a = await device(w, 'a');
+  const b = await device(w, 'b');
+
+  const frames: unknown[] = [];
+  for await (const f of a.oc.run('hello', { sessionKey: 'agent:a:x' })) frames.push(f);
+  assert.equal((frames.at(-1) as { end: { ok: boolean } }).end.ok, true);
+
+  await rejectsNotAllowed(b.oc.steer('agent:a:x', 'hijack'));
+  await rejectsNotAllowed(b.oc.abort('agent:a:x'));
+  // Each member's sessions list shows only its own keys.
+  assert.deepEqual(await b.link.request('oc.sessions'), [{ sessionKey: 'agent:b:y' }]);
+
+  await w.kit.call('exec.approval.request', { id: 'a1', command: 'restart radio', agentId: 'a', sessionKey: 'agent:a:x' });
+  await until(() => (a.oc.approvals() as Promise<{ id: string }[]>).then((l) => (l.some((x) => x.id === 'a1') ? true : undefined)));
+  assert.deepEqual(await b.oc.approvals(), []);
+  await rejectsNotAllowed(b.oc.decide('a1', { allow: true }));
+  await a.oc.decide('a1', { allow: true });
+  await until(() => a.oc.approvals().then((l) => (l.length === 0 ? true : undefined)));
+
+  assert.deepEqual(await a.link.request('oc.sessions'), [{ sessionKey: 'agent:a:x' }]);
+});
+
+test('oc.call refused by default, allowed by predicate', async () => {
+  const denied = await world();
+  const a = await device(denied, 'a');
+  await rejectsNotAllowed(a.oc.call('health'));
+
+  const allowed = await world({ passThrough: (method) => method === 'health' });
+  const c = await device(allowed, 'a');
+  assert.deepEqual(await c.oc.call('health'), { ok: true, plugins: { loaded: [] } });
+  await rejectsNotAllowed(c.oc.call('sessions.list'));
+});
+
+test('oc.run streams text frames then end', async () => {
+  const w = await world();
+  const a = await device(w, 'a');
+  const frames: unknown[] = [];
+  for await (const f of a.oc.run('hello')) frames.push(f);
+  const texts = frames.filter((f): f is { type: string; text: string } => (f as { type?: string }).type === 'text');
+  assert.ok(texts.length >= 2, 'assistant stream plus the final cumulative text');
+  assert.ok(texts.every((t) => t.text === 'fake: hello'));
+  assert.deepEqual(frames.at(-1), { type: 'end', end: { ok: true, text: 'fake: hello' } });
+});
+
+test('oc.events carries only the member’s gateway events plus approval frames', async () => {
+  const w = await world();
+  const a = await device(w, 'a');
+  const seen: unknown[] = [];
+  const it = a.oc.events()[Symbol.asyncIterator]();
+  const pump = (async () => {
+    for await (const f of { [Symbol.asyncIterator]: () => it }) seen.push(f);
+  })();
+  void pump;
+  // Another member's event never arrives.
+  w.fake.emit('agent', { agentId: 'b', runId: 'r-b', stream: 'assistant', data: { text: 'nope' } });
+  await sleep(150);
+  assert.equal(seen.length, 0);
+  w.fake.emit('agent', { agentId: 'a', runId: 'r-a', stream: 'assistant', data: { text: 'mine' } });
+  const mine = await until(() => seen[0]);
+  assert.equal((mine as { event: string }).event, 'agent');
+  await w.kit.call('exec.approval.request', { id: 'ev1', command: 'tune antenna', agentId: 'a', sessionKey: 'agent:a:x' });
+  const approval = await until(() => seen.find((f) => (f as { event?: string }).event === 'approval'));
+  assert.equal((approval as { change: string }).change, 'added');
+  assert.equal((approval as { approval: { id: string } }).approval.id, 'ev1');
+  await it.return?.();
+});
+
+test('registerNotices seals the approval; title-only relay; push action decides', async () => {
+  const w = await world();
+  const seed = crypto.getRandomValues(new Uint8Array(32));
+  const a = await device(w, 'a');
+  const a2 = await device(w, 'a'); // boxless: generic title only
+  await a2.oc.state(); // the adapter knows grants that have called (it has no host grant list)
+  await a.oc.registerNotices(seed);
+
+  await w.kit.call('exec.approval.request', { id: 'n1', command: 'erase /tmp/noticeme', agentId: 'a', sessionKey: 'agent:a:x' });
+  const sealed = await until(() => w.relayCalls.find((c) => c.o.includeContent && (c.n.to as string[] | undefined)?.includes(a.grant.device.id)));
+  assert.equal(sealed.n.title, words('approval.notice'));
+  assert.equal(typeof (sealed.n.data as { sealed?: unknown }).sealed, 'string');
+  assert.doesNotMatch(JSON.stringify(sealed.n), /noticeme/, 'the relay reads only the generic title');
+  const generic = await until(() => w.relayCalls.find((c) => !c.o.includeContent && (c.n.to as string[] | undefined)?.includes(a2.grant.device.id)));
+  assert.equal(generic.n.title, words('approval.notice'));
+  assert.equal(generic.n.data, undefined);
+
+  const opened = openNotice(sealed.n.data as Record<string, unknown>, seed);
+  assert.equal(opened?.id, 'n1');
+  assert.equal(opened?.member, 'a');
+  assert.equal(opened?.summary, 'run erase /tmp/noticeme');
+  assert.equal(openNotice(sealed.n.data as Record<string, unknown>, crypto.getRandomValues(new Uint8Array(32))), null);
+
+  // Push action allow decides it; a foreign device's action is refused.
+  const b = await device(w, 'b');
+  const action: PushAction = { device: a.grant.device.id, event: 'n1', action: 'allow' };
+  await assert.rejects(w.api.onAction({ ...action, device: b.grant.device.id }), (e: unknown) => e instanceof PublicLinkError);
+  await w.api.onAction(action);
+  await until(() => a.oc.approvals().then((l) => (l.length === 0 ? true : undefined)));
+});
+
+test('sign-in over the link: device code to done', async () => {
+  const w = await world();
+  // Gate the fake wizard so the code stage stays up until the test releases it: the real script
+  // finishes in milliseconds and the transient view would otherwise be missed.
+  w.fake.handle('openclaw.setup.auth.start', () => ({ sessionId: 'link-test', done: false, status: 'running' }));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let authed = false;
+  const deviceStep = { id: 'step-device', type: 'note', deviceCode: { code: 'CREW-2026' }, externalUrl: 'https://auth.openai.com/codex/device' };
+  const progressStep = { id: 'step-wait', type: 'progress' };
+  let pulls = 0;
+  w.fake.handle('wizard.next', async (p) => {
+    const params = p as { answer?: unknown };
+    if (params.answer) return { done: false, step: progressStep };
+    if (++pulls <= 2) return { done: false, step: pulls === 1 ? deviceStep : progressStep };
+    await gate;
+    authed = true;
+    return { done: true, status: 'done' };
+  });
+  w.fake.handle('models.authStatus', () => ({ providers: authed ? [{ provider: 'openai' }] : [] }));
+  const a = await device(w, 'a');
+  const first = await a.oc.signIn.start('openai', 'code');
+  assert.equal(first.state, 'waiting');
+  const code = await until(async () => {
+    const v = await a.oc.signIn.view('openai');
+    return v.signIn && 'code' in v.signIn && v.signIn.code ? v : undefined;
+  });
+  assert.equal((code.signIn as { code: string }).code, 'CREW-2026');
+  release();
+  const done = await until(async () => {
+    const v = await a.oc.signIn.view('openai');
+    return v.signIn?.state === 'done' ? v : undefined;
+  });
+  assert.equal(done.ready, true);
+  assert.equal(await w.kit.signedIn('a', 'openai'), true);
+});
+
+test('serve binds per reach and pairs over its urls', async () => {
+  const w = await world();
+  const free = await new Promise<number>((resolve) => {
+    const s = createServer();
+    s.listen(0, '127.0.0.1', () => {
+      const port = (s.address() as AddressInfo).port;
+      s.close(() => resolve(port));
+    });
+  });
+  const served = await serve({ host: w.host, port: free, via: 'lan' });
+  closers.push(() => void served.close());
+  assert.ok(served.urls.length > 0 && served.urls.every((u) => u.startsWith('ws://')));
+  const { text } = w.host.offer({ role: 'control', urls: served.urls, meta: { member: 'a' } });
+  const grant: DeviceGrant = await pairWithOffer(text, { name: 'served-phone', onWords: () => {} });
+  const link = new DeviceLink(grant, { store: { save: () => {}, clear: () => {} } });
+  closers.push(() => link.stop());
+  const oc = openclawDevice(link);
+  assert.equal((await oc.state()).state.phase, 'ready');
+  await served.close();
+});
