@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0 (2026-09-29)
+
 - FIX: Jev answers no longer drop the backend's token counts: every answer now carries `usage`
   (`input_tokens`/`output_tokens` when the backend sends them) and the raw backend response (`raw`), even
   when abstaining on a malformed answer. Any backend can report the same pair through its `Raw`.
