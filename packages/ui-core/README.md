@@ -6,10 +6,10 @@
   <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-666?style=flat" /></a>
 </p>
 
-<p align="center"><strong>Headless sign-in and pairing state, in plain words, for any UI.</strong><br/>
+<p align="center"><strong>Headless sign-in, pairing and runtime-kit state, in plain words, for any UI.</strong><br/>
 It turns what your back end reports into the phase to draw and the sentence to show: a "Sign in with …" sheet, a
-pairing sheet, the link's status and the route a phone takes home. Your app keeps its own look. Everything except the
-React hook is framework-free.</p>
+pairing sheet, the link's status, the route a phone takes home, and a runtime kit's runs, approvals and agents. Your
+app keeps its own look. Everything except the React hooks is framework-free.</p>
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/pwa-2-code.png" width="240" alt="A phone-width page titled 'byokit in a browser' reading 'Signing in to ChatGPT…' and 'On the ChatGPT page, type this code:', the code MOCK-10001 in large letters, an 'Open ChatGPT' link and a Cancel button." />
@@ -24,7 +24,8 @@ React hook is framework-free.</p>
 npm install @byokit/ui-core
 ```
 
-React is an optional peer dependency, needed only for `useSignIn`.
+React is an optional peer dependency, needed only for the hooks (`useSignIn`, `useRun`, `useApprovals`,
+`useHerdrTree`, `useBlocked`).
 
 ```ts
 import { phaseOf, stepOf } from '@byokit/ui-core/phase';
@@ -97,10 +98,14 @@ export function useChatGptSheet() {
 | `consentWords({ hostName, role })` | The question before pairing |
 | `pairingView({ phase, hostName, words, error })` | The pairing sheet's title and words for each phase |
 | `linkWords(status, hostName)` | The link's status in one sentence |
+| `runStore(oc)`, `runView(state, { words, name })` | One run: the reply streaming in, the tool at work, how it ended in the kit's words |
+| `approvalsStore(oc)`, `approvalWords(a, words, helper)` | The approvals waiting for a yes, live, each gone when answered or expired |
+| `herdrStore(hd)`, `herdrTreeView(tree)`, `blockedView(state)` | Herdr's agents by where they run, and the ones waiting for an answer, live |
+| `useRun`, `useApprovals`, `useHerdrTree`, `useBlocked` | React hooks over those stores |
 | Types | `Phase`, `SignInView`, `AccountView`, `UseSignIn`, `Route`, `PairPhase`, `Role`, `LinkStatus`; `RouteKind` from `@byokit/ui-core/route` |
 
-Entry points: `@byokit/ui-core` (everything, including the React hook), `@byokit/ui-core/phase`,
-`@byokit/ui-core/route` and `@byokit/ui-core/link` (no React dependency).
+Entry points: `@byokit/ui-core` (everything, including the React hooks), `@byokit/ui-core/phase`,
+`@byokit/ui-core/route`, `@byokit/ui-core/link` and `@byokit/ui-core/kits` (no React dependency).
 
 ## Sign-in phases
 
@@ -138,12 +143,30 @@ Pairing with `@byokit/link`, from `@byokit/ui-core/link` (no React either):
 - `pairingView({ phase, hostName, words, error })`: scan, compare the two words, waiting for a yes, paired, failed.
 - `linkWords(status, hostName)`: the link's status in one sentence.
 
+## Runtime kits' state
+
+Runtime kits' state, from `@byokit/ui-core/kits` (no React), typed to fit `@byokit/openclaw/device` and
+`@byokit/herdr/device` as they are:
+
+- Runs: `runStore(oc)` with `send(message)` and `stop()`; `runView(state, { words, name })` gives the reply so far, the
+  tool at work and, for a failed run, the kit's sentence (`words` from `@byokit/openclaw/device`, `name` "ChatGPT").
+- Approvals: `approvalsStore(oc)` keeps the waiting list live (each leaves when answered anywhere or when it expires);
+  `approvalWords(approval, words, 'Your helper')` asks the question.
+- Herdr: `herdrStore(hd)` keeps the tree and the agents waiting for an answer live from one stream;
+  `herdrTreeView(tree)` groups the agents by where they run, with the status the kit's `agentWords` takes;
+  `blockedView(state)` names each waiting agent.
+- Each store is `{ get, subscribe }`: draw from `get()` in any UI; the first `subscribe` starts following, the last
+  unsubscribe stops. `runStep`, `approvalsStep` and `herdrStep` are the reducers underneath.
+
+In React or React Native: `useRun(oc, { words, name })`, `useApprovals(oc)`, `useHerdrTree(hd)` and `useBlocked(hd)`,
+with the device client made once (`useMemo(() => herdrDevice(link), [link])`).
+
 ## Links
 
 - [byokit](../../README.md): the monorepo and its other packages, including
   [`@byokit/accounts`](../accounts) and [`@byokit/link`](../link).
 - Examples: [`examples/pwa`](../../examples/pwa) (sign-in phases in a browser),
-  [`examples/herdr-kit`](../../examples/herdr-kit) (pairing words from a phone browser),
+  [`examples/herdr-kit`](../../examples/herdr-kit) (pairing words and `herdrStore` from a phone browser),
   [`examples/expo`](../../examples/expo) (React Native).
 - [CHANGELOG.md](CHANGELOG.md)
 

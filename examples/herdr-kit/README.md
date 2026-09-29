@@ -53,9 +53,10 @@ Try it without Herdr: `BYOKIT_EXAMPLE_FAKE=1 npm start` runs the kit's stand-in 
   `herdrLink` answers the phone; `serve` finds the address (`@byokit/reach`) and serves the page on the same port.
   One op of its own, `example.setup`, tells the phone which agents Herdr knows (`kit.agentKinds()`) and the folder.
 - `web/app.ts`: plain DOM. Pairs with `pairWithCode`/`pairWithOffer` and keeps the pairing in this browser
-  (`browserDeviceStore`); then `herdrDevice(link)`: `tree`/`events` for the agents, `startAgent`, `prompt`,
-  `read` for the agent's screen (refreshed on every event), `blocked` and `answer` for questions. Every status is a
-  sentence from the kit (`agentWords`, `hd.state().words`) or `@byokit/ui-core` (`pairingView`, `linkWords`).
+  (`browserDeviceStore`); then `herdrDevice(link)`. `@byokit/ui-core/kits`' `herdrStore(hd)` keeps the agents
+  (`herdrTreeView`) and their questions (`blockedView`) live from the kit's events; `startAgent`, `prompt`, `read`
+  for the agent's screen (refreshed on every change) and `answer` for questions. Every status is a sentence from the
+  kit (`agentWords`, `hd.state().words`) or `@byokit/ui-core` (`pairingView`, `linkWords`).
 - `e2e.test.ts`: packs the packages, installs them into a copy of this folder, runs `host.ts` against the kit's fake
   Herdr and drives a phone-sized headless Chromium through all of the above. From the repo:
   `npm run build && sh scripts/test.sh examples/herdr-kit/e2e.test.ts` (`BYOKIT_EXAMPLE_SHOTS=<folder>` keeps

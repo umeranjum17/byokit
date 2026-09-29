@@ -48,38 +48,60 @@ const decodeLines = (): { push(chunk: Uint8Array): string[]; flush(): string[] }
   };
 };
 
-/** A link stream as newline-delimited JSON frames; unparsed lines surface as `{ type: 'raw', line }`. */
-async function* streamFrames(link: DeviceLink, op: string, args: unknown): AsyncIterable<unknown> {
-  const s = await link.stream(op, args);
-  const ready: unknown[] = [];
-  let wake: (() => void) | undefined;
-  let ended = false;
-  const lines = decodeLines();
-  const emit = (frame: unknown): void => {
-    ready.push(frame);
-    wake?.();
-    wake = undefined;
+/**
+ * A link stream as newline-delimited JSON frames; unparsed lines surface as `{ type: 'raw', line }`. A plain
+ * iterator rather than an async generator: `return()` (a `break`, or a view that stops watching) ends the link
+ * stream even while a `next()` waits for the next frame, which a generator parked at an await cannot do.
+ */
+function streamFrames(link: DeviceLink, op: string, args: unknown): AsyncIterable<unknown> {
+  return {
+    [Symbol.asyncIterator]() {
+      const ready: unknown[] = [];
+      const lines = decodeLines();
+      let s: LinkStream | undefined;
+      let opening: Promise<void> | undefined;
+      let failed: { error: unknown } | undefined;
+      let ended = false;
+      let closed = false;
+      let wake: (() => void) | undefined;
+      const rouse = (): void => { wake?.(); wake = undefined; };
+      const emit = (frame: unknown): void => { ready.push(frame); rouse(); };
+      const open = (): Promise<void> => opening ??= link.stream(op, args).then((opened) => {
+        if (closed) { opened.end(); return; }
+        s = opened;
+        opened.onData = (chunk: Uint8Array) => {
+          for (const line of lines.push(chunk)) {
+            try { emit(JSON.parse(line)); } catch { emit({ type: 'raw', line }); }
+          }
+        };
+        opened.onEnd = () => {
+          for (const line of lines.flush()) emit({ type: 'raw', line });
+          ended = true;
+          rouse();
+        };
+      }, (error: unknown) => { failed = { error }; rouse(); });
+      return {
+        async next(): Promise<IteratorResult<unknown>> {
+          void open();
+          for (;;) {
+            if (closed) return { value: undefined, done: true };
+            if (ready.length > 0) return { value: ready.shift(), done: false };
+            if (failed) throw failed.error;
+            if (ended) return { value: undefined, done: true };
+            await new Promise<void>((resolve) => { wake = resolve; });
+          }
+        },
+        async return(): Promise<IteratorResult<unknown>> {
+          if (!closed) {
+            closed = true;
+            s?.end();
+            rouse();
+          }
+          return { value: undefined, done: true };
+        },
+      };
+    },
   };
-  s.onData = (chunk: Uint8Array) => {
-    for (const line of lines.push(chunk)) {
-      try {
-        emit(JSON.parse(line));
-      } catch {
-        emit({ type: 'raw', line });
-      }
-    }
-  };
-  s.onEnd = () => {
-    for (const line of lines.flush()) emit({ type: 'raw', line });
-    ended = true;
-    wake?.();
-    wake = undefined;
-  };
-  for (;;) {
-    while (ready.length > 0) yield ready.shift();
-    if (ended) return;
-    await new Promise<void>((resolve) => { wake = resolve; });
-  }
 }
 
 const terminalHandle = (opening: Promise<LinkStream>): DeviceTerminal => {
