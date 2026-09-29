@@ -31,6 +31,10 @@ export interface RunSpec extends RunRef {
   system?: string;
   images?: { data: string; mimeType: string }[];
   thinking?: 'off' | 'low' | 'medium' | 'high';
+  // `provider/model` (e.g. 'openai/gpt-5.1'): the member's signed-in account and model this run calls and bills,
+  // this run only. `provider` is the id `providers(member)` reports; one not signed in ends `signed-out` before any
+  // call. Absent: the engine's own selection.
+  model?: string;
   register?: boolean; // default true: the bridge recognizes this run
 }
 

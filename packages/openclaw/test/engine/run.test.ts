@@ -100,6 +100,17 @@ test('real tool calls cross the fail-closed gate; keyword memory stays free', { 
     assert.ok(m2Keys.length > 0, "member two's run reached the stub provider");
     assert.ok(m2Keys.every((k) => k === 'Bearer stub-m2'), `member two's session only ever used its own key: ${m2Keys.join()}`);
 
+    // A picked account is the one called and billed: member one names the second provider for one run, the stub
+    // sees only its key, and a provider nobody signed in to ends signed-out before the engine is asked.
+    const pickedBefore = stub.calls.length;
+    const picked = await kit.run({ member: 'm1', sessionKey: 'agent:m1:o11:pick:1', message: 'hello picked',
+      model: 'byokit-stub-two/test' }, () => {});
+    assert.ok(picked.ok, JSON.stringify(picked));
+    const pickedKeys = stub.calls.slice(pickedBefore).map((c) => c.authorization);
+    assert.ok(pickedKeys.length > 0 && pickedKeys.every((k) => k === 'Bearer stub-m2'), `picked run used: ${pickedKeys.join()}`);
+    const unsigned = await kit.run({ member: 'm1', sessionKey: 'agent:m1:o11:pick:2', message: 'hello', model: 'xai/grok-4' }, () => {});
+    assert.deepEqual(unsigned, { ok: false, kind: 'signed-out', message: 'xai is not signed in for m1' });
+
     await kit.patchConfig({ memory: { search: { provider: 'ollama', model: 'local-test',
       remote: { baseUrl: stub.url.replace(/\/v1$/, '') } } } });
     await kit.stop();

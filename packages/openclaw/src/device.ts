@@ -155,7 +155,7 @@ export function openclawDevice(link: DeviceLink): {
   };
   signOut(p: string): Promise<void>;
   sessions(): Promise<SessionRow[]>;
-  run(message: string, o?: { sessionKey?: string }): AsyncIterable<RunEvent | { type: 'end'; end: RunEnd }>;
+  run(message: string, o?: { sessionKey?: string; model?: string }): AsyncIterable<RunEvent | { type: 'end'; end: RunEnd }>;
   steer(k: string, t: string): Promise<void>;
   abort(k: string): Promise<void>;
   approvals(): Promise<Approval[]>;
@@ -189,7 +189,8 @@ export function openclawDevice(link: DeviceLink): {
     sessions: () => link.request('oc.sessions') as Promise<SessionRow[]>,
     run: (message, o) => {
       const inner = liveStream(() =>
-        link.stream('oc.run', { message, ...(o?.sessionKey ? { sessionKey: o.sessionKey } : {}) }));
+        link.stream('oc.run', { message, ...(o?.sessionKey ? { sessionKey: o.sessionKey } : {}),
+          ...(o?.model !== undefined ? { model: o.model } : {}) }));
       let finished = false;
       return {
         [Symbol.asyncIterator]() {

@@ -118,3 +118,71 @@ test('a hundred concurrent runs leave no listener or registration behind', async
   assert.equal(h.unregistered.length, 100);
   assert.deepEqual([...h.unregistered].sort(), [...h.registered].sort());
 });
+
+test('a picked account reaches the agent request as its per-run provider and model', async () => {
+  const h = harness();
+  h.fake.handle('models.authStatus', () => ({ providers: [{ provider: 'openai', status: 'ok' }, { provider: 'xai', status: 'static' }] }));
+  const end = await h.runs.run({ member: 'm1', sessionKey: 'agent:m1:pick', message: 'hello', model: 'xai/grok-4' });
+  assert.ok(end.ok, JSON.stringify(end));
+  assert.deepEqual(h.fake.calls.find((c) => c.method === 'models.authStatus')?.params, { agentId: 'm1' });
+  const call = h.fake.calls.find((c) => c.method === 'agent')?.params as Record<string, unknown>;
+  assert.equal(call.provider, 'xai');
+  assert.equal(call.model, 'grok-4');
+  // A model id may itself hold slashes (routers): only the first names the provider.
+  await h.runs.run({ member: 'm1', sessionKey: 'agent:m1:pick2', message: 'hello', model: 'openai/org/model-x' });
+  const second = h.fake.calls.filter((c) => c.method === 'agent')[1]?.params as Record<string, unknown>;
+  assert.deepEqual([second.provider, second.model], ['openai', 'org/model-x']);
+});
+
+test('omitting the account sends exactly the old request and checks no sign-in', async () => {
+  const h = harness();
+  await h.runs.run({ member: 'm1', sessionKey: 'agent:m1:plain', message: 'hello', system: 'be brief', thinking: 'low' });
+  assert.equal(h.fake.calls.some((c) => c.method === 'models.authStatus'), false);
+  const call = h.fake.calls.find((c) => c.method === 'agent')?.params as Record<string, unknown>;
+  assert.deepEqual(Object.keys(call).sort(), ['agentId', 'extraSystemPrompt', 'idempotencyKey', 'message', 'sessionKey', 'thinking']);
+});
+
+test('an account not signed in, or signed out, ends signed-out before the engine is called', async () => {
+  const h = harness();
+  h.fake.handle('models.authStatus', () => ({ providers: [{ provider: 'openai', status: 'expired' }, 'xai'] }));
+  for (const model of ['openai/gpt-5.1', 'minimax/m2']) {
+    const end = await h.runs.run({ member: 'm1', sessionKey: 'agent:m1:out', message: 'hello', model });
+    assert.deepEqual(end, { ok: false, kind: 'signed-out', message: `${model.split('/')[0]} is not signed in for m1` });
+  }
+  assert.equal(h.fake.calls.some((c) => c.method === 'agent'), false);
+  assert.deepEqual(h.unregistered, ['agent:m1:out', 'agent:m1:out']);
+  // A bare provider string (older status shape) counts as signed in, and ids compare lowercased like the engine's.
+  assert.ok((await h.runs.run({ member: 'm1', sessionKey: 'agent:m1:in', message: 'hello', model: 'XAI/grok-4' })).ok);
+  assert.equal((h.fake.calls.find((c) => c.method === 'agent')?.params as { provider: string }).provider, 'xai');
+  // The row's status is its worst profile's: one stale sign-in beside a good one still counts, all stale does not.
+  h.fake.handle('models.authStatus', () => ({ providers: [
+    { provider: 'openai', status: 'expired', profiles: [{ status: 'expired' }, { status: 'ok' }] },
+    { provider: 'xai', status: 'expired', profiles: [{ status: 'expired' }, { status: 'missing' }] },
+  ] }));
+  assert.ok((await h.runs.run({ member: 'm1', sessionKey: 'agent:m1:two', message: 'hello', model: 'openai/gpt-5.1' })).ok);
+  const stale = await h.runs.run({ member: 'm1', sessionKey: 'agent:m1:two', message: 'hello', model: 'xai/grok-4' });
+  assert.ok(!stale.ok && 'kind' in stale && stale.kind === 'signed-out', JSON.stringify(stale));
+});
+
+test('an unprepared auth status is built once with refresh, and stays a typed failure if it cannot be', async () => {
+  const h = harness();
+  const seen: unknown[] = [];
+  let prepared = false;
+  h.fake.handle('models.authStatus', (p) => {
+    seen.push(p);
+    return prepared || p.refresh ? { providers: [{ provider: 'openai', status: 'ok' }] }
+      : { providers: [], unavailable: { code: 'PREPARED_MODEL_AUTH_UNAVAILABLE', message: 'Model authentication status is unavailable.' } };
+  });
+  assert.ok((await h.runs.run({ member: 'm1', sessionKey: 'agent:m1:prep', message: 'hi', model: 'openai/gpt-5.1' })).ok);
+  assert.deepEqual(seen, [{ agentId: 'm1' }, { agentId: 'm1', refresh: true }]);
+  h.fake.handle('models.authStatus', () => ({ providers: [], unavailable: { message: 'Model authentication status is unavailable.' } }));
+  const end = await h.runs.run({ member: 'm1', sessionKey: 'agent:m1:prep2', message: 'hi', model: 'openai/gpt-5.1' });
+  assert.deepEqual(end, { ok: false, kind: 'other', message: 'Model authentication status is unavailable.' });
+});
+
+test('a malformed account or an @profile pin is refused before any request', async () => {
+  const h = harness();
+  for (const model of ['gpt-5.1', '/gpt-5.1', 'openai/', 'openai/gpt-5.1@openai:me@example.com', 'openai/gpt 5'])
+    await assert.rejects(h.runs.run({ member: 'm1', sessionKey: 'agent:m1:bad', message: 'hello', model }), /provider\/model/);
+  assert.deepEqual(h.fake.calls, []);
+});

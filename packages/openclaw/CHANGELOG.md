@@ -4,6 +4,13 @@
 
 - Depends on @byokit/link 0.3.2.
 
+- FIX: the account an app picks for a run is now the one the engine calls and bills. `RunSpec.model`
+  (`'provider/model'`, also `oc.run`'s `model` and `openclawDevice(link).run(message, { model })`) goes to the engine as
+  that run's own provider and model, with no fallback to another provider or model. A provider the member isn't
+  signed in to ends the run `signed-out` before the engine is called. A malformed reference, or one carrying an
+  `@profile` sign-in pin, is refused. Leaving it out sends the same request as before. The choice is per provider:
+  with two sign-ins for one provider the engine may still switch between them, so a single sign-in can't be picked.
+
 - Typed device pass-through (G4, docs/runtime-kits.md 7.2): `openclawDevice(link).call<M>(method, params)` returns
   `GatewayResult<M>` from the generated table (params now required, as on the kit), `events()` yields
   `OpenClawLinkEvent` frames, and `./device` re-exports the table types. The device gains `sessions()` (`oc.sessions`,
