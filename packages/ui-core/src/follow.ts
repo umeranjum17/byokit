@@ -6,24 +6,25 @@ export type Stop = () => void;
 /** A view any UI can draw from: the current state, and a way to hear each change (the returned function stops). */
 export type Store<T> = { get(): T; subscribe(fn: (state: T) => void): () => void };
 
-type Live = { hold(it: AsyncIterator<unknown>): void; stopped(): boolean };
+type Live = { hold(it: AsyncIterator<unknown>): void; stopped(): boolean; ok(): void };
 
-// Removed (unpaired) and stopped (the app stopped the link) never come back by themselves.
-const final = (e: unknown) => {
-  const code = typeof e === 'object' && e !== null ? (e as { code?: unknown }).code : undefined;
-  return code === 'removed' || code === 'stopped';
-};
+// Only a removed pairing never comes back; a stopped or refused link comes back with its `retry()`.
+const final = (e: unknown) =>
+  typeof e === 'object' && e !== null && (e as { code?: unknown }).code === 'removed';
 
-// ponytail: fixed pause between tries, no backoff; the link paces its own reconnects, so a stream only reopens
-// into a link that is either back (it works) or still away (it fails at once, cheaply).
+// ponytail: the pause doubles from 250 ms up to `retryMs` while tries fail, and starts short again once one works;
+// the link paces its own reconnects, so a stream only reopens into a link that is either back (it works, soon after
+// the link does) or still away (it fails at once, cheaply).
 export function retrying(attempt: (live: Live) => Promise<void>, retryMs: number): Stop {
   let stopped = false;
+  let pause = 0;
   let current: AsyncIterator<unknown> | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let wake: (() => void) | undefined;
   const live: Live = {
     hold: (it) => { current = it; if (stopped) void it.return?.(); },
     stopped: () => stopped,
+    ok: () => { pause = 0; },
   };
   void (async () => {
     while (!stopped) {
@@ -34,7 +35,8 @@ export function retrying(attempt: (live: Live) => Promise<void>, retryMs: number
       }
       current = undefined;
       if (stopped) return;
-      await new Promise<void>((resolve) => { wake = resolve; timer = setTimeout(resolve, retryMs); });
+      pause = Math.min(pause ? pause * 2 : 250, retryMs);
+      await new Promise<void>((resolve) => { wake = resolve; timer = setTimeout(resolve, pause); });
     }
   })();
   return () => {

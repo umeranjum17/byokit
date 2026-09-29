@@ -121,6 +121,14 @@ test('the store runs through the kit\'s device client: streamed, ended, and one 
   await until(() => run.get().phase === 'failed');
   assert.equal(runView(run.get(), { words, name: 'ChatGPT' }).words, "This device can't do that. Ask the person at the computer.");
 
+  // The link cut the stream mid-run: it ends with the link's bare reason, which is no sentence; the run stopped here.
+  run.send('cut off');
+  const cut = await net.next();
+  cut.line({ type: 'text', text: 'half' });
+  cut.end('unreachable');
+  await until(() => run.get().phase === 'stopped');
+  assert.deepEqual([run.get().text, runView(run.get(), { words, name: 'ChatGPT' }).words], ['half', '']);
+
   // A stream that ends without an end frame: stopped. A link that cannot open one: failed with its words.
   run.send('cut');
   (await net.next()).end();

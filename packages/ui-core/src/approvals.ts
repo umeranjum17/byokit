@@ -47,8 +47,8 @@ export type FollowOptions = { retryMs?: number; now?: () => number };
  * added and resolved from its frames, and each dropped as it expires. Opened again after the link comes back.
  */
 export function approvalsStore(source: ApprovalsSource, { retryMs = 2000, now = Date.now }: FollowOptions = {}): Store<Approval[]> {
-  return store<Approval[]>([], (set) => {
-    let list: Approval[] = [];
+  const made = store<Approval[]>([], (set) => {
+    let list = made.get();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const apply = (a: ApprovalsAction) => {
       list = approvalsStep(approvalsStep(list, a), { type: 'tick', now: now() });
@@ -59,6 +59,7 @@ export function approvalsStore(source: ApprovalsSource, { retryMs = 2000, now = 
       }
       set(list);
     };
+    apply({ type: 'tick', now: now() }); // what was kept since the last watcher left may have expired meanwhile
     const stop: Stop = retrying(async (live) => {
       const it = source.events()[Symbol.asyncIterator]();
       live.hold(it);
@@ -68,6 +69,7 @@ export function approvalsStore(source: ApprovalsSource, { retryMs = 2000, now = 
         const listed = await source.approvals();
         if (live.stopped()) return;
         apply({ type: 'set', list: listed });
+        live.ok();
         for (let r = await first; !r.done && !live.stopped(); r = await it.next()) apply(r.value);
       } finally {
         void it.return?.();
@@ -75,4 +77,5 @@ export function approvalsStore(source: ApprovalsSource, { retryMs = 2000, now = 
     }, retryMs);
     return () => { stop(); clearTimeout(timer); };
   });
+  return made;
 }

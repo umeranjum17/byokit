@@ -107,7 +107,10 @@ export function runStore(source: RunSource): Store<RunState> & {
         for (let r = await it.next(); !r.done && !stopped; r = await it.next()) step(r.value);
         step({ type: 'stop' }); // the stream ended without an end frame
       } catch (e) {
-        step({ type: 'error', message: e instanceof Error ? e.message : String(e) });
+        const message = e instanceof Error ? e.message : String(e);
+        // A stream the link cut ends with the link's bare reason ('unreachable'), not words: the run stopped here,
+        // and the link's own status says why.
+        step(/^[a-z][a-z-]*$/.test(message) ? { type: 'stop' } : { type: 'error', message });
       }
     })();
   };

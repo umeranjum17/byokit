@@ -45,9 +45,18 @@ test('the tree comes from snapshots; waiting agents are listed, added, replaced 
   assert.deepEqual(s.blocked.map((b) => b.paneId), ['w2:p1', 'w1:p2']);
   assert.equal(herdrStep(s, { type: 'raw', line: 'not json' }), s, 'a line that was not JSON changes nothing');
   assert.equal(herdrStep(s, blockedFrame('resolved', { ...BLOCKED, paneId: 'w9:p9' })), s, 'nor does resolving one not waiting');
+  // The tree moves a still-waiting agent to a new revision with no question frame: the answer must carry it.
+  const moved = { ...TREE, workspaces: TREE.workspaces.map((w) => ({ ...w, tabs: w.tabs.map((t) => ({ ...t, panes: t.panes.map((p) =>
+    (p.id === 'w2:p1' ? { ...p, agent: { ...p.agent!, revision: 11 } } : p)) })) })) };
+  const before = s;
+  s = herdrStep(s, { type: 'snapshot', snapshot: moved });
+  assert.deepEqual(s.blocked.map((b) => [b.paneId, b.revision]), [['w2:p1', 11], ['w1:p2', 3]], 'each takes its agent\'s revision');
+  const lost = herdrStep({ ...before, blocked: [{ ...BLOCKED, paneId: 'w9:p9' }] }, { type: 'snapshot', snapshot: moved });
+  assert.equal(lost.blocked[0].revision, 7, 'a pane the tree lacks keeps what it had');
+  assert.equal(herdrStep(s, { type: 'snapshot', snapshot: moved }).blocked, s.blocked, 'nothing new, same list');
   s = herdrStep(s, blockedFrame('resolved', asked));
-  assert.deepEqual(s.blocked, [other]);
-  assert.equal(s.tree, TREE, 'the tree is untouched by questions');
+  assert.deepEqual(s.blocked, [{ ...other, revision: 3 }]);
+  assert.equal(s.tree, moved, 'the tree is untouched by questions');
 });
 
 test('the tree view groups agents by where they run, with the status agentWords takes', () => {

@@ -30,7 +30,15 @@ export type HerdrState = { tree: HerdrTree | null; blocked: BlockedAgent[] };
 export const HERDR_EMPTY: HerdrState = { tree: null, blocked: [] };
 
 export function herdrStep(s: HerdrState, a: HerdrAction): HerdrState {
-  if (a.type === 'snapshot') return { ...s, tree: a.snapshot };
+  if (a.type === 'snapshot') {
+    // A still-waiting agent can move on to a new revision with no question frame; the tree carries it, and the
+    // answer must go back with the current one.
+    const blocked = s.blocked.map((b) => {
+      const revision = agentIn(a.snapshot, b.paneId)?.agent.revision;
+      return revision === undefined || revision === b.revision ? b : { ...b, revision };
+    });
+    return { tree: a.snapshot, blocked: blocked.some((b, i) => b !== s.blocked[i]) ? blocked : s.blocked };
+  }
   if (a.type === 'listed') return { ...s, blocked: a.blocked };
   if (a.type !== 'blocked') return s;
   const rest = s.blocked.filter((b) => b.paneId !== a.blocked.paneId);
@@ -89,13 +97,13 @@ export function herdrStore(source: HerdrSource, { retryMs = 2000 }: { retryMs?: 
       const it = source.events()[Symbol.asyncIterator]();
       live.hold(it);
       try {
-        const first = it.next(); // the first frame is the tree, sent once the stream is open
-        first.catch(() => {});
-        const listed = await source.blocked();
-        const r = await first;
+        const r = await it.next(); // the first frame is the tree, sent once the stream is open
         if (r.done || live.stopped()) return;
+        const listed = await source.blocked(); // frames meanwhile wait in the stream, applied after the list
+        if (live.stopped()) return;
         apply(r.value);
         apply({ type: 'listed', blocked: listed });
+        live.ok();
         for (let r = await it.next(); !r.done && !live.stopped(); r = await it.next()) apply(r.value);
       } finally {
         void it.return?.();

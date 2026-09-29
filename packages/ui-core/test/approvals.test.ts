@@ -86,6 +86,21 @@ test('the store lists once the stream is open, keeps up with its frames, drops t
   assert.ok(seen.length >= 5);
 });
 
+test('coming back to the list drops what expired while nobody watched', async () => {
+  let clock = 0;
+  const net = stubLink((op) => (op === 'oc.approvals' ? [ask('a', 100)] : null));
+  const approvals = approvalsStore(openclawDevice(net.link), { now: () => clock });
+  const off = approvals.subscribe(() => {});
+  await net.next();
+  await until(() => approvals.get().length === 1);
+  off();
+  clock = 500;
+  net.refuse(Object.assign(new Error('not now'), { code: 'unreachable' }));
+  const back = approvals.subscribe(() => {});
+  assert.deepEqual(approvals.get(), [], 'gone before the stream is back');
+  back();
+});
+
 test('frames that race the listing are applied after it', async () => {
   let release!: (list: Approval[]) => void;
   const listed = new Promise<Approval[]>((r) => { release = r; });
@@ -103,12 +118,16 @@ test('frames that race the listing are applied after it', async () => {
   off();
 });
 
-test('an unreachable computer is tried again; a pairing that is gone is not', async () => {
-  const away = stubLink(() => []);
-  away.refuse(Object.assign(new Error("Can't reach the computer."), { code: 'unreachable' }));
-  const offAway = approvalsStore(openclawDevice(away.link), { retryMs: 5 }).subscribe(() => {});
-  await until(() => away.tries.count >= 3);
-  offAway();
+test('an unreachable or stopped link is tried again; a pairing that is gone is not', async () => {
+  for (const code of ['unreachable', 'stopped']) {
+    const away = stubLink(() => []);
+    away.refuse(Object.assign(new Error('not now'), { code }));
+    const offAway = approvalsStore(openclawDevice(away.link), { retryMs: 5 }).subscribe(() => {});
+    await until(() => away.tries.count >= 3);
+    away.refuse(undefined); // the link came back (its retry())
+    await away.next();
+    offAway();
+  }
 
   const gone = stubLink(() => []);
   gone.refuse(Object.assign(new Error('This device was removed.'), { code: 'removed' }));
