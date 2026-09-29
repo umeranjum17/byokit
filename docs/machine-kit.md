@@ -45,7 +45,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D-1 | The name is `@byokit/machine`, a capability word. Rejected: a provider's name (capability-kits D-B), `sandbox` (already means OpenClaw's agent sandbox), `cloud` and `hosted` (read as a service BYOKit runs), `host` (collides with link's `Host`), `remote` (vague). |
 | D-2 | No machine provider is named anywhere in BYOKit, with the capability-kits D-B strictness. Adapters are named for the API shape they speak: `sandboxApi()` and `sshVm()`. Test fixtures use the host `sandbox.test`. The provider's label comes from the app at run time. |
 | D-3 | A capability kit, not a third aggregator. It sits beside `@byokit/openclaw` and `@byokit/herdr`: the app still picks one runtime kit, and that kit runs inside the app's host process on the machine exactly as it does at home. `@byokit/machine` only decides where that process runs. It imports no other kit and no kit imports it. `@byokit/accounts` is untouched. |
-| D-4 | Two adapters behind one `Provider` type (4). **Sandbox API**: create, sleep, wake, snapshot, fork, remove, exec, write and an HTTPS URL per port, over `fetch` with no vendor SDK. **SSH VM**: any rented Linux box the person already created; exec, write, install and supervise only, through the `ssh` binary the app passes by absolute path. Optional `Provider` methods an adapter cannot do are absent, and the UI hides that action. |
+| D-4 | Two adapters behind one `Provider` type (4). **Sandbox API**: create, sleep, wake, snapshot, fork, remove, exec, write and an HTTPS URL per port, over `fetch` with no vendor SDK. **SSH VM**: any rented Linux machine the person already created; exec, write, install and supervise only, through the `ssh` binary the app passes by absolute path. Optional `Provider` methods an adapter cannot do are absent, and the UI hides that action. |
 | D-5 | Types in section 4 are frozen at M1. A change is a spec change first: stop and ask. |
 | D-6 | Entries. `.` is portable (Node, Electron, React Native): types, `machine()`, `sandboxApi()`, `claim()` (M8), words, and M7's `wakeResolve()`; no `node:*` import. `./ssh` is Node only (`sshVm()`, `sshHostKey()`). `./idle` (M7) runs on the machine inside the host process and is portable. `./testing` is Node only: the fake provider and the contract suite. No other entries. The sandbox API adapter does not run from a web page (15.1), so browsers and PWAs set up from the phone app or a desktop app. |
 | D-7 | One person, one provider account, one machine per app install. The kit refuses a `MachineRef` whose `account` differs from `provider.account()`. An app operator provisioning on its own account for users is pooling and is not supported. |
@@ -56,7 +56,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D-12 | Words. `src/words.json` holds the section 12 sentences, tested against the repo's banned-jargon expression (the one `packages/herdr/test/words.test.ts` uses). UI code shows `words(key, vars)`; it never builds sentences from states or codes. |
 | D-13 | Fakes and contract (capability-kits 3.4): `./testing` ships `fakeProvider()` and `machineContract(make, o?)`. The same assertions run against the fake and each adapter's loopback or fake-bin bench in `npm test`, and against a real provider only in M6's lab run. |
 | D-14 | Release: 0.1.0 `private: true`. It publishes only after M6's recorded run. `scripts/release.ts`' canonical order gains `machine` after `overlay` (M1). |
-| D-15 | Isolation carve-out, added to `CONTRIBUTING.md` (Rules, Isolation first) and `README.md` (What byokit never touches) in M0: "`@byokit/machine` spawns only the `ssh` binary the app passes by absolute path, with the key path the app passes and a kit-owned config, and holds only the provider key the app's store gives it." |
+| D-15 | Isolation carve-out, added to `CONTRIBUTING.md` (Rules, Isolation first) and `README.md` (What byokit never touches) in M0: "`@byokit/machine` spawns only the `ssh` binary the app passes by absolute path and the `ssh-keyscan` beside it, with the key path the app passes and a kit-owned config, and holds only the provider keys the app's store gives it and the scoped keys it mints for that app." |
 | D-16 | Builders: **Opus** for spec, architecture and the real-provider proof; **Muse** for builds (14). This supersedes the Sol/Flash naming used in the older specs for this kit only. |
 
 ## 3. Where it fits
@@ -82,13 +82,13 @@ the machine:     byokit-<app>.service → the app's host process (unchanged)
 packages/machine/
   package.json  tsconfig.json  README.md  CHANGELOG.md  LICENSE
   src/
-    index.ts          # '.' re-exports: types, machine, sandboxApi, claim, words, MachineError, estimate, keyWords, wakeResolve
+    index.ts          # '.' re-exports everything 4.1, 4.2 and 4.3 declare for '.'
     types.ts          # section 4, verbatim
     errors.ts         # MachineError (4.2)
     machine.ts        # machine() (5)
-    unit.ts           # renderUnit(), quoting (8.2), pure
-    recipe.ts         # recipe checks (8.1), pure
-    node.ts           # node resolve/install steps (8.3), pure argv builders
+    unit.ts           # renderUnit(), quoting (8.4), pure
+    recipe.ts         # recipe checks (8.1), range compare, FNV-1a marker hash, pure
+    node.ts           # node check and install argv (8.3 step 4), pure
     cost.ts           # estimate(), cost rules (10)
     sandbox-api.ts    # sandboxApi() (6)
     ssh.ts            # './ssh': sshVm(), sshHostKey() (7)
@@ -215,7 +215,7 @@ export type MachineErrorCode =
   | 'confirm'             // remove(confirm) with confirm !== ref.id
   | 'bad-recipe'          // 8.1 check failed; message names the rule
   | 'not-linux'           // uname, systemd or arch check failed (8.3)
-  | 'linger'              // loginctl enable-linger refused (8.4); extra.command holds the line to run
+  | 'linger'              // loginctl enable-linger refused (8.3 step 8); extra.command holds the line to run
   | 'host-key'            // SSH host key unconfirmed or changed (7.2)
   | 'unauthorized'        // provider answered 401/403
   | 'balance'             // provider says the account's balance is spent (10)
@@ -229,13 +229,14 @@ export class MachineError extends Error {
 }
 
 // src/cost.ts
-export function estimate(p: Price, o?: { hoursOn?: number }): Cost   // 10.1; hoursOn defaults to 730
+export function estimate(p: Price, o: { label: string; hoursOn?: number }): Cost   // 10.1; hoursOn defaults to 730
 
 // src/words.ts
 export function words(key: WordKey, vars?: Record<string, string>): string
 export function stateWords(s: MachineState, vars: { app: string; label: string }): string
 export function hostWords(s: HostState, vars: { app: string }): string
 export function keyWords(k: KeyInfo, o: { label: string; now: Date; days?: number }): string | null   // 11.3
+export function errorWords(e: MachineError, vars: { app: string; label: string }): string          // 12
 
 // src/wake.ts (M7; declared at M1 with a 'not built: M7' body)
 export function wakeResolve(o: { provider: Provider; ref: MachineRef; port: number }): (url: string) => Promise<string>
@@ -246,6 +247,7 @@ export function sshHostKey(o: { ssh: string; host: string; port?: number; stateD
 
 // './idle' (M7)
 export function idle(o: { linked: () => number; held: () => boolean; minutes: number; stop: () => Promise<void> }): { close(): void }
+export function stopSelf(o: { baseUrl: string; id: string; key: () => Promise<string>; fetch?: typeof fetch }): () => Promise<void>
 
 // './testing'
 export function fakeProvider(o?: FakeProviderOptions): Provider & { fake: FakeControl }
@@ -276,6 +278,7 @@ export interface Provider { /* 4.1 members */
   why?(m: MachineRef): Promise<AsleepWhy | null>         // G3: null when not asleep
   selfId?: readonly string[]                             // G4: argv that prints this machine's provider id on the machine itself (15.1, fixed by M6)
   wakeKey?(m: MachineRef, o: { label: string }): Promise<{ id: string; key: string; expires: string | null }>  // G11 (M7)
+  stopKey?(m: MachineRef): Promise<{ id: string; key: string; expires: string | null }>                    // M7
   revokeKey?(id: string): Promise<void>                  // G11 (M7)
 }
 export interface Machine { /* 4.1 members */
@@ -307,8 +310,8 @@ export function claim(o: { baseUrl: string; fetch?: typeof fetch; signal?: Abort
   every call with `MachineError('wrong-account')`. The kit never uses, repairs or overwrites that ref; the app decides.
 - Every change to the ref is written with `store.save({ ...record, ref })` before the method resolves, keeping
   `providerKey` and `monthlyEntered` as loaded. A missing record saves as `{ ref, providerKey: '' }`.
-- Calls that need a machine reject `MachineError('no-machine')` when `ref` is null: `state`, `wake`, `sleep`,
-  `install`, `update`, `host`, `logs`, `url`, `cost` (5.5 has the one exception), `remove`.
+- `create` and `plan` need no ref. Every other method rejects `MachineError('no-machine')` when `ref` is null:
+  `state`, `wake`, `sleep`, `install`, `update`, `host`, `logs`, `url`, `cost`, `remove`, `why` and `deliver`.
 
 ### 5.2 `create`
 
@@ -320,9 +323,10 @@ export function claim(o: { baseUrl: string; fetch?: typeof fetch; signal?: Abort
    Electron, React Native with Hermes, and browsers). It calls `provider.create({ name, size, keepCopies, idempotencyKey })`,
    retrying up to 3 times with the same key on `unreachable` only.
 4. **Provider without `create`** (SSH VM): the machine already exists. The kit adopts it: `keepCopies` must be
-   `false` (else `bad-recipe`), the ref is `{ provider: provider.id, account: await provider.account(), id: <7.1 id>, name, keepCopies: false }`,
-   and `provider.status(ref)` must be `'on'` before it is saved (else reject with that state's `MachineError`: `host-key`
-   for `host-key-changed`, `unreachable` otherwise).
+   `false` (else `bad-recipe`); the host key must be pinned (7.2), else reject `host-key`; the ref is
+   `{ provider: provider.id, account: await provider.account(), id: <7.1 id>, name, keepCopies: false }`; and
+   `provider.status(ref)` must be `'on'` before it is saved (else reject `host-key` for `host-key-changed`,
+   `unreachable` otherwise).
 5. The returned ref is saved (5.1), then returned.
 
 ### 5.3 `state`, `url`, `remove`
@@ -336,37 +340,50 @@ export function claim(o: { baseUrl: string; fetch?: typeof fetch; signal?: Abort
 
 ### 5.4 `wake` and `sleep`
 
-- Missing provider method: `unsupported`.
-- `sleep()` with `ref.keepCopies === false` rejects `unsupported`: a stop without copies erases the disk (11.4).
-- `wake()` when `state()` is already `on` resolves without calling the provider.
-- `sleep()` first runs `systemctl [--user] stop byokit-<ref.name>.service` (ignoring a missing unit) so the host
-  process gets SIGTERM and flushes, whether or not the provider's stop is a clean OS shutdown (G10).
-- v1 apps do not call `sleep()`; only M7's idle rule does (D-10). A v1 app may call `wake()` after a stop it did not
-  cause (credit, trial limit, provider), from the setup device that holds the key.
+Checks run in this order:
+1. The provider lacks the method (`wake`/`sleep`): reject `unsupported`.
+2. `sleep()` with `ref.keepCopies === false`: reject `unsupported`, because a stop without copies erases the disk
+   (11.4).
+3. `wake()`: calls `provider.status` first and, when it is already `on`, resolves without calling `provider.wake`.
+4. `sleep()`: stops the unit first (`systemctl [--user] stop byokit-<ref.name>.service` with the unit kind from 8.2; a missing
+   unit is ignored), so the host process gets SIGTERM and flushes whether or not the provider's stop is a clean OS
+   shutdown (G10). Then `provider.sleep`.
 
-### 5.7 `plan` and `why` (G2, G3)
-
-- `plan()`: `provider.plan?.() ?? null`. It needs no ref, so an app can show the trial notice before `create`.
-- `why()`: `null` unless `state()` is `asleep`. Then, first match wins: `provider.why?.(ref)` if it returns non-null;
-  else `out-of-credit` if `usage` rejects `balance`; else `trial-limit` if `plan()` has `canStayOn: false`; else
-  `provider`. The app shows `asleep.<why>` words (12) instead of `state.asleep` when `why()` is non-null.
-
-### 5.8 `deliver` (G9)
-
-`deliver(r, file, bytes)` hands the running host one small file, for example a new phone's public key during owner
-recovery. `file` matches `^[a-z0-9][a-z0-9._-]{0,63}$`, `bytes` is at most 64 KB, and it lands at
-`<r.workDir>/.byokit/inbox/<file>` at mode 0600, owned by the run user (`r.user` or the machine user), written through
-a temp name and renamed. The app's host watches that directory. It is the only write `Machine` offers; anything else
-goes in the recipe.
+v1 apps do not call `sleep()`; only M7's idle rule does (D-10). A v1 app may call `wake()` after a stop it did not
+cause (credit, trial limit, provider), from the setup device that holds the key.
 
 ### 5.5 `cost`
 
-Section 10. With no ref, `cost()` rejects `no-machine`; apps show a pre-create estimate with `estimate(price)`.
+Section 10. With no ref, `cost()` rejects `no-machine`; apps show a pre-create estimate with `estimate(price, o)`.
 
 ### 5.6 `install`, `update`, `host`, `logs`
 
 Section 8. `host()` resolves `'installing'` while an `install` or `update` of this `Machine` object is in flight,
 without asking the machine.
+
+### 5.7 `plan` and `why` (G2, G3)
+
+- `plan()`: `provider.plan?.() ?? null`. It needs no ref, so an app can show the trial notice before `create`.
+- `why()`: `null` unless `state()` is `asleep`. Then the first rule that yields a value wins:
+  1. `provider.why(ref)`, when the method exists and resolves non-null;
+  2. `out-of-credit`, when `provider.usage(ref, <first instant of the current UTC month>)` rejects `balance`;
+  3. `trial-limit`, when `provider.plan()` resolves `canStayOn: false`;
+  4. `provider`.
+
+  A missing method skips its rule. Any other rejection from `why`, `usage` or `plan` also skips that rule; `why()`
+  itself rejects only when `state()` does. The app shows `asleep.<why>` words (12) in place of `state.asleep`.
+
+### 5.8 `deliver` (G9)
+
+`deliver(r, file, bytes)` hands the running host one small file, for example a new phone's public key during owner
+recovery. It is the only write `Machine` offers; anything else goes in the recipe.
+- `r` passes the 8.1 checks; `r.name` must equal `ref.name`. `file` matches `^[a-z0-9][a-z0-9._-]{0,63}$`; `bytes`
+  is at most 64 KB. Else reject `bad-recipe`.
+- One `exec` as the run user (8.2), with `input: bytes`:
+  `sh -c 'umask 077 && mkdir -p "$1" && t=$(mktemp "$1/.in-XXXXXX") && cat > "$t" && mv -f "$t" "$1/$2"' sh <workDir>/.byokit/inbox <file>`.
+  The file ends at mode 0600 in a 0700 directory, owned by the run user. Root never writes there, so a symlink the
+  run user plants can only redirect a write the run user could make anyway.
+- The app's host watches that directory.
 
 ## 6. Sandbox API adapter (`src/sandbox-api.ts`)
 
@@ -385,9 +402,9 @@ without asking the machine.
 | `sleep` | `POST /sandboxes/{id}/stop` | The provider takes a final snapshot; if that fails the stop aborts and the machine keeps running, which the kit reports as the `provider` error it returns. |
 | `snapshot` | `POST /named-snapshots` `{sandboxId, name}`, then poll `GET /named-snapshots/{name}` every 2 s until ready | The kit names copies `byokit-<ref.name>-<name>`. At most 10 exist per account; an 11th rejects `provider`. |
 | `fork` | `POST /sandboxes/{id}/fork` `{ttlSeconds: null}` + `Idempotency-Key` | A fork does not inherit the source's TTL: without `ttlSeconds: null` it stops after 1 h. A fork of a no-env source is always no-env, so no `noEnv` field. |
-| `remove` | `DELETE /sandboxes/{id}` + header `X-Ascii-Confirm-Delete: <id>`; poll `GET /deletion-operations/{op}` every 2 s until done; then `GET /named-snapshots` and `DELETE /named-snapshots/{name}` for every name starting `byokit-<ref.name>-` | Named snapshots survive a sandbox delete; without the second step the sign-ins inside them outlive it. A 404 on the sandbox counts as already deleted and the snapshot step still runs. |
+| `remove` | `DELETE /sandboxes/{id}` + the provider's delete-confirmation header set to `<id>` (its name is in the API document, 15.1); poll `GET /deletion-operations/{op}` every 2 s until done; then `GET /named-snapshots` and `DELETE /named-snapshots/{name}` for every name starting `byokit-<ref.name>-` | Named snapshots survive a sandbox delete; without the second step the sign-ins inside them outlive it. A 404 on the sandbox counts as already deleted and the snapshot step still runs. |
 | `exec` | `POST /sandboxes/{id}/commands` `{command, timeoutSeconds, detached}`, poll `GET /sandboxes/{id}/commands/{pid}` every 1 s | 6.4. |
-| `write` | `PUT /sandboxes/{id}/files` | Only paths under `/home/user/` or `/tmp/`; anything else rejects `bad-recipe` before any request. The kit writes elsewhere (for example `/etc`) by writing under `/tmp/` then `exec({ root: true })` `install -m <mode> <tmp> <dest>`. After the PUT, `exec` `chmod <mode, octal> <path>`. |
+| `write` | `PUT /sandboxes/{id}/files` | Only paths under `/home/user/` or `/tmp/`; anything else rejects `bad-recipe` before any request. After the PUT, `exec` `chmod <mode, octal> <path>`. Only 6.4's `input` uses it; `Machine` writes files through `exec` with `input` (8.3), so root never reads a staged path. |
 | `url` | `POST /sandboxes/{id}/host` `{port, public: true}` → the returned HTTPS URL | The app's process must bind `0.0.0.0`. Hosting also opens the machine firewall for that port. Re-hosting the same port returns the same URL. |
 | `usage` | `GET /sandboxes/{id}/usage?since=<since>` → `{seconds, dollars, running}`; then `GET /limits` for the balance | `hours = seconds / 3600`, `amount = dollars`, `currency: 'USD'`, `from = since`, `to` = the request time (ISO). A balance at or below 0 rejects `balance`. |
 | `key` | `GET /api-keys/current` (15.1) → `{expiresAt, scopes}` | `expires` is `expiresAt` or `null`. |
@@ -397,7 +414,10 @@ without asking the machine.
 
 **Trial (G2).** While `plan()` says `canStayOn: false`, `create`, `wake` and `fork` send `ttlSeconds: 7200` (the
 trial's 2-hour maximum) instead of `null`; the provider refuses `null` there. The app shows `plan.trial` before
-`create`. When the trial ends, the next `wake` sends `null` again.
+`create`. When the trial ends, a machine already running keeps its 2-hour limit and stops once more; the next `wake`
+sends `null` and it stays on from then (M6 checks whether the limit can be cleared on a running machine). This
+replaces the consumer's requested `trial-cannot-stay-on` error: refusing would leave a new person with no machine for
+their first week.
 
 Errors on every call: HTTP 401 or 403 → `unauthorized`; 404 on `GET /sandboxes/{id}` → status `gone`; 429 and 5xx
 retried 3 times with 1 s, 2 s, 4 s waits, then `provider`; a `fetch` rejection → `unreachable`; any other non-2xx →
@@ -430,13 +450,14 @@ wiping Herdr pane logins. So no request other than `create` carries a `noEnv` ke
 - The provider takes a shell string, not argv, and has no stdin. The adapter joins argv with POSIX single-quote
   quoting (`'` → `'\''`); NUL in any argument rejects `bad-recipe`.
 - `root: true` prefixes `sudo -n`. The machine user has passwordless sudo (15.1).
-- `input`: the adapter first `write`s the bytes to `/tmp/byokit-in-<16 random base36>` at mode 0600, runs
-  `<command> < <that path>`, then removes the file in the same shell line (`; rm -f <path>`), keeping the command's exit
-  code.
+- `input`: the adapter first `write`s the bytes to `/tmp/byokit-in-<16 random base36>` at mode 0600, then runs
+  `<command> < <path>; r=$?; rm -f <path>; exit $r`, so the command's exit code is kept. The redirect is opened by
+  the machine user's shell before any `sudo`, so root never opens a path another user could have planted.
 - `timeoutMs` ≤ 600 000: one request with `timeoutSeconds = ceil(timeoutMs / 1000)` and `detached: false`.
-  Larger: `detached: true` with `timeoutSeconds: 600` is not enough, so the adapter runs the command detached with
-  no provider timeout and polls every 1 s; at `timeoutMs` it runs `kill -TERM -<pid>` then resolves
-  `timedOut: true`.
+- Larger: the adapter runs `setsid sh -c '<command>'` with `detached: true` and no provider timeout, so the returned
+  pid leads its own process group, and polls every 1 s. At `timeoutMs` it sends `kill -TERM -- -<pid>` (through
+  `sudo -n` when `root` is set, since the machine user cannot signal root's processes), waits up to 10 s for the pid
+  to end, then sends `KILL` the same way, and only then resolves `timedOut: true`.
 - The result's `stdout` and `stderr` are each capped at 8 MB (the tail is kept).
 
 ### 6.5 Sleep semantics (for M7)
@@ -451,24 +472,35 @@ wiping Herdr pane logins. So no request other than `create` carries a `noEnv` ke
 
 ## 7. SSH VM adapter (`src/ssh.ts`, `./ssh`)
 
-`sshVm()` drives one Linux box the person already rents. `id` is `'ssh-vm'`. It has no `create`, `wake`, `sleep`,
+`sshVm()` drives one Linux machine the person already rents. `id` is `'ssh-vm'`. It has no `create`, `wake`, `sleep`,
 `snapshot`, `fork`, `remove`, `url`, `usage` or `key`. `sizes()` is `[]`. `prices()` is `o.monthly ? [o.monthly] : []`.
 
 ### 7.1 Every call
 
-- The kit spawns `o.ssh` (absolute; a relative path or a non-executable file rejects `unreachable` with
-  `extra.why: 'bin'`) with argv:
+- Options are checked first (else every call rejects `unreachable` with `extra.why` naming the option): `ssh` is
+  absolute and executable (`bin`); `keyPath` and `stateDir` are absolute and contain no `%`, `"` or control character
+  (`path`); `host` does not start with `-` and has no whitespace (`host`); `user` matches `^[a-z_][a-z0-9_-]{0,31}$`
+  (`user`); `port` is an integer 1-65535 (`port`).
+- The kit creates `stateDir` at mode 0700 and writes `<stateDir>/ssh_config` at mode 0600 whenever its bytes differ:
 
   ```
-  -F <stateDir>/ssh_config -i <keyPath> -o IdentitiesOnly=yes -o UserKnownHostsFile=<stateDir>/known_hosts
-  -o StrictHostKeyChecking=yes -o UpdateHostKeys=no -o BatchMode=yes -p <port ?? 22> -- <user>@<host> <quoted command>
+  # written by @byokit/machine
+  IdentityFile "<keyPath>"
+  IdentitiesOnly yes
+  UserKnownHostsFile "<stateDir>/known_hosts"
+  StrictHostKeyChecking yes
+  UpdateHostKeys no
+  BatchMode yes
   ```
 
-  `-F` with a kit-owned file stops `ssh` reading the person's `~/.ssh/config`, and `IdentitiesOnly` stops it trying
-  `~/.ssh/id_*`. The kit writes `<stateDir>/ssh_config` (mode 0600) once, empty except for a comment line naming the
-  kit, and creates `stateDir` with mode 0700.
+  Paths sit in the config file, double-quoted, because `ssh` splits `UserKnownHostsFile` on spaces on the command line.
+- Every call spawns `o.ssh` with argv
+  `['-F', '<stateDir>/ssh_config', '-p', String(port ?? 22), '--', '<user>@<host>', '<quoted command>']`.
+  `-F` with a kit-owned file stops `ssh` reading the person's `~/.ssh/config`; `IdentitiesOnly` stops it trying
+  `~/.ssh/id_*`.
 - Env from nothing: `{ LANG: 'C.UTF-8' }` only. No `PATH`, no `HOME`, no `SSH_AUTH_SOCK`.
-- The remote command is the argv quoted as in 6.4. `root: true` prefixes `sudo -n`. `input` goes to the child's stdin.
+- The remote command is the argv quoted as in 6.4. `root: true` prefixes `sudo -n`, except when `user` is `root`, which
+  gets no prefix. `input` goes to the child's stdin.
 - Caps: 8 MB per stream (tail kept); `timeoutMs` then SIGTERM, 2 s, SIGKILL; `timedOut: true`.
 - `ssh` exit 255 with a host-key mismatch in stderr (`REMOTE HOST IDENTIFICATION HAS CHANGED` or
   `Host key verification failed`) → `status` is `host-key-changed` and `exec`/`write` reject `host-key`. Any other
@@ -477,15 +509,17 @@ wiping Herdr pane logins. So no request other than `create` carries a `noEnv` ke
   pinned host key's SHA256 fingerprint, read from `<stateDir>/known_hosts`.
 - `status()`: no pinned key → `unknown`; `true` exits 0 → `on`; mismatch → `host-key-changed`; else `unknown`. It never
   returns `asleep`, `waking`, `creating` or `gone`.
-- `write(path, bytes, mode)`: `exec` of `sh -c 'umask 077 && cat > "$1" && chmod <mode> "$1"' sh <path>` with
-  `input: bytes`.
+- `write(path, bytes, mode)`: `exec` of
+  `sh -c 'umask 077 && t=$(mktemp "$(dirname "$1")/.byokit-XXXXXX") && cat > "$t" && chmod "$2" "$t" && mv -f "$t" "$1"' sh <path> <mode, octal>`
+  with `input: bytes`.
 
 ### 7.2 First connect and a changed key
 
-- `sshHostKey({ ssh, host, port, stateDir })` runs `ssh-keyscan -p <port> -t ed25519,ecdsa,rsa <host>` from the same
-  directory as `ssh` (`join(dirname(ssh), 'ssh-keyscan')`), env from nothing, 15 s timeout. It resolves the preferred
-  key's `SHA256:` fingerprint (ed25519 first), `pinned` (whether `<stateDir>/known_hosts` already holds exactly that
-  key), and `confirm()`, which writes that one line to `known_hosts` (mode 0600).
+- `sshHostKey({ ssh, host, port, stateDir })` checks the options as in 7.1, then runs
+  `ssh-keyscan -p <port> -t ed25519,ecdsa,rsa -- <host>` from the same directory as `ssh`
+  (`join(dirname(ssh), 'ssh-keyscan')`), env from nothing, 15 s timeout. It resolves the preferred key's `SHA256:`
+  fingerprint (ed25519 first), `pinned` (whether `<stateDir>/known_hosts` already holds exactly that key), and
+  `confirm()`, which writes that one line to `known_hosts` (mode 0600).
 - The app shows the fingerprint in words for the person to compare with their provider's console, and calls
   `confirm()` only on their yes. Until then every `sshVm` call except `account` rejects `host-key` and `status` is
   `unknown`.
@@ -498,31 +532,101 @@ The app supplies its own host program and installer as a `HostRecipe`. The kit w
 unit per app, because Herdr and OpenClaw supervise their engines only while the app's host process lives, and nothing
 else restarts that process.
 
-### 8.1 Recipe checks (before any machine call; failures reject `bad-recipe`, message names the rule)
+### 8.1 Recipe checks (`src/recipe.ts`, pure; failures reject `bad-recipe`, message names the rule)
 
-- `name` matches `^[a-z][a-z0-9-]{0,31}$`.
-- `workDir` is absolute, has no `..` segment, and is inside the run user's home: the machine user's home
-  (`/home/user/` on the sandbox API; on the SSH VM, `/home/<o.user>/`, or `/root/` for `root`), or with `user` set,
-  `<machine home>/.users/<user>/`. Every piece of app state must live there: on the sandbox API only the machine
-  user's home is kept across sleep, which is why a `user`'s home sits inside it.
-- Every argv (install, update, run) is non-empty, with no NUL.
+Run before any machine call:
+- `name` matches `^[a-z][a-z0-9-]{0,31}$` and equals `ref.name`, so `host`, `logs` and `sleep`, which get no recipe,
+  find the unit as `byokit-<ref.name>.service`.
+- `workDir` matches `^/[A-Za-z0-9._/-]+$` and has no `..` segment. The character rule keeps it safe unquoted in the
+  unit file and in shell lines.
+- Every argv (installRoot, install, update, run) is non-empty, with no NUL.
 - `run.env` names match `^[A-Z_][A-Z0-9_]*$` and not `/KEY|TOKEN|SECRET|PASSWORD/i`; values have no control characters.
-  Unit files and the recipe are copied into snapshots and are readable, so secrets never go there.
+  `run.argv` elements must not match `/(key|token|secret|password)\s*[=:]/i` or `/^--?[a-z-]*(key|token|secret|password)/i`.
+  Unit files and the recipe are copied into snapshots and are readable, so secrets never go there; a secret the app
+  hides some other way in argv is the app's responsibility.
 - `node.version` is `x.y.z`; both `sha256` values are 64 lowercase hex characters; `node.range`, if present, is one
   or more `||`-separated groups of space-separated comparators (`>=`, `>`, `<=`, `<`, `=` followed by `x.y.z`) and
   `node.version` satisfies it (G5a).
-- `installRoot` argv lists follow the argv rule above (G5b).
+- `user` (G7), if present, matches `^[a-z][a-z0-9-]{0,30}$` and is not `root`.
 - `run.argv` is one process. An app that needs two (for example its host and its own relay) passes a wrapper that
   starts both and exits when either exits, so `Restart=always` restarts both; systemd's default
-  `KillMode=control-group` stops every child with the unit (G6).
-- `user` (G7), if present, matches `^[a-z][a-z0-9-]{0,30}$` and is not the machine user or `root`; `workDir` is then
-  inside that user's home, `<machine home>/.users/<user>/`.
+  `KillMode=control-group` stops every child with the unit (G6). The README states this rule.
 
-### 8.2 Unit file (`renderUnit`, pure)
+Run after 8.3 step 2, once the machine user and home are known:
+- The machine user is not `user`. With `user` set, the machine user is not `root` (a home under `/root` cannot be
+  opened to another user safely).
+- `workDir` is inside the run user's home: the machine home, or with `user` set, `<machine home>/.users/<user>/`. Every
+  piece of app state must live there: on the sandbox API only the machine user's home is kept across sleep, which is
+  why a `user`'s home sits inside it.
 
-Sandbox API, and any recipe with `user` (G7): a system unit at `/etc/systemd/system/byokit-<name>.service`, written
-through `/tmp/` and `exec({ root: true })` (6.1 `write`). SSH VM without `user`: a user unit at
-`~/.config/systemd/user/byokit-<name>.service`.
+### 8.2 Words used below
+
+- **Machine user, machine home:** the login the adapter runs as (`user` on the sandbox API, `o.user` on the SSH VM)
+  and its home directory.
+- **Run user:** `recipe.user` if set, else the machine user.
+- **Root access:** the sandbox API always has it; an SSH VM has it when `o.user` is `root` or `sudo -n true` exits 0.
+- **As root:** `exec` with `root: true`.
+- **As the run user:** without `user`, plain `exec`; with `user`, `exec` with `root: true` of
+  `['runuser', '-u', <user>, '--', ...argv]`.
+- **In workDir:** argv becomes `['sh', '-c', 'cd "$1" && shift && exec "$@"', 'sh', <workDir>, ...argv]`, then runs
+  as the run user.
+- **Unit kind:** a system unit when `provider.id` is `sandbox-api` or the recipe has `user`, else a user unit.
+  Without a recipe (`host`, `logs`, `sleep`), the kit runs `test -e /etc/systemd/system/byokit-<ref.name>.service`:
+  exit 0 means a system unit.
+- **`systemctl [--user]`:** `systemctl --user …` for a user unit; `systemctl …` as root for a system unit. The same
+  for `journalctl`.
+- **Rule:** root never creates, writes, extracts or renames anything under the run user's home when the run user is
+  not the machine user; those steps run as the run user. Root writes only outside it (`/etc`, `<machine home>/.users`).
+
+### 8.3 Install order (`install(recipe, onLine?)`)
+
+1. 8.1 pure checks.
+2. One `exec` of `['sh', '-c', 'uname -s; uname -m; systemctl --version | head -n 1; id -un; getent passwd "$(id -un)" | cut -d: -f6']`.
+   It must print Linux, `x86_64` (→ `linux-x64`) or `aarch64` (→ `linux-arm64`), and a systemd line; else reject
+   `not-linux` naming what failed. Lines 4 and 5 are the machine user and home. Then the 8.1 machine checks.
+3. **Root steps** (G5b, G7), only when the recipe has `installRoot` or `user`:
+   - The marker is `/var/lib/byokit/<name>-<h>`, where `h` is the FNV-1a 64-bit hex of
+     `JSON.stringify([recipe.user ?? null, recipe.installRoot ?? []])`. If `test -e <marker>` exits 0, skip to step 4.
+   - Without root access: with `user`, reject `needs-root` with no `extra.command` (a no-sudo run user needs root on
+     every install and update). With only `installRoot`, reject `needs-root` with `extra.command` holding every
+     `installRoot` line shell-quoted and prefixed `sudo `, then `sudo mkdir -p /var/lib/byokit`, then
+     `sudo touch <marker>`, joined with `\n`. Once the person runs them, the next `install` finds the marker.
+   - With root access, as root: with `user`, `install -d -m 0711 -o root -g root <machine home>/.users`,
+     `chmod o+x <machine home>`, then `useradd --system --create-home --home-dir <machine home>/.users/<user> --shell /usr/sbin/nologin <user>`
+     unless `id -u <user>` exits 0; then each `installRoot` argv in order, 20-minute timeout each; then
+     `mkdir -p /var/lib/byokit` and `touch <marker>`.
+   - Nothing else runs before this step's `needs-root` check, so a refusal leaves the machine untouched.
+4. **Node** (G5a), as the run user: `node --version` via `sh -c 'command -v node && node --version'`. If it prints a
+   version that satisfies `recipe.node.range` (default `>=<node.version>`), use that path. Otherwise, as the run user:
+
+   ```
+   sh -c 'set -e; d=$(mktemp -d); trap "rm -rf \"$d\"" EXIT
+          curl -fsSL -o "$d/n.tar.xz" "$1"
+          echo "$2  $d/n.tar.xz" | sha256sum -c --status || exit 3
+          mkdir -p "$3"; tar -xJf "$d/n.tar.xz" -C "$3" --strip-components=1' \
+     sh https://nodejs.org/dist/v<v>/node-v<v>-<arch>.tar.xz <recipe.node.sha256[arch]> <run home>/.local/share/byokit/node/<v>
+   ```
+
+   Exit 3 rejects `bad-recipe` (checksum); another non-zero exit rejects `provider`. The node path is
+   `<run home>/.local/share/byokit/node/<v>/bin/node`, never put on `PATH`. This is the herdr binary rule
+   (`packages/herdr/src/binary.ts`). The download, check and extract happen in one private directory in one shell.
+5. As the run user, `mkdir -p <workDir>`; then each `install` argv in workDir, 20-minute timeout each. A non-zero exit
+   rejects `provider` with `extra.step` (the index) and the last 2 KB of stderr in `extra.tail`. `onLine` gets each
+   line of each step's stdout and stderr, in order, after the step ends.
+6. As the run user, write `<workDir>/.byokit/installed.json` `{ "id": <ref.id> }` at mode 0600 (G4, 8.7), with the
+   7.1 `write` shell through `exec` and `input`.
+7. Write the unit (8.4) through `exec` with `input` and the 7.1 `write` shell, at mode 0644: as root to
+   `/etc/systemd/system/byokit-<name>.service` for a system unit; as the machine user to
+   `<machine home>/.config/systemd/user/byokit-<name>.service` (after `mkdir -p` of its directory) for a user unit.
+   Root reads the bytes from stdin, never from a staged path.
+8. System unit: `systemctl daemon-reload` then `systemctl enable --now byokit-<name>.service`, as root.
+   User unit: `loginctl enable-linger <machine user>` first; if it fails, reject `linger` with
+   `extra.command: 'sudo loginctl enable-linger <machine user>'` (the kit never escalates); then
+   `systemctl --user daemon-reload` and `systemctl --user enable --now byokit-<name>.service`.
+9. The app's own autostart must stay off so there is exactly one supervisor. The recipe is the app's; the README says
+   so and gives the rule, not app names.
+
+### 8.4 Unit file (`renderUnit`, pure)
 
 ```ini
 [Unit]
@@ -532,67 +636,36 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=<run user>                    ; system unit only: recipe.user, else the machine user
+User=<run user>
 WorkingDirectory=<workDir>
-Environment="<NAME>=<value>"       ; one line per run.env entry, sorted by name
-ExecStartPre=<node path> <kit boot script> ; only when provider.selfId is present (G4, 8.6)
-ExecStart=<node path> "<arg 1>" "<arg 2>" …   ; see below
+Environment="<NAME>=<value>"
+ExecStartPre="<node path>" "<workDir>/.byokit/boot.mjs"
+ExecStart="<node path or argv[0]>" "<arg 1>" "<arg 2>"
 Restart=always
 RestartSec=5
 
 [Install]
-WantedBy=multi-user.target         ; default.target for the user unit
+WantedBy=multi-user.target
 ```
 
-- If `run.argv[0]` is `node`, it is replaced by the resolved node path (8.3); otherwise it must be absolute.
-- Every `ExecStart` argument and `Environment` value is double-quoted, with `\` → `\\`, `"` → `\"`, `%` → `%%` and,
-  in `ExecStart` only, `$` → `$$`.
-- The rendered bytes are the golden files in `test/golden/` (M3). Without `user`, the system unit's `User=` is the
-  output of `id -un`.
+- `User=` appears only in a system unit. `WantedBy=` is `default.target` for a user unit.
+- One `Environment=` line per `run.env` entry, sorted by name; none when `env` is empty.
+- `ExecStartPre=` appears only when `provider.selfId` is present (G4, 8.7).
+- If `run.argv[0]` is `node`, it is replaced by the resolved node path (8.3 step 4); otherwise it must be absolute.
+- Every `ExecStart` and `ExecStartPre` argument and every `Environment` value is double-quoted, with `\` → `\\`,
+  `"` → `\"`, `%` → `%%` and, in `ExecStart`/`ExecStartPre` only, `$` → `$$`.
+- The file ends with one newline and no trailing spaces. The rendered bytes are the golden files in `test/golden/`.
 - The sandbox API uses a system unit because only `/etc`, `/usr`, `/opt`, `/root`, `/srv` and the home survive sleep:
   a user unit's linger flag lives under `/var` and could be lost on wake. The SSH VM uses a user unit plus linger so
-  the kit needs no root there.
-
-### 8.3 Machine and Node checks (first steps of `install`)
-
-1. `uname -s`, `uname -m`, `systemctl --version`: Linux, `x86_64` (→ `linux-x64`) or `aarch64` (→ `linux-arm64`),
-   and systemd present; else reject `not-linux` naming what failed.
-2. `node --version` on the machine's `PATH`: if it satisfies `recipe.node.range` (default `>=<node.version>`), use
-   `command -v node` (G5a). Otherwise install the pinned official tarball
-   `https://nodejs.org/dist/v<v>/node-v<v>-<arch>.tar.xz`: download with `curl -fsSL` to `/tmp/`, check with
-   `sha256sum` against `recipe.node.sha256[arch]` (mismatch → `bad-recipe` and the file is deleted), extract to
-   `<run user's home>/.local/share/byokit/node/<v>/` (owned by the run user), and use its `bin/node`. It is never put on `PATH`. This is the herdr binary rule
-   (`packages/herdr/src/binary.ts`).
-
-### 8.4 `install(recipe, onLine?)`
-
-1. 8.1 checks, then 8.3.
-2. **Root steps** (G5b, G7), only when the recipe has `installRoot` or `user`. The kit checks `sudo -n true` (skipped
-   when the SSH user is `root`); if it fails, reject `needs-root` with `extra.command` holding every line the person
-   must run once, each prefixed `sudo ` and shell-quoted, joined with `\n`, and the app shows `host.needsRoot` above
-   them. Otherwise, as root: with `user`, create it once with
-   `useradd --system --create-home --home-dir <machine home>/.users/<user> --shell /usr/sbin/nologin <user>` (skipped if
-   `id -u <user>` succeeds); then each `installRoot` argv, in order, 20-minute timeout each.
-3. `mkdir -p <workDir>` as the run user; each `install` argv runs in `workDir` as the run user
-   (`cd <workDir> && <argv>`, through `sudo -n -u <user> --` when `user` is set) with a 20-minute timeout.
-   A non-zero exit rejects `provider` with `extra.step` (the index) and the last 2 KB of stderr in `extra.tail`.
-   `onLine` gets each line of each step's stdout and stderr, in order, after the step ends.
-4. Write `<workDir>/.byokit/installed.json` `{ "id": <ref.id> }` at mode 0600 (G4, 8.6), then the unit (8.2) at mode
-   0644.
-5. System unit (sandbox API, or `user`): `sudo -n systemctl daemon-reload` then `sudo -n systemctl enable --now byokit-<name>.service`.
-   User unit (SSH VM without `user`): `loginctl enable-linger <o.user>` first; if it fails, reject `linger` with
-   `extra.command: 'sudo loginctl enable-linger <o.user>'` (the kit never escalates); then
-   `systemctl --user daemon-reload` and `systemctl --user enable --now byokit-<name>.service`.
-6. The app's own autostart must stay off so there is exactly one supervisor. The recipe is the app's; the README says
-   so and gives the rule, not app names.
+  the kit needs no root there unless the recipe asks for it.
 
 ### 8.5 `update`, `host`, `logs`
 
-- `update(recipe)`: 8.1 checks; root steps as in 8.4 step 2 (`installRoot` runs again, so it must be idempotent);
-  each `update` argv in `workDir` as in 8.4 step 3; rewrite `installed.json`; re-render the unit and rewrite it
-  only if it changed (then `daemon-reload`); then `systemctl [--user] restart byokit-<name>.service`. A recipe with
-  no `update` only restarts. The kit never manages the OS; unattended upgrades are the machine's own.
-- `host()`: `systemctl [--user] show byokit-<name>.service -p LoadState,ActiveState,SubState,NRestarts`:
+- `update(recipe)`: 8.3 steps 1-4 (root steps rerun only when the marker is missing, so `installRoot` must be
+  idempotent: on the sandbox API `/var` does not survive sleep); each `update` argv in workDir as in 8.3 step 5;
+  8.3 step 6; re-render the unit and rewrite it only if its bytes changed (then `daemon-reload`); then
+  `systemctl [--user] restart byokit-<name>.service`. A recipe with no `update` only restarts.
+- `host()`: `systemctl [--user] show byokit-<ref.name>.service -p LoadState,ActiveState,SubState,NRestarts`:
 
   | Reading | `HostState` |
   |---|---|
@@ -603,30 +676,46 @@ WantedBy=multi-user.target         ; default.target for the user unit
   | `ActiveState=activating`, any other `SubState` | `running` |
   | `ActiveState=inactive` or `deactivating` | `stopped` |
 
-- `systemctl [--user]` above means `--user` for a user unit and `sudo -n` for a system unit.
-- `logs(lines)`: `journalctl [--user] -u byokit-<name>.service -n <min(lines, 500)> --no-pager -o cat`, split on
+- `logs(lines)`: `journalctl [--user] -u byokit-<ref.name>.service -n <min(lines, 500)> --no-pager -o cat`, split on
   `\n`, trailing empty line dropped. `lines` must be an integer ≥ 1.
+- The kit never manages the OS. The approved design had the kit report whether unattended upgrades are on; that is
+  dropped from v1 because no screen needs it yet.
 
-### 8.6 Copy detection at boot (G4)
+### 8.6 Why these rules
+
+- One process per unit keeps the kit a supervisor, not a process manager (G6).
+- The marker lets a person without passwordless sudo run the root lines once by hand (G5b); a no-sudo run user needs
+  root for every install and update, so it is refused up front instead of half-installed (G7).
+- `.users` at 0711 and `o+x` on the machine home let the run user reach its own home without listing the machine
+  user's files (G7).
+
+### 8.7 Copy detection at boot (G4)
 
 A fork copies the whole home, including the host's link key, so without a check the copy's host and relay fight the
 original's (the relay closes one as `replaced`) and scheduled work runs twice.
 
 - `install` and `update` write `<workDir>/.byokit/installed.json` `{ "id": <ref.id> }`.
-- When `provider.selfId` is present, the unit's `ExecStartPre` runs a kit boot script (rendered into
-  `<workDir>/.byokit/boot.mjs` by `install`, plain Node, no dependency) that runs `selfId`, and writes
+- When `provider.selfId` is present, `install` also writes `<workDir>/.byokit/boot.mjs` (as the run user; plain Node,
+  no dependency), and the unit's `ExecStartPre` runs it. It spawns `selfId` and writes
   `<workDir>/.byokit/boot.json` `{ "id": <printed id>, "copy": <id !== installed.id> }` at mode 0600. It always exits
   0: the kit reports, the app decides.
-- The app's host reads `boot.json` at start and refuses to run its scheduled work or dial its relay while
-  `copy` is true, showing its own words. The kit's words do not cover this; the app's do.
+- The app's host reads `boot.json` at start and refuses to run its scheduled work or dial its relay while `copy` is
+  true, showing its own words.
 - `selfId` is absent until M6 records how a machine reads its own provider id (15.1). Until then `boot.json` is not
   written, and the kit's only guarantee is that `Machine` never forks.
 
 ## 9. Reach from phone and web
 
-The host process runs link exactly as it does at home. The person's own relay runs in the same host process (or its
-own unit from the same recipe), listening on `0.0.0.0` so the provider's proxy reaches it. Everything else stays on
-loopback.
+The host process runs link exactly as it does at home. The person's own relay runs in the same host process, or as a
+second process started by the recipe's run wrapper (8.1, G6), listening on `0.0.0.0` so the provider's proxy reaches
+it. Everything else stays on loopback.
+
+- **`trustProxy` stays off.** Hosting a port also opens the machine's firewall for it, so the raw port may be reachable
+  without the proxy; with `trustProxy` on, anyone could set their own `X-Forwarded-For` there and dodge the relay's
+  per-source limits. With it off, every client through the proxy shares the proxy's address, so one abuser can use up
+  the per-source allowance for the person's phones. That is accepted for v1. M6 records whether the raw port is
+  reachable and whether the proxy sets the header; only if the raw port is unreachable may an app turn `trustProxy`
+  on, and the relay README says so.
 
 - **No provider access token in any URL.** The relay port is hosted `public: true`; link's Noise IK with a pinned
   host key and `relay.admit` are the only gates. A token gate would break typed-code lookup (`findHost` rebuilds URLs
@@ -652,11 +741,12 @@ Every cost sentence says it is the person's own bill from `{label}`, not from th
 
 ### 10.1 Rules
 
-- `estimate(p, { hoursOn = 730 })`, for screens before a machine exists:
+- `estimate(p, { label, hoursOn = 730 })`, for screens before a machine exists:
   - `perHour` present: `perMonth = max(p.planFloorPerMonth ?? 0, min(p.perMonthCap ?? ∞, p.perHour × hoursOn + p.asleepPerHour × (730 − hoursOn)))`;
   - else `perMonth = p.perMonthCap` (a price row with neither rejects `bad-recipe`);
   - `floor = p.planFloorPerMonth ?? null`, `basis: 'list'`, `checked = p.checked`, `currency = p.currency`;
-  - `words`: `cost.sandbox` for a row with `perHour`, else `cost.vm`, with `{amount}` from `perMonth`.
+  - `words`: `cost.sandbox` for a row with `perHour`, else `cost.vm`, with `{amount}` from `perMonth` and `{label}`
+    from `o.label`.
 - `Machine.cost()`:
   - **Provider with `usage`**: `usage(ref, <first instant of the current UTC month>)`. `perMonth` is the amount so
     far projected over the month (`amount / elapsedHours × 730`, elapsed from `from` to `to`, at least 1 h), raised to
@@ -690,8 +780,8 @@ at `hoursOn: 730` is `{ perMonth: 20, floor: 20, currency: 'USD', basis: 'list',
 | Model plan sign-in | On the machine, in the aggregator's state: OpenClaw's per-member auth profile at 0600, or the agent CLI login under Herdr's isolated home | `@byokit/openclaw` / `@byokit/herdr`, unchanged |
 | Per-use API key route | Same place, labelled as charged per use (`packages/accounts/src/words.json`); never offered by default | same |
 | Provider key (full) | The app's `MachineStore` on the setup device (phone secure store or desktop app store) | `@byokit/machine` |
-| Provider wake key (M7) | The phone's secure store, scoped to read, resume and host on one machine id | `@byokit/machine` |
-| Provider stop-only key (M7) | On the machine, 0600 in the kit's state dir; so it is inside snapshots and forks | `@byokit/machine` |
+| Provider wake key (M7) | The phone's secure store with `WHEN_UNLOCKED_THIS_DEVICE_ONLY` (`packages/accounts/README.md`), one per phone, scoped to read, resume and host on one machine id | `@byokit/machine` |
+| Provider stop-only key (M7) | On the machine, `<workDir>/.byokit/inbox/stop-key` at 0600; so it is inside snapshots and forks | `@byokit/machine` |
 | SSH private key | The person's own, passed by path; the kit stores only the pinned host key | `@byokit/machine/ssh` |
 
 ### 11.2 Rules
@@ -712,16 +802,6 @@ Every provider key expires: at most 365 days, and 90 days for an unscoped (admin
 returns `key.expiring` with `{date}` as `YYYY-MM-DD` when `k.expires` is within `days` of `now`, else `null`. The app
 calls `provider.key?.()` on open. Minting the M7 wake key needs an admin-scoped key or a dashboard step.
 
-### 11.5 Linking an account without pasting a key (G1)
-
-Making a provider key on a dashboard and pasting it is a technical step. The provider also has an app sign-in: the app
-shows a short code, the person opens the provider's page, signs in there and types it, and the app receives a scoped,
-expiring key. `claim({ baseUrl })` (M8) drives that flow and yields 4.3's `ClaimStep`s; on `done` the app saves `key`
-as `MachineRecord.providerKey`. It is the person's own sign-in on the provider's own page, so nothing BYOKit runs sees
-their password. There is no refresh: when the claimed key nears expiry, `keyWords` warns and the app runs `claim()`
-again. Whether the claimed key's scopes allow create, install and hosting is unverified until M6; if they do not, the
-app keeps `setup.makeKey` and M8 ships only what M6 proved.
-
 ### 11.4 Copies
 
 - `keepCopies: true`: everything in the home, sign-ins included, goes into the provider's snapshots. Encryption at
@@ -732,6 +812,16 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
 - Later option, not v1: seal the aggregator's state at rest with a key a paired device delivers on each boot
   (`@byokit/seal` `sealBox`). It needs the engine to read credentials through an injected store, which the pinned
   OpenClaw does not have.
+
+### 11.5 Linking an account without pasting a key (G1)
+
+Making a provider key on a dashboard and pasting it is a technical step. The provider also has an app sign-in: the app
+shows a short code, the person opens the provider's page, signs in there and types it, and the app receives a scoped,
+expiring key. `claim({ baseUrl })` (M8) drives that flow and yields 4.3's `ClaimStep`s; on `done` the app saves `key`
+as `MachineRecord.providerKey`. It is the person's own sign-in on the provider's own page, so nothing BYOKit runs sees
+their password. There is no refresh: when the claimed key nears expiry, `keyWords` warns and the app runs `claim()`
+again. Whether the claimed key's scopes allow create, install and hosting is unverified until M6; if they do not, the
+app keeps `setup.makeKey` and M8 ships only what M6 proved.
 
 ## 12. Words (`src/words.json`)
 
@@ -761,11 +851,17 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
 | `host.stopped` | {app} is stopped on your cloud computer. |
 | `host.failed` | {app} keeps stopping on your cloud computer. |
 | `host.needsRoot` | {app} needs a few setup steps that only your cloud computer's owner can run. Run the lines below on it once, then try again. |
+| `host.needsAdmin` | {app} needs admin rights on your cloud computer. Sign in to it with a login that has them. |
 | `host.linger` | {app} won't start again by itself when your cloud computer restarts. Run the line below on it once to allow that. |
 | `cost.sandbox` | About {amount} a month, billed by {label} to your own account. {app} doesn't charge for this. |
 | `cost.vm` | {amount} a month, the price you told us {label} charges you. |
 | `cost.balance` | Your {label} balance ran out. Your cloud computer stops in a day unless you add funds. |
 | `cost.checked` | Price last checked {date}. |
+| `error.key` | {label} didn't accept your key. Make a new one and try again. |
+| `error.slow` | Your cloud computer took too long to answer. Try again. |
+| `error.notLinux` | This cloud computer can't run {app}. It needs a standard Linux setup. |
+| `error.wrongAccount` | This cloud computer belongs to a different {label} account than the one {app} is using. |
+| `error.app` | {app} hit a problem with your cloud computer. Try again, or ask for help. |
 | `key.expiring` | Your {label} key expires on {date}. Make a new one to keep your cloud computer working. |
 | `copies.on` | {label} keeps copies of your cloud computer's disk, including your sign-ins, so it can wake where it left off. Your {label} account details may be handled in the United States. |
 
@@ -775,9 +871,23 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
   shows `asleep.<why>` when `Machine.why()` is non-null (5.7).
 - `setup.makeKey` is the v1 path while `claim()` (G1, M8) is unbuilt or M6 finds the claimed key too narrow;
   `setup.typeCode` goes with `claim()`'s `type-code` step.
-- `Cost.words` is already filled except `{app}`, which `cost()` fills with the literal `{app}` left visible; the app
-  passes the result through `words`-style replacement of `{app}` or calls `words(key, vars)` itself. (The kit does not
-  know the app's name.)
+- `Cost.words` has `{label}`, `{amount}` and `{date}` filled; `{app}` stays visible because the kit does not know the
+  app's name, and the app replaces it before showing the sentence.
+- `errorWords(e, vars)` picks the sentence for every `MachineErrorCode`:
+
+  | Code | Key |
+  |---|---|
+  | `unauthorized` | `error.key` |
+  | `balance` | `cost.balance` |
+  | `unreachable` | `state.unknown` |
+  | `timeout` | `error.slow` |
+  | `provider` | `state.failed` |
+  | `host-key` | `state.host-key-changed` |
+  | `not-linux` | `error.notLinux` |
+  | `linger` | `host.linger` |
+  | `needs-root` | `host.needsRoot` with `extra.command`, else `host.needsAdmin` |
+  | `wrong-account` | `error.wrongAccount` |
+  | `no-machine`, `exists`, `unsupported`, `confirm`, `bad-recipe` | `error.app` (these are the app's own mistakes) |
 - Jargon: every sentence, with `{…}` slots replaced by `X`, must not match the herdr expression
   (`packages/herdr/test/words.test.ts`). `host.linger` refers to "the line below": the app shows
   `MachineError.extra.command` under it as code, outside the sentence; `host.needsRoot` likewise.
@@ -803,10 +913,11 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
    fake-CLI precedent).
 10. **Never read or write the owner's `~/.ssh`**, `~/.pi`, Herdr, muxr or CLIs. M2's isolation test runs the fs
     tracer over the SSH adapter.
-11. **Accepted risk, stated to the person by the app:** on the sandbox API the host runs as a user with passwordless
-    sudo, so any agent tool the aggregator runs can become root on that machine. A separate non-sudo user was rejected
-    because only that user's home survives sleep. This is the same trust the person gives agents on their own
-    computer.
+11. **Accepted risk, stated to the person by the app:** without `HostRecipe.user`, the host on the sandbox API runs as
+    the machine user, who has passwordless sudo, so any agent tool the aggregator runs can become root on that
+    machine. This is the same trust the person gives agents on their own computer. An app that sets `user` (G7) runs
+    its host as a kit-created user without sudo, whose home sits under `<machine home>/.users/` so it still survives
+    sleep; that narrows the risk to whatever the app itself runs as root in `installRoot`.
 
 ### 13.2 Test layout
 
@@ -814,54 +925,70 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
   `scratchDir` from `packages/test-support.ts`.
 - `test/portable.test.ts` (M1, extended in M4 and M7): bundles `.` and `./idle` for `browser` and `react-native` with
   esbuild, as `packages/overlay/test/portable.test.ts` does, and fails on any `node:*` import.
-- `test/isolation.test.ts` (M2): a decoy HOME (`packages/accounts/src/testing`) with canary `~/.ssh/config`,
-  `~/.ssh/id_ed25519` and `~/.ssh/known_hosts`; `process.env.HOME` points at the decoy; the full contract runs
-  against `sshVm` with the fake `ssh` under the fs tracer (`traceFs`). It asserts: the canaries are unchanged, no
-  traced path is under the decoy's `.ssh`, the fake's recorded argv matches 7.1 exactly, and its recorded env is
-  exactly `{ LANG: 'C.UTF-8' }`.
+- `test/isolation.test.ts` (M2), modelled on `packages/accounts/test/isolation.test.ts`: `decoy()` from
+  `packages/accounts/src/testing` makes the decoy HOME, and the test writes its own canaries into `<decoy home>/.ssh/`
+  (`config`, `id_ed25519`, `known_hosts`) and hashes them itself, because `decoy()`'s own canaries and `changed()`
+  cover only `.pi`, `.codex`, `.claude` and `.agents`. It runs the SSH contract in a child
+  `node --import <traceFs>` with `HOME` set to the decoy, `TRACE_ROOTS` set to the decoy's `.ssh` and `TRACE_LOG` in
+  the scratch dir (`traceFs` is the path of that preload, not a function). It asserts: the `.ssh` canaries hash the
+  same, the trace log holds no path under the decoy's `.ssh`, the fake's recorded argv matches 7.1 exactly, and its
+  recorded env is exactly `{ LANG: 'C.UTF-8' }`.
 - `test/words.test.ts` (M1): section 12 verbatim in the same key order as `words.json`, the jargon expression, a
   sentence for every `MachineState` and `HostState`, and unfilled slots staying visible.
 
 ### 13.3 Fake provider and contract (`./testing`, M1)
 
-- `fakeProvider({ create?: boolean; sleep?: boolean; url?: boolean; account?: string })` implements every `Provider`
-  method (the optional ones unless turned off) in memory: a machine map, a scripted state per id, a file map, an exec
-  handler that answers `uname`, `systemctl`, `journalctl`, `node --version`, `id -un`, `loginctl` and recipe argv from
-  a script, and a recorded list of every call. `fake` exposes `setState(id, s)`, `script(argv0, result)`, `calls` and
-  `files`.
-- `machineContract(make, o)` has the herdr shape (`make` returns a bench `{ provider, store, fake? }`; `o` is
-  `{ test? } | TestFn`). Its cases, each a separate `test`:
+- `fakeMachine()` (`src/testing/fake-machine.ts`) is one in-memory Linux machine: files with modes and owners, users,
+  units with their `show` fields, a journal, a passwordless-sudo flag and a Node version. Its `run(argv, { root, input, asUser })`
+  answers exactly the argv that sections 5.4, 5.8 and 8 produce (the fixed shell templates are matched as whole
+  strings), plus anything registered with `script(argv0, result)`. Any other argv exits 127 and is recorded. Enabled
+  units restart on `reboot()`. M2's fake `ssh` and M4's fake server delegate `exec` to it, so all three benches run the
+  same machine.
+- `fakeProvider(o?)` wraps one `fakeMachine()`. Options: `account?: string`, `sizes?`, `prices?`, and a switch per
+  optional method (`create`, `wake`, `sleep`, `snapshot`, `fork`, `remove`, `url`, `usage`, `key`, `plan`, `why`),
+  each default `true`; `false` leaves the method absent. `fake` exposes `machine` (the `fakeMachine`), `calls` (every
+  `Provider` call in order), `setState(id, s)`, `setPlan(p)`, `setWhy(w | null)` and `setBalance(n)` (at or below 0,
+  `usage` rejects `balance`).
+- `machineContract(make, o)` has the herdr shape: `make` returns a bench `{ provider, store, fake?, installs? }`; `o`
+  is `{ test? } | TestFn`. `installs: false` skips the install-family cases (5-8, 13, 14, 17-19) until M3. Cases,
+  each a separate `test`:
   1. `create` saves the ref, and a second `create` rejects `exists`;
   2. a ref from another account rejects `wrong-account` and is not overwritten;
-  3. calls with no ref reject `no-machine`;
-  4. `remove` with a wrong confirm rejects `confirm` and keeps the ref; with the right one clears it;
-  5. `install` of a valid recipe ends with `host()` `running` and writes one unit whose bytes equal `renderUnit`;
-  6. each 8.1 recipe rule rejects `bad-recipe` before any provider call;
+  3. every 5.1 no-ref method rejects `no-machine`;
+  4. `remove` with a wrong confirm rejects `confirm` and keeps the ref; with the right one clears it (skipped when the
+     provider has no `remove`);
+  5. `install` of a valid recipe ends with `host()` `running` and one unit whose bytes equal `renderUnit`'s;
+  6. each 8.1 pure rule rejects `bad-recipe` before any provider call;
   7. `update` restarts the unit;
   8. `logs(10000)` asks for at most 500 lines;
-  9. `wake` on an `on` machine makes no provider call;
-  10. `sleep` with `keepCopies: false` rejects `unsupported`;
-  11. a missing optional method rejects `unsupported` (or resolves `null` for `url`);
-  12. `cost()` returns the section 10 shape with filled words;
+  9. `wake` on an `on` machine calls `status` and never `provider.wake` (skipped when the provider has no `wake`);
+  10. `sleep` with `keepCopies: false` rejects `unsupported` (skipped when the provider has no `sleep`);
+  11. (*fake*) on `fakeProvider({ wake: false, sleep: false, url: false, remove: false })`, built by the case itself,
+      `wake`, `sleep` and `remove` reject `unsupported` and `url` resolves `null`;
+  12. `cost()` returns the section 10 shape with filled `{label}` and `{amount}`;
   13. (*fake*) `host()` maps every 8.5 row;
   14. (*fake*) the linger refusal rejects `linger` with `extra.command`;
   15. `plan()` resolves the provider's plan, or `null` when the provider has none;
-  16. (*fake*) `why()` is `null` when on, and each 5.7 fallback in order when asleep;
+  16. (*fake*) `why()` is `null` when on, and each 5.7 rule in order when asleep;
   17. `deliver` writes one file at mode 0600 under `<workDir>/.byokit/inbox/`, and rejects a bad name or 64 KB + 1;
-  18. (*fake*) root steps without passwordless sudo reject `needs-root` with every line in `extra.command`;
-  19. `install` writes `installed.json` with the ref's id.
+  18. (*fake*) without root access, `installRoot` rejects `needs-root` with every line and the marker lines in
+      `extra.command`, `user` rejects `needs-root` with none, and neither ran any other step; with the marker present,
+      `install` runs no root step;
+  19. `install` writes `installed.json` with the ref's id;
+  20. (*fake*) `sleep` stops the unit before `provider.sleep`, and succeeds when the unit is missing.
 
   Cases marked *fake* skip on a bench without `fake`.
 
 ## 14. Work packages
 
 Builders: **Opus** (spec, architecture, real-provider proof) and **Muse** (builds) (D-16).
-- Each package is one direct PR to byokit. It commits only its listed files (plus the lockfile) and keeps
-  `npm run build`, `npm run check`, `npm test` and `npm run smoke:pack` green.
+- Each package is one direct PR to byokit. It commits only its listed files, plus the lockfile,
+  `packages/machine/test/exports.test.ts` and `packages/machine/CHANGELOG.md`, and keeps `npm run build`,
+  `npm run check`, `npm test` and `npm run smoke:pack` green.
 - A package that changes `packages/machine/src/**` adds a `## Unreleased` bullet.
-- **Stubs rule:** M1 creates every `src/*.ts` file of 3.1 that holds a public signature, with bodies
-  `throw new Error('not built: <package id>')`. Later packages replace bodies only. A signature change is a spec
-  change: stop and ask.
+- **Stubs rule:** M1 creates every `src/*.ts` file of 3.1 that holds a public signature, and every `Machine` method,
+  with bodies `throw new Error('not built: <package id>')` where M1 does not build them. Later packages replace bodies
+  only. A signature change is a spec change: stop and ask.
 - **Exports test:** each package edits `test/exports.test.ts`, replacing stub assertions naming its own id with
   behaviour assertions.
 - Nothing committed names a machine provider (D-2). Every PR's diff, commit messages and PR text are checked for it.
@@ -875,8 +1002,8 @@ M0 (this doc, README and CONTRIBUTING lines)
  └─ M5 Muse ────────────────────────┘                                   └─ M8 Muse (claim, copy detection)
 ```
 
-M2 and M4 both touch only their own files after M1. M3 and M4 both add to `src/testing/contract.ts`; the later merge
-rebases.
+M2, M3 and M4 each add a bench to `test/contract.test.ts`; the later merge rebases. M3 and M4 meet only there and in
+the `installs` switch on the sandbox bench.
 
 ### 14.2 Packages
 
@@ -886,85 +1013,98 @@ rebases.
 - **Acceptance:** main approves; section 4.1 matches the approved design's types exactly; no machine provider is named
   in the diff.
 
-**M1 — scaffold** · Muse · deps: M0
+**M1 — scaffold, pure parts, fake and contract** · Muse · deps: M0
 - **Files:**
   - `packages/machine/{package.json,tsconfig.json,README.md,CHANGELOG.md,LICENSE}`, `private: true`, version `0.1.0`,
     `exports` for `.`, `./ssh`, `./idle` and `./testing` (D-6), each with `types` and `default`, and `.` and `./idle`
     also with `react-native` and `browser` conditions pointing at the same file.
-  - Every 3.1 source file; real bodies for `types.ts`, `errors.ts`, `words.ts`, `words.json`, `unit.ts`, `recipe.ts`,
-    `cost.ts`, `machine.ts` (sections 5 and 8 over any `Provider`), and `testing/{index,fake-provider,contract}.ts`;
-    stubs for `sandbox-api.ts` (M4), `ssh.ts` (M2), `wake.ts` and `idle.ts` (M7), `claim.ts` (M8), `testing/fake-sandbox-server.ts`
-    (M4) and `testing/fake-ssh.ts` (M2).
-  - Tests: `test/{exports,words,unit,recipe,cost,machine,contract,portable}.test.ts`, and `test/golden/` with the two
-    unit files for the recipe in `unit.test.ts`.
+  - Every 3.1 source file. Real bodies: `types.ts` (4.1 with 4.3 merged in), `errors.ts`, `words.ts`, `words.json`,
+    `unit.ts`, `recipe.ts`, `node.ts`, `cost.ts`, `machine.ts` for 5.1-5.5 and 5.7, and
+    `testing/{index,fake-machine,fake-provider,contract}.ts`. Stubs: `machine.ts`' `install`, `update`, `host`, `logs`
+    and `deliver` (M3), `sandbox-api.ts` and `testing/fake-sandbox-server.ts` (M4), `ssh.ts` and `testing/fake-ssh.ts`
+    (M2), `wake.ts` and `idle.ts` (M7), `claim.ts` (M8).
+  - Tests: `test/{exports,words,unit,recipe,node,cost,machine,contract,portable}.test.ts`, and `test/golden/` with three
+    unit files: sandbox API system unit, SSH VM user unit, and a system unit for a recipe with `user` and `selfId`.
   - Root: `package.json` `scripts.build` gains `packages/machine` after `packages/overlay`;
     `scripts/fix-words-dts.cjs` gains `machine`; `scripts/release.ts` canonical order gains `machine` after
-    `overlay`; `tsconfig.json` references it if the others are referenced there; README packages table row marked
-    unreleased.
+    `overlay`; `tsconfig.json` references it if the others are referenced there; both README packages tables gain a
+    row matching `@byokit/overlay`'s ("not on npm (private)", "in development").
 - **Acceptance:**
-  - `contract.test.ts` runs `machineContract` against `fakeProvider()`, and all 19 cases pass.
+  - `contract.test.ts` runs `machineContract` against `fakeProvider()` with `installs: false`: cases 1-4, 9-12, 15, 16
+    and 20 pass.
   - `words.test.ts` passes as in 13.2.
-  - `unit.test.ts`: both golden files byte for byte; an arg with `"`, `\`, `%` and `$` round-trips per 8.2.
-  - `recipe.test.ts`: every 8.1 rule, one failing and one passing case each; `API_KEY`, `token`, `DB_PASSWORD` and
-    `Secret_x` refused; `/home/user/../etc` refused; `node.range` `>=24.15.0 <25 || >=25.9.0` accepts `24.21.0` and
-    `25.9.0` and rejects `24.14.9` and `26.0.0` as a machine version; a `workDir` outside `<home>/.users/<user>/` with
-    `user` set refused.
-  - Types include every 4.3 member; `machine.ts` implements 5.7 and 5.8 over any `Provider`.
+  - `unit.test.ts`: the three golden files byte for byte; an arg with `"`, `\`, `%` and `$` round-trips per 8.4.
+  - `recipe.test.ts`: every 8.1 pure rule, one failing and one passing case each; env names `API_KEY`, `token`,
+    `DB_PASSWORD` and `Secret_x` refused; argv `--api-key`, `--token=x` and `password:x` refused; `workDir` values
+    `/home/user/../etc`, `/home/user/a b`, `/home/user/a%b` and one with `\n` refused; `node.range`
+    `>=24.15.0 <25 || >=25.9.0 <26` accepts `24.21.0` and `25.9.0` and rejects `24.14.9`, `25.0.0` and `26.0.0`; the
+    marker hash is stable for equal input and differs when one `installRoot` argument changes.
+  - `node.test.ts`: the 8.3 step 4 argv for both arches, byte for byte.
   - `cost.test.ts`: the four 10.2 always-on figures via `estimate`, the plan-floor case, a stale `checked` appending
     `cost.checked`, and a projected `usage` cost with a floor.
+  - `machine.test.ts`: `errorWords` returns a filled sentence for every `MachineErrorCode`.
   - `portable.test.ts` passes for `.`.
-  - `npm run check`, `npm test` and `npm run smoke:pack` green.
 
 **M2 — SSH VM adapter** · Muse · deps: M1
 - **Files:** `src/ssh.ts`, `src/testing/fake-ssh.ts` (a Node script run as the fake `ssh` and `ssh-keyscan` from one
-  scratch dir; it records argv, env and stdin to a JSON log and serves a scripted machine state from a JSON file),
-  `test/{ssh,isolation}.test.ts`, and additions to `test/contract.test.ts`.
+  scratch dir; it records argv, env, stdin and the config file it was pointed at to a JSON log and answers the remote
+  command through `fakeMachine()`, persisted to a JSON file between calls), `test/{ssh,isolation}.test.ts`, and the
+  SSH bench in `test/contract.test.ts`.
 - **Acceptance:**
-  - `machineContract` passes against `sshVm` with the fake `ssh` (the non-*fake* cases, plus create-by-adoption).
-  - `ssh.test.ts`: exact argv (7.1); env exactly `{ LANG: 'C.UTF-8' }`; relative and non-executable `ssh` rejected;
-    NUL rejected; exit 255 with each mismatch text gives `host-key-changed`; another 255 gives `unreachable`; the
-    8 MB cap; timeout → SIGTERM → SIGKILL on a fake that ignores SIGTERM; calls before `confirm()` reject `host-key`;
-    `sshHostKey` prefers ed25519, reports `pinned`, and `confirm()` writes one line at mode 0600.
-  - `isolation.test.ts` passes as in 13.2: the decoy's `~/.ssh` is untouched.
+  - `machineContract` against `sshVm` with the fake `ssh`, `installs: false`: cases 1-3, 6, 12 and 15 pass, and 4, 9
+    and 10 skip (no such method). Case 1 is create-by-adoption after `confirm()`.
+  - `ssh.test.ts`: exact argv and `ssh_config` bytes (7.1); env exactly `{ LANG: 'C.UTF-8' }`; a `stateDir` with a
+    space works; each 7.1 option rule rejects with its `extra.why`; NUL rejected; exit 255 with each mismatch text
+    gives `host-key-changed`; another 255 gives `unreachable`; the 8 MB cap; timeout → SIGTERM → SIGKILL on a fake that
+    ignores SIGTERM; `root` adds `sudo -n` except for user `root`; calls and adoption before `confirm()` reject
+    `host-key`; `sshHostKey` passes `--` before the host, prefers ed25519, reports `pinned`, and `confirm()` writes one
+    line at mode 0600.
+  - `isolation.test.ts` passes as in 13.2.
 
-**M3 — install and supervise on both adapters** · Muse · deps: M2
-- **Files:** `src/node.ts`, `src/machine.ts` (install, update, host, logs and deliver as run through a real adapter's
-  exec), `test/{node,install}.test.ts`, the fake-ssh script's systemd, journal, `sudo` and `useradd` answers, and
-  contract cases 5 to 8 and 17 to 19 on the SSH bench.
+**M3 — install and supervise** · Muse · deps: M2
+- **Files:** `src/machine.ts` (`install`, `update`, `host`, `logs`, `deliver`), `test/install.test.ts`, the fake-ssh
+  bench turning `installs` on, and README sections on recipes (the one-process rule and wrapper pattern of 8.1, the
+  autostart rule of 8.3 step 9, root steps and `user`).
 - **Acceptance:**
-  - Golden unit files for both adapters (system unit for `sandbox-api`, user unit for `ssh-vm`, `Restart=always`).
-  - The fake machine runs a three-step recipe to `running`; `onLine` receives every step's lines in order.
-  - Node: a machine `node` at or above the recipe version is used; an older or missing one triggers the tarball steps
-    in 8.3 order; a sha256 mismatch rejects `bad-recipe` and deletes the file.
-  - The linger-refused path rejects `linger` with `extra.command` and `words('host.linger', …)` is a filled sentence.
-  - G5: a machine node inside `node.range` is used; one outside it installs the tarball; `installRoot` runs as root
-    before `install` and again before `update`; without passwordless sudo the kit rejects `needs-root` before running
-    any step, with every line in `extra.command`.
-  - G6: the README's recipe section states the one-process rule and the wrapper pattern (8.1).
-  - G7: a recipe with `user` creates the user once (a second install skips `useradd`), runs `install` argv through
-    `sudo -n -u <user> --`, installs node under that user's home, and renders a system unit with `User=<user>` on both
-    adapters (golden files).
-  - G9: `deliver` lands at `<workDir>/.byokit/inbox/<file>` owned by the run user.
-  - `host()` maps every 8.5 row; `update` rewrites the unit only when it changed.
+  - All 20 contract cases pass on `fakeProvider()`; on the SSH bench every non-*fake* case passes.
+  - `install.test.ts` on `fakeMachine()`:
+    - a three-step recipe reaches `running`; `onLine` receives every step's lines in order;
+    - the 8.3 step order, asserted from the recorded argv, for a plain recipe, one with `installRoot` and one with
+      `user`;
+    - Node: a machine `node` inside `node.range` is used; one outside it or a missing one runs the step 4 script; exit
+      3 rejects `bad-recipe`;
+    - root steps: with root access they run as root and write the marker; a second install with the marker runs none;
+      `update` reruns them only when the marker is gone;
+    - `user`: `.users` is created 0711 root-owned, the machine home gets `o+x`, `useradd` runs once, every step under
+      the run user's home runs through `runuser -u <user> --` and none of them as plain root, and the unit has
+      `User=<user>`; a machine user of `root` with `user` set rejects `bad-recipe`;
+    - the linger refusal rejects `linger`, and `words('host.linger', …)` is a filled sentence;
+    - `deliver` lands at `<workDir>/.byokit/inbox/<file>` owned by the run user at 0600; with `inbox` replaced by a
+      symlink to a root-owned directory, nothing is written there;
+    - `host()` maps every 8.5 row; `update` rewrites the unit only when its bytes changed; `host`, `logs` and `sleep`
+      pick the unit kind from the `test -e` probe.
 
 **M4 — sandbox API adapter** · Muse · deps: M1
 - **Files:** `src/sandbox-api.ts`, `src/testing/fake-sandbox-server.ts` (a loopback `node:http` server on
-  `127.0.0.1:0` answering the 6.1 routes with the response fields 15.1 lists, a state machine per id, and a request
-  log), `test/sandbox-api.test.ts`, additions to `test/{contract,portable}.test.ts`. The M4 brief gives the builder
-  the provider's public API document; the fake copies only the fields 6.1 uses, and nothing committed names the
-  provider or its host (fixtures use `http://sandbox.test` mapped to the loopback port through the `fetch` option).
+  `127.0.0.1:0` answering the 6.1 routes with the response fields 15.1 lists, a state machine per id, a request log,
+  and command execution delegated to `fakeMachine()`), `test/sandbox-api.test.ts`, the sandbox bench in
+  `test/contract.test.ts`, and additions to `test/portable.test.ts`. The M4 brief gives the builder the provider's
+  public API document; the fake copies only the fields 6.1 uses, and nothing committed names the provider or its host
+  (fixtures use `http://sandbox.test`, mapped to the loopback port through the `fetch` option).
 - **Acceptance:**
-  - `machineContract` passes against `sandboxApi` over the fake server.
+  - `machineContract` passes against `sandboxApi` over the fake server, with `installs` on if M3 has merged and off
+    otherwise; the later of M3 and M4 turns it on.
   - Rule 3 assertions from the request log: create has `noEnv: true`; no body has `env`; resume and fork bodies have
     no `noEnv`; create, resume and fork send `ttlSeconds: null`, or `7200` while the fake's plan says
     `canStayOn: false` (G2).
   - Every 6.2 row, including `waking` after `archived` and during `wake()`.
-  - `exec`: single-quote quoting; `root` → `sudo -n`; emulated stdin writes, runs and removes the temp file;
-    `timeoutMs` > 600 000 runs detached and times out with `kill -TERM`.
+  - `exec`: single-quote quoting; `root` → `sudo -n`; emulated stdin writes a random-named 0600 file, runs, removes it
+    and keeps the command's exit code; `timeoutMs` > 600 000 runs detached under `setsid` and times out with
+    `kill -TERM -- -<pid>`, through `sudo -n` for a root command, then `KILL` after 10 s.
   - `write` outside `/home/user/` and `/tmp/` rejects before any request.
   - `create` retries with the same `Idempotency-Key` after a dropped connection.
-  - `remove` sends `X-Ascii-Confirm-Delete`, polls the deletion, then deletes every `byokit-<name>-` named snapshot and
-    no other.
+  - `remove` sends the delete-confirmation header with the id, polls the deletion, then deletes every
+    `byokit-<name>-` named snapshot and no other.
   - 401 → `unauthorized`; 429 and 5xx retry three times; the key never appears in any error message.
   - `usage` maps to `Usage`; a zero balance rejects `balance`; `key()` maps expiry.
   - G2: `plan()` maps the fake's trial answer; with `canStayOn: false`, create, resume and fork send `ttlSeconds: 7200`,
@@ -974,22 +1114,30 @@ rebases.
   - `portable.test.ts`: `.` still has no `node:*` import (the fake server lives only in `./testing`).
 
 **M5 — relay keepalive** · Muse · deps: none
-- **Files:** `packages/relay/src/{client,relay}.ts`, `packages/relay/test/keepalive.test.ts`, `packages/relay/CHANGELOG.md`,
-  relay patch version.
+- **Files:** `packages/relay/src/{client,relay}.ts`, `packages/relay/test/keepalive.test.ts`,
+  `packages/relay/CHANGELOG.md`, relay patch version.
 - **Behaviour:**
   - `RelayClientOptions` gains `pingMs?: number` (default 20 000). While `online`, the client sends
-    `{ t: 'ping', id }` every `pingMs` outside the call queue. Any frame from the relay counts as heard. With no frame
-    for `2 × pingMs` it closes the socket and reconnects with its existing backoff. It uses link's late-tick guard
-    (`packages/link/src/device.ts` `ping()`, commit `08a9f27`): a tick that fires more than `pingMs / 2` late resets
-    the silence clock instead of dropping the socket.
-  - `Relay.control` answers `t: 'ping'` with `{}` (older relays answer "unknown request", which still counts as heard,
-    so a new client works with an old relay).
+    `{ t: 'ping', id: 'p<n>' }` every `pingMs`, outside the call queue. Ping ids start with `p` and call ids are plain
+    numbers, so they never collide: a `res` whose id starts with `p` only marks the socket heard and never touches the
+    calls in flight. Any frame from the relay counts as heard. With no frame for `2 × pingMs` the client closes the
+    socket and reconnects with its existing backoff. It uses link's late-tick guard (`packages/link/src/device.ts`
+    `ping()`, commit `08a9f27`): a tick that fires more than `pingMs / 2` late resets the silence clock instead of
+    dropping the socket.
+  - `Relay.control` answers `t: 'ping'` with `{}`. Older relays answer "unknown request", which still counts as heard,
+    so a new client works with an old relay.
   - `Relay` sends WebSocket ping frames to every host and device socket every 30 s and terminates a socket that
     missed two pongs.
-- **Acceptance:** `keepalive.test.ts` covers a half-open host socket (the fake relay stops answering, the client
-  reconnects within `2 × pingMs` plus one tick), a frozen-timer tick that does not drop a healthy socket, a new client
-  against a relay without the ping handler, and server-side termination of a socket that never pongs; existing relay
-  tests stay green.
+- **Acceptance:** `keepalive.test.ts` covers:
+  - a half-open host socket: the fake relay stops answering, and the client reconnects within `2 × pingMs` plus one
+    tick;
+  - a frozen-timer tick that does not drop a healthy socket;
+  - a new client against a relay without the ping handler;
+  - a ping reply and an in-flight `code()` call whose numeric id matches the ping's number: `code()` still resolves
+    with its own code;
+  - server-side termination of a socket that never pongs.
+
+  Existing relay tests stay green.
 
 **M6 — real-provider proof** · Opus · deps: M3, M4, M5 and **the captain's go to spend**
 - **Files:** `packages/machine/test/lab/proof.ts` (excluded from `npm test`; `lab/` is not in the glob), a
@@ -1009,39 +1157,47 @@ rebases.
     that engine sign-ins survive stop and resume;
   - G1: whether a key from the provider's app sign-in can create, install into and host a machine;
   - G2: the trial's auto-stop cap and the plan fields `GET /limits` returns on a new account;
+  - whether the relay port is reachable on the machine's public address without the provider's proxy (9);
   - G4: how a machine reads its own provider id (hostname, a metadata route or a file), recorded as `selfId`'s argv
     in 15.1.
 - **Acceptance:** the recorded run in this document with every check's result; the kit leaves `private` only after
   it. The run and the PR name no provider.
 
 **M7 — sleep and wake** · Opus design check, Muse build · deps: M6
-- **Files:** `src/{wake,idle}.ts`, `test/{wake,idle}.test.ts`, contract additions, README section.
+- **Files:** `src/{wake,idle}.ts`, `src/sandbox-api.ts` (`wakeKey`, `stopKey`, `revokeKey`),
+  `src/testing/fake-sandbox-server.ts` (key routes), `test/{wake,idle}.test.ts`, contract additions, README section.
 - **Behaviour:**
   - `wakeResolve({ provider, ref, port })` returns a `Dial.resolve` function for link. Before every dial it calls
-    `status()`; only when `asleep` does it call `wake()` and then `url(port)` (re-hosting the relay port), resolving
-    the new URL's host with the dialled path, or the dialled URL unchanged when it is already `on`. `unknown` resolves
-    the dialled URL unchanged (the dial then fails on its own).
-  - The phone holds one wake key scoped to read, resume and host on one machine id; the app stores it like the
-    provider key. The machine holds a stop-only key (stop on its own id) at 0600 in the kit's state dir; the README
-    and `copies.on`'s screen say that it is inside snapshots and forks and that any process on the machine can stop
-    it.
-  - `idle({ linked, held, minutes, stop })` checks once a minute; after `minutes` consecutive minutes with
-    `linked() === 0` and `held() === false` it calls `stop()` once and waits for the process to end. `close()` stops
-    the timer. It imports no other kit; the app wires `linked` from its link host and `held` from its own keep-awake
+    `status()`. Only when `asleep` does it call `wake()` and then `url(port)` (re-hosting the relay port), resolving
+    the new URL's host with the dialled path. When the machine is already `on`, or `unknown`, it resolves the dialled
+    URL unchanged (an unreachable machine then fails the dial on its own).
+  - **Wake keys (G11).** `sandboxApi` implements `wakeKey(ref, { label })`: one key per phone, labelled with the
+    phone's name, scoped to read, resume and host on `ref.id`; and `revokeKey(id)`. The app mints one when it pairs an
+    owner phone, stores it in that phone's secure store with `WHEN_UNLOCKED_THIS_DEVICE_ONLY`
+    (`packages/accounts/README.md`), and revokes it when it removes that phone.
+  - **Stop-only key.** `sandboxApi` implements `stopKey(ref)`: a key scoped to stop on `ref.id` only. The setup device
+    mints it and hands it to the host with `deliver(recipe, 'stop-key', bytes)`, so it lives at
+    `<workDir>/.byokit/inbox/stop-key` (0600). It is inside snapshots and forks, and any process on the machine can
+    stop the machine with it; the README and the app's copies screen say so.
+  - `idle({ linked, held, minutes, stop })` checks once a minute. After `minutes` consecutive minutes with
+    `linked() === 0` and `held() === false`, it calls `stop()` once and then does nothing more. `close()` stops the
+    timer. It imports no other kit: the app wires `linked` from its link host and `held` from its own keep-awake
     signal.
+  - `stopSelf({ baseUrl, id, key, fetch? })` (in `./idle`, portable) returns the `stop` function: one
+    `POST /sandboxes/{id}/stop` with the key from the app's `key()` callback, which reads the delivered file.
   - A machine with `keepCopies: false` never gets `idle` wired (the app checks `ref.keepCopies`).
-  - G11: `sandboxApi` implements `wakeKey(ref, { label })`, minting one wake key per phone (label = the phone's name,
-    scoped to read, resume and host on `ref.id`), and `revokeKey(id)`. The app mints one when it pairs an owner phone
-    and revokes it when it removes that phone.
-- **Acceptance:** fake-provider tests: wake on open; no wake when already `on`; no sleep while `held()`; a cold-boot
-  wake leaves the unit running (the fake restarts enabled units on wake); `idle` fires `stop` exactly once;
-  `portable.test.ts` covers `./idle`; two phones get two wake keys with distinct ids, and revoking one leaves the other
-  working against the fake server.
+- **Acceptance:** fake-provider and fake-server tests:
+  - wake on open; no `provider.wake` when already `on`;
+  - no stop while `held()`; `idle` fires `stop` exactly once;
+  - a cold-boot wake leaves the unit running (`fakeMachine().reboot()`);
+  - two phones get two wake keys with distinct ids, and revoking one leaves the other working;
+  - `stopSelf` sends one stop with the stop-only key, and the fake server refuses that key for resume;
+  - `portable.test.ts` covers `./idle`.
 
 **M8 — account link and copy detection** · Muse · deps: M6
-- **Files:** `src/claim.ts`, `src/sandbox-api.ts` (`selfId` from 15.1), `src/unit.ts` (`ExecStartPre`), the boot script
-  template in `src/unit.ts`, `test/{claim,boot}.test.ts`, fake-server routes for the sign-in flow, README section.
-- **Behaviour:** 11.5 and 8.6, using the routes and fields M6 recorded in 15.1.
+- **Files:** `src/claim.ts`, `src/sandbox-api.ts` (`selfId` from 15.1), `src/machine.ts` (writing `boot.mjs`),
+  `src/unit.ts` (the boot script template, a pure string; `ExecStartPre` rendering is M1's), `test/{claim,boot}.test.ts`, `src/testing/fake-sandbox-server.ts` (sign-in routes), README section.
+- **Behaviour:** 11.5 and 8.7, using the routes and fields M6 recorded in 15.1.
 - **Acceptance:**
   - `claim.test.ts` against the fake server: the steps arrive in order `open-page`, `type-code`, `waiting`, `done` with
     the key, expiry and scopes; an expired code yields `failed` with `expired`; aborting the signal ends the iterator
@@ -1049,7 +1205,7 @@ rebases.
   - `boot.test.ts`: the unit golden files with `ExecStartPre`; the boot script run under Node with a fake `selfId`
     writes `copy: false` for the installed id and `copy: true` for another, always exiting 0.
   - If M6 found the claimed key cannot create or host, M8 ships `claim()` with the words staying on `setup.makeKey`
-    and the README says so; if M6 found no `selfId`, the copy-detection half is dropped from M8 and 8.6 records it.
+    and the README says so; if M6 found no `selfId`, the copy-detection half is dropped from M8 and 8.7 records it.
 
 Adoption (each app's setup screen, recipe and any cold-boot hook) happens in that app's own home after M6. Nothing in
 BYOKit waits on it.
@@ -1111,11 +1267,11 @@ against this kit and listed eleven gaps. Each one is either adopted here or left
 | G1 | Link a provider account without pasting a key | **Adopted**: `claim()` over the provider's app sign-in; key paste stays as the fallback words | 4.3, 11.5, 12 `setup.*`, M6 scope check, M8 |
 | G2 | Plan and trial facts; a trial machine can't stay on | **Adopted**: `Provider.plan?`, `Machine.plan()`; during a trial the adapter asks for the 2-hour maximum instead of always-on, and words explain it | 4.3, 5.7, 6.1 Trial, 12 `plan.trial`, M4, M6 |
 | G3 | Why the machine is asleep | **Adopted**: `AsleepWhy`, `Provider.why?`, `Machine.why()` with fallbacks, `asleep.*` words | 4.3, 5.7, 6.1, 12, M4 |
-| G4 | Detect a copied machine (fork) at boot | **Adopted**: `installed.json` at install; `boot.json` with `copy` written each boot once M6 finds how a machine reads its own id. Refusing to run while a copy is the **app's** decision and words | 4.3 `selfId`, 8.6, M3, M6, M8 |
-| G5 | Node version range; root install steps | **Adopted**: `node.range`, `installRoot` (re-run on update), `needs-root` with the lines to run and `host.needsRoot` | 4.3, 8.1, 8.3, 8.4, M1, M3 |
+| G4 | Detect a copied machine (fork) at boot | **Adopted**: `installed.json` at install; `boot.json` with `copy` written each boot once M6 finds how a machine reads its own id. Refusing to run while a copy is the **app's** decision and words | 4.3 `selfId`, 8.7, M3, M6, M8 |
+| G5 | Node version range; root install steps | **Adopted**: `node.range`, `installRoot` (re-run on update), `needs-root` with the lines to run and `host.needsRoot` | 4.3, 8.1, 8.3, 8.5, 8.6, M1, M3 |
 | G6 | Two processes (host and relay) | **Stays in the app**, rule stated: one unit runs one `run` argv; an app wrapper starts both and exits when either dies, and systemd restarts and stops the whole group. A multi-process `run` would make the kit a process manager | 8.1, M3 README |
-| G7 | A no-sudo run user | **Adopted**: optional `HostRecipe.user`, created by the kit with its home inside the machine user's home so it is still copied; system unit with `User=` on both adapters. It narrows 13.1 rule 11 for apps that set it | 4.3, 8.1, 8.2, 8.4, M3 |
-| G8 | Cloud-init text for phone-only setup on a plain VM | **Not in v1**: the SSH VM path is the technical option and runs from a desktop app; a text the person pastes into a provider's box is a new setup path with no proof yet. Revisit after M6 if a phone-only VM user appears | none |
+| G7 | A no-sudo run user | **Adopted**: optional `HostRecipe.user`, created by the kit with its home inside the machine user's home so it is still copied; system unit with `User=` on both adapters. It narrows 13.1 rule 11 for apps that set it | 4.3, 8.1, 8.2, 8.3, 8.6, 13.1 rule 11, M3 |
+| G8 | Cloud-init text for phone-only setup on a plain VM | **Not in v1**: the SSH VM path is the technical option and runs from a desktop app; a text the person pastes into a provider's setup form is a new setup path with no proof yet. Revisit after M6 if a phone-only VM user appears | none |
 | G9 | Hand the running host a small file (owner recovery with a new phone's key) | **Adopted**, narrowly: `Machine.deliver(recipe, file, bytes)` into `<workDir>/.byokit/inbox/`, 64 KB, 0600 | 4.3, 5.8, M3 |
 | G10 | More real-machine checks; clean stop | **Adopted**: `sleep()` always stops the unit first; memory, disk, clean shutdown, forwarded-for header and sign-ins across stop are M6 checks. The app's own doctor run rides on the same M6 run | 5.4, M6 |
 | G11 | One wake key per phone, revocable | **Adopted** in M7: `Provider.wakeKey?`, `revokeKey?`; the app mints on pairing and revokes on removal | 4.3, M7 |
