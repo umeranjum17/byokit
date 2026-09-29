@@ -2,7 +2,7 @@
 // in later work packages' tests (H3/H5 wire `make` up) and against the real pinned Herdr in the lab
 // (H9, which passes no `fake`). Cases that need to script the transport's wire answers use
 // `withTransport`; when a `make` omits it, those cases skip.
-import { test } from 'node:test';
+import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
 import { HERDR_PROTOCOL } from '../constants.ts';
 import type { HerdrKit } from '../kit.ts';
@@ -15,7 +15,27 @@ export type HerdrContractBench = {
   withTransport?: (transport: HerdrTransport) => HerdrKit;
 };
 
-export function herdrContract(make: () => Promise<HerdrContractBench>): void {
+export type HerdrContractTestContext = {
+  skip: (message?: string) => void;
+};
+
+export type HerdrContractTestFn = (
+  name: string,
+  fn: (t: HerdrContractTestContext) => void | Promise<void>,
+) => void | Promise<void>;
+
+export type HerdrContractOptions = {
+  /** The runner's `test` (node:test's by default; pass vitest's `test` under vitest). */
+  test?: HerdrContractTestFn;
+};
+
+export function herdrContract(
+  make: () => Promise<HerdrContractBench>,
+  options?: HerdrContractOptions | HerdrContractTestFn,
+): void {
+  const runTest: HerdrContractTestFn =
+    typeof options === 'function' ? options : (options?.test ?? (nodeTest as unknown as HerdrContractTestFn));
+  const test = runTest;
   const settle = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
   async function until<T>(probe: () => T | undefined | null, ok: (value: T) => boolean, ms = 2000): Promise<T> {

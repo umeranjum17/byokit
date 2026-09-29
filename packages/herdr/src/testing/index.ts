@@ -4,4 +4,4 @@
 export { startFakeHerdr, type FakeHerdr, type FakeHerdrOptions } from './fake-herdr/server.ts';
 export { writeBinShim, main as fakeHerdrBinMain } from './fake-herdr/bin.ts';
 export { createWorld, type FakeWorld } from './fake-herdr/world.ts';
-export { herdrContract, type HerdrContractBench } from './contract.ts';
+export { herdrContract, type HerdrContractBench, type HerdrContractOptions, type HerdrContractTestFn, type HerdrContractTestContext } from './contract.ts';

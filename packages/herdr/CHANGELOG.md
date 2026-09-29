@@ -30,6 +30,7 @@
   protocol placeholder; `agents.ts` agrees muxr sends `target_pane_id` to `pane.split`; the
   fake bin's `api schema` reports the pinned identity with no placeholder text.
 
+<<<<<<< HEAD
 - `adopt` mode takes `env` and `path` like `own`, merged into the `cli()`/`terminal()` env (so `HOME`,
   `HERDR_CLIENT_SOCKET_PATH`, `HERDR_SESSION` and a `#!/usr/bin/env node` bin work); `TerminalSession.pause()`/`resume()`
   apply backpressure to the Herdr child instead of buffering frames in the host.
@@ -48,6 +49,7 @@
   found and fixed one fake/real disagreement: live frames carry the underscore const
   (`pane_created`) while subscription kinds use dots, so the kit now matches both
   spellings at the event boundary and the fake emits real-style underscore wire frames.
+- `herdrContract(make, { test })` accepts the runner's `test` (node:test's by default), so a vitest host suite can run the contract against its lab Herdr.
 - FIX: the packed `dist/words.d.ts` keeps `with { type: 'json' }` on its `./words.json` import, so a strict NodeNext consumer with `skipLibCheck: false` no longer fails with TS1543.
 
 - Scaffold (docs/runtime-kits.md §11.3 H1): frozen public types, kit facade, internal seams and words. Behavior
