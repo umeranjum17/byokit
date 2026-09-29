@@ -27,4 +27,32 @@ person's own Herdr, HOME or agent sign-ins.
 
 | Date | Kit version | Herdr version (sha256) | Agent | Route | Steps passed | Screenshots | Notes |
 |---|---|---|---|---|---|---|---|
-| | | | | | | | |
+| 2026-09-29 | 0.1.0 (RC, this tree) | 0.9.1 (`2a02fed1…5c54b7`, matches `packages/herdr/schema/SOURCE.md`) | none — skipped, see §5 | lan (app boot) + loopback (H7 link proof) | 1, 2, 3 (boot only) | none — no phone in the lab | Lab run under a `--herdr-lab` brief; fleet `default` tripwire verified unchanged at teardown. Phone/agent steps skipped with reasons below. |
+
+### 2026-09-29 run notes (release 0.1.0)
+
+- Lab isolation: provisioned `fm-lab-byk-hd-publish-*` via `bin/fm-herdr-lab.sh`; the running
+  fleet `default` session (`/home/umer/.config/herdr/herdr.sock`) was recorded before anything
+  started and verified identical at teardown. Task `HOME` and all state lived under a
+  task-owned scratch dir; the person's own Herdr, HOME and sign-ins were never touched.
+- Step 1: asset `herdr-linux-x86_64` downloaded from the H2-recorded URL into the task dir,
+  sha256 `2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7` recomputed over
+  the bytes, `herdr --version` → `herdr 0.9.1`.
+- Step 2: packed the RC (`byokit-herdr-0.1.0.tgz`, `byokit-link-0.3.1.tgz`,
+  `byokit-relay-0.1.3.tgz`, `byokit-reach-0.2.0.tgz`, `byokit-seal-0.1.0.tgz`,
+  `byokit-ui-core-0.2.0.tgz`), copied this folder to a short task path, `npm i` the tarballs,
+  `esbuild` bundled `web/app.ts` clean.
+- Step 3 (boot only): `node host.ts --herdr <task asset> --path "<empty task dir>:/usr/bin:/bin"
+  --via lan --port 7310` printed the QR code, a pairing code and
+  `http://192.168.1.144:7310/`, then `Connected to Herdr.`; `GET /` over loopback → 200
+  (the Agents page). The host stopped cleanly afterwards. Pairing/code-words confirmation
+  needs a phone, so the rest of step 3 is skipped.
+- Own-mode kit proof: `packages/herdr/test/lab/contract.lab.ts` against the same asset in
+  `own` mode — **17 pass, 0 fail, 10 skipped** (same shape as `packages/herdr/schema/LAB.md`);
+  the H7 link/device/notices/terminal-over-link cases pass over a real Host + DeviceLink pair
+  on loopback. Every skip needs a signed-in agent CLI or a fake-only helper.
+- §4, §6–§9 (phone): skipped — no phone on the lab network and no human to scan/confirm words.
+- §5 (agent sign-in): skipped — no agent CLI can be signed in inside the lab home without a
+  human login. The pinned schema offers no unsigned custom kind (`agent start --help` lists
+  `pi` among possible values, no `bash`), so no agent path exists that avoids a sign-in.
+  The lab contract run records the same skips with the same reason.

@@ -7,6 +7,9 @@
   closed; a newer server is the steady state `needs-update`/`version` instead of a throw — the
   snapshot installs and the kit stays usable — so a Herdr protocol bump does not take the host
   down before the kit's pin moves.
+- `herdrContract(make, { test })` accepts the runner's `test` (node:test's by default), so a vitest host suite can run the contract against its lab Herdr.
+
+## 0.1.0 (2026-09-29)
 - Typed device pass-through (G4, docs/runtime-kits.md 7.1/7.2): `herdrDevice(link).call<M>(method, params)` returns
   `HerdrResult<M>` from the generated table, `events()` yields `HerdrLinkEvent` frames, and `./device` re-exports the
   table types. New link ops `hd.kinds` (*view*, `agentKinds()`), `hd.wait` (control, pane in scope) and `hd.subscribe`
@@ -34,7 +37,6 @@
   protocol placeholder; `agents.ts` agrees muxr sends `target_pane_id` to `pane.split`; the
   fake bin's `api schema` reports the pinned identity with no placeholder text.
 
-<<<<<<< HEAD
 - `adopt` mode takes `env` and `path` like `own`, merged into the `cli()`/`terminal()` env (so `HOME`,
   `HERDR_CLIENT_SOCKET_PATH`, `HERDR_SESSION` and a `#!/usr/bin/env node` bin work); `TerminalSession.pause()`/`resume()`
   apply backpressure to the Herdr child instead of buffering frames in the host.
@@ -53,7 +55,9 @@
   found and fixed one fake/real disagreement: live frames carry the underscore const
   (`pane_created`) while subscription kinds use dots, so the kit now matches both
   spellings at the event boundary and the fake emits real-style underscore wire frames.
-- `herdrContract(make, { test })` accepts the runner's `test` (node:test's by default), so a vitest host suite can run the contract against its lab Herdr.
+- FIX: match both event spellings at the event boundary: live frames on real Herdr carry
+  the underscore const (`pane_created`) while subscription kinds use dots. 0.1.0-next
+  matched dots only, so no live `created`/`closed`/status event ever updated the tree.
 - FIX: the packed `dist/words.d.ts` keeps `with { type: 'json' }` on its `./words.json` import, so a strict NodeNext consumer with `skipLibCheck: false` no longer fails with TS1543.
 
 - Scaffold (docs/runtime-kits.md §11.3 H1): frozen public types, kit facade, internal seams and words. Behavior
