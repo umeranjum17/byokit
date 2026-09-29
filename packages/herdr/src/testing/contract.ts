@@ -93,11 +93,11 @@ export function herdrContract(make: () => Promise<HerdrContractBench>): void {
         },
       };
       const kit = withTransport({
-        // The ack carries the race: `pane.updated` lands after the subscribe but before the kit
+        // The ack carries the race: `pane_updated` lands after the subscribe but before the kit
         // installs the snapshot, so buffering must order it after — and never duplicate it.
         call: async (method) => (method === 'session.snapshot' ? snapshot : { protocol: HERDR_PROTOCOL }),
         subscribe: (_subs, on) => {
-          queueMicrotask(() => on({ type: 'pane.updated', pane: { pane_id: 'w1:p2', agent_status: 'working' } }));
+          queueMicrotask(() => on({ type: 'pane_updated', pane: { pane_id: 'w1:p2', agent_status: 'working' } }));
           return () => {};
         },
         close: () => {},
@@ -153,6 +153,8 @@ export function herdrContract(make: () => Promise<HerdrContractBench>): void {
       await settle(100);   // the subscribe registers on its own socket; an emit before that never arrives
       fake.emit({ type: 'pane.created', pane_id: 'w9:p9' });
       await until(() => seen.length, (n) => n >= 1);
+      // The fake emits the live underscore spelling; the kit matches both spellings.
+      assert.equal(seen[0].type, 'pane_created');
       assert.equal((seen[0] as Record<string, unknown>).pane_id, 'w9:p9');
       stop();
       fake.emit({ type: 'pane.created', pane_id: 'w9:p10' });
