@@ -207,6 +207,19 @@ export function herdrContract(make: () => Promise<HerdrContractBench>): void {
     });
   });
 
+  test('contract: a started agent joins snapshot() and its status stays current there', async () => {
+    await bench(async ({ kit }) => {
+      await kit.start();
+      const { paneId } = await kit.startAgent({ kind: 'pi', cwd: '/tmp/h6', place: { workspace: 'new' } });
+      await until(() => agentStatusOf(kit.snapshot(), paneId).status, (status) => status === 'idle');
+      await kit.prompt({ paneId }, 'ask permission');
+      await until(() => agentStatusOf(kit.snapshot(), paneId).status, (status) => status === 'blocked');
+      const blocked = await until(() => kit.blocked().find((b) => b.paneId === paneId), () => true);
+      await kit.answer(paneId, ['y'], { revision: blocked.revision });
+      await until(() => agentStatusOf(kit.snapshot(), paneId).status, (status) => status === 'idle');
+    });
+  });
+
   test('contract: prompt validates the receipt and appends the reply text', async () => {
     await bench(async ({ kit }) => {
       await kit.start();

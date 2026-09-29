@@ -6,6 +6,7 @@ import type {
 } from './types.ts';
 
 export { openNotice } from './notices.ts';
+export { agentWords, stateWords, words, WORDS, type WordKey } from './words.ts';
 import { boxPublicKeyB64, openNotice } from './notices.ts';
 
 const decodeLines = (): { push(chunk: Uint8Array): string[]; flush(): string[] } => {

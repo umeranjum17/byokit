@@ -121,7 +121,15 @@ export function herdrLink(kit: HerdrKit, o: {
         if (!paneId) throw new Error('herdr: hd.prompt needs a paneId');
         const where = findPane(kit.snapshot(), paneId);
         if (!where || !inScope(scope, where.workspaceId)) deny();
-        return kit.prompt({ paneId }, String(args.text ?? ''));
+        try {
+          return await kit.prompt({ paneId }, String(args.text ?? ''));
+        } catch (e) {
+          // Not ready yet, or waiting on an answer: the device hears the kit's sentence, not a bare failure.
+          const code = (e as { code?: string } | undefined)?.code;
+          if (code === 'agent-not-ready') throw new PublicLinkError(words('agent.notReady'));
+          if (code === 'agent-blocked') throw new PublicLinkError(words('agent.blocked'));
+          throw e;
+        }
       }
       case 'hd.keys': {
         if (grant.role !== 'control') deny();

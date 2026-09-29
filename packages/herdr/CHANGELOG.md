@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `words`, `stateWords`, `agentWords` and `WORDS` are exported from `.` and `./device`, so a host or phone UI
+  shows the kit's own sentences for Herdr and agent states instead of writing its own.
+- FIX the fake Herdr (`./testing`) emits `workspace.created`, `tab.created`, `pane.created`,
+  `pane.agent_detected` and the matching `*.closed` events for its own layout changes, so `snapshot()` shows an
+  agent started in a new workspace; `herdrContract` holds it (a started agent joins `snapshot()` and its status
+  stays current there).
+- FIX `hd.prompt` over a link answers a not-ready agent with the `agent.notReady` sentence (and a blocked one
+  with `agent.blocked`) instead of the link's generic failure.
 - K3 raw event tap: `kit.onEvent(fn)` delivers every event from the kit's own batch and
   per-pane status sockets with wire payloads intact (`pane.moved.previous_pane_id`,
   `workspace.*`), firing on arrival before the snapshot update/refresh (buffered replays never

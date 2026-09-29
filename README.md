@@ -14,8 +14,8 @@ Bring your own AI plan and devices. Apache-2.0.
 | [`@byokit/openclaw`](packages/openclaw) | The OpenClaw runtime kit: the pinned engine's full operator surface as typed pass-through calls, plus plain-words helpers for members, sign-in, runs and approvals ([spec](docs/runtime-kits.md)) | in development |
 | [`@byokit/herdr`](packages/herdr) | Drive the Herdr on this computer — workspaces, panes, agents, blocked-approval answers — from an app, or hand it to a phone over a link | in development |
 
-Examples: [`examples/expo`](examples/expo) (React Native, iOS and Android) and [`examples/pwa`](examples/pwa)
-(an installable web page). For platform checks and their limits, see [CONTRIBUTING.md](CONTRIBUTING.md).
+Examples: [`examples/expo`](examples/expo) (React Native, iOS and Android), [`examples/pwa`](examples/pwa)
+(an installable web page) and [`examples/herdr-kit`](examples/herdr-kit) (Herdr's agents from a phone browser). For platform checks and their limits, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 In development: runtime kits for apps built on OpenClaw or Herdr, where the aggregator holds the subscriptions
 ([docs/runtime-kits.md](docs/runtime-kits.md)).

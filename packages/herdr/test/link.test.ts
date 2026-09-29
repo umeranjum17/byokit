@@ -222,6 +222,13 @@ test('hd.terminal round-trips frames both ways against the fake bin', async () =
   } });
 });
 
+test('a prompt to a pane with no ready agent says so in the kit\'s words', async () => {
+  await withBench({ run: async ({ pair }) => {
+    const { hd } = await pair('control', ALL, 'desk');
+    await assert.rejects(hd.prompt('w1:p1', 'hi'), (e: Error) => e.message === words('agent.notReady'));
+  } });
+});
+
 test('a blocked agent produces a sealed notice the relay carries blind', async () => {
   const sent: { n: Record<string, unknown> }[] = [];
   const relay = { notify: async (n: Record<string, unknown>) => { sent.push({ n }); return { sent: 1 }; } } as unknown as RelayClient;
