@@ -2,10 +2,11 @@ package io.github.umeranjum17.byokit.overlay
 
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.kotlin.records.Field
+import expo.modules.kotlin.records.Record
 
 /** A text field insert works on: its shown text (null when it went away), and setting it. */
 interface EditableField {
@@ -16,6 +17,7 @@ interface EditableField {
 /** Insert's decisions (docs/capability-kits.md 7.4), pure so the JVM tests cover them. */
 object Insert {
   const val RETRY_MS = 150L
+  const val DEFAULT_ATTEMPTS = 2
 
   /** The field's whole new text: [text] over the selection (or at the end with none), or over all of it. */
   fun compose(current: String, selection: Pair<Int, Int>?, text: String, replace: String): String {
@@ -26,15 +28,44 @@ object Insert {
     return current.substring(0, start) + text + current.substring(end)
   }
 
-  /** Sets [whole], reads it back, and retries once [RETRY_MS] later; else puts [text] on the clipboard. */
-  fun run(field: EditableField, whole: String, text: String, pause: (Long) -> Unit, copy: (String) -> Boolean): String {
-    for (attempt in 0..1) {
-      if (attempt > 0) pause(RETRY_MS)
+  /** Sets [whole], reads it back, and retries [RETRY_MS] later; else puts [text] on the clipboard. */
+  fun run(field: EditableField, whole: String, text: String, pause: (Long) -> Unit, copy: (String) -> Boolean): String =
+    run(field, whole, text, InsertOpts(), pause, copy)
+
+  /**
+   * Sets [whole] up to [opts.attempts] times, pausing [opts.retryMs] between tries, and reads it back after every
+   * set. A panel on top makes Chrome refuse SET_TEXT, so more tries land it. A contenteditable that drops newlines
+   * still reads back the text without them: with [opts.acceptNewlineLoss] that resolves 'landedWithoutNewlines'
+   * instead of falling back to the clipboard ('copied', or 'failed' when the clipboard turns it away too).
+   */
+  fun run(
+    field: EditableField,
+    whole: String,
+    text: String,
+    opts: InsertOpts,
+    pause: (Long) -> Unit,
+    copy: (String) -> Boolean,
+  ): String {
+    repeat(opts.attempts.coerceAtLeast(1)) { i ->
+      if (i > 0) pause(opts.retryMs.coerceAtLeast(0))
       field.set(whole)
-      if (field.text() == whole) return "inserted"
+      val shown = field.text()
+      if (shown == whole) return "inserted"
+      if (opts.acceptNewlineLoss && shown != null && lostOnlyNewlines(whole, shown)) return "landedWithoutNewlines"
     }
     return if (copy(text)) "copied" else "failed"
   }
+
+  /** Whether [shown] is [whole] with only its newlines gone (what a contenteditable reports after a landed insert). */
+  fun lostOnlyNewlines(whole: String, shown: String): Boolean =
+    whole.any { it == '\n' || it == '\r' } && shown == whole.filter { it != '\n' && it != '\r' }
+}
+
+class InsertRecord : Record {
+  @Field val replace: String = "selection"
+  @Field val attempts: Double = 2.0
+  @Field val retryMs: Double = 150.0
+  @Field val acceptNewlineLoss: Boolean = false
 }
 
 /**
@@ -47,45 +78,27 @@ class FocusedFieldModule : Module() {
 
     AsyncFunction("available") { ByokitAccessibility.service != null }
     AsyncFunction("read") {
-      val node = focused() ?: return@AsyncFunction null
+      val t = FocusedFields.read(ByokitAccessibility.service ?: return@AsyncFunction null)
+        ?: return@AsyncFunction null
       mapOf(
-        "app" to (node.packageName?.toString() ?: ""),
-        "text" to shown(node),
-        "selection" to selection(node)?.let { (start, end) -> mapOf("start" to start, "end" to end) },
+        "app" to t.app,
+        "text" to t.text,
+        "selection" to t.selection?.let { (start, end) -> mapOf("start" to start, "end" to end) },
       )
     }
-    AsyncFunction("insert") { text: String, replace: String ->
-      val node = focused() ?: return@AsyncFunction "failed"
-      val whole = Insert.compose(shown(node), selection(node), text, replace)
-      Insert.run(NodeField(node), whole, text, Thread::sleep, ::copy)
+    AsyncFunction("insert") { text: String, o: InsertRecord ->
+      val service = ByokitAccessibility.service ?: return@AsyncFunction "failed"
+      val raw = service.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return@AsyncFunction "failed"
+      val node = FocusedFields.find(NodeWrap(raw)) ?: return@AsyncFunction "failed"
+      FocusedFields.insert(
+        node, text, o.replace,
+        InsertOpts(o.attempts.toInt(), o.retryMs.toLong(), o.acceptNewlineLoss), Thread::sleep, ::copy,
+      )
     }
   }
-
-  private fun focused(): AccessibilityNodeInfo? =
-    ByokitAccessibility.service?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf { it.isEditable && !it.isPassword }
 
   private fun copy(text: String): Boolean = runCatching {
     val context = appContext.reactContext ?: return false
     context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("text", text))
   }.isSuccess
-
-  private class NodeField(private val node: AccessibilityNodeInfo) : EditableField {
-    override fun text(): String? = if (node.refresh()) shown(node) else null
-    override fun set(text: String): Boolean = node.performAction(
-      AccessibilityNodeInfo.ACTION_SET_TEXT,
-      Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) },
-    )
-  }
-
-  private companion object {
-    /** The field's own text; an empty field reports its hint as text, which is not the person's. */
-    fun shown(node: AccessibilityNodeInfo): String = if (node.isShowingHintText) "" else node.text?.toString() ?: ""
-
-    /** The selection in order (a caret is start == end), or null when the field reports none. */
-    fun selection(node: AccessibilityNodeInfo): Pair<Int, Int>? {
-      val a = node.textSelectionStart.takeIf { it >= 0 } ?: return null
-      val b = node.textSelectionEnd.takeIf { it >= 0 } ?: a
-      return minOf(a, b) to maxOf(a, b)
-    }
-  }
 }

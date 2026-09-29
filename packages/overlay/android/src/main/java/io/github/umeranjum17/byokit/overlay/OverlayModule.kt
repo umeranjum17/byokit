@@ -37,6 +37,7 @@ class StartRecord : Record {
   @Field val panel: String? = null
   @Field val hideWhilePanelOpen: Boolean = true
   @Field val spots: String = "global"
+  @Field val label: String = ""
 }
 
 /**
@@ -48,6 +49,7 @@ class OverlayModule : Module() {
   private var state = "off"
   private var options: StartRecord? = null
   private var mood = ""
+  private var label = ""
   private var bubble: Bubble? = null
   private var host: OverlayHost? = null
   private var rules: RulesRecord? = null
@@ -89,9 +91,14 @@ class OverlayModule : Module() {
     }.runOnQueue(Queues.MAIN)
     AsyncFunction("start") { o: StartRecord, promise: Promise -> start(o, promise) }.runOnQueue(Queues.MAIN)
     AsyncFunction("stop") { stopNow() }.runOnQueue(Queues.MAIN)
-    Function("say") { text: String, mood: String?, ms: Double -> main.post { bubble?.say(text, mood, ms.toLong()) } }
+    Function("say") { text: String, mood: String?, ms: Double, announce: Boolean ->
+      main.post { bubble?.say(text, mood, ms.toLong(), announce) }
+    }
     Function("setMood") { mood: String ->
       main.post { this@OverlayModule.mood = mood; bubble?.setMood(mood) }
+    }
+    Function("setLabel") { label: String? ->
+      main.post { this@OverlayModule.label = label ?: ""; bubble?.setLabel(label) }
     }
     // Applied over the foreground app on the accessibility host; start() rejects rules for 'window'.
     Function("setRules") { r: RulesRecord -> main.post { rules = r; refresh() } }
@@ -114,6 +121,7 @@ class OverlayModule : Module() {
     stopNow()
     options = o
     mood = o.mood
+    label = o.label
     rules = o.rules
     if (o.host == "accessibility") {
       val h = ByokitAccessibility.host ?: return promise.resolve(setState("needs-permission"))
@@ -138,6 +146,7 @@ class OverlayModule : Module() {
     val b = Bubble(h, PrefsSpotStore(context), ::drawable, ::reducedMotion)
     b.events.add(::bubbleEvent)
     bubble = b
+    b.setLabel(label.takeIf { it.isNotEmpty() })
     watchKeyboard()
     val foreground = ByokitAccessibility.foreground
     if (o.host == "accessibility" && foreground != null) { app = foreground.current; watching += foreground.onChange(::appChanged) }
@@ -244,8 +253,8 @@ class OverlayModule : Module() {
     return s
   }
 
-  /** src/rules.ts shownFor: paused, no app, or turned off hides; turned on or a default shows. */
-  private fun RulesRecord.shows(app: String?): Boolean = !paused && app != null && app !in off && (app in on || app in defaults)
+  /** src/rules.ts shownFor, decided in Kotlin (Rules.shows): paused, no app, or turned off hides. */
+  private fun RulesRecord.shows(app: String?): Boolean = Rules(paused, on, off, defaults).shows(app)
 
   private fun emit(body: Map<String, Any?>) = sendEvent("overlay", body)
 

@@ -39,11 +39,29 @@ if (await focusedField.available()) {
 }
 ```
 
-`insert` puts the text over the selection (or all of it with `{ replace: 'all' }`), reads the field back, tries once
-more 150 ms later, and otherwise copies the text for the person to paste. Password fields are never read or typed
-into. The same service also gives the `accessibility` host (no overlay switch needed), the foreground app that
-`rules` and `spots: 'per-app'` follow, and the keyboard's top so the bubble rests above it. The bubble's window never
-takes focus, so a tap or long press on it leaves the other app's field focused.
+`insert` puts the text over the selection (or all of it with `{ replace: 'all' }`), reads the field back, and
+retries up to `attempts` times (default 2, pausing `retryMs`, default 150 ms, between tries): while the panel's
+window is on top Chrome refuses the set, so `{ attempts: 13, retryMs: 150 }` lands it. A contenteditable that dropped
+only the newlines resolves `'landedWithoutNewlines'` when `acceptNewlineLoss` is set, so the app can accept the text
+as typed; otherwise the text is copied for the person to paste (`'copied'`) or the insert `'failed'`. The field is
+the focused node itself when it is editable, else the first editable focused descendant (WebView/Chrome). Password
+fields are never read or typed into. The same service also gives the `accessibility` host (no overlay switch needed),
+the foreground app that `rules` and `spots: 'per-app'` follow, and the keyboard's top so the bubble rests above it.
+The bubble's window never takes focus, so a tap or long press on it leaves the other app's field focused.
+
+```ts
+const result = await focusedField.insert(draft, { attempts: 13, retryMs: 150, acceptNewlineLoss: true });
+if (result === 'landedWithoutNewlines') { /* typed in, but check the line breaks */ }
+```
+
+The bubble carries a TalkBack label (`label` in `start`, or `setLabel`, cleared with `null`), and
+`say(text, mood, ms, { announce: true })` reads the pill aloud.
+
+A service that must show the bubble with no JS running (after a reboot or process death) drives it from Kotlin
+alone: keep a `ServiceBubble`, call `start(config)` in `onServiceConnected` with the persisted rules, and the bubble
+shows on attach and restores after every rebind. `Rules(app-rules).shows(app)` is the per-app decision in Kotlin;
+`FocusedFields.read(service)` and `FocusedFields.insert(node, ...)` are the focused-field read and insert for the
+captured node.
 
 **Status: ready to publish (BK-O3).** The bubble, both hosts, the panel, the tap log and the focused field are built
 and proven on an Android emulator (API 36). On iOS, the web and Node `overlay.state()` is `unsupported`.

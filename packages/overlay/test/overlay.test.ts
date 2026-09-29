@@ -14,8 +14,9 @@ function fakeNative() {
     openPermission: async () => { calls.push(['openPermission']); },
     start: async (o) => { calls.push(['start', o]); return 'on'; },
     stop: async () => { calls.push(['stop']); },
-    say: (text, mood, ms) => { calls.push(['say', text, mood, ms]); },
+    say: (text, mood, ms, announce) => { calls.push(['say', text, mood, ms, announce]); },
     setMood: (mood) => { calls.push(['setMood', mood]); },
+    setLabel: (label) => { calls.push(['setLabel', label]); },
     setRules: (rules) => { calls.push(['setRules', rules]); },
     openPanel: async (props) => { calls.push(['openPanel', props]); },
     closePanel: async () => { calls.push(['closePanel']); },
@@ -65,8 +66,10 @@ test('every method reaches the native module, with the documented defaults', asy
   await o.openPermission();
   await o.stop();
   o.say('Hi');
-  o.say('Done', 'happy', 900);
+  o.say('Done', 'happy', 900, { announce: true });
   o.setMood('calm');
+  o.setLabel('Voice');
+  o.setLabel(null);
   o.setRules(rules);
   await o.openPanel();
   await o.openPanel({ draft: 'x' });
@@ -76,8 +79,8 @@ test('every method reaches the native module, with the documented defaults', asy
   await o.taps({ since: 42 });
   await o.clearTaps();
   assert.deepEqual(calls, [
-    ['state'], ['openPermission'], ['stop'], ['say', 'Hi', null, 2500], ['say', 'Done', 'happy', 900],
-    ['setMood', 'calm'], ['setRules', rules], ['openPanel', {}], ['openPanel', { draft: 'x' }], ['closePanel'],
+    ['state'], ['openPermission'], ['stop'], ['say', 'Hi', null, 2500, false], ['say', 'Done', 'happy', 900, true],
+    ['setMood', 'calm'], ['setLabel', 'Voice'], ['setLabel', null], ['setRules', rules], ['openPanel', {}], ['openPanel', { draft: 'x' }], ['closePanel'],
     ['logTap', 'com.example', 'tap'], ['taps', 0], ['taps', 42], ['clearTaps'],
   ]);
 });
@@ -135,6 +138,7 @@ test('createOverlay(null) is unsupported everywhere and does nothing', async () 
   assert.deepEqual(await o.taps({ since: 1 }), []);
   assert.equal(o.say('Hi'), undefined);
   assert.equal(o.setMood('calm'), undefined);
+  assert.equal(o.setLabel('Voice'), undefined);
   assert.equal(o.setRules(rules), undefined);
   const off = o.on('tap', () => assert.fail('never fires'));
   assert.equal(typeof off, 'function');

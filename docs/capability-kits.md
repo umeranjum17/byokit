@@ -982,6 +982,7 @@ export type StartOptions = {
   panel?: string;                      // registered React component opened on tap; absent: tap only emits
   hideWhilePanelOpen?: boolean;        // default true
   spots?: 'global' | 'per-app';        // remembered rest spot; 'per-app' needs host 'accessibility'; default 'global'
+  label?: string;                      // TalkBack label for the bubble; absent: none
 };
 export type OverlayEvent =
   | { type: 'tap' }
@@ -1004,8 +1005,9 @@ export interface Overlay {
   openPermission(): Promise<void>;     // window: the "display over other apps" screen; accessibility: accessibility settings
   start(o: StartOptions): Promise<OverlayState>;
   stop(): Promise<void>;
-  say(text: string, mood?: string, ms?: number): void;   // pill next to the bubble; ms default 2500; still under reduced motion
+  say(text: string, mood?: string, ms?: number, o?: { announce?: boolean }): void;   // pill next to the bubble; ms default 2500; still under reduced motion; announce reads the pill for TalkBack
   setMood(mood: string): void;
+  setLabel(label: string | null): void;   // TalkBack label for the bubble; null clears it
   setRules(rules: AppRules): void;
   openPanel(props?: Record<string, string>): Promise<void>;
   closePanel(): Promise<void>;
@@ -1019,8 +1021,9 @@ export interface NativeOverlay {                         // what the Kotlin modu
   openPermission(): Promise<void>;
   start(o: StartOptions): Promise<OverlayState>;
   stop(): Promise<void>;
-  say(text: string, mood: string | null, ms: number): void;
+  say(text: string, mood: string | null, ms: number, announce: boolean): void;
   setMood(mood: string): void;
+  setLabel(label: string | null): void;
   setRules(rules: AppRules): void;
   openPanel(props: Record<string, string>): Promise<void>;
   closePanel(): Promise<void>;
@@ -1064,19 +1067,31 @@ Entries:
 
 ```ts
 export type FocusedText = { app: string; text: string; selection: { start: number; end: number } | null };
-export type InsertResult = 'inserted' | 'copied' | 'failed';
+export type InsertResult = 'inserted' | 'landedWithoutNewlines' | 'copied' | 'failed';
+export type InsertOptions = {
+  replace?: 'selection' | 'all';   // default 'selection'
+  attempts?: number;               // SET_TEXT tries; default 2 (a panel on top needs ~13 x 150 ms in Chrome)
+  retryMs?: number;                // pause between tries; default 150
+  acceptNewlineLoss?: boolean;     // default false; true resolves 'landedWithoutNewlines' when only newlines were lost
+};
 export interface FocusedField {
   available(): Promise<boolean>;       // the app's accessibility service has attached the kit
   read(): Promise<FocusedText | null>; // only on this call; null when no editable field has focus
-  insert(text: string, o?: { replace?: 'selection' | 'all' }): Promise<InsertResult>;   // default 'selection'
+  insert(text: string, o?: InsertOptions): Promise<InsertResult>;
 }
 export const focusedField: FocusedField;
 ```
 
 - The default entry: `available()` resolves false, `read()` resolves null and `insert()` resolves `'failed'`.
-- The React Native entry calls `requireOptionalNativeModule('ByokitFocusedField')`.
-- `insert` sets the text, reads it back to verify, and retries once 150 ms later. If it still does not match, it puts
-  the text on the clipboard and resolves `'copied'`.
+- The React Native entry calls `requireOptionalNativeModule('ByokitFocusedField')` and passes the options through as
+  a record (`{ replace, attempts, retryMs, acceptNewlineLoss }`, defaults 2 tries of 150 ms).
+- `insert` sets the text, reads it back to verify, and retries up to `attempts` times, pausing `retryMs` between
+  tries: while the panel's window is on top Chrome refuses SET_TEXT, so ~13 x 150 ms lands it. If the text still does
+  not match, a contenteditable that dropped only the newlines resolves `'landedWithoutNewlines'` when
+  `acceptNewlineLoss` is set; otherwise the text goes on the clipboard (`'copied'`).
+- The field is the focused node itself when it is editable, else the first editable non-password focused descendant
+  (WebView/Chrome). The same search, read and insert are callable from Kotlin (`FocusedFields`), so the app's service
+  can read at tap time and insert into the captured node with no JS running.
 
 ### 7.5 Kotlin parts (package `io.github.umeranjum17.byokit.overlay`, one job each)
 
@@ -1097,9 +1112,18 @@ interface OverlayHost { fun add(view: View, x: Int, y: Int); fun move(x: Int, y:
 class WindowOverlayHost(context: Context) : OverlayHost                  // TYPE_APPLICATION_OVERLAY, FLAG_NOT_FOCUSABLE; needs SYSTEM_ALERT_WINDOW
 class AccessibilityOverlayHost(service: AccessibilityService) : OverlayHost   // TYPE_ACCESSIBILITY_OVERLAY, FLAG_NOT_FOCUSABLE
 class OverlayService : Service()                                         // foreground, type specialUse; owns a WindowOverlayHost
-class Bubble(host: OverlayHost, spots: SpotStore, moods: (String) -> Drawable?, reducedMotion: () -> Boolean) {
-  fun show(mood: String); fun hide(); fun say(text: String, mood: String?, ms: Long); fun setMood(mood: String)
+interface BubbleControl { var spotKey: String; var imeTopPx: Int?; val events: Listeners<OverlayEvent>; fun show(mood: String); fun hide(); fun say(text: String, mood: String?, ms: Long, announce: Boolean = false); fun setMood(mood: String); fun setLabel(label: String?) }   // what drives the bubble's view; a fake in JVM tests
+class Bubble(host: OverlayHost, spots: SpotStore, moods: (String) -> Drawable?, reducedMotion: () -> Boolean) : BubbleControl {
+  fun show(mood: String); fun hide(); fun say(text: String, mood: String?, ms: Long, announce: Boolean = false); fun setMood(mood: String); fun setLabel(label: String?)
   val events: Listeners<OverlayEvent>                                    // listener set, never a single slot
+}
+data class Rules(val paused: Boolean = false, val on: List<String> = emptyList(), val off: List<String> = emptyList(), val defaults: List<String> = emptyList()) { fun shows(app: String?): Boolean }   // the 7.3 decision in Kotlin; the app layers its own allowances on top
+class ServiceBubble(moods: (String) -> Drawable?, spots: SpotStore, ...) {   // the bubble from Kotlin alone: start(config) once, it shows on attach and restores after every rebind
+  data class Config(val mood: String, val label: String? = null, val rules: Rules = Rules(), val perAppSpots: Boolean = false)
+  val events: Listeners<OverlayEvent>
+  fun start(config: Config); fun stop()
+  fun say(text: String, mood: String? = null, ms: Long = 2500, announce: Boolean = false)
+  fun setMood(mood: String); fun setLabel(label: String?); fun setRules(rules: Rules)
 }
 interface ForegroundApp { val current: String?; fun onChange(fn: (String?) -> Unit): () -> Unit }
 interface KeyboardInset { val imeTopPx: Int?; fun onChange(fn: (Int?) -> Unit): () -> Unit }
@@ -1107,12 +1131,22 @@ object ByokitAccessibility { fun attach(service: AccessibilityService); fun deta
 class PanelActivity : ReactActivity()                                    // translucent, renders the app-registered component
 class TapLog(context: Context) { fun add(app: String, action: String, at: Long); fun since(at: Long): List<TapEntry>; fun clear(); fun prune(now: Long) }  // 30 days
 class OverlayModule : Module()                                           // Expo module 'ByokitOverlay', maps NativeOverlay (7.3)
+data class InsertOpts(val attempts: Int = Insert.DEFAULT_ATTEMPTS, val retryMs: Long = Insert.RETRY_MS, val acceptNewlineLoss: Boolean = false)
+interface FieldNode { val editable: Boolean; val password: Boolean; fun shown(): String?; fun set(text: String): Boolean; fun selection(): Pair<Int, Int>?; val childCount: Int; fun child(i: Int): FieldNode? }   // the field, or a focused descendant; faked in JVM tests
+object FocusedFields { fun find(node: FieldNode): FieldNode?; fun read(service: AccessibilityService): FocusedFieldText?; fun insert(node: FieldNode, text: String, replace: String = "selection", opts: InsertOpts = InsertOpts(), pause: (Long) -> Unit = Thread::sleep, copy: (String) -> Boolean = { false }): String }   // the Kotlin entry: the service reads at tap time and inserts into the captured node
 class FocusedFieldModule : Module()                                      // Expo module 'ByokitFocusedField' (BK-O3)
 ```
 
 - The app's own `AccessibilityService` calls `ByokitAccessibility.attach(this)` in `onServiceConnected`. That supplies
   `AccessibilityOverlayHost`, `ForegroundApp`, `KeyboardInset` and `FocusedField`. The kit declares no accessibility
   service of its own.
+- A service that must show the bubble with no JS running (after a reboot or process death, before any React context
+  exists) keeps a `ServiceBubble` and calls `start(config)` in `onServiceConnected` with the persisted rules: the
+  bubble shows on attach and restores after every rebind, until `stop()`. `Rules.shows(app)` is the same per-app
+  decision as `shownFor`, for the service to decide in Kotlin; the app layers its own allowances on top, and persists
+  the rules itself so they work before JS runs again.
+- The bubble carries a TalkBack label (`label` in `StartOptions`, `setLabel`, `ServiceBubble.Config.label`), and
+  `say` takes `announce` to read the pill aloud.
 - Moods are drawable names the app ships. With reduced motion (the system animator scale is 0), the bubble snaps
   instead of gliding, and a mood change is a still frame.
 - `panel` is an `AppRegistry.registerComponent` key the app registers in its JS entry. `start()` stores it in the

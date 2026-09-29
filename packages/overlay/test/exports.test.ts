@@ -77,7 +77,12 @@ test('the React Native focused field calls the native module, replacing the sele
   assert.deepEqual(await focusedField.read(), { app: 'a', text: 'hi', selection: { start: 0, end: 2 } });
   assert.equal(await focusedField.insert('x'), 'inserted');
   assert.equal(await focusedField.insert('y', { replace: 'all' }), 'inserted');
-  assert.deepEqual((globalThis as { inserted?: unknown[] }).inserted, [['x', 'selection'], ['y', 'all']]);
+  assert.equal(await focusedField.insert('z', { attempts: 13, retryMs: 150, acceptNewlineLoss: true }), 'inserted');
+  assert.deepEqual((globalThis as { inserted?: unknown[] }).inserted, [
+    ['x', { replace: 'selection', attempts: 2, retryMs: 150, acceptNewlineLoss: false }],
+    ['y', { replace: 'all', attempts: 2, retryMs: 150, acceptNewlineLoss: false }],
+    ['z', { replace: 'selection', attempts: 13, retryMs: 150, acceptNewlineLoss: true }],
+  ]);
 });
 
 test('public types keep their frozen shapes (7.3, 7.4)', () => {
@@ -94,10 +99,14 @@ test('public types keep their frozen shapes (7.3, 7.4)', () => {
   // @ts-expect-error the tap log has no text field (D-O)
   const tap: TapEntry = { app: 'a', at: 1, action: 'tap', text: 'x' };
   const text: FocusedText = { app: 'a', text: 'hi', selection: null };
-  const results: InsertResult[] = ['inserted', 'copied', 'failed'];
+  const results: InsertResult[] = ['inserted', 'landedWithoutNewlines', 'copied', 'failed'];
   const o: Overlay = kit.createOverlay(null);
   o.on('moved', (e) => { const y: number = e.y; void y; });
-  const n: Pick<NativeOverlay, 'say' | 'taps'> = { say: (_t, _m: string | null, _ms: number) => {}, taps: async (_since: number) => [] };
+  const n: Pick<NativeOverlay, 'say' | 'setLabel' | 'taps'> = {
+    say: (_t, _m: string | null, _ms: number, _a: boolean) => {},
+    setLabel: (_l: string | null) => {},
+    taps: async (_since: number) => [],
+  };
   const f: FocusedField = field.focusedField;
   void [state, hosts, edges, rules, start, events, types, tap, text, results, n, f];
 });
