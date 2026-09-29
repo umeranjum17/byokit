@@ -2,9 +2,9 @@
 // `api schema`, the `server` verb, JSON CLI verbs and `terminal session`. World state lives on the
 // control socket; this process never speaks JSON-RPC except to forward a CLI verb. Ported from muxr
 // `perf/fake-herdr/bin.mjs` with the perf byte rates and graphics probes removed.
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { HERDR_PROTOCOL, HERDR_VERSION } from '../../constants.ts';
 
@@ -82,13 +82,21 @@ async function runServer(): Promise<void> {
   process.on('SIGINT', stop);
 }
 
-// `{"type":"fake.stream","count":n,"size":b,"progress":file}` on stdin: n frames with data `<i>:` plus b bytes,
-// written as fast as the pipe takes them. After each write the frames-written count lands in `progress`, so a
-// test can see how far a paused reader let the stream run.
+// Terminal frames carry the real Herdr shape — `{ type: 'terminal.frame', pane_id, full, bytes }`
+// with `bytes` the UTF-8 length of `full` — plus the fake's `data` alias (same string as `full`),
+// so older assertions reading `data` keep passing. A `{"type":"terminal.resize",cols,rows}` line
+// resizes the session and answers one empty frame stamped with the new size; `terminal.release`
+// exits; `{"type":"fake.stream","count":n,"size":b,"progress":file}` streams n frames with full
+// `<i>:` plus b bytes as fast as the pipe takes them, recording the frames-written count in
+// `progress` after each write so a test can see how far a paused reader let the stream run.
+function frame(paneId: string, full: string, extra: Record<string, unknown> = {}): string {
+  return `${JSON.stringify({ type: 'terminal.frame', pane_id: paneId, data: full, full, bytes: Buffer.byteLength(full), ...extra })}\n`;
+}
+
 async function stream(paneId: string, o: { count?: number; size?: number; progress?: string }): Promise<void> {
   const pad = 'x'.repeat(o.size ?? 1024);
   for (let i = 0; i < (o.count ?? 0); i += 1) {
-    const ok = process.stdout.write(`${JSON.stringify({ type: 'terminal.frame', pane_id: paneId, data: `${i}:${pad}` })}\n`);
+    const ok = process.stdout.write(frame(paneId, `${i}:${pad}`));
     if (o.progress) writeFileSync(o.progress, String(i + 1));
     if (!ok) await new Promise((resolve) => process.stdout.once('drain', resolve));
   }
@@ -97,12 +105,12 @@ async function stream(paneId: string, o: { count?: number; size?: number; progre
 function runTerminal(args: string[]): void {
   // `herdr terminal session <control|observe> <pane> [--takeover] --cols <n> --rows <n>`.
   // The fake needs no server for this: one ready frame, then every send line echoes back as an
-  // output frame (docs/runtime-kits.md 6.8), except `fake.stream` below.
+  // output frame (docs/runtime-kits.md 6.8), except `fake.stream` and `terminal.resize` above.
   const mode = args[0] === 'observe' ? 'observe' : 'control';
   const rest = args[0] === 'control' || args[0] === 'observe' ? args.slice(1) : args;
   const paneId = rest[0] ?? 'w1:p1';
-  const cols = Number(flag(args, '--cols')) || 80;
-  const rows = Number(flag(args, '--rows')) || 24;
+  let cols = Number(flag(args, '--cols')) || 80;
+  let rows = Number(flag(args, '--rows')) || 24;
   const takeover = args.includes('--takeover');
   process.stdout.write(`${JSON.stringify({ type: 'terminal.ready', pane_id: paneId, mode, takeover, cols, rows })}\n`);
   let buffer = '';
@@ -114,13 +122,22 @@ function runTerminal(args: string[]): void {
     for (const line of lines) {
       if (line.trim() === '') continue;
       let data: string = line;
+      let extra: Record<string, unknown> = {};
       try {
-        const message = JSON.parse(line) as { type?: string; data?: unknown; count?: number; size?: number; progress?: string };
+        const message = JSON.parse(line) as { type?: string; data?: unknown; cols?: unknown; rows?: unknown;
+          count?: number; size?: number; progress?: string };
         if (message.type === 'terminal.release') process.exit(0);
         if (message.type === 'fake.stream') { void stream(paneId, message); continue; }
+        if (message.type === 'terminal.resize') {
+          if (typeof message.cols === 'number' && message.cols > 0) cols = Math.floor(message.cols);
+          if (typeof message.rows === 'number' && message.rows > 0) rows = Math.floor(message.rows);
+          process.stdout.write(frame(paneId, '', { cols, rows }));
+          continue;
+        }
+        // `terminal.input` carries the keys in `data`; anything else with a string `data` echoes it.
         if (typeof message.data === 'string') data = message.data;
       } catch { /* a raw line echoes as-is */ }
-      process.stdout.write(`${JSON.stringify({ type: 'terminal.frame', pane_id: paneId, data })}\n`);
+      process.stdout.write(frame(paneId, data, { cols, rows }));
     }
   });
   process.stdin.on('end', () => process.exit(0));
@@ -169,8 +186,18 @@ export async function main(argv: string[]): Promise<void> {
     return;
   }
   if (cmd === 'api' && sub === 'schema') {
-    // Reports the pinned v0.9.1 snapshot identity (schema/herdr-api-0.9.1.json, docs/runtime-kits.md 6.7).
-    process.stdout.write(`${JSON.stringify({ title: 'herdr api schema', protocol: HERDR_PROTOCOL, version: HERDR_VERSION })}\n`);
+    // Prints the pinned v0.9.1 snapshot itself (schema/herdr-api-0.9.1.json, docs/runtime-kits.md
+    // 6.7) — the same bytes `scripts/gen-types.ts` generates the typed surface from — exactly as
+    // the real `herdr api schema` prints its bundled schema. Only when the snapshot file is
+    // unreachable (a packed install without it) does the shim fall back to the pinned identity.
+    try {
+      const snapshot = readFileSync(join(dirname(SELF), '../../../schema/herdr-api-0.9.1.json'), 'utf8');
+      const parsed = JSON.parse(snapshot) as { protocol?: unknown };
+      if (parsed.protocol !== HERDR_PROTOCOL) throw new Error('fake-herdr bin: schema snapshot drift');
+      process.stdout.write(snapshot.endsWith('\n') ? snapshot : `${snapshot}\n`);
+    } catch {
+      process.stdout.write(`${JSON.stringify({ protocol: HERDR_PROTOCOL, version: HERDR_VERSION })}\n`);
+    }
     return;
   }
   if (cmd === 'server') {

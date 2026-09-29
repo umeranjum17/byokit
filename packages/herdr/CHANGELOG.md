@@ -30,6 +30,15 @@
   titles and labels merge in place with no re-bootstrap; a per-pane lifecycle epoch keeps a status
   push that races a snapshot read (the live status and revision win over the read). The fake seeds
   and serves every field (agent `title`, workspace `number`/`tokens`, `workspace.report_metadata`).
+
+- K8 fake coverage (`./testing`): `fake.world` is the live mutable world the server answers from
+  (seeded ids via `world.seed`, seeded plugins via `world.plugins`); `workspace.rename`, `tab.rename`,
+  `pane.rename` and `agent.rename` (refusing bad names with `invalid_agent_name` and taken ones with
+  `agent_name_taken`); `plugin.list`; the boot-window `agent.start` reply both shapes read
+  (`{ type: 'agent_started', agent, argv }`); filtered emit with `watching()`, `snapshotCount()` and the
+  `holdSnapshot`/`failNextSnapshot`/`holdAck`/`failNextAck` hooks; real terminal frames
+  (`{ type: 'terminal.frame', full, bytes }` plus the `data` alias) with `terminal.resize`/`terminal.input`;
+  scroll state on `pane.get` with `pane.scroll`; and `api schema` printing the pinned v0.9.1 snapshot.
 - `words`, `stateWords`, `agentWords` and `WORDS` are exported from `.` and `./device`, so a host or phone UI
   shows the kit's own sentences for Herdr and agent states instead of writing its own.
 - FIX `herdrDevice(link).events()` ends its link stream when the reader stops (`break`, or `return()` from a

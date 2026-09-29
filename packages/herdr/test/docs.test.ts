@@ -1,7 +1,7 @@
 // K10 acceptance: docs drift stays fixed. README pins the v0.9.1 snapshot (no protocol
 // placeholder), agents.ts agrees with muxr that `pane.split` takes `target_pane_id` (and the
-// kit sends exactly that), and the fake bin's `api schema` reports the pinned identity with
-// no placeholder text — all against the kit fake, never a real Herdr.
+// kit sends exactly that), and the fake bin's `api schema` prints the pinned snapshot itself —
+// all against the kit fake, never a real Herdr.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { scratchDir } from '../../test-support.ts';
-import { HERDR_PROTOCOL, HERDR_VERSION } from '../src/constants.ts';
+import { HERDR_PROTOCOL } from '../src/constants.ts';
 import { HerdrKit } from '../src/kit.ts';
 import { startFakeHerdr } from '../src/testing/index.ts';
 import type { HerdrTransport } from '../src/types.ts';
@@ -72,16 +72,18 @@ test('startAgent split placement sends target_pane_id, never pane_id', async () 
   }
 });
 
-test('fake bin api schema reports the pinned identity with no placeholder', async () => {
+test('fake bin api schema prints the pinned snapshot with no placeholder', async () => {
   assert.ok(!binSrc.includes('placeholder'), 'no placeholder language remains in bin.ts');
   const fake = await startFakeHerdr({ dir: scratchDir('herdr-k10-docs') });
   try {
     const out = await run(fake.bin, ['api', 'schema', '--json']);
-    const parsed = JSON.parse(out.stdout) as { title?: string; protocol?: number; version?: string };
-    assert.equal(parsed.protocol, HERDR_PROTOCOL);
-    assert.equal(parsed.version, HERDR_VERSION);
-    assert.equal(typeof parsed.title, 'string');
-    assert.ok(!parsed.title!.includes('placeholder'), 'the schema title carries no placeholder');
+    const parsed = JSON.parse(out.stdout) as { protocol?: number; schema_version?: number;
+      schemas?: { request?: { $defs?: Record<string, unknown> } } };
+    assert.equal(parsed.protocol, HERDR_PROTOCOL, 'the snapshot carries the pinned protocol');
+    assert.equal(parsed.schema_version, 1);
+    assert.ok(parsed.schemas?.request?.$defs?.AgentStartParams, 'the request schemas ride along');
+    const snapshot = readFileSync(path.join(pkg, 'schema', 'herdr-api-0.9.1.json'), 'utf8');
+    assert.equal(out.stdout.trim(), snapshot.trim(), 'byte-identical to the pinned snapshot file');
   } finally {
     await fake.stop();
   }

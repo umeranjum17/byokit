@@ -16,6 +16,7 @@ const makeBench = async () => {
   return {
     kit,
     fake,
+
     withTransport: (transport: HerdrTransport, o?: { protocolRange?: HerdrProtocolRange }) =>
       new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath, transport, ...o }),
   };
