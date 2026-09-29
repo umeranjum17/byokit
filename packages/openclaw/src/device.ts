@@ -7,12 +7,27 @@ import { b64urlEncode, openNotice } from './notices.ts';
 import type {
   Approval,
   Decision,
+  GatewayEventName,
+  GatewayEventPayload,
+  GatewayMethod,
+  GatewayParams,
+  GatewayResult,
   KitState,
   Route,
   RunEnd,
   RunEvent,
   SignInView,
 } from './types.ts';
+
+export type { GatewayEventName, GatewayEventPayload, GatewayMethod, GatewayParams, GatewayResult } from './types.ts';
+
+/** One `oc.events` frame: a member's Gateway event, typed by name, or an approval add/resolve (7.2). */
+export type OpenClawLinkEvent =
+  | { [E in GatewayEventName]: { event: E; payload: GatewayEventPayload<E> } }[GatewayEventName]
+  | { event: 'approval'; change: 'added' | 'resolved'; approval: Approval };
+
+/** One `oc.sessions` row: `sessions.list` filtered to the member's `agent:<member>:` keys. */
+export type SessionRow = { sessionKey: string; [k: string]: unknown };
 
 type EndFrame = { type: 'end'; end: RunEnd };
 
@@ -138,15 +153,17 @@ export function openclawDevice(link: DeviceLink): {
     paste(p: string, t: string): Promise<void>;
     cancel(p: string): Promise<void>;
   };
+  signOut(p: string): Promise<void>;
+  sessions(): Promise<SessionRow[]>;
   run(message: string, o?: { sessionKey?: string }): AsyncIterable<RunEvent | { type: 'end'; end: RunEnd }>;
   steer(k: string, t: string): Promise<void>;
   abort(k: string): Promise<void>;
   approvals(): Promise<Approval[]>;
   decide(id: string, d: Decision): Promise<void>;
-  events(): AsyncIterable<unknown>;
+  events(): AsyncIterable<OpenClawLinkEvent>;
   registerNotices(seed: Uint8Array): Promise<void>; // derives the box key with @byokit/seal
   openNotice(data: Record<string, unknown>, seed: Uint8Array): Approval | null;
-  call(method: string, params?: unknown): Promise<unknown>;
+  call<M extends GatewayMethod>(method: M, params: GatewayParams<M>): Promise<GatewayResult<M>>;
 } {
   return {
     state: () => link.request('oc.state') as Promise<{ state: KitState; words: string }>,
@@ -166,6 +183,10 @@ export function openclawDevice(link: DeviceLink): {
         await link.request('oc.signin.cancel', { provider: p });
       },
     },
+    signOut: async (p) => {
+      await link.request('oc.signout', { provider: p });
+    },
+    sessions: () => link.request('oc.sessions') as Promise<SessionRow[]>,
     run: (message, o) => {
       const inner = liveStream(() =>
         link.stream('oc.run', { message, ...(o?.sessionKey ? { sessionKey: o.sessionKey } : {}) }));
@@ -204,14 +225,15 @@ export function openclawDevice(link: DeviceLink): {
     decide: async (id, d) => {
       await link.request('oc.decide', { id, ...d });
     },
-    events: () => liveStream(() => link.stream('oc.events', {})),
+    events: () => liveStream(() => link.stream('oc.events', {})) as AsyncIterable<OpenClawLinkEvent>,
     registerNotices: async (seed) => {
       if (!ArrayBuffer.isView(seed) || !(seed instanceof Uint8Array) || seed.length !== 32)
         throw new Error('registerNotices needs a 32-byte seed');
       await link.request('oc.notices.register', { boxPublicKey: b64urlEncode(boxKeyPairFromSeed(seed).publicKey) });
     },
     openNotice,
-    call: (method, params) => link.request('oc.call', { method, params }) as Promise<unknown>,
+    call: <M extends GatewayMethod>(method: M, params: GatewayParams<M>) =>
+      link.request('oc.call', { method, params }) as Promise<GatewayResult<M>>,
   };
 }
 

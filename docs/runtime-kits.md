@@ -743,7 +743,8 @@ export class HerdrKit {
   stop(): Promise<void>;         // own: server.stop then signals; adopt: close sockets only
   // complete pass-through (D7)
   call<M extends HerdrMethod>(method: M, params: HerdrParams<M>, o?: { timeoutMs?: number }): Promise<HerdrResult<M>>;
-  subscribe<E extends HerdrEventName>(subs: HerdrSubscription<E>[], on: (e: HerdrEventOf<E>) => void): () => void;
+  subscribe<E extends HerdrEventName>(subs: HerdrSubscription<E>[], on: (e: HerdrEventOf<E>) => void,
+            onError?: (code: string, message: string) => void): () => void;   // onError: Herdr rejected the batch
   cli(args: string[], o?: { timeoutMs?: number }): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }>;
   terminal(paneId: string, o: { mode: 'control' | 'observe'; cols: number; rows: number }): TerminalSession;
   // live tree
@@ -995,33 +996,79 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 | `oc.call` | `{ method, params }` | pass-through result, only if `passThrough(method, grant)` |
 
 Herdr ops (*view* as above; scope = `scopeOf(grant)`; any pane/tab/workspace outside scope → `link.notAllowed`):
-`hd.state` *view*, `hd.tree` *view* (snapshot filtered to scope), `hd.agent.start { kind, cwd, place }`,
-`hd.prompt { paneId, text }` → `PromptReceipt`, `hd.keys { paneId, keys }`, `hd.read { paneId, source?, lines? }`
-*view*, `hd.blocked` *view*, `hd.answer { paneId, keys, revision }`, `hd.close { pane | tab | workspace }`,
-`hd.events` (stream) *view* (snapshot deltas in scope + blocked add/resolve), `hd.terminal` (stream)
-`{ paneId, mode, cols, rows }` (`control` needs the control role; view grants get `observe` only; frames are Herdr's
-terminal NDJSON both ways), `hd.notices.register`, `hd.call` (pass-through, D8).
+`hd.state` *view*, `hd.tree` *view* (snapshot filtered to scope), `hd.kinds` *view* → `agentKinds()` (the kind
+picker's list; no scope applies), `hd.agent.start { kind, cwd, place }`, `hd.prompt { paneId, text }` →
+`PromptReceipt`, `hd.keys { paneId, keys }`, `hd.wait { paneId, until?, timeoutMs }` → `AgentStatus` (control;
+`timeoutMs` a positive finite number), `hd.read { paneId, source?, lines? }` *view*, `hd.blocked` *view*,
+`hd.answer { paneId, keys, revision }`, `hd.close { pane | tab | workspace }`, `hd.events` (stream) *view* (frames
+`HerdrLinkEvent`: `{ type: 'snapshot', snapshot }` in scope + `{ type: 'blocked', change, blocked }`),
+`hd.subscribe` (stream) *view* `{ subs: HerdrSubscription[] }` (`kit.subscribe` over the link, one frame per
+event; a filter's `pane_id` must be in scope; a grant scoped to a workspace list gets only events every workspace
+id of which — any `*workspace_id` field or `workspace_ids` entry, else the workspace holding the event's `pane_id` —
+is in scope; a subscribe the kit cannot open or Herdr rejects, and a kit disconnect, end the stream), `hd.terminal` (stream) `{ paneId, mode, cols, rows }`
+(`control` needs the control role; view grants get `observe` only; frames are Herdr's terminal NDJSON both ways),
+`hd.notices.register`, `hd.call` (pass-through, D8).
 
 ### 7.2 Device side (`./device`, portable)
 
+The typed pass-through uses the 4.6 tables (`import type` only, so `./device` stays portable) and `./device`
+re-exports them with the frame types below.
+
 ```ts
+export type OpenClawLinkEvent =                             // oc.events frames
+  | { [E in GatewayEventName]: { event: E; payload: GatewayEventPayload<E> } }[GatewayEventName]
+  | { event: 'approval'; change: 'added' | 'resolved'; approval: Approval };
+export type SessionRow = { sessionKey: string; [k: string]: unknown };
 export function openclawDevice(link: DeviceLink): {
   state(): Promise<{ state: KitState; words: string }>;
   routes(): Promise<Route[]>;
   signIn: { start(p: string, via: 'browser' | 'code'): Promise<SignInView>; view(p: string): Promise<AccountView>;
             paste(p: string, t: string): Promise<void>; cancel(p: string): Promise<void> };
+  signOut(p: string): Promise<void>;                        // oc.signout
+  sessions(): Promise<SessionRow[]>;                        // oc.sessions
   run(message: string, o?: { sessionKey?: string }): AsyncIterable<RunEvent | { type: 'end'; end: RunEnd }>;
   steer(k: string, t: string): Promise<void>; abort(k: string): Promise<void>;
   approvals(): Promise<Approval[]>; decide(id: string, d: Decision): Promise<void>;
-  events(): AsyncIterable<unknown>;
+  events(): AsyncIterable<OpenClawLinkEvent>;
   registerNotices(seed: Uint8Array): Promise<void>;         // derives the box key with @byokit/seal
   openNotice(data: Record<string, unknown>, seed: Uint8Array): Approval | null;
-  call(method: string, params?: unknown): Promise<unknown>;
+  call<M extends GatewayMethod>(method: M, params: GatewayParams<M>): Promise<GatewayResult<M>>;
+};
+
+export type HerdrLinkEvent =                                // hd.events frames
+  | { type: 'snapshot'; snapshot: HerdrSnapshot }
+  | { type: 'blocked'; change: 'added' | 'resolved'; blocked: BlockedAgent }
+  | { type: 'raw'; line: string };                          // a line that was not JSON
+export type DeviceTerminal = {
+  ready: Promise<void>;                                     // first frame; rejects when the stream ends before one
+  exited: Promise<{ reason: string | null }>;               // stream end; reason = the host's words, null when clean
+  onFrame(fn: (line: string) => void): () => void; send(line: string): void; close(): void;
+};
+export function herdrDevice(link: DeviceLink): {
+  state(): Promise<{ state: HerdrState; words: string }>;
+  tree(): Promise<HerdrSnapshot>;
+  agentKinds(): Promise<string[]>;                          // hd.kinds
+  startAgent(o: StartAgent): Promise<AgentRef>;
+  prompt(paneId: string, text: string): Promise<PromptReceipt>;
+  keys(paneId: string, keys: string[]): Promise<void>;
+  wait(paneId: string, o: { until?: AgentStatus[]; timeoutMs: number }): Promise<AgentStatus>;   // hd.wait
+  read(paneId: string, o?: { source?: 'visible' | 'recent' | 'recent_unwrapped' | 'detection'; lines?: number }):
+    Promise<{ text: string; truncated: boolean }>;
+  blocked(): Promise<BlockedAgent[]>;
+  answer(paneId: string, keys: string[], revision: number): Promise<void>;
+  close(o: { pane?: string; tab?: string; workspace?: string }): Promise<void>;
+  events(): AsyncIterable<HerdrLinkEvent>;
+  subscribe<E extends HerdrEventName>(subs: HerdrSubscription<E>[], on: (e: HerdrEventOf<E>) => void,
+    onError?: (message: string) => void): () => void;       // hd.subscribe; the returned function stops it
+  registerNotices(seed: Uint8Array): Promise<void>;
+  openNotice(data: Record<string, unknown>, seed: Uint8Array): BlockedAgent | null;
+  call<M extends HerdrMethod>(method: M, params: HerdrParams<M>): Promise<HerdrResult<M>>;
+  terminal(paneId: string, o: { mode: 'control' | 'observe'; cols: number; rows: number }): DeviceTerminal;
 };
 ```
 
-`herdrDevice(link)` mirrors the Herdr ops, with `terminal(paneId, o)` returning `{ onFrame, send, close }` over
-`link.stream`. `signIn.view` returns the `AccountView` shape `useSignIn({ read, start, cancel })` expects, so a
+`terminal` returns synchronously over `link.stream`; sends made before the stream opens queue until it does.
+The host's exit code and stderr tail stay host-side (diagnostics, 6.5). `signIn.view` returns the `AccountView` shape `useSignIn({ read, start, cancel })` expects, so a
 React or React Native sign-in sheet is `useSignIn({ read: () => oc.signIn.view('openai'), start: () =>
 oc.signIn.start('openai', 'code'), cancel: () => oc.signIn.cancel('openai') })`; `pairingView`, `consentWords`,
 `linkWords`, `qrMatrix` from `@byokit/ui-core` cover pairing unchanged.
@@ -1061,8 +1108,8 @@ examples/herdr-kit/     package.json  host.ts  web/index.html  web/app.ts  READM
   `meta.scope = { workspaces: 'all' }`, same link wiring with `herdrLink`.
 - `web/app.ts`: pair (typed code or scanned offer text pasted), then OpenClaw: sign-in sheet driven by
   `phaseOf(toAccountView…)`, a message box streaming `oc.run`, an approvals list with Allow/Deny; Herdr: tree, "Start
-  agent" (kind picker from `agentKinds`), prompt box, pane text via `hd.read` refreshed on `hd.events`, blocked list
-  with key buttons `Enter`, `y`, `n`, `Esc`. Plain DOM, no framework. Works in a phone browser over LAN/Tailscale.
+  agent" (kind picker from `hd.agentKinds()`, op `hd.kinds`), prompt box, pane text via `hd.read` refreshed on
+  `hd.events`, blocked list with key buttons `Enter`, `y`, `n`, `Esc`. Plain DOM, no framework. Works in a phone browser over LAN/Tailscale.
 - `README.md`, minutes to working: prerequisites (Node 22.18; Herdr example: Herdr 0.9.1 installed; OpenClaw example:
   the first start downloads and installs the pinned engine, a few minutes, then runs offline except for the model),
   `npm i`, `npm start`, open the printed address on the phone, pair, sign in (OpenClaw: "Sign in with ChatGPT" device code;

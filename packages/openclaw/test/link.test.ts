@@ -128,7 +128,11 @@ test('view grant refused on every non-view op with link.notAllowed', async () =>
   await rejectsNotAllowed(v.oc.steer('agent:a:x', 'hi'));
   await rejectsNotAllowed(v.oc.abort('agent:a:x'));
   await rejectsNotAllowed(v.oc.decide('nope', { allow: true }));
-  await rejectsNotAllowed(v.oc.call('health'));
+  await rejectsNotAllowed(v.oc.call('health', {}));
+  await rejectsNotAllowed(v.oc.signOut('openai'));
+  // sessions is a view op.
+  w.fake.handle('sessions.list', () => ({ sessions: [{ sessionKey: 'agent:a:x' }] }));
+  assert.deepEqual(await v.oc.sessions(), [{ sessionKey: 'agent:a:x' }]);
   // View streams still open: events (no frames yet, so just open and close).
   const it = v.oc.events()[Symbol.asyncIterator]();
   await it.return?.();
@@ -147,7 +151,7 @@ test('member isolation: sessions, steer, approvals and decide', async () => {
   await rejectsNotAllowed(b.oc.steer('agent:a:x', 'hijack'));
   await rejectsNotAllowed(b.oc.abort('agent:a:x'));
   // Each member's sessions list shows only its own keys.
-  assert.deepEqual(await b.link.request('oc.sessions'), [{ sessionKey: 'agent:b:y' }]);
+  assert.deepEqual(await b.oc.sessions(), [{ sessionKey: 'agent:b:y' }]);
 
   await w.kit.call('exec.approval.request', { id: 'a1', command: 'restart radio', agentId: 'a', sessionKey: 'agent:a:x' });
   await until(() => (a.oc.approvals() as Promise<{ id: string }[]>).then((l) => (l.some((x) => x.id === 'a1') ? true : undefined)));
@@ -156,18 +160,30 @@ test('member isolation: sessions, steer, approvals and decide', async () => {
   await a.oc.decide('a1', { allow: true });
   await until(() => a.oc.approvals().then((l) => (l.length === 0 ? true : undefined)));
 
-  assert.deepEqual(await a.link.request('oc.sessions'), [{ sessionKey: 'agent:a:x' }]);
+  assert.deepEqual(await a.oc.sessions(), [{ sessionKey: 'agent:a:x' }]);
+});
+
+test('signOut signs out the device member only', async () => {
+  const w = await world();
+  const logouts: unknown[] = [];
+  w.fake.handle('models.authLogout', (p) => { logouts.push(p); return {}; });
+  const a = await device(w, 'a');
+  await a.oc.signOut('openai');
+  assert.deepEqual(logouts, [{ provider: 'openai', agentId: 'a' }]);
+  const nobody = await device(w, undefined);
+  await rejectsNotAllowed(nobody.oc.signOut('openai'));
+  assert.equal(logouts.length, 1);
 });
 
 test('oc.call refused by default, allowed by predicate', async () => {
   const denied = await world();
   const a = await device(denied, 'a');
-  await rejectsNotAllowed(a.oc.call('health'));
+  await rejectsNotAllowed(a.oc.call('health', {}));
 
   const allowed = await world({ passThrough: (method) => method === 'health' });
   const c = await device(allowed, 'a');
-  assert.deepEqual(await c.oc.call('health'), { ok: true, plugins: { loaded: [] } });
-  await rejectsNotAllowed(c.oc.call('sessions.list'));
+  assert.deepEqual(await c.oc.call('health', {}), { ok: true, plugins: { loaded: [] } });
+  await rejectsNotAllowed(c.oc.call('sessions.list', {}));
 });
 
 test('oc.run streams text frames then end', async () => {

@@ -6,7 +6,7 @@ import type { DeviceLink } from '@byokit/link';
 import { phaseOf } from '@byokit/ui-core';
 import { LinkRefused, openclawDevice } from '../src/device.ts';
 import { sealNotice } from '../src/notices.ts';
-import type { Approval } from '../src/types.ts';
+import type { Approval, GatewayResult } from '../src/types.ts';
 
 type Req = { op: string; args: unknown };
 function stubLink(o: { onRequest?: (r: Req) => unknown; streams?: Record<string, unknown> } = {}) {
@@ -59,11 +59,15 @@ test('requests map to link ops with the right args', async () => {
   await oc.steer('agent:a:x', 'go');
   await oc.abort('agent:a:x');
   await oc.decide('id1', { allow: false, reason: 'no' });
+  await oc.signOut('openai');
+  await oc.sessions();
   await oc.call('health', { a: 1 });
   assert.deepEqual(seen.map((r) => [r.op, r.args]), [
     ['oc.steer', { sessionKey: 'agent:a:x', text: 'go' }],
     ['oc.abort', { sessionKey: 'agent:a:x' }],
     ['oc.decide', { id: 'id1', allow: false, reason: 'no' }],
+    ['oc.signout', { provider: 'openai' }],
+    ['oc.sessions', undefined],
     ['oc.call', { method: 'health', params: { a: 1 } }],
   ]);
 });
@@ -149,4 +153,30 @@ test('registerNotices sends the 32-byte box key; openNotice round-trips the appr
   assert.equal(oc.openNotice(notice, crypto.getRandomValues(new Uint8Array(32))), null);
   assert.equal(oc.openNotice({ v: 1, sealed: '!!!' }, seed), null);
   assert.equal(oc.openNotice({ v: 2, sealed: notice.sealed }, seed), null);
+});
+
+// Typed pass-through (7.2). The assertions are compile-time: `npm run check` fails if call() stops
+// taking the generated table's params or stops returning its result type.
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
+const typed = <T extends true>(): T | undefined => undefined;
+
+test('call and events are typed by the generated tables', async () => {
+  const { link } = stubLink({ onRequest: () => ({ providers: [] }) });
+  const oc = openclawDevice(link);
+  const status = oc.call('models.authStatus', { agentId: 'a' });
+  typed<Equal<typeof status, Promise<GatewayResult<'models.authStatus'>>>>();
+  const models = oc.call('models.list', {});
+  typed<Equal<Awaited<typeof models>, GatewayResult<'models.list'>>>();
+  // @ts-expect-error not a Gateway method
+  void oc.call('models.nope', {});
+  // @ts-expect-error models.authStatus takes an object, not a number
+  void oc.call('models.authStatus', 1);
+  await Promise.all([status, models]);
+  type Frame = typeof oc.events extends () => AsyncIterable<infer F> ? F : never;
+  const narrow = (f: Frame): string => {
+    if (f.event === 'approval') return f.approval.id;
+    if (f.event === 'agent') return f.payload.runId;
+    return f.event;
+  };
+  assert.equal(narrow({ event: 'approval', change: 'added', approval: { id: 'x' } as Approval }), 'x');
 });

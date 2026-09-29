@@ -13,14 +13,14 @@ import {
 import { reach, type ServeIngress, type Via } from '@byokit/reach';
 import type { RelayClient } from '@byokit/relay';
 import type { HerdrKit } from './kit.ts';
-import type { BlockedAgent, HerdrSnapshot } from './types.ts';
+import type { AgentStatus, BlockedAgent, HerdrEvent, HerdrSnapshot, HerdrSubscription } from './types.ts';
 import { stateWords, words } from './words.ts';
 import { decodeB64Url, sealNotice } from './notices.ts';
 
 export type HerdrScope = { workspaces: 'all' | string[] };
 
 // Ops a view-role grant may open; every other op needs the control role (7.1, *view* marks).
-const VIEW_OPS = new Set(['hd.state', 'hd.tree', 'hd.read', 'hd.blocked', 'hd.events']);
+const VIEW_OPS = new Set(['hd.state', 'hd.tree', 'hd.kinds', 'hd.read', 'hd.blocked', 'hd.events', 'hd.subscribe']);
 
 const deny = (): never => {
   throw new PublicLinkError(words('link.notAllowed'));
@@ -53,6 +53,32 @@ const asStrings = (v: unknown): string[] | undefined =>
   Array.isArray(v) && v.every((e) => typeof e === 'string') ? v as string[] : undefined;
 const asNumber = (v: unknown): number | undefined =>
   typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+
+const STATUSES = new Set<string>(['idle', 'working', 'blocked', 'done', 'unknown']);
+
+/**
+ * Every workspace an event names (7.1 `hd.subscribe`): any `*workspace_id` field or `workspace_ids` entry at any
+ * depth; when it names none, the workspace holding its `pane_id` (e.g. a status event that omits one).
+ */
+const eventWorkspaces = (e: HerdrEvent, snap: HerdrSnapshot): Set<string> => {
+  const found = new Set<string>();
+  const walk = (v: unknown): void => {
+    if (Array.isArray(v)) { for (const item of v) walk(item); return; }
+    if (typeof v !== 'object' || v === null) return;
+    for (const [key, value] of Object.entries(v)) {
+      if (key.endsWith('workspace_id') && typeof value === 'string') found.add(value);
+      else if (key === 'workspace_ids' && Array.isArray(value)) {
+        for (const id of value) if (typeof id === 'string') found.add(id);
+      } else walk(value);
+    }
+  };
+  walk(e);
+  if (found.size === 0 && typeof e.pane_id === 'string') {
+    const where = findPane(snap, e.pane_id);
+    if (where) found.add(where.workspaceId);
+  }
+  return found;
+};
 
 export function herdrLink(kit: HerdrKit, o: {
   scopeOf: (grant: Grant) => HerdrScope;
@@ -100,6 +126,9 @@ export function herdrLink(kit: HerdrKit, o: {
       case 'hd.tree': {
         return filterSnapshot(kit.snapshot(), scope);
       }
+      case 'hd.kinds': {
+        return kit.agentKinds();
+      }
       case 'hd.agent.start': {
         if (grant.role !== 'control') deny();
         const place = asRecord(args.place);
@@ -140,6 +169,19 @@ export function herdrLink(kit: HerdrKit, o: {
         if (!where || !inScope(scope, where.workspaceId)) deny();
         await kit.sendKeys({ paneId }, keys);
         return null;
+      }
+      case 'hd.wait': {
+        if (grant.role !== 'control') deny();
+        const paneId = asString(args.paneId);
+        const timeoutMs = asNumber(args.timeoutMs);
+        const until = args.until === undefined ? undefined : asStrings(args.until);
+        if (!paneId || timeoutMs === undefined || timeoutMs <= 0 || (args.until !== undefined &&
+            (!until || !until.every((u) => STATUSES.has(u))))) {
+          throw new Error('herdr: hd.wait needs a paneId, a positive timeoutMs and known until statuses');
+        }
+        const where = findPane(kit.snapshot(), paneId);
+        if (!where || !inScope(scope, where.workspaceId)) deny();
+        return kit.wait({ paneId }, { timeoutMs, ...(until ? { until: until as AgentStatus[] } : {}) });
       }
       case 'hd.read': {
         const paneId = asString(args.paneId);
@@ -234,6 +276,50 @@ export function herdrLink(kit: HerdrKit, o: {
         }
       });
       s.onEnd = () => { stopTree(); stopBlocked(); };
+      return;
+    }
+    if (req.op === 'hd.subscribe') {
+      const scope = scopeOfSafe(grant);
+      const subs = Array.isArray(args.subs) ? args.subs as unknown[] : undefined;
+      if (!subs || subs.length === 0 || !subs.every((sub) => typeof asRecord(sub).type === 'string')) {
+        s.end('herdr: hd.subscribe needs subs, each with a type');
+        return;
+      }
+      // A filter naming a pane must name one in scope, like every other pane-addressed op.
+      const snap = kit.snapshot();
+      for (const sub of subs) {
+        const paneId = asRecord(sub).pane_id;
+        if (paneId === undefined) continue;
+        const where = typeof paneId === 'string' ? findPane(snap, paneId) : undefined;
+        if (!where || !inScope(scope, where.workspaceId)) { s.end(words('link.notAllowed')); return; }
+      }
+      // A rejected batch or a kit that disconnects (stop, restart) ends the stream, so the device hears
+      // it through onError and can subscribe again instead of waiting on a dead socket.
+      let stop: () => void = () => {};
+      let offChange: () => void = () => {};
+      let over = false;
+      const finish = (reason: string): void => {
+        if (over) return;
+        over = true;
+        stop();
+        offChange();
+        s.end(reason);
+      };
+      try {
+        stop = kit.subscribe(subs as HerdrSubscription[], (e) => {
+          const now = scopeOfSafe(currentGrants.get(grant.id) ?? grant);
+          if (now.workspaces !== 'all') {
+            const named = eventWorkspaces(e as HerdrEvent, kit.snapshot());
+            if (named.size === 0 || ![...named].every((id) => inScope(now, id))) return;
+          }
+          void s.write(`${JSON.stringify(e)}\n`).catch(() => {});
+        }, (code) => { finish(`herdr: subscription rejected (${code})`); });
+      } catch (e) {
+        finish(e instanceof PublicLinkError ? e.message : 'failed');
+        return;
+      }
+      offChange = kit.onChange((snap) => { if (!snap.connected) finish('herdr: disconnected'); });
+      s.onEnd = () => { over = true; stop(); offChange(); };
       return;
     }
     if (req.op === 'hd.terminal') {
