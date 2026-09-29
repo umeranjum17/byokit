@@ -1,5 +1,5 @@
-// BK-0 acceptance: every frozen name exists — the `.` entry (4.3–4.5), `./testing` (4.7) and the CLI seam (4.6) —
-// and every stub names the work package that fills it (docs/capability-kits.md §9.2).
+// BK-P1: every frozen name exists and the BK-P1 bodies behave — the `.` entry (4.3–4.5), `./testing` (4.7) and
+// the CLI seam (4.6). BK-P2 pins the published engine (the todo below).
 import { test, todo } from 'node:test';
 import assert from 'node:assert/strict';
 import * as kit from '../src/index.ts';
@@ -19,15 +19,15 @@ test('the `.` entry carries the frozen surface (4.3–4.5)', async () => {
   for (const fn of [kit.Compose, kit.ComposeError, kit.inProcessEngine, kit.binEngine, kit.words, kit.errorWords, kit.checkLines]) {
     assert.equal(typeof fn, 'function');
   }
-  const engine: Engine = { handle: async () => ({}) };
-  const c = new kit.Compose({ engine });
-  assert.throws(() => c.hello(), /BK-P1/);
-  assert.throws(() => c.voice.parse('# Voice'), /BK-P1/);
-  assert.throws(() => c.voice.guide(rules, { post: true }), /BK-P1/);
-  assert.throws(() => c.platforms(), /BK-P1/);
-  assert.throws(() => c.brief({ kind: 'reply', platform: 'x', rules }), /BK-P1/);
-  assert.throws(() => c.check({ drafts: ['a'], platform: 'x', rules, original: 'b' }), /BK-P1/);
-  assert.throws(() => c.split({ text: 'a', platform: 'x' }), /BK-P1/);
+  const fake = testing.fakeEngine({ version: '1.0.0' });
+  const c = new kit.Compose({ engine: fake });
+  assert.deepEqual(await c.hello(), { protocol: 1, version: '1.0.0' });
+  assert.equal((await c.platforms()).length, 6);
+  assert.deepEqual((await c.voice.parse('## Never say\n- delve\n')).rules.never, ['delve']);
+  assert.match(await c.voice.guide(rules), /dash/i);
+  assert.ok((await c.brief({ kind: 'reply', platform: 'x', rules })).length >= 1);
+  assert.equal((await c.check({ drafts: ['hi'], platform: 'x', rules, original: 'yo' })).length, 1);
+  assert.ok((await c.split({ text: 'hi. yo.', platform: 'x' })).length >= 1);
   assert.throws(() => kit.inProcessEngine(), /BK-P2/);
   assert.throws(() => kit.binEngine({ bin: '/usr/bin/engine' }), /BK-P2/);
 });
@@ -64,16 +64,31 @@ test('public types keep their frozen shapes (4.3)', () => {
   void [platform, check, parsed, verb, requests, wrong];
 });
 
-test('./testing and the CLI seam are in place; bodies land in BK-P1', async () => {
-  assert.equal(typeof testing.fakeEngine, 'function');
+test('./testing and the CLI seam behave (4.6–4.7)', async () => {
+  const fake = testing.fakeEngine();
+  assert.deepEqual(fake.requests, []);
   assert.equal(typeof testing.composeContract, 'function');
-  assert.throws(() => testing.fakeEngine({ protocol: 2 }), /BK-P1/);
-  assert.throws(() => testing.composeContract(async () => ({ compose: new kit.Compose() })), /BK-P1/);
-  const out: string[] = [];
-  const code = await main(['platforms'], { stdout: (s) => out.push(s), stderr: (s) => out.push(s), readFile: () => '' });
-  assert.equal(code, 4);
-  assert.deepEqual(out, ['error: not built: BK-P1\n']);
-  assert.throws(() => kit.checkLines({} as DraftCheck, {} as Platform), /BK-P1/);
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const engine: Engine = testing.fakeEngine({ version: '9.9.9' });
+  const code = await main(['hello'], {
+    engine,
+    stdout: (s) => stdout.push(s),
+    stderr: (s) => stderr.push(s),
+    readFile: () => '',
+  });
+  assert.equal(code, 0);
+  assert.deepEqual(stdout, ['protocol: 1\nversion: 9.9.9\n']);
+  assert.deepEqual(stderr, []);
+  const platform: Platform = { id: 'x', label: 'X', kind: 'feed', limit: 280 };
+  const check: DraftCheck = {
+    fits: true, length: 10, limit: 280, voice: [], stock: [], added: [], dropped: [], layoutKept: true, words: 'Sounds natural',
+  };
+  assert.deepEqual(kit.checkLines(check, platform, { original: true }), [
+    'Fits on X.',
+    'Kept the facts: every number and time from the original is still there.',
+    'Ready for you to look over.',
+  ]);
 });
 
 // BK-P2 pins the published engine: ENGINE_VERSION, the dependency and the schema's sha256.

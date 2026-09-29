@@ -2,7 +2,8 @@
 // and no claim about where a draft goes. BK-P1 adds checkLines cases here.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { WORDS, words, type WordKey } from '../src/words.ts';
+import { WORDS, checkLines, words, type WordKey } from '../src/words.ts';
+import type { DraftCheck, Platform } from '../src/types.ts';
 
 const TABLE: [WordKey, string][] = [
   ['compose.missing', "The writing checker isn't installed yet."],
@@ -35,4 +36,57 @@ test('plain words only: no codes, commands, paths, model ids or jargon a person 
 
 test('no claim about where a draft goes (D-P)', () => {
   for (const [k, w] of Object.entries(WORDS)) assert.doesNotMatch(w, /this phone|\bleaves?\b|never sent/i, k);
+});
+
+const X: Platform = { id: 'x', label: 'X', kind: 'feed', limit: 280 };
+
+test('checkLines for a passing draft with an original', () => {
+  const check: DraftCheck = {
+    fits: true, length: 212, limit: 280, voice: [], stock: [], added: [], dropped: [], layoutKept: true, words: 'Sounds natural',
+  };
+  assert.deepEqual(checkLines(check, X, { original: true }), [
+    'Fits on X.',
+    'Kept the facts: every number and time from the original is still there.',
+    'Ready for you to look over.',
+  ]);
+});
+
+test('checkLines for a failing long draft with no original', () => {
+  const check: DraftCheck = {
+    fits: false, length: 301, limit: 280, voice: [], stock: [], added: [], dropped: [], layoutKept: true, words: 'A bit stock',
+  };
+  assert.deepEqual(checkLines(check, X), [
+    'Too long for X: 301 characters, and the most is 280.',
+    'Needs another pass.',
+  ]);
+});
+
+test('checkLines names each break in the 4.8 order', () => {
+  const check: DraftCheck = {
+    fits: true, length: 100, limit: 280,
+    voice: ['says “delve” from your never-say list'], stock: ['delve'],
+    added: ['50'], dropped: ['40'], layoutKept: false, words: 'A bit stock',
+  };
+  assert.deepEqual(checkLines(check, X, { original: true }), [
+    'Fits on X.',
+    'Goes against your voice: says “delve” from your never-say list.',
+    'Sounds stock: delve.',
+    "Adds numbers or times the original doesn't have: 50.",
+    'Drops numbers or times from the original: 40.',
+    'The lists or paragraphs changed from the original.',
+    'Needs another pass.',
+  ]);
+});
+
+test('checkLines without an original skips the fact lines, and a null limit always fits', () => {
+  const gmail: Platform = { id: 'gmail', label: 'Gmail', kind: 'mail', limit: null };
+  const check: DraftCheck = {
+    fits: true, length: 5000, limit: null, voice: [], stock: ['seamless'],
+    added: ['1'], dropped: ['2'], layoutKept: false, words: 'A bit stock',
+  };
+  assert.deepEqual(checkLines(check, gmail), [
+    'Fits on Gmail.',
+    'Sounds stock: seamless.',
+    'Ready for you to look over.',
+  ], 'stock never fails a draft and facts are only checked with an original');
 });
