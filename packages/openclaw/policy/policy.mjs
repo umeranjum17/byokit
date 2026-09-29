@@ -129,8 +129,24 @@ function decideSkill(request, trusted, roots) {
 function decidePlugin(request) {
   const plugin = isRecord(request.plugin) ? request.plugin : {};
   const scope = [plugin.packageName, plugin.pluginId, request.targetName].find((v) => typeof v === 'string');
-  if (scope && scope.startsWith('@openclaw/')) return allow();
-  return block(`only the @openclaw/ plugin scope is allowed, not ${scope ?? request.targetName}`);
+  if (!scope || !scope.startsWith('@openclaw/')) {
+    return block(`only the @openclaw/ plugin scope is allowed, not ${scope ?? request.targetName}`);
+  }
+  // N4: the scope name above is self-declared (the candidate manifest's own
+  // `name`). Allow only with engine proof of registry origin on the pinned
+  // engine: source.kind 'npm' (engine-derived from the install request kind;
+  // npm installs always carry authority 'third-party') plus the
+  // operator-requested specifier in the @openclaw/ scope. Anything else is a
+  // local/archive/git/file candidate spoofing the name. Fail closed.
+  const source = isRecord(request.source) ? request.source : undefined;
+  const specifier =
+    isRecord(request.request) && typeof request.request.requestedSpecifier === 'string'
+      ? request.request.requestedSpecifier
+      : undefined;
+  if (source?.kind === 'npm' && specifier !== undefined && specifier.startsWith('@openclaw/')) return allow();
+  return block(`@openclaw/ plugin install is not from the npm registry: ${specifier ?? request.targetName}`, [
+    { ruleId: 'plugin-source', severity: 'critical', message: 'self-declared @openclaw/ name without registry source proof' },
+  ]);
 }
 
 function decide(request) {

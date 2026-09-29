@@ -509,7 +509,12 @@ sources share `approvals()`/`onApproval()`.
 
 **Install policy** (`policy/policy.mjs`) = Crewhouse `policy.mjs` with `trusted-skills.json` read from
 `BYOKIT_TRUSTED_SKILLS`, own roots from `BYOKIT_OWN_ROOTS` (JSON array), everything else unchanged (fail closed,
-dependency installers blocked, `@openclaw/` scope allowed, exact id + version + SKILL.md sha256 for listed skills).
+dependency installers blocked, exact id + version + SKILL.md sha256 for listed skills). A plugin install claiming
+the `@openclaw/` scope is allowed only with engine proof of registry origin: `source.kind === 'npm'` and the
+operator-requested `request.requestedSpecifier` starts with `@openclaw/`. The candidate's own `plugin.packageName`
+is never sufficient: on the pinned engine it is the package manifest's self-declared `name`, and npm installs
+always carry `source.authority 'third-party'`, so authority is not the check. Any other claimant of the scope
+(local, archive, git or file source, missing source, non-scope specifier) blocks.
 
 ### 5.10 Pass-through generation (`scripts/gen-methods.ts`, O2)
 

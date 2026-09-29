@@ -52,14 +52,18 @@ function trustedFor(dir: string, body: string = SKILL_MD, shape: 'list' | 'map' 
   return file;
 }
 
-const pluginRequest = (name: string) => ({
+const npmSource = { kind: 'npm', authority: 'third-party', mutable: false, network: true };
+
+const pluginRequest = (name: string, extra: Record<string, unknown> = {}) => ({
   protocolVersion: 1,
   targetType: 'plugin',
   targetName: name,
   sourcePathKind: 'archive',
+  source: npmSource,
   origin: { type: 'plugin-npm' },
-  request: { kind: 'plugin-npm', mode: 'install' },
+  request: { kind: 'plugin-npm', mode: 'install', requestedSpecifier: name },
   plugin: { contentType: 'package', pluginId: name, packageName: name },
+  ...extra,
 });
 
 test('a trusted skill with exact id, version and sha256 is allowed', async () => {
@@ -115,6 +119,36 @@ test('only the @openclaw/ plugin scope is allowed', async () => {
   assert.equal(run(pluginRequest('@openclaw/weather')).decision, 'allow');
   assert.equal(run(pluginRequest('someone-weather')).decision, 'block');
   assert.equal(run(pluginRequest('@openclaw/weather'), {}).decision, 'allow');
+});
+
+test('a self-declared @openclaw/ name without registry source proof blocks (N4)', async () => {
+  // Request shapes verified against the pinned engine: source is engine-derived
+  // from the install kind, requestedSpecifier is the operator's spec, while
+  // plugin.packageName is the candidate manifest's own name.
+  const spoof = (source: unknown, requestedSpecifier?: string, kind = 'plugin-npm') =>
+    run(pluginRequest('@openclaw/weather', {
+      source,
+      request: { kind, mode: 'install', ...(requestedSpecifier === undefined ? {} : { requestedSpecifier }) },
+    })).decision;
+  assert.equal(
+    spoof({ kind: 'local-path', authority: 'user', mutable: true, network: false }, '/tmp/evil', 'plugin-dir'),
+    'block',
+  );
+  assert.equal(
+    spoof({ kind: 'archive', authority: 'third-party', mutable: true, network: false }, '/tmp/evil.tgz', 'plugin-archive'),
+    'block',
+  );
+  assert.equal(
+    spoof({ kind: 'git', authority: 'third-party', mutable: true, network: true }, 'git:https://evil.example/x.git', 'plugin-git'),
+    'block',
+  );
+  const bare = pluginRequest('@openclaw/weather') as Record<string, unknown>;
+  delete bare.source;
+  assert.equal(run(bare).decision, 'block');
+  // npm source but a non-scope specifier: the specifier governs, not the manifest name.
+  assert.equal(spoof(npmSource, 'someone-else'), 'block');
+  // A versioned registry specifier still allows.
+  assert.equal(spoof(npmSource, '@openclaw/weather@1.2.3'), 'allow');
 });
 
 test('garbage fails closed with a block envelope', async () => {
