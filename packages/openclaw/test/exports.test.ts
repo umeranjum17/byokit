@@ -65,6 +65,14 @@ test('the `./device` entry exports the device client and the portable notice ope
   assert.equal(typeof device.openNotice, 'function');
 });
 
+test('`.` and `./device` both export the kit\'s words (5.14)', () => {
+  for (const entry of [kit, device]) {
+    assert.equal(entry.words('approval.ask', { helper: 'Your helper', summary: 'save a note' }), 'Your helper wants to save a note. Allow it?');
+    assert.equal(entry.stateWords({ phase: 'ready' }), 'Ready.');
+    assert.deepEqual(entry.toAccountView(null, true), { ready: true, signIn: null });
+  }
+});
+
 test('the `./link` entry exports the host adapter and serve (7.1)', () => {
   assert.equal(typeof link.openclawLink, 'function');
   assert.equal(typeof link.serve, 'function');

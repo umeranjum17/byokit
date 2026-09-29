@@ -20,6 +20,7 @@ import type {
 } from './types.ts';
 
 export type { GatewayEventName, GatewayEventPayload, GatewayMethod, GatewayParams, GatewayResult } from './types.ts';
+export type { Approval, Decision, KitState, Route, RunEnd, RunEvent, SignInView } from './types.ts';
 
 /** One `oc.events` frame: a member's Gateway event, typed by name, or an approval add/resolve (7.2). */
 export type OpenClawLinkEvent =
@@ -240,3 +241,5 @@ export function openclawDevice(link: DeviceLink): {
 
 // Portable, re-exported by ./device (7.3).
 export { openNotice } from './notices.ts';
+// The kit's sentences, so a phone or browser shows the same words the computer does (5.14).
+export { stateWords, toAccountView, words, type AccountView, type WordKey } from './words.ts';

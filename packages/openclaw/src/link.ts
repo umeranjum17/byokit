@@ -137,7 +137,9 @@ export function openclawLink(
       }
       case 'oc.signin.view': {
         if (typeof args.provider !== 'string') throw new Error('oc.signin.view needs { provider }');
-        return { ready: kit.state.phase === 'ready', view: latest.get(`${member}:${args.provider}`) ?? null };
+        // `ready` is the member's account (signed in to this provider), not the engine: `phaseOf` reads it as done.
+        const ready = kit.state.phase === 'ready' && await kit.signedIn(member, args.provider);
+        return { ready, view: latest.get(`${member}:${args.provider}`) ?? null };
       }
       case 'oc.signin.paste': {
         if (typeof args.provider !== 'string' || typeof args.text !== 'string')
@@ -153,6 +155,9 @@ export function openclawLink(
       case 'oc.signout': {
         if (typeof args.provider !== 'string') throw new Error('oc.signout needs { provider }');
         await kit.signOut(member, args.provider);
+        // A finished sign-in's view would still say done: signed out, there is no sign-in to show.
+        const key = `${member}:${args.provider}`;
+        if (!drives.has(key)) latest.delete(key);
         return null;
       }
       case 'oc.sessions': {
