@@ -114,6 +114,11 @@ export class HerdrKit {
     }
     this.current = { phase: 'ready' }; this.o.onState?.(this.current);
   }
+  /**
+   * Connect and bootstrap. Non-fatal: a rejected `start()` (e.g. `failed/socket` while Herdr is
+   * down) leaves the kit stopped, and `start()` may be called again afterwards — the host comes up
+   * while Herdr is down by retrying `start()` in a backoff loop until it reaches `ready`.
+   */
   async start(): Promise<void> {
     const token = ++this.generation;
     this.transport = await this.supervisor.start();
@@ -131,17 +136,24 @@ export class HerdrKit {
       } else this.update(e);
     }, () => {});
     this.stops.add(stop);
-    const control = stop as typeof stop & { ready?: Promise<boolean>; onReconnect?: (fn: () => void) => void;
-      onDisconnect?: (fn: () => void) => void };
-    control.onDisconnect?.(() => {
-      if (token !== this.generation) return;
-      this.current = { phase: 'reconnecting' }; this.o.onState?.(this.current);
-      this.tree.connected = false; this.publish();
-    });
-    control.onReconnect?.(refresh);
-    if (await control.ready === false) throw new Error('herdr: event subscription rejected');
-    await this.bootstrap(token, buffered);
-    booting = false;
+    try {
+      const control = stop as typeof stop & { ready?: Promise<boolean>; onReconnect?: (fn: () => void) => void;
+        onDisconnect?: (fn: () => void) => void };
+      control.onDisconnect?.(() => {
+        if (token !== this.generation) return;
+        this.current = { phase: 'reconnecting' }; this.o.onState?.(this.current);
+        this.tree.connected = false; this.publish();
+      });
+      control.onReconnect?.(refresh);
+      if (await control.ready === false) throw new Error('herdr: event subscription rejected');
+      await this.bootstrap(token, buffered);
+      booting = false;
+    } catch (error) {
+      // The attempt owns this subscription: drop it so a retried `start()` dials clean.
+      this.stops.delete(stop);
+      stop();
+      throw error;
+    }
   }
   async stop(): Promise<void> {
     ++this.generation;

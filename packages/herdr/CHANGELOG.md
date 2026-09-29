@@ -9,6 +9,9 @@
 - `adopt` mode takes `env` and `path` like `own`, merged into the `cli()`/`terminal()` env (so `HOME`,
   `HERDR_CLIENT_SOCKET_PATH`, `HERDR_SESSION` and a `#!/usr/bin/env node` bin work); `TerminalSession.pause()`/`resume()`
   apply backpressure to the Herdr child instead of buffering frames in the host.
+- K5 non-fatal start: a rejected `start()` (e.g. `failed/socket` while Herdr is down) may be called again —
+  the host comes up while Herdr is down by retrying `start()` in a backoff loop. A failed attempt drops its
+  event subscription, and `stop()` drops the closed transport, so a retry or restart dials clean.
 - FIX: the packed `dist/words.d.ts` keeps `with { type: 'json' }` on its `./words.json` import, so a strict NodeNext consumer with `skipLibCheck: false` no longer fails with TS1543.
 
 - Scaffold (docs/runtime-kits.md §11.3 H1): frozen public types, kit facade, internal seams and words. Behavior
