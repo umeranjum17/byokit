@@ -1,5 +1,5 @@
 // O7 acceptance (5.11): every default handler exercised directly through transport.request, failNext/drop as
-// documented, and the model stub answering the Crewhouse script grammar. No engine, no account, loopback only.
+// documented, and the model stub answering the script grammar. No engine, no account, loopback only.
 import { createServer } from 'node:net';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -320,7 +320,7 @@ test('the stub replies done with the last line and names the bot from its system
   const stub = await startModelStub();
   try {
     const out = await complete(stub, [
-      { role: 'system', content: 'Your id in Crewhouse is chief.' },
+      { role: 'system', content: 'Your id is chief.' },
       { role: 'user', content: 'hello\nmy last line' },
     ]);
     assert.equal(out.status, 200);
@@ -407,10 +407,10 @@ test('ask permission holds the turn until released', async () => {
 test('routing answers in shares and embeddings get embeddings', async () => {
   const stub = await startModelStub();
   try {
-    const system = { role: 'system', content: 'Your id in Crewhouse is chief.' };
-    const picked = await complete(stub, [system, { role: 'user', content: '[Crewhouse routing]\n- alpha: a\n- beta: b\n[route beta]' }]);
+    const system = { role: 'system', content: 'Your id is chief.' };
+    const picked = await complete(stub, [system, { role: 'user', content: '[routing]\n- alpha: a\n- beta: b\n[route beta]' }]);
     assert.deepEqual(JSON.parse(picked.content), { alpha: 0.1, beta: 0.9 });
-    const torn = await complete(stub, [system, { role: 'user', content: '[Crewhouse routing]\n- alpha: a\n- beta: b\n[route ?]' }]);
+    const torn = await complete(stub, [system, { role: 'user', content: '[routing]\n- alpha: a\n- beta: b\n[route ?]' }]);
     assert.deepEqual(JSON.parse(torn.content), { alpha: 0.5, beta: 0.5 });
     const embed = await post(stub, '/api/embeddings', { input: ['a', 'b'] });
     assert.deepEqual(await embed.json(), { embeddings: [[0.1, 0.2, 0.3], [0.1, 0.2, 0.3]] });
@@ -435,6 +435,24 @@ test('useModelStub points the config at the stub as every agent\'s primary model
     const patch = fake.calls.find((c) => c.method === 'config.patch')!;
     assert.equal(typeof (patch.params as any).baseHash, 'string');
     assert.deepEqual(stub.calls, []);
+  } finally {
+    await stub.close();
+  }
+});
+
+test('the stub takes an explicit id pattern and routing marker', async () => {
+  const stub = await startModelStub([], { idPattern: /bot id: (\w+)/, routingMarker: '[dispatch]' });
+  try {
+    const out = await complete(stub, [
+      { role: 'system', content: 'bot id: acme1' },
+      { role: 'user', content: 'hello' },
+    ]);
+    assert.equal(out.content, 'stub acme1: done with "hello"');
+    const picked = await complete(stub, [
+      { role: 'system', content: 'bot id: acme1' },
+      { role: 'user', content: '[dispatch]\n- alpha: a\n- beta: b\n[route beta]' },
+    ]);
+    assert.deepEqual(JSON.parse(picked.content), { alpha: 0.1, beta: 0.9 });
   } finally {
     await stub.close();
   }
