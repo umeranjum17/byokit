@@ -301,8 +301,9 @@ test('fake: subscribe acks { type: subscribed }, frames carry event and data.typ
     fake.emit({ type: 'workspace.created', workspace_id: 'w9' });
     fake.emit({ type: 'pane.created', pane_id: 'w9:p1', label: 'zsh' });
     const frame = await next();
-    assert.equal(frame.event, 'pane.created', 'frames carry the event name at the top level');
-    assert.equal((frame.data as { type?: string }).type, 'pane.created', 'frames carry data.type');
+    // Wire frames carry the live underscore spelling (`pane_created`), like the real server.
+    assert.equal(frame.event, 'pane_created', 'frames carry the event name at the top level');
+    assert.equal((frame.data as { type?: string }).type, 'pane_created', 'frames carry data.type');
     assert.equal((frame.data as { pane_id?: string }).pane_id, 'w9:p1');
     await pause(100);
     assert.equal(pending(), 0, 'the kinds filter dropped workspace.created');
@@ -322,7 +323,7 @@ test('fake: a filtered kind is watched per pane and carries the revision', async
     assert.equal(((await next()).result as { type?: string }).type, 'subscribed');
     fake.setStatus('w1:p2', 'working');
     const frame = await next();
-    assert.equal(frame.event, 'pane.agent_status_changed');
+    assert.equal(frame.event, 'pane_agent_status_changed');
     const data = frame.data as { pane_id?: string; agent_status?: string; revision?: number };
     assert.equal(data.pane_id, 'w1:p2');
     assert.equal(data.agent_status, 'working');

@@ -356,6 +356,11 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       .finally(() => socket.end());
   }
 
+  // Subscription kinds use the schema's dot spelling (`pane.created`); live frames carry
+  // the underscore const (`pane_created`, schema/SOURCE.md). The fake mirrors the real
+  // server: it accepts both spellings in subscriptions and emits underscore wire frames.
+  const wireName = (type: string): string => type.replace(/\./g, '_');
+
   function subscribe(socket: Socket, id: unknown, params: Params): void {
     const subs = Array.isArray(params.subscriptions) ? params.subscriptions as Params[] : [];
     const invalid = (message: string) => {
@@ -365,11 +370,11 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     };
     for (const s of subs) {
       if (typeof s?.type !== 'string') return invalid('every subscription needs a type');
-      if (s.type === 'pane.agent_status_changed' && typeof s.pane_id !== 'string') {
+      if (wireName(s.type) === 'pane_agent_status_changed' && typeof s.pane_id !== 'string') {
         return invalid('pane.agent_status_changed needs a pane_id');
       }
     }
-    const filtered = subs.filter((s) => s.type === 'pane.agent_status_changed');
+    const filtered = subs.filter((s) => typeof s.type === 'string' && wireName(s.type) === 'pane_agent_status_changed');
     if (filtered.length > 0 && filtered.length !== subs.length) {
       return invalid('pane.agent_status_changed cannot share a batch');
     }
@@ -378,22 +383,23 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       for (const s of filtered) statusSubs.add({ socket, paneId: s.pane_id as string });
       return;
     }
-    eventSubs.add({ socket, kinds: new Set(subs.map((s) => s.type as string)) });
+    eventSubs.add({ socket, kinds: new Set(subs.map((s) => wireName(s.type as string))) });
   }
 
   // Payloads follow the pinned schema's event data (src/generated/events.ts).
   function emitEvent(type: string, data: Params): void {
-    const frame = `${JSON.stringify({ event: type, data: { type, ...data } })}\n`;
+    const wire = wireName(type);
+    const frame = `${JSON.stringify({ event: wire, data: { type: wire, ...data } })}\n`;
     for (const sub of eventSubs) {
-      if (sub.kinds.size > 0 && !sub.kinds.has(type)) continue;
+      if (sub.kinds.size > 0 && !sub.kinds.has(wire)) continue;
       try { sub.socket.write(frame); } catch { /* closed mid-emit */ }
     }
   }
 
   function emitStatus(paneId: string, agentStatus: string, revision: number): void {
     const frame = `${JSON.stringify({
-      event: 'pane.agent_status_changed',
-      data: { type: 'pane.agent_status_changed', pane_id: paneId, agent_status: agentStatus, revision },
+      event: 'pane_agent_status_changed',
+      data: { type: 'pane_agent_status_changed', pane_id: paneId, agent_status: agentStatus, revision },
     })}\n`;
     for (const sub of statusSubs) {
       if (sub.paneId !== paneId) continue;
@@ -566,7 +572,7 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     bin,
     world: freezeWorld(live),
     emit(event) {
-      if (event.type === 'pane.agent_status_changed' && typeof event.pane_id === 'string') {
+      if (wireName(event.type) === 'pane_agent_status_changed' && typeof event.pane_id === 'string') {
         emitStatus(event.pane_id, String(event.agent_status ?? 'unknown'), Number(event.revision ?? 0));
         return;
       }

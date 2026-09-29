@@ -44,6 +44,9 @@ export class HerdrKit {
   private emitRaw(e: HerdrEvent) { for (const fn of [...this.rawListeners]) fn(e); }
   private update(e: HerdrEvent) {
     const raw = e as Raw;
+    // The pinned schema spells subscription kinds with dots (`pane.created`) while live
+    // frames carry the underscore const (`pane_created`, schema/SOURCE.md); match both.
+    const name = typeof e.type === 'string' ? e.type.replace(/_/g, '.') : '';
     const paneId = (raw.pane_id ?? raw.pane?.pane_id) as string | undefined;
     let owner: { workspaceId: string; tabId: string } | undefined;
     let pane: HerdrSnapshot['workspaces'][number]['tabs'][number]['panes'][number] | undefined;
@@ -54,7 +57,7 @@ export class HerdrKit {
       }
     }
     if (pane !== undefined && owner !== undefined &&
-        (e.type === 'pane.agent_status_changed' || e.type === 'pane.agent_detected' || e.type === 'pane.updated')) {
+        (name === 'pane.agent.status.changed' || name === 'pane.agent.detected' || name === 'pane.updated')) {
       const a = raw.agent ?? raw.pane ?? raw;
       pane.agent = { status: 'unknown', revision: 0, ...pane.agent,
         ...(a.agent !== undefined ? { kind: a.agent } : {}),
@@ -65,12 +68,12 @@ export class HerdrKit {
       };
       this.blockedList.update(paneId as string, pane.agent, owner);
     }
-    if (e.type === 'pane.closed') {
+    if (name === 'pane.closed') {
       this.blockedList.update(paneId as string, undefined, owner ?? { workspaceId: '', tabId: '' });
       for (const tab of this.tree.workspaces.flatMap((w) => w.tabs)) tab.panes = tab.panes.filter((p) => p.id !== paneId);
     }
-    if (e.type === 'tab.closed') for (const w of this.tree.workspaces) w.tabs = w.tabs.filter((t) => t.id !== raw.tab_id);
-    if (e.type === 'workspace.closed') this.tree.workspaces = this.tree.workspaces.filter((w) => w.id !== raw.workspace_id);
+    if (name === 'tab.closed') for (const w of this.tree.workspaces) w.tabs = w.tabs.filter((t) => t.id !== raw.tab_id);
+    if (name === 'workspace.closed') this.tree.workspaces = this.tree.workspaces.filter((w) => w.id !== raw.workspace_id);
     this.publish();
   }
   private async bootstrap(token: number, buffered: HerdrEvent[]): Promise<void> {
@@ -153,8 +156,10 @@ export class HerdrKit {
       // wire payload (pane.moved.previous_pane_id, workspace.*) exactly once. Buffered replays
       // in bootstrap() call update() only and never re-emit.
       this.emitRaw(e);
+      // Live frames carry the underscore spelling (`pane_created`); see update().
+      const name = typeof e.type === 'string' ? e.type.replace(/_/g, '.') : '';
       if (booting) buffered.push(e);
-      else if (e.type === 'pane.agent_detected' || /^(pane|tab|workspace)\.(created|closed|moved|renamed)$/.test(e.type)) {
+      else if (name === 'pane.agent.detected' || /^(pane|tab|workspace)\.(created|closed|moved|renamed)$/.test(name)) {
         buffered.push(e); refresh();
       } else this.update(e);
     }, () => {});
