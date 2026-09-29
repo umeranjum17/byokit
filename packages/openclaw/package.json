@@ -49,7 +49,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "prepack": "tsc -b"
+    "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"
   },
   "dependencies": {
     "@byokit/link": "0.3.1",

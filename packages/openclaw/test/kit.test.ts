@@ -14,6 +14,13 @@ async function withKit(fn: (kit: OpenClawKit, fake: ReturnType<typeof fakeGatewa
   finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 }
 
+test('call before start rejects instead of throwing synchronously', async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o4-notready-'));
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: fakeGateway().factory });
+  try { await assert.rejects(kit.call('models.authStatus', { agentId: 'm1' }), /gateway not ready/); }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 test('typed pass-through, dynamic refusal, events and hello', async () => withKit(async (kit, fake) => {
   assert.equal(kit.state.phase, 'ready');
   assert.equal(kit.hello?.protocol, 4);
