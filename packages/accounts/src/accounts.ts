@@ -449,9 +449,14 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const pi = this.offer(key).pi;
     return (await this.runtime(member)).getAuth(pi, { minOAuthValidityMs }).then(Boolean, async (e: Error) => {
       if (offline(e)) return true;
-      if (e?.message !== `OAuth refresh returned a token that expires too soon for ${pi}`) return false;
-      const c = await this.store(member).read(pi);
-      return c?.type === 'oauth' && c.expires > Date.now();
+      if (e?.message === `OAuth refresh returned a token that expires too soon for ${pi}`) {
+        const c = await this.store(member).read(pi);
+        return c?.type === 'oauth' && c.expires > Date.now();
+      }
+      // Only the provider refusing (400-403) counts as expiry. Anything else (a locked keychain read, storage failing)
+      // is unknown: try later, never sign the person out.
+      const status = (e as any)?.status;
+      return typeof status !== 'number' || status < 400 || status > 403;
     });
   }
 

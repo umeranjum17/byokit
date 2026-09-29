@@ -229,6 +229,44 @@ test('portable store accepts React Native-style AbortSignal without throwIfAbort
   assert.equal(await store.read('other'), undefined);
 });
 
+test('secureStore passes the same options to every get, set and delete', async () => {
+  const seen: unknown[] = [];
+  const kept = new Map<string, string>();
+  const options = { keychainAccessible: 'WHEN_UNLOCKED_THIS_DEVICE_ONLY' };
+  const secure: SecureStoreLike = {
+    getItemAsync: async (k, o) => { seen.push(o); return kept.get(k) ?? null; },
+    setItemAsync: async (k, v, o) => { seen.push(o); kept.set(k, v); },
+    deleteItemAsync: async (k, o) => { seen.push(o); kept.delete(k); },
+  };
+  const s = secureStore(secure, 'byokit.9', options);
+  await s.modify('openai-codex', async () => ({ type: 'oauth', access: 'a', refresh: 'r', expires: 1 }));
+  await s.read('openai-codex');
+  await s.delete('openai-codex');
+  assert.ok(seen.length > 0, 'every call recorded its options');
+  for (const o of seen) assert.equal(o, options);
+});
+
+test('a locked-keychain read is unknown, not expiry: keepFresh fires no onExpired', async () => {
+  const base = memoryStore();
+  const a = kit(base);
+  const v = (await a.login(1, 'chatgpt'))!;
+  openai.approve(v.code!);
+  await a.finished(1, 'chatgpt');
+  assert.equal(await a.signedIn(1, 'chatgpt'), true);
+  // The phone locks: every Keychain read fails, although the sign-in is still valid.
+  const read = base.read;
+  (base as { read: typeof read }).read = async () => { throw new Error('User interaction is not allowed'); };
+  try {
+    let fired = 0;
+    a.onExpired = () => { fired++; };
+    await a.keepFresh([1]);
+    assert.equal(fired, 0, 'no onExpired for a locked keychain');
+    assert.notEqual((await a.status(1, 'chatgpt')).state, 'needs_again');
+  } finally {
+    (base as { read: typeof read }).read = read;
+  }
+});
+
 test('secureStore: chunked under the size expo-secure-store allows, and a crash mid-write keeps the old sign-ins', async () => {
   const kept = new Map<string, string>();
   let failAfter = Infinity;

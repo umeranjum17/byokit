@@ -18,7 +18,7 @@ function engine(script: (i: AuthInteraction, attempt: number) => Promise<void>) 
     logout: async (id) => { signed.delete(id); },
     checkAuth: async (id) => (signed.has(id) ? { type: 'oauth' } : undefined),
     getAuth: (async (id: string) => {
-      if (refresh === 'refused') throw new Error('invalid_grant: refresh token revoked');
+      if (refresh === 'refused') throw Object.assign(new Error('invalid_grant: refresh token revoked'), { status: 401 });
       if (refresh === 'offline') throw new Error('fetch failed');
       return signed.has(id) ? { auth: {} } : undefined;
     }) as AuthHost['getAuth'],

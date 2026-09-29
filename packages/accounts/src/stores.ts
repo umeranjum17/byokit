@@ -35,33 +35,36 @@ export function memoryStore(): CredentialStore {
   return recordStore(async () => ({ ...data }), async (d) => { data = d; });
 }
 
-/** The parts of `expo-secure-store` this uses (Keychain on iOS, Keystore-encrypted on Android); pass the module itself. */
+/** The parts of `expo-secure-store` this uses (Keychain on iOS, Keystore-encrypted on Android); pass the module itself.
+ *  Every method takes the same optional `options` (e.g. `{ keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }`). */
 export type SecureStoreLike = {
-  getItemAsync(key: string): Promise<string | null>;
-  setItemAsync(key: string, value: string): Promise<void>;
-  deleteItemAsync(key: string): Promise<void>;
+  getItemAsync(key: string, options?: object): Promise<string | null>;
+  setItemAsync(key: string, value: string, options?: object): Promise<void>;
+  deleteItemAsync(key: string, options?: object): Promise<void>;
 };
 
 /** One person's sign-ins in the phone's secure storage: `secureStore(SecureStore, 'byokit.1')`. Keys may hold letters,
  *  digits, `.`, `-` and `_`. The record is split into pieces under the 2048 bytes expo-secure-store warns about, written
- *  as a new generation, then `name` is pointed at it: a crash mid-write leaves the old sign-ins whole. */
-export function secureStore(secure: SecureStoreLike, name: string): CredentialStore {
-  const head = async () => { const [gen = '0', n = '0'] = (await secure.getItemAsync(name))?.split(':') ?? []; return { gen: Number(gen), n: Number(n) }; };
+ *  as a new generation, then `name` is pointed at it: a crash mid-write leaves the old sign-ins whole. `options` (e.g.
+ *  `{ keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }`) is passed to every get, set and delete;
+ *  without it Expo's default (`WHEN_UNLOCKED`) applies. */
+export function secureStore(secure: SecureStoreLike, name: string, options?: object): CredentialStore {
+  const head = async () => { const [gen = '0', n = '0'] = (await secure.getItemAsync(name, options))?.split(':') ?? []; return { gen: Number(gen), n: Number(n) }; };
   const load = async () => {
     const { gen, n } = await head();
     let text = '';
-    for (let i = 0; i < n; i++) text += (await secure.getItemAsync(`${name}.${gen}.${i}`)) ?? '';
+    for (let i = 0; i < n; i++) text += (await secure.getItemAsync(`${name}.${gen}.${i}`, options)) ?? '';
     return text ? JSON.parse(text) : {};
   };
   const save = async (data: Record) => {
     const old = await head();
     const gen = old.gen + 1;
     const parts = (Object.keys(data).length ? JSON.stringify(data) : '').match(/[\s\S]{1,1800}/g) ?? [];
-    for (const [i, part] of parts.entries()) await secure.setItemAsync(`${name}.${gen}.${i}`, part);
-    await secure.setItemAsync(name, `${gen}:${parts.length}`);
-    for (let i = 0; i < old.n; i++) await secure.deleteItemAsync(`${name}.${old.gen}.${i}`);
+    for (const [i, part] of parts.entries()) await secure.setItemAsync(`${name}.${gen}.${i}`, part, options);
+    await secure.setItemAsync(name, `${gen}:${parts.length}`, options);
+    for (let i = 0; i < old.n; i++) await secure.deleteItemAsync(`${name}.${old.gen}.${i}`, options);
     // Leftovers of a write that crashed at this generation before.
-    for (let i = parts.length; (await secure.getItemAsync(`${name}.${gen}.${i}`)) !== null; i++) await secure.deleteItemAsync(`${name}.${gen}.${i}`);
+    for (let i = parts.length; (await secure.getItemAsync(`${name}.${gen}.${i}`, options)) !== null; i++) await secure.deleteItemAsync(`${name}.${gen}.${i}`, options);
   };
   return recordStore(load, save);
 }
