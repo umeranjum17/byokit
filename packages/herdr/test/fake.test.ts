@@ -272,6 +272,214 @@ test('fake: worktree.create links a checkout into the root workspace', async () 
   });
 });
 
+test('fake: workspace.rename, tab.rename and pane.rename relabel through the documented handle', async () => {
+  await withFake(async (fake) => {
+    const ws = await request(fake.socketPath, 'workspace.rename', { workspace_id: 'w1', label: 'renamed' });
+    assert.equal((ws.result as { type?: string }).type, 'workspace_info');
+    assert.equal((ws.result as { workspace: { label: string } }).workspace.label, 'renamed');
+    assert.equal(fake.world.workspaces[0].label, 'renamed', 'the rename lands in the live world');
+    const tab = await request(fake.socketPath, 'tab.rename', { tab_id: 'w1:t1', label: 'second' });
+    assert.equal((tab.result as { type?: string }).type, 'tab_info');
+    assert.equal(fake.world.tabs[0].label, 'second');
+    const pane = await request(fake.socketPath, 'pane.rename', { pane_id: 'w1:p1', label: 'editor' });
+    assert.equal((pane.result as { type?: string }).type, 'pane_info');
+    assert.equal((pane.result as { pane: { label: string } }).pane.label, 'editor');
+    assert.equal(fake.world.panes[0].label, 'editor');
+    assert.equal((await request(fake.socketPath, 'workspace.rename', { workspace_id: 'w9', label: 'x' })).error?.code,
+      'workspace_not_found');
+    assert.equal((await request(fake.socketPath, 'tab.rename', { tab_id: 'w9:t9', label: 'x' })).error?.code,
+      'tab_not_found');
+    assert.equal((await request(fake.socketPath, 'pane.rename', { pane_id: 'w9:p9', label: 'x' })).error?.code,
+      'pane_not_found');
+  });
+});
+
+test('fake: agent.rename validates the name with invalid_agent_name and agent_name_taken', async () => {
+  await withFake(async (fake) => {
+    await request(fake.socketPath, 'agent.start', { pane_id: 'w1:p1', kind: 'pi', name: 'worker' });
+    const renamed = await request(fake.socketPath, 'agent.rename', { target: 'w1:p1', name: 'editor' });
+    assert.equal((renamed.result as { type?: string }).type, 'agent_info');
+    assert.equal((renamed.result as { agent: { name: string } }).agent.name, 'editor');
+    assert.equal(fake.world.agents.find((a) => a.pane_id === 'w1:p1')?.name, 'editor',
+      'the rename lands in the live world');
+    assert.equal((await request(fake.socketPath, 'agent.rename', { target: 'w1:p1', name: '9bad' })).error?.code,
+      'invalid_agent_name');
+    assert.equal((await request(fake.socketPath, 'agent.rename', { target: 'w1:p1', name: 'Bad Name!' })).error?.code,
+      'invalid_agent_name');
+    assert.equal((await request(fake.socketPath, 'agent.rename', { target: 'w1:p1', name: 'pi' })).error?.code,
+      'agent_name_taken', 'w1:p2 still owns the seed name');
+    assert.equal((await request(fake.socketPath, 'agent.rename', { target: 'w1:p9', name: 'ghost' })).error?.code,
+      'agent_not_found');
+    assert.equal(fake.world.agents.find((a) => a.pane_id === 'w1:p1')?.name, 'editor',
+      'refused renames change nothing');
+  });
+});
+
+test('fake: agent.start answers the boot-window reply both shapes read', async () => {
+  await withFake(async (fake) => {
+    const started = await request(fake.socketPath, 'agent.start', { pane_id: 'w1:p1', kind: 'pi', name: 'worker' });
+    const result = started.result as { type?: string; agent: Record<string, unknown>; argv?: unknown };
+    assert.equal(result.type, 'agent_started', 'the pinned 0.9.1 envelope');
+    assert.equal(result.agent.pane_id, 'w1:p1', 'the 0.8 shape muxr reads');
+    assert.equal(result.agent.agent_status, 'idle');
+    assert.equal(typeof result.agent.terminal_id, 'string');
+    assert.equal(typeof result.agent.revision, 'number');
+    assert.deepEqual(result.argv, [], 'no boot args were passed');
+    const withArgs = await request(fake.socketPath, 'agent.start',
+      { pane_id: 'w1:p1', kind: 'pi', name: 'worker', args: ['--flag'] });
+    assert.deepEqual((withArgs.result as { argv?: unknown }).argv, ['--flag']);
+  });
+});
+
+test('fake: pane.get carries scroll state and pane.scroll moves it', async () => {
+  await withFake(async (fake) => {
+    const got = await request(fake.socketPath, 'pane.get', { pane_id: 'w1:p1' });
+    const pane = (got.result as { pane: Record<string, unknown> }).pane;
+    assert.deepEqual(pane.scroll, { offset_from_bottom: 0, max_offset_from_bottom: 0, viewport_rows: 24 });
+    assert.equal(typeof pane.revision, 'number', 'the revision rides pane.get for the stale check');
+    assert.equal(typeof pane.terminal_id, 'string');
+    const scrolled = await request(fake.socketPath, 'pane.scroll', { pane_id: 'w1:p1', offset_from_bottom: 0 });
+    assert.equal((scrolled.result as { type?: string }).type, 'pane_info');
+    assert.deepEqual((scrolled.result as { pane: { scroll: unknown } }).pane.scroll,
+      { offset_from_bottom: 0, max_offset_from_bottom: 0, viewport_rows: 24 });
+    assert.deepEqual(fake.world.panes[0].scroll.offset_from_bottom, 0, 'the scroll lands in the live world');
+    assert.equal((await request(fake.socketPath, 'pane.scroll', { pane_id: 'w9:p9', offset_from_bottom: 3 })).error?.code,
+      'pane_not_found');
+  });
+});
+
+test('fake: the world handle is live and ids seed deterministically', async () => {
+  const fake = await startFakeHerdr({ dir: scratchDir('herdr-fake-seed'), world: { seed: 100 } });
+  try {
+    assert.equal(fake.world.workspaces[0].workspace_id, 'w1', 'the seed world starts the same herd');
+    const made = await request(fake.socketPath, 'workspace.create', { cwd: '/tmp/seeded', label: 's' });
+    const workspaceId = (made.result as { workspace: { workspace_id: string } }).workspace.workspace_id;
+    assert.equal(workspaceId, 'w102', 'the first workspace id follows the seed');
+    assert.ok(fake.world.workspaces.some((w) => w.workspace_id === 'w102'), 'creates land in the live world');
+    const split = await request(fake.socketPath, 'pane.split', { target_pane_id: 'w1:p1' });
+    assert.equal((split.result as { pane: { pane_id: string } }).pane.pane_id, 'w1:p103',
+      'the first split pane id follows the seed');
+    fake.world.workspaces[0].label = 'mutated';
+    const got = await request(fake.socketPath, 'workspace.get', { workspace_id: 'w1' });
+    assert.equal((got.result as { workspace: { label: string } }).workspace.label, 'mutated',
+      'a test mutation to the handle is what the server answers');
+  } finally {
+    await fake.stop();
+  }
+});
+
+test('fake: watching() lists filtered panes, snapshotCount counts, holds and failures script answers', async () => {
+  await withFake(async (fake) => {
+    assert.deepEqual(fake.watching(), [], 'nothing is watched at start');
+    assert.equal(fake.snapshotCount(), 0, 'no snapshot has been served');
+    await request(fake.socketPath, 'session.snapshot');
+    assert.equal(fake.snapshotCount(), 1);
+    const held = fake.holdSnapshot();
+    const pending = request(fake.socketPath, 'session.snapshot');
+    await pause(100);
+    assert.equal(fake.snapshotCount(), 2, 'a held snapshot still counts on arrival');
+    held();
+    const answered = await pending;
+    assert.ok((answered.result as { snapshot?: unknown }).snapshot !== undefined, 'the release answers it');
+    fake.failNextSnapshot('snapshot_failed', 'boom');
+    const failed = await request(fake.socketPath, 'session.snapshot');
+    assert.equal(failed.error?.code, 'snapshot_failed');
+    assert.equal(fake.snapshotCount(), 3);
+
+    const socket = await openSocket(fake.socketPath);
+    const { next } = reader(socket);
+    const releaseAck = fake.holdAck();
+    send(socket, { id: 11, method: 'events.subscribe',
+      params: { subscriptions: [{ type: 'pane.agent_status_changed', pane_id: 'w1:p2' }] } });
+    await pause(100);
+    assert.deepEqual(fake.watching(), [], 'a held ack watches nothing yet');
+    releaseAck();
+    assert.deepEqual(await next(), { id: 11, result: { type: 'subscribed' } });
+    assert.deepEqual(fake.watching(), ['w1:p2'], 'the acked watch lists its pane');
+    assert.equal(fake.watching('w1:p2'), true);
+    assert.equal(fake.watching('w1:p1'), false);
+    socket.destroy();
+
+    const rejecting = await openSocket(fake.socketPath);
+    rejecting.on('error', () => {});
+    fake.failNextAck('invalid_subscription', 'rejected once');
+    const firstLine = new Promise<Answer>((resolve) => {
+      rejecting.setEncoding('utf8');
+      let buffer = '';
+      rejecting.on('data', (chunk: string) => {
+        buffer += chunk;
+        for (const line of buffer.split('\n')) {
+          if (line.trim() === '') continue;
+          resolve(JSON.parse(line) as Answer);
+          return;
+        }
+      });
+    });
+    send(rejecting, { id: 12, method: 'events.subscribe', params: { subscriptions: [{ type: 'pane.created' }] } });
+    const rejection = await firstLine;
+    assert.equal(rejection.id, '');
+    assert.equal(rejection.error?.code, 'invalid_subscription');
+  });
+});
+
+test('fake: filtered emit reaches only the watching pane; filtered batches without a filter are rejected', async () => {
+  await withFake(async (fake) => {
+    const panes: string[][] = [];
+    const watch = async (paneId: string) => {
+      const socket = await openSocket(fake.socketPath);
+      send(socket, { id: 1, method: 'events.subscribe',
+        params: { subscriptions: [{ type: 'pane.scroll_changed', pane_id: paneId }] } });
+      const { next } = reader(socket);
+      assert.equal(((await next()).result as { type?: string }).type, 'subscribed');
+      const frames: string[] = [];
+      void (async () => {
+        for (;;) {
+          const frame = (await next()).data as { pane_id?: string };
+          if (typeof frame?.pane_id === 'string') frames.push(frame.pane_id);
+        }
+      })().catch(() => {});
+      panes.push(frames);
+      return socket;
+    };
+    const s1 = await watch('w1:p1');
+    const s2 = await watch('w1:p2');
+    fake.emit({ type: 'pane.scroll_changed', pane_id: 'w1:p1',
+      scroll: { offset_from_bottom: 0, max_offset_from_bottom: 0, viewport_rows: 24 } });
+    await until(async () => panes[0].length === 1, 2000, 'the watching pane’s frame');
+    await pause(100);
+    assert.deepEqual(panes[1], [], 'the other pane’s watch hears nothing');
+    assert.deepEqual(fake.watching().sort(), ['w1:p1', 'w1:p2']);
+    s1.destroy();
+    s2.destroy();
+
+    for (const subscriptions of [
+      [{ type: 'pane.scroll_changed' }],
+      [{ type: 'pane.output_matched', pane_id: 'w1:p1' }],
+      [{ type: 'pane.output_matched', pane_id: 'w1:p1' }, { type: 'pane.created' }],
+    ]) {
+      const socket = await openSocket(fake.socketPath);
+      socket.on('error', () => {});
+      const firstLine = new Promise<Answer>((resolve) => {
+        socket.setEncoding('utf8');
+        let buffer = '';
+        socket.on('data', (chunk: string) => {
+          buffer += chunk;
+          for (const line of buffer.split('\n')) {
+            if (line.trim() === '') continue;
+            resolve(JSON.parse(line) as Answer);
+            return;
+          }
+        });
+      });
+      send(socket, { id: 3, method: 'events.subscribe', params: { subscriptions } });
+      const rejection = await firstLine;
+      assert.equal(rejection.id, '', 'a rejected subscribe answers id ""');
+      assert.equal(rejection.error?.code, 'invalid_subscription');
+      await until(() => socket.destroyed, 2000, 'the server closes after a rejection');
+    }
+  });
+});
+
 test('fake: server.agent_manifests lists the world kinds; server.stop shuts the fake down', async () => {
   const fake = await startFakeHerdr({ dir: scratchDir('herdr-fake'), world: { kinds: ['pi', 'gemini'] } });
   try {
@@ -284,12 +492,32 @@ test('fake: server.agent_manifests lists the world kinds; server.stop shuts the 
   }
 });
 
-test('fake: an unknown method answers unknown_method', async () => {
+test('fake: plugin.list answers the seeded plugins; an unknown method answers unknown_method', async () => {
   await withFake(async (fake) => {
-    const answer = await request(fake.socketPath, 'plugin.list');
-    assert.equal(answer.error?.code, 'unknown_method');
-    assert.match(answer.error?.message ?? '', /plugin\.list/);
+    const empty = await request(fake.socketPath, 'plugin.list');
+    assert.deepEqual((empty.result as { plugins?: unknown }).plugins, [],
+      'no plugins are seeded by default');
+    const missing = await request(fake.socketPath, 'nope.unknown');
+    assert.equal(missing.error?.code, 'unknown_method');
+    assert.match(missing.error?.message ?? '', /nope\.unknown/);
   });
+  const seeded = await startFakeHerdr({ dir: scratchDir('herdr-fake-plugins'),
+    world: { plugins: [{ plugin_id: 'muxr-git', version: '1.2.3' }] } });
+  try {
+    const list = await request(seeded.socketPath, 'plugin.list');
+    const plugins = (list.result as { type?: string; plugins: { plugin_id: string; name: string; version: string; enabled: boolean }[] }).plugins;
+    assert.equal((list.result as { type?: string }).type, 'plugin_list');
+    assert.equal(plugins.length, 1);
+    assert.equal(plugins[0].plugin_id, 'muxr-git');
+    assert.equal(plugins[0].version, '1.2.3');
+    assert.equal(plugins[0].enabled, true);
+    const filtered = await request(seeded.socketPath, 'plugin.list', { plugin_id: 'muxr-git' });
+    assert.equal((filtered.result as { plugins: unknown[] }).plugins.length, 1);
+    const none = await request(seeded.socketPath, 'plugin.list', { plugin_id: 'other' });
+    assert.deepEqual((none.result as { plugins: unknown[] }).plugins, []);
+  } finally {
+    await seeded.stop();
+  }
 });
 
 test('fake: subscribe acks { type: subscribed }, frames carry event and data.type, kinds filter', async () => {
@@ -383,9 +611,13 @@ test('fake: the bin answers --version and api schema --json, and is 0700', async
     const version = await run(fake.bin, ['--version']);
     assert.equal(version.stdout, `herdr ${HERDR_VERSION}\n`);
     const schema = await run(fake.bin, ['api', 'schema', '--json']);
-    const parsed = JSON.parse(schema.stdout) as { protocol: number; version: string };
+    // The pinned v0.9.1 snapshot itself, not an identity placeholder: the same bytes gen-types
+    // runs from, byte-identical to schema/herdr-api-0.9.1.json.
+    const parsed = JSON.parse(schema.stdout) as { protocol?: number; schema_version?: number;
+      schemas?: { request?: { $defs?: Record<string, unknown> } } };
     assert.equal(parsed.protocol, HERDR_PROTOCOL);
-    assert.equal(parsed.version, HERDR_VERSION);
+    assert.equal(parsed.schema_version, 1);
+    assert.ok(parsed.schemas?.request?.$defs?.AgentStartParams, 'the request schemas ride along');
     assert.equal(statSync(fake.bin).mode & 0o777, 0o700, 'the shim is 0700');
   });
 });
@@ -426,10 +658,37 @@ test('fake: the bin terminal session emits one ready frame and echoes sends', as
     assert.equal(ready.takeover, false);
     child.stdin?.write(`${JSON.stringify({ type: 'terminal.input', data: 'echo hi' })}\n`);
     await until(() => out().includes('terminal.frame'), 5000, 'the echo frame');
-    const echo = JSON.parse(lines.find((line) => line.includes('terminal.frame'))!) as { data?: string };
-    assert.equal(echo.data, 'echo hi');
+    const echo = JSON.parse(lines.find((line) => line.includes('terminal.frame'))!) as
+      { data?: string; full?: string; bytes?: number };
+    assert.equal(echo.data, 'echo hi', 'the data alias still rides along');
+    assert.equal(echo.full, 'echo hi', 'frames carry the real full text');
+    assert.equal(echo.bytes, Buffer.byteLength('echo hi'), 'frames carry the byte length');
     child.stdin?.write(`${JSON.stringify({ type: 'terminal.release' })}\n`);
     await until(() => exited(child), 5000, 'release exits the terminal');
+  });
+});
+
+test('fake: the bin terminal session resizes on terminal.resize with an empty stamped frame', async () => {
+  await withFake(async (fake) => {
+    const { child, lines, out } = spawnTerminal(fake, 'observe', 'w1:p1', '--cols', '80', '--rows', '24');
+    await until(() => out().includes('terminal.ready'), 5000, 'the ready frame');
+    child.stdin?.write(`${JSON.stringify({ type: 'terminal.resize', cols: 120, rows: 40 })}\n`);
+    await until(() => lines.filter((line) => line.includes('terminal.frame')).length >= 1, 5000, 'the resize frame');
+    const resized = JSON.parse(lines.find((line) => line.includes('terminal.frame'))!) as
+      { full?: string; bytes?: number; cols?: number; rows?: number };
+    assert.equal(resized.full, '');
+    assert.equal(resized.bytes, 0);
+    assert.equal(resized.cols, 120);
+    assert.equal(resized.rows, 40);
+    child.stdin?.write(`${JSON.stringify({ type: 'terminal.input', data: 'after resize' })}\n`);
+    await until(() => lines.filter((line) => line.includes('terminal.frame')).length >= 2, 5000, 'the echo frame');
+    const echo = JSON.parse(lines.filter((line) => line.includes('terminal.frame'))[1]) as
+      { full?: string; cols?: number; rows?: number };
+    assert.equal(echo.full, 'after resize');
+    assert.equal(echo.cols, 120, 'later frames keep the resized size');
+    assert.equal(echo.rows, 40);
+    child.kill();
+    await until(() => exited(child), 5000, 'the terminal child exits');
   });
 });
 
