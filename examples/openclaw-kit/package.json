@@ -1,0 +1,26 @@
+{
+  "name": "byokit-openclaw-kit-example",
+  "private": true,
+  "description": "Your ChatGPT plan working for you on this computer, from a phone browser: pair, sign in, send a message, allow what it asks.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "prestart": "npm run build:web",
+    "start": "node host.ts",
+    "build:web": "esbuild web/app.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=web/app.js --log-level=warning",
+    "test": "node --test e2e.test.ts"
+  },
+  "dependencies": {
+    "@byokit/link": "0.3.2",
+    "@byokit/openclaw": "0.1.0",
+    "@byokit/reach": "0.2.0",
+    "@byokit/seal": "0.1.0",
+    "@byokit/ui-core": "0.2.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

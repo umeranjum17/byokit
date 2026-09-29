@@ -35,7 +35,8 @@ jobs:
       - if: github.event_name == 'pull_request'
         run: npm run release -- lint --base origin/${{ github.base_ref }}
 
-  # Real browsers (headless Chromium): the PWA example's sign-in against a stand-in OpenAI, and the Herdr kit example.
+  # Real browsers (headless Chromium): the PWA example's sign-in against a stand-in OpenAI, and the Herdr and OpenClaw
+  # kit examples.
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -51,6 +52,8 @@ jobs:
       - run: npm run test:browser
       # The Herdr kit example as someone installs it (packed packages) against the kit's fake Herdr, on a phone-sized page.
       - run: sh scripts/test.sh examples/herdr-kit/e2e.test.ts
+      # The OpenClaw kit example the same way, against the kit's fake Gateway.
+      - run: sh scripts/test.sh examples/openclaw-kit/e2e.test.ts
 
   openclaw-engine:
     runs-on: ubuntu-latest

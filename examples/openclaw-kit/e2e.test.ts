@@ -1,0 +1,167 @@
+// The example as someone gets it: the workspace packages packed (`npm pack`) and laid into a copy of this folder's
+// node_modules, the page built with its own script, host.ts started against the kit's fake Gateway (the only OpenClaw
+// this test ever runs), and a phone-sized headless Chromium going pair → sign in with a device code → a message that
+// uses the helper's tool → Allow → the reply, then one more → Deny. Every status a person reads must be the kit's own
+// sentence from its words.json. Third-party dependencies are linked from the repo's installed tree, so the run stays
+// offline. BYOKIT_EXAMPLE_SHOTS=<folder> keeps a screenshot of each step.
+import { test, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { spawn, execFileSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync } from 'node:fs';
+import { createServer } from 'node:net';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium, type Page } from 'playwright';
+import { scratchDir, trackChild } from '../../packages/test-support.ts';
+
+const here = fileURLToPath(new URL('.', import.meta.url));
+const root = join(here, '../..');
+const PACKAGES = ['openclaw', 'link', 'relay', 'reach', 'seal', 'ui-core'];
+
+// A clean copy of the example with the packed packages installed the way npm lays them out.
+const dir = scratchDir('openclaw-kit');
+const app = join(dir, 'app');
+cpSync(here, app, { recursive: true, filter: (f) => !/[/\\](node_modules|\.state|docs)$|app\.js$/.test(f) });
+const tgz = join(dir, 'tgz');
+mkdirSync(tgz);
+const packed = Object.values(JSON.parse(execFileSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', tgz,
+  ...PACKAGES.flatMap((p) => ['-w', `packages/${p}`])], { cwd: root, encoding: 'utf8', env: { ...process.env, npm_config_update_notifier: 'false' } }))) as { name: string; version: string; filename: string }[]; // an array or keyed by package, by npm version
+// The example's pins name exactly what the repo packs, so `npm i` gets the code this test proves.
+const pins = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).dependencies as Record<string, string>;
+for (const p of packed) if (pins[p.name]) assert.equal(pins[p.name], p.version, `${p.name} pin is stale`);
+const modules = join(app, 'node_modules');
+for (const p of packed) {
+  const into = join(modules, p.name);
+  mkdirSync(into, { recursive: true });
+  execFileSync('tar', ['-xzf', join(tgz, p.filename), '-C', into, '--strip-components=1']);
+}
+for (const entry of readdirSync(join(root, 'node_modules'))) {
+  if (entry !== '@byokit') symlinkSync(join(root, 'node_modules', entry), join(modules, entry));
+}
+execFileSync('npm', ['run', 'build:web'], { cwd: app, stdio: 'ignore', env: { ...process.env, npm_config_update_notifier: 'false' } });
+const WORDS = JSON.parse(readFileSync(join(modules, '@byokit/openclaw/dist/words.json'), 'utf8')) as Record<string, string>;
+const fill = (key: string, vars: Record<string, string>) => Object.entries(vars).reduce((s, [k, v]) => s.replaceAll(`{${k}}`, v), WORDS[key]);
+const ASK = fill('approval.ask', { helper: 'Your helper', summary: 'save a note' });
+const NAME = 'Test computer';
+const shots = process.env.BYOKIT_EXAMPLE_SHOTS;
+
+// Playwright's own Chromium (CI installs it); else the system's, for a machine without Playwright's download.
+const executablePath = existsSync(chromium.executablePath()) ? undefined : process.env.BYOKIT_CHROME ?? '/usr/bin/chromium';
+const browser = await chromium.launch({ executablePath });
+
+const port = await new Promise<number>((resolve) => {
+  const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address() as { port: number }; s.close(() => resolve(port)); });
+});
+const host = trackChild(spawn(process.execPath, ['host.ts', '--via', 'lan', '--port', String(port), '--name', NAME],
+  { cwd: app, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
+after(async () => { await browser.close(); host.kill('SIGTERM'); });
+let said = '';
+host.stdout.on('data', (b: Buffer) => { said += b.toString(); });
+/** The host's first line matching `pattern` after `from` characters of what it said. */
+const heard = async (pattern: RegExp, from = 0) => {
+  for (let i = 0; i < 300 && !pattern.test(said.slice(from)); i++) await new Promise((r) => setTimeout(r, 50));
+  const m = said.slice(from).match(pattern);
+  assert.ok(m, `host never said ${pattern}; it said:\n${said}`);
+  return m;
+};
+const CODE = /type ([2-9A-Z]{4}-[2-9A-Z]{4}-[2-9A-Z]{4})/;
+const notes = () => { try { return readFileSync(join(app, '.state/notes.txt'), 'utf8'); } catch { return ''; } };
+
+const shot = async (page: Page, name: string) => { if (shots) await page.screenshot({ path: join(shots, `${name}.png`), fullPage: true }); };
+const text = async (page: Page, selector: string, want: string) => {
+  const found = page.locator(selector).filter({ hasText: want }).first();
+  await found.waitFor();
+  assert.equal((await found.textContent())?.trim(), want);
+};
+
+test('pair a phone, sign in with a code, and allow or deny what the helper asks, all in plain words', async () => {
+  await heard(new RegExp(WORDS['engine.ready'].replace('.', '\\.')));
+  const code = (await heard(CODE))[1];
+
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true,
+    userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36' });
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on('pageerror', (e) => { errors.push(String(e)); console.error(e); });
+  await page.goto(`http://127.0.0.1:${port}/`);
+  await text(page, '#pair-title', 'Scan the code on your computer, or type the code it shows.');
+  await shot(page, '1-pair');
+
+  // The phone and the computer show the same two words; the person says yes at the computer.
+  await page.fill('#pair-input', code.toLowerCase());
+  await page.click('#pair-go');
+  const words = (await heard(/Check it shows these two words: (\w+ \w+)/))[1];
+  await text(page, '#pair-words', words);
+  await heard(/Pair Android phone\? \(y\/n\) $/);
+  host.stdin.write('y\n');
+
+  await text(page, '#link', `Connected to ${NAME}.`);
+  await text(page, '#engine', WORDS['engine.ready']);
+  await text(page, '#signin-title', fill('member.signedOut', { name: 'ChatGPT' }));
+  await shot(page, '2-signed-out');
+
+  // Sign in with ChatGPT: the phone shows the device code and ChatGPT's page; the fake says yes a few seconds later.
+  await page.click('#signin-go');
+  await text(page, '#signin-code', 'CREW-2026');
+  await text(page, '#signin-title', 'On the ChatGPT page, type this code:');
+  assert.equal(await page.getAttribute('#signin-url', 'href'), 'https://auth.openai.com/codex/device');
+  await shot(page, '3-code');
+  await page.locator('#talk').waitFor();
+  assert.equal(await page.locator('#signin').isHidden(), true);
+
+  // A message that uses the helper's tool: it waits for a yes, and Allow lets it save the note.
+  const allowMe = 'Note this: [tool demo_note {"text":"buy milk"}]';
+  await page.fill('#message', allowMe);
+  await page.click('#send');
+  const approval = page.locator('#approvals .approval');
+  await approval.waitFor();
+  await text(page, '#approvals .approval p', ASK);
+  await text(page, '#tool', 'Using demo note…');
+  assert.equal(notes(), '', 'nothing saved before the yes');
+  await shot(page, '4-approval');
+  await approval.getByRole('button', { name: /^Allow/ }).click();
+  await approval.waitFor({ state: 'detached' });
+  await text(page, '#reply', `fake: ${allowMe}`);
+  assert.equal(await page.locator('#approvals-box').isHidden(), true);
+  assert.equal(notes(), 'buy milk\n');
+  await shot(page, '5-allowed');
+
+  // Deny: the run still ends, and nothing is saved.
+  const denyMe = 'Note this too: [tool demo_note {"text":"not this"}]';
+  await page.fill('#message', denyMe);
+  await page.click('#send');
+  await approval.waitFor();
+  await approval.getByRole('button', { name: /^Deny/ }).click();
+  await text(page, '#reply', `fake: ${denyMe}`);
+  assert.equal(notes(), 'buy milk\n');
+
+  // Signing out brings the sign-in card back with the kit's sentence.
+  await page.click('#signout');
+  await text(page, '#signin-title', fill('member.signedOut', { name: 'ChatGPT' }));
+
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('a page over plain http from the home network keeps its pairing too', async () => {
+  // Not a secure context (no sealed store there): the pairing is kept in plain browser storage, across a reload.
+  const from = said.length;
+  host.stdin.write('\n'); // fresh codes
+  const code = (await heard(CODE, from))[1];
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true });
+  await context.addInitScript(() => Object.defineProperty(window, 'isSecureContext', { value: false }));
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on('pageerror', (e) => { errors.push(String(e)); console.error(e); });
+  await page.goto(`http://127.0.0.1:${port}/`);
+  await page.fill('#pair-input', code);
+  await page.click('#pair-go');
+  await heard(/\? \(y\/n\) $/, from);
+  host.stdin.write('y\n');
+  await text(page, '#link', `Connected to ${NAME}.`);
+  await page.reload();
+  await text(page, '#link', `Connected to ${NAME}.`);
+  await text(page, '#engine', WORDS['engine.ready']);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

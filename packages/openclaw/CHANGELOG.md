@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- First release on npm (docs/runtime-kits.md §10). `examples/openclaw-kit` (O12) is the whole flow from a phone
+  browser: pair, sign in with ChatGPT by device code, a streamed run, a tool that asks first, Allow and Deny. Its
+  e2e runs in CI from the packed packages against the fake Gateway; `LIVE.md` is the real-engine check.
+- `.` and `./device` export the kit's sentences (`words`, `stateWords`, `toAccountView`, `WordKey`, `AccountView`),
+  and `./device` the types a device screen needs (`Approval`, `Decision`, `KitState`, `Route`, `RunEnd`, `RunEvent`,
+  `SignInView`).
+- FIX: `oc.signin.view`'s `ready` (and so `openclawDevice(link).signIn.view(p).ready`) is the member's sign-in to that
+  provider, not the engine being up. Before, a phone's `phaseOf` said `done` while the device code was still showing,
+  and a member who was never signed in looked signed in.
+- FIX: `oc.signout` drops the finished sign-in's view, so `signIn.view(p)` after a sign-out no longer shows the old
+  sign-in as done.
 - Depends on @byokit/relay 0.2.0.
 - Depends on @byokit/link 0.3.2.
 
@@ -29,8 +40,6 @@
   `startModelStub` takes a configurable `idPattern` and routing marker instead of a fixed prompt grammar
   (docs/runtime-kits.md §§5.5/5.9; adopting apps pass their own values explicitly).
 
-- In development (O7): the fake Gateway (`fakeGateway`), the contract suite (`openclawContract`, run by O11) and the
-  scripted model (`startModelStub`/`useModelStub`), ported from Crewhouse's test stubs with the script grammar
-  unchanged (docs/runtime-kits.md §5.11).
-- In development (O1): package scaffold and frozen signatures. Every implementation body refuses with
-  `not built: <package id>` until its work package lands (docs/runtime-kits.md §11.2).
+- `./testing`: the fake Gateway (`fakeGateway`), the contract suite (`openclawContract`, also run against the real
+  pinned engine) and the scripted model (`startModelStub`/`useModelStub`), ported from Crewhouse's test stubs with the
+  script grammar unchanged (docs/runtime-kits.md §5.11).

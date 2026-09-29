@@ -1,8 +1,7 @@
 {
   "name": "@byokit/openclaw",
   "version": "0.1.0",
-  "private": true,
-  "description": "The OpenClaw runtime kit: the pinned engine's full operator surface with plain-words helpers for members, sign-in, runs and approvals (in development).",
+  "description": "The OpenClaw runtime kit: the pinned engine's full operator surface with plain-words helpers for members, sign-in, runs and approvals.",
   "license": "Apache-2.0",
   "type": "module",
   "repository": {

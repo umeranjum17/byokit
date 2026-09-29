@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Helper</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #fff; --ink: #1b1b1a; --soft: #5f5d58; --line: #e3e0da; --accent: #1f5eff; --on-accent: #fff;
+    --ask: #8a4b00; --ask-bg: #fff0d6; --bad: #b3261e; --reply: #f0efeb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121211; --card: #1c1c1b; --ink: #f1efea; --soft: #a9a59d; --line: #2e2d2b; --accent: #7aa2ff; --on-accent: #0b0b0b;
+      --ask: #ffc56b; --ask-bg: #3a2a10; --bad: #ff8a80; --reply: #232321;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-text-size-adjust: 100%; }
+  main { max-width: 34rem; margin: 0 auto; padding: max(1rem, env(safe-area-inset-top)) 1rem max(2rem, env(safe-area-inset-bottom)); }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: .25rem; }
+  h1 { font-size: 1.6rem; margin: 0; letter-spacing: -.01em; }
+  h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--soft); margin: 1.6rem 0 .5rem; }
+  p { margin: .3rem 0; }
+  .status { color: var(--soft); font-size: .95rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 1rem; }
+  label { display: block; font-weight: 600; margin: .8rem 0 .35rem; }
+  input, textarea { font: inherit; font-size: 17px; width: 100%; padding: .75rem .8rem; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--ink); }
+  textarea { resize: vertical; min-height: 5.5rem; }
+  input:focus-visible, textarea:focus-visible, button:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  button { font: inherit; font-weight: 600; min-height: 48px; padding: .7rem 1rem; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; width: 100%; margin-top: .9rem; }
+  button:disabled { opacity: .5; cursor: default; }
+  .quiet { background: none; border: 0; color: var(--soft); font-weight: 500; text-decoration: underline; min-height: 44px; padding: 0; }
+  .words, .code { font-size: 1.7rem; font-weight: 700; text-align: center; letter-spacing: .02em; margin: 1rem 0; }
+  .code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; }
+  a { color: var(--accent); }
+  .error { color: var(--bad); }
+  ul { list-style: none; margin: 0; padding: 0; }
+  .approval { border-color: var(--ask); background: var(--ask-bg); margin-bottom: .75rem; }
+  .approval p { font-weight: 600; }
+  .choices { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-top: .75rem; }
+  .choices .allow { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+  .reply { margin: .8rem 0 0; padding: .8rem; border-radius: 10px; background: var(--reply); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .reply:empty { display: none; }
+  .row { display: flex; gap: .5rem; }
+  .row button { flex: 1; }
+  [hidden] { display: none !important; }
+  @media (prefers-reduced-motion: no-preference) { button { transition: background-color .15s, border-color .15s; } }
+</style>
+<main>
+  <header>
+    <h1>Helper</h1>
+    <button id="forget" class="quiet" hidden>Forget this computer</button>
+  </header>
+  <p id="link" class="status" role="status"></p>
+
+  <section id="pair" hidden aria-labelledby="pair-title">
+    <h2 id="pair-heading">Pair this phone</h2>
+    <div class="card">
+      <p id="pair-title"></p>
+      <p id="pair-words" class="words" hidden></p>
+      <form id="pair-form">
+        <label for="pair-input">Code from the computer</label>
+        <input id="pair-input" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCD-EFGH-JKLM">
+        <button class="primary" id="pair-go">Pair</button>
+      </form>
+      <p id="pair-error" class="error" role="alert"></p>
+    </div>
+  </section>
+
+  <section id="home" hidden>
+    <p id="engine" class="status" role="status"></p>
+
+    <section id="signin" hidden aria-labelledby="signin-heading">
+      <h2 id="signin-heading">Your plan</h2>
+      <div class="card">
+        <p id="signin-title"></p>
+        <p id="signin-code" class="code" hidden></p>
+        <p id="signin-where" hidden><a id="signin-url" target="_blank" rel="noopener noreferrer"></a></p>
+        <button class="primary" id="signin-go">Sign in with ChatGPT</button>
+        <button id="signin-cancel" hidden style="width:100%;margin-top:.5rem">Cancel</button>
+      </div>
+    </section>
+
+    <section id="approvals-box" hidden aria-labelledby="approvals-heading">
+      <h2 id="approvals-heading">Waiting for your yes</h2>
+      <ul id="approvals" aria-live="polite"></ul>
+    </section>
+
+    <section id="talk" hidden aria-labelledby="talk-heading">
+      <h2 id="talk-heading">Talk to it</h2>
+      <div class="card">
+        <form id="run-form">
+          <label for="message">Message</label>
+          <textarea id="message" rows="3" enterkeyhint="send"></textarea>
+          <div class="row">
+            <button class="primary" id="send">Send</button>
+            <button id="stop" type="button" hidden style="margin-top:.9rem">Stop</button>
+          </div>
+        </form>
+        <p id="tool" class="status" role="status"></p>
+        <div id="reply" class="reply" aria-live="polite"></div>
+        <p id="run-said" class="error" role="alert"></p>
+      </div>
+      <button id="signout" class="quiet" style="margin-top:1rem">Sign out of ChatGPT</button>
+    </section>
+  </section>
+</main>
+<script type="module" src="app.js"></script>
+</html>

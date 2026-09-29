@@ -1,7 +1,7 @@
 <h1 align="center">@byokit/openclaw</h1>
 
 <p align="center">
-  <img alt="status: in development" src="https://img.shields.io/badge/status-in%20development-lightgrey?style=flat" />
+  <a href="https://www.npmjs.com/package/@byokit/openclaw"><img alt="npm" src="https://img.shields.io/npm/v/@byokit/openclaw?style=flat" /></a>
   <a href="https://github.com/umeranjum17/byokit/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/umeranjum17/byokit/ci.yml?style=flat&branch=main" /></a>
   <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-666?style=flat" /></a>
 </p>
@@ -12,10 +12,20 @@ aggregator's full operator surface stays available as typed pass-through calls (
 method, <code>callDynamic</code> for the rest), with plain-words helpers for members, sign-in, runs, approvals and
 config. For apps built on OpenClaw, where the engine holds the subscriptions.</p>
 
-## Quickstart
+## Install
 
-Not on npm yet. Use it from this repo: `npm ci`, `npm run build`, then import `@byokit/openclaw` from a workspace
-package.
+```sh
+npm install @byokit/openclaw
+```
+
+[![npm](https://img.shields.io/npm/v/@byokit/openclaw?style=flat&label=)](https://www.npmjs.com/package/@byokit/openclaw) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=openclaw-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
+
+Node 22.18 or later. The kit brings the engine with it: the first `start()` installs the pinned `openclaw@2026.8.1`
+under your `stateDir` (a few minutes, needs the network once), and later starts run from there. For a whole app, a
+phone page that pairs, signs in with ChatGPT, runs and answers approvals, see
+[`examples/openclaw-kit`](../../examples/openclaw-kit).
+
+## Quickstart
 
 Start the engine, add a member, sign them in with a subscription, run a message (typechecked; running it installs
 the pinned engine and needs a real ChatGPT sign-in, so it is not run here):
@@ -108,6 +118,7 @@ Entries:
 | `KitOptions`, `RunSpec`, `RunEvent`, `RunEnd`, `Route`, `Approval`, `Decision`, `ToolSpec`, `ToolHost`, `KitState`, ... (`.`) | Public types (docs/runtime-kits.md §5.2) |
 | `openclawDevice(link)` (`./device`) | Portable client: state, routes, sign-in, runs, steer, abort, approvals, events, sealed notices, pass-through `call` |
 | `LinkRefused`, `openNotice` (`./device`) | The host's own refusal as an error; opens a sealed approval notice |
+| `words`, `stateWords`, `toAccountView` (`.`, `./device`) | The kit's sentences, so a phone shows the words the computer does; `toAccountView` feeds `@byokit/ui-core`'s `phaseOf` |
 | `openclawLink(kit, o)` (`./link`) | `handle` / `stream` / `allow` for a `@byokit/link` `Host`, checked per member, plus `onAction` for relay push actions |
 | `serve(o)` (`./link`) | Binds the link host per reach and returns its URLs |
 | `fakeGateway`, `openclawContract`, `startModelStub`, `useModelStub` (`./testing`) | In-memory Gateway, the contract suite and the scripted model for tests |
@@ -149,7 +160,8 @@ person's back (memory search is never a paid provider).
 
 ## Status
 
-In development and not published (`private: true`). Signatures are frozen (docs/runtime-kits.md §5).
+Pinned to OpenClaw `2026.8.1` (protocol 4); `ENGINE_VERSION` and `PROTOCOL_VERSION` carry the pin. Signatures are
+frozen (docs/runtime-kits.md §5).
 
 ## Links
 
