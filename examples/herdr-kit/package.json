@@ -1,0 +1,26 @@
+{
+  "name": "byokit-herdr-kit-example",
+  "private": true,
+  "description": "Drive Herdr on this computer from a phone browser: pair, start an agent, prompt it, answer its questions.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "prestart": "npm run build:web",
+    "start": "node host.ts",
+    "build:web": "esbuild web/app.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=web/app.js --log-level=warning",
+    "test": "node --test e2e.test.ts"
+  },
+  "dependencies": {
+    "@byokit/herdr": "0.1.0",
+    "@byokit/link": "0.3.1",
+    "@byokit/reach": "0.2.0",
+    "@byokit/seal": "0.1.0",
+    "@byokit/ui-core": "0.2.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

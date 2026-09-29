@@ -101,6 +101,7 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       const tab = addTab(workspace.workspace_id, 'main');
       const pane = addPane(tab.tab_id, workspace.workspace_id, workspace.label);
       if (p.focus === true) focusWorkspace(workspace.workspace_id);
+      emitEvent('workspace.created', { workspace_id: workspace.workspace_id });
       return { workspace: workspaceView(workspace), root_pane: { pane_id: pane.pane_id } };
     },
     'workspace.close': (p) => {
@@ -110,6 +111,7 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       const tabs = live.tabs.filter((tab) => tab.workspace_id === p.workspace_id).map((tab) => tab.tab_id);
       for (const tabId of tabs) removeTab(tabId);
       live.workspaces = live.workspaces.filter((row) => row.workspace_id !== p.workspace_id);
+      emitEvent('workspace.closed', { workspace_id: p.workspace_id });
       return {};
     },
     'workspace.focus': (p) => {
@@ -130,6 +132,7 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
         checkout_path: checkout,
         is_linked_worktree: true,
       };
+      emitEvent('workspace.created', { workspace_id: workspace.workspace_id });
       return { workspace: { ...workspaceView(workspace), worktree: workspace.worktree } };
     },
 
@@ -145,11 +148,13 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       const tab = addTab(workspace.workspace_id, label(p) ?? workspace.label ?? live.cwd);
       const pane = addPane(tab.tab_id, workspace.workspace_id, (p.cwd as string | undefined) ?? workspace.label ?? live.cwd);
       if (p.focus === true) focusPane(pane.pane_id);
+      emitEvent('tab.created', { tab_id: tab.tab_id, workspace_id: workspace.workspace_id });
       return { tab: tabView(tab), root_pane: { pane_id: pane.pane_id } };
     },
     'tab.close': (p) => {
       if (!live.tabs.some((row) => row.tab_id === p.tab_id)) throw fail('tab_not_found', 'tab not found');
       removeTab(p.tab_id as string);
+      emitEvent('tab.closed', { tab_id: p.tab_id });
       return {};
     },
     'tab.focus': (p) => {
@@ -166,6 +171,7 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       live.panes = live.panes.filter((row) => row.pane_id !== pane.pane_id);
       live.agents = live.agents.filter((row) => row.pane_id !== pane.pane_id);
       relayoutTab(live, pane.tab_id);
+      emitEvent('pane.closed', { pane_id: pane.pane_id });
       return {};
     },
     'pane.focus': (p) => {
@@ -176,6 +182,7 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       const target = paneOf(p.target_pane_id);
       const pane = addPane(target.tab_id, target.workspace_id, target.cwd);
       if (p.focus === true) focusPane(pane.pane_id);
+      emitEvent('pane.created', { pane_id: pane.pane_id });
       return { pane: { pane_id: pane.pane_id } };
     },
     'pane.read': (p) => {
@@ -222,6 +229,7 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       const index = live.agents.findIndex((row) => row.pane_id === pane.pane_id);
       if (index === -1) live.agents.push(agent);
       else live.agents[index] = agent;
+      emitEvent('pane.agent_detected', { pane_id: pane.pane_id, agent: kind, agent_status: agent.agent_status, revision: agent.revision });
       return { agent };
     },
     'agent.prompt': (p) => {

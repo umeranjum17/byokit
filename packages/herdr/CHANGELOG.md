@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `words`, `stateWords`, `agentWords` and `WORDS` are exported from `.` and `./device`, so a host or phone UI
+  shows the kit's own sentences for Herdr and agent states instead of writing its own.
 - K3 raw event tap: `kit.onEvent(fn)` delivers every event from the kit's own batch and
   per-pane status sockets with wire payloads intact (`pane.moved.previous_pane_id`,
   `workspace.*`), firing on arrival before the snapshot update/refresh (buffered replays never
