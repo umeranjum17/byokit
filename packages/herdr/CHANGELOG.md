@@ -16,6 +16,9 @@
   (first frame) and `exited` (`{ reason }`). `hd.call` stays default-denied.
 - `words`, `stateWords`, `agentWords` and `WORDS` are exported from `.` and `./device`, so a host or phone UI
   shows the kit's own sentences for Herdr and agent states instead of writing its own.
+- FIX `herdrDevice(link).events()` ends its link stream when the reader stops (`break`, or `return()` from a
+  view that stops watching), even while it waits for the next frame; before, the stream stayed open and the
+  `return()` never settled.
 - FIX the fake Herdr (`./testing`) emits `workspace.created`, `tab.created`, `pane.created`,
   `pane.agent_detected` and the matching `*.closed` events for its own layout changes, so `snapshot()` shows an
   agent started in a new workspace; `herdrContract` holds it (a started agent joins `snapshot()` and its status

@@ -70,7 +70,7 @@ test('each method opens its op with the right args', async () => {
   await hd.close({ tab: 'w1:t1' });
   await hd.registerNotices(new Uint8Array(32).fill(5));
   assert.deepEqual(await hd.call('ping', {}), { protocol: 22 });
-  for await (const _ of hd.events()) break;   // generators open the stream on first pull
+  for await (const _ of hd.events()) break;   // the stream opens on the first pull
   hd.terminal('w1:p1', { mode: 'observe', cols: 80, rows: 24 }).close();
   await new Promise((r) => setTimeout(r, 20));
   assert.deepEqual(calls.map((c) => c.op), [
@@ -221,4 +221,29 @@ test('call, subscribe and events are typed by the generated tables', async () =>
     if (frame.type === 'snapshot') assert.equal(frame.snapshot.connected, true);
     break;
   }
+});
+
+test('events() ends its link stream when the reader stops, even while it waits for a frame', async () => {
+  let ended = 0;
+  let deliver: ((line: string) => void) | undefined;
+  const link = {
+    request: async () => null,
+    stream: async (): Promise<LinkStream> => {
+      const s = { onData: undefined, onEnd: undefined, write: async () => {}, end: () => { ended++; } } as unknown as LinkStream;
+      deliver = (line) => s.onData?.(new TextEncoder().encode(`${line}\n`));
+      return s;
+    },
+  } as unknown as DeviceLink;
+  const it = herdrDevice(link).events()[Symbol.asyncIterator]();
+  const first = it.next();
+  await new Promise((r) => setTimeout(r, 0));
+  deliver!('{"type":"snapshot","snapshot":{"connected":true,"workspaces":[]}}');
+  assert.equal(((await first).value as { type: string }).type, 'snapshot');
+  const waiting = it.next(); // parked: no frame is coming
+  await it.return!();
+  assert.equal(ended, 1, 'the link stream is ended');
+  assert.deepEqual(await waiting, { value: undefined, done: true }, 'the parked read finishes too');
+  assert.deepEqual(await it.next(), { value: undefined, done: true });
+  await it.return!();
+  assert.equal(ended, 1, 'once');
 });

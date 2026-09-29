@@ -1,12 +1,12 @@
 // The phone side: pair with the computer, then see its Herdr agents, start one, talk to it and answer its questions.
-// Plain DOM; every status a person reads is a sentence from @byokit/herdr's or @byokit/ui-core's words.
+// Plain DOM over @byokit/ui-core's view state (the live tree and questions); every status a person reads is a sentence
+// from @byokit/herdr's or @byokit/ui-core's words.
 import { DeviceLink, browserDeviceStore, normalizeCode, pairWithCode, pairWithOffer, type DeviceGrant, type KeptDevice } from '@byokit/link';
 import { agentWords, herdrDevice } from '@byokit/herdr/device';
-import type { BlockedAgent, HerdrSnapshot } from '@byokit/herdr'; // types only: nothing from the computer side is bundled
 import { consentWords, linkWords, pairingView, type PairPhase } from '@byokit/ui-core/link';
+import { HERDR_EMPTY, agentIn, blockedView, herdrStore, herdrTreeView, type HerdrState } from '@byokit/ui-core/kits';
 
 type Device = ReturnType<typeof herdrDevice>;
-type Agent = NonNullable<HerdrSnapshot['workspaces'][number]['tabs'][number]['panes'][number]['agent']>;
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, ...kids: (Node | string)[]) => {
@@ -70,7 +70,8 @@ $('pair-form').onsubmit = async (e) => {
 
 let hd: Device;
 let link: DeviceLink;
-let tree: HerdrSnapshot = { connected: false, workspaces: [] };
+let view: HerdrState = HERDR_EMPTY;
+let unwatch: (() => void) | undefined;
 let selected: string | undefined;
 
 function connect(grant: DeviceGrant) {
@@ -81,28 +82,27 @@ function connect(grant: DeviceGrant) {
     store,
     onStatus: (s) => {
       $('link').textContent = linkWords(s, grant.hostName);
-      if (s === 'online') void online();
-      if (s === 'removed') { void store.clear(); showPair('scan'); }
+      if (s === 'online') online();
+      if (s === 'removed') { unwatch?.(); unwatch = undefined; void store.clear(); showPair('scan'); }
     },
   });
   $('link').textContent = linkWords(link.status, grant.hostName);
   hd = herdrDevice(link);
+  // The agents and their questions, live: the store keeps the tree and the waiting list current from the kit's
+  // events, and follows them again whenever the link comes back.
+  unwatch?.();
+  unwatch = herdrStore(hd).subscribe((s) => {
+    view = s;
+    drawTree();
+    drawBlocked();
+    if (!$<HTMLSelectElement>('kind').options.length) setup().catch(() => {}); // Herdr was still starting
+    void refresh();
+  });
 }
 
-let listening = false;
-async function online() {
+function online() {
   setup().catch(() => {});
   void refresh();
-  if (listening) return;
-  listening = true;
-  try {
-    // Tree changes and question add/resolve frames; the stream ends when the link drops and reopens on `online`.
-    for await (const frame of hd.events() as AsyncIterable<{ type: string; snapshot?: HerdrSnapshot }>) {
-      if (frame.type === 'snapshot' && frame.snapshot) { tree = frame.snapshot; drawTree(); }
-      if (!$<HTMLSelectElement>('kind').options.length) setup().catch(() => {}); // Herdr was still starting
-      void refresh();
-    }
-  } catch { /* offline: onStatus says so */ } finally { listening = false; }
 }
 
 async function setup() {
@@ -120,49 +120,39 @@ function refresh(): Promise<void> {
   if (refreshing) { again = true; return refreshing; }
   refreshing = (async () => {
     try {
-      const [state, blocked] = await Promise.all([hd.state(), hd.blocked()]);
-      $('herdr').textContent = state.words;
-      drawBlocked(blocked);
+      $('herdr').textContent = (await hd.state()).words;
       await drawAgent();
     } catch { /* the link line says why */ }
   })().finally(() => { refreshing = undefined; if (again) { again = false; void refresh(); } });
   return refreshing;
 }
 
-const statusOf = (a: Agent) => (a.launchPending ? 'starting' : a.status);
-const nameOf = (a: Agent) => a.name ?? a.kind ?? 'Agent';
-function agentAt(paneId: string | undefined): Agent | undefined {
-  for (const w of tree.workspaces) for (const t of w.tabs) for (const p of t.panes) if (p.id === paneId) return p.agent;
-  return undefined;
-}
-
 function drawTree() {
-  const groups = tree.workspaces.flatMap((w) => w.tabs.map((t) => ({ where: `${w.label.split('/').filter(Boolean).pop() ?? w.label} · ${t.label}`, panes: t.panes.filter((p) => p.agent) })))
-    .filter((g) => g.panes.length > 0);
-  selected ??= groups[0]?.panes[0]?.id; // a just-started agent stays picked until the tree has it
+  if (!view.tree) return; // the computer hasn't said yet
+  const groups = herdrTreeView(view.tree);
+  selected ??= groups[0]?.agents[0]?.paneId; // a just-started agent stays picked until the tree has it
   $('tree').replaceChildren(...(groups.length ? groups.flatMap((g) => [
     el('p', { className: 'place', textContent: g.where, title: g.where }),
-    el('ul', {}, ...g.panes.map((p) => {
-      const status = statusOf(p.agent!);
-      const button = el('button', { className: 'agent', type: 'button', onclick: () => { selected = p.id; drawTree(); void drawAgent(); } },
-        el('span', { className: 'who', textContent: nameOf(p.agent!) }), el('span', { className: `pill ${status}`, textContent: agentWords(status) }));
-      button.setAttribute('aria-pressed', String(p.id === selected));
-      button.dataset.pane = p.id;
+    el('ul', {}, ...g.agents.map((a) => {
+      const button = el('button', { className: 'agent', type: 'button', onclick: () => { selected = a.paneId; drawTree(); void drawAgent(); } },
+        el('span', { className: 'who', textContent: a.name }), el('span', { className: `pill ${a.status}`, textContent: agentWords(a.status) }));
+      button.setAttribute('aria-pressed', String(a.paneId === selected));
+      button.dataset.pane = a.paneId;
       return el('li', {}, button);
     })),
   ]) : [el('p', { className: 'empty', textContent: 'No agents yet. Start one below.' })]));
-  const agent = agentAt(selected);
+  const agent = agentIn(view.tree, selected);
   $('agent').hidden = !agent;
   if (agent) {
-    $('agent-name').textContent = nameOf(agent);
-    $('agent-status').className = `pill ${statusOf(agent)}`;
-    $('agent-status').textContent = agentWords(statusOf(agent));
+    $('agent-name').textContent = agent.name;
+    $('agent-status').className = `pill ${agent.status}`;
+    $('agent-status').textContent = agentWords(agent.status);
   }
 }
 
 async function drawAgent() {
   const paneId = selected;
-  if (!paneId || !agentAt(paneId)) return;
+  if (!paneId || !agentIn(view.tree, paneId)) return;
   const { text } = await hd.read(paneId, { source: 'recent', lines: 60 });
   if (paneId !== selected) return;
   const screen = $('screen');
@@ -173,24 +163,23 @@ async function drawAgent() {
 
 // An answer that didn't go through stays said on its question until an answer does (the list redraws often).
 const answerErrors = new Map<string, string>();
-function drawBlocked(list: BlockedAgent[]) {
+function drawBlocked() {
+  const list = blockedView(view);
   for (const pane of answerErrors.keys()) if (!list.some((b) => b.paneId === pane)) answerErrors.delete(pane);
   $('questions').hidden = list.length === 0;
   $('blocked').replaceChildren(...list.map((b) => {
-    const agent = agentAt(b.paneId);
     const note = el('p', { className: 'error', role: 'alert', textContent: answerErrors.get(b.paneId) ?? '' } as Partial<HTMLParagraphElement>);
     const keys = KEYS.map(([label, key, spoken]) => {
       const button = el('button', { type: 'button', textContent: label, onclick: async () => {
         for (const k of keys) k.disabled = true;
         try { await hd.answer(b.paneId, [key], b.revision); answerErrors.delete(b.paneId); }
         catch (e) { answerErrors.set(b.paneId, said(e)); note.textContent = said(e); for (const k of keys) k.disabled = false; }
-        void refresh();
       } });
-      button.setAttribute('aria-label', `${spoken} to ${agent ? nameOf(agent) : 'the agent'}`);
+      button.setAttribute('aria-label', `${spoken} to ${b.name}`);
       return button;
     });
     const item = el('li', { className: 'card question' },
-      el('h3', { textContent: agent ? nameOf(agent) : b.kind ?? 'Agent' }),
+      el('h3', { textContent: b.name }),
       el('p', { className: 'status', textContent: agentWords('blocked') }),
       el('pre', { textContent: b.prompt.trim() }),
       el('div', { className: 'keys' }, ...keys), note);
@@ -243,6 +232,8 @@ $('start-form').onsubmit = async (e) => {
 };
 
 $('forget').onclick = async () => {
+  unwatch?.();
+  unwatch = undefined;
   try { await link.unpair(); } catch { link.stop(); await store.clear(); }
   showPair('scan');
 };
