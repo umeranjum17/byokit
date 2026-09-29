@@ -18,8 +18,29 @@ const ERROR_KEY: Record<ComposeError['code'], WordKey> = {
 /** The sentence for a rejection. */
 export const errorWords = (e: ComposeError): string => words(ERROR_KEY[e.code]);
 
-/** The plain lines for one checked draft, in the 4.8 order. Lands in BK-P1. */
+/** A draft passes when it fits, breaks no voice rule, keeps every fact and keeps the layout (4.6). */
+export function draftPasses(c: DraftCheck, o?: { original?: boolean }): boolean {
+  if (!c.fits || c.voice.length > 0) return false;
+  if (o?.original === true && (c.added.length > 0 || c.dropped.length > 0 || !c.layoutKept)) return false;
+  return true;
+}
+
+/** The plain lines for one checked draft, in the 4.8 order. */
 export function checkLines(c: DraftCheck, platform: Platform, o?: { original?: boolean }): string[] {
-  void c; void platform; void o;
-  throw new Error('not built: BK-P1');
+  const lines: string[] = [];
+  if (c.fits || c.limit === null) {
+    lines.push(words('check.fits', { platform: platform.label }));
+  } else {
+    lines.push(words('check.tooLong', { platform: platform.label, length: String(c.length), limit: String(c.limit) }));
+  }
+  if (c.voice.length > 0) lines.push(words('check.voice', { list: c.voice.join(', ') }));
+  if (c.stock.length > 0) lines.push(words('check.stock', { list: c.stock.join(', ') }));
+  if (o?.original === true) {
+    if (c.added.length > 0) lines.push(words('check.added', { list: c.added.join(', ') }));
+    if (c.dropped.length > 0) lines.push(words('check.dropped', { list: c.dropped.join(', ') }));
+    if (c.added.length === 0 && c.dropped.length === 0) lines.push(words('check.keptFacts', {}));
+    if (!c.layoutKept) lines.push(words('check.layout', {}));
+  }
+  lines.push(words(draftPasses(c, o) ? 'check.pass' : 'check.fail', {}));
+  return lines;
 }
