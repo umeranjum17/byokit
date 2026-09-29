@@ -13,6 +13,7 @@ export type StartOptions = {
   panel?: string;                      // registered React component opened on tap; absent: tap only emits
   hideWhilePanelOpen?: boolean;        // default true
   spots?: 'global' | 'per-app';        // remembered rest spot; 'per-app' needs host 'accessibility'; default 'global'
+  label?: string;                      // TalkBack label for the bubble; absent: none, as before
 };
 export type OverlayEvent =
   | { type: 'tap' }
@@ -35,8 +36,9 @@ export interface Overlay {
   openPermission(): Promise<void>;     // window: the "display over other apps" screen; accessibility: accessibility settings
   start(o: StartOptions): Promise<OverlayState>;
   stop(): Promise<void>;
-  say(text: string, mood?: string, ms?: number): void;   // pill next to the bubble; ms default 2500; still under reduced motion
+  say(text: string, mood?: string, ms?: number, o?: { announce?: boolean }): void;   // pill next to the bubble; ms default 2500; still under reduced motion; announce reads the pill for TalkBack
   setMood(mood: string): void;
+  setLabel(label: string | null): void;   // TalkBack label for the bubble; null clears it
   setRules(rules: AppRules): void;
   openPanel(props?: Record<string, string>): Promise<void>;
   closePanel(): Promise<void>;
@@ -50,8 +52,9 @@ export interface NativeOverlay {                         // what the Kotlin modu
   openPermission(): Promise<void>;
   start(o: StartOptions): Promise<OverlayState>;
   stop(): Promise<void>;
-  say(text: string, mood: string | null, ms: number): void;
+  say(text: string, mood: string | null, ms: number, announce: boolean): void;
   setMood(mood: string): void;
+  setLabel(label: string | null): void;
   setRules(rules: AppRules): void;
   openPanel(props: Record<string, string>): Promise<void>;
   closePanel(): Promise<void>;

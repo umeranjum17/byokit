@@ -32,15 +32,16 @@ class Bubble(
   private val spots: SpotStore,
   private val moods: (String) -> Drawable?,
   private val reducedMotion: () -> Boolean,
-) {
-  val events = Listeners<OverlayEvent>()
-  var spotKey: String = SpotStore.GLOBAL
+) : BubbleControl {
+  override val events = Listeners<OverlayEvent>()
+  override var spotKey: String = SpotStore.GLOBAL
   /** The keyboard's top in screen pixels while it is open; the bubble rests above it and returns when it closes. */
-  var imeTopPx: Int? = null
+  override var imeTopPx: Int? = null
     set(v) { if (field == v) return; field = v; if (host.attached) place() }
 
   private val main = Handler(Looper.getMainLooper())
   private var mood: String? = null
+  private var a11yLabel: String? = null
   private var row: LinearLayout? = null
   private var image: ImageView? = null
   private var pill: TextView? = null
@@ -56,7 +57,7 @@ class Bubble(
   private val unsay = Runnable { pill?.visibility = View.GONE; mood?.let { image?.setImageDrawable(moods(it)) }; place() }
 
   /** Shows the bubble at its remembered spot with the resting [mood]. */
-  fun show(mood: String) {
+  override fun show(mood: String) {
     this.mood = mood
     if (host.attached) { setMood(mood); return }
     val context = viewContext() ?: return
@@ -70,7 +71,7 @@ class Bubble(
     context.registerComponentCallbacks(config)
   }
 
-  fun hide() {
+  override fun hide() {
     glide?.cancel()
     main.removeCallbacks(unsay)
     pill?.visibility = View.GONE
@@ -78,21 +79,31 @@ class Bubble(
     host.remove()
   }
 
-  /** A pill next to the bubble for [ms], with [mood] shown meanwhile when given; still under reduced motion. */
-  fun say(text: String, mood: String?, ms: Long) {
+  /**
+   * A pill next to the bubble for [ms], with [mood] shown meanwhile when given; still under reduced motion. With
+   * [announce] the pill's text is also announced, so TalkBack reads it.
+   */
+  override fun say(text: String, mood: String?, ms: Long, announce: Boolean) {
     val p = pill ?: return
     main.removeCallbacks(unsay)
     p.text = text
     p.visibility = View.VISIBLE
+    if (announce) p.announceForAccessibility(text)
     if (mood != null) image?.setImageDrawable(moods(mood))
     if (host.attached) place()
     main.postDelayed(unsay, ms)
   }
 
   /** The resting mood; a still frame, never animated. */
-  fun setMood(mood: String) {
+  override fun setMood(mood: String) {
     this.mood = mood
     image?.setImageDrawable(moods(mood))
+  }
+
+  /** The TalkBack label for the bubble; null clears it back to no label. */
+  override fun setLabel(label: String?) {
+    a11yLabel = label
+    image?.contentDescription = label
   }
 
   private fun viewContext(): Context? = (host as? WindowManagerHost)?.context
@@ -107,7 +118,7 @@ class Bubble(
     image = ImageView(context).apply {
       layoutParams = LinearLayout.LayoutParams(size, size)
       scaleType = ImageView.ScaleType.FIT_CENTER
-      contentDescription = null
+      contentDescription = a11yLabel
       setOnTouchListener(Touch(context))
     }
     pill = TextView(context).apply {

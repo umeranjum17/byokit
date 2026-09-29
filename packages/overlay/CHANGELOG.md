@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-09-30)
+
+- Focused-field insert options (docs/capability-kits.md 7.4): `insert` takes `{ attempts, retryMs,
+  acceptNewlineLoss }` (defaults 2 tries of 150 ms; a panel on top needs ~13 in Chrome) and resolves
+  `'landedWithoutNewlines'` when a contenteditable dropped only the newlines. The field is the focused node itself
+  when editable, else the first editable non-password focused descendant, and `FocusedFields` exposes the same
+  search, read and insert to Kotlin, so the app's service inserts into the captured node with no JS running.
+- Bubble TalkBack support: a label (`label` in `start`, `setLabel`, cleared with `null`) and an `announce` option
+  for `say` that reads the pill aloud.
+- Kotlin-driven bubble: public `Rules.shows(app)` (the per-app decision in Kotlin) and `ServiceBubble`, which the
+  app's service starts once with its persisted rules so the bubble shows on attach and restores after a reboot or
+  process death.
+
 ## 0.1.0 (2026-09-29)
 
 - The accessibility side and publish (docs/capability-kits.md BK-O3): `ByokitAccessibility.attach` now also supplies

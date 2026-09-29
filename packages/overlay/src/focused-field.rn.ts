@@ -3,19 +3,27 @@
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import { focusedField as none, type FocusedField, type FocusedText, type InsertResult } from './focused-field.ts';
 
-export type { FocusedField, FocusedText, InsertResult } from './focused-field.ts';
+export type { FocusedField, FocusedText, InsertOptions, InsertResult } from './focused-field.ts';
 
-/** What the Kotlin module exposes: insert takes the replace mode as a plain argument. */
+/** What the Kotlin module exposes: insert takes its options as a plain record. */
 type NativeFocusedField = {
   available(): Promise<boolean>;
   read(): Promise<FocusedText | null>;
-  insert(text: string, replace: 'selection' | 'all'): Promise<InsertResult>;
+  insert(text: string, o: { replace: string; attempts: number; retryMs: number; acceptNewlineLoss: boolean }): Promise<InsertResult>;
 };
 
 const native = requireOptionalNativeModule<NativeFocusedField>('ByokitFocusedField');
 
+const ATTEMPTS = 2;
+const RETRY_MS = 150;
+
 export const focusedField: FocusedField = native ? {
   available: () => native.available(),
   read: () => native.read(),
-  insert: (text, o) => native.insert(text, o?.replace ?? 'selection'),
+  insert: (text, o) => native.insert(text, {
+    replace: o?.replace ?? 'selection',
+    attempts: o?.attempts ?? ATTEMPTS,
+    retryMs: o?.retryMs ?? RETRY_MS,
+    acceptNewlineLoss: o?.acceptNewlineLoss ?? false,
+  }),
 } : none;
