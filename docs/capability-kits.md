@@ -1,7 +1,8 @@
-# Capability kits: `@byokit/compose`, `@byokit/capture` and `@byokit/overlay`
+# Capability kits: `@byokit/compose`, `@byokit/capture`, `@byokit/overlay` and `@byokit/keystore`
 
 Foundation spec and builder breakdown. Status: **design approved for build (BK-0); the `compose` and `capture`
-scaffolds are in the repo with frozen signatures, and nothing else here is implemented yet.**
+scaffolds are in the repo with frozen signatures, `@byokit/keystore` (section 11) is implemented,
+and nothing else here is implemented yet.**
 This document is the single source of truth for the build lanes. A builder follows it literally. Where it is silent,
 the builder stops and asks rather than designs. Section 9 is the work-package list.
 
@@ -9,11 +10,12 @@ Contents: [1 Goal](#1-goal) · [2 Decisions](#2-decisions) · [3 Shared conventi
 [4 `@byokit/compose`](#4-byokitcompose) · [5 `@byokit/capture`](#5-byokitcapture) ·
 [6 Recorder protocol v1](#6-recorder-protocol-v1) · [7 `@byokit/overlay`](#7-byokitoverlay) ·
 [8 Tests, CI and isolation](#8-tests-ci-and-isolation) · [9 Work packages](#9-work-packages) ·
-[10 Known facts builders must not re-derive](#10-known-facts-builders-must-not-re-derive)
+[10 Known facts builders must not re-derive](#10-known-facts-builders-must-not-re-derive) ·
+[11 `@byokit/keystore`](#11-byokitkeystore)
 
 ## 1. Goal
 
-BYOKit gains three **capability kits**. Each one is named for what it can do, not for the product behind it:
+BYOKit gains four **capability kits**. Each one is named for what it can do, not for the product behind it:
 
 - **`@byokit/compose`**: drafting in a person's voice. It covers voice rules, the platforms a post can go to with
   their limits, the brief lines a writer follows, model-free checks on drafts (fit, voice, stock phrasing, kept facts)
@@ -23,6 +25,8 @@ BYOKit gains three **capability kits**. Each one is named for what it can do, no
   recorder by absolute path. The kit ships no recorder of its own.
 - **`@byokit/overlay`**: a floating on-screen bubble on Android. It has a panel that opens on tap, per-app visibility
   rules, a text-free tap log and an optional focused-field reader. On iOS it reports `unsupported`.
+- **`@byokit/keystore`** (section 11, L-KEY): one secret per name for apps, from the OS keyring, a
+  passphrase-sealed file, or a host-passed override for CI. It only consumes `@byokit/seal`.
 
 An app such as a writing helper or a demo-video helper uses these kits the way a coding app uses `@byokit/herdr`.
 The kit supplies the typed, supervised, tested integration. The product keeps its own prompts, screens and
@@ -1153,6 +1157,11 @@ app. `app.plugin.js` adds nothing to the manifest.
   `expo-modules-core` external. It fails on
   any `node:*` import, and on any `expo-modules-core` import outside `rn.ts` and `focused-field.rn.ts`. The JVM tests
   run in the `overlay-android` job.
+- **keystore, isolation.** `test/keyring-isolation.test.ts` puts a decoy HOME beside the throwaway one and runs a
+  child `node --permission --allow-fs-read=<repo> --allow-fs-write=<scratch> --allow-child-process` that stores a
+  canary through the fake keyring CLIs (both tools) and the passphrase file under scratch. A control read of the
+  decoy throws `ERR_ACCESS_DENIED`; the run asserts the decoy's canaries are byte-identical and the fakes' argv/env
+  logs hold no canary. `test/process-env.test.ts` poisons `process.env` and greps `process.env` out of `src/`.
 - **CI jobs added:**
   - `compose-engine` (BK-P2): Node 24, `npm ci`, `npm run build`, `npm run test:compose-engine`
     (`sh scripts/test.sh 'packages/compose/test/engine/*.test.ts'`).
@@ -1401,3 +1410,129 @@ later merges rebase.
 - `scripts/fix-words-dts.cjs` lists every package with a `words.json` import.
 - `smoke:pack` imports every export subpath under default and browser conditions, typechecks a consumer under three
   resolutions, and runs every bin without arguments, failing on module-load errors.
+
+## 11. `@byokit/keystore`
+
+A Node-only (Node 22.18+) secret store with one secret (a string) per name: `get/set/delete(name)`. It exists
+because `@byokit/seal` 0.1.0 is primitives only, so apps keep API keys in plaintext files. The name is
+capability-named (D-B). It only consumes seal and is independent of L-SEAL. Windows Credential Manager is
+unsupported in v1: with no explicit tool, every call on `win32` rejects `unsupported` (typed, fail closed).
+
+Three backends:
+
+- the **OS keyring**: macOS Keychain or Secret Service (libsecret), through their CLIs, spawned by absolute path
+  with an env built from nothing plus only what the host passes (D-G);
+- a **passphrase file** sealed with seal's `sealSecretBox` over a scrypt key, written through the atomic
+  0700/0600 writer lifted from `packages/accounts/src/node-stores.ts:13-23` and exported (R6);
+- a **CI override**: the host passes `override: Record<string, string>` and may build it from `process.env`
+  itself. The kit never reads `process.env` (D-G), which is how "env override for CI" is met.
+
+### 11.1 Files
+
+```
+packages/keystore/
+  package.json  tsconfig.json  README.md  CHANGELOG.md  LICENSE  SECURITY.md
+  src/index.ts  src/errors.ts  src/types.ts  src/validate.ts  src/atomic.ts
+  src/keyring.ts  src/file.ts  src/override.ts
+  test/*.test.ts
+```
+
+`package.json`: `private: true` at 0.1.0 (unpublished until the owner runs the release); `exports` `.` only (no
+browser or React Native entry: it spawns processes and uses `node:crypto`); `dependencies`
+`"@byokit/seal": "0.1.0"` exact; `files` `dist`, `README.md`, `LICENSE`, `CHANGELOG.md`, `SECURITY.md`.
+The root build list gains `packages/keystore` after `packages/seal`, and `scripts/release.ts`' canonical order
+gains `keystore` after `seal`.
+
+### 11.2 Public surface (`src/index.ts` re-exports the rest)
+
+```ts
+export type KeystoreErrorCode = 'invalid' | 'auth-failed' | 'unsupported' | 'unavailable' | 'failed';
+export class KeystoreError extends Error {
+  readonly code: KeystoreErrorCode;
+  constructor(code: KeystoreErrorCode, message: string);
+}
+export interface Keystore {
+  get(name: string): Promise<string | null>;   // null when no entry exists
+  set(name: string, secret: string): Promise<void>;
+  delete(name: string): Promise<boolean>;      // true when an entry existed
+}
+```
+
+Names (and the keyring `service`) are non-empty, at most 256 UTF-16 units, with no NUL; anything else rejects
+`invalid`. Secrets are strings of at most 1 MiB UTF-8; NUL is allowed (stdin carries it); anything else rejects
+`invalid`. No error message ever contains a secret.
+
+### 11.3 Keyring backend (`src/keyring.ts`)
+
+```ts
+export type KeyringTool = 'security' | 'secret-tool';
+export type KeyringOptions = {
+  service?: string;                 // default 'byokit-keystore', same rules as a name
+  bin?: string;                     // absolute path; default /usr/bin/security (darwin), /usr/bin/secret-tool (linux)
+  tool?: KeyringTool;               // default from platform; an explicit tool skips the platform check (tests)
+  env?: Record<string, string>;     // host-passed extras only, e.g. DBUS_SESSION_BUS_ADDRESS
+  timeoutMs?: number;               // default 10_000, clamped 1_000–60_000
+};
+export function keyringStore(o?: KeyringOptions): Keystore;
+export function keyringEnv(extra?: Record<string, string>): Record<string, string>;
+```
+
+- **Wire, `security` (Keychain).** get: `security find-generic-password -s <service> -a <name> -w` (the secret
+  on stdout). set: the secret on stdin of `security add-generic-password -s <service> -a <name> -U -w` (`-U`
+  updates an existing entry). delete: `security delete-generic-password -s <service> -a <name>`.
+- **Wire, `secret-tool` (Secret Service).** set: the secret on stdin of
+  `secret-tool store --label=byokit:<service>:<name> service <service> account <name>` (store replaces).
+  get: `secret-tool lookup service <service> account <name>`. delete: a `lookup` first (missing gives false),
+  then `secret-tool clear service <service> account <name>`.
+- **The secret reaches a keyring CLI only on stdin, never in argv or env** (D-C). `get` strips the single
+  trailing LF the CLI adds; a secret ending in LF round-trips without it (README says so).
+- **Missing entry:** `get` resolves null, `delete` resolves false (`security` "could not be found",
+  `secret-tool lookup` exit 1). Any other CLI failure rejects `failed`.
+- **Env from nothing (D-G).** Every spawn gets exactly `keyringEnv(hostEnv)`, which is
+  `{ PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', ...extra }`. `process.env` is never read and never inherited (the
+  spawn passes `env` explicitly). Extra keys and values must be strings without NUL (`invalid` otherwise).
+- **argv** is always an array, never a shell. `bin` must be absolute (`invalid` otherwise); a missing or
+  non-executable bin rejects `unavailable` (checked before the spawn; ENOENT/EACCES at spawn too).
+- **Timeouts** kill the process group (SIGTERM, then SIGKILL 5 s later) and reject `failed`. stdout is capped at
+  1 MB (past it, kill and reject `failed`); stderr keeps a 2 KB tail for logs only, never in messages.
+
+### 11.4 Passphrase file (`src/file.ts`, `src/atomic.ts`)
+
+```ts
+export type FileOptions = { path: string; passphrase: string | Uint8Array };
+export function fileStore(o: FileOptions): Keystore;
+/** Atomic 0700/0600 writer (R6). Lets fs errors (paths only, never secrets) propagate. */
+export function writeFileAtomic(path: string, data: string | Uint8Array): void;
+```
+
+- `path` must be absolute (`invalid` otherwise); `passphrase` must be non-empty (`invalid` when empty).
+- The file is UTF-8 JSON
+  `{ v: 1, kdf: 'scrypt-16384-8-1', salt: base64(16 fresh random bytes per save),
+     box: base64(sealSecretBox(JSON { entries: { name: secret } }, scrypt(passphrase, salt))) }`,
+  written through `writeFileAtomic`: `mkdirSync(dirname, { recursive: true, mode: 0o700 })`, write
+  `<path>.tmp` with mode 0600, rename over the target.
+- `get` on a missing file resolves null; `set` creates; `delete` on a missing entry resolves false.
+- A wrong passphrase or a tampered box makes `openSecretBox` return null: the call rejects `auth-failed` and
+  fails closed (nothing returned, nothing written). An unparseable file rejects `failed`.
+- Derived keys are zeroed after use. A string passphrase cannot be zeroed (the runtime keeps copies), so
+  `Uint8Array` is preferred; the README says so.
+
+### 11.5 CI override (`src/override.ts`)
+
+```ts
+export function overrideStore(entries: Record<string, string>): Keystore;
+```
+
+It copies `entries` (names and secrets validated as in 11.2) and runs `get/set/delete` on the copy. The host
+builds the map from `process.env` itself when it wants to; the kit never reads it.
+
+### 11.6 Acceptance (L-KEY)
+
+- Decoy HOME with `--permission` and fake keyring CLIs for both tools that log argv+env and emulate a store:
+  the canary is absent from argv and env, the decoy is byte-identical, the child exits 0.
+- A test with a poisoned `process.env` (decoy HOME, junk PATH, entries named like the secrets) behaves
+  identically, and the fake's env holds exactly the base plus host extras.
+- A wrong passphrase rejects `auth-failed`; the sealed file holds no plaintext canary.
+- `~/.pi` is untouched byte for byte (`scripts/test.sh`).
+- `SECURITY.md` exists; the package stays `private: true` at 0.1.0; build, check, test and `smoke:pack` are
+  green.

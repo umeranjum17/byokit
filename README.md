@@ -123,6 +123,7 @@ to ask. Each agent keeps its own subscription sign-in; the kit never sees a cred
 | [`@byokit/accounts`](packages/accounts) | Sign in with the AI plan you already pay for, into your app's own store; limits, refresh, plain words. Node, Electron, browsers and PWAs, React Native on iOS and Android | [![npm](https://img.shields.io/npm/v/@byokit/accounts?style=flat&label=)](https://www.npmjs.com/package/@byokit/accounts) |
 | [`@byokit/ui-core`](packages/ui-core) | Headless sign-in and pairing state for any UI (React, React Native, or none): phases, QR, consent, link words, route labels | [![npm](https://img.shields.io/npm/v/@byokit/ui-core?style=flat&label=)](https://www.npmjs.com/package/@byokit/ui-core) |
 | [`@byokit/seal`](packages/seal) | Portable NaCl-compatible box and secretbox for data at rest, plus Ed25519 signatures | [![npm](https://img.shields.io/npm/v/@byokit/seal?style=flat&label=)](https://www.npmjs.com/package/@byokit/seal) |
+| [`@byokit/keystore`](packages/keystore) | One secret per name: the OS keyring, a passphrase-sealed file, or a host-passed override for CI ([spec](docs/capability-kits.md)) | in development |
 | [`@byokit/link`](packages/link) | Scan a code to pair a phone or browser with the home computer over one encrypted link, with device stores for phones, browsers and computers; muxr parity tracked separately | [![npm](https://img.shields.io/npm/v/@byokit/link?style=flat&label=)](https://www.npmjs.com/package/@byokit/link) |
 | [`@byokit/relay`](packages/relay) | Routes encrypted link frames; enrolment, typed-code lookup, push ([security boundary](packages/relay/SECURITY.md)) | [![npm](https://img.shields.io/npm/v/@byokit/relay?style=flat&label=)](https://www.npmjs.com/package/@byokit/relay) |
 | [`@byokit/reach`](packages/reach) | The addresses a phone dials the home computer on (Tailscale Serve, direct tailnet, LAN) plus mDNS advertising (Node) and browsing (React Native) | [![npm](https://img.shields.io/npm/v/@byokit/reach?style=flat&label=)](https://www.npmjs.com/package/@byokit/reach) |
@@ -228,6 +229,8 @@ absolute path, with an environment built from nothing; `@byokit/overlay` runs on
 app ([spec](docs/capability-kits.md)). `@byokit/machine` spawns only the `ssh` binary the app passes by absolute path
 and the `ssh-keyscan` beside it, with the key path the app passes and a kit-owned config, and holds only the provider
 keys the app's store gives it and the scoped keys it mints for that app ([spec](docs/machine-kit.md)).
+`@byokit/keystore` spawns only the OS keyring CLIs by absolute path, with an environment built from nothing
+plus only what the host passes ([spec](docs/capability-kits.md)).
 Library code never reads environment keys; the explicitly invoked [decide eval CLI](packages/decide#evals) can use one
 for a live run. The tests prove isolation; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
