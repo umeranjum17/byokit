@@ -147,16 +147,27 @@ test('a not-promptable agent is refused with no agent.prompt call', async () => 
     [],                                                                   // no agent at all
     [{ pane_id: 'w1:p2', agent_status: 'unknown', revision: 1 }],         // unknown status
     [{ pane_id: 'w1:p2', agent_status: 'idle', revision: 1, launch_pending: true }],
-    [{ pane_id: 'w1:p2', agent_status: 'idle', revision: 1, interactive_ready: false }],
   ]) {
     const { kit, calls } = doubleKit({ agents, answer: () => ({}) });
     try {
       await kit.start();
       await assert.rejects(kit.prompt({ paneId: 'w1:p2' }, 'x'),
         (e: { code?: string }) => e.code === 'agent-not-ready');
-      assert.equal(calls.some((c) => c.method === 'agent.prompt'), false, 'no socket call for the refusal');
+      assert.equal(calls.some((c) => c.method === 'agent.prompt'), false, 'no agent.prompt for the refusal');
     } finally { await kit.stop(); }
   }
+});
+
+test('an agent Herdr did not launch (interactive_ready false) is promptable', async () => {
+  const { kit, calls } = doubleKit({
+    agents: [{ pane_id: 'w1:p2', agent_status: 'idle', revision: 1, interactive_ready: false, launch_pending: false }],
+    answer: (method) => (method === 'agent.prompt' ? goodReceipt : {}),
+  });
+  try {
+    await kit.start();
+    await kit.prompt({ paneId: 'w1:p2' }, 'x');
+    assert.equal(calls.some((c) => c.method === 'agent.get'), false, 'a ready tree needs no re-read');
+  } finally { await kit.stop(); }
 });
 
 test('a server agent_blocked refusal maps to agent-blocked', async () => {

@@ -923,8 +923,10 @@ export class Blocked {
   When the start fails, the pane the kit created is rolled back with `pane.close` (a caller-owned `pane`
   placement is never closed). Returns `{ paneId, name }`. Exact param spellings come from the generated
   types; where muxr and the schema disagree, the schema wins and H5 records it in `report.json`.
-- `prompt`: refuse unless the agent is promptable (`launch_pending !== true`, `interactive_ready !== false`, status in
-  idle/working/blocked/done) → `PublicLinkError`-compatible error code `agent-not-ready`. Call `agent.prompt
+- `prompt`: refuse unless the agent is promptable (`launch_pending !== true`, status in idle/working/blocked/done)
+  → `PublicLinkError`-compatible error code `agent-not-ready`. The tree is re-read once (`agent.get`) before a
+  refusal, since `launch_pending` rides reads only; `interactive_ready` is not gated (v0.9.1 sets it only for agents
+  its own `agent.start` settled, and its `agent.prompt` accepts the rest). A refusal never calls `agent.prompt`. Call `agent.prompt
   { target: paneId, text, wait? }`; accept only a receipt with `type === 'agent_prompted'`, string `terminal_id`,
   `agent_status`, `workspace_id`, `tab_id`, `pane_id === target`, boolean `focused`, non-negative safe-integer
   `revision`; else throw `Herdr did not queue the prompt.` (muxr `promptHerdrAgent`). `agent_blocked` → error code

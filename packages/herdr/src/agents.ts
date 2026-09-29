@@ -49,7 +49,7 @@ function rootPaneOf(result: unknown): string | undefined {
   return isObj(pane) && typeof pane.pane_id === 'string' ? pane.pane_id : undefined;
 }
 
-export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot }): Pick<HerdrKit,
+export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; reread(paneId: string): Promise<void> }): Pick<HerdrKit,
   'startAgent' | 'prompt' | 'sendKeys' | 'wait' | 'read' | 'agentKinds' | 'installedAgentKinds'> {
   const call = ctx.call;
 
@@ -114,11 +114,17 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot }): Pi
 
   async function prompt(target: AgentRef, text: string,
     o?: { wait?: { until?: AgentStatus[]; timeoutMs: number } }): Promise<PromptReceipt> {
-    // The readiness gate reads the kit's own tree: a not-promptable agent is refused with no socket call.
-    const agent = agentOf(ctx.snapshot(), target.paneId);
-    if (agent === undefined || agent.launchPending === true || agent.interactiveReady === false
-      || !PROMPTABLE.includes(agent.status)) {
-      throw fail('agent-not-ready', 'That agent is not ready for a prompt yet.');
+    // The readiness gate reads the kit's own tree, re-read once before a refusal: `launch_pending`
+    // rides reads only, so a snapshot taken mid-launch goes stale. `interactive_ready` is not gated:
+    // Herdr sets it only for agents its own `agent.start` settled, and its `agent.prompt` accepts the
+    // rest. A refusal never sends `agent.prompt`.
+    const ready = (): boolean => {
+      const agent = agentOf(ctx.snapshot(), target.paneId);
+      return agent !== undefined && agent.launchPending !== true && PROMPTABLE.includes(agent.status);
+    };
+    if (!ready()) {
+      await ctx.reread(target.paneId);
+      if (!ready()) throw fail('agent-not-ready', 'That agent is not ready for a prompt yet.');
     }
     const wait = o?.wait === undefined ? undefined
       : { timeout_ms: o.wait.timeoutMs, ...(o.wait.until === undefined ? {} : { until: o.wait.until }) };

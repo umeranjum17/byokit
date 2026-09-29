@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- FIX: `prompt` now reaches an agent that was already running when the app connected. Herdr marks only
+  the agents its own `agent.start` launched as interactive-ready, so an agent started by hand or by
+  another app was refused forever; and a snapshot read while an agent was still launching kept it
+  marked as launching, because Herdr never pushes the end of a launch. The kit no longer gates on
+  interactive-ready, and before refusing a prompt it re-reads the agent once from Herdr.
 - Depends on @byokit/relay 0.2.1.
 
 ## 0.1.1 (2026-09-29)
