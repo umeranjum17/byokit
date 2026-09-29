@@ -1,0 +1,39 @@
+{
+  "name": "@byokit/capture",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Record a screen or a desktop into a take and make a video from it, through any recorder that implements the open recorder protocol v1 this kit defines.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umeranjum17/byokit.git",
+    "directory": "packages/capture"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "schema",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
