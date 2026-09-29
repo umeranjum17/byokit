@@ -74,6 +74,13 @@
 - FIX: match both event spellings at the event boundary: live frames on real Herdr carry
   the underscore const (`pane_created`) while subscription kinds use dots. 0.1.0-next
   matched dots only, so no live `created`/`closed`/status event ever updated the tree.
+- `herdrContract(make, { test })` accepts the runner's `test` (node:test's by default), so a vitest host suite can run the contract against its lab Herdr.
+- K7 `startAgent` parity: `agent_pane_busy`/`agent_pane_unavailable` retry inside a bounded 5 s
+  budget, `pane.close` rollback of the created pane when `agent.start` fails (a caller-owned `pane`
+  placement is never closed), `focus: false` with the env on `worktree.create`, an optional
+  `worktree.branch`, and an `agentStartFaults` hook on the fake scripting `agent.start` failures; the
+  fake's `worktree.create` opens the linked checkout with its root tab and pane like the pinned server,
+  and every placement records its env on the fresh pane where `pane.get` surfaces it.
 - FIX: the packed `dist/words.d.ts` keeps `with { type: 'json' }` on its `./words.json` import, so a strict NodeNext consumer with `skipLibCheck: false` no longer fails with TS1543.
 
 - Scaffold (docs/runtime-kits.md §11.3 H1): frozen public types, kit facade, internal seams and words. Behavior

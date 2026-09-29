@@ -17,13 +17,17 @@ export type FakeHerdrOptions = {
   dir: string;                        // test-owned scratch dir; the fake writes nothing outside it
   socketPath?: string;                // default <dir>/herdr.sock
   world?: { cwd?: string; kinds?: readonly string[] };
+  agentStartFaults?: AgentStartFault[]; // queued `agent.start` failures, consumed FIFO (K7)
   onStop?: () => void;                // called after shutdown completes (the `server` bin verb exits on it)
 };
+
+export type AgentStartFault = { code: string; message?: string };
 
 export type FakeHerdr = {
   socketPath: string;
   bin: string;
   world: FakeWorld;                   // frozen clone of the world at start, for assertions
+  agentStartFaults: AgentStartFault[]; // live queue: push faults, each `agent.start` shifts one (K7)
   emit(event: { type: string } & Record<string, unknown>): void;
   setStatus(paneId: string, status: string): void;
   subscriptionCount(): number;        // distinct sockets holding a subscription (batch + status)
@@ -48,6 +52,10 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     nextRevision: 0,
     zoomed: false,
   });
+  // Queued `agent.start` failures (K7): each start shifts one and fails with its code, so a test
+  // scripts busy-then-ok or a permanent failure. The array is live on the handle — push more faults
+  // any time before (or during) the starts under test.
+  const agentStartFaults: AgentStartFault[] = [...(options.agentStartFaults ?? [])];
 
   const sockets = new Set<Socket>();
   const eventSubs = new Set<{ socket: Socket; kinds: Set<string> }>();
@@ -100,6 +108,8 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       // result.root_pane.pane_id from workspace.create and tab.create alike).
       const tab = addTab(workspace.workspace_id, 'main');
       const pane = addPane(tab.tab_id, workspace.workspace_id, workspace.label);
+      const env = envOf(p);
+      if (env !== undefined) pane.env = env;
       if (p.focus === true) focusWorkspace(workspace.workspace_id);
       emitEvent('workspace.created', { workspace: workspaceView(workspace) });
       return { workspace: workspaceView(workspace), root_pane: { pane_id: pane.pane_id } };
@@ -140,8 +150,16 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
         checkout_path: checkout,
         is_linked_worktree: true,
       };
+      // Like the pinned server, the linked checkout opens with its root tab and root pane in the
+      // checkout, carrying the placement env; the kit reads result.root_pane.pane_id (K7).
+      const tab = addTab(workspace.workspace_id, 'main');
+      const pane = addPane(tab.tab_id, workspace.workspace_id, checkout);
+      const env = envOf(p);
+      if (env !== undefined) pane.env = env;
+      if (p.focus === true) focusWorkspace(workspace.workspace_id);
       emitEvent('workspace.created', { workspace: workspaceView(workspace) });
-      return { workspace: { ...workspaceView(workspace), worktree: workspace.worktree } };
+      return { workspace: { ...workspaceView(workspace), worktree: workspace.worktree },
+        tab: tabView(tab), root_pane: { pane_id: pane.pane_id } };
     },
 
     'tab.list': (p) => ({ tabs: live.tabs.filter((tab) => tab.workspace_id === p.workspace_id) }),
@@ -155,6 +173,8 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       if (workspace === undefined) throw fail('workspace_not_found', 'workspace not found');
       const tab = addTab(workspace.workspace_id, label(p) ?? workspace.label ?? live.cwd);
       const pane = addPane(tab.tab_id, workspace.workspace_id, (p.cwd as string | undefined) ?? workspace.label ?? live.cwd);
+      const env = envOf(p);
+      if (env !== undefined) pane.env = env;
       if (p.focus === true) focusPane(pane.pane_id);
       emitEvent('tab.created', { tab: tabView(tab) });
       return { tab: tabView(tab), root_pane: { pane_id: pane.pane_id } };
@@ -190,6 +210,8 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     'pane.split': (p) => {
       const target = paneOf(p.target_pane_id);
       const pane = addPane(target.tab_id, target.workspace_id, target.cwd);
+      const env = envOf(p);
+      if (env !== undefined) pane.env = env;
       if (p.focus === true) focusPane(pane.pane_id);
       emitEvent('pane.created', { pane: paneView(pane) });
       return { pane: { pane_id: pane.pane_id } };
@@ -224,6 +246,8 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     'pane.layout': (p) => ({ layout: tabLayout(paneOf(p.pane_id).tab_id) }),
 
     'agent.start': (p) => {
+      const fault = agentStartFaults.shift();
+      if (fault !== undefined) throw fail(fault.code, fault.message ?? fault.code);
       const pane = paneOf(p.pane_id);
       const kind = typeof p.kind === 'string' && p.kind.length > 0 ? p.kind : 'pi';
       const name = typeof p.name === 'string' && p.name.length > 0 ? p.name : kind;
@@ -455,6 +479,18 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     return typeof p.label === 'string' && p.label.length > 0 ? p.label : undefined;
   }
 
+  // Placement env (K7): `workspace.create`, `tab.create`, `pane.split` and `worktree.create` carry
+  // the start's env for the fresh pane's shell. The fake records it on the pane, where `pane.get`
+  // surfaces it, so a test proves the pane received the env.
+  function envOf(p: Params): Record<string, string> | undefined {
+    if (typeof p.env !== 'object' || p.env === null || Array.isArray(p.env)) return undefined;
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(p.env as Record<string, unknown>)) {
+      if (typeof value === 'string') env[key] = value;
+    }
+    return env;
+  }
+
   function snapshotOf() {
     return {
       workspaces: live.workspaces.map(workspaceView),
@@ -584,6 +620,7 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     socketPath,
     bin,
     world: freezeWorld(live),
+    agentStartFaults,
     emit(event) {
       if (wireName(event.type) === 'pane_agent_status_changed' && typeof event.pane_id === 'string') {
         emitStatus(event.pane_id, String(event.agent_status ?? 'unknown'), Number(event.revision ?? 0));
@@ -618,6 +655,7 @@ function paneView(pane: FakePane) {
     terminal_title: pane.terminal_title,
     terminal_title_stripped: pane.terminal_title_stripped,
     focused: pane.focused,
+    ...(pane.env === undefined ? {} : { env: { ...pane.env } }),
     ...(Object.keys(pane.tokens).length === 0 ? {} : { tokens: pane.tokens }),
   };
 }

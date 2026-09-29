@@ -15,8 +15,21 @@ type AgentRecord = HerdrSnapshot['workspaces'][number]['tabs'][number]['panes'][
 const PROMPTABLE: readonly AgentStatus[] = ['idle', 'working', 'blocked', 'done'];
 const DEFAULT_TIMEOUT_MS = 60_000;
 
+// `agent.start` lands while the fresh pane is still at its shell prompt: the server answers
+// `agent_pane_busy`/`agent_pane_unavailable` until the pane is ready. The kit retries those for a
+// bounded 5 s, then rolls the pane it created back with `pane.close` like any other start failure.
+const START_RETRYABLE = new Set(['agent_pane_busy', 'agent_pane_unavailable']);
+const START_RETRY_BUDGET_MS = 5_000;
+const START_RETRY_DELAY_MS = 100;
+
 const isObj = (v: unknown): v is Raw => typeof v === 'object' && v !== null && !Array.isArray(v);
 const fail = (code: string, message: string): Error => Object.assign(new Error(message), { code });
+const codeOf = (error: unknown): string | undefined => {
+  const code = (error as { code?: unknown } | null | undefined)?.code;
+  if (typeof code === 'string') return code;
+  return /herdr: ([a-z0-9_]+):/i.exec(error instanceof Error ? error.message : String(error))?.[1];
+};
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 function agentOf(snapshot: HerdrSnapshot, paneId: string): AgentRecord {
   for (const w of snapshot.workspaces) for (const t of w.tabs) for (const p of t.panes) {
@@ -41,12 +54,16 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot }): Pi
   const call = ctx.call;
 
   // Every placement takes its pane id from the server's answer, never a prediction (6.4).
+  // Placements that make a pane (every path but `pane`) roll it back with `pane.close` when the
+  // start fails, so a failed start leaves no extra pane behind.
   async function startAgent(o: StartAgent): Promise<AgentRef> {
     const timeout = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const env = o.env === undefined ? {} : { env: o.env };
     let paneId: string | undefined;
+    let created = false;
     if (o.worktree !== undefined) {
-      const made = await call('worktree.create', { cwd: o.cwd, branch: o.worktree.branch,
+      const made = await call('worktree.create', { cwd: o.cwd, focus: false, ...env,
+        ...(o.worktree.branch === undefined ? {} : { branch: o.worktree.branch }),
         ...(o.worktree.base === undefined ? {} : { base: o.worktree.base }) }) as Raw;
       const worktree = isObj(made?.worktree) ? made.worktree : undefined;
       const checkout = typeof worktree?.checkout_path === 'string' ? worktree.checkout_path
@@ -56,24 +73,43 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot }): Pi
       paneId = rootPaneOf(made) ?? rootPaneOf(await call('tab.create', {
         workspace_id: made?.workspace?.workspace_id, cwd: checkout, focus: false, ...env,
       }));
+      created = true;
     } else if ('workspace' in o.place) {
       paneId = rootPaneOf(await call('workspace.create', { cwd: o.cwd,
         ...(o.place.label === undefined ? {} : { label: o.place.label }), focus: false, ...env }));
+      created = true;
     } else if ('tab' in o.place) {
       paneId = rootPaneOf(await call('tab.create', { workspace_id: o.place.workspaceId, cwd: o.cwd,
         ...(o.place.label === undefined ? {} : { label: o.place.label }), focus: false, ...env }));
+      created = true;
     } else if ('split' in o.place) {
       const made = await call('pane.split', { target_pane_id: o.place.split,
         direction: o.place.direction, focus: false, ...env }) as Raw;
       paneId = typeof made?.pane?.pane_id === 'string' ? made.pane.pane_id : undefined;
+      created = true;
     } else {
       paneId = o.place.pane;
     }
     if (paneId === undefined) throw new Error('herdr: the placement answered no pane id');
     const name = agentName(o);
-    await call('agent.start', { pane_id: paneId, kind: o.kind, name,
-      ...(o.args === undefined ? {} : { args: o.args }), timeout_ms: timeout }, timeout + 5000);
-    return { paneId, name };
+    const params = { pane_id: paneId, kind: o.kind, name,
+      ...(o.args === undefined ? {} : { args: o.args }), timeout_ms: timeout };
+    const deadline = Date.now() + START_RETRY_BUDGET_MS;
+    for (;;) {
+      try {
+        await call('agent.start', params, timeout + 5000);
+        return { paneId, name };
+      } catch (error) {
+        if (START_RETRYABLE.has(codeOf(error) ?? '') && Date.now() < deadline) {
+          await sleep(START_RETRY_DELAY_MS);
+          continue;
+        }
+        if (created) {
+          try { await call('pane.close', { pane_id: paneId }); } catch { /* rollback is best-effort */ }
+        }
+        throw error;
+      }
+    }
   }
 
   async function prompt(target: AgentRef, text: string,
