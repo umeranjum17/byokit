@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.1 (2026-09-29)
+
 - FIX: the packed `dist/words.d.ts` keeps `with { type: 'json' }` on its `./words.json` import, so a strict NodeNext consumer with `skipLibCheck: false` no longer fails with TS1543.
 
 ## 0.4.0
