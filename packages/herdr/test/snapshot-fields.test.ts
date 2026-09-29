@@ -8,7 +8,7 @@ import { scratchDir } from '../../test-support.ts';
 import { HerdrKit } from '../src/kit.ts';
 import { socketTransport } from '../src/socket.ts';
 import { startFakeHerdr, type FakeHerdr } from '../src/testing/index.ts';
-import type { HerdrEvent, HerdrSnapshot, HerdrTransport } from '../src/types.ts';
+import type { HerdrEvent, HerdrSnapshot, HerdrSubscribeStop, HerdrTransport } from '../src/types.ts';
 import { HERDR_PROTOCOL } from '../src/constants.ts';
 
 const settle = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -151,11 +151,12 @@ test('K2: a status push racing the snapshot read wins over the read', async () =
     subscribe: (subs, on) => {
       if (subs.some((s) => s.type === 'pane.agent_status_changed')) {
         statusOn = on as (e: HerdrEvent) => void;
-        const stop = () => {};
-        return Object.assign(stop, { ready: Promise.resolve(true) });
+        return Object.assign(() => {}, {
+          ready: Promise.resolve(true), onReconnect() {}, onDisconnect() {},
+        }) as HerdrSubscribeStop;
       }
       batchOn = on as (e: HerdrEvent) => void;
-      return () => {};
+      return (() => {}) as HerdrSubscribeStop;
     },
     close: () => {},
   };

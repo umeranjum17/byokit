@@ -7,7 +7,7 @@ import { HERDR_PROTOCOL } from '../src/constants.ts';
 import { HerdrKit } from '../src/kit.ts';
 import { Supervisor } from '../src/supervise.ts';
 import { startFakeHerdr, writeBinShim } from '../src/testing/index.ts';
-import type { HerdrTransport } from '../src/types.ts';
+import type { HerdrSubscribeStop, HerdrTransport } from '../src/types.ts';
 
 const until = async (ok: () => boolean, ms = 3000) => {
   const deadline = Date.now() + ms;
@@ -62,7 +62,7 @@ test('event arriving during bootstrap applies after the snapshot', async () => {
       if (subs[0]?.type !== 'pane.agent_status_changed') queueMicrotask(() => on({
         type: 'pane.updated', pane: { pane_id: 'p1', agent_status: 'working', revision: 2 },
       }));
-      return () => {};
+      return (() => {}) as HerdrSubscribeStop;
     },
     close() {},
   };
@@ -84,7 +84,7 @@ test('long-running agent calls extend the socket deadline', async () => {
       if (method === 'session.snapshot') return { snapshot: { workspaces: [], tabs: [], panes: [], agents: [] } };
       seen.push(timeout ?? 0);
       return {};
-    }, subscribe: () => () => {}, close() {},
+    }, subscribe: () => (() => {}) as HerdrSubscribeStop, close() {},
   };
   const kit = new HerdrKit({ mode: 'adopt', bin: '/unused', socketPath: '/unused', transport });
   try {
@@ -98,7 +98,7 @@ test('long-running agent calls extend the socket deadline', async () => {
 test('an older protocol fails closed', async () => {
   const states: string[] = [];
   const transport: HerdrTransport = {
-    call: async () => ({ protocol: HERDR_PROTOCOL - 1 }), subscribe: () => () => {}, close() {},
+    call: async () => ({ protocol: HERDR_PROTOCOL - 1 }), subscribe: () => (() => {}) as HerdrSubscribeStop, close() {},
   };
   const kit = new HerdrKit({ mode: 'adopt', bin: '/not/used', socketPath: '/unused', transport,
     onState: (s) => states.push(`${s.phase}/${s.why}`) });

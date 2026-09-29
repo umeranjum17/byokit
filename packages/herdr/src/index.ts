@@ -6,6 +6,6 @@ export { HerdrKit } from './kit.ts';
 export { agentWords, stateWords, words, WORDS, type WordKey } from './words.ts';
 export type {
   AgentRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,
-  HerdrMethods, HerdrParams, HerdrProtocolRange, HerdrResult, HerdrSnapshot, HerdrState, HerdrSubscription, HerdrTransport,
+  HerdrMethods, HerdrParams, HerdrProtocolRange, HerdrResult, HerdrSnapshot, HerdrState, HerdrSubscription, HerdrSubscribeStop, HerdrTransport,
   PromptReceipt, StartAgent, TerminalSession,
 } from './types.ts';

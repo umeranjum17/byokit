@@ -13,7 +13,7 @@ import { scratchDir } from '../../test-support.ts';
 import { HERDR_PROTOCOL } from '../src/constants.ts';
 import { HerdrKit } from '../src/kit.ts';
 import { startFakeHerdr } from '../src/testing/index.ts';
-import type { HerdrTransport } from '../src/types.ts';
+import type { HerdrSubscribeStop, HerdrTransport } from '../src/types.ts';
 
 const run = promisify(execFile);
 
@@ -55,7 +55,7 @@ test('startAgent split placement sends target_pane_id, never pane_id', async () 
       if (method === 'pane.split') return { pane: { pane_id: 'w1:p9' } };
       return { agent: {} };
     },
-    subscribe: () => () => {},
+    subscribe: () => (() => {}) as HerdrSubscribeStop,
     close: () => {},
   };
   const kit = new HerdrKit({ mode: 'adopt', bin: '/not/used', socketPath: '/not/used', transport });

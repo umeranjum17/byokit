@@ -8,7 +8,7 @@ import { scratchDir } from '../../test-support.ts';
 import { HERDR_PROTOCOL } from '../src/constants.ts';
 import { HerdrKit } from '../src/kit.ts';
 import { startFakeHerdr, type FakeHerdr } from '../src/testing/index.ts';
-import type { HerdrSnapshot, HerdrTransport } from '../src/types.ts';
+import type { HerdrSnapshot, HerdrSubscribeStop, HerdrTransport } from '../src/types.ts';
 
 const panesOf = (snapshot: HerdrSnapshot): string[] =>
   snapshot.workspaces.flatMap((w) => w.tabs.flatMap((t) => t.panes.map((p) => p.id)));
@@ -136,7 +136,7 @@ test('K7: worktree.create carries focus:false, the env and only a given branch/b
       if (method === 'tab.create') return { tab: {}, root_pane: { pane_id: 'w7:p1' } };
       return { agent: {} };
     },
-    subscribe: () => () => {},
+    subscribe: () => (() => {}) as HerdrSubscribeStop,
     close: () => {},
   };
   const kit = new HerdrKit({ mode: 'adopt', bin: '/not/used', socketPath: '/not/used', transport });

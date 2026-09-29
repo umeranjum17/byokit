@@ -10,7 +10,7 @@ import { scratchDir } from '../../test-support.ts';
 import { HERDR_PROTOCOL } from '../src/constants.ts';
 import { HerdrKit } from '../src/kit.ts';
 import { startFakeHerdr, type FakeHerdr } from '../src/testing/index.ts';
-import type { HerdrTransport } from '../src/types.ts';
+import type { HerdrSubscribeStop, HerdrTransport } from '../src/types.ts';
 
 const until = async <T>(probe: () => T, ok: (value: T) => boolean, ms = 3000): Promise<T> => {
   const deadline = Date.now() + ms;
@@ -50,7 +50,7 @@ function doubleKit(o: { agents?: unknown[]; answer: (method: string, params: Rec
       }
       return o.answer(method, params);
     },
-    subscribe: () => () => {},
+    subscribe: () => (() => {}) as HerdrSubscribeStop,
     close: () => {},
   };
   return { kit: new HerdrKit({ mode: 'adopt', bin: '/not/used', socketPath: '/not/used', transport }), calls };
