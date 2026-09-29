@@ -3,11 +3,10 @@
 // default-refused, notices are sealed with title-only relay, and serve() binds per reach.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { scratchDir } from '../../test-support.ts';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import {
   DeviceLink,
@@ -52,7 +51,7 @@ type World = {
 
 async function world(o: { passThrough?: (method: string, grant: Grant) => boolean; relay?: boolean } = {}): Promise<World> {
   const fake = fakeGateway();
-  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o9-'));
+  const stateDir = scratchDir('o9');
   const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false });
   await kit.start();
   const relayCalls: World['relayCalls'] = [];

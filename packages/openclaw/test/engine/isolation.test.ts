@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { scratchDir } from '../../../test-support.ts';
 import { connect } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../../src/engine.ts';
@@ -14,7 +14,7 @@ const listening = (port: number) => new Promise<boolean>(resolve => {
 });
 
 test('pinned engine stays within its state directory and loopback', { timeout: 360_000 }, async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-'));
+  const dir = scratchDir('engine-isolation');
   const decoy = join(dir, 'decoy');
   for (const name of ['.pi', '.openclaw', '.codex', '.claude', '.config/herdr']) {
     const path = join(decoy, name);

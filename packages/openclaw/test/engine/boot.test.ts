@@ -6,8 +6,7 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, createPublicKey } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { OpenClawKit } from '../../src/kit.ts';
 import { Engine } from '../../src/engine.ts';
@@ -25,7 +24,7 @@ before(async () => {
 }, { timeout: 600_000 });
 
 test('cold boot: the first start() reaches ready without ECONNREFUSED', { timeout: 600_000 }, async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o11-boot-'));
+  const stateDir = scratchDir('o11-boot');
   const kit = new OpenClawKit({ stateDir, engineDir, tools: [], approvalTimeoutMs: 10_000 });
   try {
     await kit.start();
@@ -42,7 +41,7 @@ test('cold boot: the first start() reaches ready without ECONNREFUSED', { timeou
 // ({ deviceId, publicKeyPem, privateKeyPem }) holding the same key material, proving the kit can sit on a
 // gateway-paired state dir. Throwaway keys only; each case owns its state dir.
 test('a paired-shape device.json handshakes with identical key material', { timeout: 600_000 }, async () => {
-  const stateDir = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'byokit-o11-paired-'));
+  const stateDir = scratchDir('o11-paired');
   const kit = new OpenClawKit({ stateDir, engineDir, tools: [], approvalTimeoutMs: 10_000 });
   try {
     await kit.start();

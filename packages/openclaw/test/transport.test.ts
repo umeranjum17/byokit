@@ -4,9 +4,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { scratchDir } from '../../test-support.ts';
 import { Engine } from '../src/engine.ts';
 import { gatewayTransport, loadDeviceKeys } from '../src/transport.ts';
 
@@ -19,7 +19,7 @@ function keyPair() {
 }
 
 test('legacy Crewhouse device.json starts the transport without touching the file', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-transport-'));
+  const dir = scratchDir('transport');
   try {
     const keys = keyPair();
     const path = join(dir, 'device.json');
@@ -38,7 +38,7 @@ test('legacy Crewhouse device.json starts the transport without touching the fil
 });
 
 test('kit device.json still starts the transport without touching the file', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-transport-'));
+  const dir = scratchDir('transport');
   try {
     const keys = keyPair();
     const path = join(dir, 'device.json');
@@ -56,7 +56,7 @@ test('kit device.json still starts the transport without touching the file', asy
 });
 
 test('loadDeviceKeys maps both shapes to the same key pair', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-transport-'));
+  const dir = scratchDir('transport');
   try {
     const keys = keyPair();
     const legacy = join(dir, 'legacy.json');
@@ -72,7 +72,7 @@ test('loadDeviceKeys maps both shapes to the same key pair', () => {
 });
 
 test('a device.json with neither shape fails naming the file', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-transport-'));
+  const dir = scratchDir('transport');
   try {
     const path = join(dir, 'device.json');
     writeFileSync(path, JSON.stringify({ deviceId: 'x' }));
@@ -88,7 +88,7 @@ test('a device.json with neither shape fails naming the file', () => {
 });
 
 test('Engine.start keeps a legacy device.json byte-for-byte', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-transport-'));
+  const dir = scratchDir('transport');
   try {
     const keys = keyPair();
     const root = join(dir, 'openclaw');

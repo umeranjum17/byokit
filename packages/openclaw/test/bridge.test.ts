@@ -1,9 +1,9 @@
 // The fail-closed tool bridge (5.9, O5): unknown runs, permit binding, allowOnce, parked asks, garbage frames.
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { connect } from 'node:net';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { scratchDir } from '../../test-support.ts';
 import { test } from 'node:test';
 import { Bridge, MAX_APPROVAL_TIMEOUT_MS, resolveBridge, writePlugin } from '../src/bridge.ts';
 import { words } from '../src/words.ts';
@@ -56,7 +56,7 @@ async function withBridge(
   o: { permitted?: (tool: string) => boolean; approvalTimeoutMs?: number } & { host?: ToolHost } = {},
   fn: (bridge: Bridge, sockPath: string, seen: { asked: Approval[]; gone: string[] }) => Promise<void>,
 ): Promise<void> {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-o5-bridge-'));
+  const dir = scratchDir('o5-bridge');
   const sockPath = join(dir, 'bridge.sock');
   const seen = { asked: [] as Approval[], gone: [] as string[] };
   const bridge = new Bridge({
@@ -78,7 +78,7 @@ async function withBridge(
 }
 
 test('writePlugin is deterministic and carries the tool names', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-o5-plugin-'));
+  const dir = scratchDir('o5-plugin');
   writePlugin(dir, { id: 'byokit', tools, paramPrefix: '__byokit', gateBuiltins: true });
   const manifest = readFileSync(join(dir, 'openclaw.plugin.json'), 'utf8');
   const table = readFileSync(join(dir, 'tools.json'), 'utf8');
@@ -102,7 +102,7 @@ test('writePlugin is deterministic and carries the tool names', async () => {
 });
 
 test('writePlugin and resolveBridge refuse bad bridge names', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-o5-prefix-'));
+  const dir = scratchDir('o5-prefix');
   try {
     assert.throws(() => writePlugin(dir, { id: 'byokit', tools, paramPrefix: 'nope', gateBuiltins: true }), /invalid bridge paramPrefix/);
     assert.throws(() => resolveBridge({ socketName: '../evil.sock' }), /invalid bridge socketName/);
@@ -311,7 +311,7 @@ test('closing the call socket aborts the host call instead of leaving the comman
 });
 
 test('stopping with a parked ask ends it gone', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-o5-stop-'));
+  const dir = scratchDir('o5-stop');
   const seen = { asked: [] as Approval[], gone: [] as string[] };
   const bridge = new Bridge({
     path: join(dir, 'b.sock'),

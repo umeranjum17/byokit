@@ -1,8 +1,8 @@
 // A test-written herdr CLI shim (docs/runtime-kits.md §11.3 H4 acceptance): no real Herdr, no lifecycle —
 // a plain Node script the tests spawn the way the kit spawns `bin`. Tests write it into a temp dir, 0700.
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { scratchDir } from '../../test-support.ts';
 
 export type Shim = { dir: string; bin: string; out: string; dispose(): Promise<void> };
 
@@ -63,7 +63,7 @@ if (mode === 'record') {
 `;
 
 export async function makeShim(): Promise<Shim> {
-  const dir = await mkdtemp(join(tmpdir(), 'herdr-h4-'));
+  const dir = scratchDir('herdr-h4');
   const bin = join(dir, 'herdr-shim.mjs');
   await writeFile(bin, SHIM, { mode: 0o700 });
   return { dir, bin, out: join(dir, 'record.json'), dispose: () => rm(dir, { recursive: true, force: true }) };

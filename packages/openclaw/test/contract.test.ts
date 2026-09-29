@@ -1,8 +1,7 @@
 // O11: the contract suite against fakeGateway — runs in `npm test` (offline, no engine).
 // The same cases run against the real pinned engine in test/engine/contract.test.ts.
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { rmSync } from 'node:fs';
+import { scratchDir } from '../../test-support.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import { openclawContract, type ContractFixture } from '../src/testing/contract.ts';
@@ -10,7 +9,7 @@ import { openclawContract, type ContractFixture } from '../src/testing/contract.
 const NOTE = { name: 'note', description: 'a test tool the host answers', parameters: { type: 'object' } };
 
 async function make(): Promise<ContractFixture> {
-  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o11-fake-'));
+  const stateDir = scratchDir('o11-fake');
   const fake = fakeGateway();
   const kit = new OpenClawKit({
     stateDir,

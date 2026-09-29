@@ -10,6 +10,20 @@ import { fileURLToPath } from "node:url";
 const here = join(fileURLToPath(import.meta.url), "..");
 const root = join(here, "..");
 
+// An aborted smoke run (SIGINT/SIGTERM) must not leave the scratch app behind:
+// the finally in main covers success and failure, this covers abort.
+const pendingTmp = new Set<string>();
+process.on("exit", () => {
+  for (const dir of pendingTmp) rmSync(dir, { recursive: true, force: true });
+});
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    for (const dir of [...pendingTmp]) rmSync(dir, { recursive: true, force: true });
+    process.removeAllListeners(signal);
+    process.kill(process.pid, signal);
+  });
+}
+
 function sh(cmd: string, args: string[], cwd: string): string {
   const r = spawnSync(cmd, args, { cwd, encoding: "utf8" });
   if (r.status !== 0) throw new Error(`failed: ${cmd} ${args.join(" ")}\n${r.stderr}${r.stdout}`);
@@ -24,6 +38,7 @@ interface PackEntry {
 function main(): void {
   // No `byokit-` prefix: scripts/test.sh's leak check would blame other runs.
   const dir = mkdtempSync(join(tmpdir(), "pack-smoke-byokit-"));
+  pendingTmp.add(dir);
   try {
     const tgzDir = join(dir, "tgz");
     const appDir = join(dir, "app");
@@ -185,6 +200,7 @@ function main(): void {
     if (failed > 0) throw new Error(`${failed} package(s) failed the pack smoke`);
     console.log(`pack smoke: ${entries.length}/${entries.length} packages pass`);
   } finally {
+    pendingTmp.delete(dir);
     rmSync(dir, { recursive: true, force: true });
   }
 }
