@@ -25,6 +25,7 @@ import { openclawDevice, LinkRefused } from '../src/device.ts';
 import { openNotice } from '../src/notices.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import { words } from '../src/words.ts';
+import { phaseOf } from '@byokit/ui-core';
 
 const NOT_ALLOWED = words('link.notAllowed');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -290,6 +291,8 @@ test('sign-in over the link: device code to done', async () => {
     return v.signIn && 'code' in v.signIn && v.signIn.code ? v : undefined;
   });
   assert.equal((code.signIn as { code: string }).code, 'CREW-2026');
+  assert.equal(code.ready, false, 'not signed in yet: the engine being ready is not the account');
+  assert.equal(phaseOf(code), 'code');
   release();
   const done = await until(async () => {
     const v = await a.oc.signIn.view('openai');
@@ -297,6 +300,9 @@ test('sign-in over the link: device code to done', async () => {
   });
   assert.equal(done.ready, true);
   assert.equal(await w.kit.signedIn('a', 'openai'), true);
+  // Signed out anywhere (here: on the computer, not over the link): no finished sign-in is left to show.
+  authed = false;
+  assert.deepEqual(await a.oc.signIn.view('openai'), { ready: false, signIn: null }, 'signed out: no finished sign-in left to show');
 });
 
 test('serve binds per reach and pairs over its urls', async () => {

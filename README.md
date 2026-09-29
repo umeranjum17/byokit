@@ -49,7 +49,7 @@ latest first, so neither goes stale.
 | `@byokit/reach` | `npm install @byokit/reach` | [![npm](https://img.shields.io/npm/v/@byokit/reach?style=flat&label=)](https://www.npmjs.com/package/@byokit/reach) | [reach-v releases](https://github.com/umeranjum17/byokit/releases?q=reach-v) |
 | `@byokit/decide` | `npm install @byokit/decide` | [![npm](https://img.shields.io/npm/v/@byokit/decide?style=flat&label=)](https://www.npmjs.com/package/@byokit/decide) | [decide-v releases](https://github.com/umeranjum17/byokit/releases?q=decide-v) |
 | `@byokit/herdr` | `npm install @byokit/herdr` | [![npm](https://img.shields.io/npm/v/@byokit/herdr?style=flat&label=)](https://www.npmjs.com/package/@byokit/herdr) | [herdr-v releases](https://github.com/umeranjum17/byokit/releases?q=herdr-v) |
-| `@byokit/openclaw` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
+| `@byokit/openclaw` | `npm install @byokit/openclaw` | [![npm](https://img.shields.io/npm/v/@byokit/openclaw?style=flat&label=)](https://www.npmjs.com/package/@byokit/openclaw) | [openclaw-v releases](https://github.com/umeranjum17/byokit/releases?q=openclaw-v) |
 | `@byokit/compose` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
 | `@byokit/capture` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
 | `@byokit/overlay` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
@@ -128,7 +128,7 @@ to ask. Each agent keeps its own subscription sign-in; the kit never sees a cred
 | [`@byokit/relay`](packages/relay) | Routes encrypted link frames; enrolment, typed-code lookup, push ([security boundary](packages/relay/SECURITY.md)) | [![npm](https://img.shields.io/npm/v/@byokit/relay?style=flat&label=)](https://www.npmjs.com/package/@byokit/relay) |
 | [`@byokit/reach`](packages/reach) | The addresses a phone dials the home computer on (Tailscale Serve, direct tailnet, LAN) plus mDNS advertising (Node) and browsing (React Native) | [![npm](https://img.shields.io/npm/v/@byokit/reach?style=flat&label=)](https://www.npmjs.com/package/@byokit/reach) |
 | [`@byokit/decide`](packages/decide) | Typed questions in, a typed answer with confidence out, abstaining below a floor; rules, Jev (API-billed) or any model (the person's own ChatGPT on a phone), evals | [![npm](https://img.shields.io/npm/v/@byokit/decide?style=flat&label=)](https://www.npmjs.com/package/@byokit/decide) |
-| [`@byokit/openclaw`](packages/openclaw) | The OpenClaw runtime kit: the pinned engine's full operator surface as typed pass-through calls, plus plain-words helpers for members, sign-in, runs and approvals, for apps where the aggregator holds the subscriptions ([spec](docs/runtime-kits.md)) | in development |
+| [`@byokit/openclaw`](packages/openclaw) | The OpenClaw runtime kit: the pinned engine's full operator surface as typed pass-through calls, plus plain-words helpers for members, sign-in, runs and approvals, for apps where the aggregator holds the subscriptions ([spec](docs/runtime-kits.md)) | [![npm](https://img.shields.io/npm/v/@byokit/openclaw?style=flat&label=)](https://www.npmjs.com/package/@byokit/openclaw) |
 | [`@byokit/herdr`](packages/herdr) | Drive the Herdr on this computer — workspaces, panes, agents, blocked-approval answers — from an app, or hand it to a phone over a link, for apps where the aggregator holds the subscriptions ([spec](docs/runtime-kits.md)) | [![npm](https://img.shields.io/npm/v/@byokit/herdr?style=flat&label=)](https://www.npmjs.com/package/@byokit/herdr) |
 | [`@byokit/compose`](packages/compose) | Drafting in a person's voice with no model call: voice rules, platform limits, draft checks (fits, voice, kept the facts) and thread splits over a pinned writing engine, plus an agent CLI ([spec](docs/capability-kits.md)) | in development |
 | [`@byokit/capture`](packages/capture) | Record a screen or a desktop and make a video, through any recorder implementing the open recorder protocol v1 the kit defines ([spec](docs/capability-kits.md)) | in development |
@@ -202,13 +202,16 @@ npm ci
 npm run build
 node examples/pwa/serve.ts 8080                        # the browser sign-in page on http://127.0.0.1:8080/
 cd examples/herdr-kit && BYOKIT_EXAMPLE_FAKE=1 npm start -- --via lan   # the phone page, against the stand-in Herdr
+cd examples/openclaw-kit && BYOKIT_EXAMPLE_FAKE=1 npm start -- --via lan   # the phone page, against the stand-in OpenClaw
 ```
 
-`examples/herdr-kit` is not a workspace of its own: from a clone it runs on the root install's packages, as above.
-With a real Herdr, see its [README](examples/herdr-kit).
+`examples/herdr-kit` and `examples/openclaw-kit` are not workspaces of their own: from a clone they run on the root
+install's packages, as above. With a real Herdr or the real OpenClaw engine, see their READMEs
+([herdr-kit](examples/herdr-kit), [openclaw-kit](examples/openclaw-kit)).
 
 Examples: [`examples/expo`](examples/expo) (React Native, iOS and Android), [`examples/pwa`](examples/pwa)
-(an installable web page) and [`examples/herdr-kit`](examples/herdr-kit) (Herdr's agents from a phone browser). For
+(an installable web page), [`examples/herdr-kit`](examples/herdr-kit) (Herdr's agents from a phone browser) and
+[`examples/openclaw-kit`](examples/openclaw-kit) (a ChatGPT plan's helper on the computer, from a phone browser). For
 platform checks and their limits, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Billing, honestly

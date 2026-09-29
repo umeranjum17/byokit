@@ -1,7 +1,7 @@
 # Runtime kits: `@byokit/openclaw` and `@byokit/herdr`
 
 Foundation spec and builder breakdown. Status: **built; `@byokit/herdr` 0.1.0 is published, and `@byokit/openclaw`
-is held back (`private: true`) until its release.** Capability kits have their own spec:
+0.1.0 is released from its example PR (O12).** Capability kits have their own spec:
 [docs/capability-kits.md](capability-kits.md).
 Direction: the captain's 2026-09-28 afternoon clarification and confirmation (firstmate `data/byokit/direction.md`).
 This document is the single source of truth for the build lanes. A builder follows it literally; where it is silent,

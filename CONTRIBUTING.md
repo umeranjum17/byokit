@@ -14,6 +14,7 @@ npm run check   # tsc over sources and tests, strict
 npm test        # every test in a throwaway HOME (outbound network blocked; loopback fakes stay usable), then a byte-for-byte check of your real ~/.pi
 npm run test:browser   # the PWA example in headless Chromium (npx playwright install chromium, or BYOKIT_CHROME)
 sh scripts/test.sh examples/herdr-kit/e2e.test.ts   # the Herdr kit example, packed, against the fake Herdr
+sh scripts/test.sh examples/openclaw-kit/e2e.test.ts   # the OpenClaw kit example, packed, against the fake Gateway
 ```
 
 Phones: `examples/expo` (`npm ci`, `npm run typecheck`, `npm run bundle` for the iOS and Android bundles, and
