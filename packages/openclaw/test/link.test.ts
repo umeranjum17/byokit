@@ -300,8 +300,8 @@ test('sign-in over the link: device code to done', async () => {
   });
   assert.equal(done.ready, true);
   assert.equal(await w.kit.signedIn('a', 'openai'), true);
+  // Signed out anywhere (here: on the computer, not over the link): no finished sign-in is left to show.
   authed = false;
-  await a.oc.signOut('openai');
   assert.deepEqual(await a.oc.signIn.view('openai'), { ready: false, signIn: null }, 'signed out: no finished sign-in left to show');
 });
 

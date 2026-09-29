@@ -96,7 +96,8 @@ function connect(grant: DeviceGrant) {
 }
 
 // The engine's own sentence, then (once it is ready) whether this plan is signed in. One ask at a time, asked again
-// every second while the engine is still getting ready or a sign-in is under way.
+// every second while the engine is still getting ready or a sign-in is under way, and every few seconds after that
+// (the engine can restart, or the account be signed out on the computer).
 let timer: ReturnType<typeof setTimeout> | undefined;
 let asking = false;
 let askAgain = false;
@@ -113,14 +114,13 @@ async function refresh() {
   } catch { /* the link line says why */ }
   asking = false;
   if (mine !== paired) return;
-  if (askAgain) { askAgain = false; void refresh(); } else if (poll) timer = setTimeout(() => void refresh(), 1000);
+  if (askAgain) { askAgain = false; void refresh(); } else timer = setTimeout(() => void refresh(), poll ? 1000 : 5000);
 }
 
 /** Draws the sign-in card or the message box; true while the sign-in is still moving. */
 function drawAccount(view: AccountView): boolean {
   const phase = phaseOf(view);
   const moving = view.signIn?.state === 'waiting';
-  const finishing = view.signIn?.state === 'done' && !view.ready; // signed in, and the engine is still saying so
   $('signin').hidden = phase === 'done';
   $('talk').hidden = phase !== 'done';
   if (phase === 'done') return false;
@@ -129,7 +129,7 @@ function drawAccount(view: AccountView): boolean {
   $('signin-where').hidden = !view.signIn?.url;
   $<HTMLAnchorElement>('signin-url').href = view.signIn?.url ?? '';
   $('signin-url').textContent = view.signIn?.url ? `Open the ${NAME} page` : '';
-  $('signin-go').hidden = moving || finishing;
+  $('signin-go').hidden = moving;
   $('signin-cancel').hidden = !moving;
   $('signin-title').textContent = !view.signIn ? words('member.signedOut', { name: NAME })
     : phase === 'code' ? `On the ${NAME} page, type this code:`
@@ -138,7 +138,7 @@ function drawAccount(view: AccountView): boolean {
     : phase === 'failed' ? view.signIn.error ?? words('member.signedOut', { name: NAME })
     : phase === 'cancelled' ? words('member.signedOut', { name: NAME })
     : `Opening ${NAME}…`;
-  return moving || finishing;
+  return moving;
 }
 
 $('signin-go').onclick = async () => {

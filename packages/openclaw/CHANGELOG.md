@@ -11,8 +11,8 @@
 - FIX: `oc.signin.view`'s `ready` (and so `openclawDevice(link).signIn.view(p).ready`) is the member's sign-in to that
   provider, not the engine being up. Before, a phone's `phaseOf` said `done` while the device code was still showing,
   and a member who was never signed in looked signed in.
-- FIX: `oc.signout` drops the finished sign-in's view, so `signIn.view(p)` after a sign-out no longer shows the old
-  sign-in as done.
+- FIX: `signIn.view(p)` drops a finished sign-in once its account is gone (signed out over the link, on the computer,
+  or by the engine), so it no longer shows that old sign-in as done.
 - Depends on @byokit/relay 0.2.0.
 - Depends on @byokit/link 0.3.2.
 
