@@ -52,7 +52,7 @@ latest first, so neither goes stale.
 | `@byokit/openclaw` | `npm install @byokit/openclaw` | [![npm](https://img.shields.io/npm/v/@byokit/openclaw?style=flat&label=)](https://www.npmjs.com/package/@byokit/openclaw) | [openclaw-v releases](https://github.com/umeranjum17/byokit/releases?q=openclaw-v) |
 | `@byokit/compose` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
 | `@byokit/capture` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
-| `@byokit/overlay` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
+| `@byokit/overlay` | `npm install @byokit/overlay` (from its first release; until then build from source) | ready to publish | [overlay-v releases](https://github.com/umeranjum17/byokit/releases?q=overlay-v) |
 
 Unpacked sizes as of accounts 0.4.1, decide 0.2.0, herdr 0.1.0, link 0.3.1, reach 0.2.0, relay 0.1.3, seal 0.1.0,
 ui-core 0.2.0 (npm `dist.unpackedSize`): accounts ~117 kB, decide ~36 kB, herdr ~279 kB, link ~151 kB,
@@ -132,7 +132,7 @@ to ask. Each agent keeps its own subscription sign-in; the kit never sees a cred
 | [`@byokit/herdr`](packages/herdr) | Drive the Herdr on this computer — workspaces, panes, agents, blocked-approval answers — from an app, or hand it to a phone over a link, for apps where the aggregator holds the subscriptions ([spec](docs/runtime-kits.md)) | [![npm](https://img.shields.io/npm/v/@byokit/herdr?style=flat&label=)](https://www.npmjs.com/package/@byokit/herdr) |
 | [`@byokit/compose`](packages/compose) | Drafting in a person's voice with no model call: voice rules, platform limits, draft checks (fits, voice, kept the facts) and thread splits over a pinned writing engine, plus an agent CLI ([spec](docs/capability-kits.md)) | in development |
 | [`@byokit/capture`](packages/capture) | Record a screen or a desktop and make a video, through any recorder implementing the open recorder protocol v1 the kit defines ([spec](docs/capability-kits.md)) | in development |
-| [`@byokit/overlay`](packages/overlay) | A floating bubble over other apps on Android (Expo module): a panel that opens on tap, per-app visibility rules, a tap log with no text and an optional focused-field reader; iOS reports unsupported ([spec](docs/capability-kits.md)) | in development |
+| [`@byokit/overlay`](packages/overlay) | A floating bubble over other apps on Android (Expo module): a panel that opens on tap, per-app visibility rules, a tap log with no text and an optional focused-field reader; iOS reports unsupported ([spec](docs/capability-kits.md)) | ready (Android) |
 
 ## Quickstart
 

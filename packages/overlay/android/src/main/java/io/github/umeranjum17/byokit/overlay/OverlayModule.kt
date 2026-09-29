@@ -51,6 +51,11 @@ class OverlayModule : Module() {
   private var bubble: Bubble? = null
   private var host: OverlayHost? = null
   private var rules: RulesRecord? = null
+  // The foreground app (accessibility host) and what watches it and the keyboard while the bubble is on.
+  private var app: String? = null
+  private val watching = mutableListOf<() -> Unit>()
+  // The keyboard follows the service's attach and detach on either host.
+  private var keyboardOff: (() -> Unit)? = null
   private var pending: Promise? = null
   // A stop while the service is still starting waits for its startForeground; stopping it sooner crashes the app.
   private var stopWhenHosted = false
@@ -88,8 +93,8 @@ class OverlayModule : Module() {
     Function("setMood") { mood: String ->
       main.post { this@OverlayModule.mood = mood; bubble?.setMood(mood) }
     }
-    // Kept for the accessibility host; BK-O3's foreground-app provider applies them.
-    Function("setRules") { r: RulesRecord -> main.post { rules = r } }
+    // Applied over the foreground app on the accessibility host; start() rejects rules for 'window'.
+    Function("setRules") { r: RulesRecord -> main.post { rules = r; refresh() } }
     // Rejects through the promise: a thrown error reaches JS wrapped in Expo's own message.
     AsyncFunction("openPanel") { props: Map<String, String>, promise: Promise ->
       val panel = options?.panel ?: return@AsyncFunction promise.reject(CodedException("overlay: no panel"))
@@ -131,11 +136,50 @@ class OverlayModule : Module() {
     val o = options ?: return
     host = h
     val b = Bubble(h, PrefsSpotStore(context), ::drawable, ::reducedMotion)
-    b.spotKey = SpotStore.key(o.spots == "per-app", null)
     b.events.add(::bubbleEvent)
     bubble = b
-    if (!(panelOpen && o.hideWhilePanelOpen)) b.show(mood)
+    watchKeyboard()
+    val foreground = ByokitAccessibility.foreground
+    if (o.host == "accessibility" && foreground != null) { app = foreground.current; watching += foreground.onChange(::appChanged) }
+    b.spotKey = SpotStore.key(o.spots == "per-app", app)
+    refresh()
     setState("on")
+  }
+
+  /** The bubble rests above the keyboard while the app's accessibility service is attached. */
+  private fun watchKeyboard() {
+    keyboardOff?.invoke()
+    keyboardOff = null
+    val b = bubble ?: return
+    val k = ByokitAccessibility.keyboard
+    b.imeTopPx = k?.imeTopPx
+    keyboardOff = k?.onChange { b.imeTopPx = it }
+  }
+
+  private fun appChanged(now: String?) {
+    // A window change can briefly have no app, and the panel is the app's own window over the app it opened from.
+    if (now == null || (panelOpen && now == context.packageName)) return
+    app = now
+    val b = bubble ?: return
+    val key = SpotStore.key(options?.spots == "per-app", now)
+    if (key != b.spotKey) { b.hide(); b.spotKey = key } // shown again below, at this app's spot
+    refresh()
+  }
+
+  /** The bubble shows unless the open panel hides it or, on the accessibility host, the rules hide it over this app. */
+  private fun refresh() {
+    val o = options ?: return
+    val b = bubble ?: return
+    val ruledOut = o.host == "accessibility" && rules?.shows(app) == false
+    if ((panelOpen && o.hideWhilePanelOpen) || ruledOut) b.hide() else b.show(mood)
+  }
+
+  private fun unwatch() {
+    watching.forEach { it() }
+    watching.clear()
+    keyboardOff?.invoke()
+    keyboardOff = null
+    app = null
   }
 
   private fun hostChanged(kind: String, h: OverlayHost?) {
@@ -144,6 +188,7 @@ class OverlayModule : Module() {
       context.stopService(Intent(context, OverlayService::class.java))
       return
     }
+    if (kind == "accessibility" && state == "on") watchKeyboard()
     if (options?.host != kind) return
     if (h != null) {
       val p = pending ?: return
@@ -153,6 +198,7 @@ class OverlayModule : Module() {
       return
     }
     if (state != "on" || host == null) return
+    unwatch()
     bubble?.hide()
     bubble = null
     host = null
@@ -162,6 +208,7 @@ class OverlayModule : Module() {
   private fun stopNow() {
     val starting = pending
     pending = null
+    unwatch()
     bubble?.hide()
     bubble = null
     host = null
@@ -188,9 +235,7 @@ class OverlayModule : Module() {
   private fun panelChanged(open: Boolean) {
     panelOpen = open
     emit(mapOf("type" to "panel", "open" to open))
-    val o = options ?: return
-    if (!o.hideWhilePanelOpen) return
-    if (open) bubble?.hide() else bubble?.show(mood)
+    refresh()
   }
 
   private fun setState(s: String): String {
@@ -198,6 +243,9 @@ class OverlayModule : Module() {
     emit(mapOf("type" to "state", "state" to s))
     return s
   }
+
+  /** src/rules.ts shownFor: paused, no app, or turned off hides; turned on or a default shows. */
+  private fun RulesRecord.shows(app: String?): Boolean = !paused && app != null && app !in off && (app in on || app in defaults)
 
   private fun emit(body: Map<String, Any?>) = sendEvent("overlay", body)
 

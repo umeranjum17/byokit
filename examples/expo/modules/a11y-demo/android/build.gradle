@@ -1,0 +1,18 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+android {
+  namespace "io.github.umeranjum17.byokit.example.a11y"
+  defaultConfig {
+    minSdkVersion 26
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  // ByokitAccessibility: the service hands itself to @byokit/overlay (docs/capability-kits.md 7.5).
+  implementation project(':byokit-overlay')
+}

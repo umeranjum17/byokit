@@ -35,6 +35,9 @@ class Bubble(
 ) {
   val events = Listeners<OverlayEvent>()
   var spotKey: String = SpotStore.GLOBAL
+  /** The keyboard's top in screen pixels while it is open; the bubble rests above it and returns when it closes. */
+  var imeTopPx: Int? = null
+    set(v) { if (field == v) return; field = v; if (host.attached) place() }
 
   private val main = Handler(Looper.getMainLooper())
   private var mood: String? = null
@@ -154,7 +157,7 @@ class Bubble(
 
   private fun pixels(): Pair<Int, Int> {
     val (screen, top) = screen()
-    return Placement.toPixels(spot, screen, bubbleSize(), top, null)
+    return Placement.toPixels(spot, screen, bubbleSize(), top, imeTopPx)
   }
 
   /** The screen size and the status bar's height, from the host's window manager. */
@@ -221,7 +224,7 @@ class Bubble(
           main.removeCallbacks(longPress)
           val (screen, top) = screen()
           when {
-            dragging -> settle(Placement.snap(x + rowOffset(), y, screen, bubbleSize(), top, null))
+            dragging -> settle(Placement.snap(x + rowOffset(), y, screen, bubbleSize(), top, imeTopPx))
             !longPressed -> { v.performClick(); events.emit(OverlayEvent.Tap) }
           }
         }

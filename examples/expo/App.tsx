@@ -14,6 +14,7 @@ import { boxKeyPairFromSeed, openBox, openSecretBox, sealBox, sealSecretBox, sig
 import { forgettableStore, pairInput, pairingGeneration } from './pairing.ts';
 import { linkWords, pairingView, useSignIn, type PairPhase } from '@byokit/ui-core';
 import { overlay, stateWords, type OverlayState } from '@byokit/overlay';
+import { focusedField } from '@byokit/overlay/focused-field';
 
 const ME = 1;
 const accounts = new Accounts<any, number>({
@@ -159,14 +160,27 @@ function Pair() {
   );
 }
 
-/** The bubble over other apps (Android): Start/Stop, and a tap opens the panel registered in index.ts. */
+/**
+ * The bubble over other apps (Android): Start/Stop, and a tap opens the panel registered in index.ts. The tap log, and
+ * the focused field once the example's accessibility service (modules/a11y-demo) is on: a long press on the bubble
+ * reads it in any app.
+ */
 function Bubble() {
   const [state, setState] = useState<OverlayState>('off');
+  const [taps, setTaps] = useState('');
+  const [typed, setTyped] = useState('');
+  const [field, setField] = useState('');
   useEffect(() => {
     overlay.state().then(setState);
     const offState = overlay.on('state', (e) => setState(e.state));
     const offTap = overlay.on('tap', () => { overlay.logTap({ app: 'io.github.umeranjum17.byokit.example', action: 'tap' }); });
-    return () => { offState(); offTap(); };
+    // A long press reads the field in focus, in any app: the bubble's window never takes the focus.
+    const offLong = overlay.on('longPress', async () => {
+      const read = await focusedField.read();
+      setField(`available: ${await focusedField.available()}, read: ${JSON.stringify(read)}`);
+      overlay.say(read ? `Read: ${read.text}` : 'No text field in focus.');
+    });
+    return () => { offState(); offTap(); offLong(); };
   }, []);
   const start = async () => {
     const s = await overlay.start({
@@ -180,6 +194,13 @@ function Bubble() {
       <Text testID="bubble" style={s.words}>{stateWords(state)}</Text>
       {state === 'on' ? <Button id="bubbleStop" label="Stop the bubble" onPress={() => overlay.stop()} />
         : <Button id="bubbleStart" label="Start the bubble" onPress={start} />}
+      <Button id="taps" label="Show the taps" onPress={async () => setTaps(JSON.stringify(await overlay.taps()))} />
+      {!!taps && <Text testID="tapLog" style={s.small}>{taps}</Text>}
+      <Button id="fieldRead" label="Read the focused field" onPress={async () => {
+        setField(`available: ${await focusedField.available()}, read: ${JSON.stringify(await focusedField.read())}`);
+      }} />
+      {!!field && <Text testID="field" style={s.small}>{field}</Text>}
+      <TextInput testID="fieldInput" value={typed} onChangeText={setTyped} placeholder="Type here, then read it (above)" style={s.input} />
     </View>
   );
 }

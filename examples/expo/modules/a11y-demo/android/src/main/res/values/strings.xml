@@ -1,0 +1,4 @@
+<resources>
+  <string name="a11y_demo_label">byokit example bubble</string>
+  <string name="a11y_demo_description">Reads the text field you are typing in when you ask the example app to, and shows the bubble without the display-over-apps switch.</string>
+</resources>
