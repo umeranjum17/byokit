@@ -133,7 +133,8 @@ export class HerdrKit {
   constructor(o: HerdrKitOptions) {
     this.o = o;
     this.supervisor = new Supervisor(o, (s) => { this.current = s; o.onState?.(s); });
-    this.agents = createAgents({ call: this.callAny, snapshot: () => this.snapshot() });
+    this.agents = createAgents({ call: this.callAny, snapshot: () => this.snapshot(),
+      reread: (paneId) => this.reread(paneId) });
     this.blockedList = new Blocked({ call: this.callAny });
   }
   get state(): HerdrState { return this.current; }
@@ -264,24 +265,35 @@ export class HerdrKit {
       this.stops.add(stop);
       this.statusStops.add(stop);
       const ready = (stop as typeof stop & { ready?: Promise<unknown> }).ready;
-      if (ready) statusAcks.push(ready.then((ok) => (ok === false ? undefined : this.catchUp(token, pane.id))));
+      if (ready) statusAcks.push(ready.then((ok) => (ok === false ? undefined : this.reread(pane.id, token))));
     }
     void Promise.allSettled(statusAcks).then(() => { if (token === this.generation) resolveStatus(); });
     this.current = newer ? { phase: 'needs-update', why: 'version' } : { phase: 'ready' };
     this.o.onState?.(this.current);
   }
-  // A status change between the snapshot read and a watch's ack reached no socket: once the watch
-  // is live, re-read that agent. A push landing meanwhile is newer and wins (epoch guard).
-  private async catchUp(token: number, paneId: string): Promise<void> {
+  // Re-read one agent and land its status, revision and launch flags: after a watch acks (a status
+  // change before the ack reached no socket) and before `prompt` refuses (`launch_pending` rides
+  // reads only, never a push). A push landing meanwhile is newer and wins status and revision (epoch
+  // guard); the launch flags still land, since no push carries them.
+  private async reread(paneId: string, token = this.generation): Promise<void> {
     const epoch = this.statusEpoch.get(paneId);
     let made: Raw | undefined;
     try { made = await this.transport?.call('agent.get', { target: paneId }) as Raw | undefined; } catch { return; }
     const agent = made?.agent;
-    if (token !== this.generation || this.statusEpoch.get(paneId) !== epoch ||
-        typeof agent?.agent_status !== 'string') return;
-    // Status and revision only: the read's other fields may be staler than a merged pane.updated.
+    if (token !== this.generation || typeof agent?.agent_status !== 'string') return;
+    // v0.9.1 leaves both flags out when false (`skip_serializing_if = is_false`): absent means false.
+    const flags = { launch_pending: agent.launch_pending === true, interactive_ready: agent.interactive_ready === true };
+    if (this.statusEpoch.get(paneId) !== epoch) {
+      const pane = findPane(this.tree, paneId);
+      if (pane?.agent !== undefined) {
+        pane.agent = mergeAgent(pane.agent, flags);
+        this.publish();
+      }
+      return;
+    }
+    // The read's other fields may be staler than a merged pane.updated.
     this.update({ type: 'pane_agent_status_changed', pane_id: paneId, agent_status: agent.agent_status,
-      ...(typeof agent.revision === 'number' ? { revision: agent.revision } : {}) } as HerdrEvent);
+      ...(typeof agent.revision === 'number' ? { revision: agent.revision } : {}), ...flags } as HerdrEvent);
   }
   /**
    * Connect and bootstrap. Non-fatal: a rejected `start()` (e.g. `failed/socket` while Herdr is
