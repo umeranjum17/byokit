@@ -25,7 +25,15 @@
     },
     "plugins": [
       "expo-secure-store",
-      "@byokit/overlay",
+      [
+        "@byokit/overlay",
+        {
+          "moods": {
+            "bubble": "./assets/android-icon-foreground.png",
+            "bubble_note": "./assets/android-icon-monochrome.png"
+          }
+        }
+      ],
       [
         "expo-build-properties",
         {

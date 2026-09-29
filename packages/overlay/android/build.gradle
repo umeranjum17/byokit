@@ -16,5 +16,7 @@ android {
 }
 
 dependencies {
+  // PanelActivity is a ReactActivity; the app's React Native Gradle plugin picks the version.
+  implementation 'com.facebook.react:react-android'
   testImplementation 'junit:junit:4.13.2'
 }

@@ -13,6 +13,7 @@ import { DeviceLink, secureDeviceStore, type LinkStatus } from '@byokit/link';
 import { boxKeyPairFromSeed, openBox, openSecretBox, sealBox, sealSecretBox, signDetached, signingKeyPairFromSeed, verifyDetached } from '@byokit/seal';
 import { forgettableStore, pairInput, pairingGeneration } from './pairing.ts';
 import { linkWords, pairingView, useSignIn, type PairPhase } from '@byokit/ui-core';
+import { overlay, stateWords, type OverlayState } from '@byokit/overlay';
 
 const ME = 1;
 const accounts = new Accounts<any, number>({
@@ -158,6 +159,43 @@ function Pair() {
   );
 }
 
+/** The bubble over other apps (Android): Start/Stop, and a tap opens the panel registered in index.ts. */
+function Bubble() {
+  const [state, setState] = useState<OverlayState>('off');
+  useEffect(() => {
+    overlay.state().then(setState);
+    const offState = overlay.on('state', (e) => setState(e.state));
+    const offTap = overlay.on('tap', () => { overlay.logTap({ app: 'io.github.umeranjum17.byokit.example', action: 'tap' }); });
+    return () => { offState(); offTap(); };
+  }, []);
+  const start = async () => {
+    const s = await overlay.start({
+      host: 'window', mood: 'bubble', panel: 'bubblePanel',
+      notice: { channel: 'bubble', title: 'byokit example', text: 'The bubble is on.', icon: 'bubble_note' },
+    });
+    if (s === 'needs-permission') await overlay.openPermission();
+  };
+  return (
+    <View style={s.sheet}>
+      <Text testID="bubble" style={s.words}>{stateWords(state)}</Text>
+      {state === 'on' ? <Button id="bubbleStop" label="Stop the bubble" onPress={() => overlay.stop()} />
+        : <Button id="bubbleStart" label="Start the bubble" onPress={start} />}
+    </View>
+  );
+}
+
+/** The panel a bubble tap opens, in its own translucent activity. */
+export function BubblePanel() {
+  return (
+    <View style={s.panel}>
+      <View testID="panel" style={s.sheet}>
+        <Text style={s.words}>Opened from the bubble.</Text>
+        <Button id="panelClose" label="Close" onPress={() => overlay.closePanel()} />
+      </View>
+    </View>
+  );
+}
+
 export default function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [plan, setPlan] = useState('');
@@ -202,6 +240,7 @@ export default function App() {
           <Ask />
         </> : <Button id="signin" label="Sign in with ChatGPT" onPress={() => setSigning(true)} />}
       <Pair />
+      <Bubble />
       <Button id="seal" label="Try sealing" onPress={trySeal} />
       {!!sealed && <Text testID="sealed" style={s.small}>{sealed}</Text>}
     </ScrollView></SafeAreaView>
@@ -216,6 +255,7 @@ const s = StyleSheet.create({
   small: { fontSize: 14, color: '#555' },
   code: { fontSize: 32, fontWeight: '700', letterSpacing: 2 },
   sheet: { gap: 12, padding: 16, borderRadius: 12, backgroundColor: '#f2f2f2' },
+  panel: { flex: 1, justifyContent: 'flex-end', padding: 16 },
   button: { backgroundColor: '#111', borderRadius: 10, padding: 14, alignItems: 'center' },
   buttonText: { color: '#fff', fontSize: 17 },
 });
