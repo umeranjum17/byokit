@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, statSync } from 'node:fs';
 import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
-import { WORDS, classify, fileStore, isolate, say, signInError } from '../src/index.ts';
+import { PROVIDERS, WORDS, billingWords, classify, fileStore, isolate, say, signInError } from '../src/index.ts';
 
 test('the file store: Pi\'s auth.json shape, 0600 in a 0700 folder, serialized writes', async () => {
   const dir = join(scratchDir('store'), 'people', '1');
@@ -59,5 +59,7 @@ test('plain words only: no codes, commands, paths, model ids or jargon a person 
   const banned = /\b(oauth|token|api|cli|http|json|error|exception|null|undefined|status|config|env|localhost|\d{3}|gpt-|pi\b|codex|device_code|credential|refresh)|[`$~\/\\]|%/i;
   for (const [k, w] of Object.entries(WORDS)) assert.doesNotMatch(w.replace(/\{\w+\}/g, 'X'), banned, k);
   assert.equal(say('terms.grey', { name: 'ChatGPT', company: 'OpenAI' }), 'Uses your ChatGPT plan. OpenAI may change this at any time.');
+  assert.equal(billingWords(PROVIDERS.chatgpt), 'Uses your ChatGPT plan.');
+  assert.equal(billingWords(PROVIDERS.openrouter), 'Charged per use to your OpenRouter account, not a plan.');
   assert.equal(signInError('ChatGPT', 'device code login is not enabled'), 'ChatGPT needs device sign-in turned on first: in ChatGPT, Settings, Security, turn on device code sign-in, then try again.');
 });

@@ -36,9 +36,13 @@ class Kit extends Accounts {
 const pick = (i: AuthInteraction) => i.prompt({ type: 'select', message: 'how', options: [{ id: 'browser', label: 'Browser' }, { id: 'device_code', label: 'Device code' }] });
 const code = (i: AuthInteraction) => i.notify({ type: 'device_code', userCode: 'CREW-2026', verificationUri: 'https://example.test/device', expiresInSeconds: 900 });
 
-test('the catalogue: ChatGPT and OpenRouter by default, Grok and Copilot only when asked, never Claude', async () => {
-  assert.deepEqual(offered().map((p) => p.key), ['chatgpt', 'openrouter']);
+test('the catalogue: ChatGPT by default, OpenRouter only when named, Grok and Copilot only when asked, never Claude', async () => {
+  assert.deepEqual(offered().map((p) => p.key), ['chatgpt']);
+  assert.deepEqual(new Kit(async () => {}).providers.map((p) => p.key), ['chatgpt'], 'a computer offers no API billing by default');
+  assert.deepEqual(offered(['openrouter']).map((p) => p.key), ['openrouter'], 'named explicitly, still listed');
   assert.deepEqual(offered(['chatgpt', 'grok', 'copilot']).map((p) => p.key), ['chatgpt', 'grok', 'copilot']);
+  for (const p of Object.values(PROVIDERS)) assert.ok(p.billing === 'subscription' || p.billing === 'api', p.key);
+  assert.deepEqual(Object.fromEntries(Object.values(PROVIDERS).map((p) => [p.key, p.billing])), { chatgpt: 'subscription', openrouter: 'api', grok: 'subscription', copilot: 'subscription' });
   assert.equal(PROVIDERS.chatgpt.models.strong, 'gpt-6-sol');
   assert.ok(!Object.values(PROVIDERS).some((p) => p.pi === 'anthropic'));
   for (const p of Object.values(PROVIDERS)) assert.ok(p.terms && p.why && p.source.startsWith('https://'), p.key);

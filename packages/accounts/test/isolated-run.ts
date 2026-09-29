@@ -17,7 +17,7 @@ globalThis.fetch = async (input: string | URL | Request) => {
 };
 
 const store = (m: string | number) => fileStore(join(app, 'people', String(m), 'auth.json'));
-const kit = new Accounts({ store });
+const kit = new Accounts({ store, offer: ['chatgpt', 'openrouter'] }); // named: API billing is never in the default
 const shown = await kit.login(1, 'chatgpt', { via: 'code' });
 kit.cancel(1, 'chatgpt');
 const cancelled = await kit.signedIn(1, 'chatgpt');

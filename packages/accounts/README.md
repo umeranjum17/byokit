@@ -1,7 +1,7 @@
 # @byokit/accounts
 
-Sign in with the AI plan you already pay for (ChatGPT on every platform; OpenRouter on computers; Grok and GitHub
-Copilot hidden by default), inside your own app, into your app's own store: on a computer (Node, Electron), in a browser
+Sign in with the AI plan you already pay for (ChatGPT on every platform; OpenRouter on computers when an app offers it
+(API billing, never by default); Grok and GitHub Copilot hidden by default), inside your own app, into your app's own store: on a computer (Node, Electron), in a browser
 (a PWA, Electron's renderer) and on a
 phone (React Native and Expo, iOS and Android). One import; your bundler picks the platform's side
 (`package.json`'s `react-native` and `browser` conditions).
@@ -48,7 +48,7 @@ Examples: [`examples/expo`](../../examples/expo) (iOS and Android bundles; Andro
 | | Computer (Node, Electron main) | Browser (PWA, Electron renderer) | Phone (React Native: iOS, Android) |
 |---|---|---|---|
 | ChatGPT | Its own page, straight back to this computer (port 1455); a code when asked or stuck | Device code | Device code |
-| OpenRouter | Its own page, back to this computer (Pi's flow) | Not yet | Not yet |
+| OpenRouter | Its own page, back to this computer (Pi's flow), when an app offers it (API billing, never by default) | Not yet | Not yet |
 | Grok, Copilot (hidden) | Pi's flows | No | No |
 | Where sign-ins are kept | `fileStore(path)`, sealed with Electron's `safeStorage` when given | `browserStore(name)` (IndexedDB) | `secureStore(SecureStore, name)` (Keychain, Keystore) |
 
@@ -57,10 +57,12 @@ listener on the computer the browser runs on, so it is desktop only: ChatGPT sen
 `localhost:1455`, fixed for the client this signs in as. A web page can't call ChatGPT's model endpoint itself (it
 doesn't answer other web pages), so a PWA's model calls go through the app's own server or relay.
 
-- **Catalogue** (`catalogue.json`): each provider with its terms status (`allowed`, `grey`, `partner`), a one-line reason
-  and a source. The kit labels; your app decides what to offer (`new Accounts({ offer: ['chatgpt'] })`). Without an
-  explicit `offer`, only sign-ins supported on this platform are shown; an explicit list is not platform-filtered, so
-  choose from the table above. Claude plan sign-in is never offered: Anthropic reserves it for its own apps.
+- **Catalogue** (`catalogue.json`): each provider with its billing (`subscription`, `api`) and terms status (`allowed`,
+  `grey`, `partner`), a one-line reason and a source. The kit labels; your app decides what to offer
+  (`new Accounts({ offer: ['chatgpt'] })`). Without an explicit `offer`, only subscription sign-ins supported on this
+  platform are shown: OpenRouter is API-billed and never offered by default. An explicit list is not
+  platform-filtered, so choose from the table above. Show `billingWords(p)` next to every provider you list.
+  Claude plan sign-in is never offered: Anthropic reserves it for its own apps.
 - **Sign-in**: on computers, the provider's own page by default. For ChatGPT, whose page returns to this computer's
   port 1455, the kit listens there itself, so the tab shows your app's words (`new Accounts({ app: 'My App' })`) and only once they are
   true. A code takes over when asked ("Having trouble?"), when the page never comes back, or when the port is taken by
