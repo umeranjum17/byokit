@@ -5,7 +5,7 @@
 // the person's ~, credentials and caches are never touched.
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -218,17 +218,218 @@ try {
       return { name, payload: matched };
     });
 
+  // --- union patch-ups (Gap 6): protocol.schema.json is the authority for params shapes, but the
+  // published .d.mts declarations drop properties from anyOf/oneOf branches (e.g. CronRunParams loses
+  // mode and expectedProcessInstanceId, so kit.call('cron.run', { id, mode: 'force' }) fails tsc while
+  // the gateway accepts it). Every matched type whose schema carries a top-level anyOf/oneOf is
+  // re-emitted locally into src/generated/params.ts with each branch's full property set: a branch keeps
+  // its own properties plus the properties declared beside the union on the parent schema, and required
+  // is the union of the parent and branch required lists. Presence-exclusions (`not: {required: [...]}`,
+  // possibly nested under anyOf/oneOf) spell as `prop?: never`, so oneOf discrimination survives; any
+  // other `not` shape fails loudly below. Validation-only keywords (lengths, ranges, formats,
+  // additionalProperties) are not spelled, as with the protocol's own types. A future pin shape outside
+  // this subset fails loudly here, never silently.
+  type Schema = Record<string, any>;
+  const isSchema = (o: unknown): o is Schema => typeof o === 'object' && o !== null && !Array.isArray(o);
+
+  const protocolEntry = require.resolve('@openclaw/gateway-protocol');
+  let protocolDir = dirname(protocolEntry);
+  for (let i = 0; i < 5 && !existsSync(join(protocolDir, 'protocol.schema.json')); i++) protocolDir = dirname(protocolDir);
+  const schemaPath = join(protocolDir, 'protocol.schema.json');
+  if (!existsSync(schemaPath)) die(`protocol.schema.json not found above ${protocolEntry}`);
+  const definitions = (JSON.parse(readFileSync(schemaPath, 'utf8')) as { definitions?: Record<string, Schema> }).definitions ?? {};
+
+  const tsLiteral = (v: unknown): string => {
+    if (typeof v === 'string') return JSON.stringify(v);
+    if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+    if (v === null) return 'null';
+    die(`unsupported literal in protocol.schema.json: ${JSON.stringify(v)}`);
+  };
+  const quoteKey = (k: string): string => (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k) ? k : JSON.stringify(k));
+
+  interface Frag { text: string; union: boolean }
+  const prim = (t: string): Frag => ({ text: t, union: false });
+
+  function objectToTs(props: Schema, required: Set<string>, neverProps: Set<string>, indexSig: Frag | null, indent: string, where: string): Frag {
+    const pad = indent + '  ';
+    const lines = Object.keys(props).map((k) => {
+      if (neverProps.has(k)) return `${pad}${quoteKey(k)}?: never;`;
+      const t = schemaToTs(props[k], pad, `${where}.${k}`);
+      return `${pad}${quoteKey(k)}${required.has(k) ? '' : '?'}: ${t.text};`;
+    });
+    if (indexSig) lines.push(`${pad}[k: string]: ${indexSig.text};`);
+    if (lines.length === 0) die(`object with no properties and no index signature at ${where}`);
+    return { text: `{\n${lines.join('\n')}\n${indent}}`, union: false };
+  }
+
+  function indexSigOf(s: Schema, where: string): Frag | null {
+    const pats = isSchema(s.patternProperties) ? Object.keys(s.patternProperties) : [];
+    const extra = 'additionalProperties' in s && isSchema(s.additionalProperties) ? [s.additionalProperties] : [];
+    const values: Frag[] = [
+      ...pats.map((p) => schemaToTs((s.patternProperties as Schema)[p], '', `${where}[${p}]`)),
+      ...extra.map((v) => schemaToTs(v, '', `${where}#additional`)),
+    ];
+    if (values.length === 0) return null;
+    const seen = [...new Set(values.map((v) => v.text))].sort();
+    return { text: seen.length === 1 ? seen[0]! : `(${seen.join(' | ')})`, union: seen.length > 1 };
+  }
+
+  // Presence-exclusions from `not: {required: [...]}` or `not: {anyOf/oneOf: [{required: [...]},
+  // ...]}` spell as `prop?: never` in TS. Any other `not` shape fails loudly (see schemaToTs).
+  const NOT_ANNOTATIONS = new Set(['description', 'title', 'default', 'deprecated', 'examples', 'readOnly', 'writeOnly']);
+  function forbiddenProps(node: Schema, where: string): Set<string> {
+    const out = new Set<string>();
+    const n = node.not;
+    if (n === undefined) return out;
+    if (!isSchema(n)) die(`unsupported 'not' at ${where}`);
+    if ((n.anyOf !== undefined && !Array.isArray(n.anyOf)) || (n.oneOf !== undefined && !Array.isArray(n.oneOf))) {
+      die(`non-array union in 'not' at ${where}`);
+    }
+    const subs: unknown[] = Array.isArray(n.anyOf) ? n.anyOf : Array.isArray(n.oneOf) ? n.oneOf : [n];
+    for (const sub of subs) {
+      if (!isSchema(sub)) die(`unsupported 'not' branch at ${where}`);
+      const keys = Object.keys(sub).filter((k) => !NOT_ANNOTATIONS.has(k));
+      if (keys.length !== 1 || keys[0] !== 'required' || !Array.isArray(sub.required)) die(`unsupported 'not' shape at ${where}`);
+      for (const r of sub.required as unknown[]) {
+        if (typeof r !== 'string') die(`non-string required in 'not' at ${where}`);
+        out.add(r);
+      }
+    }
+    const topKeys = Object.keys(n).filter((k) => !NOT_ANNOTATIONS.has(k) && k !== 'anyOf' && k !== 'oneOf' && k !== 'required');
+    if (topKeys.length > 0) die(`unsupported 'not' shape at ${where}`);
+    return out;
+  }
+
+  function branchIsObject(b: Schema): boolean {
+    // A branch beside parent properties takes the parent's object shape unless it is definitely not
+    // an object: a literal, a nested union (ambiguous: which level do the parent properties join?), or
+    // a scalar/array type. Bare constraint nodes ({required}, {not}, {}) inherit the parent shape.
+    if (b.const !== undefined || b.enum !== undefined) return false;
+    if (Array.isArray(b.anyOf) || Array.isArray(b.oneOf)) return false;
+    if (typeof b.type === 'string') return b.type === 'object';
+    if (Array.isArray(b.type)) return (b.type as unknown[]).includes('object');
+    return true;
+  }
+
+  function schemaToTs(s: unknown, indent: string, where: string): Frag {
+    if (s === true) return prim('unknown');
+    if (s === false) return prim('never');
+    if (!isSchema(s)) die(`unsupported schema at ${where}`);
+    if (s.const !== undefined) return prim(tsLiteral(s.const));
+    if (Array.isArray(s.enum)) {
+      if (s.enum.length === 0) die(`empty enum at ${where}`);
+      return { text: s.enum.length === 1 ? tsLiteral(s.enum[0]) : `(${s.enum.map(tsLiteral).join(' | ')})`, union: s.enum.length > 1 };
+    }
+    const union = Array.isArray(s.anyOf) ? s.anyOf as unknown[] : Array.isArray(s.oneOf) ? s.oneOf as unknown[] : null;
+    if (s.anyOf !== undefined && !Array.isArray(s.anyOf)) die(`non-array anyOf at ${where}`);
+    if (s.oneOf !== undefined && !Array.isArray(s.oneOf)) die(`non-array oneOf at ${where}`);
+    const parentProps: Schema = isSchema(s.properties) ? s.properties as Schema : {};
+    const parentRequired: string[] = Array.isArray(s.required) ? (s.required as unknown[]).filter((r): r is string => typeof r === 'string') : [];
+    if (union !== null) {
+      if (s.not !== undefined) die(`union-level 'not' at ${where}`);
+      const members = union.map((b, i) => {
+        const branch: Schema = isSchema(b) ? b : die(`non-object union branch at ${where}[${i}]`);
+        if (Object.keys(parentProps).length > 0 || parentRequired.length > 0) {
+          if (!branchIsObject(branch)) die(`union branch beside parent properties is not an object at ${where}[${i}]`);
+          const props: Schema = { ...parentProps, ...(isSchema(branch.properties) ? branch.properties as Schema : {}) };
+          const branchRequired: string[] = Array.isArray(branch.required)
+            ? (branch.required as unknown[]).filter((r): r is string => typeof r === 'string')
+            : [];
+          const required = new Set([...parentRequired, ...branchRequired].filter((r) => r in props));
+          const forbidden = forbiddenProps(branch, `${where}[${i}]`);
+          const clash = [...forbidden].filter((f) => required.has(f));
+          if (clash.length > 0) die(`'not' forbids required properties (${clash.join(', ')}) at ${where}[${i}]`);
+          const unknown = [...forbidden].filter((f) => !(f in props));
+          if (unknown.length > 0) die(`'not' forbids unknown properties (${unknown.join(', ')}) at ${where}[${i}]`);
+          const merged: Schema = {
+            patternProperties: branch.patternProperties ?? s.patternProperties,
+            additionalProperties: branch.additionalProperties ?? s.additionalProperties,
+          };
+          return objectToTs(props, required, forbidden, indexSigOf(merged, `${where}[${i}]`), indent, `${where}[${i}]`);
+        }
+        if (branch.not !== undefined) die(`branch-level 'not' without parent properties at ${where}[${i}]`);
+        return schemaToTs(branch, indent, `${where}[${i}]`);
+      });
+      const flat: string[] = [];
+      for (const m of members) flat.push(m.text);
+      return { text: flat.length === 1 ? flat[0]! : flat.join(' | '), union: flat.length > 1 };
+    }
+    if (s.not !== undefined) die(`unsupported 'not' at ${where}`);
+    if (s.properties !== undefined || s.patternProperties !== undefined || s.type === 'object') {
+      const props: Schema = isSchema(s.properties) ? s.properties as Schema : {};
+      const required = new Set(parentRequired.filter((r) => r in props));
+      if (Object.keys(props).length === 0) {
+        const sig = indexSigOf(s, where);
+        if (sig) return { text: `Record<string, ${sig.union ? `(${sig.text})` : sig.text}>`, union: false };
+        return prim('Record<string, unknown>');
+      }
+      const sig = indexSigOf(s, where);
+      return objectToTs(props, required, new Set(), sig, indent, where);
+    }
+    const types: string[] = Array.isArray(s.type) ? s.type as string[] : typeof s.type === 'string' ? [s.type] : [];
+    if (types.length > 0) {
+      const frags = types.map((t): Frag => {
+        switch (t) {
+          case 'string': return prim('string');
+          case 'integer':
+          case 'number': return prim('number');
+          case 'boolean': return prim('boolean');
+          case 'null': return prim('null');
+          case 'array': {
+            const items = (s as Schema).items;
+            if (Array.isArray(items)) {
+              const els = (items as unknown[]).map((el, i) => schemaToTs(el, indent, `${where}#${i}`).text);
+              return prim(`[${els.join(', ')}]`);
+            }
+            const el = schemaToTs(isSchema(items) || Array.isArray(items) ? items : true, indent, `${where}[]`);
+            return { text: el.union ? `(${el.text})[]` : `${el.text}[]`, union: false };
+          }
+          case 'object': return prim('Record<string, unknown>'); // properties-bearing objects are handled above
+          default: die(`unsupported type '${t}' at ${where}`);
+        }
+      });
+      return { text: frags.length === 1 ? frags[0]!.text : frags.map((f) => f.text).join(' | '), union: frags.length > 1 };
+    }
+    if (s.anyOf !== undefined || s.oneOf !== undefined) die(`non-array union at ${where}`);
+    for (const k of ['allOf', '$ref', 'if', 'then', 'else', 'contains', 'prefixItems', 'propertyNames', 'dependentRequired']) {
+      if (s[k] !== undefined) die(`unsupported keyword '${k}' at ${where}`);
+    }
+    return prim('unknown'); // annotation-only nodes (description, default, ...) carry no type
+  }
+
+  const needsPatch = (name: string): boolean => {
+    const d = definitions[name];
+    return isSchema(d) && (Array.isArray(d.anyOf) || Array.isArray(d.oneOf));
+  };
+
   // --- emit ---
 
   const header = `// Generated by scripts/gen-methods.ts from the pinned openclaw@${ENGINE_VERSION} tarball (docs/runtime-kits.md 5.10). Regenerated with \`npm run gen:openclaw\`, never hand-edited.`;
   const importedTypes = [...new Set([...entries.flatMap((e) => [e.params, e.result]), ...eventEntries.map((e) => e.payload)])].filter((x): x is string => x !== null).sort();
+  const patchedTypes = importedTypes.filter(needsPatch);
+  const patched = new Set(patchedTypes);
+  const protocolTypes = importedTypes.filter((n) => !patched.has(n));
+  const eventPayloads = eventEntries.map((e) => e.payload).filter((x): x is string => x !== null).sort();
+  const paramsHeader = `${header}\n// Union patch-ups (Gap 6): these mirror the protocol.schema.json definitions of the same\n// name, with every anyOf/oneOf branch carrying its full property set (see the generator). The\n// gateway validates against the same schemas, so the kit accepts exactly what the gateway accepts.`;
+
+  const paramsTs = [
+    paramsHeader,
+    '',
+    ...patchedTypes.map((n) => `export type ${n} = ${schemaToTs(definitions[n], '', n).text};`),
+    '',
+  ].join('\n');
+
+  const methodsImports = [
+    protocolTypes.length > 0 ? `import type { ${protocolTypes.join(', ')} } from '@openclaw/gateway-protocol';` : null,
+    patchedTypes.length > 0 ? `import type { ${patchedTypes.join(', ')} } from './params.ts';` : null,
+  ].filter((l): l is string => l !== null);
 
   const entryLine = (e: Entry): string =>
     `  '${e.name}': { params: ${e.params ?? 'unknown'}; result: ${e.result ?? 'unknown'}; scope: '${e.scope}'; role: '${e.role}' };`;
 
   const methodsTs = [
     header,
-    `import type { ${importedTypes.join(', ')} } from '@openclaw/gateway-protocol';`,
+    ...methodsImports,
     '',
     'export interface GatewayMethods {',
     ...operator.map(entryLine),
@@ -247,9 +448,14 @@ try {
     '',
   ].join('\n');
 
+  const eventsImports = [
+    eventPayloads.filter((n) => !patched.has(n)).length > 0 ? `import type { ${eventPayloads.filter((n) => !patched.has(n)).join(', ')} } from '@openclaw/gateway-protocol';` : null,
+    eventPayloads.filter((n) => patched.has(n)).length > 0 ? `import type { ${eventPayloads.filter((n) => patched.has(n)).join(', ')} } from './params.ts';` : null,
+  ].filter((l): l is string => l !== null);
+
   const eventsTs = [
     header,
-    `import type { ${eventEntries.map((e) => e.payload).filter((x): x is string => x !== null).sort().join(', ')} } from '@openclaw/gateway-protocol';`,
+    ...eventsImports,
     '',
     'export interface GatewayEvents {',
     ...eventEntries.map((e) => `  '${e.name}': ${e.payload ?? 'unknown'};`),
@@ -279,6 +485,7 @@ try {
     matchedParams: entries.filter((e) => e.params).length,
     matchedResults: entries.filter((e) => e.result).length,
     matchedEvents: eventEntries.filter((e) => e.payload).length,
+    patchedTypes,
     unmatched,
   };
 
@@ -286,11 +493,13 @@ try {
   mkdirSync(generatedDir, { recursive: true });
   writeFileSync(join(generatedDir, 'methods.ts'), methodsTs);
   writeFileSync(join(generatedDir, 'events.ts'), eventsTs);
+  writeFileSync(join(generatedDir, 'params.ts'), paramsTs);
   writeFileSync(join(generatedDir, 'report.json'), JSON.stringify(report, null, 2) + '\n');
 
   console.log(`methods: ${entries.length} (${operator.length} operator, ${node.length} node), events: ${eventEntries.length}`);
   console.log(`matched params: ${report.matchedParams}, results: ${report.matchedResults}, event payloads: ${report.matchedEvents}`);
-  console.log(`wrote ${relative(repoDir, join(generatedDir, 'methods.ts'))}, events.ts, report.json`);
+  console.log(`patched union types: ${patchedTypes.length}${patchedTypes.length > 0 ? ` (${patchedTypes.join(', ')})` : ''}`);
+  console.log(`wrote ${relative(repoDir, join(generatedDir, 'methods.ts'))}, events.ts, params.ts, report.json`);
 } finally {
   rmSync(tmp, { recursive: true, force: true });
 }

@@ -543,10 +543,16 @@ generation time only) and the installed `@openclaw/gateway-protocol` types. Step
 are resolved from their `const X = "…"` definitions in the tarball). For each method try, in order: `scripts/method-types.json`
 override, `Pascal(method) + 'Params'|'Result'` (e.g. `models.authStatus` → `ModelsAuthStatusParams`),
 `Pascal(group) + Pascal(last segment)`; accept only names exported by `@openclaw/gateway-protocol` (checked by
-compiling a probe file). Events: `Pascal(event) + 'Event'` or override. Output `src/generated/methods.ts`
+compiling a probe file). Events: `Pascal(event) + 'Event'` or override. Union patch-up: the installed
+`@openclaw/gateway-protocol` package's `protocol.schema.json` is the authority for params shapes, since the
+published type declarations drop properties from anyOf/oneOf branches; every matched type whose schema carries
+a top-level anyOf/oneOf is re-emitted into `src/generated/params.ts` under its own name, with each branch's
+full property set (branch properties plus the properties declared beside the union on the parent schema, and
+the union of the parent and branch required lists; presence-exclusions from `not` spell as `prop?: never`).
+The tables reference the local name instead of the protocol export. Output `src/generated/methods.ts`
 (`export interface GatewayMethods { 'agents.create': { params: AgentsCreateParams; result: unknown; scope:
-'operator.admin'; role: 'operator' }; … }`, `import type` only), `events.ts`, and `report.json`
-(`{ engine, protocol, methods: n, matchedParams, matchedResults, unmatched: [...] }`). Output is committed and
+'operator.admin'; role: 'operator' }; … }`, `import type` only), `events.ts`, `params.ts`, and `report.json`
+(`{ engine, protocol, methods: n, matchedParams, matchedResults, patchedTypes: [...], unmatched: [...] }`). Output is committed and
 formatted deterministically (sorted). `npm run gen:openclaw` re-runs it; a test fails when the committed output
 differs from a fresh run against the pinned tarball in the engine job.
 
