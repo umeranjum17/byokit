@@ -1,0 +1,17 @@
+[Unit]
+Description=byokit tracker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=user
+WorkingDirectory=/home/user/tracker
+Environment="PATH=/home/user/.local/share/byokit/node/24.15.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PORT=7310"
+ExecStart="/home/user/.local/share/byokit/node/24.15.0/bin/node" "server.mjs"
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
