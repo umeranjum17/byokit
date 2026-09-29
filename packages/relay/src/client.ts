@@ -34,6 +34,7 @@ export type RelayClientOptions = {
 };
 
 type Call = { msg: object; resolve: (v: any) => void; reject: (e: Error) => void };
+type Waiter = { resolve: () => void; reject: (e: Error) => void };
 type Linked = Pick<Host, 'keys' | 'relay' | 'revoke'>;
 
 const QUEUE = 64;
@@ -61,20 +62,20 @@ export class RelayClient {
   private stopped = false;
   private timer?: ReturnType<typeof setTimeout>;
   private store: RelayClientStore;
-  private loaded: Promise<void>;
+  private loaded?: Promise<void>;
   private saves: Promise<void>;
   private revoking: string[] = [];
   private removing = new Map<string, string>(); // request id -> device, one per device on the current socket
   private retries = new Map<string, { tries: number; timer?: ReturnType<typeof setTimeout> }>();
-  private waiters = new Map<string, { resolve: () => void; reject: (e: Error) => void }[]>();
+  private linking = new Map<string, number>(); // devices whose link revoke is running: their remove waits for it
+  private waiters = new Map<string, Waiter[]>();
 
   constructor(host: Linked, opts: RelayClientOptions) {
     this.host = host;
     this.opts = opts;
     let kept: string[] | undefined;
     this.store = opts.store ?? { load: () => kept, save: (d) => { kept = d; } };
-    this.loaded = Promise.resolve().then(() => this.store.load()).then((d) => { this.revoking = [...new Set(d ?? [])]; });
-    this.saves = this.loaded.catch(() => {});
+    this.saves = this.load().catch(() => {});
     this.connect();
   }
 
@@ -85,7 +86,7 @@ export class RelayClient {
   /** Stores device `device`'s push address (a device sends it over the link; `device` is its grant id). Refused for a
    *  device still being revoked. */
   async subscribe(device: string, sub: Subscription): Promise<void> {
-    await this.loaded;
+    await this.load();
     if (this.revoking.includes(device)) throw new Error('device revoked');
     await this.call({ t: 'push.subscribe', device, sub });
   }
@@ -106,23 +107,27 @@ export class RelayClient {
    *  that opens the same store. */
   async revoke(device: string): Promise<void> {
     if (this.stopped) throw new Error('relay client stopped');
-    const done = new Promise<void>((resolve, reject) => this.waiters.set(device, [...(this.waiters.get(device) ?? []), { resolve, reject }]));
+    let mine!: Waiter;
+    const done = new Promise<void>((resolve, reject) => { mine = { resolve, reject }; this.waiters.set(device, [...(this.waiters.get(device) ?? []), mine]); });
     done.catch(() => {}); // reported below, or by the await
+    this.linking.set(device, (this.linking.get(device) ?? 0) + 1);
     try {
       await this.change((d) => d.includes(device) ? d : [...d, device]);
       await this.host.revoke(device);
     } catch (e) {
-      this.settle(device, e as Error);
-      this.unsubscribing(device); // saved but the grant stayed: its push addresses still go, failing closed
+      this.waiters.set(device, (this.waiters.get(device) ?? []).filter((w) => w !== mine)); // an earlier revoke still waits
       throw e;
+    } finally {
+      const n = this.linking.get(device)! - 1;
+      if (n) this.linking.set(device, n); else this.linking.delete(device);
+      this.unsubscribing(device); // after a failed link revoke too: if saved, its push addresses still go, failing closed
     }
-    this.unsubscribing(device);
     return done;
   }
 
   /** Revoked devices whose push addresses the relay has not yet confirmed removing. */
   async pending(): Promise<string[]> {
-    await this.loaded;
+    await this.load();
     return [...this.revoking];
   }
 
@@ -133,12 +138,20 @@ export class RelayClient {
     this.fail(new Error('relay client stopped'));
   }
 
+  // A failed load is tried again by the next caller.
+  private load(): Promise<void> {
+    return this.loaded ??= Promise.resolve().then(() => this.store.load())
+      .then((d) => {
+        this.revoking = [...new Set(d ?? [])];
+        for (const device of this.revoking) this.unsubscribing(device); // a socket that came up while loading
+      }, (e) => { this.loaded = undefined; throw e; });
+  }
+
   private change(update: (devices: string[]) => string[]): Promise<void> {
     const work = this.saves.then(async () => {
-      await this.loaded;
-      const next = update([...this.revoking]);
-      await this.store.save(next);
-      this.revoking = next;
+      await this.load();
+      await this.store.save(update([...this.revoking]));
+      this.revoking = update(this.revoking); // not the saved copy: an ack during the save must stay applied
     });
     this.saves = work.catch(() => {});
     return work;
@@ -150,7 +163,7 @@ export class RelayClient {
   }
 
   private unsubscribing(device: string) {
-    if (this.stopped || !this.ws || this.status !== 'online' || !this.revoking.includes(device) || [...this.removing.values()].includes(device)) return;
+    if (this.stopped || !this.ws || this.status !== 'online' || this.linking.has(device) || !this.revoking.includes(device) || [...this.removing.values()].includes(device)) return;
     clearTimeout(this.retries.get(device)?.timer);
     const id = String(++this.seq);
     this.removing.set(id, device);
@@ -234,7 +247,7 @@ export class RelayClient {
         this.host.relay(ws);
         this.set('online');
         for (const c of this.queue.splice(0)) this.send(c);
-        void this.loaded.then(() => { if (this.ws === ws) for (const d of this.revoking) this.unsubscribing(d); }, () => {});
+        void this.load().then(() => { if (this.ws === ws) for (const d of this.revoking) this.unsubscribing(d); }, () => {});
         return;
       }
       if (m?.t === 'res') {

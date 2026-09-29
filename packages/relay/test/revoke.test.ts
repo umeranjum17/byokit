@@ -27,7 +27,7 @@ async function subscribedThenStopped(o: Parameters<typeof paired>[2] = {}) {
   return { ...p, first, restart, saved: () => saved };
 }
 
-test('the relay stops while an unsubscribe is in flight: it is sent again to the restarted relay, which removes it', async () => {
+test('an unsubscribe in flight when the relay stops stays pending, and is sent again to the restarted relay until it confirms', async () => {
   let hold = false;
   let saved: RelayState | undefined;
   const r = await startRelay({ store: { load: () => saved, save: (s) => hold ? new Promise(() => {}) : void (saved = s) } });
@@ -163,4 +163,51 @@ test('a store that cannot save the unsubscribe fails the revoke before the grant
   const p = await paired(await startRelay(), 'Away phone', { store: { load: () => [], save: () => { throw new Error('disk full'); } } });
   await assert.rejects(p.client.revoke(p.grant.device.id), /disk full/);
   assert.equal(p.host.devices().length, 1, 'the device keeps its grant, so nothing is half-removed');
+});
+
+test('a relay that comes back while the link revoke is still saving gets no remove until the grant is gone', async () => {
+  const host = await startHost();
+  const unlink = host.revoke.bind(host);
+  let release!: () => void;
+  host.revoke = (id) => new Promise<void>((r) => { release = () => r(unlink(id)); });
+  const { Fake, sent } = scripted((m) => [{ t: 'res', id: m.id, ok: true }]);
+  const client = new RelayClient(host, { url: 'ws://unused', WebSocket: Fake as any });
+  await until(() => client.status === 'online');
+  const revoked = client.revoke('phone');
+  await until(() => release);
+  Fake.last.close(1006);
+  await until(() => client.status === 'online', 10_000); // a new socket, while the grant is still being dropped
+  assert.equal(sent.filter((m) => m.t === 'push.remove').length, 0);
+  await assert.rejects(client.subscribe('phone', phone), /device revoked/);
+  release();
+  await revoked;
+  assert.equal(sent.filter((m) => m.t === 'push.remove').length, 1);
+  client.stop();
+});
+
+test('a store that fails to load once is loaded again by the next call', async () => {
+  let fail = true;
+  const store = { load: () => { if (fail) { fail = false; throw new Error('disk busy'); } return ['old-phone']; }, save: () => {} };
+  const { Fake, sent } = scripted((m) => [{ t: 'res', id: m.id, ok: true }]);
+  const client = new RelayClient(await startHost(), { url: 'ws://unused', WebSocket: Fake as any, store });
+  await until(() => client.status === 'online');
+  await client.revoke('phone');
+  assert.deepEqual(sent.filter((m) => m.t === 'push.remove').map((m) => m.device).sort(), ['old-phone', 'phone']);
+  client.stop();
+});
+
+test('a second revoke that fails leaves the first one waiting for the relay', async () => {
+  let saves = 0;
+  let answer = false;
+  const { Fake } = scripted((m) => answer ? [{ t: 'res', id: m.id, ok: true }] : []);
+  const client = new RelayClient(await startHost(), { url: 'ws://unused', WebSocket: Fake as any,
+    store: { load: () => [], save: () => { if (++saves > 1) throw new Error('disk full'); } } });
+  await until(() => client.status === 'online');
+  const first = client.revoke('phone');
+  await until(() => saves === 1);
+  await assert.rejects(client.revoke('phone'), /disk full/);
+  answer = true;
+  Fake.last.close(1006);
+  await first;
+  client.stop();
 });
