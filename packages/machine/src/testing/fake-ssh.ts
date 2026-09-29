@@ -106,8 +106,11 @@ export function loadMachine(saved: SavedMachine): FakeMachine {
 const fakeSshSource = fileURLToPath(new URL('./fake-machine.ts', import.meta.url));
 
 function sshScript(statePath: string, logPath: string): string {
+  // The adapter spawns with an env built from nothing (`{ LANG: 'C.UTF-8' }`
+  // only, 7.1), so the shebang cannot go through `/usr/bin/env` on PATH: it
+  // names this Node binary absolutely.
   const lines = [
-    '#!/usr/bin/env node',
+    `#!${process.execPath}`,
     "import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';",
     "import { writeSync } from 'node:fs';",
     `const STATE = ${JSON.stringify(statePath)};`,
@@ -197,7 +200,7 @@ function sshScript(statePath: string, logPath: string): string {
 
 function keyscanScript(statePath: string, logPath: string): string {
   const lines = [
-    '#!/usr/bin/env node',
+    `#!${process.execPath}`,
     "import { appendFileSync, readFileSync } from 'node:fs';",
     `const STATE = ${JSON.stringify(statePath)};`,
     `const LOG = ${JSON.stringify(logPath)};`,
