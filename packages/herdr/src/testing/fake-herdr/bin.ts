@@ -15,9 +15,11 @@ export function writeBinShim({ dir, socketPath }: { dir: string; socketPath: str
   const binPath = `${dir}/herdr`;
   // The kit execs the shim; the shim re-imports this module, so the fake's behavior always matches
   // the source the tests type-check. Extensionless → CommonJS, where dynamic `import()` works.
+  // The shebang pins the running Node binary: the kit passes the env verbatim, so the child's PATH
+  // may not contain node — /usr/bin/env node would exit 127 there.
   writeFileSync(
     binPath,
-    `#!/usr/bin/env node\nimport(${JSON.stringify(pathToFileURL(SELF).href)}).then((m) => m.main(process.argv.slice(2)), (e) => { console.error(e); process.exit(1); });\n`,
+    `#!${process.execPath}\nimport(${JSON.stringify(pathToFileURL(SELF).href)}).then((m) => m.main(process.argv.slice(2)), (e) => { console.error(e); process.exit(1); });\n`,
     { encoding: 'utf8', mode: 0o700 },
   );
   chmodSync(binPath, 0o700);

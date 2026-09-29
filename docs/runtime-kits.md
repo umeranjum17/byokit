@@ -883,7 +883,7 @@ sorted, deterministic; a test regenerates and compares.
   `server.agent_manifests`, `server.stop`, `events.subscribe`. `agent.prompt` returns the receipt shape of 6.4 and
   moves the agent `working` → `idle` after 50 ms, appending `fake <kind>: <text>` to its pane text; a prompt text
   `ask permission` moves it to `blocked` with detection text `Allow this? (y/n)` until keys `y`/`n` arrive.
-- `bin` is a Node shim script (`#!/usr/bin/env node`, 0700) answering `--version` (`herdr 0.9.1`), `api schema
+- `bin` is a Node shim script (shebang pins the running Node binary, 0700) answering `--version` (`herdr 0.9.1`), `api schema
   --json` (the snapshot), `server` (runs `startFakeHerdr` at `HERDR_SOCKET_PATH` until SIGTERM or `server.stop`),
   JSON CLI verbs by forwarding to the fake socket, and `terminal session control|observe` (emits one ready frame and
   echoes `send` lines as output frames).
