@@ -7,7 +7,9 @@ import { phaseOf, type AccountView, type Phase } from './phase.ts';
 export type UseSignIn = {
   /** This account, fresh from the back end. A rejection counts as the home computer being out of reach unless `offline` says otherwise. */
   read: () => Promise<AccountView | null>;
-  start: (body?: { via?: 'code'; fresh?: boolean }) => Promise<unknown>;
+  /** Begin the sign-in on the back end. Absent when something else starts it (a CLI in a Herdr tab): the sheet
+   *  then only watches, and nothing begins as it opens. */
+  start?: (body?: { via?: 'code'; fresh?: boolean }) => Promise<unknown>;
   cancel: () => Promise<unknown>;
   offline?: (e: unknown) => boolean;
   ms?: number;
@@ -28,8 +30,8 @@ export function useSignIn({ read, start, cancel, offline: isOffline = () => true
     const t = setInterval(pull, ms);
     return () => { alive = false; clearInterval(t); };
   }, [ms, pinned]);
-  const begin = (body: { via?: 'code'; fresh?: boolean } = {}) => { setCancelled(false); start(body).catch(() => {}); };
-  useEffect(() => { if (!pinned) begin(); }, []);
+  const begin = (body: { via?: 'code'; fresh?: boolean } = {}) => { setCancelled(false); start?.(body).catch(() => {}); };
+  useEffect(() => { if (!pinned && start) begin(); }, []);
   const phase = pinned ?? phaseOf(value, { offline, cancelled, keepWork });
   return {
     phase, account: value, code: value?.signIn?.code, url: value?.signIn?.url,

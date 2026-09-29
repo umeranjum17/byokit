@@ -20,3 +20,34 @@ test('describeRoute names the route a dial address takes', () => {
   assert.equal(describeRoute('not a url'), undefined);
   assert.equal(describeRoute(undefined), undefined);
 });
+
+test('describeRoute parses pairing links on React Native, where URL.canParse is missing and hostname is empty for ws://', () => {
+  const RealURL = globalThis.URL;
+  // The RN 0.83 polyfill: no canParse, and nothing parsed past the scheme for ws://.
+  class PolyfillURL {
+    static canParse: undefined;
+    protocol: string;
+    hostname = '';
+    constructor(url: string) {
+      const m = /^([A-Za-z][A-Za-z0-9+.-]*):\/\//.exec(url);
+      if (!m) throw new TypeError('Invalid URL');
+      this.protocol = `${m[1].toLowerCase()}:`;
+    }
+  }
+  (globalThis as unknown as { URL: unknown }).URL = PolyfillURL;
+  try {
+    assert.equal((globalThis.URL as unknown as { canParse?: unknown }).canParse, undefined);
+    assert.equal(new globalThis.URL('wss://desk.tail0de54.ts.net').hostname, '');
+    assert.equal(describeRoute('wss://desk.tail0de54.ts.net'), 'Tailscale');
+    assert.equal(describeRoute('ws://100.64.0.1:8792'), 'Private network');
+    assert.equal(describeRoute('ws://100.64.0.1:8792', 'direct'), 'Tailscale');
+    assert.equal(describeRoute('ws://192.168.1.8:8792'), 'Local or private network');
+    assert.equal(describeRoute('ws://localhost:8792'), 'Local or private network');
+    assert.equal(describeRoute('wss://quiet-fox.trycloudflare.com'), 'Cloudflare tunnel');
+    assert.equal(describeRoute('wss://relay.example.com/link/v1/abc'), 'Hosted VPS / custom relay');
+    assert.equal(describeRoute('not a url'), undefined);
+    assert.equal(describeRoute(undefined), undefined);
+  } finally {
+    globalThis.URL = RealURL;
+  }
+});
