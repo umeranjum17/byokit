@@ -41,7 +41,7 @@ test('public types keep their frozen shapes (6.2)', () => {
   const snapshot: HerdrSnapshot = { connected: true, workspaces: [] };
   const event: HerdrEvent = { type: 'pane.created' };
   const session: TerminalSession = {
-    ready: Promise.resolve(), onFrame: () => () => {}, send: () => {}, close: () => {}, exited: Promise.resolve({ code: 0, stderrTail: '' }),
+    ready: Promise.resolve(), onFrame: () => () => {}, send: () => {}, close: () => {}, pause: () => {}, resume: () => {}, exited: Promise.resolve({ code: 0, stderrTail: '' }),
   };
   const transport: HerdrTransport = { call: async () => undefined, subscribe: () => () => {}, close: () => {} };
   void [adopt, own, status, ref, start, receipt, blocked, snapshot, event, session, transport];
