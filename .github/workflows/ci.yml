@@ -68,6 +68,30 @@ jobs:
       - run: npm run build
       - run: npm run test:engine
 
+  # @byokit/compose against the real engine (docs/capability-kits.md 9.2). ownvoice-engine is not on npm yet, so the
+  # pin runs from its public source at the commit its committed schema came from; once published it becomes the exact
+  # dependency and this checkout step goes.
+  compose-engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - name: ownvoice-engine at faf2fc2
+        run: |
+          set -eu
+          dir="$RUNNER_TEMP/ownvoice"
+          git init -q "$dir"
+          git -C "$dir" fetch -q --depth 1 https://github.com/umeranjum17/ownvoice.git faf2fc29a29b0d6c8c9f14d5fa822842747e6eda
+          git -C "$dir" checkout -q FETCH_HEAD
+          ln -s "$dir/packages/engine" node_modules/ownvoice-engine
+      - run: npm run test:compose-engine
+
   # React Native (Expo) on iOS and Android: the example typechecks and Metro builds both Hermes bundles from the kit's
   # react-native side. The emulator run is examples/expo/e2e-android.sh.
   react-native:

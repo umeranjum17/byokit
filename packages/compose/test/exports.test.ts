@@ -1,6 +1,6 @@
-// BK-P1: every frozen name exists and the BK-P1 bodies behave — the `.` entry (4.3–4.5), `./testing` (4.7) and
-// the CLI seam (4.6). BK-P2 pins the published engine (the todo below).
-import { test, todo } from 'node:test';
+// BK-P1/BK-P2: every frozen name exists and behaves — the `.` entry (4.3–4.5), `./testing` (4.7), the CLI seam (4.6)
+// and the engine pin (4.9).
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as kit from '../src/index.ts';
 import * as testing from '../src/testing/index.ts';
@@ -28,8 +28,8 @@ test('the `.` entry carries the frozen surface (4.3–4.5)', async () => {
   assert.ok((await c.brief({ kind: 'reply', platform: 'x', rules })).length >= 1);
   assert.equal((await c.check({ drafts: ['hi'], platform: 'x', rules, original: 'yo' })).length, 1);
   assert.ok((await c.split({ text: 'hi. yo.', platform: 'x' })).length >= 1);
-  assert.throws(() => kit.inProcessEngine(), /BK-P2/);
-  assert.throws(() => kit.binEngine({ bin: '/usr/bin/engine' }), /BK-P2/);
+  assert.equal(typeof kit.inProcessEngine().handle, 'function');
+  await assert.rejects(kit.binEngine({ bin: '/nonexistent/engine' }).handle({ verb: 'hello', params: {} }), { code: 'missing' });
 });
 
 test('ComposeError carries its code and detail', () => {
@@ -91,7 +91,8 @@ test('./testing and the CLI seam behave (4.6–4.7)', async () => {
   ]);
 });
 
-// BK-P2 pins the published engine: ENGINE_VERSION, the dependency and the schema's sha256.
-todo('ENGINE_SCHEMA_SHA256 pins the committed engine schema, not the placeholder', () => {
+// BK-P2 pins the engine: ENGINE_VERSION and the committed schema's sha256 (test/generated.test.ts hashes the file).
+test('ENGINE_SCHEMA_SHA256 pins the committed engine schema, not the placeholder', () => {
   assert.match(ENGINE_SCHEMA_SHA256, /^[0-9a-f]{64}$/);
+  assert.equal(kit.ENGINE_VERSION, '0.1.0');
 });

@@ -156,6 +156,16 @@ type EngineRequest = { verb: EngineVerb; params: object };   // exact union in 4
 If the engine's published protocol 1 uses a different envelope, BK-P2 adapts only `src/engine.ts`. The public types in
 4.3 do not change. A result with a different shape is a D-I stop.
 
+What protocol 1 at ownvoice `faf2fc2` actually speaks (BK-P2 adapted `src/engine.ts` only):
+- Requests are flat, `{ verb, ...params }`, not `{ verb, params }`.
+- `hello` is outside the schema: the engine answers it from `Protocol.hello()` in process and `ownvoice-engine hello`
+  as a bin (argv `[bin, 'hello']`, nothing on stdin). The package exports the protocol as `Protocol` (`handle`, `hello`).
+- The schema types requests only; each verb's result keys are in its `$comment`, which `gen-types.ts` reads.
+- The schema's params are looser than 4.3: every `rules` field and both `voice.guide` params are optional, `platform`
+  is the six-id enum and `drafts` has `minItems: 1`. The kit always sends the complete 4.3 shape, so
+  `generated.test.ts` proves key-set equality both ways plus the kit's params fitting the wire, and equality for
+  `Rules`, the kinds and every result's keys.
+
 ### 4.3 Public types (`src/types.ts`)
 
 ```ts
@@ -379,7 +389,8 @@ The fake has its own small logic and copies no engine code:
 5. `check` with original "Meet at 3pm on Friday, 40 seats." and draft "Meet at 3pm on Friday, 50 seats.":
    `added` includes `50` and `dropped` includes `40`. The same draft without the original has both `[]`.
 6. `split` on `x` of a 600-character text of short sentences: every post is at most 280 characters, and joining the
-   posts with a space gives the input with its whitespace collapsed.
+   posts with a space, each with a leading `<n>/<m> ` counter stripped, gives the input with its whitespace collapsed.
+   The engine numbers a thread's posts (`1/3 …`, D-A: numbering is engine behaviour); the kit returns them as is.
 7. `voice.parse` of `"## Never say\n- delve\n- \"game changer\"\n"` gives `rules.never` that includes both.
 8. `voice.guide({ …noDashes: true }, { post: false })` gives a line matching `/dash/i`.
 9. `brief` of each kind on `x` gives at least one non-empty line.
@@ -1255,6 +1266,11 @@ later merges rebase.
   - `npm run smoke:pack` passes (the `compose` bin loads from the packed tarball), and `test/engine/contract.test.ts`
     also runs `compose platforms` through `main()` against the real pin: exit 0 and six rows.
   - A `D-I` mismatch stops the package.
+- **As built (engine not yet on npm):** `private` stays and the exact `ownvoice-engine` dependency is not added yet;
+  `ENGINE_VERSION` is 0.1.0 and the `compose-engine` job runs the engine from ownvoice's public source at `faf2fc2`
+  (the schema's commit), linked as `node_modules/ownvoice-engine`. Publishing (the dependency, `private` removed) is a
+  later package once the engine is on npm. Without the engine, `test/engine-seam.test.ts` runs the contract over a
+  stub that checks every request against the committed schema, in process and as a bin.
 
 ### 9.3 Capture lane
 

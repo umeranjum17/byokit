@@ -102,7 +102,8 @@ export function composeContract(
     const posts = await compose.split({ text, platform: 'x' });
     assert.ok(posts.length > 1, 'a long text splits');
     for (const post of posts) assert.ok(post.length <= 280, `post is ${post.length} characters`);
-    assert.equal(posts.join(' '), text.replace(/\s+/g, ' ').trim());
+    // The engine may number a thread's posts (`1/3 …`); the counter is its own, the words are the input's.
+    assert.equal(posts.map((post) => post.replace(/^\d+\/\d+ /, '')).join(' '), text.replace(/\s+/g, ' ').trim());
   });
 
   runTest('voice.parse reads the never-say bullets, quoted or not', async () => {

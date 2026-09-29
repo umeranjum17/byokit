@@ -1,5 +1,6 @@
 {
  "openclaw": "2026.8.1",
  "herdr": "0.9.1",
- "herdrProtocol": 22
+ "herdrProtocol": 22,
+ "compose": "0.1.0"
 }
