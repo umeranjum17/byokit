@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ownvoice.app/engine/protocol-1.json",
+  "title": "ownvoice-engine protocol 1",
+  "description": "One JSON surface over Ownvoice's pure writing core. Model-free: every verb reuses the existing slop/voice/drafts/platforms/threads functions. The kit pins this file's sha256.",
+  "$defs": {
+    "platformId": { "type": "string", "enum": ["x", "linkedin", "reddit", "slack", "whatsapp", "gmail"] },
+    "platformKind": { "type": "string", "enum": ["chat", "feed", "mail"] },
+    "rules": {
+      "type": "object",
+      "properties": {
+        "never": { "type": "array", "items": { "type": "string" } },
+        "noDashes": { "type": "boolean" },
+        "statementEndings": { "type": "boolean" },
+        "note": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "required": ["error"],
+      "properties": {
+        "error": {
+          "type": "object",
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string", "enum": ["bad-request", "unknown-verb", "internal"] },
+            "message": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "required": ["verb"],
+  "properties": { "verb": { "type": "string" } },
+  "oneOf": [
+    {
+      "title": "voice.parse",
+      "properties": {
+        "verb": { "const": "voice.parse" },
+        "markdown": { "type": "string" }
+      },
+      "required": ["verb", "markdown"],
+      "additionalProperties": false
+    },
+    {
+      "title": "voice.guide",
+      "properties": {
+        "verb": { "const": "voice.guide" },
+        "rules": { "$ref": "#/$defs/rules" },
+        "post": { "type": "boolean" }
+      },
+      "required": ["verb"],
+      "additionalProperties": false
+    },
+    {
+      "title": "platforms",
+      "properties": { "verb": { "const": "platforms" } },
+      "required": ["verb"],
+      "additionalProperties": false
+    },
+    {
+      "title": "brief",
+      "properties": {
+        "verb": { "const": "brief" },
+        "kind": { "type": "string", "enum": ["reply", "polish", "post", "thread"] },
+        "platform": { "$ref": "#/$defs/platformId" },
+        "rules": { "$ref": "#/$defs/rules" }
+      },
+      "required": ["verb", "kind", "platform"],
+      "additionalProperties": false
+    },
+    {
+      "title": "check",
+      "properties": {
+        "verb": { "const": "check" },
+        "drafts": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "platform": { "$ref": "#/$defs/platformId" },
+        "rules": { "$ref": "#/$defs/rules" },
+        "original": { "type": "string" }
+      },
+      "required": ["verb", "drafts", "platform"],
+      "additionalProperties": false
+    },
+    {
+      "title": "split",
+      "properties": {
+        "verb": { "const": "split" },
+        "text": { "type": "string" },
+        "platform": { "$ref": "#/$defs/platformId" }
+      },
+      "required": ["verb", "text", "platform"],
+      "additionalProperties": false
+    }
+  ],
+  "$comment": "Responses: voice.parse -> {rules, skipped}; voice.guide -> {line}; platforms -> [{id, label, kind, limit, slots, polish}]; brief -> {lines[]}; check -> per draft {fits, length, limit, voice[], stock[], added[], dropped[], layoutKept, words}; split -> {posts[]}. Bad input -> {error: {code, message}}."
+}

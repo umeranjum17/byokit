@@ -2,10 +2,10 @@
 
 export const ENGINE_PACKAGE = 'ownvoice-engine';
 
-// BK-P2 sets the exact published pin, the committed schema's sha256 and the matching dependency; until then these
-// are placeholders behind a todo test.
-export const ENGINE_VERSION: string = '0.0.0';
-export const ENGINE_SCHEMA_SHA256: string = '';
+// The engine version whose protocol schema is committed (schema/engine-protocol-1.json, ownvoice faf2fc2) and that
+// file's sha256. The exact `dependencies` pin joins them once the engine is on npm (4.9).
+export const ENGINE_VERSION: string = '0.1.0';
+export const ENGINE_SCHEMA_SHA256: string = '81c43976383b37118be372788ed34796255069b5b9240d20afbd969e27f3a4bb';
 
 // Engine protocols this kit accepts: from the floor to the current one, both inclusive. Outside is needs-update.
 export const PROTOCOL = 1;
