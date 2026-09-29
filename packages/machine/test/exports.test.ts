@@ -25,6 +25,29 @@ test('the `./ssh` entry carries sshVm and sshHostKey', () => {
   assert.equal(typeof ssh.sshHostKey, 'function');
 });
 
+test('M2: sshVm builds the SSH VM provider shape (7)', () => {
+  const p = ssh.sshVm({
+    ssh: '/usr/bin/ssh', host: 'vm.test', port: 2222, user: 'app',
+    keyPath: '/keys/id_ed25519', stateDir: '/tmp/byokit-state', label: 'L',
+  });
+  assert.equal(p.id, 'ssh-vm');
+  assert.equal(p.label, 'L');
+  assert.deepEqual(p.sizes(), []);
+  assert.deepEqual(p.prices(), []);
+  for (const missing of [p.create, p.wake, p.sleep, p.snapshot, p.fork, p.remove, p.url, p.usage, p.key]) {
+    assert.equal(missing, undefined);
+  }
+  assert.equal(typeof p.adopt, 'function');
+  const monthly = {
+    size: 'vm', perMonthCap: 6, asleepPerHour: 6, currency: 'EUR' as const,
+    basis: 'incl. IPv4, excl. VAT', source: 'http://sandbox.test/prices', checked: '2026-09-29',
+  };
+  assert.deepEqual(ssh.sshVm({
+    ssh: '/usr/bin/ssh', host: 'vm.test', user: 'app',
+    keyPath: '/keys/id_ed25519', stateDir: '/tmp/byokit-state', label: 'L', monthly,
+  }).prices(), [monthly]);
+});
+
 test('the `./idle` entry carries idle and stopSelf', () => {
   assert.equal(typeof idle.idle, 'function');
   assert.equal(typeof idle.stopSelf, 'function');
@@ -76,8 +99,6 @@ test('sandboxApi() is built (M4): the sandbox API adapter behind one Provider', 
 });
 
 test('stubs throw not built with their package id', async () => {
-  assert.throws(() => ssh.sshVm({ ssh: '/usr/bin/ssh', host: 'h', user: 'u', keyPath: '/k', stateDir: '/s', label: 'L' }), /not built: M2/);
-  await assert.rejects(async () => ssh.sshHostKey({ ssh: '/usr/bin/ssh', host: 'h', stateDir: '/s' }), /not built: M2/);
   assert.throws(() => idle.idle({ linked: () => 0, held: () => false, minutes: 5, stop: async () => {} }), /not built: M7/);
   assert.throws(() => idle.stopSelf({ baseUrl: 'http://sandbox.test/api/v1', id: 'x', key: async () => '' }), /not built: M7/);
   assert.throws(() => kit.claim({ baseUrl: 'http://sandbox.test/api/v1' }), /not built: M8/);

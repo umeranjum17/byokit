@@ -48,6 +48,11 @@ export function machineContract(make: () => Promise<MachineBench>, o?: { test?: 
 
   const createMachine = async (bench: MachineBench): Promise<Machine> => machine({ provider: bench.provider, store: bench.store });
 
+  // A provider without `create` (the SSH VM) adopts the machine that already
+  // exists, which needs `keepCopies: false` (5.2 step 4); every other bench
+  // creates with copies on.
+  const keepCopiesFor = (bench: MachineBench): boolean => bench.provider.create !== undefined;
+
   const rejectCode = async (p: Promise<unknown>, code: string): Promise<MachineError> => {
     try {
       await p;
@@ -62,7 +67,7 @@ export function machineContract(make: () => Promise<MachineBench>, o?: { test?: 
     const bench = await make();
     const m = await createMachine(bench);
     if (bench.provider.create === undefined && bench.provider.adopt === undefined) return;
-    const ref = await m.create({ name: 'web', size: 'small', keepCopies: true });
+    const ref = await m.create({ name: 'web', size: 'small', keepCopies: keepCopiesFor(bench) });
     assert.equal(ref.name, 'web');
     assert.deepEqual(m.ref, ref);
     await rejectCode(m.create({ name: 'other', size: 'small', keepCopies: true }), 'exists');
@@ -117,7 +122,7 @@ export function machineContract(make: () => Promise<MachineBench>, o?: { test?: 
     const bench = await make();
     const m = await createMachine(bench);
     if (bench.provider.create === undefined && bench.provider.adopt === undefined) return;
-    await m.create({ name: 'web', size: 'small', keepCopies: true });
+    await m.create({ name: 'web', size: 'small', keepCopies: keepCopiesFor(bench) });
     const badRecipes: HostRecipe[] = [
       variant('Web', (r) => r),
       variant('other', (r) => r),
@@ -199,7 +204,7 @@ export function machineContract(make: () => Promise<MachineBench>, o?: { test?: 
     const bench = await make();
     const m = await createMachine(bench);
     if (bench.provider.create === undefined && bench.provider.adopt === undefined) return;
-    await m.create({ name: 'web', size: 'small', keepCopies: true });
+    await m.create({ name: 'web', size: 'small', keepCopies: keepCopiesFor(bench) });
     const c = await m.cost();
     assert.equal(typeof c.perMonth, 'number');
     assert.ok(c.floor === null || typeof c.floor === 'number');
@@ -208,7 +213,9 @@ export function machineContract(make: () => Promise<MachineBench>, o?: { test?: 
     assert.match(c.checked, /^\d{4}-\d{2}-\d{2}$/);
     assert.ok(c.words.includes(bench.provider.label), 'label is filled');
     assert.doesNotMatch(c.words, /\{amount\}/, 'amount is filled');
-    assert.match(c.words, /\{app\}/, 'the app name stays visible for the app to fill');
+    // `cost.vm` (the entered basis, 10.1) holds no `{app}` slot; the sandbox
+    // sentence keeps it visible for the app to fill (12).
+    if (c.basis !== 'entered') assert.match(c.words, /\{app\}/, 'the app name stays visible for the app to fill');
   });
 
   runTest('13 (fake): host() maps every 8.5 row', async (t) => {
