@@ -284,7 +284,14 @@ test('serve binds per reach and pairs over its urls', async () => {
   const served = await serve({ host: w.host, port: free, via: 'lan' });
   closers.push(() => void served.close());
   assert.ok(served.urls.length > 0 && served.urls.every((u) => u.startsWith('ws://')));
-  const { text } = w.host.offer({ role: 'control', urls: served.urls, meta: { member: 'a' } });
+  // The egress guard (scripts/test.sh, CI) blocks non-loopback dials, so pair over loopback: serve
+  // binds 0.0.0.0 for lan, which still answers 127.0.0.1. The LAN urls themselves are reach's job.
+  const loopback = served.urls.map((u) => {
+    const url = new URL(u);
+    url.hostname = '127.0.0.1';
+    return url.toString();
+  });
+  const { text } = w.host.offer({ role: 'control', urls: loopback, meta: { member: 'a' } });
   const grant: DeviceGrant = await pairWithOffer(text, { name: 'served-phone', onWords: () => {} });
   const link = new DeviceLink(grant, { store: { save: () => {}, clear: () => {} } });
   closers.push(() => link.stop());
