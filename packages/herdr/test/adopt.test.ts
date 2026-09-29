@@ -85,7 +85,29 @@ test('a paused terminal holds the stream back to a fixed backlog, and resume() d
   assert.ok(heldAt < count, `the child is held back (${heldAt}/${count} frames written)`);
 
   s.resume();
-  await until(() => data.length === count, `${count} frames`);
+  // The fake writes one `fake.stream.done` line after its loop on the same ordered byte stream, so when
+  // the marker reaches this handler every stream frame has already reached every handler: the verdict
+  // below is causal, not a wall-clock wait. The watchdog only guards a genuinely wedged child (no frame
+  // at all for 10 s straight); steady delivery, however slow, always passes.
+  let streamed = false;
+  s.onFrame((line) => {
+    if ((JSON.parse(line) as { type: string }).type === 'fake.stream.done') streamed = true;
+  });
+  const quietMs = 10_000;
+  let lastCount = data.length;
+  let quietSince = Date.now();
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 25));
+    if (streamed) break;
+    if (data.length !== lastCount) { lastCount = data.length; quietSince = Date.now(); continue; }
+    if (Date.now() - quietSince >= quietMs) {
+      const child = await Promise.race([s.exited.then((x) => `exited code=${x.code}`),
+        new Promise((r) => setTimeout(() => r('still running'), 300))]);
+      throw new Error(`timed out waiting for the stream-done marker ` +
+        `(${data.length}/${count} frames, progress ${written()}, child ${child})`);
+    }
+  }
+  assert.equal(data.length, count, `every frame arrives once the stream is done (${data.length}/${count})`);
   assert.deepEqual(data.map((d) => Number(d.slice(0, d.indexOf(':')))), Array.from({ length: count }, (_, i) => i));
   s.close();
   await s.exited;
