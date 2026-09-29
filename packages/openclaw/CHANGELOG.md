@@ -13,8 +13,8 @@
   and a member who was never signed in looked signed in.
 - FIX: `signIn.view(p)` drops a finished sign-in once its account is gone (signed out over the link, on the computer,
   or by the engine), so it no longer shows that old sign-in as done.
-- Depends on @byokit/relay 0.2.0.
 - Depends on @byokit/link 0.3.2.
+- Depends on @byokit/relay 0.2.1.
 
 - FIX: the account an app picks for a run is now the one the engine calls and bills. `RunSpec.model`
   (`'provider/model'`, also `oc.run`'s `model` and `openclawDevice(link).run(message, { model })`) goes to the engine as
