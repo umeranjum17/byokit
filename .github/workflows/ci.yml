@@ -21,6 +21,8 @@ jobs:
         node: ['22', '24']
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
@@ -29,6 +31,9 @@ jobs:
       - run: npm run build
       - run: npm run check
       - run: npm test # throwaway HOME, mocks only: no account, no network, no model
+      - run: npm run smoke:pack
+      - if: github.event_name == 'pull_request'
+        run: npm run release -- lint --base origin/${{ github.base_ref }}
 
   # Sign-in in a real browser (headless Chromium): the PWA example against a stand-in OpenAI, bundled as a web app would.
   browser:
@@ -78,6 +83,7 @@ jobs:
         working-directory: examples/expo
       - run: npm run typecheck
         working-directory: examples/expo
+      - run: sh scripts/test.sh examples/expo/pairing.test.ts
       - run: npx expo export --platform android --platform ios --output-dir dist
         working-directory: examples/expo
 

@@ -1,31 +1,36 @@
 name: Release
 
-# Publishes one package to npm with provenance, through npm's trusted publishing (OIDC): no token is stored anywhere.
-# Each package's trusted publisher must name this repository and this workflow file (npm trust github).
+# Publishes every @byokit package whose version is not on npm yet, with provenance, through npm trusted publishing
+# (OIDC): no token is stored anywhere. Each package's trusted publisher must name this repository and this workflow
+# file (npm trust github). Gates and order: scripts/release.ts publish.
 on:
   workflow_dispatch:
     inputs:
-      package:
-        description: Package to publish
-        type: choice
-        options: [accounts, ui-core, decide, link, reach, relay, seal, openclaw, herdr]
+      dry_run:
+        description: Gate, pack and print without publishing
+        type: boolean
+        default: true
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
+  actions: read
 
 jobs:
   publish:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@11.20.0
       - run: npm ci --no-audit --no-fund
-      - run: npm run build
-      - run: npm run check
-      - run: npm test
-      - run: npm publish -w "@byokit/${{ inputs.package }}" --access public --provenance
+      - run: npm run release -- publish ${{ inputs.dry_run && '--dry-run' || '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0
+## Unreleased
 
 - In development (O7): the fake Gateway (`fakeGateway`), the contract suite (`openclawContract`, run by O11) and the
   scripted model (`startModelStub`/`useModelStub`), ported from Crewhouse's test stubs with the script grammar

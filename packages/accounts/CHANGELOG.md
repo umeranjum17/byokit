@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.4.0
 
 - Each catalogue row carries its billing (`subscription`, `api`); show `billingWords(p)` next to every provider you list.

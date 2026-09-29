@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.1.0
 
 - SECURITY: NaCl-compatible box and secretbox authenticated ciphertext is rejected on tamper or wrong keys without exposing plaintext.
