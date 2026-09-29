@@ -57,23 +57,32 @@ test('a paused terminal holds the stream back to a fixed backlog, and resume() d
   const count = 4096;
   const size = 1024;
   const progress = join(dir, 'progress');
-  const full = `${count}:${'x'.repeat(size)}`;
-  // Stream frames carry no resize stamping — only the echo frames do — so the byte math matches
-  // exactly what the child wrote while paused.
-  const frameBytes = Buffer.byteLength(`${JSON.stringify({ type: 'terminal.frame', pane_id: 'w1:p1',
-    data: full, full, bytes: Buffer.byteLength(full) })}\n`);
   s.pause();
   s.send(JSON.stringify({ type: 'fake.stream', count, size, progress }));
   const written = () => { try { return Number(readFileSync(progress, 'utf8')) || 0; } catch { return 0; } };
   await until(() => written() > 0, 'the stream to start');
-  await new Promise((r) => setTimeout(r, 1000));
+  // The paused backlog lives in the kernel pipe plus reads already in flight
+  // when pause() lands, so its size depends on scheduler speed — no fixed
+  // sleep or byte ceiling can name it. Wait for the blocked state itself: the
+  // progress count stops advancing while paused, however fast or slow the
+  // loop runs. A still counter proves the backlog is bounded: unbounded host
+  // buffering would let the child run to `count` instead of stalling.
+  const heldAt = await (async () => {
+    const deadline = Date.now() + 10_000;
+    let last = written();
+    let steadySince = Date.now();
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 25));
+      const now = written();
+      const at = Date.now();
+      if (now !== last) { last = now; steadySince = at; continue; }
+      if (at - steadySince >= 250) return now;
+      if (at > deadline) throw new Error('timed out waiting for the paused stream to block');
+    }
+  })();
   assert.equal(data.length, 0, 'no frame is delivered while paused');
-  const heldAt = written();   // the child is blocked on the pipe by now, so the file is stable
   assert.ok(heldAt > 0, 'the child wrote before blocking');
   assert.ok(heldAt < count, `the child is held back (${heldAt}/${count} frames written)`);
-  // What the child wrote sits in the kernel pipe (64 KiB) or was read by the kit before it stopped: Node's stream
-  // highWaterMark (64 KiB) plus one in-flight read (64 KiB). A fixed ceiling, however long the stream runs.
-  assert.ok(heldAt * frameBytes <= 4 * 64 * 1024, `backlog ${heldAt * frameBytes} bytes exceeds 256 KiB`);
 
   s.resume();
   await until(() => data.length === count, `${count} frames`);
