@@ -12,16 +12,16 @@ Workspaces, tabs, panes, coding agents and blocked-approval answers, from a Node
 never sees a credential.</p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/3-agent.png" width="240" alt="Phone page titled Agents, Connected to Test computer and Connected to Herdr: two pi agents marked Ready for you, and under Talk to it the agent's screen reading 'ready.' and 'fake pi: hello' above a Message box, a Send button and Sent." />
+  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/3-agent.png" width="240" alt="Phone page titled Agents, Connected to Kitchen computer and Connected to Herdr: two pi agents marked Ready for you, and under Talk to it the agent's screen reading '> Add a --json flag to export', 'Read src/cli/export.ts', 'Edited src/cli/export.ts +18 -3' and 'export --json now prints JSON.' above a Message box, a Send button and Sent." />
   <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/4-question.png" width="240" alt="Phone page with Questions for you at the top: pi, Waiting for your answer., the question 'Allow this? (y/n)' and buttons Enter, y, n and Esc; below, the second pi agent marked Waiting for your answer." />
-  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/5-answered.png" width="240" alt="Phone page after the answer: no Questions for you section, both pi agents marked Ready for you, and the agent's screen ending in 'Allow this? (y/n)' and 'y'" />
+  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/5-answered.png" width="240" alt="Phone page after the answer: no Questions for you section, both pi agents marked Ready for you, and the agent's screen ending in 'Allow this? (y/n)', 'y' and 'npm test: 42 passing'" />
 </p>
 <p align="center"><sub>The <a href="../../examples/herdr-kit">herdr-kit example</a>'s phone page: an agent at work, its
 question, answered. Captured by the example's e2e in a phone-sized headless Chromium, against the kit's stand-in
 Herdr.</sub></p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/herdr-kit-host.png" width="420" alt="Terminal running BYOKIT_EXAMPLE_FAKE=1 npm start -- --via lan --name 'Kitchen computer': a QR code, then 'On the phone, scan this, or open http://192.168.1.144:7310/ and type A937-EYXC-EBCZ', 'Codes last five minutes. Press Enter for new ones.', 'Connecting to Herdr…' and 'Connected to Herdr.'" />
+  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/herdr-kit-host.png" width="420" alt="Terminal running npm start -- --herdr &quot;$(command -v herdr)&quot; --via lan --name 'Kitchen computer': a QR code, then 'On the phone, scan this, or open http://192.168.1.144:7310/ and type K3J8-CJZ7-SE4R', 'Codes last five minutes. Press Enter for new ones.', 'Connecting to Herdr…' and 'Connected to Herdr.'" />
 </p>
 <p align="center"><sub>The same example's host terminal (<code>host.ts</code>), started with <code>BYOKIT_EXAMPLE_FAKE=1</code> so it runs the kit's stand-in Herdr.</sub></p>
 

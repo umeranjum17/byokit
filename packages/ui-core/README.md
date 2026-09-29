@@ -12,7 +12,7 @@ pairing sheet, the link's status and the route a phone takes home. Your app keep
 React hook is framework-free.</p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/pwa-2-code.png" width="240" alt="A phone-width page titled 'byokit in a browser' reading 'Signing in to ChatGPT…' and 'On the ChatGPT page, type this code:', the code MOCK-10001 in large letters, an 'Open ChatGPT' link and a Cancel button." />
+  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/pwa-2-code.png" width="240" alt="A phone-width page titled 'byokit in a browser' reading 'Signing in to ChatGPT…' and 'On the ChatGPT page, type this code:', the code WDJB-MJHT in large letters, an 'Open ChatGPT' link and a Cancel button." />
   <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/2-compare.png" width="240" alt="A phone-width page titled 'Agents' with a 'Pair this phone' card reading 'Check your computer shows these two words, then say yes there.' above the words 'coast comet'." />
 </p>
 
