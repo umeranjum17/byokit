@@ -2,10 +2,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
-import { decide, jev, resolve, rules, type Question } from '../src/index.ts';
+import { cacheKey, decide, jev, MemoryCache, resolve, rules, type Question } from '../src/index.ts';
 import { evaluate, format, parse, replay, summary } from '../src/eval.ts';
 
 const intent: Question = { kind: 'choice', options: { task: 'A new job', followup: 'About an earlier job', chat: 'Just talk' } };
@@ -120,7 +121,7 @@ test('decide: privacy skips Jev, rules answer the obvious, a failed or slow Jev 
 
   const priv = await decide({ msg: 'book the dentist' }, { intent }, { privacy: 'stays-here', backends: [r, j] });
   assert.equal(calls.length, 0);
-  assert.deepEqual(priv.intent, { answer: null, confidence: 0, abstained: true, reason: 'no answer', by: 'rules', ms: priv.intent.ms });
+  assert.deepEqual(priv.intent, { answer: null, confidence: 0, abstained: true, reason: 'no answer', by: 'rules', ms: priv.intent.ms, source: 'api' });
 
   assert.equal((await decide({ msg: 'thanks!' }, { intent }, { privacy: 'may-leave', backends: [r, j] })).intent.by, 'rules');
   assert.equal(calls.length, 0, 'rules answered, Jev never asked');
@@ -219,4 +220,140 @@ test('live recording preserves failed cases and labels partial refresh', () => {
   assert.deepEqual([f.cases[0].jev, f.cases[0].ms], [old, 42]);
   assert.deepEqual(f.cases[1].jev, { type: 'noul', noul: 0.1 });
   assert.match(f.note!, /partial live refresh 1\/2.*hand-made, not recorded/);
+});
+
+test('answers carry usage and the raw response, even when abstaining on a malformed answer', async () => {
+  const body = { model: 'jev-1.13.0', answers: {
+    intent: { type: 'choice', choice: 'task', confidence: 0.9, probabilities: p(0.95, 0.03, 0.02) },
+    broken: { type: 'choice', choice: 'task', confidence: 'high', probabilities: p(0.9, 0.05, 0.05) },
+  }, usage: { input_tokens: 7, output_tokens: 3 } };
+  const f: typeof fetch = async () => new Response(JSON.stringify(body));
+  const out = await decide('x', { intent, broken: intent }, { privacy: 'may-leave', backends: [jev({ key: 'k', fetch: f })] });
+  assert.deepEqual(out.intent.usage, { input_tokens: 7, output_tokens: 3 });
+  assert.deepEqual(out.intent.raw, body);
+  assert.equal(out.intent.source, 'api');
+  assert.deepEqual([out.broken.abstained, out.broken.reason], [true, 'malformed answer']);
+  assert.deepEqual(out.broken.usage, { input_tokens: 7, output_tokens: 3 }, 'a failed answer keeps its usage');
+  assert.deepEqual(out.broken.raw, body, 'a failed answer keeps its raw response');
+});
+
+test('usage is absent, never invented, when the backend sends none; invalid counts are ignored', async () => {
+  const noUsage: typeof fetch = async () => new Response(JSON.stringify({ answers: {
+    intent: { type: 'choice', choice: 'chat', confidence: 0.9, probabilities: p(0, 0, 1) },
+  } }));
+  const out = await decide('x', { intent }, { privacy: 'may-leave', backends: [jev({ key: 'k', fetch: noUsage })] });
+  assert.equal(out.intent.usage, undefined);
+  assert.ok(out.intent.raw, 'the raw response is still there');
+  const badUsage: typeof fetch = async () => new Response(JSON.stringify({ answers: {
+    intent: { type: 'choice', choice: 'chat', confidence: 0.9, probabilities: p(0, 0, 1) },
+  }, usage: { input_tokens: -2, output_tokens: 'lots' } }));
+  const bad = await decide('x', { intent }, { privacy: 'may-leave', backends: [jev({ key: 'k', fetch: badUsage })] });
+  assert.equal(bad.intent.usage, undefined);
+  assert.equal(bad.intent.answer, 'chat', 'a bad usage block never fails the answer');
+});
+
+test('cacheKey is a stable sha256 of the canonical body', () => {
+  const a = cacheKey({ b: 1, a: 2 }, { intent });
+  const b = cacheKey({ a: 2, b: 1 }, { intent });
+  assert.equal(a, b);
+  assert.match(a, /^[0-9a-f]{64}$/);
+  assert.notEqual(a, cacheKey({ a: 2, b: 3 }, { intent }));
+  assert.notEqual(a, cacheKey({ b: 1, a: 2 }, { other: intent }));
+  const canonical = '{"questions":{"intent":{"kind":"choice","options":{"chat":"Just talk","followup":"About an earlier job","task":"A new job"}}}'
+    + ',"state":{"a":2,"b":1}}';
+  assert.equal(a, createHash('sha256').update(canonical).digest('hex'), 'the pure-TS sha256 matches Node crypto');
+});
+
+test('cache: a miss asks live and stores; a hit serves the same usage/raw with no backend call', async () => {
+  let calls = 0;
+  const f: typeof fetch = async () => {
+    calls++;
+    return new Response(JSON.stringify({ model: 'jev-1.13.0',
+      answers: { intent: { type: 'choice', choice: 'task', confidence: 0.9, probabilities: p(0.95, 0.03, 0.02) } },
+      usage: { input_tokens: 11, output_tokens: 5 } }));
+  };
+  const cache = new MemoryCache();
+  const backend = () => jev({ key: 'k', fetch: f });
+  const first = await decide({ msg: 'hi' }, { intent }, { privacy: 'may-leave', backends: [backend()], cache });
+  assert.deepEqual([first.intent.answer, first.intent.source, calls, cache.size], ['task', 'api', 1, 1]);
+  const second = await decide({ msg: 'hi' }, { intent }, { privacy: 'may-leave', backends: [backend()], cache });
+  assert.deepEqual([second.intent.answer, second.intent.source, calls], ['task', 'cache', 1]);
+  assert.deepEqual(second.intent.usage, first.intent.usage);
+  assert.deepEqual(second.intent.raw, first.intent.raw);
+  const other = await decide({ msg: 'bye' }, { intent }, { privacy: 'may-leave', backends: [backend()], cache });
+  assert.deepEqual([other.intent.source, calls], ['api', 2], 'a different state misses');
+});
+
+test('cache accepts an async implementation, and a broken cache never fails a decision', async () => {
+  const store = new Map<string, Record<string, never>>();
+  const asyncCache = {
+    get: async (k: string) => store.get(k) as never,
+    set: async (k: string, v: Record<string, never>) => { store.set(k, v); },
+  };
+  const f: typeof fetch = async () => new Response(JSON.stringify({ answers: {
+    intent: { type: 'choice', choice: 'chat', confidence: 0.9, probabilities: p(0, 0, 1) } } }));
+  const once = await decide('x', { intent }, { privacy: 'may-leave', backends: [jev({ key: 'k', fetch: f })], cache: asyncCache });
+  const twice = await decide('x', { intent }, { privacy: 'may-leave', backends: [jev({ key: 'k', fetch: () => { throw new Error('must not be called'); } })], cache: asyncCache });
+  assert.deepEqual([once.intent.source, twice.intent.source, twice.intent.answer], ['api', 'cache', 'chat']);
+  const broken = { get: async () => { throw new Error('disk gone'); }, set: async () => { throw new Error('disk gone'); } };
+  const live = await decide('x', { intent }, { privacy: 'may-leave', backends: [jev({ key: 'k', fetch: f })], cache: broken });
+  assert.deepEqual([live.intent.answer, live.intent.source], ['chat', 'api']);
+});
+
+test('jev retries a 429 then succeeds; other statuses never retry', async () => {
+  let calls = 0;
+  const flaky: typeof fetch = async () => {
+    calls++;
+    if (calls === 1) return new Response('', { status: 429, headers: { 'retry-after': '0.01' } });
+    return new Response(JSON.stringify({ answers: {
+      intent: { type: 'choice', choice: 'task', confidence: 0.9, probabilities: p(0.95, 0.03, 0.02) } } }));
+  };
+  const out = await decide('x', { intent }, { privacy: 'may-leave', backends: [jev({ key: 'k', fetch: flaky, retryMaxMs: 1000 })] });
+  assert.deepEqual([out.intent.answer, calls], ['task', 2]);
+  for (const status of [400, 401, 403, 404, 500]) {
+    let n = 0;
+    const f: typeof fetch = async () => { n++; return new Response('', { status }); };
+    const r = await decide('x', { intent }, { privacy: 'may-leave', backends: [jev({ key: 'k', fetch: f, retryBaseMs: 1 })] });
+    assert.deepEqual([r.intent.reason, n], [`jev failed: http ${status}`, 1], `no retry on ${status}`);
+  }
+});
+
+test('an exhausted 429 reports http 429 after 1 + maxRetries calls', async () => {
+  let calls = 0;
+  const limited: typeof fetch = async () => { calls++; return new Response('', { status: 429 }); };
+  const r = await decide('x', { intent }, { privacy: 'may-leave', backends: [jev({ key: 'k', fetch: limited, maxRetries: 1, retryBaseMs: 1 })] });
+  assert.deepEqual([r.intent.reason, calls], ['jev failed: http 429', 2]);
+});
+
+test('Retry-After is honoured, and a huge one is capped by retryMaxMs', async () => {
+  const honoured = async (retryAfter: string, maxMs: number) => {
+    let calls = 0;
+    const f: typeof fetch = async () => {
+      calls++;
+      if (calls === 1) return new Response('', { status: 429, headers: { 'retry-after': retryAfter } });
+      return new Response(JSON.stringify({ answers: {
+        intent: { type: 'choice', choice: 'chat', confidence: 0.9, probabilities: p(0, 0, 1) } } }));
+    };
+    const t0 = Date.now();
+    const r = await decide('x', { intent }, { privacy: 'may-leave', backends: [jev({ key: 'k', fetch: f, retryMaxMs: maxMs })] });
+    return { ms: Date.now() - t0, answer: r.intent.answer, calls };
+  };
+  const waited = await honoured('0.05', 5000);
+  assert.deepEqual([waited.answer, waited.calls], ['chat', 2]);
+  assert.ok(waited.ms >= 30 && waited.ms < 5000, `honoured ~50 ms, took ${waited.ms} ms`);
+  const capped = await honoured('120', 20);
+  assert.deepEqual([capped.answer, capped.calls], ['chat', 2]);
+  assert.ok(capped.ms < 5000, `a 120 s Retry-After was capped, took ${capped.ms} ms`);
+});
+
+test('an abort during backoff settles promptly without another call', async () => {
+  let calls = 0;
+  const f: typeof fetch = async () => { calls++; return new Response('', { status: 429, headers: { 'retry-after': '30' } }); };
+  const t0 = Date.now();
+  const r = await decide('x', { intent }, { privacy: 'may-leave', backends: [jev({ key: 'k', fetch: f, retryMaxMs: 60000 })], timeoutMs: 30 });
+  const ms = Date.now() - t0;
+  assert.equal(r.intent.abstained, true);
+  assert.match(r.intent.reason!, /abort|timed out/i);
+  assert.equal(calls, 1);
+  assert.ok(ms < 5000, `backoff aborted instead of waiting 30 s, took ${ms} ms`);
 });

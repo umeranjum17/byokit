@@ -83,13 +83,14 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
 
 | Export | What it does |
 |---|---|
-| `decide(state, questions, { privacy, backends, timeoutMs? })` | Asks each backend in order for the questions still unanswered; returns an `Answer` per question |
+| `decide(state, questions, { privacy, backends, timeoutMs?, cache? })` | Asks each backend in order for the questions still unanswered; returns an `Answer` per question |
 | `rules(fn)` | Your own function as a backend: return the answer for an obvious case, `undefined` otherwise. Stays on the device |
 | `answerer({ name, leaves, ask })` | Any `(prompt, signal) => text` model as a backend |
-| `jev({ key, via?, fetch? })` | Jev as a backend, over TypeSafe's API (default) or OpenRouter (`via: 'openrouter'`). API-billed |
+| `jev({ key, via?, fetch?, maxRetries?, retryBaseMs?, retryMaxMs? })` | Jev as a backend, over TypeSafe's API (default) or OpenRouter (`via: 'openrouter'`). API-billed; retries 429s with backoff |
+| `MemoryCache`, `cacheKey(state, questions)` | In-memory reference cache for `decide({ cache })`, and the stable request key it uses |
 | `resolve(question, raw)` | The floors on one raw answer, for an app that holds a recorded answer |
 | `FLOOR` | The default floor, 0.6 |
-| `Question`, `Answer`, `Raw`, `Backend`, `Options` | The types |
+| `Question`, `Answer`, `Raw`, `Usage`, `Backend`, `DecideCache`, `Options` | The types |
 | `@byokit/decide/eval`: `evaluate`, `replay`, `parse`, `format`, `summary` | Run and print an eval report over any backends |
 | `byokit-eval` (bin) | Replay or refresh an eval file from the command line |
 
@@ -122,8 +123,33 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
   ```
 
   It asks for each answer's probability as JSON; any other reply is an abstain.
-- **Billing**: `rules` costs nothing. `answerer` with the person's ChatGPT uses their subscription. `jev()` is billed
+  - **Billing**: `rules` costs nothing. `answerer` with the person's ChatGPT uses their subscription. `jev()` is billed
   to the TypeSafe or OpenRouter key you pass.
+
+## Usage, cache and retries
+
+Every `Answer` carries what its backend reported: `usage` (`input_tokens`/`output_tokens` when sent) and the raw
+backend response (`raw`), on answered and abstained answers alike, so cost accounting never loses a count. `source`
+tells whether the answer was decided live (`'api'`) or served from cache (`'cache'`).
+
+```ts
+import { decide, jev, MemoryCache } from '@byokit/decide';
+
+const cache = new MemoryCache(); // reference implementation; bring your own get/set (sync or async) to persist
+const backend = jev({ key: hostConfig.jevKey, maxRetries: 2, retryMaxMs: 2000 });
+
+const first = await decide({ text }, questions, { privacy: 'may-leave', backends: [backend], cache });
+console.log(first.intent.source, first.intent.usage); // 'api' { input_tokens: 42, output_tokens: 7 }
+const second = await decide({ text }, questions, { privacy: 'may-leave', backends: [backend], cache });
+console.log(second.intent.source); // 'cache': same usage/raw, no backend call
+```
+
+- **Cache**: the key is the sha256 of the canonical `{ state, questions }` body (`cacheKey(state, questions)`), stable
+  across key order. The library ships no on-disk cache; a `get`/`set` pair over your own store is enough.
+- **Retries**: only 429s retry, never other statuses. A 429 waits for `Retry-After` when present (seconds or HTTP
+  date), else an exponential backoff from `retryBaseMs`; each wait is capped at `retryMaxMs`, so the total stays
+  under `maxRetries` x `retryMaxMs`. Backoff respects the caller's `timeoutMs`/`AbortSignal`, including an abort
+  mid-wait, and each retry is API-billed like the first call.
 
 ## Phones and browsers
 
