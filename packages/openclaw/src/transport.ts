@@ -10,9 +10,28 @@ import type { GatewayTransport, Hello } from './types.ts';
  */
 export const GATEWAY_CAPS = ['tool-events', 'approvals'] as const;
 
+/**
+ * Read the device key pair from `device.json`. The kit writes `{ privateKey, publicKey }` (PEM strings);
+ * existing Crewhouse state carries `{ deviceId, publicKeyPem, privateKeyPem }` instead. Both shapes are
+ * accepted and the file is only ever read, never rewritten, so an existing device identity keeps its keys.
+ */
+export function loadDeviceKeys(identityPath: string): { privateKeyPem: string; publicKeyPem: string } {
+  const raw = JSON.parse(readFileSync(identityPath, 'utf8')) as Record<string, unknown>;
+  const privateKeyPem = typeof raw.privateKey === 'string' ? raw.privateKey
+    : typeof raw.privateKeyPem === 'string' ? raw.privateKeyPem
+    : undefined;
+  const publicKeyPem = typeof raw.publicKey === 'string' ? raw.publicKey
+    : typeof raw.publicKeyPem === 'string' ? raw.publicKeyPem
+    : undefined;
+  if (privateKeyPem === undefined || publicKeyPem === undefined) {
+    throw new Error(`The device identity file at ${identityPath} is not usable: it holds no device key pair.`);
+  }
+  return { privateKeyPem, publicKeyPem };
+}
+
 export function gatewayTransport(ctx: { port: number; token: string; identityPath: string; bridgeSock: string }): GatewayTransport {
-  const pem = JSON.parse(readFileSync(ctx.identityPath, 'utf8')) as { privateKey: string; publicKey: string };
-  const publicKey = createPublicKey(pem.publicKey).export({ format: 'der', type: 'spki' }).subarray(-32);
+  const pem = loadDeviceKeys(ctx.identityPath);
+  const publicKey = createPublicKey(pem.publicKeyPem).export({ format: 'der', type: 'spki' }).subarray(-32);
   const events = new Set<(e: { event: string; payload?: unknown }) => void>();
   const closes = new Set<(why: string) => void>();
   let ready: Hello | undefined;
@@ -21,7 +40,7 @@ export function gatewayTransport(ctx: { port: number; token: string; identityPat
   const client = new GatewayClient({
     url: `ws://127.0.0.1:${ctx.port}`, token: ctx.token, role: 'operator', scopes: [...OPERATOR_SCOPES],
     clientName: 'cli', caps: [...GATEWAY_CAPS], minProtocol: PROTOCOL_VERSION, maxProtocol: PROTOCOL_VERSION,
-    deviceIdentity: { deviceId: createHash('sha256').update(publicKey).digest('hex'), privateKeyPem: pem.privateKey, publicKeyPem: pem.publicKey },
+    deviceIdentity: { deviceId: createHash('sha256').update(publicKey).digest('hex'), privateKeyPem: pem.privateKeyPem, publicKeyPem: pem.publicKeyPem },
     hostDeps: {
       signDevicePayload: (key, payload) => sign(null, Buffer.from(payload), createPrivateKey(key)).toString('base64url'),
       publicKeyRawBase64UrlFromPem: (key) => createPublicKey(key).export({ format: 'der', type: 'spki' }).subarray(-32).toString('base64url'),
