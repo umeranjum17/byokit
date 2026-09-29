@@ -442,11 +442,11 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       }
       return { target: p.target, keys };
     },
-    'agent.list': () => ({ agents: live.agents.map((agent) => ({ ...agent })) }),
+    'agent.list': () => ({ agents: live.agents.map(agentWire) }),
     'agent.get': (p) => {
       const agent = live.agents.find((row) => row.pane_id === p.target);
       if (agent === undefined) throw fail('agent_not_found', 'agent not found');
-      return { agent };
+      return { agent: agentWire(agent) };
     },
 
     'server.agent_manifests': () => ({ manifests: kinds.map((kind) => ({ agent: kind })) }),
@@ -615,9 +615,15 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     return live.agents.find((row) => row.pane_id === pane.pane_id);
   }
 
+  // v0.9.1 serializes `launch_pending`/`interactive_ready` only when true (`skip_serializing_if = is_false`).
+  function agentWire(agent: FakeAgent): Record<string, unknown> {
+    const { launch_pending, interactive_ready, ...rest } = agent;
+    return { ...rest, ...(launch_pending ? { launch_pending } : {}), ...(interactive_ready ? { interactive_ready } : {}) };
+  }
+
   function agentView(paneId: unknown) {
     const agent = live.agents.find((row) => row.pane_id === paneId);
-    if (agent !== undefined) return { agent: { ...agent } };
+    if (agent !== undefined) return { agent: agentWire(agent) };
     const pane = live.panes.find((row) => row.pane_id === paneId);
     return { agent: { pane_id: paneId, agent_status: pane?.agent_status ?? 'unknown', interactive_ready: true } };
   }
@@ -665,7 +671,7 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       workspaces: live.workspaces.map(workspaceView),
       tabs: live.tabs.map((tab) => ({ ...tab })),
       panes: live.panes.map(paneView),
-      agents: live.agents.map((agent) => ({ ...agent })),
+      agents: live.agents.map(agentWire),
       layouts: [],
     };
   }

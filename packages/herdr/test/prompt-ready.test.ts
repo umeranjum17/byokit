@@ -160,3 +160,37 @@ test('a snapshot at unknown whose idle reached no socket is re-read before refus
     await fake.stop().catch(() => {});
   }
 });
+
+test('a push racing the re-read keeps its status, and the read still clears the launch flag', async () => {
+  const fake = await startFakeHerdr({ dir: scratchDir('herdr-prompt-race') });
+  const agent = fake.world.agents[0];
+  Object.assign(agent, { agent_status: 'idle', interactive_ready: false, launch_pending: true });
+  const real = socketTransport(fake.socketPath);
+  let kit!: HerdrKit;
+  let race = false;
+  const transport: HerdrTransport = {
+    call: async (method, params, timeoutMs) => {
+      if (race && method === 'agent.get') {
+        race = false;
+        // The launch settles and its status push lands while the read is in flight.
+        Object.assign(agent, { interactive_ready: true, launch_pending: false });
+        fake.setStatus('w1:p2', 'working');
+        await until(() => statusOf(kit) === 'working', 'the racing push lands first');
+      }
+      return real.call(method, params, timeoutMs);
+    },
+    subscribe: (subs, on, onError) => real.subscribe(subs, on, onError),
+    close: () => real.close(),
+  };
+  kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath, transport });
+  try {
+    await kit.start();
+    await kit.statusWatchReady();
+    race = true;
+    const receipt = await kit.prompt(pane, 'hi');
+    assert.equal(receipt.paneId, 'w1:p2');
+  } finally {
+    await kit.stop().catch(() => {});
+    await fake.stop().catch(() => {});
+  }
+});

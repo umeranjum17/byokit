@@ -133,8 +133,13 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       receipt = await call('agent.prompt', { target: target.paneId, text,
         ...(wait === undefined ? {} : { wait }) });
     } catch (error) {
-      if ((error as { code?: unknown } | null | undefined)?.code === 'agent_blocked') {
+      const code = (error as { code?: unknown } | null | undefined)?.code;
+      if (code === 'agent_blocked') {
         throw fail('agent-blocked', 'That agent is blocked and needs an answer before a new prompt.');
+      }
+      // Herdr's own gate (unknown agent kind, launch pending, not the pane's foreground process).
+      if (code === 'agent_not_ready') {
+        throw fail('agent-not-ready', 'That agent is not ready for a prompt yet.');
       }
       throw error;
     }

@@ -9,6 +9,9 @@
   another app was refused forever; and a snapshot read while an agent was still launching kept it
   marked as launching, because Herdr never pushes the end of a launch. The kit no longer gates on
   interactive-ready, and before refusing a prompt it re-reads the agent once from Herdr.
+- FIX: when Herdr itself refuses a prompt as not ready, `prompt` now fails with `agent-not-ready`
+  like the kit's own check, not with Herdr's raw `agent_not_ready` error.
+- The test fake leaves `launch_pending` and `interactive_ready` out when they are false, as Herdr v0.9.1 does.
 - Depends on @byokit/relay 0.2.1.
 
 ## 0.1.1 (2026-09-29)

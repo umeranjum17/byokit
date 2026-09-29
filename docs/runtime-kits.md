@@ -926,7 +926,9 @@ export class Blocked {
 - `prompt`: refuse unless the agent is promptable (`launch_pending !== true`, status in idle/working/blocked/done)
   → `PublicLinkError`-compatible error code `agent-not-ready`. The tree is re-read once (`agent.get`) before a
   refusal, since `launch_pending` rides reads only; `interactive_ready` is not gated (v0.9.1 sets it only for agents
-  its own `agent.start` settled, and its `agent.prompt` accepts the rest). A refusal never calls `agent.prompt`. Call `agent.prompt
+  its own `agent.start` settled, and its `agent.prompt` accepts the rest; v0.9.1 omits both flags when false, so a
+  read without them means false). A refusal never calls `agent.prompt`; Herdr's own `agent_not_ready` maps to
+  `agent-not-ready`. Call `agent.prompt
   { target: paneId, text, wait? }`; accept only a receipt with `type === 'agent_prompted'`, string `terminal_id`,
   `agent_status`, `workspace_id`, `tab_id`, `pane_id === target`, boolean `focused`, non-negative safe-integer
   `revision`; else throw `Herdr did not queue the prompt.` (muxr `promptHerdrAgent`). `agent_blocked` → error code
@@ -1480,7 +1482,7 @@ H1, and O12/H10 (README example rows); later merges rebase.
 - Behavior: 6.4.
 - Acceptance with `startFakeHerdr`: `startAgent` in all four placements plus worktree returns the new pane id taken
   from the response, never predicted; prompt receipt validation (each malformed field variant from muxr's check
-  rejected); not-promptable agent refused without a socket call; `agent_blocked` mapped; each close guard refuses
+  rejected); not-promptable agent refused without an `agent.prompt` call (one `agent.get` re-read first); `agent_blocked` mapped; each close guard refuses
   widening and maps not-found; blocked → `onBlocked` added with detection text and revision; `answer` with stale
   revision refused (`approval-stale`), with current revision sends keys and the agent resolves.
 
