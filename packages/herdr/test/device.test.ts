@@ -7,7 +7,7 @@ import { boxKeyPairFromSeed } from '@byokit/seal';
 import type { DeviceLink, LinkStream } from '@byokit/link';
 import { herdrDevice } from '../src/device.ts';
 import { boxPublicKeyB64, openNotice, sealNotice } from '../src/notices.ts';
-import type { BlockedAgent } from '../src/types.ts';
+import type { BlockedAgent, HerdrResult } from '../src/types.ts';
 
 type Call = { op: string; args: unknown };
 const stubLink = (answer: (call: Call) => unknown, streams: Record<string, string[]> = {}): {
@@ -117,4 +117,108 @@ const hdOpen = (data: Record<string, unknown>, seed: Uint8Array): BlockedAgent |
 test('sealNotice refuses a bad key', () => {
   assert.throws(() => sealNotice(BLOCKED, new Uint8Array(7)), /32 bytes/);
   assert.throws(() => sealNotice({} as unknown as BlockedAgent, new Uint8Array(32)), /cannot seal/);
+});
+
+test('agentKinds, wait and subscribe open their ops', async () => {
+  const { link, calls, opened } = stubLink(({ op }) => (op === 'hd.kinds' ? ['pi', 'codex'] : op === 'hd.wait' ? 'idle' : null),
+    { 'hd.subscribe': ['{"type":"pane.agent_status_changed","pane_id":"w1:p2","workspace_id":"w1","agent_status":"idle"}', 'not json'] });
+  const hd = herdrDevice(link);
+  assert.deepEqual(await hd.agentKinds(), ['pi', 'codex']);
+  assert.equal(await hd.wait('w1:p2', { until: ['idle'], timeoutMs: 500 }), 'idle');
+  const seen: string[] = [];
+  const errors: string[] = [];
+  const stop = hd.subscribe([{ type: 'pane.agent_status_changed', pane_id: 'w1:p2' }],
+    (e) => { seen.push(e.agent_status); }, (m) => { errors.push(m); });
+  await new Promise((r) => setTimeout(r, 20));
+  stop();
+  assert.deepEqual(seen, ['idle'], 'one frame per event; a line that is not JSON is skipped');
+  assert.deepEqual(errors, [], 'a clean end is not an error');
+  assert.deepEqual(calls, [
+    { op: 'hd.kinds', args: {} },
+    { op: 'hd.wait', args: { paneId: 'w1:p2', until: ['idle'], timeoutMs: 500 } },
+  ]);
+  assert.deepEqual(opened, [{ op: 'hd.subscribe', args: { subs: [{ type: 'pane.agent_status_changed', pane_id: 'w1:p2' }] } }]);
+});
+
+/** A link whose single stream the test drives by hand. */
+const handStream = () => {
+  const writes: string[] = [];
+  let ended = 0;
+  const s = {
+    onData: undefined as ((chunk: Uint8Array) => void) | undefined,
+    onEnd: undefined as ((error?: string) => void) | undefined,
+    write: async (line: string) => { writes.push(line); },
+    end: () => { ended++; },
+  };
+  const link = { stream: async () => s } as unknown as DeviceLink;
+  const feed = (text: string) => s.onData?.(new TextEncoder().encode(text));
+  return { link, s, writes, feed, ended: () => ended };
+};
+
+test('terminal ready resolves on the first frame and exited on a clean end', async () => {
+  const h = handStream();
+  const t = herdrDevice(h.link).terminal('w1:p1', { mode: 'control', cols: 80, rows: 24 });
+  t.send('early');
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(h.writes, ['early\n'], 'a send before the open queues until it');
+  h.feed('{"type":"terminal.ready"}\n');
+  await t.ready;
+  h.s.onEnd?.();
+  assert.deepEqual(await t.exited, { reason: null });
+});
+
+test('terminal ready rejects with the host words when the stream ends first', async () => {
+  const h = handStream();
+  const t = herdrDevice(h.link).terminal('w9:p1', { mode: 'observe', cols: 80, rows: 24 });
+  await new Promise((r) => setTimeout(r, 0));
+  h.s.onEnd?.('Not allowed.');
+  await assert.rejects(t.ready, /Not allowed\./);
+  assert.deepEqual(await t.exited, { reason: 'Not allowed.' });
+});
+
+test('terminal close ends the stream and settles exited', async () => {
+  const h = handStream();
+  const t = herdrDevice(h.link).terminal('w1:p1', { mode: 'observe', cols: 80, rows: 24 });
+  await new Promise((r) => setTimeout(r, 0));
+  t.close();
+  assert.equal(h.ended(), 1);
+  assert.deepEqual(await t.exited, { reason: null });
+  await assert.rejects(t.ready);
+  t.send('late');
+  assert.deepEqual(h.writes, [], 'nothing is sent after close');
+});
+
+test('a subscribe the host ends with words reaches onError', async () => {
+  const h = handStream();
+  const errors: string[] = [];
+  herdrDevice(h.link).subscribe([{ type: 'pane.agent_status_changed', pane_id: 'w9:p1' }], () => {}, (m) => { errors.push(m); });
+  await new Promise((r) => setTimeout(r, 0));
+  h.s.onEnd?.('Not allowed.');
+  assert.deepEqual(errors, ['Not allowed.']);
+});
+
+// Typed pass-through (7.2). The assertions are compile-time: `npm run check` fails if call() stops
+// taking the generated table's params or stops returning its result type.
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
+const typed = <T extends true>(): T | undefined => undefined;
+
+test('call, subscribe and events are typed by the generated tables', async () => {
+  const { link } = stubLink(() => ({ read: { text: 'hi' } }), { 'hd.events': ['{"type":"snapshot","snapshot":{"connected":true,"workspaces":[]}}'] });
+  const hd = herdrDevice(link);
+  const read = hd.call('pane.read', { pane_id: 'w1:p1', source: 'visible' });
+  typed<Equal<typeof read, Promise<HerdrResult<'pane.read'>>>>();
+  const text: string = (await read).read.text;
+  assert.equal(text, 'hi');
+  // @ts-expect-error not a Herdr method
+  void hd.call('pane.nope', {});
+  // @ts-expect-error pane.read needs its pane_id
+  void hd.call('pane.read', {});
+  const stop = hd.subscribe([{ type: 'pane.scroll_changed', pane_id: 'w1:p1' }], (e) => {
+    typed<Equal<typeof e.scroll.viewport_rows, number>>();
+  });
+  stop();
+  for await (const frame of hd.events()) {
+    if (frame.type === 'snapshot') assert.equal(frame.snapshot.connected, true);
+    break;
+  }
 });

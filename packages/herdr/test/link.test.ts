@@ -273,6 +273,50 @@ test('hd.events streams snapshot deltas and blocked add/resolve', async () => {
   } });
 });
 
+test('hd.kinds, hd.wait and hd.subscribe round-trip with view/control and scope rules', async () => {
+  await withBench({ run: async ({ kit, fake, pair }) => {
+    const narrow = await pair('control', { workspaces: ['w1'] }, 'narrow');
+    const wide = await pair('control', ALL, 'wide');
+    const viewer = await pair('view', { workspaces: ['w1'] }, 'viewer');
+    // Kinds are a view op with no scope: the kind picker's list (8).
+    const kinds = await kit.agentKinds();
+    assert.ok(kinds.length > 0);
+    assert.deepEqual(await viewer.hd.agentKinds(), kinds);
+    // Wait needs control and an in-scope pane.
+    const status = await narrow.hd.wait('w1:p2', { until: ['idle', 'working', 'blocked', 'done', 'unknown'], timeoutMs: 2000 });
+    assert.ok(['idle', 'working', 'blocked', 'done', 'unknown'].includes(status));
+    await assert.rejects(viewer.hd.wait('w1:p2', { timeoutMs: 100 }), (e: Error) => e.message === NOT_ALLOWED);
+    await assert.rejects(narrow.hd.wait('w1:p2', { timeoutMs: 0 }));
+    await assert.rejects(narrow.hd.wait('w1:p2', { until: ['nope' as never], timeoutMs: 100 }));
+    const placed = await wide.hd.startAgent({ kind: 'pi', cwd: '/tmp', place: { workspace: 'new', label: 'other' } });
+    const outside = placed.paneId;
+    const other = outside.split(':')[0];
+    fake.emit({ type: 'workspace.created', workspace_id: other });
+    await until(() => wide.hd.tree(), (t) => t.workspaces.some((w) => w.id === other));
+    await assert.rejects(narrow.hd.wait(outside, { timeoutMs: 100 }), (e: Error) => e.message === NOT_ALLOWED);
+    // A subscribe filter naming an out-of-scope pane is refused with the kit's sentence.
+    const refused: string[] = [];
+    narrow.hd.subscribe([{ type: 'pane.scroll_changed', pane_id: outside }], () => {}, (m) => { refused.push(m); });
+    await until(() => refused, (got) => got.length === 1);
+    assert.deepEqual(refused, [NOT_ALLOWED]);
+    // A viewer may subscribe; a scoped grant sees only events whose every workspace is in scope.
+    const narrowSeen: string[] = [];
+    const wideSeen: string[] = [];
+    const stopNarrow = viewer.hd.subscribe([{ type: 'workspace.renamed' }], (e) => { narrowSeen.push(e.workspace_id); });
+    const stopWide = wide.hd.subscribe([{ type: 'workspace.renamed' }], (e) => { wideSeen.push(e.workspace_id); });
+    await until(() => {
+      fake.emit({ type: 'workspace.renamed', workspace_id: other, label: 'x' });
+      fake.emit({ type: 'workspace.renamed', workspace_id: 'w1', label: 'y' });
+      return narrowSeen.length > 0 && wideSeen.includes(other);
+    }, (ok) => ok);
+    assert.ok(narrowSeen.every((id) => id === 'w1'), 'no out-of-scope workspace reaches a scoped grant');
+    stopNarrow();
+    stopWide();
+    // Pass-through stays default-denied (D8).
+    await assert.rejects(viewer.hd.call('server.agent_manifests', {}), (e: Error) => e.message === NOT_ALLOWED);
+  } });
+});
+
 test('serve() binds per the reach result and pairs a device through it', async () => {
   const fake = await startFakeHerdr({ dir: scratchDir('h7-serve') });
   const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath });

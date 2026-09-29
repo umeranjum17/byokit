@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Typed device pass-through (G4, docs/runtime-kits.md 7.2): `openclawDevice(link).call<M>(method, params)` returns
+  `GatewayResult<M>` from the generated table (params now required, as on the kit), `events()` yields
+  `OpenClawLinkEvent` frames, and `./device` re-exports the table types. The device gains `sessions()` (`oc.sessions`,
+  *view*) and `signOut(p)` (`oc.signout`).
 - FIX: `GatewayParams` for every anyOf/oneOf method now carries each branch's full property set from the pin's `protocol.schema.json` (re-emitted into `src/generated/params.ts` by `npm run gen:openclaw`), so `kit.call('cron.run', { id, mode: 'force' })` compiles; branch requirements the old types dropped (`cron.scratch.set` content, `cron.update` patch) and oneOf exclusions (`sessions.dispatch`, `exec.approvals.node.set`, `audit.run.inspect`, spelled as `prop?: never`) are enforced the way the gateway validates them.
 - SECURITY: the operator install policy blocks any skill request whose kind contains `depend` (e.g. `skill-dependency-install`) even under an own root; previously only `installSpec` installer fields were checked.
 - FIX: the trusted-skill version check uses `request.origin.version` when present and falls back to the `SKILL.md` frontmatter version, so reviewed bundled skills without a frontmatter version match their trusted entry.

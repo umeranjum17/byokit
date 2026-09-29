@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Typed device pass-through (G4, docs/runtime-kits.md 7.1/7.2): `herdrDevice(link).call<M>(method, params)` returns
+  `HerdrResult<M>` from the generated table, `events()` yields `HerdrLinkEvent` frames, and `./device` re-exports the
+  table types. New link ops `hd.kinds` (*view*, `agentKinds()`), `hd.wait` (control, pane in scope) and `hd.subscribe`
+  (stream, *view*; filter panes must be in scope, a scoped grant gets only events whose every workspace is in scope)
+  with device `agentKinds()`, `wait()` and typed `subscribe(subs, on, onError?)`. The device `terminal()` gains `ready`
+  (first frame) and `exited` (`{ reason }`). `hd.call` stays default-denied.
+
 - `words`, `stateWords`, `agentWords` and `WORDS` are exported from `.` and `./device`, so a host or phone UI
   shows the kit's own sentences for Herdr and agent states instead of writing its own.
 - FIX the fake Herdr (`./testing`) emits `workspace.created`, `tab.created`, `pane.created`,
@@ -10,6 +17,7 @@
   stays current there).
 - FIX `hd.prompt` over a link answers a not-ready agent with the `agent.notReady` sentence (and a blocked one
   with `agent.blocked`) instead of the link's generic failure.
+
 - K3 raw event tap: `kit.onEvent(fn)` delivers every event from the kit's own batch and
   per-pane status sockets with wire payloads intact (`pane.moved.previous_pane_id`,
   `workspace.*`), firing on arrival before the snapshot update/refresh (buffered replays never
