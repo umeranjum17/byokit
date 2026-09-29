@@ -62,6 +62,7 @@ async function withBridge(
   const bridge = new Bridge({
     path: sockPath,
     host: o.host ?? host(),
+    tools: new Set(['note', 'other']),
     permitted: o.permitted ?? (() => true),
     approvalTimeoutMs: o.approvalTimeoutMs ?? 5_000,
     onAsk: (a) => seen.asked.push(a),
@@ -78,7 +79,7 @@ async function withBridge(
 
 test('writePlugin is deterministic and carries the tool names', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'byokit-o5-plugin-'));
-  writePlugin(dir, { id: 'byokit', tools, paramPrefix: '__byokit' });
+  writePlugin(dir, { id: 'byokit', tools, paramPrefix: '__byokit', gateBuiltins: true });
   const manifest = readFileSync(join(dir, 'openclaw.plugin.json'), 'utf8');
   const table = readFileSync(join(dir, 'tools.json'), 'utf8');
   assert.deepEqual(JSON.parse(manifest), {
@@ -90,18 +91,20 @@ test('writePlugin is deterministic and carries the tool names', async () => {
   });
   assert.match(table, /"__byokit_run"/);
   assert.match(table, /"__byokit_permit"/);
-  writePlugin(dir, { id: 'byokit', tools, paramPrefix: '__byokit' });
+  writePlugin(dir, { id: 'byokit', tools, paramPrefix: '__byokit', gateBuiltins: true });
   assert.equal(readFileSync(join(dir, 'openclaw.plugin.json'), 'utf8'), manifest);
   assert.equal(readFileSync(join(dir, 'tools.json'), 'utf8'), table);
-  writePlugin(dir, { id: 'acme', tools, paramPrefix: '__acme' });
+  writePlugin(dir, { id: 'acme', tools, paramPrefix: '__acme', gateBuiltins: false });
   assert.match(readFileSync(join(dir, 'tools.json'), 'utf8'), /"__acme_permit"/);
+  assert.equal(JSON.parse(table).gateBuiltins, true);
+  assert.equal(JSON.parse(readFileSync(join(dir, 'tools.json'), 'utf8')).gateBuiltins, false);
   rmSync(dir, { recursive: true, force: true });
 });
 
 test('writePlugin and resolveBridge refuse bad bridge names', () => {
   const dir = mkdtempSync(join(tmpdir(), 'byokit-o5-prefix-'));
   try {
-    assert.throws(() => writePlugin(dir, { id: 'byokit', tools, paramPrefix: 'nope' }), /invalid bridge paramPrefix/);
+    assert.throws(() => writePlugin(dir, { id: 'byokit', tools, paramPrefix: 'nope', gateBuiltins: true }), /invalid bridge paramPrefix/);
     assert.throws(() => resolveBridge({ socketName: '../evil.sock' }), /invalid bridge socketName/);
     assert.throws(() => resolveBridge({ socketName: 'bridge' }), /invalid bridge socketName/);
     assert.deepEqual(resolveBridge(), { socketName: 'bridge.sock', paramPrefix: '__byokit' });
@@ -156,6 +159,34 @@ test('a tool the app did not permit needs no permit and leaves no ticket behind'
     assert.deepEqual(await askBridge(sockPath, call), { ok: true, text: 'note: hi' });
     assert.deepEqual(await askBridge(sockPath, call), { ok: false, reason: 'this call was not allowed' });
   }));
+
+test('a builtin reaches the gate marked builtin and is admitted with no permit, ticket or call', async () => {
+  const gated: [string, unknown][] = [];
+  const called: string[] = [];
+  const recording: ToolHost = {
+    gate: async (_run, tool, input, info) => (gated.push([tool, info]), input.mode === 'deny' ? { allow: false, reason: 'no fetching' } : { allow: true }),
+    call: async (_run, tool) => (called.push(tool), 'ran'),
+  };
+  await withBridge({ host: recording }, async (bridge, sockPath) => {
+    bridge.register({ sessionKey: 'agent:m1:x', member: 'm1' });
+    assert.deepEqual(await askBridge(sockPath, { kind: 'gate', key: 'agent:m1:x', tool: 'web_fetch', input: { mode: 'deny' } }), {
+      allow: false,
+      reason: 'no fetching',
+    });
+    assert.deepEqual(await askBridge(sockPath, { kind: 'gate', key: 'agent:m1:x', tool: 'web_fetch', input: {} }), { allow: true });
+    assert.deepEqual(await askBridge(sockPath, { kind: 'call', key: 'agent:m1:x', tool: 'web_fetch', input: {} }), {
+      ok: false,
+      reason: 'this call was not allowed',
+    });
+    await askBridge(sockPath, { kind: 'gate', key: 'agent:m1:x', tool: 'note', input: {} });
+    assert.deepEqual(gated, [['web_fetch', { builtin: true }], ['web_fetch', { builtin: true }], ['note', { builtin: false }]]);
+    assert.deepEqual(called, []);
+    assert.deepEqual(await askBridge(sockPath, { kind: 'gate', key: 'agent:m9:x', tool: 'web_fetch', input: {} }), {
+      allow: false,
+      reason: 'unknown run',
+    });
+  });
+});
 
 test('allowOnce admits a non-permitted tool without a registered run', async () =>
   withBridge({ permitted: () => false }, async (bridge, sockPath) => {
@@ -285,6 +316,7 @@ test('stopping with a parked ask ends it gone', async () => {
   const bridge = new Bridge({
     path: join(dir, 'b.sock'),
     host: host(),
+    tools: new Set(['note']),
     permitted: () => true,
     approvalTimeoutMs: 5_000,
     onAsk: (a) => seen.asked.push(a),

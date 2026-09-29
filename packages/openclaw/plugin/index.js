@@ -1,4 +1,4 @@
-// The BYOKit bridge plugin (docs/runtime-kits.md 5.9): app tools gated by the fail-closed unix-socket bridge.
+// The BYOKit bridge plugin (docs/runtime-kits.md 5.9): tool calls gated by the fail-closed unix-socket bridge.
 // Runs in the gateway process. Reads its tool table from the sibling tools.json written by writePlugin, so
 // schemas and descriptions stay app data. No imports beyond node builtins: nothing here needs resolving in-gateway.
 import { connect } from 'node:net';
@@ -11,6 +11,8 @@ const table = JSON.parse(readFileSync(new URL('./tools.json', import.meta.url), 
 const RUN_PARAM = table.runParam;
 const PERMIT_PARAM = table.permitParam;
 const TOOLS = new Map(table.tools.map((t) => [t.name, t]));
+// Absent (a table from before the flag) reads as true: fail closed.
+const GATE_BUILTINS = table.gateBuiltins !== false;
 
 /** Minimal JSON Schema -> TypeBox-marked schema converter; output is both valid TypeBox and valid JSON Schema. */
 function toTypeBox(schema) {
@@ -101,7 +103,7 @@ async function gate(key, tool, input, signal) {
 export default {
   id: table.id,
   name: 'BYOKit bridge',
-  description: 'Gates app tools through the host app before they run.',
+  description: 'Gates tool calls through the host app before they run.',
   configSchema: {
     safeParse(value) {
       if (value === undefined) return { success: true, data: undefined };
@@ -148,7 +150,10 @@ export default {
       });
     }
     api.on('before_tool_call', async (event, ctx) => {
-      if (!TOOLS.has(event.toolName)) return undefined;
+      // Engine builtins (web_fetch, memory, ...) are gated too unless the app opted out; they run in-engine and
+      // never call back, so an allow passes them through unchanged.
+      const builtin = !TOOLS.has(event.toolName);
+      if (builtin && !GATE_BUILTINS) return undefined;
       const key = ctx?.sessionKey;
       if (typeof key !== 'string' || !key) return { block: true, blockReason: "can't check this action right now" };
       let decision;
@@ -163,6 +168,7 @@ export default {
           blockReason: typeof decision.reason === 'string' ? decision.reason : "can't check this action right now",
         };
       }
+      if (builtin) return undefined;
       // The bridge mints a permit for permitted tools and admits the rest ticket-side; either way the run key
       // rides along and execute sends back only what the gate gave it (N1).
       return {

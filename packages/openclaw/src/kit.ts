@@ -47,6 +47,8 @@ export type KitOptions = {
   tools?: ToolSpec[]; // app tools registered by the bridge plugin
   host?: ToolHost; // required when tools is non-empty
   permitted?: (tool: string) => boolean; // tools needing a one-use permit from their gate; default () => true
+  gateBuiltins?: boolean; // default true: every tool call, engine builtins included, goes through host.gate (no host:
+  // every call is blocked); false gates only the app's tools and lets builtins run ungated
   config?: object; // app OpenClaw config, deep-merged UNDER the invariants (5.6)
   installPolicy?: { trustedSkills: string; ownRoots: string[] }; // trusted-skills JSON path, own content roots
   callbackPort?: number; // default 1455
@@ -478,14 +480,15 @@ export class OpenClawKit {
   constructor(o: KitOptions) {
     if (o.tools?.length && !o.host) throw new Error('host required when tools are registered');
     this.o = o;
-    this.engine = new Engine({ ...o, pluginId: o.plugin?.id ?? 'byokit', tools: o.tools ?? [], spawnEngine: o.spawnEngine !== false,
+    this.engine = new Engine({ ...o, pluginId: o.plugin?.id ?? 'byokit', tools: o.tools ?? [],
+      gateBuiltins: o.gateBuiltins !== false, spawnEngine: o.spawnEngine !== false,
       onState: (s) => this.setState(s), onExit: () => this.closed('engine exited') });
     const slot: { bridge?: Pick<Bridge, 'resolveAsk'> } = {};
     this.approvalsCtl = new Approvals({
       request: (method, params, co) => this.request()(method, params, co),
       bridge: { resolveAsk: (id, d) => slot.bridge?.resolveAsk(id, d) ?? false },
     });
-    this.bridge = new Bridge({ path: this.engine.bridgeSock, host: o.host,
+    this.bridge = new Bridge({ path: this.engine.bridgeSock, host: o.host, tools: new Set((o.tools ?? []).map((t) => t.name)),
       permitted: o.permitted ?? (() => true), approvalTimeoutMs: o.approvalTimeoutMs ?? 180_000,
       onAsk: (a) => this.approvalsCtl.add(a), onAskGone: (id) => this.approvalsCtl.remove(id) });
     slot.bridge = this.bridge;

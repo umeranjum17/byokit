@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { OpenClawKit } from '../src/kit.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
+import type { RunRef } from '../src/types.ts';
 
 async function withKit(fn: (kit: OpenClawKit, fake: ReturnType<typeof fakeGateway>) => Promise<void>) {
   const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o4-'));
@@ -94,3 +95,46 @@ test('config patch keeps memory search disabled', async () => withKit(async (kit
   assert.equal(typeof kit.memoryLimited('m1'), 'boolean');
   assert.ok(kit.doctorContext().entry.endsWith('openclaw.mjs'));
 }));
+
+/** A kit with the app tool crew_x whose gate records every call and denies it. */
+async function withDenyingKit(
+  o: { gateBuiltins?: boolean },
+  fn: (kit: OpenClawKit, seen: { gated: [string, unknown][]; called: string[] }) => Promise<void>,
+) {
+  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o5-gateall-'));
+  const seen = { gated: [] as [string, unknown][], called: [] as string[] };
+  const kit = new OpenClawKit({
+    stateDir, spawnEngine: false, transport: fakeGateway().factory, ...o,
+    tools: [{ name: 'crew_x', description: 'An app tool.', parameters: { type: 'object' } }],
+    host: {
+      gate: async (_run: RunRef, tool: string, _input: Record<string, unknown>, info: { builtin: boolean }) =>
+        (seen.gated.push([tool, info]), { allow: false, reason: 'no' }),
+      call: async (_run: RunRef, tool: string) => (seen.called.push(tool), 'ran'),
+    },
+  });
+  try { await kit.start(); await kit.ensureMember('m1'); await fn(kit, seen); }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+}
+
+test('a builtin the model calls reaches host.gate by default and is denied', async () => withDenyingKit({}, async (kit, seen) => {
+  const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:gate:1', message: '[tool web_fetch {"url":"https://example.invalid"}]' });
+  assert.ok(end.ok, JSON.stringify(end));
+  assert.deepEqual(seen.gated, [['web_fetch', { builtin: true }]]);
+  assert.deepEqual(seen.called, []);
+}));
+
+test('gateBuiltins false gates only the app tools', async () => withDenyingKit({ gateBuiltins: false }, async (kit, seen) => {
+  await kit.run({ member: 'm1', sessionKey: 'agent:m1:gate:2', message: '[tool web_fetch {}] [tool crew_x {}]' });
+  assert.deepEqual(seen.gated, [['crew_x', { builtin: false }]]);
+}));
+
+test('prepare replaces a plugin left by an older kit', async () => {
+  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o5-oldplugin-'));
+  try {
+    mkdirSync(join(stateDir, 'openclaw', 'plugin'), { recursive: true });
+    writeFileSync(join(stateDir, 'openclaw', 'plugin', 'index.js'), '// an older, ungated plugin\n');
+    await new OpenClawKit({ stateDir, spawnEngine: false, transport: fakeGateway().factory }).prepare();
+    assert.equal(readFileSync(join(stateDir, 'openclaw', 'plugin', 'index.js'), 'utf8'),
+      readFileSync(new URL('../plugin/index.js', import.meta.url), 'utf8'));
+  } finally { rmSync(stateDir, { recursive: true, force: true }); }
+});

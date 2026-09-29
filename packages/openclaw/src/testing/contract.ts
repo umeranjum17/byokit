@@ -2,9 +2,9 @@
 // engine in the engine job. Every case drives only the kit's public surface, so a pass on the fake and a pass on the
 // engine mean the same thing. O11 wires the calls; the cases are not run before then.
 //
-// `make` must return a started kit with the tool `note` registered and a host whose gate asks for
-// `{ mode: 'ask', ... }` input, denies `{ mode: 'deny', ... }` input and allows the rest, and whose calls answer
-// `note: <input.text>`. An optional model is a started model stub the kit was pointed at with `useModelStub`.
+// `make` must return a started kit with the tool `note` registered and a host whose gate, for every tool (engine
+// builtins included), asks for `{ mode: 'ask', ... }` input, denies `{ mode: 'deny', ... }` input and allows the rest,
+// and whose calls answer `note: <input.text>`. An optional model is a started model stub the kit was pointed at with `useModelStub`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PROTOCOL_VERSION } from '../constants.ts';
@@ -152,6 +152,26 @@ export function openclawContract(make: () => Promise<ContractFixture>): void {
       assert.ok(end.ok, JSON.stringify(end));
       assert.equal(kit.approvals().length, 0);
     } finally {
+      await kit.stop();
+    }
+  });
+
+  test('contract: an engine builtin reaches the app gate and a denial blocks it', async () => {
+    const { kit } = await make();
+    try {
+      await kit.ensureMember('m1');
+      const pending = kit.run({ member: 'm1', sessionKey: 'agent:m1:contract:5',
+        message: '[tool web_fetch {"mode":"ask","url":"https://example.invalid/"}]' });
+      await until(() => kit.approvals('m1').length > 0);
+      const approval = kit.approvals('m1')[0];
+      assert.equal(approval.source, 'gate');
+      assert.equal(approval.tool, 'web_fetch');
+      await kit.decide(approval.id, { allow: false, reason: 'no fetching' });
+      const end = await pending;
+      assert.ok(end.ok, JSON.stringify(end));
+      assert.equal(kit.approvals().length, 0);
+    } finally {
+      releaseStub();
       await kit.stop();
     }
   });

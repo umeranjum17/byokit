@@ -42,7 +42,7 @@ export function resolveBridge(o?: { socketName?: string; paramPrefix?: string })
  */
 export function writePlugin(
   dir: string,
-  o: { id: string; tools: ToolSpec[]; paramPrefix: string },
+  o: { id: string; tools: ToolSpec[]; paramPrefix: string; gateBuiltins: boolean },
 ): void {
   resolveBridge({ paramPrefix: o.paramPrefix });
   const runParam = `${o.paramPrefix}_run`;
@@ -58,6 +58,8 @@ export function writePlugin(
     id: o.id,
     runParam,
     permitParam,
+    // true: engine builtins (web_fetch, memory, ...) are gated too, not only the app's tools.
+    gateBuiltins: o.gateBuiltins,
     tools: o.tools.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters })),
   };
   for (const [file, data] of [['openclaw.plugin.json', manifest], ['tools.json', table]] as const) {
@@ -81,6 +83,7 @@ type Parked = {
 export class Bridge {
   private readonly path: string;
   private readonly host?: ToolHost;
+  private readonly tools: ReadonlySet<string>;
   private readonly permitted: (tool: string) => boolean;
   private readonly approvalTimeoutMs: number;
   private readonly onAsk: (a: Approval) => void;
@@ -96,6 +99,7 @@ export class Bridge {
   constructor(o: {
     path: string;
     host?: ToolHost;
+    tools: ReadonlySet<string>; // the app's registered tool names; any other name is an engine builtin
     permitted: (tool: string) => boolean;
     approvalTimeoutMs: number;
     onAsk(a: Approval): void;
@@ -103,6 +107,7 @@ export class Bridge {
   }) {
     this.path = o.path;
     this.host = o.host;
+    this.tools = o.tools;
     this.permitted = o.permitted;
     this.approvalTimeoutMs = Math.min(o.approvalTimeoutMs, MAX_APPROVAL_TIMEOUT_MS);
     this.onAsk = o.onAsk;
@@ -173,9 +178,14 @@ export class Bridge {
 
   /**
    * Admit one call: permitted tools get a permit, the rest get a single-use ticket (N1: never both, so no
-   * orphan ticket outlives the approval that created it).
+   * orphan ticket outlives the approval that created it). Builtins run inside the engine and never call back,
+   * so they get neither.
    */
   private admit(socket: Socket, key: string, tool: string, input: Record<string, unknown>): void {
+    if (!this.tools.has(tool)) {
+      this.reply(socket, { allow: true });
+      return;
+    }
     if (this.permitted(tool)) {
       this.reply(socket, { allow: true, permit: this.mint(key, tool, input) });
       return;
@@ -258,7 +268,7 @@ export class Bridge {
     if (!this.host) return this.deny(socket, "can't check this action right now");
     let result;
     try {
-      result = await this.host.gate(run, tool, input);
+      result = await this.host.gate(run, tool, input, { builtin: !this.tools.has(tool) });
     } catch {
       return this.deny(socket, "can't check this action right now");
     }
@@ -315,6 +325,8 @@ export class Bridge {
     if (typeof key !== 'string' || typeof tool !== 'string' || !isRecord(input)) {
       return this.reply(socket, { ok: false, reason: 'not a call request' });
     }
+    // Only the app's own tools run through host.call; a builtin never calls back.
+    if (!this.tools.has(tool)) return this.reply(socket, { ok: false, reason: 'this call was not allowed' });
     const wanted = JSON.stringify(input);
     const permit = message.permit;
     if (typeof permit === 'string') {
