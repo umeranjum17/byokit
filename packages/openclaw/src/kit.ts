@@ -44,9 +44,11 @@ export type KitOptions = {
   enginePath?: string[]; // extra dirs appended to the engine's PATH ('/usr/bin:/bin')
   plugin?: { id?: string }; // default 'byokit'
   bridge?: { socketName?: string; paramPrefix?: string }; // defaults 'bridge.sock' / '__byokit'
-  tools?: ToolSpec[]; // app tools registered by the bridge plugin
+  tools?: ToolSpec[]; // app tools registered by the bridge plugin; names /^[a-z][a-z0-9_]*$/, not bash or cron
   host?: ToolHost; // required when tools is non-empty
   permitted?: (tool: string) => boolean; // tools needing a one-use permit from their gate; default () => true
+  gateBuiltins?: boolean; // default true: every tool call, engine builtins included, goes through host.gate (no host:
+  // every call is blocked); false gates only the app's tools and lets builtins run ungated
   config?: object; // app OpenClaw config, deep-merged UNDER the invariants (5.6)
   installPolicy?: { trustedSkills: string; ownRoots: string[] }; // trusted-skills JSON path, own content roots
   callbackPort?: number; // default 1455
@@ -477,15 +479,21 @@ export class OpenClawKit {
 
   constructor(o: KitOptions) {
     if (o.tools?.length && !o.host) throw new Error('host required when tools are registered');
+    // The engine lowercases and alias-maps a tool name before the gate hook sees it (bash -> exec, cron ->
+    // automations); a name it would rewrite reaches the gate as a builtin, so refuse it here.
+    for (const t of o.tools ?? []) {
+      if (!/^[a-z][a-z0-9_]*$/.test(t.name) || t.name === 'bash' || t.name === 'cron') throw new Error(`invalid tool name: ${t.name}`);
+    }
     this.o = o;
-    this.engine = new Engine({ ...o, pluginId: o.plugin?.id ?? 'byokit', tools: o.tools ?? [], spawnEngine: o.spawnEngine !== false,
+    this.engine = new Engine({ ...o, pluginId: o.plugin?.id ?? 'byokit', tools: o.tools ?? [],
+      gateBuiltins: o.gateBuiltins !== false, spawnEngine: o.spawnEngine !== false,
       onState: (s) => this.setState(s), onExit: () => this.closed('engine exited') });
     const slot: { bridge?: Pick<Bridge, 'resolveAsk'> } = {};
     this.approvalsCtl = new Approvals({
       request: (method, params, co) => this.request()(method, params, co),
       bridge: { resolveAsk: (id, d) => slot.bridge?.resolveAsk(id, d) ?? false },
     });
-    this.bridge = new Bridge({ path: this.engine.bridgeSock, host: o.host,
+    this.bridge = new Bridge({ path: this.engine.bridgeSock, host: o.host, tools: new Set((o.tools ?? []).map((t) => t.name)),
       permitted: o.permitted ?? (() => true), approvalTimeoutMs: o.approvalTimeoutMs ?? 180_000,
       onAsk: (a) => this.approvalsCtl.add(a), onAskGone: (id) => this.approvalsCtl.remove(id) });
     slot.bridge = this.bridge;

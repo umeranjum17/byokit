@@ -12,7 +12,7 @@ import type { KitOptions } from './kit.ts';
 import type { KitState, ToolSpec } from './types.ts';
 
 export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'installPolicy' | 'log' | 'bridge'> & {
-  pluginId: string; tools: ToolSpec[]; spawnEngine: boolean;
+  pluginId: string; tools: ToolSpec[]; gateBuiltins?: boolean; spawnEngine: boolean;
   onState(s: KitState): void; onExit(code: number | null): void;
 };
 const kitDir = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -91,12 +91,14 @@ export class Engine {
     }
     const pluginDir = join(this.root, 'plugin');
     mkdirSync(pluginDir, { recursive: true, mode: 0o700 });
+    // The shipped plugin follows the kit on every prepare too: a state dir from an older kit must not keep its gate.
     for (const f of ['package.json', 'index.js']) {
       const source = join(kitDir, 'plugin', f);
-      putOnce(join(pluginDir, f), readFileSync(source, 'utf8'));
+      putChanged(join(pluginDir, f), readFileSync(source, 'utf8'));
     }
     // The bridge manifest and tool table follow the app's tools on every prepare (O5).
-    writePlugin(pluginDir, { id: this.o.pluginId, tools: this.o.tools, paramPrefix: this.paramPrefix });
+    writePlugin(pluginDir, { id: this.o.pluginId, tools: this.o.tools, paramPrefix: this.paramPrefix,
+      gateBuiltins: this.o.gateBuiltins !== false });
     const path = join(this.root, 'openclaw.json');
     const saved = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined;
     const config = reconcileConfig(saved, { root: this.root, stateDir: this.o.stateDir, port: this.port, pluginId: this.o.pluginId,

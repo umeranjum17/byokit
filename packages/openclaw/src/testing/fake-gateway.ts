@@ -3,6 +3,8 @@
 // directly. No engine, no network, no account.
 import { connect } from 'node:net';
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { ENGINE_VERSION, PROTOCOL_VERSION } from '../constants.ts';
 import type { GatewayTransport, Hello } from '../types.ts';
 import type { KitOptions } from '../kit.ts';
@@ -62,6 +64,18 @@ function enforceMemoryInvariants(config: Record<string, unknown>): void {
     if (!isPlainObject(search)) continue;
     if ('provider' in search) search.provider = 'none';
     if ('fallback' in search) search.fallback = 'none';
+  }
+}
+
+/**
+ * The plugin's tool table, read from beside the kit's socket the way the plugin reads it. Absent (a bare socket with
+ * no kit): every tool counts as the app's.
+ */
+function pluginTable(sock: string): { gateBuiltins?: boolean; tools: { name: string }[] } | undefined {
+  try {
+    return JSON.parse(readFileSync(join(dirname(sock), 'plugin', 'tools.json'), 'utf8'));
+  } catch {
+    return undefined;
   }
 }
 
@@ -159,12 +173,15 @@ export function fakeGateway(script?: FakeScript): {
     const text = `fake: ${message}`;
     setTimeout(() => {
       void (async () => {
+        const table = bridgeSock ? pluginTable(bridgeSock) : undefined;
         for (const call of toolCalls(message)) {
           emitRun(run, 'tool', { name: call.name, phase: 'start' });
-          if (bridgeSock) {
+          // As the plugin: an engine builtin is gated unless the app opted out, and an allowed one never calls back.
+          const builtin = !!table && !table.tools.some((t) => t.name === call.name);
+          if (bridgeSock && !(builtin && table?.gateBuiltins === false)) {
             try {
               const gate = await bridgeRequest(bridgeSock, { kind: 'gate', key: run.sessionKey, tool: call.name, input: call.input });
-              if (gate.allow)
+              if (gate.allow && !builtin)
                 await bridgeRequest(bridgeSock, { kind: 'call', key: run.sessionKey, permit: gate.permit, tool: call.name, input: call.input });
             } catch { /* no bridge or refused: the tool pair still plays, nothing is called */ }
           }

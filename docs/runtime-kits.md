@@ -224,7 +224,8 @@ export type GateResult =
   | { allow: false; reason: string }
   | { ask: { summary: string } };                              // kit parks the call as an Approval
 export interface ToolHost {
-  gate(run: RunRef, tool: string, input: Record<string, unknown>): Promise<GateResult>;
+  gate(run: RunRef, tool: string, input: Record<string, unknown>, info: { builtin: boolean }): Promise<GateResult>;
+  // every tool call, engine builtins (builtin: true, never passed to call) included, unless gateBuiltins is false
   call(run: RunRef, tool: string, input: Record<string, unknown>, signal: AbortSignal): Promise<string>;
 }
 export interface RunSpec extends RunRef {
@@ -281,9 +282,12 @@ export type KitOptions = {
   enginePath?: string[];                 // extra dirs appended to the engine's PATH ('/usr/bin:/bin')
   plugin?: { id?: string };              // default 'byokit'
   bridge?: { socketName?: string; paramPrefix?: string };   // defaults 'bridge.sock' / '__byokit' (validated)
-  tools?: ToolSpec[];                    // app tools registered by the bridge plugin
+  tools?: ToolSpec[];                    // app tools registered by the bridge plugin; names /^[a-z][a-z0-9_]*$/,
+                                         // not bash or cron (the engine renames those before the gate hook)
   host?: ToolHost;                       // required when tools is non-empty
   permitted?: (tool: string) => boolean; // tools needing a one-use permit from their gate; default () => true
+  gateBuiltins?: boolean;                // default true: engine builtins go through host.gate too (no host: blocked);
+                                         // false gates only `tools` and lets builtins run ungated
   config?: object;                       // app OpenClaw config, deep-merged UNDER the invariants (5.6)
   installPolicy?: { trustedSkills: string; ownRoots: string[] };   // trusted-skills JSON path, own content roots
   callbackPort?: number;                 // default 1455
@@ -491,15 +495,20 @@ the view fails with `why: 'busy'`. Mapping to `SignInView.why`: setup-admission-
 { type: 'object', additionalProperties: false } }` and `tools.json` = the app's `ToolSpec[]`). Behavior = Crewhouse
 `plugin/index.js` with schemas/descriptions read from `tools.json` instead of hard-coded: `before_tool_call` sends
 `{ kind: 'gate', key: sessionKey, tool, input }` over `BYOKIT_BRIDGE_SOCK` (newline-framed JSON, one request per
-connection, 1 MB cap, 195 s timeout, abort-aware); a non-allow blocks with the reason; an allow for a permitted
-tool injects `<paramPrefix>_run`/`<paramPrefix>_permit` params (`paramPrefix` from `bridge`, default `__byokit`);
-`execute` strips them, requires both for permitted tools, sends
+connection, 1 MB cap, 195 s timeout, abort-aware) for every tool call, engine builtins (`web_fetch`, `web_search`,
+memory and skill tools, any name not in `tools.json`) included; `tools.json` carries `gateBuiltins` (from
+`KitOptions.gateBuiltins`, absent reads as true) and only `false` lets a builtin skip the hook. A non-allow blocks with
+the reason; an allowed builtin passes through unchanged (it runs in the engine and never calls back); an allow for a
+permitted app tool injects `<paramPrefix>_run`/`<paramPrefix>_permit` params (`paramPrefix` from `bridge`, default
+`__byokit`); `execute` strips them, requires both for permitted tools, sends
 `{ kind: 'call', key, permit, tool, input }`, returns the text. Any failure blocks ("can't check this action right
 now"). Crewhouse passes `__crewhouse` explicitly, so its injected names are unchanged.
 
 **Bridge** (`src/bridge.ts`) = Crewhouse `ToolBridge`: unix socket at `BYOKIT_BRIDGE_SOCK`, `register`/`unregister`
 runs by session key, one-use permits bound to key + tool + exact JSON input, unknown run fails closed, any error
-answers `{ allow: false }`. Generalizations: `permitted(tool)` replaces the `crew_` prefix test (Crewhouse passes
+answers `{ allow: false }`. The bridge knows the app's tool names: a builtin reaches `host.gate` with `{ builtin: true }`
+and an allow gets neither permit nor ticket, and a `call` for a name outside `tools` is refused. `prepare` rewrites
+the shipped `plugin/index.js` whenever it differs, so a state dir from an older kit never keeps an older gate. Generalizations: `permitted(tool)` replaces the `crew_` prefix test (Crewhouse passes
 `t => t.startsWith('crew_')`); `allowOnce`/`disallowOnce` replace `armCuration` (one call, key prefix + tool + input
 predicate, expires after `ms`, consumed on first match). A gate result `{ ask }` creates an `Approval`
 (`source: 'gate'`, `expires = now + approvalTimeoutMs`) and holds the socket until `decide(id)` or expiry (expiry →
@@ -545,7 +554,9 @@ differs from a fresh run against the pinned tarball in the engine job.
 
 - `fakeGateway(script?)` returns `{ factory: KitOptions['transport'], calls: {method, params}[], emit(event, payload),
   failNext(method, message), drop(why), handle(method, fn) }`; use as `new OpenClawKit({ transport: fake.factory,
-  spawnEngine: false, … })`. The factory captures `bridgeSock` so scripted tool calls reach the real bridge. `start()` resolves a hello with `protocol: 4`,
+  spawnEngine: false, … })`. The factory captures `bridgeSock` so scripted tool calls reach the real bridge,
+  split as the plugin splits them: it reads the kit's `plugin/tools.json` beside the socket, gates a builtin unless
+  `gateBuiltins` is false and never calls one back (no table: every tool counts as the app's). `start()` resolves a hello with `protocol: 4`,
   `server.version: '2026.8.1'`, and methods/events from the generated tables. Unknown method → rejects
   `unknown method: <m>`.
 - Default handlers: `health`; `agents.list`/`agents.create` (in-memory); `models.authStatus`/`models.authLogout`
@@ -600,9 +611,10 @@ export const MEMBER_ID: RegExp;
 export function createMembers(ctx: { request: GatewayTransport['request']; root: string }): { ensure(member: Member): Promise<{ agentId: string; workspace: string }> };
 // bridge.ts (O5)
 export function resolveBridge(o?: { socketName?: string; paramPrefix?: string }): { socketName: string; paramPrefix: string };
-export function writePlugin(dir: string, o: { id: string; tools: ToolSpec[]; paramPrefix: string }): void;
+export function writePlugin(dir: string, o: { id: string; tools: ToolSpec[]; paramPrefix: string;
+  gateBuiltins: boolean }): void;
 export class Bridge {
-  constructor(o: { path: string; host?: ToolHost; permitted: (tool: string) => boolean; approvalTimeoutMs: number;
+  constructor(o: { path: string; host?: ToolHost; tools: ReadonlySet<string>; permitted: (tool: string) => boolean; approvalTimeoutMs: number;
     onAsk(a: Approval): void; onAskGone(id: string): void });
   start(): Promise<void>; stop(): void;
   register(run: RunRef): void; unregister(sessionKey: string): void;

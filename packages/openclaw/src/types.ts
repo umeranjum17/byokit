@@ -20,7 +20,9 @@ export type GateResult =
   | { ask: { summary: string } }; // kit parks the call as an Approval
 
 export interface ToolHost {
-  gate(run: RunRef, tool: string, input: Record<string, unknown>): Promise<GateResult>;
+  // Every tool call reaches gate unless KitOptions.gateBuiltins is false; builtin: the engine's own tool (web_fetch,
+  // memory, ...), not one of KitOptions.tools, so it runs in the engine and call is never invoked for it.
+  gate(run: RunRef, tool: string, input: Record<string, unknown>, info: { builtin: boolean }): Promise<GateResult>;
   call(run: RunRef, tool: string, input: Record<string, unknown>, signal: AbortSignal): Promise<string>;
 }
 
