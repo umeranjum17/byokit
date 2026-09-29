@@ -237,6 +237,48 @@ test('a dead asker unparks its ask instead of leaving a permit for nobody', asyn
     assert.equal(bridge.resolveAsk(seen.asked[0].id, { allow: true }), false);
   }));
 
+test('closing the call socket aborts the host call instead of leaving the command running', async () => {
+  let aborted = false;
+  const hanging: ToolHost = {
+    gate: async () => ({ allow: true }),
+    call: (_run: RunRef, _tool: string, _input: Record<string, unknown>, signal: AbortSignal) =>
+      new Promise<string>((_resolve, reject) => {
+        if (signal.aborted) {
+          aborted = true;
+          reject(new Error('the call was cancelled'));
+          return;
+        }
+        signal.addEventListener(
+          'abort',
+          () => {
+            aborted = true;
+            reject(new Error('the call was cancelled'));
+          },
+          { once: true },
+        );
+      }),
+  };
+  await withBridge({ host: hanging }, async (bridge, sockPath) => {
+    bridge.register({ sessionKey: 'agent:m1:x', member: 'm1' });
+    const gate = await askBridge(sockPath, { kind: 'gate', key: 'agent:m1:x', tool: 'note', input: { text: 'hi' } });
+    assert.equal(gate.allow, true);
+    const { connect: connectSocket } = await import('node:net');
+    const socket = connectSocket(sockPath);
+    await new Promise((resolve) => socket.once('connect', resolve));
+    socket.write(
+      JSON.stringify({ kind: 'call', key: 'agent:m1:x', permit: gate.permit, tool: 'note', input: { text: 'hi' } }) +
+        '\n',
+    );
+    // The bridge has handed the call to the host, which hangs until its signal aborts.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(aborted, false);
+    // The run aborts: the plugin destroys its socket, so the host must see the abort.
+    socket.destroy();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(aborted, true);
+  });
+});
+
 test('stopping with a parked ask ends it gone', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'byokit-o5-stop-'));
   const seen = { asked: [] as Approval[], gone: [] as string[] };

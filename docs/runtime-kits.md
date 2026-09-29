@@ -504,6 +504,9 @@ answers `{ allow: false }`. Generalizations: `permitted(tool)` replaces the `cre
 predicate, expires after `ms`, consumed on first match). A gate result `{ ask }` creates an `Approval`
 (`source: 'gate'`, `expires = now + approvalTimeoutMs`) and holds the socket until `decide(id)` or expiry (expiry →
 deny, reason words key `approval.expired`); 180 s < plugin 195 s < hook 200 s so the deny always reaches the engine.
+A `call` aborts the `AbortSignal` handed to `host.call` when that call's plugin socket closes or errors before the
+reply is written (run abort, hook timeout), so an aborted run never leaves the sandboxed command running; the
+listener is removed after a normal reply.
 
 **Native approvals** (`src/approvals.ts`): on `exec.approval.requested`, `plugin.approval.requested`,
 `question.requested` events, add an `Approval` (`source` = `exec|plugin|question`, member from the payload's agent or
