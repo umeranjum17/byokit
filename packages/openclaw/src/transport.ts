@@ -37,6 +37,11 @@ export function gatewayTransport(ctx: { port: number; token: string; identityPat
   let ready: Hello | undefined;
   let pending: { resolve(h: Hello): void; reject(error: Error): void } | undefined;
   let stopped = false;
+  // The last transient connect failure, kept for the terminal error. The client retries boot-time
+  // ECONNREFUSED itself with backoff (O11: the first kit.start() lands while the gateway still binds),
+  // so connect errors never settle the handshake; only a paused reconnect (terminal: auth, protocol)
+  // or the kit's own deadline does.
+  let lastConnectError: Error | undefined;
   const client = new GatewayClient({
     url: `ws://127.0.0.1:${ctx.port}`, token: ctx.token, role: 'operator', scopes: [...OPERATOR_SCOPES],
     clientName: 'cli', caps: [...GATEWAY_CAPS], minProtocol: PROTOCOL_VERSION, maxProtocol: PROTOCOL_VERSION,
@@ -47,15 +52,22 @@ export function gatewayTransport(ctx: { port: number; token: string; identityPat
       loadDeviceAuthToken: () => null, storeDeviceAuthToken: () => {}, clearDeviceAuthToken: () => {},
     },
     onHelloOk: (h) => {
+      if (stopped) return;
       ready = { protocol: h.protocol, server: { version: h.server.version }, methods: h.features.methods, events: h.features.events };
       pending?.resolve(ready); pending = undefined;
     },
     onEvent: (e) => { for (const fn of events) fn({ event: e.event, payload: e.payload }); },
-    onConnectError: (e) => { pending?.reject(e); pending = undefined; },
+    onConnectError: (e) => { lastConnectError = e; },
+    onReconnectPaused: (info) => {
+      const terminal = new Error(`gateway connect paused: ${info.code} ${info.reason ?? ''}${lastConnectError ? ` (last: ${lastConnectError.message})` : ''}`);
+      pending?.reject(terminal); pending = undefined;
+    },
     onClose: (code, reason) => {
       ready = undefined;
-      pending?.reject(new Error(`gateway closed: ${code} ${reason}`)); pending = undefined;
-      if (!stopped) for (const fn of closes) fn(reason || String(code));
+      // A pre-hello close while the client still retries is transient (backoff continues inside the
+      // client); only a stopped transport settles the handshake here. Terminal give-ups arrive paused.
+      if (pending && stopped) { pending.reject(new Error(`gateway closed: ${code} ${reason}`)); pending = undefined; }
+      else if (!pending && !stopped) for (const fn of closes) fn(reason || String(code));
     },
   });
   return {

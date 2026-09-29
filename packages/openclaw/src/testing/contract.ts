@@ -42,7 +42,7 @@ async function until(there: () => boolean, ms = 5_000): Promise<void> {
   throw new Error('the expected state never arrived');
 }
 
-export function openclawContract(make: () => Promise<ContractFixture>): void {
+export function openclawContract(make: () => Promise<ContractFixture>, o?: { skipDeviceCode?: string }): void {
   test('contract: hello carries the protocol and every method and event the kit drives', async () => {
     const { kit } = await make();
     try {
@@ -81,7 +81,10 @@ export function openclawContract(make: () => Promise<ContractFixture>): void {
     }
   });
 
-  test('contract: device-code sign-in shows a code and finishes signed in', async () => {
+  // The device-code happy path needs a person at the device URL (the fake auto-completes it, 5.11).
+  // Unattended runs (the engine job) skip it with the reason and prove sign-in live instead (O11 lab).
+  const deviceCodeName = `contract: device-code sign-in shows a code and finishes signed in${o?.skipDeviceCode ? ` (skipped: ${o.skipDeviceCode})` : ''}`;
+  test(deviceCodeName, { ...(o?.skipDeviceCode ? { skip: true } : {}) }, async () => {
     const { kit } = await make();
     try {
       await kit.ensureMember('m1');
