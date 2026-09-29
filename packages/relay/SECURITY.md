@@ -6,6 +6,6 @@ Push notification text is the exception to the no-plaintext link boundary. The r
 
 Web Push endpoints are restricted to the configured subset of known HTTPS push-service hosts. Redirects are not followed. Keep the relay's store private: it contains host registrations, enrolment claim hashes, push subscriptions and VAPID keys.
 
-## Known limit / follow-up
+## Device revoke
 
-If `revoke(device)` runs while the relay is offline and the client stops before reconnecting, its queued unsubscribe is lost. The link grant has been removed, but the relay may still hold the device's push subscriptions and action tokens. A future change should reconcile relay subscriptions against the host's current device list on reconnect; this release does not do so.
+`RelayClient.revoke(device)` saves the device to the client's `store` before removing its link grant, and resends the unsubscribe on every connection until the relay confirms that the device's push subscriptions and action tokens are gone (or the relay no longer has the host at all). A relay that is down, restarting or behind a full offline queue delays the removal but no longer loses it. The default store is memory: without a durable one, a host that restarts before the relay confirms forgets the pending unsubscribe, and the relay may keep notifying the removed device.

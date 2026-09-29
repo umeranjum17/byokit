@@ -146,6 +146,7 @@ const relay = new RelayClient(host, {         // host: a link Host
   enrol: token,                                // first time only, on a shared relay
   onStatus: (s) => log(s),                     // connecting, online, offline (it retries), replaced, refused
   onAction: ({ device, event, action }) => app.answer(event, action),
+  store: { load: () => db.revoking(), save: (d) => db.setRevoking(d) },  // pending unsubscribes; default: memory
 });
 host.offer({ role: 'control', urls: [`wss://relay.example/link/v1/${host.id}`] });
 ```
@@ -183,6 +184,13 @@ await relay.notify({ id: 'evt-42', title: 'Agent update', to: [device.id], actio
 await relay.revoke(device.id);   // link's revoke, then remove relay subscriptions
 ```
 
+`revoke` saves the device to the client's `store` before it drops the grant, then sends the unsubscribe on every
+connection (retrying with backoff, 1 s to 30 s, if the relay fails it) until the relay confirms, and resolves then. A
+relay that no longer has the host counts as confirmed: its push addresses went with it. `pending()` lists the devices
+still waiting and `onRevoked(device)` fires as each is confirmed; `subscribe` refuses a device still pending. If the
+client stops first, `revoke` rejects but the unsubscribe stays saved, and the next client on the same `store` sends it.
+The default store is memory, so pass a durable one (a 0600 file or a database row, like the relay's own).
+
 A browser subscribes with the relay's Web Push key (`relay.vapidKey`, sent to it over the link). A notification with the
 same `id` is deduplicated while the relay runs; a restart can deliver a retried notification twice. Expo tokens a device
 dropped (`DeviceNotRegistered`) and Web Push subscriptions that are gone (404, 410) are removed.
@@ -194,7 +202,7 @@ subscriptions restored from storage are removed before delivery.
 
 `RelayClient.notify` sends the title but omits `body` and `data` by default, even if supplied. Pass
 `{ includeContent: true }` as its second argument to forward them. Choose a generic title too; see
-[SECURITY.md](SECURITY.md) for the push-content boundary and offline device-revoke limit.
+[SECURITY.md](SECURITY.md) for the push-content boundary and device revoke.
 
 With `actions`, each device's notification carries its own one-use `action` token. Pressing a button posts
 `{ token, action }` to `/relay/v1/push/action`; the relay asks the host (`onAction`) and waits up to 15 seconds for the
