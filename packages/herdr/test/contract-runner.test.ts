@@ -7,7 +7,7 @@ import { scratchDir } from '../../test-support.ts';
 import { HerdrKit } from '../src/kit.ts';
 import { herdrContract } from '../src/testing/index.ts';
 import type { HerdrContractTestFn, HerdrContractTestContext } from '../src/testing/index.ts';
-import type { HerdrTransport } from '../src/types.ts';
+import type { HerdrProtocolRange, HerdrTransport } from '../src/types.ts';
 
 const makeBench = async () => {
   const { startFakeHerdr } = await import('../src/testing/index.ts');
@@ -16,8 +16,8 @@ const makeBench = async () => {
   return {
     kit,
     fake,
-    withTransport: (transport: HerdrTransport) =>
-      new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath, transport }),
+    withTransport: (transport: HerdrTransport, o?: { protocolRange?: HerdrProtocolRange }) =>
+      new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath, transport, ...o }),
   };
 };
 
