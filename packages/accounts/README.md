@@ -74,9 +74,14 @@ doesn't answer other web pages), so a PWA's model calls go through the app's own
   sign-out uses its rotated token. If a cancelled sign-in finishes late, `onSignOutError` reports a failed revoke of its
   discarded credential (or it is logged when no handler is set).
 - **One person, one store**: `memoryStore()`, `fileStore(path)` (0600, the same shape as Pi's `auth.json`),
-  `secureStore(SecureStore, name)` or `browserStore(name)`; any other storage with `recordStore(load, save)`. Writes are
+  `secureStore(SecureStore, name, options?)` or `browserStore(name)`; any other storage with `recordStore(load, save)`. Writes are
   serialized within a store instance; `browserStore` also uses Web Locks across tabs for the same provider when available.
-  Never a shared fallback. Browser storage is readable by scripts on your page: avoid untrusted scripts. Using another
+  Never a shared fallback. Browser storage is readable by scripts on your page: avoid untrusted scripts. On a phone, pass
+  `{ keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }` as `options` (to every get, set and delete) so
+  tokens never migrate to a new device through an iCloud/iTunes backup; without it Expo's default (`WHEN_UNLOCKED`)
+  applies. iOS Keychain items survive an app reinstall under the same bundle id (Android data is gone): apps that must
+  forget on reinstall keep a first-run marker outside the Keychain (e.g. `expo-file-system` or `AsyncStorage`) and, when
+  it is missing, call `accounts.logout(member, key)` for each offered key before first use, which revokes and wipes. Using another
   engine with the same seam (Pi's coding-agent `ModelRuntime`)? Override `open(member)` with an engine whose
   `credentialStore` is made with `boundStore(member, engineStore)` and whose `readCredential(id)` reads that store.
 - **Asking**: `respond(member, { instructions, input, model?, onText?, signal? })` asks ChatGPT's own answers endpoint
