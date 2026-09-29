@@ -35,7 +35,9 @@ test('K3: setStatus reaches onEvent exactly once with no extra socket', async ()
     fake.setStatus('w1:p2', 'working');
     await until(() => seen.length >= 1, 2000, 'the status event on the tap');
     await settle(150);   // a doubled tap would deliver a second frame in this window
-    const statusFrames = seen.filter((e) => e.type === 'pane.agent_status_changed');
+    // The tap carries the wire spelling intact; the fake emits the live underscore
+    // spelling like the real server (schema/SOURCE.md).
+    const statusFrames = seen.filter((e) => e.type === 'pane_agent_status_changed');
     assert.equal(statusFrames.length, 1, 'exactly one status frame for one setStatus');
     assert.equal((statusFrames[0] as Record<string, unknown>).pane_id, 'w1:p2');
     assert.equal((statusFrames[0] as Record<string, unknown>).agent_status, 'working');
@@ -63,13 +65,15 @@ test('K3: the tap carries pane.moved.previous_pane_id and workspace.* payloads o
     try {
       // Fires on arrival: the tap sees the refresh-triggering frame even before the
       // re-bootstrap snapshot lands — a post-refresh tap would delay or coalesce it.
+      // Emit spellings stay dots (the fake accepts both); the tap sees the live
+      // underscore wire spelling like the real server.
       fake.emit({ type: 'pane.moved', previous_pane_id: 'w1:p2', pane_id: 'w1:p9' });
       fake.emit({ type: 'workspace.created', workspace_id: 'w9', label: 'nine' });
-      await until(() => seen.filter((e) => e.type === 'pane.moved').length >= 1 &&
-        seen.filter((e) => e.type === 'workspace.created').length >= 1, 2000, 'both batch frames on the tap');
-      const moved = seen.find((e) => e.type === 'pane.moved') as Record<string, unknown>;
+      await until(() => seen.filter((e) => e.type === 'pane_moved').length >= 1 &&
+        seen.filter((e) => e.type === 'workspace_created').length >= 1, 2000, 'both batch frames on the tap');
+      const moved = seen.find((e) => e.type === 'pane_moved') as Record<string, unknown>;
       assert.equal(moved.previous_pane_id, 'w1:p2', 'the moved payload keeps its previous pane id');
-      const created = seen.find((e) => e.type === 'workspace.created') as Record<string, unknown>;
+      const created = seen.find((e) => e.type === 'workspace_created') as Record<string, unknown>;
       assert.equal(created.workspace_id, 'w9', 'the workspace payload arrives intact');
     } finally {
       stopTap();
