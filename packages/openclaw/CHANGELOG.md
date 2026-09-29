@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0 (2026-09-29)
+
 - First release on npm (docs/runtime-kits.md §10). `examples/openclaw-kit` (O12) is the whole flow from a phone
   browser: pair, sign in with ChatGPT by device code, a streamed run, a tool that asks first, Allow and Deny. Its
   e2e runs in CI from the packed packages against the fake Gateway; `LIVE.md` is the real-engine check.

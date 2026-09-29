@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0 (2026-09-29)
+
 - The accessibility side and publish (docs/capability-kits.md BK-O3): `ByokitAccessibility.attach` now also supplies
   the foreground app (the `accessibility` host applies `rules` and `setRules` over it and keeps `spots: 'per-app'`
   per app) and the keyboard's top (the bubble rests above it). `@byokit/overlay/focused-field` works on Android:
