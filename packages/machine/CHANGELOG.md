@@ -8,3 +8,7 @@
   `test/{exports,words,unit,recipe,node,cost,machine,contract,portable}.test.ts` and three unit
   golden files. Stubs throw `not built` until M2 (SSH VM), M3 (install and supervise), M4 (sandbox
   API), M7 (sleep and wake) and M8 (account link) land.
+- Sandbox API adapter (docs/machine-kit.md M4): `sandboxApi()` for section 6 (create, sleep,
+  wake, snapshot, fork, remove, exec, write and an HTTPS URL per port, plus usage, key,
+  plan and why, with the trial retry and the `noEnv` rules), the loopback fake server bench
+  in `./testing`, the sandbox bench in `test/contract.test.ts` and `test/sandbox-api.test.ts`.

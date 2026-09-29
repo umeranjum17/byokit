@@ -5,3 +5,5 @@ export { fakeProvider, memoryStore } from './fake-provider.ts';
 export type { FakeCall, FakeControl, FakeProviderOptions } from './fake-provider.ts';
 export { machineContract } from './contract.ts';
 export type { MachineBench, MachineContractTestContext, TestFn } from './contract.ts';
+export { startFakeSandboxServer } from './fake-sandbox-server.ts';
+export type { SandboxRequest, SandboxServer, SandboxServerOptions } from './fake-sandbox-server.ts';
