@@ -64,13 +64,25 @@ test('the internal seams are in place; bodies land with their work packages', as
   assert.throws(() => runCli('herdr', {}, ['ok', 'bad\0arg']), /NUL/);
   assert.throws(() => openTerminal('herdr', {}, 'bad\0pane', { mode: 'observe', cols: 80, rows: 24 }), /NUL/);
   // closePane/Blocked are real since H5: their behavior lives in test/close.test.ts and
-  // test/approvals.test.ts.
+  // test/approvals.test.ts. sealNotice, herdrLink and serve are real since H7: their behavior lives
+  // in test/link.test.ts and test/device.test.ts.
   await assert.rejects(closePane(call, 'w1:p1'), (e: { code?: string }) => e.code === 'pane-unavailable');
   assert.deepEqual(new Blocked({ call }).list(), []);
-  assert.throws(() => sealNotice({} as never, new Uint8Array(32)), /H7/);
-  assert.throws(() => herdrLink(null as never, { scopeOf: () => ({ workspaces: 'all' }) }), /H7/);
-  assert.throws(() => serve(null as never), /H7/);
+  const noticeSeed = new Uint8Array(32).fill(7);
+  const { boxPublicKeyB64 } = await import('../src/notices.ts');
+  const { boxKeyPairFromSeed } = await import('@byokit/seal');
+  const sealed = sealNotice({ paneId: 'w1:p2', workspaceId: 'w1', tabId: 'w1:t1', revision: 1, prompt: 'Allow this? (y/n)', since: 0 }, boxKeyPairFromSeed(noticeSeed).publicKey);
+  assert.equal(sealed.v, 1);
+  assert.deepEqual(openNotice(sealed as Record<string, unknown>, noticeSeed)?.paneId, 'w1:p2');
+  assert.equal(openNotice(sealed as Record<string, unknown>, new Uint8Array(32).fill(8)), null);
+  void boxPublicKeyB64;
+  const kitForLink = new kit.HerdrKit({ mode: 'adopt', bin: '/usr/local/bin/herdr', socketPath: '/tmp/herdr.sock' });
+  const adapter = herdrLink(kitForLink, { scopeOf: () => ({ workspaces: 'all' }) });
+  assert.equal(typeof adapter.handle, 'function');
+  assert.equal(typeof adapter.stream, 'function');
+  assert.equal(typeof adapter.allow, 'function');
   assert.equal(typeof herdrDevice, 'function');
+  assert.equal(typeof serve, 'function');
 });
 
 test('the `./testing` entry exports the fake and the contract suite (6.8)', () => {
