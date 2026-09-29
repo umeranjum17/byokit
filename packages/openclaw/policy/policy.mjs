@@ -6,8 +6,10 @@
 //   BYOKIT_TRUSTED_SKILLS  path to the trusted-skills JSON file (Crewhouse's trusted-skills.json shape):
 //                          either a list [{ id|name, version, sha256|hash }] or a map { "<id>": { version, sha256 } }.
 //   BYOKIT_OWN_ROOTS        JSON array of own content roots; skills sourced under them are the app's own.
-// Rules: dependency installers (a skill installSpec carrying bins/formula/package/module/url/archive) are blocked;
-// skill installs are allowed only from own roots or with an exact id + version + SKILL.md sha256 trusted match;
+// Rules: any request kind containing 'depend' is blocked everywhere (own roots included);
+// dependency installers (a skill installSpec carrying bins/formula/package/module/url/archive) are blocked;
+// skill installs are allowed only from own roots or with an exact id + version + SKILL.md sha256 trusted match
+// (the version is request.origin.version when present, else the SKILL.md frontmatter version);
 // plugin installs are allowed only in the @openclaw/ scope.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
@@ -101,6 +103,13 @@ function skillIdentity(sourcePath) {
 const INSTALLER_FIELDS = ['bins', 'formula', 'package', 'module', 'url', 'archive'];
 
 function decideSkill(request, trusted, roots) {
+  const kind =
+    isRecord(request.request) && typeof request.request.kind === 'string' ? request.request.kind : undefined;
+  if (kind !== undefined && /depend/i.test(kind)) {
+    return block(`dependency installs are not allowed: ${kind}`, [
+      { ruleId: 'dependency-installer', severity: 'critical', message: `request kind ${kind} fetches dependencies` },
+    ]);
+  }
   const spec = isRecord(request.skill) && isRecord(request.skill.installSpec) ? request.skill.installSpec : {};
   for (const field of INSTALLER_FIELDS) {
     if (spec[field] !== undefined) {
@@ -114,11 +123,15 @@ function decideSkill(request, trusted, roots) {
   if (roots.some((root) => inside(root, sourcePath) || resolve(sourcePath) === root)) return allow();
   const identity = skillIdentity(sourcePath);
   if (!identity) return block('skill SKILL.md is not verifiable');
+  // Bundled skills carry no frontmatter version; the reviewed version travels on request.origin.version.
+  const originVersion =
+    isRecord(request.origin) && typeof request.origin.version === 'string' ? request.origin.version : undefined;
+  const candidateVersion = originVersion ?? identity.version;
   const ids = [spec.id, request.targetName, identity.name].filter((v) => typeof v === 'string');
   const hit = trusted.find(
     (entry) =>
       ids.includes(entry.id) &&
-      (entry.version === undefined && identity.version === undefined || entry.version === identity.version) &&
+      (entry.version === undefined && candidateVersion === undefined || entry.version === candidateVersion) &&
       entry.sha !== undefined &&
       entry.sha.toLowerCase() === identity.sha256.toLowerCase(),
   );
