@@ -1,5 +1,7 @@
 import { createAgents, type Call } from './agents.ts';
 import { Blocked } from './approvals.ts';
+import { runCli } from './cli.ts';
+import { openTerminal } from './terminal.ts';
 import { HERDR_PROTOCOL } from './constants.ts';
 import { closePane, closeTab, closeWorkspace } from './close.ts';
 import { Supervisor } from './supervise.ts';
@@ -11,7 +13,6 @@ import type {
 
 const kinds = ['pane.agent_detected', 'pane.created', 'pane.closed', 'pane.moved', 'pane.exited', 'pane.updated',
   'workspace.created', 'workspace.closed', 'workspace.renamed', 'workspace.updated', 'tab.created', 'tab.closed', 'tab.renamed'];
-const todo = (what: string): never => { throw new Error(`@byokit/herdr: ${what} is not built yet (docs/runtime-kits.md §11.3).`); };
 type Raw = Record<string, any>;
 const empty = (): HerdrSnapshot => ({ connected: false, workspaces: [] });
 
@@ -163,8 +164,8 @@ export class HerdrKit {
     if (!this.transport) throw new Error('herdr: not connected');
     return this.transport.subscribe(subs, on as (e: HerdrEvent) => void, () => {});
   }
-  cli(args: string[], o?: { timeoutMs?: number }): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }> { return todo('cli (H4)'); }
-  terminal(paneId: string, o: { mode: 'control' | 'observe'; cols: number; rows: number }): TerminalSession { return todo('terminal (H4)'); }
+  cli(args: string[], o?: { timeoutMs?: number }): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }> { return runCli(this.o.bin, this.supervisor.env(), args, o?.timeoutMs); }
+  terminal(paneId: string, o: { mode: 'control' | 'observe'; cols: number; rows: number }): TerminalSession { return openTerminal(this.o.bin, this.supervisor.env(), paneId, o); }
   snapshot(): HerdrSnapshot { return structuredClone(this.tree); }
   onChange(fn: (s: HerdrSnapshot) => void): () => void { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; }
   startAgent(o: StartAgent): Promise<AgentRef> { return this.agents.startAgent(o); }
