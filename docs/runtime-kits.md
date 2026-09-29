@@ -703,7 +703,8 @@ export type HerdrState = {
   why?: 'binary' | 'socket' | 'version' | 'server-exited';
 };
 export type HerdrKitOptions =
-  | { mode: 'adopt'; bin: string; socketPath: string; transport?: HerdrTransport; onState?: (s: HerdrState) => void }
+  | { mode: 'adopt'; bin: string; socketPath: string; env?: Record<string, string>; path?: string[];
+      transport?: HerdrTransport; onState?: (s: HerdrState) => void }
   | { mode: 'own'; bin: string; stateDir: string; env?: Record<string, string>; path?: string[];
       transport?: HerdrTransport; onState?: (s: HerdrState) => void };
 export interface HerdrTransport {                        // socket.ts implements it; the fake does too
@@ -762,6 +763,7 @@ export type HerdrSnapshot = {
 };
 export type TerminalSession = {
   ready: Promise<void>; onFrame(fn: (line: string) => void): () => void; send(line: string): void; close(): void;
+  pause(): void; resume(): void;
   exited: Promise<{ code: number | null; stderrTail: string }>;
 };
 ```
@@ -856,9 +858,13 @@ export class Blocked {
 
 `terminal(paneId, { mode, cols, rows })` spawns `bin terminal session <control|observe> <paneId> [--takeover]
 --cols <cols> --rows <rows>` (`--takeover` only for `control`). Env: in `own` mode the 6.3 server env; in `adopt`
-mode exactly `{ HERDR_SOCKET_PATH: socketPath, PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' }` so the CLI reaches the
-same server (never the host process's env). `cli()` uses the same env rule. Returns `{ ready: Promise<void>; onFrame(fn: (line: string) =>
-void); send(line: string); close(); exited: Promise<{ code: number | null; stderrTail: string }> }`. Frames are
+mode `{ HERDR_SOCKET_PATH: socketPath, PATH: path.join(':') || '/usr/bin:/bin', LANG: 'C.UTF-8', ...env }` so the
+CLI reaches the same server (never the host process's env; the app passes `HOME`, `HERDR_CLIENT_SOCKET_PATH`,
+`HERDR_SESSION` or a wider `PATH` explicitly when its Herdr needs them). `cli()` uses the same env rule. Returns
+`{ ready: Promise<void>; onFrame(fn: (line: string) => void); send(line: string); close(); pause(); resume();
+exited: Promise<{ code: number | null; stderrTail: string }> }`. `pause()` stops delivering frames and stops reading
+the child's stdout, so a slow consumer backs up into the pipe and Herdr blocks (the kit holds a fixed backlog, not
+the stream); `resume()` delivers the held frames in order and reads on. Frames are
 Herdr's own NDJSON terminal protocol, passed through untouched; `ready` resolves on the first stdout line, rejects on
 spawn error (ENOENT → `missing/binary`) or exit before output. stderr keeps a 4 KB tail for diagnostics only.
 
@@ -895,7 +901,8 @@ sorted, deterministic; a test regenerates and compares.
 - `bin` is a Node shim script (shebang pins the running Node binary, 0700) answering `--version` (`herdr 0.9.1`), `api schema
   --json` (the snapshot), `server` (runs `startFakeHerdr` at `HERDR_SOCKET_PATH` until SIGTERM or `server.stop`),
   JSON CLI verbs by forwarding to the fake socket, and `terminal session control|observe` (emits one ready frame and
-  echoes `send` lines as output frames).
+  echoes `send` lines as output frames; a `{"type":"fake.stream",count,size,progress}` line streams numbered frames
+  as fast as the pipe takes them, recording the count written to `progress`, for backpressure tests).
 - `herdrContract(make)`: ping/protocol gate, bootstrap ordering with an event racing the snapshot, rejected
   subscription surfaced once and not retried, per-pane status watch, startAgent in each placement, prompt receipt
   validation (a malformed receipt fails), wait with timeout, read unwrap, blocked → answer with stale revision

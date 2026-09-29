@@ -1,6 +1,7 @@
 // `herdr terminal session <control|observe> <paneId>`: Herdr's own NDJSON terminal frames passed through untouched
 // (docs/runtime-kits.md 6.5). Frames arrive byte-identical (split on `\n` only, no trimming); `send` writes one line
-// plus `\n`. The env comes from the caller per 6.5 — never `process.env`.
+// plus `\n`. `pause`/`resume` stop and restart reading stdout, so a slow consumer holds Herdr back instead of
+// buffering in the host. The env comes from the caller per 6.5 — never `process.env`.
 
 import { spawn } from 'node:child_process';
 import type { TerminalSession } from './types.ts';
@@ -26,6 +27,7 @@ export function openTerminal(bin: string, env: Record<string, string>, paneId: s
   let stderrTail = Buffer.alloc(0);
   let pending = Buffer.alloc(0);
   let exitedSettled = false;
+  let paused = false;
 
   const ready = new Promise<void>((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
   const exited = new Promise<{ code: number | null; stderrTail: string }>((resolve) => {
@@ -45,14 +47,18 @@ export function openTerminal(bin: string, env: Record<string, string>, paneId: s
     if (!firstFrame) readyReject?.(new Error(`herdr terminal exited before output: ${stderrTail.toString('utf8')}`));
   });
 
-  child.stdout.on('data', (chunk: Buffer) => {
-    pending = Buffer.concat([pending, chunk]);
-    for (let i = pending.indexOf(0x0a); i !== -1; i = pending.indexOf(0x0a)) {
+  // While paused, lines already read stay in `pending` and stdout stops reading, so the pipe fills and Herdr blocks.
+  const deliver = () => {
+    for (let i = pending.indexOf(0x0a); i !== -1 && !paused; i = pending.indexOf(0x0a)) {
       const line = pending.subarray(0, i).toString('utf8');   // bytes between newlines, unmodified
       pending = pending.subarray(i + 1);
       if (!firstFrame) { firstFrame = true; readyResolve?.(); }
       for (const fn of frames) fn(line);
     }
+  };
+  child.stdout.on('data', (chunk: Buffer) => {
+    pending = Buffer.concat([pending, chunk]);
+    deliver();
   });
 
   child.stderr.on('data', (chunk: Buffer) => {
@@ -72,8 +78,18 @@ export function openTerminal(bin: string, env: Record<string, string>, paneId: s
     send(line: string): void {
       if (child.stdin.writable) child.stdin.write(line + '\n');
     },
+    pause(): void {
+      paused = true;
+      child.stdout.pause();
+    },
+    resume(): void {
+      paused = false;
+      deliver();
+      if (!paused) child.stdout.resume();   // a frame handler may have paused again
+    },
     close(): void {
       child.kill();
+      if (paused) child.stdout.removeAllListeners('data').resume();   // drain unread output so `exited` settles
     },
     exited,
   };

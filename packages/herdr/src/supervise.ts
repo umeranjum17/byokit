@@ -24,7 +24,9 @@ export class Supervisor {
     this.socketPath = o.mode === 'own' ? join(o.stateDir, 'herdr', 'herdr.sock') : o.socketPath;
   }
   env(): Record<string, string> {
-    if (this.o.mode === 'adopt') return { HERDR_SOCKET_PATH: this.socketPath, PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' };
+    if (this.o.mode === 'adopt') {
+      return { HERDR_SOCKET_PATH: this.socketPath, PATH: this.o.path?.join(':') || '/usr/bin:/bin', LANG: 'C.UTF-8', ...this.o.env };
+    }
     const home = join(this.root!, 'home');
     return {
       HOME: home, XDG_CONFIG_HOME: join(home, '.config'), XDG_STATE_HOME: join(home, '.local/state'),

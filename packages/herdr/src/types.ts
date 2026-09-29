@@ -7,7 +7,8 @@ export type HerdrState = {
 };
 
 export type HerdrKitOptions =
-  | { mode: 'adopt'; bin: string; socketPath: string; transport?: HerdrTransport; onState?: (s: HerdrState) => void }
+  | { mode: 'adopt'; bin: string; socketPath: string; env?: Record<string, string>; path?: string[];
+      transport?: HerdrTransport; onState?: (s: HerdrState) => void }
   | { mode: 'own'; bin: string; stateDir: string; env?: Record<string, string>; path?: string[];
       transport?: HerdrTransport; onState?: (s: HerdrState) => void };
 
@@ -46,5 +47,6 @@ export type HerdrSnapshot = {
 };
 export type TerminalSession = {
   ready: Promise<void>; onFrame(fn: (line: string) => void): () => void; send(line: string): void; close(): void;
+  pause(): void; resume(): void;   // stop/restart reading the child's stdout: backpressure reaches Herdr
   exited: Promise<{ code: number | null; stderrTail: string }>;
 };

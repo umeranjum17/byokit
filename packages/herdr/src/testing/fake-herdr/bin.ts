@@ -82,10 +82,22 @@ async function runServer(): Promise<void> {
   process.on('SIGINT', stop);
 }
 
+// `{"type":"fake.stream","count":n,"size":b,"progress":file}` on stdin: n frames with data `<i>:` plus b bytes,
+// written as fast as the pipe takes them. After each write the frames-written count lands in `progress`, so a
+// test can see how far a paused reader let the stream run.
+async function stream(paneId: string, o: { count?: number; size?: number; progress?: string }): Promise<void> {
+  const pad = 'x'.repeat(o.size ?? 1024);
+  for (let i = 0; i < (o.count ?? 0); i += 1) {
+    const ok = process.stdout.write(`${JSON.stringify({ type: 'terminal.frame', pane_id: paneId, data: `${i}:${pad}` })}\n`);
+    if (o.progress) writeFileSync(o.progress, String(i + 1));
+    if (!ok) await new Promise((resolve) => process.stdout.once('drain', resolve));
+  }
+}
+
 function runTerminal(args: string[]): void {
   // `herdr terminal session <control|observe> <pane> [--takeover] --cols <n> --rows <n>`.
   // The fake needs no server for this: one ready frame, then every send line echoes back as an
-  // output frame (docs/runtime-kits.md 6.8).
+  // output frame (docs/runtime-kits.md 6.8), except `fake.stream` below.
   const mode = args[0] === 'observe' ? 'observe' : 'control';
   const rest = args[0] === 'control' || args[0] === 'observe' ? args.slice(1) : args;
   const paneId = rest[0] ?? 'w1:p1';
@@ -103,8 +115,9 @@ function runTerminal(args: string[]): void {
       if (line.trim() === '') continue;
       let data: string = line;
       try {
-        const message = JSON.parse(line) as { type?: string; data?: unknown };
+        const message = JSON.parse(line) as { type?: string; data?: unknown; count?: number; size?: number; progress?: string };
         if (message.type === 'terminal.release') process.exit(0);
+        if (message.type === 'fake.stream') { void stream(paneId, message); continue; }
         if (typeof message.data === 'string') data = message.data;
       } catch { /* a raw line echoes as-is */ }
       process.stdout.write(`${JSON.stringify({ type: 'terminal.frame', pane_id: paneId, data })}\n`);
