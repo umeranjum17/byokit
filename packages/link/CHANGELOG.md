@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.3.2 (2026-09-29)
+
+- FIX: a phone app coming back from the background, or a hidden browser tab, no longer drops
+  a healthy link. A ping check that runs late because the device's own timers were frozen now
+  counts the silence from when it runs instead of mistaking it for a quiet host; a host that
+  is really silent still drops after missing the pings that follow.
+
 ## 0.3.1
 
 - SECURITY: Node hostKeyFile/device store wrote the device secret through a predictable temp path that followed symlinks; now a random O_EXCL 0600 temp file

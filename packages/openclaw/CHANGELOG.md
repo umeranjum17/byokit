@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Depends on @byokit/link 0.3.2.
+
 - Typed device pass-through (G4, docs/runtime-kits.md 7.2): `openclawDevice(link).call<M>(method, params)` returns
   `GatewayResult<M>` from the generated table (params now required, as on the kit), `events()` yields
   `OpenClawLinkEvent` frames, and `./device` re-exports the table types. The device gains `sessions()` (`oc.sessions`,

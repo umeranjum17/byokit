@@ -42,9 +42,9 @@ test("parseChangelog reads all nine real changelogs", () => {
       `${dir} versions are semver`,
     );
   }
-  // link's normalized SECURITY bullet parses with its kind
+  // link's normalized SECURITY bullet parses with its kind, wherever its release sits
   const link = parseChangelog(changelog("link"));
-  const sec = link.versions[0].bullets.find((b) => b.kind === "SECURITY");
+  const sec = link.versions.flatMap((s) => s.bullets).find((b) => b.kind === "SECURITY");
   assert.ok(sec && sec.text.length > 0);
   // the unpublished kit holds Unreleased-only development notes
   assert.equal(parseChangelog(changelog("openclaw")).versions.length, 0);
