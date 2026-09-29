@@ -6,7 +6,7 @@ import type { AuthPrompt, CredentialStore, Models } from '@earendil-works/pi-ai'
 import { offered, provider, type Provider } from './catalogue.ts';
 import { claims, PORTABLE, portableEngine } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
-import { respond, ResponseError, type Ask } from './responses.ts';
+import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
 import { memoryStore, type EndingStore } from './stores.ts';
 import { callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';
 
@@ -248,8 +248,12 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    *  or null for an error that is not about the account; `network` changes nothing. */
   /** Ask ChatGPT with this member's own sign-in, the answer streaming into `onText`; refreshed first when due. A
    *  failure about the account (a limit, a lapsed sign-in) is acted on as `failed()` does, then thrown as a
-   *  ResponseError with the words to show. */
-  async respond(member: M, ask: Ask): Promise<string> {
+   *  ResponseError with the words to show. Without `tools` the answer is the plain text, as before: pass `input` as
+   *  words or as turns (messages with `input_image`, then the `function_call` with its `function_call_output`). With
+   *  `tools` it is the text with every output item, and `onEvent` sees each tool call as it lands. */
+  async respond(member: M, ask: Ask & { tools?: undefined }): Promise<string>;
+  async respond(member: M, ask: Ask & { tools: ResponseTool[] }): Promise<ResponseResult>;
+  async respond(member: M, ask: Ask): Promise<string | ResponseResult> {
     const key = 'chatgpt';
     const p = this.offer(key);
     const rt = await this.runtime(member);
@@ -266,7 +270,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const c = await rt.readCredential(p.pi).catch(() => undefined);
     if (!access || c?.type !== 'oauth') throw new ResponseError(say('status.signedOut', { name: p.name }), 'signed_out');
     try {
-      return await respond({ ...ask, access, accountId: String(c.accountId ?? ''), model: ask.model ?? p.models.strong, base: this.opts.apiBase, fetch: this.opts.fetch });
+      const base = { ...ask, access, accountId: String(c.accountId ?? ''), model: ask.model ?? p.models.strong, base: this.opts.apiBase, fetch: this.opts.fetch };
+      return ask.tools ? await respond({ ...base, tools: ask.tools }) : await respond({ ...base, tools: undefined });
     } catch (e: any) {
       if (e instanceof ResponseError && e.kind && e.kind !== 'network') {
         const acted = await this.failed(member, key, e);
