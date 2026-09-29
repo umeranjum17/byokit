@@ -1,6 +1,7 @@
 {
   "name": "@byokit/herdr",
   "version": "0.1.0",
+  "private": true,
   "description": "Drive the Herdr on this computer — workspaces, tabs, panes, agents and blocked-approval answers — from an app, or hand it to a phone over @byokit/link.",
   "license": "Apache-2.0",
   "type": "module",
@@ -37,7 +38,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "prepack": "tsc -b"

@@ -11,7 +11,7 @@
     "./eval": { "types": "./dist/eval.d.ts", "default": "./dist/eval.js" }
   },
   "bin": { "byokit-eval": "dist/cli.js" },
-  "files": ["dist", "evals"],
+  "files": ["dist", "evals", "CHANGELOG.md"],
   "scripts": { "prepack": "tsc -b" },
   "publishConfig": { "access": "public" }
 }

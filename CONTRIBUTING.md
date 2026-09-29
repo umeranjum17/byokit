@@ -42,3 +42,58 @@ runtime-tested here because no simulator is available.
 ## Pull requests
 
 One concern per PR, with the checks above passing. By contributing you agree your work is licensed under Apache-2.0.
+
+## Changelog and release notes
+
+Every package has `packages/<pkg>/CHANGELOG.md`, shipped in its tarball, in this format:
+
+```markdown
+# Changelog
+
+## Unreleased
+
+- SECURITY: <what was exposed, who is affected, what to do>
+- FIX: <what was wrong, what it does now>
+- <any other change, one bullet each>
+
+## 0.3.2 (2026-10-01)
+
+- ...
+```
+
+- Each entry is a `- ` bullet. It may wrap onto following lines indented by exactly two spaces.
+- `SECURITY:` is for anything that exposed a secret, credential, grant or plaintext, or widened what a device
+  or app may do. `FIX:` is for correctness bugs a consumer could have hit. Every other change gets a plain
+  bullet. Put SECURITY first, then FIX, then the rest.
+- An entry that changes what gets billed or which sign-in is used must say "subscription" or
+  "API key (billed per use)" explicitly.
+- Never name competing products in entries, commits, branches or PR text.
+- Version headings are `## <x.y.z>` with an optional ` (<YYYY-MM-DD>)`.
+- A PR that changes `packages/<pkg>/src/**` or the `dependencies` of `packages/<pkg>/package.json` adds at
+  least one bullet under that package's `## Unreleased` (CI's `release lint` fails the PR otherwise; release
+  PRs that only bump `version` are exempt). The PR body copies every `SECURITY:`/`FIX:` bullet verbatim so
+  reviewers see it.
+
+## Releasing
+
+Versions are independent per package (0.x semver): bump minor for new exports, behavior, breaking changes, a
+raised engine floor or a pinned runtime upgrade; patch for fixes, shipped-file docs and pin updates from the
+cascade. No 1.0, no prereleases, no `major`. Internal `@byokit` pins stay exact, so releasing a package
+cascades: published dependents get a patch plus copies of its `SECURITY:`/`FIX:` lines.
+
+Two phases, because publishing happens only from merged main:
+
+1. **prepare** (on a branch, becomes a normal PR): `npm run release -- prepare link=patch relay=minor [--dry-run]`
+2. **publish** (on merged main): `npm run release -- publish [--dry-run]`
+
+Publish locally with the machine's npm session (npm's own 2FA prompt comes through; the script never takes
+an OTP or token), or dispatch `release.yml` (OIDC trusted publishing with provenance, no stored token) once
+the packages' trusted publishers name this repository and workflow file. The first publish of a new package is
+local, then `npm trust github` configures its publisher. `private: true` holds a package back (the unfinished
+kits); the PR that finishes one removes it.
+
+To relay notes to consumers after a publish:
+
+```sh
+npm run -s release -- notes --since <last-relay-timestamp> --json
+```

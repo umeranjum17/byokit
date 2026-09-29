@@ -1,6 +1,7 @@
 {
   "name": "@byokit/openclaw",
   "version": "0.1.0",
+  "private": true,
   "description": "The OpenClaw runtime kit: the pinned engine's full operator surface with plain-words helpers for members, sign-in, runs and approvals (in development).",
   "license": "Apache-2.0",
   "type": "module",
@@ -44,7 +45,8 @@
     "plugin",
     "policy",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "prepack": "tsc -b"

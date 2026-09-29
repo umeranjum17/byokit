@@ -1061,7 +1061,9 @@ examples/herdr-kit/     package.json  host.ts  web/index.html  web/app.ts  READM
 ## 10. Extraction and adoption order
 
 1. byokit builds `@byokit/openclaw` (O1–O12) and `@byokit/herdr` (H1–H10) in parallel lanes; each merged PR keeps
-   `npm test` green; nothing is published until a kit's O11/H9 proof is green.
+   `npm test` green; nothing is published until a kit's O11/H9 proof is green. Until then each kit's
+   package.json carries "private": true (the release command skips private packages); the PR that lands
+   O12 (openclaw) / H10 (herdr) removes it.
 2. Owner publishes `@byokit/openclaw` 0.1.0 via `release.yml`.
 3. **Crewhouse adopts** (O13), one Crewhouse PR: depend on `@byokit/openclaw` exactly; replace
    `src/openclaw/{gateway.ts,bridge.ts,plugin/,policy.mjs}` and the engine/sign-in/migration/run parts of

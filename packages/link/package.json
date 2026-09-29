@@ -24,7 +24,8 @@
   },
   "files": [
     "dist",
-    "SECURITY.md"
+    "SECURITY.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "prepack": "tsc -b"
