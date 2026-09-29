@@ -1,5 +1,5 @@
-// Every documented export exists on its entry (5.3, 7.1, 7.2), the frozen constants carry the pins (D4, D6), and
-// unbuilt stubs refuse to run. Type names are exercised at compile time; value names at runtime.
+// Every documented export exists on its entry (5.3, 7.1, 7.2) and the frozen constants carry the pins (D4, D6).
+// Type names are exercised at compile time; value names at runtime.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as kit from '../src/index.ts';
@@ -77,9 +77,10 @@ test('the `./testing` entry exports the fake, the contract suite and the model s
   assert.equal(typeof testing.useModelStub, 'function');
 });
 
-test('the O4 facade constructs without side effects; unbuilt stubs still refuse', () => {
+test('the O4 facade constructs without side effects; O9 link and device are built', () => {
   const facade = new kit.OpenClawKit({ stateDir: '.' });
   assert.deepEqual(facade.state, { phase: 'stopped' });
-  assert.throws(() => device.openclawDevice({} as never), /not built: O9/);
-  assert.throws(() => link.openclawLink(null as never, { memberOf: () => undefined }), /not built: O9/);
+  // O9 built the factories: the device client builds off any link, and the host adapter off any kit.
+  assert.equal(typeof device.openclawDevice({} as never).state, 'function');
+  assert.equal(typeof link.openclawLink(facade, { memberOf: () => undefined }).handle, 'function');
 });
