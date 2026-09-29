@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Depends on @byokit/relay 0.2.0.
 - Depends on @byokit/link 0.3.2.
 
 - FIX: the account an app picks for a run is now the one the engine calls and bills. `RunSpec.model`

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-09-29)
+
 - SECURITY: Removing a phone now reliably stops its push notifications, even if the relay was down or restarting when
   you removed it. Before, `RelayClient.revoke` dropped the device's grant and sent one unsubscribe that was lost if the
   offline queue overflowed or the host stopped or restarted before the relay was back, so the relay kept the phone's
