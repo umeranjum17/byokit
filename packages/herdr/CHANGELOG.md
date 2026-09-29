@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- FIX: the packed `dist/words.d.ts` keeps `with { type: 'json' }` on its `./words.json` import, so a strict NodeNext consumer with `skipLibCheck: false` no longer fails with TS1543.
+
 - Scaffold (docs/runtime-kits.md §11.3 H1): frozen public types, kit facade, internal seams and words. Behavior
   lands in H2–H8; `HERDR_PROTOCOL` is a placeholder until the schema snapshot (H2).
 - Wire `HerdrKit.cli`/`terminal` to `runCli`/`openTerminal` with the supervisor env (6.5), export

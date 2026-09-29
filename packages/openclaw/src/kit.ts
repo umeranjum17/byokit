@@ -564,7 +564,7 @@ export class OpenClawKit {
     return this.transport.request.bind(this.transport);
   }
   call<M extends GatewayMethod>(method: M, params: GatewayParams<M>, o?: CallOptions): Promise<GatewayResult<M>> {
-    return this.request()(method, params, o) as Promise<GatewayResult<M>>;
+    try { return this.request()(method, params, o) as Promise<GatewayResult<M>>; } catch (error) { return Promise.reject(error); }
   }
   callDynamic(method: string, params?: unknown, o?: CallOptions): Promise<unknown> {
     if (operatorMethods.has(method) || nodeMethods.has(method)) return Promise.reject(new Error(`use typed call for generated method: ${method}`));
