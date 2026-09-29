@@ -14,6 +14,12 @@
   with device `agentKinds()`, `wait()` and typed `subscribe(subs, on, onError?)`; a rejected batch or a kit
   disconnect ends the stream (`kit.subscribe` forwards an optional `onError`). The device `terminal()` gains `ready`
   (first frame) and `exited` (`{ reason }`). `hd.call` stays default-denied.
+- K2 snapshot fields: `snapshot()` carries the agent (`agentSession`, `displayAgent`, `title`,
+  `foregroundCwd`), pane (`label`, `focused`, `terminalTitle` from `terminal_title_stripped`, `tokens`)
+  and workspace (`focused`, `number`, `tokens`, `worktree` in camelCase) fields; `pane.updated`
+  titles and labels merge in place with no re-bootstrap; a per-pane lifecycle epoch keeps a status
+  push that races a snapshot read (the live status and revision win over the read). The fake seeds
+  and serves every field (agent `title`, workspace `number`/`tokens`, `workspace.report_metadata`).
 - `words`, `stateWords`, `agentWords` and `WORDS` are exported from `.` and `./device`, so a host or phone UI
   shows the kit's own sentences for Herdr and agent states instead of writing its own.
 - FIX `herdrDevice(link).events()` ends its link stream when the reader stops (`break`, or `return()` from a
@@ -37,7 +43,6 @@
   protocol placeholder; `agents.ts` agrees muxr sends `target_pane_id` to `pane.split`; the
   fake bin's `api schema` reports the pinned identity with no placeholder text.
 
-<<<<<<< HEAD
 - `adopt` mode takes `env` and `path` like `own`, merged into the `cli()`/`terminal()` env (so `HOME`,
   `HERDR_CLIENT_SOCKET_PATH`, `HERDR_SESSION` and a `#!/usr/bin/env node` bin work); `TerminalSession.pause()`/`resume()`
   apply backpressure to the Herdr child instead of buffering frames in the host.

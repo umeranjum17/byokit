@@ -30,6 +30,7 @@ export type FakeAgent = {
   name: string;
   agent: string;
   display_agent: string;
+  title: string;
   agent_status: string;
   interactive_ready: boolean;
   launch_pending: boolean;
@@ -44,6 +45,8 @@ export type FakeWorkspace = {
   workspace_id: string;
   label: string;
   focused: boolean;
+  number: number;
+  tokens: Record<string, string>;
   worktree?: {
     repo_key: string;
     repo_name: string;
@@ -88,6 +91,7 @@ export function agentRecord(o: {
     name: o.name,
     agent: o.kind,
     display_agent: o.name,
+    title: o.name,
     agent_status: 'idle',
     interactive_ready: true,
     launch_pending: false,
@@ -101,6 +105,8 @@ export function createWorld(o: { cwd: string; kinds: readonly string[] }): FakeW
     workspace_id: 'w1',
     label: o.cwd,
     focused: true,
+    number: 1,
+    tokens: {},
     worktree: {
       repo_key: 'fake-herdr',
       repo_name: 'fake-herdr',

@@ -121,6 +121,14 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       focusWorkspace(p.workspace_id as string);
       return {};
     },
+    'workspace.report_metadata': (p) => {
+      const workspace = live.workspaces.find((row) => row.workspace_id === p.workspace_id);
+      if (workspace === undefined) throw fail('workspace_not_found', 'workspace not found');
+      if (p.tokens !== undefined && typeof p.tokens === 'object') {
+        workspace.tokens = { ...workspace.tokens, ...(p.tokens as Params as Record<string, string>) };
+      }
+      return {};
+    },
 
     'worktree.create': (p) => {
       const checkout = typeof p.cwd === 'string' && p.cwd.length > 0 ? p.cwd : join(live.cwd, `wt-${live.nextWorkspace}`);
@@ -457,11 +465,14 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
   }
 
   function addWorkspace(labelText: string): FakeWorkspace {
-    const workspaceId = `w${live.nextWorkspace++}`;
+    const n = live.nextWorkspace++;
+    const workspaceId = `w${n}`;
     const workspace: FakeWorkspace = {
       workspace_id: workspaceId,
       label: labelText,
       focused: false,
+      number: n,
+      tokens: {},
       worktree: {
         // A unique key per plain workspace keeps it out of every worktree group; only
         // worktree.create links a checkout back into the root workspace's group.
@@ -554,8 +565,10 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       workspace_id: workspace.workspace_id,
       label: workspace.label,
       focused: workspace.focused,
+      number: workspace.number,
       tab_count: tabs.length,
       active_tab_id: focusedPane?.tab_id ?? tabs[0]?.tab_id,
+      ...(Object.keys(workspace.tokens).length === 0 ? {} : { tokens: { ...workspace.tokens } }),
       ...(workspace.worktree === undefined ? {} : { worktree: workspace.worktree }),
     };
   }

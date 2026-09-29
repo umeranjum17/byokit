@@ -6,8 +6,8 @@ import { protocolBounds } from './constants.ts';
 import { closePane, closeTab, closeWorkspace } from './close.ts';
 import { Supervisor } from './supervise.ts';
 import type {
-  AgentRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,
-  HerdrParams, HerdrResult, HerdrSnapshot, HerdrState, HerdrSubscription, PromptReceipt, StartAgent, TerminalSession,
+  AgentRef, AgentSessionRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,
+  HerdrParams, HerdrResult, HerdrSnapshot, HerdrSnapshotAgent, HerdrSnapshotPane, HerdrSnapshotWorkspace, HerdrState, HerdrSubscription, PromptReceipt, StartAgent, TerminalSession,
   HerdrTransport,
 } from './types.ts';
 
@@ -15,6 +15,101 @@ const kinds = ['pane.agent_detected', 'pane.created', 'pane.closed', 'pane.moved
   'workspace.created', 'workspace.closed', 'workspace.renamed', 'workspace.updated', 'tab.created', 'tab.closed', 'tab.renamed'];
 type Raw = Record<string, any>;
 const empty = (): HerdrSnapshot => ({ connected: false, workspaces: [] });
+
+const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+
+function tokensOf(v: unknown): Record<string, string> | undefined {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof val === 'string') out[k] = val;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function sessionOf(v: unknown): AgentSessionRef | undefined {
+  if (typeof v !== 'object' || v === null) return undefined;
+  const r = v as Raw;
+  if (typeof r.source !== 'string' || typeof r.agent !== 'string' ||
+      typeof r.kind !== 'string' || typeof r.value !== 'string') return undefined;
+  return { source: r.source, agent: r.agent, kind: r.kind, value: r.value };
+}
+
+function worktreeOf(v: unknown): HerdrSnapshotWorkspace['worktree'] {
+  if (typeof v !== 'object' || v === null) return undefined;
+  const r = v as Raw;
+  if (typeof r.repo_key !== 'string' || typeof r.repo_name !== 'string' || typeof r.repo_root !== 'string' ||
+      typeof r.checkout_path !== 'string' || typeof r.is_linked_worktree !== 'boolean') return undefined;
+  return {
+    repoKey: r.repo_key, repoName: r.repo_name, repoRoot: r.repo_root,
+    checkoutPath: r.checkout_path, isLinkedWorktree: r.is_linked_worktree,
+  };
+}
+
+/** Agent records merge partial events (`{ ...current, ...incoming }`): every field present wins. */
+function mergeAgent(current: HerdrSnapshotAgent | undefined, a: Raw): HerdrSnapshotAgent {
+  const kind = str(a.agent);
+  const name = str(a.name);
+  const displayAgent = str(a.display_agent);
+  const title = str(a.title);
+  const foregroundCwd = str(a.foreground_cwd);
+  const session = sessionOf(a.agent_session);
+  return {
+    status: 'unknown', revision: 0, ...current,
+    ...(kind !== undefined ? { kind } : {}),
+    ...(name !== undefined ? { name } : {}),
+    ...(displayAgent !== undefined ? { displayAgent } : {}),
+    ...(title !== undefined ? { title } : {}),
+    ...(foregroundCwd !== undefined ? { foregroundCwd } : {}),
+    ...(session !== undefined ? { agentSession: session } : {}),
+    ...(a.agent_status !== undefined ? { status: a.agent_status } : {}),
+    ...(a.revision !== undefined ? { revision: a.revision } : {}),
+    ...(a.launch_pending !== undefined ? { launchPending: a.launch_pending } : {}),
+    ...(a.interactive_ready !== undefined ? { interactiveReady: a.interactive_ready } : {}),
+  };
+}
+
+/** A snapshot pane plus its agents-record entry (which wins over the pane-level agent fields). */
+function paneOf(p: Raw, a: Raw | undefined): HerdrSnapshotPane {
+  const cwd = str(p.cwd);
+  const label = str(p.label);
+  const terminalTitle = str(p.terminal_title_stripped);
+  const tokens = tokensOf(p.tokens);
+  const pane: HerdrSnapshotPane = {
+    id: p.pane_id as string, focused: p.focused === true,
+    ...(cwd === undefined ? {} : { cwd }),
+    ...(label === undefined ? {} : { label }),
+    ...(terminalTitle === undefined ? {} : { terminalTitle }),
+    ...(tokens === undefined ? {} : { tokens }),
+  };
+  // Pane-level agent fields first, the agents record wins — mirrors the live merge below.
+  if (a !== undefined) pane.agent = mergeAgent(mergeAgent(undefined, p), a);
+  return pane;
+}
+
+/** A `pane.updated` payload merges in place: titles and labels with no re-bootstrap. */
+function mergePane(pane: HerdrSnapshotPane, p: Raw): void {
+  const cwd = str(p.cwd);
+  if (cwd !== undefined) pane.cwd = cwd;
+  const label = str(p.label);
+  if (label !== undefined) pane.label = label;
+  if (typeof p.focused === 'boolean') pane.focused = p.focused;
+  const terminalTitle = str(p.terminal_title_stripped);
+  if (terminalTitle !== undefined) pane.terminalTitle = terminalTitle;
+  if (typeof p.tokens === 'object' && p.tokens !== null && !Array.isArray(p.tokens)) {
+    const tokens = tokensOf(p.tokens);
+    if (tokens === undefined) delete pane.tokens;
+    else pane.tokens = tokens;
+  }
+}
+
+function findPane(tree: HerdrSnapshot, paneId: string): HerdrSnapshotPane | undefined {
+  for (const w of tree.workspaces) for (const t of w.tabs) {
+    const found = t.panes.find((p) => p.id === paneId);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+}
 
 export class HerdrKit {
   private readonly supervisor: Supervisor;
@@ -28,6 +123,8 @@ export class HerdrKit {
   private stops = new Set<() => void>();
   private statusStops = new Set<() => void>();
   private generation = 0;
+  private statusEpoch = new Map<string, number>();   // lifecycle epochs per pane: a status push racing
+                                                    // a snapshot read wins over the read (see bootstrap)
   private readonly o: HerdrKitOptions;
   private readonly callAny: Call = (method, params, timeoutMs) =>
     this.call(method as never, params as never, timeoutMs === undefined ? undefined : { timeoutMs });
@@ -49,7 +146,7 @@ export class HerdrKit {
     const name = typeof e.type === 'string' ? e.type.replace(/_/g, '.') : '';
     const paneId = (raw.pane_id ?? raw.pane?.pane_id) as string | undefined;
     let owner: { workspaceId: string; tabId: string } | undefined;
-    let pane: HerdrSnapshot['workspaces'][number]['tabs'][number]['panes'][number] | undefined;
+    let pane: HerdrSnapshotPane | undefined;
     for (const w of this.tree.workspaces) {
       for (const t of w.tabs) {
         const found = t.panes.find((p) => p.id === paneId);
@@ -59,21 +156,32 @@ export class HerdrKit {
     if (pane !== undefined && owner !== undefined &&
         (name === 'pane.agent.status.changed' || name === 'pane.agent.detected' || name === 'pane.updated')) {
       const a = raw.agent ?? raw.pane ?? raw;
-      pane.agent = { status: 'unknown', revision: 0, ...pane.agent,
-        ...(a.agent !== undefined ? { kind: a.agent } : {}),
-        ...(a.agent_status !== undefined ? { status: a.agent_status } : {}),
-        ...(a.revision !== undefined ? { revision: a.revision } : {}),
-        ...(a.launch_pending !== undefined ? { launchPending: a.launch_pending } : {}),
-        ...(a.interactive_ready !== undefined ? { interactiveReady: a.interactive_ready } : {}),
-      };
+      mergePane(pane, a);
+      pane.agent = mergeAgent(pane.agent, a);
+      // Every asserted status stamps the pane's lifecycle epoch — even an unchanged one, since a
+      // racing snapshot read may carry a staler revision. The bootstrap below keeps the live push.
+      if (a.agent_status !== undefined) {
+        this.statusEpoch.set(paneId as string, (this.statusEpoch.get(paneId as string) ?? 0) + 1);
+      }
       this.blockedList.update(paneId as string, pane.agent, owner);
     }
     if (name === 'pane.closed') {
       this.blockedList.update(paneId as string, undefined, owner ?? { workspaceId: '', tabId: '' });
+      if (paneId !== undefined) this.statusEpoch.delete(paneId);
       for (const tab of this.tree.workspaces.flatMap((w) => w.tabs)) tab.panes = tab.panes.filter((p) => p.id !== paneId);
     }
-    if (name === 'tab.closed') for (const w of this.tree.workspaces) w.tabs = w.tabs.filter((t) => t.id !== raw.tab_id);
-    if (name === 'workspace.closed') this.tree.workspaces = this.tree.workspaces.filter((w) => w.id !== raw.workspace_id);
+    if (name === 'tab.closed') {
+      for (const w of this.tree.workspaces) {
+        const tab = w.tabs.find((t) => t.id === raw.tab_id);
+        if (tab !== undefined) for (const p of tab.panes) this.statusEpoch.delete(p.id);
+        w.tabs = w.tabs.filter((t) => t.id !== raw.tab_id);
+      }
+    }
+    if (name === 'workspace.closed') {
+      const workspace = this.tree.workspaces.find((w) => w.id === raw.workspace_id);
+      if (workspace !== undefined) for (const t of workspace.tabs) for (const p of t.panes) this.statusEpoch.delete(p.id);
+      this.tree.workspaces = this.tree.workspaces.filter((w) => w.id !== raw.workspace_id);
+    }
     this.publish();
   }
   private async bootstrap(token: number, buffered: HerdrEvent[]): Promise<void> {
@@ -81,6 +189,7 @@ export class HerdrKit {
     const statusReady = new Promise<void>((resolve) => { resolveStatus = resolve; });
     this.statusReadyPromise = statusReady;
     this.statusReadyResolve = resolveStatus;
+    const epochAtRead = new Map(this.statusEpoch);
     let result: Raw;
     try {
       result = await this.transport!.call('session.snapshot', {}) as Raw;
@@ -101,23 +210,35 @@ export class HerdrKit {
       throw new Error('herdr: snapshot protocol mismatch');
     }
     const newer = seen.some((v) => v > max);
-    const workspaces = (snap.workspaces as Raw[]).map((w) => ({
-      id: w.workspace_id as string, label: w.label as string,
-      tabs: (snap.tabs as Raw[]).filter((t) => t.workspace_id === w.workspace_id).map((t) => ({
-        id: t.tab_id as string, label: t.label as string,
-        panes: (snap.panes as Raw[]).filter((p) => p.tab_id === t.tab_id).map((p) => {
-          const a = (snap.agents as Raw[]).find((a) => a.pane_id === p.pane_id);
-          return { id: p.pane_id as string, cwd: p.cwd as string | undefined, ...(a ? { agent: {
-            kind: a.agent as string | undefined, name: a.name as string | undefined,
-            status: (a.agent_status ?? 'unknown') as AgentStatus, revision: (a.revision ?? 0) as number,
-            launchPending: a.launch_pending as boolean | undefined, interactiveReady: a.interactive_ready as boolean | undefined,
-          } } : {}) };
-        }),
-      })),
-    }));
+    const workspaces: HerdrSnapshotWorkspace[] = (snap.workspaces as Raw[]).map((w) => {
+      const tokens = tokensOf(w.tokens);
+      const worktree = worktreeOf(w.worktree);
+      return {
+        id: w.workspace_id as string, label: w.label as string,
+        focused: w.focused === true, number: typeof w.number === 'number' ? w.number : 0,
+        ...(tokens === undefined ? {} : { tokens }),
+        ...(worktree === undefined ? {} : { worktree }),
+        tabs: (snap.tabs as Raw[]).filter((t) => t.workspace_id === w.workspace_id).map((t) => ({
+          id: t.tab_id as string, label: t.label as string,
+          panes: (snap.panes as Raw[]).filter((p) => p.tab_id === t.tab_id).map((p) =>
+            paneOf(p, (snap.agents as Raw[]).find((a) => a.pane_id === p.pane_id))),
+        })),
+      };
+    });
     for (const stop of this.statusStops) { stop(); this.stops.delete(stop); }
     this.statusStops.clear();
+    const previous = this.tree;
     this.tree = { connected: true, workspaces };
+    // Lifecycle-epoch guard: a per-pane status push that raced the snapshot read landed on the
+    // previous tree (and stamped its epoch) while the read was in flight — the read predates it,
+    // so the live status and revision win over the snapshot's.
+    for (const w of this.tree.workspaces) for (const t of w.tabs) for (const p of t.panes) {
+      if (p.agent === undefined) continue;
+      if (epochAtRead.get(p.id) === this.statusEpoch.get(p.id)) continue;
+      const live = findPane(previous, p.id)?.agent;
+      if (live === undefined) continue;
+      p.agent = { ...p.agent, status: live.status, revision: live.revision };
+    }
     for (const event of buffered.splice(0)) this.update(event);
     // Agents already blocked in the snapshot join the list; entries whose pane is gone resolve.
     for (const entry of this.blockedList.list()) {
@@ -196,6 +317,7 @@ export class HerdrKit {
     this.statusReadyResolve = undefined;
     for (const entry of this.blockedList.list()) this.blockedList.update(entry.paneId, undefined, entry);
     for (const stop of this.stops) stop(); this.stops.clear(); this.statusStops.clear();
+    this.statusEpoch.clear();
     await this.supervisor.stop();
     this.transport = undefined;
     this.tree = empty(); this.publish();

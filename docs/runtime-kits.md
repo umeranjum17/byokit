@@ -777,12 +777,26 @@ export type StartAgent = {
 };
 export type PromptReceipt = { paneId: string; terminalId: string; revision: number; status: AgentStatus };
 export type BlockedAgent = { paneId: string; workspaceId: string; tabId: string; kind?: string; revision: number; prompt: string; since: number };
+export type AgentSessionRef = { source: string; agent: string; kind: string; value: string };
+export type HerdrSnapshotWorktree = {
+  repoKey: string; repoName: string; repoRoot: string; checkoutPath: string; isLinkedWorktree: boolean;
+};
+export type HerdrSnapshotAgent = {
+  kind?: string; name?: string; displayAgent?: string; title?: string; status: AgentStatus; revision: number;
+  launchPending?: boolean; interactiveReady?: boolean; agentSession?: AgentSessionRef; foregroundCwd?: string;
+};
+export type HerdrSnapshotPane = {
+  id: string; cwd?: string; label?: string; focused: boolean; terminalTitle?: string;
+  tokens?: Record<string, string>; agent?: HerdrSnapshotAgent;
+};
+export type HerdrSnapshotTab = { id: string; label: string; panes: HerdrSnapshotPane[] };
+export type HerdrSnapshotWorkspace = {
+  id: string; label: string; focused: boolean; number: number;
+  tokens?: Record<string, string>; worktree?: HerdrSnapshotWorktree; tabs: HerdrSnapshotTab[];
+};
 export type HerdrSnapshot = {
   connected: boolean;
-  workspaces: { id: string; label: string; tabs: { id: string; label: string; panes: {
-    id: string; cwd?: string;
-    agent?: { kind?: string; name?: string; status: AgentStatus; revision: number; launchPending?: boolean; interactiveReady?: boolean };
-  }[] }[] }[];
+  workspaces: HerdrSnapshotWorkspace[];
 };
 export type TerminalSession = {
   ready: Promise<void>; onFrame(fn: (line: string) => void): () => void; send(line: string): void; close(): void;
@@ -854,7 +868,9 @@ export class Blocked {
   kinds subscribed: `pane.agent_detected`, `pane.created`, `pane.closed`, `pane.moved`, `pane.exited`,
   `pane.updated`, `workspace.created`, `workspace.closed`, `workspace.renamed`, `workspace.updated`, `tab.created`,
   `tab.closed`, `tab.renamed` (muxr's verified list); per-pane `pane.agent_status_changed` for every pane with an agent.
-  Agent records merge partial events (`{ ...current, ...incoming }`).
+  Agent records merge partial events (`{ ...current, ...incoming }`); `pane.updated` titles and labels merge the
+  same way with no re-bootstrap. A per-pane lifecycle epoch keeps a status push that races a snapshot read: the
+  push stamps its pane before the read returns, and the install keeps the live status and revision over the read.
 
 ### 6.4 Helpers (`src/agents.ts`, `src/close.ts`, `src/approvals.ts`)
 
