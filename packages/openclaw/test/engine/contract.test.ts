@@ -4,11 +4,12 @@
 // engine job skips it with the reason and proves sign-in live instead (the O11 fan-out lab).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { OpenClawKit } from '../../src/kit.ts';
 import { Engine } from '../../src/engine.ts';
+import { gatewayTransport } from '../../src/transport.ts';
 import { scratchDir } from '../../../test-support.ts';
 import { startModelStub, useModelStub, type ModelStub } from '../../src/testing/model-stub.ts';
 import { openclawContract, type ContractFixture } from '../../src/testing/contract.ts';
@@ -52,11 +53,17 @@ async function make(): Promise<ContractFixture> {
   await kit.start();
   assert.equal(kit.state.phase, 'ready');
   await useModelStub(kit, stub);
+  // A second operator connection for the native-approval case (the O5 approvals.test.ts pattern).
+  const root = join(stateDir, 'openclaw');
+  const peerTransport = gatewayTransport({ port: Number(readFileSync(join(root, 'port'), 'utf8')),
+    token: readFileSync(join(root, 'token'), 'utf8').trim(),
+    identityPath: join(root, 'device.json'), bridgeSock: join(root, 'bridge.sock') });
+  await peerTransport.start();
   const stop = kit.stop.bind(kit);
   kit.stop = async () => {
-    try { await stop(); } finally { rmSync(stateDir, { recursive: true, force: true }); }
+    try { await stop(); } finally { await peerTransport.stop().catch(() => {}); rmSync(stateDir, { recursive: true, force: true }); }
   };
-  return { kit, model: stub };
+  return { kit, model: stub, peer: { request: peerTransport.request } };
 }
 
 openclawContract(make, { skipDeviceCode: 'needs a person at the device URL' });

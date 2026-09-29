@@ -31,15 +31,21 @@ export function createRuns(ctx: {
     let last = '';
     let runId = ''; // gateway events for other runs carry a real runId and never match the empty one
     let ended = false;
+    // The engine flags an aborted run on its lifecycle end event; the wait receipt itself only says
+    // `status: 'error', stopReason: 'rpc'` (O11), so the flag is what maps the receipt to aborted.
+    let abortedByEngine = false;
     const unsubscribe = ctx.onEvent((e) => {
       if (ended || e.event !== 'agent') return;
       const p = e.payload as AgentPayload | undefined;
       if (!p || p.runId !== runId) return;
+      if (p.stream === 'lifecycle' && (p.data as { phase?: string; aborted?: boolean } | undefined)?.phase === 'end'
+        && (p.data as { aborted?: boolean }).aborted === true) abortedByEngine = true;
       if (p.stream === 'assistant' && typeof p.data?.text === 'string') {
         last = p.data.text;
         on?.({ type: 'text', text: p.data.text });
       } else if (p.stream === 'tool' && typeof p.data?.name === 'string') {
-        on?.({ type: 'tool', name: p.data.name, phase: p.data.phase === 'end' ? 'end' : 'start' });
+        // The real engine marks completion `phase: 'result'` (O11); anything but `start` ends the pair.
+        on?.({ type: 'tool', name: p.data.name, phase: p.data.phase === 'start' ? 'start' : 'end' });
       }
     });
     try {
@@ -61,7 +67,7 @@ export function createRuns(ctx: {
         on?.({ type: 'text', text }); // the final cumulative text
         return { ok: true, text };
       }
-      if (result.stopReason === 'aborted') return { ok: false, aborted: true };
+      if (result.stopReason === 'aborted' || (abortedByEngine && result.status !== 'ok')) return { ok: false, aborted: true };
       const message = typeof result.error === 'string' ? result.error
         : typeof result.message === 'string' ? result.message : '';
       return { ok: false, ...classify(message), message };

@@ -45,6 +45,10 @@ export function reconcileConfig(saved: object | undefined, o: {
   c.memory.search ??= { provider: 'none' };
   safeMemory(c.memory);
   for (const entry of Object.values(c.agents.entries ?? {})) safeMemory((entry as { memory?: unknown }).memory);
+  // The engine rejects a patched multi-agent roster without explicit ownership (O11); it normalizes the
+  // same value on boot, so the kit writes what the engine would. A lone main (or empty) roster stays sole.
+  const roster = Object.keys(c.agents.entries ?? {});
+  if (roster.length > 1 || (roster.length === 1 && roster[0] !== 'main')) c.agents.ownership = 'explicit';
   c.plugins ??= {};
   c.plugins.load ??= {};
   c.plugins.load.paths = [...new Set([...(c.plugins.load.paths ?? []).filter((p: string) => !p.includes('byokit-openclaw-bridge')), o.pluginDir])];

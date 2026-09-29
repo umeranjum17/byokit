@@ -185,7 +185,8 @@ export function fakeGateway(script?: FakeScript): {
                 await bridgeRequest(bridgeSock, { kind: 'call', key: run.sessionKey, permit: gate.permit, tool: call.name, input: call.input });
             } catch { /* no bridge or refused: the tool pair still plays, nothing is called */ }
           }
-          emitRun(run, 'tool', { name: call.name, phase: 'end' });
+          // Completion rides `phase: 'result'` like the real engine (O11), not `'end'`.
+          emitRun(run, 'tool', { name: call.name, phase: 'result' });
         }
         emitRun(run, 'assistant', { text });
         setTimeout(() => finish(run, { status: 'ok', terminalReply: { text } }), ABORT_WINDOW_MS);
@@ -247,7 +248,9 @@ export function fakeGateway(script?: FakeScript): {
       for (const run of runs.values()) {
         if (run.result || run.sessionKey !== String(p.sessionKey ?? '')) continue;
         if (p.runId && run.runId !== String(p.runId)) continue;
-        finish(run, { stopReason: 'aborted' });
+        // Engine-shaped abort (O11): the receipt only says rpc-error; the run's lifecycle end carries aborted.
+        emitRun(run, 'lifecycle', { phase: 'end', status: 'cancelled', aborted: true, stopReason: 'rpc' });
+        finish(run, { status: 'error', stopReason: 'rpc' });
       }
       return {};
     },
@@ -255,7 +258,16 @@ export function fakeGateway(script?: FakeScript): {
     'config.patch': (p) => {
       if (typeof p.raw !== 'string') throw new Error('config.patch requires raw');
       if (p.baseHash !== undefined && p.baseHash !== configBox.hash) throw new Error('stale config: baseHash does not match');
-      mergeInto(configBox.config, JSON.parse(p.raw));
+      const next = JSON.parse(p.raw) as Record<string, unknown>;
+      // Like the real engine (O11) the merged config is validated, so entries added onto an already
+      // explicit roster stay valid: a multi-agent roster without explicit ownership is invalid.
+      const merged = JSON.parse(JSON.stringify(configBox.config)) as Record<string, unknown>;
+      mergeInto(merged, next);
+      const agents = merged.agents as Record<string, unknown> | undefined;
+      const roster = Object.keys(agents?.entries as Record<string, unknown> ?? {});
+      if ((roster.length > 1 || (roster.length === 1 && roster[0] !== 'main')) && agents?.ownership !== 'explicit')
+        throw new Error('invalid config: agents.ownership: multi-agent rosters require agents.ownership="explicit"');
+      mergeInto(configBox.config, next);
       enforceMemoryInvariants(configBox.config);
       configBox.hash = `hash-${++hashSeq}`;
       return { hash: configBox.hash };
@@ -277,11 +289,14 @@ export function fakeGateway(script?: FakeScript): {
       return { id };
     },
     'plugin.approval.request': (p) => {
-      const id = String(p.id ?? `plugin-${randomUUID()}`);
+      // Like the real engine: title and description are required, the engine mints the id.
+      if (typeof p.title !== 'string' || typeof p.description !== 'string')
+        throw new Error('plugin.approval.request requires title and description');
+      const id = `plugin-${randomUUID()}`;
       const now = Date.now();
       emit('plugin.approval.requested', {
         approvalKind: 'plugin', id, createdAtMs: now, expiresAtMs: now + 180_000,
-        request: { title: p.title, agentId: p.agentId, sessionKey: p.sessionKey },
+        request: { title: p.title, description: p.description, agentId: p.agentId, sessionKey: p.sessionKey },
       });
       return { id };
     },

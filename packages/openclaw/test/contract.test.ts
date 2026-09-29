@@ -29,10 +29,14 @@ async function make(): Promise<ContractFixture> {
   });
   await kit.start();
   const stop = kit.stop.bind(kit);
+  // The native-approval case raises from a second connection (the engine never echoes requested
+  // events back to the raiser); the fake delivers to every live transport either way.
+  const peerTransport = fake.factory({ port: 0, token: 'test', identityPath: '', bridgeSock: '' });
+  await peerTransport.start();
   kit.stop = async () => {
-    try { await stop(); } finally { rmSync(stateDir, { recursive: true, force: true }); }
+    try { await stop(); } finally { await peerTransport.stop(); rmSync(stateDir, { recursive: true, force: true }); }
   };
-  return { kit };
+  return { kit, peer: { request: peerTransport.request } };
 }
 
 openclawContract(make);
