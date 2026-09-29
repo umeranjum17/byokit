@@ -1,5 +1,5 @@
 {
-  "rule": "TypeScript-only: a successful stream requires response.completed, whose output_text overrides partial deltas. SSE error codes usage_not_included and rate_limit_exceeded preserve their kinds even when messages are generic. A stream may carry tool calls: response.function_call_arguments.delta deltas accumulate per output item, response.output_item.done carries each finished item, and response.completed.response.output is the authoritative item list. Items without output_text contribute no text.",
+  "rule": "TypeScript-only: a successful stream requires response.completed. Events split on any blank line (LF, CRLF or bare CR); data: lines join the same way, even when a chunk ends mid-line-ending. The text is the concatenated response.output_text.delta deltas; the completed envelope's output_text is used only when no deltas arrived. A data line that is not JSON (other than [DONE]) throws a ResponseError that is not about the account, instead of vanishing. A stream that ends with no deltas, no completed output text and no output items throws the network 'stopped before completing' error. SSE error codes usage_not_included and rate_limit_exceeded preserve their kinds even when messages are generic. A stream may carry tool calls: response.function_call_arguments.delta deltas accumulate per output item, response.output_item.done carries each finished item, and response.completed.response.output is the authoritative item list. Items without output_text contribute no text.",
   "cases": [
     {
       "stream": "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"usage_not_included\",\"message\":\"Not included\"}}}\n\n",
@@ -15,8 +15,20 @@
     },
     {
       "stream": "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Wrong\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"content\":[{\"type\":\"output_text\",\"text\":\"Hello.\"}]}]}}\n\n",
-      "text": "Hello.",
+      "text": "Wrong",
       "deltas": "Wrong"
+    },
+    {
+      "stream": "event: response.output_text.delta\rdata: {\"type\":\"response.output_text.delta\",\"delta\":\"Hel\"}\r\revent: response.output_text.delta\rdata: {\"type\":\"response.output_text.delta\",\"delta\":\"lo.\"}\r\revent: response.completed\rdata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\r\rdata: [DONE]\r\r",
+      "text": "Hello."
+    },
+    {
+      "stream": "data: {\"type\":\"response.output_text.delta\",\"delta\":\n\n",
+      "error": { "kind": null, "message": "ChatGPT's answer could not be read." }
+    },
+    {
+      "stream": "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\ndata: [DONE]\n\n",
+      "error": { "kind": "network", "message": "ChatGPT stopped before completing its answer." }
     },
     {
       "stream": "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"get_time\",\"arguments\":\"\"}}\n\nevent: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"item_id\":\"call_1\",\"delta\":\"{\\\"zone\\\":\\\"UTC\\\"}\"}\n\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"get_time\",\"arguments\":\"{\\\"zone\\\":\\\"UTC\\\"}\"}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"get_time\",\"arguments\":\"{\\\"zone\\\":\\\"UTC\\\"}\"}]}}\n\ndata: [DONE]\n\n",

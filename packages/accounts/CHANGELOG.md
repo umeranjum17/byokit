@@ -2,7 +2,13 @@
 
 ## Unreleased
 
-## 0.5.0 (2026-09-29)
+## 0.6.0 (2026-09-30)
+
+- `respond` and `Accounts.respond` accept `originator` (or set it once on `Accounts`): the app's own originator header value. Default: 'byokit', as before.
+- FIX: a garbled streamed answer no longer arrives as an empty string with HTTP 200: a data line the parser cannot read now throws a ResponseError the app can show.
+- FIX: a stream that ends with no words, no completed answer and no tool calls now throws instead of resolving to an empty string.
+- FIX: the answer is the words as they streamed in; the completed envelope is only used when nothing streamed. Apps whose completed envelope carries no text no longer see their streamed words replaced by an empty answer.
+- FIX: streamed answers split on bare-CR line endings too, so a backend that separates events with carriage returns no longer yields an empty answer.
 
 - `respond` passes the whole question through: a message array (many turns, pictures with `input_image`, a `function_call` with its `function_call_output`), `tools` and `tool_choice` (the app's own function tools and built-ins, including `image_generation`), how hard the model thinks (`reasoning.effort`), and how long the answer is with the shape it must follow (`text.verbosity`, `text.format`). With `tools` the result is the text with every output item (`isFunctionCall` spots a call); without, the plain text as before. `onEvent` sees each tool call and output item as it streams.
 

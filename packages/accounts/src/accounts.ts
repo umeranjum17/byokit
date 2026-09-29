@@ -49,6 +49,8 @@ export type AccountsOptions<M extends Member = Member> = {
   apiBase?: string;
   /** The fetch `respond` asks with: one that streams on a phone (Expo's `expo/fetch`). Default: the platform's. */
   fetch?: typeof fetch;
+  /** The originator header `respond` sends. Default: 'byokit'. */
+  originator?: string;
 };
 
 /** The ChatGPT plan behind a sign-in, from its own token: a work plan (Business, Enterprise, Edu) follows the employer's rules. */
@@ -270,7 +272,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const c = await rt.readCredential(p.pi).catch(() => undefined);
     if (!access || c?.type !== 'oauth') throw new ResponseError(say('status.signedOut', { name: p.name }), 'signed_out');
     try {
-      const base = { ...ask, access, accountId: String(c.accountId ?? ''), model: ask.model ?? p.models.strong, base: this.opts.apiBase, fetch: this.opts.fetch };
+      const base = { ...ask, access, accountId: String(c.accountId ?? ''), model: ask.model ?? p.models.strong, base: this.opts.apiBase, fetch: this.opts.fetch, originator: ask.originator ?? this.opts.originator };
       return ask.tools ? await respond({ ...base, tools: ask.tools }) : await respond({ ...base, tools: undefined });
     } catch (e: any) {
       if (e instanceof ResponseError && e.kind && e.kind !== 'network') {

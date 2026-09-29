@@ -179,6 +179,40 @@ test('respond with an image turn: the picture rides along, the words echo back',
   assert.deepEqual(asked.input, input);
 });
 
+test('respond with a json_object format: the format reaches the request body', async () => {
+  const a = await signedIn();
+  await a.respond(1, { instructions: 'Return JSON.', input: 'hi', text: { verbosity: 'low' as const, format: { type: 'json_object' } } });
+  const asked = JSON.parse(openai.state.requests.findLast((r) => r.path === '/codex/responses')!.body);
+  assert.deepEqual(asked.text, { verbosity: 'low', format: { type: 'json_object' } });
+});
+
+test('respond sends the byokit originator unless the app sets its own', async () => {
+  const stream = () => new Response(
+    `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: 'hi' })}\n\ndata: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed' } })}\n\n`,
+    { headers: { 'content-type': 'text/event-stream' } });
+  const stub = () => {
+    const seen: Record<string, string>[] = [];
+    const stubFetch = (async (_url: any, init: any) => { seen.push({ ...init.headers }); return stream(); }) as typeof fetch;
+    return { fetch: stubFetch, seen };
+  };
+  const signInWith = async (opts: { fetch: typeof fetch; originator?: string }) => {
+    const accounts = new Accounts<any, number>({ store: () => memoryStore(), authBase: openai.base, apiBase: openai.base, ...opts });
+    const v = (await accounts.login(1, 'chatgpt'))!;
+    openai.approve(v.code!);
+    await accounts.finished(1, 'chatgpt');
+    return accounts;
+  };
+  const plain = stub();
+  assert.equal(await (await signInWith({ fetch: plain.fetch })).respond(1, { instructions: '', input: 'hi' }), 'hi');
+  assert.equal(plain.seen[0].originator, 'byokit');
+  const named = stub();
+  assert.equal(await (await signInWith({ fetch: named.fetch })).respond(1, { instructions: '', input: 'hi', originator: 'ownvoice' }), 'hi');
+  assert.equal(named.seen[0].originator, 'ownvoice');
+  const configured = stub();
+  assert.equal(await (await signInWith({ fetch: configured.fetch, originator: 'ownvoice' })).respond(1, { instructions: '', input: 'hi' }), 'hi');
+  assert.equal(configured.seen[0].originator, 'ownvoice');
+});
+
 test('respond with a schema: the format passes through and the answer parses', async () => {
   const a = await signedIn();
   const schema = { type: 'object', properties: { echo: { type: 'string' } }, required: ['echo'], additionalProperties: false };
