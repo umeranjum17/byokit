@@ -51,7 +51,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D9 | Members. OpenClaw: a member is an app-chosen id matching `/^[a-z][a-z0-9-]{0,31}$/`, used verbatim as the OpenClaw `agentId`; every session key must start `agent:<member>:`; sign-ins are per member (OpenClaw per-agent auth). Herdr: no member concept upstream; a link grant carries `meta.scope = { workspaces: 'all' \| string[] }`. |
 | D10 | Approvals. OpenClaw: (a) the kit's fail-closed tool bridge (Crewhouse's plugin hook → unix socket → app `gate()`), extended with a parked `ask` result; (b) OpenClaw's native `exec.approval.*`, `plugin.approval.*`, `question.*` surfaced through the same `Approval` shape. Herdr: an agent in `blocked` state is an approval; the answer is keys sent to that exact pane occupant (revision-checked). |
 | D11 | Sign-in. OpenClaw: the kit drives OpenClaw's own `openclaw.setup.auth.start` + `wizard.next` loop and holds the ChatGPT callback port during a browser sign-in; credentials never pass through kit or app. Herdr: each agent CLI's own login, done by the person inside that agent's pane (terminal stream); the kit never runs a login command, never copies credentials between homes, and never reads a CLI's credential files. |
-| D12 | Route policy is data, not code: `packages/openclaw/src/routes.json` labels every pinned auth choice (`subscription` / `api` / `local`, prerequisite, `offer`). The kit **labels and never decides for an app** (CONTRIBUTING): `signIn` accepts any pinned auth choice, while the ready-made `./link` and example UI list only `offer: true` routes. Claude-plan routes (`anthropic-cli`, subscription `setup-token`) are `offer: false` with reason "byokit never adds Claude plan sign-in"; an app may still pass them explicitly (Crewhouse does, for parity). |
+| D12 | Route policy is data, not code: `packages/openclaw/src/routes.json` labels every pinned auth choice (`subscription` / `api` / `local`, prerequisite, `offer`). The kit **labels and never decides for an app** (CONTRIBUTING): `signIn` accepts any pinned auth choice, while the ready-made `./link` and example UI list only `offer: true` routes. Claude-plan routes (`anthropic-cli`, `setup-token`) are `billing: 'subscription'`, `offer: false` with reason "byokit never adds Claude plan sign-in"; an app may still pass them explicitly, though the 2026.8.1 Gateway does not offer them through `openclaw.setup.auth.start`. |
 | D13 | Library code reads no environment variables except `PATH`, and only to locate `npm` for the engine install when `npmPath` is not given. Every spawned process gets an explicit env; `process.env` is never inherited. The Herdr binary path is always an explicit option. |
 | D14 | `npm test` stays network-free. Tests needing the real engine (network `npm ci` of the pin, loopback only afterwards) run under `npm run test:engine` in a separate CI job `openclaw-engine`. Real-Herdr contract runs happen only in an isolated lab under a `--herdr-lab` brief, never in CI and never against a person's Herdr. |
 | D15 | Retained-login migration source for OpenClaw is a Pi `auth.json`-shaped record (`{ [provider]: credential }`): a file path (Crewhouse's legacy engine) or an in-memory record (an app moving from `@byokit/accounts`' `fileStore`/`secureStore`). Retire only after the Gateway itself reports the member signed in to every provider in the source. |
@@ -259,7 +259,7 @@ export type KitState = {
 };
 export type Hello = { protocol: number; server: { version: string }; methods: string[]; events: string[] };
 export type Route = {
-  choice: string; provider: string; billing: 'subscription' | 'api' | 'local'; via: 'browser' | 'code';
+  choice: string; provider: string; plugin: string; billing: 'subscription' | 'api' | 'local'; via: 'browser' | 'code';
   prerequisite: string | null; offer: boolean; reason: string; source: string;
 };
 export interface GatewayTransport {
@@ -396,7 +396,16 @@ writing only if bytes change (0600):
   `provider` stays only if in `none|local|ollama|lmstudio|github-copilot` and, for ollama/lmstudio, `remote.baseUrl`
   host is loopback with no `remote.apiKey`; else `'none'`; `fallback: 'none'` always.
 - Plugins: `plugins.load.paths` contains `<root>/plugin` (and no stale kit plugin path); `plugins.allow` contains the
-  plugin id; `plugins.entries[id].hooks.timeouts.before_tool_call = 200_000`.
+  plugin id and the kit adds no other id; `plugins.entries[id].hooks.timeouts.before_tool_call = 200_000`. The pinned
+  engine treats a non-empty `plugins.allow` as a restrictive allowlist: a provider sign-in, and that provider's runs,
+  need the bundled plugin that owns the route's auth choice (`Route.plugin`) in it, else the wizard ends
+  `<label> is disabled (blocked by allowlist)`. An app lists exactly the `plugin` ids of the routes it signs in with
+  through `config.plugins.allow` (merged with the kit's id; 2026.8.1: `openai` for `openai`/`openai-device-code`,
+  `xai` for `xai-oauth`, `github-copilot` for `github-copilot`/`github-copilot-enterprise`, `openrouter` for
+  `openrouter-oauth`, `minimax` for `minimax-global-oauth`/`minimax-cn-oauth`); Crewhouse passes
+  `['crewhouse', 'memory-core', 'openai']`. The kit never writes an empty or wider list. A provider plugin also
+  carries that provider's key-entry choices; the Gateway's `openclaw.setup.auth.start` refuses those in 2026.8.1, and
+  the memory-search invariant above keeps the plugin from billing embeddings.
 - Install policy when `installPolicy` is given: `security.installPolicy = { enabled: true, exec: { source: 'exec',
   command: process.execPath, args: [<kit>/policy/policy.mjs], trustedDirs: [dirname(process.execPath),
   <kit>/policy], timeoutMs: 10_000, passEnv: ['OPENCLAW_STATE_DIR'], env: { BYOKIT_TRUSTED_SKILLS: <path>,
@@ -410,13 +419,21 @@ Crewhouse's product choices (tool profile and deny list, `skills.allowBundled`, 
 ### 5.7 Sign-in, routes and retained-login migration
 
 **Routes** (`src/routes.json`, O6): one entry per auth choice in the pinned tarball's provider contracts:
-`{ "choice": "openai-device-code", "provider": "openai", "billing": "subscription", "via": "code",
+`{ "choice": "openai-device-code", "provider": "openai", "plugin": "openai", "billing": "subscription", "via": "code",
 "prerequisite": null, "offer": true, "reason": "…", "source": "dist/provider-contract-api-*.js (2026.8.1)" }`.
 Seeded from Crewhouse `docs/supported-subscriptions.md`: subscription routes `openai`, `openai-device-code`,
-`xai-oauth`, `xai-device-code`, `github-copilot`, `github-copilot-enterprise`, `openrouter-oauth`,
-`minimax-global-oauth`, `minimax-cn-oauth` (`offer: true`), `anthropic-cli`, `setup-token` (`offer: false`, D12);
+`xai-oauth`, `github-copilot`, `github-copilot-enterprise`, `minimax-global-oauth`, `minimax-cn-oauth`
+(`offer: true`), `anthropic-cli`, `setup-token` (`offer: false`, D12); the seed's other Grok route
+`xai-device-code` is `offer: false` (manual-only upstream), and its `openrouter-oauth` is `offer: false` too (below);
 API routes listed there (`billing: 'api'`, `offer: false`, reason "API billing, not a subscription; shown only when
-an app asks"). O6 verifies every choice id against the tarball and adds any the doc missed. `routes()` returns the
+an app asks"). `openrouter-oauth` is `billing: 'api'`, `offer: false` (upstream OAuth yields a credit-billed key, not
+a plan; no silent API billing). O6 verifies every choice id against the tarball and adds any the doc missed. Each
+entry's `plugin` is the `id` of the bundled `openclaw.plugin.json` whose `providerAuthChoices` lists the choice;
+`via` is `code` when that choice's `appGuidedAuth` is `device-code`, else `browser`. A choice the pinned Gateway does
+not offer through `openclaw.setup.auth.start` (`assistantVisibility: "manual-only"`, or no `appGuidedAuth`) is
+`offer: false`. The engine job asserts both directions (every route is a pinned choice, every pinned choice is a
+route) and that every `offer: true` route starts (first `wizard.next` without `not available` or
+`blocked by allowlist`) with only its `plugin` added to `plugins.allow`. `routes()` returns the
 table; `routeFor(provider, via)` picks the offered route.
 
 **signIn(member, { authChoice, via }, on)** — Crewhouse `runtime.ts` `signIn` loop, unchanged in behavior:
@@ -992,7 +1009,8 @@ examples/herdr-kit/     package.json  host.ts  web/index.html  web/app.ts  READM
 - `package.json`: `"private": true`, dependencies on the kit and `@byokit/link`, `@byokit/reach`, `@byokit/ui-core`,
   `@byokit/seal` at exact published versions, `esbuild` (dev) to bundle `web/app.ts`. Scripts: `start` (`node
   host.ts`), `build:web`, `test` (`node --test e2e.test.ts`). Not part of the root workspaces.
-- `host.ts` (OpenClaw): `new OpenClawKit({ stateDir: './.state', tools: [demo_note], host })` where `demo_note`
+- `host.ts` (OpenClaw): `new OpenClawKit({ stateDir: './.state', tools: [demo_note], host,
+  config: { plugins: { allow: ['openai'] } } })` where `demo_note`
   (`{ text: string }`) is gated `{ ask: { summary: 'save a note' } }` and appends to `./.state/notes.txt`;
   `hostKeyFile('./.state/link-key.json')`; link `Host` with `openclawLink(kit, { memberOf: () => 'me' })`, grants
   in `./.state/grants.json`; `serve({ host, port: 7310 })`; also serves `web/` over plain HTTP on the same port;
@@ -1227,7 +1245,9 @@ H1, and O12/H10 (README example rows); later merges rebase.
   with `startModelStub` (engine job); `run.test.ts` = Crewhouse `openclaw-run.test.ts` ported (real tool call crosses
   the fail-closed gate; keyword-only memory never requests embeddings; no `/v1/embeddings` call); `generated.test.ts`
   regenerates the tables from the pinned tarball and diffs the committed ones; `hello.features.methods` ⊇ every
-  generated operator method (else list them in `report.json` and fail).
+  generated operator method (else list them in `report.json` and fail); every `offer: true` route starts on the real
+  engine with only its `plugin` allowed; `exec.approval.requested`/`plugin.approval.requested` from the real engine
+  carry the requesting member in `Approval.member`.
 
 **O12 — example app** · Flash · deps: O9, O11
 - Files: `examples/openclaw-kit/*` (section 8), root `README.md` examples line, CI `browser` job step running

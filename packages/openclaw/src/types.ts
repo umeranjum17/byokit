@@ -75,6 +75,7 @@ export type Hello = { protocol: number; server: { version: string }; methods: st
 export type Route = {
   choice: string;
   provider: string;
+  plugin: string; // the bundled openclaw.plugin.json id that owns the choice; '' for a core static choice
   billing: 'subscription' | 'api' | 'local';
   via: 'browser' | 'code';
   prerequisite: string | null;

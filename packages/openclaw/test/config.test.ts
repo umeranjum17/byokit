@@ -25,7 +25,8 @@ test('fresh and adversarial config force isolation and no paid memory fallback',
   assert.equal(c.memory.search.fallback, 'none');
   assert.equal(c.agents.defaults.models['openai/*'].agentRuntime.id, 'openclaw');
   assert.equal(c.security.installPolicy.enabled, true);
-  const hostile = reconcileConfig({ memory: { search: { provider: 'auto', fallback: 'openai' } }, agents: { entries: [{ id: 'm9', memory: { search: { provider: 'openai', fallback: 'openai' } } }] } }, {
+  // `agents.entries` is the engine's own agent-id map (5.6's `entries[*]`), exactly as the pin writes it.
+  const hostile = reconcileConfig({ memory: { search: { provider: 'auto', fallback: 'openai' } }, agents: { entries: { m9: { memory: { search: { provider: 'openai', fallback: 'openai' } } } } } }, {
     ...opts(root), app: { gateway: { bind: 'lan', controlUi: { enabled: true }, tailscale: { mode: 'on' } }, discovery: { mdns: { mode: 'on' } } },
   }) as any;
   assert.equal(hostile.gateway.bind, 'loopback');
@@ -34,8 +35,8 @@ test('fresh and adversarial config force isolation and no paid memory fallback',
   assert.equal(hostile.discovery.mdns.mode, 'off');
   assert.equal(hostile.memory.search.provider, 'none');
   assert.equal(hostile.memory.search.fallback, 'none');
-  assert.equal(hostile.agents.entries[0].memory.search.provider, 'none');
-  assert.equal(hostile.agents.entries[0].memory.search.fallback, 'none');
+  assert.equal(hostile.agents.entries.m9.memory.search.provider, 'none');
+  assert.equal(hostile.agents.entries.m9.memory.search.fallback, 'none');
   assert.equal(memoryLimited(hostile, 'm9'), true);
   const local = reconcileConfig({ memory: { search: { provider: 'ollama', remote: { baseUrl: 'http://127.0.0.1:11434' } } } }, opts(root)) as any;
   assert.equal(local.memory.search.provider, 'ollama');
