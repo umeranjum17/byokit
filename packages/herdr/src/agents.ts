@@ -1,8 +1,7 @@
 // Agent helpers: placements, prompt receipts, waits and reads (docs/runtime-kits.md 6.4).
 // Exact param spellings come from the generated v0.9.1 table (6.7); where muxr and the schema
-// disagree the schema wins, and H5 records the divergences here: `pane.split` takes
-// `target_pane_id` (muxr sends `pane_id`), and `agent.start` has no `env` param — a start's env
-// belongs to the placement create/split call (src/generated/methods.ts).
+// disagree the schema wins. `pane.split` takes `target_pane_id` (muxr agrees), and `agent.start`
+// has no `env` param — a start's env belongs to the placement create/split call (src/generated/methods.ts).
 import { accessSync, constants as fsConstants } from 'node:fs';
 import { join } from 'node:path';
 import type { HerdrKit } from './kit.ts';

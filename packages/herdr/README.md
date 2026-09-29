@@ -9,9 +9,9 @@ written), `own` runs the Herdr binary the app names in an app-owned state direct
 paths (start an agent, deliver a prompt with a receipt, watch blocked agents, exact closes); `call` and
 `subscribe` are typed pass-throughs to the complete socket API, and `cli()` reaches the full CLI.
 
-**Status: in development** — this is the H1 scaffold ([docs/runtime-kits.md](../../docs/runtime-kits.md) §11.3):
-types, signatures and words are frozen, behavior lands work package by work package. `HERDR_PROTOCOL` is a
-placeholder until the v0.9.1 schema snapshot is captured (H2).
+**Status:** pinned to Herdr v0.9.1 — the schema snapshot (`schema/herdr-api-0.9.1.json`,
+protocol 22) generates the typed surface (`src/generated/`, `HERDR_PROTOCOL` in `src/constants.ts`).
+See [docs/runtime-kits.md](../../docs/runtime-kits.md) §11.3 for the work packages.
 
 Herdr itself is not an npm dependency; the app installs it (see herdr.dev) and passes `bin`. The kit reads no
 environment variables, spawns processes with an explicit env only, and — like every byokit package — never
