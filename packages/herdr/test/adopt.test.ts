@@ -58,8 +58,10 @@ test('a paused terminal holds the stream back to a fixed backlog, and resume() d
   const size = 1024;
   const progress = join(dir, 'progress');
   const full = `${count}:${'x'.repeat(size)}`;
+  // Stream frames carry no resize stamping — only the echo frames do — so the byte math matches
+  // exactly what the child wrote while paused.
   const frameBytes = Buffer.byteLength(`${JSON.stringify({ type: 'terminal.frame', pane_id: 'w1:p1',
-    data: full, full, bytes: Buffer.byteLength(full), cols: 80, rows: 24 })}\n`);
+    data: full, full, bytes: Buffer.byteLength(full) })}\n`);
   s.pause();
   s.send(JSON.stringify({ type: 'fake.stream', count, size, progress }));
   const written = () => { try { return Number(readFileSync(progress, 'utf8')) || 0; } catch { return 0; } };
