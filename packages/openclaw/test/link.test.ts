@@ -197,6 +197,17 @@ test('oc.run streams text frames then end', async () => {
   assert.deepEqual(frames.at(-1), { type: 'end', end: { ok: true, text: 'fake: hello' } });
 });
 
+test('oc.run carries a picked account to the kit run', async () => {
+  const w = await world();
+  w.fake.handle('models.authStatus', () => ({ providers: [{ provider: 'openai', status: 'ok' }] }));
+  const a = await device(w, 'a');
+  const frames: unknown[] = [];
+  for await (const f of a.oc.run('hello', { model: 'openai/gpt-5.1' })) frames.push(f);
+  assert.deepEqual(frames.at(-1), { type: 'end', end: { ok: true, text: 'fake: hello' } });
+  const call = w.fake.calls.find((c) => c.method === 'agent')?.params as Record<string, unknown>;
+  assert.deepEqual([call.provider, call.model], ['openai', 'gpt-5.1']);
+});
+
 test('oc.events carries only the member’s gateway events plus approval frames', async () => {
   const w = await world();
   const a = await device(w, 'a');

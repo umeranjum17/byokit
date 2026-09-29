@@ -234,6 +234,7 @@ export interface RunSpec extends RunRef {
   message: string; system?: string;
   images?: { data: string; mimeType: string }[];
   thinking?: 'off' | 'low' | 'medium' | 'high';
+  model?: string;                                              // 'provider/model': the account this run calls and bills
   register?: boolean;                                          // default true: the bridge recognizes this run
 }
 export type RunEvent =
@@ -481,13 +482,25 @@ the view fails with `why: 'busy'`. Mapping to `SignInView.why`: setup-admission-
   unless `register === false`. Subscribe to Gateway `agent` events filtered by `runId`: `stream === 'assistant'` with
   string `data.text` → `{ type: 'text', text }`; `stream === 'tool'` with string `data.name` → `{ type: 'tool', name,
   phase: anything but `start` ends the pair (the engine marks completion `phase: 'result'`, O11) }`. Request `agent { agentId, sessionKey, message, extraSystemPrompt,
-  idempotencyKey: uuid, attachments?, thinking? }`, then `agent.wait { runId, timeoutMs: 3_600_000 }` (client timeout
+  idempotencyKey: uuid, attachments?, thinking?, provider?, model? }`, then `agent.wait { runId, timeoutMs: 3_600_000 }` (client timeout
   3_610_000). `status === 'ok'` → final text event and `{ ok: true, text: terminalReply.text ?? last }`;
   `stopReason === 'aborted'` → `{ ok: false, aborted: true }`; the engine's own abort receipt is
   `status: 'error', stopReason: 'rpc'` with the run's lifecycle end carrying `aborted: true` (O11), so a
   non-ok receipt on a lifecycle-flagged run also ends `{ ok: false, aborted: true }`;
   else `{ ok: false, ...classify(message) }`.
   Always unsubscribe and unregister.
+- `spec.model` (`provider/model`) picks the account a run is called and billed on. It is refused before any request
+  if it is not `provider/model` or carries an `@profile` pin. Before the run, `models.authStatus { agentId }` (once
+  more with `refresh: true` while it answers `unavailable`) must list the provider (lowercased, as the engine
+  normalizes ids; a bare string row, or a row with a profile `ok`/`expiring`/`static`, is signed in), else the run ends `{ ok: false, kind: 'signed-out' }` without calling the engine. The split
+  ref is sent as the `agent` request's per-run `provider`/`model` (pin `AgentParamsSchema`; needs `operator.admin`,
+  which the kit holds). An explicit provider/model is strict: the engine reports failure instead of falling back to
+  another provider or model, and nothing is persisted on the session (pin `docs/concepts/model-failover.md`
+  "explicit user selections ... are strict"). An `@profile` auth-profile pin is not offered: the pin only takes one
+  as a session preference (`sessions.patch` `model: 'p/m@id'`) that may rotate to another profile of the same
+  provider on rate limits, auth failures or timeouts (same doc), so which profile is billed cannot be guaranteed.
+  With one sign-in per provider per member, the provider names exactly one account.
+  Absent, the request is unchanged and the engine uses its own selection.
 - `classify(message)` (`src/classify.ts`) = Crewhouse `classifyText` mapped `rate_limit|overloaded → resting`,
   `signed_out → signed-out`, `not_included → plan`, `network → network`, `null → other`, with `until` carried.
 - `steer` → `sessions.steer { sessionKey, message }`; `abort` → `chat.abort { sessionKey }`.
@@ -1041,7 +1054,7 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 | `oc.signin.cancel` | `{ provider }` | `null` |
 | `oc.signout` | `{ provider }` | `null` |
 | `oc.sessions` *view* | — | `sessions.list` filtered to `agent:<member>:` keys |
-| `oc.run` (stream) | `{ sessionKey?, message }` | frames `RunEvent` then `{ type: 'end', end: RunEnd }`; key defaults to `agent:<member>:link:<uuid>` |
+| `oc.run` (stream) | `{ sessionKey?, message, model? }` | frames `RunEvent` then `{ type: 'end', end: RunEnd }`; key defaults to `agent:<member>:link:<uuid>` |
 | `oc.steer` | `{ sessionKey, text }` | `null` (key must be the member's) |
 | `oc.abort` | `{ sessionKey }` | `null` (key must be the member's) |
 | `oc.approvals` *view* | — | the member's `Approval[]` |
@@ -1081,7 +1094,7 @@ export function openclawDevice(link: DeviceLink): {
             paste(p: string, t: string): Promise<void>; cancel(p: string): Promise<void> };
   signOut(p: string): Promise<void>;                        // oc.signout
   sessions(): Promise<SessionRow[]>;                        // oc.sessions
-  run(message: string, o?: { sessionKey?: string }): AsyncIterable<RunEvent | { type: 'end'; end: RunEnd }>;
+  run(message: string, o?: { sessionKey?: string; model?: string }): AsyncIterable<RunEvent | { type: 'end'; end: RunEnd }>;
   steer(k: string, t: string): Promise<void>; abort(k: string): Promise<void>;
   approvals(): Promise<Approval[]>; decide(id: string, d: Decision): Promise<void>;
   events(): AsyncIterable<OpenClawLinkEvent>;

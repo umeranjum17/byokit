@@ -209,7 +209,8 @@ export function openclawLink(
     if (req.op === 'oc.run') {
       if (grant.role === 'view') throw refused();
       const args = isRecord(req.args) ? req.args : {};
-      if (typeof args.message !== 'string') throw new Error('oc.run needs { message, sessionKey? }');
+      if (typeof args.message !== 'string' || (args.model !== undefined && typeof args.model !== 'string'))
+        throw new Error('oc.run needs { message, sessionKey?, model? }');
       const sessionKey = args.sessionKey === undefined ? `agent:${member}:link:${randomUUID()}` : args.sessionKey;
       if (typeof sessionKey !== 'string' || !memberKey(member, sessionKey)) throw refused();
       // Ordered frames over the paced stream: each write waits for the last.
@@ -218,7 +219,8 @@ export function openclawLink(
         tail = tail.then(() => s.write(`${JSON.stringify(frame)}\n`)).catch(() => {});
       };
       try {
-        const end = await kit.run({ member, sessionKey, message: args.message }, (e) => send(e));
+        const end = await kit.run({ member, sessionKey, message: args.message,
+          ...(args.model === undefined ? {} : { model: args.model as string }) }, (e) => send(e));
         send({ type: 'end', end });
         await tail;
         s.end();
