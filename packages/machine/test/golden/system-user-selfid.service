@@ -1,0 +1,18 @@
+[Unit]
+Description=byokit helper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=appbot
+WorkingDirectory=/home/user/.users/appbot/helper
+Environment="PATH=/home/user/.users/appbot/.local/share/byokit/node/25.9.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="LANG=C.UTF-8"
+ExecStartPre=-"/home/user/.users/appbot/.local/share/byokit/node/25.9.0/bin/node" "/home/user/.users/appbot/helper/.byokit/boot.mjs"
+ExecStart="/home/user/.users/appbot/.local/share/byokit/node/25.9.0/bin/node" "host.mjs"
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

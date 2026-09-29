@@ -1,0 +1,15 @@
+[Unit]
+Description=byokit notes
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/alice/notes
+Environment="PATH=/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart="/opt/notes/run.sh"
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
