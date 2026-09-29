@@ -40,7 +40,7 @@ export type StartAgent = {
   kind: string; cwd: string; name?: string;             // name: /^[a-z][a-z0-9_-]{0,31}$/
   place: { workspace: 'new'; label?: string } | { tab: 'new'; workspaceId: string; label?: string }
        | { split: string; direction: 'right' | 'down' } | { pane: string };
-  worktree?: { branch: string; base?: string };
+  worktree?: { branch?: string; base?: string };
   args?: string[]; env?: Record<string, string>; timeoutMs?: number;   // default 60_000
 };
 export type PromptReceipt = { paneId: string; terminalId: string; revision: number; status: AgentStatus };

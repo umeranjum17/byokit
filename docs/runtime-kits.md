@@ -778,7 +778,7 @@ export type StartAgent = {
   kind: string; cwd: string; name?: string;             // name: /^[a-z][a-z0-9_-]{0,31}$/
   place: { workspace: 'new'; label?: string } | { tab: 'new'; workspaceId: string; label?: string }
        | { split: string; direction: 'right' | 'down' } | { pane: string };
-  worktree?: { branch: string; base?: string };
+  worktree?: { branch?: string; base?: string };
   args?: string[]; env?: Record<string, string>; timeoutMs?: number;   // default 60_000
 };
 export type PromptReceipt = { paneId: string; terminalId: string; revision: number; status: AgentStatus };
@@ -880,11 +880,15 @@ export class Blocked {
 
 ### 6.4 Helpers (`src/agents.ts`, `src/close.ts`, `src/approvals.ts`)
 
-- `startAgent`: `worktree` → `worktree.create { cwd, branch, base? }` and use its checkout as `cwd`. Placement:
+- `startAgent`: `worktree` → `worktree.create { cwd, focus: false, env?, branch?, base? }` and use its
+  checkout as `cwd` (`branch` optional; absent fields are omitted, never sent null). Placement:
   `workspace.create { cwd, label, focus: false }` → `result.root_pane.pane_id`; `tab.create { workspace_id, cwd,
   label, focus: false }` → `result.root_pane.pane_id`; `pane.split { pane_id, direction, focus: false }` →
-  `result.pane.pane_id`; `pane` → as given. Then `agent.start { pane_id, kind, name?, args?, env?, timeout_ms }`
-  with call timeout `timeoutMs + 5 s`. Returns `{ paneId, name }`. Exact param spellings come from the generated
+  `result.pane.pane_id`; `pane` → as given. The placement `env` rides every create/split call (the pinned
+  `agent.start` has no `env` param). Then `agent.start { pane_id, kind, name?, args?, timeout_ms }` with call
+  timeout `timeoutMs + 5 s`, retrying `agent_pane_busy`/`agent_pane_unavailable` inside a bounded 5 s budget.
+  When the start fails, the pane the kit created is rolled back with `pane.close` (a caller-owned `pane`
+  placement is never closed). Returns `{ paneId, name }`. Exact param spellings come from the generated
   types; where muxr and the schema disagree, the schema wins and H5 records it in `report.json`.
 - `prompt`: refuse unless the agent is promptable (`launch_pending !== true`, `interactive_ready !== false`, status in
   idle/working/blocked/done) → `PublicLinkError`-compatible error code `agent-not-ready`. Call `agent.prompt
@@ -935,7 +939,8 @@ sorted, deterministic; a test regenerates and compares.
 
 ### 6.8 Fake runtime contract (`./testing`, H6)
 
-- `startFakeHerdr({ dir, world? })` → `{ socketPath, bin, world, emit(event), setStatus(paneId, status), stop() }`:
+- `startFakeHerdr({ dir, world?, agentStartFaults? })` → `{ socketPath, bin, world, agentStartFaults,
+  emit(event), setStatus(paneId, status), stop() }`:
   NDJSON over a unix socket, one request per connection, `events.subscribe` held open with an ack
   `{ id, result: { type: 'subscribed' } }` then `{ event, data }` frames; a batch containing a filtered kind without
   its filter answers `{ id: '', error: { code: 'invalid_subscription', … } }`; unknown method →
@@ -946,6 +951,9 @@ sorted, deterministic; a test regenerates and compares.
   `server.agent_manifests`, `server.stop`, `events.subscribe`. `agent.prompt` returns the receipt shape of 6.4 and
   moves the agent `working` → `idle` after 50 ms, appending `fake <kind>: <text>` to its pane text; a prompt text
   `ask permission` moves it to `blocked` with detection text `Allow this? (y/n)` until keys `y`/`n` arrive.
+  `worktree.create` opens the linked checkout with its root tab and pane like the pinned server. Every placement
+  records its env on the fresh pane, where `pane.get` surfaces it. `agentStartFaults` is a live queue of
+  `agent.start` failures (consumed FIFO), so a test scripts busy-then-ok or a permanent failure.
 - `bin` is a Node shim script (shebang pins the running Node binary, 0700) answering `--version` (`herdr 0.9.1`), `api schema
   --json` (the snapshot), `server` (runs `startFakeHerdr` at `HERDR_SOCKET_PATH` until SIGTERM or `server.stop`),
   JSON CLI verbs by forwarding to the fake socket, and `terminal session control|observe` (emits one ready frame and

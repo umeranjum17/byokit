@@ -17,6 +17,7 @@ export type FakePane = {
   terminal_title_stripped: string;
   focused: boolean;
   tokens: Record<string, unknown>;
+  env?: Record<string, string>;          // placement env the pane was created with (K7), if any
   rect: FakeRect;
   text: string[];                      // visible screen text, one entry per line
 };
