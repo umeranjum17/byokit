@@ -203,3 +203,18 @@ test('agentKinds reads the manifests and installedAgentKinds checks the given di
     assert.deepEqual(kit.installedAgentKinds(['pi', 'plain', 'missing'], { path: [dir] }), ['pi']);
   }, 'h5-kinds');
 });
+
+test('installedAgentKinds counts a kind installed when only its alias is on the path', async () => {
+  await withKit(async (kit) => {
+    const dir = scratchDir('k9-bin');
+    writeFileSync(join(dir, 'cursor-agent'), '#!/bin/sh\n');
+    chmodSync(join(dir, 'cursor-agent'), 0o700);
+    // acceptance: kind `cursor` with `{ cursor: ['cursor-agent'] }` and only `cursor-agent` on the
+    // path returns `['cursor']`
+    assert.deepEqual(kit.installedAgentKinds(['cursor'], { path: [dir], aliases: { cursor: ['cursor-agent'] } }), ['cursor']);
+    // no aliases passed: the bare kind name still decides, as before
+    assert.deepEqual(kit.installedAgentKinds(['cursor'], { path: [dir] }), []);
+    // an alias listed under another kind does not leak across kinds
+    assert.deepEqual(kit.installedAgentKinds(['cursor', 'other'], { path: [dir], aliases: { other: ['cursor-agent'] } }), ['other']);
+  }, 'k9-aliases');
+});
