@@ -1,6 +1,7 @@
 // BK-0 acceptance: every frozen name exists — the `.` entry (5.2–5.3), `./testing` (5.5) and the internal seams
 // (5.4, BK-C1's protocol.ts) — and every stub names the work package that fills it (docs/capability-kits.md §9.3).
-import { test, todo } from 'node:test';
+// BK-C1: the protocol parsers, fake recorder and contract are built; only the BK-C2 bodies still throw.
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as kit from '../src/index.ts';
 import * as testing from '../src/testing/index.ts';
@@ -62,13 +63,24 @@ test('the internal seams are in place; bodies land with their work packages', ()
   assert.throws(() => runRecorder('/a/recorder', {}, ['capture', 'hello'], { timeoutMs: 10_000 }), /BK-C2/);
   assert.throws(() => streamRecorder('/a/recorder', {}, ['capture', 'record'], { guardMs: 1000 }), /BK-C2/);
   assert.throws(() => recordGuardMs(5), /BK-C2/);
-  for (const parse of [parseHello, parseEvent, parseMake, parseError]) assert.throws(() => parse('{}'), /BK-C1/);
-  assert.throws(() => toCaptureError({ code: 'internal', message: '', extra: {} }), /BK-C1/);
-  assert.throws(() => testing.fakeRecorder({ dir: '/tmp/fake' }), /BK-C1/);
-  assert.throws(() => testing.captureContract(async () => ({ capture: new kit.Capture({ bin: '/a', stateDir: '/s' }), source: 'x11:99', root: '/r' })), /BK-C1/);
+  // BK-C1 is built: the protocol parsers answer instead of throwing.
+  const hello = parseHello(JSON.stringify({
+    protocol: 1, recorder: { name: 'example-recorder', version: '1.0.0' }, sources: ['screen', 'x11'],
+    android: false, events: ['own', 'none'], planner: { available: true, needsKey: true },
+  }));
+  assert.equal(hello.protocol, 1);
+  assert.equal(parseEvent('{"event":"future-new"}'), null);
+  assert.equal(parseMake(JSON.stringify({
+    out: null, seconds: 1, beats: 1,
+    planner: { planned_tokens: 1, input_tokens: 0, usd: 0, failed: false }, warnings: [],
+  })).out, null);
+  assert.equal(parseError('{"event":"done","take":"/r/t","seconds":1,"warnings":[]}'), null);
+  assert.equal(toCaptureError({ code: 'internal', message: '', extra: {} }).code, 'failed');
+  assert.equal(typeof testing.fakeRecorder, 'function');
+  assert.equal(typeof testing.captureContract, 'function');
 });
 
 // BK-C1 commits schema/recorder-protocol-1.json and pins its sha256.
-todo('PROTOCOL_SCHEMA_SHA256 pins the committed protocol schema, not the placeholder', () => {
+test('PROTOCOL_SCHEMA_SHA256 pins the committed protocol schema, not the placeholder', () => {
   assert.match(PROTOCOL_SCHEMA_SHA256, /^[0-9a-f]{64}$/);
 });
