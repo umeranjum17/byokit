@@ -548,7 +548,7 @@ function cmdPublish(rest: string[]): void {
   const npmOf = new Map<string, string[] | null>();
   for (const p of pkgs) npmOf.set(p.dir, npmVersions(p.name));
   const pending = pkgs.filter((p) => !(npmOf.get(p.dir) ?? [])?.includes(p.version));
-  const canonical = ["link", "seal", "reach", "ui-core", "accounts", "decide", "relay", "openclaw", "herdr", "compose", "capture"];
+  const canonical = ["link", "seal", "reach", "ui-core", "accounts", "decide", "relay", "openclaw", "herdr", "compose", "capture", "overlay"];
   const rank = (d: string): number => {
     const i = canonical.indexOf(d);
     return i < 0 ? canonical.length : i;
@@ -675,7 +675,7 @@ function cmdLint(rest: string[]): void {
   const versionChanged: string[] = [];
   const pkgs = workspacePackages();
   for (const p of pkgs) {
-    if (names.some((n) => n.startsWith(`packages/${p.dir}/src/`))) srcChanged.push(p.dir);
+    if (names.some((n) => ["src", "android", "ios"].some((d) => n.startsWith(`packages/${p.dir}/${d}/`)))) srcChanged.push(p.dir);
     if (!names.some((n) => n === `packages/${p.dir}/package.json`)) continue;
     // A version change is a release commit's own bump, exempt from the bullet rule.
     try {

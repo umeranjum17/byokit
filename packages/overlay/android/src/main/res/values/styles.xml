@@ -1,0 +1,9 @@
+<resources>
+  <!-- PanelActivity: translucent over whatever app is open, no action bar (docs/capability-kits.md 7.2). -->
+  <style name="Theme.ByokitOverlay.Panel" parent="Theme.AppCompat.Light.NoActionBar">
+    <item name="android:windowIsTranslucent">true</item>
+    <item name="android:windowBackground">@android:color/transparent</item>
+    <item name="android:windowNoTitle">true</item>
+    <item name="android:backgroundDimEnabled">false</item>
+  </style>
+</resources>

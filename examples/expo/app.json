@@ -25,6 +25,7 @@
     },
     "plugins": [
       "expo-secure-store",
+      "@byokit/overlay",
       [
         "expo-build-properties",
         {
