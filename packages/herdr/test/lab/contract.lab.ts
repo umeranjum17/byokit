@@ -13,18 +13,30 @@
 // `src/testing/contract.ts` is listed here exactly once: agent cases run only when the
 // lab home has a signed-in agent CLI (else skipped — the schema has no `bash` custom
 // kind, verified below from `agent start --help`), fake-helper cases are skipped, and
-// H7 cases (link, device, notices, terminal over link) are skipped as `awaits H7` so
-// the run can be repeated after H7 lands. Results go to `schema/LAB.md`.
+// the H7 link/device/notices/terminal-over-link cases run over a real Host +
+// DeviceLink pair on loopback against the real server (only the live-agent sub-paths
+// stay skipped). Results go to `schema/LAB.md`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
+import {
+  DeviceLink, Host, keyPair, pairWithOffer,
+  type DeviceGrant, type Grant,
+} from '@byokit/link';
 import { HERDR_PROTOCOL, HERDR_VERSION } from '../../src/constants.ts';
 import { HerdrKit } from '../../src/kit.ts';
-import type { HerdrSnapshot, HerdrSubscription, HerdrTransport } from '../../src/types.ts';
+import { herdrLink, serve, type HerdrScope } from '../../src/link.ts';
+import { herdrDevice } from '../../src/device.ts';
+import { boxPublicKeyB64, decodeB64Url, openNotice, sealNotice } from '../../src/notices.ts';
+import type { BlockedAgent, HerdrSnapshot, HerdrSubscription, HerdrTransport } from '../../src/types.ts';
+import { words } from '../../src/words.ts';
 
 const ASSET_URL = 'https://github.com/herdrdev/herdr/releases/download/v0.9.1/herdr-linux-x86_64';
 const ASSET_SHA256 = '2a02fed16beb651ef006e1d43f048f652ca4dc58ad053cd2d44450563d5c54b7';
@@ -342,20 +354,229 @@ test('contract(lab): terminal observe echoes sent input', async (t) => {
   t.skip('the fake shim echoes sends; the real server emits NDJSON bytes frames (see schema/LAB.md)');
 });
 
-test('contract(lab): hd.link round-trips member ops', async (t) => {
-  t.skip('awaits H7');
+// ---- H7 over the real server: a real Host + DeviceLink pair on loopback ----
+const scopeOf = (grant: Grant): HerdrScope =>
+  (grant.meta as { scope?: HerdrScope } | undefined)?.scope ?? { workspaces: [] };
+const ALL: HerdrScope = { workspaces: 'all' };
+const NOT_ALLOWED = words('link.notAllowed');
+
+const untilFrames = async <T>(probe: () => T | Promise<T>, ok: (value: T) => boolean, ms = 8000): Promise<T> => {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const value = await probe();
+    if (ok(value)) return value;
+    assert.ok(Date.now() < deadline, 'timed out waiting for the live condition');
+    await settle(50);
+  }
+};
+
+type LinkBench = {
+  kit: HerdrKit;
+  pair: (role: 'control' | 'view', scope: HerdrScope, name: string) =>
+    Promise<{ hd: ReturnType<typeof herdrDevice>; link: DeviceLink }>;
+};
+
+async function withLinkBench(o: {
+  passThrough?: (method: string, grant: Grant) => boolean;
+  run: (b: LinkBench) => Promise<void>;
+}): Promise<void> {
+  const kit = ownKit();
+  const links: DeviceLink[] = [];
+  let saved: Grant[] = [];
+  let host: Host | undefined;
+  let server: ReturnType<typeof createServer> | undefined;
+  let wss: WebSocketServer | undefined;
+  const sockets = new Set<WsSocket>();
+  try {
+    await kit.start();
+    host = await Host.open({
+      keys: keyPair(), name: 'H9 lab bench',
+      grants: { load: () => saved, save: (g) => { saved = g; } },
+      confirm: () => true,
+      ...herdrLink(kit, { scopeOf, ...(o.passThrough ? { passThrough: o.passThrough } : {}) }),
+    });
+    server = createServer();
+    wss = new WebSocketServer({ server });
+    const h = host;
+    wss.on('connection', (ws) => { sockets.add(ws); h.accept(ws); });
+    await new Promise<void>((r) => server!.listen(0, '127.0.0.1', r));
+    const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}/link`;
+    const pair = async (role: 'control' | 'view', scope: HerdrScope, name: string) => {
+      const { text } = h.offer({ role, urls: [url], meta: { scope } });
+      const grant = await pairWithOffer(text, { name, onWords: () => {} });
+      const store = { g: grant as DeviceGrant | null, save(g: DeviceGrant) { this.g = g; }, clear() { this.g = null; } };
+      const link = new DeviceLink(grant, { store });
+      links.push(link);
+      await untilFrames(() => link.status, (s) => s === 'online');
+      return { hd: herdrDevice(link), link };
+    };
+    await o.run({ kit, pair });
+  } finally {
+    for (const link of links) link.stop();
+    host?.close();
+    for (const s of sockets) s.terminate();
+    if (wss) await new Promise<void>((r) => wss!.close(() => r()));
+    if (server) await new Promise<void>((r) => server!.close(() => r()));
+    await kit.stop().catch(() => {});
+  }
+}
+
+async function livePane(hd: ReturnType<typeof herdrDevice>): Promise<string> {
+  const tree = await untilFrames(() => hd.tree(), (t) => t.workspaces.length === 1);
+  const paneId = tree.workspaces[0]?.tabs[0]?.panes[0]?.id;
+  assert.equal(typeof paneId, 'string');
+  return paneId!;
+}
+
+test('contract(lab): hd.* ops round-trip over loopback against the real server', async () => {
+  await withLinkBench({ run: async ({ kit, pair }) => {
+    const { hd } = await pair('control', ALL, 'desk');
+    const state = await hd.state();
+    assert.equal(state.state.phase, 'ready');
+    assert.equal(state.words, 'Connected to Herdr.');
+    await kit.call('workspace.create', { cwd: cwdA, focus: false });
+    const paneId = await livePane(hd);
+    const read = await hd.read(paneId);
+    assert.equal(typeof read.text, 'string');
+    assert.equal(typeof read.truncated, 'boolean');
+    assert.deepEqual(await hd.blocked(), []);
+    // Pass-through is denied by default (D8).
+    await assert.rejects(hd.call('ping', {}), (e: Error) => e.message === NOT_ALLOWED);
+    // The events stream opens with a snapshot first.
+    const frames: unknown[] = [];
+    for await (const frame of hd.events()) {
+      frames.push(frame);
+      break;
+    }
+    assert.equal((frames[0] as { type: string }).type, 'snapshot');
+  } });
 });
 
-test('contract(lab): hd.device client over the link', async (t) => {
-  t.skip('awaits H7');
+test('contract(lab): hd.call opens when the pass-through predicate allows it', async () => {
+  await withLinkBench({
+    passThrough: (method) => method === 'ping',
+    run: async ({ pair }) => {
+      const { hd } = await pair('control', ALL, 'desk');
+      // The real ping carries more fields than the fake's; the pass-through returns both verbatim.
+      const pong = (await hd.call('ping', {})) as { protocol?: number; version?: string };
+      assert.equal(pong.protocol, HERDR_PROTOCOL);
+      assert.equal(pong.version, HERDR_VERSION);
+      await assert.rejects(hd.call('session.snapshot', {}), (e: Error) => e.message === NOT_ALLOWED);
+    },
+  });
 });
 
-test('contract(lab): sealed blocked-agent notices', async (t) => {
-  t.skip('awaits H7');
+test('contract(lab): view grants and scope are enforced on the real server', async () => {
+  await withLinkBench({ run: async ({ kit, pair }) => {
+    await kit.call('workspace.create', { cwd: cwdA, label: 'a', focus: false });
+    await kit.call('workspace.create', { cwd: cwdB, label: 'b', focus: false });
+    const ids = await untilFrames(() => kit.snapshot().workspaces.map((w) => w.id), (got) => got.length === 2);
+    const paneIn = async (workspaceId: string): Promise<string> => {
+      const ws = (await untilFrames(() => kit.snapshot().workspaces.find((w) => w.id === workspaceId),
+        (w) => w?.tabs[0]?.panes[0] !== undefined))!;
+      return ws.tabs[0].panes[0].id;
+    };
+    const narrow = await pair('control', { workspaces: [ids[0]] }, 'narrow');
+    const view = await pair('view', ALL, 'phone');
+    assert.deepEqual((await narrow.hd.tree()).workspaces.map((w) => w.id), [ids[0]]);
+    await assert.rejects(narrow.hd.read(await paneIn(ids[1])), (e: Error) => e.message === NOT_ALLOWED);
+    assert.equal((await view.hd.state()).state.phase, 'ready');
+    assert.equal(typeof (await view.hd.read(await paneIn(ids[0]))).text, 'string');
+    assert.deepEqual(await view.hd.blocked(), []);
+    await assert.rejects(view.hd.prompt(await paneIn(ids[0]), 'hi'), (e: Error) => e.message === NOT_ALLOWED);
+    await assert.rejects(view.hd.keys(await paneIn(ids[0]), ['y']), (e: Error) => e.message === NOT_ALLOWED);
+    await assert.rejects(view.hd.answer(await paneIn(ids[0]), ['y'], 1), (e: Error) => e.message === NOT_ALLOWED);
+    await assert.rejects(view.hd.close({ pane: await paneIn(ids[0]) }), (e: Error) => e.message === NOT_ALLOWED);
+    await assert.rejects(view.hd.startAgent({ kind: 'pi', cwd: cwdA, place: { workspace: 'new' } }),
+      (e: Error) => e.message === NOT_ALLOWED);
+    await assert.rejects(view.hd.registerNotices(new Uint8Array(32).fill(1)), (e: Error) => e.message === NOT_ALLOWED);
+    await assert.rejects(view.hd.call('ping', {}), (e: Error) => e.message === NOT_ALLOWED);
+    // A viewer still opens an observe terminal on a real pane.
+    const t = view.hd.terminal(await paneIn(ids[0]), { mode: 'control', cols: 80, rows: 24 });
+    const lines: string[] = [];
+    t.onFrame((line) => { lines.push(line); });
+    const [first] = await untilFrames(() => lines, (got) => got.length > 0);
+    assert.ok(first.length > 0, 'the observe terminal yields frames');
+    t.close();
+  } });
 });
 
-test('contract(lab): hd.terminal stream over the link', async (t) => {
-  t.skip('awaits H7');
+test('contract(lab): hd.terminal streams a real pane over the link', async () => {
+  await withLinkBench({ run: async ({ kit, pair }) => {
+    const { hd } = await pair('control', ALL, 'desk');
+    await kit.call('workspace.create', { cwd: cwdA, focus: false });
+    const t = hd.terminal(await livePane(hd), { mode: 'observe', cols: 80, rows: 24 });
+    const lines: string[] = [];
+    t.onFrame((line) => { lines.push(line); });
+    const [first] = await untilFrames(() => lines, (got) => got.length > 0);
+    // The real server emits NDJSON bytes frames (not the fake shim's JSON ready/echo).
+    assert.ok(first.length > 0, 'the terminal yields frames');
+    t.send('echo lab-h7');
+    await settle(500);
+    t.close();
+  } });
+});
+
+test('contract(lab): sealed notices round-trip without a live agent', async () => {
+  await withLinkBench({ run: async ({ pair }) => {
+    const { hd } = await pair('control', ALL, 'desk');
+    await hd.registerNotices(new Uint8Array(32).fill(7));
+    const seed = new Uint8Array(32).fill(7);
+    const box = decodeB64Url(boxPublicKeyB64(seed));
+    assert.ok(box instanceof Uint8Array);
+    const blocked: BlockedAgent = {
+      paneId: 'w1:p9', workspaceId: 'w1', tabId: 'w1:t9', kind: 'pi',
+      revision: 4, prompt: 'Allow this? (y/n)', since: Date.now(),
+    };
+    const sealed = sealNotice(blocked, box);
+    assert.equal(sealed.v, 1);
+    assert.equal(typeof sealed.sealed, 'string');
+    const opened = openNotice(sealed as unknown as Record<string, unknown>, seed);
+    assert.equal(opened?.paneId, 'w1:p9');
+    assert.equal(opened?.workspaceId, 'w1');
+    assert.equal(opened?.revision, 4);
+    assert.equal(openNotice(sealed as unknown as Record<string, unknown>, new Uint8Array(32).fill(9)), null);
+    assert.equal(openNotice({ v: 1 }, seed), null);
+  } });
+});
+
+test('contract(lab): a live blocked-agent push over the relay', async (t) => {
+  t.skip('needs a live blocked agent; no signed-in agent CLI in the lab home');
+});
+
+test('contract(lab): serve() binds and pairs over loopback', async () => {
+  const kit = ownKit();
+  let saved: Grant[] = [];
+  const host = await Host.open({
+    keys: keyPair(), name: 'H9 lab serve',
+    grants: { load: () => saved, save: (g) => { saved = g; } },
+    confirm: () => true,
+    ...herdrLink(kit, { scopeOf: () => ALL }),
+  });
+  let served: Awaited<ReturnType<typeof serve>> | undefined;
+  let link: DeviceLink | undefined;
+  try {
+    await kit.start();
+    const probe = createServer();
+    await new Promise<void>((r) => probe.listen(0, '127.0.0.1', r));
+    const port = (probe.address() as AddressInfo).port;
+    await new Promise<void>((r) => probe.close(() => r()));
+    served = await serve({ host, port, via: 'lan' });
+    assert.ok(served.urls.length > 0 && served.urls.every((u) => u.endsWith(`:${port}`)));
+    assert.equal(await fetch(`http://127.0.0.1:${port}/`).then((r) => r.status), 404);
+    const { text } = host.offer({ role: 'control',
+      urls: [`ws://127.0.0.1:${port}/link`, ...served.urls], meta: { scope: ALL } });
+    const grant = await pairWithOffer(text, { name: 'LAN phone', onWords: () => {} });
+    const store = { g: grant as DeviceGrant | null, save(g: DeviceGrant) { this.g = g; }, clear() { this.g = null; } };
+    link = new DeviceLink(grant, { store });
+    await untilFrames(() => link!.status, (s) => s === 'online');
+    assert.equal((await herdrDevice(link).state()).words, 'Connected to Herdr.');
+  } finally {
+    link?.stop();
+    host.close();
+    await served?.close();
+    await kit.stop().catch(() => {});
+  }
 });
 
 test('lab: teardown removes the task server and temp dirs', async () => {

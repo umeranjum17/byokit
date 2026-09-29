@@ -1,8 +1,10 @@
 # H9 lab contract run — @byokit/herdr against real Herdr v0.9.1
 
-Run: 2026-09-29T06:34Z (lab file `packages/herdr/test/lab/contract.lab.ts`,
+Run: 2026-09-29 (lab file `packages/herdr/test/lab/contract.lab.ts`,
 `node --test` with a task-owned HOME; not matched by `npm test`'s glob).
-Result: **11 pass, 0 fail, 13 skipped** (every skip carries its reason below).
+Result: **17 pass, 0 fail, 10 skipped** (every skip carries its reason below).
+Re-run after H7 (2026-09-29) covers link/device/notices/terminal-over-link on the
+real server; only live-agent sub-paths stay skipped.
 
 ## Pinned release
 
@@ -63,13 +65,17 @@ close guard` (skip), `the cli answers --version on the real binary`,
 (skip: the fake shim echoes sends; the real server emits NDJSON `bytes` frames and no
 echo — follow-up for the fake owner, no kit check loosened).
 
-## H7 placeholders (repeat after H7 lands)
+## H7 over the real server (real Host + DeviceLink pair on loopback)
 
-`hd.link round-trips member ops`, `hd.device client over the link`,
-`sealed blocked-agent notices`, `hd.terminal stream over the link` — all skipped with
-reason `awaits H7` (`src/link.ts`, `src/device.ts`, `src/notices.ts` are still H7 stubs
-on main). Re-run this file after H7 merges; the skipped agent cases additionally need
-a signed-in agent CLI in the lab home (the schema offers no unsigned kind).
+| Case | Verdict | Reason / note |
+|---|---|---|
+| hd.* ops round-trip against the real server | pass | Control grant, full scope: `hd.state` ready + words, live `hd.tree`, `hd.read`, empty `hd.blocked`, `hd.call` denied by default, `hd.events` opens with a `snapshot` frame. |
+| hd.call opens when the pass-through predicate allows it | pass | `ping` allowed returns the real pong (`protocol`, `version`; the real pong also carries `type`/`capabilities` the fake omits — the pass-through returns both verbatim). |
+| view grants and scope are enforced on the real server | pass | Narrow scope sees one workspace; reads outside scope refused; view grant reads/observes but cannot prompt, keys, answer, close, start, register notices or call; a viewer still opens an observe terminal on a real pane. |
+| hd.terminal streams a real pane over the link | pass | First frame non-empty, send, clean close. Real frames are NDJSON `bytes` (not the fake shim's JSON ready/echo) — same follow-up as the echo skip. |
+| sealed notices round-trip without a live agent | pass | `registerNotices` op, `sealNotice`/`openNotice` round-trip, wrong seed and garbage yield `null`. |
+| a live blocked-agent push over the relay | skip | Needs a live blocked agent; no signed-in agent CLI in the lab home. |
+| serve() binds and pairs over loopback | pass | LAN serve binds the probed port, plain HTTP 404s, loopback pairing reaches `hd.state`. |
 
 ## Fake/real disagreement fixed in this PR
 
@@ -90,4 +96,5 @@ Provision a `--herdr-lab` session, then from the worktree with a task-owned HOME
 HOME=<task-home> node --test packages/herdr/test/lab/contract.lab.ts
 ```
 
-Teardown must verify the fleet tripwire identical afterwards.
+Teardown must verify the fleet tripwire identical afterwards. The agent cases additionally
+need a signed-in agent CLI in the lab home (the schema offers no unsigned kind).
