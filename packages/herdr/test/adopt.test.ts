@@ -2,6 +2,7 @@
 // paused so a slow consumer holds the Herdr child back instead of buffering in the host. Against the kit fake.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -59,19 +60,39 @@ test('a paused terminal holds the stream back to a fixed backlog, and resume() d
   const frameBytes = Buffer.byteLength(`${JSON.stringify({ type: 'terminal.frame', pane_id: 'w1:p1', data: `${count}:${'x'.repeat(size)}` })}\n`);
   s.pause();
   s.send(JSON.stringify({ type: 'fake.stream', count, size, progress }));
+  const written = () => { try { return Number(readFileSync(progress, 'utf8')) || 0; } catch { return 0; } };
+  await until(() => written() > 0, 'the stream to start');
   await new Promise((r) => setTimeout(r, 1000));
   assert.equal(data.length, 0, 'no frame is delivered while paused');
-  const written = Number(await readFile(progress, 'utf8'));
-  assert.ok(written < count, `the child is held back (${written}/${count} frames written)`);
+  const heldAt = written();   // the child is blocked on the pipe by now, so the file is stable
+  assert.ok(heldAt > 0, 'the child wrote before blocking');
+  assert.ok(heldAt < count, `the child is held back (${heldAt}/${count} frames written)`);
   // What the child wrote sits in the kernel pipe (64 KiB) or was read by the kit before it stopped: Node's stream
   // highWaterMark (64 KiB) plus one in-flight read (64 KiB). A fixed ceiling, however long the stream runs.
-  assert.ok(written * frameBytes <= 4 * 64 * 1024, `backlog ${written * frameBytes} bytes exceeds 256 KiB`);
+  assert.ok(heldAt * frameBytes <= 4 * 64 * 1024, `backlog ${heldAt * frameBytes} bytes exceeds 256 KiB`);
 
   s.resume();
   await until(() => data.length === count, `${count} frames`);
   assert.deepEqual(data.map((d) => Number(d.slice(0, d.indexOf(':')))), Array.from({ length: count }, (_, i) => i));
   s.close();
   await s.exited;
+});
+
+test('pause()/resume() inside a handler keeps every handler in frame order', async (t) => {
+  const bin = writeBinShim({ dir: join(dir, 'fake-nest'), socketPath: join(dir, 'herdr.sock') });
+  const s = new HerdrKit({ mode: 'adopt', bin, socketPath: join(dir, 'herdr.sock') })
+    .terminal('w1:p1', { mode: 'observe', cols: 80, rows: 24 });
+  t.after(() => s.close());
+  const seen: number[] = [];
+  s.onFrame(() => { s.pause(); s.resume(); });
+  s.onFrame((line) => {
+    const frame = JSON.parse(line) as { type: string; data?: string };
+    if (frame.type === 'terminal.frame') seen.push(Number(frame.data!.slice(0, frame.data!.indexOf(':'))));
+  });
+  await s.ready;
+  s.send(JSON.stringify({ type: 'fake.stream', count: 2000, size: 64 }));
+  await until(() => seen.length === 2000, '2000 frames');
+  assert.deepEqual(seen, Array.from({ length: 2000 }, (_, i) => i));
 });
 
 test('close() while paused still settles exited', async () => {

@@ -48,13 +48,19 @@ export function openTerminal(bin: string, env: Record<string, string>, paneId: s
   });
 
   // While paused, lines already read stay in `pending` and stdout stops reading, so the pipe fills and Herdr blocks.
+  // A resume() from inside a handler must not deliver the next frame before this one reaches every handler.
+  let delivering = false;
   const deliver = () => {
-    for (let i = pending.indexOf(0x0a); i !== -1 && !paused; i = pending.indexOf(0x0a)) {
-      const line = pending.subarray(0, i).toString('utf8');   // bytes between newlines, unmodified
-      pending = pending.subarray(i + 1);
-      if (!firstFrame) { firstFrame = true; readyResolve?.(); }
-      for (const fn of frames) fn(line);
-    }
+    if (delivering) return;
+    delivering = true;
+    try {
+      for (let i = pending.indexOf(0x0a); i !== -1 && !paused; i = pending.indexOf(0x0a)) {
+        const line = pending.subarray(0, i).toString('utf8');   // bytes between newlines, unmodified
+        pending = pending.subarray(i + 1);
+        if (!firstFrame) { firstFrame = true; readyResolve?.(); }
+        for (const fn of frames) fn(line);
+      }
+    } finally { delivering = false; }
   };
   child.stdout.on('data', (chunk: Buffer) => {
     pending = Buffer.concat([pending, chunk]);
