@@ -1,5 +1,7 @@
 # Changelog
 
+## Unreleased
+
 ## 0.3.0 (2026-09-30)
 
 - FIX: pairing links parse on React Native, where `URL.canParse` is missing and `hostname` is empty for `ws://`:
