@@ -31,8 +31,8 @@ runtime-tested here because no simulator is available.
   installs, the Herdr binary and socket the app passes); byokit tests use fakes and never a person's Herdr. Capability
   kits ([docs/capability-kits.md](docs/capability-kits.md)) have their own carve-out: `@byokit/compose` may load only
   its exactly pinned public engine package, and `@byokit/capture` may spawn only a recorder implementing recorder
-  protocol v1 that the app passes by absolute path; their `npm test` runs use fakes only. `@byokit/overlay` runs only
-  its own native code inside the app. `@byokit/machine` ([docs/machine-kit.md](docs/machine-kit.md)) spawns only the
+  protocol v1 that the app passes by absolute path; their `npm test` runs use fakes only. `@byokit/overlay` and
+  `@byokit/status` run only their own native code inside the app. `@byokit/machine` ([docs/machine-kit.md](docs/machine-kit.md)) spawns only the
   `ssh` binary the app passes by absolute path and the `ssh-keyscan` beside it, with the key path the app passes and a
   kit-owned config, and holds only the provider keys the app's store gives it and the scoped keys it mints for that
   app. Its tests use a loopback fake and a fake `ssh`. `@byokit/keystore` spawns only the OS keyring CLIs by absolute

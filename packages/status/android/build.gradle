@@ -1,0 +1,22 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'io.github.umeranjum17.byokit'
+version = '0.1.0'
+
+android {
+  namespace "io.github.umeranjum17.byokit.status"
+  defaultConfig {
+    minSdkVersion 24
+    versionCode 1
+    versionName "0.1.0"
+  }
+}
+
+dependencies {
+  // NotificationCompat's promotion request and short critical text arrived in 1.17.0.
+  implementation 'androidx.core:core:1.17.0'
+  testImplementation 'junit:junit:4.13.2'
+}
