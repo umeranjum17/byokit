@@ -215,7 +215,7 @@ export type MachineErrorCode =
   | 'confirm'             // remove(confirm) with confirm !== ref.id
   | 'bad-recipe'          // 8.1 check failed; message names the rule
   | 'not-linux'           // uname, systemd or arch check failed (8.3)
-  | 'linger'              // loginctl enable-linger refused (8.3 step 8); extra.command holds the line to run
+  | 'linger'              // loginctl enable-linger refused (8.3 step 9); extra.command holds the line to run
   | 'host-key'            // SSH host key unconfirmed or changed (7.2)
   | 'unauthorized'        // provider answered 401/403
   | 'balance'             // provider says the account's balance is spent (10)
@@ -268,7 +268,7 @@ and they are frozen with it.
 export type HostRecipe = { /* 4.1 fields */
   node: { version: string; sha256: Record<'linux-x64' | 'linux-arm64', string>
           range?: string }                                // G5a: the machine's node is used only if it satisfies this; default '>=<version>'
-  installRoot?: readonly (readonly string[])[]           // G5b: argv lists run as root before `install`, and again before `update`; must be idempotent
+  installRoot?: readonly (readonly string[])[]           // G5b: argv lists run as root before `install` and `update` when the 8.3 step 3 marker is missing; must be idempotent
   user?: string                                          // G7: run as this no-sudo user, created by the kit, home inside the machine user's home
 }
 export type AsleepWhy = 'you' | 'out-of-credit' | 'trial-limit' | 'provider' | 'idle'      // G3
@@ -413,7 +413,7 @@ recovery. It is the only write `Machine` offers; anything else goes in the recip
 | `snapshot` | `POST /named-snapshots` `{sandboxId, name}`, then poll `GET /named-snapshots/{name}` every 2 s until ready | The kit names copies `byokit-<ref.name>-<name>`. At most 10 exist per account; an 11th rejects `provider`. |
 | `fork` | `POST /sandboxes/{id}/fork` `{ttlSeconds: null}` + `Idempotency-Key` | A fork does not inherit the source's TTL: without `ttlSeconds: null` it stops after 1 h. A fork of a no-env source is always no-env, so no `noEnv` field. |
 | `remove` | `DELETE /sandboxes/{id}` + the provider's delete-confirmation header set to `<id>` (its name is in the API document, 15.1); poll `GET /deletion-operations/{op}` every 2 s until done; then `GET /named-snapshots` and `DELETE /named-snapshots/{name}` for every name starting `byokit-<ref.name>-` | Named snapshots survive a sandbox delete; without the second step the sign-ins inside them outlive it. A 404 on the sandbox counts as already deleted and the snapshot step still runs. |
-| `exec` | `POST /sandboxes/{id}/commands` `{command, timeoutSeconds, detached}`, poll `GET /sandboxes/{id}/commands/{pid}` every 1 s | 6.4. |
+| `exec` | `POST /sandboxes/{id}/commands` `{command, timeoutSeconds, detached}`, and for a detached command poll `GET /sandboxes/{id}/commands/{pid}` every 1 s; a non-detached POST's response carries stdout, stderr and the exit code (field names per 15.1) | 6.4. |
 | `write` | `PUT /sandboxes/{id}/files` | Only paths under `/home/user/` or `/tmp/`; anything else rejects `bad-recipe` before any request. After the PUT, `exec` `chmod <mode, octal> <path>`. Only 6.4's `input` uses it; `Machine` writes files through `exec` with `input` (8.3), so root never reads a staged path. |
 | `url` | `POST /sandboxes/{id}/host` `{port, public: true}` → the returned HTTPS URL | The app's process must bind `0.0.0.0`. Hosting also opens the machine firewall for that port. Re-hosting the same port returns the same URL. |
 | `usage` | `GET /sandboxes/{id}/usage?since=<since>` → `{seconds, dollars, running}`; then `GET /limits` for the balance | `hours = seconds / 3600`, `amount = dollars`, `currency: 'USD'`, `from = since`, `to` = the request time (ISO). A balance at or below 0 rejects `balance`. |
@@ -698,7 +698,7 @@ WantedBy=multi-user.target
 - `update(recipe)`: 8.3 steps 1-4 (root steps rerun only when the marker is missing, so `installRoot` must be
   idempotent: on the sandbox API `/var` does not survive sleep); the two `mkdir`s of 8.3 step 5, then each `update`
   argv in workDir; 8.3 steps 6 and 7; re-render the unit and rewrite it only if its bytes changed (then `daemon-reload`); then
-  `systemctl [--user] restart byokit-<name>.service`. A recipe with no `update` only restarts.
+  `systemctl [--user] restart byokit-<name>.service`. A recipe with no `update` runs the same sequence with no update argv, then restarts.
 - `host()`: `systemctl [--user] show byokit-<ref.name>.service -p LoadState,ActiveState,SubState,NRestarts`:
 
   | Reading | `HostState` |
@@ -788,9 +788,10 @@ Every cost sentence says it is the person's own bill from `{label}`, not from th
   - **Provider with `usage`**: `usage(ref, <first instant of the current UTC month>)`. `perMonth` is the amount so
     far projected over the month (`amount / elapsedHours × 730`, elapsed from `from` to `to`, at least 1 h), raised to
     the largest `planFloorPerMonth` in `prices()` (no floor when none has one). `floor` is that largest value, or
-    `null`. `basis: 'usage'`, `checked` = the date of `to`, `words`:
-    `cost.sandbox`. A `balance` rejection resolves instead a `Cost` with `perMonth` from the same floor rule,
-    `basis: 'usage'`, and `words: cost.balance`.
+    `null`. `currency` is `usage.currency`. `basis: 'usage'`, `checked` = the date of `to`, `words`:
+    `cost.sandbox`. A `balance` rejection resolves instead a `Cost` with `perMonth` = the largest
+    `planFloorPerMonth` in `prices()` or 0, `floor` = that value or `null`, `currency` from that row (else
+    `prices()[0]`, else `'USD'`), `checked` = today (`YYYY-MM-DD`), `basis: 'usage'` and `words: cost.balance`.
   - **Otherwise**: `record.monthlyEntered` if set, else `monthly.perMonthCap` from `prices()[0]`; `basis: 'entered'`,
     `currency` from `prices()[0]` (`'USD'` when there is no row), `floor: null`, `checked` from the row or today,
     `words: cost.vm`.
@@ -1004,7 +1005,8 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
   4. `remove` with a wrong confirm rejects `confirm` and keeps the ref; with the right one clears it (skipped when the
      provider has no `remove`);
   5. `install` of a valid recipe ends with `host()` `running` and one unit whose bytes equal `renderUnit`'s;
-  6. each 8.1 pure rule rejects `bad-recipe` before any provider call;
+  6. after `create`, each 8.1 pure rule rejects `bad-recipe` with no provider call other than `account()` (no `exec`
+     or `write`);
   7. `update` restarts the unit;
   8. `logs(10000)` asks for at most 500 lines;
   9. `wake` on an `on` machine calls `status` and never `provider.wake` (skipped when the provider has no `wake`);
@@ -1018,9 +1020,9 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
   15. `plan()` resolves the provider's plan, or `null` when the provider has none;
   16. (*fake*) `why()` is `null` when on, and each 5.7 rule in order when asleep;
   17. `deliver` writes one file at mode 0600 under `<workDir>/.byokit/inbox/`, and rejects a bad name or 64 KB + 1;
-  18. (*fake*) without root access, `installRoot` rejects `needs-root` with every line and the marker lines in
-      `extra.command`, `user` rejects `needs-root` with none, and neither ran any other step; with the marker present,
-      `install` runs no root step;
+  18. (*fake*) on `fakeProvider({ id: 'ssh-vm', root: false })`, built by the case itself, without root access, `installRoot` rejects `needs-root` with every line and the marker lines in
+      `extra.command`, `user` rejects `needs-root` with none, and neither ran any other step; on `fakeProvider({ id: 'ssh-vm' })` with the
+      marker present, `install` runs no root step;
   19. `install` writes `installed.json` with the ref's id;
   20. (*fake*) `sleep` stops the unit before `provider.sleep`, and succeeds when the unit is missing.
 
@@ -1132,7 +1134,8 @@ the `installs` switch on the sandbox bench.
     - the linger refusal rejects `linger`, and `words('host.linger', …)` is a filled sentence;
     - `deliver` lands at `<workDir>/.byokit/inbox/<file>` owned by the run user at 0600; with `inbox` replaced by a
       symlink to a root-owned directory, nothing is written there;
-    - `host()` maps every 8.5 row; `update` rewrites the unit only when its bytes changed; `host`, `logs` and `sleep`
+    - 8.3 step 7 (`boot.mjs`) is M8's: no adapter has `selfId` before M8, so M3 leaves the step as a no-op.
+  - `host()` maps every 8.5 row; `update` rewrites the unit only when its bytes changed; `host`, `logs` and `sleep`
       pick the unit kind from the `test -e` probe.
 
 **M4 — sandbox API adapter** · Muse · deps: M1
@@ -1325,7 +1328,7 @@ against this kit and listed eleven gaps. Each one is either adopted here or left
 | G2 | Plan and trial facts; a trial machine can't stay on | **Adopted**: `Provider.plan?`, `Machine.plan()`; during a trial the adapter asks for the 2-hour maximum instead of always-on, and words explain it | 4.3, 5.7, 6.1 Trial, 12 `plan.trial`, M4, M6 |
 | G3 | Why the machine is asleep | **Adopted**: `AsleepWhy`, `Provider.why?`, `Machine.why()` with fallbacks, `asleep.*` words | 4.3, 5.7, 6.1, 12, M4 |
 | G4 | Detect a copied machine (fork) at boot | **Adopted**: `installed.json` at install; `boot.json` with `copy` written each boot once M6 finds how a machine reads its own id. Refusing to run while a copy is the **app's** decision and words | 4.3 `selfId`, 8.7, M3, M6, M8 |
-| G5 | Node version range; root install steps | **Adopted**: `node.range`, `installRoot` (re-run on update), `needs-root` with the lines to run and `host.needsRoot` | 4.3, 8.1, 8.3, 8.5, 8.6, M1, M3 |
+| G5 | Node version range; root install steps | **Adopted**: `node.range`, `installRoot` (re-run on update when its marker is missing), `needs-root` with the lines to run and `host.needsRoot` | 4.3, 8.1, 8.3, 8.5, 8.6, M1, M3 |
 | G6 | Two processes (host and relay) | **Stays in the app**, rule stated: one unit runs one `run` argv; an app wrapper starts both and exits when either dies, and systemd restarts and stops the whole group. A multi-process `run` would make the kit a process manager | 8.1, M3 README |
 | G7 | A no-sudo run user | **Adopted**: optional `HostRecipe.user`, created by the kit with its home inside the machine user's home so it is still copied; system unit with `User=` on both adapters. It narrows 13.1 rule 11 for apps that set it | 4.3, 8.1, 8.2, 8.3, 8.6, 13.1 rule 11, M3 |
 | G8 | Cloud-init text for phone-only setup on a plain VM | **Not in v1**: the SSH VM path is the technical option and runs from a desktop app; a text the person pastes into a provider's setup form is a new setup path with no proof yet. Revisit after M6 if a phone-only VM user appears | none |
