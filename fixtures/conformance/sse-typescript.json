@@ -1,5 +1,5 @@
 {
-  "rule": "TypeScript-only: a successful stream requires response.completed, whose output_text overrides partial deltas. SSE error codes usage_not_included and rate_limit_exceeded preserve their kinds even when messages are generic.",
+  "rule": "TypeScript-only: a successful stream requires response.completed, whose output_text overrides partial deltas. SSE error codes usage_not_included and rate_limit_exceeded preserve their kinds even when messages are generic. A stream may carry tool calls: response.function_call_arguments.delta deltas accumulate per output item, response.output_item.done carries each finished item, and response.completed.response.output is the authoritative item list. Items without output_text contribute no text.",
   "cases": [
     {
       "stream": "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"usage_not_included\",\"message\":\"Not included\"}}}\n\n",
@@ -17,6 +17,10 @@
       "stream": "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Wrong\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"content\":[{\"type\":\"output_text\",\"text\":\"Hello.\"}]}]}}\n\n",
       "text": "Hello.",
       "deltas": "Wrong"
+    },
+    {
+      "stream": "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"get_time\",\"arguments\":\"\"}}\n\nevent: response.function_call_arguments.delta\ndata: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"item_id\":\"call_1\",\"delta\":\"{\\\"zone\\\":\\\"UTC\\\"}\"}\n\nevent: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"get_time\",\"arguments\":\"{\\\"zone\\\":\\\"UTC\\\"}\"}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"get_time\",\"arguments\":\"{\\\"zone\\\":\\\"UTC\\\"}\"}]}}\n\ndata: [DONE]\n\n",
+      "text": ""
     }
   ]
 }

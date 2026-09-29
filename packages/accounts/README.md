@@ -119,7 +119,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | `memoryStore`, `fileStore`, `secureStore`, `browserStore`, `recordStore` | One store per person: in memory, a 0600 file (Node entry only), Keychain/Keystore, IndexedDB, or your own load and save |
 | `offered`, `provider`, `PROVIDERS` | The catalogue: each provider's billing, terms status, reason and source |
 | `billingWords`, `say`, `WORDS`, `signInError`, `failure`, `clock`, `callbackPage` | The plain sentences every app shows the same way (`words.json`), a time in words, and the page a browser sees after a sign-in |
-| `respond`, `ResponseError`, `sseReader`, `limitResponse` | Ask ChatGPT's answers endpoint with a sign-in; the error with the words to show and the kind acted on |
+| `respond`, `ResponseError`, `sseReader`, `limitResponse`, `isFunctionCall` | Ask ChatGPT's answers endpoint with a sign-in, with tools, pictures, thinking effort and an answer shape; the error with the words to show and the kind acted on |
 | `classify`, `REST_MS` | An error's kind (limit, overload, plan without this use, lapsed sign-in, network) and default rest times |
 | `planOf`, `claims` | The ChatGPT plan and email behind a sign-in, from its own token |
 | `deviceStart`, `devicePoll`, `credentialOf`, `portableEngine`, `PORTABLE` | The device-code flow, the sign-in built from a token answer, and the engine under `portable` |
@@ -216,6 +216,32 @@ const accounts = new Accounts({
 member's sign-in, refreshed first when due, and returns the whole text (`onText` gets each piece as it streams; the
 returned completion is authoritative). A limit or a lapsed sign-in is acted on as `failed()` does, then thrown as a
 `ResponseError` with the words to show and the kind acted on. Rules: [conformance fixtures](../../fixtures/README.md).
+
+The whole question passes through: `input` takes the turns so far (messages, with `input_image` where the person
+attached a picture), `tools` and `tool_choice` take the app's own function tools and built-ins (including
+`image_generation`), `reasoning.effort` how hard the model thinks, and `text` how long the answer is with the shape it
+must follow (`text.format`). With `tools` the result is the text with every output item; without, the plain text as
+before. `onEvent` sees each tool call and output item as it streams:
+
+```ts
+const result = await accounts.respond(1, {
+  instructions: 'Answer briefly.',
+  input: 'What time is it in Norwich?',
+  tools: [{ type: 'function', name: 'get_time', description: 'The time somewhere.', parameters: { type: 'object', properties: { place: { type: 'string' } } } }],
+  onEvent: (e) => { if (e.type === 'function_call') console.log('calling', e.name, e.arguments); },
+});
+if (isFunctionCall(result.output[0])) {
+  const answer = await accounts.respond(1, {
+    instructions: 'Answer briefly.',
+    input: [
+      { role: 'user', content: [{ type: 'input_text', text: 'What time is it in Norwich?' }] },
+      result.output[0],
+      { type: 'function_call_output', call_id: result.output[0].call_id!, output: 'noon' },
+    ],
+  });
+  show(answer); // 'You did: noon' against the stand-in; the model's own sentence live
+}
+```
 
 A web page can't call this endpoint itself (it answers no other web page): ask from the app's own server or over
 `@byokit/link`.

@@ -3,7 +3,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Accounts, ResponseError, limitResponse, memoryStore, sseReader } from '../src/portable.ts';
+import { Accounts, ResponseError, isFunctionCall, limitResponse, offered, PROVIDERS, memoryStore, sseReader, type ResponseStreamEvent } from '../src/portable.ts';
 import { mockOpenAI } from '../src/testing/index.ts';
 
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`../../../fixtures/conformance/${name}`, import.meta.url), 'utf8'));
@@ -133,4 +133,74 @@ test('respond failures: a usage limit rests the account; signed out says so in p
   assert.equal((await a.status(1, 'chatgpt')).state, 'resting');
   await a.logout(1, 'chatgpt');
   await assert.rejects(a.respond(1, { instructions: '', input: 'hi' }), (e: any) => e.kind === 'signed_out' && e.message === "ChatGPT isn't signed in yet.");
+});
+
+test('respond with tools: a function call streams as typed events, then a tool-result turn answers', async () => {
+  const a = await signedIn();
+  const events: ResponseStreamEvent[] = [];
+  const pieces: string[] = [];
+  const tools = [{ type: 'function' as const, name: 'get_time', description: 'The time.', parameters: { type: 'object', properties: { zone: { type: 'string' } } } }];
+  const result = await a.respond(1, {
+    instructions: 'Be brief.', input: 'what time is it', tools,
+    onText: (d) => pieces.push(d), onEvent: (e) => events.push(e),
+  });
+  assert.equal(result.text, '', 'a tool turn carries no words');
+  assert.deepEqual(pieces, []);
+  assert.equal(result.output.length, 1);
+  const call = result.output[0];
+  assert.ok(isFunctionCall(call), 'the output item is the call');
+  assert.equal(call.name, 'get_time');
+  assert.equal(call.call_id, 'call_1');
+  assert.deepEqual(JSON.parse(call.arguments), { input: 'what time is it' });
+  const landed = events.filter((e) => e.type === 'function_call');
+  assert.equal(landed.length, 1, 'one tool-call event');
+  assert.deepEqual(landed[0], { type: 'function_call', name: 'get_time', arguments: call.arguments, callId: 'call_1' });
+  assert.equal(events.filter((e) => e.type === 'output_item').length, 1, 'one output-item event, not one per completion copy');
+  assert.equal(events.filter((e) => e.type === 'function_call_delta').map((e) => e.type === 'function_call_delta' ? e.delta : '').join(''), call.arguments);
+  const asked = JSON.parse(openai.state.requests.findLast((r) => r.path === '/codex/responses')!.body);
+  assert.deepEqual(asked.tools, tools);
+  assert.deepEqual(asked.reasoning, { effort: 'none' });
+  // The tool-result turn: the call with its answer, back as words.
+  assert.equal(await a.respond(1, {
+    instructions: 'Be brief.',
+    input: [
+      { role: 'user', content: [{ type: 'input_text', text: 'what time is it' }] },
+      { type: 'function_call', call_id: 'call_1', name: 'get_time', arguments: call.arguments },
+      { type: 'function_call_output', call_id: 'call_1', output: 'noon' },
+    ],
+  }), 'You did: noon');
+});
+
+test('respond with an image turn: the picture rides along, the words echo back', async () => {
+  const a = await signedIn();
+  const input = [{ role: 'user' as const, content: [{ type: 'input_text' as const, text: 'what is this' }, { type: 'input_image' as const, image_url: 'data:image/png;base64,iVBOR' }] }];
+  assert.equal(await a.respond(1, { instructions: '', input }), 'You said: what is this');
+  const asked = JSON.parse(openai.state.requests.findLast((r) => r.path === '/codex/responses')!.body);
+  assert.deepEqual(asked.input, input);
+});
+
+test('respond with a schema: the format passes through and the answer parses', async () => {
+  const a = await signedIn();
+  const schema = { type: 'object', properties: { echo: { type: 'string' } }, required: ['echo'], additionalProperties: false };
+  const format = { type: 'json_schema' as const, name: 'echo', schema, strict: true };
+  assert.deepEqual(JSON.parse(await a.respond(1, { instructions: '', input: 'hi', text: { verbosity: 'low' as const, format } })), { echo: 'You said: hi' });
+  const asked = JSON.parse(openai.state.requests.findLast((r) => r.path === '/codex/responses')!.body);
+  assert.deepEqual(asked.text, { verbosity: 'low', format });
+});
+
+test('respond with the image_generation built-in: passed through, answered as text', async () => {
+  const a = await signedIn();
+  const events: ResponseStreamEvent[] = [];
+  const result = await a.respond(1, { instructions: '', input: 'a cat', tools: [{ type: 'image_generation' }], onEvent: (e) => events.push(e) });
+  assert.equal(result.text, 'You said: a cat');
+  assert.deepEqual(result.output, []);
+  const asked = JSON.parse(openai.state.requests.findLast((r) => r.path === '/codex/responses')!.body);
+  assert.deepEqual(asked.tools, [{ type: 'image_generation' }]);
+});
+
+test('tool pass-through changes no billing and offers no new route', () => {
+  assert.deepEqual(offered().map((p) => p.key), ['chatgpt']);
+  assert.equal(PROVIDERS.chatgpt.billing, 'subscription');
+  assert.equal(PROVIDERS.chatgpt.terms, 'grey');
+  assert.ok(!offered().some((p) => p.billing === 'api'), 'API rows stay opt-in');
 });

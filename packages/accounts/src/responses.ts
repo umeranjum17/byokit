@@ -1,6 +1,11 @@
 // One question to ChatGPT, answered as it streams, with fetch alone: what a phone or browser app asks the model with
 // the sign-in it holds. Rules are the shared fixtures (sse.json, limit-responses.json). A fetch that can't stream (React
 // Native's own) still works: the whole answer arrives at once. Expo's `fetch` from 'expo/fetch' streams.
+//
+// The pass-through is complete but typed: a message array (multi-turn, with `input_image` and `function_call_output`
+// turns), `tools` and `tool_choice` (function tools and built-ins, including `image_generation`), `reasoning.effort`,
+// and `text.verbosity` with the `text.format` schema. Without `tools` the answer is the plain text, as before; with
+// `tools` the result carries the output items (`function_call` and the rest) next to the text.
 import { classify, type Kind } from './limits.ts';
 
 const limitKind = (code: string): Kind | null => code === 'usage_not_included' ? 'not_included'
@@ -29,20 +34,126 @@ export function limitResponse(status: number, body: string, now = Date.now()): {
   return { kind, until: null, message: (typeof err.message === 'string' && err.message) || body || 'Request failed' };
 }
 
-/** Reads a streamed answer (fixtures/conformance/sse.json): `push` each piece as it arrives, `end` for the whole text.
+const isRecord = (v: unknown): v is Record<string, any> => typeof v === 'object' && v !== null;
+const itemKey = (item: Record<string, any>, fallback: string | number): string =>
+  typeof item.call_id === 'string' ? item.call_id : typeof item.id === 'string' ? item.id : `${String(item.type)}:${String(fallback)}`;
+
+/** One piece of a message the model is given: words, a picture, or anything else the endpoint accepts. */
+export type ResponseInputContent =
+  | { type: 'input_text'; text: string }
+  | { type: 'input_image'; image_url?: string; file_id?: string; detail?: 'auto' | 'low' | 'high' }
+  | { type: string; [k: string]: unknown };
+
+/** What the model is told, in turn: a message (one turn of the conversation), a call it made, or a tool's answer. */
+export type ResponseInputItem =
+  | { type?: 'message'; role: 'user' | 'assistant' | 'system' | 'developer'; content: string | ResponseInputContent[] }
+  | { type: 'function_call'; call_id?: string; id?: string; name: string; arguments: string }
+  | { type: 'function_call_output'; call_id: string; output: string }
+  | { type: string; [k: string]: unknown };
+
+/** A tool the model may call: one of the app's functions, or a built-in such as image generation. */
+export type ResponseTool =
+  | { type: 'function'; name: string; description?: string; parameters?: Record<string, unknown> | null; strict?: boolean }
+  | { type: 'image_generation'; model?: string; size?: string; quality?: string; [k: string]: unknown }
+  | { type: string; [k: string]: unknown };
+
+/** Which tool the model must use: any, a named function, none, or whatever it wants. */
+export type ResponseToolChoice =
+  | 'auto' | 'required' | 'none'
+  | { type: 'function'; name: string }
+  | { type: string; [k: string]: unknown };
+
+/** How hard the model thinks. Default: none, as before. */
+export type ResponseReasoning = { effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'; [k: string]: unknown };
+
+/** The shape of the answer: how wordy, and optionally a schema it must follow. */
+export type ResponseTextFormat =
+  | { type: 'text' }
+  | { type: 'json_object' }
+  | { type: 'json_schema'; name: string; schema: Record<string, unknown>; strict?: boolean }
+  | { type: string; [k: string]: unknown };
+export type ResponseText = { verbosity?: 'low' | 'medium' | 'high'; format?: ResponseTextFormat; [k: string]: unknown };
+
+/** One item of the model's answer: a message, a function call, or anything else the endpoint returns. */
+export type ResponseOutputMessage = { type: 'message'; id?: string; role?: string; content?: { type: 'output_text' | 'refusal'; text: string; annotations?: unknown[] }[]; [k: string]: unknown };
+export type ResponseFunctionCall = { type: 'function_call'; id?: string; call_id?: string; name: string; arguments: string; [k: string]: unknown };
+export type ResponseOutputItem =
+  | ResponseOutputMessage
+  | ResponseFunctionCall
+  | { type: 'reasoning'; [k: string]: unknown }
+  | { type: string; [k: string]: unknown };
+
+/** Whether an output item is a function call, so an app can answer it with a `function_call_output` turn. */
+export const isFunctionCall = (item: ResponseOutputItem): item is ResponseFunctionCall =>
+  isRecord(item) && item.type === 'function_call' && typeof item.name === 'string' && typeof item.arguments === 'string';
+
+/** The model's answer: the text (`onText` saw it piece by piece) and every output item. */
+export type ResponseResult = { text: string; output: ResponseOutputItem[] };
+
+/** What streams besides the words: each text piece, each tool call as it builds and lands, and each output item. */
+export type ResponseStreamEvent =
+  | { type: 'text_delta'; delta: string }
+  | { type: 'function_call_delta'; name?: string; callId?: string; delta: string }
+  | { type: 'function_call'; name: string; arguments: string; callId?: string }
+  | { type: 'output_item'; item: ResponseOutputItem };
+
+/** Reads a streamed answer (fixtures/conformance/sse.json): `push` each piece as it arrives, `end` for the whole text,
+ *  `result` for the text with every output item. `onEvent` sees each tool call and output item as it lands.
  *  An error event throws a ResponseError. */
-export function sseReader(onText?: (delta: string) => void) {
+export function sseReader(onText?: (delta: string) => void, onEvent?: (event: ResponseStreamEvent) => void) {
   let buffer = '', text = '', completed: string | undefined;
-  let done = false;
+  let done = false, finished: ResponseResult | undefined;
+  const output: ResponseOutputItem[] = [];
+  const emitted = new Set<string>();
+  const calls = new Map<string, { name?: string; callId?: string; args: string }>();
+  const callKey = (e: Record<string, any>): string =>
+    typeof e.item_id === 'string' ? e.item_id : `index:${String(e.output_index ?? 0)}`;
+  const land = (item: unknown, fallback: string | number) => {
+    if (!isRecord(item) || typeof item.type !== 'string') return;
+    const key = itemKey(item, fallback);
+    if (emitted.has(key)) return;
+    emitted.add(key);
+    output.push(item as ResponseOutputItem);
+    onEvent?.({ type: 'output_item', item: item as ResponseOutputItem });
+    if (item.type === 'function_call' && typeof item.name === 'string' && typeof item.arguments === 'string')
+      onEvent?.({ type: 'function_call', name: item.name, arguments: item.arguments, callId: typeof item.call_id === 'string' ? item.call_id : undefined });
+  };
   const event = (block: string) => {
     const data = block.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).replace(/^ /, '')).join('\n');
     if (!data || data === '[DONE]') return;
     let e: any;
     try { e = JSON.parse(data); } catch { return; }
-    if (e.type === 'response.output_text.delta' && typeof e.delta === 'string') { text += e.delta; onText?.(e.delta); }
-    if (e.type === 'response.completed') {
+    if (e.type === 'response.output_text.delta' && typeof e.delta === 'string') {
+      text += e.delta;
+      onText?.(e.delta);
+      onEvent?.({ type: 'text_delta', delta: e.delta });
+    }
+    if (e.type === 'response.output_item.added' && isRecord(e.item)) {
+      const key = typeof e.item.call_id === 'string' ? e.item.call_id : callKey(e);
+      const at = calls.get(key) ?? { args: '' };
+      if (typeof e.item.name === 'string') at.name = e.item.name;
+      if (typeof e.item.call_id === 'string') at.callId = e.item.call_id;
+      calls.set(key, at);
+    }
+    if (e.type === 'response.function_call_arguments.delta' && typeof e.delta === 'string') {
+      const at = calls.get(callKey(e)) ?? { args: '' };
+      at.args += e.delta;
+      calls.set(callKey(e), at);
+      onEvent?.({ type: 'function_call_delta', name: at.name, callId: at.callId, delta: e.delta });
+    }
+    if (e.type === 'response.output_item.done' && isRecord(e.item)) {
+      if (e.item.type === 'function_call' && typeof e.item.arguments !== 'string') {
+        const at = calls.get(callKey(e));
+        if (at && at.args) e.item = { ...e.item, arguments: at.args };
+      }
+      land(e.item, e.output_index ?? 0);
+    }
+    if (e.type === 'response.completed' || e.type === 'response.incomplete') {
       done = true;
-      if (Array.isArray(e.response?.output)) completed = e.response.output.flatMap((o: any) => o?.content ?? []).filter((c: any) => c?.type === 'output_text').map((c: any) => c.text ?? '').join('');
+      if (Array.isArray(e.response?.output)) {
+        for (const [i, item] of e.response.output.entries()) land(item, i);
+        completed = e.response.output.flatMap((o: any) => o?.content ?? []).filter((c: any) => c?.type === 'output_text').map((c: any) => c.text ?? '').join('');
+      }
     }
     const failed = e.type === 'error' ? e : e.type === 'response.failed' ? e.response?.error : undefined;
     if (failed) {
@@ -56,34 +167,61 @@ export function sseReader(onText?: (delta: string) => void) {
     buffer = final ? '' : blocks.pop()!;
     for (const b of blocks) event(b);
   };
-  return {
-    push(chunk: string) { buffer += chunk; drain(false); },
-    end() {
+  const finish = (): ResponseResult => {
+    if (!finished) {
       drain(true);
       if (!done) throw new ResponseError('ChatGPT stopped before completing its answer.', 'network');
+      let whole = text;
       if (completed !== undefined && completed !== text) {
         if (completed.startsWith(text)) onText?.(completed.slice(text.length));
-        return completed;
+        whole = completed;
       }
-      return text;
-    },
+      finished = { text: whole, output };
+    }
+    return finished;
+  };
+  return {
+    push(chunk: string) { buffer += chunk; drain(false); },
+    end() { return finish().text; },
+    result() { return finish(); },
   };
 }
 
 export type Ask = {
   /** What the model is told to be. */
   instructions: string;
-  /** The person's words. */
-  input: string;
+  /** The person's words, or the turns so far: messages (with `input_image` where the person attached one) and, after a
+   *  tool call, the `function_call` with its `function_call_output`. */
+  input: string | ResponseInputItem[];
   /** Default: the provider's strong model in the catalogue. */
   model?: string;
+  /** The tools the model may call. Passed, the result carries the output items next to the text. */
+  tools?: ResponseTool[];
+  /** Which tool the model must use. Default: whatever it wants. */
+  tool_choice?: ResponseToolChoice;
+  /** How hard the model thinks. Default: none. */
+  reasoning?: ResponseReasoning;
+  /** How wordy the answer is, and the schema it must follow. Default: low verbosity, free text. */
+  text?: ResponseText;
   /** Each piece of the answer as it streams. */
   onText?: (delta: string) => void;
+  /** Each tool call and output item as it lands. */
+  onEvent?: (event: ResponseStreamEvent) => void;
   signal?: AbortSignal;
 };
 
-/** Ask ChatGPT with a signed-in token. `fetch`: pass one that streams (Expo's `expo/fetch`); any fetch works. */
-export async function respond(o: Ask & { access: string; accountId: string; model: string; base?: string; fetch?: typeof fetch }): Promise<string> {
+type Access = { access: string; accountId: string; model: string; base?: string; fetch?: typeof fetch };
+
+/** Ask ChatGPT with a signed-in token. `fetch`: pass one that streams (Expo's `expo/fetch`); any fetch works.
+ *  Without `tools` the answer is the plain text, as before; with `tools` it is the text with every output item. */
+export async function respond(o: Ask & Access & { tools?: undefined }): Promise<string>;
+export async function respond(o: Ask & Access & { tools: ResponseTool[] }): Promise<ResponseResult>;
+export async function respond(o: Ask & Access): Promise<string | ResponseResult> {
+  const input: ResponseInputItem[] = typeof o.input === 'string'
+    ? [{ role: 'user', content: [{ type: 'input_text', text: o.input }] }]
+    : o.input;
+  const { verbosity = 'low', format, ...textRest } = o.text ?? {};
+  const { effort = 'none', ...reasoningRest } = o.reasoning ?? {};
   const res = await (o.fetch ?? fetch)(`${o.base ?? 'https://chatgpt.com/backend-api'}/codex/responses`, {
     method: 'POST', signal: o.signal,
     headers: {
@@ -91,16 +229,18 @@ export async function respond(o: Ask & { access: string; accountId: string; mode
       'chatgpt-account-id': o.accountId, 'OpenAI-Beta': 'responses=experimental', originator: 'byokit',
     },
     body: JSON.stringify({
-      model: o.model, store: false, stream: true, instructions: o.instructions,
-      input: [{ role: 'user', content: [{ type: 'input_text', text: o.input }] }],
-      text: { verbosity: 'low' }, reasoning: { effort: 'none' },
+      model: o.model, store: false, stream: true, instructions: o.instructions, input,
+      ...(o.tools ? { tools: o.tools } : {}),
+      ...(o.tool_choice !== undefined ? { tool_choice: o.tool_choice } : {}),
+      text: { verbosity, ...(format ? { format } : {}), ...textRest },
+      reasoning: { effort, ...reasoningRest },
     }),
   });
   if (!res.ok) {
     const e = limitResponse(res.status, await res.text().catch(() => ''));
     throw new ResponseError(e.message, e.kind, e.until ?? 0);
   }
-  const reader = sseReader(o.onText);
+  const reader = sseReader(o.onText, o.onEvent);
   const body = (res as any).body;
   if (body?.getReader && typeof TextDecoder !== 'undefined') {
     const r = body.getReader();
@@ -109,5 +249,5 @@ export async function respond(o: Ask & { access: string; accountId: string; mode
   } else {
     reader.push(await res.text()); // a fetch that can't stream: the whole answer at once
   }
-  return reader.end();
+  return o.tools ? reader.result() : reader.end();
 }

@@ -89,7 +89,36 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
         if (state.fail) { const f = state.fail; state.fail = undefined; return send(f.status, f.body); }
         if (![...state.live].some((r) => accessOf.get(r) === bearer) || req.headers['chatgpt-account-id'] !== 'acct-1')
           return send(401, { error: { message: 'Provided authentication token is expired. Please try signing in again.' } });
-        const text = `You said: ${json().input?.[0]?.content?.[0]?.text ?? ''}`;
+        const asked = json();
+        const turns = Array.isArray(asked.input) ? asked.input : [];
+        const said: string[] = [];
+        let answered: string | undefined;
+        for (const item of turns) {
+          if (item?.type === 'function_call_output') { answered ??= String(item.output ?? ''); continue; }
+          const content = typeof item?.content === 'string' ? [{ type: 'input_text', text: item.content }] : Array.isArray(item?.content) ? item.content : [];
+          for (const part of content) if (part?.type === 'input_text' && typeof part.text === 'string') said.push(part.text);
+        }
+        const words = said.join(' ');
+        const schema = (asked.text as any)?.format?.type === 'json_schema';
+        const text = answered !== undefined ? `You did: ${answered}`
+          : schema ? JSON.stringify({ echo: words ? `You said: ${words}` : 'You said nothing' })
+          : `You said: ${words}`;
+        const called = Array.isArray(asked.tools) ? asked.tools.filter((t: any) => t?.type === 'function') : [];
+        if (called.length > 0 && answered === undefined) {
+          // A tool turn: the model calls the first function tool, streamed as argument deltas and one finished item,
+          // then the completion with the output list. The app answers with a `function_call_output` turn next.
+          const name = String(called[0].name ?? 'tool');
+          const args = JSON.stringify({ input: words });
+          res.writeHead(200, { 'content-type': 'text/event-stream' });
+          res.write(`event: response.output_item.added\ndata: ${JSON.stringify({ type: 'response.output_item.added', output_index: 0, item: { type: 'function_call', call_id: 'call_1', name, arguments: '' } })}\n\n`);
+          for (const delta of args.match(/[\s\S]{1,4}/g) ?? []) {
+            res.write(`event: response.function_call_arguments.delta\ndata: ${JSON.stringify({ type: 'response.function_call_arguments.delta', output_index: 0, item_id: 'call_1', delta })}\n\n`);
+            await new Promise((r) => setTimeout(r, 5));
+          }
+          const item = { type: 'function_call', call_id: 'call_1', name, arguments: args };
+          res.write(`event: response.output_item.done\ndata: ${JSON.stringify({ type: 'response.output_item.done', output_index: 0, item })}\n\n`);
+          return res.end(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output: [item] } })}\n\ndata: [DONE]\n\n`);
+        }
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         for (const delta of text.match(/[\s\S]{1,4}/g) ?? []) {
           res.write(`event: response.output_text.delta\ndata: ${JSON.stringify({ type: 'response.output_text.delta', delta })}\n\n`);
