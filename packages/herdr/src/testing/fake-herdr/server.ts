@@ -413,6 +413,10 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     if (agent !== undefined) {
       agent.agent_status = status;
       agent.revision = ++live.nextRevision;
+      // A blocked agent always has detection text (6.4 reads it as the question), whichever path
+      // got it there — `agent.prompt` sets it first, `setStatus` arrives with none.
+      if (status === 'blocked' && agent.detection === undefined) agent.detection = 'Allow this? (y/n)';
+      if (status !== 'blocked') agent.detection = undefined;
       emitStatus(pane.pane_id, status, agent.revision);
     }
   }

@@ -150,6 +150,7 @@ export function herdrContract(make: () => Promise<HerdrContractBench>): void {
       await kit.start();
       const seen: HerdrEvent[] = [];
       const stop = kit.subscribe([{ type: 'pane.created' }], (event) => seen.push(event));
+      await settle(100);   // the subscribe registers on its own socket; an emit before that never arrives
       fake.emit({ type: 'pane.created', pane_id: 'w9:p9' });
       await until(() => seen.length, (n) => n >= 1);
       assert.equal((seen[0] as Record<string, unknown>).pane_id, 'w9:p9');
@@ -164,6 +165,7 @@ export function herdrContract(make: () => Promise<HerdrContractBench>): void {
     await bench(async ({ kit, fake }) => {
       if (!fake) return;
       await kit.start();
+      await settle(100);   // the bootstrap's per-pane watch registers on its own socket
       fake.setStatus('w1:p2', 'working');
       await until(() => agentStatusOf(kit.snapshot(), 'w1:p2').status, (s) => s === 'working');
       fake.setStatus('w1:p2', 'blocked');
@@ -224,7 +226,18 @@ export function herdrContract(make: () => Promise<HerdrContractBench>): void {
     await bench(async ({ withTransport }) => {
       if (!withTransport) return t.skip('make provides no transport double');
       const kit = withTransport({
-        call: async (method) => (method === 'agent.prompt' ? { type: 'nonsense' } : {}),
+        call: async (method) => {
+          if (method === 'agent.prompt') return { type: 'nonsense' };
+          if (method === 'session.snapshot') {
+            return { snapshot: {
+              workspaces: [{ workspace_id: 'w1', label: 'x' }],
+              tabs: [{ tab_id: 'w1:t1', workspace_id: 'w1', label: 'main' }],
+              panes: [{ pane_id: 'w1:p2', tab_id: 'w1:t1', workspace_id: 'w1' }],
+              agents: [{ pane_id: 'w1:p2', agent_status: 'idle', revision: 1 }],
+            } };
+          }
+          return { protocol: HERDR_PROTOCOL };
+        },
         subscribe: () => () => {},
         close: () => {},
       });

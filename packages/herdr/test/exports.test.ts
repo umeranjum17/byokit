@@ -3,6 +3,7 @@
 import { test, todo } from 'node:test';
 import assert from 'node:assert/strict';
 import * as kit from '../src/index.ts';
+import * as testing from '@byokit/herdr/testing';
 import { HERDR_PROTOCOL } from '../src/constants.ts';
 import { socketTransport } from '../src/socket.ts';
 import { Supervisor } from '../src/supervise.ts';
@@ -70,6 +71,11 @@ test('the internal seams are in place; bodies land with their work packages', as
   assert.throws(() => herdrLink(null as never, { scopeOf: () => ({ workspaces: 'all' }) }), /H7/);
   assert.throws(() => serve(null as never), /H7/);
   assert.equal(typeof herdrDevice, 'function');
+});
+
+test('the `./testing` entry exports the fake and the contract suite (6.8)', () => {
+  assert.equal(typeof testing.startFakeHerdr, 'function');
+  assert.equal(typeof testing.herdrContract, 'function');
 });
 
 test('words: the frozen table answers in plain sentences (6.9)', () => {

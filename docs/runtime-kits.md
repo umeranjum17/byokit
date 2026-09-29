@@ -1308,7 +1308,9 @@ H1, and O12/H10 (README example rows); later merges rebase.
   test compares); relative `bin` refused (`missing/binary`); server exit → `reconnecting` then respawn.
 
 **H4 — CLI runner and terminal process** · Flash · deps: H1
-- Files: `src/cli.ts`, `src/terminal.ts`, `test/cli.test.ts`, `test/terminal.test.ts`.
+- Files: `src/cli.ts`, `src/terminal.ts`, `src/kit.ts` (`cli`/`terminal` wiring to `runCli`/`openTerminal`
+  per the 6.5 env rule), `test/cli.test.ts`, `test/terminal.test.ts`, `test/contract.test.ts` (`herdrContract`
+  against `startFakeHerdr`).
 - Behavior: `cli` = muxr `runHerdrCli` with `bin` from options (no env read), same validation (non-empty string
   array, no NUL), timeout clamp 1 s–5 min, 8 MB buffer, env per 6.5; `terminal` per 6.5.
 - Acceptance with a test-written shim script: argv passed one-per-arg (an arg with spaces and quotes survives);
