@@ -1,0 +1,57 @@
+== device
+sdk: 36.0 fingerprint: google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.F3/13894323:userdebug/dev-keys
+== install and grant POST_NOTIFICATIONS
+$ adb install -r fm-byk-status-proof/app-release.apk
+Performing Streamed Install
+Success
+$ adb shell pm grant io.github.umeranjum17.byokit.example android.permission.POST_NOTIFICATIONS
+== show
+$ adb shell input tap 540 1896   # chip-show
+said: text="Work in progress shows only in the notification list. Turn it on in this app's notification settings."
+posted: 1  actions=3 flags=ONGOING_EVENT flags=ONGOING_EVENT|ONLY_ALERT_ONCE vis=PRIVATE
+[screenshot 01-app-state.png]
+== the chip: home screen
+$ adb shell input keyevent 3
+[screenshot 02-chip-home.png]
+== the expanded notification: three actions
+$ adb shell cmd statusbar expand-notifications
+[screenshot 03-shade-actions.png]
+$ adb shell cmd statusbar collapse
+== secure lock screen, sensitive content hidden, silent notifications shown
+$ adb shell locksettings set-pin 1234
+Pin set to '1234'
+$ adb shell settings put secure lock_screen_allow_private_notifications 0
+$ adb shell settings put secure lock_screen_show_silent_notifications 1
+$ adb shell input keyevent 26
+$ adb shell input keyevent 224
+[screenshot 04-lock-public.png]
+lock screen words: text="1 working · 2 need you"
+== unlock, tap an action
+$ adb shell cmd statusbar expand-notifications
+$ adb shell input tap 342 1045   # "See what needs you"
+said: text="Action: needs"
+== swipe the notification away
+$ adb shell cmd statusbar expand-notifications
+$ adb shell input swipe 200 868 1050 868 250
+posted after swipe: 0
+$ adb shell cmd statusbar collapse
+Warning: Activity not started, intent has been delivered to currently running top-most instance.
+said: text="Dismissed."
+== show twice after the dismissal: nothing posts
+$ adb shell input tap 540 1896   # chip-show
+posted: 0
+$ adb shell input tap 540 1896   # chip-show
+posted: 0
+[screenshot 05-dismissed-not-reposted.png]
+== clear, then show: posts again
+$ adb shell input tap 540 2062   # chip-clear
+said: text="Cleared."
+$ adb shell input tap 540 1896   # chip-show
+posted: 1
+== restore the device
+$ adb shell input tap 540 2062   # chip-clear
+$ adb shell locksettings clear --old 1234
+Lock credential cleared
+$ adb shell settings put secure lock_screen_allow_private_notifications 1
+$ adb shell settings delete secure lock_screen_show_silent_notifications
+Deleted 1 rows
