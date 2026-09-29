@@ -17,6 +17,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./binary": {
+      "types": "./dist/binary.d.ts",
+      "default": "./dist/binary.js"
+    },
     "./device": {
       "react-native": {
         "types": "./dist/device.d.ts",
