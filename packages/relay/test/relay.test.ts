@@ -11,7 +11,7 @@ test('a device reaches its host through the relay, which routes by host address 
   const p = await paired(r);
   assert.equal(p.client.id, hostId(p.host.keys.publicKey));
   assert.deepEqual(await p.dev.link.request('send.secret', { text: 'plaintext-marker' }), { op: 'send.secret', args: { text: 'plaintext-marker' }, by: p.grant.device.id });
-  assert.equal(r.relay.count(p.host.id), 1);
+  await until(() => r.relay.count(p.host.id) === 1);
   assert.deepEqual(r.relay.hosts().map((h) => [h.id, h.online, h.devices]), [[p.host.id, true, 1]]);
   const all = p.wire.join('\n');
   assert.ok(p.wire.some((w) => w.startsWith('{"c":')), 'device frames went over the host socket');
