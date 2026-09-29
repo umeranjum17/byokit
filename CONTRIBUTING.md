@@ -34,7 +34,8 @@ runtime-tested here because no simulator is available.
   its own native code inside the app. `@byokit/machine` ([docs/machine-kit.md](docs/machine-kit.md)) spawns only the
   `ssh` binary the app passes by absolute path and the `ssh-keyscan` beside it, with the key path the app passes and a
   kit-owned config, and holds only the provider keys the app's store gives it and the scoped keys it mints for that
-  app. Its tests use a loopback fake and a fake `ssh`. Tests use
+  app. Its tests use a loopback fake and a fake `ssh`. `@byokit/keystore` spawns only the OS keyring CLIs by absolute
+  path with an environment built from nothing plus only what the host passes. Tests use
   the harness in `packages/accounts/src/testing` (a decoy HOME, an fs tracer, canary
   tokens) and must never need a real account, the network or a model call. `npm test` fails if your own `~/.pi` changed during the run.
 - **One package per concern**, small and dependency-light. Prefer deleting to adding.
