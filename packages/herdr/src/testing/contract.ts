@@ -7,12 +7,12 @@ import assert from 'node:assert/strict';
 import { HERDR_PROTOCOL } from '../constants.ts';
 import type { HerdrKit } from '../kit.ts';
 import type { FakeHerdr } from './fake-herdr/server.ts';
-import type { AgentStatus, HerdrEvent, HerdrSnapshot, HerdrSubscription, HerdrTransport, PromptReceipt } from '../types.ts';
+import type { AgentStatus, HerdrEvent, HerdrProtocolRange, HerdrSnapshot, HerdrSubscription, HerdrTransport, PromptReceipt } from '../types.ts';
 
 export type HerdrContractBench = {
   kit: HerdrKit;
   fake?: FakeHerdr;
-  withTransport?: (transport: HerdrTransport) => HerdrKit;
+  withTransport?: (transport: HerdrTransport, o?: { protocolRange?: HerdrProtocolRange }) => HerdrKit;
 };
 
 export function herdrContract(make: () => Promise<HerdrContractBench>): void {
@@ -64,19 +64,88 @@ export function herdrContract(make: () => Promise<HerdrContractBench>): void {
     });
   });
 
-  test('contract: a protocol mismatch reports needs-update', async (t) => {
+  test('contract: a newer server is needs-update state, not a throw — the kit stays usable', async (t) => {
     await bench(async ({ withTransport }) => {
       if (!withTransport) return t.skip('make provides no transport double');
+      const snapshot = {
+        protocol: HERDR_PROTOCOL + 999,
+        snapshot: {
+          protocol: HERDR_PROTOCOL + 999,
+          workspaces: [{ workspace_id: 'w1', label: 'x' }],
+          tabs: [{ tab_id: 'w1:t1', workspace_id: 'w1', label: 'main' }],
+          panes: [{ pane_id: 'w1:p2', tab_id: 'w1:t1', workspace_id: 'w1' }],
+          agents: [{ pane_id: 'w1:p2', agent_status: 'idle', revision: 1 }],
+        },
+      };
       const kit = withTransport({
-        call: async () => ({ protocol: HERDR_PROTOCOL + 999 }),
+        call: async (method) => (method === 'session.snapshot' ? snapshot : { protocol: HERDR_PROTOCOL + 999 }),
         subscribe: () => () => {},
         close: () => {},
       });
       try {
-        await kit.start().catch(() => {});
+        await kit.start();
+        assert.equal(kit.state.phase, 'needs-update');
+        assert.equal(kit.state.why, 'version');
+        assert.equal(kit.snapshot().workspaces.length, 1, 'the snapshot still installs');
+        assert.ok(kit.snapshot().connected, 'the kit stays connected');
+        await kit.call('ping', {});
+      } finally {
+        await kit.stop().catch(() => {});
+      }
+    });
+  });
+
+  test('contract: an older server fails closed', async (t) => {
+    await bench(async ({ withTransport }) => {
+      if (!withTransport) return t.skip('make provides no transport double');
+      const kit = withTransport({
+        call: async () => ({ protocol: HERDR_PROTOCOL - 1 }),
+        subscribe: () => () => {},
+        close: () => {},
+      });
+      try {
+        await assert.rejects(kit.start(), /protocol mismatch/);
         assert.equal(kit.state.phase, 'needs-update');
       } finally {
         await kit.stop().catch(() => {});
+      }
+    });
+  });
+
+  test('contract: a declared protocol range accepts a newer server as ready', async (t) => {
+    await bench(async ({ withTransport }) => {
+      if (!withTransport) return t.skip('make provides no transport double');
+      const snapshot = {
+        protocol: HERDR_PROTOCOL + 1,
+        snapshot: {
+          protocol: HERDR_PROTOCOL + 1,
+          workspaces: [{ workspace_id: 'w1', label: 'x' }],
+          tabs: [{ tab_id: 'w1:t1', workspace_id: 'w1', label: 'main' }],
+          panes: [{ pane_id: 'w1:p2', tab_id: 'w1:t1', workspace_id: 'w1' }],
+          agents: [{ pane_id: 'w1:p2', agent_status: 'idle', revision: 1 }],
+        },
+      };
+      const transport: HerdrTransport = {
+        call: async (method) => (method === 'session.snapshot' ? snapshot : { protocol: HERDR_PROTOCOL + 1 }),
+        subscribe: () => () => {},
+        close: () => {},
+      };
+      const inRange = withTransport(transport);
+      try {
+        await inRange.start();
+        assert.equal(inRange.state.phase, 'needs-update', 'without the range a newer server is needs-update');
+      } finally {
+        await inRange.stop().catch(() => {});
+      }
+      const ranged = withTransport(transport, {
+        protocolRange: { min: HERDR_PROTOCOL, max: HERDR_PROTOCOL + 1 },
+      });
+      try {
+        await ranged.start();
+        assert.equal(ranged.state.phase, 'ready', 'the declared range accepts the newer server');
+        assert.equal(ranged.snapshot().workspaces.length, 1);
+      } finally {
+        await ranged.stop().catch(() => {});
       }
     });
   });

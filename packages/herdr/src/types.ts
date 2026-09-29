@@ -6,11 +6,18 @@ export type HerdrState = {
   why?: 'binary' | 'socket' | 'version' | 'server-exited';
 };
 
+// Declared range of accepted Herdr server protocols (K11). Each bound defaults to the kit's
+// pinned HERDR_PROTOCOL, so an undeclared range means exactly the pin. A server below `min`
+// fails closed (`start()` rejects); a server above `max` connects anyway — `start()` resolves
+// and the kit stays usable with the steady state `needs-update`/`version` — so a Herdr protocol
+// bump does not take the host down before the kit's pin moves.
+export type HerdrProtocolRange = { min?: number; max?: number };
+
 export type HerdrKitOptions =
   | { mode: 'adopt'; bin: string; socketPath: string; env?: Record<string, string>; path?: string[];
-      transport?: HerdrTransport; onState?: (s: HerdrState) => void }
+      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; onState?: (s: HerdrState) => void }
   | { mode: 'own'; bin: string; stateDir: string; env?: Record<string, string>; path?: string[];
-      transport?: HerdrTransport; onState?: (s: HerdrState) => void };
+      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; onState?: (s: HerdrState) => void };
 
 export interface HerdrTransport {                        // socket.ts implements it; the fake does too
   call(method: string, params: Record<string, unknown>, timeoutMs?: number): Promise<unknown>;

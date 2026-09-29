@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import { HERDR_PROTOCOL } from './constants.ts';
+import { protocolBounds } from './constants.ts';
 import { socketTransport } from './socket.ts';
 import type { HerdrKitOptions, HerdrState, HerdrTransport } from './types.ts';
 
@@ -74,9 +74,14 @@ export class Supervisor {
       if (this.stopping) throw new Error('herdr: stopped');
       try {
         const ping = await transport.call('ping', {}, 1000) as { protocol?: number };
-        if (ping.protocol !== HERDR_PROTOCOL) {
+        // K11: a server older than the declared range fails closed; a newer one connects
+        // anyway with `needs-update` (the kit's bootstrap keeps that steady state), so a
+        // Herdr protocol bump does not take the host down before the kit's pin moves.
+        const { min, max } = protocolBounds(this.o.protocolRange);
+        if (typeof ping.protocol !== 'number' || ping.protocol < min) {
           this.state('needs-update', 'version'); throw new Error('herdr: protocol mismatch');
         }
+        if (ping.protocol > max) this.state('needs-update', 'version');
         this.failures = 0;
         return transport;
       } catch (error) {

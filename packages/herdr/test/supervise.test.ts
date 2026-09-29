@@ -95,10 +95,10 @@ test('long-running agent calls extend the socket deadline', async () => {
   } finally { await kit.stop(); }
 });
 
-test('protocol mismatch fails closed', async () => {
+test('an older protocol fails closed', async () => {
   const states: string[] = [];
   const transport: HerdrTransport = {
-    call: async () => ({ protocol: HERDR_PROTOCOL + 1 }), subscribe: () => () => {}, close() {},
+    call: async () => ({ protocol: HERDR_PROTOCOL - 1 }), subscribe: () => () => {}, close() {},
   };
   const kit = new HerdrKit({ mode: 'adopt', bin: '/not/used', socketPath: '/unused', transport,
     onState: (s) => states.push(`${s.phase}/${s.why}`) });

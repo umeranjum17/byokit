@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- K11 protocol range: `HerdrKitOptions` takes `protocolRange?: { min?: number; max?: number }`
+  (each bound defaults to the pinned `HERDR_PROTOCOL`). A server below the floor still fails
+  closed; a newer server is the steady state `needs-update`/`version` instead of a throw — the
+  snapshot installs and the kit stays usable — so a Herdr protocol bump does not take the host
+  down before the kit's pin moves.
 - Typed device pass-through (G4, docs/runtime-kits.md 7.1/7.2): `herdrDevice(link).call<M>(method, params)` returns
   `HerdrResult<M>` from the generated table, `events()` yields `HerdrLinkEvent` frames, and `./device` re-exports the
   table types. New link ops `hd.kinds` (*view*, `agentKinds()`), `hd.wait` (control, pane in scope) and `hd.subscribe`
@@ -9,7 +14,6 @@
   with device `agentKinds()`, `wait()` and typed `subscribe(subs, on, onError?)`; a rejected batch or a kit
   disconnect ends the stream (`kit.subscribe` forwards an optional `onError`). The device `terminal()` gains `ready`
   (first frame) and `exited` (`{ reason }`). `hd.call` stays default-denied.
-
 - `words`, `stateWords`, `agentWords` and `WORDS` are exported from `.` and `./device`, so a host or phone UI
   shows the kit's own sentences for Herdr and agent states instead of writing its own.
 - FIX the fake Herdr (`./testing`) emits `workspace.created`, `tab.created`, `pane.created`,
