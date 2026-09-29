@@ -128,6 +128,14 @@ test('gateBuiltins false gates only the app tools', async () => withDenyingKit({
   assert.deepEqual(seen.gated, [['crew_x', { builtin: false }]]);
 }));
 
+test('a tool name the engine would rewrite before the gate is refused', () => {
+  const host = { gate: async () => ({ allow: true as const }), call: async () => '' };
+  for (const name of ['crewNote', 'apply-patch', 'bash', 'cron', '9x']) {
+    assert.throws(() => new OpenClawKit({ stateDir: '.', spawnEngine: false, host,
+      tools: [{ name, description: 'x', parameters: { type: 'object' } }] }), /invalid tool name/);
+  }
+});
+
 test('prepare replaces a plugin left by an older kit', async () => {
   const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o5-oldplugin-'));
   try {

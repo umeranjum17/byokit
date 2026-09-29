@@ -282,7 +282,8 @@ export type KitOptions = {
   enginePath?: string[];                 // extra dirs appended to the engine's PATH ('/usr/bin:/bin')
   plugin?: { id?: string };              // default 'byokit'
   bridge?: { socketName?: string; paramPrefix?: string };   // defaults 'bridge.sock' / '__byokit' (validated)
-  tools?: ToolSpec[];                    // app tools registered by the bridge plugin
+  tools?: ToolSpec[];                    // app tools registered by the bridge plugin; names /^[a-z][a-z0-9_]*$/,
+                                         // not bash or cron (the engine renames those before the gate hook)
   host?: ToolHost;                       // required when tools is non-empty
   permitted?: (tool: string) => boolean; // tools needing a one-use permit from their gate; default () => true
   gateBuiltins?: boolean;                // default true: engine builtins go through host.gate too (no host: blocked);
@@ -610,9 +611,10 @@ export const MEMBER_ID: RegExp;
 export function createMembers(ctx: { request: GatewayTransport['request']; root: string }): { ensure(member: Member): Promise<{ agentId: string; workspace: string }> };
 // bridge.ts (O5)
 export function resolveBridge(o?: { socketName?: string; paramPrefix?: string }): { socketName: string; paramPrefix: string };
-export function writePlugin(dir: string, o: { id: string; tools: ToolSpec[]; paramPrefix: string }): void;
+export function writePlugin(dir: string, o: { id: string; tools: ToolSpec[]; paramPrefix: string;
+  gateBuiltins: boolean }): void;
 export class Bridge {
-  constructor(o: { path: string; host?: ToolHost; permitted: (tool: string) => boolean; approvalTimeoutMs: number;
+  constructor(o: { path: string; host?: ToolHost; tools: ReadonlySet<string>; permitted: (tool: string) => boolean; approvalTimeoutMs: number;
     onAsk(a: Approval): void; onAskGone(id: string): void });
   start(): Promise<void>; stop(): void;
   register(run: RunRef): void; unregister(sessionKey: string): void;

@@ -44,7 +44,7 @@ export type KitOptions = {
   enginePath?: string[]; // extra dirs appended to the engine's PATH ('/usr/bin:/bin')
   plugin?: { id?: string }; // default 'byokit'
   bridge?: { socketName?: string; paramPrefix?: string }; // defaults 'bridge.sock' / '__byokit'
-  tools?: ToolSpec[]; // app tools registered by the bridge plugin
+  tools?: ToolSpec[]; // app tools registered by the bridge plugin; names /^[a-z][a-z0-9_]*$/, not bash or cron
   host?: ToolHost; // required when tools is non-empty
   permitted?: (tool: string) => boolean; // tools needing a one-use permit from their gate; default () => true
   gateBuiltins?: boolean; // default true: every tool call, engine builtins included, goes through host.gate (no host:
@@ -479,6 +479,11 @@ export class OpenClawKit {
 
   constructor(o: KitOptions) {
     if (o.tools?.length && !o.host) throw new Error('host required when tools are registered');
+    // The engine lowercases and alias-maps a tool name before the gate hook sees it (bash -> exec, cron ->
+    // automations); a name it would rewrite reaches the gate as a builtin, so refuse it here.
+    for (const t of o.tools ?? []) {
+      if (!/^[a-z][a-z0-9_]*$/.test(t.name) || t.name === 'bash' || t.name === 'cron') throw new Error(`invalid tool name: ${t.name}`);
+    }
     this.o = o;
     this.engine = new Engine({ ...o, pluginId: o.plugin?.id ?? 'byokit', tools: o.tools ?? [],
       gateBuiltins: o.gateBuiltins !== false, spawnEngine: o.spawnEngine !== false,
