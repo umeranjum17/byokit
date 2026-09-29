@@ -1,0 +1,61 @@
+name: pin-watch
+
+# Weekly upstream pin drift watch (byk-pin-watch, gap G2). Network-allowed by
+# design and outside `npm test` (whose egress guard blocks outbound dials).
+# Compares the engine pin with the npm dist-tags and the companion-app pin
+# with the vendor release manifest; on drift it opens or refreshes one issue
+# carrying the method/event diff.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check for upstream drift
+        id: watch
+        run: |
+          set -eu
+          node scripts/pin-watch.mjs --format json > /tmp/pinwatch.json
+          node scripts/pin-watch.mjs --format issue-body > /tmp/pinwatch-body.md
+          node scripts/pin-watch.mjs --format summary
+          echo "drift=$(node -p "require('/tmp/pinwatch.json').drift ? 'yes' : 'no'")" >> "$GITHUB_OUTPUT"
+          echo "pin=$(node -p "require('/tmp/pinwatch.json').openclaw.pin")" >> "$GITHUB_OUTPUT"
+      - name: Open or refresh the drift issue
+        if: steps.watch.outputs.drift == 'yes'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          number=$(gh issue list --label upstream-drift --state open --json number --jq '.[0].number // empty')
+          if [ -z "$number" ]; then
+            gh issue create --label upstream-drift \
+              --title "Upstream pin drift (engine ${{ steps.watch.outputs.pin }})" \
+              --body-file /tmp/pinwatch-body.md
+          else
+            gh issue edit "$number" --body-file /tmp/pinwatch-body.md
+            gh issue comment "$number" --body "Drift report refreshed by the weekly watch run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}."
+          fi
+      - name: Close the drift issue when pins are current
+        if: steps.watch.outputs.drift != 'yes'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          number=$(gh issue list --label upstream-drift --state open --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "Pins are current again; closing. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}."
+            gh issue close "$number"
+          fi
