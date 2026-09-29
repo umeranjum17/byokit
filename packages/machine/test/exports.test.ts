@@ -98,13 +98,10 @@ test('sandboxApi() is built (M4): the sandbox API adapter behind one Provider', 
   assert.equal(p.selfId, undefined);
 });
 
-test('stubs throw not built with their package id', async () => {
-  assert.throws(() => idle.idle({ linked: () => 0, held: () => false, minutes: 5, stop: async () => {} }), /not built: M7/);
-  assert.throws(() => idle.stopSelf({ baseUrl: 'http://sandbox.test/api/v1', id: 'x', key: async () => '' }), /not built: M7/);
-  assert.throws(() => kit.claim({ baseUrl: 'http://sandbox.test/api/v1' }), /not built: M8/);
-  assert.throws(() => kit.wakeResolve({ provider: testing.fakeProvider(), ref: { provider: 'sandbox-api', account: 'a', id: 'i', name: 'n', keepCopies: true }, port: 443 }), /not built: M7/);
-  const m = machine({ provider: testing.fakeProvider(), store: memoryStore() });
-  await m.create({ name: 'web', size: 'small', keepCopies: true });
+test('M3: install and supervise are built (8)', async () => {
+  const f = testing.fakeProvider();
+  const m = machine({ provider: f, store: memoryStore() });
+  const ref = await m.create({ name: 'web', size: 'small', keepCopies: true });
   const recipe = {
     name: 'web',
     node: { version: '24.15.0', sha256: { 'linux-x64': 'a'.repeat(64), 'linux-arm64': 'a'.repeat(64) } },
@@ -112,11 +109,26 @@ test('stubs throw not built with their package id', async () => {
     run: { argv: ['node', 'server.mjs'], env: {} },
     workDir: '/home/user/app',
   };
-  await assert.rejects(m.install(recipe), /not built: M3/);
-  await assert.rejects(m.update(recipe), /not built: M3/);
-  await assert.rejects(m.host(), /not built: M3/);
-  await assert.rejects(m.logs(10), /not built: M3/);
-  await assert.rejects(m.deliver(recipe, 'a.txt', new Uint8Array([1])), /not built: M3/);
+  const lines: string[] = [];
+  await m.install(recipe, (line) => lines.push(line));
+  assert.equal(await m.host(), 'running');
+  assert.deepEqual(await m.logs(10), []);
+  await m.update({ ...recipe, update: [['npm', 'run', 'migrate']] });
+  assert.equal(await m.host(), 'running');
+  await m.deliver(recipe, 'note.txt', new TextEncoder().encode('hi'));
+  const file = f.fake.machine.files.get('/home/user/app/.byokit/inbox/note.txt');
+  assert.ok(file !== undefined && file.mode === 0o600);
+  assert.deepEqual(JSON.parse(Buffer.from(
+    f.fake.machine.files.get('/home/user/app/.byokit/installed.json')?.bytes ?? new Uint8Array(),
+  ).toString('utf8')), { id: ref.id });
+  void lines;
+});
+
+test('stubs throw not built with their package id', async () => {
+  assert.throws(() => idle.idle({ linked: () => 0, held: () => false, minutes: 5, stop: async () => {} }), /not built: M7/);
+  assert.throws(() => idle.stopSelf({ baseUrl: 'http://sandbox.test/api/v1', id: 'x', key: async () => '' }), /not built: M7/);
+  assert.throws(() => kit.claim({ baseUrl: 'http://sandbox.test/api/v1' }), /not built: M8/);
+  assert.throws(() => kit.wakeResolve({ provider: testing.fakeProvider(), ref: { provider: 'sandbox-api', account: 'a', id: 'i', name: 'n', keepCopies: true }, port: 443 }), /not built: M7/);
 });
 
 test('words: the frozen table answers in plain sentences (12)', () => {

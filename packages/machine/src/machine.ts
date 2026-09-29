@@ -1,25 +1,47 @@
-// machine() (docs/machine-kit.md section 5). M1 builds the 5.1 checks of every method,
-// 5.2-5.5 and 5.7; install, update, host, logs and deliver run their checks, then throw
-// 'not built: M3'.
+// machine() (docs/machine-kit.md section 5). M1 builds the 5.1 checks of every method
+// and 5.2-5.5 and 5.7; M3 builds install, update, host, logs and deliver (section 8).
 import { MachineError } from './errors.ts';
 import { balanceCost, dateOf, enteredCost, monthStartIso, usageCost } from './cost.ts';
-import { checkRecipe } from './recipe.ts';
+import { archOf, nodeInstallArgv, nodePath } from './node.ts';
+import { checkRecipe, defaultRange, markerPath, satisfiesRange } from './recipe.ts';
+import {
+  DELIVER_SHELL, PROBE_SHELL, WORKDIR_SHELL, WRITE_SHELL, renderUnit, systemUnitPath,
+  userUnitPath, writeUnitFile, writeUserUnit,
+} from './unit.ts';
 import type {
-  AsleepWhy, HostRecipe, Machine, MachineRecord, MachineRef, MachineStore, Plan, Provider,
+  AsleepWhy, ExecResult, HostRecipe, HostState, Machine, MachineRecord, MachineRef, MachineStore, Plan, Provider,
 } from './types.ts';
 
 const EXEC_TIMEOUT_MS = 30_000;
+/** 8.3 steps 3-5: each installRoot, install and update argv gets 20 minutes. */
+const STEP_TIMEOUT_MS = 20 * 60 * 1000;
 const FILE_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const DELIVER_LIMIT = 64 * 1024;
+/** 8.3 step 5: a failed step reports the last 2 KB of stderr. */
+const STEP_TAIL = 2048;
 
 const randomBase36 = (n: number): string => {
   const bytes = crypto.getRandomValues(new Uint8Array(n));
   return [...bytes].map((b) => '0123456789abcdefghijklmnopqrstuvwxyz'[b % 36]).join('');
 };
 
+/** POSIX single-quote quoting, as the adapters quote argv (6.4). */
+const shellQuote = (argv: readonly string[]): string =>
+  argv.map((a) => `'${a.replace(/'/g, `'\\''`)}'`).join(' ');
+
+const feedLines = (text: string, onLine: (line: string) => void): void => {
+  const lines = text.split('\n');
+  if (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  for (const line of lines) onLine(line);
+};
+
+type ExecOpts = { timeoutMs: number; root?: boolean; input?: Uint8Array };
+
 export function machine(o: { provider: Provider; store: MachineStore }): Machine {
   let loading: Promise<void> | null = null;
   let record: MachineRecord | null = null;
+  // host() resolves 'installing' while an install or update of this object is in flight (5.6).
+  let installing = false;
 
   const load = (): Promise<void> => {
     loading ??= o.store.load().then((r) => {
@@ -72,6 +94,240 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
     } catch {
       // A missing unit is ignored, so the host gets SIGTERM and flushes whether or not
       // the provider's stop is a clean OS shutdown (G10).
+    }
+  };
+
+  // 8.2 without a recipe (`host`, `logs`, `sleep`): the probe decides the unit kind.
+  // Unlike stopUnit, a transport failure propagates instead of guessing a kind.
+  const probeKind = async (r: MachineRef): Promise<'system' | 'user'> => {
+    const unit = `byokit-${r.name}.service`;
+    const probe = await o.provider.exec(r, ['test', '-e', `/etc/systemd/system/${unit}`], { timeoutMs: EXEC_TIMEOUT_MS });
+    return probe.code === 0 ? 'system' : 'user';
+  };
+
+  // 8.2: as the run user. Without `user`, plain `exec`; with `user`,
+  // `exec` with `root: true` of `runuser -u <user> -- ...argv`.
+  const asRunUser = (r: MachineRef, user: string | undefined, argv: readonly string[], execOpts: ExecOpts): Promise<ExecResult> =>
+    user === undefined
+      ? o.provider.exec(r, argv, execOpts)
+      : o.provider.exec(r, ['runuser', '-u', user, '--', ...argv], { ...execOpts, root: true });
+
+  // 8.2: in workDir, with the node bin dir first on PATH, then as the run user.
+  const inWorkDir = (
+    r: MachineRef, recipe: HostRecipe, nodeBinDir: string, argv: readonly string[], execOpts: ExecOpts,
+  ): Promise<ExecResult> =>
+    asRunUser(r, recipe.user, [
+      'sh', '-c', WORKDIR_SHELL, 'sh', recipe.workDir, nodeBinDir, ...argv,
+    ], execOpts);
+
+  // 8.3 step 2: one probe; Linux, an arch we run on, a systemd line, and the
+  // machine user and home. Then the 8.1 machine checks against them.
+  const probeMachine = async (r: MachineRef, recipe: HostRecipe): Promise<{
+    arch: 'linux-x64' | 'linux-arm64'; machineUser: string; machineHome: string; runHome: string;
+  }> => {
+    const probed = await o.provider.exec(r, ['sh', '-c', PROBE_SHELL], { timeoutMs: EXEC_TIMEOUT_MS });
+    if (probed.code !== 0) {
+      throw new MachineError('not-linux', `probe: the machine probe failed with exit ${probed.code}`);
+    }
+    const [sys = '', unameM = '', systemd = '', machineUser = '', machineHome = ''] =
+      probed.stdout.split('\n');
+    if (sys !== 'Linux') throw new MachineError('not-linux', `uname -s: expected Linux, got ${JSON.stringify(sys)}`);
+    const arch = archOf(unameM);
+    if (arch === null) throw new MachineError('not-linux', `uname -m: expected x86_64 or aarch64, got ${JSON.stringify(unameM)}`);
+    if (!systemd.includes('systemd')) {
+      throw new MachineError('not-linux', `systemd: expected a systemd line, got ${JSON.stringify(systemd)}`);
+    }
+    if (machineUser === '' || machineHome === '') {
+      throw new MachineError('not-linux', 'machine user: the probe did not print a user and home');
+    }
+    if (recipe.user !== undefined && machineUser === recipe.user) {
+      throw new MachineError('bad-recipe', `user: must differ from the machine user ${JSON.stringify(machineUser)}`);
+    }
+    if (recipe.user !== undefined && machineUser === 'root') {
+      throw new MachineError('bad-recipe', 'user: the machine user is root, so no home under /root can be opened to another user safely');
+    }
+    const runHome = recipe.user === undefined ? machineHome : `${machineHome}/.users/${recipe.user}`;
+    if (recipe.workDir !== runHome && !recipe.workDir.startsWith(`${runHome}/`)) {
+      throw new MachineError('bad-recipe', `workDir: must live inside the run user's home ${JSON.stringify(runHome)}`);
+    }
+    return { arch, machineUser, machineHome, runHome };
+  };
+
+  // 8.2: root access. The sandbox API always has it; otherwise `sudo -n true`
+  // decides (exit 0 means passwordless sudo).
+  const hasRoot = async (r: MachineRef): Promise<boolean> => {
+    if (o.provider.id === 'sandbox-api') return true;
+    const probed = await o.provider.exec(r, ['true'], { timeoutMs: EXEC_TIMEOUT_MS, root: true });
+    return probed.code === 0;
+  };
+
+  // 8.3 step 3: the `needs-root` refusal. With `user` there is no command (a
+  // no-sudo run user needs root on every install and update); with only
+  // `installRoot` the extra holds every line plus the marker lines.
+  const needsRoot = (recipe: HostRecipe, name: string): MachineError => {
+    if (recipe.user !== undefined) {
+      return new MachineError('needs-root', `user: installing as ${JSON.stringify(recipe.user)} needs root on the machine`);
+    }
+    const lines = (recipe.installRoot ?? []).map((argv) => `sudo ${shellQuote(argv)}`);
+    lines.push('sudo mkdir -p /var/lib/byokit', `sudo touch ${markerPath(name, recipe)}`);
+    return new MachineError('needs-root', 'installRoot: installing needs root on the machine', { command: lines.join('\n') });
+  };
+
+  // 8.3 step 3: root steps (G5b, G7), only when the recipe has `installRoot`
+  // or `user`. The marker skips them; without root access nothing else runs.
+  const rootSteps = async (r: MachineRef, recipe: HostRecipe, name: string, machineHome: string): Promise<void> => {
+    if (recipe.installRoot === undefined && recipe.user === undefined) return;
+    const marker = markerPath(name, recipe);
+    const seen = await o.provider.exec(r, ['test', '-e', marker], { timeoutMs: EXEC_TIMEOUT_MS });
+    if (seen.code === 0) return;
+    if (!(await hasRoot(r))) throw needsRoot(recipe, name);
+    const asRoot = (argv: readonly string[], timeoutMs: number): Promise<ExecResult> =>
+      o.provider.exec(r, argv, { timeoutMs, root: true });
+    if (recipe.user !== undefined) {
+      const usersDir = `${machineHome}/.users`;
+      const runHome = `${usersDir}/${recipe.user}`;
+      const made = await asRoot(['install', '-d', '-m', '0711', '-o', 'root', '-g', 'root', usersDir], EXEC_TIMEOUT_MS);
+      if (made.code !== 0) throw new MachineError('provider', `install -d ${usersDir} failed with exit ${made.code}`);
+      const opened = await asRoot(['chmod', 'o+x', machineHome], EXEC_TIMEOUT_MS);
+      if (opened.code !== 0) throw new MachineError('provider', `chmod o+x ${machineHome} failed with exit ${opened.code}`);
+      const known = await asRoot(['id', '-u', recipe.user], EXEC_TIMEOUT_MS);
+      if (known.code !== 0) {
+        const added = await asRoot(
+          ['useradd', '--system', '--no-create-home', '--home-dir', runHome, '--shell', '/usr/sbin/nologin', recipe.user],
+          EXEC_TIMEOUT_MS,
+        );
+        if (added.code !== 0) {
+          throw new MachineError('provider', `useradd ${recipe.user} failed with exit ${added.code}`);
+        }
+        const homed = await asRoot(['install', '-d', '-m', '0700', '-o', recipe.user, '-g', recipe.user, runHome], EXEC_TIMEOUT_MS);
+        if (homed.code !== 0) throw new MachineError('provider', `install -d ${runHome} failed with exit ${homed.code}`);
+      }
+    }
+    for (const argv of recipe.installRoot ?? []) {
+      const done = await asRoot(argv, STEP_TIMEOUT_MS);
+      if (done.code !== 0) {
+        throw new MachineError('provider', `installRoot step ${shellQuote(argv)} failed with exit ${done.code}`);
+      }
+    }
+    const dirMade = await asRoot(['mkdir', '-p', '/var/lib/byokit'], EXEC_TIMEOUT_MS);
+    if (dirMade.code !== 0) throw new MachineError('provider', `mkdir -p /var/lib/byokit failed with exit ${dirMade.code}`);
+    const marked = await asRoot(['touch', marker], EXEC_TIMEOUT_MS);
+    if (marked.code !== 0) throw new MachineError('provider', `touch ${marker} failed with exit ${marked.code}`);
+  };
+
+  // 8.3 step 4: Node (G5a), as the run user. The pinned binary, else a machine
+  // node inside the range, else the install script. Exit 3 is a checksum
+  // mismatch (`bad-recipe`); any other failure is the provider's.
+  const resolveNode = async (
+    r: MachineRef, recipe: HostRecipe, runHome: string, arch: 'linux-x64' | 'linux-arm64',
+  ): Promise<string> => {
+    const pinned = nodePath(runHome, recipe.node.version);
+    const has = await asRunUser(r, recipe.user, [pinned, '--version'], { timeoutMs: EXEC_TIMEOUT_MS });
+    if (has.code === 0 && has.stdout.trim() === `v${recipe.node.version}`) return pinned;
+    const range = recipe.node.range ?? defaultRange(recipe.node.version);
+    const found = await asRunUser(r, recipe.user, ['sh', '-c', 'command -v node && node --version'], { timeoutMs: EXEC_TIMEOUT_MS });
+    if (found.code === 0) {
+      const lines = found.stdout.trim().split('\n');
+      const version = /^v(\d+\.\d+\.\d+)$/.exec(lines[lines.length - 1].trim())?.[1];
+      const path = lines[0].trim();
+      if (version !== undefined && path !== '' && satisfiesRange(version, range)) return path;
+    }
+    const installed = await asRunUser(r, recipe.user, [...nodeInstallArgv(recipe, arch, runHome)], { timeoutMs: STEP_TIMEOUT_MS });
+    if (installed.code === 3) {
+      throw new MachineError('bad-recipe', `node.sha256: the node ${recipe.node.version} tarball failed its checksum`);
+    }
+    if (installed.code !== 0) {
+      throw new MachineError('provider', `node install failed with exit ${installed.code}: ${installed.stderr.slice(-STEP_TAIL)}`);
+    }
+    return pinned;
+  };
+
+  // 8.3 step 5 tail: each install/update argv in workDir. A non-zero exit
+  // rejects `provider` with the step index and the last 2 KB of stderr.
+  // `onLine` gets each step's stdout then stderr lines, in order, after it ends.
+  const runSteps = async (
+    r: MachineRef,
+    recipe: HostRecipe,
+    nodeBinDir: string,
+    steps: readonly (readonly string[])[],
+    onLine: ((line: string) => void) | undefined,
+    label: 'install' | 'update',
+  ): Promise<void> => {
+    for (let i = 0; i < steps.length; i++) {
+      const done = await inWorkDir(r, recipe, nodeBinDir, steps[i], { timeoutMs: STEP_TIMEOUT_MS });
+      if (onLine !== undefined) {
+        feedLines(done.stdout, onLine);
+        feedLines(done.stderr, onLine);
+      }
+      if (done.code !== 0) {
+        throw new MachineError(
+          'provider',
+          `${label} step ${i} (${steps[i][0]}) failed with exit ${done.code}`,
+          { step: String(i), tail: done.stderr.slice(-STEP_TAIL) },
+        );
+      }
+    }
+  };
+
+  // 8.3 step 6: `<workDir>/.byokit/installed.json` with the ref's id at 0600 (G4).
+  const writeInstalled = async (r: MachineRef, recipe: HostRecipe): Promise<void> => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ id: r.id }));
+    const done = await asRunUser(r, recipe.user, ['sh', '-c', WRITE_SHELL, 'sh', `${recipe.workDir}/.byokit/installed.json`, '600'], {
+      timeoutMs: EXEC_TIMEOUT_MS, input: bytes,
+    });
+    if (done.code !== 0) {
+      throw new MachineError('provider', `write installed.json failed with exit ${done.code}: ${done.stderr.slice(-200)}`);
+    }
+  };
+
+  // 8.3 steps 1-5 shared by install and update (update reruns the root steps only
+  // when the marker is missing, 8.5), plus the step 5 mkdirs.
+  const prepare = async (r: MachineRef, recipe: HostRecipe): Promise<{
+    machineUser: string; machineHome: string; node: string; nodeBinDir: string;
+  }> => {
+    const { arch, machineUser, machineHome, runHome } = await probeMachine(r, recipe);
+    await rootSteps(r, recipe, r.name, machineHome);
+    const node = await resolveNode(r, recipe, runHome, arch);
+    const nodeBinDir = node.slice(0, node.lastIndexOf('/'));
+    for (const argv of [
+      ['mkdir', '-p', recipe.workDir],
+      ['mkdir', '-p', '-m', '0700', `${recipe.workDir}/.byokit`],
+    ] as const) {
+      const made = await asRunUser(r, recipe.user, [...argv], { timeoutMs: EXEC_TIMEOUT_MS });
+      if (made.code !== 0) {
+        throw new MachineError('provider', `${argv.join(' ')} failed with exit ${made.code}: ${made.stderr.slice(-200)}`);
+      }
+    }
+    return { machineUser, machineHome, node, nodeBinDir };
+  };
+
+  const renderFor = (
+    recipe: HostRecipe, machineUser: string, nodeResolved: string,
+  ): { kind: 'system' | 'user'; runUser: string; bytes: string } => {
+    const kind = o.provider.id === 'sandbox-api' || recipe.user !== undefined ? 'system' : 'user';
+    const runUser = recipe.user ?? machineUser;
+    // 8.3 step 7 (boot.mjs) is M8's: no adapter has `selfId` before M8.
+    if (o.provider.selfId !== undefined) throw new Error('not built: M8');
+    return { kind, runUser, bytes: renderUnit(recipe, { kind, runUser, nodePath: nodeResolved, selfId: false }) };
+  };
+
+  // 8.3 steps 8-9, system half: the unit file as root, then reload and enable.
+  const enableSystemUnit = async (r: MachineRef, name: string, bytes: string): Promise<void> => {
+    const unit = `byokit-${name}.service`;
+    await writeUnitFile(
+      (argv, execOpts) => o.provider.exec(r, argv, execOpts),
+      systemUnitPath(name),
+      bytes,
+      { timeoutMs: EXEC_TIMEOUT_MS, root: true },
+    );
+    for (const argv of [
+      ['systemctl', 'daemon-reload'],
+      ['systemctl', 'enable', '--now', unit],
+    ] as const) {
+      const done = await o.provider.exec(r, [...argv], { timeoutMs: EXEC_TIMEOUT_MS, root: true });
+      if (done.code !== 0) {
+        throw new MachineError('provider', `${argv.join(' ')} failed with exit ${done.code}: ${done.stderr.slice(-200)}`);
+      }
     }
   };
 
@@ -142,30 +398,131 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       await o.provider.sleep(r);
     },
 
-    async install(r: HostRecipe, _onLine?: (line: string) => void): Promise<void> {
-      const ref = await need();
-      checkRecipe(r, ref.name);
-      void _onLine;
-      throw new Error('not built: M3');
+    async install(r: HostRecipe, onLine?: (line: string) => void): Promise<void> {
+      installing = true;
+      try {
+        const ref = await need();
+        checkRecipe(r, ref.name);
+        const { machineUser, machineHome, node } = await prepare(ref, r);
+        await runSteps(ref, r, node.slice(0, node.lastIndexOf('/')), r.install, onLine, 'install');
+        await writeInstalled(ref, r);
+        const { kind, bytes } = renderFor(r, machineUser, node);
+        if (kind === 'system') {
+          await enableSystemUnit(ref, ref.name, bytes);
+        } else {
+          await writeUserUnit({
+            exec: (argv, execOpts) => o.provider.exec(ref, argv, execOpts),
+            home: machineHome, name: ref.name, bytes, machineUser, timeoutMs: EXEC_TIMEOUT_MS,
+          });
+        }
+      } finally {
+        installing = false;
+      }
     },
 
     async update(r: HostRecipe): Promise<void> {
+      installing = true;
+      try {
+        const ref = await need();
+        checkRecipe(r, ref.name);
+        const { machineUser, machineHome, node, nodeBinDir } = await prepare(ref, r);
+        // A recipe with no `update` runs the same sequence with no update argv.
+        await runSteps(ref, r, nodeBinDir, r.update ?? [], undefined, 'update');
+        await writeInstalled(ref, r);
+        // Re-render the unit and rewrite it only when its bytes changed (then
+        // `daemon-reload`); then restart.
+        const { kind, bytes } = renderFor(r, machineUser, node);
+        const asRoot = kind === 'system';
+        const unitPath = asRoot ? systemUnitPath(ref.name) : userUnitPath(machineHome, ref.name);
+        const before = await o.provider.exec(ref, ['cat', unitPath], asRoot
+          ? { timeoutMs: EXEC_TIMEOUT_MS, root: true }
+          : { timeoutMs: EXEC_TIMEOUT_MS });
+        if (!(before.code === 0 && before.stdout === bytes)) {
+          await writeUnitFile(
+            (argv, execOpts) => o.provider.exec(ref, argv, execOpts),
+            unitPath,
+            bytes,
+            asRoot ? { timeoutMs: EXEC_TIMEOUT_MS, root: true } : { timeoutMs: EXEC_TIMEOUT_MS },
+          );
+          const reloaded = await o.provider.exec(
+            ref,
+            asRoot ? ['systemctl', 'daemon-reload'] : ['systemctl', '--user', 'daemon-reload'],
+            asRoot ? { timeoutMs: EXEC_TIMEOUT_MS, root: true } : { timeoutMs: EXEC_TIMEOUT_MS },
+          );
+          if (reloaded.code !== 0) {
+            throw new MachineError('provider', `systemctl daemon-reload failed with exit ${reloaded.code}: ${reloaded.stderr.slice(-200)}`);
+          }
+        }
+        const unit = `byokit-${ref.name}.service`;
+        const restarted = await o.provider.exec(
+          ref,
+          asRoot ? ['systemctl', 'restart', unit] : ['systemctl', '--user', 'restart', unit],
+          asRoot ? { timeoutMs: EXEC_TIMEOUT_MS, root: true } : { timeoutMs: EXEC_TIMEOUT_MS },
+        );
+        if (restarted.code !== 0) {
+          throw new MachineError('provider', `systemctl restart ${unit} failed with exit ${restarted.code}: ${restarted.stderr.slice(-200)}`);
+        }
+      } finally {
+        installing = false;
+      }
+    },
+
+    async host(): Promise<HostState> {
       const ref = await need();
-      checkRecipe(r, ref.name);
-      throw new Error('not built: M3');
+      if (installing) return 'installing';
+      const kind = await probeKind(ref);
+      const asRoot = kind === 'system';
+      const unit = `byokit-${ref.name}.service`;
+      const shown = await o.provider.exec(
+        ref,
+        asRoot
+          ? ['systemctl', 'show', unit, '-p', 'LoadState,ActiveState,SubState,NRestarts']
+          : ['systemctl', '--user', 'show', unit, '-p', 'LoadState,ActiveState,SubState,NRestarts'],
+        asRoot ? { timeoutMs: EXEC_TIMEOUT_MS, root: true } : { timeoutMs: EXEC_TIMEOUT_MS },
+      );
+      if (shown.code !== 0) {
+        throw new MachineError('provider', `systemctl show ${unit} failed with exit ${shown.code}: ${shown.stderr.slice(-200)}`);
+      }
+      // 8.5 rows, in order; the first match wins.
+      const fields = new Map<string, string>();
+      for (const line of shown.stdout.split('\n')) {
+        const eq = line.indexOf('=');
+        if (eq > 0) fields.set(line.slice(0, eq), line.slice(eq + 1));
+      }
+      const active = fields.get('ActiveState') ?? '';
+      const sub = fields.get('SubState') ?? '';
+      const parsed = Number.parseInt(fields.get('NRestarts') ?? '0', 10);
+      const restarts = Number.isInteger(parsed) ? parsed : 0;
+      if ((fields.get('LoadState') ?? '') === 'not-found') return 'not-installed';
+      if (active === 'active') return 'running';
+      if (sub === 'auto-restart' || sub === 'auto-restart-queued') return restarts < 5 ? 'restarting' : 'failed';
+      if (active === 'failed') return 'failed';
+      if (active === 'activating' || active === 'reloading' || active === 'refreshing') return 'running';
+      return 'stopped';
     },
 
-    async host() {
-      await need();
-      throw new Error('not built: M3');
-    },
-
-    async logs(lines: number) {
-      await need();
+    async logs(lines: number): Promise<string[]> {
+      const ref = await need();
       if (!Number.isInteger(lines) || lines < 1) {
         throw new MachineError('bad-recipe', `lines: must be an integer >= 1, got ${JSON.stringify(lines)}`);
       }
-      throw new Error('not built: M3');
+      const kind = await probeKind(ref);
+      const asRoot = kind === 'system';
+      const unit = `byokit-${ref.name}.service`;
+      const n = Math.min(lines, 500);
+      const shown = await o.provider.exec(
+        ref,
+        asRoot
+          ? ['journalctl', '-u', unit, '-n', String(n), '--no-pager', '-o', 'cat']
+          : ['journalctl', '--user', '-u', unit, '-n', String(n), '--no-pager', '-o', 'cat'],
+        asRoot ? { timeoutMs: EXEC_TIMEOUT_MS, root: true } : { timeoutMs: EXEC_TIMEOUT_MS },
+      );
+      if (shown.code !== 0) {
+        throw new MachineError('provider', `journalctl ${unit} failed with exit ${shown.code}: ${shown.stderr.slice(-200)}`);
+      }
+      const out = shown.stdout.split('\n');
+      if (out.length > 0 && out[out.length - 1] === '') out.pop();
+      return out;
     },
 
     async url(port: number) {
@@ -245,7 +602,14 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       if (bytes.length > DELIVER_LIMIT) {
         throw new MachineError('bad-recipe', `bytes: at most ${DELIVER_LIMIT} bytes, got ${bytes.length}`);
       }
-      throw new Error('not built: M3');
+      // 5.8: one `exec` as the run user, with `input: bytes`. The file ends at
+      // mode 0600 in a 0700 directory, owned by the run user.
+      const done = await asRunUser(ref, r.user, ['sh', '-c', DELIVER_SHELL, 'sh', `${r.workDir}/.byokit/inbox`, file], {
+        timeoutMs: EXEC_TIMEOUT_MS, input: bytes,
+      });
+      if (done.code !== 0) {
+        throw new MachineError('provider', `deliver ${file} failed with exit ${done.code}: ${done.stderr.slice(-200)}`);
+      }
     },
   };
 

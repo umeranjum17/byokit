@@ -17,3 +17,10 @@
   keys, the fake `ssh`/`ssh-keyscan` bench, the SSH contract bench (create by adoption
   after `confirm()`), and `test/{ssh,isolation}.test.ts` with behaviour assertions in
   `test/exports.test.ts`.
+- Install and supervise (docs/machine-kit.md M3): `install`, `update`, `host`, `logs`
+  and `deliver` in `src/machine.ts` (8.3 step order, Node selection, root steps with
+  the marker and `needs-root`, `user` with `runuser`, system units for the sandbox
+  API and user units plus linger for SSH VMs, `Restart=always` on both), the reusable
+  per-user unit writer in `src/unit.ts`, the install-family contract cases with
+  `installs` on in `test/contract.test.ts`, `test/install.test.ts`, and recipe
+  sections in the README.

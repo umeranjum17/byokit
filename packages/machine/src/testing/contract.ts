@@ -7,6 +7,9 @@ import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
 import { MachineError } from '../errors.ts';
 import { machine } from '../machine.ts';
+import { nodePath } from '../node.ts';
+import { markerPath } from '../recipe.ts';
+import { renderUnit } from '../unit.ts';
 import type { HostRecipe, Machine, MachineRef, Provider } from '../types.ts';
 import { fakeProvider, memoryStore } from './fake-provider.ts';
 import type { FakeControl } from './fake-provider.ts';
@@ -114,8 +117,20 @@ export function machineContract(make: () => Promise<MachineBench>, o?: { test?: 
   runTest('5: install of a valid recipe ends with host() running and one unit whose bytes equal renderUnit', async (t) => {
     const bench = await make();
     if (!bench.installs) return t.skip('installs off until M3');
-    void bench;
-    assert.fail('not built: M3');
+    const m = await createMachine(bench);
+    if (bench.provider.create === undefined && bench.provider.adopt === undefined) return t.skip('no create or adopt');
+    const ref = await m.create({ name: 'web', size: 'small', keepCopies: keepCopiesFor(bench) });
+    const r = recipe(ref.name);
+    await m.install(r);
+    assert.equal(await m.host(), 'running');
+    if (bench.fake === undefined) return;
+    const units = [...bench.fake.machine.units.values()];
+    assert.equal(units.length, 1);
+    const kind = bench.provider.id === 'sandbox-api' || r.user !== undefined ? 'system' : 'user';
+    assert.equal(
+      units[0].bytes,
+      renderUnit(r, { kind, runUser: bench.fake.machine.user, nodePath: nodePath(bench.fake.machine.home, '24.15.0'), selfId: false }),
+    );
   });
 
   runTest('6: after create, each 8.1 pure rule rejects bad-recipe with no provider call other than account()', async () => {
@@ -151,15 +166,35 @@ export function machineContract(make: () => Promise<MachineBench>, o?: { test?: 
   runTest('7: update restarts the unit', async (t) => {
     const bench = await make();
     if (!bench.installs) return t.skip('installs off until M3');
-    void bench;
-    assert.fail('not built: M3');
+    const m = await createMachine(bench);
+    if (bench.provider.create === undefined && bench.provider.adopt === undefined) return t.skip('no create or adopt');
+    const ref = await m.create({ name: 'web', size: 'small', keepCopies: keepCopiesFor(bench) });
+    await m.install(recipe(ref.name));
+    const before = bench.fake?.calls.length ?? 0;
+    await m.update({ ...recipe(ref.name), update: [['npm', 'run', 'migrate']] });
+    assert.equal(await m.host(), 'running');
+    if (bench.fake === undefined) return;
+    const fresh = bench.fake.calls.slice(before);
+    assert.ok(
+      fresh.some((c) => c.op === 'exec' && Array.isArray(c.args[1]) && (c.args[1] as string[]).includes('restart')),
+      `update restarts the unit, got ${JSON.stringify(fresh.map((c) => c.op))}`,
+    );
   });
 
   runTest('8: logs(10000) asks for at most 500 lines', async (t) => {
     const bench = await make();
     if (!bench.installs) return t.skip('installs off until M3');
-    void bench;
-    assert.fail('not built: M3');
+    if (bench.fake === undefined) return t.skip('no observation point without a fake');
+    const m = await createMachine(bench);
+    if (bench.provider.create === undefined && bench.provider.adopt === undefined) return t.skip('no create or adopt');
+    await m.create({ name: 'web', size: 'small', keepCopies: keepCopiesFor(bench) });
+    assert.deepEqual(await m.logs(10000), []);
+    const journal = [...bench.fake.calls].reverse().find((c) =>
+      c.op === 'exec' && Array.isArray(c.args[1]) && (c.args[1] as string[])[0] === 'journalctl');
+    assert.ok(journal !== undefined, 'logs runs journalctl');
+    const argv = journal.args[1] as string[];
+    const n = Number.parseInt(argv[argv.indexOf('-n') + 1], 10);
+    assert.ok(Number.isInteger(n) && n <= 500, `at most 500 lines, got ${n}`);
   });
 
   runTest('9: wake on an on machine calls status and never provider.wake', async (t) => {
@@ -222,14 +257,55 @@ export function machineContract(make: () => Promise<MachineBench>, o?: { test?: 
     const bench = await make();
     if (bench.fake === undefined) return t.skip('fake only');
     if (!bench.installs) return t.skip('installs off until M3');
-    assert.fail('not built: M3');
+    const m = await createMachine(bench);
+    if (bench.provider.create === undefined) return t.skip('no create');
+    await m.create({ name: 'web', size: 'small', keepCopies: true });
+    assert.equal(await m.host(), 'not-installed');
+    const show = (ActiveState: string, SubState = 'running', NRestarts = 0): void => {
+      bench.fake?.machine.addUnit('web', {
+        kind: 'system',
+        bytes: '',
+        show: { LoadState: 'loaded', ActiveState, SubState, NRestarts },
+        enabled: true,
+      });
+    };
+    show('active');
+    assert.equal(await m.host(), 'running');
+    show('activating', 'start');
+    assert.equal(await m.host(), 'running');
+    show('reloading', 'reload');
+    assert.equal(await m.host(), 'running');
+    show('refreshing', 'refresh');
+    assert.equal(await m.host(), 'running');
+    show('inactive', 'auto-restart', 0);
+    assert.equal(await m.host(), 'restarting');
+    show('inactive', 'auto-restart-queued', 4);
+    assert.equal(await m.host(), 'restarting');
+    show('inactive', 'auto-restart', 5);
+    assert.equal(await m.host(), 'failed');
+    show('inactive', 'auto-restart-queued', 9);
+    assert.equal(await m.host(), 'failed');
+    show('failed', 'failed');
+    assert.equal(await m.host(), 'failed');
+    show('inactive', 'dead');
+    assert.equal(await m.host(), 'stopped');
+    show('deactivating', 'stop');
+    assert.equal(await m.host(), 'stopped');
+    show('mounting', 'mounted');
+    assert.equal(await m.host(), 'stopped');
   });
 
   runTest('14 (fake): the linger refusal rejects linger with extra.command', async (t) => {
     const bench = await make();
     if (bench.fake === undefined) return t.skip('fake only');
     if (!bench.installs) return t.skip('installs off until M3');
-    assert.fail('not built: M3');
+    void bench;
+    const bare = fakeProvider({ id: 'ssh-vm' });
+    bare.fake.machine.lingerOk = false;
+    const m = machine({ provider: bare, store: memoryStore() });
+    await m.create({ name: 'web', size: 'small', keepCopies: false });
+    const err = await rejectCode(m.install(recipe('web')), 'linger');
+    assert.equal(err.extra.command, 'sudo loginctl enable-linger user');
   });
 
   runTest('15: plan() resolves the provider plan, or null when the provider has none', async () => {
@@ -269,22 +345,73 @@ export function machineContract(make: () => Promise<MachineBench>, o?: { test?: 
   runTest('17: deliver writes one file at mode 0600 under <workDir>/.byokit/inbox/, and rejects a bad name or 64 KB + 1', async (t) => {
     const bench = await make();
     if (!bench.installs) return t.skip('installs off until M3');
-    void bench;
-    assert.fail('not built: M3');
+    const m = await createMachine(bench);
+    if (bench.provider.create === undefined && bench.provider.adopt === undefined) return t.skip('no create or adopt');
+    const ref = await m.create({ name: 'web', size: 'small', keepCopies: keepCopiesFor(bench) });
+    const r = recipe(ref.name);
+    const bytes = new TextEncoder().encode('owner-key');
+    await m.deliver(r, 'owner-key.txt', bytes);
+    await rejectCode(m.deliver(r, 'Bad name.txt', bytes), 'bad-recipe');
+    await rejectCode(m.deliver(r, 'big.bin', new Uint8Array(64 * 1024 + 1)), 'bad-recipe');
+    if (bench.fake === undefined) return;
+    const file = bench.fake.machine.files.get('/home/user/app/.byokit/inbox/owner-key.txt');
+    assert.ok(file !== undefined, 'the file lands in the inbox');
+    assert.equal(file.mode, 0o600);
+    assert.equal(file.owner, bench.fake.machine.user);
+    assert.deepEqual(file.bytes, bytes);
   });
 
   runTest('18 (fake): without root access, installRoot and user reject needs-root; with the marker, install runs no root step', async (t) => {
     const bench = await make();
     if (bench.fake === undefined) return t.skip('fake only');
     if (!bench.installs) return t.skip('installs off until M3');
-    assert.fail('not built: M3');
+    void bench;
+    const noroot = fakeProvider({ id: 'ssh-vm', root: false });
+    const m = machine({ provider: noroot, store: memoryStore() });
+    await m.create({ name: 'web', size: 'small', keepCopies: false });
+    const withRoot = { ...recipe('web'), installRoot: [['apt-get', 'install', '-y', 'foo']] };
+    const refused = await rejectCode(m.install(withRoot), 'needs-root');
+    assert.equal(
+      refused.extra.command,
+      `sudo 'apt-get' 'install' '-y' 'foo'\nsudo mkdir -p /var/lib/byokit\nsudo touch ${markerPath('web', withRoot)}`,
+    );
+    const withUser = { ...recipe('web'), user: 'appbot', workDir: '/home/user/.users/appbot/app' };
+    const refusedUser = await rejectCode(m.install(withUser), 'needs-root');
+    assert.ok(!('command' in refusedUser.extra), 'a no-sudo run user carries no command');
+    assert.equal(noroot.fake.machine.units.size, 0);
+    assert.equal(noroot.fake.machine.files.size, 0);
+    for (const run of noroot.fake.machine.runs) {
+      assert.ok(
+        run.argv[0] === 'true' || run.argv[0] === 'test' || run.argv[0] === 'sh' || (run.argv[0] as string).endsWith('/bin/node'),
+        `no other step ran, got ${JSON.stringify(run.argv)}`,
+      );
+    }
+    const rooted = fakeProvider({ id: 'ssh-vm' });
+    const m2 = machine({ provider: rooted, store: memoryStore() });
+    await m2.create({ name: 'web', size: 'small', keepCopies: false });
+    rooted.fake.machine.writeFile(markerPath('web', withRoot), new Uint8Array(), 0o644);
+    await m2.install(withRoot);
+    assert.deepEqual(
+      rooted.fake.machine.runs.filter((run) =>
+        run.argv[0] === 'useradd' || run.argv[0] === 'install' || run.argv.includes('apt-get')),
+      [],
+      'with the marker, install runs no root step',
+    );
+    assert.equal(await m2.host(), 'running');
   });
 
   runTest('19: install writes installed.json with the ref id', async (t) => {
     const bench = await make();
     if (!bench.installs) return t.skip('installs off until M3');
-    void bench;
-    assert.fail('not built: M3');
+    const m = await createMachine(bench);
+    if (bench.provider.create === undefined && bench.provider.adopt === undefined) return t.skip('no create or adopt');
+    const ref = await m.create({ name: 'web', size: 'small', keepCopies: keepCopiesFor(bench) });
+    await m.install(recipe(ref.name));
+    if (bench.fake === undefined) return;
+    const raw = bench.fake.machine.files.get('/home/user/app/.byokit/installed.json');
+    assert.ok(raw !== undefined, 'installed.json is written');
+    assert.equal(raw.mode, 0o600);
+    assert.deepEqual(JSON.parse(Buffer.from(raw.bytes).toString('utf8')), { id: ref.id });
   });
 
   runTest('20 (fake): sleep stops the unit before provider.sleep, and succeeds when the unit is missing', async (t) => {
