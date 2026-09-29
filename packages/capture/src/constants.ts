@@ -7,8 +7,8 @@ export const PROTOCOL_FLOOR = 1;
 // The longest a recorder may wait for a person's yes before `consent-timeout` (6.4).
 export const CONSENT_WINDOW_S = 120;
 
-// BK-C1 sets the sha256 of schema/recorder-protocol-1.json; until then a placeholder behind a todo test.
-export const PROTOCOL_SCHEMA_SHA256: string = '';
+// The sha256 of schema/recorder-protocol-1.json (BK-C1).
+export const PROTOCOL_SCHEMA_SHA256: string = 'be4c63efb56bca64ce3b6a7fa9a32535c7ba6e5b965518ae025f4524f18647f0';
 
 // The variables an app may pass for a recording's display session (5.4).
 export const DISPLAY_VARS = [
