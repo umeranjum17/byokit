@@ -1,0 +1,136 @@
+// O11 run proof: Crewhouse `openclaw-run.test.ts` ported to the kit. A real tool call crosses the
+// fail-closed gate on the pinned engine, keyword-only memory never requests embeddings, and no
+// `/v1/embeddings` call is ever made. Runs only in the engine job (npm run test:engine), never in npm test.
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { OpenClawKit } from '../../src/kit.ts';
+import { Engine } from '../../src/engine.ts';
+import { scratchDir } from '../../../test-support.ts';
+import { startModelStub, useModelStub, type ModelStub } from '../../src/testing/model-stub.ts';
+
+const REPORT = { name: 'report', description: 'record progress', parameters: { type: 'object' } };
+const FETCH = { name: 'webfetch', description: 'fenced web read', parameters: { type: 'object' } };
+
+const install = scratchDir('o11-engine-run');
+const engineDir = join(install, 'engine');
+let stub: ModelStub;
+
+before(async () => {
+  // Install the pin once; the case reuses it with a fresh state dir (the O6 signin.test.ts pattern).
+  const bootstrap = new Engine({ stateDir: join(install, 'bootstrap'), engineDir, pluginId: 'byokit',
+    tools: [], spawnEngine: true, onState: () => {}, onExit: () => {} });
+  await bootstrap.prepare();
+  stub = await startModelStub();
+}, { timeout: 600_000 });
+
+after(async () => {
+  await stub?.close();
+});
+
+test('real tool calls cross the fail-closed gate; keyword memory stays free', { timeout: 600_000 }, async () => {
+  const stateDir = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'byokit-o11-run-'));
+  const gated: string[] = [];
+  let called = 0;
+  const kit = new OpenClawKit({ stateDir, engineDir, approvalTimeoutMs: 30_000, tools: [REPORT, FETCH],
+    host: {
+      gate: async (_run, tool) => {
+        gated.push(tool);
+        // Engine builtins cross the same gate; keyword memory stays free, everything else fails closed.
+        return tool === 'report' || tool === 'webfetch' || tool === 'memory_search' || tool === 'memory_get'
+          ? { allow: true }
+          : { allow: false, reason: 'Unknown tool' };
+      },
+      call: async (_run, tool, input) => {
+        called++;
+        return tool === 'report' ? `Progress: ${String((input as { text?: string }).text ?? '')}` : 'Safe page';
+      },
+    },
+  });
+  const kits: OpenClawKit[] = [kit];
+  try {
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    await useModelStub(kit, stub);
+    const { workspace } = await kit.ensureMember('m1');
+    writeFileSync(join(workspace, 'MEMORY.md'), 'The blue lantern marks the kitchen door.');
+    assert.equal(JSON.parse(readFileSync(join(stateDir, 'openclaw', 'openclaw.json'), 'utf8')).memory.search.provider, 'none');
+    await assert.rejects(kit.call('agent', { agentId: 'm1', sessionKey: 'agent:m1:o11:cwd-probe',
+      message: 'hello', cwd: join(stateDir, 'bot'), idempotencyKey: 'cwd-probe' } as never), /cwd is reserved for plugin-owned subagent runs/);
+    const tools: string[] = [];
+    const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:o11:chief:1', message: '[tool report {"text":"Working"}]' },
+      (e) => { if (e.type === 'tool') tools.push(`${e.name}:${e.phase}`); });
+    assert.ok(end.ok, JSON.stringify(end));
+    assert.ok(gated.includes('report'), `the hook was skipped: ${JSON.stringify(end)} ${JSON.stringify(tools)}`);
+    assert.equal(called, 1, 'tool bypassed the gate or failed to execute');
+    assert.ok(tools.includes('report:start'), JSON.stringify(tools));
+    assert.ok(stub.calls.length > 0);
+    // Keyword memory recall: free, never a paid embedding request. The recall runs inside a registered run:
+    // a bare tools.invoke carries a session the bridge never registered, so the gate fails it closed.
+    const recall = await kit.run({ member: 'm1', sessionKey: 'agent:m1:o11:chief:memory',
+      message: '[tool memory_search {"query":"blue lantern"}]' }, () => {});
+    assert.ok(recall.ok, JSON.stringify(recall));
+    assert.ok(recall.ok && recall.text.includes('blue lantern'), JSON.stringify(recall).slice(0, 600));
+    assert.ok(stub.calls.every((c) => !/embeddings/.test(c.path)), 'keyword-only memory attempted a paid embedding request');
+    const read = await kit.run({ member: 'm1', sessionKey: 'agent:m1:o11:scout:3',
+      message: '[tool webfetch {"url":"https://example.test/"}]' }, () => {});
+    assert.ok(read.ok, JSON.stringify(read));
+    assert.equal(called, 2, 'fenced web read did not use the kit copy');
+    // Every tool the engine runs crosses the gate, its own builtins included.
+    const before = gated.length;
+    await kit.run({ member: 'm1', sessionKey: 'agent:m1:o11:scout:5',
+      message: '[tool web_fetch {"url":"https://example.test/"}]' }, () => {});
+    assert.deepEqual(gated.slice(before), ['web_fetch'], 'an engine builtin ran without the gate');
+
+    // A second member's agent carries its own credential; no request of its session ever uses member 1's key.
+    await kit.ensureMember('m2');
+    // The engine gates entry-level models through agents.defaults.modelPolicy.allow (it normalizes the list
+    // to the signed-in routes, here openai/*): the new provider must be allowed or m2 falls back to openai.
+    await kit.patchConfig({ models: { providers: { 'byokit-stub-two': { baseUrl: stub.url, apiKey: 'stub-m2',
+      api: 'openai-completions', models: [{ id: 'test', name: 'Test', reasoning: false, input: ['text'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 2048 }] } } },
+      agents: { defaults: { modelPolicy: { allow: ['byokit-stub-two/*'] } },
+        entries: { m2: { model: { primary: 'byokit-stub-two/test' } } } } });
+    const stubCallsBefore = stub.calls.length;
+    const m2end = await kit.run({ member: 'm2', sessionKey: 'agent:m2:o11:scout:9', message: 'hello from member two' }, () => {});
+    assert.ok(m2end.ok, JSON.stringify(m2end));
+    const m2Keys = stub.calls.slice(stubCallsBefore).map((c) => c.authorization);
+    assert.ok(m2Keys.length > 0, "member two's run reached the stub provider");
+    assert.ok(m2Keys.every((k) => k === 'Bearer stub-m2'), `member two's session only ever used its own key: ${m2Keys.join()}`);
+
+    await kit.patchConfig({ memory: { search: { provider: 'ollama', model: 'local-test',
+      remote: { baseUrl: stub.url.replace(/\/v1$/, '') } } } });
+    await kit.stop();
+    kits.splice(0);
+    const kit2 = new OpenClawKit({ stateDir, engineDir, approvalTimeoutMs: 30_000, tools: [],
+      host: { gate: async (_run, tool) => (tool === 'memory_search' || tool === 'memory_get'
+        ? { allow: true } : { allow: false, reason: 'no runs here' }), call: async () => 'no calls here' } });
+    kits.push(kit2);
+    try {
+      await kit2.start();
+      await useModelStub(kit2, stub);
+      const { workspace: ws3 } = await kit2.ensureMember('m3');
+      writeFileSync(join(ws3, 'MEMORY.md'), 'A green umbrella is by the door.');
+      const local = await kit2.run({ member: 'm3', sessionKey: 'agent:m3:o11:scout:local',
+        message: '[tool memory_search {"query":"green umbrella"}]' }, () => {});
+      assert.ok(local.ok, JSON.stringify(local).slice(0, 500));
+      assert.ok(local.ok && local.text.includes('green umbrella'), JSON.stringify(local).slice(0, 600));
+      assert.ok(stub.calls.some((c) => c.path === '/api/embed'), 'configured local embedding route was not used');
+      assert.ok(stub.calls.every((c) => !/\/v1\/embeddings/.test(c.path)), 'API-billed embeddings were requested');
+
+      // A session the kit never registered: the gate refuses before any tool runs.
+      const denied = await kit2.call('agent', { agentId: 'm1', sessionKey: 'agent:m1:o11:chief:2',
+        message: '[tool report {"text":"Not authorized"}]', idempotencyKey: 'test-2' } as never) as { runId: string };
+      const stopped = await kit2.call('agent.wait', { runId: denied.runId, timeoutMs: 240_000 }) as any;
+      assert.deepEqual(stopped.terminalReceipt?.successfulToolNames ?? [], []);
+      assert.equal(called, 2);
+    } finally {
+      await kit2.stop();
+    }
+  } finally {
+    for (const k of kits.splice(0)) await k.stop().catch(() => {});
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});

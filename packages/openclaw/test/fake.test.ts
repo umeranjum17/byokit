@@ -159,7 +159,7 @@ test('abort resolves the pending wait as aborted', async () => {
   const run = await req(t, 'agent', { agentId: 'm1', sessionKey: 'agent:m1:x:2', message: 'hello', idempotencyKey: 'k2' });
   const waited = req(t, 'agent.wait', { runId: run.runId });
   await req(t, 'chat.abort', { sessionKey: 'agent:m1:x:2' });
-  assert.deepEqual(await waited, { stopReason: 'aborted' });
+  assert.deepEqual(await waited, { status: 'error', stopReason: 'rpc' });
   assert.deepEqual(await req(t, 'sessions.steer', { sessionKey: 'agent:m1:x:2', message: 'one thing' }), {});
 });
 
@@ -177,7 +177,7 @@ test('tool calls cross a real bridge: nested json, permit, start/end pairs', asy
     assert.equal(waited.status, 'ok');
     const mine = events.filter((e) => e.event === 'agent' && e.payload.runId === run.runId);
     assert.deepEqual(mine.map((e) => [e.payload.stream, e.payload.data.name, e.payload.data.phase]), [
-      ['tool', 'alpha', 'start'], ['tool', 'alpha', 'end'], ['tool', 'beta', 'start'], ['tool', 'beta', 'end'], ['assistant', undefined, undefined],
+      ['tool', 'alpha', 'start'], ['tool', 'alpha', 'result'], ['tool', 'beta', 'start'], ['tool', 'beta', 'result'], ['assistant', undefined, undefined],
     ]);
     assert.deepEqual(bridge.frames, [
       { kind: 'gate', key: 'agent:m1:t:1', tool: 'alpha', input: { x: { y: 1 }, s: 'a}b' } },
@@ -202,7 +202,7 @@ test('a denied gate calls nothing and still plays the tool pair', async () => {
     const waited = await req(t, 'agent.wait', { runId: run.runId });
     assert.equal(waited.status, 'ok');
     const mine = events.filter((e) => e.event === 'agent' && e.payload.runId === run.runId);
-    assert.deepEqual(mine.map((e) => [e.payload.stream, e.payload.data.phase]), [['tool', 'start'], ['tool', 'end'], ['assistant', undefined]]);
+    assert.deepEqual(mine.map((e) => [e.payload.stream, e.payload.data.phase]), [['tool', 'start'], ['tool', 'result'], ['assistant', undefined]]);
     assert.deepEqual(bridge.frames.map((f) => f.kind), ['gate']);
   } finally {
     await bridge.close();
@@ -237,7 +237,12 @@ test('config patches merge under the memory invariant and check the hash', async
   assert.equal(after.config.memory.search.fallback, 'none');
   assert.equal(after.config.models.providers.p.baseUrl, 'http://x');
   await assert.rejects(req(t, 'config.patch', { baseHash: first.hash, raw: '{}' }), /stale config/);
-  await req(t, 'config.patch', { raw: JSON.stringify({ agents: { entries: { m9: { memory: { search: { provider: 'openai', fallback: 'openai' } } } } } }) });
+  // Like the real engine (O11 probe): entries without explicit ownership are rejected, even a lone one,
+  // because the engine always carries main alongside. The kit writes what the engine normalizes on boot.
+  await assert.rejects(req(t, 'config.patch', { raw: JSON.stringify({ agents: { entries: { m9: {} } } }) }),
+    /agents.ownership/);
+  await req(t, 'config.patch', { raw: JSON.stringify({ agents: { ownership: 'explicit',
+    entries: { m9: { memory: { search: { provider: 'openai', fallback: 'openai' } } } } } }) });
   const entries = await req(t, 'config.get');
   assert.equal(entries.config.agents.entries.m9.memory.search.provider, 'none');
   assert.equal(entries.config.agents.entries.m9.memory.search.fallback, 'none');
@@ -250,9 +255,12 @@ test('approval resolvers emit their resolved events and exec.approval.request em
   t.onEvent((e) => events.push(e));
   assert.deepEqual(await req(t, 'exec.approval.request', { id: 'e1', command: 'ls', ask: 'may i',
     agentId: 'm1', sessionKey: 'agent:m1:fake:1' }), { id: 'e1' });
-  assert.deepEqual(await req(t, 'plugin.approval.request', { id: 'p1', title: 'install x', agentId: 'm1' }), { id: 'p1' });
+  // Engine shape: title+description required, the id is minted (O11).
+  const plugin = await req(t, 'plugin.approval.request', { title: 'install x', description: 'd', agentId: 'm1' }) as { id: string };
+  assert.ok(typeof plugin.id === 'string' && plugin.id.length > 0);
+  await assert.rejects(req(t, 'plugin.approval.request', { title: 'install x', agentId: 'm1' }), /title and description/);
   assert.deepEqual(await req(t, 'exec.approval.resolve', { id: 'e1', decision: 'allow' }), {});
-  assert.deepEqual(await req(t, 'plugin.approval.resolve', { id: 'p1', decision: 'deny' }), {});
+  assert.deepEqual(await req(t, 'plugin.approval.resolve', { id: plugin.id, decision: 'deny' }), {});
   assert.deepEqual(await req(t, 'question.resolve', { id: 'q1', answers: { answers: {} } }), {});
   assert.deepEqual(events.map((e) => e.event), [
     'exec.approval.requested', 'plugin.approval.requested', 'exec.approval.resolved', 'plugin.approval.resolved',
@@ -263,7 +271,7 @@ test('approval resolvers emit their resolved events and exec.approval.request em
   assert.deepEqual(events[0].payload.request,
     { command: 'ls', ask: 'may i', agentId: 'm1', sessionKey: 'agent:m1:fake:1' });
   assert.equal(events[1].payload.approvalKind, 'plugin');
-  assert.deepEqual(events[1].payload.request, { title: 'install x', agentId: 'm1', sessionKey: undefined });
+  assert.deepEqual(events[1].payload.request, { title: 'install x', description: 'd', agentId: 'm1', sessionKey: undefined });
   assert.deepEqual(events[2].payload, { id: 'e1', decision: 'allow' });
 });
 

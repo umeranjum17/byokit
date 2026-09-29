@@ -13,7 +13,7 @@ import type { OpenClawKit } from '../kit.ts';
 import type { RunEvent, SignInView } from '../types.ts';
 import { releaseStub, stubHolding, type ModelStub } from './model-stub.ts';
 
-export type ContractFixture = { kit: OpenClawKit; model?: ModelStub };
+export type ContractFixture = { kit: OpenClawKit; model?: ModelStub; peer?: { request(method: string, params?: unknown): Promise<unknown> } };
 
 // The generated method table arrives with O2; until then kit.call's typed surface accepts no method names, so the
 // suite drives pass-through through this string-typed view of the same runtime path.
@@ -23,8 +23,10 @@ const call = (kit: OpenClawKit, method: string, params?: unknown): Promise<any> 
 const REQUIRED_METHODS = [
   'agent', 'agent.wait', 'agents.create', 'agents.list', 'chat.abort', 'config.get', 'config.patch',
   'exec.approval.request', 'exec.approval.resolve', 'health', 'models.authStatus', 'openclaw.setup.auth.start',
-  'plugin.approval.resolve', 'question.resolve', 'sessions.steer', 'wizard.cancel', 'wizard.next',
+  'plugin.approval.resolve', 'question.resolve', 'wizard.cancel', 'wizard.next',
 ];
+// Driven by the kit but not advertised in hello (O11 probe, e.g. sessions.steer): routable, just not listed.
+// The engine job's generated.test.ts audits the full generated table against hello instead of asserting it here.
 const REQUIRED_EVENTS = [
   'agent',
   'exec.approval.requested', 'exec.approval.resolved',
@@ -42,7 +44,7 @@ async function until(there: () => boolean, ms = 5_000): Promise<void> {
   throw new Error('the expected state never arrived');
 }
 
-export function openclawContract(make: () => Promise<ContractFixture>): void {
+export function openclawContract(make: () => Promise<ContractFixture>, o?: { skipDeviceCode?: string }): void {
   test('contract: hello carries the protocol and every method and event the kit drives', async () => {
     const { kit } = await make();
     try {
@@ -81,7 +83,10 @@ export function openclawContract(make: () => Promise<ContractFixture>): void {
     }
   });
 
-  test('contract: device-code sign-in shows a code and finishes signed in', async () => {
+  // The device-code happy path needs a person at the device URL (the fake auto-completes it, 5.11).
+  // Unattended runs (the engine job) skip it with the reason and prove sign-in live instead (O11 lab).
+  const deviceCodeName = `contract: device-code sign-in shows a code and finishes signed in${o?.skipDeviceCode ? ` (skipped: ${o.skipDeviceCode})` : ''}`;
+  test(deviceCodeName, { ...(o?.skipDeviceCode ? { skip: true } : {}) }, async () => {
     const { kit } = await make();
     try {
       await kit.ensureMember('m1');
@@ -129,7 +134,8 @@ export function openclawContract(make: () => Promise<ContractFixture>): void {
       await kit.ensureMember('m1');
       const events: RunEvent[] = [];
       const pending = kit.run({ member: 'm1', sessionKey: 'agent:m1:contract:2', message: '[tool note {"mode":"ask","text":"hi"}]' }, (e) => events.push(e));
-      await until(() => kit.approvals('m1').length > 0);
+      // A real turn reaches the gate only after a model round trip; the fake answers at once.
+      await until(() => kit.approvals('m1').length > 0, 120_000);
       const approval = kit.approvals('m1')[0];
       assert.equal(approval.source, 'gate');
       assert.equal(approval.tool, 'note');
@@ -184,7 +190,7 @@ export function openclawContract(make: () => Promise<ContractFixture>): void {
       if (model) {
         // With the model stub the turn holds (`ask permission`), so the abort cannot race the run's end.
         const pending = kit.run({ member: 'm1', sessionKey: key, message: 'ask permission to continue' });
-        await until(() => stubHolding());
+        await until(() => stubHolding(), 120_000);
         const aborted = kit.abort(key).finally(() => releaseStub());
         assert.deepEqual(await pending, { ok: false, aborted: true });
         await aborted;
@@ -201,12 +207,15 @@ export function openclawContract(make: () => Promise<ContractFixture>): void {
   });
 
   test('contract: a native exec approval round-trips', async () => {
-    const { kit } = await make();
+    const { kit, peer } = await make();
     try {
+      // Raised by another party (a second connection): the engine broadcasts requested events to the
+      // kit's approval-capable connection, never back to the requester (O11). On the fake both hear it.
+      const raise = peer ? peer.request.bind(peer) : call.bind(null, kit);
       // The real engine holds the request open until the approval resolves, so it stays in flight.
-      const pending = call(kit, 'exec.approval.request', { id: 'contract-exec-1', command: 'echo contract',
+      const pending = raise('exec.approval.request', { id: 'contract-exec-1', command: 'echo contract',
         ask: 'contract approval', agentId: 'm1', sessionKey: 'agent:m1:contract:9' });
-      await until(() => kit.approvals().some((a) => a.id === 'contract-exec-1'));
+      await until(() => kit.approvals().some((a) => a.id === 'contract-exec-1'), 120_000);
       assert.equal(kit.approvals()[0].source, 'exec');
       assert.equal(kit.approvals('m1')[0].id, 'contract-exec-1');
       await kit.decide('contract-exec-1', { allow: true });

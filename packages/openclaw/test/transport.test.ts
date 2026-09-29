@@ -63,7 +63,8 @@ test('loadDeviceKeys maps both shapes to the same key pair', () => {
     const kit = join(dir, 'kit.json');
     writeFileSync(legacy, JSON.stringify({ deviceId: 'x', publicKeyPem: keys.publicKeyPem, privateKeyPem: keys.privateKeyPem }));
     writeFileSync(kit, JSON.stringify({ privateKey: keys.privateKeyPem, publicKey: keys.publicKeyPem }));
-    assert.deepEqual(loadDeviceKeys(legacy), keys);
+    // A paired file also carries its deviceId through (O11 fan-out); the kit shape derives it at connect.
+    assert.deepEqual(loadDeviceKeys(legacy), { ...keys, deviceId: 'x' });
     assert.deepEqual(loadDeviceKeys(kit), keys);
   } finally {
     rmSync(dir, { recursive: true, force: true });

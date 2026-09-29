@@ -478,10 +478,13 @@ the view fails with `why: 'busy'`. Mapping to `SignInView.why`: setup-admission-
 - `run(spec, on)`: reject a `sessionKey` not starting `agent:<member>:` (member boundary). Register with the bridge
   unless `register === false`. Subscribe to Gateway `agent` events filtered by `runId`: `stream === 'assistant'` with
   string `data.text` → `{ type: 'text', text }`; `stream === 'tool'` with string `data.name` → `{ type: 'tool', name,
-  phase: data.phase === 'end' ? 'end' : 'start' }`. Request `agent { agentId, sessionKey, message, extraSystemPrompt,
+  phase: anything but `start` ends the pair (the engine marks completion `phase: 'result'`, O11) }`. Request `agent { agentId, sessionKey, message, extraSystemPrompt,
   idempotencyKey: uuid, attachments?, thinking? }`, then `agent.wait { runId, timeoutMs: 3_600_000 }` (client timeout
   3_610_000). `status === 'ok'` → final text event and `{ ok: true, text: terminalReply.text ?? last }`;
-  `stopReason === 'aborted'` → `{ ok: false, aborted: true }`; else `{ ok: false, ...classify(message) }`.
+  `stopReason === 'aborted'` → `{ ok: false, aborted: true }`; the engine's own abort receipt is
+  `status: 'error', stopReason: 'rpc'` with the run's lifecycle end carrying `aborted: true` (O11), so a
+  non-ok receipt on a lifecycle-flagged run also ends `{ ok: false, aborted: true }`;
+  else `{ ok: false, ...classify(message) }`.
   Always unsubscribe and unregister.
 - `classify(message)` (`src/classify.ts`) = Crewhouse `classifyText` mapped `rate_limit|overloaded → resting`,
   `signed_out → signed-out`, `not_included → plan`, `network → network`, `null → other`, with `until` carried.
@@ -571,7 +574,10 @@ differs from a fresh run against the pinned tarball in the engine job.
   to `openai`; `agent` (returns `runId`, emits `agent` events: one assistant text `fake: <message>` and, for a message
   `[tool NAME {json}]`, a tool start/end pair after calling the kit's bridge like the plugin does);
   `agent.wait` (resolves `{ status: 'ok', terminalReply: { text } }`); `sessions.steer`; `chat.abort` (makes the
-  pending wait resolve `{ stopReason: 'aborted' }`); `config.get`/`config.patch` (hash check);
+  pending wait resolve `{ status: 'error', stopReason: 'rpc' }` with a lifecycle end carrying `aborted: true`
+  (O11: the engine's abort shape, which `runs.ts` maps back to aborted); `config.get`/`config.patch` (hash check,
+  and the engine's ownership rule: a merged multi-agent roster without `agents.ownership: 'explicit'` is
+  rejected, so the kit writes what the engine normalizes);
   `exec.approval.resolve`/`plugin.approval.resolve`/`question.resolve` (emit the matching `*.resolved`).
 - `openclawContract(make: () => Promise<{ kit: OpenClawKit; model?: ModelStub }>)`: registers `node:test` cases for
   hello/method cross-check, member creation, member boundary refusal, device-code sign-in happy path and cancel,
@@ -581,7 +587,9 @@ differs from a fresh run against the pinned tarball in the engine job.
   `hit the limit`, `no helpers in plan`, `sign me out`, `ask permission`, `[route ID]`) plus `useModelStub(kit, stub)` =
   Crewhouse `configureModelProvider` (provider id `byokit-stub`, model `test`). The bot id the stub reports comes
   from `o.idPattern` (default `/Your id is ([a-z0-9-]+)\./`) and routing requests start with `o.routingMarker`
-  (default `'[routing]'`); Crewhouse passes its own grammar explicitly.
+  (default `'[routing]'`); Crewhouse passes its own grammar explicitly. Tool results count from the message the
+  script came from (O11): the engine appends runtime-context user messages after each tool result, so counting
+  from the last user message replays the first scripted call forever.
 
 ### 5.12 Version pin and upgrades
 

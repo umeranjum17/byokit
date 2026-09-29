@@ -76,9 +76,19 @@ export function startModelStub(script: string[] = [], o: ModelStubOptions = {}):
     const messages: any[] = body.messages ?? [];
     const system = messages.filter((m: any) => m.role === 'system').map((m: any) => words(m)).join('\n');
     const bot = idPattern.exec(system)?.[1] ?? 'bot';
-    const lastUser = [...messages].reverse().find((m: any) => m.role === 'user');
+    // The engine appends runtime-context user messages after the person's own (O11): the script lives in the
+    // last user message that carries a script marker, falling back to the last user message for plain replies.
+    // Tool results count from that same message, or the first scripted call replays forever: each follow-up
+    // request carries a fresh trailing runtime-context user message with zero tool results after it.
+    const users = messages.filter((m: any) => m.role === 'user');
+    const structural = (text: string) => /\[tool \w+ \{|\[route [\w?-]+\]/.test(text) || text.startsWith(routingMarker);
+    const phrased = (text: string) => /hit the limit|no helpers in plan|sign me out|ask permission/i.test(text);
+    const lastUser = [...users].reverse().find((m: any) => structural(words(m)))
+      ?? [...users].reverse().find((m: any) => phrased(words(m)))
+      ?? users.at(-1);
     const said = words(lastUser);
-    const results = messages.slice(messages.findLastIndex((m: any) => m.role === 'user') + 1).filter((m: any) => m.role === 'tool');
+    const anchor = messages.lastIndexOf(lastUser);
+    const results = anchor < 0 ? [] : messages.slice(anchor + 1).filter((m: any) => m.role === 'tool');
     const scripted = toolCalls(said);
     const lastResult = results.at(-1);
     const done = () => {
