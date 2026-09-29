@@ -756,7 +756,7 @@ export class HerdrKit {
   closeTab(tabId: string): Promise<void>;         // refuses when it would close the workspace
   closeWorkspace(workspaceId: string): Promise<void>;   // refuses parent-worktree group widening
   agentKinds(): Promise<string[]>;                // server.agent_manifests
-  installedAgentKinds(kinds: readonly string[], o: { path: string[] }): string[];   // executable lookup, explicit path
+  installedAgentKinds(kinds: readonly string[], o: { path: string[]; aliases?: Record<string, string[]> }): string[];   // executable lookup, explicit path; aliases maps a kind to extra binary names that also count as installed
 }
 export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown';
 export type AgentRef = { paneId: string; name?: string };

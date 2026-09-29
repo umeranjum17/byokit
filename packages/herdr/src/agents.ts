@@ -136,12 +136,13 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot }): Pi
     return manifests.map((m: Raw) => (typeof m?.agent === 'string' ? m.agent : '')).filter((kind: string) => kind !== '');
   }
 
-  function installedAgentKinds(kinds: readonly string[], o: { path: string[] }): string[] {
+  function installedAgentKinds(kinds: readonly string[], o: { path: string[]; aliases?: Record<string, string[]> }): string[] {
     const installed: string[] = [];
     for (const kind of kinds) {
-      if (o.path.some((dir) => {
-        try { accessSync(join(dir, kind), fsConstants.X_OK); return true; } catch { return false; }
-      })) installed.push(kind);
+      const names = [kind, ...(o.aliases?.[kind] ?? [])];
+      if (names.some((name) => o.path.some((dir) => {
+        try { accessSync(join(dir, name), fsConstants.X_OK); return true; } catch { return false; }
+      }))) installed.push(kind);
     }
     return installed;
   }

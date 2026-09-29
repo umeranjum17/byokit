@@ -19,6 +19,11 @@
 - K5 non-fatal start: a rejected `start()` (e.g. `failed/socket` while Herdr is down) may be called again —
   the host comes up while Herdr is down by retrying `start()` in a backoff loop. A failed attempt drops its
   event subscription, and `stop()` drops the closed transport, so a retry or restart dials clean.
+
+- `installedAgentKinds` takes `aliases?: Record<kind, string[]>`: a kind counts as installed when its own
+  name or any of its aliases names an executable on the given path (e.g. kind `cursor` with
+  `{ cursor: ['cursor-agent'] }` matches a `cursor-agent` binary).
+
 - FIX: the packed `dist/words.d.ts` keeps `with { type: 'json' }` on its `./words.json` import, so a strict NodeNext consumer with `skipLibCheck: false` no longer fails with TS1543.
 
 - Scaffold (docs/runtime-kits.md §11.3 H1): frozen public types, kit facade, internal seams and words. Behavior

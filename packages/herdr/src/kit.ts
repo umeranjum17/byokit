@@ -233,5 +233,5 @@ export class HerdrKit {
   closeTab(tabId: string): Promise<void> { return closeTab(this.callAny, tabId); }
   closeWorkspace(workspaceId: string): Promise<void> { return closeWorkspace(this.callAny, workspaceId); }
   agentKinds(): Promise<string[]> { return this.agents.agentKinds(); }
-  installedAgentKinds(kinds: readonly string[], o: { path: string[] }): string[] { return this.agents.installedAgentKinds(kinds, o); }
+  installedAgentKinds(kinds: readonly string[], o: { path: string[]; aliases?: Record<string, string[]> }): string[] { return this.agents.installedAgentKinds(kinds, o); }
 }
