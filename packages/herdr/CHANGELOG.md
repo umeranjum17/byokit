@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.2 (2026-09-29)
+
 - FIX: `prompt` now reaches an agent that was already running when the app connected. Herdr marks only
   the agents its own `agent.start` launched as interactive-ready, so an agent started by hand or by
   another app was refused forever; and a snapshot read while an agent was still launching kept it
