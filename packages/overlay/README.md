@@ -22,6 +22,28 @@ manifest brings the overlay and foreground-service permissions, the bubble's ser
 
 Nothing reads another app's screen in the background, and the tap log keeps no text and forgets entries after 30 days.
 
-**Status: in development.** This is BK-O1 (§9.4): the JS core, the Expo module layout, the manifest and the config
-plugin. The native module resolves `off` and rejects everything else until the bubble lands (BK-O2); the focused
-field is never available until BK-O3.
+## Focused field
+
+`@byokit/overlay/focused-field` works through the app's own accessibility service; the kit declares none. The service
+calls `ByokitAccessibility.attach(this)` in `onServiceConnected` and `ByokitAccessibility.detach(this)` in `onUnbind`,
+and its config sets `android:canRetrieveWindowContent="true"` and
+`android:accessibilityFlags="flagRetrieveInteractiveWindows"` (the example's is
+[`examples/expo/modules/a11y-demo`](../../examples/expo/modules/a11y-demo)). Then:
+
+```ts
+import { focusedField } from '@byokit/overlay/focused-field';
+
+if (await focusedField.available()) {
+  const field = await focusedField.read();          // { app, text, selection } or null
+  const result = await focusedField.insert('Hi');   // 'inserted', 'copied' (then show words('field.copied')) or 'failed'
+}
+```
+
+`insert` puts the text over the selection (or all of it with `{ replace: 'all' }`), reads the field back, tries once
+more 150 ms later, and otherwise copies the text for the person to paste. Password fields are never read or typed
+into. The same service also gives the `accessibility` host (no overlay switch needed), the foreground app that
+`rules` and `spots: 'per-app'` follow, and the keyboard's top so the bubble rests above it. The bubble's window never
+takes focus, so a tap or long press on it leaves the other app's field focused.
+
+**Status: ready to publish (BK-O3).** The bubble, both hosts, the panel, the tap log and the focused field are built
+and proven on an Android emulator (API 36). On iOS, the web and Node `overlay.state()` is `unsupported`.

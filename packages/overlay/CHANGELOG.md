@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The accessibility side and publish (docs/capability-kits.md BK-O3): `ByokitAccessibility.attach` now also supplies
+  the foreground app (the `accessibility` host applies `rules` and `setRules` over it and keeps `spots: 'per-app'`
+  per app) and the keyboard's top (the bubble rests above it). `@byokit/overlay/focused-field` works on Android:
+  `available`, `read` (never a password field) and `insert`, which verifies, retries once after 150 ms and otherwise
+  copies the text. No longer `private`.
 - The bubble (docs/capability-kits.md BK-O2): the native module now runs `start`/`stop` over the `window` host (a
   foreground service with its notice) or the `accessibility` host (`ByokitAccessibility.attach` from the app's own
   service), reports `on`, `off`, `stuck` and `needs-permission`, drags and snaps the bubble to an edge and remembers
