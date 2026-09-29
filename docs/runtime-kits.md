@@ -511,7 +511,9 @@ sources share `approvals()`/`onApproval()`.
 
 **Install policy** (`policy/policy.mjs`) = Crewhouse `policy.mjs` with `trusted-skills.json` read from
 `BYOKIT_TRUSTED_SKILLS`, own roots from `BYOKIT_OWN_ROOTS` (JSON array), everything else unchanged (fail closed,
-dependency installers blocked, exact id + version + SKILL.md sha256 for listed skills). A plugin install claiming
+any request kind containing `depend` blocked even under an own root, dependency installers blocked, exact id +
+version + SKILL.md sha256 for listed skills where the version is `request.origin.version` when present and the
+SKILL.md frontmatter version otherwise). A plugin install claiming
 the `@openclaw/` scope is allowed only with engine proof of registry origin: `source.kind === 'npm'` and the
 operator-requested `request.requestedSpecifier` starts with `@openclaw/`. The candidate's own `plugin.packageName`
 is never sufficient: on the pinned engine it is the package manifest's self-declared `name`, and npm installs

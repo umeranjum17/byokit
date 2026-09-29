@@ -115,6 +115,40 @@ test('dependency installers block even for trusted skills', async () => {
   }
 });
 
+test('a dependency request kind blocks even under an own root', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'byokit-o5-own-dep-'));
+  scratch.push(root);
+  const dir = join(root, 'skills', 'mine');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'SKILL.md'), '---\nname: mine\nversion: 9.9.9\n---\n');
+  const env = { BYOKIT_OWN_ROOTS: JSON.stringify([root]) };
+  assert.equal(
+    run(skillRequest(dir, { request: { kind: 'skill-dependency-install', mode: 'install' } }), env).decision,
+    'block',
+  );
+  assert.equal(run(skillRequest(dir, { request: { kind: 'skill-install', mode: 'install' } }), env).decision, 'allow');
+});
+
+test('a bundled skill without a frontmatter version matches origin.version', async () => {
+  const body = '---\nname: my-skill\n---\n\n# Bundled skill, no version\n';
+  const dir = skillDir(body);
+  const sha256 = createHash('sha256').update(body, 'utf8').digest('hex');
+  const trustedDir = mkdtempSync(join(tmpdir(), 'byokit-o5-trusted-'));
+  scratch.push(trustedDir);
+  const trusted = join(trustedDir, 'trusted.json');
+  writeFileSync(trusted, JSON.stringify([{ id: 'my-skill', version: '2026.8.1', sha256 }]));
+  const env = { BYOKIT_TRUSTED_SKILLS: trusted };
+  assert.equal(
+    run(skillRequest(dir, { origin: { type: 'clawhub', version: '2026.8.1' } }), env).decision,
+    'allow',
+  );
+  assert.equal(run(skillRequest(dir), env).decision, 'block');
+  assert.equal(
+    run(skillRequest(dir, { origin: { type: 'clawhub', version: '9.9.9' } }), env).decision,
+    'block',
+  );
+});
+
 test('only the @openclaw/ plugin scope is allowed', async () => {
   assert.equal(run(pluginRequest('@openclaw/weather')).decision, 'allow');
   assert.equal(run(pluginRequest('someone-weather')).decision, 'block');
