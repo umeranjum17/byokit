@@ -120,6 +120,12 @@ declare function call<M extends GatewayMethod>(method: M, params: GatewayParams<
 function typeChecks(): void {
   void (async () => {
     await call('models.authStatus', { agentId: 'm1' });
+    // Gap 6: anyOf branches keep their full property set, so cron.run accepts the schema's mode
+    // and expectedProcessInstanceId beside either id or jobId (params.ts re-emits the union locally).
+    await call('cron.run', { id: 'x', mode: 'force' });
+    await call('cron.run', { jobId: 'j', mode: 'due', expectedProcessInstanceId: 'p' });
+    // @ts-expect-error mode stays a closed literal union, not string.
+    await call('cron.run', { id: 'x', mode: 'sometimes' });
     // @ts-expect-error node-role methods are listed in the table but never part of GatewayMethod (D6).
     await call('node.invoke.result', {});
   })();
