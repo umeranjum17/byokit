@@ -1,0 +1,10 @@
+{
+  "overlay.on": "The bubble is on.",
+  "overlay.off": "The bubble is off.",
+  "overlay.stuck": "The bubble stopped. Turn it off and on again.",
+  "overlay.needsPermission": "Allow this app to show over other apps to see the bubble.",
+  "overlay.restricted": "If that switch is greyed out, open this app's info, tap the menu, and allow restricted settings first.",
+  "overlay.unsupported": "This device can't show a bubble over other apps.",
+  "field.copied": "Couldn't type it in, so it's copied. Paste it where you want it.",
+  "field.failed": "Couldn't type it in. Try again."
+}

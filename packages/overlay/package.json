@@ -1,0 +1,65 @@
+{
+  "name": "@byokit/overlay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A floating bubble over other apps on Android: a panel that opens on tap, per-app visibility rules, a text-free tap log and an optional focused-field reader. On iOS it reports unsupported.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umeranjum17/byokit.git",
+    "directory": "packages/overlay"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": {
+      "react-native": {
+        "types": "./dist/rn.d.ts",
+        "default": "./dist/rn.js"
+      },
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./focused-field": {
+      "react-native": {
+        "types": "./dist/focused-field.rn.d.ts",
+        "default": "./dist/focused-field.rn.js"
+      },
+      "types": "./dist/focused-field.d.ts",
+      "default": "./dist/focused-field.js"
+    }
+  },
+  "files": [
+    "dist",
+    "android",
+    "!android/build",
+    "expo-module.config.json",
+    "app.plugin.js",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"
+  },
+  "peerDependencies": {
+    "expo": ">=57.0.0",
+    "expo-modules-core": ">=3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "expo": {
+      "optional": true
+    },
+    "expo-modules-core": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "expo-modules-core": "57.0.19"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
