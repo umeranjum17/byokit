@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- SECURITY: Removing a phone now reliably stops its push notifications, even if the relay was down or restarting when
+  you removed it. Before, `RelayClient.revoke` dropped the device's grant and sent one unsubscribe that was lost if the
+  relay stopped, the offline queue overflowed or the host restarted first, so the relay kept the phone's push address.
+  Now the unsubscribe is saved first and resent on every connection until the relay confirms it; `revoke()` resolves
+  then. Pass a durable `store` to `RelayClient` so a pending unsubscribe survives a restart (the default is memory).
+- New in `RelayClient`: `store` and `onRevoked` options and `pending()`; `subscribe` refuses a device still being
+  revoked.
 - Depends on @byokit/link 0.3.2.
 
 ## 0.1.3
