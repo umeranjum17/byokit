@@ -34,7 +34,7 @@ test("bump patches and minors, refusing major and prereleases", () => {
 });
 
 test("parseChangelog reads all nine real changelogs", () => {
-  for (const dir of ["accounts", "decide", "link", "reach", "relay", "seal", "ui-core"]) {
+  for (const dir of ["accounts", "decide", "herdr", "link", "reach", "relay", "seal", "ui-core"]) {
     const parsed = parseChangelog(changelog(dir));
     assert.ok(parsed.versions.length > 0, `${dir} has versions`);
     assert.ok(
@@ -46,9 +46,8 @@ test("parseChangelog reads all nine real changelogs", () => {
   const link = parseChangelog(changelog("link"));
   const sec = link.versions[0].bullets.find((b) => b.kind === "SECURITY");
   assert.ok(sec && sec.text.length > 0);
-  // kits hold Unreleased-only development notes
+  // the unpublished kit holds Unreleased-only development notes
   assert.equal(parseChangelog(changelog("openclaw")).versions.length, 0);
-  assert.equal(parseChangelog(changelog("herdr")).versions.length, 0);
 });
 
 test("parseChangelog accepts the legacy bare SECURITY line and continuations", () => {

@@ -27,8 +27,8 @@ Herdr.</sub></p>
 
 ## Quickstart
 
-In development and not published (`private: true`); use it from this repo, or from its packed packages as
-[`examples/herdr-kit`](../../examples/herdr-kit) does. Once `private: true` is removed and it is released:
+First release 0.1.0; use it from this repo, or from its packed packages as
+[`examples/herdr-kit`](../../examples/herdr-kit) does. From npm once it is published:
 
 ```sh
 npm install @byokit/herdr
