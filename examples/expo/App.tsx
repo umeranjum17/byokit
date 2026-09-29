@@ -4,7 +4,7 @@
 // at the stand-in OpenAI and a link host on this computer (see e2e-android.sh):
 //   EXPO_PUBLIC_OPENAI_BASE=http://10.0.2.2:21455 npx expo run:android   (after `npm run mock` in this folder)
 import { useEffect, useRef, useState } from 'react';
-import { Linking, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, PermissionsAndroid, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { fetch as streamingFetch } from 'expo/fetch';
 import { Accounts, say, secureStore, type Status } from '@byokit/accounts';
@@ -14,6 +14,7 @@ import { boxKeyPairFromSeed, openBox, openSecretBox, sealBox, sealSecretBox, sig
 import { forgettableStore, pairInput, pairingGeneration } from './pairing.ts';
 import { linkWords, pairingView, useSignIn, type PairPhase } from '@byokit/ui-core';
 import { overlay, stateWords, type OverlayState } from '@byokit/overlay';
+import { stateWords as chipWords, status as chip } from '@byokit/status';
 import { focusedField } from '@byokit/overlay/focused-field';
 
 const ME = 1;
@@ -217,6 +218,33 @@ export function BubblePanel() {
   );
 }
 
+/** One ongoing job as a status-bar chip (@byokit/status): show with three actions, clear, and what came back. */
+function Chip() {
+  const [said, setSaid] = useState('');
+  const [n, setN] = useState(1);
+  useEffect(() => {
+    const offs = [chip.on('action', (e) => setSaid(`Action: ${e.id}`)), chip.on('dismissed', () => setSaid('Dismissed.'))];
+    return () => offs.forEach((off) => off());
+  }, []);
+  const show = async (busy: number) => {
+    if (Platform.OS === 'android') await PermissionsAndroid.request('android.permission.POST_NOTIFICATIONS');
+    chip.show({
+      title: `Scribe and ${busy} more are working`, text: '2 need you', chip: `${busy} busy`, publicText: `${busy} working · 2 need you`,
+      promote: true, timeoutMs: 15 * 60_000,
+      actions: [{ id: 'needs', label: 'See what needs you' }, { id: 'ask', label: 'Ask Chief' }, { id: 'open', label: 'Open' }],
+    });
+    setN(busy + 1);
+    setSaid(chipWords(await chip.state()));
+  };
+  return (
+    <View style={s.sheet}>
+      <Button id="chip-show" label="Show the chip" onPress={() => show(n)} />
+      <Button id="chip-clear" label="Clear the chip" onPress={() => { chip.clear(); setN(1); setSaid('Cleared.'); }} />
+      {!!said && <Text testID="chip-said" style={s.small}>{said}</Text>}
+    </View>
+  );
+}
+
 export default function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [plan, setPlan] = useState('');
@@ -262,6 +290,7 @@ export default function App() {
         </> : <Button id="signin" label="Sign in with ChatGPT" onPress={() => setSigning(true)} />}
       <Pair />
       <Bubble />
+      <Chip />
       <Button id="seal" label="Try sealing" onPress={trySeal} />
       {!!sealed && <Text testID="sealed" style={s.small}>{sealed}</Text>}
     </ScrollView></SafeAreaView>

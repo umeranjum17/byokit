@@ -131,3 +131,25 @@ jobs:
         working-directory: examples/expo
       - run: CI=1 npx expo prebuild -p android --no-install && (cd android && ./gradlew assembleDebug :byokit-overlay:testDebugUnitTest)
         working-directory: examples/expo
+
+  # @byokit/status's Expo module, in the overlay-android shape: the example prebuilds with the kit's config plugin and
+  # assembles with its Kotlin, then StatusRules' JVM tests run. The emulator proof is recorded in the PR (BK-S1).
+  status-android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: examples/expo/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - run: npm ci --no-audit --no-fund
+        working-directory: examples/expo
+      - run: CI=1 npx expo prebuild -p android --no-install && (cd android && ./gradlew assembleDebug :byokit-status:testDebugUnitTest)
+        working-directory: examples/expo

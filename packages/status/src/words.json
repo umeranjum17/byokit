@@ -1,0 +1,7 @@
+{
+  "status.on": "Work in progress shows at the top of the screen.",
+  "status.off": "Work in progress shows only in the notification list. Turn it on in this app's notification settings.",
+  "status.needsPermission": "Allow notifications for this app to see work in progress.",
+  "status.unsupported": "This device can't show work in progress at the top of the screen.",
+  "status.channel": "Work in progress"
+}

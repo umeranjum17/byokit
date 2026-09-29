@@ -1,4 +1,4 @@
-# Capability kits: `@byokit/compose`, `@byokit/capture`, `@byokit/overlay` and `@byokit/keystore`
+# Capability kits: `@byokit/compose`, `@byokit/capture`, `@byokit/overlay`, `@byokit/keystore` and `@byokit/status`
 
 Foundation spec and builder breakdown. Status: **design approved for build (BK-0); the `compose` and `capture`
 scaffolds are in the repo with frozen signatures, `@byokit/keystore` (section 11) is implemented,
@@ -11,7 +11,7 @@ Contents: [1 Goal](#1-goal) · [2 Decisions](#2-decisions) · [3 Shared conventi
 [6 Recorder protocol v1](#6-recorder-protocol-v1) · [7 `@byokit/overlay`](#7-byokitoverlay) ·
 [8 Tests, CI and isolation](#8-tests-ci-and-isolation) · [9 Work packages](#9-work-packages) ·
 [10 Known facts builders must not re-derive](#10-known-facts-builders-must-not-re-derive) ·
-[11 `@byokit/keystore`](#11-byokitkeystore)
+[11 `@byokit/keystore`](#11-byokitkeystore) · [12 `@byokit/status`](#12-byokitstatus)
 
 ## 1. Goal
 
@@ -27,6 +27,9 @@ BYOKit gains four **capability kits**. Each one is named for what it can do, not
   rules, a text-free tap log and an optional focused-field reader. On iOS it reports `unsupported`.
 - **`@byokit/keystore`** (section 11, L-KEY): one secret per name for apps, from the OS keyring, a
   passphrase-sealed file, or a host-passed override for CI. It only consumes `@byokit/seal`.
+- **`@byokit/status`** (section 12, BK-S1): one ongoing job shown as a status-bar chip on Android 16 (a promoted
+  ongoing notification), with a counts-only lock-screen copy and up to three actions. On iOS and below Android 16 it
+  reports `unsupported`.
 
 An app such as a writing helper or a demo-video helper uses these kits the way a coding app uses `@byokit/herdr`.
 The kit supplies the typed, supervised, tested integration. The product keeps its own prompts, screens and
@@ -44,7 +47,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D-A | Kits wrap an upstream engine. Product and domain behaviour stays in the product: prompts, scoring rules, planning, rendering, moods and labels. The kit adds the version pin, supervision, the typed surface, fakes and plain words, the same way `@byokit/openclaw` and `@byokit/herdr` do. |
 | D-B | Kit names and person-visible words are capability words. The compose engine's package name (`ownvoice-engine`) is public and pinned, so it appears in `packages/compose/package.json`, `constants.ts` and this document. No recorder product is named anywhere in BYOKit: not in code, docs, words, tests, commits, PR text or the isolation sentence. The kit and its tests refer to "a recorder implementing recorder protocol v1". |
 | D-C | `@byokit/compose` makes no model call and holds no key. Nothing it exports takes a key, and the engine it loads makes no network call (section 8 proves both). `@byokit/capture` takes a planner key only as a string from the app and hands it to the recorder only on file descriptor 3 (6.6), never through env, argv or a file. |
-| D-D | The isolation rule "byokit … never runs their CLIs" gets a separate carve-out for capability kits instead of stretching the runtime-kit wording. `@byokit/compose` may load only its exactly pinned public engine package. `@byokit/capture` may spawn only "a recorder implementing recorder protocol v1 that the app passes by absolute path". `@byokit/overlay` runs only its own native code inside the app. The sentence lives in `CONTRIBUTING.md` (Rules, Isolation first) and `README.md` (What byokit never touches). |
+| D-D | The isolation rule "byokit … never runs their CLIs" gets a separate carve-out for capability kits instead of stretching the runtime-kit wording. `@byokit/compose` may load only its exactly pinned public engine package. `@byokit/capture` may spawn only "a recorder implementing recorder protocol v1 that the app passes by absolute path". `@byokit/overlay` runs only its own native code inside the app, and so does `@byokit/status` (D-T). The sentence lives in `CONTRIBUTING.md` (Rules, Isolation first) and `README.md` (What byokit never touches). |
 | D-E | Packages `@byokit/compose`, `@byokit/capture`, `@byokit/overlay` in `packages/compose`, `packages/capture`, `packages/overlay`. All three are Apache-2.0 ESM and follow the repo's source rules: type-stripped TS, `.ts` imports, no enums, namespaces or parameter properties. Each is `private: true` at 0.1.0 until its proof lands (BK-P2, BK-C3, BK-O3). |
 | D-F | Entries. compose: `.` (Node), `./testing`, bin `compose`. capture: `.` (Node), `./testing`. overlay: `.` (native-free, every platform) with a `react-native` condition to `dist/rn.js`, and `./focused-field` with the same condition pair. No other entries. |
 | D-G | Library code reads no environment variable. Every spawned process gets an env built from nothing (5.4, 4.6). `process.env` is never inherited or read, including for `PATH`. |
@@ -59,6 +62,8 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D-P | Words. Each kit has `src/words.json` with the sentences in 4.8, 5.6 and 7.7. Each is tested against the repo's banned-jargon expression (the same one `packages/herdr/test/words.test.ts` uses). Compose's words must also avoid privacy claims: a test fails on `this phone`, `leave`/`leaves` and `never sent` (4.8). |
 | D-Q | Fakes and contracts (3.4). compose and capture each ship a fake and a contract suite in `./testing`. overlay's JS core takes an injected native module (7.3) and has no public `./testing`. |
 | D-R | Release: 0.1.0 `private: true`. compose publishes after the real-engine CI job is green (BK-P2) and bumps minor for every new engine protocol pin. capture publishes after the owner-machine conformance run is recorded (BK-C3). overlay publishes after the emulator proof (BK-O3). `scripts/release.ts`' canonical order gains `compose`, `capture` (BK-0) and `overlay` (BK-O1), in that order after `herdr`. |
+| D-S | `@byokit/status` (section 12) is named under D-B: `status` is the capability word. `ongoing` is Android jargon, `presence` reads as "online", and `live` is a product word on both platforms. It lives in `packages/status`, follows D-E and D-F's overlay shape (`.` native-free with a `react-native` condition to `dist/rn.js`, no other entry), and is 0.1.0 `private: true` until its emulator proof (BK-S1, 12.8). The canonical release order gains `status` after `overlay`. It is a sibling of overlay, not part of it: a chip needs neither the overlay permission nor a foreground service, and it has an iOS twin where overlay has none. |
+| D-T | Kotlin carve-out beside D-N: Kotlin also returns for `@byokit/status`, for the same reason (7.1): no JavaScript API can post a promoted ongoing notification with a lock-screen copy. The frozen mirror stays frozen, and nothing is shared between the overlay's and the status kit's Kotlin. The status Kotlin posts one notification from the app's own process. It runs no foreground service and no background work: keeping the process alive is the app's business. |
 
 ## 3. Shared conventions
 
@@ -1192,7 +1197,8 @@ CLI, tests), as in `docs/runtime-kits.md` §11.
 BK-0 (done: this doc, scaffolds, isolation sentence)
  ├─ BK-P1 Flash ── BK-P2 Sol (needs the engine's protocol 1 published: OV-3)
  ├─ BK-C1 Flash ── BK-C2 Sol ── BK-C3 Flash (needs a conforming recorder on the owner's machine)
- └─ BK-O1 Sol ── BK-O2 Sol ── BK-O3 Sol (emulator)
+ ├─ BK-O1 Sol ── BK-O2 Sol ── BK-O3 Sol (emulator)
+ └─ BK-S1 Sol (after BK-O1: reuses its layout and CI job shape; section 12)
 ```
 
 The lanes share only root `package.json`, `tsconfig.json`, `.github/workflows/ci.yml`, `scripts/release.ts`,
@@ -1536,3 +1542,192 @@ builds the map from `process.env` itself when it wants to; the kit never reads i
 - `~/.pi` is untouched byte for byte (`scripts/test.sh`).
 - `SECURITY.md` exists; the package stays `private: true` at 0.1.0; build, check, test and `smoke:pack` are
   green.
+
+## 12. `@byokit/status`
+
+One ongoing job the person started, shown where Android 16 shows a Live Update: a chip in the status bar, the top of
+the notification shade and the lock screen. The kit takes plain text from the app and never builds a sentence of its
+own except its state words (12.7). Product meaning (what counts as a job, when to promote, the counts) stays in the
+app (D-A).
+
+### 12.1 Platform facts builders must not re-derive
+
+- A Live Update is a promoted ongoing notification. `NotificationCompat` in androidx.core 1.17.0 (already an `api`
+  dependency of `expo-modules-core` 57) sets the promotion request on every API level. `setShortCriticalText`,
+  `canPostPromotedNotifications()` and `Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS` are API 36; the
+  `POST_PROMOTED_NOTIFICATIONS` permission and the public `setRequestPromotedOngoing` are API 36.1.
+- Promotion needs all of: the request, `ongoing`, a content title, a standard/BigText/Call/Progress style, no custom
+  views, not colorized, not a group summary, and a channel above `IMPORTANCE_MIN`. OEMs may add criteria.
+- The chip always shows the small icon. Text of 7 characters or fewer shows whole.
+- `POST_PROMOTED_NOTIFICATIONS` is manifest-only (no runtime prompt), on top of the runtime `POST_NOTIFICATIONS`. The
+  person can switch promotion off per app; `canPostPromotedNotifications()` reports it.
+- Google's use rules: ongoing, user-initiated, time-sensitive activity with a start and an end; never alerts, chat,
+  ads or quick access to app features; and never repost one the person dismissed (detect it with the delete intent).
+- A notification shows at most 3 actions. `setAuthenticationRequired(true)` makes the OS unlock first.
+- `VISIBILITY_PRIVATE` with a public version shows only the public copy on a secure lock screen and during screen
+  sharing. What the chip shows on a secure lock screen is unverified, so the chip text must be counts-only too.
+- AOSP drops updates beyond 5 per second per package.
+
+### 12.2 Files (BK-S1)
+
+```
+packages/status/
+  package.json  tsconfig.json  README.md  CHANGELOG.md  LICENSE  .gitignore
+  expo-module.config.json                 # { "platforms": ["android"], "android": { "modules": [
+                                          #   "io.github.umeranjum17.byokit.status.StatusModule"] } }
+  app.plugin.js                           # config plugin (12.6)
+  android/build.gradle                    # minSdk 24; androidx.core 1.17.0
+  android/src/main/AndroidManifest.xml    # POST_NOTIFICATIONS and the dismissal receiver (12.6)
+  android/src/main/java/io/github/umeranjum17/byokit/status/{StatusRules,StatusNotice,StatusModule}.kt   # 12.5
+  android/src/test/java/io/github/umeranjum17/byokit/status/StatusRulesTest.kt
+  src/index.ts  src/types.ts  src/status.ts  src/words.json  src/words.ts
+  src/rn.ts                               # the only file calling requireOptionalNativeModule('ByokitStatus')
+  test/{status,portable,words,exports}.test.ts
+```
+
+`package.json` follows 7.2: the same `files`, optional peers and exact `expo-modules-core` dev pin; `exports` has
+only `.` → `{ "react-native": dist/rn.js, "default": dist/index.js }`.
+
+### 12.3 Public types (`src/types.ts`) and entries
+
+```ts
+export type StatusState = 'on' | 'off' | 'needs-permission' | 'unsupported';
+export type StatusAction = { id: string; label: string };   // id /^[a-z][a-z0-9_]{0,31}$/, label non-empty
+export type ShowOptions = {
+  title: string;          // private, non-empty: promotion needs a content title
+  text: string;           // private
+  chip: string;           // status-bar chip, at most 7 characters (code points); counts and fixed words only
+  publicText: string;     // lock screen and screen share; counts and fixed words only
+  promote: boolean;       // ask for the chip; false posts a plain ongoing notification
+  actions?: StatusAction[];   // at most 3, unique ids; each needs the phone unlocked
+  timeoutMs: number;      // integer ≥ 1000: the notification clears itself this long after the last post
+  icon?: string;          // small icon, an app drawable name /^[a-z][a-z0-9_]{0,63}$/; default the app's icon
+};
+export type StatusEvent = { type: 'action'; id: string } | { type: 'dismissed' };
+export type StatusEventType = StatusEvent['type'];
+export interface Status {
+  show(o: ShowOptions): void;          // throws Error('status: <what>') on bad options, before any native call
+  clear(): void;                       // the job ended: cancels the notification and forgets a dismissal
+  on<T extends StatusEventType>(type: T, fn: (e: Extract<StatusEvent, { type: T }>) => void): () => void;   // listener set
+  state(): Promise<StatusState>;
+  openSettings(): Promise<void>;       // the promotion setting, else the app's notification settings
+}
+export interface NativeStatus {        // what the Kotlin module exposes (12.5); internal seam
+  show(o: ShowOptions & { channel: string }): void;   // channel: the channel's visible name, from words
+  clear(): void;
+  state(): Promise<StatusState>;
+  openSettings(): Promise<void>;
+  addListener(event: 'status', fn: (e: StatusEvent) => void): { remove(): void };
+}
+```
+
+States:
+- `unsupported`: no native module (iOS, web, Node), or Android below API 36. `show()` posts nothing there.
+- `needs-permission`: notifications are off for the app (no `POST_NOTIFICATIONS` grant) or its channel is blocked.
+- `off`: the person switched promotion off for the app, or set the kit's channel to Minimum. `show()` still posts, as
+  a plain ongoing notification.
+- `on`: a `promote: true` post can show as a chip.
+
+`src/status.ts` (pure): `createStatus(native: NativeStatus | null): Status`. It checks `show()`'s options on every
+platform, so a bad call fails in development on iOS too; with `null` everything else does nothing and `state()`
+resolves `unsupported`. One native listener feeds a JS listener `Set` per event type, as in overlay (7.3).
+
+Entries: `src/index.ts` exports the types, `createStatus`, `words`, `stateWords` and `status = createStatus(null)`;
+`src/rn.ts` exports the same names with `status = createStatus(requireOptionalNativeModule('ByokitStatus'))`.
+
+Events:
+- `action`: the person tapped an action. Actions open the app (an activity intent, so Android 12's trampoline rule
+  holds) with the id and a per-tap nonce as extras; the module reads it when the activity starts or gets a new
+  intent, and holds it until JS listens. Each nonce is emitted once, even when Android replays the intent after process
+  death or from Recents. A tap on the notification itself opens the app and emits nothing.
+- `dismissed`: the person swiped the notification away. From then on `show()` posts nothing until the app calls
+  `clear()` (the job ended); the next `show()` after that posts again. The dismissal survives the process.
+
+### 12.4 Keeping the chip truthful
+
+- `timeoutMs` is re-armed on every post. A dead app therefore clears its chip within `timeoutMs`.
+- The app calls `show()` from its own refresh. Posts are deduped by the visible content (every `ShowOptions` field
+  except `timeoutMs`) and throttled to one per 1.5 s with a trailing post of the latest options.
+- An unchanged `show()` is dropped while the notification is still posted, except once half of `timeoutMs` has passed
+  since the last post: then it posts again to re-arm the timeout. So an app that keeps calling `show()` keeps its chip,
+  and one that stops loses it. A notification that went without a delete intent (force-stop, reboot, a blocked channel)
+  is posted again by the next `show()`.
+- A delete that arrives within 1 s of the timeout counts as the timeout, not as the person's dismissal.
+- Times are on the boot clock (`elapsedRealtime`), so a wall-clock change moves nothing; a record from an earlier boot
+  is forgotten. Nothing is recorded for a post that `needs-permission` stopped.
+
+### 12.5 Kotlin parts (package `io.github.umeranjum17.byokit.status`, one job each)
+
+```kotlin
+data class Post(val title: String, val text: String, val chip: String, val publicText: String, val promote: Boolean,
+                val actions: List<Pair<String, String>>, val timeoutMs: Long, val icon: String?)
+data class Last(val signature: String, val at: Long, val timeoutMs: Long)
+object StatusRules {                                                     // pure, JVM-tested
+  const val CHIP_MAX = 7; const val ACTIONS_MAX = 3; const val THROTTLE_MS = 1500L; const val TIMEOUT_SLACK_MS = 1000L
+  fun chipFits(chip: String): Boolean                                    // ≤ CHIP_MAX code points
+  fun check(p: Post): String?                                            // the 12.3 rules; null when fine, else what is wrong
+  fun promotable(p: Post, channelImportance: Int): Boolean               // promote, a title, the chip fits, channel above MIN
+  fun channelPromotable(importance: Int): Boolean                        // above MIN; state() uses it
+  fun signature(p: Post): String                                         // every visible field; not timeoutMs
+  sealed class Decision { object Show; object Drop; data class Later(val ms: Long) }
+  fun decide(sig: String, now: Long, last: Last?, dismissed: Boolean): Decision   // dismissed → Drop; dedupe/refresh; throttle
+  fun userDismissed(now: Long, last: Last?): Boolean                     // false when the delete is the timeout
+}
+class StatusNotice(context: Context) {                                   // NotificationCompat, one notification
+  fun show(p: Post, channelName: String); fun clear(); fun deleted()     // deleted(): from the delete intent
+}
+class StatusDismissReceiver : BroadcastReceiver()                        // the delete intent's target; not exported
+class StatusModule : Module()                                            // Expo module 'ByokitStatus', maps NativeStatus
+```
+
+`StatusNotice` posts one notification (fixed tag and id) on its own channel `byokit.status`, `IMPORTANCE_LOW` (never
+MIN, which blocks promotion), with no sound or badge. Each post sets:
+- `setOngoing(true)`, `setOnlyAlertOnce(true)`, `setRequestPromotedOngoing(promote)` and `setShortCriticalText(chip)`;
+- `VISIBILITY_PRIVATE` with a public version whose title is `publicText` (no text, no actions);
+- `setTimeoutAfter(timeoutMs)`;
+- `setDeleteIntent` to `StatusDismissReceiver`;
+- the content intent and each action as an activity `PendingIntent` to the app's launch intent, each action with
+  `setAuthenticationRequired(true)`.
+
+The last post (`Last`) and the dismissal live in the app's `byokit.status` shared preferences, so the receiver works
+in a fresh process. The module emits `dismissed` when it is alive; a later `show()` obeys the dismissal either way.
+
+### 12.6 Library manifest and config plugin
+
+- The library manifest declares `POST_NOTIFICATIONS` and `<receiver android:name=
+  "io.github.umeranjum17.byokit.status.StatusDismissReceiver" android:exported="false"/>`.
+- `app.plugin.js` adds `android.permission.POST_PROMOTED_NOTIFICATIONS` to the app manifest. It takes no options.
+- There is no foreground service and no runtime prompt: the app asks for `POST_NOTIFICATIONS` itself (for example with
+  `PermissionsAndroid`), shows `stateWords('needs-permission')`, and calls `openSettings()`.
+
+### 12.7 Words (`src/words.json`)
+
+| Key | Sentence |
+|---|---|
+| `status.on` | Work in progress shows at the top of the screen. |
+| `status.off` | Work in progress shows only in the notification list. Turn it on in this app's notification settings. |
+| `status.needsPermission` | Allow notifications for this app to see work in progress. |
+| `status.unsupported` | This device can't show work in progress at the top of the screen. |
+| `status.channel` | Work in progress |
+
+`stateWords(s: StatusState)` maps each state to its `status.*` sentence; `status.channel` names the channel in the
+system settings. The words test uses the D-P jargon expression.
+
+### 12.8 Work package
+
+**BK-S1 — the kit, JVM tests, CI and the emulator proof** · Sol · deps: BK-O1
+- **Files:** everything in 12.2; root build list, `scripts/fix-words-dts.cjs` and `tsconfig.json`'s `rn.ts`
+  exclusion gain `packages/status`; `scripts/release.ts`' canonical order gains `status` after `overlay`;
+  `examples/expo` gets the dependency, the plugin and a small screen (show with three actions, clear, state);
+  `.github/workflows/ci.yml` job `status-android` (the `overlay-android` shape, running
+  `:byokit-status:testDebugUnitTest`); README table rows and the isolation sentence (D-D).
+- **Acceptance:**
+  - `StatusRulesTest` covers eligibility, the 7-character chip (code points), `check`, the signature (not
+    `timeoutMs`), dedupe, the half-timeout refresh, the 1.5 s throttle, a dismissal dropping every post, and the
+    timeout-versus-dismissal split. It runs in `status-android`.
+  - `status.test.ts` (fake `NativeStatus`) covers `show` validation before any native call, the channel name from
+    words, listener sets, and `createStatus(null)` unsupported everywhere; `portable`, `words` and `exports` as in
+    overlay.
+  - An API 36.1 emulator run on `examples/expo`, recorded in the PR: the chip is visible, the lock screen shows the
+    public copy, the expanded notification shows 3 actions, and after a swipe the next `show()` posts nothing.
+  - The package stays `private: true` until that proof is recorded; publishing is a later release.

@@ -1,0 +1,57 @@
+{
+  "name": "@byokit/status",
+  "version": "0.1.0",
+  "private": true,
+  "description": "One ongoing job as a status-bar chip on Android 16 (a promoted ongoing notification), with a counts-only lock-screen copy and up to three actions. On iOS and older Android it reports unsupported.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umeranjum17/byokit.git",
+    "directory": "packages/status"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": {
+      "react-native": {
+        "types": "./dist/rn.d.ts",
+        "default": "./dist/rn.js"
+      },
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "android",
+    "!android/build",
+    "expo-module.config.json",
+    "app.plugin.js",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"
+  },
+  "peerDependencies": {
+    "expo": ">=57.0.0",
+    "expo-modules-core": ">=3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "expo": {
+      "optional": true
+    },
+    "expo-modules-core": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "expo-modules-core": "57.0.19"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

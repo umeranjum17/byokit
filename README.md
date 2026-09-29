@@ -54,6 +54,7 @@ latest first, so neither goes stale.
 | `@byokit/capture` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
 | `@byokit/overlay` | `npm install @byokit/overlay` (from its first release; until then build from source) | ready to publish | [overlay-v releases](https://github.com/umeranjum17/byokit/releases?q=overlay-v) |
 | `@byokit/machine` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
+| `@byokit/status` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
 
 Unpacked sizes as of accounts 0.4.1, decide 0.2.0, herdr 0.1.0, link 0.3.1, reach 0.2.0, relay 0.1.3, seal 0.1.0,
 ui-core 0.2.0 (npm `dist.unpackedSize`): accounts ~117 kB, decide ~36 kB, herdr ~279 kB, link ~151 kB,
@@ -135,6 +136,7 @@ to ask. Each agent keeps its own subscription sign-in; the kit never sees a cred
 | [`@byokit/capture`](packages/capture) | Record a screen or a desktop and make a video, through any recorder implementing the open recorder protocol v1 the kit defines ([spec](docs/capability-kits.md)) | in development |
 | [`@byokit/overlay`](packages/overlay) | A floating bubble over other apps on Android (Expo module): a panel that opens on tap, per-app visibility rules, a tap log with no text and an optional focused-field reader; iOS reports unsupported ([spec](docs/capability-kits.md)) | ready (Android) |
 | [`@byokit/machine`](packages/machine) | The person's own always-on cloud computer for an app's host process: typed setup, install, cost and words ([spec](docs/machine-kit.md)) | in development |
+| [`@byokit/status`](packages/status) | One ongoing job as a status-bar chip on Android 16 (Expo module): a counts-only lock-screen copy, up to three actions that need the phone unlocked, and a dismissal that sticks; iOS and older Android report unsupported ([spec](docs/capability-kits.md#12-byokitstatus)) | in development |
 
 ## Quickstart
 
@@ -230,8 +232,8 @@ Runtime kits drive only the aggregator the app names explicitly (the OpenClaw en
 binary and socket the app passes); byokit tests use fakes and never a person's Herdr.
 Capability kits have their own, narrower carve-out: `@byokit/compose` loads only its exactly pinned public writing
 engine package, and `@byokit/capture` spawns only a recorder implementing recorder protocol v1 that the app passes by
-absolute path, with an environment built from nothing; `@byokit/overlay` runs only its own native code inside the
-app ([spec](docs/capability-kits.md)). `@byokit/machine` spawns only the `ssh` binary the app passes by absolute path
+absolute path, with an environment built from nothing; `@byokit/overlay` and `@byokit/status` run only their own
+native code inside the app ([spec](docs/capability-kits.md)). `@byokit/machine` spawns only the `ssh` binary the app passes by absolute path
 and the `ssh-keyscan` beside it, with the key path the app passes and a kit-owned config, and holds only the provider
 keys the app's store gives it and the scoped keys it mints for that app ([spec](docs/machine-kit.md)).
 `@byokit/keystore` spawns only the OS keyring CLIs by absolute path, with an environment built from nothing
