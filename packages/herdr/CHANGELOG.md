@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- K3 raw event tap: `kit.onEvent(fn)` delivers every event from the kit's own batch and
+  per-pane status sockets with wire payloads intact (`pane.moved.previous_pane_id`,
+  `workspace.*`), firing on arrival before the snapshot update/refresh (buffered replays never
+  re-fire, `subscribe()` sockets are not tapped, the tap opens no socket); plus
+  `kit.statusWatchReady()` resolving when the status-watch set has acked. The fake exposes
+  `subscriptionCount()` (distinct held subscription sockets).
+
 - FIX docs drift (K10): README pins the v0.9.1 snapshot (protocol 22) instead of the H1
   protocol placeholder; `agents.ts` agrees muxr sends `target_pane_id` to `pane.split`; the
   fake bin's `api schema` reports the pinned identity with no placeholder text.

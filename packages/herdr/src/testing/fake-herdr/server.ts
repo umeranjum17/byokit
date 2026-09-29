@@ -26,6 +26,7 @@ export type FakeHerdr = {
   world: FakeWorld;                   // frozen clone of the world at start, for assertions
   emit(event: { type: string } & Record<string, unknown>): void;
   setStatus(paneId: string, status: string): void;
+  subscriptionCount(): number;        // distinct sockets holding a subscription (batch + status)
   stop(): Promise<void>;
 };
 
@@ -565,6 +566,12 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     setStatus(paneId, status) {
       const pane = live.panes.find((row) => row.pane_id === paneId);
       if (pane !== undefined) transition(pane, status);
+    },
+    subscriptionCount() {
+      const held = new Set<object>();
+      for (const sub of eventSubs) held.add(sub.socket);
+      for (const sub of statusSubs) held.add(sub.socket);
+      return held.size;
     },
     stop: shutdown,
   };
