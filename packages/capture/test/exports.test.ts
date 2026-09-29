@@ -1,6 +1,6 @@
 // BK-0 acceptance: every frozen name exists — the `.` entry (5.2–5.3), `./testing` (5.5) and the internal seams
 // (5.4, BK-C1's protocol.ts) — and every stub names the work package that fills it (docs/capability-kits.md §9.3).
-// BK-C1: the protocol parsers, fake recorder and contract are built; only the BK-C2 bodies still throw.
+// BK-C1 and BK-C2 are built: nothing throws `not built` any more.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as kit from '../src/index.ts';
@@ -20,12 +20,9 @@ test('the `.` entry carries the frozen surface (5.2–5.3)', () => {
     'WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS', 'HYPRLAND_INSTANCE_SIGNATURE', 'XAUTHORITY',
   ]);
   const c = new kit.Capture({ bin: '/opt/recorder/bin/recorder', stateDir: '/tmp/state', display: { WAYLAND_DISPLAY: 'wayland-1' } });
-  assert.throws(() => c.hello(), /BK-C2/);
-  assert.throws(() => c.record({ source: 'x11:99', root: '/tmp/takes', maxSeconds: 5 }), /BK-C2/);
-  assert.throws(() => c.stop(), /BK-C2/);
-  assert.throws(() => c.make({ take: '/tmp/takes/take-1', planOnly: true }), /BK-C2/);
-  assert.throws(() => kit.eventWords({ event: 'recording', take: '/tmp/takes/take-1' }), /BK-C2/);
-  assert.throws(() => kit.errorWords(new kit.CaptureError('missing', '')), /BK-C2/);
+  for (const m of ['hello', 'record', 'stop', 'make'] as const) assert.equal(typeof c[m], 'function');
+  assert.equal(kit.eventWords({ event: 'recording', take: '/tmp/takes/take-1' }), 'Recording.');
+  assert.equal(kit.errorWords(new kit.CaptureError('missing', '')), 'This computer needs the recorder installed first.');
 });
 
 test('CaptureError carries its code, side, hint and detail', () => {
@@ -57,12 +54,12 @@ test('public types keep their frozen shapes (5.2)', () => {
   void [o, hello, sources, record, events, plain, planned, unbounded, result, codes];
 });
 
-test('the internal seams are in place; bodies land with their work packages', () => {
-  assert.throws(() => recorderEnv({ stateDir: '/s', source: 'screen' }), /BK-C2/);
-  assert.throws(() => recorderArgv('/s', { verb: 'hello' }), /BK-C2/);
-  assert.throws(() => runRecorder('/a/recorder', {}, ['capture', 'hello'], { timeoutMs: 10_000 }), /BK-C2/);
-  assert.throws(() => streamRecorder('/a/recorder', {}, ['capture', 'record'], { guardMs: 1000 }), /BK-C2/);
-  assert.throws(() => recordGuardMs(5), /BK-C2/);
+test('the internal seams are in place and built', () => {
+  assert.equal(recorderEnv({ stateDir: '/s', source: 'screen' })['HOME'], '/s/capture/home');
+  assert.deepEqual(recorderArgv('/s', { verb: 'hello' }), ['capture', 'hello']);
+  assert.equal(typeof runRecorder, 'function');
+  assert.equal(typeof streamRecorder, 'function');
+  assert.equal(recordGuardMs(5), (5 + kit.CONSENT_WINDOW_S + 30) * 1000);
   // BK-C1 is built: the protocol parsers answer instead of throwing.
   const hello = parseHello(JSON.stringify({
     protocol: 1, recorder: { name: 'example-recorder', version: '1.0.0' }, sources: ['screen', 'x11'],

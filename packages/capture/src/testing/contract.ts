@@ -40,7 +40,8 @@ const DISPLAY_ENV_KEYS = [
 
 async function collectRecord(capture: Capture, o: Parameters<Capture['record']>[0]) {
   const events: Array<{ event: string; take?: string; seconds?: number; warnings?: string[] }> = [];
-  for await (const e of capture.record(o)) events.push(e as { event: string });
+  // `consent-pending` comes first on a `screen` source and is not part of what the cases compare.
+  for await (const e of capture.record(o)) if (e.event !== 'consent-pending') events.push(e as { event: string });
   return events;
 }
 
@@ -121,7 +122,8 @@ export function captureContract(
     await bench(async ({ capture, source, root }) => {
       const controller = new AbortController();
       const first = capture.record({ source, root, maxSeconds: 60, signal: controller.signal });
-      const head = await first.next();
+      let head = await first.next();
+      while ((head.value as { event: string } | undefined)?.event === 'consent-pending') head = await first.next();
       assert.equal((head.value as { event: string } | undefined)?.event, 'recording');
       const second = capture.record({ source, root, maxSeconds: 2 });
       await assert.rejects(second.next(), (error: unknown) => {
@@ -158,7 +160,7 @@ export function captureContract(
       const result = await capture.make({ take });
       assert.ok(typeof result.out === 'string' && result.out !== null);
       assert.ok((result.out as string).endsWith('.mp4'));
-      assert.equal(dirname(dirname(result.out as string)), root);
+      assert.ok((result.out as string).startsWith(take + '/'));
       assert.ok(existsSync(result.out as string));
       assert.equal(result.planner.inputTokens, 0);
       assert.equal(result.planner.usd, 0);
