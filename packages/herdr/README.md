@@ -25,10 +25,18 @@ Herdr.</sub></p>
 </p>
 <p align="center"><sub>The same example's host terminal (<code>host.ts</code>), started with <code>BYOKIT_EXAMPLE_FAKE=1</code> so it runs the kit's stand-in Herdr.</sub></p>
 
+## Install
+
+```sh
+npm install @byokit/herdr
+```
+
+[![npm](https://img.shields.io/npm/v/@byokit/herdr?style=flat&label=)](https://www.npmjs.com/package/@byokit/herdr) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=herdr-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
+
 ## Quickstart
 
-First release 0.1.0; use it from this repo, or from its packed packages as
-[`examples/herdr-kit`](../../examples/herdr-kit) does. From npm once it is published:
+Available on npm; it is also used from this repo, or from its packed packages as
+[`examples/herdr-kit`](../../examples/herdr-kit) does:
 
 ```sh
 npm install @byokit/herdr

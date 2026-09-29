@@ -20,6 +20,14 @@ the platform's side (`package.json`'s `react-native` and `browser` conditions).<
 </p>
 <p align="center"><sub><a href="../../examples/pwa"><code>examples/pwa</code></a> signing in by device code in headless Chromium (Playwright), against the kit's stand-in OpenAI (<code>mockOpenAI()</code>), not the real one; the pictured code is in OpenAI's format.</sub></p>
 
+## Install
+
+```sh
+npm install @byokit/accounts
+```
+
+[![npm](https://img.shields.io/npm/v/@byokit/accounts?style=flat&label=)](https://www.npmjs.com/package/@byokit/accounts) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=accounts-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
+
 ## Quickstart
 
 ```sh

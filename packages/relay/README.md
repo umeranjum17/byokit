@@ -19,6 +19,14 @@ explicitly includes.
 Node only (the device side, `@byokit/relay/device`, runs anywhere: no Node APIs, so browsers and React Native too).
 Depends on `@byokit/link` (see [package.json](package.json) for the version) and doesn't change its wire format or crypto.
 
+## Install
+
+```sh
+npm install @byokit/relay @byokit/link
+```
+
+[![npm](https://img.shields.io/npm/v/@byokit/relay?style=flat&label=)](https://www.npmjs.com/package/@byokit/relay) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=relay-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
+
 ## Quickstart
 
 ```sh

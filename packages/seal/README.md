@@ -12,6 +12,14 @@ Box, secretbox and Ed25519 signatures for Node 22+, browsers/PWAs and React Nati
 Node runtime imports. For apps that store or send small secrets and need the same bytes libsodium and tweetnacl
 produce.</p>
 
+## Install
+
+```sh
+npm install @byokit/seal
+```
+
+[![npm](https://img.shields.io/npm/v/@byokit/seal?style=flat&label=)](https://www.npmjs.com/package/@byokit/seal) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=seal-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
+
 ## Quickstart
 
 ```sh

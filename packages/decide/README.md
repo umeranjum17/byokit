@@ -13,6 +13,14 @@ own <code>rules</code>, any model you can send a prompt to (on a phone, the pers
 <a href="https://openrouter.ai/docs/guides/community/jev">Jev</a> (API-billed) over TypeSafe's API or OpenRouter. Labelled eval files
 set the floors.</p>
 
+## Install
+
+```sh
+npm install @byokit/decide
+```
+
+[![npm](https://img.shields.io/npm/v/@byokit/decide?style=flat&label=)](https://www.npmjs.com/package/@byokit/decide) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=decide-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
+
 ## Quickstart
 
 ```sh
