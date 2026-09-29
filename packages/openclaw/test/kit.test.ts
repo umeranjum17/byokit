@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { scratchDir } from '../../test-support.ts';
 import { test } from 'node:test';
 import { OpenClawKit } from '../src/kit.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import type { RunRef } from '../src/types.ts';
 
 async function withKit(fn: (kit: OpenClawKit, fake: ReturnType<typeof fakeGateway>) => Promise<void>) {
-  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o4-'));
+  const stateDir = scratchDir('o4');
   const fake = fakeGateway();
   const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false });
   try { await kit.start(); await fn(kit, fake); }
@@ -16,7 +16,7 @@ async function withKit(fn: (kit: OpenClawKit, fake: ReturnType<typeof fakeGatewa
 }
 
 test('call before start rejects instead of throwing synchronously', async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o4-notready-'));
+  const stateDir = scratchDir('o4-notready');
   const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: fakeGateway().factory });
   try { await assert.rejects(kit.call('models.authStatus', { agentId: 'm1' }), /gateway not ready/); }
   finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
@@ -42,7 +42,7 @@ test('typed pass-through, dynamic refusal, events and hello', async () => withKi
 }));
 
 test('typed call passes options through unchanged', async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o4-options-'));
+  const stateDir = scratchDir('o4-options');
   const fake = fakeGateway();
   let seen: unknown;
   const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: (ctx) => {
@@ -80,7 +80,7 @@ test('close and bad protocol fail closed', async () => {
     assert.deepEqual(kit.state, { phase: 'failed', why: 'handshake' });
     assert.equal(kit.hello, undefined);
   });
-  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o4-version-'));
+  const stateDir = scratchDir('o4-version');
   const fake = fakeGateway();
   const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: (ctx) => ({ ...fake.factory(ctx), start: async () => ({ protocol: 3, server: { version: 'old' }, methods: [], events: [] }) }) });
   try { await assert.rejects(kit.start(), /gateway protocol/); assert.equal(kit.state.phase, 'needs-update'); }
@@ -101,7 +101,7 @@ async function withDenyingKit(
   o: { gateBuiltins?: boolean },
   fn: (kit: OpenClawKit, seen: { gated: [string, unknown][]; called: string[] }) => Promise<void>,
 ) {
-  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o5-gateall-'));
+  const stateDir = scratchDir('o5-gateall');
   const seen = { gated: [] as [string, unknown][], called: [] as string[] };
   const kit = new OpenClawKit({
     stateDir, spawnEngine: false, transport: fakeGateway().factory, ...o,
@@ -137,7 +137,7 @@ test('a tool name the engine would rewrite before the gate is refused', () => {
 });
 
 test('prepare replaces a plugin left by an older kit', async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o5-oldplugin-'));
+  const stateDir = scratchDir('o5-oldplugin');
   try {
     mkdirSync(join(stateDir, 'openclaw', 'plugin'), { recursive: true });
     writeFileSync(join(stateDir, 'openclaw', 'plugin', 'index.js'), '// an older, ungated plugin\n');

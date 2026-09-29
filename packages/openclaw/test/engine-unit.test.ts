@@ -1,14 +1,14 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { scratchDir } from '../../test-support.ts';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../src/engine.ts';
 
 test('repair once after exit 78, leave unrelated stale pid alone', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-'));
+  const dir = scratchDir('engine-unit');
   const engineDir = join(dir, 'engine');
   const entryDir = join(engineDir, 'node_modules', 'openclaw');
   mkdirSync(entryDir, { recursive: true });
@@ -37,7 +37,7 @@ process.exit(78);`);
 });
 
 test('prepare defaults to bridge.sock/__byokit and honors explicit bridge options', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-'));
+  const dir = scratchDir('engine-unit');
   try {
     const plain = new Engine({ stateDir: dir, pluginId: 'byokit', tools: [], spawnEngine: false, onState() {}, onExit() {} });
     await plain.prepare();

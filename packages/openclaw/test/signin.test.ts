@@ -4,8 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { providers, signIn, signOut, type SignInCtx } from '../src/signin.ts';
@@ -317,7 +316,7 @@ test('providers does not invent a sign-in when the engine refuses to answer', as
 });
 
 test('the kit drives the same flow through its own transport and members (5.3)', async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o6-facade-'));
+  const stateDir = scratchDir('o6-facade');
   const fake = fakeGateway();
   const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false });
   try {
@@ -340,7 +339,7 @@ test('the kit drives the same flow through its own transport and members (5.3)',
 });
 
 test('the kit never imports without an engine: a doctor run that cannot happen stages nothing and keeps the source (D15)', async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o6-facade-migrate-'));
+  const stateDir = scratchDir('o6-kit-facade');
   const dir = scratchDir('o6-facade-migrate');
   const path = join(dir, 'auth.json');
   writeFileSync(path, JSON.stringify({ 'openai-codex': { type: 'oauth', access: 'a-preserved' } }));

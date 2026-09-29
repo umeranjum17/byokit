@@ -3,9 +3,9 @@
 // Runs only in the engine job (npm run test:engine), never in npm test.
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { scratchDir } from '../../../test-support.ts';
 import { setTimeout as delay } from 'node:timers/promises';
 import { readFileSync } from 'node:fs';
 import { OpenClawKit } from '../../src/kit.ts';
@@ -20,7 +20,7 @@ async function until(there: () => boolean, ms = 30_000): Promise<void> {
 }
 
 test('a raised exec approval arrives, attributes, and resolves', { timeout: 360_000 }, async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o5-'));
+  const stateDir = scratchDir('engine-approvals');
   const kit = new OpenClawKit({ stateDir, approvalTimeoutMs: 30_000 });
   try {
     try {

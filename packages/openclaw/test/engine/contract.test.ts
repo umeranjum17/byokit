@@ -4,8 +4,7 @@
 // engine job skips it with the reason and proves sign-in live instead (the O11 fan-out lab).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { OpenClawKit } from '../../src/kit.ts';
 import { Engine } from '../../src/engine.ts';
@@ -33,7 +32,7 @@ after(async () => {
 });
 
 async function make(): Promise<ContractFixture> {
-  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o11-engine-'));
+  const stateDir = scratchDir('o11-engine');
   const kit = new OpenClawKit({
     stateDir,
     engineDir,
@@ -71,7 +70,7 @@ openclawContract(make, { skipDeviceCode: 'needs a person at the device URL' });
 // The O3 config-restart case the O5 probe named: members created before a restart are persisted agents
 // afterwards — ensureMember finds them (no duplicate create, no map-as-array crash) on the same state dir.
 test('config-restart: persisted agents are found, not duplicated (O3)', { timeout: 600_000 }, async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o11-restart-'));
+  const stateDir = scratchDir('o11-restart');
   const opts = { stateDir, engineDir, approvalTimeoutMs: 30_000, onState: () => {} };
   const first = new OpenClawKit(opts);
   try {

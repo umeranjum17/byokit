@@ -3,14 +3,14 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { scratchDir } from '../../test-support.ts';
 import { HerdrKit } from '../src/kit.ts';
 import { writeBinShim } from '../src/testing/index.ts';
 
 let dir: string;
-before(async () => { dir = await mkdtemp(join(tmpdir(), 'herdr-k6-')); });
+before(() => { dir = scratchDir('herdr-k6'); });
 after(async () => { await rm(dir, { recursive: true, force: true }); });
 
 const until = async (ok: () => boolean, what: string, ms = 10_000) => {

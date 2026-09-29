@@ -20,11 +20,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { scratchDir } from '../../../test-support.ts';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import {
   DeviceLink, Host, keyPair, pairWithOffer,
@@ -66,7 +67,7 @@ async function paneCount(snapshot: HerdrSnapshot, paneId: string): Promise<numbe
   return panes;
 }
 
-const lab = await mkdtemp(join(tmpdir(), 'byokit-herdr-lab-'));
+const lab = scratchDir('herdr-lab');
 const bin = join(lab, 'herdr-linux-x86_64');
 let stateCount = 0;
 const cwdA = join(lab, 'cwd-a');

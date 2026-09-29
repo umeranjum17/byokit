@@ -25,6 +25,14 @@ function die(message: string): never {
 // --- tarball fetch + extract (isolated HOME and npm cache) ---
 
 const tmp = mkdtempSync(join(tmpdir(), 'byokit-gen-'));
+// An interrupted generation (SIGINT/SIGTERM) must not leave the tarball behind:
+// the finally at the end covers success and failure, this covers abort.
+process.on('exit', () => rmSync(tmp, { recursive: true, force: true }));
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => {
+  rmSync(tmp, { recursive: true, force: true });
+  process.removeAllListeners(signal);
+  process.kill(process.pid, signal);
+});
 try {
   const pack = spawnSync('npm', ['pack', `${PACKAGE}@${ENGINE_VERSION}`, '--pack-destination', tmp], {
     cwd: tmp,

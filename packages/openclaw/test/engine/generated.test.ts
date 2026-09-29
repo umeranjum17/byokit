@@ -5,8 +5,7 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { OpenClawKit } from '../../src/kit.ts';
@@ -72,7 +71,7 @@ const EXPECTED_UNADVERTISED = ['assistant.media.get', 'chat.inject', 'config.ope
   'sessions.usage.timeseries', 'web.login.start', 'web.login.wait', 'worker.desktop.launch', 'worker.desktop.observe'];
 
 test('hello coverage of the generated operator methods is exactly the proven set', { timeout: 600_000 }, async () => {
-  const stateDir = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'byokit-o11-hello-'));
+  const stateDir = scratchDir('o11-hello');
   const kit = new OpenClawKit({ stateDir, engineDir, tools: [], approvalTimeoutMs: 10_000 });
   try {
     await kit.start();
@@ -90,7 +89,7 @@ test('every offer:true route starts with only its plugin allowed', { timeout: 60
   const offered = (routes as { choice: string; plugin: string; offer: boolean }[]).filter((r) => r.offer);
   assert.ok(offered.length > 0, 'routes.json offers nothing');
   for (const route of offered) {
-    const stateDir = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'byokit-o11-offer-'));
+    const stateDir = scratchDir('o11-offer');
     const kit = new OpenClawKit({ stateDir, engineDir, tools: [], approvalTimeoutMs: 10_000,
       config: { plugins: { allow: [route.plugin] } } });
     try {
@@ -106,7 +105,7 @@ test('every offer:true route starts with only its plugin allowed', { timeout: 60
 });
 
 test('plugin approval requests carry the requesting member', { timeout: 600_000 }, async () => {
-  const stateDir = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'byokit-o11-plugappr-'));
+  const stateDir = scratchDir('o11-plugappr');
   const kit = new OpenClawKit({ stateDir, engineDir, tools: [], approvalTimeoutMs: 30_000 });
   try {
     await kit.start();

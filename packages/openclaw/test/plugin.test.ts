@@ -1,9 +1,9 @@
 // The shipped bridge plugin (5.9) loaded as the gateway loads it: its before_tool_call hook relays every tool call,
 // engine builtins included, to host.gate over a real bridge.
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { copyFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { scratchDir } from '../../test-support.ts';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Bridge, writePlugin } from '../src/bridge.ts';
@@ -18,7 +18,7 @@ async function withPlugin(
   o: { gateBuiltins: boolean; gate: (tool: string, info: { builtin: boolean }) => GateResult },
   fn: (hook: Hook, seen: { gated: [string, { builtin: boolean }][]; called: string[] }) => Promise<void>,
 ): Promise<void> {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-plugin-'));
+  const dir = scratchDir('plugin');
   const seen = { gated: [] as [string, { builtin: boolean }][], called: [] as string[] };
   copyFileSync(shipped, join(dir, 'index.js'));
   writePlugin(dir, { id: 'byokit', tools, paramPrefix: '__byokit', gateBuiltins: o.gateBuiltins });

@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { mkdtempSync, rmSync, statSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync, statSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { scratchDir } from '../../test-support.ts';
 import { Engine } from '../src/engine.ts';
 import { reconcileConfig, memoryLimited } from '../src/config.ts';
 
@@ -45,7 +45,7 @@ test('fresh and adversarial config force isolation and no paid memory fallback',
 });
 
 test('prepare writes only changed config and isolates its environment', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-'));
+  const dir = scratchDir('config');
   try {
     const engine = new Engine({ stateDir: dir, pluginId: 'byokit', tools: [], spawnEngine: false, onState() {}, onExit() {} });
     await engine.prepare();

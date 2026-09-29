@@ -2,9 +2,9 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { scratchDir } from '../../test-support.ts';
 import { test } from 'node:test';
 
 const policy = new URL('../policy/policy.mjs', import.meta.url);
@@ -32,7 +32,7 @@ const SKILL_MD = '---\nname: my-skill\nversion: 1.0.0\n---\n\n# My skill\n';
 const scratch: string[] = [];
 
 function skillDir(body: string = SKILL_MD): string {
-  const dir = mkdtempSync(join(tmpdir(), 'byokit-o5-skill-'));
+  const dir = scratchDir('o5-skill');
   scratch.push(dir);
   writeFileSync(join(dir, 'SKILL.md'), body);
   return dir;
@@ -40,7 +40,7 @@ function skillDir(body: string = SKILL_MD): string {
 
 function trustedFor(dir: string, body: string = SKILL_MD, shape: 'list' | 'map' = 'list'): string {
   const sha256 = createHash('sha256').update(body, 'utf8').digest('hex');
-  const trustedDir = mkdtempSync(join(tmpdir(), 'byokit-o5-trusted-'));
+  const trustedDir = scratchDir('o5-trusted');
   scratch.push(trustedDir);
   const file = join(trustedDir, 'trusted.json');
   writeFileSync(
@@ -94,7 +94,7 @@ test('an unlisted skill and a missing source block', async () => {
 });
 
 test('own roots are allowed without a trusted entry', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'byokit-o5-own-'));
+  const root = scratchDir('o5-own');
   scratch.push(root);
   const dir = join(root, 'skills', 'mine');
   mkdirSync(dir, { recursive: true });
@@ -116,7 +116,7 @@ test('dependency installers block even for trusted skills', async () => {
 });
 
 test('a dependency request kind blocks even under an own root', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'byokit-o5-own-dep-'));
+  const root = scratchDir('o5-own-dep');
   scratch.push(root);
   const dir = join(root, 'skills', 'mine');
   mkdirSync(dir, { recursive: true });
@@ -133,7 +133,7 @@ test('a bundled skill without a frontmatter version matches origin.version', asy
   const body = '---\nname: my-skill\n---\n\n# Bundled skill, no version\n';
   const dir = skillDir(body);
   const sha256 = createHash('sha256').update(body, 'utf8').digest('hex');
-  const trustedDir = mkdtempSync(join(tmpdir(), 'byokit-o5-trusted-'));
+  const trustedDir = scratchDir('o5-trusted');
   scratch.push(trustedDir);
   const trusted = join(trustedDir, 'trusted.json');
   writeFileSync(trusted, JSON.stringify([{ id: 'my-skill', version: '2026.8.1', sha256 }]));

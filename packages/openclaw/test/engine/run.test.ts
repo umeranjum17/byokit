@@ -3,8 +3,7 @@
 // `/v1/embeddings` call is ever made. Runs only in the engine job (npm run test:engine), never in npm test.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { OpenClawKit } from '../../src/kit.ts';
 import { Engine } from '../../src/engine.ts';
@@ -31,7 +30,7 @@ after(async () => {
 });
 
 test('real tool calls cross the fail-closed gate; keyword memory stays free', { timeout: 600_000 }, async () => {
-  const stateDir = mkdtempSync(join(process.env.TMPDIR ?? tmpdir(), 'byokit-o11-run-'));
+  const stateDir = scratchDir('o11-run');
   const gated: string[] = [];
   let called = 0;
   const kit = new OpenClawKit({ stateDir, engineDir, approvalTimeoutMs: 30_000, tools: [REPORT, FETCH],

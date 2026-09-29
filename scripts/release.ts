@@ -18,6 +18,20 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = dirname(here);
 
+// An interrupted publish (SIGINT/SIGTERM) must not leave the notes dir behind:
+// the finally in doRelease covers success and failure, this covers abort.
+const pendingTmp = new Set<string>();
+process.on("exit", () => {
+  for (const dir of pendingTmp) rmSync(dir, { recursive: true, force: true });
+});
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    for (const dir of [...pendingTmp]) rmSync(dir, { recursive: true, force: true });
+    process.removeAllListeners(signal);
+    process.kill(process.pid, signal);
+  });
+}
+
 export type BulletKind = "SECURITY" | "FIX" | "other";
 
 export interface ChangelogBullet {
@@ -571,11 +585,13 @@ function cmdPublish(rest: string[]): void {
       // missing: create it
     }
     const dir = mkdtempSync(join(tmpdir(), "byokit-release-"));
+    pendingTmp.add(dir);
     try {
       const notesFile = join(dir, "notes.md");
       writeFileSync(notesFile, notes);
       sh("gh", ["release", "create", tag, "--target", target, "--title", title, "--notes-file", notesFile]);
     } finally {
+      pendingTmp.delete(dir);
       rmSync(dir, { recursive: true, force: true });
     }
   };

@@ -1,9 +1,9 @@
 // Native approvals through one Approval surface (5.9, O5): exec, plugin and question round-trips,
 // member attribution, and the kit wiring over the fake gateway.
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { scratchDir } from '../../test-support.ts';
 import { test } from 'node:test';
 import { Approvals } from '../src/approvals.ts';
 import { OpenClawKit } from '../src/kit.ts';
@@ -148,7 +148,7 @@ test('an unattributable approval never matches a member, not even unknown', asyn
   }));
 
 test('a listener registered before start fires and survives a restart', async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o5-restart-'));
+  const stateDir = scratchDir('o5-restart');
   const fake = fakeGateway();
   const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false });
   const seen: string[] = [];
@@ -186,7 +186,7 @@ test('a listener registered before start fires and survives a restart', async ()
 });
 
 test('a reconnect drops stale natives and replays the engine lists', async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o5-resync-'));
+  const stateDir = scratchDir('o5-resync');
   const fake = fakeGateway();
   const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false });
   const seen: string[] = [];
@@ -216,7 +216,7 @@ test('a reconnect drops stale natives and replays the engine lists', async () =>
 });
 
 test('the kit surfaces native approvals and one-shot permits', async () => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'byokit-o5-kit-'));
+  const stateDir = scratchDir('o5-kit');
   const fake = fakeGateway();
   const kit = new OpenClawKit({
     stateDir,

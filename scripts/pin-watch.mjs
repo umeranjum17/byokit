@@ -22,12 +22,20 @@
 // herdr-*.json) instead of any fetch. Live mode needs network and stays out
 // of `npm test`; it runs in the weekly pin-watch workflow. Exit 0 always:
 // drift is reported in the output, not as a failure.
+//
+// Throwaway dirs are removed on success (finally), on failure (die exits, and
+// the exit handler below removes what is tracked) and on abort (SIGINT and
+// SIGTERM remove and re-raise). npm's download cache is shared outside /tmp
+// (PIN_WATCH_NPM_CACHE overrides the default ~/.cache/byokit-pin-watch/npm-cache)
+// because /tmp is a size-limited tmpfs on some hosts; only the tarball entries
+// actually read are ever extracted, and the tarball itself is deleted right
+// after extraction.
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 
 const scriptDir = dirname(new URL(import.meta.url).pathname);
 const repoDir = join(scriptDir, '..');
@@ -118,34 +126,74 @@ function npmJson(cmdArgs, cwd) {
   return Array.isArray(parsed) && parsed.length === 1 ? parsed[0] : parsed;
 }
 
-// Pack one npm tarball into an isolated throwaway dir (isolated HOME and npm
-// cache, same hygiene as packages/openclaw/scripts/gen-methods.ts) and return
-// the extracted package dir.
-function packTarball(spec) {
-  const tmp = mkdtempSync(join(tmpdir(), 'byokit-pin-watch-'));
-  try {
-    const pack = spawnSync('npm', ['pack', spec, '--pack-destination', tmp], {
-      cwd: tmp,
-      env: { PATH: process.env.PATH ?? '', HOME: tmp, npm_config_cache: join(tmp, 'npm-cache') },
-      encoding: 'utf8',
-    });
-    if (pack.status !== 0) die(`npm pack ${spec} failed: ${pack.stderr}`);
-    const tgz = readdirSync(tmp).find((f) => f.endsWith('.tgz'));
-    if (!tgz) die(`npm pack ${spec} produced no tarball`);
-    const untar = spawnSync('tar', ['-xzf', join(tmp, tgz), '-C', tmp], { encoding: 'utf8' });
-    if (untar.status !== 0) die(`tar extract failed for ${spec}`);
-    return join(tmp, 'package');
-  } catch (e) {
-    if (e instanceof Error && e.message.startsWith('pin-watch:')) throw e;
-    die(`fetching ${spec}: ${e instanceof Error ? e.message : String(e)}`);
-  }
+// Every throwaway dir registers here so success, failure and abort all remove
+// it: callers remove theirs promptly in a finally, and the handlers below catch
+// die() exits and signals.
+const tmps = new Set();
+function trackTmp(dir) {
+  tmps.add(dir);
+  return dir;
+}
+function removeTmp(dir) {
+  tmps.delete(dir);
+  rmSync(dir, { recursive: true, force: true });
+}
+process.on('exit', () => {
+  for (const dir of tmps) rmSync(dir, { recursive: true, force: true });
+});
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    for (const dir of [...tmps]) rmSync(dir, { recursive: true, force: true });
+    process.removeAllListeners(signal);
+    process.kill(process.pid, signal);
+  });
+}
+
+// npm's download cache lives outside /tmp (size-limited tmpfs on some hosts):
+// content-addressed, so sharing it across runs is safe and avoids re-download.
+function npmCacheDir() {
+  const dir = process.env.PIN_WATCH_NPM_CACHE ?? join(homedir(), '.cache', 'byokit-pin-watch', 'npm-cache');
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+// Pack one npm tarball into an isolated throwaway dir (isolated HOME, same
+// hygiene as packages/openclaw/scripts/gen-methods.ts) and return the
+// extracted package dir plus the throwaway root for the caller's finally.
+// Only the entries pick() selects from the tarball listing are materialised —
+// the protocol check needs one JSON file, not the whole package — and the
+// tarball itself is deleted right after extraction.
+function packTarball(spec, pick) {
+  const tmp = trackTmp(mkdtempSync(join(tmpdir(), 'byokit-pin-watch-')));
+  const pack = spawnSync('npm', ['pack', spec, '--pack-destination', tmp], {
+    cwd: tmp,
+    env: { PATH: process.env.PATH ?? '', HOME: tmp, npm_config_cache: npmCacheDir() },
+    encoding: 'utf8',
+  });
+  if (pack.status !== 0) die(`npm pack ${spec} failed: ${pack.stderr}`);
+  const tgz = readdirSync(tmp).find((f) => f.endsWith('.tgz'));
+  if (!tgz) die(`npm pack ${spec} produced no tarball`);
+  const tgzPath = join(tmp, tgz);
+  const list = spawnSync('tar', ['-tzf', tgzPath], { encoding: 'utf8' });
+  if (list.status !== 0) die(`tar list failed for ${spec}`);
+  const wanted = pick(list.stdout.split('\n').filter(Boolean));
+  if (wanted.length === 0) die(`tarball for ${spec} holds nothing needed`);
+  const untar = spawnSync('tar', ['-xzf', tgzPath, '-C', tmp, ...wanted], { encoding: 'utf8' });
+  if (untar.status !== 0) die(`tar extract failed for ${spec}`);
+  rmSync(tgzPath, { force: true });
+  return { dir: join(tmp, 'package'), tmp };
 }
 
 // Methods straight from the public protocol.schema.json of a protocol package version.
 function protocolMethods(version) {
-  const dir = packTarball(`@openclaw/gateway-protocol@${version}`);
-  const schema = JSON.parse(readFileSync(join(dir, 'protocol.schema.json'), 'utf8'));
-  return { version, methods: Object.keys(schema.methods ?? {}).sort() };
+  const { dir, tmp } = packTarball(`@openclaw/gateway-protocol@${version}`,
+    (entries) => entries.filter((e) => e === 'package/protocol.schema.json'));
+  try {
+    const schema = JSON.parse(readFileSync(join(dir, 'protocol.schema.json'), 'utf8'));
+    return { version, methods: Object.keys(schema.methods ?? {}).sort() };
+  } finally {
+    removeTmp(tmp);
+  }
 }
 
 function walkFiles(dir, exts) {
@@ -186,20 +234,27 @@ function arrayLiteralAfter(src, marker) {
 // Event names from an engine tarball's GATEWAY_EVENTS list; named constants
 // resolve from their `const X = "…"` definitions anywhere in dist.
 function engineEvents(version) {
-  const dir = packTarball(`openclaw@${version}`);
-  const files = walkFiles(join(dir, 'dist'), ['.js', '.mjs']);
-  const holder = files.map((f) => ({ f, src: readFileSync(f, 'utf8') })).find(({ src }) => src.includes('const GATEWAY_EVENTS = ['));
-  if (!holder) die(`no GATEWAY_EVENTS in openclaw@${version} dist`);
-  let lit = arrayLiteralAfter(holder.src, 'GATEWAY_EVENTS');
-  if (!lit) die(`unterminated GATEWAY_EVENTS in openclaw@${version}`);
-  const consts = new Map();
-  for (const { src } of files.map((f) => ({ f, src: readFileSync(f, 'utf8') }))) {
-    for (const m of src.matchAll(/const ([A-Z][A-Z0-9_]+) = "([^"]+)"/g)) consts.set(m[1], m[2]);
+  // Only dist .js/.mjs are ever read below, so only those are extracted: docs,
+  // skills, node_modules and maps stay out of /tmp.
+  const { dir, tmp } = packTarball(`openclaw@${version}`,
+    (entries) => entries.filter((e) => e.startsWith('package/dist/') && (e.endsWith('.js') || e.endsWith('.mjs'))));
+  try {
+    const files = walkFiles(join(dir, 'dist'), ['.js', '.mjs']);
+    const holder = files.map((f) => ({ f, src: readFileSync(f, 'utf8') })).find(({ src }) => src.includes('const GATEWAY_EVENTS = ['));
+    if (!holder) die(`no GATEWAY_EVENTS in openclaw@${version} dist`);
+    let lit = arrayLiteralAfter(holder.src, 'GATEWAY_EVENTS');
+    if (!lit) die(`unterminated GATEWAY_EVENTS in openclaw@${version}`);
+    const consts = new Map();
+    for (const { src } of files.map((f) => ({ f, src: readFileSync(f, 'utf8') }))) {
+      for (const m of src.matchAll(/const ([A-Z][A-Z0-9_]+) = "([^"]+)"/g)) consts.set(m[1], m[2]);
+    }
+    for (const [k, v] of consts) {
+      lit = lit.replace(new RegExp(`(?<![\\w'"\`])${k}(?![\\w'"\`])`, 'g'), JSON.stringify(v));
+    }
+    return Function(`"use strict"; return (${lit});`)();
+  } finally {
+    removeTmp(tmp);
   }
-  for (const [k, v] of consts) {
-    lit = lit.replace(new RegExp(`(?<![\\w'"\`])${k}(?![\\w'"\`])`, 'g'), JSON.stringify(v));
-  }
-  return Function(`"use strict"; return (${lit});`)();
 }
 
 function readPins() {
@@ -241,11 +296,11 @@ function herdrMethodsAndEvents(schemaDoc) {
 // sha256 against the manifest, and read its bundled `api schema`. Returns null
 // when anything fails; the issue then carries the version/protocol drift note.
 function herdrSchemaDoc(manifest) {
+  const url = manifest.assets?.['linux-x86_64'];
+  const want = manifest.sha256?.['linux-x86_64'];
+  if (!url || !want || process.platform !== 'linux' || process.arch !== 'x64') return null;
+  const tmp = trackTmp(mkdtempSync(join(tmpdir(), 'byokit-pin-herdr-')));
   try {
-    const url = manifest.assets?.['linux-x86_64'];
-    const want = manifest.sha256?.['linux-x86_64'];
-    if (!url || !want || process.platform !== 'linux' || process.arch !== 'x64') return null;
-    const tmp = mkdtempSync(join(tmpdir(), 'byokit-pin-herdr-'));
     const bin = join(tmp, 'herdr');
     execFileSync('curl', ['-fsSL', '--max-time', '300', '-o', bin, url]);
     const sum = createHash('sha256').update(readFileSync(bin)).digest('hex');
@@ -265,6 +320,8 @@ function herdrSchemaDoc(manifest) {
   } catch (e) {
     console.error(`pin-watch: herdr schema fetch skipped (${e instanceof Error ? e.message : String(e)})`);
     return null;
+  } finally {
+    removeTmp(tmp);
   }
 }
 
