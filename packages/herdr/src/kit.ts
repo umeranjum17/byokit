@@ -160,7 +160,9 @@ export class HerdrKit {
     }
     if (pane !== undefined && owner !== undefined &&
         (name === 'pane.agent.status.changed' || name === 'pane.agent.detected' || name === 'pane.updated')) {
-      const a = raw.agent ?? raw.pane ?? raw;
+      // `pane.updated` nests its record under `pane`; the status push is flat and its `agent` is
+      // the kind string (PaneAgentStatusChangedEvent), never the record to merge.
+      const a = typeof raw.pane === 'object' && raw.pane !== null ? raw.pane : raw;
       mergePane(pane, a);
       pane.agent = mergeAgent(pane.agent, a);
       // Every asserted status stamps the pane's lifecycle epoch — even an unchanged one, since a
@@ -262,11 +264,24 @@ export class HerdrKit {
       this.stops.add(stop);
       this.statusStops.add(stop);
       const ready = (stop as typeof stop & { ready?: Promise<unknown> }).ready;
-      if (ready) statusAcks.push(ready);
+      if (ready) statusAcks.push(ready.then((ok) => (ok === false ? undefined : this.catchUp(token, pane.id))));
     }
     void Promise.allSettled(statusAcks).then(() => { if (token === this.generation) resolveStatus(); });
     this.current = newer ? { phase: 'needs-update', why: 'version' } : { phase: 'ready' };
     this.o.onState?.(this.current);
+  }
+  // A status change between the snapshot read and a watch's ack reached no socket: once the watch
+  // is live, re-read that agent. A push landing meanwhile is newer and wins (epoch guard).
+  private async catchUp(token: number, paneId: string): Promise<void> {
+    const epoch = this.statusEpoch.get(paneId);
+    let made: Raw | undefined;
+    try { made = await this.transport?.call('agent.get', { target: paneId }) as Raw | undefined; } catch { return; }
+    const agent = made?.agent;
+    if (token !== this.generation || this.statusEpoch.get(paneId) !== epoch ||
+        typeof agent?.agent_status !== 'string') return;
+    // Status and revision only: the read's other fields may be staler than a merged pane.updated.
+    this.update({ type: 'pane_agent_status_changed', pane_id: paneId, agent_status: agent.agent_status,
+      ...(typeof agent.revision === 'number' ? { revision: agent.revision } : {}) } as HerdrEvent);
   }
   /**
    * Connect and bootstrap. Non-fatal: a rejected `start()` (e.g. `failed/socket` while Herdr is

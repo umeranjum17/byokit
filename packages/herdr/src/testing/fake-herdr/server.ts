@@ -582,9 +582,13 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
   }
 
   function emitStatus(paneId: string, agentStatus: string, revision: number): void {
+    const agent = live.agents.find((row) => row.pane_id === paneId);
     const frame = `${JSON.stringify({
       event: 'pane_agent_status_changed',
-      data: { type: 'pane_agent_status_changed', pane_id: paneId, agent_status: agentStatus, revision },
+      // Schema-shaped (PaneAgentStatusChangedEvent): the agent kind rides as a plain `agent`
+      // string beside `workspace_id`, exactly like the real server's frame.
+      data: { type: 'pane_agent_status_changed', pane_id: paneId, workspace_id: agent?.workspace_id,
+        agent: agent?.agent, display_agent: agent?.display_agent, agent_status: agentStatus, revision },
     })}\n`;
     for (const sub of filteredSubs) {
       if (sub.type !== 'pane_agent_status_changed' || sub.paneId !== paneId) continue;
