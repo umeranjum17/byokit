@@ -156,8 +156,8 @@ export async function main(argv: string[]): Promise<void> {
     return;
   }
   if (cmd === 'api' && sub === 'schema') {
-    // Placeholder until H2 captures the v0.9.1 schema snapshot (docs/runtime-kits.md 6.7).
-    process.stdout.write(`${JSON.stringify({ title: 'herdr api schema (placeholder until H2)', protocol: HERDR_PROTOCOL, version: HERDR_VERSION })}\n`);
+    // Reports the pinned v0.9.1 snapshot identity (schema/herdr-api-0.9.1.json, docs/runtime-kits.md 6.7).
+    process.stdout.write(`${JSON.stringify({ title: 'herdr api schema', protocol: HERDR_PROTOCOL, version: HERDR_VERSION })}\n`);
     return;
   }
   if (cmd === 'server') {
