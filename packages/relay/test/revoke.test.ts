@@ -9,7 +9,10 @@ import { hostClient, paired, startHost, startRelay, until } from './helpers.ts';
 const phone = { expo: 'ExponentPushToken[phone]' };
 const pushOf = (s: RelayState | undefined, device: string) => (s?.push ?? []).filter((p) => p.device === device);
 const removes = (wire: string[]) => wire.filter((w) => JSON.parse(w).t === 'push.remove');
-const durable = () => ({ d: undefined as string[] | undefined, load() { return this.d; }, save(d: string[]) { this.d = d; } }) satisfies RelayClientStore;
+const durable = () => {
+  const s: RelayClientStore & { d?: string[] } = { load: () => s.d, save: (d) => { s.d = d; } };
+  return s;
+};
 
 /** A relay with a subscribed paired device, stopped; `restart` brings it back on the same port with its state. */
 async function subscribedThenStopped(o: Parameters<typeof paired>[2] = {}) {
