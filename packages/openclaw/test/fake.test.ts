@@ -248,15 +248,23 @@ test('approval resolvers emit their resolved events and exec.approval.request em
   const t = transport(fake);
   const events: any[] = [];
   t.onEvent((e) => events.push(e));
-  assert.deepEqual(await req(t, 'exec.approval.request', { id: 'e1', command: 'ls', ask: 'may i' }), { id: 'e1' });
+  assert.deepEqual(await req(t, 'exec.approval.request', { id: 'e1', command: 'ls', ask: 'may i',
+    agentId: 'm1', sessionKey: 'agent:m1:fake:1' }), { id: 'e1' });
+  assert.deepEqual(await req(t, 'plugin.approval.request', { id: 'p1', title: 'install x', agentId: 'm1' }), { id: 'p1' });
   assert.deepEqual(await req(t, 'exec.approval.resolve', { id: 'e1', decision: 'allow' }), {});
   assert.deepEqual(await req(t, 'plugin.approval.resolve', { id: 'p1', decision: 'deny' }), {});
   assert.deepEqual(await req(t, 'question.resolve', { id: 'q1', answers: { answers: {} } }), {});
   assert.deepEqual(events.map((e) => e.event), [
-    'exec.approval.requested', 'exec.approval.resolved', 'plugin.approval.resolved', 'question.resolved',
+    'exec.approval.requested', 'plugin.approval.requested', 'exec.approval.resolved', 'plugin.approval.resolved',
+    'question.resolved',
   ]);
-  assert.deepEqual(events[0].payload, { id: 'e1', status: 'pending', command: 'ls', ask: 'may i', sessionKey: undefined, agentId: undefined });
-  assert.deepEqual(events[1].payload, { id: 'e1', decision: 'allow' });
+  // Real engine shape: details nest under `request` (B1).
+  assert.equal(events[0].payload.approvalKind, 'exec');
+  assert.deepEqual(events[0].payload.request,
+    { command: 'ls', ask: 'may i', agentId: 'm1', sessionKey: 'agent:m1:fake:1' });
+  assert.equal(events[1].payload.approvalKind, 'plugin');
+  assert.deepEqual(events[1].payload.request, { title: 'install x', agentId: 'm1', sessionKey: undefined });
+  assert.deepEqual(events[2].payload, { id: 'e1', decision: 'allow' });
 });
 
 test('failNext fails exactly the next call per queued message', async () => {

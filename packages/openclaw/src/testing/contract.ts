@@ -8,6 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PROTOCOL_VERSION } from '../constants.ts';
+import { GATEWAY_CAPS } from '../transport.ts';
 import type { OpenClawKit } from '../kit.ts';
 import type { RunEvent, SignInView } from '../types.ts';
 import { releaseStub, stubHolding, type ModelStub } from './model-stub.ts';
@@ -48,6 +49,8 @@ export function openclawContract(make: () => Promise<ContractFixture>): void {
       const hello = kit.hello;
       assert.ok(hello, 'the kit has no hello');
       assert.equal(hello.protocol, PROTOCOL_VERSION);
+      // The connection must be an approval client or native approvals never arrive (B7).
+      assert.ok((GATEWAY_CAPS as readonly string[]).includes('approvals'), 'operator caps lack approvals');
       for (const method of REQUIRED_METHODS) assert.ok(hello.methods.includes(method), `hello is missing ${method}`);
       for (const event of REQUIRED_EVENTS) assert.ok(hello.events.includes(event), `hello is missing ${event}`);
     } finally {
@@ -180,11 +183,14 @@ export function openclawContract(make: () => Promise<ContractFixture>): void {
   test('contract: a native exec approval round-trips', async () => {
     const { kit } = await make();
     try {
-      const requested = await call(kit, 'exec.approval.request', { id: 'contract-exec-1', command: 'echo contract', ask: 'contract approval' });
-      assert.equal(requested.id, 'contract-exec-1');
+      // The real engine holds the request open until the approval resolves, so it stays in flight.
+      const pending = call(kit, 'exec.approval.request', { id: 'contract-exec-1', command: 'echo contract',
+        ask: 'contract approval', agentId: 'm1', sessionKey: 'agent:m1:contract:9' });
       await until(() => kit.approvals().some((a) => a.id === 'contract-exec-1'));
       assert.equal(kit.approvals()[0].source, 'exec');
+      assert.equal(kit.approvals('m1')[0].id, 'contract-exec-1');
       await kit.decide('contract-exec-1', { allow: true });
+      assert.equal((await pending as { id: string }).id, 'contract-exec-1');
       await until(() => kit.approvals().length === 0);
     } finally {
       await kit.stop();

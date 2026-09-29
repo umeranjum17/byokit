@@ -243,11 +243,28 @@ export function fakeGateway(script?: FakeScript): {
       configBox.hash = `hash-${++hashSeq}`;
       return { hash: configBox.hash };
     },
+    // Real-shaped requested events: details nest under `request` (B1); question events stay flat upstream.
     'exec.approval.request': (p) => {
       const id = String(p.id ?? `exec-${randomUUID()}`);
+      const now = Date.now();
       emit('exec.approval.requested', {
-        id, status: 'pending', command: p.command, ask: p.ask,
-        sessionKey: p.systemRunPlan?.sessionKey, agentId: p.systemRunPlan?.agentId,
+        approvalKind: 'exec', id, createdAtMs: now, expiresAtMs: now + 180_000,
+        request: {
+          command: p.command,
+          // Like the real engine, which normalizes the exec policy mode into request.ask (B8).
+          ask: p.ask ?? 'on-miss',
+          agentId: p.agentId ?? p.systemRunPlan?.agentId,
+          sessionKey: p.sessionKey ?? p.systemRunPlan?.sessionKey,
+        },
+      });
+      return { id };
+    },
+    'plugin.approval.request': (p) => {
+      const id = String(p.id ?? `plugin-${randomUUID()}`);
+      const now = Date.now();
+      emit('plugin.approval.requested', {
+        approvalKind: 'plugin', id, createdAtMs: now, expiresAtMs: now + 180_000,
+        request: { title: p.title, agentId: p.agentId, sessionKey: p.sessionKey },
       });
       return { id };
     },
@@ -255,6 +272,8 @@ export function fakeGateway(script?: FakeScript): {
       emit('exec.approval.resolved', { id: p.id, decision: p.decision });
       return {};
     },
+    'exec.approval.list': () => ({ approvals: [] }),
+    'plugin.approval.list': () => ({ approvals: [] }),
     'plugin.approval.resolve': (p) => {
       emit('plugin.approval.resolved', { id: p.id, decision: p.decision });
       return {};

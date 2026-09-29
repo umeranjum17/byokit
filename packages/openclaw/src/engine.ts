@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ENGINE_VERSION } from './constants.ts';
 import { reconcileConfig } from './config.ts';
+import { writePlugin } from './bridge.ts';
 import type { KitOptions } from './kit.ts';
 import type { KitState, ToolSpec } from './types.ts';
 
@@ -87,11 +88,13 @@ export class Engine {
     }
     const pluginDir = join(this.root, 'plugin');
     mkdirSync(pluginDir, { recursive: true, mode: 0o700 });
-    // O5 replaces the placeholder with the bridge implementation.
     for (const f of ['package.json', 'index.js']) {
       const source = join(kitDir, 'plugin', f);
       putOnce(join(pluginDir, f), readFileSync(source, 'utf8'));
     }
+    // The bridge manifest and tool table follow the app's tools on every prepare (O5).
+    writePlugin(pluginDir, { id: this.o.pluginId, tools: this.o.tools,
+      paramPrefix: this.o.pluginId === 'crewhouse' ? '__crewhouse' : '__byokit' });
     const path = join(this.root, 'openclaw.json');
     const saved = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined;
     const config = reconcileConfig(saved, { root: this.root, stateDir: this.o.stateDir, port: this.port, pluginId: this.o.pluginId,
