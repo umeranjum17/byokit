@@ -11,7 +11,8 @@ for (const condition of ['browser', 'react-native'] as const) {
       bundle: true, platform: 'browser', format: 'esm', conditions: [condition],
       write: false, logLevel: 'silent', metafile: true,
     });
-    const offending = Object.keys(bundle.metafile!.inputs).filter((f) => /(^|\/)(node:|node_modules\/)/.test(f));
+    // Pure-JS third-party deps (e.g. @noble/* via @byokit/seal) bundle in; only Node builtins are forbidden.
+    const offending = Object.keys(bundle.metafile!.inputs).filter((f) => /(^|\/)node:/.test(f));
     assert.deepEqual(offending, [], 'the device side imports no Node module');
   });
 }
