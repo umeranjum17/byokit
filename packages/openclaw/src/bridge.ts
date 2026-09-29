@@ -333,12 +333,23 @@ export class Bridge {
     }
     if (!this.host) return this.reply(socket, { ok: false, reason: "can't run this action right now" });
     const run = this.runs.get(key) ?? { sessionKey: key, member: memberOfKey(key) ?? '' };
+    // The plugin destroys its socket when the run aborts (run abort, hook timeout); without this the host's
+    // sandboxed command keeps running after the tool is gone.
+    const controller = new AbortController();
+    const onSocketGone = (): void => controller.abort();
+    if (socket.destroyed) controller.abort();
+    else {
+      socket.once('close', onSocketGone);
+      socket.once('error', onSocketGone);
+    }
     try {
-      const controller = new AbortController();
       const text = await this.host.call(run, tool, input, controller.signal);
       this.reply(socket, { ok: true, text });
     } catch (error) {
       this.reply(socket, { ok: false, reason: error instanceof Error ? error.message.slice(0, 200) : 'the call failed' });
+    } finally {
+      socket.removeListener('close', onSocketGone);
+      socket.removeListener('error', onSocketGone);
     }
   }
 }
