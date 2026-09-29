@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.2.1
+- FIX: A half-open host socket no longer looks alive forever. `RelayClient` pings the relay every
+  20 s (`pingMs` option) and the relay answers `pong`; after two silent rounds the client closes
+  the socket and reconnects through the usual offline+backoff path. A tick that fires late because
+  the host's own timers were frozen resets the silence instead of closing, the same guard as
+  link's `DeviceLink.ping`.
+
 ## 0.2.0 (2026-09-29)
 
 - SECURITY: Removing a phone now reliably stops its push notifications, even if the relay was down or restarting when

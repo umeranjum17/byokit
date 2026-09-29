@@ -23,6 +23,8 @@ export type RelayClientOptions = {
   enrol?: string;
   /** This host's name on the relay's list, if the enrolment did not set one. */
   name?: string;
+  /** How often to check a quiet connection is still there (default 20 s); it is dropped after two silent rounds. */
+  pingMs?: number;
   onStatus?: (s: RelayStatus, why?: string) => void;
   /** Answers a notification button; the value goes back to the device. Throw to refuse. */
   onAction?: (a: PushAction) => unknown;
@@ -61,6 +63,8 @@ export class RelayClient {
   private tries = 0;
   private stopped = false;
   private timer?: ReturnType<typeof setTimeout>;
+  private pingTimer?: ReturnType<typeof setTimeout>;
+  private heard = 0;
   private store: RelayClientStore;
   private loaded?: Promise<void>;
   private saves: Promise<void>;
@@ -134,6 +138,7 @@ export class RelayClient {
   stop() {
     this.stopped = true;
     clearTimeout(this.timer);
+    clearTimeout(this.pingTimer);
     this.ws?.close(1000, 'host stopping');
     this.fail(new Error('relay client stopped'));
   }
@@ -224,6 +229,26 @@ export class RelayClient {
     for (const device of [...this.waiters.keys()]) this.settle(device, e);
   }
 
+  /** A half-open socket (the host changed networks) looks alive forever; a ping the relay never answers
+   *  shows it isn't, and the close below reconnects through the usual path. A tick that fires long after it was
+   *  due means this host's own timers were frozen, not that the relay went quiet: no ping went out, so none came
+   *  back (the same guard as link's `DeviceLink.ping`). */
+  private ping(ws: Socket & { readyState: number }) {
+    const every = this.opts.pingMs ?? 20_000;
+    let due = Date.now() + every;
+    const tick = () => {
+      if (this.ws !== ws) return;
+      const now = Date.now();
+      // Count the silence from now; a socket that is really dead still misses the pings that follow.
+      if (now - due > every / 2) this.heard = now;
+      else if (now - this.heard > 2 * every) { ws.close(); return; }
+      try { ws.send(JSON.stringify({ t: 'ping' })); } catch {}
+      due = now + every;
+      this.pingTimer = later(every, tick);
+    };
+    this.pingTimer = later(every, tick);
+  }
+
   private connect() {
     if (this.stopped) return;
     this.set('connecting');
@@ -246,10 +271,13 @@ export class RelayClient {
         this.tries = 0;
         this.host.relay(ws);
         this.set('online');
+        this.heard = Date.now();
+        this.ping(ws);
         for (const c of this.queue.splice(0)) this.send(c);
         void this.load().then(() => { if (this.ws === ws) for (const d of this.revoking) this.unsubscribing(d); }, () => {});
         return;
       }
+      if (m?.t === 'pong') { this.heard = Date.now(); return; }
       if (m?.t === 'res') {
         const device = this.removing.get(String(m.id));
         if (device !== undefined) {

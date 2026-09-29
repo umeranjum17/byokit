@@ -317,6 +317,8 @@ export class Relay {
 
   private fromHost(l: Live, m: any) {
     if (this.live.get(l.id) !== l) return;
+    // The host's keepalive: answered here so a half-open socket is noticed by the host's ping, not only by TCP.
+    if (m?.t === 'ping') { l.ws.send(JSON.stringify({ t: 'pong' })); return; }
     if (typeof m?.c === 'string') {
       const d = l.devices.get(m.c);
       if (!d) return;
