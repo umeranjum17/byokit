@@ -203,9 +203,10 @@ export class HerdrKit {
         ? wait.timeout_ms + 5000 : undefined);
     return this.transport.call(method, values, timeout) as Promise<HerdrResult<M>>;
   }
-  subscribe<E extends HerdrEventName>(subs: HerdrSubscription<E>[], on: (e: HerdrEventOf<E>) => void): () => void {
+  subscribe<E extends HerdrEventName>(subs: HerdrSubscription<E>[], on: (e: HerdrEventOf<E>) => void,
+    onError?: (code: string, message: string) => void): () => void {
     if (!this.transport) throw new Error('herdr: not connected');
-    return this.transport.subscribe(subs, on as (e: HerdrEvent) => void, () => {});
+    return this.transport.subscribe(subs, on as (e: HerdrEvent) => void, onError ?? (() => {}));
   }
   cli(args: string[], o?: { timeoutMs?: number }): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }> { return runCli(this.o.bin, this.supervisor.env(), args, o?.timeoutMs); }
   terminal(paneId: string, o: { mode: 'control' | 'observe'; cols: number; rows: number }): TerminalSession { return openTerminal(this.o.bin, this.supervisor.env(), paneId, o); }

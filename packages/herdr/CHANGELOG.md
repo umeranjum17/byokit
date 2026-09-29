@@ -6,7 +6,8 @@
   `HerdrResult<M>` from the generated table, `events()` yields `HerdrLinkEvent` frames, and `./device` re-exports the
   table types. New link ops `hd.kinds` (*view*, `agentKinds()`), `hd.wait` (control, pane in scope) and `hd.subscribe`
   (stream, *view*; filter panes must be in scope, a scoped grant gets only events whose every workspace is in scope)
-  with device `agentKinds()`, `wait()` and typed `subscribe(subs, on, onError?)`. The device `terminal()` gains `ready`
+  with device `agentKinds()`, `wait()` and typed `subscribe(subs, on, onError?)`; a rejected batch or a kit
+  disconnect ends the stream (`kit.subscribe` forwards an optional `onError`). The device `terminal()` gains `ready`
   (first frame) and `exited` (`{ reason }`). `hd.call` stays default-denied.
 
 - `words`, `stateWords`, `agentWords` and `WORDS` are exported from `.` and `./device`, so a host or phone UI

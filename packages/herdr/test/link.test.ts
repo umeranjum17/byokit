@@ -312,8 +312,26 @@ test('hd.kinds, hd.wait and hd.subscribe round-trip with view/control and scope 
     assert.ok(narrowSeen.every((id) => id === 'w1'), 'no out-of-scope workspace reaches a scoped grant');
     stopNarrow();
     stopWide();
+    // A batch Herdr rejects ends the stream, so the device hears it instead of waiting forever.
+    const rejected: string[] = [];
+    viewer.hd.subscribe([{ type: 'pane.agent_status_changed' } as never], () => {}, (m) => { rejected.push(m); });
+    await until(() => rejected, (got) => got.length === 1);
+    assert.match(rejected[0], /subscription rejected/);
     // Pass-through stays default-denied (D8).
     await assert.rejects(viewer.hd.call('server.agent_manifests', {}), (e: Error) => e.message === NOT_ALLOWED);
+  } });
+});
+
+test('hd.subscribe ends when the kit stops, so the device can subscribe again', async () => {
+  await withBench({ run: async ({ kit, pair }) => {
+    const { hd } = await pair('view', ALL, 'viewer');
+    const ended: string[] = [];
+    hd.subscribe([{ type: 'workspace.renamed' }], () => {}, (m) => { ended.push(m); });
+    await new Promise((r) => setTimeout(r, 100));
+    assert.deepEqual(ended, []);
+    await kit.stop();
+    await until(() => ended, (got) => got.length === 1);
+    assert.match(ended[0], /disconnected/);
   } });
 });
 

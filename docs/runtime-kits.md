@@ -743,7 +743,8 @@ export class HerdrKit {
   stop(): Promise<void>;         // own: server.stop then signals; adopt: close sockets only
   // complete pass-through (D7)
   call<M extends HerdrMethod>(method: M, params: HerdrParams<M>, o?: { timeoutMs?: number }): Promise<HerdrResult<M>>;
-  subscribe<E extends HerdrEventName>(subs: HerdrSubscription<E>[], on: (e: HerdrEventOf<E>) => void): () => void;
+  subscribe<E extends HerdrEventName>(subs: HerdrSubscription<E>[], on: (e: HerdrEventOf<E>) => void,
+            onError?: (code: string, message: string) => void): () => void;   // onError: Herdr rejected the batch
   cli(args: string[], o?: { timeoutMs?: number }): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }>;
   terminal(paneId: string, o: { mode: 'control' | 'observe'; cols: number; rows: number }): TerminalSession;
   // live tree
@@ -1004,7 +1005,7 @@ picker's list; no scope applies), `hd.agent.start { kind, cwd, place }`, `hd.pro
 `hd.subscribe` (stream) *view* `{ subs: HerdrSubscription[] }` (`kit.subscribe` over the link, one frame per
 event; a filter's `pane_id` must be in scope; a grant scoped to a workspace list gets only events every workspace
 id of which — any `*workspace_id` field or `workspace_ids` entry, else the workspace holding the event's `pane_id` —
-is in scope; a subscribe the kit cannot open ends the stream), `hd.terminal` (stream) `{ paneId, mode, cols, rows }`
+is in scope; a subscribe the kit cannot open or Herdr rejects, and a kit disconnect, end the stream), `hd.terminal` (stream) `{ paneId, mode, cols, rows }`
 (`control` needs the control role; view grants get `observe` only; frames are Herdr's terminal NDJSON both ways),
 `hd.notices.register`, `hd.call` (pass-through, D8).
 

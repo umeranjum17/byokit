@@ -293,7 +293,18 @@ export function herdrLink(kit: HerdrKit, o: {
         const where = typeof paneId === 'string' ? findPane(snap, paneId) : undefined;
         if (!where || !inScope(scope, where.workspaceId)) { s.end(words('link.notAllowed')); return; }
       }
-      let stop: () => void;
+      // A rejected batch or a kit that disconnects (stop, restart) ends the stream, so the device hears
+      // it through onError and can subscribe again instead of waiting on a dead socket.
+      let stop: () => void = () => {};
+      let offChange: () => void = () => {};
+      let over = false;
+      const finish = (reason: string): void => {
+        if (over) return;
+        over = true;
+        stop();
+        offChange();
+        s.end(reason);
+      };
       try {
         stop = kit.subscribe(subs as HerdrSubscription[], (e) => {
           const now = scopeOfSafe(currentGrants.get(grant.id) ?? grant);
@@ -302,12 +313,13 @@ export function herdrLink(kit: HerdrKit, o: {
             if (named.size === 0 || ![...named].every((id) => inScope(now, id))) return;
           }
           void s.write(`${JSON.stringify(e)}\n`).catch(() => {});
-        });
+        }, (code) => { finish(`herdr: subscription rejected (${code})`); });
       } catch (e) {
-        s.end(e instanceof PublicLinkError ? e.message : 'failed');
+        finish(e instanceof PublicLinkError ? e.message : 'failed');
         return;
       }
-      s.onEnd = () => { stop(); };
+      offChange = kit.onChange((snap) => { if (!snap.connected) finish('herdr: disconnected'); });
+      s.onEnd = () => { over = true; stop(); offChange(); };
       return;
     }
     if (req.op === 'hd.terminal') {
