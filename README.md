@@ -17,6 +17,7 @@
 <h3 align="center"><a href="#quickstart"><ins>Get started</ins></a></h3>
 
 <p align="center">
+  <a href="#install">Install</a> ·
   <a href="#packages">Packages</a> ·
   <a href="examples">Examples</a> ·
   <a href="docs/runtime-kits.md">Runtime kits</a> ·
@@ -27,6 +28,33 @@
   <img src="docs/images/hero.png" alt="Four phone screens: a browser showing a ChatGPT sign-in code, a phone showing two words to compare while pairing, a list of agents ready for you, and an agent's question with Enter, y, n and Esc buttons" width="960" /><br/>
   <sub>Captured with headless Chromium from <a href="examples/pwa"><code>examples/pwa</code></a> and <a href="examples/herdr-kit"><code>examples/herdr-kit</code></a>, against the kit's stand-in OpenAI and Herdr.</sub>
 </p>
+
+## Install
+
+Every published package is on npm and ships a per-package GitHub release tagged `<pkg>-v<version>`.
+The badges below always show the current version; each release link lists that package's releases with the
+latest first, so neither goes stale.
+
+| Package | Install | npm | Latest release |
+|---|---|---|---|
+| `@byokit/accounts` | `npm install @byokit/accounts` | [![npm](https://img.shields.io/npm/v/@byokit/accounts?style=flat&label=)](https://www.npmjs.com/package/@byokit/accounts) | [accounts-v releases](https://github.com/umeranjum17/byokit/releases?q=accounts-v) |
+| `@byokit/ui-core` | `npm install @byokit/ui-core` | [![npm](https://img.shields.io/npm/v/@byokit/ui-core?style=flat&label=)](https://www.npmjs.com/package/@byokit/ui-core) | [ui-core-v releases](https://github.com/umeranjum17/byokit/releases?q=ui-core-v) |
+| `@byokit/seal` | `npm install @byokit/seal` | [![npm](https://img.shields.io/npm/v/@byokit/seal?style=flat&label=)](https://www.npmjs.com/package/@byokit/seal) | [seal-v releases](https://github.com/umeranjum17/byokit/releases?q=seal-v) |
+| `@byokit/link` | `npm install @byokit/link` | [![npm](https://img.shields.io/npm/v/@byokit/link?style=flat&label=)](https://www.npmjs.com/package/@byokit/link) | [link-v releases](https://github.com/umeranjum17/byokit/releases?q=link-v) |
+| `@byokit/relay` | `npm install @byokit/relay @byokit/link` | [![npm](https://img.shields.io/npm/v/@byokit/relay?style=flat&label=)](https://www.npmjs.com/package/@byokit/relay) | [relay-v releases](https://github.com/umeranjum17/byokit/releases?q=relay-v) |
+| `@byokit/reach` | `npm install @byokit/reach` | [![npm](https://img.shields.io/npm/v/@byokit/reach?style=flat&label=)](https://www.npmjs.com/package/@byokit/reach) | [reach-v releases](https://github.com/umeranjum17/byokit/releases?q=reach-v) |
+| `@byokit/decide` | `npm install @byokit/decide` | [![npm](https://img.shields.io/npm/v/@byokit/decide?style=flat&label=)](https://www.npmjs.com/package/@byokit/decide) | [decide-v releases](https://github.com/umeranjum17/byokit/releases?q=decide-v) |
+| `@byokit/herdr` | `npm install @byokit/herdr` | [![npm](https://img.shields.io/npm/v/@byokit/herdr?style=flat&label=)](https://www.npmjs.com/package/@byokit/herdr) | [herdr-v releases](https://github.com/umeranjum17/byokit/releases?q=herdr-v) |
+| `@byokit/openclaw` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
+
+Unpacked sizes as of accounts 0.4.1, decide 0.2.0, herdr 0.1.0, link 0.3.1, reach 0.2.0, relay 0.1.3, seal 0.1.0,
+ui-core 0.2.0 (npm `dist.unpackedSize`): accounts ~117 kB, decide ~36 kB, herdr ~279 kB, link ~151 kB,
+reach ~47 kB, relay ~70 kB, seal ~20 kB, ui-core ~24 kB. Each tarball's sha512 integrity is published with the
+release on npm — see its npm page, or run `npm view @byokit/<pkg> dist.integrity dist.tarball`.
+
+The [`examples/`](examples) apps are not published artifacts: run them from a clone (see
+[Quickstart](#quickstart)). For every release across packages, see
+[releases](https://github.com/umeranjum17/byokit/releases).
 
 ## Why byokit exists
 
@@ -93,7 +121,7 @@ to ask. Each agent keeps its own subscription sign-in; the kit never sees a cred
 | [`@byokit/reach`](packages/reach) | The addresses a phone dials the home computer on (Tailscale Serve, direct tailnet, LAN) plus mDNS advertising (Node) and browsing (React Native) | [![npm](https://img.shields.io/npm/v/@byokit/reach?style=flat&label=)](https://www.npmjs.com/package/@byokit/reach) |
 | [`@byokit/decide`](packages/decide) | Typed questions in, a typed answer with confidence out, abstaining below a floor; rules, Jev (API-billed) or any model (the person's own ChatGPT on a phone), evals | [![npm](https://img.shields.io/npm/v/@byokit/decide?style=flat&label=)](https://www.npmjs.com/package/@byokit/decide) |
 | [`@byokit/openclaw`](packages/openclaw) | The OpenClaw runtime kit: the pinned engine's full operator surface as typed pass-through calls, plus plain-words helpers for members, sign-in, runs and approvals, for apps where the aggregator holds the subscriptions ([spec](docs/runtime-kits.md)) | in development |
-| [`@byokit/herdr`](packages/herdr) | Drive the Herdr on this computer — workspaces, panes, agents, blocked-approval answers — from an app, or hand it to a phone over a link, for apps where the aggregator holds the subscriptions ([spec](docs/runtime-kits.md)) | in development |
+| [`@byokit/herdr`](packages/herdr) | Drive the Herdr on this computer — workspaces, panes, agents, blocked-approval answers — from an app, or hand it to a phone over a link, for apps where the aggregator holds the subscriptions ([spec](docs/runtime-kits.md)) | [![npm](https://img.shields.io/npm/v/@byokit/herdr?style=flat&label=)](https://www.npmjs.com/package/@byokit/herdr) |
 
 ## Quickstart
 

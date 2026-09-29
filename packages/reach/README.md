@@ -12,6 +12,14 @@ For <code>@byokit/link</code>'s <code>offer({ urls })</code>: Tailscale Serve, d
 network or the LAN. On Node it can also advertise the computer over mDNS; on a phone (React Native) it browses the
 mDNS services around it.</p>
 
+## Install
+
+```sh
+npm install @byokit/reach
+```
+
+[![npm](https://img.shields.io/npm/v/@byokit/reach?style=flat&label=)](https://www.npmjs.com/package/@byokit/reach) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=reach-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
+
 ## Quickstart
 
 ```sh

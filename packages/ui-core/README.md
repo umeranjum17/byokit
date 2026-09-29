@@ -18,6 +18,14 @@ app keeps its own look. Everything except the React hooks is framework-free.</p>
 
 <p align="center"><sub>Left: the <code>code</code> phase from <code>phaseOf()</code>, drawn by <a href="../../examples/pwa">examples/pwa</a> against the mock OpenAI sign-in. Right: <code>pairingView()</code>'s <code>compare</code> words, drawn by <a href="../../examples/herdr-kit">examples/herdr-kit</a>.</sub></p>
 
+## Install
+
+```sh
+npm install @byokit/ui-core
+```
+
+[![npm](https://img.shields.io/npm/v/@byokit/ui-core?style=flat&label=)](https://www.npmjs.com/package/@byokit/ui-core) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=ui-core-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
+
 ## Quickstart
 
 ```sh

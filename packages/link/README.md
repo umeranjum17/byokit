@@ -24,6 +24,14 @@ and stores. Threat model and review checklist: [SECURITY.md](SECURITY.md).
 
 Host policy and streams are available; relay routing is in [`@byokit/relay`](../relay).
 
+## Install
+
+```sh
+npm install @byokit/link
+```
+
+[![npm](https://img.shields.io/npm/v/@byokit/link?style=flat&label=)](https://www.npmjs.com/package/@byokit/link) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=link-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
+
 ## Quickstart
 
 ```sh
