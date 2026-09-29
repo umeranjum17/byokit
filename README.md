@@ -12,6 +12,8 @@
   byokit is a set of TypeScript packages for apps that run on the person's own AI plan and their own devices. Sign in
   with the ChatGPT plan they already pay for, pair their phone with their computer over one encrypted link, and let the
   phone drive what runs at home. Credentials stay on the person's computer or phone, in your app's own store.
+  byokit operates no service: an optional cloud computer the person rents on their own account, with their own bill,
+  is still their own hosting.
 </p>
 
 <h3 align="center"><a href="#quickstart"><ins>Get started</ins></a></h3>
@@ -22,6 +24,7 @@
   <a href="examples">Examples</a> ·
   <a href="docs/runtime-kits.md">Runtime kits</a> ·
   <a href="docs/capability-kits.md">Capability kits</a> ·
+  <a href="docs/machine-kit.md">Machine kit</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
@@ -222,7 +225,9 @@ binary and socket the app passes); byokit tests use fakes and never a person's H
 Capability kits have their own, narrower carve-out: `@byokit/compose` loads only its exactly pinned public writing
 engine package, and `@byokit/capture` spawns only a recorder implementing recorder protocol v1 that the app passes by
 absolute path, with an environment built from nothing; `@byokit/overlay` runs only its own native code inside the
-app ([spec](docs/capability-kits.md)).
+app ([spec](docs/capability-kits.md)). `@byokit/machine` spawns only the `ssh` binary the app passes by absolute path,
+with the key path the app passes and a kit-owned config, and holds only the provider key the app's store gives it
+([spec](docs/machine-kit.md)).
 Library code never reads environment keys; the explicitly invoked [decide eval CLI](packages/decide#evals) can use one
 for a live run. The tests prove isolation; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
