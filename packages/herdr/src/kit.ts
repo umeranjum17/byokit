@@ -22,6 +22,9 @@ export class HerdrKit {
   private current: HerdrState = { phase: 'stopped' };
   private tree = empty();
   private listeners = new Set<(s: HerdrSnapshot) => void>();
+  private rawListeners = new Set<(e: HerdrEvent) => void>();
+  private statusReadyPromise: Promise<void> = Promise.resolve();
+  private statusReadyResolve?: () => void;
   private stops = new Set<() => void>();
   private statusStops = new Set<() => void>();
   private generation = 0;
@@ -38,6 +41,7 @@ export class HerdrKit {
   }
   get state(): HerdrState { return this.current; }
   private publish() { for (const fn of this.listeners) fn(this.snapshot()); }
+  private emitRaw(e: HerdrEvent) { for (const fn of [...this.rawListeners]) fn(e); }
   private update(e: HerdrEvent) {
     const raw = e as Raw;
     const paneId = (raw.pane_id ?? raw.pane?.pane_id) as string | undefined;
@@ -70,12 +74,23 @@ export class HerdrKit {
     this.publish();
   }
   private async bootstrap(token: number, buffered: HerdrEvent[]): Promise<void> {
-    const result = await this.transport!.call('session.snapshot', {}) as Raw;
-    if (token !== this.generation) return;
+    let resolveStatus!: () => void;
+    const statusReady = new Promise<void>((resolve) => { resolveStatus = resolve; });
+    this.statusReadyPromise = statusReady;
+    this.statusReadyResolve = resolveStatus;
+    let result: Raw;
+    try {
+      result = await this.transport!.call('session.snapshot', {}) as Raw;
+    } catch (error) {
+      resolveStatus();
+      throw error;
+    }
+    if (token !== this.generation) { resolveStatus(); return; }
     const snap = result.snapshot as Raw;
     if ((snap.protocol !== undefined && snap.protocol !== HERDR_PROTOCOL) ||
         (result.protocol !== undefined && result.protocol !== HERDR_PROTOCOL)) {
       this.current = { phase: 'needs-update', why: 'version' }; this.o.onState?.(this.current);
+      resolveStatus();
       throw new Error('herdr: snapshot protocol mismatch');
     }
     const workspaces = (snap.workspaces as Raw[]).map((w) => ({
@@ -105,13 +120,17 @@ export class HerdrKit {
       if (p.agent?.status === 'blocked') this.blockedList.update(p.id, p.agent, { workspaceId: w.id, tabId: t.id });
     }
     this.publish();
+    const statusAcks: Promise<unknown>[] = [];
     for (const pane of this.tree.workspaces.flatMap((w) => w.tabs).flatMap((t) => t.panes)) {
       if (!pane.agent) continue;
       const stop = this.transport!.subscribe([{ type: 'pane.agent_status_changed', pane_id: pane.id }],
-        (e) => this.update(e), () => {});
+        (e) => { this.emitRaw(e); this.update(e); }, () => {});
       this.stops.add(stop);
       this.statusStops.add(stop);
+      const ready = (stop as typeof stop & { ready?: Promise<unknown> }).ready;
+      if (ready) statusAcks.push(ready);
     }
+    void Promise.allSettled(statusAcks).then(() => { if (token === this.generation) resolveStatus(); });
     this.current = { phase: 'ready' }; this.o.onState?.(this.current);
   }
   async start(): Promise<void> {
@@ -125,6 +144,10 @@ export class HerdrKit {
       void this.bootstrap(token, buffered).then(() => { booting = false; }).catch(() => { booting = false; });
     };
     const stop = this.transport.subscribe(kinds.map((type) => ({ type })), (e) => {
+      // Raw tap (K3): fire on arrival, before buffering/refresh/update, so listeners see every
+      // wire payload (pane.moved.previous_pane_id, workspace.*) exactly once. Buffered replays
+      // in bootstrap() call update() only and never re-emit.
+      this.emitRaw(e);
       if (booting) buffered.push(e);
       else if (e.type === 'pane.agent_detected' || /^(pane|tab|workspace)\.(created|closed|moved|renamed)$/.test(e.type)) {
         buffered.push(e); refresh();
@@ -145,6 +168,9 @@ export class HerdrKit {
   }
   async stop(): Promise<void> {
     ++this.generation;
+    this.statusReadyResolve?.();
+    this.statusReadyPromise = Promise.resolve();
+    this.statusReadyResolve = undefined;
     for (const entry of this.blockedList.list()) this.blockedList.update(entry.paneId, undefined, entry);
     for (const stop of this.stops) stop(); this.stops.clear(); this.statusStops.clear();
     await this.supervisor.stop();
@@ -168,6 +194,21 @@ export class HerdrKit {
   terminal(paneId: string, o: { mode: 'control' | 'observe'; cols: number; rows: number }): TerminalSession { return openTerminal(this.o.bin, this.supervisor.env(), paneId, o); }
   snapshot(): HerdrSnapshot { return structuredClone(this.tree); }
   onChange(fn: (s: HerdrSnapshot) => void): () => void { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; }
+  /**
+   * Raw event tap (K3): delivers every event arriving on the kit's own batch and per-pane
+   * status sockets, with wire payloads intact (`pane.moved.previous_pane_id`, `workspace.*`).
+   * Fires on arrival — before the snapshot update/refresh for that event — so a listener sees
+   * the frame even when it triggers a re-bootstrap. Buffered replays never re-fire. Sockets
+   * opened via `subscribe()` are NOT tapped; `onEvent` itself opens no socket.
+   */
+  onEvent(fn: (e: HerdrEvent) => void): () => void { this.rawListeners.add(fn); return () => { this.rawListeners.delete(fn); }; }
+  /**
+   * Ready signal for the status-watch set (K3): resolves when the latest bootstrap's per-pane
+   * `pane.agent_status_changed` subscriptions have acked (immediately when no pane needs one).
+   * Await after `start()` — and after any reconnect-driven re-bootstrap — before relying on
+   * status events instead of opening a second watch.
+   */
+  statusWatchReady(): Promise<void> { return this.statusReadyPromise; }
   startAgent(o: StartAgent): Promise<AgentRef> { return this.agents.startAgent(o); }
   prompt(target: AgentRef, text: string, o?: { wait?: { until?: AgentStatus[]; timeoutMs: number } }): Promise<PromptReceipt> { return this.agents.prompt(target, text, o); }
   sendKeys(target: AgentRef, keys: string[]): Promise<void> { return this.agents.sendKeys(target, keys); }
