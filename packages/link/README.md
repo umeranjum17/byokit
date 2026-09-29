@@ -1,14 +1,84 @@
-# @byokit/link
+<h1 align="center">@byokit/link</h1>
 
-Muxr parity is tracked separately. Host policy and streams are available; relay routing is in `@byokit/relay`.
+<p align="center">
+  <a href="https://www.npmjs.com/package/@byokit/link"><img alt="npm" src="https://img.shields.io/npm/v/@byokit/link?style=flat&label=npm" /></a>
+  <a href="https://github.com/umeranjum17/byokit/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/umeranjum17/byokit/ci.yml?style=flat&branch=main" /></a>
+  <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-666?style=flat" /></a>
+  <img alt="Node | browsers | React Native" src="https://img.shields.io/badge/platform-Node%20%7C%20browsers%20%7C%20React%20Native-666?style=flat" />
+</p>
 
-Scan a code to pair a phone or browser with the home computer, then talk over one encrypted link. The computer (the
-**host**) keeps every credential; a device holds only its own key and a grant, and asks the host to do things.
+<p align="center"><strong>Scan a code to pair a phone or browser with the home computer.</strong><br/>
+One encrypted link between the two. The computer (the <strong>host</strong>) keeps every credential; a device holds
+only its own key and a grant, and asks the host to do things. For apps that reach a person's own computer from their
+phone or browser.</p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/herdr-kit-host.png" width="420" alt="A terminal running BYOKIT_EXAMPLE_FAKE=1 npm start -- --via lan --name 'Kitchen computer', showing a large pairing QR code, then: On the phone, scan this, or open http://192.168.1.144:7310/ and type A937-EYXC-EBCZ. Codes last five minutes. Press Enter for new ones. Connecting to Herdr… Connected to Herdr. (stand-in Herdr)" />
+  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/2-compare.png" width="240" alt="A phone page titled Agents, under Pair this phone: Check your computer shows these two words, then say yes there. The words are coast comet." />
+</p>
+<p align="center"><sub>Left: the host terminal of <a href="https://github.com/umeranjum17/byokit/tree/main/examples/herdr-kit">examples/herdr-kit</a> (<code>BYOKIT_EXAMPLE_FAKE=1 npm start -- --via lan --name 'Kitchen computer'</code>; <code>BYOKIT_EXAMPLE_FAKE=1</code> runs the kit's stand-in Herdr) showing the QR and the typed code. Right: the phone in the same example showing the two words to compare.</sub></p>
 
 Noise IK over WebSocket (`noise-handshake` + libsodium; frames sealed by `@noble/ciphers`), in Node, browsers/PWAs
 and React Native. The main entry has no listener, files or environment access: the app hands the host its sockets
-and stores. Threat model and review checklist:
-[SECURITY.md](SECURITY.md).
+and stores. Threat model and review checklist: [SECURITY.md](SECURITY.md).
+
+Host policy and streams are available; relay routing is in [`@byokit/relay`](../relay).
+
+## Quickstart
+
+```sh
+npm install @byokit/link ws
+```
+
+`ws` is only the WebSocket server for this example; any server works. A host and a device in one file, on loopback:
+
+```ts
+import { WebSocketServer } from 'ws';
+import { DeviceLink, Host, keyPair, pairWithOffer } from '@byokit/link';
+
+// The computer: it keeps the credentials and answers requests.
+const host = await Host.open({
+  keys: keyPair(),                       // keep it with hostKeyFile() from '@byokit/link/node' in a real app
+  name: 'Kitchen computer',
+  confirm: ({ name, words }) => { console.log(`host: pair ${name}? it shows "${words}"`); return true; },
+  handle: (req, device) => ({ echo: req.args, from: device.name }),
+});
+const wss = new WebSocketServer({ host: '127.0.0.1', port: 7300 });
+wss.on('connection', (ws) => host.accept(ws));
+
+// The offer is what the QR code shows.
+const { text } = host.offer({ role: 'control', urls: ['ws://127.0.0.1:7300/link'] });
+
+// The phone or browser: scan, compare the words, then ask.
+const grant = await pairWithOffer(text, { name: 'Pixel 9', onWords: (w) => console.log(`device: check "${w}"`) });
+const link = new DeviceLink(grant, { onStatus: (s) => console.log(`device: ${s}`) });
+console.log('answer:', await link.request('say.hello', { text: 'hi' }));
+
+link.stop(); host.close(); wss.close();
+```
+
+Output (the two words differ on every run):
+
+```text
+device: check "rose oak"
+host: pair Pixel 9? it shows "rose oak"
+device: online
+answer: { echo: { text: 'hi' }, from: 'Pixel 9' }
+```
+
+## API at a glance
+
+| Export | What it does |
+|---|---|
+| `Host` | The computer's end: `Host.open(options)`, then `accept`/`relay` sockets, `offer`/`code`/`enrol` to pair, `devices`, `setMeta`, `revoke`, `broadcast`, `close` |
+| `pairWithOffer`, `pairWithCode` | Pair a device from a scanned offer or a typed code; returns its `DeviceGrant` |
+| `pendingGrant` | A grant saved before pairing, for crash-safe pairing |
+| `DeviceLink` | A device's live link: `request`, `stream`, `addUrl`, `rekey`, `unpair`, `retry`, `stop` |
+| `LinkStream`, `WINDOW` | A duplex byte stream and its per-direction window (256 KB) |
+| `LinkError`, `PublicLinkError`, `LINK_WORDS` | Failures with a plain `message` and a `code`; a handler error safe to show; the plain message for each failure code |
+| `secureDeviceStore`, `browserDeviceStore` | Where a device keeps its grant on a phone or in a browser |
+| `keyPair`, `keyPairFrom`, `hostId`, `b64url`, `unb64url`, `normalizeCode` | Keys, the host id, base64url and typed-code helpers |
+| `hostKeyFile`, `fileDeviceStore` (`@byokit/link/node`) | Node only: the host's key file, and a computer's device store |
 
 ## Host
 
@@ -48,7 +118,8 @@ More host policy, all optional:
 - `handshakes: { perMinute, perPeer }` limits new handshakes; pass `host.accept(ws, { peer: ip })` to count per source.
 
 `offer({ base: 'https://app.example/pair' })` makes a link a browser can open instead of a bare QR text.
-Handler errors are logged on the host (`onError` can receive them). Devices see “Your computer couldn't do that.” unless the handler explicitly throws `new PublicLinkError('A message safe to show.')`.
+Handler errors are logged on the host (`onError` can receive them). Devices see “Your computer couldn't do that.”
+unless the handler explicitly throws `new PublicLinkError('A message safe to show.')`.
 
 ## Device
 
@@ -74,21 +145,25 @@ await link.request('send.message', { text: 'hi' }, { timeoutMs: 20_000, notValid
 - `link.rekey()` moves the device to a fresh key without a moment where no key works; `link.unpair()` asks the
   computer to remove the grant and forgets it locally only after confirmation. Offline or failed removal keeps the grant.
 
-Statuses: `connecting`, `online`, `offline` (it keeps retrying), `refused` (every address answered with another host key; the grant is
-kept, `retry()` or pair again), `removed` (the host removed this device; the grant is forgotten). Every failure is a
-`LinkError` with a plain `message` and a `code`. `stop()` rejects unanswered and new requests until `retry()`.
-Retry guarantees and their limits: [SECURITY.md](SECURITY.md#known-limits).
+Statuses:
 
-Where a device keeps its grant, one store per paired computer, each with `load()` for the next start:
+- `connecting`, `online`.
+- `offline`: it keeps retrying.
+- `refused`: every address answered with another host key; the grant is kept, `retry()` or pair again.
+- `removed`: the host removed this device; the grant is forgotten.
 
-- **Phone**: `secureDeviceStore(SecureStore, 'byokit.link.home')` with `expo-secure-store` (Keychain on iOS, Keystore on
-  Android); the grant is about 300 bytes, one value.
-- **Browser or PWA**: `browserDeviceStore('home')`: IndexedDB, sealed with AES-GCM by a non-extractable browser key.
-  The stored record alone opens nothing, but scripts running on the same origin can still use the key to decrypt it;
-  keep untrusted scripts off the page.
-- **Computer (Node, Electron's main process)**: `fileDeviceStore(path, safeStorage?)` from `@byokit/link/node`: a 0600
-  file in a newly created 0700 folder (an existing folder keeps its permissions), sealed with Electron's `safeStorage`
-  when given. Without `safeStorage`, the file contains the grant in plaintext.
+Every failure is a `LinkError` with a plain `message` and a `code`. `stop()` rejects unanswered and new requests until
+`retry()`. Retry guarantees and their limits: [SECURITY.md](SECURITY.md#known-limits).
+
+### Where a device keeps its grant
+
+One store per paired computer, each with `load()` for the next start:
+
+| Where | Store | Notes |
+|---|---|---|
+| Phone | `secureDeviceStore(SecureStore, 'byokit.link.home')` with `expo-secure-store` | Keychain on iOS, Keystore on Android; the grant is about 300 bytes, one value. |
+| Browser or PWA | `browserDeviceStore('home')` | IndexedDB, sealed with AES-GCM by a non-extractable browser key. The stored record alone opens nothing, but scripts running on the same origin can still use the key to decrypt it; keep untrusted scripts off the page. |
+| Computer (Node, Electron's main process) | `fileDeviceStore(path, safeStorage?)` from `@byokit/link/node` | A 0600 file in a newly created 0700 folder (an existing folder keeps its permissions), sealed with Electron's `safeStorage` when given. Without `safeStorage`, the file contains the grant in plaintext. |
 
 ```ts
 const store = secureDeviceStore(SecureStore, 'byokit.link.home');
@@ -97,9 +172,11 @@ await store.save(grant);
 const link = new DeviceLink(grant, { store, onStatus });
 ```
 
-For React Native, install a `crypto.getRandomValues` polyfill such as `react-native-get-random-values` (or use
-`expo-crypto`) and import it **before** `@byokit/link`. Metro resolves `sodium-universal` to `sodium-javascript`
-through its browser field. The device uses the platform's WebSocket and needs no Node globals.
+### React Native
+
+Install a `crypto.getRandomValues` polyfill such as `react-native-get-random-values` (or use `expo-crypto`) and
+import it **before** `@byokit/link`. Metro resolves `sodium-universal` to `sodium-javascript` through its browser
+field. The device uses the platform's WebSocket and needs no Node globals. See [`examples/expo`](../../examples/expo).
 
 ## Streams
 
@@ -109,8 +186,8 @@ carries bytes; each direction has a 256 KB window, so a slow reader holds the wr
 ```ts
 // Host: take streams devices open. `device` is the authenticated grant (one controller per pane…). The stream
 // opens first; a thrown `PublicLinkError` ends it with its message, while other errors go to `onError` and end it with `failed`.
-const host = await Host.open({ …, stream: (s, req, device) => {
-  const pty = panes.attach(req.args.pane, device.id);        // your code
+const host = await Host.open({ ...options, stream: (s, req, device) => {
+  const pty = panes.attach((req.args as { pane: string }).pane, device.id);  // your code
   s.onData = (keys) => pty.write(keys);                       // return a promise to hold the device back
   s.onEnd = () => pty.detach();
   pty.onOutput((bytes) => s.write(bytes));                    // have the producer await this promise for backpressure
@@ -123,15 +200,16 @@ await s.write('ls\r');
 s.end();
 ```
 
-View-only devices open only the streams `allow` permits (or `canView` when `allow` is absent). A host without `stream` tells devices so
-(`LinkError` `not-supported`), and so does a host older than streams.
+View-only devices open only the streams `allow` permits (or `canView` when `allow` is absent). A host without `stream`
+tells devices so (`LinkError` `not-supported`), and so does a host older than streams.
 
 On a direct socket, stream bytes go as binary WebSocket messages (without base64 overhead); through a relay, whose
 host wrapper is text, the same frames go as base64 text. The host says which in `ready`; everything else stays text.
 
 Speed, measured with Hermes (the CLI, v0.13, on a desktop CPU; `bench/hermes.sh`, not a phone measurement): the device
-path opens about 4.8 MB/s of stream bytes on a direct socket and 3.9 MB/s through a relay, where muxr's tweetnacl opens its binary preview tunnel at
-about 4.6 MB/s. Frames are sealed with `@noble/ciphers`; sodium-javascript's ChaCha20 managed about 2.5.
+path opens about 4.8 MB/s of stream bytes on a direct socket and 3.9 MB/s through a relay, where muxr's tweetnacl
+opens its binary preview tunnel at about 4.6 MB/s. Frames are sealed with `@noble/ciphers`; sodium-javascript's
+ChaCha20 managed about 2.5.
 
 ## Through a relay
 
@@ -163,3 +241,16 @@ muxr's existing X25519 box keys can be used as link static keys without an excha
 
 The same X25519 key serves nacl.box and Noise while both transports run; a later rekey can rotate it. Muxr phones
 share one key across machines. Muxr parity beyond this migration is tracked separately.
+
+## Links
+
+- [byokit](../../README.md): every package and example.
+- [SECURITY.md](SECURITY.md): threat model, review checklist and known limits.
+- [CHANGELOG.md](CHANGELOG.md).
+- [`@byokit/relay`](../relay): relay server, host client and code lookup.
+- Examples: [`examples/herdr-kit`](../../examples/herdr-kit) (pairing a phone browser with Herdr on the computer) and
+  [`examples/expo`](../../examples/expo) (React Native, iOS and Android).
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](https://github.com/umeranjum17/byokit/blob/main/NOTICE).
