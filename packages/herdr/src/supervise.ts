@@ -103,6 +103,9 @@ export class Supervisor {
       try { unlinkSync(join(this.root!, 'server.pid')); } catch { /* absent */ }
     }
     this.transport?.close();
+    // A closed transport never answers again: drop it so the next `start()` (a retry
+    // after `failed`, or a restart after `stop()`) dials with a fresh transport.
+    this.transport = undefined;
     this.state('stopped');
   }
 }

@@ -16,3 +16,6 @@ See [docs/runtime-kits.md](../../docs/runtime-kits.md) §11.3 for the work packa
 Herdr itself is not an npm dependency; the app installs it (see herdr.dev) and passes `bin`. The kit reads no
 environment variables, spawns processes with an explicit env only, and — like every byokit package — never
 touches a person's other AI tools; its tests run against a fake Herdr.
+
+`start()` is non-fatal: if Herdr is down it rejects (state `failed`, e.g. `failed/socket`) and may be called
+again afterwards, so the host comes up while Herdr is down by retrying `start()` in a backoff loop.
