@@ -60,8 +60,22 @@ test('package.json exports map: `.`, `./ssh`, `./idle` and `./testing` (D-6)', (
   }
 });
 
+test('sandboxApi() is built (M4): the sandbox API adapter behind one Provider', () => {
+  const p = kit.sandboxApi({ baseUrl: 'http://sandbox.test/api/v1', label: 'L', prices: [], key: async () => '' });
+  assert.equal(p.id, 'sandbox-api');
+  assert.equal(p.label, 'L');
+  assert.deepEqual(p.sizes(), [
+    { id: 'small', cpus: 2, memoryGb: 4, diskGb: 12 },
+    { id: 'default', cpus: 4, memoryGb: 8, diskGb: 50 },
+  ]);
+  for (const m of ['create', 'wake', 'sleep', 'snapshot', 'fork', 'remove', 'url', 'usage', 'key', 'plan', 'why'] as const) {
+    assert.equal(typeof p[m], 'function', m);
+  }
+  assert.equal(p.adopt, undefined);
+  assert.equal(p.selfId, undefined);
+});
+
 test('stubs throw not built with their package id', async () => {
-  assert.throws(() => kit.sandboxApi({ baseUrl: 'http://sandbox.test/api/v1', label: 'L', prices: [], key: async () => '' }), /not built: M4/);
   assert.throws(() => ssh.sshVm({ ssh: '/usr/bin/ssh', host: 'h', user: 'u', keyPath: '/k', stateDir: '/s', label: 'L' }), /not built: M2/);
   await assert.rejects(async () => ssh.sshHostKey({ ssh: '/usr/bin/ssh', host: 'h', stateDir: '/s' }), /not built: M2/);
   assert.throws(() => idle.idle({ linked: () => 0, held: () => false, minutes: 5, stop: async () => {} }), /not built: M7/);

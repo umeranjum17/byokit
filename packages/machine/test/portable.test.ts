@@ -15,5 +15,8 @@ for (const condition of ['browser', 'react-native'] as const) {
     // Pure-JS third-party deps bundle in; only Node builtins are forbidden.
     const offending = Object.keys(bundle.metafile!.inputs).filter((f) => /(^|\/)node:/.test(f));
     assert.deepEqual(offending, [], 'the portable entry imports no Node module');
+    // M4: the fake server lives only in `./testing`, never in the portable entry.
+    const benched = Object.keys(bundle.metafile!.inputs).filter((f) => f.includes('fake-sandbox-server'));
+    assert.deepEqual(benched, [], 'the fake server is not bundled into `.`');
   });
 }
