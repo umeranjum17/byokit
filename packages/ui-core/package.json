@@ -1,6 +1,6 @@
 {
   "name": "@byokit/ui-core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Headless sign-in, pairing and runtime-kit view state for any UI, plus plain-words copy.",
   "license": "Apache-2.0",
   "type": "module",

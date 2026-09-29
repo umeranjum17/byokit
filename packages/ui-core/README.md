@@ -89,7 +89,8 @@ declare const api: {
 export function useChatGptSheet() {
   const s = useSignIn({ read: () => api.account(), start: (b) => api.signIn(b), cancel: () => api.cancel() });
   // s.phase: what to draw. s.code / s.url: what to show. s.start({ via: 'code' }): "Having trouble? Use a code instead".
-  // s.cancel(), s.close(), s.keepWork(): the sheet's buttons.
+  // s.cancel(), s.close(), s.keepWork(): the sheet's buttons. Leave `start` out when something else starts the
+  // sign-in: the sheet then only watches, and nothing begins as it opens.
   return s;
 }
 ```
@@ -100,17 +101,18 @@ export function useChatGptSheet() {
 |---|---|
 | `phaseOf(account, { offline, cancelled, keepWork })` | The sign-in phase to draw, from an `@byokit/accounts` `view()` plus whether the account is signed in |
 | `stepOf(phase)` | Where the three-step progress bar ("Open", "Say yes", "Done") stands |
-| `useSignIn({ read, start, cancel, offline?, ms?, pinned? })` | React hook: starts the sign-in as the sheet opens, polls, and handles cancel, close, keep-work and "use a code instead" |
+| `useSignIn({ read, start?, cancel, offline?, ms?, pinned? })` | React hook: starts the sign-in as the sheet opens, polls, and handles cancel, close, keep-work and "use a code instead"; without `start` it only watches and nothing begins |
 | `describeRoute(url, kind?)` | Names the route a dial address takes, for a pairing or settings screen |
-| `qrMatrix(text)` | The pairing QR as rows of dark and light modules, with its quiet border |
-| `consentWords({ hostName, role })` | The question before pairing |
-| `pairingView({ phase, hostName, words, error })` | The pairing sheet's title and words for each phase |
+| `qrMatrix(text, { border }?)` | The pairing QR as rows of dark and light modules, with its quiet border (2 unless given) |
+| `qrText(text, { border }?)` | The same QR as half-block text rows for a terminal |
+| `consentWords({ hostName, role, device?, detail? })` | The question before pairing |
+| `pairingView({ phase, hostName?, words?, error?, device?, detail? })` | The pairing sheet's title and words for each phase |
 | `linkWords(status, hostName)` | The link's status in one sentence |
 | `runStore(oc)`, `runView(state, { words, name })` | One run: the reply streaming in, the tool at work, how it ended in the kit's words |
 | `approvalsStore(oc)`, `approvalWords(a, words, helper)` | The approvals waiting for a yes, live, each gone when answered or expired |
 | `herdrStore(hd)`, `herdrTreeView(tree)`, `blockedView(state)` | Herdr's agents by where they run, and the ones waiting for an answer, live |
 | `useRun`, `useApprovals`, `useHerdrTree`, `useBlocked` | React hooks over those stores |
-| Types | `Phase`, `SignInView`, `AccountView`, `UseSignIn`, `Route`, `PairPhase`, `Role`, `LinkStatus`; `RouteKind` from `@byokit/ui-core/route` |
+| Types | `Phase`, `SignInView`, `AccountView`, `UseSignIn`, `Route`, `PairPhase`, `Role`, `DeviceKind`, `LinkStatus`; `RouteKind` from `@byokit/ui-core/route` |
 
 Entry points: `@byokit/ui-core` (everything, including the React hooks), `@byokit/ui-core/phase`,
 `@byokit/ui-core/route`, `@byokit/ui-core/link` and `@byokit/ui-core/kits` (no React dependency).
@@ -145,10 +147,14 @@ to `direct`); without provenance, 100.64/10 is labeled Private network rather th
 
 Pairing with `@byokit/link`, from `@byokit/ui-core/link` (no React either):
 
-- `qrMatrix(offer.text)`: the pairing QR as rows of dark and light modules, with its quiet border, to draw in any UI.
-- `consentWords({ hostName, role })`: the question before pairing ("Pair with Kitchen computer? This device
-  will be able to see and change things on it, until you remove it there.").
-- `pairingView({ phase, hostName, words, error })`: scan, compare the two words, waiting for a yes, paired, failed.
+- `qrMatrix(offer.text, { border }?)`: the pairing QR as rows of dark and light modules, with its quiet border
+  (2 unless given), to draw in any UI.
+- `qrText(offer.text, { border }?)`: the same QR as half-block text rows, so `console.log` in a setup script shows a
+  code a phone can scan.
+- `consentWords({ hostName, role, device?, detail? })`: the question before pairing ("Pair with Kitchen computer? This device
+  will be able to see and change things on it, until you remove it there."). `device` names the pairing side when it
+  isn't the app (`phone`, or `browser` for the web pairing link); `detail` adds one app sentence after.
+- `pairingView({ phase, hostName, words, error, device?, detail? })`: scan, compare the two words, waiting for a yes, paired, failed.
 - `linkWords(status, hostName)`: the link's status in one sentence.
 
 ## Runtime kits' state

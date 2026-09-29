@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Depends on @byokit/ui-core 0.3.0.
+
 ## 0.1.0 (2026-09-29)
 
 - First release on npm (docs/runtime-kits.md §10). `examples/openclaw-kit` (O12) is the whole flow from a phone
