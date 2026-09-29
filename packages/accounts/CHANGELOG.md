@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- Each catalogue row carries its billing (`subscription`, `api`); show `billingWords(p)` next to every provider you list.
+- FIX: OpenRouter (API billing) is no longer offered by default on computers; `offered()` without keys returns subscription rows only. Name it explicitly (`offer: ['openrouter']`) to keep offering it.
+
 ## 0.3.1
 
 - `respond(member, { instructions, input, onText })` asks ChatGPT with the member's own sign-in, the answer streaming in over an injected `fetch` (whole answer at once when the fetch can't stream); limits and lapsed sign-ins are acted on as `failed()` does.

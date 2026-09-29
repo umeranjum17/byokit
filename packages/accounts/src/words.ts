@@ -1,6 +1,7 @@
 // Every sentence a person can see, in one file other languages can read too (words.json). Plain words only: no codes,
 // commands, paths, model ids or percentages; test/words.test.ts holds the line.
 import WORDS from './words.json' with { type: 'json' };
+import type { Provider } from './catalogue.ts';
 
 export type WordKey = keyof typeof WORDS;
 export { WORDS };
@@ -22,6 +23,9 @@ export function failure(error: string): Why {
   if (/device code.*(disabled|not enabled)|enable device/i.test(error)) return 'deviceCodeOff';
   return 'failed';
 }
+
+/** What the person pays, in one plain sentence to show next to the provider. */
+export const billingWords = (p: Provider) => say(`billing.${p.billing}`, { name: p.name, company: p.company });
 
 /** A failed sign-in in one plain sentence with one next step. */
 export const signInError = (name: string, error: string) => say(`signIn.${failure(error)}`, { name });

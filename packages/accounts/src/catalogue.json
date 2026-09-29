@@ -10,6 +10,7 @@
     "callbackPort": 1455,
     "clientId": "app_EMoamEEZ73f0CkXaXp7hrann",
     "revoke": "https://auth.openai.com/oauth/revoke",
+    "billing": "subscription",
     "terms": "grey",
     "hidden": false,
     "why": "Signs in through Codex's own sign-in. OpenAI documents it for Codex, not for other apps, and has endorsed one other app using it.",
@@ -22,6 +23,7 @@
     "models": {
       "strong": "moonshotai/kimi-k2.6"
     },
+    "billing": "api",
     "terms": "allowed",
     "hidden": false,
     "why": "Documented sign-in for any app, no registration. Pay-as-you-go credits, not a subscription.",
@@ -34,6 +36,7 @@
     "models": {
       "strong": "grok-4.7"
     },
+    "billing": "subscription",
     "terms": "partner",
     "hidden": true,
     "why": "xAI allows plan sign-in only in apps it has partnered with.",
@@ -46,6 +49,7 @@
     "models": {
       "strong": "gpt-5.4"
     },
+    "billing": "subscription",
     "terms": "partner",
     "hidden": true,
     "why": "GitHub allows Copilot sign-in only in apps it has partnered with; this uses VS Code's client.",
