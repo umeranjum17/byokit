@@ -293,13 +293,20 @@ export class DeviceLink {
     if (!this.stopped && !this.connecting) { this.again(); this.set('offline'); }
   }
 
-  /** A half-open socket (the phone changed networks) looks alive forever; a ping it never answers shows it isn't. */
+  /** A half-open socket (the phone changed networks) looks alive forever; a ping it never answers shows it isn't.
+   *  A tick that fires long after it was due means this device's own timers were frozen (an app in the background,
+   *  a hidden tab), not that the host went quiet: no ping went out, so none came back. */
   private ping(l: Open) {
     const every = this.o.pingMs ?? 20_000;
+    let due = Date.now() + every;
     const tick = () => {
       if (this.conn !== l) return;
-      if (Date.now() - this.heard > 2 * every) { l.close(); return this.lost(); }
+      const now = Date.now();
+      // Count the silence from now; a socket that is really dead still misses the pings that follow.
+      if (now - due > every / 2) this.heard = now;
+      else if (now - this.heard > 2 * every) { l.close(); return this.lost(); }
       try { l.send({ t: 'ping', n: ++this.pingId }); } catch {}
+      due = now + every;
       later(every, tick);
     };
     later(every, tick);

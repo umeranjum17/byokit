@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Depends on @byokit/link 0.3.2.
+
 - Opt-in pinned Herdr fetch (G11, `./binary`): `ensureHerdr({ dir, platform? })` (also spelled
   `fetchHerdr`) downloads the pinned v0.9.1 asset for the current platform into an app-owned `dir`
   only when called, verifies it against a committed per-platform sha256 table (linux x64/arm64,
