@@ -2,7 +2,7 @@ import { createAgents, type Call } from './agents.ts';
 import { Blocked } from './approvals.ts';
 import { runCli } from './cli.ts';
 import { openTerminal } from './terminal.ts';
-import { HERDR_PROTOCOL } from './constants.ts';
+import { protocolBounds } from './constants.ts';
 import { closePane, closeTab, closeWorkspace } from './close.ts';
 import { Supervisor } from './supervise.ts';
 import type {
@@ -90,12 +90,17 @@ export class HerdrKit {
     }
     if (token !== this.generation) { resolveStatus(); return; }
     const snap = result.snapshot as Raw;
-    if ((snap.protocol !== undefined && snap.protocol !== HERDR_PROTOCOL) ||
-        (result.protocol !== undefined && result.protocol !== HERDR_PROTOCOL)) {
+    // K11: the declared range gates the snapshot metadata too. Older than `min` fails closed;
+    // newer than `max` installs the snapshot and stays usable with the steady state
+    // `needs-update` instead of throwing, so a protocol bump never takes the host down.
+    const { min, max } = protocolBounds(this.o.protocolRange);
+    const seen = [result.protocol, snap?.protocol].filter((v): v is number => typeof v === 'number');
+    if (seen.some((v) => v < min)) {
       this.current = { phase: 'needs-update', why: 'version' }; this.o.onState?.(this.current);
       resolveStatus();
       throw new Error('herdr: snapshot protocol mismatch');
     }
+    const newer = seen.some((v) => v > max);
     const workspaces = (snap.workspaces as Raw[]).map((w) => ({
       id: w.workspace_id as string, label: w.label as string,
       tabs: (snap.tabs as Raw[]).filter((t) => t.workspace_id === w.workspace_id).map((t) => ({
@@ -134,7 +139,8 @@ export class HerdrKit {
       if (ready) statusAcks.push(ready);
     }
     void Promise.allSettled(statusAcks).then(() => { if (token === this.generation) resolveStatus(); });
-    this.current = { phase: 'ready' }; this.o.onState?.(this.current);
+    this.current = newer ? { phase: 'needs-update', why: 'version' } : { phase: 'ready' };
+    this.o.onState?.(this.current);
   }
   /**
    * Connect and bootstrap. Non-fatal: a rejected `start()` (e.g. `failed/socket` while Herdr is

@@ -3,7 +3,7 @@
 import { scratchDir } from '../../test-support.ts';
 import { HerdrKit } from '../src/kit.ts';
 import { herdrContract, startFakeHerdr } from '../src/testing/index.ts';
-import type { HerdrTransport } from '../src/types.ts';
+import type { HerdrProtocolRange, HerdrTransport } from '../src/types.ts';
 
 herdrContract(async () => {
   const fake = await startFakeHerdr({ dir: scratchDir('herdr-contract') });
@@ -11,7 +11,7 @@ herdrContract(async () => {
   return {
     kit,
     fake,
-    withTransport: (transport: HerdrTransport) =>
-      new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath, transport }),
+    withTransport: (transport: HerdrTransport, o?: { protocolRange?: HerdrProtocolRange }) =>
+      new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath, transport, ...o }),
   };
 });

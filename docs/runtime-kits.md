@@ -723,11 +723,12 @@ export type HerdrState = {
   phase: 'stopped' | 'connecting' | 'ready' | 'reconnecting' | 'needs-update' | 'missing' | 'failed';
   why?: 'binary' | 'socket' | 'version' | 'server-exited';
 };
+export type HerdrProtocolRange = { min?: number; max?: number };   // each defaults to HERDR_PROTOCOL
 export type HerdrKitOptions =
   | { mode: 'adopt'; bin: string; socketPath: string; env?: Record<string, string>; path?: string[];
-      transport?: HerdrTransport; onState?: (s: HerdrState) => void }
+      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; onState?: (s: HerdrState) => void }
   | { mode: 'own'; bin: string; stateDir: string; env?: Record<string, string>; path?: string[];
-      transport?: HerdrTransport; onState?: (s: HerdrState) => void };
+      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; onState?: (s: HerdrState) => void };
 export interface HerdrTransport {                        // socket.ts implements it; the fake does too
   call(method: string, params: Record<string, unknown>, timeoutMs?: number): Promise<unknown>;
   subscribe(subs: { type: string; [k: string]: unknown }[], on: (e: HerdrEvent) => void,
@@ -836,8 +837,11 @@ export class Blocked {
   then fail `failed/socket`). Server exit while not stopping → `reconnecting`, respawn with the 5.4 backoff.
   `stop()`: `server.stop`, wait 3 s, SIGTERM group, 3 s, SIGKILL.
 - `adopt` mode: never spawns or stops anything; `socketPath` is required.
-- Both: version gate — `ping` result (and `session.snapshot` version/protocol metadata) must report
-  `protocol === HERDR_PROTOCOL`, else `needs-update/version`. Then the event socket and bootstrap.
+- Both: version gate — `ping` result (and `session.snapshot` version/protocol metadata) against the
+  declared `protocolRange` (`{ min?, max? }`, each defaulting to `HERDR_PROTOCOL`): below the floor fails
+  closed with `needs-update/version`; above the ceiling connects anyway with the steady state
+  `needs-update/version` instead of a throw, so a Herdr protocol bump does not take the host down
+  before the kit's pin moves. Then the event socket and bootstrap.
 - **Socket** (`socket.ts`) = muxr `HerdrClient`: fresh connection per request (`{id, method, params}` + `\n`; answer
   matched by id; error → `Error('herdr: <code>: <message>')` with `code` property), default timeout 15 s,
   per-call override (`agent.wait`, `agent.prompt` with wait: timeout + 5 s). Event socket: one long-lived
@@ -925,7 +929,8 @@ sorted, deterministic; a test regenerates and compares.
   JSON CLI verbs by forwarding to the fake socket, and `terminal session control|observe` (emits one ready frame and
   echoes `send` lines as output frames; a `{"type":"fake.stream",count,size,progress}` line streams numbered frames
   as fast as the pipe takes them, recording the count written to `progress`, for backpressure tests).
-- `herdrContract(make)`: ping/protocol gate, bootstrap ordering with an event racing the snapshot, rejected
+- `herdrContract(make)`: ping/protocol gate (newer server → steady `needs-update`, older → throw;
+  declared range accepts newer as ready), bootstrap ordering with an event racing the snapshot, rejected
   subscription surfaced once and not retried, per-pane status watch, startAgent in each placement, prompt receipt
   validation (a malformed receipt fails), wait with timeout, read unwrap, blocked → answer with stale revision
   refused → correct revision accepted, each close guard, `cli(['--version'])`, terminal ready + echo.
@@ -1388,8 +1393,8 @@ H1, and O12/H10 (README example rows); later merges rebase.
 - Behavior: 6.3; facade delegates helpers to their modules.
 - Acceptance with `startFakeHerdr`: request per connection; error frames → coded errors; timeouts; rejected
   subscription (bad batch) surfaced once, not retried; per-pane status socket; event socket drop → re-bootstrap
-  with an event emitted between subscribe-ack and snapshot applied after the snapshot, no duplicate; protocol
-  mismatch → `needs-update`; `adopt` never spawns (spy) and `stop()` leaves the fake running; `own` mode spawns the
+  with an event emitted between subscribe-ack and snapshot applied after the snapshot, no duplicate; older
+  protocol → throw, newer → steady `needs-update` (declared range accepts newer as ready); `adopt` never spawns (spy) and `stop()` leaves the fake running; `own` mode spawns the
   fake bin's `server` verb with the exact env of 6.3 and nothing from `process.env` (the fake records its env; the
   test compares); relative `bin` refused (`missing/binary`); server exit → `reconnecting` then respawn.
 
