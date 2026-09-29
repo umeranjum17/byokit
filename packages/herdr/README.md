@@ -35,6 +35,10 @@ npm install @byokit/herdr
 ```
 
 Herdr itself is not an npm dependency: the app installs Herdr 0.9.1 (see herdr.dev) and passes its path as `bin`.
+The opt-in helper `ensureHerdr` (`@byokit/herdr/binary`, also spelled `fetchHerdr`) fetches that for the app:
+it downloads the pinned release asset for the current platform into an app-owned directory, verifies its sha256
+against a committed per-platform table, marks it executable, and returns the absolute `bin` for `own` mode.
+Nothing downloads on install or import — the network happens only when the helper is called.
 This runs against the kit's stand-in Herdr from `@byokit/herdr/testing`, so it needs neither Herdr nor an agent:
 
 ```ts
@@ -80,6 +84,16 @@ idle
 
 To hand Herdr to a phone, spread `herdrLink` into a `@byokit/link` host and serve it; the phone calls the same
 things through `herdrDevice`:
+
+```ts
+import { ensureHerdr } from '@byokit/herdr/binary';
+import { HerdrKit } from '@byokit/herdr';
+
+// One call, only when the app wants it: the pinned Herdr 0.9.1 binary lands verified in an
+// app-owned directory (never PATH, never ~/.local/bin), ready for own mode.
+const bin = await ensureHerdr({ dir: './.state/herdr-bin' });
+const own = new HerdrKit({ mode: 'own', bin, stateDir: './.state' });
+```
 
 ```ts
 import { HerdrKit } from '@byokit/herdr';
@@ -135,6 +149,7 @@ persistent grant store, and the phone page above.
 | `herdrDevice` (`@byokit/herdr/device`) | The phone and browser side: typed calls over a `DeviceLink` (`tree`, `startAgent`, `prompt`, `read`, `blocked`, `answer`, `events`, `terminal`, notices); no Node import |
 | `openNotice` (`@byokit/herdr/device`) | Opens a sealed approval notice with the device's own seed |
 | `startFakeHerdr`, `writeBinShim`, `herdrContract` (`@byokit/herdr/testing`) | The kit's stand-in Herdr, a bin shim that runs it, and the contract suite the kit passes |
+| `ensureHerdr`, `fetchHerdr`, `HERDR_ASSETS` (`@byokit/herdr/binary`) | Opt-in pinned fetch: the v0.9.1 asset for the current platform into an app-owned dir, sha256-verified, executable, returned as the absolute `own`-mode `bin`; refused (nothing left) on a hash mismatch or unsupported platform |
 
 Types (`HerdrKitOptions`, `HerdrState`, `StartAgent`, `PromptReceipt`, `BlockedAgent`, `HerdrSnapshot`,
 `HerdrMethod`/`HerdrParams`/`HerdrResult`, `HerdrEventName`/`HerdrEventOf`, ...) come from the main entry.

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Opt-in pinned Herdr fetch (G11, `./binary`): `ensureHerdr({ dir, platform? })` (also spelled
+  `fetchHerdr`) downloads the pinned v0.9.1 asset for the current platform into an app-owned `dir`
+  only when called, verifies it against a committed per-platform sha256 table (linux x64/arm64,
+  darwin x64/arm64 — each hash recomputed over the official release asset), writes atomically, marks
+  executable, and returns the absolute `own`-mode `bin`. Never PATH, never `~/.local/bin`, nothing on
+  install or import; a hash mismatch (nothing left behind) or unsupported platform fails in plain words.
+
 - K11 protocol range: `HerdrKitOptions` takes `protocolRange?: { min?: number; max?: number }`
   (each bound defaults to the pinned `HERDR_PROTOCOL`). A server below the floor still fails
   closed; a newer server is the steady state `needs-update`/`version` instead of a throw — the

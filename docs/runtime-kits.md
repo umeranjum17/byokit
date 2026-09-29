@@ -705,14 +705,20 @@ packages/herdr/
   src/agents.ts  src/close.ts  src/approvals.ts
   src/words.json  src/words.ts
   src/link.ts  src/device.ts  src/notices.ts
+  src/binary.ts                                             # opt-in pinned fetch (G11): ensureHerdr/fetchHerdr
   src/testing/index.ts  src/testing/fake-herdr/{server.ts,world.ts,bin.ts}  src/testing/contract.ts
   test/*.test.ts
 ```
 
-Exports as D2 (`./device` with `react-native`/`browser` conditions). Dependencies (exact): `@byokit/link`,
+Exports as D2 (`./device` with `react-native`/`browser` conditions, plus a Node-only `./binary`). Dependencies (exact): `@byokit/link`,
 `@byokit/relay`, `@byokit/reach`, `@byokit/seal` (current versions as 5.1), `ws` `8.21.3`. Dev (root):
 `json-schema-to-typescript` pinned exactly (used by `gen-types.ts` only). Herdr itself is **not** an npm dependency
 (a native binary); the app installs it (README: `https://herdr.dev/install.sh` or the GitHub release) and passes `bin`.
+The opt-in helper `ensureHerdr({ dir, platform? })` (`src/binary.ts`, `./binary`, also spelled `fetchHerdr`)
+downloads the pinned v0.9.1 asset for the current platform into an app-owned `dir` only when called, verifies it
+against a committed per-platform sha256 table (linux x64/arm64, darwin x64/arm64; each hash recomputed over the
+official release asset), writes atomically, marks executable, and returns the absolute `own`-mode `bin` — never
+PATH, never `~/.local/bin`, nothing on install or import. A hash mismatch or unsupported platform fails plainly.
 
 ### 6.2 Public API (`src/kit.ts`, exported from `.`)
 
