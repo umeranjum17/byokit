@@ -23,6 +23,18 @@ const memberOfKey = (key: string): Member | undefined => {
   return m?.[1];
 };
 
+export const DEFAULT_SOCKET_NAME = 'bridge.sock';
+export const DEFAULT_PARAM_PREFIX = '__byokit';
+
+/** Resolve the bridge naming options, validating explicit values; defaults keep prior behavior. */
+export function resolveBridge(o?: { socketName?: string; paramPrefix?: string }): { socketName: string; paramPrefix: string } {
+  const socketName = o?.socketName ?? DEFAULT_SOCKET_NAME;
+  const paramPrefix = o?.paramPrefix ?? DEFAULT_PARAM_PREFIX;
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*\.sock$/.test(socketName)) throw new Error(`invalid bridge socketName: ${socketName}`);
+  if (!/^__[A-Za-z0-9]+$/.test(paramPrefix)) throw new Error(`invalid bridge paramPrefix: ${paramPrefix}`);
+  return { socketName, paramPrefix };
+}
+
 /**
  * Write the bridge plugin's generated files into the engine's plugin dir: the manifest OpenClaw discovers
  * ownership from, and the tool table the shipped `plugin/index.js` registers at load. Deterministic: rewriting
@@ -30,8 +42,9 @@ const memberOfKey = (key: string): Member | undefined => {
  */
 export function writePlugin(
   dir: string,
-  o: { id: string; tools: ToolSpec[]; paramPrefix: '__byokit' | '__crewhouse' },
+  o: { id: string; tools: ToolSpec[]; paramPrefix: string },
 ): void {
+  resolveBridge({ paramPrefix: o.paramPrefix });
   const runParam = `${o.paramPrefix}_run`;
   const permitParam = `${o.paramPrefix}_permit`;
   const manifest = {

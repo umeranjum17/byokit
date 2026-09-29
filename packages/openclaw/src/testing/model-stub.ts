@@ -10,6 +10,8 @@
 //   ask permission       hold the turn (after its tool calls) until `releaseStub` lets it finish
 //   [route ID]           asked who should take a request: ID, fairly sure; [route ?]: torn evenly; neither: Chief, sure
 //   anything else        reply `stub <bot>: done with "<the last line of the message>"`
+// The bot id (`idPattern`, default /Your id is ([a-z0-9-]+)\./) is read from the system prompt, and routing
+// requests start with `routingMarker` (default '[routing]'); pass both explicitly to mirror another app's grammar.
 import { createServer, type Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import type { OpenClawKit } from '../kit.ts';
@@ -52,9 +54,13 @@ const words = (m: any) =>
  * One loopback HTTP server that speaks the script. `script` queues plain replies consumed one per completion
  * request before the message-embedded grammar applies.
  */
-export function startModelStub(script: string[] = []): Promise<ModelStub> {
+export type ModelStubOptions = { idPattern?: RegExp; routingMarker?: string };
+
+export function startModelStub(script: string[] = [], o: ModelStubOptions = {}): Promise<ModelStub> {
   const calls: StubCall[] = [];
   const queue = [...script];
+  const idPattern = o.idPattern ?? /Your id is ([a-z0-9-]+)\./;
+  const routingMarker = o.routingMarker ?? '[routing]';
   const server: Server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -69,7 +75,7 @@ export function startModelStub(script: string[] = []): Promise<ModelStub> {
     }
     const messages: any[] = body.messages ?? [];
     const system = messages.filter((m: any) => m.role === 'system').map((m: any) => words(m)).join('\n');
-    const bot = /Your id in Crewhouse is ([a-z0-9-]+)\./.exec(system)?.[1] ?? 'bot';
+    const bot = idPattern.exec(system)?.[1] ?? 'bot';
     const lastUser = [...messages].reverse().find((m: any) => m.role === 'user');
     const said = words(lastUser);
     const results = messages.slice(messages.findLastIndex((m: any) => m.role === 'user') + 1).filter((m: any) => m.role === 'tool');
@@ -77,11 +83,11 @@ export function startModelStub(script: string[] = []): Promise<ModelStub> {
     const lastResult = results.at(-1);
     const done = () => {
       if (results.length && lastResult) return `stub ${bot}: ${lastResult.name ?? 'tool'} said ${words(lastResult).slice(0, 300)}`;
-      const asked = said.split('\n').map((l: string) => l.trim()).filter((l: string) => l && !l.startsWith('[Crewhouse')).pop() ?? '';
+      const asked = said.split('\n').map((l: string) => l.trim()).filter((l: string) => l && !l.startsWith(routingMarker) && !/^\[route /.test(l)).pop() ?? '';
       return `stub ${bot}: done with "${asked.slice(0, 60)}"`;
     };
     // Routing asks who takes a request; the script answers in the kit's own shape.
-    if (said.startsWith('[Crewhouse routing]')) {
+    if (said.startsWith(routingMarker)) {
       const options = [...said.matchAll(/^- ([a-z0-9-]+):/gm)].map((m) => m[1]);
       const pick = /\[route ([a-z0-9-]+|\?)\]/.exec(said)?.[1] ?? 'chief';
       return plain(res, body, JSON.stringify(Object.fromEntries(options.map((o) => [o, pick === '?' ? 1 / options.length : o === pick ? 0.9 : 0.1 / (options.length - 1)]))));
@@ -144,8 +150,7 @@ const plain = (res: import('node:http').ServerResponse, body: any, text: string)
   res.end('data: [DONE]\n\n');
 };
 
-// provider id 'byokit-stub', model 'test' (Crewhouse configureModelProvider): the stub becomes every agent's
-// primary model.
+// provider id 'byokit-stub', model 'test': the stub becomes every agent's primary model.
 export async function useModelStub(kit: OpenClawKit, stub: ModelStub): Promise<void> {
   // The generated method table arrives with O2; until then kit.call's typed surface accepts no method names, so
   // configure through this string-typed view of the same runtime path.

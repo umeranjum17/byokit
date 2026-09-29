@@ -5,7 +5,7 @@ import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { Bridge, MAX_APPROVAL_TIMEOUT_MS, writePlugin } from '../src/bridge.ts';
+import { Bridge, MAX_APPROVAL_TIMEOUT_MS, resolveBridge, writePlugin } from '../src/bridge.ts';
 import { words } from '../src/words.ts';
 import type { Approval, RunRef, ToolHost } from '../src/types.ts';
 
@@ -93,9 +93,23 @@ test('writePlugin is deterministic and carries the tool names', async () => {
   writePlugin(dir, { id: 'byokit', tools, paramPrefix: '__byokit' });
   assert.equal(readFileSync(join(dir, 'openclaw.plugin.json'), 'utf8'), manifest);
   assert.equal(readFileSync(join(dir, 'tools.json'), 'utf8'), table);
-  writePlugin(dir, { id: 'crewhouse', tools, paramPrefix: '__crewhouse' });
-  assert.match(readFileSync(join(dir, 'tools.json'), 'utf8'), /"__crewhouse_permit"/);
+  writePlugin(dir, { id: 'acme', tools, paramPrefix: '__acme' });
+  assert.match(readFileSync(join(dir, 'tools.json'), 'utf8'), /"__acme_permit"/);
   rmSync(dir, { recursive: true, force: true });
+});
+
+test('writePlugin and resolveBridge refuse bad bridge names', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'byokit-o5-prefix-'));
+  try {
+    assert.throws(() => writePlugin(dir, { id: 'byokit', tools, paramPrefix: 'nope' }), /invalid bridge paramPrefix/);
+    assert.throws(() => resolveBridge({ socketName: '../evil.sock' }), /invalid bridge socketName/);
+    assert.throws(() => resolveBridge({ socketName: 'bridge' }), /invalid bridge socketName/);
+    assert.deepEqual(resolveBridge(), { socketName: 'bridge.sock', paramPrefix: '__byokit' });
+    assert.deepEqual(resolveBridge({ socketName: 'crewd.sock', paramPrefix: '__crewhouse' }),
+      { socketName: 'crewd.sock', paramPrefix: '__crewhouse' });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('an unknown run fails closed and a call without a gate fails', async () =>

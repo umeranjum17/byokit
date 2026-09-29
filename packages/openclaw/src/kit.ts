@@ -42,7 +42,8 @@ export type KitOptions = {
   engineDir?: string; // default join(stateDir, 'openclaw', 'engine')
   npmPath?: string; // default: 'npm' found on PATH (the only env read, D13)
   enginePath?: string[]; // extra dirs appended to the engine's PATH ('/usr/bin:/bin')
-  plugin?: { id?: string }; // default 'byokit'; Crewhouse passes 'crewhouse'
+  plugin?: { id?: string }; // default 'byokit'
+  bridge?: { socketName?: string; paramPrefix?: string }; // defaults 'bridge.sock' / '__byokit'
   tools?: ToolSpec[]; // app tools registered by the bridge plugin
   host?: ToolHost; // required when tools is non-empty
   permitted?: (tool: string) => boolean; // tools needing a one-use permit from their gate; default () => true

@@ -7,11 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ENGINE_VERSION } from './constants.ts';
 import { reconcileConfig } from './config.ts';
-import { writePlugin } from './bridge.ts';
+import { writePlugin, resolveBridge } from './bridge.ts';
 import type { KitOptions } from './kit.ts';
 import type { KitState, ToolSpec } from './types.ts';
 
-export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'installPolicy' | 'log'> & {
+export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'installPolicy' | 'log' | 'bridge'> & {
   pluginId: string; tools: ToolSpec[]; spawnEngine: boolean;
   onState(s: KitState): void; onExit(code: number | null): void;
 };
@@ -32,11 +32,14 @@ export class Engine {
   private port = 0;
   private token = '';
   private readonly o: EngineOptions;
+  private readonly paramPrefix: string;
   constructor(o: EngineOptions) {
     this.o = o;
+    const bridge = resolveBridge(o.bridge);
     this.root = join(o.stateDir, 'openclaw');
     this.dir = o.engineDir ?? join(this.root, 'engine');
-    this.bridgeSock = join(this.root, o.pluginId === 'crewhouse' ? 'crewd.sock' : 'bridge.sock');
+    this.bridgeSock = join(this.root, bridge.socketName);
+    this.paramPrefix = bridge.paramPrefix;
   }
   private state(phase: KitState['phase'], why?: KitState['why'], retryAt?: number) { this.o.onState({ phase, ...(why ? { why } : {}), ...(retryAt ? { retryAt } : {}) }); }
   private get entry() { return join(this.dir, 'node_modules', 'openclaw', 'openclaw.mjs'); }
@@ -93,8 +96,7 @@ export class Engine {
       putOnce(join(pluginDir, f), readFileSync(source, 'utf8'));
     }
     // The bridge manifest and tool table follow the app's tools on every prepare (O5).
-    writePlugin(pluginDir, { id: this.o.pluginId, tools: this.o.tools,
-      paramPrefix: this.o.pluginId === 'crewhouse' ? '__crewhouse' : '__byokit' });
+    writePlugin(pluginDir, { id: this.o.pluginId, tools: this.o.tools, paramPrefix: this.paramPrefix });
     const path = join(this.root, 'openclaw.json');
     const saved = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined;
     const config = reconcileConfig(saved, { root: this.root, stateDir: this.o.stateDir, port: this.port, pluginId: this.o.pluginId,

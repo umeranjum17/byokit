@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -32,6 +32,30 @@ process.exit(78);`);
   } finally {
     await engine.stop();
     unrelated.kill();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('prepare defaults to bridge.sock/__byokit and honors explicit bridge options', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'byokit-'));
+  try {
+    const plain = new Engine({ stateDir: dir, pluginId: 'byokit', tools: [], spawnEngine: false, onState() {}, onExit() {} });
+    await plain.prepare();
+    assert.equal(plain.bridgeSock, join(dir, 'openclaw', 'bridge.sock'));
+    assert.match(readFileSync(join(dir, 'openclaw', 'plugin', 'tools.json'), 'utf8'), /"__byokit_permit"/);
+    await plain.stop();
+
+    const custom = new Engine({ stateDir: dir, pluginId: 'acme', tools: [], spawnEngine: false,
+      bridge: { socketName: 'acmed.sock', paramPrefix: '__acme' }, onState() {}, onExit() {} });
+    await custom.prepare();
+    assert.equal(custom.bridgeSock, join(dir, 'openclaw', 'acmed.sock'));
+    assert.match(readFileSync(join(dir, 'openclaw', 'plugin', 'tools.json'), 'utf8'), /"__acme_permit"/);
+    assert.equal(existsSync(join(dir, 'openclaw', 'bridge.sock')), false);
+    await custom.stop();
+
+    assert.throws(() => new Engine({ stateDir: dir, pluginId: 'byokit', tools: [], spawnEngine: false,
+      bridge: { socketName: '../evil.sock' }, onState() {}, onExit() {} }), /invalid bridge socketName/);
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -279,7 +279,8 @@ export type KitOptions = {
   engineDir?: string;                    // default join(stateDir, 'openclaw', 'engine')
   npmPath?: string;                      // default: 'npm' found on PATH (the only env read, D13)
   enginePath?: string[];                 // extra dirs appended to the engine's PATH ('/usr/bin:/bin')
-  plugin?: { id?: string };              // default 'byokit'; Crewhouse passes 'crewhouse'
+  plugin?: { id?: string };              // default 'byokit'
+  bridge?: { socketName?: string; paramPrefix?: string };   // defaults 'bridge.sock' / '__byokit' (validated)
   tools?: ToolSpec[];                    // app tools registered by the bridge plugin
   host?: ToolHost;                       // required when tools is non-empty
   permitted?: (tool: string) => boolean; // tools needing a one-use permit from their gate; default () => true
@@ -377,8 +378,8 @@ OPENCLAW_NO_RESPAWN=1  OPENCLAW_SKIP_CHANNELS=1  OPENCLAW_DISABLE_BONJOUR=1  OPE
 OPENCLAW_LOAD_SHELL_ENV=0  OPENCLAW_GATEWAY_TOKEN=<token>  BYOKIT_BRIDGE_SOCK=<root>/bridge.sock
 ```
 
-`<root>` = `join(stateDir, 'openclaw')`. For Crewhouse parity the socket file name stays `crewd.sock` when
-`plugin.id === 'crewhouse'`; otherwise `bridge.sock`.
+`<root>` = `join(stateDir, 'openclaw')`. The socket file name is `bridge.socketName` (default `bridge.sock`); an
+app that already has a socket name in the wild passes it explicitly (Crewhouse passes `crewd.sock`).
 
 ### 5.6 Config invariants (`src/config.ts`)
 
@@ -489,9 +490,10 @@ the view fails with `why: 'busy'`. Mapping to `SignInView.why`: setup-admission-
 `plugin/index.js` with schemas/descriptions read from `tools.json` instead of hard-coded: `before_tool_call` sends
 `{ kind: 'gate', key: sessionKey, tool, input }` over `BYOKIT_BRIDGE_SOCK` (newline-framed JSON, one request per
 connection, 1 MB cap, 195 s timeout, abort-aware); a non-allow blocks with the reason; an allow for a permitted
-tool injects `__byokit_run`/`__byokit_permit` params; `execute` strips them, requires both for permitted tools, sends
+tool injects `<paramPrefix>_run`/`<paramPrefix>_permit` params (`paramPrefix` from `bridge`, default `__byokit`);
+`execute` strips them, requires both for permitted tools, sends
 `{ kind: 'call', key, permit, tool, input }`, returns the text. Any failure blocks ("can't check this action right
-now"). For `plugin.id === 'crewhouse'` the injected param names stay `__crewhouse_run`/`__crewhouse_permit`.
+now"). Crewhouse passes `__crewhouse` explicitly, so its injected names are unchanged.
 
 **Bridge** (`src/bridge.ts`) = Crewhouse `ToolBridge`: unix socket at `BYOKIT_BRIDGE_SOCK`, `register`/`unregister`
 runs by session key, one-use permits bound to key + tool + exact JSON input, unknown run fails closed, any error
@@ -551,9 +553,11 @@ differs from a fresh run against the pinned tarball in the engine job.
   hello/method cross-check, member creation, member boundary refusal, device-code sign-in happy path and cancel,
   a run with text streaming, a tool call gated `ask` → approve → result, gated deny, abort, native exec approval
   round-trip, `call` pass-through for `health`, config invariants after `patchConfig`.
-- `startModelStub()` = Crewhouse `test/openclaw-stub.ts` (script grammar unchanged: `[tool NAME {json}]`, `hit the
-  limit`, `no helpers in plan`, `sign me out`, `ask permission`, `[route ID]`) plus `useModelStub(kit, stub)` =
-  Crewhouse `configureModelProvider` (provider id `byokit-stub`, model `test`).
+- `startModelStub(script, o?)` = Crewhouse `test/openclaw-stub.ts` (script grammar unchanged: `[tool NAME {json}]`,
+  `hit the limit`, `no helpers in plan`, `sign me out`, `ask permission`, `[route ID]`) plus `useModelStub(kit, stub)` =
+  Crewhouse `configureModelProvider` (provider id `byokit-stub`, model `test`). The bot id the stub reports comes
+  from `o.idPattern` (default `/Your id is ([a-z0-9-]+)\./`) and routing requests start with `o.routingMarker`
+  (default `'[routing]'`); Crewhouse passes its own grammar explicitly.
 
 ### 5.12 Version pin and upgrades
 
@@ -568,7 +572,7 @@ differs from `ENGINE_VERSION` is `needs-update`; `prepare()` then reinstalls int
 
 ```ts
 // engine.ts (O3)
-export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'installPolicy' | 'log'>
+export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'installPolicy' | 'log' | 'bridge'>
   & { pluginId: string; tools: ToolSpec[]; spawnEngine: boolean; onState(s: KitState): void; onExit(code: number | null): void };
 export class Engine {
   constructor(o: EngineOptions); readonly root: string; readonly bridgeSock: string;
@@ -588,7 +592,8 @@ export function gatewayTransport(ctx: { port: number; token: string; identityPat
 export const MEMBER_ID: RegExp;
 export function createMembers(ctx: { request: GatewayTransport['request']; root: string }): { ensure(member: Member): Promise<{ agentId: string; workspace: string }> };
 // bridge.ts (O5)
-export function writePlugin(dir: string, o: { id: string; tools: ToolSpec[]; paramPrefix: '__byokit' | '__crewhouse' }): void;
+export function resolveBridge(o?: { socketName?: string; paramPrefix?: string }): { socketName: string; paramPrefix: string };
+export function writePlugin(dir: string, o: { id: string; tools: ToolSpec[]; paramPrefix: string }): void;
 export class Bridge {
   constructor(o: { path: string; host?: ToolHost; permitted: (tool: string) => boolean; approvalTimeoutMs: number;
     onAsk(a: Approval): void; onAskGone(id: string): void });
@@ -1070,7 +1075,8 @@ examples/herdr-kit/     package.json  host.ts  web/index.html  web/app.ts  READM
    `runtime.ts` with a thin `OpenClawRuntime implements AgentRuntime` over the kit; keep product parts (tool schemas
    and descriptions, `trusted-skills.json`, `files.ts`, curation/learned-skills git, `learned`/`forget`/
    `runCollectionReview`/`setLearning`) in Crewhouse, implemented with `kit.call`/`kit.patchConfig`/`kit.allowOnce`.
-   Parity settings: `plugin.id: 'crewhouse'`, member `m<N>`, `permitted: t => t.startsWith('crew_')`,
+   Parity settings: `plugin.id: 'crewhouse'`, `bridge: { socketName: 'crewd.sock', paramPrefix: '__crewhouse' }`,
+   member `m<N>`, `permitted: t => t.startsWith('crew_')`,
    `installPolicy: { trustedSkills: src/openclaw/trusted-skills.json, ownRoots: [repo, crewDir] }`, the exact
    Crewhouse `config`, callback port from `CREWHOUSE_CALLBACK_PORT`/1455, `RunEnd` mapped back to Crewhouse's
    `kind: 'other'` with the original message (crew.ts keeps classifying). `runtime/openclaw/` is deleted; the first
@@ -1267,7 +1273,8 @@ H1, and O12/H10 (README example rows); later merges rebase.
 - Files: Crewhouse `package.json`, `src/openclaw/runtime.ts` (thin adapter), `src/openclaw/tools.ts` (schemas and
   descriptions moved from `plugin/index.js`), delete `src/openclaw/{gateway.ts,bridge.ts,plugin/,policy.mjs}`,
   `runtime/openclaw/`, `test/openclaw-stub.ts` (use the kit's), test injection seams.
-- Behavior and acceptance: section 10 step 3. Parity checklist in the PR: plugin loaded as `crewhouse`; same
+- Behavior and acceptance: section 10 step 3. Parity checklist in the PR: plugin loaded as `crewhouse` with
+  `bridge: { socketName: 'crewd.sock', paramPrefix: '__crewhouse' }` passed explicitly; same
   `openclaw.json` bytes after prepare on an existing state except kit-owned plugin path/env names; sign-in flows;
   migration; bridge permits; curation window; memory never paid; latency of a first token within ±10 % of before on
   the stub model (measured by Crewhouse's existing timing, if any, else recorded).
