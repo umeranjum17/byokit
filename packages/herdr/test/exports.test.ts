@@ -17,7 +17,7 @@ import { sealNotice, openNotice } from '../src/notices.ts';
 import { herdrLink, serve } from '../src/link.ts';
 import { herdrDevice } from '../src/device.ts';
 import type {
-  AgentRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrKitOptions, HerdrSnapshot, HerdrTransport,
+  AgentRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrKitOptions, HerdrSnapshot, HerdrSubscribeStop, HerdrTransport,
   PromptReceipt, StartAgent, TerminalSession,
 } from '../src/types.ts';
 
@@ -43,7 +43,7 @@ test('public types keep their frozen shapes (6.2)', () => {
   const session: TerminalSession = {
     ready: Promise.resolve(), onFrame: () => () => {}, send: () => {}, close: () => {}, pause: () => {}, resume: () => {}, exited: Promise.resolve({ code: 0, stderrTail: '' }),
   };
-  const transport: HerdrTransport = { call: async () => undefined, subscribe: () => () => {}, close: () => {} };
+  const transport: HerdrTransport = { call: async () => undefined, subscribe: () => (() => {}) as HerdrSubscribeStop, close: () => {} };
   void [adopt, own, status, ref, start, receipt, blocked, snapshot, event, session, transport];
 });
 

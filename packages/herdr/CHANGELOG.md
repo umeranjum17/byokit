@@ -58,6 +58,12 @@
   `kit.statusWatchReady()` resolving when the status-watch set has acked. The fake exposes
   `subscriptionCount()` (distinct held subscription sockets).
 
+- FIX subscribe errors and type (K4): `kit.subscribe(subs, on, onError?)` forwards `onError`
+  to the transport and returns its control surface (`HerdrSubscribeStop`: `ready`/`onReconnect`/
+  `onDisconnect`); a rejected filtered batch reports `invalid_subscription` once and never retries.
+  The kit's own event and per-pane watches log rejections to a new `HerdrKitOptions.onLog` hook
+  instead of swallowing them.
+
 - FIX docs drift (K10): README pins the v0.9.1 snapshot (protocol 22) instead of the H1
   protocol placeholder; `agents.ts` agrees muxr sends `target_pane_id` to `pane.split`; the
   fake bin's `api schema` reports the pinned identity with no placeholder text.

@@ -35,7 +35,7 @@ import { HerdrKit } from '../../src/kit.ts';
 import { herdrLink, serve, type HerdrScope } from '../../src/link.ts';
 import { herdrDevice } from '../../src/device.ts';
 import { boxPublicKeyB64, decodeB64Url, openNotice, sealNotice } from '../../src/notices.ts';
-import type { BlockedAgent, HerdrSnapshot, HerdrSubscription, HerdrTransport } from '../../src/types.ts';
+import type { BlockedAgent, HerdrSnapshot, HerdrSubscribeStop, HerdrSubscription, HerdrTransport } from '../../src/types.ts';
 import { words } from '../../src/words.ts';
 
 const ASSET_URL = 'https://github.com/herdrdev/herdr/releases/download/v0.9.1/herdr-linux-x86_64';
@@ -129,7 +129,7 @@ test('contract: start reaches ready and ping speaks the pinned protocol', async 
 test('contract: a protocol mismatch reports needs-update', async () => {
   const other = double({
     call: async () => ({ protocol: HERDR_PROTOCOL + 999 }),
-    subscribe: () => () => {},
+    subscribe: () => (() => {}) as HerdrSubscribeStop,
     close: () => {},
   });
   try {
@@ -153,7 +153,7 @@ test('contract: an event racing the bootstrap snapshot is applied after it, once
     call: async (method) => (method === 'session.snapshot' ? snapshot : { protocol: HERDR_PROTOCOL }),
     subscribe: (_subs, on) => {
       queueMicrotask(() => on({ type: 'pane.updated', pane: { pane_id: 'w1:p2', agent_status: 'working' } }));
-      return () => {};
+      return (() => {}) as HerdrSubscribeStop;
     },
     close: () => {},
   });
@@ -181,7 +181,7 @@ test('contract: a rejected subscription surfaces once and is not retried', async
       if (subs.some((s) => s.type === 'pane.agent_status_changed')) {
         onError('invalid_subscription', 'pane.agent_status_changed needs a pane_id');
       }
-      return () => {};
+      return (() => {}) as HerdrSubscribeStop;
     },
     close: () => {},
   });
@@ -227,7 +227,7 @@ test('contract: a malformed prompt receipt fails', async () => {
       }
       return { protocol: HERDR_PROTOCOL };
     },
-    subscribe: () => () => {},
+    subscribe: () => (() => {}) as HerdrSubscribeStop,
     close: () => {},
   });
   try {

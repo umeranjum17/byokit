@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { HERDR_PROTOCOL } from '../constants.ts';
 import type { HerdrKit } from '../kit.ts';
 import type { FakeHerdr } from './fake-herdr/server.ts';
-import type { AgentStatus, HerdrEvent, HerdrProtocolRange, HerdrSnapshot, HerdrSubscription, HerdrTransport, PromptReceipt } from '../types.ts';
+import type { AgentStatus, HerdrEvent, HerdrProtocolRange, HerdrSnapshot, HerdrSubscribeStop, HerdrSubscription, HerdrTransport, PromptReceipt } from '../types.ts';
 
 export type HerdrContractBench = {
   kit: HerdrKit;
@@ -60,6 +60,15 @@ export function herdrContract(
     }
   }
 
+  // Transport doubles that never exercise the control surface still satisfy its type.
+  function ackedStop(): HerdrSubscribeStop {
+    return Object.assign(() => {}, {
+      ready: Promise.resolve(true),
+      onReconnect() {},
+      onDisconnect() {},
+    });
+  }
+
   function agentStatusOf(snapshot: HerdrSnapshot, paneId: string): { status?: AgentStatus; panes: number } {
     let panes = 0;
     let status: AgentStatus | undefined;
@@ -99,7 +108,7 @@ export function herdrContract(
       };
       const kit = withTransport({
         call: async (method) => (method === 'session.snapshot' ? snapshot : { protocol: HERDR_PROTOCOL + 999 }),
-        subscribe: () => () => {},
+        subscribe: () => ackedStop(),
         close: () => {},
       });
       try {
@@ -120,7 +129,7 @@ export function herdrContract(
       if (!withTransport) return t.skip('make provides no transport double');
       const kit = withTransport({
         call: async () => ({ protocol: HERDR_PROTOCOL - 1 }),
-        subscribe: () => () => {},
+        subscribe: () => ackedStop(),
         close: () => {},
       });
       try {
@@ -147,7 +156,7 @@ export function herdrContract(
       };
       const transport: HerdrTransport = {
         call: async (method) => (method === 'session.snapshot' ? snapshot : { protocol: HERDR_PROTOCOL + 1 }),
-        subscribe: () => () => {},
+        subscribe: () => ackedStop(),
         close: () => {},
       };
       const inRange = withTransport(transport);
@@ -187,7 +196,7 @@ export function herdrContract(
         call: async (method) => (method === 'session.snapshot' ? snapshot : { protocol: HERDR_PROTOCOL }),
         subscribe: (_subs, on) => {
           queueMicrotask(() => on({ type: 'pane_updated', pane: { pane_id: 'w1:p2', agent_status: 'working' } }));
-          return () => {};
+          return ackedStop();
         },
         close: () => {},
       });
@@ -214,7 +223,7 @@ export function herdrContract(
           if (subs.some((s) => s.type === 'pane.agent_status_changed')) {
             onError('invalid_subscription', 'pane.agent_status_changed needs a pane_id');
           }
-          return () => {};
+          return ackedStop();
         },
         close: () => {},
       });
@@ -224,9 +233,19 @@ export function herdrContract(
         // Deliberately schema-invalid: the pinned schema (6.7) requires pane_id for this filtered
         // kind, so the server rejects the batch — the exact answer the transport double gives here.
         const rejected = { type: 'pane.agent_status_changed' } as unknown as HerdrSubscription;
-        kit.subscribe([rejected], () => {});
+        const errors: { code: string; message: string }[] = [];
+        const stop = kit.subscribe([rejected], () => {},
+          (code, message) => errors.push({ code, message }));
+        assert.equal(typeof stop, 'function');
+        assert.ok(stop.ready instanceof Promise, 'the stop carries the ack promise');
+        assert.equal(typeof stop.onReconnect, 'function');
+        assert.equal(typeof stop.onDisconnect, 'function');
         await settle(1200);   // longer than the 1 s reconnect delay a retry would use
+        assert.deepEqual(errors.map((e) => e.code), ['invalid_subscription'],
+          'the rejection reaches onError exactly once');
+        assert.match(errors[0].message, /pane_id/);
         assert.equal(subscribeCalls, bootstrapCalls + 1, 'the rejected subscription is never retried');
+        stop();
       } finally {
         await kit.stop().catch(() => {});
       }
@@ -342,7 +361,7 @@ export function herdrContract(
           }
           return { protocol: HERDR_PROTOCOL };
         },
-        subscribe: () => () => {},
+        subscribe: () => ackedStop(),
         close: () => {},
       });
       try {

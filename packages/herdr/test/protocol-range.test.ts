@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { HERDR_PROTOCOL } from '../src/constants.ts';
 import { HerdrKit } from '../src/kit.ts';
-import type { HerdrProtocolRange, HerdrTransport } from '../src/types.ts';
+import type { HerdrProtocolRange, HerdrSubscribeStop, HerdrTransport } from '../src/types.ts';
 
 const snapshot = (protocol: number) => ({
   protocol,
@@ -22,7 +22,7 @@ function double(protocol: number, snapshotProtocol?: number): HerdrTransport {
   return {
     call: async (method) =>
       method === 'session.snapshot' ? snapshot(snapshotProtocol ?? protocol) : { protocol },
-    subscribe: () => () => {},
+    subscribe: () => (() => {}) as HerdrSubscribeStop,
     close() {},
   };
 }

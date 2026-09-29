@@ -15,14 +15,25 @@ export type HerdrProtocolRange = { min?: number; max?: number };
 
 export type HerdrKitOptions =
   | { mode: 'adopt'; bin: string; socketPath: string; env?: Record<string, string>; path?: string[];
-      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; onState?: (s: HerdrState) => void }
+      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; onState?: (s: HerdrState) => void;
+      onLog?: (message: string) => void }
   | { mode: 'own'; bin: string; stateDir: string; env?: Record<string, string>; path?: string[];
-      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; onState?: (s: HerdrState) => void };
+      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; onState?: (s: HerdrState) => void;
+      onLog?: (message: string) => void };
+
+// A live subscription: call to unsubscribe. `ready` resolves true on the server ack and false on a
+// rejected batch (a rejection is reported via `onError` and never retried); the reconnect hooks
+// fire only on later drops of an acknowledged socket.
+export type HerdrSubscribeStop = (() => void) & {
+  ready: Promise<boolean>;
+  onReconnect(fn: () => void): void;
+  onDisconnect(fn: () => void): void;
+};
 
 export interface HerdrTransport {                        // socket.ts implements it; the fake does too
   call(method: string, params: Record<string, unknown>, timeoutMs?: number): Promise<unknown>;
   subscribe(subs: { type: string; [k: string]: unknown }[], on: (e: HerdrEvent) => void,
-            onError: (code: string, message: string) => void): () => void;   // own socket per call
+            onError: (code: string, message: string) => void): HerdrSubscribeStop;   // own socket per call
   close(): void;
 }
 

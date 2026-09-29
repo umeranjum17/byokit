@@ -7,7 +7,7 @@ import { closePane, closeTab, closeWorkspace } from './close.ts';
 import { Supervisor } from './supervise.ts';
 import type {
   AgentRef, AgentSessionRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,
-  HerdrParams, HerdrResult, HerdrSnapshot, HerdrSnapshotAgent, HerdrSnapshotPane, HerdrSnapshotWorkspace, HerdrState, HerdrSubscription, PromptReceipt, StartAgent, TerminalSession,
+  HerdrParams, HerdrResult, HerdrSnapshot, HerdrSnapshotAgent, HerdrSnapshotPane, HerdrSnapshotWorkspace, HerdrState, HerdrSubscription, HerdrSubscribeStop, PromptReceipt, StartAgent, TerminalSession,
   HerdrTransport,
 } from './types.ts';
 
@@ -139,6 +139,11 @@ export class HerdrKit {
   get state(): HerdrState { return this.current; }
   private publish() { for (const fn of this.listeners) fn(this.snapshot()); }
   private emitRaw(e: HerdrEvent) { for (const fn of [...this.rawListeners]) fn(e); }
+  // The kit's own watches report rejections here so the host keeps its invalid_subscription
+  // logging without tapping the transport.
+  private watchError(where: string): (code: string, message: string) => void {
+    return (code, message) => this.o.onLog?.(`herdr: ${where} subscription rejected: ${code}: ${message}`);
+  }
   private update(e: HerdrEvent) {
     const raw = e as Raw;
     // The pinned schema spells subscription kinds with dots (`pane.created`) while live
@@ -253,7 +258,7 @@ export class HerdrKit {
     for (const pane of this.tree.workspaces.flatMap((w) => w.tabs).flatMap((t) => t.panes)) {
       if (!pane.agent) continue;
       const stop = this.transport!.subscribe([{ type: 'pane.agent_status_changed', pane_id: pane.id }],
-        (e) => { this.emitRaw(e); this.update(e); }, () => {});
+        (e) => { this.emitRaw(e); this.update(e); }, this.watchError('status'));
       this.stops.add(stop);
       this.statusStops.add(stop);
       const ready = (stop as typeof stop & { ready?: Promise<unknown> }).ready;
@@ -289,7 +294,7 @@ export class HerdrKit {
       else if (name === 'pane.agent.detected' || /^(pane|tab|workspace)\.(created|closed|moved|renamed)$/.test(name)) {
         buffered.push(e); refresh();
       } else this.update(e);
-    }, () => {});
+    }, this.watchError('events'));
     this.stops.add(stop);
     try {
       const control = stop as typeof stop & { ready?: Promise<boolean>; onReconnect?: (fn: () => void) => void;
@@ -332,7 +337,7 @@ export class HerdrKit {
     return this.transport.call(method, values, timeout) as Promise<HerdrResult<M>>;
   }
   subscribe<E extends HerdrEventName>(subs: HerdrSubscription<E>[], on: (e: HerdrEventOf<E>) => void,
-    onError?: (code: string, message: string) => void): () => void {
+    onError?: (code: string, message: string) => void): HerdrSubscribeStop {
     if (!this.transport) throw new Error('herdr: not connected');
     return this.transport.subscribe(subs, on as (e: HerdrEvent) => void, onError ?? (() => {}));
   }
