@@ -1,6 +1,7 @@
 // Host-side link adapter (7.1): typed, member-checked ops over @byokit/link, sealed approval push
 // via the relay (7.3). Node only.
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import {
@@ -13,13 +14,20 @@ import {
 } from '@byokit/link';
 import { reach, type ServeIngress, type Via } from '@byokit/reach';
 import type { PushAction, RelayClient } from '@byokit/relay';
+import { ENGINE_VERSION } from './constants.ts';
 import type { OpenClawKit } from './kit.ts';
 import { b64urlDecode, sealNotice } from './notices.ts';
 import { routeFor } from './routes.ts';
-import type { Approval, Member, SignInView } from './types.ts';
+import { signedInProviders } from './runs.ts';
+import type { Approval, Member, RunSpec, SignInView } from './types.ts';
 import { stateWords, words } from './words.ts';
 
 const VIEW_OPS = new Set(['oc.state', 'oc.routes', 'oc.signin.view', 'oc.sessions', 'oc.approvals', 'oc.events']);
+
+// This kit's own version, read once from its package.json (beside src/ and dist/ alike).
+const KIT_VERSION = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
+
+const THINKING = new Set(['off', 'low', 'medium', 'high']);
 
 const refused = () => new PublicLinkError(words('link.notAllowed'));
 
@@ -35,6 +43,28 @@ function memberSessions(result: unknown, member: Member): Record<string, unknown
     (row): row is Record<string, unknown> =>
       isRecord(row) && typeof row.sessionKey === 'string' && memberKey(member, row.sessionKey),
   );
+}
+
+/** `oc.run`'s run options, type-checked; the kit's own checks (account, tool names) still apply. */
+function runOptions(args: Record<string, unknown>): Omit<RunSpec, 'member' | 'sessionKey' | 'register' | 'meta'> {
+  const { message, model, system, images, thinking, tools } = args;
+  const ok = typeof message === 'string'
+    && (model === undefined || typeof model === 'string')
+    && (system === undefined || typeof system === 'string')
+    && (images === undefined || (Array.isArray(images) && images.every((i) =>
+      isRecord(i) && typeof i.data === 'string' && typeof i.mimeType === 'string')))
+    && (thinking === undefined || (typeof thinking === 'string' && THINKING.has(thinking)))
+    && (tools === undefined || (Array.isArray(tools) && tools.every((t) => typeof t === 'string')));
+  if (!ok) throw new Error('oc.run needs { message, sessionKey?, model?, system?, images?, thinking?, tools? }');
+  return {
+    message: message as string,
+    ...(model === undefined ? {} : { model: model as string }),
+    ...(system === undefined ? {} : { system: system as string }),
+    ...(images === undefined ? {} : { images: (images as { data: string; mimeType: string }[])
+      .map((i) => ({ data: i.data, mimeType: i.mimeType })) }),
+    ...(thinking === undefined ? {} : { thinking: thinking as RunSpec['thinking'] }),
+    ...(tools === undefined ? {} : { tools: [...(tools as string[])] }),
+  };
 }
 
 type SignInDrive = { paste(text: string): void; cancel(): void };
@@ -107,13 +137,29 @@ export function openclawLink(
   const endReason = (error: unknown): string =>
     error instanceof PublicLinkError ? error.message.slice(0, 200) : 'failed';
 
+  const signIns = async (member: Member): Promise<string[] | undefined> => {
+    try {
+      const { agentId } = await kit.ensureMember(member);
+      const status = await (kit.call as (method: string, params: unknown, o: { timeoutMs: number }) => Promise<unknown>)(
+        'models.authStatus', { agentId }, { timeoutMs: 5_000 });
+      return signedInProviders(status);
+    } catch {
+      return undefined;
+    }
+  };
+
   const handle = async (req: LinkRequest, grant: Grant): Promise<unknown> => {
     const member = memberOf(grant);
     if (grant.role === 'view' && !VIEW_OPS.has(req.op)) throw refused();
     const args = isRecord(req.args) ? req.args : {};
     switch (req.op) {
-      case 'oc.state':
-        return { state: kit.state, words: stateWords(kit.state) };
+      case 'oc.state': {
+        // signedIn: the providers the device member is usably signed in to (an expired or unfinished sign-in is not),
+        // only while the engine can say: absent is unknown, never "none".
+        const signedIn = kit.state.phase === 'ready' ? await signIns(member) : undefined;
+        return { state: kit.state, words: stateWords(kit.state), version: KIT_VERSION, engine: ENGINE_VERSION,
+          ...(signedIn ? { signedIn } : {}) };
+      }
       case 'oc.routes':
         return kit.routes().filter((route) => route.offer);
       case 'oc.signin.start': {
@@ -215,18 +261,19 @@ export function openclawLink(
     if (req.op === 'oc.run') {
       if (grant.role === 'view') throw refused();
       const args = isRecord(req.args) ? req.args : {};
-      if (typeof args.message !== 'string' || (args.model !== undefined && typeof args.model !== 'string'))
-        throw new Error('oc.run needs { message, sessionKey?, model? }');
+      const options = runOptions(args);
       const sessionKey = args.sessionKey === undefined ? `agent:${member}:link:${randomUUID()}` : args.sessionKey;
       if (typeof sessionKey !== 'string' || !memberKey(member, sessionKey)) throw refused();
+      // A tool the kit does not register is not this device's to name.
+      const known = new Set(kit.toolNames());
+      if (options.tools?.some((tool) => !known.has(tool))) throw refused();
       // Ordered frames over the paced stream: each write waits for the last.
       let tail = Promise.resolve();
       const send = (frame: unknown): void => {
         tail = tail.then(() => s.write(`${JSON.stringify(frame)}\n`)).catch(() => {});
       };
       try {
-        const end = await kit.run({ member, sessionKey, message: args.message,
-          ...(args.model === undefined ? {} : { model: args.model as string }) }, (e) => send(e));
+        const end = await kit.run({ member, sessionKey, ...options }, (e) => send(e));
         send({ type: 'end', end });
         await tail;
         s.end();

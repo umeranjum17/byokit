@@ -355,3 +355,24 @@ test('a garbage frame denies without touching the host', async () =>
     assert.deepEqual(await askBridge(sockPath, 'this is not json'), { allow: false, reason: 'not a gate request' });
     assert.deepEqual(await askBridge(sockPath, { kind: 'dance' }), { allow: false, reason: 'not a gate request' });
   }));
+
+test('runs sharing a session key share the narrowest tool subset, and each release ends only its own run', async () =>
+  withBridge({}, async (bridge, sockPath) => {
+    const key = 'agent:m1:x';
+    const gate = (tool = 'note') => askBridge(sockPath, { kind: 'gate', key, tool, input: { text: 'hi' } });
+    const narrowed = { allow: false, reason: 'this tool is not available in this run' };
+    const withNote = bridge.register({ sessionKey: key, member: 'm1' }, ['note']);
+    const everything = bridge.register({ sessionKey: key, member: 'm1' });
+    assert.equal((await gate()).allow, true);
+    // A run allowed no app tool narrows the key while it lives; an unrestricted run beside it never widens it.
+    const none = bridge.register({ sessionKey: key, member: 'm1' }, []);
+    assert.deepEqual(await gate(), narrowed);
+    assert.equal((await gate('web_fetch')).allow, true, 'engine builtins stay with the gate');
+    none();
+    none(); // a second release of the same run changes nothing
+    assert.equal((await gate()).allow, true);
+    withNote();
+    assert.equal((await gate()).allow, true, 'the other run on the key is still registered');
+    everything();
+    assert.deepEqual(await gate(), { allow: false, reason: 'unknown run' });
+  }));

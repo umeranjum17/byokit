@@ -235,13 +235,21 @@ export interface RunSpec extends RunRef {
   images?: { data: string; mimeType: string }[];
   thinking?: 'off' | 'low' | 'medium' | 'high';
   model?: string;                                              // 'provider/model': the account this run calls and bills
+  tools?: string[];                                            // app tools (KitOptions.tools names) this run may call
   register?: boolean;                                          // default true: the bridge recognizes this run
 }
 export type RunEvent =
   | { type: 'text'; text: string }                             // cumulative assistant text
-  | { type: 'tool'; name: string; phase: 'start' | 'end' };
+  | { type: 'tool'; name: string; phase: 'start' | 'end';
+      id?: string;                                             // engine toolCallId, pairs start and end
+      input?: Record<string, unknown>;                         // start: the call's arguments
+      output?: unknown; error?: boolean };                     // end: the engine's tool result, and whether it failed
+export type RunUsage = { input?: number; output?: number; cacheRead?: number; cacheWrite?: number;
+  reasoning?: number; total?: number; costUsd?: number };      // the engine's run total
+export type PlanWindow = { provider: string; plan?: string;
+  windows: { label: string; usedPercent: number; resetAt?: number }[] };   // usedPercent 0-100, resetAt epoch ms
 export type RunEnd =
-  | { ok: true; text: string }
+  | { ok: true; text: string; usage?: RunUsage; planWindow?: PlanWindow }   // each only when the engine reports it
   | { ok: false; aborted: true }
   | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other'; until?: number; message: string };
 export type SignInView = {
@@ -325,6 +333,7 @@ export class OpenClawKit {
   migrateRetainedLogin(member: Member, source: RetainedLogin): Promise<'staged' | 'nothing' | 'failed'>;
   confirmRetainedLogin(member: Member, source: RetainedLogin): Promise<boolean>;
   // runs (5.8)
+  toolNames(): string[];                                        // KitOptions.tools names: what RunSpec.tools may carry
   run(spec: RunSpec, on?: (e: RunEvent) => void): Promise<RunEnd>;
   steer(sessionKey: string, text: string): Promise<void>;
   abort(sessionKey: string): Promise<void>;
@@ -479,11 +488,26 @@ the view fails with `why: 'busy'`. Mapping to `SignInView.why`: setup-admission-
 - `ensureMember(member)`: validate the id (D9); `agents.list`; if absent `agents.create { name: member, workspace:
   <root>/workspaces/<member> }`; cache.
 - `run(spec, on)`: reject a `sessionKey` not starting `agent:<member>:` (member boundary). Register with the bridge
-  unless `register === false`. Subscribe to Gateway `agent` events filtered by `runId`: `stream === 'assistant'` with
-  string `data.text` → `{ type: 'text', text }`; `stream === 'tool'` with string `data.name` → `{ type: 'tool', name,
-  phase: anything but `start` ends the pair (the engine marks completion `phase: 'result'`, O11) }`. Request `agent { agentId, sessionKey, message, extraSystemPrompt,
-  idempotencyKey: uuid, attachments?, thinking?, provider?, model? }`, then `agent.wait { runId, timeoutMs: 3_600_000 }` (client timeout
-  3_610_000). `status === 'ok'` → final text event and `{ ok: true, text: terminalReply.text ?? last }`;
+  unless `register === false`, with `spec.tools` as the run's subset (5.9); a `spec.tools` name outside
+  `KitOptions.tools` is refused before any request. Subscribe to Gateway `agent` events filtered by `runId`:
+  `stream === 'assistant'` with string `data.text` → `{ type: 'text', text }`; `stream === 'tool'` with string
+  `data.name` and `data.phase` `start` → `{ type: 'tool', name, phase: 'start', id: data.toolCallId, input: data.args }`,
+  `result` (the pin, O11) or `end` → `{ phase: 'end', id, output: data.result, error: data.isError }` (each field only
+  when present with its type); the pin's `update`, `input_delta` and `review` phases are progress inside the pair and
+  are not forwarded. Pin facts: the kit's `tool-events` cap makes the connection that sent `agent` a tool-event
+  recipient, and that copy is never stripped by verbose level; `args` has its strings redacted, `result` text
+  content is capped at 8000 characters by the engine. Request `agent { agentId, sessionKey, message,
+  extraSystemPrompt, idempotencyKey: uuid, attachments?, thinking?, provider?, model? }` with `expectFinal`: the
+  interim `status: 'accepted'` frame names the run (its `runId` is taken as it lands), then `agent.wait { runId,
+  timeoutMs: 3_600_000 }` (client timeout 3_610_000) decides the end as before. `status === 'ok'` → final text event
+  and `{ ok: true, text: terminalReply.text ?? last, usage?, planWindow? }`. `usage` is the `agent` request's final
+  frame `result.meta.agentMeta.usage` (the pin sums every model call of the run, compaction included, and omits zero
+  buckets), renamed `reasoningTokens → reasoning`, plus `agentMeta.costUsd` when the engine priced the model; the
+  kit waits at most 5 s for that frame after the wait says ok, and no frame or no usage is no `usage`. `planWindow`
+  is the `models.authStatus { agentId }` row for `agentMeta.provider` when its `usage.windows` lists at least one
+  window (`{ label, usedPercent 0-100, resetAt? epoch ms }`, `usage.plan`): the engine's own cached read of the
+  provider's usage endpoint (subscription OAuth only, 60 s cache), never estimated by the kit; the pin reports no
+  window per run, on `agent.wait` or on any agent event.
   `stopReason === 'aborted'` → `{ ok: false, aborted: true }`; the engine's own abort receipt is
   `status: 'error', stopReason: 'rpc'` with the run's lifecycle end carrying `aborted: true` (O11), so a
   non-ok receipt on a lifecycle-flagged run also ends `{ ok: false, aborted: true }`;
@@ -525,7 +549,11 @@ now"). Crewhouse passes `__crewhouse` explicitly, so its injected names are unch
 **Bridge** (`src/bridge.ts`) = Crewhouse `ToolBridge`: unix socket at `BYOKIT_BRIDGE_SOCK`, `register`/`unregister`
 runs by session key, one-use permits bound to key + tool + exact JSON input, unknown run fails closed, any error
 answers `{ allow: false }`. The bridge knows the app's tool names: a builtin reaches `host.gate` with `{ builtin: true }`
-and an allow gets neither permit nor ticket, and a `call` for a name outside `tools` is refused. `prepare` rewrites
+and an allow gets neither permit nor ticket, and a `call` for a name outside `tools` is refused. `register(run,
+tools?)` adds one registration with the run's subset (`RunSpec.tools`) and returns its release; a key stays registered
+until its last run releases (permits and tickets go with it). Runs sharing a key share the narrowest subset: a gate for
+an app tool missing from any live subset is denied before `host.gate` (builtins are unaffected). The pin's `agent` params have no per-run tool list (closed schema), so the model still sees
+every tool; the gate is the enforcement. `prepare` rewrites
 the shipped `plugin/index.js` whenever it differs, so a state dir from an older kit never keeps an older gate. Generalizations: `permitted(tool)` replaces the `crew_` prefix test (Crewhouse passes
 `t => t.startsWith('crew_')`); `allowOnce`/`disallowOnce` replace `armCuration` (one call, key prefix + tool + input
 predicate, expires after `ms`, consumed on first match). A gate result `{ ask }` creates an `Approval`
@@ -586,8 +614,11 @@ differs from a fresh run against the pinned tarball in the engine job.
 - Default handlers: `health`; `agents.list`/`agents.create` (in-memory); `models.authStatus`/`models.authLogout`
   (in-memory per agent); `openclaw.setup.auth.start` + `wizard.next` + `wizard.cancel` running the device-code script
   from Crewhouse's `openclaw-wizard.test.ts` (`DEVICE_STEP`, then progress, then done) and marking the agent signed in
-  to `openai`; `agent` (returns `runId`, emits `agent` events: one assistant text `fake: <message>` and, for a message
-  `[tool NAME {json}]`, a tool start/end pair after calling the kit's bridge like the plugin does);
+  to `openai`; `agent` (returns `{ runId, status: 'accepted' }`, emits `agent` events: one assistant text
+  `fake: <message>` and, for a message `[tool NAME {json}]`, a tool `start`/`result` pair shaped like the pin's
+  (`toolCallId` `call-<n>`, `args`; `result: { content: [{ type: 'text', text }] }`, `isError`) after calling the kit's
+  bridge like the plugin does; with `expectFinal` the accepted frame goes to `onAccepted` and the request settles with
+  the pin-shaped final frame, `result.meta.agentMeta { provider, model, usage }`, usage counted in characters);
   `agent.wait` (resolves `{ status: 'ok', terminalReply: { text } }`); `sessions.steer`; `chat.abort` (makes the
   pending wait resolve `{ status: 'error', stopReason: 'rpc' }` with a lifecycle end carrying `aborted: true`
   (O11: the engine's abort shape, which `runs.ts` maps back to aborted); `config.get`/`config.patch` (hash check,
@@ -599,7 +630,8 @@ differs from a fresh run against the pinned tarball in the engine job.
   a run with text streaming, a tool call gated `ask` → approve → result, gated deny, abort, native exec approval
   round-trip, `call` pass-through for `health`, config invariants after `patchConfig`.
 - `startModelStub(script, o?)` = Crewhouse `test/openclaw-stub.ts` (script grammar unchanged: `[tool NAME {json}]`,
-  `hit the limit`, `no helpers in plan`, `sign me out`, `ask permission`, `[route ID]`) plus `useModelStub(kit, stub)` =
+  `hit the limit`, `no helpers in plan`, `sign me out`, `ask permission`, `[route ID]`; a reply asked
+  `stream_options.include_usage` ends with a `STUB_USAGE` usage chunk, as OpenAI does) plus `useModelStub(kit, stub)` =
   Crewhouse `configureModelProvider` (provider id `byokit-stub`, model `test`). The bot id the stub reports comes
   from `o.idPattern` (default `/Your id is ([a-z0-9-]+)\./`) and routing requests start with `o.routingMarker`
   (default `'[routing]'`); Crewhouse passes its own grammar explicitly. Tool results count from the message the
@@ -1051,7 +1083,7 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 
 | Op | Args | Returns |
 |---|---|---|
-| `oc.state` *view* | — | `{ state: KitState, words: string }` |
+| `oc.state` *view* | — | `{ state: KitState, words: string, version, engine, signedIn? }`: this kit's package version, `ENGINE_VERSION`, and the providers the device member is usably signed in to while `ready` (`models.authStatus` rows by the 5.8 usable rule: an expired or unfinished sign-in is not; absent when not ready or the status is unavailable, never `[]` for unknown) |
 | `oc.routes` *view* | — | offered routes only (`offer: true`) |
 | `oc.signin.start` | `{ provider, via }` | `SignInView` (kit picks `routeFor(provider, via)`) |
 | `oc.signin.view` *view* | `{ provider }` | `{ ready, view: SignInView \| null }` for `toAccountView` |
@@ -1059,7 +1091,7 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 | `oc.signin.cancel` | `{ provider }` | `null` |
 | `oc.signout` | `{ provider }` | `null` |
 | `oc.sessions` *view* | — | `sessions.list` filtered to `agent:<member>:` keys |
-| `oc.run` (stream) | `{ sessionKey?, message, model? }` | frames `RunEvent` then `{ type: 'end', end: RunEnd }`; key defaults to `agent:<member>:link:<uuid>` |
+| `oc.run` (stream) | `{ sessionKey?, message, model?, system?, images?, thinking?, tools? }` | frames `RunEvent` then `{ type: 'end', end: RunEnd }`; key defaults to `agent:<member>:link:<uuid>`; options are type-checked (`thinking` one of `off|low|medium|high`, `images` `{ data, mimeType }[]`); a `tools` name outside `kit.toolNames()` → `link.notAllowed` |
 | `oc.steer` | `{ sessionKey, text }` | `null` (key must be the member's) |
 | `oc.abort` | `{ sessionKey }` | `null` (key must be the member's) |
 | `oc.approvals` *view* | — | the member's `Approval[]` |
@@ -1092,14 +1124,17 @@ export type OpenClawLinkEvent =                             // oc.events frames
   | { [E in GatewayEventName]: { event: E; payload: GatewayEventPayload<E> } }[GatewayEventName]
   | { event: 'approval'; change: 'added' | 'resolved'; approval: Approval };
 export type SessionRow = { sessionKey: string; [k: string]: unknown };
+export type DeviceRunOptions = { sessionKey?: string; model?: string; system?: string;
+  images?: { data: string; mimeType: string }[]; thinking?: 'off' | 'low' | 'medium' | 'high'; tools?: string[] };
+export type DeviceState = { state: KitState; words: string; version: string; engine: string; signedIn?: string[] };
 export function openclawDevice(link: DeviceLink): {
-  state(): Promise<{ state: KitState; words: string }>;
+  state(): Promise<DeviceState>;                            // oc.state
   routes(): Promise<Route[]>;
   signIn: { start(p: string, via: 'browser' | 'code'): Promise<SignInView>; view(p: string): Promise<AccountView>;
             paste(p: string, t: string): Promise<void>; cancel(p: string): Promise<void> };
   signOut(p: string): Promise<void>;                        // oc.signout
   sessions(): Promise<SessionRow[]>;                        // oc.sessions
-  run(message: string, o?: { sessionKey?: string; model?: string }): AsyncIterable<RunEvent | { type: 'end'; end: RunEnd }>;
+  run(message: string, o?: DeviceRunOptions): AsyncIterable<RunEvent | { type: 'end'; end: RunEnd }>;
   steer(k: string, t: string): Promise<void>; abort(k: string): Promise<void>;
   approvals(): Promise<Approval[]>; decide(id: string, d: Decision): Promise<void>;
   events(): AsyncIterable<OpenClawLinkEvent>;

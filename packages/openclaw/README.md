@@ -54,6 +54,14 @@ provider or model. If the member isn't signed in to it, the run ends `{ ok: fals
 engine is never called. Leave `model` out to keep the engine's own choice. A specific sign-in (`@profile`) can't be
 picked per run: the pinned engine may still switch to another sign-in for the same provider.
 
+A run spec also takes `system`, `images` (`{ data, mimeType }[]`), `thinking` and `tools`, a subset of the app tools
+(`KitOptions.tools` names) this run may call; any other app tool is refused at the gate before `ToolHost.gate` sees
+it. Tool events carry the engine's call `id`, the `input` on `start` and the `output` and `error` on `end`. A run that
+ends ok carries `usage` (the engine's token total for the run, and `costUsd` when it priced the model) and
+`planWindow` (the subscription's quota windows as the engine last read them), each only when the engine reports it.
+`openclawDevice(link).run(message, o)` takes the same options over the link, and `state()` adds the kit and engine
+versions and the providers the device's member is signed in to.
+
 The same kit runs offline against the fake Gateway from `@byokit/openclaw/testing` (no engine, no network, no
 account), and lists the sign-in routes it offers:
 
@@ -89,7 +97,7 @@ Its output, run from this repo with Node:
 state: ready | protocol: 4
 event: {"type":"text","text":"fake: Say hello."}
 event: {"type":"text","text":"fake: Say hello."}
-end: {"ok":true,"text":"fake: Say hello."}
+end: {"ok":true,"text":"fake: Say hello.","usage":{"input":10,"output":16,"total":26}}
 route: openai                     subscription browser
 route: openai-device-code         subscription code
 route: xai-oauth                  subscription code
@@ -113,9 +121,9 @@ Entries:
 
 | Export | What it does |
 | --- | --- |
-| `OpenClawKit` (`.`) | Prepares, starts, supervises and stops the engine. `call` / `callDynamic` pass through to the Gateway, `onEvent` listens. Helpers: `ensureMember`, `routes`, `providers`, `signedIn`, `signIn`, `signOut`, `migrateRetainedLogin`, `confirmRetainedLogin`, `run`, `steer`, `abort`, `approvals`, `onApproval`, `decide`, `allowOnce`, `disallowOnce`, `patchConfig`, `memoryLimited`, `doctorContext` |
+| `OpenClawKit` (`.`) | Prepares, starts, supervises and stops the engine. `call` / `callDynamic` pass through to the Gateway, `onEvent` listens. Helpers: `ensureMember`, `routes`, `providers`, `signedIn`, `signIn`, `signOut`, `migrateRetainedLogin`, `confirmRetainedLogin`, `toolNames`, `run`, `steer`, `abort`, `approvals`, `onApproval`, `decide`, `allowOnce`, `disallowOnce`, `patchConfig`, `memoryLimited`, `doctorContext` |
 | `ENGINE_VERSION`, `PROTOCOL_VERSION`, `OPERATOR_SCOPES` (`.`) | The pinned engine version, its protocol and the operator scopes the kit connects with |
-| `KitOptions`, `RunSpec`, `RunEvent`, `RunEnd`, `Route`, `Approval`, `Decision`, `ToolSpec`, `ToolHost`, `KitState`, ... (`.`) | Public types (docs/runtime-kits.md §5.2) |
+| `KitOptions`, `RunSpec`, `RunEvent`, `RunEnd`, `RunUsage`, `PlanWindow`, `Route`, `Approval`, `Decision`, `ToolSpec`, `ToolHost`, `KitState`, ... (`.`) | Public types (docs/runtime-kits.md §5.2) |
 | `openclawDevice(link)` (`./device`) | Portable client: state, routes, sign-in, runs, steer, abort, approvals, events, sealed notices, pass-through `call` |
 | `LinkRefused`, `openNotice` (`./device`) | The host's own refusal as an error; opens a sealed approval notice |
 | `words`, `stateWords`, `toAccountView` (`.`, `./device`) | The kit's sentences, so a phone shows the words the computer does; `toAccountView` feeds `@byokit/ui-core`'s `phaseOf` |

@@ -3,7 +3,7 @@
 // default-refused, notices are sealed with title-only relay, and serve() binds per reach.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { rmSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { scratchDir } from '../../test-support.ts';
@@ -24,6 +24,7 @@ import { openclawDevice, LinkRefused } from '../src/device.ts';
 import { openNotice } from '../src/notices.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import { words } from '../src/words.ts';
+import type { RunEvent } from '../src/types.ts';
 import { phaseOf } from '@byokit/ui-core';
 
 const NOT_ALLOWED = words('link.notAllowed');
@@ -49,10 +50,14 @@ type World = {
   stop(): void;
 };
 
-async function world(o: { passThrough?: (method: string, grant: Grant) => boolean; relay?: boolean } = {}): Promise<World> {
+async function world(o: { passThrough?: (method: string, grant: Grant) => boolean; relay?: boolean; tools?: boolean } = {}): Promise<World> {
   const fake = fakeGateway();
   const stateDir = scratchDir('o9');
-  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false });
+  // tools: two app tools, every call allowed and answered with its own name.
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, ...(o.tools ? {
+    tools: ['report', 'lookup'].map((name) => ({ name, description: name, parameters: { type: 'object' } })),
+    host: { gate: async () => ({ allow: true as const }), call: async (_run, tool) => `${tool} done` },
+  } : {}) });
   await kit.start();
   const relayCalls: World['relayCalls'] = [];
   const relay = (o.relay ?? true
@@ -194,7 +199,8 @@ test('oc.run streams text frames then end', async () => {
   const texts = frames.filter((f): f is { type: string; text: string } => (f as { type?: string }).type === 'text');
   assert.ok(texts.length >= 2, 'assistant stream plus the final cumulative text');
   assert.ok(texts.every((t) => t.text === 'fake: hello'));
-  assert.deepEqual(frames.at(-1), { type: 'end', end: { ok: true, text: 'fake: hello' } });
+  assert.deepEqual(frames.at(-1), { type: 'end', end: { ok: true, text: 'fake: hello',
+    usage: { input: 5, output: 11, total: 16 } } });
 });
 
 test('oc.run carries a picked account to the kit run', async () => {
@@ -203,9 +209,66 @@ test('oc.run carries a picked account to the kit run', async () => {
   const a = await device(w, 'a');
   const frames: unknown[] = [];
   for await (const f of a.oc.run('hello', { model: 'openai/gpt-5.1' })) frames.push(f);
-  assert.deepEqual(frames.at(-1), { type: 'end', end: { ok: true, text: 'fake: hello' } });
+  assert.deepEqual(frames.at(-1), { type: 'end', end: { ok: true, text: 'fake: hello', usage: { input: 5, output: 11, total: 16 } } });
   const call = w.fake.calls.find((c) => c.method === 'agent')?.params as Record<string, unknown>;
   assert.deepEqual([call.provider, call.model], ['openai', 'gpt-5.1']);
+});
+
+test('oc.run forwards system, images and thinking, and checks each option', async () => {
+  const w = await world();
+  const a = await device(w, 'a');
+  const images = [{ data: 'aGk=', mimeType: 'image/png' }];
+  for await (const _ of a.oc.run('look', { system: 'be brief', images, thinking: 'high' })) void _;
+  const call = w.fake.calls.find((c) => c.method === 'agent')?.params as Record<string, unknown>;
+  assert.equal(call.extraSystemPrompt, 'be brief');
+  assert.deepEqual(call.attachments, [{ mimeType: 'image/png', content: 'aGk=' }]);
+  assert.equal(call.thinking, 'high');
+  for (const bad of [{ thinking: 'max' }, { system: 1 }, { images: [{ data: 'x' }] }, { images: 'x' }, { tools: [1] }]) {
+    await assert.rejects(async () => { for await (const _ of a.oc.run('x', bad as never)) void _; }, LinkRefused);
+  }
+  assert.equal(w.fake.calls.filter((c) => c.method === 'agent').length, 1);
+});
+
+test('oc.run tool subset: only named kit tools run, an unknown name is refused, frames carry id, input and output', async () => {
+  const w = await world({ tools: true });
+  const a = await device(w, 'a');
+  await assert.rejects(async () => { for await (const _ of a.oc.run('x', { tools: ['report', 'shell'] })) void _; },
+    (e: unknown) => e instanceof LinkRefused && (e as Error).message === NOT_ALLOWED);
+  const frames: RunEvent[] = [];
+  for await (const f of a.oc.run('[tool report {"text":"hi"}] [tool lookup {"q":"x"}]', { tools: ['report'] }))
+    if (f.type === 'tool') frames.push(f);
+  assert.deepEqual(frames, [
+    { type: 'tool', name: 'report', phase: 'start', id: 'call-1', input: { text: 'hi' } },
+    { type: 'tool', name: 'report', phase: 'end', id: 'call-1', output: { content: [{ type: 'text', text: 'report done' }] }, error: false },
+    { type: 'tool', name: 'lookup', phase: 'start', id: 'call-2', input: { q: 'x' } },
+    { type: 'tool', name: 'lookup', phase: 'end', id: 'call-2',
+      output: { content: [{ type: 'text', text: 'this tool is not available in this run' }] }, error: true },
+  ]);
+  // Without a subset every kit tool runs.
+  const all: RunEvent[] = [];
+  for await (const f of a.oc.run('[tool lookup {"q":"x"}]')) if (f.type === 'tool') all.push(f);
+  assert.equal((all.at(-1) as { error?: boolean }).error, false);
+});
+
+test('oc.state carries the kit and engine versions and the member\'s sign-ins', async () => {
+  const w = await world();
+  const a = await device(w, 'a');
+  const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
+  assert.deepEqual(await a.oc.state(), { state: { phase: 'ready' }, words: words('engine.ready'), version, engine: '2026.8.1', signedIn: [] });
+  // Only a usable sign-in counts: an expired or unfinished one (the pin lists both) is not signed in.
+  w.fake.handle('models.authStatus', (p) => ({ providers: p.agentId === 'a' ? [{ provider: 'openai', status: 'ok' },
+    { provider: 'xai', status: 'expired', profiles: [{ status: 'expired' }] }, { provider: 'minimax', status: 'missing' }] : [] }));
+  assert.deepEqual((await a.oc.state()).signedIn, ['openai']);
+  w.fake.handle('models.authStatus', () => ({ providers: [], unavailable: { code: 'PREPARED_MODEL_AUTH_UNAVAILABLE' } }));
+  assert.equal((await a.oc.state()).signedIn, undefined, 'no prepared status is unknown, not none');
+  w.fake.handle('models.authStatus', (p) => ({ providers: p.agentId === 'a' ? [{ provider: 'openai', status: 'ok' }] : [] }));
+  const b = await device(w, 'b', 'view');
+  assert.deepEqual((await b.oc.state()).signedIn, []);
+  // While the engine can't say, signedIn is absent, never empty.
+  await w.kit.stop();
+  const stopped = await a.oc.state();
+  assert.equal(stopped.signedIn, undefined);
+  assert.equal(stopped.version, version);
 });
 
 test('oc.events carries only the member’s gateway events plus approval frames', async () => {

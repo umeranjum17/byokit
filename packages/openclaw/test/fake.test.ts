@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { fakeGateway, type FakeScript } from '../src/testing/fake-gateway.ts';
-import { startModelStub, toolCalls, useModelStub, releaseStub, stubHolding, type ModelStub } from '../src/testing/model-stub.ts';
+import { STUB_USAGE, startModelStub, toolCalls, useModelStub, releaseStub, stubHolding, type ModelStub } from '../src/testing/model-stub.ts';
 import type { OpenClawKit } from '../src/kit.ts';
 import type { GatewayTransport } from '../src/types.ts';
 import { scratchDir } from '../../test-support.ts';
@@ -43,7 +43,7 @@ async function startBridge(answers: { gate?: Record<string, unknown>; call?: Rec
       socket.pause();
       const reply = frame.kind === 'gate'
         ? (answers.gate ?? { allow: true, permit: 'permit-1' })
-        : (answers.call ?? { text: `bridge ${frame.tool}` });
+        : (answers.call ?? { ok: true, text: `bridge ${frame.tool}` });
       socket.end(JSON.stringify(reply) + '\n');
     });
   });
@@ -69,8 +69,8 @@ async function complete(stub: ModelStub, messages: unknown[]): Promise<any> {
   const chunks = (await res.text()).split('\n')
     .filter((line) => line.startsWith('data: ') && !line.includes('[DONE]'))
     .map((line) => JSON.parse(line.slice(6)));
-  const content = chunks.map((c) => c.choices[0].delta.content).filter((c) => typeof c === 'string').join('');
-  const tools = chunks.flatMap((c) => c.choices[0].delta.tool_calls ?? []);
+  const content = chunks.map((c) => c.choices[0]?.delta.content).filter((c) => typeof c === 'string').join('');
+  const tools = chunks.flatMap((c) => c.choices[0]?.delta.tool_calls ?? []);
   return { status: res.status, content, tools, chunks };
 }
 
@@ -152,6 +152,23 @@ test('a plain run streams one assistant text and the wait resolves ok', async ()
   await assert.rejects(req(t, 'agent', { agentId: 'ghost', sessionKey: 'agent:ghost:x', message: 'hi' }), /unknown agent: ghost/);
 });
 
+test('expectFinal hands the accepted frame over and settles with the run\'s final frame and usage', async () => {
+  const fake = fakeGateway();
+  const t = transport(fake);
+  await req(t, 'agents.create', { name: 'm1' });
+  const accepted: any[] = [];
+  const final = await t.request('agent', { agentId: 'm1', sessionKey: 'agent:m1:f:1', message: 'hi', idempotencyKey: 'kf',
+    provider: 'xai', model: 'grok-4' }, { expectFinal: true, onAccepted: (p) => accepted.push(p) }) as any;
+  assert.equal(accepted.length, 1);
+  assert.equal(accepted[0].status, 'accepted');
+  assert.deepEqual(final, { runId: accepted[0].runId, status: 'ok', summary: 'completed', result: { payloads: [{ text: 'fake: hi' }],
+    meta: { agentMeta: { provider: 'xai', model: 'grok-4', usage: { input: 2, output: 8, total: 10 } } } } });
+  // Without expectFinal the reply is the accepted frame itself, as before.
+  const ack = await req(t, 'agent', { agentId: 'm1', sessionKey: 'agent:m1:f:2', message: 'hi', idempotencyKey: 'kg' });
+  assert.equal(ack.status, 'accepted');
+  await req(t, 'agent.wait', { runId: ack.runId });
+});
+
 test('abort resolves the pending wait as aborted', async () => {
   const fake = fakeGateway();
   const t = transport(fake);
@@ -179,6 +196,11 @@ test('tool calls cross a real bridge: nested json, permit, start/end pairs', asy
     assert.deepEqual(mine.map((e) => [e.payload.stream, e.payload.data.name, e.payload.data.phase]), [
       ['tool', 'alpha', 'start'], ['tool', 'alpha', 'result'], ['tool', 'beta', 'start'], ['tool', 'beta', 'result'], ['assistant', undefined, undefined],
     ]);
+    // Engine-shaped fields: a toolCallId pairing start and result, the args on start, the result and isError on result.
+    assert.deepEqual(mine.slice(0, 2).map((e) => e.payload.data), [
+      { phase: 'start', name: 'alpha', toolCallId: 'call-1', args: { x: { y: 1 }, s: 'a}b' } },
+      { phase: 'result', name: 'alpha', toolCallId: 'call-1', isError: false, result: { content: [{ type: 'text', text: 'bridge alpha' }] } },
+    ]);
     assert.deepEqual(bridge.frames, [
       { kind: 'gate', key: 'agent:m1:t:1', tool: 'alpha', input: { x: { y: 1 }, s: 'a}b' } },
       { kind: 'call', key: 'agent:m1:t:1', permit: 'permit-1', tool: 'alpha', input: { x: { y: 1 }, s: 'a}b' } },
@@ -203,6 +225,8 @@ test('a denied gate calls nothing and still plays the tool pair', async () => {
     assert.equal(waited.status, 'ok');
     const mine = events.filter((e) => e.event === 'agent' && e.payload.runId === run.runId);
     assert.deepEqual(mine.map((e) => [e.payload.stream, e.payload.data.phase]), [['tool', 'start'], ['tool', 'result'], ['assistant', undefined]]);
+    assert.deepEqual(mine[1].payload.data, { phase: 'result', name: 'alpha', toolCallId: 'call-1', isError: true,
+      result: { content: [{ type: 'text', text: 'nope' }] } });
     assert.deepEqual(bridge.frames.map((f) => f.kind), ['gate']);
   } finally {
     await bridge.close();
@@ -336,6 +360,22 @@ test('the stub replies done with the last line and names the bot from its system
     assert.equal(stub.calls.length, 1);
     assert.equal(stub.calls[0].authorization, 'Bearer test-key');
     assert.equal(stub.calls[0].path, '/v1/chat/completions');
+  } finally {
+    await stub.close();
+  }
+});
+
+test('the stub reports its usage chunk only when asked, like OpenAI', async () => {
+  const stub = await startModelStub();
+  try {
+    const plainReply = await complete(stub, [{ role: 'user', content: 'hello' }]);
+    assert.equal(plainReply.chunks.some((c: any) => c.usage), false);
+    const res = await post(stub, '/v1/chat/completions', { model: 'test', stream_options: { include_usage: true },
+      messages: [{ role: 'user', content: 'hello' }] });
+    const chunks = (await res.text()).split('\n').filter((l) => l.startsWith('data: ') && !l.includes('[DONE]'))
+      .map((l) => JSON.parse(l.slice(6)));
+    assert.deepEqual(chunks.at(-1).usage, STUB_USAGE);
+    assert.deepEqual(chunks.at(-1).choices, []);
   } finally {
     await stub.close();
   }

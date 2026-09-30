@@ -1,24 +1,70 @@
 // Runs: one Gateway run per spec, streamed through typed events, ending in a classified RunEnd (5.8, O8).
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import type { Bridge } from './bridge.ts';
 import { classify } from './classify.ts';
-import type { GatewayTransport, Member, RunEnd, RunEvent, RunSpec } from './types.ts';
+import type { GatewayTransport, Member, PlanWindow, RunEnd, RunEvent, RunSpec, RunUsage } from './types.ts';
 
 // The gateway gives up on a silent run after an hour; we wait ten minutes longer for the reply frame itself.
 const WAIT_MS = 3_600_000;
 const WAIT_CLIENT_MS = 3_610_000;
+// The `agent` request's final frame lands with the run's end; a run already over waits no longer than this for it.
+const FINAL_GRACE_MS = 5_000;
+const STATUS_MS = 5_000;
 
 // The slice of the gateway's `agent` event payload a run streams (5.8); the rest passes to onEvent-less callers.
-type AgentPayload = { runId: string; stream: string; data?: { text?: unknown; name?: unknown; phase?: unknown } };
+type AgentPayload = { runId: string; stream: string; data?: {
+  text?: unknown; name?: unknown; phase?: unknown; toolCallId?: unknown; args?: unknown; result?: unknown; isError?: unknown;
+} };
 
 // `models.authStatus` provider rows (a bare string on older shapes). A provider is usable while any of its profiles
 // is: the row's own status is its worst profile's.
-type Row = { provider?: unknown; status?: unknown; profiles?: { status?: unknown }[] };
+type Row = { provider?: unknown; status?: unknown; profiles?: { status?: unknown }[]; usage?: unknown };
 type AuthStatus = { providers?: (string | Row)[]; unavailable?: { message?: unknown } };
 const USABLE = new Set(['ok', 'expiring', 'static']);
 const usable = (row: string | Row): boolean => typeof row === 'string'
   || (Array.isArray(row.profiles) && row.profiles.length > 0 ? row.profiles.some((p) => USABLE.has(String(p?.status)))
     : row.status === undefined || USABLE.has(String(row.status)));
+
+/**
+ * The providers a `models.authStatus` answer shows usable (the rule a picked account is checked by), lowercased and
+ * unique; undefined while the engine has no prepared status (unknown, not none).
+ */
+export function signedInProviders(status: unknown): string[] | undefined {
+  const auth = (status ?? {}) as AuthStatus;
+  if (auth.unavailable || !Array.isArray(auth.providers)) return undefined;
+  const names = auth.providers.filter((row) => row && usable(row))
+    .map((row) => (typeof row === 'string' ? row : row.provider))
+    .filter((name): name is string => typeof name === 'string' && name !== '');
+  return [...new Set(names.map((name) => name.toLowerCase()))];
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const count = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+
+/**
+ * The run's usage off the `agent` final frame's `result.meta.agentMeta` (pin: `usage` summed over the run, zero
+ * buckets and all-zero usage omitted; `costUsd` only when the engine has a price). Undefined when it reports none.
+ */
+function usageOf(agentMeta: Record<string, unknown>): RunUsage | undefined {
+  const u = isRecord(agentMeta.usage) ? agentMeta.usage : {};
+  const usage: RunUsage = {};
+  for (const [from, to] of [['input', 'input'], ['output', 'output'], ['cacheRead', 'cacheRead'], ['cacheWrite', 'cacheWrite'],
+    ['reasoningTokens', 'reasoning'], ['total', 'total']] as const) if (count(u[from])) usage[to] = u[from];
+  if (count(agentMeta.costUsd)) usage.costUsd = agentMeta.costUsd;
+  return Object.keys(usage).length ? usage : undefined;
+}
+
+/** The provider's quota windows from a `models.authStatus` row's `usage`, only when it lists at least one. */
+function planOf(provider: string, row: Row | undefined): PlanWindow | undefined {
+  const usage = row?.usage;
+  if (!isRecord(usage) || !Array.isArray(usage.windows)) return undefined;
+  const windows = usage.windows.filter((w): w is { label: string; usedPercent: number; resetAt?: unknown } =>
+    isRecord(w) && typeof w.label === 'string' && typeof w.usedPercent === 'number' && Number.isFinite(w.usedPercent))
+    .map((w) => ({ label: w.label, usedPercent: w.usedPercent, ...(count(w.resetAt) ? { resetAt: w.resetAt } : {}) }));
+  if (!windows.length) return undefined;
+  return { provider, ...(typeof usage.plan === 'string' ? { plan: usage.plan } : {}), windows };
+}
 
 /**
  * The account a run names, `provider/model`, split for the `agent` request's per-run `provider`/`model` override.
@@ -36,20 +82,33 @@ export function createRuns(ctx: {
   request: GatewayTransport['request'];
   onEvent: GatewayTransport['onEvent'];
   ensure(member: Member): Promise<{ agentId: string }>;
-  bridge: Pick<Bridge, 'register' | 'unregister'>;
+  bridge: Pick<Bridge, 'register'>;
+  tools: ReadonlySet<string>; // KitOptions.tools names, the only names a run's subset may carry
 }): {
   run(spec: RunSpec, on?: (e: RunEvent) => void): Promise<RunEnd>;
   steer(k: string, t: string): Promise<void>;
   abort(k: string): Promise<void>;
 } {
+  // The plan window the engine last read for the run's provider: `models.authStatus` answers from its cache without
+  // blocking. Nothing reported, or no answer in time, is no window.
+  const planWindowOf = async (agentId: string, provider: string): Promise<PlanWindow | undefined> => {
+    try {
+      const auth = await ctx.request('models.authStatus', { agentId }, { timeoutMs: STATUS_MS }) as AuthStatus;
+      const row = (auth.providers ?? []).find((e): e is Row => typeof e !== 'string' && e?.provider === provider);
+      return planOf(provider, row);
+    } catch {
+      return undefined;
+    }
+  };
   const run = async (spec: RunSpec, on?: (e: RunEvent) => void): Promise<RunEnd> => {
     // Member boundary first: a member never speaks in another member's session, refused before any request.
     if (!spec.sessionKey.startsWith(`agent:${spec.member}:`))
       throw new Error(`refused: "${spec.sessionKey}" is not a session of member "${spec.member}"`);
     const picked = spec.model === undefined ? undefined : account(spec.model);
+    for (const tool of spec.tools ?? [])
+      if (!ctx.tools.has(tool)) throw new Error(`refused: "${tool}" is not one of this kit's tools`);
     const { agentId } = await ctx.ensure(spec.member);
-    const registered = spec.register !== false;
-    if (registered) ctx.bridge.register({ sessionKey: spec.sessionKey, member: spec.member });
+    const release = spec.register !== false ? ctx.bridge.register({ sessionKey: spec.sessionKey, member: spec.member }, spec.tools) : undefined;
     let last = '';
     let runId = ''; // gateway events for other runs carry a real runId and never match the empty one
     let ended = false;
@@ -66,8 +125,16 @@ export function createRuns(ctx: {
         last = p.data.text;
         on?.({ type: 'text', text: p.data.text });
       } else if (p.stream === 'tool' && typeof p.data?.name === 'string') {
-        // The real engine marks completion `phase: 'result'` (O11); anything but `start` ends the pair.
-        on?.({ type: 'tool', name: p.data.name, phase: p.data.phase === 'start' ? 'start' : 'end' });
+        // The real engine marks completion `phase: 'result'` (O11). Its `update`, `input_delta` and `review` phases
+        // are progress inside the pair, not its end.
+        const d = p.data;
+        const end = d.phase === 'result' || d.phase === 'end';
+        if (d.phase !== 'start' && !end) return;
+        on?.({ type: 'tool', name: d.name as string, phase: end ? 'end' : 'start',
+          ...(typeof d.toolCallId === 'string' ? { id: d.toolCallId } : {}),
+          ...(!end && isRecord(d.args) ? { input: d.args } : {}),
+          ...(end && d.result !== undefined ? { output: d.result } : {}),
+          ...(end && typeof d.isError === 'boolean' ? { error: d.isError } : {}) });
       }
     });
     try {
@@ -85,7 +152,16 @@ export function createRuns(ctx: {
         if (!row || !usable(row))
           return { ok: false, kind: 'signed-out', message: `${picked.provider} is not signed in for ${spec.member}` };
       }
-      const started = await ctx.request('agent', {
+      // One `agent` request: its interim `accepted` frame names the run, its final frame (after the run) carries the
+      // run's usage. The wait below still decides how the run ended.
+      let accepted!: (payload: unknown) => void;
+      const ack = new Promise<unknown>((resolve) => { accepted = resolve; });
+      // The run id is taken as the accepted frame lands, so no event read after it is missed.
+      const onAccepted = (payload: unknown): void => {
+        if (isRecord(payload) && typeof payload.runId === 'string') runId = payload.runId;
+        accepted(payload);
+      };
+      const final = ctx.request('agent', {
         agentId,
         sessionKey: spec.sessionKey,
         message: spec.message,
@@ -94,7 +170,9 @@ export function createRuns(ctx: {
         ...(spec.system ? { extraSystemPrompt: spec.system } : {}),
         ...(spec.images ? { attachments: spec.images.map((image) => ({ mimeType: image.mimeType, content: image.data })) } : {}),
         ...(spec.thinking ? { thinking: spec.thinking } : {}),
-      }) as { runId: string };
+      }, { expectFinal: true, timeoutMs: WAIT_CLIENT_MS, onAccepted });
+      final.catch(() => {}); // a late failure is the wait's to report
+      const started = await Promise.race([ack, final]) as { runId: string };
       runId = started.runId;
       const result = await ctx.request('agent.wait', { runId, timeoutMs: WAIT_MS }, { timeoutMs: WAIT_CLIENT_MS }) as {
         status?: string; stopReason?: string; terminalReply?: { text?: string }; error?: unknown; message?: unknown;
@@ -102,7 +180,13 @@ export function createRuns(ctx: {
       if (result.status === 'ok') {
         const text = typeof result.terminalReply?.text === 'string' ? result.terminalReply.text : last;
         on?.({ type: 'text', text }); // the final cumulative text
-        return { ok: true, text };
+        const done = await Promise.race([final.catch(() => undefined), delay(FINAL_GRACE_MS, undefined, { ref: false })]);
+        const meta = isRecord(done) && isRecord(done.result) && isRecord(done.result.meta) ? done.result.meta : {};
+        const agentMeta = isRecord(meta.agentMeta) ? meta.agentMeta : {};
+        const usage = usageOf(agentMeta);
+        const planWindow = typeof agentMeta.provider === 'string'
+          ? await planWindowOf(agentId, agentMeta.provider.toLowerCase()) : undefined;
+        return { ok: true, text, ...(usage ? { usage } : {}), ...(planWindow ? { planWindow } : {}) };
       }
       if (result.stopReason === 'aborted' || (abortedByEngine && result.status !== 'ok')) return { ok: false, aborted: true };
       const message = typeof result.error === 'string' ? result.error
@@ -114,7 +198,7 @@ export function createRuns(ctx: {
     } finally {
       ended = true;
       unsubscribe();
-      if (registered) ctx.bridge.unregister(spec.sessionKey);
+      release?.();
     }
   };
   return {
