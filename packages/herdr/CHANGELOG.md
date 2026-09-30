@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Depends on @byokit/relay 0.4.0.
+## 0.1.8 (2026-09-30)
+
 - Depends on @byokit/relay 0.3.1.
 - Depends on @byokit/reach 0.4.0.
 - Depends on @byokit/link 0.5.0.
