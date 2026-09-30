@@ -8,6 +8,7 @@ import type { Check, Observation, ProofHooks, Session } from './proof.ts';
 export type ProbeOptions = {
   apiRoot: string;
   key: () => Promise<string>;
+  fetch?: typeof fetch; // injectable loopback transport for probe regression tests
   // SSH VM's app-owned HTTPS relay URL. The SSH adapter cannot supply one.
   vmRelayUrl: string;
   // Public address observed by the provider/VM console, not a guessed private hostname -I address.
@@ -151,7 +152,7 @@ export function probes(o: ProbeOptions): ProofHooks {
       const bytes = new TextEncoder().encode(crypto.randomUUID());
       await provider.write(ref, path, bytes, 0o600);
       await provider.sleep!(ref);
-      const resume = async (ttlSeconds: number | null) => fetch(`${o.apiRoot.replace(/\/$/, '')}/sandboxes/${encodeURIComponent(ref.id)}/resume`, {
+      const resume = async (ttlSeconds: number | null) => (o.fetch ?? fetch)(`${o.apiRoot.replace(/\/$/, '')}/sandboxes/${encodeURIComponent(ref.id)}/resume`, {
         method: 'POST', headers: { Authorization: `Bearer ${await o.key()}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ ttlSeconds, noEnv: true }), signal: AbortSignal.timeout(30_000),
       });
@@ -162,7 +163,11 @@ export function probes(o: ProbeOptions): ProofHooks {
       }
       if (response.status === 400 || response.status === 422) return { status: 'observed', detail: `redundant noEnv rejected with HTTP ${response.status}; no conversion performed` };
       assert.ok(response.ok);
-      await provider.wake!(ref);
+      const deadline = Date.now() + 300_000;
+      while (await provider.status(ref) !== 'on') {
+        assert.ok(Date.now() < deadline, 'scrub machine did not resume');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
       const result = await provider.exec(ref, ['cat', path], timed);
       const kept = result.code === 0 && result.stdout === new TextDecoder().decode(bytes);
       return { status: 'observed', detail: `redundant noEnv accepted; home canary survives: ${kept}; this probe contains no model credentials` };

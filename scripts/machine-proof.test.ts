@@ -111,3 +111,18 @@ test('scrub probe retries the trial TTL before interpreting a redundant noEnv re
     assert.ok(!JSON.stringify(result).includes('test-key'));
   } finally { await server.close(); }
 });
+
+
+test('accepted scrub experiment polls readiness without a second normal resume concealing the result', async () => {
+  const provider = fakeProvider();
+  const ref = await provider.create!({ name: 'scrub', size: 'small', keepCopies: true, idempotencyKey: 'accepted-scrub' });
+  let requests = 0;
+  const hooks = probes({ apiRoot: 'https://sandbox.test/api/v1', key: async () => 'test-key', vmRelayUrl: 'https://sandbox.test', publicAddress: async () => '192.0.2.1', ask: async () => { throw new Error('no operator'); }, commands: {},
+    fetch: (async () => { requests++; provider.fake.setState(ref.id, 'on'); return new Response('{}', { status: 200 }); }) as typeof fetch,
+  });
+  const result = await hooks.noEnvScrub(provider, ref);
+  assert.equal(result.status, 'observed');
+  assert.match(result.detail, /canary survives: true/);
+  assert.equal(requests, 1);
+  assert.equal(provider.fake.calls.filter(c => c.op === 'wake').length, 0);
+});
