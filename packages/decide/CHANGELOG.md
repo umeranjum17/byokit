@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.4.6 (2026-09-30)
+
+- Dependency update: pins @byokit/accounts 0.12.0.
+- FIX: (from @byokit/accounts 0.12.0) fileStore verifies optional sealing-adapter upgrades and atomically replaces authenticated ciphertext on read, allowing opt-in dual-wrap migration without losing the original store on interruption.
+
 ## 0.4.5 (2026-09-30)
 
 - Dependency update: pins @byokit/accounts 0.11.0.

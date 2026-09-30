@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.4 (2026-09-30)
+
+
+
 - FIX: Device-code sign-in waits for the engine’s code expiry instead of failing after two minutes; caller cancellation and expiry return typed outcomes with plain words.
 - Offer the native Claude Code / Agent SDK subscription route (`claude-cli`, plugin `anthropic`), keeping login in Claude Code in the isolated engine HOME. Sign-in uses engine detection and live activation; `oc.state` reports native login readiness.
 - Support explicit Anthropic API key activation with a per-use billing label and secret-safe views; never offer an API-key fallback. Direct Claude.ai OAuth and setup-token offers remain excluded.

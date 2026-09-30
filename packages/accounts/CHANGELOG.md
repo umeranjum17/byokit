@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.12.0 (2026-09-30)
+
+
+
 - FIX: fileStore verifies optional sealing-adapter upgrades and atomically replaces authenticated ciphertext on read, allowing opt-in dual-wrap migration without losing the original store on interruption.
 - Claude Pro/Max subscription PKCE sign-in, direct Messages and single-flight refresh with on-device credentials.
 
