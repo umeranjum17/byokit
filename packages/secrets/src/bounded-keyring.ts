@@ -13,7 +13,7 @@ export function boundedKeyring(o: { service: string; timeoutMs?: number }): Keyr
   const call = (operation: string, name: string, secret?: string): string | null | boolean => {
     const result = spawnSync(process.execPath, [fileURLToPath(new URL(import.meta.url.endsWith('.ts') ? './keyring-worker.ts' : './keyring-worker.js', import.meta.url))], {
       input: JSON.stringify({ service: o.service, operation, name, secret }), encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 4096, windowsHide: true,
-      env: { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, SystemRoot: process.env.SystemRoot, DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS, NODE_OPTIONS: process.env.NODE_OPTIONS },
+      env: { ELECTRON_RUN_AS_NODE: '1', HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, SystemRoot: process.env.SystemRoot, DBUS_SESSION_BUS_ADDRESS: process.env.DBUS_SESSION_BUS_ADDRESS, NODE_OPTIONS: process.env.NODE_OPTIONS },
     });
     try {
       if (result.error || result.status !== 0) throw new Error();

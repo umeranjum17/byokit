@@ -129,7 +129,8 @@ Pass `fallback: false` when the keyring is mandatory. Once a file key exists, it
 for that service even if a keyring becomes available later; changing modes requires migration. Provider credentials remain in the sealed accounts file.
 Automatic keyring selection runs operations in a short-lived helper with a 1000 ms timeout
 (`timeoutMs`, 100–5000 ms). Key material travels over private stdin/stdout pipes, never arguments or
-child environment variables. Linux uses an exactly pinned D-Bus client and the existing session bus:
+child environment variables. Electron helpers use `ELECTRON_RUN_AS_NODE=1`; hosts that disable
+that fuse should select `hostKeyFileSeal` directly. Linux uses an exactly pinned D-Bus client and the existing session bus:
 no service activation, collection creation, Unlock or Prompt calls. Locked items and collections fail
 closed. It reads only `DBUS_SESSION_BUS_ADDRESS` for that session (otherwise the standard user bus).
 Windows uses the native Credential Manager backend. The pinned macOS native binding cannot suppress
