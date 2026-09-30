@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.2 (2026-09-30)
+
 - FIX: Apps' own accessibility services can now pass the field they captured: `FieldNode.of(node)` and
   `FocusedFields.insert(node, ...)` take an `AccessibilityNodeInfo` with the same retry and same-field re-acquisition,
   and `FocusedFields.capture(service)` keeps the focused field for a later insert.
