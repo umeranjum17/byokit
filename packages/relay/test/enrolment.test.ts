@@ -290,3 +290,16 @@ test('self returns only the key-proven host, and counts live connections rather 
   a.dev.link.stop();
   await until(async () => (await a.client.self()).devices === 0);
 });
+
+
+test('open signup still claims explicit owner enrolment metadata and consumes its token', async () => {
+  const r = await startRelay({ signup: { open: true, maxHosts: 1 } });
+  const meta = { enrolmentUrl: 'https://relay.example/enrol' };
+  const { token } = await r.relay.enrolment({ name: 'Owner name', meta });
+  const host = await startHost();
+  const h = hostClient(host, r.ws, { enrol: token, name: 'Host name' });
+  await until(() => h.client.status === 'online');
+  assert.deepEqual(h.client.meta, meta);
+  assert.equal((await h.client.self()).host.name, 'Owner name');
+  assert.deepEqual(r.saved()!.enrolments, []);
+});

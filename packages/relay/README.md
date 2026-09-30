@@ -309,3 +309,4 @@ clears confirmed pending unsubscriptions from the client's store, and stops. A f
 removing authority. Requests retry on reconnect while the client runs; after a host restart the app calls `leave()` again.
 It does not remove local link grants. With the default enrolment-only signup, returning after leaving requires a new owner enrolment.
 An explicitly open signup policy permits the key to register again, subject to its host cap.
+Open signup still consumes an explicitly supplied enrolment and retains its owner-set name and metadata.

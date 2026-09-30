@@ -346,8 +346,10 @@ export class Relay {
         if (s.hosts.some((h) => h.id === id)) return true;
         if (open && this.opts.signup && this.opts.signup !== 'enrol') {
           if (s.hosts.length >= this.opts.signup.maxHosts) return false;
-          s.hosts.push({ id, key: b64url(key), name: cleanName(m.name, 'Computer'), added: this.now() });
-          return true;
+          if (typeof m.enrol !== 'string') {
+            s.hosts.push({ id, key: b64url(key), name: cleanName(m.name, 'Computer'), added: this.now() });
+            return true;
+          } // An explicit owner enrolment still claims its name and metadata under open signup.
         }
         const e = s.enrolments.find((x) => x.id === eid);
         if (!e || !same(sha(claim), e.hash)) return false;
