@@ -1,0 +1,58 @@
+{
+  "rule": "Legacy compact offers are migration reads only: validate checksum, canonical padding, version, role, complete bounded addresses and expiry, then apply parseOffer. New encodings use the current complete envelope.",
+  "valid": [
+    {
+      "code": "262J8-2T52E-3J82T-52E3J-82T52-E3J82-T52E3-J82T5-2E3J8-2T52E-3J82T-92X5J-G3T92-X5JG3-T92X5-JG3T9-HPQSC-22425-2CJ2A-46NKJ-2U572-A3MBT-V98C5-JZ",
+      "role": "control",
+      "urls": [
+        "ws://192.168.1.2:9443/link",
+        "ws://100.101.2.3:9443/link"
+      ]
+    },
+    {
+      "code": "26228-2T52E-3J82T-52E3J-82T52-E3J82-T52E3-J82T5-2E3J8-2T52E-3J82T-92X5J-G3T92-X5JG3-T92X5-JG3T9-HPQSC-2235F-WS8GK-H7YM8-CXWD7-UR8ZT-W3FJY-5JFUU-8ASR8-YDNGK-SRW3U-V8WBJ",
+      "role": "view",
+      "urls": [
+        "ws://desk.local:8792/custom"
+      ]
+    }
+  ],
+  "invalid": [
+    {
+      "name": "role",
+      "code": "26328-2T52E-3J82T-52E3J-82T52-E3J82-T52E3-J82T5-2E3J8-2T52E-3J82T-92X5J-G3T92-X5JG3-T92X5-JG3T9-HPQSC-22425-2CJ2A-46NKJ-2U572-A3MBT-U6YZV-VJ"
+    },
+    {
+      "name": "zero count",
+      "code": "262J8-2T52E-3J82T-52E3J-82T52-E3J82-T52E3-J82T5-2E3J8-2T52E-3J82T-92X5J-G3T92-X5JG3-T92X5-JG3T9-HPQSC-222ST-EPN5J"
+    },
+    {
+      "name": "too many",
+      "code": "262J8-2T52E-3J82T-52E3J-82T52-E3J82-T52E3-J82T5-2E3J8-2T52E-3J82T-92X5J-G3T92-X5JG3-T92X5-JG3T9-HPQSC-22B25-2CJ2A-46NKJ-2U572-A3MBT-XR387-NX"
+    },
+    {
+      "name": "truncated address",
+      "code": "262J8-2T52E-3J82T-52E3J-82T52-E3J82-T52E3-J82T5-2E3J8-2T52E-3J82T-92X5J-G3T92-X5JG3-T92X5-JG3T9-HPQSC-22323-0TAWS-AEJ"
+    },
+    {
+      "name": "zero port",
+      "code": "262J8-2T52E-3J82T-52E3J-82T52-E3J82-T52E3-J82T5-2E3J8-2T52E-3J82T-92X5J-G3T92-X5JG3-T92X5-JG3T9-HPQSC-22323-0J222-3222F-86DNG-X"
+    },
+    {
+      "name": "trailing data",
+      "code": "262J8-2T52E-3J82T-52E3J-82T52-E3J82-T52E3-J82T5-2E3J8-2T52E-3J82T-92X5J-G3T92-X5JG3-T92X5-JG3T9-HPQSC-22425-2CJ2A-46NKJ-2U572-A3MBT-T26G7-BU9A"
+    },
+    {
+      "name": "https://desk.local/link",
+      "code": "262J8-2T52E-3J82T-52E3J-82T52-E3J82-T52E3-J82T5-2E3J8-2T52E-3J82T-92X5J-G3T92-X5JG3-T92X5-JG3T9-HPQSC-2234Y-P9AY5-JGEY4-ZDW6E-QURRD-NEFYK-R4W3H-FKPRX-V0TTQ-3HE"
+    },
+    {
+      "name": "ws://u:p@desk.local/link",
+      "code": "262J8-2T52E-3J82T-52E3J-82T52-E3J82-T52E3-J82T5-2E3J8-2T52E-3J82T-92X5J-G3T92-X5JG3-T92X5-JG3T9-HPQSC-22353-WS8GK-H7YVN-PX42E-KMS8V-UGFKS-R8TDE-7YR8M-WNDHM-BN28A"
+    },
+    {
+      "name": "ws://desk.local/\ufffd",
+      "code": "262J8-2T52E-3J82T-52E3J-82T52-E3J82-T52E3-J82T5-2E3J8-2T52E-3J82T-92X5J-G3T92-X5JG3-T92X5-JG3T9-HPQSC-22347-WS8GK-H7YM8-CXWD7-UR8ZT-W3FJS-000PM-HX22"
+    }
+  ]
+}

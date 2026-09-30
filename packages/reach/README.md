@@ -33,7 +33,7 @@ offer. Persist `ingress` and pass it back as `previous` next time.
 import { reach } from '@byokit/reach';
 
 const { urls, bind, ingress, pendingCleanup } = await reach({ port: 8792, previous: saved.ingress });
-server.listen(8792, bind);        // '127.0.0.1' behind Serve, '0.0.0.0' otherwise
+server.listen(8792, bind);        // loopback behind Serve, selected IP for direct Tailscale, wildcard for LAN/private
 saved.ingress = ingress;
 if (pendingCleanup) saved.pendingCleanup = pendingCleanup; // retry unserve() later
 const { text } = host.offer({ role: 'control', urls });     // show `text` as a QR
@@ -57,7 +57,8 @@ console.log(await reach({ port: 8792, via: 'lan', interfaces }));
 ```text
 {
   lan: [ '192.168.1.20' ],
-  private: [ { address: '100.90.1.2', interface: 'wt0' } ]
+  private: [ { address: '100.90.1.2', interface: 'wt0' } ],
+  tailscale: []
 }
 { urls: [ 'ws://192.168.1.20:8792' ], bind: '0.0.0.0' }
 ```
@@ -66,17 +67,17 @@ console.log(await reach({ port: 8792, via: 'lan', interfaces }));
 
 | Export | What it does |
 |---|---|
-| `reach({ port, via?, previous?, tailscale?, interfaces? })` | The dial `urls`, the `bind` address, and the Serve `ingress` to persist (plus `pendingCleanup` when a removal failed) |
-| `routes(interfaces?, ignore?)` | This computer's IPv4 routes: `lan` addresses and `private` overlay addresses |
+| `reach({ port, via?, previous?, tailscale?, interfaces?, address? })` | The dial `urls`, the `bind` address, and the Serve `ingress` to persist (plus `pendingCleanup` when a removal failed) |
+| `routes(interfaces?, tailnetIPs?)` | This computer's IPv4 routes: `lan` addresses, `private` overlay addresses and `tailscale` addresses |
 | `advertise({ type, port, name?, txt?, addresses? })` | Publishes `_<type>._tcp` over mDNS (Node), using only selected addresses; returns `{ stop }` |
-| `tailscaleState({ bin?, timeoutMs? })` | Non-throwing installation, backend, sign-in and address diagnostics |
+| `tailscaleState({ bin?, timeoutMs? })` | Non-throwing installation, backend, sign-in, key expiry, peer and address diagnostics |
 | `needsSignin(status)`, `isPeer(status, ip)` | Pure helpers for raw `tailscale status --json`: explicit login state and peer IP membership |
 | `tailscaleStatus`, `tailscaleName`, `magicDnsName` | Read the local Tailscale state and this machine's MagicDNS name |
 | `inspectServe`, `serveRootProxy` | Check who holds the Serve root: `free`, `ours`, `occupied`, `funnel`, `disabled` or `inconclusive` |
 | `serve`, `unserve` | Make or remove the app's Serve mapping, with ownership checks |
 | `SERVE_OWNED_ERROR`, `FUNNEL_ERROR` | The error messages for a taken root and a root with Funnel on |
 | `browse({ type })`, `scan({ type, ms })` | React Native entry only: discover mDNS services, streamed or time-boxed |
-| Types | `Via`, `Reach`, `PrivateRoute`, `ServeIngress`, `ServeRoot`, `TailscaleOptions`, `TailscaleState`, `Bonjour`, `BonjourRecord`; on React Native `BrowseService`, `BrowseHandle`, `BrowseOptions`, `BrowseEvents`, `BrowseEventName`, `ZeroconfLike` |
+| Types | `Via`, `Reach`, `PrivateRoute`, `ServeIngress`, `ServeRoot`, `TailscaleOptions`, `TailscaleState`, `TailscalePeer`, `Bonjour`, `BonjourRecord`; on React Native `BrowseService`, `BrowseHandle`, `BrowseOptions`, `BrowseEvents`, `BrowseEventName`, `ZeroconfLike` |
 
 ## Routes
 
@@ -86,9 +87,17 @@ console.log(await reach({ port: 8792, via: 'lan', interfaces }));
 |---|---|---|
 | `auto` (default) | Tailscale Serve if Tailscale is installed, otherwise LAN | as below |
 | `tailscale` | `wss://<MagicDNS name>` through Tailscale Serve | `127.0.0.1` |
-| `tailscale-direct` | `ws://<tailnet IP>:<port>` | `0.0.0.0` |
+| `tailscale-direct` | `ws://<tailnet IP>:<port>` | the selected tailnet IP |
 | `private` | another overlay network (NetBird, WireGuard, ZeroTier, …) | `0.0.0.0` |
 | `lan` | private IPv4 addresses on physical-looking interfaces (no known Docker, VM or VPN bridges) | `0.0.0.0` |
+
+Direct Tailscale binds the first CGNAT IPv4 address in `Self.TailscaleIPs`, keeping the LAN closed.
+Pass `address` with `via: 'tailscale-direct'` to select another IPv4 address from that same list;
+foreign addresses and wildcard binds are refused before removing an existing Serve mapping.
+
+`routes(interfaces, tailnetIPs)` includes named Tailscale interfaces in `tailscale`; pass the
+snapshot's `ips` to identify Tailscale addresses on macOS `utun` interfaces too. Other overlays,
+including CGNAT addresses without Tailscale evidence, stay in `private`. The function runs no CLI.
 
 IPv6-only networks: not yet.
 
@@ -128,12 +137,16 @@ lower-level steps are exported too: `tailscaleStatus`, `tailscaleName`, `inspect
 `routes` for the interface list.
 
 For a connection picker, `await tailscaleState()` returns `{ installed, backendState, needsSignin, reason,
-dnsName, ips }` without throwing. `backendState`, `reason` and the normalized `dnsName` can be absent when unknown.
+dnsName, ips, keyExpiry?, Peer? }` without throwing. `backendState`, `reason` and the normalized `dnsName` can be absent when unknown.
 Missing CLI, timeouts, malformed JSON and daemon failures are diagnostic results; they never set up Serve or sign in.
 `needsSignin` is true only for `NeedsLogin`; `NeedsMachineAuth` instead asks for admin approval, and `Stopped`
 does not mean logged out. The existing `tailscaleStatus()` still throws on CLI failure.
 
-The pure helpers take **raw status JSON**, rather than the reduced `tailscaleState()` result. `isPeer(status, ip)`
+`keyExpiry` preserves a valid `Self.KeyExpiry` date string; the host chooses how to label an expired key.
+`Peer` is a validated map of `{ TailscaleIPs, DNSName?, Online? }`, absent when unavailable and
+empty when the CLI reports an empty map. Extra fields and malformed entries are discarded.
+
+The pure helpers take **raw status JSON**; `isPeer` also accepts the snapshot's typed `Peer` map. `isPeer(status, ip)`
 checks `Peer[*].TailscaleIPs`, accepts an IPv4-mapped socket address (`::ffff:100.64.0.2`), and excludes `Self`.
 Offline peers still count as peers. Peer membership is a discovery hint: link's handshake must authenticate the device.
 

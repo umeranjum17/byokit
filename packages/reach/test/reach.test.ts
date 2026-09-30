@@ -155,7 +155,7 @@ test('a DNS rename removes the recorded old root before serving the new one', as
 test('direct Tailscale is the fallback and the rollback: it removes only the mapping it owns', async () => {
   fake(self, { serveStatus: ours });
   const at = mark();
-  assert.deepEqual(await reach({ port: 8792, via: 'tailscale-direct', previous: owned, tailscale }), { urls: ['ws://100.64.0.1:8792'], bind: '0.0.0.0' });
+  assert.deepEqual(await reach({ port: 8792, via: 'tailscale-direct', previous: owned, tailscale }), { urls: ['ws://100.64.0.1:8792'], bind: '100.64.0.1' });
   assert.match(since(at), /^serve --https=443 --set-path=\/ off$/m);
   fake(self);
   const gone = mark();
@@ -187,7 +187,7 @@ test('disabled Serve does not block direct rollback and retains the cleanup fing
   fake(self, { serveStatus: 'Serve is not enabled on your tailnet', serveStatusExit: 1 });
   const at = mark();
   assert.deepEqual(await reach({ port: 8792, via: 'tailscale-direct', previous: owned, tailscale }), {
-    urls: ['ws://100.64.0.1:8792'], bind: '0.0.0.0', pendingCleanup: owned,
+    urls: ['ws://100.64.0.1:8792'], bind: '100.64.0.1', pendingCleanup: owned,
   });
   assert.doesNotMatch(since(at), /^serve --https=443 --set-path=\/ off$/m);
 });
@@ -238,7 +238,7 @@ test('without Tailscale, auto falls back to LAN; tailscale mode says it is missi
   await assert.rejects(reach({ port: 0, tailscale: missing }), /port/);
 });
 
-test('routes keep physical LAN addresses and overlays apart, and skip Tailscale, Docker and VM bridges', () => {
+test('routes keep physical LAN addresses and overlays apart, include Tailscale, and skip Docker and VM bridges', () => {
   const v4 = (address: string) => [{ family: 'IPv4', internal: false, address }];
   const found = routes({
     lo: [{ family: 'IPv4', internal: true, address: '127.0.0.1' }], docker0: v4('100.90.0.2'), vboxnet0: v4('192.168.56.1'),
@@ -246,7 +246,7 @@ test('routes keep physical LAN addresses and overlays apart, and skip Tailscale,
     lxc0: v4('100.90.0.8'), vmnet0: v4('100.90.0.9'), hyperv0: v4('100.90.0.10'), wsl0: v4('100.90.0.11'),
     eno1: v4('192.168.1.8'), wlan0: v4('10.0.0.5'), wt0: v4('100.90.0.4'), tailscale0: v4('100.64.0.1'), eth1: v4('8.8.8.8'),
   } as never);
-  assert.deepEqual(found, { lan: ['192.168.1.8', '10.0.0.5'], private: [{ address: '100.90.0.4', interface: 'wt0' }] });
+  assert.deepEqual(found, { lan: ['192.168.1.8', '10.0.0.5'], private: [{ address: '100.90.0.4', interface: 'wt0' }], tailscale: ['100.64.0.1'] });
   assert.deepEqual(routes({ utun4: v4('100.64.0.1'), utun5: v4('10.20.0.2') } as never, ['100.64.0.1']).private,
     [{ address: '10.20.0.2', interface: 'utun5' }]);
 });
@@ -377,4 +377,40 @@ test('advertise filters A/AAAA on announcement and goodbye, leaving discovery re
     assert.deepEqual(factory.records(), [...metadata, ...(allowed === undefined ? lan.map((data) => ({ type: 'A', data })) : [])]);
     await handle.stop();
   }
+});
+
+test('direct Tailscale binds only the selected Self address and rejects foreign addresses before cleanup', async () => {
+  fake({ Self: { TailscaleIPs: ['100.64.0.1', '100.64.0.2'] } }, { serveStatus: ours });
+  const at = mark();
+  assert.deepEqual(await reach({ port: 8792, via: 'tailscale-direct', address: '100.64.0.2', tailscale }),
+    { urls: ['ws://100.64.0.2:8792'], bind: '100.64.0.2' });
+  for (const address of ['0.0.0.0', '192.168.1.8', '100.64.0.99', '']) {
+    await assert.rejects(reach({ port: 8792, via: 'tailscale-direct', address, previous: owned, tailscale }), /no Tailscale address/);
+  }
+  await assert.rejects(reach({ port: 8792, via: 'lan', address: '100.64.0.1', tailscale }), /only available/);
+  assert.doesNotMatch(since(at), /off/);
+  assert.deepEqual(routes({ utun4: [{ family: 'IPv4', internal: false, address: '100.64.0.1' }] } as never, ['100.64.0.1']),
+    { lan: [], private: [], tailscale: ['100.64.0.1'] });
+});
+
+test('diagnostics expose validated key expiry and typed peers without throwing or extra CLI calls', async () => {
+  const keyExpiry = '2026-10-01T00:00:00Z';
+  fake({ ...self, Self: { ...self.Self, KeyExpiry: keyExpiry }, Peer: {
+    good: { TailscaleIPs: ['100.64.0.2', null], DNSName: 'PHONE.TAIL.NET.', Online: false, Secret: 'discard' },
+    bad: null, malformed: { TailscaleIPs: '100.64.0.3' },
+  } });
+  const at = mark();
+  const result = await tailscaleState(tailscale);
+  assert.equal(result.keyExpiry, keyExpiry);
+  assert.deepEqual(result.Peer, { good: { TailscaleIPs: ['100.64.0.2'], DNSName: 'phone.tail.net', Online: false } });
+  assert.equal(isPeer(result, '100.64.0.2'), true);
+  assert.equal(since(at), 'status --json\n');
+  for (const KeyExpiry of [null, 123, 'invalid']) {
+    fake({ Self: { KeyExpiry }, Peer: [] });
+    const invalid = await tailscaleState(tailscale);
+    assert.equal(invalid.keyExpiry, undefined);
+    assert.equal(invalid.Peer, undefined);
+  }
+  fake({ Peer: {} });
+  assert.deepEqual((await tailscaleState(tailscale)).Peer, {});
 });

@@ -66,6 +66,9 @@ export function isPeer(status: unknown, ip: string): boolean {
   });
 }
 
+/** Reduced peer data from the CLI; membership is a discovery hint, never authentication. */
+export type TailscalePeer = { TailscaleIPs: string[]; DNSName?: string; Online?: boolean };
+
 /** A read-only diagnostic snapshot; absent fields mean the CLI could not provide them. */
 export type TailscaleState = {
   installed: boolean;
@@ -74,6 +77,10 @@ export type TailscaleState = {
   reason?: string;
   dnsName?: string;
   ips: string[];
+  /** Self.KeyExpiry, when the CLI supplies a valid date string. */
+  keyExpiry?: string;
+  /** Peer map; absent when unavailable, empty when explicitly reported empty. Compatible with isPeer(). */
+  Peer?: Record<string, TailscalePeer>;
 };
 
 /** Read local Tailscale state without throwing, signing in, or changing any Serve mapping. */
@@ -84,7 +91,7 @@ export async function tailscaleState(o?: TailscaleOptions): Promise<TailscaleSta
     if (r.error?.code === 'ENOENT') return { ...empty, installed: false, reason: 'Tailscale is not installed' };
     if (r.error?.code === 'ETIMEDOUT') return { ...empty, reason: 'Tailscale status timed out; restart tailscaled or choose LAN' };
     // A failing CLI may still return useful backend state (for example, NeedsLogin).
-    let status: { BackendState?: unknown; Self?: { DNSName?: unknown; TailscaleIPs?: unknown } } | undefined;
+    let status: { BackendState?: unknown; Self?: { DNSName?: unknown; TailscaleIPs?: unknown; KeyExpiry?: unknown }; Peer?: unknown } | undefined;
     try {
       const parsed: unknown = JSON.parse(r.stdout);
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) status = parsed;
@@ -98,7 +105,23 @@ export async function tailscaleState(o?: TailscaleOptions): Promise<TailscaleSta
       : backendState === 'NeedsMachineAuth' ? 'Approve this machine in the Tailscale admin console'
       : backendState === 'Stopped' ? 'Tailscale is stopped'
       : undefined;
+    const keyExpiry = typeof status?.Self?.KeyExpiry === 'string' && Number.isFinite(Date.parse(status.Self.KeyExpiry))
+      ? status.Self.KeyExpiry : undefined;
+    let peers: Record<string, TailscalePeer> | undefined;
+    if (status?.Peer && typeof status.Peer === 'object' && !Array.isArray(status.Peer)) {
+      peers = Object.fromEntries(Object.entries(status.Peer).flatMap(([id, value]) => {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+        const peer = value as { TailscaleIPs?: unknown; DNSName?: unknown; Online?: unknown };
+        if (!Array.isArray(peer.TailscaleIPs)) return [];
+        return [[id, {
+          TailscaleIPs: peer.TailscaleIPs.filter((ip): ip is string => typeof ip === 'string'),
+          ...(magicDnsName(peer.DNSName) ? { DNSName: magicDnsName(peer.DNSName) } : {}),
+          ...(typeof peer.Online === 'boolean' ? { Online: peer.Online } : {}),
+        }]];
+      }));
+    }
     return {
+      ...(keyExpiry ? { keyExpiry } : {}), ...(peers ? { Peer: peers } : {}),
       installed: true, backendState, needsSignin: signin, reason,
       dnsName: magicDnsName(status?.Self?.DNSName),
       ips: Array.isArray(status?.Self?.TailscaleIPs) ? status.Self.TailscaleIPs.filter((ip): ip is string => typeof ip === 'string') : [],

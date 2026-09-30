@@ -16,13 +16,18 @@ const virtualName = /^(?:docker|br-|veth|virbr|podman|lxc|vbox|vmnet|hyperv|wsl)
 
 /**
  * This computer's IPv4 routes: `lan` holds private-range addresses on physical interfaces (no Docker, VM or VPN
- * bridges); `private` holds overlay networks other than Tailscale. `ignore` drops tailnet addresses.
+ * bridges); `private` holds other overlays; `tailscale` holds named Tailscale interfaces and the
+ * addresses supplied in `tailnetIPs` (including macOS utun interfaces). No CLI is run.
  */
-export function routes(interfaces: Interfaces = networkInterfaces(), ignore: readonly string[] = []): { lan: string[]; private: PrivateRoute[] } {
-  const out = { lan: [] as string[], private: [] as PrivateRoute[] };
+export function routes(interfaces: Interfaces = networkInterfaces(), tailnetIPs: readonly string[] = []): { lan: string[]; private: PrivateRoute[]; tailscale: string[] } {
+  const out = { lan: [] as string[], private: [] as PrivateRoute[], tailscale: [] as string[] };
   for (const [name, list] of Object.entries(interfaces)) {
     for (const e of list ?? []) {
-      if (e.family !== 'IPv4' || e.internal || ignore.includes(e.address) || /^tailscale/i.test(name) || virtualName.test(name)) continue;
+      if (e.family !== 'IPv4' || e.internal || virtualName.test(name)) continue;
+      if (/^tailscale/i.test(name) || tailnetIPs.includes(e.address)) {
+        if (!out.tailscale.includes(e.address)) out.tailscale.push(e.address);
+        continue;
+      }
       // ponytail: CGNAT implies an overlay; add route-table evidence if ISP CGNAT false positives show up.
       if (overlayName.test(name) || cgnat(e.address)) out.private.push({ address: e.address, interface: name });
       else if (privateIpv4(e.address)) out.lan.push(e.address);
@@ -43,8 +48,8 @@ export type Via = 'auto' | 'tailscale' | 'tailscale-direct' | 'private' | 'lan';
 export type Reach = {
   /** The dial addresses, best first: pass to link's `offer({ urls })`. */
   urls: string[];
-  /** Where the server must listen: loopback behind Serve, every interface otherwise. */
-  bind: '127.0.0.1' | '0.0.0.0';
+  /** Where the server must listen: loopback behind Serve, the selected tailnet IP for direct, wildcard for LAN/private. */
+  bind: string;
   /** The Serve mapping made or verified against `previous`. Persist it; pass it back next time. */
   ingress?: ServeIngress;
   pendingCleanup?: ServeIngress;
@@ -55,12 +60,14 @@ export type Reach = {
  * from the last run as `previous`: leaving Serve (or moving port) attempts to remove that mapping, but only if Serve
  * still points where it recorded. If cleanup fails, the result carries `pendingCleanup` for a later retry.
  */
-export async function reach(o: { port: number; via?: Via; previous?: ServeIngress; tailscale?: TailscaleOptions; interfaces?: Interfaces }): Promise<Reach> {
+export async function reach(o: { port: number; via?: Via; previous?: ServeIngress; tailscale?: TailscaleOptions; interfaces?: Interfaces; address?: string }): Promise<Reach> {
   const { port, via = 'auto', previous, tailscale: ts } = o;
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('port must be 1-65535');
+  if (o.address !== undefined && via !== 'tailscale-direct') throw new Error('address is only available for direct Tailscale');
   let addresses: string[] | undefined;
   if (via === 'tailscale-direct') {
-    const ip = (await tailscaleStatus(ts))?.ips.find(cgnat);
+    const ips = (await tailscaleStatus(ts))?.ips.filter(cgnat) ?? [];
+    const ip = o.address === undefined ? ips[0] : ips.find((ip) => ip === o.address);
     if (!ip) throw new Error('no Tailscale address; sign in to Tailscale or choose LAN');
     addresses = [ip];
   } else if (via === 'private' || via === 'lan') {
@@ -87,7 +94,7 @@ export async function reach(o: { port: number; via?: Via; previous?: ServeIngres
   }
   addresses ??= routes(o.interfaces).lan;
   if (addresses.length === 0) throw new Error('no LAN address; connect to a network or choose Tailscale');
-  return { urls: addresses.map((a) => `ws://${a}:${port}`), bind: '0.0.0.0', ...(pendingCleanup ? { pendingCleanup } : {}) };
+  return { urls: addresses.map((a) => `ws://${a}:${port}`), bind: via === 'tailscale-direct' ? addresses[0]! : '0.0.0.0', ...(pendingCleanup ? { pendingCleanup } : {}) };
 }
 
 /** The part of bonjour-service `advertise` uses; tests pass a fake. */

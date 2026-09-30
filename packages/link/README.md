@@ -153,7 +153,9 @@ There is no separate `offerLink`. Use `parseOffer(text, 0)` to inspect an expire
 and pairing still refuses an expired ticket.
 
 For an offline, typeable alternative, `encodeOffer(parseOffer(text))` holds the **entire offer**, including
-all direct and relay addresses. `decodeOffer(typed)` returns a `PairOffer` and checks expiry without contacting
+all direct and relay addresses. `decodeOffer` also reads old compact direct codes for migration, preserving
+their key, ticket, role and second-resolution expiry; re-encoding uses the current complete format.
+`decodeOffer(typed)` returns a `PairOffer` and checks expiry without contacting
 any service; pass `offerText(decoded)` to `pairWithOffer`. Groups of five characters may be separated by spaces
 or dashes; case is ignored, O means 0 and I/L mean 1. Other mistakes fail the checksum. The checksum catches
 transcription errors, not tampering: Noise authenticates the host and the person still approves the two words.
