@@ -4,14 +4,18 @@ plugins {
 }
 
 group = 'io.github.umeranjum17.byokit'
-version = '0.2.0'
+version = '0.2.2'
 
 android {
   namespace "io.github.umeranjum17.byokit.overlay"
   defaultConfig {
     minSdkVersion 26
-    versionCode 2
-    versionName "0.2.0"
+    versionCode 3
+    versionName "0.2.2"
+  }
+  // The JVM tests subclass framework types (AccessibilityNodeInfo, AccessibilityService) over android.jar's stubs.
+  testOptions {
+    unitTests.returnDefaultValues = true
   }
 }
 

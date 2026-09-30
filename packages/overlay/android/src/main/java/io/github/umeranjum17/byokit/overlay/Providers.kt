@@ -9,13 +9,17 @@ import android.view.accessibility.AccessibilityWindowInfo
 
 /** The app in the foreground, from the app's own accessibility service. */
 interface ForegroundApp {
+  /** The foreground app's package name, or null when unknown. */
   val current: String?
+  /** Calls [fn] with each change; the returned function stops it. */
   fun onChange(fn: (String?) -> Unit): () -> Unit
 }
 
 /** The keyboard's top edge in screen pixels while it is open. */
 interface KeyboardInset {
+  /** The keyboard's top in screen pixels, or null while it is closed. */
   val imeTopPx: Int?
+  /** Calls [fn] with each change; the returned function stops it. */
   fun onChange(fn: (Int?) -> Unit): () -> Unit
 }
 

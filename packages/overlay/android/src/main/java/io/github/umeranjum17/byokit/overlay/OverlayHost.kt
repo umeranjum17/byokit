@@ -10,13 +10,20 @@ import android.view.WindowManager
 
 /** Where the bubble's view lives: a window over other apps. Positions are the view's top-left, in pixels. */
 interface OverlayHost {
+  /** Adds [view] at (x, y), replacing any view already added. */
   fun add(view: View, x: Int, y: Int)
+  /** Moves the added view; nothing when none is added. */
   fun move(x: Int, y: Int)
+  /** Removes the added view; nothing when none is added. */
   fun remove()
+  /** Whether a view is added. */
   val attached: Boolean
 }
 
-/** A `TYPE_APPLICATION_OVERLAY` window; needs the SYSTEM_ALERT_WINDOW grant. */
+/**
+ * A `TYPE_APPLICATION_OVERLAY` window; needs the SYSTEM_ALERT_WINDOW grant. The kit's [OverlayService] owns one, and an
+ * app's own foreground service can own one for a [ServiceBubble].
+ */
 class WindowOverlayHost(context: Context) :
   WindowManagerHost(context, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
 

@@ -4,10 +4,13 @@ import android.content.Context
 
 /** The remembered rest spot, keyed by [SpotStore.key]. */
 interface SpotStore {
+  /** The spot stored under [key], or null. */
   fun get(key: String): Spot?
+  /** Stores [spot] under [key]. */
   fun put(key: String, spot: Spot)
 
   companion object {
+    /** The key of the one spot shared by every app. */
     const val GLOBAL = "global"
 
     /** One spot for every app, or one per foreground app (`spots: 'per-app'`); an unknown app uses the global one. */

@@ -63,6 +63,7 @@ class OverlayService : Service() {
       private set
     val hosts = Listeners<OverlayHost?>()
 
+    /** The start intent with the foreground notice: its channel, title, text and small icon's drawable name. */
     fun intent(context: Context, channel: String, title: String, text: String, icon: String): Intent =
       Intent(context, OverlayService::class.java)
         .putExtra(EXTRA_CHANNEL, channel).putExtra(EXTRA_TITLE, title)

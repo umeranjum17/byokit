@@ -36,11 +36,13 @@ class PanelActivity : ReactActivity() {
     private const val EXTRA_PANEL = "byokit.panel"
     private const val EXTRA_PROPS = "byokit.props"
 
+    /** The open panel, or null; `current?.finish()` closes it. */
     @Volatile var current: PanelActivity? = null
       private set
     /** True when a panel opens, false when it finishes. */
     val open = Listeners<Boolean>()
 
+    /** Opens the panel registered as [panel] (an AppRegistry key) with [props] as its initial props. */
     fun launch(context: Context, panel: String, props: Map<String, String>) {
       val bundle = Bundle().apply { props.forEach { (k, v) -> putString(k, v) } }
       context.startActivity(

@@ -2,7 +2,6 @@ package io.github.umeranjum17.byokit.overlay
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -15,6 +14,7 @@ import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.records.Field
 import expo.modules.kotlin.records.Record
 
+/** The JS foreground notice as a record. */
 class NoticeRecord : Record {
   @Field val channel: String = ""
   @Field val title: String = ""
@@ -22,6 +22,7 @@ class NoticeRecord : Record {
   @Field val icon: String = ""
 }
 
+/** The JS rules as a record. */
 class RulesRecord : Record {
   @Field val paused: Boolean = false
   @Field val on: List<String> = emptyList()
@@ -29,6 +30,7 @@ class RulesRecord : Record {
   @Field val defaults: List<String> = emptyList()
 }
 
+/** The JS start options as a record. */
 class StartRecord : Record {
   @Field val host: String = "window"
   @Field val mood: String = ""
@@ -143,7 +145,7 @@ class OverlayModule : Module() {
   private fun show(h: OverlayHost) {
     val o = options ?: return
     host = h
-    val b = Bubble(h, PrefsSpotStore(context), ::drawable, ::reducedMotion)
+    val b = Bubble(h, PrefsSpotStore(context), ServiceBubble.drawables(context), ServiceBubble.reducedMotion(context))
     b.events.add(::bubbleEvent)
     bubble = b
     b.setLabel(label.takeIf { it.isNotEmpty() })
@@ -257,12 +259,4 @@ class OverlayModule : Module() {
   private fun RulesRecord.shows(app: String?): Boolean = Rules(paused, on, off, defaults).shows(app)
 
   private fun emit(body: Map<String, Any?>) = sendEvent("overlay", body)
-
-  private fun drawable(name: String): Drawable? {
-    val id = context.resources.getIdentifier(name, "drawable", context.packageName)
-    return context.getDrawable(if (id != 0) id else context.applicationInfo.icon)
-  }
-
-  private fun reducedMotion(): Boolean =
-    Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
 }

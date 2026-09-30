@@ -1,7 +1,5 @@
 package io.github.umeranjum17.byokit.overlay
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.view.accessibility.AccessibilityNodeInfo
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -10,13 +8,17 @@ import expo.modules.kotlin.records.Record
 
 /** A text field insert works on: its shown text (null when it went away), and setting it. */
 interface EditableField {
+  /** The shown text, or null when the field went away. */
   fun text(): String?
+  /** Replaces the whole text; true when the field accepted the action. */
   fun set(text: String): Boolean
 }
 
 /** Insert's decisions (docs/capability-kits.md 7.4), pure so the JVM tests cover them. */
 object Insert {
+  /** The default pause between tries. */
   const val RETRY_MS = 150L
+  /** The default number of tries. */
   const val DEFAULT_ATTEMPTS = 2
 
   /** The field's whole new text: [text] over the selection (or at the end with none), or over all of it. */
@@ -61,6 +63,7 @@ object Insert {
     whole.any { it == '\n' || it == '\r' } && shown == whole.filter { it != '\n' && it != '\r' }
 }
 
+/** The JS insert options as a record. */
 class InsertRecord : Record {
   @Field val replace: String = "selection"
   @Field val attempts: Double = 2.0
@@ -89,23 +92,16 @@ class FocusedFieldModule : Module() {
     AsyncFunction("insert") { text: String, o: InsertRecord ->
       val service = ByokitAccessibility.service ?: return@AsyncFunction "failed"
       val raw = service.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return@AsyncFunction "failed"
-      val root = NodeWrap(raw)
-      val node = FocusedFields.find(root)
       try {
-        if (node == null) return@AsyncFunction "failed"
         FocusedFields.insert(
-          node, text, o.replace,
-          InsertOpts(o.attempts.toInt(), o.retryMs.toLong(), o.acceptNewlineLoss), Thread::sleep, ::copy,
+          raw, text, o.replace, InsertOpts(o.attempts.toInt(), o.retryMs.toLong(), o.acceptNewlineLoss),
+          Thread::sleep, ::copy, service,
         )
       } finally {
-        if (node !== root) node?.recycle()
-        root.recycle()
+        @Suppress("DEPRECATION") raw.recycle()
       }
     }
   }
 
-  private fun copy(text: String): Boolean = runCatching {
-    val context = appContext.reactContext ?: return false
-    context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("text", text))
-  }.isSuccess
+  private fun copy(text: String): Boolean = appContext.reactContext?.let { FocusedFields.clipboard(it)(text) } ?: false
 }
