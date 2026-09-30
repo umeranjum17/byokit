@@ -80,8 +80,9 @@ export class Connection {
     const uri = this.options.redirectUri;
     const url = endpoint(info.endpoints.authorize);
     const fields = { ...this.provider.extra, response_type: 'code', client_id: client.id, redirect_uri: uri, state,
-      code_challenge: challenge, code_challenge_method: 'S256', scope: scopes.join(' '), ...(info.resource ? { resource: info.resource } : {}) };
+      code_challenge: challenge, code_challenge_method: 'S256', ...(info.resource ? { resource: info.resource } : {}) };
     for (const [key, value] of Object.entries(fields)) url.searchParams.set(key, value);
+    if (scopes.length) url.searchParams.set('scope', scopes.join(' ')); else url.searchParams.delete('scope');
     const ends = this.now + (this.options.flowTimeoutMs ?? 15 * 60_000);
     let consumed = false, cancelled = false;
     return { url: url.href, redirectUri: uri, cancel: () => { consumed = true; cancelled = true; }, finish: async callback => {

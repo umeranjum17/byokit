@@ -58,6 +58,14 @@ test('PKCE, state, exact callback and one-shot exchange; per-person store isolat
   assert.equal(store.values.size, 1);
 });
 
+test('unspecified scopes leave provider defaults intact instead of sending an invalid empty scope', async () => {
+  const c = connect({ id: 'defaults', name: 'App', oauth: { ...app.oauth!, authorize: app.oauth!.authorize + '?scope=stale' }, extra: { scope: 'ignored' } }, options());
+  const flow = await c.signIn();
+  assert.equal(new URL(flow.url).searchParams.has('scope'), false);
+  await flow.finish(callback(flow.url));
+  assert.equal(await c.connected(), true);
+});
+
 test('a connection snapshots provider settings and cannot be retargeted after signing in', async () => {
   const target: Provider = { ...app, oauth: { ...app.oauth! }, mcpUrl: 'https://resource.test/mcp', scopes: ['read'] };
   const opts = options(), c = connect(target, opts);
