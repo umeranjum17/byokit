@@ -50,6 +50,11 @@ test('the catalogue offers every subscription by default and keeps API billing o
     for (const removed of ['terms', 'hidden', 'why']) assert.ok(!(removed in p));
   }
   assert.equal(PROVIDERS.chatgpt.models.strong, 'gpt-6-sol');
+  assert.equal(PROVIDERS.anthropic.billing, 'api');
+  assert.equal(PROVIDERS.anthropic.auth, 'api-key');
+  assert.equal(PROVIDERS.anthropic.label, 'API key (billed per use)');
+  assert.equal(PROVIDERS.anthropic.offer, false);
+  assert.deepEqual(offered(['anthropic']).map((p) => p.key), ['anthropic']);
   assert.equal(PROVIDERS.claude.pi, 'byokit-claude-plan');
   await assert.rejects(new Kit(async () => {}, ['chatgpt']).login(1, 'grok'), /not offered/);
 });

@@ -171,7 +171,7 @@ test('routes.json and the pinned tarball agree in both directions, plugins inclu
   assert.equal(routes().find((entry) => entry.choice === 'custom-api-key')?.plugin, '', 'a core choice has no plugin');
 });
 
-test('every offered app-guided route starts on the real engine (5.7, B6)', { timeout: 900_000 }, async () => {
+test('every offered app-guided route starts without a caller allowlist (5.7, B6)', { timeout: 900_000 }, async () => {
   const { guided } = pinnedChoices();
   assert.ok(guided.has('openai-device-code'), 'guided choices are read from the pinned inventory');
   for (const route of routes().filter((entry) => entry.offer && guided.has(entry.choice))) {
