@@ -110,3 +110,17 @@ The Node-only main entry also exports `UsageError`, types, `words` and `usageWor
 `./testing` exports `fakeFetch`, `fakeCodex` and `usageContract(make, { test? })`.
 Tests use synthetic recorded protocol shapes and fakes behind the repository's
 network guard. They never open real sign-ins or call provider endpoints.
+
+`tokenLedger({ store?, cap? })` records measured token counts for host member ids.
+`record(member, tokens, time)` accepts a nonnegative safe integer and epoch milliseconds;
+`query(member, from, to)` uses `[from, to)` bounds and returns total `tokens`, sorted
+local-calendar `days: [{ date, tokens }]`, and a `week` ending at `to`. The week spans
+seven local calendar days (including DST), independent of `from`, and includes
+`{ from, to, tokens, cap?, remaining? }`. Remaining allowance is clamped to zero.
+`cap` is a seven-day token count or a synchronous member-to-cap function; omitted
+means uncapped. `store` implements `record(member, { tokens, time })` and
+`query(member, from, to)`, with `memoryTokenLedgerStore()` as the default. Reuse a
+store to keep history across reader instances. The host owns durable storage and
+retention; the default ledger never writes files. Invalid inputs and store failures
+throw `TokenLedgerError` with `code: 'invalid' | 'store'`, without exposing member ids
+or store exception text. Entries are counts only, never sign-in tokens.

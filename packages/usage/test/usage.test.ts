@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, statSync, symlinkSync, utimesSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
-import { usage, roomOf, UsageError, claudeWindows, codexWindows, goWindows, zaiWindows, WORDS, usageWords, type Source, type Window } from '../src/index.ts';
+import { usage, roomOf, tokenLedger, memoryTokenLedgerStore, TokenLedgerError, UsageError, claudeWindows, codexWindows, goWindows, zaiWindows, WORDS, usageWords, type Source, type Window } from '../src/index.ts';
 import { fakeCodex, fakeFetch, usageContract } from '../src/testing/index.ts';
 import { fingerprint } from '../src/store.ts';
 import payloads from './usage-payloads.json' with { type: 'json' };
@@ -258,4 +258,37 @@ test('Gemini project discovery and Grok monthly fallback use fixed own-UA endpoi
   assert.deepEqual((await reader.read({ provider: 'grok', access: 'fake' }, { nowMs })).windows, [{ provider: 'grok', kind: 'monthly', usedPercent: 50, resetsAt: 1788616800000 }]);
   assert.equal(fake.calls[3].url, 'https://cli-chat-proxy.grok.com/v1/billing');
   for (const call of fake.calls) assert.equal((call.init?.headers as Record<string,string>)['User-Agent'], 'byokit/usage/0.2.0');
+});
+
+
+test('member token ledger: local days, seven-day caps, boundaries and host persistence', () => {
+  const store = memoryTokenLedgerStore();
+  const ledger = tokenLedger({ store, cap: (member) => member === 'alice' ? 100 : undefined });
+  const start = new Date(2026, 8, 1).getTime(); const end = new Date(2026, 8, 8).getTime();
+  ledger.record('alice', 10, start - 1); // outside the seven local days
+  ledger.record('alice', 20, start);
+  ledger.record('alice', 30, start + 1000);
+  ledger.record('alice', 40, new Date(2026, 8, 7, 23, 59).getTime());
+  ledger.record('alice', 500, end); // upper bound excluded
+  ledger.record('bob', 200, start);
+  const restarted = tokenLedger({ store, cap: 100 });
+  const all = restarted.query('alice', start, end);
+  assert.equal(all.tokens, 90);
+  assert.deepEqual(all.days, [{ date: '2026-09-01', tokens: 50 }, { date: '2026-09-07', tokens: 40 }]);
+  assert.deepEqual(all.week, { from: start, to: end, tokens: 90, cap: 100, remaining: 10 });
+  const today = ledger.query('alice', new Date(2026, 8, 7).getTime(), end);
+  assert.equal(today.tokens, 40); assert.equal(today.week.tokens, 90);
+  ledger.record('alice', 20, start + 2000);
+  assert.equal(ledger.query('alice', start, end).week.remaining, 0);
+  assert.equal(ledger.query('bob', start, end).week.tokens, 200);
+  assert.equal(ledger.query('bob', start, end).week.remaining, undefined);
+  assert.equal(tokenLedger().query('alice', start, end).tokens, 0);
+  assert.equal(tokenLedger({ cap: 0 }).query('alice', start, end).week.remaining, 0);
+  assert.throws(() => ledger.record('alice', -1, start), TokenLedgerError);
+  assert.throws(() => ledger.record('', 1, start), TokenLedgerError);
+  assert.throws(() => ledger.query('alice', end, start), TokenLedgerError);
+  assert.throws(() => ledger.record('alice', 1, NaN), TokenLedgerError);
+  const broken = tokenLedger({ store: { record() { throw new Error('secret'); }, query() { throw new Error('secret'); } } });
+  assert.throws(() => broken.record('alice', 1, start), (error: unknown) => error instanceof TokenLedgerError && error.code === 'store' && !error.message.includes('secret'));
+  assert.throws(() => broken.query('alice', start, end), TokenLedgerError);
 });
