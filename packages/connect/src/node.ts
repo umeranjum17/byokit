@@ -1,3 +1,4 @@
+import WORDS from './words.json' with { type: 'json' };
 import { createServer } from 'node:http';
 import { connect, type Connection } from './connect.ts';
 import { ConnectError } from './errors.ts';
@@ -27,14 +28,14 @@ export async function connectLoopback(target: ProviderId | Provider | string, op
   let cancelFlow: (() => void) | undefined;
   const server = createServer(async (req, res) => {
     res.setHeader('content-type', 'text/plain; charset=utf-8'); res.setHeader('cache-control', 'no-store'); res.setHeader('x-content-type-options', 'nosniff');
-    if (req.method !== 'GET' || req.headers.host !== new URL(origin).host || req.url?.split('?')[0] !== '/callback' || !finish || settled) { res.writeHead(404); res.end('This page is not available.'); return; }
+    if (req.method !== 'GET' || req.headers.host !== new URL(origin).host || req.url?.split('?')[0] !== '/callback' || !finish || settled) { res.writeHead(404); res.end(WORDS.browser.unavailable); return; }
     const callback = new URL(req.url, origin);
-    if (callback.searchParams.getAll('state').length !== 1 || callback.searchParams.get('state') !== state) { res.writeHead(400); res.end('This sign-in link does not match. Return to the app.'); return; }
-    if (completing) { res.writeHead(409); res.end('Sign-in is already finishing. Return to the app.'); return; }
+    if (callback.searchParams.getAll('state').length !== 1 || callback.searchParams.get('state') !== state) { res.writeHead(400); res.end(WORDS.browser.mismatch); return; }
+    if (completing) { res.writeHead(409); res.end(WORDS.browser.finishing); return; }
     completing = true;
-    try { await finish(callback.href); res.end('Connected. You can return to the app.'); setImmediate(() => settle()); }
+    try { await finish(callback.href); res.end(WORDS.browser.connected); setImmediate(() => settle()); }
     catch (error) {
-      res.writeHead(400); res.end('Sign-in did not finish. Return to the app and try again.');
+      res.writeHead(400); res.end(WORDS.browser.failed);
       setImmediate(() => settle(error));
     }
   });

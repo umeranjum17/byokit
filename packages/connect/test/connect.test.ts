@@ -1,3 +1,5 @@
+import WORDS from '../src/words.json' with { type: 'json' };
+import plain from '../../../fixtures/conformance/plain-words.json' with { type: 'json' };
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -227,5 +229,6 @@ test('browser entry bundles without runtime Node, filesystem or keystore code', 
   const result = await build({ entryPoints: ['packages/connect/src/index.ts'], bundle: true, platform: 'browser', format: 'esm', write: false, metafile: true });
   assert.ok(result.outputFiles[0].text.length > 0);
   assert.ok(!Object.keys(result.metafile!.inputs).some(path => /packages\/secrets|node:|\/src\/node\.ts/.test(path)));
+  for (const text of [...Object.values(WORDS.errors), ...Object.values(WORDS.browser)]) assert.doesNotMatch(text, new RegExp(plain.pattern, 'i'));
   assert.equal(providers.gmail.scopes[0], 'https://www.googleapis.com/auth/gmail.readonly');
 });
