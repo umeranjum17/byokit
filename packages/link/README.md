@@ -203,7 +203,8 @@ then **confirm** checks that metadata before approving the new peer:
 ```ts
 import { Host, keyPair, PublicLinkError } from '@byokit/link';
 
-declare const ui: { ask(question: string): Promise<boolean> };
+// Supply the app's human approval UI.
+declare const ui: { ask(message: string): Promise<boolean> };
 const urls = ['wss://relay.example/link/v1/your-host-id'];
 const host: Host = await Host.open({
   keys: keyPair(), name: 'Kitchen computer',
@@ -250,6 +251,11 @@ The browser collection enumerates existing `browserDeviceStore` entries in its d
 non-extractable wrapping keys and forgotten-grant protection; removed tombstones stay out of `list()`.
 
 ```ts
+import { DeviceLink, secureDeviceStores, type DeviceGrant, type SecureStoreLike } from '@byokit/link';
+
+// Supply the platform secure-storage module and a grant returned by pairing.
+declare const SecureStore: SecureStoreLike;
+declare const grant: DeviceGrant;
 const computers = secureDeviceStores(SecureStore);
 await computers.save('kitchen', grant);
 const link = new DeviceLink((await computers.load('kitchen'))!, { store: computers.store('kitchen') });
