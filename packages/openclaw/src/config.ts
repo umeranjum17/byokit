@@ -2,7 +2,6 @@ import { dirname, join } from 'node:path';
 import type { KitOptions } from './kit.ts';
 import { routes } from './routes.ts';
 import type { Member } from './types.ts';
-import { routes } from './routes.ts';
 
 type Obj = Record<string, any>;
 const object = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v);
