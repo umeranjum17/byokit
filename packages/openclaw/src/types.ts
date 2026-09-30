@@ -35,15 +35,45 @@ export interface RunSpec extends RunRef {
   // this run only. `provider` is the id `providers(member)` reports; one not signed in ends `signed-out` before any
   // call. Absent: the engine's own selection.
   model?: string;
+  // The app tools (KitOptions.tools names) this run may call; any other app tool is refused at the gate before
+  // ToolHost.gate. Engine builtins are unaffected. A name the kit does not register is refused before any request.
+  // Absent: every app tool.
+  tools?: string[];
   register?: boolean; // default true: the bridge recognizes this run
 }
 
 export type RunEvent =
   | { type: 'text'; text: string } // cumulative assistant text
-  | { type: 'tool'; name: string; phase: 'start' | 'end' };
+  | {
+    type: 'tool';
+    name: string;
+    phase: 'start' | 'end';
+    id?: string; // the engine's toolCallId: pairs a start with its end
+    input?: Record<string, unknown>; // start: the call's arguments as the engine reports them (strings redacted)
+    output?: unknown; // end: the engine's tool result (text content capped by the engine)
+    error?: boolean; // end: the engine counts the call failed (a gate deny included)
+  };
+
+/** Token usage of one run as the engine totals it (every model call of the run, compaction included). */
+export type RunUsage = {
+  input?: number;
+  output?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  reasoning?: number;
+  total?: number;
+  costUsd?: number; // only when the engine has a price for the model
+};
+
+/** A subscription's quota windows, as the engine last read them from the provider (never estimated by the kit). */
+export type PlanWindow = {
+  provider: string;
+  plan?: string; // e.g. 'plus'
+  windows: { label: string; usedPercent: number; resetAt?: number }[]; // usedPercent 0-100; resetAt epoch ms
+};
 
 export type RunEnd =
-  | { ok: true; text: string }
+  | { ok: true; text: string; usage?: RunUsage; planWindow?: PlanWindow } // each only when the engine reports it
   | { ok: false; aborted: true }
   | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other'; until?: number; message: string };
 
@@ -92,7 +122,10 @@ export type Route = {
 
 export interface GatewayTransport {
   start(): Promise<Hello>;
-  request(method: string, params?: unknown, o?: { timeoutMs?: number; signal?: AbortSignal }): Promise<unknown>;
+  // expectFinal: resolve with the method's final response, handing an interim `status: 'accepted'` to onAccepted.
+  request(method: string, params?: unknown, o?: {
+    timeoutMs?: number; signal?: AbortSignal; expectFinal?: boolean; onAccepted?: (payload: unknown) => void;
+  }): Promise<unknown>;
   onEvent(fn: (e: { event: string; payload?: unknown }) => void): () => void;
   onClose(fn: (why: string) => void): () => void;
   stop(): Promise<void>;

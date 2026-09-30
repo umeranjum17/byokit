@@ -10,6 +10,7 @@
 //   ask permission       hold the turn (after its tool calls) until `releaseStub` lets it finish
 //   [route ID]           asked who should take a request: ID, fairly sure; [route ?]: torn evenly; neither: Chief, sure
 //   anything else        reply `stub <bot>: done with "<the last line of the message>"`
+// Every scripted reply that asks `stream_options.include_usage` ends with a usage chunk of STUB_USAGE, as OpenAI does.
 // The bot id (`idPattern`, default /Your id is ([a-z0-9-]+)\./) is read from the system prompt, and routing
 // requests start with `routingMarker` (default '[routing]'); pass both explicitly to mirror another app's grammar.
 import { createServer, type Server } from 'node:http';
@@ -17,6 +18,9 @@ import { randomUUID } from 'node:crypto';
 import type { OpenClawKit } from '../kit.ts';
 
 export type StubCall = { authorization: string; path: string; body: any };
+
+/** The token usage every stub reply reports when asked (`stream_options.include_usage`), per model call. */
+export const STUB_USAGE = { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 } as const;
 
 export type ModelStub = { port: number; url: string; calls: StubCall[]; close(): Promise<void> };
 
@@ -119,9 +123,14 @@ export function startModelStub(script: string[] = [], o: ModelStubOptions = {}):
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
     const send = (delta: object, finish: string | null = null) =>
       res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
+    const usage = () => {
+      if (body.stream_options?.include_usage === true)
+        res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: body.model, choices: [], usage: STUB_USAGE })}\n\n`);
+    };
     if (next) {
       send({ role: 'assistant', tool_calls: [{ index: 0, id: `call_${id}`, type: 'function', function: { name: next.name, arguments: JSON.stringify(next.input) } }] });
       send({}, 'tool_calls');
+      usage();
       return void res.end('data: [DONE]\n\n');
     }
     let text = queue.length ? queue.shift()! : done();
@@ -134,6 +143,7 @@ export function startModelStub(script: string[] = [], o: ModelStubOptions = {}):
     }
     send({ role: 'assistant', content: text });
     send({}, 'stop');
+    usage();
     res.end('data: [DONE]\n\n');
   });
   return new Promise((resolve) => {

@@ -90,6 +90,9 @@ export class Bridge {
   private readonly onAskGone: (id: string) => void;
   private server?: Server;
   private readonly runs = new Map<string, RunRef>();
+  // Every live registration per session key, each with its run's subset of the app's tools (RunSpec.tools; none: all
+  // of them). Runs sharing a key share the narrowest: a tool must be in every live subset.
+  private readonly live = new Map<string, { tools?: ReadonlySet<string> }[]>();
   private readonly permits = new Map<string, Permit>();
   private readonly tickets: Ticket[] = [];
   private armed: { keyPrefix: string; tool: string; input?: (i: Record<string, unknown>) => boolean; until: number } | undefined;
@@ -143,12 +146,25 @@ export class Bridge {
     void rm(this.path, { force: true }).catch(() => {});
   }
 
-  register(run: RunRef): void {
+  /** Register one run; the returned release ends only this registration (the key stays while another run holds it). */
+  register(run: RunRef, tools?: readonly string[]): () => void {
     this.runs.set(run.sessionKey, run);
+    const entry = tools ? { tools: new Set(tools) } : {};
+    const list = this.live.get(run.sessionKey);
+    if (list) list.push(entry);
+    else this.live.set(run.sessionKey, [entry]);
+    return () => {
+      const now = this.live.get(run.sessionKey);
+      const at = now?.indexOf(entry) ?? -1;
+      if (!now || at < 0) return;
+      now.splice(at, 1);
+      if (!now.length) this.unregister(run.sessionKey);
+    };
   }
 
   unregister(sessionKey: string): void {
     this.runs.delete(sessionKey);
+    this.live.delete(sessionKey);
     for (const [permit, p] of this.permits) if (p.key === sessionKey) this.permits.delete(permit);
     for (let i = this.tickets.length - 1; i >= 0; i--) if (this.tickets[i].key === sessionKey) this.tickets.splice(i, 1);
   }
@@ -266,6 +282,9 @@ export class Bridge {
 
   private async gateRun(socket: Socket, run: RunRef, tool: string, input: Record<string, unknown>): Promise<void> {
     if (!this.host) return this.deny(socket, "can't check this action right now");
+    // An app tool outside the run's own subset never reaches the host; builtins stay with the gate.
+    if (this.tools.has(tool) && (this.live.get(run.sessionKey) ?? []).some((e) => e.tools && !e.tools.has(tool)))
+      return this.deny(socket, 'this tool is not available in this run');
     let result;
     try {
       result = await this.host.gate(run, tool, input, { builtin: !this.tools.has(tool) });

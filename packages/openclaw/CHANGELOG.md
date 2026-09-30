@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- Full run options over the link (v1 A6): `oc.run` and `openclawDevice(link).run(message, o)` forward `system`,
+  `images`, `thinking` and `tools`, each type-checked. `RunSpec.tools` is the run's subset of the app's tools
+  (`KitOptions.tools` names, listed by the new `kit.toolNames()`): the bridge refuses any other app tool before
+  `ToolHost.gate` sees it, engine builtins are unaffected, and a name the kit does not register is refused before the
+  engine is called (over the link, `link.notAllowed`). The pinned engine takes no per-run tool list, so the model
+  still sees every tool; the gate is the enforcement. Runs sharing a session key share the narrowest subset.
+- Structured tool events (v1 A7): a `tool` `RunEvent` carries the engine's `id` (its toolCallId) on both ends, the
+  call's `input` on `start`, and the engine's `output` and `error` on `end`.
+- Usage (v1 A8): `RunEnd.ok` carries `usage` (`input`, `output`, `cacheRead`, `cacheWrite`, `reasoning`, `total`,
+  `costUsd`), the engine's own total for the run from the `agent` request's final frame, and `planWindow`
+  (`{ provider, plan?, windows: { label, usedPercent, resetAt? }[] }`), the engine's cached read of the
+  subscription's quota for the run's provider. Each is present only when the engine reports it; nothing is estimated.
+  New types `RunUsage` and `PlanWindow` (`.`, `./device`).
+- Presence and version (v1 A12, device side): `oc.state` (`openclawDevice(link).state()`, typed `DeviceState`) adds
+  `version` (this kit), `engine` (`ENGINE_VERSION`) and `signedIn`, the providers the device's member is usably
+  signed in to (not an expired or unfinished sign-in), absent while the engine can't say.
+- FIX: a run ending no longer drops another live run's registration on the same session key (its tool calls then
+  failed as an unknown run); a key stays registered until its last run ends. `Bridge.register` returns the release.
+- FIX: the engine's `update`, `input_delta` and `review` tool phases no longer end a tool pair early; only `result`
+  (or `end`) does.
+- Testing: the fake Gateway's runs are engine-shaped (`toolCallId`, `args`, `result`, `isError`; an `accepted` frame
+  and, with `expectFinal`, a final frame with `agentMeta.usage`), and the model stub ends a reply asked
+  `stream_options.include_usage` with a `STUB_USAGE` chunk (exported from `./testing`). `GatewayTransport.request`
+  options take `expectFinal` and `onAccepted`.
+
 ## 0.1.4 (2026-09-30)
 
 - Depends on @byokit/relay 0.3.0.

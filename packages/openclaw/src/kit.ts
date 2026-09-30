@@ -644,7 +644,13 @@ export class OpenClawKit {
       },
       ensure: (member) => this.ensureMember(member),
       bridge: this.bridge,
+      tools: new Set(this.toolNames()),
     });
+  }
+
+  /** The app tool names (`KitOptions.tools`): the only names `RunSpec.tools` may carry. */
+  toolNames(): string[] {
+    return (this.o.tools ?? []).map((t) => t.name);
   }
 
   run(spec: RunSpec, on?: (e: RunEvent) => void): Promise<RunEnd> {

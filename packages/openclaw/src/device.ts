@@ -20,7 +20,7 @@ import type {
 } from './types.ts';
 
 export type { GatewayEventName, GatewayEventPayload, GatewayMethod, GatewayParams, GatewayResult } from './types.ts';
-export type { Approval, Decision, KitState, Route, RunEnd, RunEvent, SignInView } from './types.ts';
+export type { Approval, Decision, KitState, PlanWindow, Route, RunEnd, RunEvent, RunUsage, SignInView } from './types.ts';
 
 /** One `oc.events` frame: a member's Gateway event, typed by name, or an approval add/resolve (7.2). */
 export type OpenClawLinkEvent =
@@ -31,6 +31,25 @@ export type OpenClawLinkEvent =
 export type SessionRow = { sessionKey: string; [k: string]: unknown };
 
 type EndFrame = { type: 'end'; end: RunEnd };
+
+/** `oc.run`'s options beside the message: the member's own session, account, and the kit's run options. */
+export type DeviceRunOptions = {
+  sessionKey?: string;
+  model?: string; // 'provider/model'
+  system?: string;
+  images?: { data: string; mimeType: string }[]; // base64 data
+  thinking?: 'off' | 'low' | 'medium' | 'high';
+  tools?: string[]; // a subset of the computer's app tools; a name it does not register is refused
+};
+
+/** `oc.state`: the engine phase and words, this kit's and the engine's versions, and the device member's sign-ins. */
+export type DeviceState = {
+  state: KitState;
+  words: string;
+  version: string; // @byokit/openclaw on the computer
+  engine: string; // the pinned OpenClaw engine version
+  signedIn?: string[]; // provider ids the member is signed in to; absent while the engine can't say
+};
 
 /**
  * The host ended a stream with its own words (e.g. a refusal). Portable twin of link's PublicLinkError:
@@ -146,7 +165,7 @@ function liveStream(open: () => Promise<LinkStream>): AsyncIterable<unknown> {
 }
 
 export function openclawDevice(link: DeviceLink): {
-  state(): Promise<{ state: KitState; words: string }>;
+  state(): Promise<DeviceState>;
   routes(): Promise<Route[]>;
   signIn: {
     start(p: string, via: 'browser' | 'code'): Promise<SignInView>;
@@ -156,7 +175,7 @@ export function openclawDevice(link: DeviceLink): {
   };
   signOut(p: string): Promise<void>;
   sessions(): Promise<SessionRow[]>;
-  run(message: string, o?: { sessionKey?: string; model?: string }): AsyncIterable<RunEvent | { type: 'end'; end: RunEnd }>;
+  run(message: string, o?: DeviceRunOptions): AsyncIterable<RunEvent | { type: 'end'; end: RunEnd }>;
   steer(k: string, t: string): Promise<void>;
   abort(k: string): Promise<void>;
   approvals(): Promise<Approval[]>;
@@ -167,7 +186,7 @@ export function openclawDevice(link: DeviceLink): {
   call<M extends GatewayMethod>(method: M, params: GatewayParams<M>): Promise<GatewayResult<M>>;
 } {
   return {
-    state: () => link.request('oc.state') as Promise<{ state: KitState; words: string }>,
+    state: () => link.request('oc.state') as Promise<DeviceState>,
     routes: () => link.request('oc.routes') as Promise<Route[]>,
     signIn: {
       start: (p, via) => link.request('oc.signin.start', { provider: p, via }) as Promise<SignInView>,
@@ -191,7 +210,9 @@ export function openclawDevice(link: DeviceLink): {
     run: (message, o) => {
       const inner = liveStream(() =>
         link.stream('oc.run', { message, ...(o?.sessionKey ? { sessionKey: o.sessionKey } : {}),
-          ...(o?.model !== undefined ? { model: o.model } : {}) }));
+          ...(o?.model !== undefined ? { model: o.model } : {}), ...(o?.system !== undefined ? { system: o.system } : {}),
+          ...(o?.images !== undefined ? { images: o.images } : {}), ...(o?.thinking !== undefined ? { thinking: o.thinking } : {}),
+          ...(o?.tools !== undefined ? { tools: o.tools } : {}) }));
       let finished = false;
       return {
         [Symbol.asyncIterator]() {

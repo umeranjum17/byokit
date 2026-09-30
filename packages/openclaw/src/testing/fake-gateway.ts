@@ -37,6 +37,9 @@ type Run = {
   runId: string;
   sessionKey: string;
   seq: number;
+  provider: string;
+  model: string;
+  usage?: Record<string, number>;
   result?: Record<string, unknown>;
   waiters: ((result: Record<string, unknown>) => void)[];
 };
@@ -165,35 +168,64 @@ export function fakeGateway(script?: FakeScript): {
     emit('agent', { runId: run.runId, seq: run.seq++, stream, ts: Date.now(), data });
 
   /** The `agent` handler: the run's scripted turn, its `[tool NAME {json}]` calls through the real bridge. */
-  const startRun = (params: any, bridgeSock: string): { runId: string } => {
+  const startRun = (params: any, bridgeSock: string): { runId: string; status: 'accepted' } => {
     if (params.agentId != null && !agents.has(String(params.agentId))) throw new Error(`unknown agent: ${params.agentId}`);
-    const run: Run = { runId: randomUUID(), sessionKey: String(params.sessionKey ?? ''), seq: 0, waiters: [] };
+    // Like the engine: the provider/model the run is called on, its own override or the member's (here openai).
+    const run: Run = { runId: randomUUID(), sessionKey: String(params.sessionKey ?? ''), seq: 0,
+      provider: String(params.provider ?? 'openai'), model: String(params.model ?? 'gpt-5.1'), waiters: [] };
     runs.set(run.runId, run);
     const message = String(params.message ?? '');
     const text = `fake: ${message}`;
     setTimeout(() => {
       void (async () => {
         const table = bridgeSock ? pluginTable(bridgeSock) : undefined;
+        let n = 0;
         for (const call of toolCalls(message)) {
-          emitRun(run, 'tool', { name: call.name, phase: 'start' });
+          const toolCallId = `call-${++n}`;
+          emitRun(run, 'tool', { phase: 'start', name: call.name, toolCallId, args: call.input });
           // As the plugin: an engine builtin is gated unless the app opted out, and an allowed one never calls back.
           const builtin = !!table && !table.tools.some((t) => t.name === call.name);
+          let output = `${call.name} ran`;
+          let isError = false;
           if (bridgeSock && !(builtin && table?.gateBuiltins === false)) {
             try {
               const gate = await bridgeRequest(bridgeSock, { kind: 'gate', key: run.sessionKey, tool: call.name, input: call.input });
-              if (gate.allow && !builtin)
-                await bridgeRequest(bridgeSock, { kind: 'call', key: run.sessionKey, permit: gate.permit, tool: call.name, input: call.input });
+              if (!gate.allow) {
+                isError = true;
+                output = String(gate.reason ?? 'blocked');
+              } else if (!builtin) {
+                const done = await bridgeRequest(bridgeSock, { kind: 'call', key: run.sessionKey, permit: gate.permit, tool: call.name, input: call.input });
+                isError = done.ok !== true;
+                output = String(done.ok === true ? done.text : done.reason);
+              }
             } catch { /* no bridge or refused: the tool pair still plays, nothing is called */ }
           }
-          // Completion rides `phase: 'result'` like the real engine (O11), not `'end'`.
-          emitRun(run, 'tool', { name: call.name, phase: 'result' });
+          // Completion rides `phase: 'result'` like the real engine (O11), not `'end'`, with its result.
+          emitRun(run, 'tool', { phase: 'result', name: call.name, toolCallId, isError,
+            result: { content: [{ type: 'text', text: output }] } });
         }
         emitRun(run, 'assistant', { text });
+        // The engine sums the run's usage (zero buckets omitted); the fake counts characters.
+        run.usage = { input: message.length, output: text.length, total: message.length + text.length };
         setTimeout(() => finish(run, { status: 'ok', terminalReply: { text } }), ABORT_WINDOW_MS);
       })();
     }, 0);
-    return { runId: run.runId };
+    return { runId: run.runId, status: 'accepted' };
   };
+
+  /** The `agent` request's final frame (pin): the run's end with `result.meta.agentMeta`, once the run is over. */
+  const finalOf = (runId: string): Promise<Record<string, unknown>> => new Promise((resolve) => {
+    const run = runs.get(runId)!;
+    const settle = (result: Record<string, unknown>) => {
+      const ok = result.status === 'ok';
+      resolve({ runId, status: ok ? 'ok' : 'error', summary: ok ? 'completed' : 'failed',
+        ...(ok ? {} : { stopReason: result.stopReason }),
+        result: { payloads: ok ? [{ text: (result.terminalReply as { text?: string } | undefined)?.text }] : [],
+          meta: { agentMeta: { provider: run.provider, model: run.model, ...(run.usage ? { usage: run.usage } : {}) } } } });
+    };
+    if (run.result) settle(run.result);
+    else run.waiters.push(settle);
+  });
 
   const defaults: Record<string, Handler> = {
     health: () => ({ ok: true, plugins: { loaded: [] } }),
@@ -351,9 +383,14 @@ export function fakeGateway(script?: FakeScript): {
         if (!entry.open) throw new Error(closedWhy());
         return hello();
       },
-      request: async (method, params) => {
+      request: async (method, params, o) => {
         if (!entry.open) throw new Error(closedWhy());
-        return dispatch(method, params, sock);
+        const reply = await dispatch(method, params, sock);
+        // expectFinal: the interim accepted frame goes to onAccepted, the request settles with the final one.
+        if (!o?.expectFinal || !isPlainObject(reply) || reply.status !== 'accepted' || typeof reply.runId !== 'string'
+          || !runs.has(reply.runId)) return reply;
+        o.onAccepted?.(reply);
+        return finalOf(reply.runId);
       },
       onEvent: (fn) => (entry.events.add(fn), () => entry.events.delete(fn)),
       onClose: (fn) => (entry.closes.add(fn), () => entry.closes.delete(fn)),

@@ -8,7 +8,8 @@ import { join } from 'node:path';
 import { OpenClawKit } from '../../src/kit.ts';
 import { Engine } from '../../src/engine.ts';
 import { scratchDir } from '../../../test-support.ts';
-import { startModelStub, useModelStub, type ModelStub } from '../../src/testing/model-stub.ts';
+import { STUB_USAGE, startModelStub, useModelStub, type ModelStub } from '../../src/testing/model-stub.ts';
+import type { RunEvent } from '../../src/types.ts';
 
 const REPORT = { name: 'report', description: 'record progress', parameters: { type: 'object' } };
 const FETCH = { name: 'webfetch', description: 'fenced web read', parameters: { type: 'object' } };
@@ -59,9 +60,33 @@ test('real tool calls cross the fail-closed gate; keyword memory stays free', { 
     await assert.rejects(kit.call('agent', { agentId: 'm1', sessionKey: 'agent:m1:o11:cwd-probe',
       message: 'hello', cwd: join(stateDir, 'bot'), idempotencyKey: 'cwd-probe' } as never), /cwd is reserved for plugin-owned subagent runs/);
     const tools: string[] = [];
+    const toolEvents: RunEvent[] = [];
     const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:o11:chief:1', message: '[tool report {"text":"Working"}]' },
-      (e) => { if (e.type === 'tool') tools.push(`${e.name}:${e.phase}`); });
+      (e) => { if (e.type === 'tool') { tools.push(`${e.name}:${e.phase}`); toolEvents.push(e); } });
     assert.ok(end.ok, JSON.stringify(end));
+    // L-OC-RUN: the pin's tool events pair by id, start carries the model's own arguments (no bridge params), end the
+    // result the kit's tool returned.
+    const start = toolEvents.find((e) => e.type === 'tool' && e.name === 'report' && e.phase === 'start');
+    const done = toolEvents.find((e) => e.type === 'tool' && e.name === 'report' && e.phase === 'end');
+    assert.ok(start?.type === 'tool' && typeof start.id === 'string' && start.id.length > 0, JSON.stringify(toolEvents));
+    assert.deepEqual(start.input, { text: 'Working' });
+    assert.ok(done?.type === 'tool' && done.id === start.id && done.error === false, JSON.stringify(toolEvents));
+    assert.ok(JSON.stringify(done.output).includes('Progress: Working'), JSON.stringify(done.output));
+    // Usage is the engine's run total off the `agent` final frame (the stub reports STUB_USAGE per model call, two
+    // calls here); the stub's api-key provider has no plan window, and none is made up.
+    assert.ok(end.usage && (end.usage.output ?? 0) >= STUB_USAGE.completion_tokens && (end.usage.input ?? 0) > 0,
+      JSON.stringify(end.usage));
+    assert.equal('planWindow' in end, false, JSON.stringify(end));
+    // A run's tool subset: an app tool outside it is refused before host.gate, and nothing runs.
+    const gatedBefore = gated.length;
+    const subsetEvents: RunEvent[] = [];
+    const narrowed = await kit.run({ member: 'm1', sessionKey: 'agent:m1:o11:chief:subset', tools: ['webfetch'],
+      message: '[tool report {"text":"Not in this run"}]' }, (e) => subsetEvents.push(e));
+    assert.ok(narrowed.ok, JSON.stringify(narrowed));
+    assert.deepEqual(gated.slice(gatedBefore), [], 'a tool outside the subset reached the gate');
+    assert.equal(called, 1, 'a tool outside the subset ran');
+    const refusedEnd = subsetEvents.find((e) => e.type === 'tool' && e.name === 'report' && e.phase === 'end');
+    assert.ok(refusedEnd?.type === 'tool' && refusedEnd.error === true, JSON.stringify(subsetEvents));
     assert.ok(gated.includes('report'), `the hook was skipped: ${JSON.stringify(end)} ${JSON.stringify(tools)}`);
     assert.equal(called, 1, 'tool bypassed the gate or failed to execute');
     assert.ok(tools.includes('report:start'), JSON.stringify(tools));
