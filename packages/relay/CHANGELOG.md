@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add owner-set enrolment `meta` (JSON capped at 4096 UTF-8 bytes), retained in the host record and exposed in
+  `ready` / `RelayClient.meta`, including on reconnect. URL fields stay app-defined and metadata never reaches devices.
+- Add host-authenticated `RelayClient.self()` and `leave()`: read only the proven host's own record and live device
+  connection count, or remove its registration, push addresses, action tokens and short codes. Leave clears confirmed
+  pending unsubscriptions from the existing client store and stops; failed relay saves retain authority for retry.
+
 ## 0.4.2 (2026-09-30)
 
 - Dependency update: pins @byokit/link 0.6.0.

@@ -3,8 +3,8 @@
 // machine without touching another.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hostId, keyPair } from '@byokit/link';
-import { CLOSE, ownerClient, RelayOwnerError } from '../src/index.ts';
+import { hostId, keyPair, pairWithOffer, DeviceLink } from '@byokit/link';
+import { CLOSE, MAX_ENROLMENT_META_BYTES, ownerClient, RelayOwnerError } from '../src/index.ts';
 import { closed, grantStore, hostClient, paired, startHost, startRelay, until } from './helpers.ts';
 
 const owner = 'owner-secret-for-tests';
@@ -238,4 +238,70 @@ test('explicit closed signup requires enrolment and invalid caps fail before ope
   for (const maxHosts of [0, -1, 1.5, Infinity, NaN]) {
     await assert.rejects(startRelay({ signup: { open: true, maxHosts } }), /bad signup policy/);
   }
+
+});
+
+
+test('owner enrolment metadata is capped JSON, retained on reconnect, and never routed to devices', async () => {
+  const r = await startRelay({ ownerToken: owner });
+  const meta = { enrolmentUrl: 'https://relay.example/enrol', webUrl: 'https://app.example', marker: 'host-only-canary' };
+  const token = (await ownerClient(r.http, owner).enrolment({ meta })).token;
+  const host = await startHost();
+  const h = hostClient(host, r.ws, { enrol: token });
+  await until(() => h.client.status === 'online');
+  assert.deepEqual(h.client.meta, meta);
+  assert.deepEqual((await h.client.self()).host.meta, meta);
+  assert.deepEqual(r.saved()!.hosts[0]!.meta, meta);
+  const grant = await pairWithOffer(host.offer({ role: 'control', urls: [`${r.ws}/link/v1/${host.id}`] }).text, { name: 'Phone', onWords: () => {} });
+  const link = new DeviceLink(grant);
+  try {
+    assert.doesNotMatch(JSON.stringify(grant), /host-only-canary/);
+    assert.doesNotMatch(JSON.stringify(await link.request('self')), /host-only-canary/);
+    assert.doesNotMatch(JSON.stringify(await (await fetch(`${r.http}/relay/v1/codes/${(await h.client.code()).code}`)).json()), /host-only-canary/);
+  } finally { link.stop(); }
+  h.client.stop();
+  const next = hostClient(host, r.ws);
+  await until(() => next.client.status === 'online');
+  assert.deepEqual(next.client.meta, meta);
+  const max = 'a'.repeat(MAX_ENROLMENT_META_BYTES - 2); // quotes are two bytes
+  await r.relay.enrolment({ meta: max });
+  await assert.rejects(r.relay.enrolment({ meta: max + 'a' }), /metadata/);
+  await assert.rejects(r.relay.enrolment({ meta: 'é'.repeat(2048) }), /metadata/);
+  const cycle: any = {}; cycle.self = cycle;
+  await assert.rejects(r.relay.enrolment({ meta: cycle }));
+  await assert.rejects(ownerClient(r.http, owner).enrolment({ meta: max + 'a' }), (e: unknown) => e instanceof RelayOwnerError && e.status === 400);
+  const raw = new WebSocket(`${r.ws}/relay/v1/host`);
+  raw.addEventListener('message', () => raw.send(JSON.stringify({ t: 'self', id: host.id })));
+  assert.deepEqual(await closed(raw), [4400, 'bad hello']);
+});
+
+test('self returns only the key-proven host, and counts live connections rather than grants', async () => {
+  const r = await startRelay();
+  const a = await paired(r);
+  const b = await paired(r);
+  await a.dev.link.request('hello');
+  await b.dev.link.request('hello');
+  // Pairing uses a temporary socket; wait for its close to reach the relay.
+  await until(async () => (await a.client.self()).devices === 1);
+  const self = await a.client.self();
+  const { online, devices, ...record } = r.relay.hosts().find((h) => h.id === a.host.id)!;
+  assert.equal(online, true);
+  assert.deepEqual(self, { host: record, devices });
+  assert.equal(self.devices, 1);
+  assert.doesNotMatch(JSON.stringify(self), new RegExp(b.host.id));
+  a.dev.link.stop();
+  await until(async () => (await a.client.self()).devices === 0);
+});
+
+
+test('open signup still claims explicit owner enrolment metadata and consumes its token', async () => {
+  const r = await startRelay({ signup: { open: true, maxHosts: 1 } });
+  const meta = { enrolmentUrl: 'https://relay.example/enrol' };
+  const { token } = await r.relay.enrolment({ name: 'Owner name', meta });
+  const host = await startHost();
+  const h = hostClient(host, r.ws, { enrol: token, name: 'Host name' });
+  await until(() => h.client.status === 'online');
+  assert.deepEqual(h.client.meta, meta);
+  assert.equal((await h.client.self()).host.name, 'Owner name');
+  assert.deepEqual(r.saved()!.enrolments, []);
 });
