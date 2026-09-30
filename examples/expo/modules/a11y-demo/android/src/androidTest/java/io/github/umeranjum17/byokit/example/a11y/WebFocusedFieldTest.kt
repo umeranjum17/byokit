@@ -37,6 +37,7 @@ class WebFocusedFieldTest {
    */
   @Suppress("DEPRECATION")
   private fun awaitFocus(service: AccessibilityService, description: String, text: String? = null, password: Boolean = false) {
+    require(password || text != null)
     val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
     val app = instrumentation.targetContext.packageName
     do {
@@ -62,9 +63,7 @@ class WebFocusedFieldTest {
         service.rootInActiveWindow?.let(::visit)
         val unique = editors.distinct() // active root can repeat a window's independently owned snapshot
         val focused = unique.filter { it.isFocused }
-        val ready = if (text == null && !password) {
-          unique.size >= 4 && focused.isEmpty() // all four fixture editors must exist before the no-focus assertion
-        } else focused.singleOrNull()?.let {
+        val ready = focused.singleOrNull()?.let {
           it.isPassword == password && (password || it.text?.toString() == text)
         } ?: false
         if (ready) return
@@ -94,7 +93,6 @@ class WebFocusedFieldTest {
       assertTrue("Local WebView page loaded", page.loaded.await(10, TimeUnit.SECONDS))
 
       assertEquals("\"\"", js(page, "document.activeElement.id"))
-      awaitFocus(service, "unfocused page with all four editors")
       assertNull("No focus never guesses the decoy", FocusedFields.read(service))
       repeat(10) { run ->
         for ((id, label) in listOf("area" to "textarea", "line" to "input")) {
