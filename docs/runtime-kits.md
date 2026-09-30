@@ -1277,7 +1277,7 @@ export class HerdrKit {
   call<M extends HerdrMethod>(method: M, params: HerdrParams<M>, o?: { timeoutMs?: number }): Promise<HerdrResult<M>>;
   subscribe<E extends HerdrEventName>(subs: HerdrSubscription<E>[], on: (e: HerdrEventOf<E>) => void,
             onError?: (code: string, message: string) => void): HerdrSubscribeStop;   // onError: Herdr rejected the batch
-  cli(args: string[], o?: { timeoutMs?: number }): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }>;
+  cli(args: string[], o?: { timeoutMs?: number; env?: Record<string, string> }): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }>;
   terminal(paneId: string, o: { mode: 'control' | 'observe'; cols: number; rows: number }): TerminalSession;
   // live tree
   snapshot(): HerdrSnapshot;     // workspaces → tabs → panes → agents, kept current by events
@@ -1285,7 +1285,8 @@ export class HerdrKit {
   // helpers
   startAgent(o: StartAgent): Promise<AgentRef>;
   openSignInTab(o: OpenSignInTab): Promise<AgentRef>;
-  moveToAccount(target: AgentRef, o: MoveToAccount): Promise<MoveResult>;
+  move(o: Move): Promise<MoveResult>;
+  moveToAccount(target: AgentRef, o: MoveToAccount): Promise<MoveToAccountResult>;
   prompt(target: AgentRef, text: string, o?: { wait?: { until?: AgentStatus[]; timeoutMs: number } }): Promise<PromptReceipt>;
   sendKeys(target: AgentRef, keys: string[]): Promise<void>;
   wait(target: AgentRef, o: { until?: AgentStatus[]; timeoutMs: number }): Promise<AgentStatus>;
@@ -1313,10 +1314,15 @@ export type MoveToAccount = {
   provider: 'claude' | 'codex'; folder: string; env?: Record<string, string>;
   direction?: 'right' | 'down'; timeoutMs?: number;
 };
-export type MoveResult = { ok: true; session: string } | {
+export type MoveToAccountResult = { ok: true; session: string } | {
   ok: false; code: 'too_early' | 'busy' | 'unsupported' | 'env_mismatch' | 'close_failed' | 'start_failed';
   message: string; live?: string;
 };
+export type Move = {
+  paneId: string; kind: string; args: string[]; set: Record<string, string>; unset?: string[];
+  onStaged?(newPaneId: string): void; onReplaced?(newPaneId: string): void; timeoutMs?: number;
+};
+export type MoveResult = { ok: true; paneId: string } | Extract<MoveToAccountResult, { ok: false }>;
 export type PromptReceipt = { paneId: string; terminalId: string; revision: number; status: AgentStatus;
   agentSession?: AgentSessionRef }; // from the prompt response only; absent when Herdr omits it
 export type BlockedAgent = { paneId: string; workspaceId: string; tabId: string; kind?: string; revision: number; prompt: string; since: number };
@@ -1470,8 +1476,9 @@ The host owns account folders and history sharing. Tokens stay on the device and
 Words key `agent.signIn`. Existing `startAgent.env` travels on placement create/split, never `agent.start`.
 An existing-pane start with non-empty env is refused: Herdr cannot change a running shell's environment.
 
-`moveToAccount(target, { provider, folder, env?, direction?, timeoutMs? })` accepts Claude accounts for Claude/Pi
-and Codex accounts for Codex/Pi. Resume arguments are `--resume <id>`, `resume <id>`, or `--session <path>`.
+`moveToAccount(target, { provider, folder, env?, direction?, timeoutMs? })` accepts Claude accounts for Claude
+and Codex accounts for Codex. Resume arguments are `--resume <id>` or `resume <id>`. Pi ignores these account
+folder variables and is refused until its own store is mapped.
 The kit rereads the source agent: absent/launch-pending conversation → `too_early`, working/blocked or concurrent
 move → `busy`, unsupported agent/session kind → `unsupported`. The source account is never inspected.
 
@@ -1485,6 +1492,27 @@ The move order is **start then close**:
 4. Close the original pane only after the new session is ready. If that close fails, close the new pane to roll
    back and return `close_failed`. If rollback close also fails, `live` names the new pane, so the host can recover.
 5. Return the new pane id as `session` (Herdr kit sessions are addressed by pane id, including a new generation).
+
+`move({ paneId, kind, args, set, unset?, onStaged?, onReplaced?, timeoutMs? })` uses the same transaction and
+per-source lock, with caller-supplied resume arguments. It returns `{ ok: true, paneId }`; the existing
+`moveToAccount` helper keeps `{ ok: true, session }` as `MoveToAccountResult`. The source must publish a
+conversation for the same agent kind. `set` includes that kind's managed account folder variable; it carries
+folder paths, never credentials. Environment names must be shell identifiers, values and args cannot contain
+NUL or newlines, and a name cannot appear in both `set` and `unset`.
+
+The pinned `agent.start` protocol exposes args, kind and name, but no env or command-prefix field. Therefore
+`unset` is applied in the new shell before `agent.start` rather than through an unsupported `env -u` prefix.
+The kit verifies the account folder and each unset name's **absence**, without printing credential values. A shell
+that cannot unset or retains a variable fails closed as `env_mismatch`. Then the kit waits for the kind, an
+idle/done state, `interactive_ready: true`, and a published conversation before closing the source. The default
+step timeout is 60 seconds. All post-split failures report the replacement as `live` if rollback close fails.
+
+`onStaged` runs immediately after split, before any env verification or start, so the app can hide the pane and
+seed its bookkeeping. A thrown staging hook rolls back. `onReplaced` is a notification after the source closes;
+its exception cannot roll back an already completed move and does not change the success result.
+`cli(args, { env })` overlays that per-call env on the kit's explicit env, preserving its socket/PATH defaults;
+it never inherits `process.env` and does not mutate the env for later calls. An app uses it to install managed
+folder hooks with `cli(['integration', 'install', provider], { env: { [folderVariable]: folder } })`.
 
 Move messages are plain words with no caught errors, folders or tokens interpolated. `live` is a pane id. Every
 failure before the source closes leaves it live; failed cleanup can leave another pane for host recovery. No real

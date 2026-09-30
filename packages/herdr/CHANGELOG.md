@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add `move` with caller resume args, credential shedding, staging/replacement hooks and `MoveResult.paneId`.
+- Add per-call `cli` env overlays for managed folder hook installation.
+- Report surviving replacement panes when environment verification rollback fails; refuse folder moves for agents that ignore the folder variables.
+
 ## 0.3.0 (2026-10-01)
 
 - Dependency update: pins @byokit/reach 0.5.0.
@@ -23,6 +27,7 @@
   `agentStatus` as `installState`) tells a real runnable binary apart from an auto-install
   launcher such as a mise shim: shimmed or absent reads `installs-on-first-start`, sharing the
   one probe path with `installedAgentKinds` (`resolveAgentBinary`, `isAutoInstallShim`).
+
 
 ## 0.2.0 (2026-09-30)
 

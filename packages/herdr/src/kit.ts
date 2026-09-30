@@ -9,7 +9,7 @@ import { Supervisor } from './supervise.ts';
 import type {
   AgentCliSignIn, AgentReadiness, AgentStartEvent, AgentStatusOptions, AgentRef, AgentSessionRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,
   HerdrParams, HerdrResult, HerdrSnapshot, HerdrSnapshotAgent, HerdrSnapshotPane, HerdrSnapshotWorkspace, HerdrState, HerdrSubscription, HerdrSubscribeStop, PromptReceipt, StartAgent, TerminalSession,
-  HerdrTransport, MoveToAccount, MoveResult, OpenSignInTab,
+  HerdrTransport, Move, MoveToAccount, MoveToAccountResult, MoveResult, OpenSignInTab,
 } from './types.ts';
 
 const kinds = ['pane.agent_detected', 'pane.created', 'pane.closed', 'pane.moved', 'pane.exited', 'pane.updated',
@@ -373,7 +373,7 @@ export class HerdrKit {
     if (!this.transport) throw new Error('herdr: not connected');
     return this.transport.subscribe(subs, on as (e: HerdrEvent) => void, onError ?? (() => {}));
   }
-  cli(args: string[], o?: { timeoutMs?: number }): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }> { return runCli(this.o.bin, this.supervisor.env(), args, o?.timeoutMs); }
+  cli(args: string[], o?: { timeoutMs?: number; env?: Record<string, string> }): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }> { return runCli(this.o.bin, { ...this.supervisor.env(), ...o?.env }, args, o?.timeoutMs); }
   terminal(paneId: string, o: { mode: 'control' | 'observe'; cols: number; rows: number }): TerminalSession { return openTerminal(this.o.bin, this.supervisor.env(), paneId, o); }
   snapshot(): HerdrSnapshot { return structuredClone(this.tree); }
   onChange(fn: (s: HerdrSnapshot) => void): () => void { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; }
@@ -393,7 +393,8 @@ export class HerdrKit {
    */
   statusWatchReady(): Promise<void> { return this.statusReadyPromise; }
   openSignInTab(o: OpenSignInTab): Promise<AgentRef> { return this.accountPanes.openSignInTab(o); }
-  moveToAccount(target: AgentRef, o: MoveToAccount): Promise<MoveResult> { return this.accountPanes.moveToAccount(target, o); }
+  move(o: Move): Promise<MoveResult> { return this.accountPanes.move(o); }
+  moveToAccount(target: AgentRef, o: MoveToAccount): Promise<MoveToAccountResult> { return this.accountPanes.moveToAccount(target, o); }
   startAgent(o: StartAgent): Promise<AgentRef> { return this.agents.startAgent(o); }
   // App-wide start lifecycle without polling: every startAgent's installing/ready/launchFailed
   // lands here as well as on that call's own `onEvent`. Returns the unsubscribe function.

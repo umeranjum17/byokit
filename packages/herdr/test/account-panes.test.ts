@@ -13,7 +13,7 @@ function harness(t: TestContext) {
   const panes = new Map<string, Raw>([['old', {}]]);
   const state = { failStart: false, failClose: new Set<string>(), answer: undefined as string | undefined,
     echoReads: 0, promptEcho: false, waitReady: true, generation: 'conversation', marker: '',
-    splitGate: undefined as Promise<void> | undefined, readFails: false };
+    splitGate: undefined as Promise<void> | undefined, readFails: false, interactive: true, publish: true, variable: '', unsetPresent: false };
   let next = 0;
   const transport: HerdrTransport = {
     async call(method, params) {
@@ -32,20 +32,24 @@ function harness(t: TestContext) {
         return { pane: { pane_id: id }, root_pane: { pane_id: id } };
       }
       if (method === 'pane.send_text') {
-        state.marker = /^echo (\w+)=/.exec(String(params.text))![1]!;
+        const text = String(params.text);
+        if (text.startsWith('unset ')) return {};
+        state.marker = /^echo (\w+)=/.exec(text)![1]!;
+        state.variable = /="(?:\$([A-Z_]+)|\$\{([A-Z_]+)\+x\})"/.exec(text)?.slice(1).find(Boolean) ?? '';
+        if (text.includes('+x}')) state.variable += '+x';
         return {};
       }
       if (method === 'pane.read') {
         if (state.readFails) throw new Error('secret-canary');
         const env = panes.get(String(params.pane_id))?.env as Raw;
         if (state.echoReads-- > 0) return { read: { text: `${state.promptEcho ? '$ ' : ''}echo ${state.marker}=$CLAUDE_CONFIG_DIR` } };
-        return { read: { text: `${state.marker}=${state.answer ?? env.CLAUDE_CONFIG_DIR ?? env.CODEX_HOME}\n` } };
+        return { read: { text: `${state.marker}=${state.answer ?? (state.variable.endsWith('+x') ? (state.unsetPresent ? 'x' : '') : env[state.variable])}\n` } };
       }
       if (method === 'agent.start') {
         if (state.failStart) throw new Error('secret-canary');
         const kind = params.kind;
         agents.set(String(params.pane_id), { agent: kind, agent_status: state.waitReady ? 'idle' : 'working',
-          agent_session: { source: 'herdr', agent: kind, kind: kind === 'pi' ? 'path' : 'id', value: state.generation } });
+          interactive_ready: state.interactive, agent_session: state.publish ? { source: 'herdr', agent: kind, kind: kind === 'pi' ? 'path' : 'id', value: state.generation } : undefined });
         return {};
       }
       if (method === 'pane.close') {
@@ -135,8 +139,8 @@ test('WP11: typed and prompt-prefixed echoes are ignored until the shell answers
 
 test('WP11: unsupported, too-early and busy agents never split, including concurrent moves', async (t) => {
   for (const [patch, code] of [
-    [{ agent: 'other' }, 'unsupported'], [{ agent_session: undefined }, 'too_early'],
-    [{ launch_pending: true }, 'too_early'], [{ agent_status: 'working' }, 'busy'],
+    [{ agent: 'other' }, 'unsupported'], [{ agent: 'pi' }, 'unsupported'], [{ agent_session: undefined }, 'too_early'],
+    [{ launch_pending: true }, 'too_early'], [{ agent_session: { agent: 'claude', kind: 'path', value: 'conversation' } }, 'unsupported'], [{ agent_status: 'working' }, 'busy'],
     [{ agent_status: 'blocked' }, 'busy'],
   ] as const) {
     const h = harness(t); Object.assign(h.agents.get('old')!, patch);
@@ -155,8 +159,8 @@ test('WP11: unsupported, too-early and busy agents never split, including concur
   release(); await pending;
 });
 
-test('WP11: Codex and Pi resume args and account env; sign-in opens an explicit-env tab', async (t) => {
-  for (const kind of ['codex', 'pi']) {
+test('WP11: Codex resume args and account env; sign-in opens an explicit-env tab', async (t) => {
+  for (const kind of ['codex']) {
     const h = harness(t); h.agents.set('old', { agent: kind, agent_status: 'idle', cwd: '/repo',
       agent_session: { source: 'herdr', agent: kind, kind: kind === 'pi' ? 'path' : 'id', value: 'conversation' } });
     await h.ready;
@@ -179,4 +183,93 @@ test('WP11: Codex and Pi resume args and account env; sign-in opens an explicit-
     env: { SECRET: 'secret-canary' } }), (e: Error) => !e.message.includes('secret-canary'));
   await assert.rejects(h.kit.startAgent({ kind: 'pi', cwd: '/repo', place: { pane: 'old' }, env: { CODEX_HOME: '/other' } }),
     (e: { code?: string }) => e.code === 'env_mismatch');
+});
+
+// Extraction matrix: the caller owns resume arguments and stages discovery before a replacement starts.
+test('move: seven-case start-then-close failure matrix and staged notifications', async (t) => {
+  for (const scenario of ['success', 'env', 'start', 'interactive', 'conversation', 'close', 'rollback']) {
+    const h = harness(t);
+    await h.ready;
+    h.state.answer = scenario === 'env' ? '/wrong' : undefined;
+    h.state.failStart = scenario === 'start';
+    h.state.interactive = scenario !== 'interactive';
+    h.state.publish = scenario !== 'conversation';
+    if (['close', 'rollback'].includes(scenario)) h.state.failClose.add('old');
+    if (scenario === 'rollback') h.state.failClose.add('new1');
+    const notifications: string[] = [];
+    const result = await h.kit.move({ paneId: 'old', kind: 'claude', args: ['--resume', 'caller-ref'],
+      set: { CLAUDE_CONFIG_DIR: '/new/claude' }, unset: ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'], timeoutMs: 100,
+      onStaged(id) {
+        notifications.push(`staged:${id}`);
+        assert.ok(!h.calls.some((c) => c.method === 'agent.start'));
+      },
+      onReplaced(id) {
+        notifications.push(`replaced:${id}`);
+        assert.ok(!h.panes.has('old'));
+      },
+    });
+    assert.equal(result.ok, scenario === 'success', scenario);
+    assert.deepEqual(notifications, scenario === 'success' ? ['staged:new1', 'replaced:new1'] : ['staged:new1']);
+    if (result.ok) assert.deepEqual(result, { ok: true, paneId: 'new1' });
+    else {
+      assert.equal(result.code, scenario === 'env' ? 'env_mismatch' : ['close', 'rollback'].includes(scenario) ? 'close_failed' : 'start_failed');
+      assert.equal(result.live, scenario === 'rollback' ? 'new1' : 'old');
+      assert.ok(h.panes.has('old'));
+      assert.equal(h.panes.has('new1'), scenario === 'rollback');
+      assert.ok(!JSON.stringify(result).includes('secret-canary'));
+    }
+    if (scenario !== 'env') {
+      const start = h.calls.find((c) => c.method === 'agent.start')!;
+      assert.deepEqual(start.params.args, ['--resume', 'caller-ref']);
+      const commands = h.calls.filter((c) => c.method === 'pane.send_text').map((c) => String(c.params.text));
+      assert.equal(commands[0], 'unset ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN\n');
+      assert.ok(commands.some((s) => s.includes('${ANTHROPIC_API_KEY+x}')));
+      assert.ok(commands.some((s) => s.includes('${CLAUDE_CODE_OAUTH_TOKEN+x}')));
+    }
+  }
+});
+
+test('move: env and staging failures report a surviving replacement; notification cannot roll back a completed move', async (t) => {
+  for (const fail of ['env', 'stage']) {
+    const h = harness(t); await h.ready;
+    h.state.answer = fail === 'env' ? '/wrong' : undefined;
+    h.state.failClose.add('new1');
+    const result = await h.kit.move({ paneId: 'old', kind: 'claude', args: ['--resume', 'caller-ref'],
+      set: { CLAUDE_CONFIG_DIR: '/new/claude' }, onStaged() { if (fail === 'stage') throw new Error('secret-canary'); } });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.live, 'new1');
+    assert.ok(h.panes.has('old'));
+    assert.ok(!h.calls.some((c) => c.method === 'agent.start'));
+  }
+  const h = harness(t); await h.ready;
+  assert.deepEqual(await h.kit.move({ paneId: 'old', kind: 'claude', args: ['--resume', 'caller-ref'],
+    set: { CLAUDE_CONFIG_DIR: '/new/claude' }, onReplaced() { throw new Error('secret-canary'); } }),
+  { ok: true, paneId: 'new1' });
+});
+
+test('move: retained credentials and unsafe env identifiers fail closed before agent start', async (t) => {
+  for (const unsafe of [false, true]) {
+    const h = harness(t); await h.ready;
+    h.state.unsetPresent = !unsafe;
+    const result = await h.kit.move({ paneId: 'old', kind: 'claude', args: ['--resume', 'caller-ref'],
+      set: { CLAUDE_CONFIG_DIR: '/new/claude' }, unset: [unsafe ? 'KEY; echo secret-canary' : 'ANTHROPIC_API_KEY'] });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.code, 'env_mismatch');
+    assert.deepEqual([...h.panes.keys()], ['old']);
+    assert.ok(!h.calls.some((c) => c.method === 'agent.start'));
+    assert.ok(!h.calls.some((c) => c.method === 'pane.send_text' && String(c.params.text).includes('secret-canary')));
+  }
+});
+
+test('move and moveToAccount share the source lock', async (t) => {
+  const h = harness(t); await h.ready;
+  let release!: () => void;
+  h.state.splitGate = new Promise<void>((r) => { release = r; });
+  const pending = h.kit.move({ paneId: 'old', kind: 'claude', args: ['--resume', 'caller-ref'],
+    set: { CLAUDE_CONFIG_DIR: '/new/claude' } });
+  const concurrent = await h.move();
+  assert.equal(concurrent.ok, false);
+  if (!concurrent.ok) assert.equal(concurrent.code, 'busy');
+  release();
+  assert.equal((await pending).ok, true);
 });

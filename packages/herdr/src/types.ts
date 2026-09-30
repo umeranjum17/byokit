@@ -93,10 +93,15 @@ export type MoveToAccount = {
   provider: 'claude' | 'codex'; folder: string; env?: Record<string, string>;
   direction?: 'right' | 'down'; timeoutMs?: number;
 };
-export type MoveResult = { ok: true; session: string } | {
+export type MoveToAccountResult = { ok: true; session: string } | {
   ok: false; code: 'too_early' | 'busy' | 'unsupported' | 'env_mismatch' | 'close_failed' | 'start_failed';
   message: string; live?: string;
 };
+export type Move = {
+  paneId: string; kind: string; args: string[]; set: Record<string, string>; unset?: string[];
+  onStaged?(newPaneId: string): void; onReplaced?(newPaneId: string): void; timeoutMs?: number;
+};
+export type MoveResult = { ok: true; paneId: string } | Extract<MoveToAccountResult, { ok: false }>;
 export type PromptReceipt = { paneId: string; terminalId: string; revision: number; status: AgentStatus;
   agentSession?: AgentSessionRef };
 export type BlockedAgent = { paneId: string; workspaceId: string; tabId: string; kind?: string; revision: number; prompt: string; since: number };
