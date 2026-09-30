@@ -265,9 +265,13 @@ test('WER harness scores edit counts and runs all attributed clip categories thr
   const dir = await mkdtemp(join(tmpdir(), 'wer-fixture-'));
   try {
     const binary = join(dir, 'fake-cli');
-    await writeFile(binary, `#!${process.execPath}\nconst fs=require('node:fs');const a=process.argv;if(process.env.HOME||a[a.indexOf('-bs')+1]!=='-1')process.exit(1);fs.writeFileSync(a[a.indexOf('-of')+1]+'.json',JSON.stringify({result:{language:'en'},transcription:[{text:'Please open the project',offsets:{from:0,to:1000}}]}));\n`);
+    await writeFile(binary, `#!${process.execPath}\nconst fs=require('node:fs');const a=process.argv;if(process.env.HOME||a[a.indexOf('-bs')+1]!=='-1'||a[a.indexOf('-t')+1]!=='2')process.exit(1);fs.writeFileSync(a[a.indexOf('-of')+1]+'.json',JSON.stringify({result:{language:'en'},transcription:[{text:'Please open the project',offsets:{from:0,to:1000}}]}));\n`);
     await chmod(binary, 0o700);
-    const report = await runWer({ binary, model: join(dir, 'fake-model.bin'), manifest: 'packages/dictation/fixtures/wer/manifest.json', profiles: ['default'] });
+    const progress: string[] = [];
+    const report = await runWer({ binary, model: join(dir, 'fake-model.bin'), manifest: 'packages/dictation/fixtures/wer/manifest.json', profiles: ['default'], threads: 2, onProgress: message => progress.push(message) });
+    assert.equal(report.profiles[0].settings.threads, 2);
+    assert.equal(progress.length, 4); assert.match(progress[0], /repeat 1\/1: \d+ ms/);
+    await assert.rejects(runWer({ binary, model: join(dir, 'fake-model.bin'), manifest: 'packages/dictation/fixtures/wer/manifest.json', profiles: ['default'], threads: 0 }), (e: DictateError) => e.code === 'bad-model');
     assert.deepEqual(report.profiles[0].clips.map(c => c.category), ['clean', 'noisy', 'fast', 'technical-names']);
     assert.ok(report.profiles[0].summary.wer! > 0); assert.ok(report.profiles[0].summary.latencyMs > 0);
     assert.equal(report.profiles[0].summary.referenceWords, 46);

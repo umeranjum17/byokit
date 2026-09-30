@@ -5,7 +5,7 @@
 - Add a host-injected whisper.rn adapter with warm serialized inference, cancellation, and validated language, prompt/vocabulary, gain, energy VAD, chunking and decoder settings.
 - Add a desktop WER and latency fixture runner with attributed synthetic clean, noisy, fast and technical-name clips and comparison profiles.
 - Tune RN finals to fresh full-recording greedy English decoding, preserve quiet audio across pauses, keep vocabulary out of previews, and recommend the host-supplied base.en q5_1 model.
-- Import 34 attributed synthetic regression clips, repeatable warm-engine comparisons and a cached path-filtered CI WER gate.
+- Import 34 attributed synthetic regression clips, repeatable warm-engine comparisons and a cached path-filtered CI WER gate with one-repeat/two-thread measurements, early cache saving and per-clip progress.
 
 ## 0.1.0 (2026-09-30)
 

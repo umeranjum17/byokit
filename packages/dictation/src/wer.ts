@@ -66,7 +66,7 @@ async function cli(binary: string, model: string, dir: string, pcm: Int16Array, 
 }
 
 /** Explicit desktop CLI/model paths only; fixture bytes are integrity checked before inference. */
-export async function runWer(o: { binary: string; model: string; manifest: string; profiles?: string[]; timeoutMs?: number; backend?: 'cli' | 'rn-bench'; repeats?: number; speed?: number }) {
+export async function runWer(o: { binary: string; model: string; manifest: string; profiles?: string[]; timeoutMs?: number; backend?: 'cli' | 'rn-bench'; repeats?: number; speed?: number; threads?: number; onProgress?: (message: string) => void }) {
   if (!isAbsolute(o.binary) || !isAbsolute(o.model) || !(Number.isFinite(o.timeoutMs ?? 120_000) && (o.timeoutMs ?? 120_000) > 0)) throw new Error('Pass absolute binary/model paths and a positive timeout');
   const manifestPath = resolve(o.manifest), manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as WerManifest;
   if (!Array.isArray(manifest.clips) || !manifest.clips.length || !Array.isArray(manifest.profiles) || !manifest.profiles.length) throw new Error('Fixture manifest needs clips and profiles');
@@ -85,7 +85,10 @@ export async function runWer(o: { binary: string; model: string; manifest: strin
   try {
     const reports = [];
     for (const profile of profiles) {
-      const settings = whisperSettings(profile.settings), model = profile.model ? resolve(dirname(manifestPath), profile.model) : o.model;
+      const settings = whisperSettings({ ...profile.settings, ...(o.threads === undefined ? {} : { threads: o.threads }) }), model = profile.model ? resolve(dirname(manifestPath), profile.model) : o.model;
+      const legacy = profile.legacy && o.threads !== undefined ? { ...profile.legacy,
+        whisper: { ...profile.legacy.whisper, maxThreads: o.threads },
+        ...(profile.legacy.final ? { final: { ...profile.legacy.final, maxThreads: o.threads } } : {}) } : profile.legacy;
       const results = [];
       let bench: WhisperBench | undefined;
       try {
@@ -96,9 +99,9 @@ export async function runWer(o: { binary: string; model: string; manifest: strin
         const start = performance.now();
         let inferenceMs = 0;
         let text: string, audioMs: number, waitMs: number;
-        if (profile.legacy) {
+        if (legacy) {
           const pcm = await whisperPcm(clip.bytes, settings.gain);
-          const result = await replayLegacy(bench!, profile.legacy, pcm, speed);
+          const result = await replayLegacy(bench!, legacy, pcm, speed);
           text = result.text; audioMs = pcm.length / 16; waitMs = result.waitMs;
         } else {
           const transcript = await transcribeWhisper(clip.bytes, settings, {}, async (pcm, decode) => {
@@ -109,6 +112,7 @@ export async function runWer(o: { binary: string; model: string; manifest: strin
         }
         const latencyMs = performance.now() - start;
         runs.push({ hypothesis: text, ...wordErrorRate(clip.reference, text), audioMs, latencyMs, waitMs: bench ? waitMs : latencyMs * speed });
+        o.onProgress?.(`${profile.id}/${clip.id} repeat ${repeat + 1}/${repeats}: ${Math.round(latencyMs)} ms`);
         }
         const chosen = [...runs].sort((a, b) => a.errors - b.errors)[Math.floor(runs.length / 2)];
         results.push({ id: clip.id, category: clip.category, reference: clip.reference, ...chosen,
@@ -118,7 +122,7 @@ export async function runWer(o: { binary: string; model: string; manifest: strin
       } finally { await bench?.close(); }
       const totals = results.reduce((sum, r) => ({ errors: sum.errors + r.errors, referenceWords: sum.referenceWords + r.referenceWords,
         audioMs: sum.audioMs + r.audioMs, latencyMs: sum.latencyMs + r.latencyMs }), { errors: 0, referenceWords: 0, audioMs: 0, latencyMs: 0 });
-      reports.push({ id: profile.id, model, settings, decode: profile.decode, legacy: profile.legacy, clips: results, summary: { ...totals, wer: totals.referenceWords ? totals.errors / totals.referenceWords : null,
+      reports.push({ id: profile.id, model, settings, decode: profile.decode, legacy, clips: results, summary: { ...totals, wer: totals.referenceWords ? totals.errors / totals.referenceWords : null,
         medianWaitMs: median(results.map(r => r.waitMs)), meanLatencyMs: totals.latencyMs / results.length, realTimeFactor: totals.audioMs ? totals.latencyMs / totals.audioMs : null } });
     }
     return { binary: o.binary, manifest: manifestPath, backend: o.backend ?? 'cli', repeats, speed,
