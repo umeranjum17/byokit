@@ -39,6 +39,10 @@ interface FieldNode {
   fun set(text: String): Boolean
   /** The selection as (start, end) with start <= end, or null when the field reports none. */
   fun selection(): Pair<Int, Int>?
+  /** Finds exact input/accessibility focus; returns this or an owned node the caller recycles, never a guess. */
+  fun findFocus(input: Boolean): FieldNode? = null
+  /** The parent, or null at the root; the caller recycles it. */
+  fun parent(): FieldNode? = null
   /** The number of child nodes. */
   val childCount: Int
   /** The [i]th child, or null when it went away; the caller recycles it. */
@@ -76,26 +80,69 @@ data class FocusedFieldText(val app: String, val text: String, val selection: Fi
  */
 object FocusedFields {
   /**
-   * The node itself when it is an editable non-password field, else its first such descendant in child order. Focus is
-   * not checked on descendants: pass the focused node (`findFocus(FOCUS_INPUT)`), not a layout from an event.
+   * Resolves input focus, then accessibility focus (including virtual WebView nodes). An input-focused container
+   * may contain the accessibility-focused field. No focus, or a password anywhere on that path, means no field.
+   * The passed node stays the caller's; any other returned node is the caller's to recycle.
    */
   fun find(node: FieldNode): FieldNode? {
-    if (node.editable && !node.password) return node
-    for (i in 0 until node.childCount) {
-      val child = node.child(i) ?: continue
-      val found = find(child)
-      if (found !== child) child.recycle()
-      if (found != null) return found
+    if (passwordPath(node)) return null
+    val focused = node.findFocus(true) ?: node.findFocus(false) ?: return null
+    var field: FieldNode? = focused
+    var result: FieldNode? = null
+    try {
+      if (passwordPath(focused)) return null
+      if (!focused.editable) field = focused.findFocus(false)
+      result = field?.takeIf { it.editable && !protected(it) }
+      return result
+    } finally {
+      if (field !== result && field !== node) field?.recycle()
+      if (focused !== field && focused !== result && focused !== node) focused.recycle()
     }
-    return null
   }
+
+  /** A password on the node, its ancestors, or a focused descendant forbids reads, writes and copy fallback. */
+  internal fun protected(node: FieldNode): Boolean {
+    if (passwordPath(node)) return true
+    val focused = node.findFocus(true) ?: node.findFocus(false) ?: return false
+    try {
+      if (passwordPath(focused)) return true
+      // A focused WebView/container can carry accessibility focus on a virtual descendant.
+      val accessible = focused.findFocus(false) ?: return false
+      try {
+        return passwordPath(accessible)
+      } finally {
+        if (accessible !== focused && accessible !== node) accessible.recycle()
+      }
+    } finally {
+      if (focused !== node) focused.recycle()
+    }
+  }
+
+  private fun passwordPath(node: FieldNode): Boolean {
+    if (node.password) return true
+    var parent = node.parent()
+    while (parent != null) {
+      val current = parent
+      try {
+        if (current.password) return true
+        parent = current.parent()
+      } finally {
+        current.recycle()
+      }
+    }
+    return false
+  }
+
+  /** The service's input focus, falling back only to accessibility focus. The caller recycles it. */
+  internal fun focus(service: AccessibilityService): AccessibilityNodeInfo? =
+    service.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: service.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
 
   /**
    * The focused editable field now (see [find]), kept for a later [insert] by the app's own service; null when no
    * editable field has focus. The caller recycles it.
    */
   fun capture(service: AccessibilityService): FieldNode? {
-    val root = NodeWrap(service.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return null, service)
+    val root = NodeWrap(focus(service) ?: return null, service)
     val node = find(root)
     if (node !== root) root.recycle()
     return node
@@ -103,7 +150,7 @@ object FocusedFields {
 
   /** The focused editable field's text, or null when no editable field has focus. */
   fun read(service: AccessibilityService): FocusedFieldText? {
-    val raw = service.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return null
+    val raw = focus(service) ?: return null
     val root = NodeWrap(raw, service)
     val node = find(root)
     try {
@@ -121,7 +168,8 @@ object FocusedFields {
 
   /** Searches an owned tree for exactly the captured field, releasing every other node. */
   internal fun sameField(root: FieldNode, identity: FieldIdentity): FieldNode? {
-    if (root.editable && !root.password && root.identity == identity) return root
+    // Return even a newly protected match: insert must fail without clipboard fallback, rather than lose it.
+    if ((root.editable || root.password) && root.identity == identity) return root
     try {
       for (i in 0 until root.childCount) {
         val found = root.child(i)?.let { sameField(it, identity) }
@@ -139,6 +187,7 @@ object FocusedFields {
    * the same field (same view id, bounds and package, never a different field) when [node] went stale. Otherwise
    * [copy] gets the text: "inserted", "landedWithoutNewlines", "copied" or "failed". Cancellation returns "cancelled"
    * before subsequent reads, writes or copy fallback; service detach cancels pending inserts. [node] stays the caller's.
+   * Captured containers resolve their exactly focused child with [find], or fail without reads or copy fallback.
    * [pause] blocks by default, so call it off the main thread.
    */
   fun insert(
@@ -152,12 +201,16 @@ object FocusedFields {
     service: AccessibilityService? = (node as? NodeWrap)?.owner ?: ByokitAccessibility.service,
   ): String {
     ByokitAccessibility.track(service, cancellation)
+    var field: FieldNode? = null
     try {
-      val value = insertSteps(node, text, replace, opts, pause, copy, cancellation)
+      // Captured editable fields remain valid while a panel has focus. A captured container must resolve its field.
+      field = cancellation.step { if (node.editable) node else find(node) }
+      val value = field?.let { insertSteps(it, text, replace, opts, pause, copy, cancellation) } ?: "failed"
       return cancellation.finish(value)
     } catch (_: InsertCancelled) {
       return cancellation.finish("cancelled")
     } finally {
+      if (field !== node) field?.recycle()
       ByokitAccessibility.untrack(service, cancellation)
     }
   }
@@ -166,6 +219,7 @@ object FocusedFields {
     node: FieldNode, text: String, replace: String, opts: InsertOpts,
     pause: (Long) -> Unit, copy: (String) -> Boolean, cancellation: InsertCancellation,
   ): String {
+    if (cancellation.step { protected(node) }) return "failed"
     val identity = cancellation.step { node.identity }
     var active = node
     var whole: String? = null
@@ -174,28 +228,40 @@ object FocusedFields {
         cancellation.step { }
         if (i > 0) {
           pause(opts.retryMs.coerceAtLeast(0))
+          var denied = false
           cancellation.step {
             if (identity != null) {
               val fresh = node.reacquire()
               if (fresh != null && fresh !== active) {
-                if (fresh.editable && !fresh.password && fresh.identity == identity) {
+                if (fresh.identity == identity && protected(fresh)) {
+                  if (fresh !== node) fresh.recycle()
+                  denied = true
+                } else if (fresh.editable && fresh.identity == identity) {
                   if (active !== node) active.recycle()
                   active = fresh
                 } else if (fresh !== node) fresh.recycle()
               }
             }
           }
+          if (denied) return "failed"
         }
-        val current = cancellation.step { active.shown() } ?: return@repeat
+        if (cancellation.step { protected(active) }) return "failed"
+        val current = cancellation.step { active.shown() }
+        if (cancellation.step { protected(active) }) return "failed"
+        if (current == null) return@repeat
         if (whole == null) whole = Insert.compose(current, cancellation.step { active.selection() }, text, replace)
         val target = whole!!
+        if (cancellation.step { protected(active) }) return "failed"
         cancellation.step { active.set(target) }
+        if (cancellation.step { protected(active) }) return "failed"
         val shown = cancellation.step { active.shown() }
+        if (cancellation.step { protected(active) }) return "failed"
         if (shown == target) return "inserted"
         if (opts.acceptNewlineLoss && shown != null && Insert.lostOnlyNewlines(target, shown)) {
           return "landedWithoutNewlines"
         }
       }
+      if (cancellation.step { protected(active) }) return "failed"
       return if (cancellation.step { copy(text) }) "copied" else "failed"
     } finally {
       if (active !== node) active.recycle()
@@ -204,8 +270,9 @@ object FocusedFields {
 
   /**
    * [insert] for the node an app's own accessibility service captured with `findFocus(FOCUS_INPUT)`: [node] itself
-   * when it is an editable non-password field, else its first such descendant ([find]), with the same retry and
-   * same-field re-acquisition (through [service], else the attached one). "failed" when there is no such field. [node] stays the caller's.
+   * or its exactly focused descendant ([find]), with the same retry and
+   * same-field re-acquisition (through [service], else the attached one). "failed" without copy fallback when no
+   * field has focus or its path contains a password. [node] stays the caller's.
    */
   fun insert(
     node: AccessibilityNodeInfo,
@@ -264,13 +331,22 @@ internal class NodeWrap(
   override fun recycle() = node.recycle()
   override val editable: Boolean get() = node.isEditable
   override val password: Boolean get() = node.isPassword
+  override fun findFocus(input: Boolean): FieldNode? {
+    val focused = node.findFocus(if (input) AccessibilityNodeInfo.FOCUS_INPUT else AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
+      ?: return null
+    // A distinct snapshot of the same node may carry newer password/focus flags; keep that snapshot.
+    if (focused === node) return this
+    return NodeWrap(focused, owner)
+  }
+  override fun parent(): FieldNode? = node.parent?.let { NodeWrap(it, owner) }
   override fun shown(): String? =
-    if (node.refresh()) (if (node.isShowingHintText) "" else node.text?.toString() ?: "") else null
-  override fun set(text: String): Boolean = node.performAction(
+    if (node.refresh() && !FocusedFields.protected(this)) (if (node.isShowingHintText) "" else node.text?.toString() ?: "") else null
+  override fun set(text: String): Boolean = node.refresh() && !FocusedFields.protected(this) && node.performAction(
     AccessibilityNodeInfo.ACTION_SET_TEXT,
     Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text) },
   )
   override fun selection(): Pair<Int, Int>? {
+    if (FocusedFields.protected(this)) return null
     val a = node.textSelectionStart.takeIf { it >= 0 } ?: return null
     val b = node.textSelectionEnd.takeIf { it >= 0 } ?: a
     return minOf(a, b) to maxOf(a, b)

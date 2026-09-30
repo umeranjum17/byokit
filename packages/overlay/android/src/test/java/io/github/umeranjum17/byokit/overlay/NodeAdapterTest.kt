@@ -21,7 +21,9 @@ class NodeAdapterTest {
    */
   private class Info(
     private val editable: Boolean = false,
-    private val password: Boolean = false,
+    private var password: Boolean = false,
+    private val inputFocused: Boolean = editable,
+    private val accessibilityFocused: Boolean = false,
     var text: String? = "",
     private val hint: Boolean = false,
     private val selection: Pair<Int, Int>? = null,
@@ -32,14 +34,30 @@ class NodeAdapterTest {
     private var deadReads: Int = 0,
     private val gone: Boolean = false,
     private val lands: String? = null,
+    private val passwordOnRefresh: Boolean = false,
+    private val sameAs: Info? = null,
   ) : AccessibilityNodeInfo() {
+    var focusSnapshot: Info? = null
+    override fun equals(other: Any?): Boolean =
+      other is Info && (sameAs ?: this) === (other.sameAs ?: other)
+    override fun hashCode(): Int = System.identityHashCode(sameAs ?: this)
+    var parentNode: Info? = null
+    override fun getParent(): AccessibilityNodeInfo? = parentNode
+    var textReads = 0
+    override fun findFocus(focus: Int): AccessibilityNodeInfo? {
+      if (if (focus == FOCUS_INPUT) inputFocused else accessibilityFocused) return focusSnapshot ?: this
+      return kids.firstNotNullOfOrNull { it.findFocus(focus) }
+    }
     val actions = mutableListOf<Int>()
     var recycled = 0
     override fun isEditable() = editable
     override fun isPassword() = password
-    override fun refresh(): Boolean = if (deadReads > 0) { deadReads--; false } else !gone
+    override fun refresh(): Boolean {
+      if (passwordOnRefresh) password = true
+      return if (deadReads > 0) { deadReads--; false } else !gone
+    }
     override fun isShowingHintText() = hint
-    override fun getText(): CharSequence? = text
+    override fun getText(): CharSequence? { textReads++; return text }
     override fun performAction(action: Int, arguments: Bundle?): Boolean {
       actions += action
       if (lands != null) text = lands
@@ -60,11 +78,13 @@ class NodeAdapterTest {
   private class Service(
     private val root: AccessibilityNodeInfo? = null,
     private val focus: AccessibilityNodeInfo? = null,
+    private val accessible: AccessibilityNodeInfo? = null,
   ) : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
     override fun onInterrupt() {}
     override fun getRootInActiveWindow(): AccessibilityNodeInfo? = root
-    override fun findFocus(focus: Int): AccessibilityNodeInfo? = this.focus
+    override fun findFocus(focus: Int): AccessibilityNodeInfo? =
+      if (focus == AccessibilityNodeInfo.FOCUS_INPUT) this.focus else accessible
   }
 
   private val identity = FieldIdentity("app:id/input", listOf(10, 20, 100, 80), "app")
@@ -74,8 +94,9 @@ class NodeAdapterTest {
     val node = FieldNode.of(Info(editable = true, password = true, text = "abc", selection = 3 to 1, kids = listOf(child)))
     assertTrue(node.editable)
     assertTrue(node.password)
-    assertEquals("abc", node.shown())
-    assertEquals("a backwards selection is ordered", 1 to 3, node.selection())
+    assertNull(node.shown())
+    assertNull("password selections are hidden", node.selection())
+    assertEquals("plain selections stay ordered", 1 to 3, FieldNode.of(Info(selection = 3 to 1)).selection())
     assertEquals(identity, node.identity)
     assertEquals(1, node.childCount)
     assertTrue(node.child(0)!!.editable)
@@ -106,7 +127,7 @@ class NodeAdapterTest {
     val captured = Info(kids = listOf(Info(), field))
     assertEquals("inserted", FocusedFields.insert(captured, "!", pause = { throw AssertionError("no pause") }))
     assertEquals("a!", field.text)
-    assertEquals(1, field.recycled) // the kit's own child wrapper
+    assertEquals(1, field.recycled) // the kit's focus wrapper
     assertEquals(0, captured.recycled) // the caller's
   }
 
@@ -137,7 +158,6 @@ class NodeAdapterTest {
       Info(editable = true, id = "app:id/other"),
       Info(editable = true, box = listOf(10, 30, 100, 90)),
       Info(editable = true, pkg = "other"),
-      Info(editable = true, password = true),
     )) {
       val stale = Info(editable = true, gone = true)
       val clipboard = mutableListOf<String>()
@@ -157,8 +177,8 @@ class NodeAdapterTest {
   }
 
   @Test fun captureKeepsTheFocusedFieldAndRecyclesTheRest() {
-    val field = Info(editable = true, text = "hi")
-    val focus = Info(kids = listOf(field))
+    val field = Info(editable = true, text = "hi", inputFocused = false, accessibilityFocused = true)
+    val focus = Info(kids = listOf(field), inputFocused = true)
     val captured = FocusedFields.capture(Service(focus = focus))!!
     assertEquals("hi", captured.shown())
     assertEquals(1, focus.recycled)
@@ -177,9 +197,119 @@ class NodeAdapterTest {
   }
 
   @Test fun capturedFieldInsertsLater() {
-    val field = Info(editable = true, text = "a", lands = "ab")
-    val captured = FocusedFields.capture(Service(focus = Info(kids = listOf(field))))!!
+    val field = Info(editable = true, text = "a", lands = "ab", inputFocused = false, accessibilityFocused = true)
+    val captured = FocusedFields.capture(Service(focus = Info(kids = listOf(field), inputFocused = true)))!!
     assertEquals("inserted", FocusedFields.insert(captured, "b", pause = {}))
+  }
+
+  @Test fun wrappedWebViewInsertsIntoTheExactFocusedChild() {
+    val first = Info(editable = true, text = "first", inputFocused = false)
+    val focused = Info(editable = true, text = "focused", lands = "focused!")
+    val page = Info(kids = listOf(first, focused))
+    assertEquals("inserted", FocusedFields.insert(FieldNode.of(page), "!", pause = {},
+      copy = { throw AssertionError("must insert into the focused field") }))
+    assertEquals("focused!", focused.text)
+    assertEquals(0, first.textReads)
+    assertEquals(0, page.textReads)
+    assertEquals(emptyList<Int>(), first.actions)
+    assertEquals(emptyList<Int>(), page.actions)
+    assertEquals(0, page.recycled)
+  }
+
+  @Test fun wrappedContainerWithoutFocusNeverReadsSetsOrCopies() {
+    val page = Info(kids = listOf(Info(editable = true, inputFocused = false)))
+    assertEquals("failed", FocusedFields.insert(FieldNode.of(page), "draft", pause = {},
+      copy = { throw AssertionError("must not copy") }))
+    assertEquals(0, page.textReads)
+    assertEquals(emptyList<Int>(), page.actions)
+  }
+
+  @Test fun webViewPasswordFocusNeverReadsWritesOrCopiesTheFirstBox() {
+    val first = Info(editable = true, text = "first", inputFocused = false)
+    val password = Info(editable = true, password = true, text = "secret")
+    val page = Info(kids = listOf(first, password))
+    val service = Service(focus = page)
+    assertNull(FocusedFields.read(service))
+    assertNull(FocusedFields.capture(service))
+    assertEquals("failed", FocusedFields.insert(page, "draft", copy = { throw AssertionError("must not copy") }))
+    assertEquals("failed", FocusedFields.insert(FieldNode.of(page), "draft", copy = { throw AssertionError("must not copy") }))
+    assertNull(FieldNode.of(password).shown())
+    assertFalse(FieldNode.of(password).set("draft"))
+    assertEquals(0, first.textReads)
+    assertEquals(0, password.textReads)
+    assertEquals(emptyList<Int>(), first.actions)
+    assertEquals(emptyList<Int>(), password.actions)
+  }
+
+  @Test fun webViewPlainFocusReadsAndInsertsIntoTheFocusedBox() {
+    val first = Info(editable = true, text = "first", inputFocused = false)
+    val field = Info(editable = true, text = "focused", lands = "focused!")
+    val page = Info(kids = listOf(first, field))
+    assertEquals("focused", FocusedFields.read(Service(focus = page))?.text)
+    assertEquals("inserted", FocusedFields.insert(page, "!", pause = { throw AssertionError("no pause") }))
+    assertEquals("first", first.text)
+    assertEquals("focused!", field.text)
+    assertEquals(0, first.textReads)
+    assertEquals(emptyList<Int>(), first.actions)
+  }
+
+  @Test fun noFocusNeverGuessesAFieldAndAccessibilityFocusIsAFallback() {
+    val field = Info(editable = true, inputFocused = false)
+    val page = Info(kids = listOf(field))
+    assertNull(FocusedFields.read(Service(root = page)))
+    assertNull(FocusedFields.capture(Service(focus = page)))
+    assertEquals("failed", FocusedFields.insert(page, "draft", copy = { throw AssertionError("must not copy") }))
+    val accessible = Info(editable = true, inputFocused = false, accessibilityFocused = true, text = "accessible")
+    assertEquals("accessible", FocusedFields.read(Service(accessible = accessible))?.text)
+    assertEquals("accessible", FocusedFields.capture(Service(accessible = accessible))?.shown())
+    val password = Info(editable = true, password = true)
+    assertNull(FocusedFields.read(Service(focus = password, accessible = accessible)))
+  }
+
+  @Test fun equalFocusSnapshotKeepsItsNewerPasswordFlags() {
+    val captured = Info(editable = true, text = "old snapshot")
+    val focused = Info(editable = true, password = true, text = "secret", sameAs = captured)
+    captured.focusSnapshot = focused
+    assertEquals(captured, focused)
+    assertNull(FocusedFields.capture(Service(focus = captured)))
+    assertNull(FocusedFields.read(Service(focus = captured)))
+    assertEquals("failed", FocusedFields.insert(captured, "draft", copy = { throw AssertionError("must not copy") }))
+    assertEquals(0, captured.textReads)
+    assertEquals(0, focused.textReads)
+    assertEquals(emptyList<Int>(), captured.actions)
+    assertEquals(emptyList<Int>(), focused.actions)
+  }
+
+  @Test fun passwordAncestorNeverExposesOrWritesTheFocusedVirtualField() {
+    val field = Info(editable = true, text = "secret")
+    field.parentNode = Info(password = true, kids = listOf(field))
+    assertNull(FocusedFields.read(Service(focus = field)))
+    assertNull(FocusedFields.capture(Service(focus = field)))
+    assertNull(FieldNode.of(field).shown())
+    assertEquals("failed", FocusedFields.insert(field, "draft", copy = { throw AssertionError("must not copy") }))
+    assertFalse(FieldNode.of(field).set("draft"))
+    assertEquals(0, field.textReads)
+    assertEquals(emptyList<Int>(), field.actions)
+  }
+
+  @Test fun refreshThatRevealsAPasswordNeverExposesTextOrCopies() {
+    val field = Info(editable = true, text = "secret", passwordOnRefresh = true)
+    assertEquals("failed", FocusedFields.insert(FieldNode.of(field), "draft", pause = {},
+      copy = { throw AssertionError("must not copy") }))
+    assertEquals(0, field.textReads)
+    assertEquals(emptyList<Int>(), field.actions)
+    val direct = Info(editable = true, passwordOnRefresh = true)
+    assertFalse(FieldNode.of(direct).set("draft"))
+    assertEquals(emptyList<Int>(), direct.actions)
+  }
+
+  @Test fun reacquiredPasswordFailsWithoutClipboardFallback() {
+    val password = Info(editable = true, password = true, text = "secret")
+    val stale = Info(editable = true, gone = true)
+    assertEquals("failed", FocusedFields.insert(stale, "draft", pause = {},
+      copy = { throw AssertionError("must not copy") }, service = Service(root = Info(kids = listOf(password)))))
+    assertEquals(0, password.textReads)
+    assertEquals(emptyList<Int>(), password.actions)
   }
 
   @Test fun clipboardTurnedAwayIsFalseNotAThrow() {
@@ -189,7 +319,7 @@ class NodeAdapterTest {
   @Test fun aDescendantFieldReacquiresThroughThePassedService() {
     val fresh = Info(editable = true, text = "ab", lands = "ab!")
     val stale = Info(editable = true, gone = true)
-    val captured = Info(kids = listOf(stale)) // a WebView focus: the field is a descendant
+    val captured = Info(kids = listOf(stale)) // input focus resolves the virtual descendant
     val result = FocusedFields.insert(captured, "!", pause = {}, service = Service(root = Info(kids = listOf(fresh))))
     assertEquals("inserted", result)
     assertEquals(emptyList<Int>(), stale.actions)

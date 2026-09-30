@@ -8,7 +8,9 @@ import org.junit.Test
 class FocusedFieldsTest {
   private class FakeNode(
     override val editable: Boolean = false,
-    override val password: Boolean = false,
+    override var password: Boolean = false,
+    private val inputFocused: Boolean = false,
+    private val accessibilityFocused: Boolean = false,
     current: String? = "",
     private var selection: Pair<Int, Int>? = null,
     private val children: List<FakeNode> = emptyList(),
@@ -18,6 +20,13 @@ class FocusedFieldsTest {
     private val reacquired: FieldNode? = null,
     private val unreadableReads: Int = 0,
   ) : FieldNode {
+    private var ancestor: FakeNode? = null
+    init { children.forEach { it.ancestor = this } }
+    override fun parent(): FieldNode? = ancestor
+    override fun findFocus(input: Boolean): FieldNode? {
+      if (if (input) inputFocused else accessibilityFocused) return this
+      return children.firstNotNullOfOrNull { it.findFocus(input) }
+    }
     var current = current
       private set
     var sets = 0
@@ -39,35 +48,60 @@ class FocusedFieldsTest {
 
   private val noPause: (Long) -> Unit = { throw AssertionError("must not pause") }
 
-  @Test fun findTakesTheNodeItselfWhenEditable() {
-    val node = FakeNode(editable = true)
-    assertSame(node, FocusedFields.find(node))
+  @Test fun webViewFocusNeverSelectsTheFirstEditableBox() {
+    val first = FakeNode(editable = true, current = "first")
+    val password = FakeNode(editable = true, password = true, inputFocused = true, current = "secret")
+    val page = FakeNode(children = listOf(first, password))
+    assertNull(FocusedFields.find(page))
+    assertEquals("failed", FocusedFields.insert(password, "draft", copy = { throw AssertionError("must not copy") }))
+    assertEquals(0, first.reads)
+    assertEquals(0, first.sets)
+    assertEquals(0, password.reads)
+    assertEquals(0, password.sets)
   }
 
-  @Test fun findSkipsAPasswordFieldItself() {
-    assertNull(FocusedFields.find(FakeNode(editable = true, password = true)))
-  }
-
-  @Test fun findSearchesFocusedDescendantsInOrder() {
+  @Test fun webViewSelectsTheInputFocusedPlainBox() {
     val first = FakeNode(editable = true)
-    val root = FakeNode(children = listOf(FakeNode(), first, FakeNode(editable = true)))
-    assertSame(first, FocusedFields.find(root))
+    val focused = FakeNode(editable = true, inputFocused = true)
+    assertSame(focused, FocusedFields.find(FakeNode(children = listOf(first, focused))))
+    assertSame(focused, FocusedFields.find(focused))
   }
 
-  @Test fun findSearchesNestedDescendantsAndSkipsPasswords() {
-    val deep = FakeNode(editable = true)
-    val root = FakeNode(
-      children = listOf(
-        FakeNode(children = listOf(FakeNode(editable = true, password = true))),
-        FakeNode(children = listOf(FakeNode(), deep)),
-      ),
-    )
-    assertSame(deep, FocusedFields.find(root))
+  @Test fun webViewWithoutFocusReturnsNoField() {
+    assertNull(FocusedFields.find(FakeNode(children = listOf(FakeNode(editable = true)))))
+    assertNull(FocusedFields.find(FakeNode(editable = true)))
   }
 
-  @Test fun findReturnsNullWhenNothingIsEditable() {
-    assertNull(FocusedFields.find(FakeNode(children = listOf(FakeNode(), FakeNode(editable = true, password = true)))))
-    assertNull(FocusedFields.find(FakeNode()))
+  @Test fun accessibilityFocusIsAFallbackAndInputFocusWins() {
+    val accessible = FakeNode(editable = true, accessibilityFocused = true)
+    assertSame(accessible, FocusedFields.find(FakeNode(children = listOf(FakeNode(editable = true), accessible))))
+    val input = FakeNode(editable = true, inputFocused = true)
+    assertSame(input, FocusedFields.find(FakeNode(children = listOf(accessible, input))))
+    val password = FakeNode(editable = true, password = true, inputFocused = true)
+    assertNull(FocusedFields.find(FakeNode(children = listOf(accessible, password))))
+  }
+
+  @Test fun focusedPasswordPathIsRejectedIncludingContainersAndAncestors() {
+    val password = FakeNode(editable = true, password = true, accessibilityFocused = true)
+    assertNull(FocusedFields.find(FakeNode(inputFocused = true, children = listOf(FakeNode(editable = true), password))))
+    val field = FakeNode(editable = true, inputFocused = true)
+    val protected = FakeNode(password = true, children = listOf(field))
+    assertNull(FocusedFields.find(protected))
+    assertNull(FocusedFields.find(field))
+    assertEquals("failed", FocusedFields.insert(field, "draft", copy = { throw AssertionError("must not copy") }))
+    assertEquals(0, field.reads)
+    assertEquals(0, field.sets)
+    val descendant = FakeNode(editable = true, accessibilityFocused = true)
+    assertNull(FocusedFields.find(FakeNode(password = true, inputFocused = true, children = listOf(descendant))))
+    assertEquals(0, descendant.reads)
+  }
+
+  @Test fun passwordChangeDuringRetryStopsReadsWritesAndClipboardFallback() {
+    val field = FakeNode(editable = true, takesOn = 3)
+    assertEquals("failed", FocusedFields.insert(field, "draft", pause = { field.password = true },
+      copy = { throw AssertionError("must not copy") }))
+    assertEquals(2, field.reads)
+    assertEquals(1, field.sets)
   }
 
   @Test fun insertComposesOverTheSelection() {
@@ -98,8 +132,8 @@ class FocusedFieldsTest {
   }
 
   @Test fun insertIntoAGoneNodeCopiesOrFails() {
-    assertEquals("copied", FocusedFields.insert(FakeNode(current = null), "hi", pause = {}, copy = { true }))
-    assertEquals("failed", FocusedFields.insert(FakeNode(current = null), "hi", pause = {}, copy = { false }))
+    assertEquals("copied", FocusedFields.insert(FakeNode(editable = true, current = null), "hi", pause = {}, copy = { true }))
+    assertEquals("failed", FocusedFields.insert(FakeNode(editable = true, current = null), "hi", pause = {}, copy = { false }))
   }
 
   private val captured = FieldIdentity("app:id/input", listOf(10, 20, 100, 80), "app")
@@ -152,7 +186,7 @@ class FocusedFieldsTest {
 
   @Test fun unreadableWindowExpiresToCopiedOrFailed() {
     for (copies in listOf(true, false)) {
-      val node = FakeNode(current = null)
+      val node = FakeNode(editable = true, current = null)
       val pauses = mutableListOf<Long>()
       val clipboard = mutableListOf<String>()
       assertEquals(if (copies) "copied" else "failed", FocusedFields.insert(

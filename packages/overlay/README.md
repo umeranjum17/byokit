@@ -44,8 +44,8 @@ retries up to `attempts` times (default 2, pausing `retryMs`, default 150 ms, be
 window is on top Chrome refuses the set, so `{ attempts: 13, retryMs: 150 }` lands it. A contenteditable that dropped
 only the newlines resolves `'landedWithoutNewlines'` when `acceptNewlineLoss` is set, so the app can accept the text
 as typed; otherwise the text is copied for the person to paste (`'copied'`) or the insert `'failed'`. The field is
-the focused node itself when it is editable, else the first editable focused descendant (WebView/Chrome). Password
-fields are never read or typed into. The same service also gives the `accessibility` host (no overlay switch needed),
+resolved with input focus, then accessibility focus, including virtual nodes inside WebView content. With no focus
+the kit reports no field. A password node anywhere on the focused path prevents reads, writes and clipboard fallback. The same service also gives the `accessibility` host (no overlay switch needed),
 the foreground app that `rules` and `spots: 'per-app'` follow, and the keyboard's top so the bubble rests above it.
 The bubble's window never takes focus, so a tap or long press on it leaves the other app's field focused.
 
@@ -78,7 +78,7 @@ captured node. The service can hand over the `AccessibilityNodeInfo` it captured
 ```kotlin
 class Assistant : AccessibilityService() {
   private lateinit var bubble: ServiceBubble
-  private var field: AccessibilityNodeInfo? = null
+  private var field: FieldNode? = null
   private var insertCancellation: InsertCancellation? = null
 
   override fun onServiceConnected() {
@@ -87,7 +87,7 @@ class Assistant : AccessibilityService() {
     bubble.events.add { e ->
       if (e == OverlayEvent.Tap) {
         insertCancellation?.cancel() // invalidate the previous capture before replacing it
-        field = findFocus(AccessibilityNodeInfo.FOCUS_INPUT) // captured at tap time
+        field = FocusedFields.capture(this) // resolves exact focus at tap time
         PanelActivity.launch(this, "Panel", emptyMap())
       }
     }
