@@ -281,6 +281,8 @@ test('self returns only the key-proven host, and counts live connections rather 
   const b = await paired(r);
   await a.dev.link.request('hello');
   await b.dev.link.request('hello');
+  // Pairing uses a temporary socket; wait for its close to reach the relay.
+  await until(async () => (await a.client.self()).devices === 1);
   const self = await a.client.self();
   const { online, devices, ...record } = r.relay.hosts().find((h) => h.id === a.host.id)!;
   assert.equal(online, true);
