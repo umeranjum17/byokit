@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-09-30)
+
+
+
 - FIX: Make each realtime README example independently typecheck against the package exports.
 - FIX: Start phone WebRTC with React Native AbortSignal implementations that have no throwIfAborted method.
 - FIX: Report connected when playback has nothing to drain, and flush queued speech after audio clears while muted.
