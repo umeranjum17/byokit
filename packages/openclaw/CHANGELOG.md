@@ -52,7 +52,7 @@
 
 - FIX: `authSeal` no longer rejects retained-login migration when engine state contains symlinks or runtime entries. File symlinks whose fully resolved targets are regular files inside the isolated engine root are sealed and restored as regular files at the link paths; outside-root, dangling and directory symlinks (including loops), sockets, FIFOs and devices are skipped without reading their contents.
 - Depends on @byokit/ui-core 0.4.0.
-- Offer subscription paste and direct API-key (billed per use) routes by default and allow their provider plugins. Keep proxy, compatibility, local and Claude CLI routes off.
+- Offer subscription sign-ins, including paste, by default and allow their provider plugins. API key (billed per use) routes stay listed and require app or person opt-in. Keep proxy, compatibility, local and Claude CLI routes off.
 
 ## 0.3.0 (2026-09-30)
 

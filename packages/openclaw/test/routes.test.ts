@@ -3,8 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { routeFor, routes } from '../src/routes.ts';
 
-const NOT_OFFERED = ['xai-device-code', 'clawrouter-api-key', 'copilot-proxy',
-  'custom-api-key', 'litellm-api-key', 'lmstudio', 'ollama', 'sglang', 'vllm'];
+const OFFERED = ['openai', 'openai-device-code', 'xai-oauth', 'github-copilot', 'github-copilot-enterprise', 'minimax-global-oauth', 'minimax-cn-oauth', 'anthropic-cli', 'setup-token'];
 // The pin's `appGuidedAuth: 'device-code'`: the person completes these with a code, not a localhost callback.
 const DEVICE_CODE = ['openai-device-code', 'xai-oauth', 'github-copilot', 'github-copilot-enterprise', 'minimax-global-oauth', 'minimax-cn-oauth', 'xai-device-code'];
 
@@ -25,10 +24,10 @@ test('every route is a complete label with the pin as its source', () => {
   assert.equal(new Set(table.map((route) => route.choice)).size, table.length, 'choice ids are unique');
 });
 
-test('all direct account routes are offered; proxies, aliases and local routes stay off', () => {
-  assert.deepEqual(routes().filter((route) => !route.offer).map((route) => route.choice).sort(), [...NOT_OFFERED].sort());
+test('subscription sign-ins are offered; API billing, proxies, aliases and local routes stay off', () => {
+  assert.deepEqual(routes().filter((route) => route.offer).map((route) => route.choice).sort(), [...OFFERED].sort());
   for (const route of routes().filter((route) => route.offer)) {
-    assert.ok(['subscription', 'api'].includes(route.billing), route.choice);
+    assert.equal(route.billing, 'subscription', route.choice);
     assert.ok(route.plugin.length > 0, route.choice);
   }
 });
@@ -40,17 +39,21 @@ test('every route names the bundled plugin that owns it, and only the core choic
   }
 });
 
-test('OpenRouter is offered with its API billing label', () => {
-  assert.equal(routeFor('openrouter', 'browser')?.choice, 'openrouter-oauth');
-  assert.equal(routeFor('openrouter', 'browser')?.billing, 'api');
+test('API-billed routes require opt-in and keep their billing labels, including OpenRouter OAuth', () => {
+  for (const route of routes().filter((entry) => entry.billing === 'api')) {
+    assert.equal(route.offer, false, route.choice);
+    assert.match(route.reason, /API key \(billed per use\)/, route.choice);
+  }
+  assert.equal(routeFor('openrouter', 'browser'), undefined);
+  assert.equal(routes().find((route) => route.choice === 'openrouter-oauth')?.billing, 'api');
   assert.equal(routeFor('openrouter', 'code'), undefined);
 });
 
-test('Claude paste and API-key routes are offered, and native CLI routes are offered (D12)', () => {
+test('Claude paste and native CLI are offered; API keys stay opt-in (D12)', () => {
   const byChoice = new Map(routes().map((route) => [route.choice, route]));
   assert.equal(byChoice.get('setup-token')?.offer, true);
   assert.equal(byChoice.get('setup-token')?.billing, 'subscription');
-  assert.equal(byChoice.get('apiKey')?.offer, true);
+  assert.equal(byChoice.get('apiKey')?.offer, false);
   assert.equal(byChoice.get('apiKey')?.billing, 'api');
   assert.equal(byChoice.get('anthropic-cli')?.offer, true);
   assert.match(byChoice.get('anthropic-cli')?.prerequisite ?? '', /Claude Code/);
@@ -61,7 +64,7 @@ test('a route the pinned gateway refuses is not offered (B6)', () => {
   assert.equal(xai.offer, false, 'manual-only upstream: the gateway answers "not available on this Gateway"');
   assert.equal(xai.reason, 'Compatibility alias the Gateway does not offer; use xai-oauth.');
   assert.equal(routeFor('xai', 'code')?.choice, 'xai-oauth', 'the offered Grok route is xai-oauth');
-  assert.equal(routeFor('xai', 'browser')?.choice, 'xai-api-key', 'browser entry offers an API key, billed per use');
+  assert.equal(routeFor('xai', 'browser'), undefined, 'API billing requires opt-in');
 });
 
 test('via follows the pin: device-code choices are completed with a code (B6)', () => {
@@ -91,5 +94,5 @@ test('routeFor picks the offered route for the provider and the way the person s
   // A provider with no offered route, an unoffered choice, and a way of signing in the route cannot take.
   assert.equal(routeFor('ollama', 'browser'), undefined);
   assert.equal(routeFor('littleshop', 'browser'), undefined);
-  assert.equal(routeFor('minimax', 'browser')?.choice, 'minimax-cn-api');
+  assert.equal(routeFor('minimax', 'browser'), undefined);
 });

@@ -484,13 +484,13 @@ Crewhouse's product choices (tool profile and deny list, `skills.allowBundled`, 
 **Routes** (`src/routes.json`, O6): one entry per auth choice in the pinned tarball's provider contracts:
 `{ "choice": "openai-device-code", "provider": "openai", "plugin": "openai", "billing": "subscription", "via": "code",
 "prerequisite": null, "offer": true, "reason": "…", "source": "dist/provider-contract-api-*.js (2026.8.1)" }`.
-All subscription and direct API-key choices are offered, including `setup-token` and `openrouter-oauth`.
+Subscription choices are offered by default, including `setup-token` and native `anthropic-cli`. API-billed choices, including `openrouter-oauth`, stay off until the app or person opts in.
 Only proxy routes (`litellm-api-key`, `clawrouter-api-key`, `custom-api-key`), compatibility aliases,
 local runtimes, `copilot-proxy` stay off. Billing labels distinguish subscription from
 API key (billed per use); native `anthropic-cli` uses Claude Code in the isolated HOME. `routes()` returns the full table and
 `routeFor(provider, via)` picks the first offered route. Each `plugin` names the bundled manifest owning
 the choice; `via` is `code` for `appGuidedAuth: 'device-code'`, otherwise `browser`. Some offered routes
-need a manual paste or key: the 2026.8.1 Gateway does not guide every pinned choice. The engine job
+need a manual paste: the 2026.8.1 Gateway does not guide every pinned choice. The engine job
 checks inventory and starts the routes the pin supports through its setup wizard.
 
 **signIn(member, { authChoice, via, signal? }, on)** — provider-owned wizard drive:
@@ -1917,7 +1917,7 @@ H1, and O12/H10 (README example rows); later merges rebase.
   finishes with the engine; giving up cancels its own session; person cancel cancels) plus: browser route holds the
   callback port and pastes the redirect; port taken → `why: 'busy'`; `wizard.status` never called.
   `routes.test.ts`: every choice id in `routes.json` exists in the pinned tarball (engine job reads it; the non-engine
-  test checks shape: billing ∈ {subscription, api, local}, `offer` boolean, reason non-empty); native `anthropic-cli` is offered; `setup-token` and direct API keys are offered. `migrate.test.ts` (no engine, doctor stubbed via an injected runner): staging shape
+  test checks shape: billing ∈ {subscription, api, local}, `offer` boolean, reason non-empty); native `anthropic-cli` is offered; `setup-token` is offered; every API-billed route stays off by default and carries its billing label. `migrate.test.ts` (no engine, doctor stubbed via an injected runner): staging shape
   `{ version: 1, profiles: { 'openai-codex:default': … } }`, 0600; failed doctor removes staging and leaves source
   bytes identical; confirm renames only when all providers are present, writes the marker, never on empty source;
   record source returns true and touches no file. `engine/*` = Crewhouse `openclaw-wizard.test.ts` real-gateway case
