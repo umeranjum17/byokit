@@ -36,14 +36,6 @@ The installed agent CLI uses the same engine:
 npx write platforms
 ```
 
-```ts
-import { Compose } from '@byokit/write';
-
-const writing = new Compose();
-const checks = await writing.check({ drafts: ['A short update.'], platform: 'x' });
-console.log(checks.map((check) => check.words));
-```
-
 Threads come back as the engine writes them, numbered (`1/3 …`).
 
 The kit reads no environment variables, holds no key, makes no network call and writes no file.
