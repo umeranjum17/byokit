@@ -24,14 +24,14 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const finite = (n: number | undefined): n is number => typeof n === 'number' && Number.isFinite(n);
 const reset = (r: Considered) => r.resetsAt ?? Infinity;
 
-/** Structural over usage windows, whose resetsAt is epoch seconds. This is the only seconds → ms boundary. */
-export function roomOf(windows: readonly { usedPercent: number; kind: string; resetsAt?: number }[], at?: number): Room {
+/** Structural windows: legacy reset seconds by default; usage 0.2.0+ must pass milliseconds explicitly. */
+export function roomOf(windows: readonly { usedPercent: number; kind: string; resetsAt?: number }[], at?: number, resetUnit: 'seconds' | 'milliseconds' = 'seconds'): Room {
   const known = windows.filter((w) => finite(w.usedPercent));
   if (!known.length) return { left: 'unknown', ...(finite(at) ? { at } : {}) };
   const w = known.reduce((a, b) => b.usedPercent > a.usedPercent ? b : a);
   const span = w.kind === 'session' ? 'session' : w.kind === 'weekly' ? 'week' : w.kind === 'monthly' ? 'month' : 'tightest';
   return { left: Math.max(0, Math.min(100, 100 - w.usedPercent)), span,
-    ...(finite(w.resetsAt) ? { resetsAt: w.resetsAt * 1000 } : {}), ...(finite(at) ? { at } : {}) };
+    ...(finite(w.resetsAt) ? { resetsAt: w.resetsAt * (resetUnit === 'seconds' ? 1000 : 1) } : {}), ...(finite(at) ? { at } : {}) };
 }
 
 export function roomWords(room: Room): string {

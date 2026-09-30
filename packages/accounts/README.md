@@ -510,7 +510,7 @@ declare function modelsFor(account: AccountLike): { id: string; available: boole
 declare function startRunWith(account: AccountLike, model: string): void;
 
 const pick = resolveSelection(accounts, defaults, { account: 'auto', needs: ['provider/model'] },
-  (account, demand) => roomOf(windowsFor(account, demand), measuredAt(account)), Date.now(),
+  (account, demand) => roomOf(windowsFor(account, demand), measuredAt(account), 'milliseconds'), Date.now(),
   (account) => modelsFor(account));
 if (pick.ok) startRunWith(pick.account, pick.model);
 ```
@@ -535,8 +535,10 @@ and model ids supplied by the host must themselves be secret-free. The generic r
 host record: keep credentials outside that record before exposing the whole pick to UI or logs.
 
 `AccountLike.until`, `nowMs`, `Room.at`, `Room.resetsAt` and `Considered.age` use **milliseconds**.
-`roomOf` accepts structural usage windows whose `resetsAt` uses **epoch seconds**, and multiplies that field
-by 1000 exactly once. Its optional `at` is the original measurement time in epoch milliseconds.
+`roomOf(windows, at, resetUnit?)` accepts structural windows. Legacy reset **epoch seconds** are the default,
+converted by 1000 exactly once. For normalized `@byokit/usage` 0.2.0+ windows, pass `'milliseconds'` as the
+third argument; reset times then stay unchanged. A normalized usage `Room` also passes directly to the chooser.
+The optional `at` is always the original measurement time in epoch milliseconds.
 The current structural input contains `usedPercent`, `kind`, and optional `resetsAt`; hard-limit/model-scope and
 poll-health ingestion is a follow-up to the pending usage extension. Hosts must supply demand-filtered windows
 and authoritative eligibility rather than interpreting an unavailable quota reading as a fresh successful read.

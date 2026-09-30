@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Document reset-time units when passing normalized subscription readings to account selection.
+
 ## 0.2.0 (2026-09-30)
 
 

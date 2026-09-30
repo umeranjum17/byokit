@@ -210,3 +210,9 @@ calls with unknown total counts, member/day/week results expose `unknownCalls`,
 `tokens` is the known subtotal, and week `remaining` is omitted. Cap and price
 policy remain the host's. All times, durations and quota reset timestamps are
 milliseconds. There is no transport, credential discovery or automatic rotation.
+
+When passing normalized windows to `@byokit/accounts`' structural helper, use
+`roomOf(reading.windows, reading.at, 'milliseconds')`. Its two-argument form is for
+legacy reset seconds; normalized usage windows in 0.2.0+ already use milliseconds.
+Alternatively, this package's `roomOf(reading, nowMs)` returns a structural `Room`
+that the accounts chooser accepts directly. Preserve the original measurement time.

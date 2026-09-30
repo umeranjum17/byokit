@@ -970,6 +970,11 @@ using the plugin SDK's `resolveAgentDir` and local-only `updateAuthProfileStoreW
   profile is adopted away or cleared from it, the kit restores that primary model (the pin's sign-in rewrote it).
 - `clear { agentId }`: removes every profile from the agent's own store.
 
+`@byokit/accounts`' structural `roomOf(windows, at, resetUnit?)` keeps legacy reset seconds as its default;
+normalized `@byokit/usage` 0.2.0+ windows use epoch milliseconds and must pass `resetUnit: 'milliseconds'`
+(the third argument is the unit string). A normalized usage `Room` can also pass directly to the chooser.
+The source measurement `at` and chooser clocks always use epoch milliseconds.
+
 **Choosing.** `src/pick.ts` holds `consider`, `chooseAccount` and `resolveSelection` (5.13), pure, ported from
 `@byokit/accounts`; `fixtures/conformance/auto-pick-typescript.json` is the parity table both packages' tests run (its
 rows gain the API-key rule, the demand and the explanation below first). `consider` is the one eligibility predicate:

@@ -38,6 +38,7 @@ test('roomOf takes the tightest finite window and converts only reset seconds to
   const room = roomOf([{ usedPercent: 20, kind: 'session', resetsAt: 2000 }, { usedPercent: 70, kind: 'weekly', resetsAt: 3000 }], 1000000);
   assert.deepEqual(room, { left: 30, span: 'week', resetsAt: 3000000, at: 1000000 });
   assert.equal(roomWords(room), '30% left this week');
+  assert.deepEqual(roomOf([{ usedPercent: 70, kind: 'weekly', resetsAt: 3000000 }], 1000000, 'milliseconds'), room, 'usage 0.2.0+ resets are already milliseconds');
   assert.deepEqual(roomOf([], 1000000), { left: 'unknown', at: 1000000 });
   assert.equal(roomWords(roomOf([])), 'Room left unknown');
   assert.deepEqual(roomOf([{ usedPercent: NaN, kind: 'session' }]), { left: 'unknown' });
