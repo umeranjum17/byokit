@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.5 (2026-09-30)
+
+
+
 - SECURITY: Focus resolution in web content is exact: input focus, then accessibility focus, never the first text box.
   Password fields and password paths are never exposed or written, and never trigger clipboard fallback.
 
