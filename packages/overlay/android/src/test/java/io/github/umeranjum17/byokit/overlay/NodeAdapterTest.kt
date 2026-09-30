@@ -202,6 +202,28 @@ class NodeAdapterTest {
     assertEquals("inserted", FocusedFields.insert(captured, "b", pause = {}))
   }
 
+  @Test fun wrappedWebViewInsertsIntoTheExactFocusedChild() {
+    val first = Info(editable = true, text = "first", inputFocused = false)
+    val focused = Info(editable = true, text = "focused", lands = "focused!")
+    val page = Info(kids = listOf(first, focused))
+    assertEquals("inserted", FocusedFields.insert(FieldNode.of(page), "!", pause = {},
+      copy = { throw AssertionError("must insert into the focused field") }))
+    assertEquals("focused!", focused.text)
+    assertEquals(0, first.textReads)
+    assertEquals(0, page.textReads)
+    assertEquals(emptyList<Int>(), first.actions)
+    assertEquals(emptyList<Int>(), page.actions)
+    assertEquals(0, page.recycled)
+  }
+
+  @Test fun wrappedContainerWithoutFocusNeverReadsSetsOrCopies() {
+    val page = Info(kids = listOf(Info(editable = true, inputFocused = false)))
+    assertEquals("failed", FocusedFields.insert(FieldNode.of(page), "draft", pause = {},
+      copy = { throw AssertionError("must not copy") }))
+    assertEquals(0, page.textReads)
+    assertEquals(emptyList<Int>(), page.actions)
+  }
+
   @Test fun webViewPasswordFocusNeverReadsWritesOrCopiesTheFirstBox() {
     val first = Info(editable = true, text = "first", inputFocused = false)
     val password = Info(editable = true, password = true, text = "secret")
@@ -210,6 +232,7 @@ class NodeAdapterTest {
     assertNull(FocusedFields.read(service))
     assertNull(FocusedFields.capture(service))
     assertEquals("failed", FocusedFields.insert(page, "draft", copy = { throw AssertionError("must not copy") }))
+    assertEquals("failed", FocusedFields.insert(FieldNode.of(page), "draft", copy = { throw AssertionError("must not copy") }))
     assertNull(FieldNode.of(password).shown())
     assertFalse(FieldNode.of(password).set("draft"))
     assertEquals(0, first.textReads)

@@ -187,6 +187,7 @@ object FocusedFields {
    * the same field (same view id, bounds and package, never a different field) when [node] went stale. Otherwise
    * [copy] gets the text: "inserted", "landedWithoutNewlines", "copied" or "failed". Cancellation returns "cancelled"
    * before subsequent reads, writes or copy fallback; service detach cancels pending inserts. [node] stays the caller's.
+   * Captured containers resolve their exactly focused child with [find], or fail without reads or copy fallback.
    * [pause] blocks by default, so call it off the main thread.
    */
   fun insert(
@@ -200,12 +201,16 @@ object FocusedFields {
     service: AccessibilityService? = (node as? NodeWrap)?.owner ?: ByokitAccessibility.service,
   ): String {
     ByokitAccessibility.track(service, cancellation)
+    var field: FieldNode? = null
     try {
-      val value = insertSteps(node, text, replace, opts, pause, copy, cancellation)
+      // Captured editable fields remain valid while a panel has focus. A captured container must resolve its field.
+      field = cancellation.step { if (node.editable) node else find(node) }
+      val value = field?.let { insertSteps(it, text, replace, opts, pause, copy, cancellation) } ?: "failed"
       return cancellation.finish(value)
     } catch (_: InsertCancelled) {
       return cancellation.finish("cancelled")
     } finally {
+      if (field !== node) field?.recycle()
       ByokitAccessibility.untrack(service, cancellation)
     }
   }

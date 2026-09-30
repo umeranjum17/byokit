@@ -132,8 +132,8 @@ class FocusedFieldsTest {
   }
 
   @Test fun insertIntoAGoneNodeCopiesOrFails() {
-    assertEquals("copied", FocusedFields.insert(FakeNode(current = null), "hi", pause = {}, copy = { true }))
-    assertEquals("failed", FocusedFields.insert(FakeNode(current = null), "hi", pause = {}, copy = { false }))
+    assertEquals("copied", FocusedFields.insert(FakeNode(editable = true, current = null), "hi", pause = {}, copy = { true }))
+    assertEquals("failed", FocusedFields.insert(FakeNode(editable = true, current = null), "hi", pause = {}, copy = { false }))
   }
 
   private val captured = FieldIdentity("app:id/input", listOf(10, 20, 100, 80), "app")
@@ -186,7 +186,7 @@ class FocusedFieldsTest {
 
   @Test fun unreadableWindowExpiresToCopiedOrFailed() {
     for (copies in listOf(true, false)) {
-      val node = FakeNode(current = null)
+      val node = FakeNode(editable = true, current = null)
       val pauses = mutableListOf<Long>()
       val clipboard = mutableListOf<String>()
       assertEquals(if (copies) "copied" else "failed", FocusedFields.insert(
