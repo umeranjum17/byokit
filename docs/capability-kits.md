@@ -67,6 +67,10 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 
 ## 3. Shared conventions
 
+Names, codes, errors, state, events, construction, options, words and export names follow
+[kit-conventions.md](kit-conventions.md); this section adds only what is specific to the capability kits. Where
+this spec prescribes a different shape, the spec wins until it is amended (kit-conventions Precedence).
+
 ### 3.1 Layers
 
 ```
@@ -92,9 +96,8 @@ list and in `scripts/fix-words-dts.cjs`' package list.
 ### 3.3 States, errors and plain words
 
 write and record have no long-lived supervisor, so they have no `onState`. Each call resolves or rejects with the
-kit's error class (`ComposeError`, `CaptureError`). The error's `code` picks the sentence via
-`errorWords(e)`. UI code shows `errorWords(e)` or `words(key)`; it never builds sentences from codes. overlay has
-one `OverlayState` and a `state` event (7.3).
+kit's error class (`ComposeError`, `CaptureError`), whose `code` picks the sentence via `errorWords(e)`
+([kit-conventions.md](kit-conventions.md) §3 and §9). overlay has one `OverlayState` and a `state` event (7.3).
 
 ### 3.4 Fakes and contract rule
 
