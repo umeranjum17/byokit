@@ -14,12 +14,19 @@ class FocusedFieldsTest {
     private val children: List<FakeNode> = emptyList(),
     private val stripNewlines: Boolean = false,
     private val takesOn: Int = 1,
+    override val identity: FieldIdentity? = null,
+    private val reacquired: FieldNode? = null,
+    private val unreadableReads: Int = 0,
   ) : FieldNode {
     var current = current
       private set
     var sets = 0
     val copied = mutableListOf<String>()
-    override fun shown() = current
+    var reads = 0
+    var recycled = 0
+    override fun recycle() { recycled++ }
+    override fun reacquire() = reacquired
+    override fun shown(): String? = if (reads++ < unreadableReads) null else current
     override fun set(text: String): Boolean {
       sets++
       if (sets >= takesOn) current = if (stripNewlines) text.filter { it != '\n' && it != '\r' } else text
@@ -91,7 +98,72 @@ class FocusedFieldsTest {
   }
 
   @Test fun insertIntoAGoneNodeCopiesOrFails() {
-    assertEquals("copied", FocusedFields.insert(FakeNode(current = null), "hi", pause = noPause, copy = { true }))
-    assertEquals("failed", FocusedFields.insert(FakeNode(current = null), "hi", pause = noPause, copy = { false }))
+    assertEquals("copied", FocusedFields.insert(FakeNode(current = null), "hi", pause = {}, copy = { true }))
+    assertEquals("failed", FocusedFields.insert(FakeNode(current = null), "hi", pause = {}, copy = { false }))
   }
+
+  private val captured = FieldIdentity("app:id/input", listOf(10, 20, 100, 80), "app")
+
+  @Test fun insertWaitsForTransientlyUnreadableCapturedNode() {
+    val node = FakeNode(editable = true, current = "before", unreadableReads = 2)
+    val pauses = mutableListOf<Long>()
+    assertEquals("inserted", FocusedFields.insert(node, "!", opts = InsertOpts(3, 25), pause = { pauses += it }))
+    assertEquals("before!", node.current)
+    assertEquals(1, node.sets)
+    assertEquals(listOf(25L, 25L), pauses)
+  }
+
+  @Test fun insertReacquiresSameFieldAndRecyclesIt() {
+    val fresh = FakeNode(editable = true, current = "ab", selection = 1 to 2, identity = captured)
+    val stale = FakeNode(editable = true, current = null, identity = captured, reacquired = fresh)
+    assertEquals("inserted", FocusedFields.insert(stale, "!", pause = {}))
+    assertEquals("a!", fresh.current)
+    assertEquals(0, stale.sets)
+    assertEquals(1, fresh.recycled)
+    assertEquals(0, stale.recycled) // The caller still owns the captured node.
+  }
+
+  @Test fun insertRejectsEveryDifferentField() {
+    val others = listOf(
+      captured.copy(viewId = "app:id/other"),
+      captured.copy(bounds = listOf(10, 30, 100, 90)),
+      captured.copy(app = "other"),
+    )
+    for (identity in others) {
+      val other = FakeNode(editable = true, identity = identity)
+      val stale = FakeNode(editable = true, current = null, identity = captured, reacquired = other)
+      assertEquals("failed", FocusedFields.insert(stale, "secret", pause = {}))
+      assertEquals(0, other.sets)
+      assertEquals(1, other.recycled)
+    }
+  }
+
+  @Test fun sameFieldSearchMatchesAllPropertiesAndRecyclesOtherNodes() {
+    val wrong = FakeNode(editable = true, identity = captured.copy(app = "other"))
+    val match = FakeNode(editable = true, identity = captured)
+    val branch = FakeNode(children = listOf(match))
+    val root = FakeNode(children = listOf(wrong, branch))
+    assertSame(match, FocusedFields.sameField(root, captured))
+    assertEquals(1, wrong.recycled)
+    assertEquals(1, branch.recycled)
+    assertEquals(1, root.recycled)
+    assertEquals(0, match.recycled)
+  }
+
+  @Test fun unreadableWindowExpiresToCopiedOrFailed() {
+    for (copies in listOf(true, false)) {
+      val node = FakeNode(current = null)
+      val pauses = mutableListOf<Long>()
+      val clipboard = mutableListOf<String>()
+      assertEquals(if (copies) "copied" else "failed", FocusedFields.insert(
+        node, "hi", opts = InsertOpts(4, 35), pause = { pauses += it },
+        copy = { clipboard += it; copies },
+      ))
+      assertEquals(listOf(35L, 35L, 35L), pauses)
+      assertEquals(4, node.reads)
+      assertEquals(0, node.sets)
+      assertEquals(listOf("hi"), clipboard)
+    }
+  }
+
 }
