@@ -7,7 +7,7 @@ export function realtimeClient(options: RealtimeClientOptions) {
   const audio = options.audio;
   let stopped = false, muted = false, epoch = 0, reconnects = 0;
   let retry: ReturnType<typeof setTimeout> | undefined, reconnectTimer: ReturnType<typeof setTimeout> | undefined, stableTimer: ReturnType<typeof setTimeout> | undefined;
-  type Attempt = { stream?: RealtimeStream; capture?: Awaited<ReturnType<typeof audio.capture>>; peer?: WebRtcHandle; acquired: boolean; ready: boolean; signal: AbortController; media?: Promise<void> };
+  type Attempt = { stream?: RealtimeStream; capture?: Awaited<ReturnType<typeof audio.capture>>; peer?: WebRtcHandle; acquired: boolean; ready: boolean; signal: AbortController; media?: Promise<void>; routeRelease?: Promise<void> };
   let attempt: Attempt | undefined;
   const mic: { data: string; bytes: number }[] = [], speech: string[] = [];
   let micBytes = 0;
@@ -17,6 +17,7 @@ export function realtimeClient(options: RealtimeClientOptions) {
     current.signal.abort(); current.stream?.close(); if (current.stream) audio.player.unbind(current.stream);
     await current.media?.catch(() => {});
     current.peer?.stop();
+    await current.routeRelease;
     try { await current.capture?.release(); }
     finally { if (current.acquired) { current.acquired = false; audio.microphone.release(); await audio.unroute(); } }
   };
@@ -82,7 +83,7 @@ export function realtimeClient(options: RealtimeClientOptions) {
         case 'realtime.webrtc.start':
           if (current.media) break;
           if (!options.webrtc) throw new Error('Voice media is unsupported.');
-          current.media = options.webrtc({ label: frame.dataChannelLabel, audio, signal: current.signal.signal,
+          current.media = options.webrtc({ label: frame.dataChannelLabel, audio: { ...audio, unroute() { return current.routeRelease = audio.unroute(); } }, signal: current.signal.signal,
             onOffer(sdp) { if (active() && !current.stream?.send({ type: 'realtime.webrtc.offer', sdp })) reconnect(current, 'Voice offer could not be sent.'); },
             onData(data) { if (active() && !current.stream?.send({ type: 'realtime.webrtc.data', data })) reconnect(current, 'Voice channel overflowed.'); },
             onRemoteAudio(speaking) { if (active()) options.onStatus(speaking ? 'speaking' : 'connected'); },

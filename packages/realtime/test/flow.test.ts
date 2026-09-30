@@ -299,6 +299,29 @@ test('PCM client reconnect releases a pending microphone before reopening, ignor
   await new Promise(resolve => setTimeout(resolve, 1100)); assert.equal(opens, 2);
   assert.equal(events.filter(event => event === 'release').length, 2);
 });
+test('WebRTC reconnect waits for the prior audio route to release before acquiring media again', async t => {
+  const events: string[] = [], frames: ((frame: RealtimeHostFrame) => void)[] = [], closes: (() => void)[] = [];
+  let opens = 0, stoppedTracks = 0, releaseRoute!: () => void;
+  const audio = audioPorts(events);
+  audio.unroute = async () => { events.push('unroute'); if (opens === 1) await new Promise<void>(resolve => { releaseRoute = resolve; }); };
+  const client = realtimeClient({ audio, onStatus() {}, onTurn() {},
+    open: async () => { opens++; return { send: () => true, onFrame(fn) { frames.push(fn); }, onClose(fn) { closes.push(() => fn('Connection lost')); }, start() {}, close() {} }; },
+    webrtc: options => webRtcPeer({ ...options, platform: {
+      createPeer: () => ({ connectionState: 'connecting', iceGatheringState: 'complete', localDescription: { sdp: 'v=0\r\n' }, createDataChannel: () => ({ readyState: 'connecting', bufferedAmount: 0, close() {}, send() {} }), addTrack() {}, createOffer: async () => ({ type: 'offer', sdp: 'v=0\r\n' }), setLocalDescription: async () => {}, setRemoteDescription: async () => {}, close() {} }) as unknown as RTCPeerConnection,
+      getUserMedia: async () => { events.push('media'); const track = { kind: 'audio', enabled: true, stop() { stoppedTracks++; } }; return { getAudioTracks: () => [track], getTracks: () => [track] } as unknown as MediaStream; },
+    } }),
+  });
+  t.after(() => { releaseRoute?.(); client.stop(); });
+  await waitFor(() => frames.length === 1); frames[0]({ type: 'realtime.webrtc.start', dataChannelLabel: 'oai-events' });
+  await waitFor(() => events.includes('media')); closes[0]();
+  await waitFor(() => !!releaseRoute); await new Promise(resolve => setTimeout(resolve, 650));
+  assert.equal(opens, 1); assert.equal(stoppedTracks, 1);
+  releaseRoute(); await waitFor(() => opens === 2);
+  frames[1]({ type: 'realtime.webrtc.start', dataChannelLabel: 'oai-events' });
+  await waitFor(() => events.filter(event => event === 'media').length === 2);
+  client.stop(); await waitFor(() => events.filter(event => event === 'unroute').length === 2);
+  assert.equal(events.filter(event => event === 'release').length, 2); assert.equal(stoppedTracks, 2);
+});
 test('ChatGPT native turn interruption aborts delegation, and explicit interrupt requests fresh-call rotation', async t => {
   const frames: RealtimeHostFrame[] = []; let entered = false, aborted = false;
   const delegateTools = [{ name: 'delegate', description: 'Handle a request', parameters: { type: 'object' } }];
