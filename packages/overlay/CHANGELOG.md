@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- FIX: Text insertion no longer gives up while the panel is closing; it retries unreadable fields and only
+  re-acquires a field with the same view id, bounds and package.
+
 ## 0.2.0 (2026-09-30)
 
 - Focused-field insert options (docs/capability-kits.md 7.4): `insert` takes `{ attempts, retryMs,
