@@ -172,10 +172,11 @@ export class Relay {
         return host ? json(res, 200, { host }) : json(res, 404, { error: 'no such code' });
       }
       if (path === '/relay/v1/push/action' && req.method === 'POST') {
+        if (!this.opts.limitKey && this.limited('action', req)) return json(res, 429, { error: 'too many requests' });
         const body: any = await readJson(req);
         const token = this.tokens.get(String(body?.token ?? ''));
         const host = token && token.expires >= this.now() ? token.host : undefined;
-        if (this.limited('action', req, host)) return json(res, 429, { error: 'too many requests' });
+        if (this.opts.limitKey && this.limited('action', req, host)) return json(res, 429, { error: 'too many requests' });
         const r = await this.action(String(body?.token ?? ''), String(body?.action ?? ''));
         return json(res, r.status, r.body);
       }
