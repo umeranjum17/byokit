@@ -1,7 +1,6 @@
 {
   "name": "@byokit/dictation",
   "version": "0.1.0",
-  "private": true,
   "description": "Dictation and recording transcription using your subscription or an on-device engine.",
   "license": "Apache-2.0",
   "type": "module",

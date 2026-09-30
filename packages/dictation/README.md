@@ -1,6 +1,6 @@
 # @byokit/dictation
 
-Dictation and recording transcription, private pending consumer Android emulator qualification. Returns text to your app with stable partials, final segments, language, timestamps and usage. Never sends the transcript anywhere on your behalf.
+Dictation and recording transcription using your subscription or an on-device engine. Returns text to your app with stable partials, final segments, language, timestamps and usage. Never sends the transcript anywhere on your behalf.
 
 ```ts
 import { Dictation, type AudioMic } from '@byokit/dictation';
@@ -40,4 +40,4 @@ Live system recognition emits partial/final text; Whisper rereads once a second,
 
 Timestamp support follows the engine: OpenAI word timestamps require `whisper-1`, Whisper CLI uses segment offsets/token offsets where available, and ChatGPT has no language/timestamp controls. Unknown cost/duration is not estimated. `installModel` delegates storage/download to your host and validates size plus SHA-256. Use `./testing` for offline microphone and inference fakes.
 
-See [the specification](../../docs/dictation-kit.md). The owner confirmed the package name; publishing still requires real consumer Android emulator proof; this change supplies fixture/fake qualification only.
+See [the specification](../../docs/dictation-kit.md) and the [Android consumer proof](../../examples/dictation-android/README.md). The package is publishable as `@byokit/dictation` 0.1.0. The emulator flow exercises the public JavaScript entry and app-owned system port through Android SpeechRecognizer with a deterministic local RecognitionService; it does not qualify a downloaded speech model or a vendor recognizer. Native bindings remain the host app's responsibility.
