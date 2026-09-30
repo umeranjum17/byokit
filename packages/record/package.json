@@ -1,6 +1,6 @@
 {
   "name": "@byokit/record",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Record a screen or a desktop into a take and make a video from it, through any recorder that implements the open recorder protocol v1 this kit defines.",
   "license": "Apache-2.0",
   "type": "module",

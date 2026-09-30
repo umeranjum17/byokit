@@ -22,7 +22,7 @@ BYOKit gains four **capability kits**. Each one is named for what it can do, not
   and thread splitting. It wraps the public `ownvoice-engine` npm package, pinned exactly. It makes no model call.
 - **`@byokit/record`**: recording a screen or a desktop into a take, then turning the take into a video. It owns
   an open **recorder protocol v1** (section 6) and drives any recorder that implements it. The app passes that
-  recorder by absolute path. The kit ships no recorder of its own.
+  recorder by absolute path, or uses the bundled Linux X11 recorder when `bin` is omitted.
 - **`@byokit/overlay`**: a floating on-screen bubble on Android. It has a panel that opens on tap, per-app visibility
   rules, a text-free tap log and an optional focused-field reader. On iOS it reports `unsupported`.
 - **`@byokit/secrets`** (section 11, L-KEY): one secret per name for apps, from the OS keyring, a
@@ -47,14 +47,14 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D-A | Kits wrap an upstream engine. Product and domain behaviour stays in the product: prompts, scoring rules, planning, rendering, moods and labels. The kit adds the version pin, supervision, the typed surface, fakes and plain words, the same way `@byokit/openclaw` and `@byokit/herdr` do. |
 | D-B | Kit names and person-visible words are capability words. The compose engine's package name (`ownvoice-engine`) is public and pinned, so it appears in `packages/write/package.json`, `constants.ts` and this document. No recorder product is named anywhere in BYOKit: not in code, docs, words, tests, commits, PR text or the isolation sentence. The kit and its tests refer to "a recorder implementing recorder protocol v1". |
 | D-C | `@byokit/write` makes no model call and holds no key. Nothing it exports takes a key, and the engine it loads makes no network call (section 8 proves both). `@byokit/record` takes a planner key only as a string from the app and hands it to the recorder only on file descriptor 3 (6.6), never through env, argv or a file. |
-| D-D | The isolation rule "byokit … never runs their CLIs" gets a separate carve-out for capability kits instead of stretching the runtime-kit wording. `@byokit/write` may load only its exactly pinned public engine package. `@byokit/record` may spawn only "a recorder implementing recorder protocol v1 that the app passes by absolute path". `@byokit/overlay` runs only its own native code inside the app, and so does `@byokit/statusbar` (D-T). The sentence lives in `CONTRIBUTING.md` (Rules, Isolation first) and `README.md` (What byokit never touches). |
+| D-D | The isolation rule "byokit … never runs their CLIs" gets a separate carve-out for capability kits instead of stretching the runtime-kit wording. `@byokit/write` may load only its exactly pinned public engine package. `@byokit/record` may spawn a protocol-v1 recorder passed by absolute path or its bundled Node entry using the running Node executable. `@byokit/overlay` runs only its own native code inside the app, and so does `@byokit/statusbar` (D-T). The sentence lives in `CONTRIBUTING.md` (Rules, Isolation first) and `README.md` (What byokit never touches). |
 | D-E | Packages `@byokit/write`, `@byokit/record`, `@byokit/overlay` in `packages/write`, `packages/record`, `packages/overlay`. All three are Apache-2.0 ESM and follow the repo's source rules: type-stripped TS, `.ts` imports, no enums, namespaces or parameter properties. Each is `private: true` at 0.1.0 until its proof lands (BK-P2, BK-C3, BK-O3). |
 | D-F | Entries. write: `.` (Node), `./testing`, bin `write`. record: `.` (Node), `./testing`. overlay: `.` (native-free, every platform) with a `react-native` condition to `dist/rn.js`, and `./focused-field` with the same condition pair. No other entries. |
 | D-G | Library code reads no environment variable. Every spawned process gets an env built from nothing (5.4, 4.6). `process.env` is never inherited or read, including for `PATH`. |
 | D-H | The compose engine is an exact `dependencies` pin, loaded in process by `inProcessEngine()`. It is not installed at run time the way openclaw's `engine/` is, because compose keeps no state directory. `binEngine({ bin })` runs the engine's own bin as the fallback path for hosts that want the engine in its own process. The kit accepts engine protocols from `PROTOCOL_FLOOR` to `PROTOCOL`; anything outside that range is `needs-update` and fails closed. |
 | D-I | Compose's public types are frozen by hand in 4.3 from the engine's protocol 1 surface. BK-P2 generates types from the engine's committed schema (sha256-pinned) and a type-level test proves they match 4.3 both ways. If they diverge, the builder stops: that is a spec change, not a builder fix. |
-| D-J | `@byokit/record` owns recorder protocol v1 (section 6) and its JSON Schema (`packages/record/schema/recorder-protocol-1.json`, BK-C1). No recorder's own schema or code is committed. A recorder conforms by implementing section 6 under a `capture` sub-command. Within v1, only additive changes happen: new optional fields, new events and new error codes. Anything else is protocol 2. |
-| D-K | Capture supervision (5.4): absolute `bin` only, env from nothing, argv array with NUL rejected, per-call timeouts, an 8 MB cap per stream for `hello`, `stop` and `make`, and for `record` an 8 MB stdout total, a 64 KB line cap and a rolling 2 KB stderr tail (5.4; the herdr `runCli` shape), and an abort signal that maps to `capture stop`. Display variables pass only for the source that needs them. |
+| D-J | `@byokit/record` owns recorder protocol v1 (section 6) and its JSON Schema (`packages/record/schema/recorder-protocol-1.json`, BK-C1). The bundled Linux X11 recorder implements this protocol; external recorder code is not committed. A recorder conforms by implementing section 6 under a `capture` sub-command. Within v1, only additive changes happen: new optional fields, new events and new error codes. Anything else is protocol 2. |
+| D-K | Capture supervision (5.4): explicit absolute `bin` or bundled entry, env from nothing, argv array with NUL rejected, per-call timeouts, an 8 MB cap per stream for `hello`, `stop` and `make`, and for `record` an 8 MB stdout total, a 64 KB line cap and a rolling 2 KB stderr tail (5.4; the herdr `runCli` shape), and an abort signal that maps to `capture stop`. Display variables pass only for the source that needs them. |
 | D-L | Consent belongs to the OS and the person. The kit never retries, bypasses or answers a consent prompt. A refused, timed-out or pre-consent-stopped recording leaves no take and nothing in the recorder's state dir (6.4 rule 4, a MUST). This is why the words can say "Nothing was kept." |
 | D-M | The planner is off unless the app passes `plannerKey`. With a key the app must also pass `maxTokens` (the type requires both together). Planner billing is per use on the key's own account; the kit never says "subscription" for it. |
 | D-N | Kotlin returns for `@byokit/overlay` only (7.1). The frozen `android/` mirror stays frozen. The overlay's Kotlin is written clean-room from the behaviour described in this document, and no Ownvoice code is copied. |
@@ -106,8 +106,7 @@ write and record each ship a fake and a **contract suite** in `./testing`: `comp
 `{ test?: TestFn } | TestFn`, with node:test's `test` as the default. The same assertions run against the fake in
 `npm test` and against the real upstream:
 - write: the real pinned engine, in CI job `write-engine` (BK-P2).
-- capture: a real recorder on the owner's machine or in a lab. It never runs in CI, because the upstream is private
-  (BK-C3). The README says so.
+- capture: the bundled recorder against an isolated Xvfb in Linux CI, plus external owner/lab conformance (BK-C3).
 
 Cases that need a scripted fault (`fake` present on the bench) skip on a real bench. A behaviour the fake has and the
 contract does not assert is not relied on by any kit test.
@@ -478,7 +477,7 @@ export type Source = 'screen' | `x11:${string}` | `android:${string}`;   // gram
 export type EventsMode = 'own' | 'none';
 export type DisplayVar = 'WAYLAND_DISPLAY' | 'XDG_RUNTIME_DIR' | 'DBUS_SESSION_BUS_ADDRESS' | 'HYPRLAND_INSTANCE_SIGNATURE' | 'XAUTHORITY';
 export type CaptureOptions = {
-  bin: string;                                   // absolute path of a recorder implementing protocol v1
+  bin?: string;                                  // absolute external recorder; omitted: bundled Linux X11
   stateDir: string;                              // app-owned; the kit writes only under join(stateDir, 'capture')
   display?: Partial<Record<DisplayVar, string>>; // the session a `screen` or `x11:` recording needs (5.4)
   timeoutMs?: number;                            // make() timeout, default 600_000, clamped 1 s–30 min
@@ -550,7 +549,7 @@ export class Capture {
 ```
 
 - **Constructor.** It throws `CaptureError('invalid')` when `stateDir` is not absolute, and `CaptureError('missing')`
-  when `bin` is not absolute. It never touches the disk.
+  when an explicit `bin` is not absolute. Omitted `bin` selects the bundled entry. It never touches the disk.
 - **`hello()`.** It runs `capture hello` and caches the answer on the first success. It checks the protocol range
   before any other field, so an out-of-range recorder gets `needs-update` even when the rest has changed. It rejects:
   - `missing` when the bin does not exist, is not a regular file or is not executable (checked before the spawn;
@@ -770,10 +769,25 @@ export function captureContract(make: () => Promise<CaptureContractBench>, optio
 
 ### 5.7 What runs where
 
-`npm test` and CI run only the fake recorder. A real recorder runs on the owner's machine or in a lab: the app's
-owner runs `captureContract` against it (BK-C3). The README says this in one line. There is no ensure or download
-helper, because recorders ship outside BYOKit and may be private. `scripts/pin-watch.mjs` watches nothing for record:
-the kit pins a protocol, not a recorder version, and the README notes that too.
+`npm test` runs fake recorders/media tools. Linux CI also runs the bundled recorder on an isolated Xvfb.
+External recorders run on the owner's machine or in a lab via `captureContract` (BK-C3). External recorders may be private; the bundled backend needs no download helper. `scripts/pin-watch.mjs`
+watches nothing for record: external compatibility is pinned by protocol, and the bundled backend ships with the kit.
+
+### 5.8 Bundled recorder (G8, 2026-09-30)
+
+`CaptureOptions.bin` is optional: omitted selects the bundled recorder, launched with `process.execPath`
+(no PATH lookup for Node). Explicit bins retain the unchanged protocol and supervision. The bundled recorder
+supports Linux `x11:` video only, `events: none`, and no planner. `screen` (Wayland portal), Android,
+macOS, Windows, browsers and React Native are unsupported by this backend. X11 has no system consent dialog:
+the host must present an explicit Start action before iterating `record()`. Construction and hello open no display.
+The bundled recorder uses `/usr/bin/ffmpeg` and `/usr/bin/ffprobe`; it reads only the scrubbed process environment
+provided by Capture (for XAUTHORITY). It never starts another application's CLI or contacts the network.
+Takes contain local video, duration metadata and requested caption/title edits. `make()` embeds timed subtitles
+and title metadata, with optional `crf` (0–51) and `preset` settings; unknown settings fail closed. Stop uses a
+state-scoped marker, with no cross-process PID signalling. Failed/pre-start recordings and active state are cleaned
+up; completed takes are retained until the host deletes their returned directory. Linux CI runs a real smoke
+against its own Xvfb; ordinary tests fake media binaries. External recorders retain their owner-machine proof.
+
 
 ## 6. Recorder protocol v1
 

@@ -111,6 +111,21 @@ jobs:
       - run: npm run build
       - run: npm run test:write-engine
 
+  # A real screen recorder on a private X display; no owner's display or account.
+  record-recorder:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg xvfb x11-xserver-utils
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: sh scripts/test.sh packages/record/test/real/smoke.test.ts
+
   # React Native (Expo) on iOS and Android: the example typechecks and Metro builds both Hermes bundles from the kit's
   # react-native side. The emulator run is examples/expo/e2e-android.sh.
   react-native:

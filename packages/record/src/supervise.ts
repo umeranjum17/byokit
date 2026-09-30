@@ -1,6 +1,7 @@
 // Env from nothing, argv, spawn, caps and the wall-clock guard (docs/capability-kits.md 5.4, D-G, D-K). Nothing here
 // reads `process.env`, searches the PATH or runs a shell; every signal goes to the recorder's process group, as
 // packages/herdr/src/supervise.ts does.
+import { bundledRecorder } from './recorder-path.ts';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { accessSync, constants, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
@@ -74,12 +75,12 @@ export function recorderArgv(stateDir: string, call: RecorderCall): string[] {
   return args;
 }
 
-/** Absolute, a regular file and executable; the PATH is never searched. */
+/** Explicit bins are absolute executable files; the bundled entry runs through the current Node. */
 function checkBin(bin: string): void {
   if (typeof bin !== 'string' || !isAbsolute(bin)) throw new CaptureError('missing', 'the recorder must be an absolute path');
   try {
     if (!statSync(bin).isFile()) throw new Error('not a file');
-    accessSync(bin, constants.X_OK);
+    if (bin !== bundledRecorder) accessSync(bin, constants.X_OK);
   } catch {
     throw new CaptureError('missing', 'the recorder is not an executable file');
   }
@@ -108,7 +109,7 @@ export async function runRecorder(
   checkArgs(args);
   if (o.signal?.aborted) return { stdout: '', stderr: '', exitCode: null, timedOut: false, aborted: true };
   const withKey = o.key !== undefined;
-  const child = spawn(bin, args, { env, detached: true, stdio: withKey ? ['ignore', 'pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(bin === bundledRecorder ? process.execPath : bin, bin === bundledRecorder ? [bin, ...args] : args, { env, detached: true, stdio: withKey ? ['ignore', 'pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'] });
   if (withKey) {
     const fd3 = child.stdio[3] as NodeJS.WritableStream;
     fd3.on('error', () => { /* the recorder closed fd 3 early; its answer says what happened */ });
@@ -162,7 +163,7 @@ export function streamRecorder(
 ): { lines: AsyncIterable<string>; exited: Promise<Spawned & { guarded: boolean }>; kill(signal: NodeJS.Signals): void } {
   checkBin(bin);
   checkArgs(args);
-  const child = spawn(bin, args, { env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(bin === bundledRecorder ? process.execPath : bin, bin === bundledRecorder ? [bin, ...args] : args, { env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   const queue: string[] = [];
   const waiters: Array<{ resolve: (r: IteratorResult<string>) => void; reject: (e: unknown) => void }> = [];
   let ended = false;

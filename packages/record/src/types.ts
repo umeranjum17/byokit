@@ -7,8 +7,8 @@ export type Source = 'screen' | `x11:${string}` | `android:${string}`;
 export type EventsMode = 'own' | 'none';
 export type DisplayVar = (typeof DISPLAY_VARS)[number];
 export type CaptureOptions = {
-  /** Absolute path of a recorder implementing protocol v1. */
-  bin: string;
+  /** Absolute protocol-v1 recorder path; omitted uses the bundled Linux X11 recorder. */
+  bin?: string;
   /** App-owned; the kit writes only under join(stateDir, 'capture'). */
   stateDir: string;
   /** The session a `screen` or `x11:` recording needs (5.4). */

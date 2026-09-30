@@ -236,8 +236,8 @@ byokit never touches a person's other AI tools: not their `~/.pi`, `~/.codex` or
 Runtime kits drive only the aggregator the app names explicitly (the OpenClaw engine the kit installs, the Herdr
 binary and socket the app passes); byokit tests use fakes and never a person's Herdr.
 Capability kits have their own, narrower carve-out: `@byokit/write` loads only its exactly pinned public writing
-engine package, and `@byokit/record` spawns only a recorder implementing recorder protocol v1 that the app passes by
-absolute path, with an environment built from nothing; `@byokit/usage` reads only the sign-in folder the app passes
+engine package, and `@byokit/record` spawns a protocol-v1 recorder that the app passes by
+absolute path, or the bundled Linux X11 recorder, with an environment built from nothing; `@byokit/usage` reads only the sign-in folder the app passes
 and spawns only the Codex binary the app passes by absolute path, with an environment built from nothing plus what
 the app passes; `@byokit/overlay`, `@byokit/statusbar` and `@byokit/push` run only their own
 native code inside the app ([spec](docs/capability-kits.md)). `@byokit/cloud` spawns only the `ssh` binary the app passes by absolute path
