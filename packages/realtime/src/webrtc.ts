@@ -30,7 +30,7 @@ export async function webRtcPeer(options: WebRtcOptions): Promise<WebRtcHandle> 
   const fail = (error: Error) => { if (!stopped) { options.onError(error); stop(); } };
   try {
     options.onConnectionState('connecting');
-    options.signal?.throwIfAborted();
+    if (options.signal?.aborted) throw new Error('Voice is closed.');
     await options.audio.microphone.acquire(); acquired = true;
     if (stopped) { options.audio.microphone.release(); acquired = false; throw new Error('Voice is closed.'); }
     await options.audio.route();

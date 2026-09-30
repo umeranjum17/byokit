@@ -16,6 +16,19 @@ export const cleanProse = (value: unknown, fallback: string, max: number, redact
     return clean || fallback;
 };
 
+/** Frame limits are UTF-8 bytes; truncate on whole Unicode characters. */
+export function cleanProseBytes(value: unknown, fallback: string, max: number, redact: RegExp[] = []) {
+    const clean = cleanProse(value, fallback, max, redact);
+    const encoder = new TextEncoder();
+    let result = '', bytes = 0;
+    for (const char of clean) {
+        const size = encoder.encode(char).length;
+        if (bytes + size > max) break;
+        result += char; bytes += size;
+    }
+    return result.trim();
+}
+
 /**
  * The provider explains a refusal in the HTTP body; the close code does not.
  * An out-of-credits 403 is otherwise indistinguishable from a dropped network,
@@ -36,4 +49,3 @@ export function providerRefusal(status: number | undefined, body: string, redact
         ? `Voice provider refused the connection (HTTP ${status}).`
         : `Voice provider refused the connection (HTTP ${status}): ${safe}`;
 }
-

@@ -21,6 +21,7 @@ export type AudioPorts = {
   player: {
     ensure(rate: number): void; bind(sink: PlaybackSink): void; unbind(sink: PlaybackSink): void;
     admit(base64: string): 'ok' | 'malformed' | 'overflow'; clear(): void;
+    /** True means a drain callback was scheduled; false means nothing needs draining. */
     finish(onDrained?: () => void): boolean; afterDrain(kind: 'connected' | 'speech', run: () => void): boolean;
     stop(): void; release(): void;
   };
@@ -36,6 +37,9 @@ export type RealtimeClientOptions = {
   open(): Promise<RealtimeStream>; audio: AudioPorts;
   /** Transport closures retry by default. Return false for intentional or terminal closures. */
   retryableClose?(reason?: string): boolean;
+  /** Retain ready PCM capture and the playback tail across carrier reconnects.
+   * WebRTC still needs a fresh peer. Pending microphone acquisition is never retained. */
+  preserveMediaOnReconnect?: boolean;
   webrtc?: (options: import('./webrtc.ts').WebRtcOptions) => Promise<import('./webrtc.ts').WebRtcHandle>;
   onStatus(status: 'connecting' | 'connected' | 'thinking' | 'speaking' | 'disconnected', reason?: string): void;
   onTurn(role: 'user' | 'agent', text: string): void;
