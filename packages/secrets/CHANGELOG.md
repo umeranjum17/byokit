@@ -2,9 +2,18 @@
 
 ## Unreleased
 
+- Prepare the desktop/server sealing adapters for public release.
+
+## 0.3.0 (2026-09-30)
+
+- SECURITY: Add native OS-keyring and explicit host-key sealing adapters for accounts files;
+  API keys remain authenticated ciphertext with no plaintext or transient-keyring fallback.
+- Add native Keychain, Windows Credential Manager and Linux Secret Service storage through
+  an exactly pinned optional N-API binding; native errors never include secrets.
+- Add key rotation that retains old keys for existing files and backups, injected-keyring
+  tests and an isolated real Secret Service CI round trip.
+
 ## 0.2.0 (2026-09-30)
-
-
 
 - Prepare the first public release with portable phone and web secret storage.
 

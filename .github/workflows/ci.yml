@@ -49,6 +49,31 @@ jobs:
           RELEASE_BASE: ${{ github.event.before }}
         run: npm run release -- lint --base "$RELEASE_BASE" --direct
 
+  # Disposable Secret Service session: no user's desktop/keyring and no outbound network in tests.
+  secrets-keyring:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: sudo apt-get update && sudo apt-get install -y dbus-x11 gnome-keyring
+      - name: Native Secret Service round trip and rotation
+        run: |
+          session_home=$(mktemp -d /tmp/ks.XXXXXX)
+          trap 'rm -rf "$session_home"' EXIT
+          mkdir -m 700 "$session_home/runtime"
+          env -i PATH="$PATH" TMPDIR=/tmp HOME="$session_home" \
+            XDG_DATA_HOME="$session_home/data" XDG_CONFIG_HOME="$session_home/config" \
+            XDG_CACHE_HOME="$session_home/cache" XDG_RUNTIME_DIR="$session_home/runtime" \
+            dbus-run-session -- sh -eu -c '
+            printf "%s\n" "Umer-test-keyring-password" | gnome-keyring-daemon --unlock --components=secrets
+            BYOKIT_REAL_KEYRING=required sh scripts/test.sh packages/secrets/test/keyring.test.ts
+          '
+
   # Real browsers (headless Chromium): the PWA example's sign-in against a stand-in OpenAI, and the Herdr and OpenClaw
   # kit examples.
   browser:
