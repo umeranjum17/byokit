@@ -8,8 +8,8 @@
   {
     "readme": "packages/accounts/README.md",
     "block": 3,
-    "snapshot": "2bd3fa1d01224aa32999486abff566616b99518918891aa3f64ba4879618e124",
-    "reason": "Phone example requires Expo SecureStore and Expo fetch declarations unavailable in the Node workspace."
+    "snapshot": "d7bf473caac14200592afc06ba01f6fed59d14e09bed934f58e27f90a9493d73",
+    "reason": "Phone example requires Expo fetch resolution supplied by the host bundler; SecureStore declarations are now available in the Node workspace."
   },
   {
     "readme": "packages/accounts/README.md",
