@@ -2,7 +2,7 @@
 // No Node, ambient credentials, installed tools, provider-response logging or backend token collection.
 import type { AuthInteraction, CredentialStore, OAuthCredential } from '@earendil-works/pi-ai';
 import type { AuthHost } from './accounts.ts';
-import { anthropicMessages, type AnthropicRequest } from './claude-messages.ts';
+import { anthropicMessages, type AnthropicRequest } from './anthropic.ts';
 import { needsReauth, refreshCredential } from './stores.ts';
 
 export const CLAUDE_PLAN_ID = 'byokit-claude-plan';
