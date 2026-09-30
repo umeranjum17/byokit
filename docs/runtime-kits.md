@@ -1625,7 +1625,9 @@ member (`providers()` from the offered routes; `add` with a `key` is host-only);
   title: words('approval.notice'), data: { v: 1, sealed: b64url(sealBox(JSON.stringify(approval),
   box)) }, to: [grant.id], actions: ['allow', 'deny'] (OpenClaw) / none (Herdr), urgency: 'high' }, {
   includeContent: true })` once per device that registered a box key and may see it; the relay reads only the
-  generic title. `onAction` for `allow`/`deny` calls `kit.decide(id, …)` after the same member check. Devices
+  generic title. `onAction` for `allow`/`deny` calls `kit.decide(id, …)` after the same member check and
+  requires a control grant, as `oc.decide` does. The app authenticates the action transport and makes
+  `memberOf` refuse revoked grants; see [OpenClaw SECURITY.md](../packages/openclaw/SECURITY.md). Devices
   without a box key get the generic title only (`includeContent: false`).
 - **seal**: `src/notices.ts` holds `sealNotice(approval, boxPublicKey)` and (portable, re-exported by `./device`)
   `openNotice(data, seed)` → `openBox` → JSON → shape-checked `Approval` or `null`.

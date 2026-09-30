@@ -321,6 +321,10 @@ test('registerNotices seals the approval; title-only relay; push action decides'
   const b = await device(w, 'b');
   const action: PushAction = { device: a.grant.device.id, event: 'n1', action: 'allow' };
   await assert.rejects(w.api.onAction({ ...action, device: b.grant.device.id }), (e: unknown) => e instanceof PublicLinkError);
+  const viewer = await device(w, 'a', 'view');
+  await viewer.oc.state(); // remembered grant, same member, but no authority to decide
+  await assert.rejects(w.api.onAction({ ...action, device: viewer.grant.device.id }), (e: unknown) => e instanceof PublicLinkError);
+  assert.ok((await a.oc.approvals()).some((approval) => approval.id === 'n1'), 'a refused push action leaves the approval pending');
   await w.api.onAction(action);
   await until(() => a.oc.approvals().then((l) => (l.length === 0 ? true : undefined)));
 });

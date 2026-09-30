@@ -224,6 +224,9 @@ install/cache files and app workspaces are outside this adapter's sealing scope;
 `doctorContext()` is an advanced escape hatch: launching an external doctor bypasses this lifecycle; use the
 kit's migration method for sealed stores.
 
+See [SECURITY.md](SECURITY.md) for the credential and approval threat model, private-directory requirements,
+retained-login cleanup and sealed approval limits.
+
 ## Status
 
 Pinned to OpenClaw `2026.8.1` (protocol 4); `ENGINE_VERSION` and `PROTOCOL_VERSION` carry the pin. Signatures are

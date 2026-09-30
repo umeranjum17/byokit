@@ -150,6 +150,9 @@ test('registerNotices sends the 32-byte box key; openNotice round-trips the appr
     tool: 'note', summary: 'save a note', input: { text: 'hi' }, at: 1, expires: 2 };
   const notice = sealNotice(approval, Buffer.from(box, 'base64url'));
   assert.deepEqual(oc.openNotice(notice, seed), approval);
+  const altered = Buffer.from(notice.sealed, 'base64url');
+  altered[altered.length - 1] ^= 1;
+  assert.equal(oc.openNotice({ v: 1, sealed: altered.toString('base64url') }, seed), null);
   assert.equal(oc.openNotice(notice, crypto.getRandomValues(new Uint8Array(32))), null);
   assert.equal(oc.openNotice({ v: 1, sealed: '!!!' }, seed), null);
   assert.equal(oc.openNotice({ v: 2, sealed: notice.sealed }, seed), null);
