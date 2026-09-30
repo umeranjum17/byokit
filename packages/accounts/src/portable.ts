@@ -4,7 +4,7 @@ export { Accounts, planOf, portable, type AccountsOptions, type AuthHost, type L
 export { PROVIDERS, offered, provider, type Billing, type Provider, type Terms } from './catalogue.ts';
 export { PORTABLE, claims, credentialOf, devicePoll, deviceStart, portableEngine, type EngineOptions, type Poll } from './engine.ts';
 export { REST_MS, classify, type Kind } from './limits.ts';
-export { ResponseError, isFunctionCall, limitResponse, respond, sseReader, type Ask, type ResponseFunctionCall, type ResponseInputItem, type ResponseOutputItem, type ResponseOutputMessage, type ResponseReasoning, type ResponseResult, type ResponseStreamEvent, type ResponseText, type ResponseTextFormat, type ResponseTool, type ResponseToolChoice } from './responses.ts';
+export { IncompleteError, ResponseError, isFunctionCall, limitResponse, respond, sseReader, type Ask, type ResponseFunctionCall, type ResponseInputItem, type ResponseOutputItem, type ResponseOutputMessage, type ResponseReasoning, type ResponseResult, type ResponseStreamEvent, type ResponseText, type ResponseTextFormat, type ResponseTool, type ResponseToolChoice } from './responses.ts';
 export { browserStore, memoryStore, recordStore, secureStore, type SecureStoreLike } from './stores.ts';
 export { WORDS, billingWords, callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';
 

@@ -17,6 +17,7 @@ those same files.
 | `conformance/revoke.json` | Signing out → the one revoke request sent to ChatGPT (or none), and the sign-in deleted whatever it answers. |
 | `conformance/sse.json` | Shared streamed ChatGPT answer → its text, or the error it ended with. |
 | `conformance/sse-typescript.json` | TypeScript-only completion requirement, authoritative output, and coded SSE limits. |
+| `conformance/incomplete-typescript.json` | TypeScript-only cut-off answers: typed error, partial output, and incomplete event for SSE and JSON. |
 | `conformance/plain-words.json` | The pattern no sentence in `words.json` may match. |
 
 Each fixture file states its rule in `rule`; `now` (epoch ms) is the fixed clock for time-dependent cases.

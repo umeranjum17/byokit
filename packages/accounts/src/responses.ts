@@ -19,6 +19,18 @@ export class ResponseError extends Error {
   constructor(message: string, kind: Kind | null, until = 0) { super(message); this.kind = kind; this.until = until; }
 }
 
+/** An answer the provider cut off. Partial output is available, but never returned as a successful answer. */
+export class IncompleteError extends ResponseError {
+  reason: string;
+  result: ResponseResult;
+  constructor(reason: string, result: ResponseResult) {
+    super('ChatGPT cut off its answer before it was complete.', null);
+    this.name = 'IncompleteError';
+    this.reason = reason;
+    this.result = result;
+  }
+}
+
 /** A ChatGPT HTTP error as the kind, when to come back, and the message (fixtures/conformance/limit-responses.json). */
 export function limitResponse(status: number, body: string, now = Date.now()): { kind: Kind | null; until: number | null; message: string } {
   let err: any = {};
@@ -92,6 +104,7 @@ export type ResponseResult = { text: string; output: ResponseOutputItem[] };
 
 /** What streams besides the words: each text piece, each tool call as it builds and lands, and each output item. */
 export type ResponseStreamEvent =
+  | { type: 'incomplete'; reason: string }
   | { type: 'text_delta'; delta: string }
   | { type: 'function_call_delta'; name?: string; callId?: string; delta: string }
   | { type: 'function_call'; name: string; arguments: string; callId?: string }
@@ -101,10 +114,12 @@ export type ResponseStreamEvent =
  *  `result` for the text with every output item. `onEvent` sees each tool call and output item as it lands.
  *  Events split on any blank line (LF, CRLF or bare CR). A data line that is not JSON throws a ResponseError;
  *  a stream ending with nothing to show throws too. The text is the streamed deltas; the completed envelope
- *  only fills in when no deltas arrived. An error event throws a ResponseError. */
+ *  only fills in when no deltas arrived. An error event throws a ResponseError. An incomplete answer
+ *  emits an incomplete event and throws IncompleteError with its reason and partial result. */
 export function sseReader(onText?: (delta: string) => void, onEvent?: (event: ResponseStreamEvent) => void) {
   let buffer = '', text = '', completed: string | undefined;
   let done = false, finished: ResponseResult | undefined;
+  let incomplete: string | undefined;
   const output: ResponseOutputItem[] = [];
   const emitted = new Set<string>();
   const calls = new Map<string, { name?: string; callId?: string; args: string }>();
@@ -150,12 +165,17 @@ export function sseReader(onText?: (delta: string) => void, onEvent?: (event: Re
       }
       land(e.item, e.output_index ?? 0);
     }
-    if (e.type === 'response.completed' || e.type === 'response.incomplete') {
+    if (e.type === 'response.completed' || e.type === 'response.incomplete' || e.response?.status === 'incomplete') {
       done = true;
       if (Array.isArray(e.response?.output)) {
         for (const [i, item] of e.response.output.entries()) land(item, i);
         completed = e.response.output.flatMap((o: any) => o?.content ?? []).filter((c: any) => c?.type === 'output_text').map((c: any) => c.text ?? '').join('');
       }
+    }
+    if ((e.type === 'response.incomplete' || e.response?.status === 'incomplete') && incomplete === undefined) {
+      const reason: string = typeof e.response?.incomplete_details?.reason === 'string' ? e.response.incomplete_details.reason : 'unknown';
+      incomplete = reason;
+      onEvent?.({ type: 'incomplete', reason });
     }
     const failed = e.type === 'error' ? e : e.type === 'response.failed' ? e.response?.error : undefined;
     if (failed) {
@@ -177,10 +197,11 @@ export function sseReader(onText?: (delta: string) => void, onEvent?: (event: Re
       drain(true);
       if (!done) throw new ResponseError('ChatGPT stopped before completing its answer.', 'network');
       const whole = text !== '' ? text : (completed ?? '');
-      if (whole === '' && output.length === 0) throw new ResponseError('ChatGPT stopped before completing its answer.', 'network');
+      if (incomplete === undefined && whole === '' && output.length === 0) throw new ResponseError('ChatGPT stopped before completing its answer.', 'network');
       if (text === '' && whole !== '') onText?.(whole);
       finished = { text: whole, output };
     }
+    if (incomplete !== undefined) throw new IncompleteError(incomplete, finished);
     return finished;
   };
   return {
@@ -208,7 +229,7 @@ export type Ask = {
   text?: ResponseText;
   /** Each piece of the answer as it streams. */
   onText?: (delta: string) => void;
-  /** Each tool call and output item as it lands. */
+  /** Each text piece, tool call, output item, and incomplete answer notification. */
   onEvent?: (event: ResponseStreamEvent) => void;
   signal?: AbortSignal;
   /** The app's own originator header value. Default: 'byokit'. */
@@ -218,7 +239,8 @@ export type Ask = {
 type Access = { access: string; accountId: string; model: string; base?: string; fetch?: typeof fetch };
 
 /** Ask ChatGPT with a signed-in token. `fetch`: pass one that streams (Expo's `expo/fetch`); any fetch works.
- *  Without `tools` the answer is the plain text, as before; with `tools` it is the text with every output item. */
+ *  Without `tools` the answer is the plain text, as before; with `tools` it is the text with every output item.
+ *  Incomplete answers always throw IncompleteError and notify onEvent, including with tools. */
 export async function respond(o: Ask & Access & { tools?: undefined }): Promise<string>;
 export async function respond(o: Ask & Access & { tools: ResponseTool[] }): Promise<ResponseResult>;
 export async function respond(o: Ask & Access): Promise<string | ResponseResult> {
@@ -247,7 +269,11 @@ export async function respond(o: Ask & Access): Promise<string | ResponseResult>
   }
   const reader = sseReader(o.onText, o.onEvent);
   const body = (res as any).body;
-  if (body?.getReader && typeof TextDecoder !== 'undefined') {
+  if (res.headers?.get('content-type')?.includes('application/json')) {
+    let response: unknown;
+    try { response = JSON.parse(await res.text()); } catch { throw new ResponseError("ChatGPT's answer could not be read.", null); }
+    reader.push(`data: ${JSON.stringify({ type: isRecord(response) && response.status === 'incomplete' ? 'response.incomplete' : 'response.completed', response })}\n\n`);
+  } else if (body?.getReader && typeof TextDecoder !== 'undefined') {
     const r = body.getReader();
     const decoder = new TextDecoder();
     for (let c = await r.read(); !c.done; c = await r.read()) reader.push(typeof c.value === 'string' ? c.value : decoder.decode(c.value, { stream: true }));
