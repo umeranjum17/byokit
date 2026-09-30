@@ -5,9 +5,11 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { wav } from './text.ts';
-import { transcribeWhisper, whisperSettings, type WhisperSettings, type WhisperRnResult, type WhisperRnDecodeOptions } from './whisper.ts';
+import { transcribeWhisper, whisperPcm, whisperSettings, type WhisperSettings, type WhisperRnResult, type WhisperRnDecodeOptions } from './whisper.ts';
+import { openWhisperBench, type WhisperBench } from './whisper-bench.ts';
+import { replayLegacy, type LegacyCandidate } from './wer-legacy.ts';
 
-const words = (text: string) => text.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').split(/\s+/).filter(Boolean);
+const words = (text: string) => text.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').split(/\s+/).filter(Boolean);
 export function wordErrorRate(reference: string, hypothesis: string) {
   const r = words(reference), h = words(hypothesis);
   type Cell = { substitutions: number; deletions: number; insertions: number; errors: number };
@@ -30,15 +32,15 @@ export function wordErrorRate(reference: string, hypothesis: string) {
 }
 
 export type WerManifest = {
-  clips: { id: string; category: 'clean' | 'noisy' | 'fast' | 'technical-names'; file: string; reference: string; sha256: string; source: string }[];
-  profiles: { id: string; settings: WhisperSettings; model?: string }[];
+  clips: { id: string; category: string; file: string; reference: string; sha256: string; source: string }[];
+  profiles: { id: string; settings: WhisperSettings; model?: string; decode?: { tokenTimestamps?: boolean; maxLen?: number }; legacy?: LegacyCandidate }[];
 };
 
 async function cli(binary: string, model: string, dir: string, pcm: Int16Array, o: WhisperRnDecodeOptions, timeoutMs: number): Promise<WhisperRnResult> {
   const input = join(dir, 'input.wav'), output = join(dir, 'output');
   await writeFile(input, wav([pcm]));
   const args = ['-m', model, '-f', input, '-oj', '-of', output, '-t', String(o.maxThreads), '-l', o.language,
-    '-bs', String(o.beamSize), '-bo', String(o.bestOf), '-tp', String(o.temperature), '-tpi', String(o.temperatureInc),
+    '-bs', String(o.beamSize ?? -1), '-bo', String(o.bestOf), '-tp', String(o.temperature), '-tpi', String(o.temperatureInc),
     '-ml', String(o.maxLen), '--prompt', o.prompt];
   // whisper.rn always starts each job with no_context=true. CLI defaults to it too.
   await new Promise<void>((accept, reject) => {
@@ -64,12 +66,16 @@ async function cli(binary: string, model: string, dir: string, pcm: Int16Array, 
 }
 
 /** Explicit desktop CLI/model paths only; fixture bytes are integrity checked before inference. */
-export async function runWer(o: { binary: string; model: string; manifest: string; profiles?: string[]; timeoutMs?: number }) {
+export async function runWer(o: { binary: string; model: string; manifest: string; profiles?: string[]; timeoutMs?: number; backend?: 'cli' | 'rn-bench'; repeats?: number; speed?: number }) {
   if (!isAbsolute(o.binary) || !isAbsolute(o.model) || !(Number.isFinite(o.timeoutMs ?? 120_000) && (o.timeoutMs ?? 120_000) > 0)) throw new Error('Pass absolute binary/model paths and a positive timeout');
   const manifestPath = resolve(o.manifest), manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as WerManifest;
   if (!Array.isArray(manifest.clips) || !manifest.clips.length || !Array.isArray(manifest.profiles) || !manifest.profiles.length) throw new Error('Fixture manifest needs clips and profiles');
   const profiles = manifest.profiles.filter(p => !o.profiles || o.profiles.includes(p.id));
   if (!profiles.length || o.profiles?.some(id => !profiles.some(p => p.id === id))) throw new Error('Unknown settings profile');
+  const repeats = o.repeats ?? 1, speed = o.speed ?? 1;
+  if (!Number.isSafeInteger(repeats) || repeats < 1 || repeats > 20 || !Number.isFinite(speed) || speed <= 0) throw new Error('Invalid repeats/speed');
+  if (profiles.some(p => p.legacy) && o.backend !== 'rn-bench') throw new Error('Historical replay requires --backend rn-bench');
+  const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
   const clips = await Promise.all(manifest.clips.map(async clip => {
     const bytes = new Uint8Array(await readFile(resolve(dirname(manifestPath), clip.file)));
     if (createHash('sha256').update(bytes).digest('hex') !== clip.sha256) throw new Error(`Fixture checksum mismatch: ${clip.id}`);
@@ -81,18 +87,55 @@ export async function runWer(o: { binary: string; model: string; manifest: strin
     for (const profile of profiles) {
       const settings = whisperSettings(profile.settings), model = profile.model ? resolve(dirname(manifestPath), profile.model) : o.model;
       const results = [];
+      let bench: WhisperBench | undefined;
+      try {
+      if (o.backend === 'rn-bench') bench = await openWhisperBench(o.binary, model, o.timeoutMs ?? 120_000);
       for (const clip of clips) {
+        const runs = [];
+        for (let repeat = 0; repeat < repeats; repeat++) {
         const start = performance.now();
-        const transcript = await transcribeWhisper(clip.bytes, settings, {}, (pcm, decode) => cli(o.binary, model, dir, pcm, decode, o.timeoutMs ?? 120_000));
+        let inferenceMs = 0;
+        let text: string, audioMs: number, waitMs: number;
+        if (profile.legacy) {
+          const pcm = await whisperPcm(clip.bytes, settings.gain);
+          const result = await replayLegacy(bench!, profile.legacy, pcm, speed);
+          text = result.text; audioMs = pcm.length / 16; waitMs = result.waitMs;
+        } else {
+          const transcript = await transcribeWhisper(clip.bytes, settings, {}, async (pcm, decode) => {
+            if (!bench) return cli(o.binary, model, dir, pcm, decode, o.timeoutMs ?? 120_000);
+            const result = await bench.read(pcm, { ...decode, ...profile.decode }); inferenceMs += result.ms; return result;
+          });
+          text = transcript.text; audioMs = transcript.durationMs!; waitMs = inferenceMs * speed;
+        }
         const latencyMs = performance.now() - start;
-        results.push({ id: clip.id, category: clip.category, reference: clip.reference, hypothesis: transcript.text,
-          ...wordErrorRate(clip.reference, transcript.text), audioMs: transcript.durationMs!, latencyMs, realTimeFactor: latencyMs / transcript.durationMs! });
+        runs.push({ hypothesis: text, ...wordErrorRate(clip.reference, text), audioMs, latencyMs, waitMs: bench ? waitMs : latencyMs * speed });
+        }
+        const chosen = [...runs].sort((a, b) => a.errors - b.errors)[Math.floor(runs.length / 2)];
+        results.push({ id: clip.id, category: clip.category, reference: clip.reference, ...chosen,
+          latencyMs: median(runs.map(r => r.latencyMs)), waitMs: median(runs.map(r => r.waitMs)),
+          realTimeFactor: median(runs.map(r => r.latencyMs)) / chosen.audioMs });
       }
+      } finally { await bench?.close(); }
       const totals = results.reduce((sum, r) => ({ errors: sum.errors + r.errors, referenceWords: sum.referenceWords + r.referenceWords,
         audioMs: sum.audioMs + r.audioMs, latencyMs: sum.latencyMs + r.latencyMs }), { errors: 0, referenceWords: 0, audioMs: 0, latencyMs: 0 });
-      reports.push({ id: profile.id, model, settings, clips: results, summary: { ...totals, wer: totals.referenceWords ? totals.errors / totals.referenceWords : null,
-        meanLatencyMs: totals.latencyMs / results.length, realTimeFactor: totals.audioMs ? totals.latencyMs / totals.audioMs : null } });
+      reports.push({ id: profile.id, model, settings, decode: profile.decode, legacy: profile.legacy, clips: results, summary: { ...totals, wer: totals.referenceWords ? totals.errors / totals.referenceWords : null,
+        medianWaitMs: median(results.map(r => r.waitMs)), meanLatencyMs: totals.latencyMs / results.length, realTimeFactor: totals.audioMs ? totals.latencyMs / totals.audioMs : null } });
     }
-    return { binary: o.binary, manifest: manifestPath, latencyBasis: 'wall clock including fresh CLI/model load for each chunk; not phone latency', profiles: reports };
+    return { binary: o.binary, manifest: manifestPath, backend: o.backend ?? 'cli', repeats, speed,
+      latencyBasis: o.backend === 'rn-bench' ? 'warm vendored engine; wait is measured inference time times speed, not phone qualification' : 'wall clock including fresh CLI/model load for each chunk; not phone latency', profiles: reports };
   } finally { await rm(dir, { recursive: true, force: true }); }
+}
+
+/** Fail a measured comparison; an absent profile or changed reference set cannot pass. */
+export function checkWerRegression(report: Awaited<ReturnType<typeof runWer>>, baseline: Awaited<ReturnType<typeof runWer>>, tolerance = 0.01): string[] {
+  if (!Number.isFinite(tolerance) || tolerance < 0 || tolerance > 0.05) throw new Error('Invalid WER tolerance');
+  return report.profiles.flatMap(profile => {
+    const expected = baseline.profiles.find(p => p.id === profile.id);
+    if (!expected) return [`Missing baseline profile: ${profile.id}`];
+    if (profile.clips.length !== expected.clips.length || profile.clips.some(c => !expected.clips.some(e => e.id === c.id && e.reference === c.reference))) return [`Changed fixture/reference set: ${profile.id}`];
+    if (profile.summary.wer === null || expected.summary.wer === null || profile.summary.wer > expected.summary.wer + tolerance) {
+      return [`${profile.id}: WER ${profile.summary.wer} exceeds baseline ${expected.summary.wer} + ${tolerance}`];
+    }
+    return [];
+  });
 }

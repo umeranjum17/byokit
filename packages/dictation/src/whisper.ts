@@ -1,5 +1,8 @@
 import { DictateError, type DictateEngine, type DictateInput, type DictateOptions, type DictateSegment, type DictateTranscript } from './types.ts';
 
+/** Recommended model identity; the host still supplies its file/asset, never a discovered path. */
+export const DEFAULT_WHISPER_MODEL = 'base.en-q5_1';
+
 export type WhisperSettings = {
   language?: string;
   initialPrompt?: string;
@@ -11,27 +14,28 @@ export type WhisperSettings = {
   bestOf?: number;
   temperature?: number;
   temperatureInc?: number;
-  vad?: { enabled?: boolean; threshold?: number; silenceMs?: number; paddingMs?: number };
+  vad?: { enabled?: boolean; threshold?: number; relativeThreshold?: number; silenceMs?: number; paddingMs?: number };
 };
 export type ResolvedWhisperSettings = Required<Omit<WhisperSettings, 'vad'>> & { vad: Required<NonNullable<WhisperSettings['vad']>> };
 
 /** Decoder defaults match whisper.rn's greedy path; capture remains app-owned. */
-export function whisperSettings(o: WhisperSettings = {}): ResolvedWhisperSettings {
+export function whisperSettings(o: WhisperSettings = {}, multilingual = false): ResolvedWhisperSettings {
   if (!Array.isArray(o.vocabulary ?? [])) throw new DictateError('bad-model');
   const s: ResolvedWhisperSettings = {
-    language: o.language ?? 'auto', initialPrompt: o.initialPrompt ?? '', vocabulary: [...(o.vocabulary ?? [])],
-    threads: o.threads ?? 6, gain: o.gain ?? 1, chunkMs: o.chunkMs ?? 30_000,
+    language: o.language ?? (multilingual ? 'auto' : 'en'), initialPrompt: o.initialPrompt ?? '', vocabulary: [...(o.vocabulary ?? [])],
+    threads: o.threads ?? 6, gain: o.gain ?? 1, chunkMs: o.chunkMs ?? 0,
     beamSize: o.beamSize ?? -1, bestOf: o.bestOf ?? 5, temperature: o.temperature ?? 0, temperatureInc: o.temperatureInc ?? 0.2,
-    vad: { enabled: o.vad?.enabled ?? false, threshold: o.vad?.threshold ?? 0.015, silenceMs: o.vad?.silenceMs ?? 500, paddingMs: o.vad?.paddingMs ?? 200 },
+    vad: { enabled: o.vad?.enabled ?? false, threshold: o.vad?.threshold ?? 0.0025, relativeThreshold: o.vad?.relativeThreshold ?? 0.1, silenceMs: o.vad?.silenceMs ?? 500, paddingMs: o.vad?.paddingMs ?? 200 },
   };
   const integer = (n: number, min: number, max: number) => Number.isSafeInteger(n) && n >= min && n <= max;
   const range = (n: number, min: number, max: number) => Number.isFinite(n) && n >= min && n <= max;
   if (!/^(auto|[a-z]{2,3})$/.test(s.language) || typeof s.initialPrompt !== 'string'
     || !Array.isArray(o.vocabulary ?? []) || s.vocabulary.some(w => typeof w !== 'string' || !w.trim())
-    || !integer(s.threads, 1, 64) || !range(s.gain, 0.01, 16) || !integer(s.chunkMs, 100, 30_000)
+    || !integer(s.threads, 1, 64) || !range(s.gain, 0.01, 16) || !(s.chunkMs === 0 || integer(s.chunkMs, 100, 30_000))
     || !(s.beamSize === -1 || integer(s.beamSize, 2, 100)) || !integer(s.bestOf, 1, 100)
     || !range(s.temperature, 0, 1) || !range(s.temperatureInc, 0, 1)
     || typeof s.vad.enabled !== 'boolean' || !range(s.vad.threshold, 0, 1)
+    || !range(s.vad.relativeThreshold, 0, 1)
     || !integer(s.vad.silenceMs, 20, 10_000) || !integer(s.vad.paddingMs, 0, 5_000)) {
     throw new DictateError('bad-model');
   }
@@ -41,7 +45,7 @@ export function whisperSettings(o: WhisperSettings = {}): ResolvedWhisperSetting
 /** Structural subset of whisper.rn 0.7.2; no runtime or type import of React Native. */
 export type WhisperRnDecodeOptions = {
   language: string; maxThreads: number; prompt: string; tokenTimestamps: boolean; maxLen: number;
-  beamSize: number; bestOf: number; temperature: number; temperatureInc: number;
+  audioCtx: 0; beamSize?: number; bestOf: number; temperature: number; temperatureInc: number;
 };
 export type WhisperRnResult = { result: string; language?: string; isAborted?: boolean; segments: { text: string; t0: number; t1: number }[] };
 export type WhisperRnContext = {
@@ -104,9 +108,9 @@ export function whisperDecodeOptions(s: ResolvedWhisperSettings, o: DictateOptio
   // Per-call hints receive the same validation as construction settings.
   whisperSettings({ language, initialPrompt: o.prompt, vocabulary: o.keywords });
   return {
-    language, maxThreads: s.threads, tokenTimestamps: true, maxLen: 60,
+    language, maxThreads: s.threads, audioCtx: 0, tokenTimestamps: false, maxLen: 0,
     prompt: [s.initialPrompt, ...s.vocabulary, o.prompt, ...(o.keywords ?? []), previous.slice(-200), o.punctuation === false ? 'Do not add punctuation.' : ''].filter(Boolean).join(' '),
-    beamSize: s.beamSize, bestOf: s.bestOf, temperature: s.temperature, temperatureInc: s.temperatureInc,
+    ...(s.beamSize > 0 ? { beamSize: s.beamSize } : {}), bestOf: s.bestOf, temperature: s.temperature, temperatureInc: s.temperatureInc,
   };
 }
 
@@ -119,10 +123,11 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
   checkAbort(o.signal);
   const segments: DictateSegment[] = [];
   let text = '', language: string | undefined;
+  const chunkSamples = s.chunkMs ? s.chunkMs * 16 : pcm.length;
   for (const [start, end] of speechRanges(pcm, s)) {
-    for (let at = start; at < end; at += s.chunkMs * 16) {
+    for (let at = start; at < end; at += chunkSamples) {
       checkAbort(o.signal);
-      const chunk = pcm.slice(at, Math.min(end, at + s.chunkMs * 16));
+      const chunk = pcm.slice(at, Math.min(end, at + chunkSamples));
       const result = await run(chunk, whisperDecodeOptions(s, o, text));
       checkAbort(o.signal);
       if (result.isAborted) throw new DictateError('cancelled');
@@ -139,10 +144,10 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
 }
 
 /** Host injects initWhisper; one cached context, serialized inference, explicit disposal. */
-export function whisperRnEngine(o: { model: string | number; initWhisper(options: { filePath: string | number }): Promise<WhisperRnContext>; settings?: WhisperSettings }): DictateEngine & { release(): Promise<void> } {
+export function whisperRnEngine(o: { model: string | number; multilingual?: boolean; initWhisper(options: { filePath: string | number }): Promise<WhisperRnContext>; settings?: WhisperSettings }): DictateEngine & { release(): Promise<void> } {
   if (!(typeof o.model === 'string' && o.model.trim() && !/^[a-z]+:\/\//i.test(o.model.replace(/^file:\/\//, ''))
     || typeof o.model === 'number' && Number.isSafeInteger(o.model) && o.model >= 0)) throw new DictateError('bad-model');
-  const settings = whisperSettings(o.settings);
+  const settings = whisperSettings(o.settings, o.multilingual);
   let context: Promise<WhisperRnContext> | undefined;
   let queue: Promise<unknown> = Promise.resolve();
   const enqueue = <T>(fn: () => Promise<T>): Promise<T> => {
@@ -152,10 +157,9 @@ export function whisperRnEngine(o: { model: string | number; initWhisper(options
     context ??= o.initWhisper({ filePath: o.model }).catch(cause => { context = undefined; throw new DictateError('bad-model', { cause }); });
     return context;
   };
-  return {
-    info: { id: 'whisper', model: String(o.model), onDevice: true, streaming: 'reread', account: 'none' },
-    capture: { speechThreshold: settings.vad.threshold / settings.gain, silenceMs: settings.vad.silenceMs },
-    transcribe: (input, options) => enqueue(() => transcribeWhisper(input, settings, options, async (pcm, decode) => {
+  const transcribe = (input: DictateInput, options: DictateOptions, preview = false) => enqueue(() => transcribeWhisper(input,
+    preview ? { ...settings, initialPrompt: '', vocabulary: [] } : settings,
+    preview ? { ...options, prompt: undefined, keywords: undefined } : options, async (pcm, decode) => {
       const native = await acquire();
       checkAbort(options.signal);
       // Encode LE explicitly; do not pass a WAV header or rely on host endianness.
@@ -168,7 +172,12 @@ export function whisperRnEngine(o: { model: string | number; initWhisper(options
       try { return await job.promise; }
       catch (cause) { checkAbort(options.signal); throw new DictateError('bad-model', { cause }); }
       finally { options.signal?.removeEventListener('abort', abort); }
-    })),
+    }));
+  return {
+    info: { id: 'whisper', model: String(o.model), onDevice: true, streaming: 'reread', account: 'none' },
+    capture: { speechThreshold: settings.vad.threshold / settings.gain, relativeThreshold: settings.vad.relativeThreshold, silenceMs: settings.vad.silenceMs, finalReading: 'recording' },
+    transcribe: (input, options) => transcribe(input, options),
+    preview: (input, options) => transcribe(input, options, true),
     release: () => enqueue(async () => { const current = context; context = undefined; await (await current)?.release(); }),
   };
 }

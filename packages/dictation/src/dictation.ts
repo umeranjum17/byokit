@@ -36,6 +36,8 @@ export class Dictation {
     const options = { ...o, signal: controller.signal };
     const speechThreshold = this.engine.capture?.speechThreshold ?? 0.015;
     const silenceSamples = (this.engine.capture?.silenceMs ?? 500) * 16;
+    const wholeFinal = this.engine.capture?.finalReading === 'recording';
+    let peakLevel = 0;
     const listeners = new Map<string, Set<(e: DictationEvent) => void>>();
     const emit = (e: DictationEvent) => { if (!cancelled) for (const fn of listeners.get(e.type) ?? []) fn(e); };
     const segments = new Map<string, DictateSegment>();
@@ -56,9 +58,9 @@ export class Dictation {
       emit(s.final ? { type: 'final', segment } : { type: 'partial', segment });
     };
     const read = async (final: boolean) => {
-      if (cancelled || !speechAt) return;
-      if (speechAt > readAt) {
-        latest = await this.engine.transcribe(wav(chunks), options);
+      if (cancelled || !speechAt && !(wholeFinal && final && peakLevel > 0)) return;
+      if (speechAt > readAt || wholeFinal && final) {
+        latest = await (!final && this.engine.preview ? this.engine.preview(wav(chunks), options) : this.engine.transcribe(wav(chunks), options));
         readAt = samples;
         if (cancelled) return;
         usage = { ...usage, costUsd: latest.usage.costUsd === undefined ? usage.costUsd : (usage.costUsd ?? 0) + latest.usage.costUsd, inputTokens: latest.usage.inputTokens === undefined ? usage.inputTokens : (usage.inputTokens ?? 0) + latest.usage.inputTokens };
@@ -84,18 +86,20 @@ export class Dictation {
       for await (const frame of stream) {
         if (stopped || cancelled) break;
         const rawLevel = rms(frame.data, 1);
+        peakLevel = Math.max(peakLevel, rawLevel);
         const level = Math.min(1, rawLevel * 4);
         emit({ type: 'level', rms: level });
         chunks.push(frame.data.slice()); samples += frame.data.length; usage.audioMs += frame.data.length / 16;
-        if (rawLevel >= speechThreshold && rawLevel > 0) {
+        const gate = Math.max(speechThreshold, peakLevel * (this.engine.capture?.relativeThreshold ?? 0));
+        if (rawLevel >= gate && rawLevel > 0) {
           if (!speechAt) emit({ type: 'turn', phase: 'start' });
           speechAt = samples; silence = 0;
         } else silence += frame.data.length;
         // Cap the live window independently of provider file-size limits.
         if (samples > 60 * 16000) throw new DictateError('too-large');
-        if (speechAt && silence >= silenceSamples) await read(true);
+        if (!wholeFinal && speechAt && silence >= silenceSamples) await read(true);
         else if (this.engine.info.streaming === 'reread' && speechAt > readAt && samples - readAt >= 16000) await read(false);
-        else if (!speechAt && silence >= silenceSamples) { offset += samples / 16; chunks = []; samples = silence = 0; }
+        else if (!wholeFinal && !speechAt && silence >= silenceSamples) { offset += samples / 16; chunks = []; samples = silence = 0; }
       }
     }).catch(async e => { failure = e; stopped = true; await stream?.stop(); });
     const cleanup = async () => { await stream?.stop(); o.signal?.removeEventListener('abort', abort); this.stateTo('idle'); };

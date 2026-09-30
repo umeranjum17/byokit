@@ -1,0 +1,59 @@
+name: Dictation WER
+
+on:
+  pull_request:
+    paths:
+      - 'packages/dictation/**'
+      - '.github/workflows/dictation-wer.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/dictation/**'
+      - '.github/workflows/dictation-wer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dictation-wer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .lab/wer-cache
+          key: ${{ runner.os }}-${{ runner.arch }}-whisper-rn-0.7.2-base-en-q5-1-${{ hashFiles('packages/dictation/scripts/bench/build.mjs', 'packages/dictation/scripts/bench/whisperBench.cpp') }}
+      - name: Obtain the exact engine source and checksum-verified model
+        run: |
+          mkdir -p .lab/wer-cache/source
+          if [ ! -f .lab/wer-cache/source/package/package.json ]; then
+            npm pack whisper.rn@0.7.2 --pack-destination .lab/wer-cache
+            tar -xzf .lab/wer-cache/whisper.rn-0.7.2.tgz -C .lab/wer-cache/source
+          fi
+          if [ ! -f .lab/wer-cache/ggml-base.en-q5_1.bin ]; then
+            curl --fail --location --retry 3 https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin -o .lab/wer-cache/ggml-base.en-q5_1.bin
+          fi
+          echo '4baf70dd0d7c4247ba2b81fafd9c01005ac77c2f9ef064e00dcf195d0e2fdd2f  .lab/wer-cache/ggml-base.en-q5_1.bin' | sha256sum --check
+      - name: Build cached whisper.cpp from whisper.rn (portable AVX2 CPU target)
+        run: node packages/dictation/scripts/bench/build.mjs --source "$PWD/.lab/wer-cache/source/package" --output "$PWD/.lab/wer-cache/build" --portable
+      - name: Measure all 34 fixtures and reject WER regression
+        run: |
+          node packages/dictation/dist/wer-cli.js --binary "$PWD/.lab/wer-cache/build/whisperBench" --model "$PWD/.lab/wer-cache/ggml-base.en-q5_1.bin" --backend rn-bench --manifest packages/dictation/fixtures/wer/regression/manifest.json --profile default --profile application-vocabulary --repeats 3 --output .lab/wer-ci.json
+          node packages/dictation/scripts/bench/gate.mjs .lab/wer-ci.json packages/dictation/fixtures/wer/regression/baseline.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: dictation-wer
+          path: .lab/wer-ci.json

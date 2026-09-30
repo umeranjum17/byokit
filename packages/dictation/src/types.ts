@@ -22,9 +22,11 @@ export type DictateInput = Uint8Array | Blob;
 export interface DictateEngine {
   readonly info: DictateEngineInfo;
   /** Optional live energy gate: normalized PCM RMS (before the UI's ×4 scale). */
-  readonly capture?: { speechThreshold: number; silenceMs: number };
+  readonly capture?: { speechThreshold: number; relativeThreshold?: number; silenceMs: number; finalReading?: 'recording' };
   available?(locale?: string): Promise<'ready' | 'needs-download' | 'unsupported' | 'mic-blocked'>;
   transcribe(input: DictateInput, o: DictateOptions): Promise<Omit<DictateTranscript, 'engine'>>;
+  /** Throwaway live reading; kept/final text always uses transcribe. */
+  preview?(input: DictateInput, o: DictateOptions): Promise<Omit<DictateTranscript, 'engine'>>;
   start?(o: DictateOptions, on: (s: DictateSegment) => void): { stop(): Promise<void>; cancel(): void };
 }
 export interface DictationHandle {
