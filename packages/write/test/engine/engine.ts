@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ENGINE_PACKAGE } from '../../src/constants.ts';
 
-// The entry is `<dir>/src/index.ts`; the package only exports `.` and `./src/*`, so package.json is found beside it.
+// The npm entry is `<dir>/dist/index.mjs`; find the package manifest one directory above it.
 export const engineDir = realpathSync(join(dirname(fileURLToPath(import.meta.resolve(ENGINE_PACKAGE))), '..'));
 const manifest = JSON.parse(readFileSync(join(engineDir, 'package.json'), 'utf8')) as { name: string; bin: Record<string, string> };
 if (manifest.name !== ENGINE_PACKAGE) throw new Error(`${engineDir} is ${manifest.name}, not ${ENGINE_PACKAGE}`);

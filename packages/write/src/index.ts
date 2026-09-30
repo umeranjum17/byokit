@@ -1,5 +1,5 @@
 // `@byokit/write` — drafting in a person's voice over the pinned writing engine (docs/capability-kits.md 4).
-// The fake engine and contract suite live in `./testing`; the agent CLI is the `compose` bin.
+// The fake engine and contract suite live in `./testing`; the agent CLI is the `write` bin.
 
 export { ENGINE_PACKAGE, ENGINE_VERSION, PROTOCOL, PROTOCOL_FLOOR } from './constants.ts';
 export { Compose } from './compose.ts';

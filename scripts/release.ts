@@ -721,14 +721,15 @@ function cmdLint(rest: string[]): void {
     // Missing at base is a new package; other git errors must fail lint.
     const existed = sh("git", ["ls-tree", comparisonBase, "--", manifestPath]).trim() !== "";
     if (existed) previous = JSON.parse(sh("git", ["show", `${comparisonBase}:${manifestPath}`]));
-    versions[p.dir] = { before: previous?.version ?? null, after: p.version, isPrivate: p.isPrivate };
+    versions[p.dir] = { before: previous?.private === true ? null : previous?.version ?? null, after: p.version, isPrivate: p.isPrivate };
     const prefix = `packages/${p.dir}/`;
     if (names.some((n) => n.startsWith(prefix) &&
         (shippedPath(n.slice(prefix.length), current.files ?? []) || shippedPath(n.slice(prefix.length), previous?.files ?? [])))) {
       srcChanged.push(p.dir);
     }
     if (!names.includes(manifestPath)) continue;
-    if (previous?.version !== p.version) versionChanged.push(p.dir);
+    // Leaving private is the first public release, even when the scaffold already used its version.
+    if (previous?.version !== p.version || (previous?.private === true && !p.isPrivate)) versionChanged.push(p.dir);
     // The runtime manifest is shipped too. Dev-only tooling changes do not
     // require a consumer release; exports, engines, native metadata and pins do.
     const runtime = (manifest: Record<string, unknown>) => Object.fromEntries(

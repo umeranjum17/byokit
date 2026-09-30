@@ -89,6 +89,22 @@ function main(): void {
       ["install", "--no-audit", "--no-fund", ...tgzPaths, `typescript@${tsVersion.version}`, "@types/node@22"],
       appDir,
     );
+    // The writing engine must arrive from npm with the packed kit and answer through its default loader.
+    writeFileSync(join(appDir, "write-engine.mjs"), `
+import assert from 'node:assert/strict';
+import { Compose, ENGINE_VERSION, PROTOCOL } from '@byokit/write';
+const writer = new Compose();
+assert.deepEqual(await writer.hello(), { protocol: PROTOCOL, version: ENGINE_VERSION });
+const [check] = await writer.check({ drafts: ['Umer shipped the first version today.'], platform: 'x' });
+assert.equal(check.fits, true);
+assert.equal(check.length, 'Umer shipped the first version today.'.length);
+`);
+    try {
+      sh("node", ["write-engine.mjs"], appDir);
+      pass("@byokit/write [npm engine]");
+    } catch (err) {
+      fail("@byokit/write [npm engine]", (err as Error).message);
+    }
     // Exact internal pins must resolve to the tarball set, never nested copies.
     for (const e of entries) {
       const nested = join(appDir, "node_modules", e.name, "node_modules", "@byokit");
