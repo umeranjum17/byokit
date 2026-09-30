@@ -69,6 +69,23 @@ provider or model. If the member isn't signed in to it, the run ends `{ ok: fals
 engine is never called. Leave `model` out to keep the engine's own choice. A specific sign-in (`@profile`) can't be
 picked per run: the pinned engine may still switch to another sign-in for the same provider.
 
+
+For an owner who explicitly offers keys, `kit.addKey('ana', { authChoice: 'openai-api-key', apiKey })` returns
+`ok`, `invalid` or `not_included`. Label the option **API key (billed per use)**. Select only `routes()` rows with
+`keyEntry: true`; API rows remain `offer: false`. Each route also carries its engine `revision`, `checked` date,
+label and key error word names. Submit the input directly, clear the field afterwards, and never log or save it in
+app state. The kit never returns engine key-check errors or the key. `ui-core/kits` supplies `keyStep`/`keyView`
+for entry, checking, success and failure states, using the kit's `key.*` words.
+
+To use the saved key for one run, pass `auth: 'apiKey'`. The key lives in the member's separate
+`byokit-key-<member>` agent and workspace, with `copyToAgents: false` and only that key in its local auth order.
+Its selected model is used; omit `model` or pass that same model. Key runs have separate history. To steer or stop
+one, pass `{ auth: 'apiKey' }` to `steer` or `abort` too (the device helpers accept the same option).
+Ordinary runs never enter the key agent, even when the subscription is resting. This agent boundary is necessary
+because the engine's profile pins can rotate. The `byokit-key-` member prefix is reserved. Adding another key
+replaces the previous key; a failed replacement leaves this option unavailable. If the normal agent already has
+an API key added through pass-through calls, `addKey` returns `invalid` and leaves that key untouched.
+
 A run spec also takes `system`, `images` (`{ data, mimeType }[]`), `thinking` and `tools`, a subset of the app tools
 (`KitOptions.tools` names) this run may call; any other app tool is refused at the gate before `ToolHost.gate` sees
 it. Tool events carry the engine's call `id`, the `input` on `start` and the `output` and `error` on `end`. A run that

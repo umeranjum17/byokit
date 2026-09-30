@@ -8,7 +8,12 @@
     "prerequisite": null,
     "offer": true,
     "reason": "ChatGPT/Codex subscription sign-in: the engine writes the redirect to the app's callback port.",
-    "source": "dist/provider-contract-api-*.js (2026.8.1)"
+    "source": "dist/provider-contract-api-*.js (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "Subscription",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "openai-device-code",
@@ -19,7 +24,12 @@
     "prerequisite": null,
     "offer": true,
     "reason": "ChatGPT subscription sign-in by device code: the code is shown, no browser on this computer needed.",
-    "source": "dist/provider-contract-api-*.js (2026.8.1)"
+    "source": "dist/provider-contract-api-*.js (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "Subscription",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "xai-oauth",
@@ -30,7 +40,12 @@
     "prerequisite": null,
     "offer": true,
     "reason": "Grok subscription sign-in through the engine's own wizard.",
-    "source": "dist/extensions/xai/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/xai/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "Subscription",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "github-copilot",
@@ -41,7 +56,12 @@
     "prerequisite": null,
     "offer": true,
     "reason": "GitHub Copilot subscription sign-in; the login stays in the engine's own folder.",
-    "source": "dist/extensions/github-copilot/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/github-copilot/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "Subscription",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "github-copilot-enterprise",
@@ -52,7 +72,12 @@
     "prerequisite": null,
     "offer": true,
     "reason": "GitHub Copilot Enterprise sign-in; the login stays in the engine's own folder.",
-    "source": "dist/extensions/github-copilot/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/github-copilot/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "Subscription",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "minimax-global-oauth",
@@ -63,7 +88,12 @@
     "prerequisite": null,
     "offer": true,
     "reason": "MiniMax subscription sign-in (global endpoint).",
-    "source": "dist/extensions/minimax/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/minimax/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "Subscription",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "minimax-cn-oauth",
@@ -74,7 +104,12 @@
     "prerequisite": null,
     "offer": true,
     "reason": "MiniMax subscription sign-in (CN endpoint).",
-    "source": "dist/extensions/minimax/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/minimax/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "Subscription",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "openrouter-oauth",
@@ -85,7 +120,12 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; upstream OAuth yields a credit-billed key.",
-    "source": "dist/extensions/openrouter/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/openrouter/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "xai-device-code",
@@ -96,7 +136,12 @@
     "prerequisite": null,
     "offer": false,
     "reason": "Compatibility alias the Gateway does not offer; use xai-oauth.",
-    "source": "dist/extensions/xai/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/xai/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "Subscription",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "alibaba-model-studio-api-key",
@@ -107,7 +152,12 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/alibaba/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/alibaba/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "anthropic-cli",
@@ -121,7 +171,12 @@
     "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)",
     "auth": "cli",
     "terms": "allowed",
-    "termsUrl": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use"
+    "termsUrl": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "Subscription",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "apiKey",
@@ -135,7 +190,15 @@
     "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)",
     "auth": "api_key",
     "terms": "allowed",
-    "termsUrl": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use"
+    "termsUrl": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    }
   },
   {
     "choice": "clawrouter-api-key",
@@ -146,7 +209,12 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/clawrouter/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/clawrouter/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "copilot-proxy",
@@ -157,7 +225,12 @@
     "prerequisite": null,
     "offer": false,
     "reason": "Local runtime on this computer; no account and no billing.",
-    "source": "dist/extensions/copilot-proxy/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/copilot-proxy/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "On this computer",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "custom-api-key",
@@ -168,7 +241,12 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/auth-choice-options-BLHNSTXX.js (2026.8.1)"
+    "source": "dist/auth-choice-options-BLHNSTXX.js (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "fal-api-key",
@@ -179,7 +257,12 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/fal/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/fal/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "gemini-api-key",
@@ -190,7 +273,15 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/provider-contract-api-*.js (2026.8.1)"
+    "source": "dist/provider-contract-api-*.js (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    }
   },
   {
     "choice": "huggingface-api-key",
@@ -201,7 +292,15 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/huggingface/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/huggingface/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    }
   },
   {
     "choice": "litellm-api-key",
@@ -212,7 +311,15 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/litellm/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/litellm/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    }
   },
   {
     "choice": "lmstudio",
@@ -223,7 +330,12 @@
     "prerequisite": null,
     "offer": false,
     "reason": "Local runtime on this computer; no account and no billing.",
-    "source": "dist/extensions/lmstudio/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/lmstudio/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "On this computer",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "microsoft-foundry-apikey",
@@ -234,7 +346,12 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/microsoft-foundry/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/microsoft-foundry/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "microsoft-foundry-entra",
@@ -245,7 +362,12 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/microsoft-foundry/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/microsoft-foundry/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "minimax-cn-api",
@@ -256,7 +378,12 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/minimax/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/minimax/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "minimax-global-api",
@@ -267,7 +394,12 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/minimax/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/minimax/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "nvidia-api-key",
@@ -278,7 +410,15 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/nvidia/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/nvidia/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    }
   },
   {
     "choice": "ollama",
@@ -289,7 +429,12 @@
     "prerequisite": null,
     "offer": false,
     "reason": "Local runtime on this computer; no account and no billing.",
-    "source": "dist/extensions/ollama/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/ollama/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "On this computer",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "ollama-cloud",
@@ -300,7 +445,15 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/ollama/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/ollama/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    }
   },
   {
     "choice": "openai-api-key",
@@ -311,7 +464,15 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/provider-contract-api-*.js (2026.8.1)"
+    "source": "dist/provider-contract-api-*.js (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    }
   },
   {
     "choice": "opencode-go",
@@ -322,7 +483,15 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/opencode-go/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/opencode-go/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    }
   },
   {
     "choice": "openrouter-api-key",
@@ -333,7 +502,15 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/openrouter/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/openrouter/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    }
   },
   {
     "choice": "runway-api-key",
@@ -344,7 +521,12 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/runway/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/runway/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "setup-token",
@@ -358,7 +540,12 @@
     "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)",
     "auth": "token",
     "terms": "grey",
-    "termsUrl": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use"
+    "termsUrl": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "Subscription",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "sglang",
@@ -369,7 +556,12 @@
     "prerequisite": null,
     "offer": false,
     "reason": "Local runtime on this computer; no account and no billing.",
-    "source": "dist/extensions/sglang/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/sglang/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "On this computer",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "together-api-key",
@@ -380,7 +572,15 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/together/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/together/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    }
   },
   {
     "choice": "vllm",
@@ -391,7 +591,12 @@
     "prerequisite": null,
     "offer": false,
     "reason": "Local runtime on this computer; no account and no billing.",
-    "source": "dist/extensions/vllm/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/vllm/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "On this computer",
+    "keyEntry": false,
+    "keyErrors": null
   },
   {
     "choice": "xai-api-key",
@@ -402,6 +607,14 @@
     "prerequisite": null,
     "offer": false,
     "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/xai/openclaw.plugin.json (2026.8.1)"
+    "source": "dist/extensions/xai/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-09-30",
+    "label": "API key (billed per use)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    }
   }
 ]

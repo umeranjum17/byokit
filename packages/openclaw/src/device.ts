@@ -36,6 +36,7 @@ type EndFrame = { type: 'end'; end: RunEnd };
 export type DeviceRunOptions = {
   sessionKey?: string;
   model?: string; // 'provider/model'
+  auth?: 'apiKey';
   system?: string;
   images?: { data: string; mimeType: string }[]; // base64 data
   thinking?: 'off' | 'low' | 'medium' | 'high';
@@ -176,8 +177,8 @@ export function openclawDevice(link: DeviceLink): {
   signOut(p: string): Promise<void>;
   sessions(): Promise<SessionRow[]>;
   run(message: string, o?: DeviceRunOptions): AsyncIterable<RunEvent | { type: 'end'; end: RunEnd }>;
-  steer(k: string, t: string): Promise<void>;
-  abort(k: string): Promise<void>;
+  steer(k: string, t: string, o?: { auth?: 'apiKey' }): Promise<void>;
+  abort(k: string, o?: { auth?: 'apiKey' }): Promise<void>;
   approvals(): Promise<Approval[]>;
   decide(id: string, d: Decision): Promise<void>;
   events(): AsyncIterable<OpenClawLinkEvent>;
@@ -211,6 +212,7 @@ export function openclawDevice(link: DeviceLink): {
       const inner = liveStream(() =>
         link.stream('oc.run', { message, ...(o?.sessionKey ? { sessionKey: o.sessionKey } : {}),
           ...(o?.model !== undefined ? { model: o.model } : {}), ...(o?.system !== undefined ? { system: o.system } : {}),
+          ...(o?.auth !== undefined ? { auth: o.auth } : {}),
           ...(o?.images !== undefined ? { images: o.images } : {}), ...(o?.thinking !== undefined ? { thinking: o.thinking } : {}),
           ...(o?.tools !== undefined ? { tools: o.tools } : {}) }));
       let finished = false;
@@ -238,11 +240,11 @@ export function openclawDevice(link: DeviceLink): {
         },
       };
     },
-    steer: async (k, t) => {
-      await link.request('oc.steer', { sessionKey: k, text: t });
+    steer: async (k, t, o) => {
+      await link.request('oc.steer', { sessionKey: k, text: t, ...(o?.auth ? { auth: o.auth } : {}) });
     },
-    abort: async (k) => {
-      await link.request('oc.abort', { sessionKey: k });
+    abort: async (k, o) => {
+      await link.request('oc.abort', { sessionKey: k, ...(o?.auth ? { auth: o.auth } : {}) });
     },
     approvals: () => link.request('oc.approvals') as Promise<Approval[]>,
     decide: async (id, d) => {

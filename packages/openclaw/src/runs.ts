@@ -86,7 +86,7 @@ export function createRuns(ctx: {
   bridge: Pick<Bridge, 'register'>;
   tools: ReadonlySet<string>; // KitOptions.tools names, the only names a run's subset may carry
 }): {
-  run(spec: RunSpec, on?: (e: RunEvent) => void): Promise<RunEnd>;
+  run(spec: RunSpec, on?: (e: RunEvent) => void, keyAgent?: string): Promise<RunEnd>;
   steer(k: string, t: string): Promise<void>;
   abort(k: string): Promise<void>;
 } {
@@ -101,15 +101,16 @@ export function createRuns(ctx: {
       return undefined;
     }
   };
-  const run = async (spec: RunSpec, on?: (e: RunEvent) => void): Promise<RunEnd> => {
+  const run = async (spec: RunSpec, on?: (e: RunEvent) => void, keyAgent?: string): Promise<RunEnd> => {
     // Member boundary first: a member never speaks in another member's session, refused before any request.
     if (!spec.sessionKey.startsWith(`agent:${spec.member}:`))
       throw new Error(`refused: "${spec.sessionKey}" is not a session of member "${spec.member}"`);
     const picked = spec.model === undefined ? undefined : account(spec.model);
     for (const tool of spec.tools ?? [])
       if (!ctx.tools.has(tool)) throw new Error(`refused: "${tool}" is not one of this kit's tools`);
-    const { agentId } = await ctx.ensure(spec.member);
-    const release = spec.register !== false ? ctx.bridge.register({ sessionKey: spec.sessionKey, member: spec.member }, spec.tools) : undefined;
+    const agentId = keyAgent ?? (await ctx.ensure(spec.member)).agentId;
+    const sessionKey = keyAgent ? `agent:${keyAgent}:${spec.sessionKey.slice(`agent:${spec.member}:`.length)}` : spec.sessionKey;
+    const release = spec.register !== false ? ctx.bridge.register({ sessionKey, member: spec.member }, spec.tools) : undefined;
     let last = '';
     let runId = ''; // gateway events for other runs carry a real runId and never match the empty one
     let ended = false;
@@ -164,7 +165,7 @@ export function createRuns(ctx: {
       };
       const final = ctx.request('agent', {
         agentId,
-        sessionKey: spec.sessionKey,
+        sessionKey,
         message: spec.message,
         idempotencyKey: randomUUID(),
         ...(picked ?? {}),

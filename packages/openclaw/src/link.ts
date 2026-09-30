@@ -48,9 +48,10 @@ function memberSessions(result: unknown, member: Member): Record<string, unknown
 
 /** `oc.run`'s run options, type-checked; the kit's own checks (account, tool names) still apply. */
 function runOptions(args: Record<string, unknown>): Omit<RunSpec, 'member' | 'sessionKey' | 'register' | 'meta'> {
-  const { message, model, system, images, thinking, tools } = args;
+  const { message, model, auth, system, images, thinking, tools } = args;
   const ok = typeof message === 'string'
     && (model === undefined || typeof model === 'string')
+    && (auth === undefined || auth === 'apiKey')
     && (system === undefined || typeof system === 'string')
     && (images === undefined || (Array.isArray(images) && images.every((i) =>
       isRecord(i) && typeof i.data === 'string' && typeof i.mimeType === 'string')))
@@ -60,6 +61,7 @@ function runOptions(args: Record<string, unknown>): Omit<RunSpec, 'member' | 'se
   return {
     message: message as string,
     ...(model === undefined ? {} : { model: model as string }),
+    ...(auth === undefined ? {} : { auth: 'apiKey' as const }),
     ...(system === undefined ? {} : { system: system as string }),
     ...(images === undefined ? {} : { images: (images as { data: string; mimeType: string }[])
       .map((i) => ({ data: i.data, mimeType: i.mimeType })) }),
@@ -216,16 +218,16 @@ export function openclawLink(
         return memberSessions(result, member);
       }
       case 'oc.steer': {
-        if (typeof args.sessionKey !== 'string' || typeof args.text !== 'string')
+        if (typeof args.sessionKey !== 'string' || typeof args.text !== 'string' || (args.auth !== undefined && args.auth !== 'apiKey'))
           throw new Error('oc.steer needs { sessionKey, text }');
         if (!memberKey(member, args.sessionKey)) throw refused();
-        await kit.steer(args.sessionKey, args.text);
+        await kit.steer(args.sessionKey, args.text, args.auth === 'apiKey' ? { auth: 'apiKey' } : undefined);
         return null;
       }
       case 'oc.abort': {
-        if (typeof args.sessionKey !== 'string') throw new Error('oc.abort needs { sessionKey }');
+        if (typeof args.sessionKey !== 'string' || (args.auth !== undefined && args.auth !== 'apiKey')) throw new Error('oc.abort needs { sessionKey }');
         if (!memberKey(member, args.sessionKey)) throw refused();
-        await kit.abort(args.sessionKey);
+        await kit.abort(args.sessionKey, args.auth === 'apiKey' ? { auth: 'apiKey' } : undefined);
         return null;
       }
       case 'oc.approvals':

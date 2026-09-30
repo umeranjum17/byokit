@@ -11,8 +11,10 @@ import { Bridge } from './bridge.ts';
 import { Engine } from './engine.ts';
 import { gatewayTransport } from './transport.ts';
 import { createMembers } from './members.ts';
+import { keyAgentId, KEY_PREFIX, MEMBER_ID } from './members.ts';
 import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLogin } from './migrate.ts';
 import { createRuns } from './runs.ts';
+import { createKeys, type AddKeyResult } from './keys.ts';
 import { routes as routeTable } from './routes.ts';
 import { providers as engineProviders, signIn as startSignIn, signOut as engineSignOut, type SignInCtx } from './signin.ts';
 import { reconcileConfig, memoryLimited as configMemoryLimited } from './config.ts';
@@ -473,6 +475,7 @@ export class OpenClawKit {
   // One bridge and one approval surface per kit: listeners and run registrations survive reconnects (B3).
   // Only the socket itself is per-connection. Approvals always reaches the live transport through this.request().
   private readonly bridge: Bridge;
+  private readonly keys: ReturnType<typeof createKeys>;
   private readonly approvalsCtl: Approvals;
   private listeners = new Set<(e: { event: string; payload?: unknown }) => void>();
   private off: (() => void)[] = [];
@@ -491,6 +494,9 @@ export class OpenClawKit {
     this.engine = new Engine({ ...o, pluginId: o.plugin?.id ?? 'byokit', tools: o.tools ?? [],
       gateBuiltins: o.gateBuiltins !== false, spawnEngine: o.spawnEngine !== false,
       onState: (s) => this.setState(s), onExit: () => this.closed('engine exited') });
+    this.keys = createKeys({ root: this.engine.root,
+      request: (method, params, options) => this.request()(method, params, options),
+      ensure: (member) => this.ensureMember(member) });
     const slot: { bridge?: Pick<Bridge, 'resolveAsk'> } = {};
     this.approvalsCtl = new Approvals({
       request: (method, params, co) => this.request()(method, params, co),
@@ -634,6 +640,11 @@ export class OpenClawKit {
     return engineSignOut(this.signInCtx(), member, provider);
   }
 
+  /** Save an explicitly supplied API key (billed per use) in this member's separate key agent. */
+  addKey(agentId: Member, o: { authChoice: string; apiKey: string }): Promise<AddKeyResult> {
+    return this.keys.add(agentId, o);
+  }
+
   migrateRetainedLogin(member: Member, source: RetainedLogin): Promise<'staged' | 'nothing' | 'failed'> {
     return migrateLogin({ root: this.engine.root, prepare: () => this.prepare(), doctor: () => this.engine.doctor(120_000),
       seal: this.o.authSeal, log: this.o.log, withStore: (task) => this.engine.withAuthStore(task) }, member, source);
@@ -666,15 +677,32 @@ export class OpenClawKit {
   }
 
   run(spec: RunSpec, on?: (e: RunEvent) => void): Promise<RunEnd> {
+    if (spec.auth !== undefined && spec.auth !== 'apiKey') return Promise.reject(new Error('Choose a supported account option.'));
+    if (spec.auth === 'apiKey') return this.keys.exclusive(spec.member, async () => {
+      if (!spec.sessionKey.startsWith(`agent:${spec.member}:`)) throw new Error('This conversation belongs to another member.');
+      const selected = await this.keys.ready(spec.member);
+      if (!selected) return { ok: false, kind: 'signed-out', message: 'Add an API key to use this option.' };
+      if (spec.model !== undefined && spec.model !== selected.model)
+        return { ok: false, kind: 'plan', message: 'Choose the model saved with this key.' };
+      // RunRef.member stays the person for app gates; the engine receives the isolated agent and history.
+      return this.runs().run({ ...spec, model: selected.model }, on, selected.agentId);
+    });
     return this.runs().run(spec, on);
   }
 
-  steer(sessionKey: string, text: string): Promise<void> {
-    return this.runs().steer(sessionKey, text);
+  private runKey(sessionKey: string, o?: { auth?: 'apiKey' }): string {
+    if (o?.auth !== 'apiKey') return sessionKey;
+    const [, member, tail] = /^agent:([^:]+):(.*)$/.exec(sessionKey) ?? [];
+    if (!member || !MEMBER_ID.test(member) || member.startsWith(KEY_PREFIX)) throw new Error('Choose your own conversation.');
+    return `agent:${keyAgentId(member)}:${tail}`;
   }
 
-  abort(sessionKey: string): Promise<void> {
-    return this.runs().abort(sessionKey);
+  steer(sessionKey: string, text: string, o?: { auth?: 'apiKey' }): Promise<void> {
+    return this.runs().steer(this.runKey(sessionKey, o), text);
+  }
+
+  abort(sessionKey: string, o?: { auth?: 'apiKey' }): Promise<void> {
+    return this.runs().abort(this.runKey(sessionKey, o));
   }
 
   // approvals (5.9)
