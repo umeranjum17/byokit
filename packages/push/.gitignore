@@ -1,0 +1,4 @@
+android/build/
+android/.gradle/
+ios/.build/
+ios/Package.resolved

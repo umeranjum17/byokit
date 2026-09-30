@@ -16,7 +16,8 @@
     "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
-    "react-native": "0.86.3"
+    "react-native": "0.86.3",
+    "@byokit/push": "file:../../packages/push"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",

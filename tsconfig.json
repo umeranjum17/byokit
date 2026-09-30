@@ -4,5 +4,5 @@
   "include": ["packages/*/src", "packages/*/test", "examples/pwa", "examples/herdr-kit", "examples/openclaw-kit"],
   // expo-modules-core's types declare React Native globals (a numeric setTimeout, a required NODE_ENV) that would
   // leak into every Node package here; `tsc -b packages/<kit>` typechecks these files in their own program.
-  "exclude": ["packages/overlay/src/rn.ts", "packages/overlay/src/focused-field.rn.ts", "packages/statusbar/src/rn.ts"]
+  "exclude": ["packages/overlay/src/rn.ts", "packages/overlay/src/focused-field.rn.ts", "packages/statusbar/src/rn.ts", "packages/push/src/rn.ts"]
 }

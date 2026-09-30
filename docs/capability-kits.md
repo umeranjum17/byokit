@@ -1813,3 +1813,53 @@ system settings. The words test uses the D-P jargon expression.
   - An API 36.1 emulator run on `examples/expo`, recorded in the PR: the chip is visible, the lock screen shows the
     public copy, the expanded notification shows 3 actions, and after a swipe the next `show()` posts nothing.
   - The package stays `private: true` until that proof is recorded; publishing is a later release.
+
+## 13. `@byokit/push`
+
+Owner-approved capability name: **push**. One Expo module opens sealed notices before native display;
+`private: true` at 0.1.0. It sits beside seal and relay, consumes exactly seal 0.2.0, and imports no runtime kit.
+The transport credentials, notification permission, registration, routing policy and visible product copy stay
+with the host app. It never reads installed AI tools or starts a host service.
+
+### 13.1 Surface and payload
+
+- `setNoticeKey(key: Uint8Array): Promise<void>` stores one raw 32-byte X25519 secret; invalid lengths reject
+  before native calls. `clearNoticeKey(): Promise<void>` deletes it before logout/revocation. Unsupported default
+  entries reject; the React Native export alone loads `ByokitNotices`.
+- `openNoticeContent(payload: unknown, key: Uint8Array): NoticeContent | null` is a native-free parser consuming
+  seal's `{ v: 1, sealed }` envelope, directly or in `payload.notice` (object or JSON string).
+- `NoticeContent = { title: string; body: string; data?: Record<string, unknown> }`. Title must be non-empty;
+  body may be empty. `data` preserves app routing fields, including muxr's current notice shape. Never infer
+  authorization or sender identity from an opened notice. Invalid envelopes, invalid content, wrong keys and
+  tampering fail closed; native display uses the transport's original generic copy.
+- Wire: unpadded canonical base64url of ephemeral public key (32) | nonce (24) | NaCl crypto_box_easy MAC and
+  ciphertext (16 + JSON bytes), opened with the raw secret. Native envelopes cap `sealed` at 8192 characters;
+  actual APNs/FCM payload limits are lower and enforced by the sender/provider.
+
+### 13.2 Native integration
+
+`packages/push` follows statusbar/overlay's layout: pure TS entry, RN entry, config plugin, Expo module config,
+Kotlin library, Swift module and extension. The plugin requires `appGroup` and `ios.bundleIdentifier`.
+It adds and embeds the `ByokitNoticeService` Xcode target with a pinned Swift-Sodium 0.11.0 Clibsodium product,
+sets App Group entitlements on app and extension, and supplies EAS extension metadata. The app writes its secret
+through a shared App Group generic-password keychain entry, `AfterFirstUnlockThisDeviceOnly`; no key file or
+content log. The NSE opens top-level APNs `notice` or Expo's `userInfo.body.notice`, requires an alert with `mutable-content: 1`, replaces
+title/body and puts routing fields in `userInfo.data` and Expo's `userInfo.body.data`. Every failure/timeout returns the original generic content.
+
+Android's non-exported FirebaseMessagingService owns data-only messages containing JSON-string `notice`.
+It reads the AES-GCM wrapped secret from private preferences with a wrapping key held in Android Keystore,
+opens the box, then builds the notification. No `notification` FCM field: the background system-tray path would
+bypass opening. Missing/unreadable keys fall back to generic transport title/body. The private notification has
+a generic public version and an activity launch intent carrying `byokit.notice.data`. No direct boot, no prompt
+from a service, no executable tap action. A host with its own service sets `androidService: false` and forwards
+to `NoticeHandler.handle`; it owns all other messages and token refresh. Clearing the key deletes the encrypted
+entry and wrapping alias. Rotation keeps one key; old messages fall back.
+
+### 13.3 Acceptance
+
+TS, JVM and Swift tests open the same deterministic seal 0.2.0 fixture and exercise malformed/wrong-key/tamper
+fallback. Portable entry bundles without Node/native imports. Root build/check/test/pack pass; `push-android`
+assembles and runs JVM tests; `push-ios` runs Swift tests and builds the generated extension. Neither test suite
+needs a push account or delivery network. Signed physical-device sleeping-phone proof is the manual procedure
+in the package README, with generic fallback, key clearing, tap routing and first-unlock behavior recorded.
+Publishing remains held by `private: true` until release approval.

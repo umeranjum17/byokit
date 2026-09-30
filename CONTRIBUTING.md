@@ -34,7 +34,7 @@ runtime-tested here because no simulator is available.
   protocol v1 that the app passes by absolute path; their `npm test` runs use fakes only.
   `@byokit/usage` reads only the sign-in folder the app passes and spawns only the Codex binary the app passes
   by absolute path, with an environment built from nothing plus what the app passes; its tests use fakes only. `@byokit/overlay` and
-  `@byokit/statusbar` run only their own native code inside the app. `@byokit/cloud` ([docs/cloud-kit.md](docs/cloud-kit.md)) spawns only the
+  `@byokit/statusbar` and `@byokit/push` run only their own native code inside the app or its notification extension. `@byokit/cloud` ([docs/cloud-kit.md](docs/cloud-kit.md)) spawns only the
   `ssh` binary the app passes by absolute path and the `ssh-keyscan` beside it, with the key path the app passes and a
   kit-owned config, and holds only the provider keys the app's store gives it and the scoped keys it mints for that
   app. Its tests use a loopback fake and a fake `ssh`. `@byokit/keystore` spawns only the OS keyring CLIs by absolute
