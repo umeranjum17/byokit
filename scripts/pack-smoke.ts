@@ -35,6 +35,12 @@ interface PackEntry {
   filename: string;
 }
 
+// Include export-subpath and browser-condition failures, not just workspace
+// names: those result keys do not appear in the packed package list.
+export function smokeFailures(results: Map<string, string>): string[] {
+  return [...results].filter(([, result]) => result !== "pass").map(([name]) => name);
+}
+
 function main(): void {
   // No `byokit-` prefix: scripts/test.sh's leak check would blame other runs.
   const dir = mkdtempSync(join(tmpdir(), "pack-smoke-byokit-"));
@@ -191,13 +197,10 @@ function main(): void {
       }
     }
     console.log("package\t\tresult");
-    let failed = 0;
-    for (const e of entries) {
-      const r = results.get(e.name) ?? "pass";
-      if (r !== "pass") failed++;
-      console.log(`${e.name}\t${r}`);
-    }
-    if (failed > 0) throw new Error(`${failed} package(s) failed the pack smoke`);
+    const failures = smokeFailures(results);
+    const failed = failures.length;
+    for (const [name, result] of results) console.log(`${name}\t${result}`);
+    if (failed > 0) throw new Error(`${failed} check(s) failed the pack smoke`);
     console.log(`pack smoke: ${entries.length}/${entries.length} packages pass`);
   } finally {
     pendingTmp.delete(dir);

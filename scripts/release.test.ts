@@ -2,7 +2,9 @@
 // lint functions. No network, fixtures as strings (plus the nine real
 // CHANGELOGs on disk).
 import { strict as assert } from "node:assert";
-import { readFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -12,6 +14,8 @@ import {
   extractNotes,
   lint,
   parseChangelog,
+  prepareChangelog,
+  shippedPath,
   planCascade,
   rollUnreleased,
   topoOrder,
@@ -114,10 +118,10 @@ test("planCascade bumps published dependents, re-pins private ones", () => {
   assert.ok(plan.pins.some((p) => p.pkg === "openclaw" && p.dep === "relay" && p.to === "0.1.4"));
   assert.ok(plan.pins.some((p) => p.pkg === "herdr" && p.dep === "relay" && p.to === "0.1.4"));
   const relayBullets = plan.bullets.get("relay") ?? [];
-  assert.ok(relayBullets.includes("- Depends on @byokit/link 0.3.2."));
+  assert.ok(relayBullets.includes("- Dependency update: pins @byokit/link 0.3.2."));
   assert.ok(relayBullets.some((l) => l.includes("(from @byokit/link 0.3.2)") && l.startsWith("- SECURITY:")));
   const kitBullets = plan.bullets.get("openclaw") ?? [];
-  assert.ok(kitBullets.includes("- Depends on @byokit/link 0.3.2."));
+  assert.ok(kitBullets.includes("- Dependency update: pins @byokit/link 0.3.2."));
   assert.ok(kitBullets.every((l) => !l.includes("(from @byokit/")), "private kit gets Depends lines only");
 });
 
@@ -126,7 +130,7 @@ test("planCascade re-pins a devDependency without a bump", () => {
   const plan = planCascade(pkgs, new Map([["ui-core", "0.2.1"]]), new Set(["link", "relay", "ui-core"]));
   assert.ok(!plan.versions.has("openclaw"));
   assert.ok(plan.pins.some((p) => p.pkg === "openclaw" && p.dep === "ui-core" && p.to === "0.2.1"));
-  assert.deepEqual(plan.bullets.get("openclaw"), ["- Depends on @byokit/ui-core 0.2.1."]);
+  assert.deepEqual(plan.bullets.get("openclaw"), ["- Dependency update: pins @byokit/ui-core 0.2.1."]);
 });
 
 test("topoOrder puts link before relay before the kits", () => {
@@ -176,4 +180,92 @@ test("lint enforces changelog shape and shipped files", () => {
   assert.ok(errs.some((e) => e.includes("not descending") === false && e.includes("d:")), errs.join("\n"));
   assert.ok(errs.some((e) => e.includes("files must contain")), errs.join("\n"));
   assert.ok(errs.some((e) => e.includes("empty SECURITY")), errs.join("\n"));
+});
+
+test("prepare places cascade dependency notes inside every released version", () => {
+  const pkgs = cascadeFixture();
+  pkgs.find((p) => p.dir === "openclaw")!.isPrivate = false;
+  const plan = planCascade(pkgs, new Map([["link", "0.3.2"]]), new Set(["link", "relay", "openclaw"]));
+  const empty = "# Changelog\n\n## Unreleased\n\n## 0.1.0\n\n- Initial release.\n";
+  for (const dir of ["relay", "openclaw"]) {
+    const version = plan.versions.get(dir)!;
+    const text = prepareChangelog(empty, version, "2026-09-30", plan.bullets.get(dir) ?? []);
+    const parsed = parseChangelog(text);
+    assert.deepEqual(parsed.unreleased, [], `${dir}: notes must not be stranded in Unreleased`);
+    const released = parsed.versions.find((v) => v.version === version)!;
+    assert.ok(released.bullets.some((b) => b.text === "Dependency update: pins @byokit/link 0.3.2."));
+    assert.ok(released.bullets.some((b) => b.kind === "SECURITY"), `${dir}: inherited security notes ship too`);
+    if (dir === "openclaw") assert.ok(released.bullets.some((b) => b.text === "Dependency update: pins @byokit/relay 0.1.4."));
+  }
+});
+
+test("shipped paths include engines, plugins, policies, schemas and native metadata", () => {
+  for (const path of ["engine/pin.json", "plugin/gate.js", "policy/tools.json", "schema/v1.json", "app.plugin.js", "android/src/main.kt", "README.md"]) {
+    assert.equal(shippedPath(path, ["dist", "engine", "plugin", "policy", "schema", "app.plugin.js", "android", "!android/build"]), true, path);
+  }
+  assert.equal(shippedPath("android/build/output.jar", ["android", "!android/build"]), false);
+  assert.equal(shippedPath("test/contract.test.ts", ["dist"]), false);
+  assert.equal(shippedPath("src/new.ts", ["dist"]), true);
+  assert.equal(shippedPath("schema/a.json", ["schema/*.json"]), true);
+});
+
+test("published shipped changes require a real increase and release notes, private changes need notes", () => {
+  const input = {
+    changelogs: { link: "# Changelog\n\n## Unreleased\n\n- FIX: a fix.\n\n## 0.3.1\n\n- Initial.\n" },
+    files: { link: ["dist", "CHANGELOG.md"] }, srcChanged: ["link"], depsChanged: [], versionChanged: [] as string[],
+    versions: { link: { before: "0.3.1", after: "0.3.1", isPrivate: false } },
+  };
+  assert.ok(lint(input).some((e) => e.includes("version increase")));
+  input.versions.link.after = "0.3.0";
+  input.versionChanged = ["link"];
+  assert.ok(lint(input).some((e) => e.includes("version increase")));
+  input.versions.link.after = "0.3.2";
+  assert.ok(lint(input).some((e) => e.includes("non-empty changelog section")));
+  input.changelogs.link = prepareChangelog(input.changelogs.link, "0.3.2", "2026-09-30", []);
+  assert.deepEqual(lint(input), []);
+  input.versions.link = { before: "0.3.2", after: "0.3.2", isPrivate: true };
+  input.versionChanged = [];
+  assert.ok(lint(input).some((e) => e.includes("Unreleased bullet")));
+});
+
+
+test("release lint CLI rejects a shipped schema without a bump and accepts noted releases on PR and push ranges", () => {
+  const dir = mkdtempSync(join(tmpdir(), "release-lint-"));
+  const run = (command: string, args: string[]) => spawnSync(command, args, { cwd: dir, encoding: "utf8" });
+  const git = (...args: string[]) => {
+    const result = run("git", ["-c", "user.name=Release test", "-c", "user.email=release@example.invalid", "-c", "commit.gpgsign=false", ...args]);
+    assert.equal(result.status, 0, result.stderr);
+    return result.stdout.trim();
+  };
+  try {
+    mkdirSync(join(dir, "scripts"));
+    mkdirSync(join(dir, "packages/probe/schema"), { recursive: true });
+    copyFileSync(join(root, "scripts/release.ts"), join(dir, "scripts/release.ts"));
+    const manifest = { name: "@byokit/probe", version: "0.1.0", files: ["dist", "schema", "CHANGELOG.md"] };
+    const manifestPath = join(dir, "packages/probe/package.json");
+    const changelogPath = join(dir, "packages/probe/CHANGELOG.md");
+    const changelog = "# Changelog\n\n## Unreleased\n\n- FIX: validate schema fields.\n\n## 0.1.0\n\n- Initial.\n";
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    writeFileSync(changelogPath, changelog);
+    writeFileSync(join(dir, "packages/probe/schema/v1.json"), "{}");
+    git("init", "-q"); git("add", "."); git("commit", "-qm", "base");
+    const base = git("rev-parse", "HEAD");
+    writeFileSync(join(dir, "packages/probe/schema/v1.json"), '{"changed":true}');
+    git("add", "."); git("commit", "-qm", "change schema");
+    const lintArgs = ["scripts/release.ts", "lint", "--base", base];
+    const rejected = run(process.execPath, lintArgs);
+    assert.equal(rejected.status, 1);
+    assert.match(rejected.stderr, /without a version increase/);
+    manifest.version = "0.1.1";
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    writeFileSync(changelogPath, prepareChangelog(changelog, "0.1.1", "2026-09-30", []));
+    git("add", "."); git("commit", "-qm", "note and bump");
+    for (const args of [lintArgs, [...lintArgs, "--direct"]]) {
+      const accepted = run(process.execPath, args);
+      assert.equal(accepted.status, 0, accepted.stderr);
+      assert.match(accepted.stdout, /release lint: ok/);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

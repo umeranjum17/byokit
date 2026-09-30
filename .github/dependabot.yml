@@ -1,0 +1,18 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directories:
+      - /
+      - /examples/expo
+    schedule:
+      interval: weekly
+    # Internal packages are versioned and cascaded together by release.ts.
+    ignore:
+      - dependency-name: '@byokit/*'
+    groups:
+      development:
+        dependency-type: development

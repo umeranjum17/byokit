@@ -12,7 +12,7 @@
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, matchesGlob } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -122,6 +122,24 @@ export function rollUnreleased(text: string, version: string, date: string): str
   return lines.join("\n");
 }
 
+// Cascade notes belong in the version being released, before Unreleased is
+// rolled. Keeping this shared by the dry-run and writer prevents empty releases.
+export function prepareChangelog(text: string, version: string | null, date: string, bullets: string[]): string {
+  const noted = text.replace("## Unreleased\n", `## Unreleased\n\n${bullets.join("\n")}\n`);
+  return version === null ? noted : rollUnreleased(noted, version, date);
+}
+
+// Source is compiled to dist; the remaining shipped paths follow the package's
+// files list, including its exclusion patterns. README/LICENSE ship implicitly.
+export function shippedPath(path: string, files: string[]): boolean {
+  if (path.startsWith("src/")) return true;
+  if (/^(?:README(?:\..*)?|LICEN[CS]E(?:\..*)?)$/i.test(path)) return true;
+  if (path === "CHANGELOG.md" || path === "package.json") return false;
+  const matches = (pattern: string) => matchesGlob(path, pattern) || matchesGlob(path, `${pattern.replace(/\/$/, "")}/**`);
+  return files.some((f) => !f.startsWith("!") && matches(f)) &&
+    !files.some((f) => f.startsWith("!") && matches(f.slice(1)));
+}
+
 export function bump(version: string, kind: string): string {
   if (kind === "major" || kind.includes("-")) throw new Error(`refusing kind: ${kind}`);
   if (version.includes("-") || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`bad version: ${version}`);
@@ -217,9 +235,9 @@ export function planCascade(
                 return { kind: m[1], text: m[2] } as ChangelogBullet;
               }),
             ]);
-            addBullets(d.dir, [`- Depends on @byokit/${x} ${next}.`, ...copies]);
+            addBullets(d.dir, [`- Dependency update: pins @byokit/${x} ${next}.`, ...copies]);
           } else {
-            addBullets(d.dir, [`- Depends on @byokit/${x} ${next}.`]);
+            addBullets(d.dir, [`- Dependency update: pins @byokit/${x} ${next}.`]);
             if (!versions.has(d.dir)) newSectionNotes.set(d.dir, newSectionNotes.get(d.dir) ?? []);
           }
         }
@@ -268,6 +286,7 @@ export interface LintInput {
   srcChanged: string[];
   depsChanged: string[];
   versionChanged: string[];
+  versions?: Record<string, { before: string | null; after: string; isPrivate: boolean }>;
 }
 
 // Well-formed changelogs, files shipping them, and the per-PR Unreleased rule.
@@ -305,11 +324,21 @@ export function lint(input: LintInput): string[] {
     }
   }
   for (const dir of new Set([...input.srcChanged, ...input.depsChanged])) {
-    if (input.versionChanged.includes(dir)) continue;
+    const version = input.versions?.[dir];
+    if (version && !version.isPrivate && version.before !== null &&
+        (!/^\d+\.\d+\.\d+$/.test(version.after) || compareSemver(version.after, version.before) <= 0)) {
+      errors.push(`${dir}: shipped files or runtime manifest changed without a version increase`);
+    }
     const text = input.changelogs[dir];
-    if (text === null) continue;
-    if (parseChangelog(text).unreleased.length === 0) {
-      errors.push(`${dir}: src/ or dependencies changed without a ## Unreleased bullet`);
+    if (text == null) continue;
+    let parsed: ParsedChangelog;
+    try { parsed = parseChangelog(text); } catch { continue; } // reported above
+    if (input.versionChanged.includes(dir)) {
+      if (version && !version.isPrivate && !parsed.versions.some((v) => v.version === version.after && v.bullets.length > 0)) {
+        errors.push(`${dir}: bumped version ${version.after} needs a non-empty changelog section`);
+      }
+    } else if (parsed.unreleased.length === 0) {
+      errors.push(`${dir}: shipped files or dependencies changed without a ## Unreleased bullet`);
     }
   }
   return errors;
@@ -409,7 +438,7 @@ function help(): string {
       changelogs, cascade exact internal pins, commit on a branch
   publish [--dry-run]  on merged main: gates, npm publish, GitHub releases,
       backfill missing releases for versions already on npm
-  lint --base <ref>  changelog and Unreleased-bullet checks for a PR
+  lint --base <ref> [--direct]  shipped-file, version and changelog checks
   notes --since <iso> [--json]  SECURITY:/FIX: bullets published after <iso>
   notes <pkg>@<version> [...]  SECURITY:/FIX: bullets of listed versions
 `;
@@ -475,11 +504,8 @@ function cmdPrepare(rest: string[]): void {
     for (const pin of plan.pins) console.log(`  ${pin.pkg}: @byokit/${pin.dep} ${pin.from} -> ${pin.to}`);
     console.log("changelog diffs:");
     for (const d of order) {
-      const rolled = rollUnreleased(readChangelog(d) as string, plan.versions.get(d) as string, today);
-      console.log(`--- packages/${d}/CHANGELOG.md`);
-      const added = plan.bullets.get(d) ?? [];
-      const preview = added.length > 0 ? `${rolled.split("\n").slice(0, 5).join("\n")}\n${added.join("\n")}\n...` : rolled.split("\n").slice(0, 8).join("\n");
-      console.log(preview);
+      const preview = prepareChangelog(readChangelog(d) as string, plan.versions.get(d) as string, today, plan.bullets.get(d) ?? []);
+      console.log(`--- packages/${d}/CHANGELOG.md\n${preview}`);
     }
     for (const [d, lines] of plan.bullets) {
       if (!plan.versions.has(d)) console.log(`--- packages/${d}/CHANGELOG.md (Unreleased only):\n${lines.join("\n")}`);
@@ -491,21 +517,15 @@ function cmdPrepare(rest: string[]): void {
     const pjPath = join(root, "packages", d, "package.json");
     const pjText = readFileSync(pjPath, "utf8");
     const old = (byDir.get(d) as WSPkg).version;
-    const rolled = rollUnreleased(readChangelog(d) as string, plan.versions.get(d) as string, today);
+    const rolled = prepareChangelog(readChangelog(d) as string, plan.versions.get(d) as string, today, plan.bullets.get(d) ?? []);
     writeFileSync(pjPath, pjText.replace(`"version": "${old}"`, `"version": "${plan.versions.get(d)}"`));
     writeFileSync(join(root, "packages", d, "CHANGELOG.md"), rolled);
   }
   for (const [d, lines] of plan.bullets) {
-    if (plan.versions.has(d)) {
-      const clPath = join(root, "packages", d, "CHANGELOG.md");
-      const text = readFileSync(clPath, "utf8");
-      writeFileSync(clPath, text.replace("## Unreleased\n", `## Unreleased\n\n${lines.join("\n")}`));
-    } else {
-      const clPath = join(root, "packages", d, "CHANGELOG.md");
-      const text = readFileSync(clPath, "utf8");
-      if (text === null) throw new Error(`missing packages/${d}/CHANGELOG.md`);
-      writeFileSync(clPath, (text as string).replace("## Unreleased\n", `## Unreleased\n\n${lines.join("\n")}`));
-    }
+    if (plan.versions.has(d)) continue; // notes already rolled into the released section
+    const clPath = join(root, "packages", d, "CHANGELOG.md");
+    const text = readFileSync(clPath, "utf8");
+    writeFileSync(clPath, prepareChangelog(text, null, today, lines));
   }
   // Pin edits for dependents that planCascade re-pinned (package.json files).
   for (const pin of plan.pins) {
@@ -683,28 +703,38 @@ function cmdPublish(rest: string[]): void {
 }
 
 function cmdLint(rest: string[]): void {
-  const base = rest[rest.indexOf("--base") + 1];
-  if (!base) throw new Error("lint needs --base <ref>");
-  const names = sh("git", ["diff", "--name-only", `${base}...HEAD`]).split("\n").map((s) => s.trim()).filter(Boolean);
+  const baseIndex = rest.indexOf("--base");
+  const base = baseIndex < 0 ? undefined : rest[baseIndex + 1];
+  if (!base || base.startsWith("--")) throw new Error("lint needs --base <ref>");
+  // PRs use a merge-base; a main push checks its complete before..after range.
+  const comparisonBase = rest.includes("--direct") ? base : sh("git", ["merge-base", base, "HEAD"]).trim();
+  const names = sh("git", ["diff", "--name-only", comparisonBase, "HEAD"]).split("\n").filter(Boolean);
   const srcChanged: string[] = [];
   const depsTouched: string[] = [];
   const versionChanged: string[] = [];
+  const versions: NonNullable<LintInput["versions"]> = {};
   const pkgs = workspacePackages();
   for (const p of pkgs) {
-    if (names.some((n) => ["src", "android", "ios"].some((d) => n.startsWith(`packages/${p.dir}/${d}/`)))) srcChanged.push(p.dir);
-    if (!names.some((n) => n === `packages/${p.dir}/package.json`)) continue;
-    // A version change is a release commit's own bump, exempt from the bullet rule.
-    try {
-      const atBase = sh("git", ["show", `${base}:packages/${p.dir}/package.json`]);
-      const oldV = (JSON.parse(atBase) as { version: string }).version;
-      const oldDeps = JSON.stringify((JSON.parse(atBase) as { dependencies?: unknown }).dependencies ?? {});
-      const newDeps = JSON.stringify(p.dependencies);
-      if (oldV !== p.version) versionChanged.push(p.dir);
-      if (oldDeps !== newDeps) depsTouched.push(p.dir);
-    } catch {
-      // package.json is new at HEAD: a dependency-relevant change
-      depsTouched.push(p.dir);
+    const manifestPath = `packages/${p.dir}/package.json`;
+    const current = JSON.parse(readFileSync(join(root, manifestPath), "utf8"));
+    let previous: typeof current | null = null;
+    // Missing at base is a new package; other git errors must fail lint.
+    const existed = sh("git", ["ls-tree", comparisonBase, "--", manifestPath]).trim() !== "";
+    if (existed) previous = JSON.parse(sh("git", ["show", `${comparisonBase}:${manifestPath}`]));
+    versions[p.dir] = { before: previous?.version ?? null, after: p.version, isPrivate: p.isPrivate };
+    const prefix = `packages/${p.dir}/`;
+    if (names.some((n) => n.startsWith(prefix) &&
+        (shippedPath(n.slice(prefix.length), current.files ?? []) || shippedPath(n.slice(prefix.length), previous?.files ?? [])))) {
+      srcChanged.push(p.dir);
     }
+    if (!names.includes(manifestPath)) continue;
+    if (previous?.version !== p.version) versionChanged.push(p.dir);
+    // The runtime manifest is shipped too. Dev-only tooling changes do not
+    // require a consumer release; exports, engines, native metadata and pins do.
+    const runtime = (manifest: Record<string, unknown>) => Object.fromEntries(
+      Object.entries(manifest).filter(([key]) => !["version", "devDependencies", "scripts"].includes(key)).sort(([a], [b]) => a.localeCompare(b)),
+    );
+    if (!previous || JSON.stringify(runtime(previous)) !== JSON.stringify(runtime(current))) depsTouched.push(p.dir);
   }
   const changelogs: Record<string, string | null> = {};
   const files: Record<string, string[]> = {};
@@ -712,7 +742,7 @@ function cmdLint(rest: string[]): void {
     changelogs[p.dir] = readChangelog(p.dir);
     files[p.dir] = packageFiles(p.dir);
   }
-  const errors = lint({ changelogs, files, srcChanged, depsChanged: depsTouched, versionChanged });
+  const errors = lint({ changelogs, files, srcChanged, depsChanged: depsTouched, versionChanged, versions });
   if (errors.length > 0) {
     for (const e of errors) console.error(`lint: ${e}`);
     throw new Error(`release lint failed with ${errors.length} error(s)`);
