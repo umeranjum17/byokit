@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.3 (2026-09-30)
+
+- Dependency update: pins @byokit/secrets 0.5.0.
+
 - SECURITY: Opt-in dual-wrap credential upgrades are authenticated and atomically replaced under the store lock; protection is only as strong as the owner-only host-key file, which must stay out of sealed-store backups.
 - FIX: A locked or unresponsive keyring no longer throws from prepare or start. The kit reports a locked saved sign-in in plain words, preserves the sealed store and retries normally on a later start after unlock; dual-wrapped stores open through their host key without prompting.
 
