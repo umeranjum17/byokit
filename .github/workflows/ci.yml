@@ -214,6 +214,9 @@ jobs:
 
   push-ios:
     runs-on: macos-15
+    env:
+      # Expo 57's native Swift package requires Swift 6.2; the image defaults to Xcode 16.4 (Swift 6.1).
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
