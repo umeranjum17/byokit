@@ -243,13 +243,15 @@ export interface RunSpec extends RunRef {
   thinking?: 'off' | 'low' | 'medium' | 'high';
   model?: string;                                              // 'provider/model' (5.8); with `account`, a model of that account
   account?: AccountRef | 'default' | 'auto';                   // 5.15; absent = the session's account, else as before
+  needs?: string[];                                            // 5.15: other models the run may call
   auth?: 'apiKey';                                             // 5.15: the member's newest API-key account
   tools?: string[];                                            // app tools (KitOptions.tools names) this run may call
   register?: boolean;                                          // default true: the bridge recognizes this run
 }
 export type RunEvent =
   | { type: 'account'; account: AccountId; model: string; sessionKey: string;   // 5.15: first event of a run on
-      how: 'chosen' | 'default' | 'auto' }                     // an account, before the `agent` request
+      how: 'chosen' | 'default' | 'auto'; why: PickWhy;        // an account, before the `agent` request
+      considered: Considered[] }
   | { type: 'text'; text: string }                             // cumulative assistant text
   | { type: 'tool'; name: string; phase: 'start' | 'end';
       id?: string;                                             // engine toolCallId, pairs start and end
@@ -353,10 +355,10 @@ export class OpenClawKit {
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account>;
   removeAccount(member: Member, id: AccountId): Promise<void>;
   models(member: Member, id: AccountId): Promise<ModelInfo[]>;
-  room(member: Member, id: AccountId): Promise<Room>;
+  room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;   // demand: 'provider/model' ids (5.15)
   defaults(member: Member): Promise<Defaults>;
   setDefaults(member: Member, d: Defaults): Promise<void>;
-  pick(member: Member, sel: RunSelection): Promise<AccountPick>; // what `run` would use now; decides nothing
+  pick(member: Member, sel: RunSelection, o?: { sessionKey?: string }): Promise<AccountPick>; // what `run` would use now; decides nothing
   move(ref: RunRef, to: AccountId): Promise<MoveResult>;
   // runs (5.8)
   toolNames(): string[];                                        // KitOptions.tools names: what RunSpec.tools may carry
@@ -758,9 +760,13 @@ export function createAccounts(ctx: { request: GatewayTransport['request']; root
   ready(agentId: string, provider: string): Promise<boolean>; rest(member: Member, id: AccountId, until: number): Promise<void> };
 // runs.ts gains `accounts: ReturnType<typeof createAccounts>` and `locks` in createRuns' ctx (O14).
 // pick.ts (O14; pure, portable)
-export function chooseAccount(candidates: readonly Account[], room: (a: Account) => Room, nowMs: number): AccountPick;
+export type RoomOf = (a: Account, demand: readonly string[]) => Room;
+export function consider(accounts: readonly Account[], defaults: Defaults, sel: RunSelection, room: RoomOf,
+  nowMs: number, models?: (a: Account) => readonly ModelInfo[], bound?: readonly AccountId[]): Considered[];
+export function chooseAccount(candidates: readonly Account[], room: (a: Account) => Room, nowMs: number):
+  { account: Account; why: PickWhy } | undefined;              // Auto only; resolveSelection builds the AccountPick
 export function resolveSelection(accounts: readonly Account[], defaults: Defaults, sel: RunSelection,
-  room: (a: Account) => Room, nowMs: number, models?: (a: Account) => readonly ModelInfo[]): AccountPick;
+  room: RoomOf, nowMs: number, models?: (a: Account) => readonly ModelInfo[], bound?: readonly AccountId[]): AccountPick;
 // classify.ts (O8)
 export function classify(message: string): { kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other'; until?: number };
 // words.ts (O10)
@@ -822,18 +828,37 @@ export type Account = { id: AccountId; provider: string; route: string;        /
   email?: string; plan?: string;     // live from models.authStatus usage when reported; never stored by the kit
   billing: 'subscription' | 'api'; state: SignInState; until?: number; addedAt: number };
 export type RoomSpan = 'session' | 'week' | 'month' | 'tightest';
-export type Room = { left: number; span: RoomSpan; resetsAt?: number; at: number } | { left: 'unknown'; at?: number };
-                                     // left: percent of the tightest window left, 0-100; times epoch ms
+export type Room = { left: number; span: RoomSpan; resetsAt?: number; at?: number } | { left: 'unknown'; at?: number };
+                                     // left: percent of the tightest applying window left, 0-100; times epoch ms;
+                                     // at: when the source read it; absent = age unknown, never a receipt time
 export type ModelInfo = { id: string; name: string; tier?: 'strong' | 'fast'; available: boolean;
   why?: 'plan' | 'resting' | 'signed_out'; until?: number };                   // id = 'provider/model'
-export type RunSelection = { account: AccountRef | 'default' | 'auto'; model?: string };
+export type RunSelection = { account: AccountRef | 'default' | 'auto'; model?: string;
+  needs?: string[] };                // every other 'provider/model' the run may call (subagents, fallbacks)
 export type Defaults = { account?: AccountId; model?: string; auto?: boolean };
+export type Considered = { id: AccountId;
+  out?: 'state' | 'resting' | 'billing' | 'model' | 'provider' | 'bound';   // why it is not a candidate; absent = one
+  until?: number;                                      // out 'resting': until when
+  missing?: string;                                    // out 'model': the first demanded 'provider/model' it lacks
+  tier?: 'room' | 'unknown' | 'exhausted';            // candidates only: Choosing's tier A, B or C
+  left: number | 'unknown'; span?: RoomSpan; resetsAt?: number;
+  age: number | 'unknown' };                           // ms from the reading's `at` to nowMs
+export type PickWhy = 'chosen' | 'default' | 'first_ready' | 'only' | 'most_room' | 'earlier_reset' | 'list_order' |
+  'no_reading' | 'refills_first';
 export type AccountPick =
-  | { ok: true; account: Account; model: string; how: 'chosen' | 'default' | 'auto'; reason: string }
-  | { ok: false; code: 'none' | 'not_included' | 'unknown_account'; reason: string };
+  | { ok: true; account: Account; model: string; how: 'chosen' | 'default' | 'auto'; why: PickWhy; reason: string;
+      considered: Considered[] }
+  | { ok: false; code: 'none' | 'not_included' | 'unknown_account' | 'bound' | 'paid'; reason: string;
+      considered: Considered[] };        // bound/paid: Runs step 2's refusals, reason its `account.*` words
 export type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // shared with @byokit/herdr
 ```
+
+`Room.at` optional, `RunSelection.needs`, `Considered`, `PickWhy` and `AccountPick.why`/`considered` are amendments to
+`@byokit/accounts`' `multi.ts` shapes and its Auto fixture: they land there first (fixture rows first), then O14 restates
+them, and the ui-core `fits` test checks both. The failure codes `'bound' | 'paid'` and `Considered.out: 'bound'` are
+kit-only (sessions bind to accounts only here): `@byokit/accounts` never returns them, and `fits` checks the accounts
+shapes against the kit's with those members added.
 
 **Isolation.** 5.6 forces `agents.defaults.authInheritance.agentId = 'byokit-base'`: a reserved id the kit never
 creates, signs in to or runs, so the inherited base every agent reads through is empty. Without it the pin makes the
@@ -860,13 +885,15 @@ O14 a member runs only on its own sign-ins, and one that never signed in reads `
   member's workspace (files, memory, skills); only credentials and session history are per account. The first account
   agent turns the fleet `agents.ownership: 'explicit'`; every kit request already names its `agentId`.
 - `<root>/accounts/<member>.json` (0600, written whole through a temp file and rename) is the only kit state:
-  `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model? } }, defaults: Defaults }` (`model` only for
-  an API key: the model saved with it). It holds no credential, token, email or engine line. An entry is written
+  `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?, who? } }, defaults: Defaults }` (`model`
+  only for an API key: the model saved with it; `who` the sign-in identity from `seal`, Sealing, kept after a sign-out
+  so a later sign-in can be matched). It holds no credential, token, email or engine line. An entry is written
   before its agent is created, so an agent is one of the member's accounts **only** when the member's index names it
   and its id is exactly `<member>--[0-9a-f]{6}`; an unindexed agent of that shape is never adopted, and an entry whose
-  agent is gone is dropped on the next write. A member-agent account with no entry (signed in before O14) gets one on
+  agent and `<root>/state/agents/<agent>` directory are both gone is dropped on the next write (an entry whose
+  directory remains is finished by `removeAccount`). A member-agent account with no entry (signed in before O14) gets one on
   first list: `addedAt: 0`, `route` = `routeFor(provider, 'browser')`, else the provider's first pinned subscription
-  choice.
+  choice, `who` from `byokit.accounts list`.
 - `accounts(member)` lists member-agent accounts first (by `addedAt`, then provider id), then account agents by
   `addedAt`. The member agent's accounts come from `byokit.accounts list` (its own store), never from
   `models.authStatus` (merged). `state`: `signing` during its sign-in; `resting` while `until > now`; else from its
@@ -877,49 +904,91 @@ O14 a member runs only on its own sign-ins, and one that never signed in reads `
 using the plugin SDK's `resolveAgentDir` and local-only `updateAuthProfileStoreWithLock`; every failure answers
 `{ ok: false }`, and no answer carries a secret):
 
-- `list { agentId }`: the agent's own profiles as `{ provider, profileId, type, status }[]`.
+- `list { agentId }`: the agent's own profiles as `{ provider, profileId, type, status, who? }[]`. `who` (also on
+  `seal` and `ready` answers) is the sign-in's identity: for an OAuth profile that stores a provider account id (the
+  pin's `OAuthCredential.accountId`; its ChatGPT sign-in fails without one), the first 16 hex digits of SHA-256 of
+  `<provider>\n<accountId>`, computed in the plugin, so the id itself never leaves the engine. No such id, or an
+  `api_key`/`token` profile, → no `who`.
 - `seal { agentId, provider }`: the profile to keep is the one named after `@` in `agents.entries[agentId].model`'s
   primary (the pin's sign-in sets it to `provider/model@<new profile id>`); no such suffix, or a different provider →
-  `{ ok: false }`. The agent's store keeps only that profile of `provider`, `order[provider] = [it]`, `lastGood`
+  `{ ok: false }`; else `{ ok: true, who? }`. The agent's store keeps only that profile of `provider`, `order[provider] = [it]`, `lastGood`
   cleared for it; on an account agent every other provider's profile is removed too; on the member agent an
   `api_key` profile is refused. Run after every finished sign-in and key activation. A member-agent provider signed in
   before O14 (no local order) is sealed on its first use as an account when it has exactly one local profile of that
   provider; with several and none named by the model, its `state` is `needs_again`.
-- `ready { agentId, provider }`: `{ ok: true, type: 'oauth' | 'token' | 'api_key', expiresAt? }` only when the agent's
+- `ready { agentId, provider }`: `{ ok: true, type: 'oauth' | 'token' | 'api_key', expiresAt?, who? }` only when the agent's
   own store holds that profile, its order lists exactly it, and it is not expired.
-- `adopt { from, to, provider }`: under both agents' exclusive locks, rewrites `agents.entries[to].model`'s primary
-  `@` suffix to `from`'s sealed profile id, moves that profile into `to`'s store, seals `to` to it (dropping `to`'s
-  old profile), then clears it from `from` (the credential never leaves the engine; D11 holds). Without the rewrite
+- `adopt { from, to, provider, who }`: under both agents' exclusive locks, rewrites `agents.entries[to].model`'s primary
+  `@` suffix to `from`'s sealed profile id, moves that profile record unchanged (every field the pin stored) into
+  `to`'s store, seals `to` to it (dropping `to`'s
+  old profile), then clears it from `from` (the credential never leaves the engine; D11 holds). It answers
+  `{ ok: false }`, changing nothing, unless `from`'s profile carries exactly that `who`. Without the rewrite
   the pin would keep pinning the deleted profile on every run with the agent's default model.
 - Before any sign-in on an existing agent the kit notes that agent's primary model (`config.get`); when the sign-in's
   profile is adopted away or cleared from it, the kit restores that primary model (the pin's sign-in rewrote it).
 - `clear { agentId }`: removes every profile from the agent's own store.
 
-**Choosing.** `src/pick.ts` holds `chooseAccount(candidates, room, nowMs)` and `resolveSelection(accounts, defaults,
-sel, room, nowMs, models?)`, pure, ported from `@byokit/accounts`; `fixtures/conformance/auto-pick-typescript.json`
-is the parity table both packages' tests run (its rows gain the API-key rule below first).
+**Choosing.** `src/pick.ts` holds `consider`, `chooseAccount` and `resolveSelection` (5.13), pure, ported from
+`@byokit/accounts`; `fixtures/conformance/auto-pick-typescript.json` is the parity table both packages' tests run (its
+rows gain the API-key rule, the demand and the explanation below first). `consider` is the one eligibility predicate:
+one `Considered` row per account in list order. `resolveSelection` calls it and ranks only its candidates (through
+`chooseAccount`, given `a => room(a, demand)`), and `run`, `pick` and the app's account list (through `pick`) all go
+through `resolveSelection`; nothing else filters or ranks accounts. The demand is `sel.model` (when set) plus
+`sel.needs`, deduplicated; `room(a, demand)` is the room for that demand (Room). `chooseAccount` returns only the
+Auto winner and its `why`; `resolveSelection` fills `how`, `model`, `reason` and `considered`. `bound` (kit only; `@byokit/accounts`
+has no bindings) is the accounts a conversation may use (Runs steps 1-2); absent, all.
 
-1. Candidates: accounts `ready`, or `resting` with `until <= now`, and `billing: 'subscription'`: an API-key account
-   is used only when chosen (by id, by `defaults.account`, or `auth: 'apiKey'`), never by Auto or a default fallback.
-   With a model, only accounts whose `models` list it; without, those of the default account's provider, else of the
-   first provider in list order.
-2. Tier A: known room with `left > 0`, or with a `resetsAt` already past; `left <= 0` without `resetsAt` counts as 0.
-   Sorted by `left` descending, then earlier `resetsAt`, then list order.
-3. Tier B: unknown room (including readings older than 24 h), in list order; above exhausted accounts.
-4. Tier C: every account exhausted: the earliest `resetsAt`, started anyway.
+1. Candidates: accounts in `bound` (else `out: 'bound'`); `ready`, or `resting` with `until <= now` (`resting`
+   with a later `until` → `out: 'resting'` with `until`; any other state → `out: 'state'`); `billing:
+   'subscription'` (else `out: 'billing'`): an API-key account is used only when chosen (by id, by
+   `defaults.account`, or `auth: 'apiKey'`), never by Auto or a default fallback. With a demand, only accounts whose
+   `models` list every demanded model (else `out: 'model'` with `missing`); without, those of the default account's
+   provider, else of the first provider in list order (else `out: 'provider'`). The first matching `out` in that order
+   is the row's.
+2. Tier A (`tier: 'room'`): known room with `left > 0`, or with a `resetsAt` already past; `left <= 0` without
+   `resetsAt` counts as 0. Sorted by `left` descending, then earlier `resetsAt` (an absent `resetsAt` after any
+   present one), then list order.
+3. Tier B (`tier: 'unknown'`): unknown room, including a reading whose `at` is older than 24 h, in list order; above
+   exhausted accounts. A known reading without `at` keeps its tier; only its `age` is `'unknown'`.
+4. Tier C (`tier: 'exhausted'`): every account exhausted: the earliest `resetsAt`, started anyway.
 5. Nothing: `{ ok: false, code: 'none' }`.
 
-`'default'` is the default account when `ready`, else Auto unless `defaults.auto === false`, else the first `ready`
-subscription account. A chosen id that is not the member's → `unknown_account`; a chosen account whose models lack
-`sel.model` → `not_included`. `AccountPick.model` is `sel.model`, else (API key) its saved model, else
-`defaults.model` when that account lists it, else its first available model. `reason` is a words sentence (`auto.*`
-below). `pick(member, sel)` gives the same answer without running.
+`'default'` is the default account when `ready` and in `bound`, else Auto unless `defaults.auto === false`, else
+the first `ready` subscription candidate (a default outside `bound` is treated as not ready; its row has `out:
+'bound'`). `auth: 'apiKey'` is the id of the member's newest API-key account (API keys). A chosen id that
+is not the member's → `unknown_account`; a chosen (or `ready` default) account lacking a demanded model →
+`not_included`. `AccountPick.model` is `sel.model`, else (API key) its saved model, else `defaults.model` when that
+account lists it, else its first available model. `reason` is a words sentence (`auto.*` below).
 
-**Room** (`room(member, id)`): the `models.authStatus { agentId }` row for the account's provider; its `usage.windows`
-entry with the highest `usedPercent` gives `left = 100 - usedPercent`, `resetsAt = resetAt`, `span` from the window
-label (session → `session`, weekly → `week`, monthly → `month`, else `tightest`), `at` = when the kit received it.
-The pin exposes no reading age (its cache keeps the last good reading), so the 24 h rule never applies to this kit.
-No window, no answer in 20 s, or an API-key account → `{ left: 'unknown' }`. The kit adds no cache.
+`considered` always has every account's row. An account the selection names (a chosen id, the `ready` default) is
+judged only on `bound` and the demand, so an API-key or resting account it names carries no `billing`/`resting` `out`;
+every other row is marked as Auto would mark it, so the app can show why each was not used.
+
+`why` and `how` are deterministic: a chosen id (and `auth: 'apiKey'`) → `how: 'chosen'`, `why: 'chosen'`; the `ready`
+default → `how: 'default'`, `why: 'default'`; the `auto: false` fallback → `how: 'default'`, `why: 'first_ready'`;
+else `how: 'auto'` and Auto's: `only` (one candidate); in tier A against the next tier-A candidate (or, alone in tier
+A, `most_room`): more `left` → `most_room`, the same `left` and an earlier `resetsAt` (by step 2's order) →
+`earlier_reset`, else `list_order`; tier B → `no_reading`; tier C → `refills_first`. `considered` holds ids, figures
+and codes only, never an email, name or engine line; the app renders it with the `pick.*` and `room.*` words
+(`pick.why.<why>` for the pick, `pick.out.<out>` and a `room.*` or `pick.age*` line per row).
+`pick(member, sel, { sessionKey })` applies Runs steps 1-2 for that key (their refusals answer `code: 'bound'` or
+`'paid'`, the kit-only codes; `@byokit/accounts` never returns them) (the binding gives `bound` and, for a key
+bound to an account agent, that account as a chosen id) and returns exactly what `run` would decide with the same
+key, selection and state, `considered` included, without running. The pick is made once, before the run's first
+request, and holds for the whole run: nothing re-picks during it (a limit hit ends the run, Runs step 7), and a bound
+conversation keeps its account until `move`.
+
+**Room** (`room(member, id, demand?)`): the `models.authStatus { agentId }` row for the account's provider; of its
+`usage.windows` entries that apply to the demand, the one with the highest `usedPercent` gives `left = 100 -
+usedPercent`, `resetsAt = resetAt`, `span` from the window label (session → `session`, weekly → `week`, monthly →
+`month`, else `tightest`). A window applies to every model unless the engine scopes it to models; the pin's window
+rows carry only `label`, `usedPercent` and `resetAt` (section 12), so today every window applies (the tightest known),
+and a scope a later pin reports narrows it (spec change first).
+A window without a numeric `usedPercent` is skipped, never read as unused. `at` is left out: the pin exposes no
+reading age (its cache keeps the last good reading, and the row's `ts` is answer time), so the kit never stamps the
+time it received a reading as the time it was read; `considered.age` is `'unknown'` and the 24 h rule never applies
+to this kit. No applying window, no answer in 20 s, or an API-key account → `{ left: 'unknown' }`. The kit adds no
+cache.
 
 **Runs.** Every run first finds the account its session is bound to, whatever `spec.account` says:
 
@@ -927,21 +996,26 @@ No window, no answer in 20 s, or an API-key account → `{ left: 'unknown' }`. T
    `agent:<member>:<tail>` is bound to whichever of the member's agents holds `agent:<that agent>:<tail>`, found with
    `sessions.resolve { key, agentId, allowMissing: true }` per agent (member agent first; `missing: true` = not there);
    a session on the member agent is bound to the member agent (any of its accounts). A key found nowhere is unbound.
-2. Bound to an account agent: `spec.account` absent, `'default'` or `'auto'` resolve to it, and a different id is
-   refused before any request (words `account.bound`: move the conversation first). When that account bills `api`,
-   only its own id or `auth: 'apiKey'` may continue it (words `account.paid`); anything else is refused the same way.
+2. Bound to an account agent: `spec.account` absent, `'default'` or `'auto'` resolve to it (Choosing treats it as a
+   chosen id with `bound` = that account, so a demand it lacks ends `plan` before any request), and a different id is
+   refused before any request (`code: 'bound'`, words `account.bound`: move the conversation first). When that account bills `api`,
+   only its own id or `auth: 'apiKey'` may continue it; anything else is refused the same way (`code: 'paid'`, words
+   `account.paid`).
    Bound to the member agent with `spec.account` set: `'auto'` and `'default'` choose only among the member agent's
-   own accounts, and an id on another agent is refused with `account.bound`.
-3. Bound to the member agent, or unbound, with `spec.account` absent: exactly today's 5.8 behavior on the member
-   agent (existing requests stay byte-identical).
-4. Otherwise the selection is resolved (Choosing). A failed pick ends the run before any request: `none` →
-   `{ ok: false, kind: 'signed-out', message: reason }`, `not_included` → `kind: 'plan'`; `unknown_account` throws (a
+   own accounts (`bound` = those), and an id on another agent is refused with `account.bound`.
+3. Bound to the member agent, or unbound, with `spec.account` and `spec.needs` absent: exactly today's 5.8 behavior on
+   the member agent (existing requests stay byte-identical). `spec.needs` with `spec.account` absent resolves as
+   `account: 'default'`.
+4. Otherwise the selection `{ account: spec.account, model: spec.model, needs: spec.needs }` is resolved (Choosing,
+   with step 2's `bound`). A failed pick ends the run before any request: `none` →
+   `{ ok: false, kind: 'signed-out', message: reason }`, `not_included` → `kind: 'plan'`, step 2's `bound` and `paid`
+   → `kind: 'other'` with `message: reason` (its `account.*` words); `unknown_account` throws (a
    caller bug, like a malformed model). An unbound key picking an account agent runs as
    `agent:<account agent>:<tail>` (`<tail>` = the app key after `agent:<member>:`).
 5. `byokit.accounts ready` for the account's agent and provider replaces 5.8's `models.authStatus` check; not ready →
    `signed-out`, no engine request.
-6. The first event is `{ type: 'account', account, model, sessionKey, how }` with the engine key, before the `agent`
-   request, which is 5.8's request on the account's `agentId` and engine key with the pick's `provider`/`model`
+6. The first event is `{ type: 'account', account, model, sessionKey, how, why, considered }` (the pick's) with the
+   engine key, before the `agent` request, which is 5.8's request on the account's `agentId` and engine key with the pick's `provider`/`model`
    (strict; `@profile` still refused). The bridge registers the engine key under `spec.member`.
 7. An end classified `resting` writes `until` (now + 5 min when the message names none) to the index; Auto skips the
    account until then. The ok end carries `account` and `model`.
@@ -956,15 +1030,23 @@ provider). The index entry is written, then 5.7's sign-in loop runs against that
 kit: the engine has one setup admission; a second start ends `why: 'busy'`). A sign-in for a provider the member
 already holds must not reuse the provider's browser session: for `openai` browser sign-ins the kit adds
 `prompt=login` to the sign-in URL it surfaces (the pin builds that URL unsigned); for other routes the connect sheet
-shows words `account.signOutFirst` first. When done: seal; then read the identity: poll `models.authStatus { agentId }`
-until the provider row carries `usage.accountEmail` or 20 s pass.
+shows words `account.signOutFirst` first. When done: seal; its `who` (Sealing) is the sign-in's identity. Identity is
+compared only within one member and one provider, against each account's index `who`. The email is a display hint:
+it never decides which account a sign-in belongs to, and a changed email changes nothing.
 
-- Same email as an existing account X of the provider (or `again` = X with the same or no email): `adopt { from:
-  <target>, to: <X's agent> }`, remove the new agent (or `clear` the member agent's profile of that provider when it
-  was the target), and `done` names X: signing in again as the same person refreshes that account instead of adding
-  a row.
-- `again` = X with a different email: the sign-in stays a new account, and `done` names it.
-- No email after 20 s: the sign-in stays a new account (or, with `again`, is adopted into X).
+- The same `who` as the target's own entry (the member agent signing in again to its signed-out account): that
+  account is signed in again; nothing is adopted or cleared.
+- The same `who` as another existing account X, whatever `again` names: `adopt { from: <target>, to: <X's agent>,
+  provider, who }`, remove the new agent (or `clear` the member agent's profile of that provider when it was the
+  target), and `done` names X: signing in again as the same account refreshes it instead of adding a row, whatever
+  email it now reports, and an account `again` named but did not sign in to is untouched. Several accounts already
+  sharing that `who` (only from before O14): X is the earliest `addedAt`. An `adopt` answering `{ ok: false }` leaves
+  the sign-in a new account, as below.
+- `again` = X and a `who` no account has: the sign-in stays a new account and `done` names it; X's sign-in is
+  untouched (signing in to the wrong account never replaces X).
+- No `who` on either side (a provider or profile without an account id, or an account signed in before its `who`
+  was recorded that holds no profile now): no adoption, even with `again` or the same email; the sign-in stays a new
+  account, `done` names it, and the person removes the old row.
 - A new agent whose sign-in fails, expires or is cancelled is removed with its index entry.
 
 `addAccount` resolves once the target is known: `Promise<{ id; paste; cancel; done: Promise<{ view: SignInView; id:
@@ -989,10 +1071,18 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
   dropped.
 - `removeAccount(member, id)`: a member-agent account is `models.authLogout { provider, agentId: member, profileIds:
   <its sealed profile> }`, then its entry is dropped. An account agent: refused (`busy`) while a run is live on it;
-  `byokit.accounts clear`, then `ready` must report no profile (else stop with the error, nothing deleted);
+  `byokit.accounts clear`, then `byokit.accounts list` must answer no profile of any type, order or expiry (a
+  profile the engine refreshed during `clear` lands whole before or after it, under the same store lock, which O14's
+  engine job confirms: `clear` again, once; still listed → stop with the error, nothing deleted);
   `agents.delete { agentId, deleteFiles: false }` (with `true` the pin moves files to a trash path it never reports);
   the kit then removes `<root>/state/agents/<agentId>` (the agent's store and sessions) itself, never the shared
-  workspace; the entry is dropped. The account's sessions go with it; `move` first keeps one.
+  workspace, and checks it is gone (recreated by a late write → removed once more; still there → stop with the error,
+  the entry kept). The entry is dropped only when the directory is gone; `removeAccount` on an entry whose agent is
+  already gone removes the directory and then the entry. A write the engine lands even later cannot be ruled out by a
+  bounded check, so on `prepare` and after every removal the kit also removes each
+  `<root>/state/agents/<member>--[0-9a-f]{6}` directory that no index names and no engine agent owns (an entry is
+  written before its agent is created, so an account being added is never swept). The account's
+  sessions go with it; `move` first keeps one.
 - `models(member, id)`: `models.list { agentId, view: 'default' }` rows of the account's provider, mapped `id =
   'provider/model'`, `available`, `unavailableReason` `missing-auth`/`auth-failed` → `why: 'signed_out'`, `cooldown`
   → `why: 'resting'` with `until = unavailableUntil`. The pin reports no per-plan availability, so `why: 'plan'` only
@@ -1008,12 +1098,14 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
   untouched. Then `sessions.delete { key, agentId: <source>, deleteTranscript: true, expectedSessionId,
   expectedSessionUpdatedAt }`; failure or mismatch → `close_failed` with `live` = the new key (both exist).
 - Locks (`src/locks.ts`): per agent id; runs take a shared hold from `ready` to their end (runs on one account may
-  overlap); `removeAccount`, `move` (source and target) and sealing are exclusive.
+  overlap), and `room` and `models` hold it for their read, so no kit read of an agent is in flight while it is
+  removed; `removeAccount`, `move` (source and target) and sealing are exclusive.
 - Attribution: every member lookup (approvals' `agentId` and session key, bridge, link `oc.events`/`oc.sessions`
   filters) maps an indexed `<member>--<hex6>` agent, and `byokit-key-<member>` when present, to `<member>`.
 
-**Words** (added to `src/words.json`; `words` also fills `{provider}`, `{room}` and `{left}`; the kit renders `{left}`
-as the number with a percent sign, since `%` is banned in the file, and `{room}` from the `room.*` key of the span):
+**Words** (added to `src/words.json`; `words` also fills `{provider}`, `{room}`, `{left}`, `{model}`, `{n}` and
+`{ago}`; the kit renders `{left}` as the number with a percent sign, since `%` is banned in the file, `{room}` from the
+`room.*` key of the span, and `{ago}` from `ago.minutes` under an hour, else `ago.hours`, `{n}` rounded down):
 
 | Key | Sentence |
 |---|---|
@@ -1025,6 +1117,25 @@ as the number with a percent sign, since `%` is banned in the file, and `{room}`
 | `room.week` | {left} left this week |
 | `room.month` | {left} left this month |
 | `room.tightest` | {left} left for now |
+| `pick.out.state` | Not signed in right now |
+| `pick.out.resting` | Taking a break until {time} |
+| `pick.out.billing` | Billed per use, so used only when you choose it |
+| `pick.out.model` | Doesn't include {model} |
+| `pick.out.provider` | A different service |
+| `pick.out.bound` | This conversation uses another account |
+| `pick.why.chosen` | You chose {name}. |
+| `pick.why.default` | {name} is your default. |
+| `pick.why.first_ready` | Your default isn't ready, so {name}, the first ready account. |
+| `pick.why.only` | {name} is the only account that can take this. |
+| `pick.why.most_room` | {name} has the most room left. |
+| `pick.why.earlier_reset` | {name} has as much room left and refills sooner. |
+| `pick.why.list_order` | {name} is tied for room and comes first in your list. |
+| `pick.why.no_reading` | No account has a recent reading, so {name}, first in your list. |
+| `pick.why.refills_first` | All accounts are out of room; {name} refills first. |
+| `pick.age` | Read {ago} ago |
+| `pick.ageUnknown` | Reading time unknown |
+| `ago.minutes` | {n} min |
+| `ago.hours` | {n} h |
 | `account.bound` | This conversation uses {name}. Move it to switch accounts. |
 | `account.paid` | This conversation uses {name}, which is billed per use. Choose {name} to keep going. |
 | `account.signOutFirst` | To add a different {provider} account, sign out of {provider} in your browser first. |
@@ -1376,7 +1487,7 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 | `oc.signin.cancel` | `{ provider }` | `null` |
 | `oc.signout` | `{ provider }` | `null` |
 | `oc.sessions` *view* | — | `sessions.list` filtered to the member's keys (member agent and account agents, D9) |
-| `oc.run` (stream) | `{ sessionKey?, message, model?, account?, auth?, system?, images?, thinking?, tools? }` (`account` an id of the member's, `'default'` or `'auto'`; `auth` only `'apiKey'`) | frames `RunEvent` then `{ type: 'end', end: RunEnd }`; key defaults to `agent:<member>:link:<uuid>`; options are type-checked (`thinking` one of `off|low|medium|high`, `images` `{ data, mimeType }[]`); a `tools` name outside `kit.toolNames()` → `link.notAllowed` |
+| `oc.run` (stream) | `{ sessionKey?, message, model?, account?, needs?, auth?, system?, images?, thinking?, tools? }` (`account` an id of the member's, `'default'` or `'auto'`; `auth` only `'apiKey'`) | frames `RunEvent` then `{ type: 'end', end: RunEnd }`; key defaults to `agent:<member>:link:<uuid>`; options are type-checked (`thinking` one of `off|low|medium|high`, `images` `{ data, mimeType }[]`, `needs` a `'provider/model'` string array refused like a malformed `model`); a `tools` name outside `kit.toolNames()` → `link.notAllowed` |
 | `oc.steer` | `{ sessionKey, text, auth? }` | `null` (key must be the member's, D9) |
 | `oc.abort` | `{ sessionKey, auth? }` | `null` (key must be the member's, D9) |
 | `oc.accounts` *view* | — | `Account[]` (5.15) |
@@ -1387,10 +1498,10 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 | `oc.account.rename` | `{ id, name }` | `Account` |
 | `oc.account.remove` | `{ id }` | `null` |
 | `oc.models` *view* | `{ id }` | `ModelInfo[]` |
-| `oc.room` *view* | `{ id }` | `Room` |
+| `oc.room` *view* | `{ id, demand? }` | `Room` |
 | `oc.defaults` *view* | — | `Defaults` |
 | `oc.defaults.set` | `Defaults` | `null` |
-| `oc.pick` *view* | `RunSelection` | `AccountPick` |
+| `oc.pick` *view* | `RunSelection & { sessionKey? }` | `AccountPick` |
 | `oc.move` | `{ sessionKey, to }` | `MoveResult` (key must be the member's) |
 | `oc.approvals` *view* | — | the member's `Approval[]` |
 | `oc.decide` | `{ id, allow, reason?, answer? }` | `null` (approval must be the member's) |
@@ -1422,7 +1533,7 @@ export type OpenClawLinkEvent =                             // oc.events frames
   | { [E in GatewayEventName]: { event: E; payload: GatewayEventPayload<E> } }[GatewayEventName]
   | { event: 'approval'; change: 'added' | 'resolved'; approval: Approval };
 export type SessionRow = { sessionKey: string; [k: string]: unknown };
-export type DeviceRunOptions = { sessionKey?: string; model?: string; account?: AccountRef | 'default' | 'auto'; auth?: 'apiKey'; system?: string;
+export type DeviceRunOptions = { sessionKey?: string; model?: string; account?: AccountRef | 'default' | 'auto'; needs?: string[]; auth?: 'apiKey'; system?: string;
   images?: { data: string; mimeType: string }[]; thinking?: 'off' | 'low' | 'medium' | 'high'; tools?: string[] };
 export type DeviceState = { state: KitState; words: string; version: string; engine: string; signedIn?: string[] };
 export function openclawDevice(link: DeviceLink): {
@@ -1437,8 +1548,8 @@ export function openclawDevice(link: DeviceLink): {
              view(id: AccountId): Promise<AccountView>; paste(id: AccountId, t: string): Promise<void>;
              cancel(id: AccountId): Promise<void>; rename(id: AccountId, name: string): Promise<Account>;
              remove(id: AccountId): Promise<void> };
-  models(id: AccountId): Promise<ModelInfo[]>; room(id: AccountId): Promise<Room>;
-  defaults(): Promise<Defaults>; setDefaults(d: Defaults): Promise<void>; pick(sel: RunSelection): Promise<AccountPick>;
+  models(id: AccountId): Promise<ModelInfo[]>; room(id: AccountId, demand?: string[]): Promise<Room>;
+  defaults(): Promise<Defaults>; setDefaults(d: Defaults): Promise<void>; pick(sel: RunSelection, o?: { sessionKey?: string }): Promise<AccountPick>;
   move(sessionKey: string, to: AccountId): Promise<MoveResult>;
   run(message: string, o?: DeviceRunOptions): AsyncIterable<RunEvent | { type: 'end'; end: RunEnd }>;
   steer(k: string, t: string, o?: { auth?: 'apiKey' }): Promise<void>; abort(k: string, o?: { auth?: 'apiKey' }): Promise<void>;
@@ -1775,18 +1886,42 @@ its fixture; `@byokit/ui-core` `AccountsSource` (for `fits`) · version: opencla
 - Behavior: D9, D11, D17, 5.6 (isolation, plugins), 5.7 sign-out, 5.15, 7.1/7.2 account rows. The fake gateway gains,
   per agent: `agents.delete`, `agents.files.get/set`, `models.list { agentId }`, `sessions.resolve { allowMissing }`,
   `sessions.create { fork }`, `sessions.delete`, `sessions.list` `hasActiveRun`, `openclaw.setup.activate`,
-  `byokit.accounts`, the `model@<profile>` write on sign-in, and a cold usage cache (no `usage` on the first read).
+  `byokit.accounts`, the `model@<profile>` write on sign-in, an `accountId` and `email` on each sign-in's profile
+  (settable per test, or absent), a hook that writes a refreshed profile at a chosen step, and a cold usage cache (no
+  `usage` on the first read).
 - Acceptance: `pick.test.ts` runs every row of `fixtures/conformance/auto-pick-typescript.json`, including an API-key
-  account never chosen by Auto or a default fallback. `accounts.test.ts` with `fakeGateway`: two ChatGPT accounts sign
+  account never chosen by Auto or a default fallback; rows for each `why` (one candidate, more room, equal room and an
+  earlier reset, a full tie, unknown room only, all exhausted), each `out` code, a known reading without `at` staying
+  in tier A with `age: 'unknown'` while one with an old `at` drops to tier B, tied `left` with one or both
+  `resetsAt` absent, the `auto: false` fallback (`first_ready`), `auth: 'apiKey'` (`chosen`), a chosen API-key or
+  resting account carrying no `out`, `bound` narrowing candidates (`out: 'bound'`), and a demand whose `needs` model
+  one account lacks (`out: 'model'` with `missing`; chosen by id → `not_included`). `accounts.test.ts` with `fakeGateway`: two ChatGPT accounts sign
   in to two agents and run independently; a run on an account emits the `account` event first and ends with
   `account`/`model`; `'auto'` picks by room and never switches mid-run; a second run on the same app key stays on the
   account that holds it; a resting end sets `until` and the next Auto skips it; a bound key refuses another account,
   and an API-key conversation refuses `'auto'`, before any request; an account whose `ready` fails ends `signed-out`
-  with no `agent` request; a same-email sign-in adopts into the existing account and leaves one row; `again` with
-  another email adds a row; an unindexed `<member>--<hex6>` agent is never listed or reachable; `removeAccount`
+  with no `agent` request; `pick` with a key equals the `account` event of a run started with that key on the same
+  state, `considered` included, for an unbound key, one bound to an account agent and one bound to the member agent,
+  and refuses identically (`bound`, `paid`) where the run ends `kind: 'other'` with the same message; a member-agent-bound `'default'` whose default
+  account is on another agent falls back (`out: 'bound'`); `needs` without `account` runs as `'default'`;
+  a bound run whose account lacks a `needs` model ends `plan` with no `agent` request; `room` never carries `at`,
+  skips a window without a numeric `usedPercent` (only such windows → `{ left: 'unknown' }`), and answers the same
+  with a demand as without; identity (the fake stores an `accountId` per sign-in): a sign-in with an
+  existing account's identity adopts into it and leaves one row (duplicate identity), also when its email changed;
+  `again` = X signing in to another identity adds a row and X's next run still bills X (wrong-account re-auth); a
+  sign-in without an account id adds a row even with the same email and `again` (missing identity); `again` = Y
+  signing in to X's identity adopts into X and leaves Y untouched; adoption keeps every field of the profile record,
+  an extra unknown one included; a refreshed profile the fake writes between `clear` and `agents.delete` (with no
+  order, and expired), one written after the directory is removed, and one written after `removeAccount` returned
+  (swept on the next `prepare`) leave no profile file under `<root>`, and the entry is dropped only after the
+  directory is gone (removal racing refresh); `adopt` with another `who` answers `{ ok: false }` and changes nothing;
+  two pre-O14 accounts sharing a `who` adopt into the earlier `addedAt`; the member agent signing in again to its
+  signed-out account's `who` adopts nothing and clears nothing; no `who` or account id
+  in `accounts()`, views, `considered`, words, errors, events or link frames; an email appears only as
+  `Account.email`, never in `considered`, words, errors, events or the index; an unindexed `<member>--<hex6>` agent is never listed or reachable; `removeAccount`
   refuses while live, never touches the member agent's sign-in, and leaves no profile behind; `move` forks then
   deletes, `busy` while live, `close_failed` keeps both; `addKey` failure leaves no agent; the index file is 0600;
-  a same-email re-sign-in (and `again`) leaves the existing account's
+  a same-identity re-sign-in (and `again`) leaves the existing account's
   default-model run working; a canary token held by two accounts never appears in the index, `accounts()`, views, words, errors, events or link
   frames; with no account agents, every existing test's requests stay byte-identical; an existing old-rule member id
   still runs. Engine job (`test/engine/accounts.test.ts`, stub model): two account agents each billed on its own
@@ -1922,7 +2057,9 @@ OpenClaw (pinned 2026.8.1, verified in Crewhouse at `a9ca74e`):
   dir and sessions to `$HOME/.Trash` but not a path another agent still owns. Credentials live in per-agent SQLite;
   a provider's local non-empty `order` is the only restriction over the merged store, an empty order is dropped on
   save, and `models.authStatus` reports merged profiles with no source flag and no per-profile identity (only a
-  per-provider `usage.accountEmail`, absent on a cold usage cache; its `ts` is answer time, never reading age).
+  per-provider `usage.accountEmail`, absent on a cold usage cache; its `ts` is answer time, never reading age). A
+  usage window is `{ label, usedPercent, resetAt? }`, with no model scope. A stored OAuth profile carries
+  `accountId?` and `email?`; the ChatGPT sign-in fails when it cannot read an `accountId` from the token.
   `models.authLogout` without `profileIds` removes the provider's profiles from every owner store. `openclaw.setup.auth.start
   { agentId }` writes a fresh `<provider>:setup-<uuid>` profile into that agent's store and sets that agent's primary
   model to `provider/model@<that id>`. An explicit `provider`/`model` never falls back to another provider but may
