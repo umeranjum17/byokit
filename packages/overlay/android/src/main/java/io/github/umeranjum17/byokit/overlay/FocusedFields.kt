@@ -39,7 +39,7 @@ interface FieldNode {
   fun set(text: String): Boolean
   /** The selection as (start, end) with start <= end, or null when the field reports none. */
   fun selection(): Pair<Int, Int>?
-  /** Finds input focus, or accessibility focus when [input] is false; never guesses an editable child. */
+  /** Finds exact input/accessibility focus; returns this or an owned node the caller recycles, never a guess. */
   fun findFocus(input: Boolean): FieldNode? = null
   /** The parent, or null at the root; the caller recycles it. */
   fun parent(): FieldNode? = null
@@ -329,11 +329,8 @@ internal class NodeWrap(
   override fun findFocus(input: Boolean): FieldNode? {
     val focused = node.findFocus(if (input) AccessibilityNodeInfo.FOCUS_INPUT else AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
       ?: return null
-    if (focused === node || focused == node) {
-      @Suppress("DEPRECATION")
-      if (focused !== node) focused.recycle()
-      return this
-    }
+    // A distinct snapshot of the same node may carry newer password/focus flags; keep that snapshot.
+    if (focused === node) return this
     return NodeWrap(focused, owner)
   }
   override fun parent(): FieldNode? = node.parent?.let { NodeWrap(it, owner) }

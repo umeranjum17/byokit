@@ -35,12 +35,17 @@ class NodeAdapterTest {
     private val gone: Boolean = false,
     private val lands: String? = null,
     private val passwordOnRefresh: Boolean = false,
+    private val sameAs: Info? = null,
   ) : AccessibilityNodeInfo() {
+    var focusSnapshot: Info? = null
+    override fun equals(other: Any?): Boolean =
+      this === other || sameAs === other || (other is Info && other.sameAs === this)
+    override fun hashCode(): Int = System.identityHashCode(sameAs ?: this)
     var parentNode: Info? = null
     override fun getParent(): AccessibilityNodeInfo? = parentNode
     var textReads = 0
     override fun findFocus(focus: Int): AccessibilityNodeInfo? {
-      if (if (focus == FOCUS_INPUT) inputFocused else accessibilityFocused) return this
+      if (if (focus == FOCUS_INPUT) inputFocused else accessibilityFocused) return focusSnapshot ?: this
       return kids.firstNotNullOfOrNull { it.findFocus(focus) }
     }
     val actions = mutableListOf<Int>()
@@ -235,6 +240,20 @@ class NodeAdapterTest {
     assertEquals("accessible", FocusedFields.capture(Service(accessible = accessible))?.shown())
     val password = Info(editable = true, password = true)
     assertNull(FocusedFields.read(Service(focus = password, accessible = accessible)))
+  }
+
+  @Test fun equalFocusSnapshotKeepsItsNewerPasswordFlags() {
+    val captured = Info(editable = true, text = "old snapshot")
+    val focused = Info(editable = true, password = true, text = "secret", sameAs = captured)
+    captured.focusSnapshot = focused
+    assertEquals(captured, focused)
+    assertNull(FocusedFields.capture(Service(focus = captured)))
+    assertNull(FocusedFields.read(Service(focus = captured)))
+    assertEquals("failed", FocusedFields.insert(captured, "draft", copy = { throw AssertionError("must not copy") }))
+    assertEquals(0, captured.textReads)
+    assertEquals(0, focused.textReads)
+    assertEquals(emptyList<Int>(), captured.actions)
+    assertEquals(emptyList<Int>(), focused.actions)
   }
 
   @Test fun passwordAncestorNeverExposesOrWritesTheFocusedVirtualField() {
