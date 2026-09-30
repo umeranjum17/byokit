@@ -24,7 +24,7 @@ export type ObserveOptions = NativeAddressesOptions & {
   probe?: ProbeOptions;
 };
 
-export function ipv4(address: string): number | undefined {
+function ipv4(address: string): number | undefined {
   const parts = address.split('.');
   if (parts.length !== 4 || parts.some((p) => !/^(0|[1-9]\d{0,2})$/.test(p) || +p > 255)) return undefined;
   return parts.reduce((n, p) => n * 256 + +p, 0);
@@ -33,18 +33,33 @@ const tailnet = (address: string) => { const n = ipv4(address); return n !== und
 const privateIp = (address: string) => { const n = ipv4(address); return n !== undefined &&
   (Math.floor(n / 0x1000000) === 10 || Math.floor(n / 0x100000) === 0xac1 || Math.floor(n / 0x10000) === 0xc0a8); };
 
+// React Native's URL implementation leaves ws/wss hosts empty and has no protocol setter.
+// Parse the small, canonical dial-URL subset directly so observations do not depend on a URL polyfill.
+function dialUrl(url: string): { hostname: string; pathname: string; httpUrl: string } | undefined {
+  if (/[\s\\]/.test(url)) return undefined;
+  const match = /^(ws|wss|http|https):\/\/(\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::(\d{1,5}))?([/?#].*)?$/i.exec(url);
+  if (!match) return undefined;
+  const [, scheme, rawHost, port, suffix = ''] = match;
+  const hostname = rawHost!.toLowerCase();
+  if (port !== undefined && (+port < 1 || +port > 65535)) return undefined;
+  if (!hostname.startsWith('[')) {
+    if (/^[\d.]+$/.test(hostname) && ipv4(hostname) === undefined) return undefined;
+    if (hostname.length > 253 || hostname.split('.').some((label) => !label || label.length > 63 || label.startsWith('-') || label.endsWith('-'))) return undefined;
+  }
+  const protocol = scheme!.toLowerCase().replace(/^ws/, 'http');
+  return { hostname, pathname: suffix.split(/[?#]/)[0] || '/', httpUrl: `${protocol}://${rawHost}${port === undefined ? '' : `:${port}`}${suffix}` };
+}
+
 /** Classify a dial URL. This is an address hint, never peer membership or authentication evidence. */
 export function routeOf(url: string): RouteKind {
-  try {
-    const u = new URL(url);
-    if (!['ws:', 'wss:', 'http:', 'https:'].includes(u.protocol)) return 'unknown';
-    if (/^\/link\/v1\//.test(u.pathname)) return 'relay';
-    const host = u.hostname.toLowerCase();
-    if (host === 'localhost' || host === '[::1]' || (ipv4(host) !== undefined && host.startsWith('127.'))) return 'loopback';
-    if (tailnet(host) || host.endsWith('.ts.net')) return 'tailscale';
-    if (privateIp(host) || host.endsWith('.local')) return 'home';
-    return 'unknown';
-  } catch { return 'unknown'; }
+  const parsed = dialUrl(url);
+  if (!parsed) return 'unknown';
+  if (/^\/link\/v1\//.test(parsed.pathname)) return 'relay';
+  const host = parsed.hostname;
+  if (host === 'localhost' || host === '[::1]' || (ipv4(host) !== undefined && host.startsWith('127.'))) return 'loopback';
+  if (tailnet(host) || host.endsWith('.ts.net')) return 'tailscale';
+  if (privateIp(host) || host.endsWith('.local')) return 'home';
+  return 'unknown';
 }
 
 /** Read and validate host-supplied IPv4 evidence; unavailable/failed modules yield no evidence. */
@@ -70,18 +85,14 @@ export async function probe(url: string, o: ProbeOptions = {}): Promise<ProbeObs
   if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 2147483647) throw new Error('timeout must be a positive timer duration');
   const started = Date.now();
   const result = (state: ProbeState): ProbeObservation => ({ state, url, elapsedMs: Math.max(0, Date.now() - started) });
-  let target: URL;
-  try {
-    target = new URL(url);
-    if (!['ws:', 'wss:', 'http:', 'https:'].includes(target.protocol) || target.username || target.password) return result('unknown');
-    target.protocol = target.protocol === 'ws:' ? 'http:' : target.protocol === 'wss:' ? 'https:' : target.protocol;
-  } catch { return result('unknown'); }
+  const target = dialUrl(url);
+  if (!target) return result('unknown');
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const expired = new Promise<ProbeObservation>((resolve) => {
     timer = setTimeout(() => { resolve(result('timeout')); controller.abort(); }, timeout);
   });
-  const request = Promise.resolve().then(() => (o.fetch ?? fetch)(target.href, { signal: controller.signal, redirect: 'manual' }))
+  const request = Promise.resolve().then(() => (o.fetch ?? fetch)(target.httpUrl, { signal: controller.signal, redirect: 'manual' }))
     .then((response) => { void response.body?.cancel().catch(() => {}); return result('answers'); }, (error: unknown) => {
       const code = (error as { code?: string; cause?: { code?: string } } | null)?.cause?.code ?? (error as { code?: string } | null)?.code;
       return result(controller.signal.aborted || code === 'ETIMEDOUT' ? 'timeout' : code === 'ECONNREFUSED' ? 'refused' : 'unknown');
@@ -95,7 +106,7 @@ export async function observe(o: ObserveOptions): Promise<Observation> {
   const addresses = o.addresses === undefined ? await nativeAddresses(o) : await nativeAddresses({ nativeModule: { addresses: async () => o.addresses! } });
   const homeUrls = o.urls.filter((url) => routeOf(url) === 'home');
   const home = homeUrls.find((url) => {
-    const host = ipv4(new URL(url).hostname);
+    const host = ipv4(dialUrl(url)!.hostname);
     return host !== undefined && addresses.some((a) => {
       const local = ipv4(a.address);
       if (local === undefined || !privateIp(a.address) || a.prefixLength === undefined || a.prefixLength === 0) return false;

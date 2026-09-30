@@ -166,3 +166,27 @@ test('phoneNetwork preserves Android Wi-Fi/cellular/VPN evidence and iOS unknown
   assert.deepEqual(await phoneNetwork({ nativeModule: { phoneNetwork: async () => ({ onWifi: 'no', cellular: false }) as never } }), unknown);
   assert.deepEqual(await phoneNetwork({ nativeModule: { phoneNetwork: async () => ({ onWifi: true, cellular: false, vpnActive: 'unsupported' }) as never } }), { ...unknown, onWifi: true });
 });
+
+
+test('the phone observation flow works when React Native URL has no WebSocket hostname or protocol setter', async () => {
+  const original = globalThis.URL;
+  class NativeURL {
+    get hostname() { return ''; }
+    get protocol() { return 'ws:'; }
+    constructor(_url: string) { throw new Error('the observation flow must not depend on native URL parsing'); }
+  }
+  (globalThis as unknown as { URL: unknown }).URL = NativeURL;
+  try {
+    assert.equal(routeOf('ws://192.168.1.20/link'), 'home');
+    assert.equal(routeOf('wss://relay.example/link/v1/umer'), 'relay');
+    assert.equal(routeOf('ws://[::1]/link'), 'loopback');
+    let target = '';
+    const get = (async (url) => { target = String(url); return new Response(''); }) as typeof fetch;
+    const facts = await observe({ urls: ['ws://192.168.1.20/link'], addresses: [{ address: '192.168.1.2', prefixLength: 24 }], probe: { fetch: get } });
+    assert.equal(facts.home, true);
+    assert.equal(facts.knock?.state, 'answers');
+    assert.equal(target, 'http://192.168.1.20/link');
+    assert.equal((await probe('wss://umer.example/link', { fetch: get })).state, 'answers');
+    assert.equal(target, 'https://umer.example/link');
+  } finally { globalThis.URL = original; }
+});
