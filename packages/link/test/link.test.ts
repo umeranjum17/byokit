@@ -9,7 +9,7 @@ import {
   DeviceLink, Host, LinkError, PublicLinkError, b64url, hostId, keyPair, keyPairFrom, unb64url,
   type DeviceGrant, type Grant, type HostOptions, type LinkStatus, type PairRequest,
 } from '../src/index.ts';
-import { parseOffer } from '../src/pairing.ts';
+import { normalizeCode, parseOffer } from '../src/pairing.ts';
 import { Handshake } from '../src/channel.ts';
 import { closers, connect, pairWithCode, pairWithOffer, sleep, startHost, until } from './helpers.ts';
 
@@ -125,6 +125,7 @@ test('machine-bound short code: words, approval, replay, wrong code, expiry and 
   const h = await startHost({ name: 'Umer’s computer', now: () => now, pairMs: 900_000 });
   const { code, expires } = h.host.shortCode({ role: 'view', kind: 'phone', lifetime: 60_000 });
   assert.equal(code.length, 57, 'fits one line in an 80-column terminal');
+  assert.equal(normalizeCode(code.toLowerCase().replace(/-/g, ' ')), code.replace(/-/g, ''));
   assert.match(code, /^K1-[2-9A-HJKMNP-Z]{4}(-[2-9A-HJKMNP-Z]{4}){2}(-[0-9A-F]{4}){8}$/);
   assert.equal(expires, now + 300_000);
   let shown = '';

@@ -78,7 +78,7 @@ answer: { echo: { text: 'hi' }, from: 'Pixel 9' }
 
 | Export | What it does |
 |---|---|
-| `Host` | The computer's end: `Host.open(options)`, then `accept`/`relay` sockets, `offer`/`code`/`enrol` to pair, `devices`, `setMeta`, `revoke`, `broadcast`, `close` |
+| `Host` | The computer's end: `Host.open(options)`, then `accept`/`relay` sockets, `offer`/`code`/`shortCode`/`enrol` to pair, `devices`, `setMeta`, `revoke`, `broadcast`, `close` |
 | `pairWithOffer`, `pairWithCode` | Pair a device from a scanned offer or a typed code; returns its `DeviceGrant` |
 | `parseOffer`, `offerText`, `cleanName` | Read a QR or link, build terminal-to-browser links, and clean a displayed name |
 | `encodeOffer`, `decodeOffer` | Complete offline offer in typeable groups, with a transcription checksum |
