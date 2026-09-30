@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- SECURITY: Opt-in dual-wrap credential upgrades are authenticated and atomically replaced under the store lock; protection is only as strong as the owner-only host-key file, which must stay out of sealed-store backups.
+- FIX: A locked or unresponsive keyring no longer throws from prepare or start. The kit reports a locked saved sign-in in plain words, preserves the sealed store and retries normally on a later start after unlock; dual-wrapped stores open through their host key without prompting.
+
 - FIX: ChatGPT subscription device pairing was blocked by the plugin allowlist unless the app added the provider plugin itself. The kit now merges every offered route's provider plugin with the bridge and caller-provided plugins, without adding plugins for unoffered routes.
 - Label the explicit Anthropic route as API key (billed per use), keeping API and plan routes off by default.
 

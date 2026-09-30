@@ -53,9 +53,10 @@ export class Engine {
   readonly bridgeSock: string;
   private readonly dir: string;
   private child?: ChildProcess;
-  private starting?: Promise<{ port: number; token: string; identityPath: string }>;
+  private starting?: Promise<{ port: number; token: string; identityPath: string } | undefined>;
   private readonly authStore: AuthStore;
   private stopping = false;
+  private credentialsLocked = false;
   private repaired = false;
   private prepared?: Promise<void>;
   private port = 0;
@@ -94,7 +95,8 @@ export class Engine {
   private async prepareOnce(): Promise<void> {
     if (!this.o.authSeal && existsSync(join(this.root, 'auth-store.sealed'))) throw new Error('authSeal required for sealed credential store');
     for (const d of [this.root, ...(!this.o.authSeal ? [join(this.root, 'home'), join(this.root, 'state')] : []), join(this.root, 'tmp'), join(this.root, 'install-home'), join(this.root, 'npm-cache'), join(this.o.stateDir, 'logs'), this.dir]) mkdirSync(d, { recursive: true, mode: 0o700 });
-    await this.authStore.prepare();
+    try { await this.authStore.prepare(); this.credentialsLocked = false; }
+    catch (error) { if (this.locked(error)) return; throw error; }
     if (this.o.spawnEngine) {
       const versionPath = join(this.dir, 'node_modules', 'openclaw', 'package.json');
       if (!existsSync(this.entry) || !installMatches(this.dir)) {
@@ -163,7 +165,7 @@ export class Engine {
       if (cmd.includes(this.entry) && cmd.includes('gateway')) process.kill(-pid, 'SIGTERM');
     } catch { /* pid is gone or not ours */ }
   }
-  start(): Promise<{ port: number; token: string; identityPath: string }> {
+  start(): Promise<{ port: number; token: string; identityPath: string } | undefined> {
     if (this.starting) return this.starting;
     this.stopping = false;
     const pending = this.startOnce();
@@ -171,9 +173,17 @@ export class Engine {
     void pending.finally(() => { if (this.starting === pending) this.starting = undefined; }).catch(() => {});
     return pending;
   }
-  private async startOnce(): Promise<{ port: number; token: string; identityPath: string }> {
+  private locked(error: unknown): boolean {
+    if (!(error instanceof Error) || error.name !== 'KeystoreError' || !('code' in error) || error.code !== 'keyring-locked') return false;
+    this.credentialsLocked = true;
+    this.state('locked');
+    return true;
+  }
+  private async startOnce(): Promise<{ port: number; token: string; identityPath: string } | undefined> {
     await this.prepare();
-    await this.authStore.start();
+    if (this.credentialsLocked) return undefined;
+    try { await this.authStore.start(); }
+    catch (error) { if (this.locked(error)) return undefined; throw error; }
     try { return this.launch(); }
     catch (error) { await this.authStore.stop(); throw error; }
   }
@@ -232,7 +242,7 @@ export class Engine {
     if (child && child.exitCode === null && child.signalCode === null) throw new Error('engine did not stop; credential store still in use');
     this.child = undefined;
     rmSync(join(this.root, 'gateway.pid'), { force: true });
-    await this.authStore.stop();
+    if (!this.credentialsLocked) await this.authStore.stop();
     rmSync(this.bridgeSock, { force: true });
     this.state('stopped');
   }

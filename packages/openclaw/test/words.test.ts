@@ -12,6 +12,7 @@ const TABLE: Record<string, string> = {
   'engine.installing': 'Getting things ready on this computer. The first time takes a few minutes.',
   'engine.starting': 'Starting up…',
   'engine.repairing': 'Fixing a small problem with the setup. This takes a moment.',
+  'engine.locked': 'Your saved sign-in is locked. Unlock your password storage, then try again.',
   'engine.ready': 'Ready.',
   'engine.restarting': 'Something stopped. Starting it again by itself.',
   'engine.failed': "This computer couldn't start the helper. Restart the app to try again.",
@@ -55,6 +56,7 @@ test('every KitState.phase a person can see has its sentence; stopped is never o
   assert.equal(at('restarting'), TABLE['engine.restarting']);
   assert.equal(at('failed'), TABLE['engine.failed']);
   assert.equal(at('needs-update'), TABLE['engine.needsUpdate']);
+  assert.equal(at('locked'), TABLE['engine.locked']);
   assert.equal(at('stopped'), '');
 });
 

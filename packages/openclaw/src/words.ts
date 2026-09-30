@@ -20,6 +20,7 @@ const PHASE_WORDS: Record<Exclude<KitState['phase'], 'stopped'>, WordKey> = {
   ready: 'engine.ready',
   restarting: 'engine.restarting',
   failed: 'engine.failed',
+  locked: 'engine.locked',
   'needs-update': 'engine.needsUpdate',
 };
 

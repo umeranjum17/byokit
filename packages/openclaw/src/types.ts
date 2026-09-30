@@ -101,7 +101,7 @@ export type Approval = {
 export type Decision = { allow: boolean; reason?: string; answer?: unknown }; // answer: question.* only
 
 export type KitState = {
-  phase: 'stopped' | 'installing' | 'starting' | 'repairing' | 'ready' | 'restarting' | 'failed' | 'needs-update';
+  phase: 'stopped' | 'installing' | 'starting' | 'repairing' | 'ready' | 'restarting' | 'failed' | 'needs-update' | 'locked';
   why?: 'install' | 'handshake' | 'exited' | 'port' | 'version';
   retryAt?: number;
 };

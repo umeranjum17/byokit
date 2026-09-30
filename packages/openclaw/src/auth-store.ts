@@ -112,7 +112,16 @@ export class AuthStore {
   private async read(): Promise<Snapshot | undefined> {
     if (!existsSync(this.file)) return undefined;
     regular(this.file);
-    return snapshot(this.o.seal!.decryptString(readFileSync(this.file)));
+    const seal = this.o.seal!;
+    const bytes = readFileSync(this.file);
+    const text = seal.decryptString(bytes);
+    const saved = snapshot(text);
+    const upgraded = seal.upgrade?.(bytes);
+    if (upgraded) {
+      if (seal.decryptString(Buffer.from(upgraded)) !== text) throw new Error('credential upgrade verification failed');
+      put(this.file, upgraded);
+    }
+    return saved;
   }
   private collect(): Snapshot {
     const s: Snapshot = { v: 1, dirs: [], files: [] };

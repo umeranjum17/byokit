@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- FIX: fileStore verifies optional sealing-adapter upgrades and atomically replaces authenticated ciphertext on read, allowing opt-in dual-wrap migration without losing the original store on interruption.
+
 - Anthropic Messages with an app-passed API key (billed per use), explicit model and opt-in; typed native requests, streamed text/tools/thinking/message events, usage/raw results and the shared IncompleteError contract for max_tokens/refusal (including with tools) on every platform.
 - Expose fresh subscription access to host-side capabilities using the app’s own sign-in.
 

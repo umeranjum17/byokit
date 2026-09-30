@@ -6,6 +6,8 @@ import { test } from 'node:test';
 import { OpenClawKit } from '../src/kit.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import type { RunRef } from '../src/types.ts';
+import { osKeyringSeal, type KeyringBackend } from '../../secrets/src/index.ts';
+import { stateWords } from '../src/words.ts';
 
 async function withKit(fn: (kit: OpenClawKit, fake: ReturnType<typeof fakeGateway>) => Promise<void>) {
   const stateDir = scratchDir('o4');
@@ -14,6 +16,55 @@ async function withKit(fn: (kit: OpenClawKit, fake: ReturnType<typeof fakeGatewa
   try { await kit.start(); await fn(kit, fake); }
   finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 }
+
+test('locked saved credentials resolve prepare/start, preserve the store and recover after unlock', async () => {
+  const stateDir = scratchDir('o4-locked');
+  const data = new Map<string, string>();
+  let locked = false;
+  const ring: KeyringBackend = {
+    get(name) { if (locked) throw new Error('locked'); return data.get(name) ?? null; },
+    set(name, value) { data.set(name, value); }, delete: name => data.delete(name),
+  };
+  const sealOptions = { service: 'o4-locked', stateDir, keyring: ring };
+  const seal = osKeyringSeal(sealOptions);
+  const root = join(stateDir, 'openclaw');
+  mkdirSync(join(root, 'state'), { recursive: true });
+  writeFileSync(join(root, 'state', 'auth.json'), 'saved-sign-in');
+  const initial = new OpenClawKit({ stateDir, authSeal: seal, spawnEngine: false });
+  await initial.prepare();
+  const file = join(root, 'auth-store.sealed');
+  const bytes = readFileSync(file);
+  locked = true;
+  let connected = 0;
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, authSeal: osKeyringSeal(sealOptions), spawnEngine: false,
+    transport: ctx => { connected++; return fake.factory(ctx); } });
+  await kit.prepare();
+  assert.deepEqual(kit.state, { phase: 'locked' });
+  assert.match(stateWords(kit.state), /saved sign-in is locked/);
+  await Promise.all([kit.start(), kit.start()]);
+  assert.deepEqual(kit.state, { phase: 'locked' });
+  assert.equal(connected, 0);
+  assert.deepEqual(readFileSync(file), bytes);
+  await kit.stop();
+  assert.deepEqual(readFileSync(file), bytes);
+  locked = false;
+  await kit.start();
+  assert.equal(kit.state.phase, 'ready');
+  assert.equal(readFileSync(join(root, 'state', 'auth.json'), 'utf8'), 'saved-sign-in');
+  await kit.stop();
+  // The next unlocked read also upgrades an existing engine snapshot under its lock.
+  const dualKit = new OpenClawKit({ stateDir, authSeal: osKeyringSeal({ ...sealOptions, dualWrap: true }), spawnEngine: false, transport: fake.factory });
+  await dualKit.prepare();
+  assert.equal(readFileSync(file)[4], 3);
+  locked = true;
+  await dualKit.start();
+  assert.equal(dualKit.state.phase, 'ready');
+  assert.equal(readFileSync(join(root, 'state', 'auth.json'), 'utf8'), 'saved-sign-in');
+  await dualKit.stop();
+  assert.equal(readFileSync(file)[4], 3, 'locked stop keeps both wraps');
+  locked = false;
+});
 
 test('call before start rejects instead of throwing synchronously', async () => {
   const stateDir = scratchDir('o4-notready');

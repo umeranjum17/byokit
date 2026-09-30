@@ -47,6 +47,7 @@ const listening = (port: number): Promise<boolean> => new Promise((resolve) => {
 
 async function start(house: House): Promise<SignInCtx> {
   const ctx = await house.engine.start();
+  assert.ok(ctx);
   for (let waited = 0; waited < 120_000; waited += 200) {
     if (await listening(ctx.port)) break;
     await delay(200);

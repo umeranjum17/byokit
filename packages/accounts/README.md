@@ -350,6 +350,10 @@ and the Linux `basic_text` backend. Other adapters must protect their keys outsi
 file and provide authenticated encryption. For a Node service, use a host-owned keystore through
 `recordStore(load, save)`, or provide an equivalent sealing adapter; the kit never discovers a key
 or invokes an OS keyring itself. Use `memoryStore()` for temporary sign-ins.
+If the adapter exposes optional `upgrade(bytes)`, a read validates the decrypted record, verifies
+that upgraded ciphertext decrypts to identical text and atomically replaces the original. This
+supports opt-in dual-wrap migration through `@byokit/secrets`; a failed replacement leaves the
+original envelope usable. Hold the host writer lock for read upgrades as well as ordinary writes.
 
 Use an app-owned directory: the immediate folder must be a real 0700 directory and credential
 files must be private regular files. Reuse one store instance for each path; a host lock is required

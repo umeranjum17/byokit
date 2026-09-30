@@ -519,7 +519,7 @@ export class OpenClawKit {
     let transport: GatewayTransport | undefined;
     try {
       const ctx = await this.engine.start();
-      if (this.stopping) return;
+      if (!ctx || this.stopping) return;
       this.setState({ phase: 'starting' });
       transport = (this.o.transport ?? gatewayTransport)({ ...ctx, bridgeSock: this.engine.bridgeSock });
       this.transport = transport;
