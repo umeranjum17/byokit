@@ -50,16 +50,34 @@ export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown';
 // what the kind's own CLI status command says — 'unknown' when the kind has no documented
 // non-secret status command or the command gives no answer. Credential files are never read.
 export type AgentCliSignIn = 'yes' | 'no' | 'unknown';
+// Install readiness: a real runnable binary (`installed`), an auto-install launcher or shim
+// such as a mise shim that fetches the agent on first start (`installs-on-first-start`), or
+// nothing found (`missing`). One source of truth: `agentInstallState` in agents.ts.
+export type AgentInstallState = 'installed' | 'installs-on-first-start' | 'missing';
+export type AgentInstallProbe = {
+  path?: string[]; aliases?: Record<string, string[]>;
+  readFile?: (file: string) => string | undefined;
+};
 export type AgentReadiness = {
-  kind: string; installed: boolean; signedIn: AgentCliSignIn;
+  kind: string; installed: boolean; installState: AgentInstallState; signedIn: AgentCliSignIn;
   installHint: string; signInHint?: string;
 };
 export type AgentStatusRunner = (command: string, args: string[],
   o?: { stdin?: string; timeoutMs?: number }) => Promise<{ stdout: string } | undefined>;
 export type AgentStatusOptions = {
   path?: string[]; aliases?: Record<string, string[]>;
+  readFile?: (file: string) => string | undefined;
   run?: AgentStatusRunner; timeoutMs?: number;
 };
+// `startAgent` lifecycle: `installing` fires before the start when the kind needs an install
+// (auto-install launcher/shim or nothing on PATH — apps show "Installing …" instead of a blank
+// start), `ready` carries the fresh ref, and `launchFailed` carries a typed reason plus plain
+// words. Subscribable per call (`StartAgent.onEvent`, no polling) or app-wide (`onStartAgent`).
+export type AgentLaunchFailureReason = 'placement-failed' | 'pane-busy' | 'install-failed' | 'start-rejected';
+export type AgentStartEvent =
+  | { phase: 'installing'; kind: string; message: string }
+  | { phase: 'ready'; kind: string; ref: AgentRef }
+  | { phase: 'launchFailed'; kind: string; reason: AgentLaunchFailureReason; message: string };
 export type AgentRef = { paneId: string; name?: string };
 export type StartAgent = {
   kind: string; cwd: string; name?: string;             // name: /^[a-z][a-z0-9_-]{0,31}$/
@@ -67,6 +85,8 @@ export type StartAgent = {
        | { split: string; direction: 'right' | 'down' } | { pane: string };
   worktree?: { branch?: string; base?: string };
   args?: string[]; env?: Record<string, string>; timeoutMs?: number;   // default 60_000
+  onEvent?: (e: AgentStartEvent) => void;   // per-call lifecycle: installing/ready/launchFailed
+  installProbe?: AgentInstallProbe;          // install detection overrides (tests use fakes)
 };
 export type PromptReceipt = { paneId: string; terminalId: string; revision: number; status: AgentStatus };
 export type BlockedAgent = { paneId: string; workspaceId: string; tabId: string; kind?: string; revision: number; prompt: string; since: number };
