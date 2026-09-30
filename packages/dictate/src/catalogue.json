@@ -1,0 +1,7 @@
+[
+  {"id":"system", "label":"On this device", "billing":"free", "offer":true, "source":"https://developer.android.com/reference/android/speech/SpeechRecognizer#createOnDeviceSpeechRecognizer(android.content.Context)"},
+  {"id":"whisper", "label":"On this device with a downloaded model", "billing":"free", "offer":true, "source":"https://github.com/ggml-org/whisper.cpp"},
+  {"id":"chatgpt", "label":"Your ChatGPT subscription", "billing":"subscription", "offer":true, "source":"https://github.com/openai/codex"},
+  {"id":"openai", "label":"OpenAI API key (billed per use)", "billing":"api", "offer":false, "source":"https://platform.openai.com/docs/guides/speech-to-text"},
+  {"id":"openrouter", "label":"OpenRouter sign-in or API key (billed per use)", "billing":"api", "offer":false, "source":"https://openrouter.ai/docs/guides/overview/multimodal/audio"}
+]

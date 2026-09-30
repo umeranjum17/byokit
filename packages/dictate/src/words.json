@@ -1,0 +1,4 @@
+{
+  "idle":"Ready to listen.", "listening":"Listening…", "settling":"Finishing your words…", "loading-model":"Getting ready to listen…",
+  "signed-out":"Sign in again to keep using your subscription.", "resting":"Your account needs a short rest.", "not-included":"Your subscription does not include this.", "rate-limited":"Please try again later.", "network":"Could not connect. Try again.", "bad-key":"Check the key you supplied.", "mic-blocked":"Allow microphone access to continue.", "mic-busy":"The microphone is already in use.", "needs-download":"Download the speech model first.", "not-local":"Choose speech recognition on this device.", "unsupported":"Speech recognition is not available here.", "too-large":"Try a shorter recording.", "bad-model":"The speech model could not be loaded.", "cancelled":"Listening cancelled."
+}

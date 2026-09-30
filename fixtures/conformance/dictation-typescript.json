@@ -1,0 +1,9 @@
+{
+  "rule": "Partials expose only the prefix agreed by two readings and never retract shown words. Finals apply whole-word replacements only. Finishing after silence does not re-read unchanged speech; cancelling returns no text and stops capture.",
+  "partials": [
+    {"shown":"", "previous":"hello world", "next":"Hello world again", "want":"Hello world"},
+    {"shown":"Hello world", "previous":"Hello world again", "next":"hello there", "want":"Hello world"},
+    {"shown":"", "previous":"", "next":"thank you", "want":""}
+  ],
+  "replacements": {"text":"kit kitten KIT", "map":{"kit":"app"}, "want":"app kitten app"}
+}

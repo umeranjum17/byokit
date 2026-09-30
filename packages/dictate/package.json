@@ -1,0 +1,17 @@
+{
+  "name": "@byokit/dictate",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dictation and recording transcription using your subscription or an on-device engine.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {"type":"git", "url":"git+https://github.com/umeranjum17/byokit.git", "directory":"packages/dictate"},
+  "engines": {"node":">=22.18"},
+  "exports": {
+    ".": {"types":"./dist/index.d.ts", "default":"./dist/index.js"},
+    "./node": {"types":"./dist/node.d.ts", "default":"./dist/node.js"},
+    "./testing": {"types":"./dist/testing.d.ts", "default":"./dist/testing.js"}
+  },
+  "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md"],
+  "scripts": {"prepack":"tsc -b"}
+}
