@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.6.0 (2026-09-30)
+
+
+
 - Add `migrateGrant(raw, { format: 'crewhouse-v0' })` for pre-kit phone pairings, with key, fingerprint and shape validation and typed errors.
 
 ## 0.5.1 (2026-09-30)

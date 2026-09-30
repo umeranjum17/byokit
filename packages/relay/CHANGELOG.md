@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.4.2 (2026-09-30)
+
+- Dependency update: pins @byokit/link 0.6.0.
+
 ## 0.4.1 (2026-09-30)
 
 - Dependency update: pins @byokit/link 0.5.1.

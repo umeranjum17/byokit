@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.5 (2026-09-30)
+
+- Dependency update: pins @byokit/relay 0.4.2.
+- Dependency update: pins @byokit/link 0.6.0.
+
 ## 0.2.4 (2026-09-30)
 
 - Dependency update: pins @byokit/relay 0.4.1.
