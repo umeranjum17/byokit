@@ -186,7 +186,7 @@ function Bubble() {
   const start = async () => {
     const s = await overlay.start({
       host: 'window', mood: 'bubble', panel: 'bubblePanel',
-      notice: { channel: 'bubble', title: 'byokit example', text: 'The bubble is on.', icon: 'bubble_note' },
+      notice: { channel: 'bubble', title: 'byokit example', text: 'The bubble is on.', icon: 'byokit_notification' },
     });
     if (s === 'needs-permission') await overlay.openPermission();
   };
@@ -230,7 +230,7 @@ function Chip() {
     if (Platform.OS === 'android') await PermissionsAndroid.request('android.permission.POST_NOTIFICATIONS');
     chip.show({
       title: `Scribe and ${busy} more are working`, text: '2 need you', chip: `${busy} busy`, publicText: `${busy} working · 2 need you`,
-      promote: true, timeoutMs: 15 * 60_000,
+      icon: 'byokit_notification', promote: true, timeoutMs: 15 * 60_000,
       actions: [{ id: 'needs', label: 'See what needs you' }, { id: 'ask', label: 'Ask Chief' }, { id: 'open', label: 'Open' }],
     });
     setN(busy + 1);

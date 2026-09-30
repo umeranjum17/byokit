@@ -97,7 +97,23 @@ test('an installable PWA: its manifest and a service worker that keeps the page 
   await page.goto(site.url);
   const manifest = await (await page.request.get(new URL((await page.locator('link[rel=manifest]').getAttribute('href'))!, site.url).href)).json();
   assert.equal(manifest.display, 'standalone');
-  assert.ok(manifest.icons.length);
+  assert.ok(manifest.icons.some((i: { purpose: string }) => i.purpose === 'maskable'));
+  for (const icon of manifest.icons) {
+    const response = await page.request.get(new URL(icon.src, site.url).href);
+    assert.equal(response.status(), 200);
+    assert.equal(response.headers()['content-type'], 'image/png');
+    const dimensions = await page.evaluate(async (src) => {
+      const image = new Image(); image.src = src; await image.decode();
+      return `${image.naturalWidth}x${image.naturalHeight}`;
+    }, icon.src);
+    assert.equal(dimensions, icon.sizes);
+  }
+  for (const [selector, type] of [['link[rel=icon][type]', 'image/svg+xml'], ['link[rel=icon][sizes]', 'image/x-icon'], ['link[rel=apple-touch-icon]', 'image/png']]) {
+    const href = await page.locator(selector!).getAttribute('href');
+    const response = await page.request.get(new URL(href!, site.url).href);
+    assert.equal(response.status(), 200);
+    assert.equal(response.headers()['content-type'], type);
+  }
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.reload(); // now under the service worker
   await context.setOffline(true);

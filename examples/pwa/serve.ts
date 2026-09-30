@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
 const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
-const TYPES: Record<string, string> = { html: 'text/html', js: 'text/javascript', webmanifest: 'application/manifest+json', png: 'image/png' };
+const TYPES: Record<string, string> = { html: 'text/html', js: 'text/javascript', webmanifest: 'application/manifest+json', png: 'image/png', ico: 'image/x-icon', svg: 'image/svg+xml' };
 
 export async function serve(port = 0, authBase?: string) {
   const bundle = await build({ entryPoints: [here('app.ts'), here('pair.ts')], outdir: 'out', bundle: true, platform: 'browser', format: 'esm', write: false, logLevel: 'silent',
