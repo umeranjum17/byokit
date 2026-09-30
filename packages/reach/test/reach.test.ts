@@ -434,6 +434,7 @@ test('directRoutes combines only enabled scopes, filters overlays, and orders LA
   });
   assert.deepEqual(directRoutes({ ...base, hosts: ['0.0.0.0'] }).urls, ['ws://192.168.1.20:8792/link', 'ws://100.101.2.3:8792/link']);
   assert.deepEqual(directRoutes({ ...base, hosts: ['localhost'] }).urls, ['ws://localhost:8792/link']);
+  assert.deepEqual(directRoutes({ ...base, hosts: ['127.umer.local', '192.168.1.20'] }).urls, ['ws://127.umer.local:8792/link', 'ws://192.168.1.20:8792/link'], 'a DNS label starting with 127 is not loopback');
   assert.deepEqual(directRoutes({ ...base, hosts: ['0.0.0.0'], interfaces: {} }).urls, ['ws://127.0.0.1:8792/link']);
   for (const port of [0, 65536, 1.5, NaN]) assert.throws(() => directRoutes({ ...base, port }), /port/);
   for (const path of ['link', '//elsewhere', '/link?q=1', '/link#x']) assert.throws(() => directRoutes({ ...base, path }), /path/);

@@ -75,9 +75,10 @@ export function directRoutes(o: DirectRoutesOptions): DirectRoutes {
     if (parsed.hostname !== host.toLowerCase()) throw new Error('hosts must use canonical addresses');
   }
   const addresses = [...new Set(hosts.includes('0.0.0.0') ? [...found.lan, ...found.tailscale, ...hosts.filter((h) => h !== '0.0.0.0')] : hosts)];
-  const remote = addresses.filter((a) => a !== 'localhost' && !a.startsWith('127.'));
+  const loopback = (address: string) => address === 'localhost' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(address);
+  const remote = addresses.filter((a) => !loopback(a));
   const ordered = [...remote.filter((a) => !found.tailscale.includes(a)), ...remote.filter((a) => found.tailscale.includes(a))];
-  const dial = ordered.length ? ordered : addresses.filter((a) => a === 'localhost' || a.startsWith('127.'));
+  const dial = ordered.length ? ordered : addresses.filter(loopback);
   // With a wildcard and no classified addresses, loopback is still available.
   if (!dial.length && hosts.includes('0.0.0.0')) dial.push('127.0.0.1');
   return { hosts, urls: dial.map((a) => `ws://${a}:${o.port}${path === '/' ? '' : path}`) };
