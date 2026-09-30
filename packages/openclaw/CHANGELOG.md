@@ -3,6 +3,7 @@
 ## Unreleased
 
 - FIX: ChatGPT subscription device pairing was blocked by the plugin allowlist unless the app added the provider plugin itself. The kit now merges every offered route's provider plugin with the bridge and caller-provided plugins, without adding plugins for unoffered routes.
+- Label the explicit Anthropic route as API key (billed per use), keeping API and plan routes off by default.
 
 ## 0.3.2 (2026-09-30)
 
@@ -19,7 +20,6 @@
 
 - FIX: `authSeal` no longer rejects retained-login migration when engine state contains symlinks or runtime entries. File symlinks whose fully resolved targets are regular files inside the isolated engine root are sealed and restored as regular files at the link paths; outside-root, dangling and directory symlinks (including loops), sockets, FIFOs and devices are skipped without reading their contents.
 - Depends on @byokit/ui-core 0.4.0.
-- Label the explicit Anthropic route as API key (billed per use), keeping API and plan routes off by default.
 
 ## 0.3.0 (2026-09-30)
 
