@@ -1,6 +1,6 @@
-# Dictation kit (working name)
+# Dictation kit
 
-`@byokit/dictate` is private until the owner confirms the name and an Android emulator proves the consumer journey. This specification applies the delegated decisions to integration map v3 section (c): no shared audio package, injected audio ports, normal ChatGPT catalogue route, provider execution in a child process, no publish yet.
+`@byokit/dictation` is the owner-confirmed name. The package remains private until an Android emulator proves the consumer journey. This specification applies the delegated decisions to integration map v3 section (c): no shared audio package, injected audio ports, normal ChatGPT catalogue route, provider execution in a child process, no publish yet.
 
 The kit returns text; it never sends a message or inserts into an app's draft. The consumer owns that action, microphone permission/arbitration, native speech recognition and recording. Browser and React Native consumers use the portable main entry. Node hosts use `./node`; credentials remain on that host and devices receive only transcripts through an app-owned transport. There is no dependency on realtime.
 

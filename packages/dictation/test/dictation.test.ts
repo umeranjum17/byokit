@@ -133,7 +133,7 @@ test('app-passed Whisper CLI runs isolated, reads WAV boundaries and removes tem
 
 test('main entry bundles for browser and React Native without Node imports', async () => {
   for (const condition of ['browser', 'react-native']) {
-    const result = await build({ entryPoints: ['packages/dictate/src/index.ts'], bundle: true, write: false, platform: 'browser', conditions: [condition], metafile: true, logLevel: 'silent' });
+    const result = await build({ entryPoints: ['packages/dictation/src/index.ts'], bundle: true, write: false, platform: 'browser', conditions: [condition], metafile: true, logLevel: 'silent' });
     assert.ok(Object.keys(result.metafile!.inputs).every(p => !p.includes('/node.') && !p.includes('/worker.')));
   }
 });

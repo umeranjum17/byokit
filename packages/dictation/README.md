@@ -1,10 +1,10 @@
-# @byokit/dictate
+# @byokit/dictation
 
-Private working name for dictation and recording transcription. Returns text to your app with stable partials, final segments, language, timestamps and usage. Never sends the transcript anywhere on your behalf.
+Dictation and recording transcription, private pending consumer Android emulator qualification. Returns text to your app with stable partials, final segments, language, timestamps and usage. Never sends the transcript anywhere on your behalf.
 
 ```ts
-import { Dictation, type AudioMic } from '@byokit/dictate';
-import { chatgptEngine } from '@byokit/dictate/node';
+import { Dictation, type AudioMic } from '@byokit/dictation';
+import { chatgptEngine } from '@byokit/dictation/node';
 import { provider, type Accounts } from '@byokit/accounts';
 
 // Supplied by your app: its accounts instance, selected member and microphone.
@@ -40,4 +40,4 @@ Live system recognition emits partial/final text; Whisper rereads once a second,
 
 Timestamp support follows the engine: OpenAI word timestamps require `whisper-1`, Whisper CLI uses segment offsets/token offsets where available, and ChatGPT has no language/timestamp controls. Unknown cost/duration is not estimated. `installModel` delegates storage/download to your host and validates size plus SHA-256. Use `./testing` for offline microphone and inference fakes.
 
-See [the specification](../../docs/dictation-kit.md). Publishing stays blocked on the final name and real consumer Android emulator proof; this change supplies fixture/fake qualification only.
+See [the specification](../../docs/dictation-kit.md). The owner confirmed the package name; publishing still requires real consumer Android emulator proof; this change supplies fixture/fake qualification only.
