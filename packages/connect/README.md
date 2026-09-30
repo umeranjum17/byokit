@@ -64,6 +64,10 @@ through `extra`. A sign-in with explicitly incomplete granted scopes is not save
 
 ```ts
 import { connectLoopback } from '@byokit/connect/node';
+import type { Keystore } from '@byokit/secrets';
+
+declare const store: Keystore;
+declare const yourApp: { openExternal(url: string): Promise<void> };
 
 const attempt = await connectLoopback('notion', {
   store, person: 'person-42',
@@ -82,6 +86,9 @@ Use `connect()` with `redirectUri` for web/PWA or native auth sessions instead.
 
 ```ts
 import { connect, CallToolResultSchema } from '@byokit/connect';
+import type { Keystore } from '@byokit/secrets';
+
+declare const store: Keystore;
 
 const notion = connect('notion', {
   store, person: 'person-42', redirectUri: 'https://your-app.example/connect/callback',
