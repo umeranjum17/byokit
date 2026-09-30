@@ -96,9 +96,15 @@ const host = await Host.open({
     : link.handle(req, grant),
 });
 
-// The phone page: index.html and the bundled app.js (`npm run build:web`), nothing else.
+// Explicit static shell and icon routes; never serve arbitrary files from the host.
 const web = fileURLToPath(new URL('web/', import.meta.url));
-const PAGES: Record<string, [string, string]> = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'] };
+const PAGES: Record<string, [string, string]> = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'],
+  '/favicon.ico': ['favicon.ico', 'image/x-icon'], '/favicon.svg': ['favicon.svg', 'image/svg+xml'],
+  '/apple-touch-icon.png': ['apple-touch-icon.png', 'image/png'],
+  '/manifest.webmanifest': ['manifest.webmanifest', 'application/manifest+json'],
+  '/icon-192.png': ['icon-192.png', 'image/png'], '/icon-512.png': ['icon-512.png', 'image/png'],
+  '/icon-maskable-512.png': ['icon-maskable-512.png', 'image/png'],
+};
 const http = (req: IncomingMessage, res: ServerResponse) => {
   const page = PAGES[new URL(req.url ?? '/', 'http://x').pathname];
   if (!page) { res.writeHead(404).end(); return; }
