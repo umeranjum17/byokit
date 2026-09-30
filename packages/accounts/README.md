@@ -152,7 +152,7 @@ doesn't answer other web pages), so a PWA's model calls go through the app's own
 All subscription rows are offered by default on platforms that support their sign-in. API-billed rows
 are offered only when the app names them. An explicit `offer` list is not platform-filtered.
 The `Provider` shape no longer has `terms`, `hidden` or `why`, and `Terms` is no longer exported.
-Qwen is a catalogue row for a paste flow; that flow is not implemented by the pinned computer engine yet.
+Qwen and MiniMax have subscription catalogue rows; their paste and portal sign-in flows follow in later work packages.
 Each provider's own terms apply to how you use your plan.
 Anthropic Messages uses an app-passed API key (billed per use); authentication is separate from the Messages request.
 
