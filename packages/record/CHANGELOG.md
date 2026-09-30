@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-09-30)
+
 - Bundled Linux X11 video recorder, selected when `CaptureOptions.bin` is omitted; explicit bins retain protocol-v1 pass-through.
   Explicit start only, local private takes, stop/abort cleanup, MP4 title metadata and timed subtitle rendering.
   No audio, input-event capture or planner; Wayland, macOS, Windows and mobile are unsupported by this backend.
