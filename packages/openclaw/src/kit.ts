@@ -33,6 +33,7 @@ import type {
   RunEnd,
   RunEvent,
   RunSpec,
+  SignInOptions,
   SignInView,
   ToolHost,
   ToolSpec,
@@ -619,7 +620,7 @@ export class OpenClawKit {
 
   signIn(
     member: Member,
-    o: { authChoice: string; via?: 'browser' | 'code' },
+    o: SignInOptions,
     on: (v: SignInView) => void,
   ): { paste(text: string): void; cancel(): void; done: Promise<SignInView> } {
     return startSignIn(this.signInCtx(), member, o, on);

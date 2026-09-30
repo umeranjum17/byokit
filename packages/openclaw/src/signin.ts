@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
 import { words } from './words.ts';
-import type { GatewayTransport, Member, SignInView } from './types.ts';
+import type { GatewayTransport, Member, SignInOptions, SignInView } from './types.ts';
 
 export type SignInCtx = {
   request: GatewayTransport['request'];
@@ -22,7 +22,7 @@ const TURNS = 200;
 const PASTE_MS = 15 * 60_000;
 
 type Entry = string | { provider?: unknown };
-type Step = { id?: string; type?: string; sensitive?: boolean; deviceCode?: { code?: string }; externalUrl?: string };
+type Step = { id?: string; type?: string; sensitive?: boolean; deviceCode?: { code?: string; expires_in?: number | string; expiresInMinutes?: number }; externalUrl?: string };
 type Pull = { done?: boolean; status?: string; error?: string; step?: Step };
 
 const cut = (value: unknown): string => (value instanceof Error ? value.message : String(value)).slice(0, 200);
@@ -36,7 +36,7 @@ const pullOptions = (signal: AbortSignal) => ({ timeoutMs: PULL_MS, signal });
 export function signIn(
   ctx: SignInCtx,
   member: Member,
-  o: { authChoice: string; via?: 'browser' | 'code' },
+  o: SignInOptions,
   on: (v: SignInView) => void,
 ): { paste(text: string): void; cancel(): void; done: Promise<SignInView> } {
   const via = o.via ?? 'browser';
@@ -50,6 +50,17 @@ export function signIn(
   let settleStart!: () => void;
   const startingSettled = new Promise<void>((resolve) => { settleStart = resolve; });
   let over = false;
+  let approval = false;
+  let sawDeviceCode = false;
+  let codeExpired = false;
+  let codeTimer: NodeJS.Timeout | undefined;
+  const stopApproval = (): void => {
+    approval = false;
+    if (codeTimer) clearTimeout(codeTimer);
+    codeTimer = undefined;
+  };
+  const cancelled = (): SignInView => ({ state: 'failed', via, why: 'declined', error: words('signin.cancelled') });
+  const expired = (): SignInView => ({ state: 'failed', via, why: 'expired', error: words('signin.expired') });
   let settle!: (view: SignInView) => void;
   let pasteIn: ((text: string) => void) | undefined;
   let returned: string | undefined;
@@ -64,6 +75,8 @@ export function signIn(
   const finish = async (view: SignInView): Promise<void> => {
     if (over) return;
     over = true;
+    stopApproval();
+    o.signal?.removeEventListener('abort', cancel);
     owner.abort();
     await closeCallback();
     on(view);
@@ -86,9 +99,13 @@ export function signIn(
   const cancel = (): void => {
     // Stop the drive now; the start itself is never aborted, and release waits for it to settle before cancelling,
     // so the gateway's one setup admission is freed by a cancel that the engine can actually find.
+    if (signal.aborted) return;
     owner.abort();
-    void (async () => { await release(); await finish({ state: 'failed', via, why: 'declined' }); })();
+    void (async () => { await release(); await finish(cancelled()); })();
   };
+
+  o.signal?.addEventListener('abort', cancel, { once: true });
+  if (o.signal?.aborted) cancel();
 
   /** Hold 127.0.0.1:<callbackPort> for the sign-in's life; a taken port is why the sign-in cannot start. */
   const holdCallback = (): Promise<Server> => {
@@ -136,9 +153,10 @@ export function signIn(
     if (started.done) return { state: 'done', via };
 
     // wizard.next, never wizard.status: the status method answers {status, error} and carries no step.
-    const pull = (): Promise<Pull> => ctx.request('wizard.next', { sessionId }, pullOptions(signal)) as Promise<Pull>;
+    const options = () => approval ? { timeoutMs: null, signal } : pullOptions(signal);
+    const pull = (): Promise<Pull> => ctx.request('wizard.next', { sessionId }, options()) as Promise<Pull>;
     const answer = (step: Step, value?: string): Promise<Pull> => ctx.request('wizard.next',
-      { sessionId, answer: { stepId: step.id, ...(value === undefined ? {} : { value }) } }, pullOptions(signal)) as Promise<Pull>;
+      { sessionId, answer: { stepId: step.id, ...(value === undefined ? {} : { value }) } }, options()) as Promise<Pull>;
     const waitForPaste = (): Promise<string | undefined> => new Promise((resolve) => {
       if (returned !== undefined) { const text = returned; returned = undefined; resolve(text); return; }
       let timer: NodeJS.Timeout | undefined;
@@ -169,6 +187,16 @@ export function signIn(
       const current = step;
       step = undefined;
       if (current.deviceCode) {
+        stopApproval();
+        approval = true;
+        sawDeviceCode = true;
+        // The pin converts its provider duration to minutes. Prefer exact seconds if the engine supplies them.
+        const duration = current.deviceCode.expires_in !== undefined
+          ? Number(current.deviceCode.expires_in) * 1_000
+          : Number(current.deviceCode.expiresInMinutes) * 60_000;
+        if (Number.isFinite(duration) && duration >= 0) {
+          codeTimer = setTimeout(() => { codeExpired = true; owner.abort(); }, duration);
+        }
         // The code is on the card; acknowledging it lets the engine poll the provider itself.
         say({ ...(current.deviceCode.code ? { code: current.deviceCode.code } : {}), ...(current.externalUrl ? { url: current.externalUrl } : {}) });
         const next = await answer(current);
@@ -176,9 +204,10 @@ export function signIn(
         step = next.step;
         continue;
       }
+      if (current.type !== 'progress') stopApproval();
       if (current.type === 'text' && !current.sensitive) {
         const value = await waitForPaste();
-        if (value === undefined) return { state: 'failed', via, why: signal.aborted ? 'declined' : 'expired' };
+        if (value === undefined) return signal.aborted ? cancelled() : expired();
         const next = await answer(current, value);
         if (next.done) { terminal = next; break; }
         step = next.step;
@@ -198,9 +227,10 @@ export function signIn(
       if (next.done) { terminal = next; break; }
       step = next.step;
     }
-    if (signal.aborted) return { state: 'failed', via, why: 'declined' };
+    if (signal.aborted) return codeExpired ? expired() : cancelled();
     if (!terminal) return { state: 'failed', via, why: 'expired' };
     const error = String(terminal.error ?? (terminal.status === 'error' ? 'Sign-in failed' : ''));
+    if (sawDeviceCode && /expired_token|code.*expired|device.*(?:expired|timed out)/i.test(error)) return expired();
     return error ? { state: 'failed', via, why: 'failed', error: cut(error) } : { state: 'done', via };
   };
 
@@ -208,7 +238,8 @@ export function signIn(
     let view: SignInView;
     try { view = await drive(); }
     catch (error) {
-      if (signal.aborted) view = { state: 'failed', via, why: 'declined' };
+      if (signal.aborted) view = codeExpired ? expired() : cancelled();
+      else if (sawDeviceCode && /expired_token|code.*expired|device.*(?:expired|timed out)/i.test(cut(error))) view = expired();
       else if (BUSY.test(cut(error))) view = { state: 'failed', via, why: 'busy' };
       else view = { state: 'failed', via, why: 'failed', error: cut(error) };
     }

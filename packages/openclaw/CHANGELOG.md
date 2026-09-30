@@ -3,6 +3,7 @@
 ## Unreleased
 
 - FIX: ChatGPT subscription device pairing was blocked by the plugin allowlist unless the app added the provider plugin itself. The kit now merges every offered route's provider plugin with the bridge and caller-provided plugins, without adding plugins for unoffered routes.
+- FIX: Device-code sign-in waits for the engine’s code expiry instead of failing after two minutes; caller cancellation and expiry return typed outcomes with plain words.
 - Label the explicit Anthropic route as API key (billed per use), keeping API and plan routes off by default.
 
 ## 0.3.2 (2026-09-30)

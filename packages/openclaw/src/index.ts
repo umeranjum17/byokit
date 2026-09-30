@@ -22,6 +22,7 @@ export type {
   RunRef,
   RunSpec,
   RunUsage,
+  SignInOptions,
   SignInView,
   ToolHost,
   ToolSpec,
