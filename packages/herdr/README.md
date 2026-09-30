@@ -176,9 +176,10 @@ The host supplies account folders and shares conversation history as needed. The
 credentials. To connect an account, open its CLI in a new tab and let the person complete the CLI's own login:
 
 ```ts
-import type { HerdrKit } from '@byokit/herdr';
+import { HerdrKit } from '@byokit/herdr';
+const kit = new HerdrKit({ mode: 'adopt', bin: '/app/bin/herdr', socketPath: '/app/herdr.sock' });
+await kit.start();
 
-declare const kit: HerdrKit; // the host's started kit
 const signIn = await kit.openSignInTab({
   workspaceId: 'w1', kind: 'codex', cwd: '/home/me/project', env: { CODEX_HOME: '/app/accounts/work' },
 });
@@ -199,11 +200,18 @@ Tokens stay on the device and are never logged. Each provider's own terms apply 
 For managed-folder stores that supply resume arguments and credential shedding, use `move`:
 
 ```ts
+import { HerdrKit } from '@byokit/herdr';
+const kit = new HerdrKit({ mode: 'adopt', bin: '/app/bin/herdr', socketPath: '/app/herdr.sock' });
+await kit.start();
+
+const conversationId = 'published-conversation-id';
+const staged = new Set<string>();
+let activePane = 'w1:p2';
 const moved = await kit.move({
   paneId: 'w1:p2', kind: 'codex', args: ['resume', conversationId],
   set: { CODEX_HOME: '/app/accounts/work' }, unset: ['OPENAI_API_KEY', 'CODEX_API_KEY'],
-  onStaged: paneId => stagePane(paneId),
-  onReplaced: paneId => followPane(paneId),
+  onStaged(paneId) { staged.add(paneId); },
+  onReplaced(paneId) { staged.delete(paneId); activePane = paneId; },
 });
 if (moved.ok) console.log(moved.paneId);
 await kit.cli(['integration', 'install', 'codex'], { env: { CODEX_HOME: '/app/accounts/work' } });
