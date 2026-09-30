@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, statSync, symlinkSync, utimesSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
-import { usage, roomOf, tokenLedger, memoryTokenLedgerStore, TokenLedgerError, UsageError, claudeWindows, codexWindows, goWindows, zaiWindows, WORDS, usageWords, type Source, type Window } from '../src/index.ts';
+import { usage, roomOf, tokenLedger, callLedger, normalizeTokens, priceCall, memoryTokenLedgerStore, TokenLedgerError, UsageError, claudeWindows, codexWindows, goWindows, zaiWindows, WORDS, usageWords, type Source, type Window } from '../src/index.ts';
 import { fakeCodex, fakeFetch, usageContract } from '../src/testing/index.ts';
 import { fingerprint } from '../src/store.ts';
 import payloads from './usage-payloads.json' with { type: 'json' };
@@ -291,4 +291,41 @@ test('member token ledger: local days, seven-day caps, boundaries and host persi
   const broken = tokenLedger({ store: { record() { throw new Error('secret'); }, query() { throw new Error('secret'); } } });
   assert.throws(() => broken.record('alice', 1, start), (error: unknown) => error instanceof TokenLedgerError && error.code === 'store' && !error.message.includes('secret'));
   assert.throws(() => broken.query('alice', start, end), TokenLedgerError);
+});
+
+
+test('runtime call ledger: normalized provider counts, honest unknowns, app prices and shared member store', () => {
+  for (const fixture of payloads.runtime) assert.deepEqual(normalizeTokens(fixture.provider, fixture.raw), fixture.tokens);
+  assert.deepEqual(normalizeTokens('claude', {}), { provenance: 'unknown' });
+  assert.deepEqual(normalizeTokens('codex', { input_tokens: 100, output_tokens: 10, total_tokens: 999 }), { provenance: 'unknown' });
+  assert.deepEqual(normalizeTokens('codex', { input: 100, output: 10, provenance: 'estimated' }), { provenance: 'unknown' });
+  const store = memoryTokenLedgerStore(); const time = new Date(2026, 8, 7, 12).getTime();
+  const ledger = callLedger({ store, prices: { codex: { model: { billing: 'api', currency: 'USD', inputPerMillion: 2, outputPerMillion: 10, cachedInputPerMillion: 1 } }, claude: { model: { billing: 'subscription', currency: 'USD', inputPerMillion: 2, outputPerMillion: 10, cachedInputPerMillion: 1, cacheWritePerMillion: 3 } } } });
+  const base = { account: 'account-one', model: 'model', runId: 'run-one', time, billing: 'api' as const };
+  const first = ledger.record('alice', { ...base, provider: 'codex', usage: { ...payloads.runtime[0].raw, secret: 'never-store' }, durationMs: 120, limits: payloads.codex.windows as Window[] });
+  assert.deepEqual(first.cost, { amount: 0.00037, currency: 'USD', billing: 'api', label: "Person's API bill", basis: 'app-prices', estimated: true });
+  assert.equal(first.tokens.total, 120); assert.equal(first.payer, 'alice');
+  // The same run's retry is another call; another member never contributes to this member.
+  ledger.record('alice', { ...base, provider: 'claude', billing: 'subscription', usage: payloads.runtime[1].raw, state: 'cancelled' });
+  ledger.record('bob', { ...base, provider: 'codex', usage: payloads.runtime[0].raw });
+  first.tokens.total = 999; // Returned values cannot mutate stored history.
+  const restarted = callLedger({ store });
+  const query = restarted.query('alice', time, time + 1);
+  assert.equal(query.calls.length, 2); assert.equal(query.calls[1].state, 'cancelled');
+  assert.equal(query.tokens.total, 240); assert.equal(query.tokens.input, 200); assert.equal(query.tokens.cachedInput, 60);
+  assert.equal(query.costs.length, 2); assert.equal(query.costs[1].label, "Person's own plan");
+  assert.equal(query.unpricedCalls, 0); assert.doesNotMatch(JSON.stringify(query), /never-store|usage/);
+  assert.equal(tokenLedger({ store, cap: 500 }).query('alice', time, time + 1).week.remaining, 260);
+  assert.equal(priceCall(normalizeTokens('codex', { input: 100, output: 20 }), undefined, 'api'), undefined);
+  assert.equal(priceCall(normalizeTokens('codex', { input: 100, output: 20 }), { billing: 'api', currency: 'USD', inputPerMillion: 2, outputPerMillion: 10, cachedInputPerMillion: 1 }, 'api'), undefined);
+  assert.equal(callLedger().record('alice', { ...base, provider: 'codex', usage: payloads.runtime[0].raw }).cost, undefined);
+  const unknown = restarted.record('alice', { ...base, provider: 'kimi', account: 'account-two', usage: { error: 'no reported counts' }, state: 'failed' });
+  assert.equal(unknown.tokens.provenance, 'unknown'); assert.equal(unknown.cost, undefined);
+  const partial = restarted.query('alice', time, time + 1);
+  assert.equal(partial.tokens.total, undefined); assert.equal(partial.unpricedCalls, 1);
+  const member = tokenLedger({ store, cap: 500 }).query('alice', time, time + 1);
+  assert.equal(member.tokens, 240); assert.equal(member.unknownCalls, 1); assert.equal(member.week.remaining, undefined);
+  assert.equal(member.week.unknownCalls, 1);
+  assert.throws(() => ledger.record('alice', { ...base, provider: 'codex', durationMs: -1 }), TokenLedgerError);
+  assert.throws(() => ledger.query('alice', time + 1, time), TokenLedgerError);
 });

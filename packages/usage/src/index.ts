@@ -7,6 +7,7 @@ import { claudeWindows, codexWindows, goWindows, record, zaiWindows, type CodexR
 import { codexTokenWindows, copilotWindows, grokWindows, minimaxWindows, geminiWindows, kimiWindows } from './quota.ts';
 import { UsageError, type Reading, type ReadOptions, type Source, type Usage, type UsageOptions } from './types.ts';
 export * from './types.ts';
+export { callLedger, normalizeTokens, priceCall, type CallLedger, type CallInput, type CallRecord, type CallQuery, type NormalizedTokens, type ModelPrice, type PriceTable, type CallCost } from './calls.ts';
 export { tokenLedger, memoryTokenLedgerStore, TokenLedgerError, type TokenLedger, type TokenLedgerStore, type TokenLedgerOptions, type TokenEntry, type TokenQuery } from './ledger.ts';
 export { roomOf } from './room.ts';
 export { memoryUsageStore } from './store.ts';

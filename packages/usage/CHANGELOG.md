@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add token quota sources for Claude, Codex, Copilot, Grok, MiniMax, Gemini and Kimi, with BYOKit's own user agent and no credential discovery.
+- Add `callLedger`, `normalizeTokens` and `priceCall` for attributed model calls, reported/partial/unknown counts and estimates from app price tables only, on the member ledger store seam.
 - Add a member-scoped token ledger with local-day totals, trailing seven-day caps and an injectable store (in-memory by default).
 - Add `roomOf`; reset timestamps now use epoch milliseconds.
 - Add host Claude reader, last-good store and 429 backoff hooks. Persist only normalized quota fields and fingerprint non-secret identities.
@@ -10,6 +11,7 @@
 ## 0.2.0 (2026-09-30)
 
 - Add token quota sources for Claude, Codex, Copilot, Grok, MiniMax, Gemini and Kimi, with BYOKit's own user agent and no credential discovery.
+- Add `callLedger`, `normalizeTokens` and `priceCall` for attributed model calls, reported/partial/unknown counts and estimates from app price tables only, on the member ledger store seam.
 - Add a member-scoped token ledger with local-day totals, trailing seven-day caps and an injectable store (in-memory by default).
 - Add `roomOf`; reset timestamps now use epoch milliseconds.
 - Add host Claude reader, last-good store and 429 backoff hooks. Persist only normalized quota fields and fingerprint non-secret identities.

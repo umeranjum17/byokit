@@ -124,3 +124,41 @@ store to keep history across reader instances. The host owns durable storage and
 retention; the default ledger never writes files. Invalid inputs and store failures
 throw `TokenLedgerError` with `code: 'invalid' | 'store'`, without exposing member ids
 or store exception text. Entries are counts only, never sign-in tokens.
+
+`callLedger({ store?, prices? })` records runtime model calls through the same
+`TokenLedgerStore` seam. `record(member, { provider, account, model, runId, time,
+billing, usage?, payer?, durationMs?, state?, limits? })` returns and stores one
+`CallRecord`. `billing` is `subscription` or `api`; `payer` defaults to the member.
+`state` is `completed` (default), `cancelled` or `failed`. The host records each
+actual model call, including retries, and supplies the provider's final usage when
+available. No missing counts are inferred from words or decision sub-answers.
+
+`normalizeTokens(provider, usage)` accepts native usage or its response envelope,
+and normalized `{ input?, output?, cachedInput?, cacheWrite?, total? }` counts.
+It returns only safe nonnegative integer counts with
+`provenance: 'reported' | 'partial' | 'unknown'`. Input includes cache reads/writes,
+which are subsets, so total is input plus output once. Claude's distinct cache
+buckets are added to ordinary input ([Claude usage fields](https://platform.claude.com/docs/en/build-with-claude/prompt-caching));
+OpenAI-compatible input already includes cache ([OpenAI caching](https://developers.openai.com/api/docs/guides/prompt-caching)).
+Gemini output includes candidates and thinking tokens ([Gemini UsageMetadata](https://ai.google.dev/api/generate-content#UsageMetadata)).
+Absent, invalid, explicitly estimated or inconsistent counts remain unknown; raw
+response objects, prompts and credential fields are discarded.
+
+Prices are host data keyed by provider then model: `{ billing, currency,
+inputPerMillion, outputPerMillion, cachedInputPerMillion?, cacheWritePerMillion? }`.
+`priceCall(tokens, price, billing)` and the ledger return a cost only when reported
+counts and the matching app price row suffice. No vendor prices are bundled or
+fetched. Costs carry `basis: 'app-prices'`, `estimated: true`, and billing labels
+`Person's own plan` or `Person's API bill`; an estimate is not an invoice or an
+extra charge against a subscription. Missing separate cache rates use the host's
+input rate. If a separate rate requires an unknown cache count, cost is unknown.
+
+`query(member, from, to)` returns time-sorted `calls`, aggregate `tokens`, `costs`
+separated by currency and billing, and `unpricedCalls`. An aggregate field is
+unknown if any call lacks that field. Store implementations must preserve the
+entry's optional `call` metadata to replay calls; the default in-memory store does.
+Sharing the store lets `tokenLedger.query` count these calls automatically. For
+calls with unknown total counts, member/day/week results expose `unknownCalls`,
+`tokens` is the known subtotal, and week `remaining` is omitted. Cap and price
+policy remain the host's. All times, durations and quota reset timestamps are
+milliseconds. There is no transport, credential discovery or automatic rotation.
