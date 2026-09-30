@@ -5,6 +5,8 @@ if [ "$(uname -s)" != Linux ] || ! command -v dbus-run-session >/dev/null || ! c
   echo 'Real keyring test skipped: Linux D-Bus/gnome-keyring unavailable.'
   exit 0
 fi
+# Native tests import workspace packages through their built entry points.
+npm run build
 test_session_root=$(mktemp -d /tmp/ks.XXXXXX)
 cleanup() {
   node --input-type=module -e 'import { rmSync } from "node:fs"; rmSync(process.argv[1], { recursive: true, force: true });' "$test_session_root"
