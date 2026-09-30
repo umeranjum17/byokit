@@ -174,6 +174,9 @@ The **handle** step authorizes the already-paired inviter, **offer** records the
 then **confirm** checks that metadata before approving the new peer:
 
 ```ts
+import { Host, keyPair, PublicLinkError } from '@byokit/link';
+
+declare const ui: { ask(question: string): Promise<boolean> };
 const urls = ['wss://relay.example/link/v1/your-host-id'];
 const host: Host = await Host.open({
   keys: keyPair(), name: 'Kitchen computer',
@@ -303,6 +306,22 @@ Frames are the same bytes on every path; a relay only routes them and cannot rea
 
 `@byokit/link` does not include a relay server; use [`@byokit/relay`](../relay) for the standalone server,
 reconnecting host client and device code lookup.
+
+## Migrating pre-kit phone pairings
+
+For a pre-kit Crewhouse phone pairing, call `migrateGrant(raw, { format: 'crewhouse-v0' })`
+and save the returned `DeviceGrant` in the app's device store. `raw` is a parsed object
+or JSON with exactly `{ sk, crewdPk, fp, urls, device: { id, name, role } }`, with no
+version field. Both keys are canonical padded base64 for 32 bytes; `fp` is the first
+eight bytes of BLAKE2b-128 of `crewdPk`, in lowercase hex groups of four digits
+separated by spaces. Addresses must be nonempty WebSocket URLs without credentials
+or fragments, and the role is `control` or `view`. Names, IDs and addresses are preserved;
+the host name becomes `your computer`. Database device rows are not this phone format.
+
+Invalid input throws `GrantMigrationError` with `code: 'invalid-grant'`; an unknown
+format throws it with `code: 'unsupported-format'`. Migration neither logs nor persists
+anything. The fingerprint detects an inconsistent host key; it is not a signature.
+The host still verifies the device key and supplies its current permissions on connection.
 
 ## Moving already-paired devices (muxr)
 

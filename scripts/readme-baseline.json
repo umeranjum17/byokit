@@ -79,12 +79,6 @@
   },
   {
     "readme": "packages/link/README.md",
-    "block": 4,
-    "snapshot": "34addd4233724e0e00c5deedc342e1d138497af189ad57e11824ac5dae213f7c",
-    "reason": "Peer-invitation fragment omits imports and host confirmation UI context."
-  },
-  {
-    "readme": "packages/link/README.md",
     "block": 5,
     "snapshot": "d02faa7e333b55d99925215ad9b3fb76199b7536f9ab3dff137885127addd211",
     "reason": "Device fragment omits scanned offer, UI callbacks and host-provided secure storage."
