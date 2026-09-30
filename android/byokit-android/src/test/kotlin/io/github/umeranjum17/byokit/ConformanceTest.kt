@@ -128,9 +128,13 @@ class ConformanceTest {
         for (key in words.keys()) assertFalse(key, banned.containsMatchIn(words.getString(key).replace(Regex("\\{\\w+\\}"), "X")))
     }
 
-    @Test fun catalogueHasNoClaude() {
-        val ids = Byokit.catalogue.keys().asSequence().map { Byokit.catalogue.getJSONObject(it).getString("pi") }.toList()
-        assertFalse(ids.contains("anthropic"))
+    @Test fun catalogueLabelsExplicitAnthropicApiBilling() {
+        val anthropic = Byokit.provider("anthropic")
+        assertEquals("anthropic", anthropic.getString("pi"))
+        assertEquals("api", anthropic.getString("billing"))
+        assertEquals("api-key", anthropic.getString("auth"))
+        assertEquals("API key (billed per use)", anthropic.getString("label"))
+        assertFalse(anthropic.getBoolean("offer"))
         assertEquals("gpt-6-sol", ChatGptAccount(MemoryStore()).strongModel)
         assertEquals("Uses your ChatGPT plan. OpenAI may change this at any time.", ChatGptAccount(MemoryStore()).termsLine)
     }
