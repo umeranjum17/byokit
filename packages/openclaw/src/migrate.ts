@@ -74,29 +74,29 @@ export async function migrateRetainedLogin(
   if (path?.endsWith(MOVED) && ctx.seal) await retireArchive(path, ctx.seal, ctx.log);
   await ctx.prepare();
   const stage = async (): Promise<'staged' | 'failed'> => {
-  const agentDir = join(ctx.root, 'state', 'agents', member, 'agent');
-  const staged = join(agentDir, 'auth-profiles.json');
-  // Only a staging this call wrote may ever be removed: the file is the member's live sign-in once the engine has
-  // imported it, and a failed run must not take that with it.
-  const wrote = !existsSync(staged);
-  if (wrote) {
-    // Doctor canonicalizes legacy provider ids before importing; staging `auth.json` instead keeps the old id,
-    // which looks signed in but cannot authenticate `openai/*` turns.
-    mkdirSync(agentDir, { recursive: true, mode: 0o700 });
-    const body = JSON.stringify({ version: 1, profiles: Object.fromEntries(
-      Object.entries(legacy).map(([provider, credential]) => [`${provider}:default`, credential])) });
-    // Written beside its home and renamed into place, so a reader never sees half a profile store.
-    const staging = `${staged}.staging-${process.pid}`;
-    writeFileSync(staging, body, { mode: 0o600 });
-    renameSync(staging, staged);
-  }
-  // The doctor's exit is a weak yes (it exits 0 even when it imports nothing), so a failed run only clears the
-  // staging; retiring the original stays confirm's job.
-  if (ctx.doctor().status !== 0) {
-    if (wrote) rmSync(staged, { force: true });
-    return 'failed';
-  }
-  return 'staged';
+    const agentDir = join(ctx.root, 'state', 'agents', member, 'agent');
+    const staged = join(agentDir, 'auth-profiles.json');
+    // Only a staging this call wrote may ever be removed: the file is the member's live sign-in once the engine has
+    // imported it, and a failed run must not take that with it.
+    const wrote = !existsSync(staged);
+    if (wrote) {
+      // Doctor canonicalizes legacy provider ids before importing; staging `auth.json` instead keeps the old id,
+      // which looks signed in but cannot authenticate `openai/*` turns.
+      mkdirSync(agentDir, { recursive: true, mode: 0o700 });
+      const body = JSON.stringify({ version: 1, profiles: Object.fromEntries(
+        Object.entries(legacy).map(([provider, credential]) => [`${provider}:default`, credential])) });
+      // Written beside its home and renamed into place, so a reader never sees half a profile store.
+      const staging = `${staged}.staging-${process.pid}`;
+      writeFileSync(staging, body, { mode: 0o600 });
+      renameSync(staging, staged);
+    }
+    // The doctor's exit is a weak yes (it exits 0 even when it imports nothing), so a failed run only clears the
+    // staging; retiring the original stays confirm's job.
+    if (ctx.doctor().status !== 0) {
+      if (wrote) rmSync(staged, { force: true });
+      return 'failed';
+    }
+    return 'staged';
   };
   return ctx.withStore ? ctx.withStore(stage) : stage();
 }

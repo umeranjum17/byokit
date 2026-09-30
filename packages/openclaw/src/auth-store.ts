@@ -1,6 +1,6 @@
 // The pin persists OAuth JSON in both shared and agent SQLite. There is no public persistence hook.
 // Seal the complete isolated stores, including journals, only after their writer has exited.
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, closeSync, fsyncSync, openSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import type { SealingAdapter } from '@byokit/secrets';
 
@@ -19,7 +19,14 @@ function put(path: string, bytes: Uint8Array): void {
   const tmp = `${path}.sealing-${process.pid}`;
   try {
     writeFileSync(tmp, bytes, { mode: 0o600, flag: 'wx' });
+    const fd = openSync(tmp, 'r');
+    try { fsyncSync(fd); } finally { closeSync(fd); }
     renameSync(tmp, path);
+    // POSIX directory fsync makes the rename durable before any plaintext is removed.
+    if (process.platform !== 'win32') {
+      const parent = openSync(dirname(path), 'r');
+      try { fsyncSync(parent); } finally { closeSync(parent); }
+    }
   } finally { rmSync(tmp, { force: true }); }
 }
 type Snapshot = { v: 1; dirs: string[]; files: [string, string][] };
@@ -127,6 +134,7 @@ export class AuthStore {
     const sealed = this.o.seal.encryptString(text);
     if (this.o.seal.decryptString(Buffer.from(sealed)) !== text) throw new Error('credential seal verification failed');
     put(this.file, sealed);
+    if (this.o.seal.decryptString(readFileSync(this.file)) !== text) throw new Error('credential seal verification failed');
     put(this.cleanup, encoder.encode('1'));
     for (const dir of ['state', 'home']) rmSync(join(this.o.root, dir), { recursive: true, force: true });
     rmSync(this.cleanup, { force: true });
@@ -209,6 +217,7 @@ export async function retireArchive(path: string, seal?: SealingAdapter, log?: (
       const sealed = seal.encryptString(text);
       if (seal.decryptString(Buffer.from(sealed)) !== text) throw new Error('archive seal verification failed');
       put(path + '.sealed', sealed);
+      if (seal.decryptString(readFileSync(path + '.sealed')) !== text) throw new Error('archive seal verification failed');
     } finally { bytes.fill(0); }
   }
   rmSync(path);

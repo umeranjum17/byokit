@@ -24,7 +24,7 @@ const legacyAuth = (extra: Record<string, unknown> = {}) => JSON.stringify({
   ...extra,
 }, null, 2);
 
-type House = { dir: string; stateDir: string; legacy: string; engine: Engine; seal?: SealingAdapteringAdapter; transport?: GatewayTransport };
+type House = { dir: string; stateDir: string; legacy: string; engine: Engine; seal?: SealingAdapter; transport?: GatewayTransport };
 
 async function house(sealed = false): Promise<House> {
   const dir = scratchDir('o6-migrate-real');

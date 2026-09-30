@@ -202,6 +202,16 @@ test('sealed engine store covers SQLite, journals, JSON and isolated home; stop,
   assert.equal(existsSync(join(engine.root, 'home')), false);
   assert.equal(readFileSync(sealed).includes(secret), false);
   await assert.rejects(new Engine({ ...o, authSeal: undefined }).start(), /authSeal required/);
+  await restarted.start();
+  assert.equal(readFileSync(join(agent, 'openclaw-agent.sqlite'), 'utf8'), 'refreshed-token-canary', 'refusing a missing adapter cannot replace the snapshot with empty directories');
+  await restarted.stop();
+  // A power loss between removing the two live trees must retain the completed snapshot.
+  mkdirSync(join(engine.root, 'state'));
+  writeFileSync(join(engine.root, 'auth-store.cleanup'), '1');
+  await restarted.prepare();
+  await restarted.start();
+  assert.equal(readFileSync(join(agent, 'openclaw-agent.sqlite'), 'utf8'), 'refreshed-token-canary');
+  await restarted.stop();
   writeFileSync(sealed, 'tampered');
   await assert.rejects(new Engine(o).start(), /authentication failed/);
   assert.equal(existsSync(agent), false, 'tamper rejection happens before any plaintext is restored');

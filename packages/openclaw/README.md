@@ -166,6 +166,62 @@ The kit writes only under the `stateDir` the app passes. It spawns the engine wi
 (never `process.env`), reads no environment variables except `PATH` to find `npm`, and never bills an API behind the
 person's back (memory search is never a paid provider).
 
+## Credential sealing and threat model
+
+The pinned engine has no supported hook for sealing OAuth profile writes. Its `auth-profiles` loader stores
+credential JSON in agent SQLite databases and a shared state database, and doctor imports leave migration
+archives. `authSeal` therefore protects the complete isolated `state` and `home` directories, including SQLite
+journals. It uses the same injected `SealingAdapter` as `@byokit/secrets`; the kit creates no sealing key.
+
+```ts
+import { osKeyringSeal, hostKeySeal } from '@byokit/secrets';
+import { OpenClawKit } from '@byokit/openclaw';
+
+const kit = new OpenClawKit({
+  stateDir: './openclaw-state',
+  authSeal: osKeyringSeal({ service: 'my-app-runtime' }),
+});
+await kit.prepare(); // seals an existing plaintext store and migration archives without starting the engine
+await kit.start();   // authenticates and restores the isolated files for the engine
+await kit.stop();    // waits for exit, verifies an atomic sealed snapshot, then removes plaintext
+
+// A headless server supplies its own 32-byte key, held outside stateDir and its backups:
+declare const hostKey: Uint8Array;
+const server = new OpenClawKit({
+  stateDir: './server-state',
+  authSeal: hostKeySeal({ key: hostKey, service: 'my-app-runtime' }),
+});
+```
+
+Without `authSeal`, engine credentials remain plaintext. With it, successful `prepare()` and `stop()` leave
+only a sealed snapshot, `auth-store.sealed`, for those directories. The adapter authenticates the snapshot
+before any restoration; a wrong key, tampering, or a missing adapter rejects. Files restored for the engine
+have mode 0600 and directories 0700. Symlinks and special files inside the sealed directories are refused.
+One kit owns the store at a time; a live owner or orphan gateway blocks preparation instead of racing its writes.
+Sealing copies the whole store through memory, so startup and stop cost grows with session history.
+
+The migration doctor temporarily opens the same store and reseals it even when import fails. Once the gateway
+verifies every provider, `confirmRetainedLogin()` removes the explicitly passed legacy source and writes only
+an empty completion marker. It no longer creates a plaintext `.moved-to-engine` copy. On prepare, old engine
+`*.json.migrated-*` and `*.json.sqlite-import.*.bak` archives and retained copies under `stateDir` are sealed
+with the adapter (a `credential archive sealed` log event). Without an adapter, engine archives and confirmed
+retained copies are removed (`verified credential archive removed`). An unconfirmed retained copy remains a
+migration source until verified or sealed; pass its original path to migration to recover a sealed copy.
+Archives stay sealed and are never restored as engine input. External source paths are handled only when the
+host explicitly passes them to migration/confirmation. An app supplying a record still removes its own copy.
+
+Residual risk: credentials are plaintext on disk and in process memory while the gateway or migration doctor
+runs. Abrupt host termination or power loss cannot run stop cleanup: next prepare seals leftover live files,
+but refuses while the old gateway is alive. Interrupted restore/removal is recovered from the authenticated
+snapshot. A sealing failure rejects stop and retains recoverable live files; the host must resolve it and retry.
+Await `stop()` during orderly shutdown. File removal does not erase old filesystem blocks, snapshots, swap or
+backups; use an encrypted volume and exclude live state from backups. A same-user process, administrator,
+compromised engine/plugin, memory dump, or stolen host key can read credentials. There is no rollback protection
+against replacement with an older authentic snapshot. Gateway/device keys, inline config secrets, logs, engine
+install/cache files and app workspaces are outside this adapter's sealing scope; protect them separately.
+`doctorContext()` is an advanced escape hatch: launching an external doctor bypasses this lifecycle; use the
+kit's migration method for sealed stores.
+
 ## Status
 
 Pinned to OpenClaw `2026.8.1` (protocol 4); `ENGINE_VERSION` and `PROTOCOL_VERSION` carry the pin. Signatures are
