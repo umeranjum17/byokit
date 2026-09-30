@@ -7,12 +7,14 @@ provider: the app passes the provider's address, a label to show, and dated pric
 ([spec](../../docs/cloud-kit.md)).
 
 ```ts
-import { machine, estimate, stateWords } from '@byokit/cloud';
+import { machine, type Provider, type MachineStore, type HostRecipe } from '@byokit/cloud';
 
-const m = machine({ provider, store });
-const ref = await m.create({ name: 'tracker', size: 'small', keepCopies: true });
-await m.install(recipe);
-await m.state(); // 'on'
+export async function start(provider: Provider, store: MachineStore, recipe: HostRecipe) {
+  const m = machine({ provider, store });
+  const ref = await m.create({ name: 'tracker', size: 'small', keepCopies: true });
+  await m.install(recipe);
+  return { ref, state: await m.state() }; // 'on'
+}
 ```
 
 `machine()` decides where the app's host process runs; the app's one runtime kit
