@@ -6,7 +6,7 @@ import { protocolBounds } from './constants.ts';
 import { closePane, closeTab, closeWorkspace } from './close.ts';
 import { Supervisor } from './supervise.ts';
 import type {
-  AgentRef, AgentSessionRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,
+  AgentCliSignIn, AgentReadiness, AgentStatusOptions, AgentRef, AgentSessionRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,
   HerdrParams, HerdrResult, HerdrSnapshot, HerdrSnapshotAgent, HerdrSnapshotPane, HerdrSnapshotWorkspace, HerdrState, HerdrSubscription, HerdrSubscribeStop, PromptReceipt, StartAgent, TerminalSession,
   HerdrTransport,
 } from './types.ts';
@@ -400,4 +400,7 @@ export class HerdrKit {
   closeWorkspace(workspaceId: string): Promise<void> { return closeWorkspace(this.callAny, workspaceId); }
   agentKinds(): Promise<string[]> { return this.agents.agentKinds(); }
   installedAgentKinds(kinds: readonly string[], o: { path: string[]; aliases?: Record<string, string[]> }): string[] { return this.agents.installedAgentKinds(kinds, o); }
+  // Onboarding readiness (B5): a local PATH probe plus each installed CLI's own status
+  // command — no Herdr connection needed, credential files never read.
+  agentStatus(kinds: readonly string[], o?: AgentStatusOptions): Promise<AgentReadiness[]> { return this.agents.agentStatus(kinds, o); }
 }

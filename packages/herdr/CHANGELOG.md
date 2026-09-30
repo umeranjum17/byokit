@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-09-30)
+
+- `HerdrKit.agentStatus(kinds)` (B5): per-kind onboarding readiness — installed plus CLI
+  sign-in (`yes`/`no`/`unknown`) from each CLI's own non-secret status command (`claude auth
+  status`, Codex `app-server` `account/read`; `unknown` where a CLI has none), install and
+  sign-in hint words, and the extra install dirs (mise shims, `~/.local/bin`, Homebrew) moved
+  in from muxr's PATH probe. Pi reads `installed: false` with `installs on first start`. The
+  command runner is injectable for tests; credential files are never read.
+
 ## 0.1.10 (2026-09-30)
 
 - Dependency update: pins @byokit/relay 0.4.2.

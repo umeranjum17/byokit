@@ -149,7 +149,8 @@ persistent grant store, and the phone page above.
 
 | Export | What it does |
 |---|---|
-| `HerdrKit` (`@byokit/herdr`) | The host-side kit, in `adopt` or `own` mode: `start`/`stop`, `state`, `snapshot`/`onChange`, `startAgent`, `prompt`, `sendKeys`, `wait`, `read`, `blocked`/`onBlocked`/`answer`, `closePane`/`closeTab`/`closeWorkspace`, `agentKinds`, `installedAgentKinds`, `terminal`, `onEvent`, `statusWatchReady`, and the pass-throughs `call`, `subscribe` and `cli` |
+| `HerdrKit` (`@byokit/herdr`) | The host-side kit, in `adopt` or `own` mode: `start`/`stop`, `state`, `snapshot`/`onChange`, `startAgent`, `prompt`, `sendKeys`, `wait`, `read`, `blocked`/`onBlocked`/`answer`, `closePane`/`closeTab`/`closeWorkspace`, `agentKinds`, `installedAgentKinds`, `agentStatus`, `terminal`, `onEvent`, `statusWatchReady`, and the pass-throughs `call`, `subscribe` and `cli` |
+| `agentStatus`, `agentProbePath`, `extraPathDirs`, `runStatusCommand` (`@byokit/herdr`) | Onboarding readiness: per-kind install + CLI sign-in without a Herdr connection (see below) |
 | `HERDR_VERSION`, `HERDR_PROTOCOL` | The pinned Herdr release (`0.9.1`) and the protocol the kit speaks (`22`) |
 | `words`, `agentWords`, `stateWords`, `WORDS` | Plain sentences for agent statuses and kit states |
 | `herdrLink` (`@byokit/herdr/link`) | The host side of the `hd.*` link ops, spread into `Host.open`; scopes each grant to its workspaces and can push sealed approval notices through a relay |
@@ -168,6 +169,50 @@ Types (`HerdrKitOptions`, `HerdrState`, `StartAgent`, `PromptReceipt`, `BlockedA
 - `own` runs the Herdr binary the app names, in an app-owned state directory.
 
 Helpers cover the common paths (start an agent, deliver a prompt with a receipt, watch blocked agents, exact closes).
+
+## Agent readiness
+
+`kit.agentStatus(kinds)` reports, per kind, whether the agent's CLI is installed and whether
+it is signed in — the onboarding agents-and-pickers check. It needs no Herdr connection: it
+probes the local machine. Install detection reuses `installedAgentKinds` over the host PATH plus
+the extra install dirs a service PATH omits (`extraPathDirs`: `~/.local/bin`, the mise shims,
+`~/.npm-global/bin`, Homebrew and the system dirs — the set muxr probed before this kit did).
+Sign-in comes only from each CLI's own documented non-secret status command, with a 10 s timeout;
+a kind whose CLI has none, or whose command gives no answer, reads `unknown`. Credential files
+are never opened, read or statted — only the signed-in boolean is kept. Herdr auto-installs Pi
+via mise on first start, so `pi` always reads `installed: false` with `installs on first start`
+rather than a missing-install error.
+
+```ts
+import { HerdrKit } from '@byokit/herdr';
+
+const kit = new HerdrKit({ mode: 'adopt', bin: 'herdr', socketPath: '/tmp/herdr.sock' });
+// Local probe only — the kit need not be started.
+console.log(await kit.agentStatus(['pi', 'claude', 'codex']));
+```
+
+```text
+[
+  { kind: 'pi', installed: false, signedIn: 'unknown', installHint: 'installs on first start' },
+  { kind: 'claude', installed: true, signedIn: 'yes',
+    installHint: 'Install the claude command, then check again.' },
+  { kind: 'codex', installed: true, signedIn: 'no',
+    installHint: 'Install the codex command, then check again.',
+    signInHint: 'On this computer run `codex`, sign in, then come back.' },
+]
+```
+
+| Kind | Status command | Why this one |
+|---|---|---|
+| `claude` | `claude auth status` (JSON `loggedIn`) | The CLI's own documented status; a signed-out CLI still prints its JSON, so only an empty answer reads `unknown`. |
+| `codex` | `codex app-server` with a pipelined `initialize` + `account/read` round | Codex exposes sign-in only over its app-server protocol; a record `account` in the second answer means signed in. |
+| `pi` | none (Herdr installs it via mise) | No probe: always `installed: false`, `installs on first start`. |
+| any other kind | none | No documented non-secret status command, so `unknown` until the kit covers it. |
+
+Options: `{ path, aliases }` as in `installedAgentKinds`; `{ run }` injects the command runner
+(`(command, args, { stdin, timeoutMs }) => Promise<{ stdout } | undefined>`, so tests use fakes);
+`{ timeoutMs }` bounds each probe. `signInHint` rides kinds the kit knows how to check whenever they
+are not signed in; `installHint` always rides along.
 `call` and `subscribe` are typed pass-throughs to the complete socket API, and `cli()` reaches the full CLI.
 
 `start()` is non-fatal: if Herdr is down it rejects (state `failed`, e.g. `failed/socket`) and may be called again

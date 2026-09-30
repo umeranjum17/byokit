@@ -2,10 +2,13 @@
 // Exact param spellings come from the generated v0.9.1 table (6.7); where muxr and the schema
 // disagree the schema wins. `pane.split` takes `target_pane_id` (muxr agrees), and `agent.start`
 // has no `env` param — a start's env belongs to the placement create/split call (src/generated/methods.ts).
+import { spawn } from 'node:child_process';
 import { accessSync, constants as fsConstants } from 'node:fs';
-import { join } from 'node:path';
+import { homedir } from 'node:os';
+import { delimiter, join } from 'node:path';
 import type { HerdrKit } from './kit.ts';
-import type { AgentRef, AgentStatus, HerdrSnapshot, PromptReceipt, StartAgent } from './types.ts';
+import type { AgentCliSignIn, AgentReadiness, AgentStatusOptions,
+  AgentStatusRunner, AgentRef, AgentStatus, HerdrSnapshot, PromptReceipt, StartAgent } from './types.ts';
 
 export type Call = (method: string, params: Record<string, unknown>, timeoutMs?: number) => Promise<unknown>;
 
@@ -50,7 +53,7 @@ function rootPaneOf(result: unknown): string | undefined {
 }
 
 export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; reread(paneId: string): Promise<void> }): Pick<HerdrKit,
-  'startAgent' | 'prompt' | 'sendKeys' | 'wait' | 'read' | 'agentKinds' | 'installedAgentKinds'> {
+  'startAgent' | 'prompt' | 'sendKeys' | 'wait' | 'read' | 'agentKinds' | 'installedAgentKinds' | 'agentStatus'> {
   const call = ctx.call;
 
   // Every placement takes its pane id from the server's answer, never a prediction (6.4).
@@ -194,5 +197,130 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
     return installed;
   }
 
-  return { startAgent, prompt, sendKeys, wait, read, agentKinds, installedAgentKinds };
+  // B5: the extra install dirs muxr's `executableOnPath` probes past PATH (a GUI daemon's
+  // inherited PATH omits them), moved into the kit so the host probe is trusted.
+  function installedSet(kinds: readonly string[], o: { path: string[]; aliases?: Record<string, string[]> }): Set<string> {
+    return new Set(installedAgentKinds(kinds.filter((k) => k !== 'pi'), o));
+  }
+
+  async function agentStatus(kinds: readonly string[], o?: AgentStatusOptions): Promise<AgentReadiness[]> {
+    const path = o?.path ?? agentProbePath();
+    const run = o?.run ?? runStatusCommand;
+    const timeoutMs = o?.timeoutMs ?? STATUS_TIMEOUT_MS;
+    const installed = installedSet(kinds, { path, ...(o?.aliases === undefined ? {} : { aliases: o.aliases }) });
+    return Promise.all(kinds.map(async (kind): Promise<AgentReadiness> => {
+      // Herdr auto-installs Pi via mise on first start, so PATH presence is not the signal:
+      // Pi always reads not-installed with the readiness words instead of a missing-install error.
+      if (kind === 'pi') return { kind, installed: false, signedIn: 'unknown', installHint: PI_INSTALL_HINT };
+      const binary = o?.aliases?.[kind]?.[0] ?? kind;
+      const installHint = `Install the ${binary} command, then check again.`;
+      if (!installed.has(kind)) return { kind, installed: false, signedIn: 'unknown', installHint };
+      const probe = STATUS_PROBES[kind];
+      if (probe === undefined) return { kind, installed: true, signedIn: 'unknown', installHint };
+      let answer: { stdout: string } | undefined;
+      try { answer = await run(probe.command, probe.args, { ...(probe.stdin === undefined ? {} : { stdin: probe.stdin }), timeoutMs }); }
+      catch { answer = undefined; }
+      const signedIn: AgentCliSignIn = answer === undefined ? 'unknown' : probe.parse(answer.stdout);
+      return { kind, installed: true, signedIn, installHint,
+        ...(signedIn === 'yes' ? {} : { signInHint: SIGNIN_HINTS[kind] ?? `Sign in to ${kind} on this computer, then check again.` }) };
+    }));
+  }
+
+  return { startAgent, prompt, sendKeys, wait, read, agentKinds, installedAgentKinds, agentStatus };
+}
+
+// Extra install dirs muxr's `executableOnPath`
+// (`apps/host/src/agent/infrastructure/herdrSessionSource.ts`) probes past PATH: user-install
+// dirs a service or GUI daemon's inherited PATH omits — mise shims (Herdr installs Pi through
+// mise), `~/.local/bin`, npm-global, Homebrew and the system dirs.
+export function extraPathDirs(home: string = homedir()): string[] {
+  return [join(home, '.local', 'bin'), join(home, '.local', 'share', 'mise', 'shims'),
+    join(home, '.npm-global', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'];
+}
+
+// The full install probe: the host's own PATH plus the extra dirs, de-duplicated.
+export function agentProbePath(path: string[] = (process.env.PATH ?? '').split(delimiter),
+  home: string = homedir()): string[] {
+  return [...new Set([...path, ...extraPathDirs(home)])].filter((dir) => dir !== '');
+}
+
+const STATUS_TIMEOUT_MS = 10_000;
+const PI_INSTALL_HINT = 'installs on first start';
+
+const SIGNIN_HINTS: Record<string, string> = {
+  claude: 'On this computer run `claude`, sign in, then come back.',
+  codex: 'On this computer run `codex`, sign in, then come back.',
+};
+
+type StatusProbe = {
+  command: string; args: string[]; stdin?: string;
+  parse(stdout: string): AgentCliSignIn;
+};
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+// Per-kind CLI status commands (see the README table for why each one). Every probe asks the
+// CLI itself and keeps only the signed-in boolean — email, plan and everything secret stays out.
+// A kind with no documented non-secret status command has no entry and reads 'unknown'.
+const STATUS_PROBES: Record<string, StatusProbe> = {
+  // `claude auth status` prints JSON with `loggedIn` (muxr's planIdentity reads the same);
+  // a signed-out CLI still prints its JSON, so only an empty answer means 'unknown'.
+  claude: { command: 'claude', args: ['auth', 'status'], parse: (stdout) => {
+    let status: unknown;
+    try { status = JSON.parse(stdout); } catch { return 'unknown'; }
+    if (!isRecord(status)) return 'unknown';
+    return status.loggedIn === true ? 'yes' : 'no';
+  } },
+  // Codex exposes sign-in only over its app-server protocol, so the probe pipes a pipelined
+  // `initialize` + `account/read` round (same method muxr's planIdentity uses) and reads the
+  // second answer: a record `account` means signed in, its absence means signed out.
+  codex: { command: 'codex', args: ['app-server'],
+    stdin: '{"id":1,"method":"initialize","params":{"clientInfo":{"name":"byokit","version":"1"}}}\n{"id":2,"method":"account/read","params":{}}\n',
+    parse: (stdout) => {
+      for (const line of stdout.split('\n')) {
+        let message: unknown;
+        try { message = JSON.parse(line); } catch { continue; }
+        if (isRecord(message) && message.id === 2) {
+          return isRecord(message.result) && isRecord(message.result.account) ? 'yes' : 'no';
+        }
+      }
+      return 'unknown';
+    } },
+};
+
+// Default runner: one bounded spawn per probe, stdin piped when the protocol needs it (codex).
+// Failures (missing binary, timeout, non-empty stderr, empty stdout) read as no answer — never throw.
+export async function runStatusCommand(command: string, args: string[],
+  o?: { stdin?: string; timeoutMs?: number }): Promise<{ stdout: string } | undefined> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (value: { stdout: string } | undefined): void => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(command, args, { stdio: ['pipe', 'pipe', 'ignore'], timeout: o?.timeoutMs ?? STATUS_TIMEOUT_MS });
+    } catch { finish(undefined); return; }
+    let out = '';
+    const timer = setTimeout(() => { child.kill('SIGKILL'); finish(undefined); }, (o?.timeoutMs ?? STATUS_TIMEOUT_MS) + 500);
+    child.on('error', () => finish(undefined));
+    const stdout = child.stdout;
+    const stdin = child.stdin;
+    if (stdout === null || stdin === null) { finish(undefined); return; }
+    stdout.setEncoding('utf8');
+    stdout.on('data', (chunk: string) => {
+      out += chunk;
+      if (out.length > 64 * 1024) { child.kill('SIGKILL'); finish(undefined); }
+    });
+    child.on('close', () => finish(out.trim() === '' ? undefined : { stdout: out.slice(0, 64 * 1024) }));
+    stdin.on('error', () => { /* the close handler settles */ });
+    try {
+      if (o?.stdin !== undefined) stdin.write(o.stdin);
+      stdin.end();
+    } catch { /* a dead stdin settles through close/error */ }
+  });
 }
