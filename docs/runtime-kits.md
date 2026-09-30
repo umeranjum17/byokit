@@ -507,7 +507,10 @@ member agent, whose sign-in to a provider is that provider's first account (5.15
 **Credential sealing**: `authSeal` takes the `@byokit/secrets` `SealingAdapter` interface (OS keyring or host-owned key),
 never a kit-created key. The pinned engine has no supported OAuth persistence hook: it stores JSON in both
 agent SQLite and the shared state SQLite database. The kit seals the complete isolated `state` and `home`
-directories, including SQLite journals, at rest. `prepare()` seals existing plaintext stores and migration
+directories, including SQLite journals, at rest. File symlinks are included only when their fully resolved
+targets are regular files inside the isolated engine root; they restore as regular files at the link paths.
+Outside-root, dangling and directory symlinks (including loops), sockets, FIFOs and devices are skipped.
+`prepare()` seals existing plaintext stores and migration
 archives; `start()` authenticates the sealed snapshot before restoring files (0600, directories 0700).
 `stop()` waits for engine exit, writes and verifies a sealed snapshot atomically, then removes plaintext.
 An offline migration doctor temporarily opens the same store and reseals it in `finally`. A sealing failure

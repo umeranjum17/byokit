@@ -196,7 +196,9 @@ const server = new OpenClawKit({
 Without `authSeal`, engine credentials remain plaintext. With it, successful `prepare()` and `stop()` leave
 only a sealed snapshot, `auth-store.sealed`, for those directories. The adapter authenticates the snapshot
 before any restoration; a wrong key, tampering, or a missing adapter rejects. Files restored for the engine
-have mode 0600 and directories 0700. Symlinks and special files inside the sealed directories are refused.
+have mode 0600 and directories 0700. File symlinks are sealed only when their fully resolved targets are
+regular files inside the isolated engine root; they restore as regular files at the link paths. Outside-root,
+dangling and directory symlinks (including loops), sockets, FIFOs and devices are skipped.
 One kit owns the store at a time; a live owner or orphan gateway blocks preparation instead of racing its writes.
 Sealing copies the whole store through memory, so startup and stop cost grows with session history.
 
