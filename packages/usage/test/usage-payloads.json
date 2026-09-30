@@ -1,0 +1,163 @@
+{
+  "provenance": "Sanitized shapes from the host usage diagnostic fixtures; fixed timestamps and no real credentials.",
+  "salt": "muxr/usage/account",
+  "claude": {
+    "identity": "fixture-claude-account",
+    "fingerprint": "dea6c8d8d7b3d75c1638f37f497c97b075fc6629f2fb1f0afe36c3739ab681de",
+    "raw": {
+      "five_hour": {
+        "used_percentage": 21,
+        "resets_at": 1788616800
+      },
+      "seven_day": {
+        "used_percentage": 42,
+        "resets_at": 1788616800
+      }
+    },
+    "windows": [
+      {
+        "provider": "claude",
+        "kind": "session",
+        "usedPercent": 21,
+        "minutes": 300,
+        "resetsAt": 1788616800
+      },
+      {
+        "provider": "claude",
+        "kind": "weekly",
+        "usedPercent": 42,
+        "minutes": 10080,
+        "resetsAt": 1788616800
+      }
+    ]
+  },
+  "codex": {
+    "identity": "fixture-codex-account",
+    "fingerprint": "5fe461c3a097ff615f66e755c3f19dbedecddca7a4f6efdd4617d9cc1ac31193",
+    "raw": {
+      "rateLimitsByLimitId": {
+        "codex": {
+          "limitId": "codex",
+          "primary": {
+            "usedPercent": 25,
+            "windowDurationMins": 300,
+            "resetsAt": 1788616800
+          },
+          "secondary": {
+            "usedPercent": 90,
+            "windowDurationMins": 10080,
+            "resetsAt": 1788616800
+          }
+        }
+      }
+    },
+    "windows": [
+      {
+        "provider": "codex",
+        "kind": "session",
+        "usedPercent": 25,
+        "minutes": 300,
+        "resetsAt": 1788616800
+      },
+      {
+        "provider": "codex",
+        "kind": "weekly",
+        "usedPercent": 90,
+        "minutes": 10080,
+        "resetsAt": 1788616800
+      }
+    ]
+  },
+  "opencode": {
+    "identity": "fixture-secret-key",
+    "fingerprint": "b5df092f3b8bc1e3ee359372a55636fe393b69983f08dc7dcc368c36d41d93eb",
+    "raw": {
+      "usage": {
+        "rolling": {
+          "status": "ok",
+          "percent": 0,
+          "resetsAt": "2026-09-05T14:00:00.000Z"
+        },
+        "weekly": {
+          "status": "ok",
+          "percent": 21,
+          "resetsAt": "2026-09-05T14:00:00.000Z"
+        },
+        "monthly": {
+          "status": "ok",
+          "percent": 22,
+          "resetsAt": "2026-09-05T14:00:00.000Z"
+        }
+      }
+    },
+    "windows": [
+      {
+        "provider": "opencode",
+        "kind": "rolling",
+        "usedPercent": 0,
+        "minutes": 300,
+        "resetsAt": 1788616800
+      },
+      {
+        "provider": "opencode",
+        "kind": "weekly",
+        "usedPercent": 21,
+        "minutes": 10080,
+        "resetsAt": 1788616800
+      },
+      {
+        "provider": "opencode",
+        "kind": "monthly",
+        "usedPercent": 22,
+        "resetsAt": 1788616800
+      }
+    ]
+  },
+  "zai": {
+    "identity": "fixture-zai-key",
+    "fingerprint": "4b1bca7b6fcf1f4083bceb7461bb0d002dcc807163252bdab335fec3c1a9842c",
+    "raw": {
+      "success": true,
+      "data": {
+        "limits": [
+          {
+            "type": "CREDIT_LIMIT",
+            "unit": 3,
+            "number": 5,
+            "percentage": 4,
+            "nextResetTime": 1788616800000
+          },
+          {
+            "type": "CREDIT_LIMIT",
+            "unit": 6,
+            "number": 1,
+            "percentage": 1,
+            "nextResetTime": 1788616800000
+          },
+          {
+            "unit": 9,
+            "number": 9,
+            "percentage": 200,
+            "nextResetTime": 1788616800000
+          }
+        ]
+      }
+    },
+    "windows": [
+      {
+        "provider": "zai",
+        "kind": "session",
+        "usedPercent": 4,
+        "minutes": 300,
+        "resetsAt": 1788616800
+      },
+      {
+        "provider": "zai",
+        "kind": "weekly",
+        "usedPercent": 1,
+        "minutes": 10080,
+        "resetsAt": 1788616800
+      }
+    ]
+  }
+}
