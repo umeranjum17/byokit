@@ -1,0 +1,15 @@
+== device
+sdk:  fingerprint: google/sdk_gphone64_arm64/emu64a:15/AE3A.240806.043/12960925:userdebug/dev-keys
+== install and grant POST_NOTIFICATIONS
+$ adb install -r fm-byk-status-proof/app-release.apk
+Performing Streamed Install
+Success
+$ adb shell pm grant io.github.umeranjum17.byokit.example android.permission.POST_NOTIFICATIONS
+== show
+$ adb shell input tap 540 1896   # chip-show
+said: text="This device can't show work in progress at the top of the screen."
+posted: 0  
+[screenshot 35-unsupported.png]
+
+== API 35 SDK property (sdk_full is absent on Android 15)
+sdk_int: 35

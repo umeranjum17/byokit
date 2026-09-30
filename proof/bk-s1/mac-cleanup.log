@@ -1,0 +1,120 @@
+BEFORE
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   228Gi    17Gi   6.3Gi    74%    427k   66M    1%   /
+UNAVAILABLE DEVICES
+DERIVED DATA
+GRADLE CACHE
+NPM CACHE
+npm warn using --force Recommended protections disabled.
+YARN CACHE
+yarn cache v1.22.22
+warning package.json: No license field
+success Cleared cache.
+Done in 0.01s.
+BREW CLEANUP
+Warning: Skipping aom: most recent version 3.15.1 not installed
+Warning: Skipping asc: most recent version 5.7.0 not installed
+Warning: Skipping boost: most recent version 1.92.0 not installed
+Warning: Skipping c-ares: most recent version 1.34.8 not installed
+Warning: Skipping ca-certificates: most recent version 2026-09-25 not installed
+Warning: Skipping cairo: most recent version 1.18.6 not installed
+Warning: Skipping cocoapods: most recent version 1.17.0 not installed
+Warning: Skipping dav1d: most recent version 1.5.4 not installed
+Warning: Skipping double-conversion: most recent version 3.4.0 not installed
+Warning: Skipping edencommon: most recent version 2026.09.21.00 not installed
+Warning: Skipping fb303: most recent version 2026.09.21.00 not installed
+Warning: Skipping fbthrift: most recent version 2026.09.21.00_1 not installed
+Warning: Skipping ffmpeg: most recent version 9.0.2 not installed
+Warning: Skipping ffmpeg-full: most recent version 9.0.2 not installed
+Warning: Skipping fizz: most recent version 2026.09.21.00_1 not installed
+Warning: Skipping fmt: most recent version 12.2.0 not installed
+Warning: Skipping folly: most recent version 2026.09.21.00_1 not installed
+Warning: Skipping fontconfig: most recent version 2.18.3 not installed
+Warning: Skipping freetype: most recent version 2.14.3 not installed
+Warning: Skipping frei0r: most recent version 3.6.0 not installed
+Warning: Skipping fribidi: most recent version 1.0.17 not installed
+Warning: Skipping gflags: most recent version 2.3.1 not installed
+Warning: Skipping ggml: most recent version 0.25.3 not installed
+Warning: Skipping gh: most recent version 2.101.0 not installed
+Warning: Skipping giflib: most recent version 6.1.3 not installed
+Warning: Skipping glib: most recent version 2.90.0 not installed
+Warning: Skipping glog: most recent version 0.7.1 not installed
+Warning: Skipping gnutls: most recent version 3.8.13_2 not installed
+Warning: Skipping tamtom/tap/gplay: most recent version 0.10.0 not installed
+Warning: Skipping graphite2: most recent version 1.3.15 not installed
+Warning: Skipping harfbuzz: most recent version 14.5.0 not installed
+Warning: Skipping highway: most recent version 1.4.0 not installed
+Warning: Skipping icu4c@77: most recent version 77.1_1 not installed
+Warning: Skipping imath: most recent version 3.2.3 not installed
+Warning: Skipping jemalloc: most recent version 5.4.0 not installed
+Warning: Skipping jpeg-turbo: most recent version 3.2.0 not installed
+Warning: Skipping jpeg-xl: most recent version 0.12.0_1 not installed
+Warning: Skipping lame: most recent version 4.0 not installed
+Warning: Skipping libarchive: most recent version 3.8.9 not installed
+Warning: Skipping libass: most recent version 0.17.5_1 not installed
+Warning: Skipping libbluray: most recent version 1.5.0 not installed
+Warning: Skipping libdeflate: most recent version 1.26 not installed
+Warning: Skipping libmicrohttpd: most recent version 1.0.10 not installed
+Warning: Skipping libnghttp2: most recent version 1.70.0 not installed
+Warning: Skipping libomp: most recent version 23.1.2 not installed
+Warning: Skipping libpng: most recent version 1.6.58 not installed
+Warning: Skipping librist: most recent version 0.2.20 not installed
+Warning: Skipping libsodium: most recent version 1.0.22 not installed
+Warning: Skipping libssh: most recent version 0.12.2 not installed
+Warning: Skipping libtiff: most recent version 4.7.2 not installed
+Warning: Skipping libunibreak: most recent version 8.0 not installed
+Warning: Skipping libuv: most recent version 1.53.0 not installed
+Warning: Skipping libvidstab: most recent version 1.1.2 not installed
+Warning: Skipping libvmaf: most recent version 3.2.1 not installed
+Warning: Skipping libvpx: most recent version 1.17.0 not installed
+Warning: Skipping little-cms2: most recent version 2.19.1 not installed
+Warning: Skipping mbedtls@3: most recent version 3.6.7 not installed
+Warning: Skipping mosh: most recent version 1.4.0_43 not installed
+Warning: Skipping mpg123: most recent version 1.33.7 not installed
+Warning: Skipping nettle: most recent version 4.0 not installed
+Warning: Skipping node: most recent version 26.10.0_1 not installed
+Warning: Skipping openexr: most recent version 3.5.1 not installed
+Warning: Skipping openjdk@17: most recent version 17.0.20.1 not installed
+Warning: Skipping openjph: most recent version 0.32.0 not installed
+Warning: Skipping openssl@3: most recent version 3.6.4_1 not installed
+Warning: Skipping p11-kit: most recent version 0.26.5 not installed
+Warning: Skipping pango: most recent version 1.58.2 not installed
+Warning: Skipping pcre2: most recent version 10.49 not installed
+Warning: Skipping protobuf: most recent version 36.2 not installed
+Warning: Skipping python@3.13: most recent version 3.13.15 not installed
+Warning: Skipping readline: most recent version 8.3.6 not installed
+Warning: Skipping ruby: most recent version 4.0.7 not installed
+Warning: Skipping rustup: most recent version 1.29.1 not installed
+Warning: Skipping sdl2-compat: most recent version 2.32.72 not installed
+Warning: Skipping shaderc: most recent version 2026.4 not installed
+Warning: Skipping snappy: most recent version 1.3.1 not installed
+Warning: Skipping sqlite: most recent version 3.53.4 not installed
+Warning: Skipping srt: most recent version 1.5.7 not installed
+Warning: Skipping svt-av1: most recent version 4.2.0 not installed
+Warning: Skipping tesseract: most recent version 5.5.3 not installed
+Warning: Skipping unbound: most recent version 1.26.1 not installed
+Warning: Skipping utf8proc: most recent version 2.12.0 not installed
+Warning: Skipping vulkan-headers: most recent version 1.4.357.0 not installed
+Warning: Skipping vulkan-loader: most recent version 1.4.357.0 not installed
+Warning: Skipping wangle: most recent version 2026.09.21.00_1 not installed
+Warning: Skipping watchman: most recent version 2026.09.21.00 not installed
+Warning: Skipping whisper.cpp: most recent version 1.9.4 not installed
+Warning: Skipping x265: most recent version 4.3 not installed
+Warning: Skipping xxhash: most recent version 0.8.4 not installed
+Warning: Skipping xz: most recent version 5.8.4 not installed
+AFTER
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   228Gi    17Gi   6.3Gi    74%    427k   66M    1%   /
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   228Gi    17Gi   6.3Gi    74%    427k   67M    1%   /
+3.3G	/Users/umerfaroq/Library/Developer/CoreSimulator/Devices/438D5D3A-C748-4B3A-9432-452A43CEDC61
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   228Gi    17Gi   6.3Gi    74%    427k   67M    1%   /
+1.8G	/Users/umerfaroq/Library/Developer/CoreSimulator/Devices/CDB82450-DB5C-48D8-8394-E80DD4AE136B
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   228Gi    17Gi   6.5Gi    73%    427k   69M    1%   /
+1.3G	/Users/umerfaroq/Library/Developer/CoreSimulator/Devices/7AA63A31-2BF2-4B26-A099-FB03AA42286F
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   228Gi    17Gi   6.7Gi    73%    427k   70M    1%   /
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   228Gi    17Gi    13Gi    58%    427k  132M    0%   /

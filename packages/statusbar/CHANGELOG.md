@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.1.0 (2026-09-29)
+## 0.1.0 (2026-09-30)
 
 - Proven on Android emulators (BK-S1): on API 36.1 the chip shows, the lock screen shows only the public copy,
   the expanded notification has three actions and a swiped-away notification is not posted again until `clear()`;

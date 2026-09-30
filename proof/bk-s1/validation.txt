@@ -1,0 +1,34 @@
+== build.log
+npm notice run build
+npm notice run tsc -b packages/accounts packages/link packages/relay packages/decide packages/ui-core packages/reach packages/seal packages/keystore packages/openclaw packages/herdr packages/write packages/record packages/overlay packages/cloud packages/statusbar packages/usage packages/push && node scripts/fix-words-dts.cjs
+
+== check.log
+npm notice run check
+npm notice run tsc -p tsconfig.json
+
+== release-lint.log
+npm notice run release
+npm notice run node scripts/release.ts lint --base origin/main
+release lint: ok
+
+== npm test summary
+✔ release lint CLI rejects a shipped schema without a bump and accepts noted releases on PR and push ranges (764.525951ms)
+✔ concurrent test runners own their scratch; genuine leaks still fail; default TMPDIR is isolated (814.941664ms)
+ℹ tests 1148
+ℹ suites 0
+ℹ pass 1126
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 22
+ℹ todo 0
+ℹ duration_ms 256037.438108
+~/.pi: sign-ins, settings and extensions unchanged, byte for byte.
+
+== APK build
+For more on this, please refer to https://docs.gradle.org/9.3.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 1m 13s
+432 actionable tasks: 432 executed
+
+== APK SHA-256
+bbc8ca9f24e20ebbab2042c5a94b0ff07adc3d1c29e0e01dc86dc7aa48a243b9  examples/expo/android/app/build/outputs/apk/release/app-release.apk

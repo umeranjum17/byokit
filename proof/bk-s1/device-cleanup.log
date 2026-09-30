@@ -1,0 +1,5 @@
+Success
+OK: killing emulator, bye bye
+OK
+Filesystem        Size    Used   Avail Capacity iused ifree %iused  Mounted on
+/dev/disk3s1s1   228Gi    17Gi   9.8Gi    64%    427k  103M    0%   /

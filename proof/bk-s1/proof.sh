@@ -1,5 +1,5 @@
 #!/bin/sh
-# BK-S1 emulator proof for @byokit/status on examples/expo's release build, adb on a remote emulator over ssh.
+# BK-S1 emulator proof for @byokit/statusbar on examples/expo's release build, adb on a remote emulator over ssh.
 #   ./proof.sh <ssh-host> <serial> <apk-path-on-host> <out-dir> full|unsupported
 set -eu
 host=$1 serial=$2 apk=$3 out=$4 mode=$5
@@ -17,7 +17,9 @@ posted() { a shell dumpsys notification --noredact | grep -c "tag=byokit.status"
 notice() { a shell dumpsys notification --noredact | grep -A2 "tag=byokit.status" | grep -oE "flags=[A-Z_|]*|actions=[0-9]+|vis=[A-Z]+" | sort -u | paste -sd' '; }
 
 echo "== device"
-echo "sdk: $(a shell getprop ro.build.version.sdk_full) fingerprint: $(a shell getprop ro.build.fingerprint)"
+sdk=$(a shell getprop ro.build.version.sdk_full)
+[ -n "$sdk" ] || sdk=$(a shell getprop ro.build.version.sdk)
+echo "sdk: $sdk fingerprint: $(a shell getprop ro.build.fingerprint)"
 echo "== install and grant POST_NOTIFICATIONS"
 run install -r "$apk"
 run shell pm grant $app android.permission.POST_NOTIFICATIONS
@@ -47,10 +49,13 @@ run shell settings put secure lock_screen_allow_private_notifications 0
 run shell settings put secure lock_screen_show_silent_notifications 1
 run shell input keyevent 26; sleep 2
 run shell input keyevent 224; sleep 3
+# Android 36.1 initially collapses lock-screen notifications into an icon shelf.
+run shell input tap 135 590; sleep 2
 shot 04-lock-public
 echo "lock screen words: $(screen | grep -oE 'text="[^"]*working[^"]*"' | paste -sd' ')"
 
 echo "== unlock, tap an action"
+run shell cmd statusbar collapse; sleep 1
 a shell input swipe 540 2000 540 600 300; sleep 2
 a shell input text 1234; a shell input keyevent 66; sleep 3
 run shell cmd statusbar expand-notifications; sleep 2
