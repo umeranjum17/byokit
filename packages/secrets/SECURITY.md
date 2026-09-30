@@ -71,4 +71,6 @@ Apps hold API keys. The store must make sure that:
 - [ ] Fake SecureStore tests prove all methods use the same options and native errors cannot expose secrets.
 - [ ] Accounts sealing tests prove fileStore integration, wrong-key/tamper failure without overwrite,
   retained rotation keys, key read-back and explicit host-key selection on headless servers.
-- [ ] Real Secret Service testing runs only in a disposable OS session; ordinary tests use injected fakes.
+- [ ] Real Secret Service testing clears inherited desktop settings, creates a private HOME/XDG/control
+  tree, and asserts the private D-Bus address before native calls; opt-in alone refuses the user bus.
+  Ordinary tests use injected fakes.

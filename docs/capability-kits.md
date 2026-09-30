@@ -1683,7 +1683,9 @@ old-key backup retention; the mode-0 wire has a zero id and no key version. Reso
 Acceptance: fake-only native/keyring unit tests exercise accounts' real fileStore, rotation, tamper/wrong
 key rejection with no overwrite, dropped/failed key writes, unavailable storage and explicit headless
 sealing. Opt-in real Linux tests run in CI's own disposable D-Bus/Secret Service session, skipping when
-unavailable unless CI requires the provisioned service. README records binding choice, threat model
+unavailable unless CI requires the provisioned service. `scripts/test-keyring.sh` clears inherited desktop
+settings and creates private HOME/XDG/control directories; the test asserts the private bus before any
+native call and refuses standalone opt-in. README records binding choice, threat model
 (other users, leaked files and backups), same-user/privileged attacker and rollback limits, and migrations.
 
 ## 12. `@byokit/statusbar`

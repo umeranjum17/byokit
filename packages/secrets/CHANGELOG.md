@@ -8,6 +8,8 @@
 
 - SECURITY: Add native OS-keyring and explicit host-key sealing adapters for accounts files;
   API keys remain authenticated ciphertext with no plaintext or transient-keyring fallback.
+- SECURITY: Real keyring tests clear inherited desktop settings and validate a private
+  D-Bus session before native calls; opt-in alone cannot reach the user keyring.
 - Add native Keychain, Windows Credential Manager and Linux Secret Service storage through
   an exactly pinned optional N-API binding; native errors never include secrets.
 - Add key rotation that retains old keys for existing files and backups, injected-keyring

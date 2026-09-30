@@ -9,6 +9,7 @@ import { keyringEnv, keyringStore } from '../src/index.ts';
 import { writeFakeCli, type FakeTool } from './fake-cli.ts';
 import { randomUUID } from 'node:crypto';
 import { osKeyring, osKeyringSeal } from '../src/index.ts';
+import { assertPrivateKeyringSession } from './private-session.ts';
 
 const CANARY = 'sk-canary-keyring-9f2c';
 const code = (want: string) => (e: any) => e?.code === want;
@@ -107,6 +108,7 @@ test('keyring names and secrets are validated before any spawn', async () => {
 // The ordinary offline suite never inspects or changes the owner's keyring.
 test('real Secret Service: native API, accounts seal and rotation', { skip: !process.env.BYOKIT_REAL_KEYRING }, (t) => {
   if (process.platform !== 'linux') { t.skip('Linux Secret Service integration'); return; }
+  assertPrivateKeyringSession(process.env);
   const service = `byokit-test-Umer-${randomUUID()}`;
   const ring = osKeyring({ service });
   try { assert.equal(ring.get('absent'), null); }
