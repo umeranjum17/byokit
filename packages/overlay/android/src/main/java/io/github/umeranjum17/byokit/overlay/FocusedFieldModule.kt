@@ -94,8 +94,8 @@ class FocusedFieldModule : Module() {
       try {
         if (node == null) return@AsyncFunction "failed"
         FocusedFields.insert(
-        node, text, o.replace,
-        InsertOpts(o.attempts.toInt(), o.retryMs.toLong(), o.acceptNewlineLoss), Thread::sleep, ::copy,
+          node, text, o.replace,
+          InsertOpts(o.attempts.toInt(), o.retryMs.toLong(), o.acceptNewlineLoss), Thread::sleep, ::copy,
         )
       } finally {
         if (node !== root) node?.recycle()
