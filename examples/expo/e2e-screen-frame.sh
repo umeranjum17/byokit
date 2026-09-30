@@ -36,12 +36,6 @@ else: raise SystemExit("missing target: "+key)' "$1"
 }
 tap() {
   location=$(xy "$1")
-  case "$1" in screenPoint|screenPointShort)
-    # uiautomator dump disconnects other accessibility clients. Restore the observer after the dump.
-    a shell settings put secure enabled_accessibility_services "$app/io.github.umeranjum17.byokit.example.a11y.DemoAccessibilityService"
-    a shell settings put secure accessibility_enabled 1
-    sleep 1
-  ;; esac
   a shell input tap $location
 }
 no_capture() {
@@ -76,7 +70,7 @@ no_capture
 # Marker over a real underlying button; the underlying app receives the touch.
 tap screenPoint
 expect 'Follow the ring.'
-a logcat -d -s ByokitScreenProof:I | grep -F 'announcement: [Umer, tap here]'
+# Accessibility node and announcement dispatch are covered by PointMarkerTest instrumentation.
 expect_marker
 location=$(xy screenTarget)
 a exec-out screencap -p > "$captures/byokit-screen-marker.png"

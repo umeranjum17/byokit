@@ -201,7 +201,7 @@ jobs:
           target: google_apis
           profile: pixel_7
           disable-animations: true
-          script: examples/expo/e2e-screen-frame.sh emulator-5554 .screen-captures
+          script: cd examples/expo/android && ./gradlew :byokit-overlay:connectedDebugAndroidTest && cd .. && ./e2e-screen-frame.sh emulator-5554 .screen-captures
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
