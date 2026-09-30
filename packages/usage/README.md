@@ -6,10 +6,10 @@ left, estimates no cost and never rotates an account.
 
 ```ts
 import { usage, roomOf } from '@byokit/usage';
-// Supplied by the host's signed-in account.
+const reader = usage({ stateDir: '/app/state/usage' });
+// Pass the token and account id from your app-owned sign-in store.
 declare const token: string;
 declare const account: { id: string };
-const reader = usage({ stateDir: '/app/state/usage' });
 const source = { provider: 'codex' as const, access: token, accountId: account.id };
 const reading = await reader.read(source);
 const room = roomOf(reading, Date.now());
@@ -99,17 +99,22 @@ global fetch is resolved on each read.
 The host may supply public synchronous persistence and backoff hooks:
 
 ```ts
-import { usage, type UsageStore, type BackoffPolicy } from '@byokit/usage';
-declare const appStore: UsageStore;
-declare const appBackoff: BackoffPolicy;
+import { usage, type UsageStore, type BackoffState } from '@byokit/usage';
+// Replace these maps with your app's durable store to retain state across restart.
+const appStore: UsageStore = {
+  get(provider, fingerprint) { return saved.get(`${provider}/${fingerprint}`); },
+  put(provider, fingerprint, reading) { saved.set(`${provider}/${fingerprint}`, reading); },
+};
+const saved = new Map<string, import('@byokit/usage').StoredReading>();
+const appBackoff = new Map<string, BackoffState | number>();
 const reader = usage({
   store: {
     get(provider, fingerprint) { return appStore.get(provider, fingerprint); },
     put(provider, fingerprint, reading) { appStore.put(provider, fingerprint, reading); },
   },
   backoff: {
-    get(provider, fingerprint) { return appBackoff.get(provider, fingerprint); },
-    set(provider, fingerprint, untilMs, state) { appBackoff.set(provider, fingerprint, state ?? untilMs); },
+    get(provider, fingerprint) { return appBackoff.get(`${provider}/${fingerprint}`); },
+    set(provider, fingerprint, untilMs, state) { appBackoff.set(`${provider}/${fingerprint}`, state ?? untilMs); },
     delayMs(retryAfterMs, { outcome, failures }) { return Math.max(300_000, retryAfterMs ?? 0); },
   },
 });
