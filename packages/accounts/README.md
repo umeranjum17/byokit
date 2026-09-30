@@ -191,8 +191,41 @@ when no handler is set).
 
 `memoryStore()`, `fileStore(path, safeStorage)` (sealed, 0600), `secureStore(SecureStore, name,
 options?)` or `browserStore(name)`; any other storage with `recordStore(load, save)`. Writes are serialized within a
-store instance; `browserStore` also uses Web Locks across tabs for the same provider when available. Never a shared
+store instance; `browserStore` also uses Web Locks across tabs for the whole record when available. Never a shared
 fallback.
+
+### Refresh safety
+
+`portableEngine` (the default on phones and in browsers) holds the store lock, re-reads the current sign-in, and saves
+a non-secret `byokitRefresh` generation/attempt marker in the credential record **before** sending a refresh grant.
+It commits the replacement pair before returning access. A lost response, terminal refusal, unchanged refresh grant,
+or failure to save the replacement requires sign-in again; an attempted or quarantined generation is never retried,
+including by `recheck`. If the attempt marker cannot be saved, nothing is sent. A fresh sign-in replaces quarantine.
+This deliberately requires sign-in again after even a network failure once a refresh send has started: the server
+may already have spent the grant. Storage failures before the send, such as a locked phone keychain, remain retryable.
+
+- **iOS/Android `secureStore`**: crash-safe across process restart after the platform acknowledges the marker write,
+  with one store instance/refresh owner per storage name. Its chunk-generation pointer commits the marker and each
+  replacement atomically. Multiple app processes or independently created store instances need a host lock covering
+  the whole transaction.
+- **Browser/PWA `browserStore`**: IndexedDB commits the marker before sending. With Web Locks it serializes the whole
+  transaction across tabs. Without Web Locks, use one store instance and tab; multiple writers are only best-effort.
+  Browser storage eviction, rollback and power-loss durability are outside this guarantee.
+- **Node/Electron `fileStore` with `portableEngine`**: the sealed file is atomically replaced and synced when Node
+  permissions permit; on POSIX the directory is synced too. Process restart retains the attempt. Use one instance per
+  path and a host lock across processes. On Windows or with Node's permission model, power-loss durability is best-effort.
+- **`recordStore(load, save)`**: crash safety depends on the host's atomic, durable save completing before its promise
+  resolves and a host lock across independent writers. A best-effort save makes refresh best-effort too.
+- **`memoryStore`**: serialized only in memory; there is no restart recovery. A bare custom `CredentialStore` can serve
+  existing access but cannot refresh: wrap its durable load/save in `recordStore`, or implement the exported
+  `RefreshStore.refresh` transaction contract with these same guarantees.
+
+The default computer engine is still Pi's engine; its refresh path does **not** use this transaction. Other engines
+and runtime aggregators own their own refresh guarantees. The fix does not add a second refresher to them.
+
+The persisted-attempt, failed-save and concurrency regression ideas were informed by
+[clauth's refresh guard](https://github.com/uwuclxdy/clauth/blob/6410345c65b91cf07eabd4f9f79670ba602ace63/src/codex_auth.rs).
+The TypeScript transaction and synthetic tests were written independently; no upstream code or tests were copied.
 
 - **Browser**: browser storage is readable by scripts on your page: avoid untrusted scripts.
 - **Phone**: pass `{ keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }` as `options` (to every get, set

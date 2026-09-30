@@ -5,6 +5,7 @@
 // OpenAI's sign-in endpoints answer any web page (CORS), so a PWA signs in directly.
 import type { AuthEvent, AuthInteraction, Credential, CredentialStore, OAuthCredential } from '@earendil-works/pi-ai';
 import type { AuthHost } from './accounts.ts';
+import { needsReauth, refreshCredential } from './stores.ts';
 
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const CODE_LIVES_S = 15 * 60;
@@ -132,19 +133,20 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
         await sleep(interval, signal);
       }
     },
-    checkAuth: async (id: string) => (PORTABLE.includes(id) && (await credentials.read(id))?.type === 'oauth' ? { source: 'OAuth', type: 'oauth' as const } : undefined),
+    checkAuth: async (id: string) => {
+      if (!PORTABLE.includes(id)) return undefined;
+      const c = await credentials.read(id);
+      return c?.type === 'oauth' && !needsReauth(c) ? { source: 'OAuth', type: 'oauth' as const } : undefined;
+    },
     /** Pi's rule: refresh under the store's lock when under 5 minutes (or `minOAuthValidityMs`) remain, re-checked there,
      *  so a sign-out or another refresh in between wins; undefined once signed out. */
     async getAuth(id: string, { minOAuthValidityMs }: { minOAuthValidityMs?: number } = {}) {
       if (!PORTABLE.includes(id)) return undefined;
       const min = Math.max(5 * 60_000, minOAuthValidityMs ?? 0);
       const soon = (c: OAuthCredential) => Date.now() + min >= c.expires;
-      let c = await credentials.read(id);
+      // Even a still-valid access token must not bypass quarantine, including a forced refresh after a refusal.
+      const c = await refreshCredential(credentials, id, soon, refresh);
       if (c?.type !== 'oauth') return undefined;
-      if (soon(c)) {
-        c = await credentials.modify(id, async (now) => (now?.type === 'oauth' && soon(now) ? refresh(now) : undefined));
-        if (c?.type !== 'oauth') return undefined;
-      }
       return { auth: { apiKey: c.access }, source: 'OAuth' };
     },
     logout: (id: string) => credentials.delete(id),
