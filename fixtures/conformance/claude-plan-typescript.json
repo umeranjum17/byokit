@@ -1,0 +1,13 @@
+{
+  "rule": "Claude Pro/Max is a default subscription route, separate from Anthropic API billing. Hermes manual PKCE uses S256, 32 random bytes and an independent state; pasted code#state must match. JSON exchange and refresh use the same platform.claude.com endpoint and public client. Persist rotation under the CredentialStore lock before returning access; never replay a refused or uncertain refresh. No installed credentials or CLIs are read. Tokens stay on the person's device and are never logged.",
+  "clientId": "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+  "authorize": "https://claude.ai/oauth/authorize",
+  "token": "https://platform.claude.com/v1/oauth/token",
+  "redirect": "https://console.anthropic.com/oauth/code/callback",
+  "scope": "org:create_api_key user:profile user:inference",
+  "now": 1800000000000,
+  "exchange": { "access_token": "recorded-access", "refresh_token": "recorded-refresh", "expires_in": 3600 },
+  "rotation": { "access_token": "rotated-access", "refresh_token": "rotated-refresh", "expires_in": 7200 },
+  "withoutRotation": { "access_token": "renewed-access", "expires_in": 3600 },
+  "invalidGrant": { "error": "invalid_grant", "error_description": "recorded-refresh" }
+}

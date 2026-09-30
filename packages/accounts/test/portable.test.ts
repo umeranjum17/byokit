@@ -73,7 +73,7 @@ test('device and token errors never expose response bodies', async () => {
 
 test('sign in with ChatGPT by device code: the code and page to show, approved there, kept, plan read', async () => {
   const a = kit();
-  assert.deepEqual(a.providers.map((p) => p.key), ['chatgpt'], 'only what a phone or browser can sign in to');
+  assert.deepEqual(a.providers.map((p) => p.key), ['chatgpt', 'claude'], 'only what a phone or browser can sign in to');
   const v = (await a.login(1, 'chatgpt'))!;
   assert.deepEqual([v.state, v.via, v.url], ['waiting', 'code', `${openai.base}/codex/device`]);
   assert.match(v.code!, /^MOCK-/);

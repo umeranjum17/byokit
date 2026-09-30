@@ -70,5 +70,21 @@
     "offer": false,
     "why": "The app passes an Anthropic API key explicitly. API key (billed per use), never a default or subscription fallback.",
     "source": "https://platform.claude.com/docs/en/api/overview"
+  },
+  "claude": {
+    "pi": "byokit-claude-plan",
+    "name": "Claude",
+    "label": "Claude Pro/Max",
+    "company": "Anthropic",
+    "models": {
+      "strong": "claude-opus-5-5"
+    },
+    "clientId": "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
+    "billing": "subscription",
+    "auth": "oauth",
+    "terms": "grey",
+    "hidden": false,
+    "why": "Anthropic prohibits third-party Claude.ai sign-in without approval; this route may stop working or lead to account restrictions.",
+    "source": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use"
   }
 }

@@ -41,7 +41,8 @@
   "files": [
     "dist",
     "CHANGELOG.md",
-    "SECURITY.md"
+    "SECURITY.md",
+    "NOTICE"
   ],
   "scripts": {
     "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"

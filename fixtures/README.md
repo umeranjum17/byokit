@@ -8,6 +8,7 @@ a Messages backend to the frozen Kotlin runtime.
 
 | File | What it is |
 |---|---|
+| `conformance/claude-plan-typescript.json` | TypeScript-only Claude subscription PKCE, strict state, exchange and refresh rules (offline protocol captures). |
 | `conformance/signin-errors.json` | A failed sign-in's message → the `words.json` key to show. |
 | `conformance/classify.json` | A model-call failure message → `rate_limit`, `overloaded`, `signed_out`, `network` or none, plus "resting until". |
 | `conformance/limit-responses.json` | Shared ChatGPT HTTP error (status + body) → kind, until, message. |
