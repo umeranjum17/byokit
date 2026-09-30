@@ -14,7 +14,7 @@ export function routes(): Route[] {
   return table;
 }
 
-/** The route an app should use: only an offered route counts, so an Anthropic fallback can never be picked. */
+/** The route an app should use: only an offered route counts; API billing is never picked as a fallback. */
 export function routeFor(provider: string, via: 'browser' | 'code'): Route | undefined {
   return table.find((route) => route.offer && route.provider === provider && route.via === via);
 }

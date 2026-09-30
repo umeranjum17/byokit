@@ -275,3 +275,26 @@ test('tool progress phases stay inside the pair; start carries the input, end th
     { type: 'tool', name: 'old', phase: 'end' },
   ]);
 });
+
+test('Claude native and Anthropic API runs preserve provider/model and tool events; profiles stay strict', async () => {
+  const h = harness();
+  h.fake.handle('models.authStatus', () => ({ providers: [{ provider: 'anthropic', status: 'static' }] }));
+  h.fake.handle('openclaw.setup.detect', () => ({ candidates: [{ kind: 'claude-cli', credentials: true }] }));
+  for (const provider of ['claude-cli', 'anthropic']) {
+    const events: RunEvent[] = [];
+    const end = await h.runs.run({ member: 'm1', sessionKey: `agent:m1:${provider}`, message: '[tool note {"x":1}]',
+      model: `${provider}/claude-sonnet-5` }, (event) => events.push(event));
+    assert.ok(end.ok, JSON.stringify(end));
+    const call = h.fake.calls.filter((c) => c.method === 'agent').at(-1)!.params as Record<string, unknown>;
+    assert.equal(call.provider, provider);
+    assert.equal(call.model, 'claude-sonnet-5');
+    assert.deepEqual(events.filter((event) => event.type === 'tool').map((event) => event.phase), ['start', 'end']);
+    const before = h.fake.calls.length;
+    await assert.rejects(h.runs.run({ member: 'm1', sessionKey: 'agent:m1:pin', message: 'hi',
+      model: `${provider}/claude-sonnet-5@profile` }));
+    assert.equal(h.fake.calls.length, before);
+  }
+  h.fake.handle('openclaw.setup.detect', () => ({ candidates: [{ kind: 'claude-cli', credentials: false }] }));
+  const end = await h.runs.run({ member: 'm1', sessionKey: 'agent:m1:out', message: 'hi', model: 'claude-cli/claude-sonnet-5' });
+  assert.ok(!end.ok && 'kind' in end && end.kind === 'signed-out');
+});

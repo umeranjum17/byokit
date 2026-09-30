@@ -84,6 +84,7 @@ export type SignInView = {
   via: 'browser' | 'code';
   url?: string;
   code?: string;
+  prompt?: string; // a secret-entry label, never its value
   error?: string;
   why?: 'busy' | 'declined' | 'expired' | 'failed';
 };
@@ -115,6 +116,9 @@ export type Route = {
   provider: string;
   plugin: string; // the bundled openclaw.plugin.json id that owns the choice; '' for a core static choice
   billing: 'subscription' | 'api' | 'local';
+  auth?: 'cli' | 'api_key' | 'token';
+  terms?: 'allowed' | 'grey';
+  termsUrl?: string;
   via: 'browser' | 'code';
   prerequisite: string | null;
   offer: boolean;

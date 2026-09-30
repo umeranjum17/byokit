@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Bridge } from './bridge.ts';
+import { authStatus } from './auth-status.ts';
 import { classify } from './classify.ts';
 import type { GatewayTransport, Member, PlanWindow, RunEnd, RunEvent, RunSpec, RunUsage } from './types.ts';
 
@@ -143,7 +144,7 @@ export function createRuns(ctx: {
         // the engine would otherwise fail the run only after admitting it. An explicit provider/model is strict on
         // the pinned engine (never another provider or model), so this check plus the override is the guarantee.
         const status = (refresh: boolean) =>
-          ctx.request('models.authStatus', { agentId, ...(refresh ? { refresh: true } : {}) }) as Promise<AuthStatus>;
+          authStatus(ctx.request, agentId, refresh, picked.provider === 'claude-cli');
         let auth = await status(false);
         if (auth.unavailable) auth = await status(true); // no prepared snapshot yet: build it once
         if (auth.unavailable)

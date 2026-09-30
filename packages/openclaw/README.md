@@ -274,3 +274,5 @@ frozen (docs/runtime-kits.md §5).
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](../../NOTICE).
+
+Claude: `anthropic-cli` uses your own unmodified Claude Code login on this machine (provider `claude-cli`, plugin `anthropic`; subscription billing), with login kept in Claude Code under the kit’s isolated `HOME=<stateDir>/openclaw/home` and `CLAUDE_CONFIG_DIR=<stateDir>/openclaw/home/.claude`; sign in there with `claude auth login`, then call `signIn`. Activation live-tests the route; native sign-out is through Claude Code. `apiKey` is explicit API billing (“API key (billed per use)”, `offer: false`): `signIn` asks for the key through `paste`, then engine activation verifies it. The kit never imports Claude credentials or implements direct Claude.ai OAuth; [Anthropic’s terms](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use) apply.

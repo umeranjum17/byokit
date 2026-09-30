@@ -18,6 +18,7 @@ import { ENGINE_VERSION } from './constants.ts';
 import type { OpenClawKit } from './kit.ts';
 import { b64urlDecode, sealNotice } from './notices.ts';
 import { routeFor } from './routes.ts';
+import { authStatus } from './auth-status.ts';
 import { signedInProviders } from './runs.ts';
 import type { Approval, Member, RunSpec, SignInView } from './types.ts';
 import { stateWords, words } from './words.ts';
@@ -140,8 +141,11 @@ export function openclawLink(
   const signIns = async (member: Member): Promise<string[] | undefined> => {
     try {
       const { agentId } = await kit.ensureMember(member);
-      const status = await (kit.call as (method: string, params: unknown, o: { timeoutMs: number }) => Promise<unknown>)(
-        'models.authStatus', { agentId }, { timeoutMs: 5_000 });
+      const status = await authStatus((method, params, options) => {
+        if (method === 'models.authStatus')
+          return kit.call(method, params as { agentId: string; refresh?: boolean }, options);
+        return kit.call('openclaw.setup.detect', params as { agentId: string }, options);
+      }, agentId, false, true);
       return signedInProviders(status);
     } catch {
       return undefined;

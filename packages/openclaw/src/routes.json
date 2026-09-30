@@ -111,14 +111,17 @@
   },
   {
     "choice": "anthropic-cli",
-    "provider": "anthropic",
+    "provider": "claude-cli",
     "plugin": "anthropic",
     "billing": "subscription",
     "via": "browser",
-    "prerequisite": "the Claude CLI, signed in inside the engine's own folder",
-    "offer": false,
-    "reason": "Requires an explicit app opt-in; the pinned Gateway does not expose this plan route",
-    "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)"
+    "prerequisite": "Sign in through unmodified Claude Code on this machine using the kit's isolated HOME and CLAUDE_CONFIG_DIR; the login stays in Claude Code.",
+    "offer": true,
+    "reason": "Claude subscription via your own Claude Code login on this machine (Agent SDK runtime).",
+    "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)",
+    "auth": "cli",
+    "terms": "allowed",
+    "termsUrl": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use"
   },
   {
     "choice": "apiKey",
@@ -128,8 +131,11 @@
     "via": "browser",
     "prerequisite": null,
     "offer": false,
-    "reason": "API key (billed per use); shown only when an app explicitly asks.",
-    "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)"
+    "reason": "API key (billed per use)",
+    "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)",
+    "auth": "api_key",
+    "terms": "allowed",
+    "termsUrl": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use"
   },
   {
     "choice": "clawrouter-api-key",
@@ -348,8 +354,11 @@
     "via": "browser",
     "prerequisite": null,
     "offer": false,
-    "reason": "Requires an explicit app opt-in; the pinned Gateway does not expose this plan route",
-    "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)"
+    "reason": "Token import is not the native Claude Code login route; direct Claude.ai OAuth remains excluded.",
+    "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)",
+    "auth": "token",
+    "terms": "grey",
+    "termsUrl": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use"
   },
   {
     "choice": "sglang",

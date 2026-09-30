@@ -166,8 +166,8 @@ test('routes.json and the pinned tarball agree in both directions, plugins inclu
   assert.equal(routes().find((entry) => entry.choice === 'custom-api-key')?.plugin, '', 'a core choice has no plugin');
 });
 
-test('every offered route starts on the real engine without a caller allowlist (5.7, B6)', { timeout: 900_000 }, async () => {
-  for (const route of routes().filter((entry) => entry.offer)) {
+test('every offered wizard route starts on the real engine without a caller allowlist (5.7, B6)', { timeout: 900_000 }, async () => {
+  for (const route of routes().filter((entry) => entry.offer && entry.auth !== 'cli')) {
     await withGateway([], async (_ctx, request) => {
       const sessionId = `byokit-probe-${route.choice}`;
       const started = await request('openclaw.setup.auth.start',
@@ -284,4 +284,20 @@ test('the pinned wizard completes device approval after three minutes of fake ti
 test('the engine state directory is the only place a sign-in touches', () => {
   assert.ok(statSync(stateDir).isDirectory());
   assert.equal(statSync(join(stateDir, 'openclaw', 'openclaw.json')).mode & 0o777, 0o600);
+});
+
+
+test('native Claude auth seam asks a task-owned CLI, clears overrides, and returns no credentials', async () => {
+  const { probeClaudeCliAuthStatus } = await import(pathToFileURL(join(engineDir, 'node_modules', 'openclaw',
+    'dist', 'extensions', 'anthropic', 'cli-auth-seam.js')).href);
+  const command = join(install, 'fake-claude');
+  writeFileSync(command, `#!${process.execPath}
+if (process.argv.slice(2).join(' ') !== 'auth status --json') process.exit(2);
+if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_OAUTH_TOKEN) process.exit(3);
+console.log(JSON.stringify({ loggedIn: process.env.TEST_CLAUDE_LOGIN === 'yes', accessToken: 'fake-token-must-not-escape' }));
+`, { mode: 0o700 });
+  const env = { PATH: process.env.PATH, HOME: install, CLAUDE_CONFIG_DIR: join(install, '.claude'),
+    ANTHROPIC_API_KEY: 'fake-key', ANTHROPIC_OAUTH_TOKEN: 'fake-token', TEST_CLAUDE_LOGIN: 'yes' };
+  assert.deepEqual(probeClaudeCliAuthStatus({ command, env }), { status: 'available' });
+  assert.deepEqual(probeClaudeCliAuthStatus({ command, env: { ...env, TEST_CLAUDE_LOGIN: 'no' } }), { status: 'missing' });
 });
