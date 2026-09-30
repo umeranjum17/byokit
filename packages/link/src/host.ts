@@ -13,7 +13,13 @@ export type Grant = {
   id: string; key: string; name: string; role: Role; created: number; lastSeen?: number;
   kind?: string; expires?: number; nextKey?: string; meta?: unknown;
 };
-export type GrantStore = { load(): Grant[] | Promise<Grant[]>; save(grants: Grant[]): void | Promise<void> };
+export type GrantStore = {
+  load(): Grant[] | Promise<Grant[]>;
+  save(grants: Grant[]): void | Promise<void>;
+  /** Notify after durable changes, including changes made by other processes. Returns an unsubscribe function.
+   *  The host serializes reloads with its own writes; notifications need not contain grants. */
+  subscribe?: (changed: () => void) => () => void;
+};
 /** Keeps completed answers across host restarts. Store `{ op, args, reply }` as passed to `put` unchanged;
  *  `args` is JSON.stringify of the request arguments (or null). A missing answer after a crash may run again.
  *  `drop` without keys drops every answer for that device. */
@@ -52,6 +58,10 @@ export type HostOptions = {
   allow?: (req: LinkRequest, device: Grant) => boolean | Promise<boolean>;
   /** Which requests and streams a view-only device may open when there is no `allow`. Default: none. */
   canView?: (req: LinkRequest) => boolean;
+  /** First authenticated socket up / last socket down per grant. Exceptions go to onError. */
+  onConnection?: (grant: Grant, online: boolean) => void;
+  /** Opt-in app data sent inside sealed ready, on pairing and reconnect. Never implicitly exposes Grant.meta. */
+  deviceMeta?: (grant: Grant) => unknown;
   onError?: (error: unknown) => void;
   grants?: GrantStore;
   answers?: AnswerStore;
@@ -92,9 +102,12 @@ export class Host {
   private codes = new Map<string, Pending>();
   private tries = 0;
   private live = new Map<Conn, { dev: Grant; ch: Channel; streams: Streams }>();
+  private expiryTimers = new Map<Conn, ReturnType<typeof setTimeout>>();
   private answered = new Map<string, Map<string, Answer>>();
   private answerWork = new Map<string, Promise<void>>();
   private changes: Promise<void> = Promise.resolve();
+  private unsubscribe?: () => void;
+  private stopped = false;
   private recent = new Map<string, number[]>(); // handshake times, per peer and in all ('')
 
   private constructor(opts: HostOptions, grants: Grant[]) {
@@ -106,7 +119,12 @@ export class Host {
   }
 
   static async open(opts: HostOptions): Promise<Host> {
-    return new Host(opts, [...((await opts.grants?.load()) ?? [])]);
+    const host = new Host(opts, [...((await opts.grants?.load()) ?? [])]);
+    if (opts.grants?.subscribe) {
+      host.unsubscribe = opts.grants.subscribe(() => { void host.reload().catch((e) => host.report(e)); });
+      try { await host.reload(); } catch (e) { host.close(); throw e; }
+    }
+    return host;
   }
 
   private now() { return this.opts.now?.() ?? Date.now(); }
@@ -141,39 +159,80 @@ export class Host {
     if (!keys) this.answered.delete(device);
     if (this.opts.answers && (!keys || keys.length)) await this.answerTask(device, () => this.opts.answers!.drop(device, keys));
   }
-  private endLive(id: string, why: 'revoked' | 'ended') {
+  private presence(g: Grant, online: boolean) {
+    try { this.opts.onConnection?.({ ...g }, online); } catch (e) { this.report(e); }
+  }
+  private addLive(conn: Conn, entry: { dev: Grant; ch: Channel; streams: Streams }) {
+    const online = [...this.live.values()].some((s) => s.dev.id === entry.dev.id);
+    this.live.set(conn, entry);
+    if (!online) this.presence(entry.dev, true);
+  }
+  private removeLive(conn: Conn) {
+    const entry = this.live.get(conn);
+    if (!entry) return;
+    this.live.delete(conn);
+    clearTimeout(this.expiryTimers.get(conn));
+    this.expiryTimers.delete(conn);
+    if (![...this.live.values()].some((s) => s.dev.id === entry.dev.id)) this.presence(entry.dev, false);
+  }
+  private watchExpiry(conn: Conn) {
+    clearTimeout(this.expiryTimers.get(conn));
+    this.expiryTimers.delete(conn);
+    const g = this.live.get(conn)?.dev;
+    if (!g || g.expires === undefined) return;
+    if (this.ended(g)) return void this.revoke(g.id, 'ended').catch((e) => this.report(e));
+    this.expiryTimers.set(conn, later(Math.min(g.expires - this.now(), MAX_TIMER), () => this.watchExpiry(conn)));
+  }
+  private endLive(id: string, why: 'revoked' | 'ended', keep?: Conn) {
     for (const [conn, s] of this.live) if (s.dev.id === id) {
-      this.live.delete(conn);
+      this.removeLive(conn);
       s.streams.closeAll('removed');
+      if (conn === keep) continue;
       this.sealed(conn, s.ch, { t: 'revoked', why });
       later(1000, () => conn.close(4401, 'removed'));
     }
   }
 
   /** Every grant change goes through here, one at a time: store first, then memory, then the live sockets. */
-  private transition(next: (grants: Grant[]) => Grant[] | null, why?: 'revoked' | 'ended'): Promise<Grant[] | null> {
+  private transition(next: (grants: Grant[]) => Grant[] | null | Promise<Grant[] | null>, why?: 'revoked' | 'ended', persist = true, keep?: Conn): Promise<Grant[] | null> {
     return this.change(async () => {
-      const updated = next(this.grants);
+      const updated = await next(this.grants);
       if (!updated) return null;
-      await this.save(updated);
+      if (persist) await this.save(updated);
       const previous = this.grants;
       this.grants = updated;
       for (const old of previous) {
         const current = updated.find((g) => g.id === old.id);
-        if (current && current.key === old.key && current.role === old.role) {
-          for (const [conn, s] of this.live) if (s.dev.id === old.id) this.live.set(conn, { ...s, dev: current });
+        if (current && !this.ended(current) && current.key === old.key && current.role === old.role) {
+          for (const [conn, s] of this.live) if (s.dev.id === old.id) {
+            this.live.set(conn, { ...s, dev: current });
+            if (current.expires !== old.expires) this.watchExpiry(conn);
+          }
           continue;
         }
         if (!current) void this.drop(old.id).catch((e) => this.report(e));
-        if (why) this.endLive(old.id, why);
+        if (why) this.endLive(old.id, current && this.ended(current) ? 'ended' : why, keep);
         else for (const [conn, s] of this.live) if (s.dev.id === old.id) {
-          this.live.delete(conn);
+          this.removeLive(conn);
           s.streams.closeAll('unreachable');
           try { conn.close(1001, 'grant changed'); } catch {}
         }
       }
       return updated;
     });
+  }
+
+  /** Re-read the durable authority without writing it back. Removed/changed grants close their sockets.
+   *  A failed read leaves memory untouched and rejects; subscribed failures also reach onError. */
+  async reload(): Promise<void> {
+    if (!this.store || this.stopped) return;
+    await this.transition(async () => {
+      const grants = await this.store!.load();
+      return this.stopped ? null : grants.map((g) => {
+        const current = this.grants.find((old) => old.id === g.id);
+        return current && JSON.stringify(current) === JSON.stringify(g) ? current : { ...g };
+      });
+    }, 'revoked', false);
   }
 
   private pending(o: GrantTerms): Pending {
@@ -273,8 +332,12 @@ export class Host {
   }
 
   close() {
+    this.stopped = true;
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
     for (const [conn, { streams }] of this.live) {
       streams.closeAll('unreachable');
+      this.removeLive(conn);
       conn.close(1001, 'host closing');
     }
     this.live.clear();
@@ -408,7 +471,7 @@ export class Host {
           });
           if (!updated) return refuse('not-paired');
         }
-        if (gone) return;
+        if (gone || this.stopped) return end(1001, 'host closing');
         const before = admit();
         if (typeof before === 'string') return reject(before);
         if (auth?.fresh === true) {
@@ -426,20 +489,14 @@ export class Host {
           ? (s: number, d: Uint8Array) => { try { for (const f of c.sealData(s, d)) conn.binary!(f); } catch { conn.close(4400, 'send failed'); } }
           : (s: number, d: Uint8Array) => this.out(conn, () => c.sealData(s, d).map(b64));
         const streams = new Streams({ send: (m) => this.sealed(conn, c, m), data, reason: (e) => this.reason(e), report: (e) => this.report(e) });
-        this.live.set(conn, { dev, ch: c, streams });
+        const meta = this.opts.deviceMeta?.({ ...g });
+        this.addLive(conn, { dev, ch: c, streams });
         this.sealed(conn, c, { t: 'ready', device: { id: g.id, name: g.name, role: g.role }, host: { name: this.opts.name }, features: FEATURES,
           ...(g.expires === undefined ? {} : { expires: g.expires }),
+          ...(meta === undefined ? {} : { meta }),
           ...(this.opts.stream ? { streams: 1, ...(conn.binary ? { binary: 1 } : {}) } : {}) });
-        if (g.expires !== undefined) watch(g.id);
+        this.watchExpiry(conn);
       } catch { if (!gone) refuse('failed'); }
-    };
-
-    // Access that runs out ends like a removal, with the socket still open when it does.
-    const watch = (id: string) => {
-      const g = this.grants.find((x) => x.id === id);
-      if (gone || !g || g.expires === undefined || !this.live.has(conn)) return;
-      if (this.ended(g)) return void this.revoke(id, 'ended').catch((e) => this.report(e));
-      later(Math.min(g.expires - this.now(), MAX_TIMER), () => watch(id));
     };
 
     const handshake = (text: string) => {
@@ -478,14 +535,10 @@ export class Host {
       if (m.t === 'req') return void this.request(conn, d, m, b64url(hs!.remoteKey));
       if (m.t === 'ping') return this.sealed(conn, ch!, { t: 'pong', n: m.n });
       if (m.t === 'unpair') { // the device forgets this computer, and asks it to forget the device too
-        const live = this.live.get(conn);
-        this.live.delete(conn); // so the removal below leaves this socket open for the answer
-        return void this.transition((grants) => this.currentGrant(grants, d.id, b64url(hs!.remoteKey)) ? grants.filter((g) => g.id !== d.id) : null)
+        return void this.transition((grants) => this.currentGrant(grants, d.id, b64url(hs!.remoteKey)) ? grants.filter((g) => g.id !== d.id) : null, 'revoked', true, conn)
           .then((ok) => { if (!ok) return refuse('not-paired'); this.sealed(conn, ch!, { t: 'unpaired' }); later(1000, () => end(1000, 'unpaired')); })
           .catch((e) => {
             this.report(e);
-            const current = this.grants.find((g) => g.id === d.id);
-            if (current && live && !gone) this.live.set(conn, { ...live, dev: current });
             this.sealed(conn, ch!, { t: 'unpair-failed' });
           });
       }
@@ -513,7 +566,7 @@ export class Host {
                 if (admitted.error === 'ended') void this.revoke(dev.id, 'ended').catch((e) => this.report(e));
                 else {
                   this.live.get(conn)?.streams.closeAll('removed');
-                  this.live.delete(conn);
+                  this.removeLive(conn);
                   end(4401, 'not-paired');
                 }
                 return;
@@ -541,7 +594,7 @@ export class Host {
           end(4400, 'bad frame'); // a bad frame ends the socket; the device reconnects with a fresh handshake
         }
       },
-      closed: () => { gone = true; clearTimeout(timer); this.live.get(conn)?.streams.closeAll('unreachable'); this.live.delete(conn); },
+      closed: () => { gone = true; clearTimeout(timer); this.live.get(conn)?.streams.closeAll('unreachable'); this.removeLive(conn); },
     };
   }
 

@@ -9,5 +9,5 @@ export {
 export { cleanName, decodeOffer, encodeOffer, normalizeCode, offerText, parseOffer } from './pairing.ts';
 export { LinkStream, WINDOW } from './stream.ts';
 export type { PairOffer } from './pairing.ts';
-export { browserDeviceStore, secureDeviceStore, type KeptDevice, type SecureStoreLike } from './stores.ts';
+export { browserDeviceStore, browserDeviceStores, secureDeviceStore, secureDeviceStores, type DeviceStores, type KeptDevice, type SecureStoreLike } from './stores.ts';
 export { migrateGrant, GrantMigrationError, type GrantMigrationProblem } from './migrate.ts';

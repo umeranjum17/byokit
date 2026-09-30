@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add `onConnection(grant, online)` presence with first/last socket events and no duplicate-socket flapping.
+- Add serialized `Host.reload()`, optional `GrantStore.subscribe` notifications and Node `fileGrantStore`
+  with cross-process file notifications and stale-write protection.
+- Add opt-in `deviceMeta` in sealed ready replies, kept after pairing and refreshed on reconnect.
+- Add `secureDeviceStores` and `browserDeviceStores` collections with list, named load/save/remove and link adapters.
+- Document and test constrained delegated pairing through host-issued short-lived invitations.
+
 ## 0.6.0 (2026-09-30)
 
 
@@ -16,6 +23,7 @@
 ## 0.5.0 (2026-09-30)
 
 - FIX: `decodeOffer()` reads legacy compact direct pairing codes with checksum, padding, bounds and expiry validation; new encodings keep the complete current format.
+
 
 ## 0.4.0 (2026-09-30)
 

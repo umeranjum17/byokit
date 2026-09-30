@@ -9,7 +9,7 @@ import { Streams, type LinkStream } from './stream.ts';
 
 /** What a device keeps (in secure storage: it holds the device's secret key). `nextSecretKey` is only there while
  *  a rekey is under way. */
-export type DeviceGrant = { v: 1; secretKey: string; nextSecretKey?: string; pendingUntil?: number; host: string; hostName: string; urls: string[]; device: { id: string; name: string; role: Role } };
+export type DeviceGrant = { v: 1; secretKey: string; nextSecretKey?: string; pendingUntil?: number; host: string; hostName: string; meta?: unknown; urls: string[]; device: { id: string; name: string; role: Role } };
 export type DeviceStore = { save(g: DeviceGrant): void | Promise<void>; clear(): void | Promise<void> };
 export type LinkStatus = 'connecting' | 'online' | 'offline' | 'refused' | 'removed';
 type WebSocketLike = {
@@ -132,7 +132,7 @@ async function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Ui
 
 function granted(me: KeyPair, hostKey: string, url: string, urls: string[], ready: any): DeviceGrant {
   return { v: 1, secretKey: b64url(me.secretKey), host: hostKey, hostName: cleanName(ready.host?.name, 'your computer'), urls: [url, ...urls.filter((u) => u !== url)],
-    device: ready.device };
+    device: ready.device, ...(ready.meta === undefined ? {} : { meta: ready.meta }) };
 }
 
 type PairOptions = Dial & { name: string; onWords: (w: string) => void; key?: KeyPair };
@@ -261,8 +261,8 @@ export class DeviceLink {
           this.heard = Date.now();
           this.features = Array.isArray(l.ready.features) ? l.ready.features : [];
           this.tries = 0;
-          const { nextSecretKey, pendingUntil, ...rest } = this.grant;
-          this.grant = { ...rest, secretKey: secret, urls: [url, ...this.grant.urls.filter((u) => u !== url)], device: l.ready.device }; // what worked goes first
+          const { nextSecretKey, pendingUntil, meta, ...rest } = this.grant;
+          this.grant = { ...rest, secretKey: secret, urls: [url, ...this.grant.urls.filter((u) => u !== url)], device: l.ready.device, ...(l.ready.meta === undefined ? {} : { meta: l.ready.meta }) }; // what worked goes first
           const current = this.grant;
           void this.persist(() => this.o.store?.save(current)).catch(() => {});
           for (const [id, p] of this.pending) this.sendPending(l, id, p);

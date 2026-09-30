@@ -167,6 +167,33 @@ keeps the grant in `browserDeviceStore`, and requests `get.summary`. Run `npm ru
 `node examples/pwa/serve.ts 8080` and open `http://127.0.0.1:8080/pair.html`. The host must expose a reachable
 WebSocket, permit `get.summary` with `canView`, and handle that request. Use HTTPS and `wss:` when deploying.
 
+### Presence, durable grant changes and app metadata
+
+`onConnection(grant, online)` on `Host.open` reports the first authenticated socket up and the last down for
+that grant, including direct/relayed disconnects, revoke, expiry and host close. Duplicate sockets do not flap
+presence. A failed removal keeps presence unchanged. Pairing itself briefly opens a socket; it counts too.
+Callback exceptions reach `onError` and do not interrupt cleanup.
+
+`await host.reload()` re-reads `grants.load()` in the same queue as grant changes. It never writes the loaded
+snapshot back. Missing grants close their live sockets and discard cached answers; changed keys/roles close
+old connections, and changed expiry reschedules access. A failed load rejects and leaves memory intact.
+A `GrantStore` may provide `subscribe(changed): unsubscribe`; the host reloads automatically on notification,
+reports reload failures through `onError`, and unsubscribes on `close()`.
+
+Node apps can use `fileGrantStore(path)` from `@byokit/link/node`. It touches the app's chosen file, temporary
+files and a sibling `.lock` only, writes atomically at 0600 in a 0700 folder, rejects symlinks/nonprivate files on read, and polls
+for cross-process replace/remove (default 100 ms; second argument changes the interval). Cooperating writers
+use an exclusive lock and reject a stale loaded snapshot instead of overwriting an external revoke. Load again
+before retrying a failed save. A process that crashes holding the lock requires the app to resolve that abandoned
+lock; the kit never breaks it. Other file writers must use this backend too to get the write-conflict protection.
+Notifications are eventual, not a transaction across running hosts: apps needing instantaneous admission against
+an external authority must also check it in `allow`.
+
+`deviceMeta: (grant) => ({ appVersion, scope: (grant.meta as AppMeta)?.scope })` opts in to app metadata in the sealed `ready`
+payload. Project only data the device may see: the host never copies grant metadata implicitly. `DeviceGrant.meta`
+contains it after either pairing flow, and `DeviceLink.grant.meta` refreshes on reconnect (and clears if a newer
+ready omits it). It travels inside Noise, including through a relay.
+
 ### Short-lived peer invitations
 
 Compose invitations with the host's existing request handler, pending offer metadata and confirmation callback.
@@ -192,18 +219,44 @@ const host: Host = await Host.open({
   confirm: async ({ kind, meta, name, words }) => {
     const invitation = meta as { invitedBy?: string; scope?: string } | undefined;
     if (kind !== 'peer' || invitation?.scope !== 'summary' ||
-        !host.devices().some((g) => g.id === invitation.invitedBy && g.role === 'control')) return false;
-    return ui.ask(`Pair ${name} to read the summary? Check “${words}”.`);
+        !host.devices().some((g) => g.id === invitation.invitedBy && g.role === 'control' &&
+          (g.expires === undefined || g.expires > Date.now()))) return false;
+    const approved = await ui.ask(`Pair ${name} to read the summary? Check “${words}”.`);
+    return approved && host.devices().some((g) => g.id === invitation.invitedBy &&
+      g.role === 'control' && (g.expires === undefined || g.expires > Date.now()));
   },
 });
 ```
 
 Import `Host`, `keyPair` and `PublicLinkError` from `@byokit/link`; `ui.ask` is the app's approval UI. The app
-chooses metadata on the host, never from an untrusted invitee. No grant exists until `confirm` says yes. This is
+chooses metadata on the host, never from an untrusted invitee. This composition is delegated pairing:
+the approved control device requests a constrained invitation; a peer cannot widen its terms. Check the
+inviter's current grant, including expiry, in both `handle` and `confirm`. Apply capability scope in `allow`
+for every peer request or stream; `meta` alone does not enforce it. Revoking the inviter cancels redemption
+when `confirm` checks it; already-paired peers are independent grants unless the app revokes them too. No grant exists until `confirm` says yes. This is
 an online invitation: single-use and at most five minutes, with the host present for pairing. It is not a
 long-lived or host-offline signed invitation.
 
 ## Device
+
+To keep several paired computers, use `secureDeviceStores(secureStore, prefix?)` or
+`browserDeviceStores(databaseName?)` from `@byokit/link`. Both offer `list()` (entry names), `load(name)`,
+`save(name, grant)`, `remove(name)`, and `store(name)` (the one-entry adapter for `DeviceLink`). Names use
+letters, digits, dots, underscores and dashes, up to 120 characters. A secure collection uses
+`<prefix>.index` and `<prefix>.grant.<name>`; existing single-entry stores stay independent. Calls sharing
+one secure module/prefix are serialized within the JS runtime; the native API supplies no cross-process
+transactions. Missing records from interrupted saves are omitted from the index listing.
+The browser collection enumerates existing `browserDeviceStore` entries in its database, preserving their
+non-extractable wrapping keys and forgotten-grant protection; removed tombstones stay out of `list()`.
+
+```ts
+const computers = secureDeviceStores(SecureStore);
+await computers.save('kitchen', grant);
+const link = new DeviceLink((await computers.load('kitchen'))!, { store: computers.store('kitchen') });
+const pairedNames = await computers.list();
+// Local forgetting only; link.unpair() first when the host should remove its grant too.
+await computers.remove('kitchen');
+```
 
 ```ts
 import { DeviceLink, pairWithOffer, pairWithCode } from '@byokit/link';
