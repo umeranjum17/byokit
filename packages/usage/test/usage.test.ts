@@ -67,7 +67,7 @@ test('per-account backoff, minimum retry interval, key changes and dynamic fetch
     assert.equal(fake.calls.length,4);
     assert.equal(fake.calls[0].url,'https://opencode.ai/zen/go/v1/usage');
     assert.equal(fake.calls[0].init?.redirect,'error');
-    assert.deepEqual(fake.calls[0].init?.headers,{accept:'application/json',authorization:'Bearer one','User-Agent':'byokit/usage/0.3.0'});
+    assert.deepEqual(fake.calls[0].init?.headers,{accept:'application/json',authorization:'Bearer one','User-Agent':'byokit/usage/0.2.0'});
     const file = join(dir,'state','plans-v2.json');
     assert.equal(statSync(file).mode & 0o777,0o600); assert.equal(statSync(join(dir,'state')).mode & 0o777,0o700);
     assert.doesNotMatch(readFileSync(file,'utf8'),/Bearer|"one"|"two"/);
@@ -176,7 +176,7 @@ test('Claude explicit files, snapshot freshness, expiry, renewal and account iso
   assert.equal(reader.account(source), payloads.claude.fingerprint);
   assert.equal((await reader.read(source, { nowMs: nowMs + 360_000 })).code, undefined);
   assert.equal(fake.calls[0].url, 'https://api.anthropic.com/api/oauth/usage');
-  assert.deepEqual(fake.calls[0].init?.headers, { accept: 'application/json', authorization: 'Bearer secret-renewed', 'anthropic-beta': 'oauth-2025-04-20', 'User-Agent': 'byokit/usage/0.3.0' });
+  assert.deepEqual(fake.calls[0].init?.headers, { accept: 'application/json', authorization: 'Bearer secret-renewed', 'anthropic-beta': 'oauth-2025-04-20', 'User-Agent': 'byokit/usage/0.2.0' });
   assert.equal((await reader.read(source, { nowMs: nowMs + 420_000 })).code, 'rate-limited');
   credentials('secret-other', nowMs + 1_000_000, 'other-account');
   assert.equal(reader.lastKnown(source, { nowMs: nowMs + 420_000 }), undefined);
@@ -202,7 +202,7 @@ test('token sources: Codex wham identity, own UA, renewal and opaque credentials
   assert.deepEqual((await reader.read(source, { nowMs })).windows, payloads.codex.windows);
   assert.equal(fake.calls[0].url, 'https://chatgpt.com/backend-api/wham/usage');
   assert.equal((fake.calls[0].init?.headers as Record<string, string>)['ChatGPT-Account-Id'], 'account-one');
-  assert.equal((fake.calls[0].init?.headers as Record<string, string>)['User-Agent'], 'byokit/usage/0.3.0');
+  assert.equal((fake.calls[0].init?.headers as Record<string, string>)['User-Agent'], 'byokit/usage/0.2.0');
   assert.equal(reader.account(source), reader.account({ ...source, access: 'renewed-token' }));
   assert.doesNotMatch(readFileSync(join(dir, 'state', 'plans-v2.json'), 'utf8'), /secret-token|discard-this|account-one/);
   const opaque: Source = { provider: 'copilot', access: 'opaque-token' };
@@ -257,7 +257,7 @@ test('Gemini project discovery and Grok monthly fallback use fixed own-UA endpoi
   assert.deepEqual(JSON.parse(String(fake.calls[1].init?.body)), { project: 'project-one' });
   assert.deepEqual((await reader.read({ provider: 'grok', access: 'fake' }, { nowMs })).windows, [{ provider: 'grok', kind: 'monthly', usedPercent: 50, resetsAt: 1788616800000 }]);
   assert.equal(fake.calls[3].url, 'https://cli-chat-proxy.grok.com/v1/billing');
-  for (const call of fake.calls) assert.equal((call.init?.headers as Record<string,string>)['User-Agent'], 'byokit/usage/0.3.0');
+  for (const call of fake.calls) assert.equal((call.init?.headers as Record<string,string>)['User-Agent'], 'byokit/usage/0.2.0');
 });
 
 

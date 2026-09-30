@@ -1,6 +1,6 @@
 {
   "name": "@byokit/usage",
-  "version": "0.3.0",
+  "version": "0.2.0",
   "description": "Read subscription usage windows per provider and account.",
   "license": "Apache-2.0",
   "type": "module",
