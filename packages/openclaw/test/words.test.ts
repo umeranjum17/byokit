@@ -22,6 +22,7 @@ const TABLE: Record<string, string> = {
   'member.network': "Can't reach {name} right now. This keeps trying by itself.",
   'signin.returned': 'Thanks. Finishing the sign-in — you can go back to the app now.',
   'signin.busy': 'Another sign-in is already in progress. Finish or cancel it, then try again.',
+  'signin.cancelled': 'Sign-in cancelled. You can start again whenever you are ready.',
   'signin.expired': 'The sign-in took too long. Start it again.',
   'approval.ask': '{helper} wants to {summary}. Allow it?',
   'approval.expired': "Nobody answered in time, so this wasn't allowed.",
