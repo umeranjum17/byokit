@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.2.2 (2026-09-30)
+
+- FIX: Apps' own accessibility services can now pass the field they captured: `FieldNode.of(node)` and
+  `FocusedFields.insert(node, ...)` take an `AccessibilityNodeInfo` with the same retry and same-field re-acquisition,
+  and `FocusedFields.capture(service)` keeps the focused field for a later insert.
+- The Kotlin API for app-owned services (docs/capability-kits.md 7.5): `FocusedFields.clipboard(context)` as the
+  insert fallback; `ServiceBubble(host, ...)` over a window the app's own foreground service owns (no rules, shown
+  everywhere), the bubble hidden while the panel is on top (`hideWhilePanelOpen`), and `ServiceBubble.drawables(context)`
+  and `reducedMotion(context)` for its moods and motion.
+
 ## 0.2.1 (2026-09-30)
 
 - FIX: Text insertion no longer gives up while the panel is closing; it retries unreadable fields and only

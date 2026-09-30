@@ -61,7 +61,39 @@ A service that must show the bubble with no JS running (after a reboot or proces
 alone: keep a `ServiceBubble`, call `start(config)` in `onServiceConnected` with the persisted rules, and the bubble
 shows on attach and restores after every rebind. `Rules(app-rules).shows(app)` is the per-app decision in Kotlin;
 `FocusedFields.read(service)` and `FocusedFields.insert(node, ...)` are the focused-field read and insert for the
-captured node.
+captured node. The service can hand over the `AccessibilityNodeInfo` it captured itself (or wrap it with
+`FieldNode.of(node)`); the insert retries it and re-acquires only the same field (view id, bounds and package):
+
+```kotlin
+class Assistant : AccessibilityService() {
+  private lateinit var bubble: ServiceBubble
+  private var field: AccessibilityNodeInfo? = null
+
+  override fun onServiceConnected() {
+    ByokitAccessibility.attach(this)
+    bubble = ServiceBubble(ServiceBubble.drawables(this), PrefsSpotStore(this), ServiceBubble.reducedMotion(this))
+    bubble.events.add { e ->
+      if (e == OverlayEvent.Tap) {
+        field = findFocus(AccessibilityNodeInfo.FOCUS_INPUT) // captured at tap time
+        PanelActivity.launch(this, "Panel", emptyMap())
+      }
+    }
+    bubble.start(ServiceBubble.Config(mood = "calm", label = "Assistant", rules = savedRules()))
+  }
+
+  fun insert(draft: String) = thread { // insert waits between tries: off the main thread
+    val node = field ?: return@thread
+    FocusedFields.insert(node, draft, opts = InsertOpts(attempts = 13), copy = FocusedFields.clipboard(this))
+  }
+
+  override fun onUnbind(intent: Intent?): Boolean { bubble.stop(); ByokitAccessibility.detach(this); return false }
+  override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+  override fun onInterrupt() {}
+}
+```
+
+`FocusedFields.capture(service)` does the same capture as a `FieldNode`. An app's own foreground service shows the
+bubble with `ServiceBubble(WindowOverlayHost(this), moods, spots)`, which takes no rules and shows everywhere.
 
 **Status: ready to publish (BK-O3).** The bubble, both hosts, the panel, the tap log and the focused field are built
 and proven on an Android emulator (API 36). On iOS, the web and Node `overlay.state()` is `unsupported`.

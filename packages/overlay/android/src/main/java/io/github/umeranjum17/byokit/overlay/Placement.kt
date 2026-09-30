@@ -3,8 +3,10 @@ package io.github.umeranjum17.byokit.overlay
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
+/** A width and height in pixels. */
 data class Size(val w: Int, val h: Int)
 
+/** The screen edge the bubble rests on. */
 enum class Edge { LEFT, RIGHT }
 
 /** Where the bubble rests: an edge, and y as 0..1 of the usable height (docs/capability-kits.md 7.3, 7.5). */
@@ -12,8 +14,10 @@ data class Spot(val edge: Edge, val y: Float)
 
 /** Pure placement maths for the bubble, in pixels of the screen it sits on. */
 object Placement {
+  /** How far a touch moves before it is a drag, in dp. */
   const val DRAG_SLOP_DP = 8
 
+  /** Whether a touch that moved (dxPx, dyPx) is a drag. */
   fun isDrag(dxPx: Float, dyPx: Float, density: Float): Boolean = hypot(dxPx, dyPx) > DRAG_SLOP_DP * density
 
   /** The spot for a bubble dropped with its top-left at (xPx, yPx): the nearest edge, y clamped into the usable band. */

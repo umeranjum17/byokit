@@ -8,10 +8,13 @@ import android.accessibilityservice.AccessibilityService
  * Main thread only.
  */
 object ByokitAccessibility {
+  /** The 'accessibility' host while a service is attached. */
   @Volatile var host: OverlayHost? = null
     private set
+  /** The foreground app while a service is attached. */
   @Volatile var foreground: ForegroundApp? = null
     private set
+  /** The keyboard's top while a service is attached. */
   @Volatile var keyboard: KeyboardInset? = null
     private set
   /** The attached service, for FocusedFieldModule. */
@@ -20,6 +23,7 @@ object ByokitAccessibility {
   /** A host on attach, null on detach. */
   val hosts = Listeners<OverlayHost?>()
 
+  /** Hands [service] to the kit (a different attached service is detached first); again for the same one is a no-op. */
   @Synchronized
   fun attach(service: AccessibilityService) {
     if (this.service === service) return
@@ -32,6 +36,7 @@ object ByokitAccessibility {
     hosts.emit(h)
   }
 
+  /** Takes [service] back; nothing when it is not the attached one. */
   @Synchronized
   fun detach(service: AccessibilityService) {
     if (this.service !== service) return

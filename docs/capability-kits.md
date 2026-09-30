@@ -1090,8 +1090,8 @@ export const focusedField: FocusedField;
   not match, a contenteditable that dropped only the newlines resolves `'landedWithoutNewlines'` when
   `acceptNewlineLoss` is set; otherwise the text goes on the clipboard (`'copied'`).
 - The field is the focused node itself when it is editable, else the first editable non-password focused descendant
-  (WebView/Chrome). The same search, read and insert are callable from Kotlin (`FocusedFields`), so the app's service
-  can read at tap time and insert into the captured node with no JS running.
+  (WebView/Chrome). The same search, read and insert are callable from Kotlin (`FocusedFields`, 7.5), so the app's
+  service can read at tap time and insert into the captured node with no JS running.
 
 ### 7.5 Kotlin parts (package `io.github.umeranjum17.byokit.overlay`, one job each)
 
@@ -1118,12 +1118,14 @@ class Bubble(host: OverlayHost, spots: SpotStore, moods: (String) -> Drawable?, 
   val events: Listeners<OverlayEvent>                                    // listener set, never a single slot
 }
 data class Rules(val paused: Boolean = false, val on: List<String> = emptyList(), val off: List<String> = emptyList(), val defaults: List<String> = emptyList()) { fun shows(app: String?): Boolean }   // the 7.3 decision in Kotlin; the app layers its own allowances on top
-class ServiceBubble(moods: (String) -> Drawable?, spots: SpotStore, ...) {   // the bubble from Kotlin alone: start(config) once, it shows on attach and restores after every rebind
-  data class Config(val mood: String, val label: String? = null, val rules: Rules = Rules(), val perAppSpots: Boolean = false)
+class ServiceBubble(moods: (String) -> Drawable?, spots: SpotStore, reducedMotion: () -> Boolean = { false }, ...) {   // the bubble from Kotlin alone: start(config) once, it shows on attach and restores after every rebind
+  constructor(host: OverlayHost, moods: (String) -> Drawable?, spots: SpotStore, reducedMotion: () -> Boolean = { false })   // over a window the app's own foreground service owns
+  data class Config(val mood: String, val label: String? = null, val rules: Rules = Rules(), val perAppSpots: Boolean = false, val hideWhilePanelOpen: Boolean = true)
   val events: Listeners<OverlayEvent>
   fun start(config: Config); fun stop()
   fun say(text: String, mood: String? = null, ms: Long = 2500, announce: Boolean = false)
   fun setMood(mood: String); fun setLabel(label: String?); fun setRules(rules: Rules)
+  companion object { fun drawables(context: Context): (String) -> Drawable?; fun reducedMotion(context: Context): () -> Boolean }   // moods by drawable name; the system's animator scale
 }
 interface ForegroundApp { val current: String?; fun onChange(fn: (String?) -> Unit): () -> Unit }
 interface KeyboardInset { val imeTopPx: Int?; fun onChange(fn: (Int?) -> Unit): () -> Unit }
@@ -1132,8 +1134,17 @@ class PanelActivity : ReactActivity()                                    // tran
 class TapLog(context: Context) { fun add(app: String, action: String, at: Long); fun since(at: Long): List<TapEntry>; fun clear(); fun prune(now: Long) }  // 30 days
 class OverlayModule : Module()                                           // Expo module 'ByokitOverlay', maps NativeOverlay (7.3)
 data class InsertOpts(val attempts: Int = Insert.DEFAULT_ATTEMPTS, val retryMs: Long = Insert.RETRY_MS, val acceptNewlineLoss: Boolean = false)
-interface FieldNode { val editable: Boolean; val password: Boolean; fun shown(): String?; fun set(text: String): Boolean; fun selection(): Pair<Int, Int>?; val childCount: Int; fun child(i: Int): FieldNode? }   // the field, or a focused descendant; faked in JVM tests
-object FocusedFields { fun find(node: FieldNode): FieldNode?; fun read(service: AccessibilityService): FocusedFieldText?; fun insert(node: FieldNode, text: String, replace: String = "selection", opts: InsertOpts = InsertOpts(), pause: (Long) -> Unit = Thread::sleep, copy: (String) -> Boolean = { false }): String }   // the Kotlin entry: the service reads at tap time and inserts into the captured node
+interface FieldNode { val identity: FieldIdentity?; fun reacquire(): FieldNode?; fun recycle(); val editable: Boolean; val password: Boolean; fun shown(): String?; fun set(text: String): Boolean; fun selection(): Pair<Int, Int>?; val childCount: Int; fun child(i: Int): FieldNode?
+  companion object { fun of(node: AccessibilityNodeInfo, service: AccessibilityService? = null): FieldNode } }   // the field, or a focused descendant; `of` wraps a node the app's service captured; faked in JVM tests
+data class FieldIdentity(val viewId: String, val bounds: List<Int>, val app: String)   // all three match, or it is not the same field
+object FocusedFields {                                                   // the Kotlin entry for the app's own service
+  fun find(node: FieldNode): FieldNode?                                  // the node itself or its first editable non-password focused descendant
+  fun capture(service: AccessibilityService): FieldNode?                 // the focused field now, kept for a later insert; the caller recycles it
+  fun read(service: AccessibilityService): FocusedFieldText?
+  fun insert(node: FieldNode, text: String, replace: String = "selection", opts: InsertOpts = InsertOpts(), pause: (Long) -> Unit = Thread::sleep, copy: (String) -> Boolean = { false }): String
+  fun insert(node: AccessibilityNodeInfo, text: String, replace: String = "selection", opts: InsertOpts = InsertOpts(), pause: (Long) -> Unit = Thread::sleep, copy: (String) -> Boolean = { false }, service: AccessibilityService? = null): String   // finds the field at or under node; "failed" when none
+  fun clipboard(context: Context): (String) -> Boolean                  // the copy fallback
+}
 class FocusedFieldModule : Module()                                      // Expo module 'ByokitFocusedField' (BK-O3)
 ```
 
@@ -1145,6 +1156,24 @@ class FocusedFieldModule : Module()                                      // Expo
   bubble shows on attach and restores after every rebind, until `stop()`. `Rules.shows(app)` is the same per-app
   decision as `shownFor`, for the service to decide in Kotlin; the app layers its own allowances on top, and persists
   the rules itself so they work before JS runs again.
+- **The app-owned-service API.** Everything an app's own service hands the kit, or gets back, is public Kotlin, with
+  the kit's internals (`NodeWrap`, the same-field search) behind it:
+  - *Attach:* `ByokitAccessibility.attach(this)` / `detach(this)`, which supplies `host`, `foreground` and `keyboard`.
+  - *Focused field:* `FocusedFields.capture(service)` at tap time, or `FieldNode.of(node)` over the
+    `AccessibilityNodeInfo` the service captured itself with `findFocus(FOCUS_INPUT)` (not a layout from an event:
+    below the node, the first editable non-password descendant is taken); `FocusedFields.insert` takes either. A retry refreshes the captured node and, when it went stale (the panel still closing), re-acquires the
+    field from the active window only when view id, bounds and package all match, never a different field; the
+    captured node stays the caller's to recycle. `FocusedFields.clipboard(context)` is the `copy` fallback. Insert
+    blocks for up to `attempts x retryMs`, so the service calls it off the main thread.
+  - *Bubble:* `ServiceBubble` on the attached service's host, or `ServiceBubble(WindowOverlayHost(this), ...)` from the
+    app's own foreground service; `drawables(context)`, `PrefsSpotStore(context)` and `reducedMotion(context)` supply
+    it. The fixed-host bubble knows no foreground app or keyboard: like the JS `window` host it takes no rules and
+    shows everywhere. It hides while the panel is on top (`hideWhilePanelOpen`, also when `start` finds it open),
+    shows again over another app the person switches to meanwhile, and re-reads the foreground app when it closes.
+  - *Panel:* `events` delivers `Tap` and `LongPress`; the service opens the panel with
+    `PanelActivity.launch(context, key, props)` and closes it with `PanelActivity.current?.finish()`.
+  - *Placement, tap log, rules:* `Placement`, `SpotStore.key`, `TapLog(context)` and `Rules` are the same pure parts
+    the module uses.
 - The bubble carries a TalkBack label (`label` in `StartOptions`, `setLabel`, `ServiceBubble.Config.label`), and
   `say` takes `announce` to read the pill aloud.
 - Moods are drawable names the app ships. With reduced motion (the system animator scale is 0), the bubble snaps
