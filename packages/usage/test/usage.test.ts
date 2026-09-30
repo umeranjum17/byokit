@@ -6,6 +6,7 @@ import { scratchDir } from '../../test-support.ts';
 import { usage, fingerprint, fileUsageStore, memoryBackoffPolicy, retryAfterMs, backoffDelayMs, roomOf, tokenLedger, callLedger, normalizeTokens, priceCall, memoryTokenLedgerStore, TokenLedgerError, UsageError, claudeWindows, codexWindows, goWindows, zaiWindows, WORDS, usageWords, type Source, type Window } from '../src/index.ts';
 import { fakeCodex, fakeFetch, usageContract } from '../src/testing/index.ts';
 import payloads from './usage-payloads.json' with { type: 'json' };
+import edge from '../../../fixtures/conformance/usage-typescript.json' with { type: 'json' };
 import plain from '../../../fixtures/conformance/plain-words.json' with { type: 'json' };
 
 const nowMs = 1788600000000;
@@ -163,7 +164,7 @@ test('Claude explicit files, snapshot freshness, expiry, renewal and account iso
   credentials('secret-one', nowMs + 100_000);
   writeFileSync(configFile, JSON.stringify({ oauthAccount: { accountUuid: payloads.claude.identity } }));
   assert.equal(reader.account(source), payloads.claude.fingerprint);
-  writeFileSync(statuslineFile, JSON.stringify({ rate_limits: payloads.claude.raw, accessToken: 'secret-snapshot', unrelated: 'private-path' }));
+  writeFileSync(statuslineFile, JSON.stringify({ rate_limits: payloads.claude.raw, fetched_at: nowMs, accessToken: 'secret-snapshot', unrelated: 'private-path' }));
   utimesSync(statuslineFile, nowMs / 1000, nowMs / 1000);
   const first = await reader.read(source, { nowMs });
   assert.deepEqual(first.windows, payloads.claude.windows);
@@ -220,7 +221,7 @@ test('Claude source hook and public store/backoff policy preserve per-account la
   };
   const source: Source = { provider: 'claude', accountUuid: 'hook-account', read: async ({ nowMs: clock, signal }) => {
     assert.equal(signal.aborted, false); assert.ok(clock >= nowMs); calls++;
-    return calls === 1 ? { raw: { ...payloads.claude.raw, token: 'never-store', path: 'private-path' } } : { code: 'rate-limited', retryAfterMs: 120_000 };
+    return calls === 1 ? { raw: { ...payloads.claude.raw, token: 'never-store', path: 'private-path' }, at: clock } : { code: 'rate-limited', retryAfterMs: 120_000 };
   } };
   const reader = usage(options);
   const first = await reader.read(source, { nowMs });
@@ -229,7 +230,7 @@ test('Claude source hook and public store/backoff policy preserve per-account la
   const failed = await reader.read(source, { nowMs: nowMs + 60_000 });
   assert.equal(failed.code, 'rate-limited'); assert.equal(failed.at, first.at);
   const restart = usage(options);
-  assert.deepEqual(restart.lastKnown(source, { nowMs: nowMs + 61_000 }), first);
+  assert.deepEqual(restart.lastKnown(source, { nowMs: nowMs + 61_000 }), failed);
   assert.equal((await restart.read(source, { nowMs: nowMs + 659_999 })).code, 'rate-limited');
   assert.equal(calls, 2);
   const other: Source = { ...source, accountUuid: 'another-account', read: async () => ({ raw: payloads.claude.raw }) };
@@ -239,11 +240,11 @@ test('Claude source hook and public store/backoff policy preserve per-account la
 
 test('roomOf uses the tightest window, ms resets, span mapping and 24h freshness', () => {
   const reading = { provider: 'codex' as const, at: nowMs, windows: payloads.codex.windows as Window[] };
-  assert.deepEqual(roomOf(reading, nowMs), { left: 10, span: 'week', resetsAt: 1788616800000, at: nowMs });
-  assert.deepEqual(roomOf(reading, nowMs + 86_400_001), { left: 'unknown', at: nowMs });
-  assert.deepEqual(roomOf({ ...reading, windows: [] }, nowMs), { left: 'unknown', at: nowMs });
+  assert.deepEqual(roomOf(reading, nowMs), { left: 10, span: 'week', resetsAt: 1788616800000, at: nowMs, ageMs: 0, freshness: 'fresh' });
+  assert.deepEqual(roomOf(reading, nowMs + 86_400_001), { left: 'unknown', at: nowMs, ageMs: 86_400_001, freshness: 'stale' });
+  assert.deepEqual(roomOf({ ...reading, windows: [] }, nowMs), { left: 'unknown', at: nowMs, ageMs: 0, freshness: 'fresh' });
   for (const [kind, span] of [['session','session'],['weekly','week'],['monthly','month'],['rolling','tightest'],['custom','tightest']] as const) {
-    assert.deepEqual(roomOf({ ...reading, windows: [{ provider: 'codex', kind, usedPercent: 20 }] }, nowMs), { left: 80, span, at: nowMs });
+    assert.deepEqual(roomOf({ ...reading, windows: [{ provider: 'codex', kind, usedPercent: 20 }] }, nowMs), { left: 80, span, at: nowMs, ageMs: 0, freshness: 'fresh' });
   }
 });
 
@@ -366,4 +367,97 @@ test('public Claude replacement helpers share disk last-good and account backoff
   assert.equal(backoffDelayMs(undefined), 300_000);
   assert.equal(backoffDelayMs(NaN), 300_000);
   assert.equal(backoffDelayMs(600_000), 600_000);
+});
+
+test('shared Auto inputs: hard blocks, reset clocks, scoped precedence and reading age', async () => {
+  for (const fixture of edge.codex) {
+    const source: Source = { provider: 'codex', accountId: 'edge-account', access: 'synthetic-token' };
+    const stateDir = scratchDir('usage-hard');
+    const reader = usage({ stateDir, fetch: fakeFetch([{ body: fixture.raw }]).fetch });
+    const reading = await reader.read(source, { nowMs: edge.now });
+    const room = roomOf(reading, edge.now);
+    assert.equal(room.left, fixture.left);
+    if ('reset' in fixture) assert.equal(reading.windows[0]?.resetsAt, fixture.reset);
+    if (('limit_reached' in fixture.raw.rate_limit && fixture.raw.rate_limit.limit_reached)) {
+      assert.equal(room.limited, true);
+      assert.equal(roomOf(usage({ stateDir }).lastKnown(source, { nowMs: edge.now + 86_400_001 })!, edge.now + 86_400_001).left, 0);
+      assert.equal(roomOf(reading, edge.now + 86_400_001).left, 0);
+      assert.equal(roomOf(reader.lastKnown(source, { nowMs: edge.now + 86_400_001 })!, edge.now + 86_400_001).left, 0);
+      if (!('primary_window' in fixture.raw.rate_limit)) assert.deepEqual(reading.windows, []);
+      else assert.equal(reading.windows[0]?.usedPercent, 20);
+    }
+  }
+  assert.deepEqual(goWindows({ rolling: { status: 'rate-limited' } }), [{ provider: 'opencode', kind: 'rolling', minutes: 300, limited: true }]);
+  const windows = claudeWindows(edge.claude);
+  assert.equal(windows.length, 4);
+  assert.equal(windows[3]?.usedPercent, undefined);
+  const scoped = roomOf({ provider: 'claude', at: edge.now, windows }, edge.now);
+  assert.equal(scoped.left, 0);
+  assert.deepEqual(scoped.scope, { model: 'synthetic-model', surface: 'subagent' });
+  assert.equal(roomOf({ provider: 'claude', at: edge.now, windows: windows.filter((w) => w.usedPercent !== 100) }, edge.now).left, 'unknown');
+  assert.deepEqual(claudeWindows({ limits: [{ kind: 'weekly_all' }], seven_day: { utilization: 0 } }), [{ provider: 'claude', kind: 'weekly' }]);
+  for (const fixture of edge.age) {
+    const reading = { provider: 'claude' as const, windows: [{ provider: 'claude' as const, kind: 'session' as const, usedPercent: 20 }], ...('at' in fixture ? { at: fixture.at } : {}) };
+    const room = roomOf(reading, edge.now);
+    assert.equal(room.left, fixture.left); assert.equal(room.freshness, fixture.freshness);
+  }
+});
+
+test('poll outcomes retain source age, separate refresh failure, durable retry and account pacing', async () => {
+  const saved = new Map<string, import('../src/index.ts').StoredReading>();
+  const retry = new Map<string, import('../src/index.ts').BackoffState>(); const contexts: unknown[] = []; let clock = edge.now;
+  let calls = 0;
+  const source: Source = { provider: 'claude', accountUuid: 'synthetic-account', origin: 'https://quota.example', read: async () => {
+    calls++;
+    if (calls === 1) return { raw: edge.claude, at: edge.now - 120_000 };
+    return { code: edge.failures[(calls - 2) % edge.failures.length] as import('../src/index.ts').Code, retryAfterMs: 180_000 };
+  } };
+  const origins: string[] = [];
+  const options: import('../src/index.ts').UsageOptions = {
+    store: { get: (_, id) => saved.get(id), put: (_, id, r) => { saved.set(id, r); } },
+    backoff: { get: (_, id) => retry.get(id), set: (_, id, _until, state) => { if (state) retry.set(id, state); else retry.delete(id); }, delayMs: (_, context) => { contexts.push(context); return 60_000; } },
+    pace: async ({ origin, signal }) => { assert.equal(signal.aborted, false); origins.push(origin); },
+  };
+  const reader = usage(options);
+  const first = await reader.read(source, { nowMs: clock });
+  const failed = await reader.read(source, { nowMs: clock += 60_000 });
+  assert.equal(failed.code, 'rate-limited'); assert.equal(failed.at, first.at);
+  assert.equal(roomOf(failed, clock).left, 0); // real exhaustion, separate from the poll 429
+  assert.equal(failed.poll?.at, clock); assert.equal(failed.poll?.retryAt, clock + 180_000);
+  assert.equal(reader.lastKnown(source, { nowMs: clock })?.poll?.outcome, 'rate-limited');
+  const restart = usage(options);
+  await restart.read(source, { nowMs: clock + 179_999 }); assert.equal(calls, 2);
+  const refreshed = await restart.read(source, { nowMs: clock += 180_000 });
+  assert.equal(refreshed.code, 'refresh-failed');
+  assert.equal(usage(options).lastKnown(source, { nowMs: clock })?.poll?.outcome, 'refresh-failed');
+  assert.equal(restart.lastKnown(source, { nowMs: clock })?.poll?.outcome, 'refresh-failed'); assert.equal(refreshed.at, first.at);
+  assert.equal(roomOf({ ...refreshed, windows: [{ provider: 'claude', kind: 'session', usedPercent: 20 }] }, clock).left, 80);
+  const other: Source = { ...source, accountUuid: 'other', origin: 'https://another.example', read: async () => ({ raw: payloads.claude.raw, at: undefined }) };
+  const undated = await restart.read(other, { nowMs: clock });
+  assert.equal(undated.at, undefined); assert.equal(roomOf(undated, clock).freshness, 'unknown');
+  assert.deepEqual(origins, ['https://quota.example', 'https://quota.example', 'https://quota.example', 'https://another.example']);
+  assert.deepEqual(contexts, [{ outcome: 'rate-limited', failures: 1 }, { outcome: 'refresh-failed', failures: 1 }]);
+  // File mtime changes do not make an undated or future quota measurement fresh.
+  const dir = scratchDir('usage-observation');
+  const credentialsFile = join(dir, 'credentials.json');
+  const statuslineFile = join(dir, 'statusline.json');
+  writeFileSync(credentialsFile, JSON.stringify({ claudeAiOauth: { accessToken: 'synthetic', accountUuid: 'snapshot' } }));
+  for (const fetched_at of [undefined, clock + 1]) {
+    writeFileSync(statuslineFile, JSON.stringify({ rate_limits: payloads.claude.raw, fetched_at }));
+    utimesSync(statuslineFile, clock / 1000, clock / 1000);
+    const snapshot = await usage({ fetch: async () => { throw new Error('endpoint must not stamp cached figures'); } }).read({ provider: 'claude', credentialsFile, statuslineFile }, { nowMs: clock });
+    assert.equal(roomOf(snapshot, clock).freshness, fetched_at === undefined ? 'unknown' : 'future');
+    assert.equal(roomOf(snapshot, clock).left, 'unknown');
+  }
+  let failures = 0;
+  const transient = usage({ fetch: async () => { failures++; return new Response('{}', { status: 503 }); } });
+  const failing: Source = { provider: 'codex', access: 'synthetic', accountId: 'transient' };
+  assert.equal((await transient.read(failing, { nowMs: clock })).poll?.retryAt, clock + 60_000);
+  assert.equal((await transient.read(failing, { nowMs: clock + 60_000 })).poll?.retryAt, clock + 180_000);
+  await transient.read(failing, { nowMs: clock + 179_999 }); assert.equal(failures, 2);
+  const abort = new AbortController(); let sent = 0;
+  const paced = usage({ pace: async ({ signal }) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('private')), { once: true })), fetch: async () => { sent++; return new Response('{}'); } });
+  const pending = paced.read({ provider: 'codex', accountId: 'paced', access: 'synthetic' }, { nowMs: clock, signal: abort.signal });
+  abort.abort();
+  assert.equal((await pending).code, 'unavailable'); assert.equal(sent, 0);
 });

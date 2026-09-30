@@ -1,12 +1,11 @@
-import { backoffDelayMs } from './backoff.ts';
 import { accessSync, constants, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { isAbsolute, join } from 'node:path';
 import { claudeAuth, claudeUsage, codexUsage, customClaude, providerGet, type Answer } from './providers.ts';
-import { fingerprint, readJson, store, memoryUsageStore, safeWindows } from './store.ts';
+import { fingerprint, readJson, store, memoryUsageStore, safeWindows, safePoll } from './store.ts';
 import { claudeWindows, codexWindows, goWindows, record, zaiWindows, type CodexRateLimitResult } from './windows.ts';
-import { codexTokenWindows, copilotWindows, grokWindows, minimaxWindows, geminiWindows, kimiWindows } from './quota.ts';
-import { UsageError, type Reading, type ReadOptions, type Source, type Usage, type UsageOptions } from './types.ts';
+import { codexHardLimit, codexTokenWindows, copilotWindows, grokWindows, minimaxWindows, geminiWindows, kimiWindows } from './quota.ts';
+import { UsageError, type Reading, type ReadOptions, type Source, type Usage, type UsageOptions, type Poll } from './types.ts';
 export * from './types.ts';
 export { callLedger, normalizeTokens, priceCall, type CallLedger, type CallInput, type CallRecord, type CallQuery, type NormalizedTokens, type ModelPrice, type PriceTable, type CallCost } from './calls.ts';
 export { tokenLedger, memoryTokenLedgerStore, TokenLedgerError, type TokenLedger, type TokenLedgerStore, type TokenLedgerOptions, type TokenEntry, type TokenQuery } from './ledger.ts';
@@ -14,7 +13,7 @@ export { roomOf } from './room.ts';
 export { fingerprint, store as fileUsageStore, memoryUsageStore } from './store.ts';
 export { retryAfterMs, backoffDelayMs, memoryBackoffPolicy } from './backoff.ts';
 export { claudeWindows, codexWindows, goWindows, zaiWindows, type CodexRateLimitResult } from './windows.ts';
-export { codexTokenWindows, copilotWindows, grokWindows, minimaxWindows, geminiWindows, kimiWindows } from './quota.ts';
+export { codexHardLimit, codexTokenWindows, copilotWindows, grokWindows, minimaxWindows, geminiWindows, kimiWindows } from './quota.ts';
 export { WORDS, words, usageWords, type WordKey } from './words.ts';
 const providers = ['claude', 'codex', 'opencode', 'zai', 'copilot', 'grok', 'minimax', 'gemini', 'kimi'];
 const validText = (v: unknown): v is string => typeof v === 'string' && !v.includes('\0') && !/[\r\n]/.test(v) && v.length <= 16384;
@@ -33,6 +32,9 @@ function validate(source: Source): void {
     if (!validText(credential)) throw new UsageError();
     if ('access' in source && source.provider === 'codex' && (!validText(source.accountId) || !source.accountId)) throw new UsageError();
   }
+  if ('origin' in source && source.origin !== undefined) {
+    try { const url = new URL(source.origin); if (!['https:', 'http:'].includes(url.protocol) || url.origin !== source.origin) throw new Error(); } catch { throw new UsageError(); }
+  }
   const fields = source as unknown as Record<string, unknown>;
   for (const field of ['accountId', 'accountUuid', 'project']) if (fields[field] !== undefined && (!validText(fields[field]) || !fields[field])) throw new UsageError();
 }
@@ -50,7 +52,8 @@ export function usage(options: UsageOptions): Usage {
   const disk = options.store ?? (options.stateDir ? store(options.stateDir) : memoryUsageStore());
   const transient = memoryUsageStore(); const fp = fingerprint(options.salt ?? 'byokit/usage/account');
   const backoffs = new Map<string, number>(); const inFlight = new Map<string, Promise<Reading>>();
-  const attempts = new Map<string, { at: number; code?: Reading['code'] }>();
+  const attempts = new Map<string, Poll>();
+  const failures = new Map<string, number>();
   const now = (opts?: ReadOptions) => opts?.nowMs ?? (options.now ?? Date.now)();
   function connected(source: Source): boolean {
     validate(source);
@@ -80,7 +83,7 @@ export function usage(options: UsageOptions): Usage {
   function windows(source: Source, raw: unknown, clock: number): Reading['windows'] {
     switch (source.provider) {
       case 'claude': return claudeWindows(raw);
-      case 'codex': return 'bin' in source ? codexWindows(raw as CodexRateLimitResult | undefined) : codexTokenWindows(raw);
+      case 'codex': return 'bin' in source ? codexWindows(raw as CodexRateLimitResult | undefined) : codexTokenWindows(raw, clock);
       case 'opencode': return goWindows(record(raw) ? raw.usage : undefined);
       case 'zai': return zaiWindows(record(raw) && record(raw.data) ? raw.data.limits : undefined);
       case 'copilot': return copilotWindows(raw);
@@ -95,44 +98,80 @@ export function usage(options: UsageOptions): Usage {
     const id = identity(source); const clock = now(opts);
     try {
       const stored = (id.stable ? disk : transient).get(source.provider, id.key);
-      if (!stored || !Number.isFinite(stored.at) || clock < stored.at || clock - stored.at > 86_400_000) return undefined;
+      if (!stored) return undefined;
+      if (!stored.limited && !stored.windows.some((w) => w.limited) && stored.at !== undefined && (clock < stored.at || clock - stored.at > 86_400_000)) return undefined;
       const rows = safeWindows(source.provider, stored.windows);
-      return rows.length ? { provider: source.provider, windows: rows, at: stored.at } : undefined;
+      const poll = attempts.get(`${source.provider}\0${id.key}`) ?? safePoll(stored.poll);
+      return rows.length || stored.limited ? { provider: source.provider, windows: rows, ...(stored.at !== undefined ? { at: stored.at } : {}),
+        ...(stored.limited ? { limited: true } : {}), ...(poll ? { poll, ...(poll.outcome !== 'ok' ? { code: poll.outcome } : {}) } : {}) } : undefined;
     } catch { return undefined; }
   }
   async function read(source: Source, opts?: ReadOptions): Promise<Reading> {
     validate(source); const clock = now(opts);
-    const empty = (code: Reading['code']): Reading => ({ provider: source.provider, windows: [], at: clock, code });
+    const empty = (code: Reading['code']): Reading => ({ provider: source.provider, windows: [], code, poll: { at: clock, outcome: code ?? 'unavailable' } });
     if (!connected(source)) return empty('not-connected');
     const id = identity(source); const key = `${source.provider}\0${id.key}`;
     const previous = lastKnown(source, { nowMs: clock });
-    if (previous && clock - previous.at < 60_000) return previous;
+    if (previous && !previous.code && previous.at !== undefined && clock >= previous.at && clock - previous.at < 60_000) return previous;
     let until = backoffs.get(key) ?? 0;
-    try { if (id.stable) until = Math.max(until, options.backoff?.get(source.provider, id.key) ?? 0); } catch { /* keep internal backoff */ }
-    if (until > clock) return previous ? { ...previous, code: 'rate-limited' } : empty('rate-limited');
+    try {
+      const saved = id.stable ? options.backoff?.get(source.provider, id.key) : undefined;
+      if (typeof saved === 'number' && Number.isFinite(saved)) until = Math.max(until, saved);
+      else if (saved && typeof saved !== 'number' && Number.isFinite(saved.untilMs) && Number.isFinite(saved.at) && ['rate-limited', 'refresh-failed', 'unavailable', 'incomplete'].includes(saved.outcome)) {
+        until = Math.max(until, saved.untilMs);
+        if (!attempts.has(key)) attempts.set(key, { at: saved.at, outcome: saved.outcome, retryAt: saved.untilMs });
+        if (!failures.has(`${key}\0${saved.outcome}`) && Number.isSafeInteger(saved.failures) && saved.failures > 0) failures.set(`${key}\0${saved.outcome}`, saved.failures);
+      }
+    } catch { /* keep internal backoff */ }
+    if (until > clock) {
+      const poll = attempts.get(key) ?? previous?.poll ?? { at: clock, outcome: 'unavailable' as const, retryAt: until };
+      return { ...(previous ?? empty(poll.outcome === 'ok' ? 'unavailable' : poll.outcome)), code: poll.outcome === 'ok' ? undefined : poll.outcome, poll };
+    }
     const pending = inFlight.get(key); if (pending) return pending;
-    const attempt = attempts.get(key);
-    if (attempt && clock >= attempt.at && clock - attempt.at < 60_000) return previous ? { ...previous, code: attempt.code } : empty(attempt.code ?? 'unavailable');
-    const task = (async () => {
+    const attempt = attempts.get(key) ?? previous?.poll;
+    if (attempt && clock >= attempt.at && clock - attempt.at < 60_000) return previous ? { ...previous, code: attempt.outcome === 'ok' ? undefined : attempt.outcome, poll: attempt } : empty(attempt.outcome === 'ok' ? 'unavailable' : attempt.outcome);
+    const task = (async (): Promise<Reading> => {
       let answer: Answer;
+      const pacing = { hook: options.pace, provider: source.provider, account: id.key, signal: opts?.signal };
       try {
-        answer = 'read' in source ? await customClaude(source, clock) : 'credentialsFile' in source ? await claudeUsage(source, options.fetch ?? globalThis.fetch, clock)
-          : 'bin' in source ? await codexUsage(source) : await providerGet(source, options.fetch ?? globalThis.fetch, clock);
+        answer = 'read' in source ? await customClaude(source, clock, pacing) : 'credentialsFile' in source ? await claudeUsage(source, options.fetch ?? globalThis.fetch, clock, pacing)
+          : 'bin' in source ? await codexUsage(source) : await providerGet(source, options.fetch ?? globalThis.fetch, clock, pacing);
       } catch { answer = { code: 'unavailable' }; }
-      if (answer.code === 'rate-limited') {
-        let delay = backoffDelayMs(answer.retryAfterMs);
-        try { const selected = options.backoff?.delayMs?.(answer.retryAfterMs); if (selected !== undefined && Number.isFinite(selected) && selected >= 0) delay = selected; } catch { /* default */ }
-        backoffs.set(key, clock + delay);
-        try { if (id.stable) options.backoff?.set(source.provider, id.key, clock + delay); } catch { /* internal backoff stands */ }
-      }
       const rows = safeWindows(source.provider, windows(source, answer.raw, clock));
-      if (!answer.code && !rows.length) answer = { code: 'incomplete' };
-      attempts.set(key, { at: clock, code: answer.code });
-      if (rows.length && !answer.code) {
-        try { (id.stable ? disk : transient).put(source.provider, id.key, { at: clock, windows: rows }); } catch { /* reads survive a store failure */ }
-        return { provider: source.provider, windows: rows, at: clock };
+      const limited = !answer.code && (answer.limited === true || source.provider === 'codex' && codexHardLimit(answer.raw));
+      if (!answer.code && !rows.length && !limited) answer = { code: 'incomplete' };
+      const poll: Poll = { at: clock, outcome: answer.code ?? 'ok' };
+      if (answer.code) {
+        const failureKey = `${key}\0${answer.code}`;
+        const count = (failures.get(failureKey) ?? 0) + 1; failures.set(failureKey, count);
+        if (['rate-limited', 'refresh-failed', 'unavailable', 'incomplete'].includes(answer.code)) {
+          const retry = Number.isFinite(answer.retryAfterMs) && answer.retryAfterMs! >= 0 ? answer.retryAfterMs : undefined;
+          let delay = answer.code === 'rate-limited' ? 300_000 : Math.min(3_600_000, 60_000 * 2 ** Math.min(count - 1, 6));
+          try { const selected = options.backoff?.delayMs?.(retry, { outcome: answer.code, failures: count });
+            if (selected !== undefined && Number.isFinite(selected) && selected >= 0) delay = selected;
+          } catch { /* internal policy stands */ }
+          delay = Math.max(60_000, delay, retry ?? 0);
+          poll.retryAt = clock + delay; backoffs.set(key, poll.retryAt);
+          try { if (id.stable) options.backoff?.set(source.provider, id.key, poll.retryAt, { untilMs: poll.retryAt, at: clock, outcome: answer.code, failures: count }); } catch { /* internal backoff stands */ }
+        }
+      } else {
+        for (const outcome of ['rate-limited', 'refresh-failed', 'unavailable', 'incomplete']) failures.delete(`${key}\0${outcome}`);
+        backoffs.delete(key);
+        try { if (id.stable) options.backoff?.set(source.provider, id.key, 0); } catch { /* expired host policy remains bounded */ }
       }
-      return previous ? { ...previous, code: answer.code } : empty(answer.code ?? 'unavailable');
+      attempts.set(key, poll);
+      if ((rows.length || limited) && !answer.code) {
+        // Explicit host/snapshot time is authoritative, including unknown or future time.
+        const observed = 'at' in answer ? answer.at : clock;
+        const at = typeof observed === 'number' && Number.isFinite(observed) ? observed : undefined;
+        const reading: Reading = { provider: source.provider, windows: rows, ...(at !== undefined ? { at } : {}), ...(limited ? { limited: true } : {}), poll };
+        try { (id.stable ? disk : transient).put(source.provider, id.key, { at: reading.at, windows: rows, ...(limited ? { limited: true } : {}), poll }); } catch { /* reads survive a store failure */ }
+        return reading;
+      }
+      if (previous) {
+        try { (id.stable ? disk : transient).put(source.provider, id.key, { at: previous.at, windows: previous.windows, ...(previous.limited ? { limited: true } : {}), poll }); } catch { /* last-good remains in memory */ }
+      }
+      return { ...(previous ?? empty(answer.code ?? 'unavailable')), code: answer.code, poll };
     })();
     inFlight.set(key, task);
     try { return await task; } finally { inFlight.delete(key); }

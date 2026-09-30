@@ -5,5 +5,6 @@
   "code.no-plan": "This {name} account has no plan with limits.",
   "code.rate-limited": "{name} asked us to wait. Showing the last reading.",
   "code.unavailable": "{name} didn't answer. Trying again shortly.",
-  "code.incomplete": "{name} answered in a way we can't read yet."
+  "code.incomplete": "{name} answered in a way we can't read yet.",
+  "code.refresh-failed": "This sign-in could not be renewed. Check it in its own app."
 }

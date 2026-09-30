@@ -11,16 +11,20 @@ const ratio = (used: unknown, limit: unknown, remaining?: unknown): number | und
   const cap = number(limit); const consumed = number(used); const left = number(remaining);
   return cap !== undefined && cap > 0 && (consumed !== undefined || left !== undefined) ? 100 * (consumed ?? cap - left!) / cap : undefined;
 };
-export function codexTokenWindows(raw: unknown): Window[] {
+export function codexTokenWindows(raw: unknown, nowMs?: number): Window[] {
   const source = obj(raw); const plan = obj(source.rate_limit);
-  const group = (value: Record<string, unknown>, name?: string) => ({ limitName: name,
-    ...Object.fromEntries(['primary', 'secondary'].map((key) => {
+  const group = (value: Record<string, unknown>, name?: string) => ({ limitName: name, limitReached: value.limit_reached === true,
+    ...Object.fromEntries(['primary', 'secondary'].filter((key) => record(value[`${key}_window`])).map((key) => {
       const w = obj(value[`${key}_window`]);
-      return [key, { usedPercent: w.used_percent, windowDurationMins: typeof w.limit_window_seconds === 'number' ? w.limit_window_seconds / 60 : undefined, resetsAt: w.reset_at }];
+      return [key, { usedPercent: w.used_percent, windowDurationMins: typeof w.limit_window_seconds === 'number' ? w.limit_window_seconds / 60 : undefined, resetsAt: w.reset_at !== undefined ? w.reset_at : number(w.reset_after_seconds) !== undefined && number(w.reset_after_seconds)! >= 0 && nowMs !== undefined ? (nowMs + number(w.reset_after_seconds)! * 1000) / 1000 : undefined }];
     })) });
   return codexWindows({ rateLimitsByLimitId: Object.fromEntries([
     ['plan', group(plan, 'Codex')], ...rows(source.additional_rate_limits).map((v, i) => { const extra = obj(v); return [String(i), group(obj(extra.rate_limit), label(extra.limit_name))]; }),
   ]) });
+}
+export function codexHardLimit(raw: unknown): boolean {
+  const source = obj(raw);
+  return obj(source.rate_limit).limit_reached === true || obj(source.rateLimits).limitReached === true || Object.values(obj(source.rateLimitsByLimitId)).some((v) => obj(v).limitReached === true) || rows(source.additional_rate_limits).some((v) => obj(obj(v).rate_limit).limit_reached === true);
 }
 export function copilotWindows(raw: unknown): Window[] {
   const source = obj(raw);

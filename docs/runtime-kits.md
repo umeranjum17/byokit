@@ -2183,3 +2183,21 @@ Herdr (muxr notes verified on 0.8.0; H2/H9 re-verify on 0.9.1):
 - Alternate-screen agents keep no Herdr scrollback (`max_offset_from_bottom: 0`); read with `recent`/`recent_unwrapped`.
 - Socket path resolution: `--session` > `HERDR_SOCKET_PATH` > `HERDR_SESSION` > default; on Windows it is a named
   pipe (Node `net.connect` accepts the pipe path).
+
+## 13. Usage inputs for account Auto
+
+Quota ingestion follows `fixtures/conformance/usage-typescript.json` and
+`@byokit/usage`'s `Room`. Structural copies in account/runtime pickers must carry
+`limited`, `scope`, `at`, `ageMs`, `freshness` and `poll`; reported percentages
+remain separate from eligibility. An authoritative hard block yields zero room,
+even without a window or after a cached reset passes. Scoped windows use the
+conservative tightest known room until a host supplies every model/surface a run
+may use, including subagents and fallbacks. Missing percentage is unknown.
+
+The existing most-room/tie and all-exhausted policies stay unchanged. Numeric
+room requires a known observation time within 24 hours; undated, future and older
+measurements are unknown. A failed poll retains last-good numbers and their
+original age, with its separate attempt/outcome. A 429 or refresh failure is no
+evidence of exhaustion or account health and never moves a running account. An
+engine without an observation timestamp must expose unknown age; receipt time
+cannot replace it. No engine observation-time support is claimed by this change.
