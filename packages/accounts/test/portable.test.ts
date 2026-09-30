@@ -229,10 +229,12 @@ test('refresh holds the store lock across both commits, re-reads when queued, an
     const first = portableEngine(store).getAuth('openai-codex');
     await sending;
     const second = portableEngine(store).getAuth('openai-codex');
+    const checking = portableEngine(store).checkAuth('openai-codex');
     release();
     const auth = await Promise.all([first, second]);
     assert.equal(sends, 1);
     assert.deepEqual(auth[0], auth[1]);
+    assert.deepEqual(await checking, { source: 'OAuth', type: 'oauth' }, 'a status check waits for the active refresh');
     const committed: any = await store.read('openai-codex');
     assert.equal(committed.refresh, 'rotated-grant');
     assert.equal(committed.extension, 'preserved');

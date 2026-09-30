@@ -5,7 +5,7 @@
 // OpenAI's sign-in endpoints answer any web page (CORS), so a PWA signs in directly.
 import type { AuthEvent, AuthInteraction, Credential, CredentialStore, OAuthCredential } from '@earendil-works/pi-ai';
 import type { AuthHost } from './accounts.ts';
-import { needsReauth, refreshCredential } from './stores.ts';
+import { RefreshRequiredError, refreshCredential } from './stores.ts';
 
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const CODE_LIVES_S = 15 * 60;
@@ -135,8 +135,15 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
     },
     checkAuth: async (id: string) => {
       if (!PORTABLE.includes(id)) return undefined;
-      const c = await credentials.read(id);
-      return c?.type === 'oauth' && !needsReauth(c) ? { source: 'OAuth', type: 'oauth' as const } : undefined;
+      try {
+        // Wait for a live transaction rather than mistake its before-send marker for a failed sign-in.
+        // A false due predicate only reads under the lock; it never sends or saves.
+        const c = await refreshCredential(credentials, id, () => false, refresh);
+        return c?.type === 'oauth' ? { source: 'OAuth', type: 'oauth' as const } : undefined;
+      } catch (e) {
+        if (e instanceof RefreshRequiredError) return undefined;
+        throw e;
+      }
     },
     /** Pi's rule: refresh under the store's lock when under 5 minutes (or `minOAuthValidityMs`) remain, re-checked there,
      *  so a sign-out or another refresh in between wins; undefined once signed out. */
