@@ -6,7 +6,7 @@ This is the credential and approval threat model for `@byokit/openclaw`, reviewe
 against engine **2026.8.1** on **2026-09-30**. The authoritative runtime design is
 [runtime-kits.md](../../docs/runtime-kits.md), especially §§4.2, 5.5–5.9 and 7.1–7.3.
 This review covers the kit's supervisor, migration, transport and sealed approval
-path; it is not an independent audit of the engine or its transitive dependencies.
+path, including the credential-store lifecycle in kit 0.3.0; it is not an independent audit of the engine or its transitive dependencies.
 
 The host app, its member mapping, configuration, plugin allowlist, tools and chosen
 executables are trusted. The app must give each installation a private, app-owned
@@ -29,21 +29,41 @@ The app must sandbox `ToolHost.call` and judge requests in `ToolHost.gate`.
 |---|---|---|
 | Gateway token | `openclaw/token` | Random 32-byte bearer secret; newly created file is 0600. Treat it as operator access. |
 | Device identity | `openclaw/device.json` | Ed25519 private key stored as **unencrypted PKCS#8 PEM** in JSON, newly created 0600. The transport accepts both kit and legacy paired shapes without rewriting. Theft can impersonate the operator identity. |
-| Provider profiles | `openclaw/state/agents/<member>/agent/auth-profiles.json` | **Plaintext** access/refresh tokens or API keys, owned and refreshed by the engine. Kit migration creates the file 0600 in a newly created 0700 agent directory; subsequent engine writes belong to the engine. Theft may authorize provider calls and refresh. |
+| Provider profiles | `openclaw/state/` and `openclaw/home/`, including agent/shared SQLite databases, journals and migration JSON | Access/refresh tokens or API keys are **plaintext while running**; without `authSeal` they also remain plaintext while stopped. Migration stages `auth-profiles.json` at 0600 in a newly created 0700 directory. Theft may authorize provider calls and refresh. |
+| Sealed credential snapshot | `openclaw/auth-store.sealed` and retired `*.sealed` archives | With host-injected `authSeal`, authenticates and encrypts the complete state/home trees while stopped. Key security belongs to the adapter/host; an older authentic snapshot can be replayed. |
 | Saved configuration, logs and sessions | `openclaw/openclaw.json`, `logs/`, engine state | May contain app-supplied keys, prompts, tool inputs, sign-in URLs/codes or provider diagnostics. Treat the whole tree as secret. Engine stdout/stderr is appended to a newly created 0600 log; it is not a guaranteed credential-redaction layer. |
 | Notice seed and decrypted approvals | Device app storage and memory | The app stores the 32-byte seed; the kit receives it only for key derivation/decryption. Seed theft exposes notices for its box key. |
 
 New supervisor directories use 0700 and new secret files use 0600. These creation
-modes do **not** repair pre-existing permissions, reject every symlink, encrypt
-disk contents, or enforce Windows ACLs. Never use a shared/writable tree or point
+modes alone do **not** repair all pre-existing permissions, reject every symlink,
+encrypt disk contents, or enforce Windows ACLs. The optional credential snapshot
+collects regular files only, refuses symlinks/special files within state/home and
+normalizes their POSIX modes; other paths still need host protection. Never use a shared/writable tree or point
 the kit at another product's state. Review existing permissions before adopting a
 tree; use an OS-protected app directory, encrypted disk and restricted backups.
 Do not log `doctorContext().env`, transport arguments, auth records or sign-in
 callbacks. JavaScript strings and engine memory are not reliably zeroized.
 
-The engine needs plaintext profiles and PEM to use its current storage/protocol.
-This kit does not provide keystore-backed encryption for these files. A sealed
-approval is encryption in transit, not encryption of this credential tree.
+The engine needs plaintext credentials and PEM during operation. With `authSeal`
+(a host-injected `SealingAdapter` from `@byokit/secrets`), `src/auth-store.ts` seals
+all of state/home, including SQLite journals, on successful `prepare()` and after
+the engine exits on `stop()`. It verifies the adapter round-trip, writes via an
+exclusive temporary file, fsyncs/renames the snapshot and verifies it again before
+removing live plaintext. `start()` authenticates and validates snapshot paths before
+restoring files. Missing/wrong keys or tampering reject without plaintext fallback.
+A live store owner or orphan gateway prevents a second kit from racing its writer.
+
+This protects stopped stores, not a running engine or doctor. Await `stop()` on
+orderly shutdown. An abrupt host exit can leave live plaintext; the next prepare
+seals leftovers only after the orphan writer has exited. Interrupted restore or
+removal recovers from the authenticated snapshot. A sealing failure retains
+recoverable files and rejects; the host must resolve it and retry. Snapshot size
+and memory cost grow with the complete state/home trees. Keys, gateway token,
+device PEM, inline config secrets, logs, install/cache files and app workspaces
+are outside this seal. OS-keyring or host-key adapters must keep the key separate
+from state/backups. There is no rollback protection. File removal cannot erase old
+blocks, snapshots, swap or backups. A sealed approval provides separate transit
+confidentiality and does not seal the credential tree.
 After suspected compromise, revoke provider credentials with the provider, stop
 the app's own engine, revoke device grants and recreate its operator identity and
 token in a fresh private state directory. Deleting files alone does not revoke
@@ -78,17 +98,29 @@ own profile store, then runs the offline doctor to canonicalize them. An existin
 profile store is not overwritten; a failed doctor removes only staging this call
 wrote. Tests exercise these conditions and path traversal refusal.
 
-A zero doctor exit is insufficient to retire a login. Only a gateway status
-report that every expected provider is signed in confirms migration. A path
-source is then renamed to `<path>.moved-to-engine`, and a `.canonicalized` marker
-prevents reimport. **The retained copy still contains plaintext credentials.**
-The rename preserves its bytes and existing permissions; it neither seals nor
-revokes them. A record source remains the app's responsibility to delete. Plan
-private backup retention/cleanup after confirmation, including the original
-directory, temporary staging and backups. Never pass an owner's unrelated auth
-file or run concurrent migrations. Staging uses a predictable pid suffix and a
-rename; hostile symlinks or concurrent writers in that directory are outside this
-trusted-directory contract.
+With `authSeal`, offline migration restores the credential snapshot and reseals
+the staged/imported store even after a failed doctor. The public `doctorContext()`
+escape hatch does not enforce that lifecycle; use the kit migration method.
+A zero doctor exit is insufficient to retire a login. Only a gateway status report
+that every expected provider is signed in confirms migration. Confirmation removes
+the explicitly supplied path and its retained plaintext/sealed copies, then writes
+an empty `<path>.moved-to-engine.canonicalized` marker. No new plaintext retained
+archive is created. A record source remains the app's responsibility to delete.
+
+Prepare scans only the app-owned tree for engine migration archives and old retained
+copies, excluding install/cache/tmp/plugin/workspace roots and symlinks. With an
+adapter these become verified `*.sealed` archives; without one, engine archives and
+confirmed retained copies are removed. An unconfirmed retained copy stays available
+for migration unless sealed. A sealed archive is not restored as live engine input;
+an unconfirmed sealed retained source can be read by explicitly passing its original
+path and the matching adapter. External sources are handled only when the host
+explicitly supplies them. Archive log events contain no credential bytes.
+
+Protect the original directory and backups; cleanup neither revokes credentials nor
+erases historical copies. Never pass an owner's unrelated auth file or run concurrent
+migrations. Staging uses a predictable pid suffix and a rename; hostile directories
+remain outside the trusted-directory contract. The sealing store's ownership and
+symlink checks do not establish an OS sandbox or general protection for other paths.
 
 ## Approvals, devices and relay notices
 
@@ -139,7 +171,10 @@ Review completed 2026-09-30 by source inspection and offline regression coverage
   registry install; the default test run remains offline. Neither test claims
   complete syscall tracing or an OS sandbox.
 - [x] Migration failure, existing profiles, private staging, member validation,
-  confirmation and retained-byte behavior covered by `test/migrate.test.ts`.
+  confirmation and verified-source removal covered by `test/migrate.test.ts`.
+- [x] Optional credential sealing, wrong keys, tampering, concurrent owners, symlink
+  refusal, interrupted transitions and archive cleanup covered by
+  `test/engine-unit.test.ts`. The seal excludes gateway/device secrets and live state.
 - [x] Bridge fail-closed, timeout/disconnect and one-use input binding covered by
   `test/bridge.test.ts` and `test/plugin.test.ts`.
 - [x] Member/role checks, sealed/generic relay content, wrong-member push refusal
@@ -149,8 +184,8 @@ Review completed 2026-09-30 by source inspection and offline regression coverage
 The review found that a remembered **view** grant could resolve an approval via
 `onAction`, although `oc.decide` already refused it. The push path now applies the
 same role restriction, with a same-member view-grant regression case. The risks
-above remain explicit limits; at-rest encryption and hostile-directory safety are
-not claimed as implemented.
+above remain explicit limits; optional stopped-store encryption does not claim
+live credential confidentiality or general hostile-directory safety.
 
 Report a suspected vulnerability privately through the repository's GitHub
 security advisory channel when available. Do not put tokens, private keys,
