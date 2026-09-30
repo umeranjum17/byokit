@@ -110,7 +110,7 @@ test('observe leaves missing prefix/module evidence unknown and never probes an 
 
 test('React Native public entry executes injected evidence under Node and has no Node runtime imports', async () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-  assert.deepEqual(pkg.exports['./react-native'], { types: './dist/rn.d.ts', default: './dist/rn.js' });
+  assert.deepEqual(pkg.exports['./react-native'], { types: './dist/native.d.ts', default: './dist/native.js' });
   const output = await build({
     entryPoints: [new URL('../src/rn.ts', import.meta.url).pathname], bundle: true, write: false,
     format: 'esm', platform: 'browser', metafile: true, logLevel: 'silent',
@@ -189,4 +189,12 @@ test('the phone observation flow works when React Native URL has no WebSocket ho
     assert.equal((await probe('wss://umer.example/link', { fetch: get })).state, 'answers');
     assert.equal(target, 'https://umer.example/link');
   } finally { globalThis.URL = original; }
+});
+
+
+test('the packed explicit React Native entry imports under Node and executes injected readers', async () => {
+  const entry: typeof import('../src/observe.ts') & typeof import('../src/phone-network.ts') = await import('@byokit/reach' + '/react-native');
+  assert.equal(entry.routeOf('ws://192.168.1.20'), 'home');
+  assert.deepEqual(await entry.nativeAddresses({ nativeModule: snapshot({ address: '192.168.1.2', prefixLength: 24 }) }), [{ address: '192.168.1.2', prefixLength: 24 }]);
+  assert.deepEqual(await entry.phoneNetwork({ nativeModule: { phoneNetwork: async () => ({ onWifi: true, cellular: false, vpnActive: 'yes' }) } }), { onWifi: true, cellular: false, vpnActive: 'yes' });
 });
