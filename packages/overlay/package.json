@@ -29,6 +29,14 @@
       "types": "./dist/focused-field.d.ts",
       "default": "./dist/focused-field.js"
     },
+    "./screen-frame": {
+      "react-native": {
+        "types": "./dist/screen-frame.rn.d.ts",
+        "default": "./dist/screen-frame.rn.js"
+      },
+      "types": "./dist/screen-frame.d.ts",
+      "default": "./dist/screen-frame.js"
+    },
     "./app.plugin.js": "./app.plugin.js",
     "./package.json": "./package.json"
   },

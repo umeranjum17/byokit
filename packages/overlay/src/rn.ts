@@ -6,10 +6,12 @@ import type { NativeOverlay } from './types.ts';
 
 export type {
   AppRules, Edge, ForegroundNotice, HostKind, NativeOverlay, Overlay, OverlayEvent, OverlayEventType, OverlayState,
-  StartOptions, TapEntry,
+  StartOptions, TapEntry, PointHereOptions, PointHereResult,
 } from './types.ts';
 export { resetApp, setApp, shownFor } from './rules.ts';
 export { createOverlay } from './overlay.ts';
 export { stateWords, words } from './words.ts';
 
 export const overlay = createOverlay(requireOptionalNativeModule<NativeOverlay>('ByokitOverlay'));
+
+export type { ScreenSpace } from './screen-frame.ts';

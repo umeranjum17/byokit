@@ -14,6 +14,8 @@ function fakeNative() {
     openPermission: async () => { calls.push(['openPermission']); },
     start: async (o) => { calls.push(['start', o]); return 'on'; },
     stop: async () => { calls.push(['stop']); },
+    pointHere: async (o) => { calls.push(['pointHere', o]); return 'shown'; },
+    dismissPoint: async () => { calls.push(['dismissPoint']); },
     say: (text, mood, ms, announce) => { calls.push(['say', text, mood, ms, announce]); },
     setMood: (mood) => { calls.push(['setMood', mood]); },
     setLabel: (label) => { calls.push(['setLabel', label]); },
@@ -143,4 +145,26 @@ test('createOverlay(null) is unsupported everywhere and does nothing', async () 
   const off = o.on('tap', () => assert.fail('never fires'));
   assert.equal(typeof off, 'function');
   off();
+});
+
+test('point marker passes through the captured space, custom timing and native outcomes; invalid inputs never reach native', async () => {
+  const { native, calls } = fakeNative();
+  const o = createOverlay(native);
+  const space = { width: 1080, height: 2400, density: 3, densityDpi: 480, rotation: 0 as const, displayId: 0, origin: 'top-left' as const, unit: 'physical-pixels' as const };
+  assert.equal(await o.pointHere({ x: 100, y: 200, label: 'Umer, tap here', space }), 'shown');
+  assert.equal(await o.pointHere({ x: 0, y: 0, label: 'Top', ms: 30 }), 'shown');
+  await o.dismissPoint();
+  assert.deepEqual(calls, [
+    ['pointHere', { x: 100, y: 200, label: 'Umer, tap here', space, ms: 2500 }],
+    ['pointHere', { x: 0, y: 0, label: 'Top', ms: 30 }], ['dismissPoint'],
+  ]);
+  const before = calls.length;
+  for (const opts of [{ x: NaN }, { y: Infinity }, { x: -1 }, { label: ' ' }, { ms: 0 }, { ms: 60001 }]) {
+    await assert.rejects(o.pointHere({ x: 1, y: 1, label: 'Here', ...opts }));
+  }
+  assert.equal(calls.length, before);
+  native.pointHere = async () => 'display-changed';
+  assert.equal(await o.pointHere({ x: 1, y: 1, label: 'Here', space }), 'display-changed');
+  assert.equal(await createOverlay(null).pointHere({ x: 1, y: 1, label: 'Here' }), 'unsupported');
+  await createOverlay(null).dismissPoint();
 });

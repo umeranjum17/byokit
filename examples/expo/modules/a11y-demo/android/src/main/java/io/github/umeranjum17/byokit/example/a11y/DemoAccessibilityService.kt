@@ -14,7 +14,12 @@ class DemoAccessibilityService : AccessibilityService() {
     return super.onUnbind(intent)
   }
 
-  override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+  override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+    // Account-free emulator proof: observe the announcement sent to accessibility clients such as TalkBack.
+    if (event?.eventType == AccessibilityEvent.TYPE_ANNOUNCEMENT && event.packageName == packageName) {
+      android.util.Log.i("ByokitScreenProof", "announcement: ${event.text}")
+    }
+  }
 
   override fun onInterrupt() {}
 }

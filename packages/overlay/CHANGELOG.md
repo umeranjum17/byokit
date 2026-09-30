@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- One-shot Android screen capture at `@byokit/overlay/screen-frame`, with fresh system consent for every PNG,
+  typed outcomes, full-display pixel coordinates and explicit cached-image cleanup. Other platforms report unsupported.
+- `overlay.pointHere({ x, y, label, space, ms })` shows a ring that passes touches through, announces its label
+  for TalkBack, and dismisses automatically or through `dismissPoint()`. Captured display metrics reject stale coordinates.
+
 ## 0.2.5 (2026-09-30)
 
 
@@ -14,8 +19,6 @@
 - FIX: Export the Expo config plugin and package metadata so installed apps can resolve the plugin.
 
 ## 0.2.3 (2026-09-30)
-
-
 
 - FIX: Bubble activation now emits the same Tap for TalkBack ACTION_CLICK and touch taps, without double firing.
 - FIX: Inserts accept cancellation, stop subsequent field reads, writes and clipboard fallback, and settle once

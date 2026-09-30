@@ -1,9 +1,12 @@
 {
-  "platforms": ["android"],
+  "platforms": [
+    "android"
+  ],
   "android": {
     "modules": [
       "io.github.umeranjum17.byokit.overlay.OverlayModule",
-      "io.github.umeranjum17.byokit.overlay.FocusedFieldModule"
+      "io.github.umeranjum17.byokit.overlay.FocusedFieldModule",
+      "io.github.umeranjum17.byokit.overlay.ScreenFrameModule"
     ]
   }
 }

@@ -1,3 +1,5 @@
+import type { ScreenSpace } from './screen-frame.ts';
+
 // The frozen public surface (docs/capability-kits.md 7.3). Signature changes are spec changes.
 
 export type OverlayState = 'on' | 'off' | 'stuck' | 'needs-permission' | 'unsupported';
@@ -31,11 +33,21 @@ export type OverlayEventType = OverlayEvent['type'];
 //   or ByokitAccessibility.detach ('accessibility'). start() again is the way back to 'on'.
 // - 'unsupported' only from createOverlay(null) (no native module: iOS, web, Node).
 export type TapEntry = { app: string; at: number; action: string };   // no text field, by design (D-O)
+export type PointHereOptions = {
+  x: number;                          // ring centre in full-display physical pixels
+  y: number;
+  label: string;                      // drawn beside the ring and announced for TalkBack
+  space?: ScreenSpace;                // pass the captured space to reject stale display geometry
+  ms?: number;                        // auto-dismiss; default 2500, range 1–60000
+};
+export type PointHereResult = 'shown' | 'needs-permission' | 'not-running' | 'display-changed' | 'unsupported';
 export interface Overlay {
   state(): Promise<OverlayState>;
   openPermission(): Promise<void>;     // window: the "display over other apps" screen; accessibility: accessibility settings
   start(o: StartOptions): Promise<OverlayState>;
   stop(): Promise<void>;
+  pointHere(o: PointHereOptions): Promise<PointHereResult>;
+  dismissPoint(): Promise<void>;
   say(text: string, mood?: string, ms?: number, o?: { announce?: boolean }): void;   // pill next to the bubble; ms default 2500; still under reduced motion; announce reads the pill for TalkBack
   setMood(mood: string): void;
   setLabel(label: string | null): void;   // TalkBack label for the bubble; null clears it
@@ -52,6 +64,8 @@ export interface NativeOverlay {                         // what the Kotlin modu
   openPermission(): Promise<void>;
   start(o: StartOptions): Promise<OverlayState>;
   stop(): Promise<void>;
+  pointHere(o: PointHereOptions & { ms: number }): Promise<PointHereResult>;
+  dismissPoint(): Promise<void>;
   say(text: string, mood: string | null, ms: number, announce: boolean): void;
   setMood(mood: string): void;
   setLabel(label: string | null): void;

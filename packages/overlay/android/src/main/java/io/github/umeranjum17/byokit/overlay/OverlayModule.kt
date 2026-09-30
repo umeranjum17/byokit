@@ -54,6 +54,7 @@ class OverlayModule : Module() {
   private var label = ""
   private var bubble: Bubble? = null
   private var host: OverlayHost? = null
+  private var point: PointMarker? = null
   private var rules: RulesRecord? = null
   // The foreground app (accessibility host) and what watches it and the keyboard while the bubble is on.
   private var app: String? = null
@@ -93,6 +94,17 @@ class OverlayModule : Module() {
     }.runOnQueue(Queues.MAIN)
     AsyncFunction("start") { o: StartRecord, promise: Promise -> start(o, promise) }.runOnQueue(Queues.MAIN)
     AsyncFunction("stop") { stopNow() }.runOnQueue(Queues.MAIN)
+    AsyncFunction("pointHere") { o: PointRecord ->
+      val h = host as? WindowManagerHost
+      if (state != "on" || h == null) "not-running"
+      else if (options?.host == "window" && !Settings.canDrawOverlays(context)) "needs-permission"
+      else {
+        val marker = point ?: PointMarker(h.context, if (options?.host == "accessibility")
+          android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY else android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY).also { point = it }
+        marker.show(o)
+      }
+    }.runOnQueue(Queues.MAIN)
+    AsyncFunction("dismissPoint") { point?.dismiss(); Unit }.runOnQueue(Queues.MAIN)
     Function("say") { text: String, mood: String?, ms: Double, announce: Boolean ->
       main.post { bubble?.say(text, mood, ms.toLong(), announce) }
     }
@@ -210,6 +222,7 @@ class OverlayModule : Module() {
     }
     if (state != "on" || host == null) return
     unwatch()
+    point?.dismiss(); point = null
     bubble?.hide()
     bubble = null
     host = null
@@ -220,6 +233,7 @@ class OverlayModule : Module() {
     val starting = pending
     pending = null
     unwatch()
+    point?.dismiss(); point = null
     bubble?.hide()
     bubble = null
     host = null

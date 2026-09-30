@@ -132,3 +132,31 @@ test('public types keep their frozen shapes (7.3, 7.4)', () => {
   const f: FocusedField = field.focusedField;
   void [state, hosts, edges, rules, start, events, types, tap, text, results, n, f];
 });
+
+test('screen-frame native entry preserves every result field and clear call; absent module is typed unsupported', async () => {
+  const captured = { status: 'captured', uri: 'file:///cache/byokit-screen-test.png', mimeType: 'image/png', width: 1080, height: 2400,
+    space: { width: 1080, height: 2400, density: 3, densityDpi: 480, rotation: 0, displayId: 0, origin: 'top-left', unit: 'physical-pixels' } };
+  for (const present of [true, false]) {
+    const result = await build({
+      entryPoints: [new URL('../src/screen-frame.rn.ts', import.meta.url).pathname],
+      bundle: true, write: false, platform: 'browser', format: 'esm', logLevel: 'silent',
+      plugins: [{ name: 'screen-native', setup(b) {
+        b.onResolve({ filter: /^expo-modules-core$/ }, () => ({ path: 'native', namespace: 'stub' }));
+        b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: `
+          export const requireOptionalNativeModule = (name) => {
+            if (name !== 'ByokitScreenFrame') throw Error(name);
+            return ${present ? `{ frame: async () => (${JSON.stringify(captured)}), clear: async () => { globalThis.frameCleared = true; } }` : 'null'};
+          };` }));
+      } }],
+    });
+    const { screenFrame, createScreenFrame } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString('base64')}`);
+    assert.deepEqual(await screenFrame.frame(), present ? captured : { status: 'unsupported' });
+    await screenFrame.clear();
+    if (present) assert.equal((globalThis as { frameCleared?: boolean }).frameCleared, true);
+    for (const outcome of [{ status: 'cancelled' }, { status: 'busy' }, { status: 'failed', reason: 'timeout' }]) {
+      assert.deepEqual(await createScreenFrame({ frame: async () => outcome, clear: async () => {} }).frame(), outcome);
+    }
+    const error = new Error('native failed');
+    await assert.rejects(createScreenFrame({ frame: async () => { throw error; }, clear: async () => { throw error; } }).frame(), error);
+  }
+});

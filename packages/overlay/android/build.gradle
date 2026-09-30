@@ -25,3 +25,11 @@ dependencies {
   testImplementation 'junit:junit:4.13.2'
   testImplementation 'org.robolectric:robolectric:4.16.1'
 }
+
+// The same sentences as the JS entry, scoped asset name to avoid collisions with an app's assets.
+def overlayWords = tasks.register('generateOverlayWords', Copy) {
+  from('../src') { include 'words.json'; rename 'words.json', 'byokit-overlay-words.json' }
+  into layout.buildDirectory.dir('generated/overlayWords')
+}
+android.sourceSets.main.assets.srcDir(layout.buildDirectory.dir('generated/overlayWords'))
+tasks.named('preBuild').configure { dependsOn overlayWords }
