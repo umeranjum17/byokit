@@ -70,7 +70,7 @@ test('state mismatch and cancellation exchange nothing; another member has an in
   assert.equal(s.calls.length, 0); assert.ok(v?.url); s.a.stop();
 });
 
-test('rotation is single-flight across concurrent resolves, saved before returning, omitted replacement preserved', async () => {
+test('rotation is single-flight across concurrent resolves, saved before returning, omitted replacement requires sign-in', async () => {
   const s = standIn(); await s.store.modify(id, async () => token()); s.set(fixture.rotation);
   const rt = await s.a.runtime(1);
   const all = await Promise.all(Array.from({ length: 12 }, () => rt.getAuth(id)));
@@ -78,8 +78,8 @@ test('rotation is single-flight across concurrent resolves, saved before returni
   assert.equal((await s.store.read(id) as OAuthCredential).refresh, 'rotated-refresh');
   assert.deepEqual(s.calls[0].body, { grant_type: 'refresh_token', client_id: fixture.clientId, refresh_token: 'recorded-refresh' });
   s.set(fixture.withoutRotation);
-  await rt.getAuth(id, { minOAuthValidityMs: 100_000_000 });
-  assert.equal((await s.store.read(id) as OAuthCredential).refresh, 'rotated-refresh');
+  await assert.rejects(rt.getAuth(id, { minOAuthValidityMs: 100_000_000 }), ClaudePlanExpiredError);
+  assert.equal(await s.store.read(id), undefined);
 });
 
 test('invalid grant, missing refresh, uncertain network and failed durable rotation fail closed without token replay', async () => {
@@ -91,7 +91,7 @@ test('invalid grant, missing refresh, uncertain network and failed durable rotat
   let data: any = { [id]: token() };
   const failing = standIn(recordStore(async () => ({ ...data }), async () => { throw new Error('secret-recorded-refresh'); })); failing.set(fixture.rotation);
   const broken = await failing.a.runtime(1);
-  await assert.rejects(broken.getAuth(id), ClaudePlanExpiredError); await assert.rejects(broken.getAuth(id), ClaudePlanExpiredError); assert.equal(failing.calls.length, 1); assert.equal(data[id].refresh, 'recorded-refresh');
+  await assert.rejects(broken.getAuth(id), ClaudePlanExpiredError); await assert.rejects(broken.getAuth(id), ClaudePlanExpiredError); assert.equal(failing.calls.length, 0); assert.equal(data[id].refresh, 'recorded-refresh');
   let dials = 0;
   const uncertainStore = memoryStore(); await uncertainStore.modify(id, async () => token());
   const uncertain = new Accounts({ store: () => uncertainStore, claudePlan: { now: () => fixture.now, fetch: (async () => { dials++; throw new Error('recorded-refresh'); }) as typeof fetch } });

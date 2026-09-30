@@ -3,7 +3,7 @@
 import type { AuthInteraction, CredentialStore, OAuthCredential } from '@earendil-works/pi-ai';
 import type { AuthHost } from './accounts.ts';
 import { anthropicMessages, type AnthropicRequest } from './claude-messages.ts';
-import { ResponseError } from './responses.ts';
+import { needsReauth, refreshCredential } from './stores.ts';
 
 export const CLAUDE_PLAN_ID = 'byokit-claude-plan';
 export const CLAUDE_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
@@ -110,25 +110,19 @@ export function withClaudePlan(engine: AuthHost, credentials: CredentialStore, l
     const c = await credentials.read(CLAUDE_PLAN_ID);
     if (c?.type !== 'oauth') return undefined;
     if (state.flight) return state.flight;
-    if (state.spent.has(c.refresh)) throw new ClaudePlanExpiredError();
+    if (needsReauth(c) || state.spent.has(c.refresh)) throw new ClaudePlanExpiredError();
     if (!due(c)) return c;
-    const work = credentials.modify(CLAUDE_PLAN_ID, async (current) => {
-      if (current?.type !== 'oauth' || !due(current)) return undefined;
+    const work = refreshCredential(credentials, CLAUDE_PLAN_ID, due, async (current) => {
       if (!current.refresh || state.spent.has(current.refresh)) throw new ClaudePlanExpiredError();
-      // Mark before sending: neither a timeout nor a failed durable save allows replaying a single-use token.
       state.spent.add(current.refresh);
-      try {
-        return credential(await post({ grant_type: 'refresh_token', client_id: CLAUDE_CLIENT_ID, refresh_token: current.refresh }), now(), current);
-      } catch { throw new ClaudePlanExpiredError(); }
-    }).then((next) => next?.type === 'oauth' ? next : undefined, async () => {
-      // Clear an uncertain/refused grant durably where storage still works, so restart cannot replay it.
+      return credential(await post({ grant_type: 'refresh_token', client_id: CLAUDE_CLIENT_ID, refresh_token: current.refresh }), now(), current);
+    }).catch(async () => {
       await credentials.delete(CLAUDE_PLAN_ID).catch(() => {});
       throw new ClaudePlanExpiredError();
     });
     state.flight = work;
     try {
       const next = await work;
-      // An omitted replacement is explicitly supported by the reference protocol after a successful save.
       if (next) state.spent.delete(next.refresh);
       return next;
     } finally { if (state.flight === work) state.flight = undefined; }
@@ -138,7 +132,7 @@ export function withClaudePlan(engine: AuthHost, credentials: CredentialStore, l
       id === CLAUDE_PLAN_ID ? login(interaction) : original.call(engine, id, type, interaction))(engine.login),
     logout: ((original) => (id: string) => id === CLAUDE_PLAN_ID ? credentials.delete(id) : original.call(engine, id))(engine.logout),
     checkAuth: ((original) => async (id: string) => id === CLAUDE_PLAN_ID
-      ? (await credentials.read(id))?.type === 'oauth' ? { source: 'OAuth', type: 'oauth' as const } : undefined
+      ? await (async () => { const c = await credentials.read(id); return c?.type === 'oauth' && !needsReauth(c) ? { source: 'OAuth', type: 'oauth' as const } : undefined; })()
       : original.call(engine, id))(engine.checkAuth),
     getAuth: ((original) => async (id: any, overrides?: { minOAuthValidityMs?: number }) => {
       if (id !== CLAUDE_PLAN_ID) return original.call(engine, id, overrides);

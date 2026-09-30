@@ -231,6 +231,7 @@ platform checks and their limits, see [CONTRIBUTING.md](CONTRIBUTING.md).
 subscription sign-in on every platform. OpenRouter is API-billed and only on computers, and is never offered unless an
 app lists it itself; Grok and GitHub Copilot are hidden by default. Anthropic Messages uses an app-passed
 API key (billed per use) on every platform, only when an app explicitly opts in. Show `billingWords(p)` next to every provider you list.
+Claude Pro/Max is offered by default; see the [accounts README](packages/accounts/README.md#claude-promax-subscription) for its terms note.
 
 ## What byokit never touches
 
