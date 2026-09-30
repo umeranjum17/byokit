@@ -1,7 +1,7 @@
-# Capability kits: `@byokit/write`, `@byokit/record`, `@byokit/overlay`, `@byokit/keystore` and `@byokit/statusbar`
+# Capability kits: `@byokit/write`, `@byokit/record`, `@byokit/overlay`, `@byokit/secrets` and `@byokit/statusbar`
 
 Foundation spec and builder breakdown. Status: **design approved for build (BK-0); the `write` and `record`
-scaffolds are in the repo with frozen signatures, `@byokit/keystore` (section 11) is implemented,
+scaffolds are in the repo with frozen signatures, `@byokit/secrets` (section 11) is implemented,
 and nothing else here is implemented yet.**
 This document is the single source of truth for the build lanes. A builder follows it literally. Where it is silent,
 the builder stops and asks rather than designs. Section 9 is the work-package list.
@@ -11,7 +11,7 @@ Contents: [1 Goal](#1-goal) · [2 Decisions](#2-decisions) · [3 Shared conventi
 [6 Recorder protocol v1](#6-recorder-protocol-v1) · [7 `@byokit/overlay`](#7-byokitoverlay) ·
 [8 Tests, CI and isolation](#8-tests-ci-and-isolation) · [9 Work packages](#9-work-packages) ·
 [10 Known facts builders must not re-derive](#10-known-facts-builders-must-not-re-derive) ·
-[11 `@byokit/keystore`](#11-byokitkeystore) · [12 `@byokit/statusbar`](#12-byokitstatusbar)
+[11 `@byokit/secrets`](#11-byokitsecrets) · [12 `@byokit/statusbar`](#12-byokitstatusbar)
 
 ## 1. Goal
 
@@ -25,7 +25,7 @@ BYOKit gains four **capability kits**. Each one is named for what it can do, not
   recorder by absolute path. The kit ships no recorder of its own.
 - **`@byokit/overlay`**: a floating on-screen bubble on Android. It has a panel that opens on tap, per-app visibility
   rules, a text-free tap log and an optional focused-field reader. On iOS it reports `unsupported`.
-- **`@byokit/keystore`** (section 11, L-KEY): one secret per name for apps, from the OS keyring, a
+- **`@byokit/secrets`** (section 11, L-KEY): one secret per name for apps, from the OS keyring, a
   passphrase-sealed file, or a host-passed override for CI. It only consumes `@byokit/seal`.
 - **`@byokit/statusbar`** (section 12, BK-S1): one ongoing job shown as a status-bar chip on Android 16 (a promoted
   ongoing notification), with a counts-only lock-screen copy and up to three actions. On iOS and below Android 16 it
@@ -1244,7 +1244,7 @@ app. `app.plugin.js` adds nothing to the manifest.
   `expo-modules-core` external. It fails on
   any `node:*` import, and on any `expo-modules-core` import outside `rn.ts` and `focused-field.rn.ts`. The JVM tests
   run in the `overlay-android` job.
-- **keystore, isolation.** `test/keyring-isolation.test.ts` puts a decoy HOME beside the throwaway one and runs a
+- **secrets, isolation.** `test/keyring-isolation.test.ts` puts a decoy HOME beside the throwaway one and runs a
   child `node --permission --allow-fs-read=<repo> --allow-fs-write=<scratch> --allow-child-process` that stores a
   canary through the fake keyring CLIs (both tools) and the passphrase file under scratch. A control read of the
   decoy throws `ERR_ACCESS_DENIED`; the run asserts the decoy's canaries are byte-identical and the fakes' argv/env
@@ -1504,15 +1504,17 @@ later merges rebase.
 - `smoke:pack` imports every export subpath under default and browser conditions, typechecks a consumer under three
   resolutions, and runs every bin without arguments, failing on module-load errors.
 
-## 11. `@byokit/keystore`
+## 11. `@byokit/secrets`
 
-A Node-only (Node 22.18+) secret store with one secret (a string) per name: `get/set/delete(name)`. It exists
+A secret store for Node 22.18+, React Native and browsers with one secret (a string) per name: `get/set/delete(name)`. It exists
 because `@byokit/seal` 0.1.0 is primitives only, so apps keep API keys in plaintext files. The name is
 capability-named (D-B). It only consumes seal and is independent of L-SEAL. Windows Credential Manager is
 unsupported in v1: with no explicit tool, every call on `win32` rejects `unsupported` (typed, fail closed).
 
-Three backends:
+Five backends:
 
+- the **phone store**: optional Expo SecureStore peer, with injectable async get/set/delete methods and no plaintext fallback;
+- the **web store**: IndexedDB plus WebCrypto AES-256-GCM, a persisted non-extractable key and authenticated entry names;
 - the **OS keyring**: macOS Keychain or Secret Service (libsecret), through their CLIs, spawned by absolute path
   with an env built from nothing plus only what the host passes (D-G);
 - a **passphrase file** sealed with seal's `sealSecretBox` over a scrypt key, written through the atomic
@@ -1523,20 +1525,23 @@ Three backends:
 ### 11.1 Files
 
 ```
-packages/keystore/
+packages/secrets/
   package.json  tsconfig.json  README.md  CHANGELOG.md  LICENSE  SECURITY.md
   src/index.ts  src/errors.ts  src/types.ts  src/validate.ts  src/atomic.ts
-  src/keyring.ts  src/file.ts  src/override.ts
+  src/keyring.ts  src/file.ts  src/override.ts  src/portable.ts
+  src/native.ts  src/rn.ts  src/web.ts
   test/*.test.ts
 ```
 
-`package.json`: `private: true` at 0.1.0 (unpublished until the owner runs the release); `exports` `.` only (no
-browser or React Native entry: it spawns processes and uses `node:crypto`); `dependencies`
-`"@byokit/seal": "0.1.0"` exact; `files` `dist`, `README.md`, `LICENSE`, `CHANGELOG.md`, `SECURITY.md`.
-The root build list gains `packages/keystore` after `packages/seal`, and `scripts/release.ts`' canonical order
-gains `keystore` after `seal`.
+`package.json`: public at 0.2.0 (first publish after merge); `exports` `.` selects `rn` under `react-native`,
+`web` under `browser`, and `index` by default. Explicit `/node`, `/native` and `/web` entries use those
+same implementations. Portable entries never import Node; `/native` loads optional peer `expo-secure-store`
+only on an operation. `dependencies` pins `"@byokit/seal": "0.2.0"` exactly; `files` is
+`dist`, `README.md`, `LICENSE`, `CHANGELOG.md`, `SECURITY.md`.
+The root build list gains `packages/secrets` after `packages/seal`, and `scripts/release.ts`' canonical order
+gains `secrets` after `seal`.
 
-### 11.2 Public surface (`src/index.ts` re-exports the rest)
+### 11.2 Shared public surface (all platform entries)
 
 ```ts
 export type KeystoreErrorCode = 'invalid' | 'auth-failed' | 'unsupported' | 'unavailable' | 'failed';
@@ -1553,14 +1558,20 @@ export interface Keystore {
 
 Names (and the keyring `service`) are non-empty, at most 256 UTF-16 units, with no NUL; anything else rejects
 `invalid`. Secrets are strings of at most 1 MiB UTF-8; NUL is allowed (stdin carries it); anything else rejects
-`invalid`. No error message ever contains a secret.
+`invalid`. No error message ever contains a secret. The portable entries also export `overrideStore`.
+`/native` exports `nativeStore(NativeOptions?)`; `/web` exports `webStore(WebOptions?)`, with the
+options and security limits documented in the package README. Native names use fixed-width UTF-16 hex
+under an app prefix; web entries use versioned ciphertext with fresh 12-byte IVs and the entry name as
+AAD. Web key initialization uses an atomic read/recheck/insert transaction across instances/tabs;
+operations resolve on commit. No web key is cached across calls. These formats do not automatically
+migrate old product stores; the host reads/verifies/removes those entries through its old adapter.
 
 ### 11.3 Keyring backend (`src/keyring.ts`)
 
 ```ts
 export type KeyringTool = 'security' | 'secret-tool';
 export type KeyringOptions = {
-  service?: string;                 // default 'byokit-keystore', same rules as a name
+  service?: string;                 // default 'byokit-secrets', same rules as a name
   bin?: string;                     // absolute path; default /usr/bin/security (darwin), /usr/bin/secret-tool (linux)
   tool?: KeyringTool;               // default from platform; an explicit tool skips the platform check (tests)
   env?: Record<string, string>;     // host-passed extras only, e.g. DBUS_SESSION_BUS_ADDRESS
@@ -1627,8 +1638,10 @@ builds the map from `process.env` itself when it wants to; the kit never reads i
   identically, and the fake's env holds exactly the base plus host extras.
 - A wrong passphrase rejects `auth-failed`; the sealed file holds no plaintext canary.
 - `~/.pi` is untouched byte for byte (`scripts/test.sh`).
-- `SECURITY.md` exists; the package stays `private: true` at 0.1.0; build, check, test and `smoke:pack` are
-  green.
+- Portable entries bundle without Node imports/globals; fake SecureStore covers the shared API, names,
+  options and sanitized errors. Fake IndexedDB plus local WebCrypto covers persistence, non-extractability,
+  fresh IVs, concurrent initialization, tampering, entry swapping, aborted transactions and missing APIs.
+- `SECURITY.md` exists; the package is public at 0.2.0; build, check, test and `smoke:pack` are green.
 
 ## 12. `@byokit/statusbar`
 

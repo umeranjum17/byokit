@@ -8,8 +8,8 @@
   {
     "readme": "packages/accounts/README.md",
     "block": 3,
-    "snapshot": "2bd3fa1d01224aa32999486abff566616b99518918891aa3f64ba4879618e124",
-    "reason": "Phone example requires Expo SecureStore and Expo fetch declarations unavailable in the Node workspace."
+    "snapshot": "d7bf473caac14200592afc06ba01f6fed59d14e09bed934f58e27f90a9493d73",
+    "reason": "Phone example requires Expo fetch resolution supplied by the host bundler; SecureStore declarations are now available in the Node workspace."
   },
   {
     "readme": "packages/accounts/README.md",
@@ -64,12 +64,6 @@
     "block": 7,
     "snapshot": "4e53e33512ea23be3a03f783a66c3ad769bd38bd5ad96e7dc5824cc132190b89",
     "reason": "Cache/retry fragment omits hostConfig, input text and questions context."
-  },
-  {
-    "readme": "packages/keystore/README.md",
-    "block": 1,
-    "snapshot": "f28512231a4fbd132635514e6c210b7933fe57f778462fb0e48bd5b659c3bb7d",
-    "reason": "Quickstart leaves passphrase undeclared; strength item 6 supplies it."
   },
   {
     "readme": "packages/link/README.md",

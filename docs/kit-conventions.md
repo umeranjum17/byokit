@@ -30,7 +30,7 @@ Contents: [1 Names](#1-names) · [2 Codes](#2-codes) · [3 Errors](#3-errors) ·
 - A kit that integrates a third party keeps **the third party's name**: `openclaw` and `herdr` stay, and a future kit
   for another product is named after that product.
 - Every other kit gets a **short, plain, one-word name** for the capability it gives an app (`accounts`, `decide`,
-  `keystore`, `relay`).
+  `secrets`, `relay`).
 - The package is `@byokit/<name>` in `packages/<name>`. `scripts/release.ts` assumes the directory name is the npm
   name and tags releases `<name>-v<version>`, so the two never differ.
 - Name an unpublished kit before its first publish. Renaming a published kit costs a shim package and a deprecation
@@ -41,7 +41,7 @@ Contents: [1 Names](#1-names) · [2 Codes](#2-codes) · [3 Errors](#3-errors) ·
 The owner rejected the first proposed name table. The four never-published kits were renamed on main (#142:
 machine→cloud, capture→record, compose→write, status→statusbar) with no shims; their class, type, API and word-key
 names kept the old words (`MachineError`, `CaptureError`, `ComposeError`, `capture.*` keys), which §3, §9 and §10
-now ask to follow the kit. The rest of the list is **pending owner approval** and is recorded here once approved.
+now ask to follow the kit. The owner also approved secrets (was keystore) for its first public release. The rest of the list is **pending owner approval** and is recorded here once approved.
 Until then no other kit is renamed, and a new kit (such as the in-flight `connect`) confirms its name with
 the owner before its first publish.
 
@@ -51,7 +51,7 @@ the owner before its first publish.
 | cloud (was machine) | no | no | **cloud** (renamed in #142) |
 | decide | yes | no | pending |
 | herdr | yes | yes (Herdr) | **herdr** (by the rule) |
-| keystore | no | no | pending |
+| secrets (was keystore) | no | no | **secrets** (owner-approved for first release) |
 | link | yes | no | pending |
 | openclaw | yes | yes (OpenClaw) | **openclaw** (by the rule) |
 | overlay | yes | no | pending |
@@ -90,7 +90,7 @@ the owner before its first publish.
 ## 3. Errors
 
 Every kit that can fail has one error class. Required: the `<Kit>Error` name, a set `name`, and a readonly `code` from
-a kebab-case `<Kit>ErrorCode` union, which is what record, write, keystore and cloud share today. New classes
+a kebab-case `<Kit>ErrorCode` union, which is what record, write, secrets and cloud share today. New classes
 also take the optional `detail` and `cause` shown here:
 
 ```ts
@@ -262,9 +262,9 @@ Audited against `origin/main` 9ee1846 on 2026-09-30, with kit names updated for 
 
 | rule | follows it | breaks it |
 |---|---|---|
-| §2 kebab codes | record, write, keystore, cloud, relay (owner), usage, link; herdr's own codes | accounts `Kind` and `Status.state` (`signed_out`, `not_included`, `needs_again`) and `unsupported_account`; decide `invalid_config`; herdr passes Herdr protocol errors it does not translate through with their snake codes |
+| §2 kebab codes | record, write, secrets, cloud, relay (owner), usage, link; herdr's own codes | accounts `Kind` and `Status.state` (`signed_out`, `not_included`, `needs_again`) and `unsupported_account`; decide `invalid_config`; herdr passes Herdr protocol errors it does not translate through with their snake codes |
 | §2 limit vocabulary | none yet | accounts `rate_limit`/`overloaded`/…; openclaw and ui-core `RunEnd.kind` use `plan` and `other`, and their `resting` also covers rate limits (it splits into `resting` and `rate-limited`); openclaw copies accounts' classifier; usage `Code` uses `not-connected`/`expired`/`auth`/`no-plan`/`unavailable`; decide maps plan refusals to `UnsupportedAccountError` and rate limits and overloads to a plain `Error('http N')` |
-| §3 `<Kit>Error` | record, write, keystore, cloud (name and code; none takes `cause`, keystore has no `detail`; the classes keep the old kit words: `CaptureError`, `ComposeError`, `MachineError`) | plain `Error` throws in herdr (38, some with `Object.assign` codes), openclaw (34), link (29), reach (24), relay (22), accounts (17), decide (10), statusbar (8), overlay (4); accounts `ResponseError` has `kind` and no `name` or `code`; link `LinkError` has no `name` |
+| §3 `<Kit>Error` | record, write, secrets, cloud (name and code; none takes `cause`, secrets has no `detail`; the classes keep the old kit words: `CaptureError`, `ComposeError`, `MachineError`, `KeystoreError`) | plain `Error` throws in herdr (38, some with `Object.assign` codes), openclaw (34), link (29), reach (24), relay (22), accounts (17), decide (10), statusbar (8), overlay (4); accounts `ResponseError` has `kind` and no `name` or `code`; link `LinkError` has no `name` |
 | §3 aborts | record `make()` | record `record()` rejects `CaptureError('stopped')` when aborted before it starts (spec'd); accounts rejects with `Error('Login cancelled')`; decide wraps non-Error reasons; openclaw runs return `{ ok: false, aborted: true }` |
 | §4 result code | usage `Reading.code` | openclaw and ui-core `RunEnd` key the failure as `kind` |
 | §5 state | herdr, openclaw | accounts `state` field with snake values; link and relay `onStatus`; overlay (a `state` event) and statusbar (polling) use bare strings; cloud has `state()` plus a separate `why()` |
@@ -272,4 +272,4 @@ Audited against `origin/main` 9ee1846 on 2026-09-30, with kit names updated for 
 | §7 construction | accounts, record, write, herdr, openclaw, link, relay, overlay, statusbar, seal, decide's `decide()` | cloud (`machine(o)`) and usage (`usage(o)`) are main objects made by factories; decide's `createDecider()` uses the React-Native-only prefix |
 | §8 options | `stateDir`, `fetch`, `signal` everywhere they appear | herdr `onLog` (openclaw's `log` is the rule); usage `ReadOptions.nowMs`; ui-core `useSignIn({ ms })`, reach `scan({ ms })` and record `maxSeconds`; reach spawns tailscale with a copy of `process.env`; openclaw also writes `stateDir/logs` (spec'd) |
 | §9 words | herdr, cloud and usage export `WORDS`, `WordKey` and `words` | record (`capture.*`) and statusbar (`status.*`) prefix every key with the kit's old name; herdr (`herdr.*` beside `agent.*`), write (`compose.*` beside `check.*`) and overlay (`overlay.*` beside `field.*`) prefix some; cloud's keys are area prefixes and some are kebab; record, write, overlay, statusbar and openclaw do not export `WORDS`, and overlay and statusbar not `WordKey`; accounts exports `say`, which fills a missing slot with `''`; link (`LINK_WORDS` in code), ui-core (English in code), relay and reach have no `words.json` |
-| §10 one shape | | `Provider` (accounts, cloud, usage), `Usage` (decide, cloud, usage), `fileStore` (accounts, keystore), `Route` (openclaw, ui-core), `Member`, `Status`, `Platform`, `Kind`, `classify`, `Source`, `Engine`, `serve`, `routes`, `sealNotice`/`openNotice`, `HerdrState` (herdr vs ui-core), `ENGINE_VERSION`; bare `Code` and `Window` in usage; openclaw `KitState` and `KitOptions` |
+| §10 one shape | | `Provider` (accounts, cloud, usage), `Usage` (decide, cloud, usage), `fileStore` (accounts, secrets), `Route` (openclaw, ui-core), `Member`, `Status`, `Platform`, `Kind`, `classify`, `Source`, `Engine`, `serve`, `routes`, `sealNotice`/`openNotice`, `HerdrState` (herdr vs ui-core), `ENGINE_VERSION`; bare `Code` and `Window` in usage; openclaw `KitState` and `KitOptions` |
