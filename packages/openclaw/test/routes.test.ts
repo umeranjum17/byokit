@@ -61,7 +61,7 @@ test('a route the pinned gateway refuses is not offered (B6)', () => {
   assert.equal(xai.offer, false, 'manual-only upstream: the gateway answers "not available on this Gateway"');
   assert.equal(xai.reason, 'Compatibility alias the Gateway does not offer; use xai-oauth.');
   assert.equal(routeFor('xai', 'code')?.choice, 'xai-oauth', 'the offered Grok route is xai-oauth');
-  assert.equal(routeFor('xai', 'browser'), undefined, 'xai-oauth is completed with a code in the pin');
+  assert.equal(routeFor('xai', 'browser')?.choice, 'xai-api-key', 'browser entry offers an API key, billed per use');
 });
 
 test('via follows the pin: device-code choices are completed with a code (B6)', () => {
@@ -91,5 +91,5 @@ test('routeFor picks the offered route for the provider and the way the person s
   // A provider with no offered route, an unoffered choice, and a way of signing in the route cannot take.
   assert.equal(routeFor('ollama', 'browser'), undefined);
   assert.equal(routeFor('littleshop', 'browser'), undefined);
-  assert.equal(routeFor('minimax', 'browser'), undefined);
+  assert.equal(routeFor('minimax', 'browser')?.choice, 'minimax-cn-api');
 });
