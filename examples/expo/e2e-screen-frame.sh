@@ -34,34 +34,50 @@ for n in E.fromstring(sys.stdin.read()).iter("node"):
   x,y,r,b=map(int,re.findall(r"\d+",n.get("bounds"))); print((x+r)//2,(y+b)//2); break
 else: raise SystemExit("missing target: "+key)' "$1"
 }
-tap() { location=$(xy "$1"); a shell input tap $location; }
+tap() {
+  location=$(xy "$1")
+  case "$1" in screenPoint|screenPointShort)
+    # uiautomator dump disconnects other accessibility clients. Restore the observer after the dump.
+    a shell settings put secure enabled_accessibility_services "$app/io.github.umeranjum17.byokit.example.a11y.DemoAccessibilityService"
+    a shell settings put secure accessibility_enabled 1
+    sleep 1
+  ;; esac
+  a shell input tap $location
+}
 no_capture() {
   if a shell dumpsys activity services "$app" | grep -q 'ServiceRecord.*ScreenFrameService'; then
     echo 'capture service still running' >&2; exit 1
   fi
 }
 marker() { a shell dumpsys window windows | grep -q 'byokit-point-marker'; }
+expect_marker() {
+  for _ in $(seq 20); do
+    if marker; then return; fi
+    sleep 0.1
+  done
+  echo 'marker never appeared' >&2; exit 1
+}
 expect 'A little help for Umer'
 tap screenGuide
 expect 'Guide ready.'
 # Denial must resolve and not retain a grant or projection.
 tap screenCapture
-expect 'Start'
+expect 'android:id/button1'
 a exec-out screencap -p > "$captures/byokit-screen-consent.png"
 tap Cancel
 expect 'Picture cancelled.'
 no_capture
 # Fresh consent, then one readable PNG.
 tap screenCapture
-expect 'Start'
-tap Start
+expect 'android:id/button1'
+tap android:id/button1
 expect 'Picture ready.'
 no_capture
 # Marker over a real underlying button; the underlying app receives the touch.
 tap screenPoint
 expect 'Follow the ring.'
 a logcat -d -s ByokitScreenProof:I | grep -F 'announcement: [Umer, tap here]'
-marker
+expect_marker
 location=$(xy screenTarget)
 a exec-out screencap -p > "$captures/byokit-screen-marker.png"
 a shell input tap $location
@@ -71,13 +87,13 @@ tap screenDismiss
 expect 'Ring dismissed.'
 if marker; then echo 'marker remained after dismiss' >&2; exit 1; fi
 tap screenPoint
-marker
+expect_marker
 tap screenPointShort
 sleep 2
 if marker; then echo 'marker remained after timeout' >&2; exit 1; fi
 # A successful capture never exempts the next request from consent.
 tap screenCapture
-expect 'Start'
+expect 'android:id/button1'
 tap Cancel
 expect 'Picture cancelled.'
 no_capture
