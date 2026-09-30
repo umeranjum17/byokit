@@ -31,6 +31,6 @@ The library's manifest brings `POST_NOTIFICATIONS`; the app asks for that one it
   access to app features. Call `clear()` when the work ends.
 - There is no foreground service: keeping the app alive is the app's business.
 
-**Status: in development.** `private` until the emulator proof on an Android 16 QPR2 (API 36.1) image lands (BK-S1).
-On API 36.0 there is no chip: `state()` is `off` and the post is a plain ongoing notification, while the lock-screen
-copy, the three actions and a dismissal that sticks all hold.
+**Status: ready to publish (BK-S1).** Proven on Android emulators: the chip, the lock-screen copy, three actions and a
+dismissal that sticks on API 36.1; `unsupported` on API 35. Android 16 before QPR2 (API 36.0) has no chip:
+`state()` is `off` and the post is a plain ongoing notification.

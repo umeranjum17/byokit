@@ -55,7 +55,7 @@ latest first, so neither goes stale.
 | `@byokit/record` | `npm install @byokit/record` (from its first release; until then build from source) | ready to publish | [record-v releases](https://github.com/umeranjum17/byokit/releases?q=record-v) |
 | `@byokit/overlay` | `npm install @byokit/overlay` (from its first release; until then build from source) | ready to publish | [overlay-v releases](https://github.com/umeranjum17/byokit/releases?q=overlay-v) |
 | `@byokit/cloud` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
-| `@byokit/statusbar` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
+| `@byokit/statusbar` | `npm install @byokit/statusbar` (from its first release; until then build from source) | ready to publish | [statusbar-v releases](https://github.com/umeranjum17/byokit/releases?q=statusbar-v) |
 | `@byokit/push` | not on npm (private) — build from source | native pre-display sealed notices | [all releases](https://github.com/umeranjum17/byokit/releases) |
 | `@byokit/usage` | `npm install @byokit/usage` | 0.1.0 | [all releases](https://github.com/umeranjum17/byokit/releases) |
 
@@ -139,7 +139,7 @@ to ask. Each agent keeps its own subscription sign-in; the kit never sees a cred
 | [`@byokit/record`](packages/record) | Record a screen or a desktop and make a video, through any recorder implementing the open recorder protocol v1 the kit defines ([spec](docs/capability-kits.md)) | ready |
 | [`@byokit/overlay`](packages/overlay) | A floating bubble over other apps on Android (Expo module): a panel that opens on tap, per-app visibility rules, a tap log with no text and an optional focused-field reader; iOS reports unsupported ([spec](docs/capability-kits.md)) | ready (Android) |
 | [`@byokit/cloud`](packages/cloud) | The person's own always-on cloud computer for an app's host process: typed setup, install, cost and words ([spec](docs/cloud-kit.md)) | in development |
-| [`@byokit/statusbar`](packages/statusbar) | One ongoing job as a status-bar chip on Android 16 (Expo module): a counts-only lock-screen copy, up to three actions that need the phone unlocked, and a dismissal that sticks; iOS and older Android report unsupported ([spec](docs/capability-kits.md#12-byokitstatusbar)) | in development |
+| [`@byokit/statusbar`](packages/statusbar) | One ongoing job as a status-bar chip on Android 16 (Expo module): a counts-only lock-screen copy, up to three actions that need the phone unlocked, and a dismissal that sticks; iOS and older Android report unsupported ([spec](docs/capability-kits.md#12-byokitstatusbar)) | ready (Android) |
 | [`@byokit/push`](packages/push) | Opens sealed push title/body before iOS and Android display, with app-provisioned device keys ([spec](docs/capability-kits.md#13-byokitpush)) | private |
 | [`@byokit/usage`](packages/usage) | Subscription usage windows and remaining room per provider and account (Node only) | Node |
 
