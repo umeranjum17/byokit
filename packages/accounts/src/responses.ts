@@ -221,6 +221,8 @@ export type Ask = {
   model?: string;
   /** The tools the model may call. Passed, the result carries the output items next to the text. */
   tools?: ResponseTool[];
+  /** Whether ChatGPT may call tools in parallel. Omitted: the provider's default. */
+  parallelToolCalls?: boolean;
   /** Which tool the model must use. Default: whatever it wants. */
   tool_choice?: ResponseToolChoice;
   /** How hard the model thinks. Default: none. */
@@ -258,6 +260,7 @@ export async function respond(o: Ask & Access): Promise<string | ResponseResult>
     body: JSON.stringify({
       model: o.model, store: false, stream: true, instructions: o.instructions, input,
       ...(o.tools ? { tools: o.tools } : {}),
+      ...(o.parallelToolCalls !== undefined ? { parallel_tool_calls: o.parallelToolCalls } : {}),
       ...(o.tool_choice !== undefined ? { tool_choice: o.tool_choice } : {}),
       text: { verbosity, ...(format ? { format } : {}), ...textRest },
       reasoning: { effort, ...reasoningRest },

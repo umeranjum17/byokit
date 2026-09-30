@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add optional `parallelToolCalls` to `respond` and `Accounts.respond`, passed through to ChatGPT as `parallel_tool_calls`; omitted keeps the provider default.
+
 ## 0.10.0 (2026-09-30)
 
 
