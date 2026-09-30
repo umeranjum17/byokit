@@ -1,5 +1,6 @@
 // The client (docs/capability-kits.md 5.3): hello gate, record as an async iterator, stop, make, over supervise.ts
 // (5.4) and protocol.ts (BK-C1).
+import { bundledRecorder } from './recorder-path.ts';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
@@ -60,7 +61,7 @@ function exitError(err: ReturnType<typeof parseError>, exitCode: number | null, 
 }
 
 export class Capture {
-  private readonly o: CaptureOptions;
+  private readonly o: CaptureOptions & { bin: string };
   private greeting?: RecorderHello;
   private running?: Running;
   /** Validates only; spawns nothing and touches no disk. */
@@ -68,7 +69,7 @@ export class Capture {
     if (typeof o.stateDir !== 'string' || !isAbsolute(o.stateDir) || hasNul(o.stateDir)) {
       throw new CaptureError('invalid', 'stateDir must be an absolute path');
     }
-    if (typeof o.bin !== 'string' || !isAbsolute(o.bin) || hasNul(o.bin)) {
+    if (o.bin !== undefined && (typeof o.bin !== 'string' || !isAbsolute(o.bin) || hasNul(o.bin))) {
       throw new CaptureError('missing', 'bin must be an absolute path');
     }
     if (o.timeoutMs !== undefined && (typeof o.timeoutMs !== 'number' || !Number.isFinite(o.timeoutMs))) {
@@ -79,7 +80,7 @@ export class Capture {
         throw new CaptureError('invalid', `display.${k} is not a display variable this kit passes`);
       }
     }
-    this.o = o;
+    this.o = { ...o, bin: o.bin ?? bundledRecorder };
   }
 
   /** join(stateDir, 'capture') and its home/, recorder/ and tmp/, mode 0700 (5.4). */

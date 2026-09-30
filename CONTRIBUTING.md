@@ -31,7 +31,7 @@ runtime-tested here because no simulator is available.
   installs, the Herdr binary and socket the app passes); byokit tests use fakes and never a person's Herdr. Capability
   kits ([docs/capability-kits.md](docs/capability-kits.md)) have their own carve-out: `@byokit/write` may load only
   its exactly pinned public engine package, and `@byokit/record` may spawn only a recorder implementing recorder
-  protocol v1 that the app passes by absolute path; their `npm test` runs use fakes only.
+  protocol v1 that the app passes by absolute path, or the bundled Linux X11 recorder; their ordinary tests use fakes; the bundled recorder smoke uses an isolated Xvfb.
   `@byokit/usage` reads only the sign-in folder the app passes and spawns only the Codex binary the app passes
   by absolute path, with an environment built from nothing plus what the app passes; its tests use fakes only. `@byokit/overlay` and
   `@byokit/statusbar` and `@byokit/push` run only their own native code inside the app or its notification extension. `@byokit/cloud` ([docs/cloud-kit.md](docs/cloud-kit.md)) spawns only the
