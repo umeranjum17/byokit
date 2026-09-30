@@ -1,0 +1,178 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { WebSocketServer, WebSocket } from 'ws';
+import { realtimeEngine, toolBridge } from '../src/node.ts';
+import { appBridge } from '../src/tools.ts';
+import { realtimeClient, parseRealtimeClientFrame, parseRealtimeHostFrame, realtimePcm16ByteLength, providers, type AudioPorts, type RealtimeHostFrame, type RealtimeClientFrame, type RealtimeStream } from '../src/index.ts';
+import { webRtcPeer } from '../src/webrtc.ts';
+import { Accounts, memoryStore } from '../../accounts/src/portable.ts';
+import { mockOpenAI } from '../../accounts/src/testing/index.ts';
+import { build } from 'esbuild';
+const waitFor = async (predicate: () => boolean) => {
+  const end = Date.now() + 8000;
+  while (!predicate()) { if (Date.now() > end) throw new Error('flow timed out'); await new Promise(resolve => setTimeout(resolve, 10)); }
+};
+const tools = [{ name: 'lookup', description: 'Look up a record', parameters: { type: 'object', properties: {} } }];
+for (const provider of ['openai', 'gemini', 'xai'] as const) test(`${provider}: child setup, PCM, tool round trip, turns, usage, close`, async t => {
+  const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  t.after(() => { for (const client of server.clients) client.terminate(); server.close(); });
+  const frames: RealtimeHostFrame[] = [], received: any[] = [];
+  let socket: WebSocket | undefined, called = 0;
+  server.on('connection', (ws, request) => {
+    socket = ws;
+    if (provider === 'gemini') assert.match(request.url!, /key=test-secret/); else assert.equal(request.headers.authorization, 'Bearer test-secret');
+    ws.on('message', raw => {
+      const event = JSON.parse(String(raw)); received.push(event);
+      if (event.session?.instructions === 'Be brief.' || event.setup?.systemInstruction?.parts[0]?.text === 'Be brief.') {
+        ws.send(JSON.stringify(provider === 'gemini' ? { setupComplete: {} } : { type: 'session.updated' }));
+      }
+    });
+  });
+  const bridge = toolBridge({ tools, emit: frame => frames.push(frame), handlers: { lookup: async (args) => { called++; assert.deepEqual(args, { person: 'Umer' }); return 'Found Umer'; } }, failure: () => 'Could not look up the record.' });
+  const engine = realtimeEngine({ engine: provider, auth: { kind: 'key', key: 'test-secret' }, endpoint: `ws://127.0.0.1:${(server.address() as AddressInfo).port}`, instructions: 'Be brief.', tools, bridge, emit: frame => frames.push(frame) });
+  t.after(() => engine.close()); await engine.ready;
+  await waitFor(() => frames.some(frame => frame.type === 'realtime.ready'));
+  assert.ok(frames.some(frame => frame.type === 'realtime.ready' && frame.inputRate === (provider === 'gemini' ? 16000 : 24000)));
+  engine.receive({ type: 'realtime.audio', data: 'AAA=' });
+  engine.receive({ type: 'realtime.say', text: 'Hello Umer' });
+  await waitFor(() => received.some(event => event.audio || event.realtimeInput?.audio));
+  const send = (value: unknown) => socket!.send(JSON.stringify(value));
+  if (provider === 'gemini') {
+    send({ toolCall: { functionCalls: [{ id: 'call-1', name: 'lookup', args: { person: 'Umer' } }] } });
+    send({ serverContent: { modelTurn: { parts: [{ inlineData: { data: 'AAA=' } }] }, inputTranscription: { text: 'Hello Umer' }, outputTranscription: { text: 'Hello' }, turnComplete: true }, usageMetadata: { promptTokenCount: 7, responseTokenCount: 3 } });
+  } else {
+    send({ type: 'response.created' });
+    send({ type: 'response.audio.delta', delta: 'AAA=' });
+    send({ type: 'conversation.item.input_audio_transcription.completed', transcript: 'Hello Umer' });
+    send({ type: 'response.output_audio_transcript.done', transcript: 'Hello' });
+    send({ type: 'response.function_call_arguments.done', response_id: 'response-1', call_id: 'call-1', name: 'lookup', arguments: '{"person":"Umer"}' });
+    if (provider === 'openai') send({ type: 'response.done', response: { id: 'response-1', status: 'completed', usage: { input_tokens: 7, output_tokens: 3 } } });
+  }
+  await waitFor(() => received.some(event => event.toolResponse || event.item?.type === 'function_call_output'));
+  assert.equal(called, 1);
+  await waitFor(() => frames.some(frame => frame.type === 'realtime.audio') && frames.some(frame => frame.type === 'realtime.transcript' && frame.role === 'agent'));
+  if (provider !== 'xai') { await waitFor(() => engine.usage.inputTokens === 7); assert.equal(engine.usage.outputTokens, 3); }
+  engine.close('Done'); engine.close('Duplicate');
+  assert.equal(frames.filter(frame => frame.type === 'realtime.closed').length, 1);
+  assert.equal(engine.usage.basis, provider === 'xai' ? 'minutes' : 'tokens');
+  assert.ok(!JSON.stringify(frames).includes('test-secret'));
+});
+for (const provider of ['openai', 'gemini', 'xai'] as const) test(`${provider}: refusal redacts the exact key and app identifiers`, async t => {
+  const key = 'literal-super-secret';
+  const server = createServer((_req, response) => { response.writeHead(403); response.end(JSON.stringify({ error: { message: `key=${key} w1:t2 forbidden` } })); });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => server.close());
+  const frames: RealtimeHostFrame[] = [];
+  const bridge = toolBridge({ tools: [], handlers: {}, emit: frame => frames.push(frame), failure: () => 'Failed' });
+  const engine = realtimeEngine({ engine: provider, auth: { kind: 'key', key }, endpoint: `ws://127.0.0.1:${(server.address() as AddressInfo).port}`, redact: [/w\d+:t\d+/g], bridge, emit: frame => frames.push(frame) });
+  t.after(() => engine.close());
+  await waitFor(() => frames.some(frame => frame.type === 'realtime.closed'));
+  const output = JSON.stringify(frames); assert.ok(!output.includes(key)); assert.ok(!output.includes('w1:t2')); assert.match(output, /forbidden/);
+});
+test('ChatGPT: accounts sign-in, child SDP, delegation coalescing and subscription usage', async t => {
+  const openai = await mockOpenAI({ email: 'umer@example.com' }); t.after(() => openai.close());
+  const accounts = new Accounts<any, number>({ store: () => memoryStore(), authBase: openai.base });
+  const login = (await accounts.login(1, 'chatgpt'))!; openai.approve(login.code!); await accounts.finished(1, 'chatgpt');
+  const credential = await accounts.access(1);
+  let body: any, headers: Record<string, string | string[] | undefined> = {}, count = 0;
+  const server = createServer(async (req, res) => { const chunks: Buffer[] = []; for await (const chunk of req) chunks.push(chunk); body = JSON.parse(Buffer.concat(chunks).toString()); headers = req.headers; res.end('v=0\r\ns=voice\r\n'); });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => server.close());
+  const frames: RealtimeHostFrame[] = [];
+  const delegateTools = [{ name: 'delegate', description: 'Handle a request', parameters: { type: 'object' } }];
+  const bridge = toolBridge({ tools: delegateTools, handlers: { delegate: async args => { count++; assert.equal(args.request, 'Find Umer'); return 'Umer is here'; } }, emit: frame => frames.push(frame), failure: () => 'Failed' });
+  const engine = realtimeEngine({ engine: 'chatgpt', auth: { kind: 'plan', access: signal => accounts.access(1, signal) }, instructions: 'Be brief.', tools: delegateTools, bridge, endpoint: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, emit: frame => frames.push(frame) });
+  t.after(() => engine.close());
+  await waitFor(() => frames.some(frame => frame.type === 'realtime.webrtc.start'));
+  engine.receive({ type: 'realtime.webrtc.offer', sdp: 'v=0\r\ns=offer\r\n' });
+  await waitFor(() => frames.some(frame => frame.type === 'realtime.webrtc.answer'));
+  assert.equal(headers.authorization, `Bearer ${credential.access}`); assert.equal(headers.originator, 'byokit'); assert.equal(headers['user-agent'], 'byokit'); assert.equal(body.session.instructions, 'Be brief.');
+  for (const id of ['d1', 'd1', 'd2']) engine.receive({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: { id, type: 'delegation', target: 'client', user_bidi_turn_id: 'turn1', content: [{ type: 'input_text', text: 'Find Umer' }] } }) });
+  await waitFor(() => frames.filter(frame => frame.type === 'realtime.webrtc.data' && JSON.parse(frame.data).type === 'delegation.context.append').length === 2);
+  assert.equal(count, 1); engine.close(); assert.equal(engine.usage.basis, 'subscription'); assert.ok(!JSON.stringify(frames).includes(credential.access));
+});
+test('ChatGPT: BYOKit originator refusal, oversized SDP answer, and forbidden origins', async t => {
+  let status = 403, answer = 'Refused';
+  const server = createServer((_req, res) => { res.writeHead(status); res.end(answer); });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => server.close());
+  for (const mode of ['refusal', 'oversize']) {
+    if (mode === 'oversize') { status = 200; answer = 'v=0' + 'a'.repeat(128 * 1024); }
+    const frames: RealtimeHostFrame[] = [];
+    const bridge = toolBridge({ tools: [], handlers: {}, emit: frame => frames.push(frame), failure: () => 'Failed' });
+    const engine = realtimeEngine({ engine: 'chatgpt', auth: { kind: 'plan', access: async () => ({ access: 'test-token', accountId: 'account1' }) }, bridge, endpoint: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, emit: frame => frames.push(frame) });
+    t.after(() => engine.close()); await waitFor(() => frames.some(frame => frame.type === 'realtime.webrtc.start')); engine.receive({ type: 'realtime.webrtc.offer', sdp: 'v=0\r\n' });
+    await waitFor(() => frames.some(frame => frame.type === 'realtime.closed'));
+    if (mode === 'refusal') assert.ok(frames.some(frame => frame.type === 'realtime.closed' && frame.reason === 'not-included'));
+    assert.ok(!frames.some(frame => frame.type === 'realtime.webrtc.answer'));
+  }
+  const bridge = toolBridge({ tools: [], handlers: {}, emit: () => {}, failure: () => 'Failed' });
+  assert.throws(() => realtimeEngine({ engine: 'openai', auth: { kind: 'key', key: 'x' }, bridge, endpoint: 'https://example.com', emit: () => {} }));
+});
+test('Gemini cancellation crosses the child boundary and aborts the product handler', async t => {
+  const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  t.after(() => { for (const client of server.clients) client.terminate(); server.close(); });
+  let socket: WebSocket | undefined, entered = false, aborted = false;
+  const frames: RealtimeHostFrame[] = [];
+  server.on('connection', ws => { socket = ws; ws.once('message', () => ws.send(JSON.stringify({ setupComplete: {} }))); });
+  const bridge = toolBridge({ tools, handlers: { lookup: async (_args, context) => { entered = true; context.signal.addEventListener('abort', () => { aborted = true; }); return new Promise(() => {}); } }, emit: frame => frames.push(frame), failure: () => 'Cancelled' });
+  const engine = realtimeEngine({ engine: 'gemini', auth: { kind: 'key', key: 'test-secret' }, endpoint: `ws://127.0.0.1:${(server.address() as AddressInfo).port}`, tools, bridge, emit: frame => frames.push(frame) });
+  t.after(() => engine.close()); await waitFor(() => frames.some(frame => frame.type === 'realtime.ready'));
+  socket!.send(JSON.stringify({ toolCall: { functionCalls: [{ id: 'cancel-1', name: 'lookup', args: {} }] } }));
+  await waitFor(() => entered); socket!.send(JSON.stringify({ toolCallCancellation: { ids: ['cancel-1'] } }));
+  await waitFor(() => aborted); engine.close();
+});
+test('tool and app bridges: dedupe, timeout, cancellation and semantic reply', async () => {
+  let calls = 0, timedOut = false, aborted = false;
+  const bridge = toolBridge({ tools, emit: () => {}, handlers: { lookup: async (_args, ctx) => { calls++; ctx.signal.addEventListener('abort', () => { aborted = true; }); return new Promise(() => {}); } }, timeoutFor: () => 10, failure: (_name, _error, timeout) => { timedOut = timeout; return 'Timed out'; } });
+  const one = bridge.run('lookup', {}, 'id'); const two = bridge.run('lookup', {}, 'id'); assert.equal(one, two); assert.equal(await one, 'Timed out'); assert.equal(calls, 1); assert.equal(timedOut, true); assert.equal(aborted, true); bridge.close();
+  const frames: RealtimeHostFrame[] = []; const app = appBridge(frame => { frames.push(frame); });
+  const result = app.run('navigate', 'Home'); const request = frames[0]; assert.equal(request.type, 'realtime.app.request');
+  if (request.type === 'realtime.app.request') app.receive({ type: 'realtime.app.result', requestId: request.requestId, ok: true, text: 'Opened Home' });
+  assert.equal(await result, 'Opened Home'); app.close();
+});
+function audioPorts(events: string[]): AudioPorts {
+  return {
+    microphone: { acquire: async () => { events.push('acquire'); }, release: () => { events.push('release'); } },
+    route: async () => { events.push('route'); }, unroute: async () => { events.push('unroute'); },
+    capture: async () => { events.push('capture'); return { pending: ['AAA='], release: async () => { events.push('capture-release'); } }; },
+    player: { ensure: () => {}, bind: () => {}, unbind: () => {}, admit: () => 'ok', clear: () => { events.push('clear'); }, finish: fn => { fn?.(); return true; }, afterDrain: () => false, stop: () => {}, release: () => {} },
+  };
+}
+test('PCM client: microphone readiness, mute, audio, turns and stop during acquisition', async () => {
+  for (const stopEarly of [false, true]) {
+    const events: string[] = [], sent: RealtimeClientFrame[] = [], turns: string[] = [];
+    let deliver!: (frame: RealtimeHostFrame) => void, releaseAcquire!: () => void;
+    const audio = audioPorts(events); audio.microphone.acquire = () => new Promise(resolve => { events.push('acquire'); releaseAcquire = resolve; });
+    const stream: RealtimeStream = { send(frame) { sent.push(frame); return true; }, onFrame(fn) { deliver = fn; }, onClose() {}, start() {}, close() {} };
+    const client = realtimeClient({ open: async () => stream, audio, onStatus: () => {}, onTurn: (_role, text) => { turns.push(text); } });
+    await waitFor(() => !!deliver); deliver({ type: 'realtime.ready', inputRate: 16000, outputRate: 24000 });
+    await waitFor(() => !!releaseAcquire); assert.ok(!events.includes('capture')); if (stopEarly) client.stop(); releaseAcquire();
+    if (!stopEarly) { await waitFor(() => events.includes('capture')); assert.deepEqual(events.slice(0, 3), ['acquire', 'route', 'capture']); client.setMuted(true); client.speak('Hello Umer'); deliver({ type: 'realtime.transcript', role: 'agent', text: 'Hello Umer' }); deliver({ type: 'realtime.audio.clear' }); assert.deepEqual(turns, ['Hello Umer']); client.stop(); }
+    await waitFor(() => events.includes('release')); assert.equal(events.filter(event => event === 'release').length, 1);
+  }
+});
+test('WebRTC: injected media ordering, one peer, bounded signaling and stop cleanup', async () => {
+  const events: string[] = []; let peers = 0, stoppedTracks = 0;
+  const track = { kind: 'audio', enabled: true, stop: () => { stoppedTracks++; } };
+  const channel = { readyState: 'connecting', bufferedAmount: 0, send() {}, close() {} };
+  const peer = { connectionState: 'connecting', iceGatheringState: 'complete', localDescription: { sdp: 'v=0\r\n' }, createDataChannel: () => channel, addTrack() {}, createOffer: async () => ({ type: 'offer', sdp: 'v=0\r\n' }), setLocalDescription: async () => {}, setRemoteDescription: async () => {}, close() {} };
+  const stream = { getAudioTracks: () => [track], getTracks: () => [track] };
+  let offer = '';
+  const handle = await webRtcPeer({ label: 'oai-events', audio: audioPorts(events), platform: { createPeer: () => { peers++; return peer as unknown as RTCPeerConnection; }, getUserMedia: async () => { events.push('media'); return stream as unknown as MediaStream; } }, onOffer: sdp => { offer = sdp; }, onData() {}, onRemoteAudio() {}, onConnectionState() {}, onInterruption() {}, onError(error) { throw error; } });
+  assert.deepEqual(events.slice(0, 3), ['acquire', 'route', 'media']); assert.equal(peers, 1); assert.equal(offer, 'v=0\r\n');
+  assert.equal(handle.sendData('a'.repeat(32769)), false); assert.equal(handle.sendData('a'.repeat(32768)), true); assert.equal(handle.sendData('a'.repeat(32768)), true); assert.equal(handle.sendData('a'), false);
+  await assert.rejects(handle.acceptAnswer('x')); await handle.acceptAnswer('v=0\r\n'); handle.setMuted(true); assert.equal(track.enabled, false); handle.stop(); handle.stop(); assert.equal(stoppedTracks, 1); assert.equal(events.filter(event => event === 'release').length, 1);
+});
+test('portable imports and frame admission', async () => {
+  const bundle = await build({ entryPoints: ['packages/realtime/src/index.ts'], bundle: true, write: false, platform: 'browser' });
+  assert.ok(!bundle.outputFiles[0].text.includes('node:'));
+  const native = await build({ entryPoints: ['packages/realtime/src/rn-webrtc.ts'], bundle: true, write: false, platform: 'neutral', external: ['react-native-webrtc'] });
+  assert.ok(!native.outputFiles[0].text.includes('node:'));
+  assert.match(native.outputFiles[0].text, /import\("react-native-webrtc"\)/);
+  assert.equal(providers.find(provider => provider.id === 'chatgpt')?.planSignIn, true);
+  assert.equal(realtimePcm16ByteLength('AAA='), 2); assert.throws(() => realtimePcm16ByteLength('AA=='));
+  assert.throws(() => parseRealtimeClientFrame({ type: 'realtime.webrtc.offer', sdp: 'v=0' + 'x'.repeat(128 * 1024) }));
+  assert.throws(() => parseRealtimeHostFrame({ type: 'realtime.usage', usage: { basis: 'tokens', seconds: 1, inputTokens: -1 } }));
+});

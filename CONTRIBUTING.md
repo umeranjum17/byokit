@@ -112,3 +112,5 @@ To relay notes to consumers after a publish:
 ```sh
 npm run -s release -- notes --since <last-relay-timestamp> --json
 ```
+
+`@byokit/realtime` dials only the engine endpoint the app selects, with the credential the app passes; provider adapters run in kit-owned child processes. Tests use loopback fakes. See [the realtime contract](docs/realtime-kit.md).

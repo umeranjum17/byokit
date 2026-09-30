@@ -366,3 +366,5 @@ in N min/hours", and zero otherwise. For resting kinds, use
 `failure.until || nowMs + REST_MS[failure.kind]`; signed-out, not-included and network
 failures have no fallback rest. `classify` remains an alias. Pass a clock for deterministic
 classification; the default uses `Date.now()`. It stores and logs no error text.
+
+For a capability running where the sign-in lives, `await accounts.access(member, signal)` returns fresh `{ access, accountId }` from the app’s own ChatGPT store. Keep these credentials in that process; proxy signaling or relay media for another device. This uses the same refresh and signed-out behavior as `respond`.

@@ -265,3 +265,5 @@ the changelog format, releasing and pull requests.
 ## License
 
 byokit is licensed under [Apache License 2.0](LICENSE). Third-party notices are recorded in [NOTICE](NOTICE).
+
+`@byokit/realtime` dials only the engine endpoint the app selects, with the credential the app passes; provider adapters run in kit-owned child processes. Tests use loopback fakes. See [the realtime contract](docs/realtime-kit.md).
