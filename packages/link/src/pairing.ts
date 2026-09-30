@@ -173,5 +173,22 @@ export function normalizeCode(typed: string): string | null {
   return c.length === CODE_LENGTH && [...c].every((ch) => CODE_ALPHABET.includes(ch)) ? c : null;
 }
 
+/** Public machine-key commitment; the secret's entropy still comes only from `newCode`. */
+export const shortKey = (hostKey: Uint8Array): string =>
+  [...hash(16, 'byokit-link-short-key-v1', hostKey)].map((b) => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+
+export const bindCode = (code: string, hostKey: Uint8Array): string =>
+  `K1-${code}-${shortKey(hostKey).match(/.{4}/g)!.join('-')}`;
+
+/** Accept a bound code or the legacy secret; malformed bound codes never downgrade. */
+export function parseCode(typed: string): { secret: string; commitment?: string } | null {
+  if (typed.length > 256) return null;
+  const compact = typed.toUpperCase().replace(/[\s-]/g, '');
+  const legacy = normalizeCode(compact);
+  if (legacy) return { secret: legacy };
+  if (!/^K1[2-9A-HJKMNP-Z]{12}[0-9A-F]{32}$/.test(compact)) return null;
+  return { secret: compact.slice(2, 14), commitment: compact.slice(14) };
+}
+
 /** The Noise pre-shared key a typed code stands for. */
 export const codeKey = (code: string): Uint8Array => hash(32, 'byokit-link-code-v1', normalizeCode(code) ?? '');

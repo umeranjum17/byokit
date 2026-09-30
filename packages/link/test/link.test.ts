@@ -87,13 +87,13 @@ test('pairing lifetime cannot exceed five minutes', async () => {
 });
 
 test('slow approval cannot grant an expired QR or typed code', async () => {
-  for (const how of ['scan', 'code'] as const) {
+  for (const how of ['scan', 'code', 'short'] as const) {
     let now = Date.now();
     let approve!: (yes: boolean) => void;
     const h = await startHost({ now: () => now, pairMs: 1000, confirm: () => new Promise<boolean>((resolve) => { approve = resolve; }) });
     const pairing = how === 'scan'
       ? pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' })
-      : pairWithCode(h.url, h.host.code({ role: 'control' }).code, { name: 'Phone' });
+      : pairWithCode(h.url, (how === 'short' ? h.host.shortCode({ role: 'control' }) : h.host.code({ role: 'control' })).code, { name: 'Phone' });
     await until(() => !!approve);
     now += 1001;
     approve(true);
@@ -118,6 +118,64 @@ test('typed code: pairs once, and five wrong codes withdraw every open code', as
   for (let i = 0; i < 5; i++) await assert.rejects(pairWithCode(h.url, 'ABCD-EFGH-JKMN', { name: 'Guess' }), (e: LinkError) => e.code === 'wrong-code');
   await assert.rejects(pairWithCode(h.url, good, { name: 'Real' }), (e: LinkError) => e.code === 'wrong-code', 'the window closed');
   await assert.rejects(pairWithCode(h.url, 'not a code', { name: 'x' }), (e: LinkError) => e.code === 'wrong-code');
+});
+
+test('machine-bound short code: words, approval, replay, wrong code, expiry and brute-force limit', async () => {
+  let now = Date.now();
+  const h = await startHost({ name: 'Umer’s computer', now: () => now, pairMs: 900_000 });
+  const { code, expires } = h.host.shortCode({ role: 'view', kind: 'phone', lifetime: 60_000 });
+  assert.equal(code.length, 57, 'fits one line in an 80-column terminal');
+  assert.match(code, /^K1-[2-9A-HJKMNP-Z]{4}(-[2-9A-HJKMNP-Z]{4}){2}(-[0-9A-F]{4}){8}$/);
+  assert.equal(expires, now + 300_000);
+  let shown = '';
+  const grant = await pairWithCode(h.url, code.toLowerCase().replace(/-/g, ' '), {
+    name: 'Umer’s phone', onWords: (w) => { shown = w; },
+  });
+  assert.equal(grant.host, b64url(h.host.keys.publicKey));
+  assert.equal(grant.device.role, 'view');
+  assert.equal(h.asked[0].words, shown);
+  assert.equal(h.saved()[0].kind, 'phone');
+  assert.equal(h.saved()[0].expires, now + 60_000);
+  const wrong = (e: LinkError) => e.code === 'wrong-code';
+  await assert.rejects(pairWithCode(h.url, code, { name: 'Replay' }), wrong);
+  assert.equal(h.asked.length, 1);
+
+  const unused = h.host.shortCode({ role: 'control' }).code;
+  for (let i = 0; i < 5; i++) {
+    // Valid envelope and commitment, but an incorrect random secret reaches the host's attempt limiter.
+    const guess = unused.replace(unused.slice(3, 17), unused.slice(3, 17) === 'ABCD-EFGH-JKMN' ? 'BCDE-FGHJ-KMNP' : 'ABCD-EFGH-JKMN');
+    await assert.rejects(pairWithCode(h.url, guess, { name: 'Guess' }), wrong);
+  }
+  await assert.rejects(pairWithCode(h.url, unused, { name: 'Locked out' }), wrong);
+  assert.equal(h.asked.length, 1, 'five guesses withdrew the real code');
+  const stale = h.host.shortCode({ role: 'control' }).code;
+  now += 300_001;
+  await assert.rejects(pairWithCode(h.url, stale, { name: 'Expired' }), wrong);
+
+  for (const confirm of [() => false, () => { throw new Error('No approval'); }]) {
+    const no = await startHost({ confirm });
+    await assert.rejects(pairWithCode(no.url, no.host.shortCode({ role: 'control' }).code, { name: 'Unapproved' }),
+      (e: LinkError) => e.code === 'declined' && e.sealed);
+    assert.deepEqual(no.saved(), []);
+  }
+});
+
+test('bound codes reject malformed versions and commitments without dialing or downgrading', async () => {
+  const h = await startHost();
+  const { code } = h.host.shortCode({ role: 'control' });
+  const invalid = [code.slice(0, -1), code + '0', code.replace('K1', 'K2'), code.slice(0, 17), code + '!'];
+  class NeverDial { constructor() { assert.fail('malformed code dialed'); } }
+  for (const typed of invalid) {
+    await assert.rejects(pairWithCode(h.url, typed, { name: 'Invalid', WebSocket: NeverDial as any }),
+      (e: LinkError) => e.code === 'wrong-code');
+  }
+  const changed = code.slice(0, -1) + (code.endsWith('0') ? '1' : '0');
+  let shown = false;
+  await assert.rejects(pairWithCode(h.url, changed, { name: 'Changed', onWords: () => { shown = true; } }),
+    (e: LinkError) => e.code === 'wrong-host');
+  assert.equal(shown, false);
+  assert.deepEqual(h.asked, []);
+  assert.deepEqual(h.saved(), []);
 });
 
 test('grants: control can act, view-only can only look; answers come from the host', async () => {

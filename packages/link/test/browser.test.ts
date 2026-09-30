@@ -10,7 +10,7 @@ import { scratchDir, trackChild } from '../../test-support.ts';
 import { join } from 'node:path';
 import { build } from 'esbuild';
 import { WebSocketServer } from 'ws';
-import { Host, keyPair, type PairRequest } from '../src/index.ts';
+import { Host, b64url, keyPair, type PairRequest } from '../src/index.ts';
 
 const chrome = [process.env.BYOKIT_CHROME, 'chromium', 'google-chrome', 'google-chrome-stable', 'chromium-browser']
   .find((c) => c && spawnSync('which', [c]).status === 0);
@@ -36,6 +36,7 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
     canView: (r) => r.op === 'get.state' || r.op === 'report',
     handle: (r) => { if (r.op === 'report') report(r.args); return { ok: 1 }; },
   });
+  const { code } = host.shortCode({ role: 'view' });
   const server = createServer((req, res) => {
     if (req.url === '/failed') {
       let body = '';
@@ -43,7 +44,7 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
       return res.writeHead(204).end();
     }
     if (req.url === '/client.js') return res.writeHead(200, { 'content-type': 'text/javascript' }).end(js);
-    res.writeHead(200, { 'content-type': 'text/html' }).end('<!doctype html><title>pairing</title><script type="module" src="/client.js"></script>');
+    res.writeHead(200, { 'content-type': 'text/html' }).end(`<!doctype html><title>pairing</title><meta name="short-code" content="${code}"><script type="module" src="/client.js"></script>`);
   });
   const wss = new WebSocketServer({ server });
   wss.on('connection', (ws) => host.accept(ws));
@@ -59,12 +60,15 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
     let timer: any;
     const r = await Promise.race([reported, new Promise((_, no) => { timer = setTimeout(() => no(new Error('the browser never reported')), 60_000); })])
       .finally(() => clearTimeout(timer)) as any;
-    assert.equal(asked.length, 1);
+    assert.equal(asked.length, 2);
     assert.equal(asked[0].name, 'Browser tab');
     assert.equal(r.words, asked[0].words, 'the page showed the same two words');
     assert.deepEqual(r.state, { ok: 1 });
     assert.equal(r.role, 'view');
-    assert.deepEqual(host.devices().map((d) => [d.name, d.online]), [['Browser tab', true]]);
+    assert.equal(r.shortWords, asked[1].words);
+    assert.deepEqual(r.shortState, { ok: 1 });
+    assert.equal(r.shortHost, b64url(host.keys.publicKey));
+    assert.deepEqual(host.devices().map((d) => [d.name, d.online]), [['Browser tab', true], ['Umer’s browser', true]]);
   } finally {
     const exited = browser.exitCode !== null || new Promise((r) => browser.once('exit', r));
     try { process.kill(-browser.pid!, 'SIGKILL'); } catch {} // the whole group: Chrome's helpers outlive the main process
