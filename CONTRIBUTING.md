@@ -29,12 +29,12 @@ runtime-tested here because no simulator is available.
   never uses their environment's API keys (except the explicitly invoked [live eval CLI](packages/decide#evals)), and
   never runs their CLIs. Runtime kits drive only the aggregator the app names explicitly (the OpenClaw engine the kit
   installs, the Herdr binary and socket the app passes); byokit tests use fakes and never a person's Herdr. Capability
-  kits ([docs/capability-kits.md](docs/capability-kits.md)) have their own carve-out: `@byokit/compose` may load only
-  its exactly pinned public engine package, and `@byokit/capture` may spawn only a recorder implementing recorder
+  kits ([docs/capability-kits.md](docs/capability-kits.md)) have their own carve-out: `@byokit/write` may load only
+  its exactly pinned public engine package, and `@byokit/record` may spawn only a recorder implementing recorder
   protocol v1 that the app passes by absolute path; their `npm test` runs use fakes only.
   `@byokit/usage` reads only the sign-in folder the app passes and spawns only the Codex binary the app passes
   by absolute path, with an environment built from nothing plus what the app passes; its tests use fakes only. `@byokit/overlay` and
-  `@byokit/status` run only their own native code inside the app. `@byokit/machine` ([docs/machine-kit.md](docs/machine-kit.md)) spawns only the
+  `@byokit/statusbar` run only their own native code inside the app. `@byokit/cloud` ([docs/cloud-kit.md](docs/cloud-kit.md)) spawns only the
   `ssh` binary the app passes by absolute path and the `ssh-keyscan` beside it, with the key path the app passes and a
   kit-owned config, and holds only the provider keys the app's store gives it and the scoped keys it mints for that
   app. Its tests use a loopback fake and a fake `ssh`. `@byokit/keystore` spawns only the OS keyring CLIs by absolute

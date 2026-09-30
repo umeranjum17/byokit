@@ -14,7 +14,7 @@ import { boxKeyPairFromSeed, openBox, openSecretBox, sealBox, sealSecretBox, sig
 import { forgettableStore, pairInput, pairingGeneration } from './pairing.ts';
 import { linkWords, pairingView, useSignIn, type PairPhase } from '@byokit/ui-core';
 import { overlay, stateWords, type OverlayState } from '@byokit/overlay';
-import { stateWords as chipWords, status as chip } from '@byokit/status';
+import { stateWords as chipWords, status as chip } from '@byokit/statusbar';
 import { focusedField } from '@byokit/overlay/focused-field';
 
 const ME = 1;
@@ -218,7 +218,7 @@ export function BubblePanel() {
   );
 }
 
-/** One ongoing job as a status-bar chip (@byokit/status): show with three actions, clear, and what came back. */
+/** One ongoing job as a status-bar chip (@byokit/statusbar): show with three actions, clear, and what came back. */
 function Chip() {
   const [said, setSaid] = useState('');
   const [n, setN] = useState(1);

@@ -6,7 +6,7 @@ const { readFileSync, writeFileSync } = require('node:fs');
 const { join } = require('node:path');
 
 const root = join(__dirname, '..');
-for (const pkg of ['accounts', 'openclaw', 'herdr', 'compose', 'capture', 'overlay', 'machine', 'status', 'usage']) {
+for (const pkg of ['accounts', 'openclaw', 'herdr', 'write', 'record', 'overlay', 'cloud', 'statusbar', 'usage']) {
   const file = join(root, 'packages', pkg, 'dist', 'words.d.ts');
   let text;
   try { text = readFileSync(file, 'utf8'); } catch { continue; } // dist not built yet: nothing to fix

@@ -8,7 +8,7 @@
     "@byokit/link": "file:../../packages/link",
     "@byokit/overlay": "file:../../packages/overlay",
     "@byokit/seal": "file:../../packages/seal",
-    "@byokit/status": "file:../../packages/status",
+    "@byokit/statusbar": "file:../../packages/statusbar",
     "@byokit/ui-core": "file:../../packages/ui-core",
     "expo": "~57.0.25",
     "expo-build-properties": "~57.0.22",

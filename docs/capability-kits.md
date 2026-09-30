@@ -1,33 +1,33 @@
-# Capability kits: `@byokit/compose`, `@byokit/capture`, `@byokit/overlay`, `@byokit/keystore` and `@byokit/status`
+# Capability kits: `@byokit/write`, `@byokit/record`, `@byokit/overlay`, `@byokit/keystore` and `@byokit/statusbar`
 
-Foundation spec and builder breakdown. Status: **design approved for build (BK-0); the `compose` and `capture`
+Foundation spec and builder breakdown. Status: **design approved for build (BK-0); the `write` and `record`
 scaffolds are in the repo with frozen signatures, `@byokit/keystore` (section 11) is implemented,
 and nothing else here is implemented yet.**
 This document is the single source of truth for the build lanes. A builder follows it literally. Where it is silent,
 the builder stops and asks rather than designs. Section 9 is the work-package list.
 
 Contents: [1 Goal](#1-goal) · [2 Decisions](#2-decisions) · [3 Shared conventions](#3-shared-conventions) ·
-[4 `@byokit/compose`](#4-byokitcompose) · [5 `@byokit/capture`](#5-byokitcapture) ·
+[4 `@byokit/write`](#4-byokitwrite) · [5 `@byokit/record`](#5-byokitrecord) ·
 [6 Recorder protocol v1](#6-recorder-protocol-v1) · [7 `@byokit/overlay`](#7-byokitoverlay) ·
 [8 Tests, CI and isolation](#8-tests-ci-and-isolation) · [9 Work packages](#9-work-packages) ·
 [10 Known facts builders must not re-derive](#10-known-facts-builders-must-not-re-derive) ·
-[11 `@byokit/keystore`](#11-byokitkeystore) · [12 `@byokit/status`](#12-byokitstatus)
+[11 `@byokit/keystore`](#11-byokitkeystore) · [12 `@byokit/statusbar`](#12-byokitstatusbar)
 
 ## 1. Goal
 
 BYOKit gains four **capability kits**. Each one is named for what it can do, not for the product behind it:
 
-- **`@byokit/compose`**: drafting in a person's voice. It covers voice rules, the platforms a post can go to with
+- **`@byokit/write`**: drafting in a person's voice. It covers voice rules, the platforms a post can go to with
   their limits, the brief lines a writer follows, model-free checks on drafts (fit, voice, stock phrasing, kept facts)
   and thread splitting. It wraps the public `ownvoice-engine` npm package, pinned exactly. It makes no model call.
-- **`@byokit/capture`**: recording a screen or a desktop into a take, then turning the take into a video. It owns
+- **`@byokit/record`**: recording a screen or a desktop into a take, then turning the take into a video. It owns
   an open **recorder protocol v1** (section 6) and drives any recorder that implements it. The app passes that
   recorder by absolute path. The kit ships no recorder of its own.
 - **`@byokit/overlay`**: a floating on-screen bubble on Android. It has a panel that opens on tap, per-app visibility
   rules, a text-free tap log and an optional focused-field reader. On iOS it reports `unsupported`.
 - **`@byokit/keystore`** (section 11, L-KEY): one secret per name for apps, from the OS keyring, a
   passphrase-sealed file, or a host-passed override for CI. It only consumes `@byokit/seal`.
-- **`@byokit/status`** (section 12, BK-S1): one ongoing job shown as a status-bar chip on Android 16 (a promoted
+- **`@byokit/statusbar`** (section 12, BK-S1): one ongoing job shown as a status-bar chip on Android 16 (a promoted
   ongoing notification), with a counts-only lock-screen copy and up to three actions. On iOS and below Android 16 it
   reports `unsupported`.
 
@@ -45,25 +45,25 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | # | Decision |
 |---|---|
 | D-A | Kits wrap an upstream engine. Product and domain behaviour stays in the product: prompts, scoring rules, planning, rendering, moods and labels. The kit adds the version pin, supervision, the typed surface, fakes and plain words, the same way `@byokit/openclaw` and `@byokit/herdr` do. |
-| D-B | Kit names and person-visible words are capability words. The compose engine's package name (`ownvoice-engine`) is public and pinned, so it appears in `packages/compose/package.json`, `constants.ts` and this document. No recorder product is named anywhere in BYOKit: not in code, docs, words, tests, commits, PR text or the isolation sentence. The kit and its tests refer to "a recorder implementing recorder protocol v1". |
-| D-C | `@byokit/compose` makes no model call and holds no key. Nothing it exports takes a key, and the engine it loads makes no network call (section 8 proves both). `@byokit/capture` takes a planner key only as a string from the app and hands it to the recorder only on file descriptor 3 (6.6), never through env, argv or a file. |
-| D-D | The isolation rule "byokit … never runs their CLIs" gets a separate carve-out for capability kits instead of stretching the runtime-kit wording. `@byokit/compose` may load only its exactly pinned public engine package. `@byokit/capture` may spawn only "a recorder implementing recorder protocol v1 that the app passes by absolute path". `@byokit/overlay` runs only its own native code inside the app, and so does `@byokit/status` (D-T). The sentence lives in `CONTRIBUTING.md` (Rules, Isolation first) and `README.md` (What byokit never touches). |
-| D-E | Packages `@byokit/compose`, `@byokit/capture`, `@byokit/overlay` in `packages/compose`, `packages/capture`, `packages/overlay`. All three are Apache-2.0 ESM and follow the repo's source rules: type-stripped TS, `.ts` imports, no enums, namespaces or parameter properties. Each is `private: true` at 0.1.0 until its proof lands (BK-P2, BK-C3, BK-O3). |
-| D-F | Entries. compose: `.` (Node), `./testing`, bin `compose`. capture: `.` (Node), `./testing`. overlay: `.` (native-free, every platform) with a `react-native` condition to `dist/rn.js`, and `./focused-field` with the same condition pair. No other entries. |
+| D-B | Kit names and person-visible words are capability words. The compose engine's package name (`ownvoice-engine`) is public and pinned, so it appears in `packages/write/package.json`, `constants.ts` and this document. No recorder product is named anywhere in BYOKit: not in code, docs, words, tests, commits, PR text or the isolation sentence. The kit and its tests refer to "a recorder implementing recorder protocol v1". |
+| D-C | `@byokit/write` makes no model call and holds no key. Nothing it exports takes a key, and the engine it loads makes no network call (section 8 proves both). `@byokit/record` takes a planner key only as a string from the app and hands it to the recorder only on file descriptor 3 (6.6), never through env, argv or a file. |
+| D-D | The isolation rule "byokit … never runs their CLIs" gets a separate carve-out for capability kits instead of stretching the runtime-kit wording. `@byokit/write` may load only its exactly pinned public engine package. `@byokit/record` may spawn only "a recorder implementing recorder protocol v1 that the app passes by absolute path". `@byokit/overlay` runs only its own native code inside the app, and so does `@byokit/statusbar` (D-T). The sentence lives in `CONTRIBUTING.md` (Rules, Isolation first) and `README.md` (What byokit never touches). |
+| D-E | Packages `@byokit/write`, `@byokit/record`, `@byokit/overlay` in `packages/write`, `packages/record`, `packages/overlay`. All three are Apache-2.0 ESM and follow the repo's source rules: type-stripped TS, `.ts` imports, no enums, namespaces or parameter properties. Each is `private: true` at 0.1.0 until its proof lands (BK-P2, BK-C3, BK-O3). |
+| D-F | Entries. write: `.` (Node), `./testing`, bin `write`. record: `.` (Node), `./testing`. overlay: `.` (native-free, every platform) with a `react-native` condition to `dist/rn.js`, and `./focused-field` with the same condition pair. No other entries. |
 | D-G | Library code reads no environment variable. Every spawned process gets an env built from nothing (5.4, 4.6). `process.env` is never inherited or read, including for `PATH`. |
 | D-H | The compose engine is an exact `dependencies` pin, loaded in process by `inProcessEngine()`. It is not installed at run time the way openclaw's `engine/` is, because compose keeps no state directory. `binEngine({ bin })` runs the engine's own bin as the fallback path for hosts that want the engine in its own process. The kit accepts engine protocols from `PROTOCOL_FLOOR` to `PROTOCOL`; anything outside that range is `needs-update` and fails closed. |
 | D-I | Compose's public types are frozen by hand in 4.3 from the engine's protocol 1 surface. BK-P2 generates types from the engine's committed schema (sha256-pinned) and a type-level test proves they match 4.3 both ways. If they diverge, the builder stops: that is a spec change, not a builder fix. |
-| D-J | `@byokit/capture` owns recorder protocol v1 (section 6) and its JSON Schema (`packages/capture/schema/recorder-protocol-1.json`, BK-C1). No recorder's own schema or code is committed. A recorder conforms by implementing section 6 under a `capture` sub-command. Within v1, only additive changes happen: new optional fields, new events and new error codes. Anything else is protocol 2. |
+| D-J | `@byokit/record` owns recorder protocol v1 (section 6) and its JSON Schema (`packages/record/schema/recorder-protocol-1.json`, BK-C1). No recorder's own schema or code is committed. A recorder conforms by implementing section 6 under a `capture` sub-command. Within v1, only additive changes happen: new optional fields, new events and new error codes. Anything else is protocol 2. |
 | D-K | Capture supervision (5.4): absolute `bin` only, env from nothing, argv array with NUL rejected, per-call timeouts, an 8 MB cap per stream for `hello`, `stop` and `make`, and for `record` an 8 MB stdout total, a 64 KB line cap and a rolling 2 KB stderr tail (5.4; the herdr `runCli` shape), and an abort signal that maps to `capture stop`. Display variables pass only for the source that needs them. |
 | D-L | Consent belongs to the OS and the person. The kit never retries, bypasses or answers a consent prompt. A refused, timed-out or pre-consent-stopped recording leaves no take and nothing in the recorder's state dir (6.4 rule 4, a MUST). This is why the words can say "Nothing was kept." |
 | D-M | The planner is off unless the app passes `plannerKey`. With a key the app must also pass `maxTokens` (the type requires both together). Planner billing is per use on the key's own account; the kit never says "subscription" for it. |
 | D-N | Kotlin returns for `@byokit/overlay` only (7.1). The frozen `android/` mirror stays frozen. The overlay's Kotlin is written clean-room from the behaviour described in this document, and no Ownvoice code is copied. |
 | D-O | Overlay privacy: nothing reads another app's screen in the background. `FocusedField` reads only when the app calls `read()`, and only through the app's own accessibility service. The tap log has no text field and prunes entries older than 30 days. The kit's words never claim where data goes. |
 | D-P | Words. Each kit has `src/words.json` with the sentences in 4.8, 5.6 and 7.7. Each is tested against the repo's banned-jargon expression (the same one `packages/herdr/test/words.test.ts` uses). Compose's words must also avoid privacy claims: a test fails on `this phone`, `leave`/`leaves` and `never sent` (4.8). |
-| D-Q | Fakes and contracts (3.4). compose and capture each ship a fake and a contract suite in `./testing`. overlay's JS core takes an injected native module (7.3) and has no public `./testing`. |
-| D-R | Release: 0.1.0 `private: true`. compose publishes after the real-engine CI job is green (BK-P2) and bumps minor for every new engine protocol pin. capture publishes after the owner-machine conformance run is recorded (BK-C3). overlay publishes after the emulator proof (BK-O3). `scripts/release.ts`' canonical order gains `compose`, `capture` (BK-0) and `overlay` (BK-O1), in that order after `herdr`. |
-| D-S | `@byokit/status` (section 12) is named under D-B: `status` is the capability word. `ongoing` is Android jargon, `presence` reads as "online", and `live` is a product word on both platforms. It lives in `packages/status`, follows D-E and D-F's overlay shape (`.` native-free with a `react-native` condition to `dist/rn.js`, no other entry), and is 0.1.0 `private: true` until its emulator proof (BK-S1, 12.8). The canonical release order gains `status` after `overlay`. It is a sibling of overlay, not part of it: a chip needs neither the overlay permission nor a foreground service, and it has an iOS twin where overlay has none. |
-| D-T | Kotlin carve-out beside D-N: Kotlin also returns for `@byokit/status`, for the same reason (7.1): no JavaScript API can post a promoted ongoing notification with a lock-screen copy. The frozen mirror stays frozen, and nothing is shared between the overlay's and the status kit's Kotlin. The status Kotlin posts one notification from the app's own process. It runs no foreground service and no background work: keeping the process alive is the app's business. |
+| D-Q | Fakes and contracts (3.4). write and record each ship a fake and a contract suite in `./testing`. overlay's JS core takes an injected native module (7.3) and has no public `./testing`. |
+| D-R | Release: 0.1.0 `private: true`. write publishes after the real-engine CI job is green (BK-P2) and bumps minor for every new engine protocol pin. record publishes after the owner-machine conformance run is recorded (BK-C3). overlay publishes after the emulator proof (BK-O3). `scripts/release.ts`' canonical order gains `write`, `record` (BK-0) and `overlay` (BK-O1), in that order after `herdr`. |
+| D-S | `@byokit/statusbar` (section 12) is named under D-B: `status` is the capability word. `ongoing` is Android jargon, `presence` reads as "online", and `live` is a product word on both platforms. It lives in `packages/statusbar`, follows D-E and D-F's overlay shape (`.` native-free with a `react-native` condition to `dist/rn.js`, no other entry), and is 0.1.0 `private: true` until its emulator proof (BK-S1, 12.8). The canonical release order gains `statusbar` after `overlay`. It is a sibling of overlay, not part of it: a chip needs neither the overlay permission nor a foreground service, and it has an iOS twin where overlay has none. |
+| D-T | Kotlin carve-out beside D-N: Kotlin also returns for `@byokit/statusbar`, for the same reason (7.1): no JavaScript API can post a promoted ongoing notification with a lock-screen copy. The frozen mirror stays frozen, and nothing is shared between the overlay's and the statusbar kit's Kotlin. The statusbar Kotlin posts one notification from the app's own process. It runs no foreground service and no background work: keeping the process alive is the app's business. |
 
 ## 3. Shared conventions
 
@@ -73,7 +73,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 app (drafting helper, demo helper, phone app: prompts, screens, decisions)
   │ uses                    │ uses                          │ uses
   ▼                         ▼                               ▼
-@byokit/compose          @byokit/capture               @byokit/overlay
+@byokit/write             @byokit/record                @byokit/overlay
   │ in-process import       │ spawn, absolute bin           │ Expo native module (Android)
   ▼                         ▼                               ▼
 ownvoice-engine (npm,    any recorder implementing      Android WindowManager,
@@ -91,37 +91,37 @@ list and in `scripts/fix-words-dts.cjs`' package list.
 
 ### 3.3 States, errors and plain words
 
-compose and capture have no long-lived supervisor, so they have no `onState`. Each call resolves or rejects with the
+write and record have no long-lived supervisor, so they have no `onState`. Each call resolves or rejects with the
 kit's error class (`ComposeError`, `CaptureError`). The error's `code` picks the sentence via
 `errorWords(e)`. UI code shows `errorWords(e)` or `words(key)`; it never builds sentences from codes. overlay has
 one `OverlayState` and a `state` event (7.3).
 
 ### 3.4 Fakes and contract rule
 
-compose and capture each ship a fake and a **contract suite** in `./testing`: `composeContract(make, o?)` and
+write and record each ship a fake and a **contract suite** in `./testing`: `composeContract(make, o?)` and
 `captureContract(make, o?)`. Both have the herdr shape: `make` returns a bench, and `o` is
 `{ test?: TestFn } | TestFn`, with node:test's `test` as the default. The same assertions run against the fake in
 `npm test` and against the real upstream:
-- compose: the real pinned engine, in CI job `compose-engine` (BK-P2).
+- write: the real pinned engine, in CI job `write-engine` (BK-P2).
 - capture: a real recorder on the owner's machine or in a lab. It never runs in CI, because the upstream is private
   (BK-C3). The README says so.
 
 Cases that need a scripted fault (`fake` present on the bench) skip on a real bench. A behaviour the fake has and the
 contract does not assert is not relied on by any kit test.
 
-## 4. `@byokit/compose`
+## 4. `@byokit/write`
 
 ### 4.1 Files
 
 ```
-packages/compose/
+packages/write/
   package.json  tsconfig.json  README.md  CHANGELOG.md  LICENSE
   schema/engine-protocol-1.json          # BK-P2: `ownvoice-engine schema` output at the pin, sha256 in constants.ts
   scripts/gen-types.ts                   # BK-P2: schema → src/generated/protocol.ts
   src/index.ts  src/constants.ts  src/types.ts  src/errors.ts
   src/compose.ts                         # Compose client over the Engine seam (BK-P1)
   src/engine.ts                          # inProcessEngine, binEngine (BK-P2)
-  src/cli.ts                             # bin `compose` (BK-P1)
+  src/cli.ts                             # bin `write` (BK-P1)
   src/words.json  src/words.ts
   src/generated/protocol.ts              # BK-P2
   src/testing/index.ts  src/testing/fake-engine.ts  src/testing/contract.ts   # BK-P1
@@ -129,7 +129,7 @@ packages/compose/
 ```
 
 `package.json`: `exports` `.` → `dist/index.js`, `./testing` → `dist/testing/index.js`; `bin`
-`{ "compose": "dist/cli.js" }`; `files` `dist`, `schema`, `README.md`, `LICENSE`, `CHANGELOG.md`. Dependencies:
+`{ "write": "dist/cli.js" }`; `files` `dist`, `schema`, `README.md`, `LICENSE`, `CHANGELOG.md`. Dependencies:
 none at BK-0; BK-P2 adds `"ownvoice-engine": "<exact>"`.
 
 ### 4.2 Engine wire (what the kit expects from `ownvoice-engine` protocol 1)
@@ -266,31 +266,31 @@ export function binEngine(o: { bin: string; timeoutMs?: number }): Engine;
   defaults to 10 s, clamped to 1 s–60 s. Output is capped at 8 MB per stream. ENOENT or EACCES gives `missing`. A
   non-zero exit with no JSON gives `engine`.
 
-### 4.6 The `compose` CLI (`src/cli.ts`, BK-P1)
+### 4.6 The `write` CLI (`src/cli.ts`, BK-P1)
 
 The CLI is for agents and scripts, and prints TOON or plain `key: value` lines. `src/cli.ts` exports
 `main(argv: string[], io: { engine?: Engine; stdout(s: string): void; stderr(s: string): void; readFile(path: string): string }):
 Promise<number>` and runs it when executed as the bin, which makes the CLI testable with the fake engine.
 
 ```
-compose hello
-compose platforms
-compose voice parse <file>
-compose voice guide --voice '<rules json>' [--post]
-compose brief --kind reply|polish|post|thread --platform <id> [--voice '<rules json>']
-compose check --platform <id> [--voice '<rules json>'] [--original <file>] <draft file>...
-compose split --platform <id> <file>
+write hello
+write platforms
+write voice parse <file>
+write voice guide --voice '<rules json>' [--post]
+write brief --kind reply|polish|post|thread --platform <id> [--voice '<rules json>']
+write check --platform <id> [--voice '<rules json>'] [--original <file>] <draft file>...
+write split --platform <id> <file>
 ```
 
 Output format (values use the quoting rule below). The `check` example is what `fakeEngine({ version: '1.0.0' })`
 prints when `b.md` is 301 characters, says "delve" and has `50` where the original has `40`:
 
 ```
-$ compose hello
+$ write hello
 protocol: 1
 version: 1.0.0
 
-$ compose platforms
+$ write platforms
 platforms[6]{id,label,kind,limit}:
   x,X,feed,280
   linkedin,LinkedIn,feed,3000
@@ -299,20 +299,20 @@ platforms[6]{id,label,kind,limit}:
   whatsapp,WhatsApp,chat,65536
   gmail,Gmail,mail,none
 
-$ compose voice parse profile.md
+$ write voice parse profile.md
 rules: {"never":["delve","game changer"],"noDashes":true,"statementEndings":false,"note":""}
 skipped: 0
 
-$ compose voice guide --voice '{"never":[],"noDashes":true,"statementEndings":false,"note":""}'
+$ write voice guide --voice '{"never":[],"noDashes":true,"statementEndings":false,"note":""}'
 line: No em dashes.
 
-$ compose brief --kind reply --platform x
+$ write brief --kind reply --platform x
 lines[3]:
   "Agree and add one concrete detail."
   "Push back kindly, with one reason."
   "Ask one sharp question."
 
-$ compose check --platform x --original original.md a.md b.md
+$ write check --platform x --original original.md a.md b.md
 drafts[2]{file,fits,length,limit,verdict}:
   a.md,yes,212,280,Sounds natural
   b.md,no,301,280,A bit stock
@@ -322,7 +322,7 @@ issues[3]{file,kind,detail}:
   b.md,dropped,40
 result: 1 of 2 drafts pass
 
-$ compose split --platform x long.md
+$ write split --platform x long.md
 posts[2]:
   "First post…"
   "Second post…"
@@ -439,20 +439,20 @@ The fake has its own small logic and copies no engine code:
 The pin is `ENGINE_VERSION`, the exact `dependencies` entry and `schema/engine-protocol-1.json` with its
 `ENGINE_SCHEMA_SHA256`. An upgrade is one byokit PR that:
 - bumps all three;
-- re-runs `npm run gen:compose`;
-- runs the `compose-engine` job green;
+- re-runs `npm run gen:write`;
+- runs the `write-engine` job green;
 - bumps the kit's minor version;
 - adds a CHANGELOG line naming the new engine version and any verb change.
 
 A new engine protocol number also moves `PROTOCOL`. That is a spec change to 4.2 and 4.3 first. `scripts/pin-watch.mjs`
 gains a compose section that compares the pin with npm's `latest` dist-tag for `ownvoice-engine` (BK-P2).
 
-## 5. `@byokit/capture`
+## 5. `@byokit/record`
 
 ### 5.1 Files
 
 ```
-packages/capture/
+packages/record/
   package.json  tsconfig.json  README.md  CHANGELOG.md  LICENSE
   schema/recorder-protocol-1.json         # BK-C1, JSON Schema 2020-12 of section 6
   src/index.ts  src/constants.ts  src/types.ts  src/errors.ts
@@ -769,13 +769,13 @@ export function captureContract(make: () => Promise<CaptureContractBench>, optio
 
 `npm test` and CI run only the fake recorder. A real recorder runs on the owner's machine or in a lab: the app's
 owner runs `captureContract` against it (BK-C3). The README says this in one line. There is no ensure or download
-helper, because recorders ship outside BYOKit and may be private. `scripts/pin-watch.mjs` watches nothing for capture:
+helper, because recorders ship outside BYOKit and may be private. `scripts/pin-watch.mjs` watches nothing for record:
 the kit pins a protocol, not a recorder version, and the README notes that too.
 
 ## 6. Recorder protocol v1
 
-This is the open protocol a recorder implements to be driven by `@byokit/capture`. "MUST" and "SHOULD" are binding
-for conformance. BK-C1 turns 6.3–6.7 into `packages/capture/schema/recorder-protocol-1.json`.
+This is the open protocol a recorder implements to be driven by `@byokit/record`. "MUST" and "SHOULD" are binding
+for conformance. BK-C1 turns 6.3–6.7 into `packages/record/schema/recorder-protocol-1.json`.
 
 ### 6.1 Invocation and output
 
@@ -1227,8 +1227,8 @@ app. `app.plugin.js` adds nothing to the manifest.
 - **compose, no network and no writes.** BK-P2's `test/engine/isolation.test.ts` runs a child
   `node --permission --allow-fs-read=<repo> -e <import the kit, run every verb through inProcessEngine()>` and asserts
   exit 0. Any fs write would throw `ERR_ACCESS_DENIED`. The egress guard makes any outbound dial fail.
-- **compose, words claims.** The words test greps the D-P banned-claims expression over `words.json`.
-- **capture, isolation.** BK-C2's `test/isolation.test.ts` uses a decoy HOME (`packages/accounts/src/testing`). It
+- **write, words claims.** The words test greps the D-P banned-claims expression over `words.json`.
+- **record, isolation.** BK-C2's `test/isolation.test.ts` uses a decoy HOME (`packages/accounts/src/testing`). It
   runs the full contract against the fake recorder with `process.env.HOME` pointing at the decoy, and asserts that the
   decoy's canaries are untouched and that the fake's recorded env holds no decoy path.
 - **overlay.** `test/rules.test.ts` and `test/overlay.test.ts` (fake `NativeOverlay`) run in `npm test`.
@@ -1242,8 +1242,8 @@ app. `app.plugin.js` adds nothing to the manifest.
   decoy throws `ERR_ACCESS_DENIED`; the run asserts the decoy's canaries are byte-identical and the fakes' argv/env
   logs hold no canary. `test/process-env.test.ts` poisons `process.env` and greps `process.env` out of `src/`.
 - **CI jobs added:**
-  - `compose-engine` (BK-P2): Node 24, `npm ci`, `npm run build`, `npm run test:compose-engine`
-    (`sh scripts/test.sh 'packages/compose/test/engine/*.test.ts'`).
+  - `write-engine` (BK-P2): Node 24, `npm ci`, `npm run build`, `npm run test:write-engine`
+    (`sh scripts/test.sh 'packages/write/test/engine/*.test.ts'`).
   - `overlay-android` (BK-O1): JDK 17, `npm ci` in `examples/expo`, then
     `npx expo prebuild -p android --no-install && (cd android && ./gradlew assembleDebug :byokit-overlay:testDebugUnitTest)`
     in `examples/expo`. BK-O1 records the Gradle project name autolinking gives the package, if it is not
@@ -1258,7 +1258,7 @@ CLI, tests), as in `docs/runtime-kits.md` §11.
 - Each package is one direct PR to byokit. It commits only its listed files (plus the lockfile) and keeps
   `npm run build`, `npm run check`, `npm test` and `npm run smoke:pack` green.
 - A package that changes `packages/<pkg>/src/**` adds a `## Unreleased` bullet.
-- **Stubs rule:** BK-0 created `packages/compose` and `packages/capture` with every `src/*.ts` file of 4.1 and 5.1 that
+- **Stubs rule:** BK-0 created `packages/write` and `packages/record` with every `src/*.ts` file of 4.1 and 5.1 that
   holds a public or seam signature. Their bodies are `throw new Error('not built: <package id>')`. Later packages
   replace bodies only. A signature change is a spec change: stop and ask.
 - **Exports test:** each package also edits its kit's `test/exports.test.ts`. It replaces the stub assertions naming
@@ -1310,9 +1310,9 @@ later merges rebase.
   - `schema/engine-protocol-1.json`.
   - `scripts/gen-types.ts`.
   - `src/generated/protocol.ts`.
-  - root `package.json` scripts `gen:compose` and `test:compose-engine`.
-  - `.github/workflows/ci.yml` job `compose-engine`.
-  - `scripts/pin-watch.mjs` compose section, with its fixture.
+  - root `package.json` scripts `gen:write` and `test:write-engine`.
+  - `.github/workflows/ci.yml` job `write-engine`.
+  - `scripts/pin-watch.mjs` write section, with its fixture.
   - The tests `test/generated.test.ts`, `test/engine-seam.test.ts` and `test/engine/{contract,isolation}.test.ts`.
   - README real-engine line and a CHANGELOG bullet.
 - **Acceptance:**
@@ -1325,12 +1325,12 @@ later merges rebase.
     `[bin]` and env exactly `{PATH, LANG}`; timeout; the 8 MB cap; a missing bin gives `missing`.
   - `test/engine/contract.test.ts` runs `composeContract` against `new Compose()` (the real pin), and it is green.
   - `isolation.test.ts` passes as in section 8.
-  - The `compose-engine` job is green on the PR.
-  - `npm run smoke:pack` passes (the `compose` bin loads from the packed tarball), and `test/engine/contract.test.ts`
-    also runs `compose platforms` through `main()` against the real pin: exit 0 and six rows.
+  - The `write-engine` job is green on the PR.
+  - `npm run smoke:pack` passes (the `write` bin loads from the packed tarball), and `test/engine/contract.test.ts`
+    also runs `write platforms` through `main()` against the real pin: exit 0 and six rows.
   - A `D-I` mismatch stops the package.
 - **As built (engine not yet on npm):** `private` stays and the exact `ownvoice-engine` dependency is not added yet;
-  `ENGINE_VERSION` is 0.1.0 and the `compose-engine` job runs the engine from ownvoice's public source at `faf2fc2`
+  `ENGINE_VERSION` is 0.1.0 and the `write-engine` job runs the engine from ownvoice's public source at `faf2fc2`
   (the schema's commit), linked as `node_modules/ownvoice-engine`. Publishing (the dependency, `private` removed) is a
   later package once the engine is on npm. Without the engine, `test/engine-seam.test.ts` runs the contract over a
   stub that checks every request against the committed schema, in process and as a bin.
@@ -1622,7 +1622,7 @@ builds the map from `process.env` itself when it wants to; the kit never reads i
 - `SECURITY.md` exists; the package stays `private: true` at 0.1.0; build, check, test and `smoke:pack` are
   green.
 
-## 12. `@byokit/status`
+## 12. `@byokit/statusbar`
 
 One ongoing job the person started, shown where Android 16 shows a Live Update: a chip in the status bar, the top of
 the notification shade and the lock screen. The kit takes plain text from the app and never builds a sentence of its
@@ -1650,7 +1650,7 @@ app (D-A).
 ### 12.2 Files (BK-S1)
 
 ```
-packages/status/
+packages/statusbar/
   package.json  tsconfig.json  README.md  CHANGELOG.md  LICENSE  .gitignore
   expo-module.config.json                 # { "platforms": ["android"], "android": { "modules": [
                                           #   "io.github.umeranjum17.byokit.status.StatusModule"] } }
@@ -1796,14 +1796,14 @@ system settings. The words test uses the D-P jargon expression.
 
 **BK-S1 — the kit, JVM tests, CI and the emulator proof** · Sol · deps: BK-O1
 - **Files:** everything in 12.2; root build list, `scripts/fix-words-dts.cjs` and `tsconfig.json`'s `rn.ts`
-  exclusion gain `packages/status`; `scripts/release.ts`' canonical order gains `status` after `overlay`;
+  exclusion gain `packages/statusbar`; `scripts/release.ts`' canonical order gains `statusbar` after `overlay`;
   `examples/expo` gets the dependency, the plugin and a small screen (show with three actions, clear, state);
-  `.github/workflows/ci.yml` job `status-android` (the `overlay-android` shape, running
-  `:byokit-status:testDebugUnitTest`); README table rows and the isolation sentence (D-D).
+  `.github/workflows/ci.yml` job `statusbar-android` (the `overlay-android` shape, running
+  `:byokit-statusbar:testDebugUnitTest`); README table rows and the isolation sentence (D-D).
 - **Acceptance:**
   - `StatusRulesTest` covers eligibility, the 7-character chip (code points), `check`, the signature (not
     `timeoutMs`), dedupe, the half-timeout refresh, the 1.5 s throttle, a dismissal dropping every post, and the
-    timeout-versus-dismissal split. It runs in `status-android`.
+    timeout-versus-dismissal split. It runs in `statusbar-android`.
   - `status.test.ts` (fake `NativeStatus`) covers `show` validation before any native call, the channel name from
     words, listener sets, and `createStatus(null)` unsupported everywhere; `portable`, `words` and `exports` as in
     overlay.

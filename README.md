@@ -24,7 +24,7 @@
   <a href="examples">Examples</a> ·
   <a href="docs/runtime-kits.md">Runtime kits</a> ·
   <a href="docs/capability-kits.md">Capability kits</a> ·
-  <a href="docs/machine-kit.md">Machine kit</a> ·
+  <a href="docs/cloud-kit.md">Cloud kit</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
@@ -50,11 +50,11 @@ latest first, so neither goes stale.
 | `@byokit/decide` | `npm install @byokit/decide` | [![npm](https://img.shields.io/npm/v/@byokit/decide?style=flat&label=)](https://www.npmjs.com/package/@byokit/decide) | [decide-v releases](https://github.com/umeranjum17/byokit/releases?q=decide-v) |
 | `@byokit/herdr` | `npm install @byokit/herdr` | [![npm](https://img.shields.io/npm/v/@byokit/herdr?style=flat&label=)](https://www.npmjs.com/package/@byokit/herdr) | [herdr-v releases](https://github.com/umeranjum17/byokit/releases?q=herdr-v) |
 | `@byokit/openclaw` | `npm install @byokit/openclaw` | [![npm](https://img.shields.io/npm/v/@byokit/openclaw?style=flat&label=)](https://www.npmjs.com/package/@byokit/openclaw) | [openclaw-v releases](https://github.com/umeranjum17/byokit/releases?q=openclaw-v) |
-| `@byokit/compose` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
-| `@byokit/capture` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
+| `@byokit/write` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
+| `@byokit/record` | `npm install @byokit/record` (from its first release; until then build from source) | ready to publish | [record-v releases](https://github.com/umeranjum17/byokit/releases?q=record-v) |
 | `@byokit/overlay` | `npm install @byokit/overlay` (from its first release; until then build from source) | ready to publish | [overlay-v releases](https://github.com/umeranjum17/byokit/releases?q=overlay-v) |
-| `@byokit/machine` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
-| `@byokit/status` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
+| `@byokit/cloud` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
+| `@byokit/statusbar` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
 | `@byokit/usage` | `npm install @byokit/usage` | 0.1.0 | [all releases](https://github.com/umeranjum17/byokit/releases) |
 
 Unpacked sizes as of accounts 0.4.1, decide 0.2.0, herdr 0.1.0, link 0.3.1, reach 0.2.0, relay 0.1.3, seal 0.1.0,
@@ -133,11 +133,11 @@ to ask. Each agent keeps its own subscription sign-in; the kit never sees a cred
 | [`@byokit/decide`](packages/decide) | Typed questions in, a typed answer with confidence out, abstaining below a floor; rules, Jev (API-billed) or any model (the person's own ChatGPT on a phone), evals | [![npm](https://img.shields.io/npm/v/@byokit/decide?style=flat&label=)](https://www.npmjs.com/package/@byokit/decide) |
 | [`@byokit/openclaw`](packages/openclaw) | The OpenClaw runtime kit: the pinned engine's full operator surface as typed pass-through calls, plus plain-words helpers for members, sign-in, runs and approvals, for apps where the aggregator holds the subscriptions ([spec](docs/runtime-kits.md)) | [![npm](https://img.shields.io/npm/v/@byokit/openclaw?style=flat&label=)](https://www.npmjs.com/package/@byokit/openclaw) |
 | [`@byokit/herdr`](packages/herdr) | Drive the Herdr on this computer — workspaces, panes, agents, blocked-approval answers — from an app, or hand it to a phone over a link, for apps where the aggregator holds the subscriptions ([spec](docs/runtime-kits.md)) | [![npm](https://img.shields.io/npm/v/@byokit/herdr?style=flat&label=)](https://www.npmjs.com/package/@byokit/herdr) |
-| [`@byokit/compose`](packages/compose) | Drafting in a person's voice with no model call: voice rules, platform limits, draft checks (fits, voice, kept the facts) and thread splits over a pinned writing engine, plus an agent CLI ([spec](docs/capability-kits.md)) | in development |
-| [`@byokit/capture`](packages/capture) | Record a screen or a desktop and make a video, through any recorder implementing the open recorder protocol v1 the kit defines ([spec](docs/capability-kits.md)) | in development |
+| [`@byokit/write`](packages/write) | Drafting in a person's voice with no model call: voice rules, platform limits, draft checks (fits, voice, kept the facts) and thread splits over a pinned writing engine, plus an agent CLI ([spec](docs/capability-kits.md)) | in development |
+| [`@byokit/record`](packages/record) | Record a screen or a desktop and make a video, through any recorder implementing the open recorder protocol v1 the kit defines ([spec](docs/capability-kits.md)) | ready |
 | [`@byokit/overlay`](packages/overlay) | A floating bubble over other apps on Android (Expo module): a panel that opens on tap, per-app visibility rules, a tap log with no text and an optional focused-field reader; iOS reports unsupported ([spec](docs/capability-kits.md)) | ready (Android) |
-| [`@byokit/machine`](packages/machine) | The person's own always-on cloud computer for an app's host process: typed setup, install, cost and words ([spec](docs/machine-kit.md)) | in development |
-| [`@byokit/status`](packages/status) | One ongoing job as a status-bar chip on Android 16 (Expo module): a counts-only lock-screen copy, up to three actions that need the phone unlocked, and a dismissal that sticks; iOS and older Android report unsupported ([spec](docs/capability-kits.md#12-byokitstatus)) | in development |
+| [`@byokit/cloud`](packages/cloud) | The person's own always-on cloud computer for an app's host process: typed setup, install, cost and words ([spec](docs/cloud-kit.md)) | in development |
+| [`@byokit/statusbar`](packages/statusbar) | One ongoing job as a status-bar chip on Android 16 (Expo module): a counts-only lock-screen copy, up to three actions that need the phone unlocked, and a dismissal that sticks; iOS and older Android report unsupported ([spec](docs/capability-kits.md#12-byokitstatusbar)) | in development |
 | [`@byokit/usage`](packages/usage) | Subscription usage windows and remaining room per provider and account (Node only) | Node |
 
 ## Quickstart
@@ -232,14 +232,14 @@ reserves it for its own apps. Show `billingWords(p)` next to every provider you 
 byokit never touches a person's other AI tools: not their `~/.pi`, `~/.codex` or `~/.claude`, not their CLIs.
 Runtime kits drive only the aggregator the app names explicitly (the OpenClaw engine the kit installs, the Herdr
 binary and socket the app passes); byokit tests use fakes and never a person's Herdr.
-Capability kits have their own, narrower carve-out: `@byokit/compose` loads only its exactly pinned public writing
-engine package, and `@byokit/capture` spawns only a recorder implementing recorder protocol v1 that the app passes by
+Capability kits have their own, narrower carve-out: `@byokit/write` loads only its exactly pinned public writing
+engine package, and `@byokit/record` spawns only a recorder implementing recorder protocol v1 that the app passes by
 absolute path, with an environment built from nothing; `@byokit/usage` reads only the sign-in folder the app passes
 and spawns only the Codex binary the app passes by absolute path, with an environment built from nothing plus what
-the app passes; `@byokit/overlay` and `@byokit/status` run only their own
-native code inside the app ([spec](docs/capability-kits.md)). `@byokit/machine` spawns only the `ssh` binary the app passes by absolute path
+the app passes; `@byokit/overlay` and `@byokit/statusbar` run only their own
+native code inside the app ([spec](docs/capability-kits.md)). `@byokit/cloud` spawns only the `ssh` binary the app passes by absolute path
 and the `ssh-keyscan` beside it, with the key path the app passes and a kit-owned config, and holds only the provider
-keys the app's store gives it and the scoped keys it mints for that app ([spec](docs/machine-kit.md)).
+keys the app's store gives it and the scoped keys it mints for that app ([spec](docs/cloud-kit.md)).
 `@byokit/keystore` spawns only the OS keyring CLIs by absolute path, with an environment built from nothing
 plus only what the host passes ([spec](docs/capability-kits.md)).
 Library code never reads environment keys; the explicitly invoked [decide eval CLI](packages/decide#evals) can use one

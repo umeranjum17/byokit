@@ -51,13 +51,13 @@ test('fixture dry run renders an issue body with the diff', () => {
   assert.match(body, /sessions\.compaction\.list/);
 });
 
-test('fixture dry run carries the compose engine pin: drift to a newer latest, none while unpublished', () => {
+test('fixture dry run carries the write engine pin: drift to a newer latest, none while unpublished', () => {
   const report = JSON.parse(run('json'));
-  assert.deepEqual(report.compose, { pin: '0.1.0', latest: '0.2.0', drift: true });
+  assert.deepEqual(report.write, { pin: '0.1.0', latest: '0.2.0', drift: true });
   assert.match(run('summary'), /ownvoice-engine pin 0\.1\.0 -> latest 0\.2\.0: DRIFT/);
   const unpublished = scratchDir('pin-watch');
   cpSync(fixtures, unpublished, { recursive: true });
-  writeFileSync(join(unpublished, 'compose-latest.json'), '{"version":null}\n');
+  writeFileSync(join(unpublished, 'write-latest.json'), '{"version":null}\n');
   const summary = execFileSync('node', [script, '--fixtures', unpublished, '--format', 'summary'], { encoding: 'utf8', timeout: 60000 });
   assert.match(summary, /ownvoice-engine pin 0\.1\.0: not on npm yet/);
 });

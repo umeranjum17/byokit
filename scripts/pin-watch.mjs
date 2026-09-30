@@ -10,7 +10,7 @@
 //   packages/herdr/src/constants.ts) against https://herdr.dev/latest.json,
 //   diffing request methods and subscription kinds from the new release's
 //   `api schema` output when its asset can be fetched and verified;
-// - the compose engine pin (ENGINE_VERSION in packages/compose/src/constants.ts)
+// - the write engine pin (ENGINE_VERSION in packages/write/src/constants.ts)
 //   against the npm `latest` dist-tag of ownvoice-engine (none until it is
 //   published). A new version means regenerating from its schema (4.9).
 //
@@ -69,7 +69,7 @@ function diffLists(oldArr, newArr) {
 // --- doc shapes -----------------------------------------------------------
 // openclaw doc: { version, methods: string[], events?: string[] }
 // herdr doc:    { version, protocol, methods: string[], events: string[] }
-// compose doc:  { version: string | null }  (null: not on npm)
+// write doc:  { version: string | null }  (null: not on npm)
 
 function summarizePair(label, oldDoc, newDoc) {
   const methods = diffLists(oldDoc.methods, newDoc.methods);
@@ -109,7 +109,7 @@ function readFixtures(dir) {
     ocLatest: read('openclaw-latest.json'),
     herdrPinned: read('herdr-pinned.json'),
     herdrLatest: read('herdr-latest.json'),
-    composeLatest: read('compose-latest.json'),
+    writeLatest: read('write-latest.json'),
   };
 }
 
@@ -262,12 +262,12 @@ function readPins() {
   const constants = readFileSync(join(repoDir, 'packages/herdr/src/constants.ts'), 'utf8');
   const herdrVersion = constants.match(/HERDR_VERSION = '([^']+)'/)?.[1];
   const herdrProtocol = Number(constants.match(/HERDR_PROTOCOL(?:: number)? = (\d+)/)?.[1]);
-  const compose = readFileSync(join(repoDir, 'packages/compose/src/constants.ts'), 'utf8')
+  const write = readFileSync(join(repoDir, 'packages/write/src/constants.ts'), 'utf8')
     .match(/ENGINE_VERSION(?:: string)? = '([^']+)'/)?.[1];
-  if (!engine.dependencies?.openclaw || !herdrVersion || !Number.isFinite(herdrProtocol) || !compose) {
-    die('could not read pins from engine/package.json and the herdr and compose constants.ts');
+  if (!engine.dependencies?.openclaw || !herdrVersion || !Number.isFinite(herdrProtocol) || !write) {
+    die('could not read pins from engine/package.json and the herdr and write constants.ts');
   }
-  return { openclaw: engine.dependencies.openclaw, herdr: herdrVersion, herdrProtocol, compose };
+  return { openclaw: engine.dependencies.openclaw, herdr: herdrVersion, herdrProtocol, write };
 }
 
 function curlJson(url) {
@@ -326,7 +326,7 @@ function herdrSchemaDoc(manifest) {
 }
 
 // ownvoice-engine's `latest`, or null while the package is not on npm (E404).
-function composeLatestDoc() {
+function writeLatestDoc() {
   const view = spawnSync('npm', ['view', 'ownvoice-engine', 'dist-tags', '--json'], {
     env: { ...process.env, HOME: process.env.HOME ?? tmpdir() },
     encoding: 'utf8',
@@ -380,7 +380,7 @@ function liveDocs() {
     : null;
   if (schemaDoc) herdrLatest = schemaDoc;
 
-  return { pins, ocPinned, ocStable: ocStableFull, ocLatest: ocLatestFull, herdrPinned, herdrLatest, composeLatest: composeLatestDoc() };
+  return { pins, ocPinned, ocStable: ocStableFull, ocLatest: ocLatestFull, herdrPinned, herdrLatest, writeLatest: writeLatestDoc() };
 }
 
 // --- report ---------------------------------------------------------------
@@ -402,8 +402,8 @@ function buildReport(d) {
       events: diffLists(d.herdrPinned.events ?? [], d.herdrLatest.events ?? []),
     };
   }
-  const composeDrift = d.composeLatest.version !== null && d.composeLatest.version !== d.pins.compose;
-  const drift = composeDrift || toLatest.methods.added.length > 0 || toLatest.methods.removed.length > 0
+  const writeDrift = d.writeLatest.version !== null && d.writeLatest.version !== d.pins.write;
+  const drift = writeDrift || toLatest.methods.added.length > 0 || toLatest.methods.removed.length > 0
     || (toLatest.events !== null && (toLatest.events.added.length > 0 || toLatest.events.removed.length > 0))
     || toStable.methods.added.length > 0 || toStable.methods.removed.length > 0
     || herdrDrift;
@@ -422,7 +422,7 @@ function buildReport(d) {
       diff: herdrDiff,
       drift: herdrDrift,
     },
-    compose: { pin: d.pins.compose, latest: d.composeLatest.version, drift: composeDrift },
+    write: { pin: d.pins.write, latest: d.writeLatest.version, drift: writeDrift },
     drift,
   };
 }
@@ -431,10 +431,10 @@ function fmtCount(from, to, added, removed) {
   return `+${added}/-${removed} (${from} -> ${to})`;
 }
 
-function composeLine(c) {
+function writeLine(c) {
   if (c.latest === null) return `ownvoice-engine pin ${c.pin}: not on npm yet`;
   return c.drift
-    ? `ownvoice-engine pin ${c.pin} -> latest ${c.latest}: DRIFT (regenerate from its schema: npm run gen:compose)`
+    ? `ownvoice-engine pin ${c.pin} -> latest ${c.latest}: DRIFT (regenerate from its schema: npm run gen:write)`
     : `ownvoice-engine pin ${c.pin}: up to date with latest`;
 }
 
@@ -458,7 +458,7 @@ function renderSummary(r) {
   } else {
     lines.push(`herdr pin ${h.pin} (protocol ${h.pinProtocol}): up to date with latest.json`);
   }
-  lines.push(composeLine(r.compose));
+  lines.push(writeLine(r.write));
   lines.push(`drift: ${r.drift ? 'yes' : 'no'}`);
   return lines.join('\n');
 }
@@ -496,7 +496,7 @@ function renderIssueBody(r) {
     body += `Version/protocol drift, but the new schema could not be fetched in CI. `
       + `Download the release asset, verify its sha256 against the manifest, run \`api schema\`, and diff against the pinned snapshot.\n`;
   }
-  body += `\n## Compose engine\n\n${composeLine(r.compose)}.\n`;
+  body += `\n## Write engine\n\n${writeLine(r.write)}.\n`;
   body += `\n---\nNext step is the pin-advance procedure, not this report: regenerate the typed surface, re-verify, and bump the pin.\n`;
   return body;
 }
@@ -514,7 +514,7 @@ if (FIXTURES) {
     ocLatest: f.ocLatest,
     herdrPinned: f.herdrPinned,
     herdrLatest: f.herdrLatest,
-    composeLatest: f.composeLatest,
+    writeLatest: f.writeLatest,
   };
 } else {
   docs = liveDocs();
