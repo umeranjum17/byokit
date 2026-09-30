@@ -1,0 +1,13 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- No INTERNET permission: the proof's recognizer is entirely in this app. -->
+    <queries><intent><action android:name="android.speech.RecognitionService" /></intent></queries>
+    <application android:label="Dictation consumer proof" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity android:name=".DictationActivity" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity>
+        <service android:name=".FixtureRecognizer" android:exported="false" android:permission="android.permission.BIND_SPEECH_RECOGNITION_SERVICE">
+            <intent-filter><action android:name="android.speech.RecognitionService" /></intent-filter>
+        </service>
+    </application>
+</manifest>

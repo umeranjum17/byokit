@@ -19,6 +19,7 @@ those same files.
 | `conformance/sse.json` | Shared streamed ChatGPT answer → its text, or the error it ended with. |
 | `conformance/sse-typescript.json` | TypeScript-only completion requirement, authoritative output, and coded SSE limits. |
 | `conformance/incomplete-typescript.json` | TypeScript-only cut-off answers: typed error, partial output, and incomplete event for SSE and JSON. |
+| `conformance/dictation-typescript.json` | Stable live partials, final-only corrections, silence and cancellation. |
 | `conformance/plain-words.json` | The pattern no sentence in `words.json` may match. |
 | `conformance/link-frames-typescript.json` | TypeScript link transport rejects missing kinds, unknown kinds and truncated stream ids. |
 
