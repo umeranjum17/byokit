@@ -1,3 +1,4 @@
+import { sealing } from './sealing.ts';
 // "Sign in with ChatGPT" on Pi's real ChatGPT sign-in, with OpenAI stood in for (mocked token and device endpoints):
 // the redirect back to this computer, the app's own page in that tab, the code fallback, and every way it can go wrong.
 // Moved from Crewhouse's test/onboard.test.ts with the code it covers.
@@ -42,7 +43,7 @@ const OWNER = 1;
 function accounts() {
   const dir = scratchDir('signin');
   const path = (m: number) => join(dir, String(m), 'auth.json');
-  return { a: new Accounts<any, number>({ app: 'Crewhouse', store: (m) => fileStore(path(m)), callbackPort: port, redirectMs: 600 }), path };
+  return { a: new Accounts<any, number>({ app: 'Crewhouse', store: (m) => fileStore(path(m), sealing), callbackPort: port, redirectMs: 600 }), path };
 }
 const back = async (q: Record<string, string>) => {
   const res = await realFetch(`http://127.0.0.1:${port}/auth/callback?${new URLSearchParams(q)}`);
@@ -75,7 +76,7 @@ test("sign in with ChatGPT: its own page, straight back here; the tab shows the 
     assert.equal(a.view(OWNER, 'chatgpt')!.state, 'done');
     assert.equal(await a.signedIn(OWNER, 'chatgpt'), true);
     assert.equal(await a.signedIn(2, 'chatgpt'), false);
-    assert.match(readFileSync(path(OWNER), 'utf8'), /openai-codex/);
+    assert.match(sealing.decryptString(readFileSync(path(OWNER))), /openai-codex/);
     assert.deepEqual(await a.plan(OWNER), { plan: 'plus', email: 'sara@example.com', work: false });
   } finally { a.stop(); }
 });
@@ -155,7 +156,7 @@ test("Pi's engine keeps a successful short-lived refresh for keepFresh and force
     openai.expiresIn = 1800;
     await a.keepFresh([OWNER]);
     assert.equal((await a.status(OWNER, 'chatgpt')).state, 'ready');
-    assert.equal(JSON.parse(readFileSync(path(OWNER), 'utf8'))['openai-codex'].refresh, 'r2');
+    assert.equal(JSON.parse(sealing.decryptString(readFileSync(path(OWNER))))['openai-codex'].refresh, 'r2');
     assert.equal(await a.recheck(OWNER, 'chatgpt'), true);
     assert.equal(await a.signedIn(OWNER, 'chatgpt'), true);
   } finally { openai.expiresIn = 864_000; a.stop(); }
@@ -180,6 +181,6 @@ test("Pi's engine cannot refresh between revoke and removal", async () => {
     await signout;
     assert.equal(await refreshing, undefined);
     assert.equal(openai.refreshes, before);
-    assert.deepEqual(JSON.parse(readFileSync(path(OWNER), 'utf8')), {});
+    assert.deepEqual(JSON.parse(sealing.decryptString(readFileSync(path(OWNER)))), {});
   } finally { release(); onRevoke = undefined; a.stop(); }
 });

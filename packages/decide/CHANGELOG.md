@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Depends on @byokit/accounts 0.8.0.
+- SECURITY: (from @byokit/accounts 0.8.0) Desktop fileStore now requires a sealing adapter, rejects insecure Electron storage backends, and refuses symlink or permissive credential files. Plaintext stores must revoke old credentials and sign in again; previously sealed stores remain readable with the same adapter.
+- SECURITY: (from @byokit/accounts 0.8.0) Credential writes use exclusive random temporary files with no-follow opens and file sync before atomic replacement when Node permissions allow it; default sign-in and discarded-credential revoke logs no longer include raw provider errors or member identifiers.
+## 0.4.2 (2026-09-30)
+
 ## 0.4.1 (2026-09-30)
 
 - FIX: (from @byokit/accounts 0.7.1) a cut-off answer is now reported as cut off: `respond` throws `IncompleteError` with its reason and partial output, and notifies `onEvent`, instead of returning it as finished.

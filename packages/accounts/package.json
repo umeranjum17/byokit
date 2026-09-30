@@ -1,6 +1,6 @@
 {
   "name": "@byokit/accounts",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Sign in with the AI plan you already pay for, into your app's own store.",
   "license": "Apache-2.0",
   "type": "module",
@@ -40,7 +40,8 @@
   },
   "files": [
     "dist",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "SECURITY.md"
   ],
   "scripts": {
     "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"

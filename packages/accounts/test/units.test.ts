@@ -1,7 +1,8 @@
+import { sealing } from './sealing.ts';
 // Stores, isolate(), classify and words.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, statSync } from 'node:fs';
+import { chmodSync, readFileSync, readdirSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
 import { PROVIDERS, WORDS, billingWords, classify, fileStore, isolate, say, signInError } from '../src/index.ts';
@@ -9,17 +10,17 @@ import { PROVIDERS, WORDS, billingWords, classify, fileStore, isolate, say, sign
 test('the file store: Pi\'s auth.json shape, 0600 in a 0700 folder, serialized writes', async () => {
   const dir = join(scratchDir('store'), 'people', '1');
   const path = join(dir, 'auth.json');
-  const s = fileStore(path);
+  const s = fileStore(path, sealing);
   assert.equal(await s.read('openai-codex'), undefined);
   const cred = { type: 'oauth' as const, access: 'a', refresh: 'r', expires: 1 };
   await Promise.all([s.modify('openai-codex', async () => cred), s.modify('xai', async () => ({ type: 'api_key', key: 'k' }))]);
-  assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), { 'openai-codex': cred, xai: { type: 'api_key', key: 'k' } });
+  assert.deepEqual(JSON.parse(sealing.decryptString(readFileSync(path))), { 'openai-codex': cred, xai: { type: 'api_key', key: 'k' } });
   assert.equal(statSync(path).mode & 0o777, 0o600);
   assert.equal(statSync(dir).mode & 0o777, 0o700);
   assert.deepEqual(await s.list(), [{ providerId: 'openai-codex', type: 'oauth' }, { providerId: 'xai', type: 'api_key' }]);
   assert.deepEqual(await s.modify('xai', async () => undefined), { type: 'api_key', key: 'k' }, 'undefined leaves it as it was');
   await s.delete('xai');
-  assert.deepEqual(await fileStore(path).list(), [{ providerId: 'openai-codex', type: 'oauth' }]);
+  assert.deepEqual(await fileStore(path, sealing).list(), [{ providerId: 'openai-codex', type: 'oauth' }]);
 });
 
 test("the file store sealed with Electron's safeStorage: no sign-in readable in the file, the same sign-ins back", async () => {
@@ -34,6 +35,45 @@ test("the file store sealed with Electron's safeStorage: no sign-in readable in 
   assert.doesNotMatch(readFileSync(path, 'latin1'), /secret|openai-codex/);
   assert.equal(statSync(path).mode & 0o777, 0o600);
   assert.deepEqual(await fileStore(path, safeStorage).read('openai-codex'), cred);
+});
+
+test('file storage refuses plaintext fallback, insecure backends and unsafe filesystem entries', async () => {
+  const dir = scratchDir('store-safety');
+  const path = join(dir, 'auth.json');
+  const victim = join(dir, 'victim');
+  const cred = { type: 'oauth' as const, access: 'canary-access', refresh: 'canary-refresh', expires: 1 };
+  assert.throws(() => fileStore(path, undefined as any), /sealing adapter/);
+  assert.throws(() => fileStore(path, { ...sealing, isEncryptionAvailable: () => false }), /unavailable/);
+  assert.throws(() => fileStore(path, { ...sealing, getSelectedStorageBackend: () => 'basic_text' }), /unavailable/);
+  let available = true;
+  const guarded = fileStore(path, { ...sealing, isEncryptionAvailable: () => available });
+  available = false;
+  await assert.rejects(guarded.modify('openai-codex', async () => cred), /unavailable/);
+  assert.deepEqual(readdirSync(dir), []);
+  writeFileSync(victim, 'untouched');
+  symlinkSync(victim, path);
+  await assert.rejects(fileStore(path, sealing).read('openai-codex'));
+  await assert.rejects(fileStore(path, sealing).modify('openai-codex', async () => cred));
+  assert.equal(readFileSync(victim, 'utf8'), 'untouched');
+  unlinkSync(path);
+  // The old predictable temporary path is never opened or overwritten.
+  symlinkSync(victim, `${path}.tmp`);
+  await fileStore(path, sealing).modify('openai-codex', async () => cred);
+  const before = readFileSync(path);
+  assert.equal(readFileSync(victim, 'utf8'), 'untouched');
+  assert.doesNotMatch(before.toString('latin1'), /canary-access|canary-refresh/);
+  assert.deepEqual(readdirSync(dir).sort(), ['auth.json', 'auth.json.tmp', 'victim']);
+  await assert.rejects(fileStore(path, { ...sealing, encryptString: () => { throw new Error('locked'); } }).delete('openai-codex'), /locked/);
+  assert.deepEqual(readFileSync(path), before);
+  chmodSync(path, 0o644);
+  await assert.rejects(fileStore(path, sealing).read('openai-codex'), /private regular file/);
+  chmodSync(path, 0o600);
+  chmodSync(dir, 0o755);
+  await assert.rejects(fileStore(path, sealing).read('openai-codex'), /private 0700 folder/);
+  chmodSync(dir, 0o700);
+  const linkedDir = join(scratchDir('linked-folder'), 'link');
+  symlinkSync(dir, linkedDir);
+  await assert.rejects(fileStore(join(linkedDir, 'auth.json'), sealing).read('openai-codex'), /private 0700 folder/);
 });
 
 test('isolate() scrubs inherited Pi settings and provider keys, and pins the engine folder', () => {
