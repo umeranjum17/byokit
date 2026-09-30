@@ -1,7 +1,9 @@
 package io.github.umeranjum17.byokit.example.a11y
 
 import android.app.UiAutomation
+import android.accessibilityservice.AccessibilityService
 import android.content.Intent
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.umeranjum17.byokit.overlay.FocusedFields
@@ -30,6 +32,49 @@ class WebFocusedFieldTest {
     return result
   }
 
+  /** DOM focus completes before Chromium publishes it to Android. Wait on that independent test precondition,
+   * not on repeated kit reads: once ready, each run still requires read/capture/insert to succeed on its first call.
+   */
+  @Suppress("DEPRECATION")
+  private fun awaitFocus(service: AccessibilityService, description: String, text: String? = null, password: Boolean = false) {
+    require(password || text != null)
+    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+    val app = instrumentation.targetContext.packageName
+    do {
+      val editors = mutableListOf<AccessibilityNodeInfo>()
+      fun visit(node: AccessibilityNodeInfo) {
+        var kept = false
+        try {
+          if (!node.refresh() || node.packageName?.toString() != app) return
+          if (node.isEditable) {
+            editors += node
+            kept = true
+          }
+          for (i in 0 until node.childCount) node.getChild(i)?.let(::visit)
+        } finally {
+          if (!kept) node.recycle()
+        }
+      }
+      try {
+        // Read raw framework snapshots, including virtual nodes, without exercising the kit's resolver.
+        for (window in service.windows) {
+          try { window.root?.let(::visit) } finally { window.recycle() }
+        }
+        service.rootInActiveWindow?.let(::visit)
+        val unique = editors.distinct() // active root can repeat a window's independently owned snapshot
+        val focused = unique.filter { it.isFocused }
+        val ready = focused.singleOrNull()?.let {
+          it.isPassword == password && (password || it.text?.toString() == text)
+        } ?: false
+        if (ready) return
+      } finally {
+        editors.forEach { it.recycle() }
+      }
+      Thread.sleep(25) // polling interval, never a substitute for the focus/text condition
+    } while (System.nanoTime() < deadline)
+    fail("Android accessibility focus did not settle: $description")
+  }
+
   @Test fun textareaAndInputResolveAndInsertTenTimesAndPasswordsStayHidden() {
     val context = instrumentation.targetContext
     val previous = shell("settings get secure enabled_accessibility_services")
@@ -47,15 +92,17 @@ class WebFocusedFieldTest {
       activity = page
       assertTrue("Local WebView page loaded", page.loaded.await(10, TimeUnit.SECONDS))
 
+      assertEquals("\"\"", js(page, "document.activeElement.id"))
       assertNull("No focus never guesses the decoy", FocusedFields.read(service))
       repeat(10) { run ->
-        for ((id, seed) in listOf("area" to "textarea seed", "line" to "input seed")) {
+        for ((id, label) in listOf("area" to "textarea", "line" to "input")) {
+          val seed = "$label seed $run" // a prior run's cached text cannot satisfy the readiness condition
           instrumentation.runOnMainSync { page.web.requestFocus() }
           assertEquals("\"$id\"", js(page, """
             (() => { const field = document.getElementById('$id'); field.value = '$seed';
               field.focus(); field.setSelectionRange(0, field.value.length); return document.activeElement.id; })()
           """.trimIndent()))
-          // No sleep/poll here: the production resolver must handle the settling virtual tree itself.
+          awaitFocus(service, "$id ${run + 1}/10", text = seed)
           val read = FocusedFields.read(service)
           assertNotNull("$id read ${run + 1}/10", read)
           assertEquals("$id resolves the right node", seed, read!!.text)
@@ -68,7 +115,8 @@ class WebFocusedFieldTest {
           assertEquals("\"leave me alone\"", js(page, "document.getElementById('decoy').value"))
         }
       }
-      js(page, "document.getElementById('password').focus(); document.activeElement.id")
+      assertEquals("\"password\"", js(page, "document.getElementById('password').focus(); document.activeElement.id"))
+      awaitFocus(service, "password editor", password = true)
       assertNull("Password read is hidden", FocusedFields.read(service))
       assertNull("Password capture is hidden", FocusedFields.capture(service))
       val root = service.rootInActiveWindow ?: error("Password window root unavailable")
