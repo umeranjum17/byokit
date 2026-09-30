@@ -1985,8 +1985,8 @@ H1, and O12/H10 (README example rows); later merges rebase.
   with `startModelStub` (engine job); `run.test.ts` = Crewhouse `openclaw-run.test.ts` ported (real tool call crosses
   the fail-closed gate; keyword-only memory never requests embeddings; no `/v1/embeddings` call); `generated.test.ts`
   regenerates the tables from the pinned tarball and diffs the committed ones; `hello.features.methods` ⊇ every
-  generated operator method (else list them in `report.json` and fail); every `offer: true` route starts on the real
-  engine with only its `plugin` allowed; `exec.approval.requested`/`plugin.approval.requested` from the real engine
+  generated operator method (else list them in `report.json` and fail); every offered app-guided route starts on the real
+  engine with its provider plugin allowed by default; `exec.approval.requested`/`plugin.approval.requested` from the real engine
   carry the requesting member in `Approval.member`.
 
 **O12 — example app** · Flash · deps: O9, O11
