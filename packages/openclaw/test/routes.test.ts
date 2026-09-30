@@ -8,7 +8,7 @@ import { routeFor, routes } from '../src/routes.ts';
 // xai-device-code is not among them: the pin marks it manual-only and the gateway refuses it).
 const OFFERED = [
   'openai', 'openai-device-code', 'xai-oauth', 'github-copilot', 'github-copilot-enterprise',
-  'minimax-global-oauth', 'minimax-cn-oauth',
+  'minimax-global-oauth', 'minimax-cn-oauth', 'anthropic-cli',
 ];
 // The pin's `appGuidedAuth: 'device-code'`: the person completes these with a code, not a localhost callback.
 const DEVICE_CODE = ['openai-device-code', 'xai-oauth', 'github-copilot', 'github-copilot-enterprise', 'minimax-global-oauth', 'minimax-cn-oauth', 'xai-device-code'];
@@ -54,25 +54,24 @@ test('OpenRouter is API-billed, never offered (no silent API billing)', () => {
   assert.equal(routeFor('openrouter', 'code'), undefined);
 });
 
-test('Anthropic routes require explicit app opt-in; API keys are labelled as billed per use (D12)', () => {
-  const byChoice = new Map(routes().map((route) => [route.choice, route]));
-  for (const route of routes()) {
-    if (route.provider !== 'anthropic' && !route.choice.startsWith('anthropic-')) continue;
-    assert.equal(route.offer, false, `${route.choice} must require explicit opt-in`);
-  }
+test('native Claude Code login is offered with honest billing; key and token never become fallbacks', () => {
+  const cli = routeFor('claude-cli', 'browser')!;
+  assert.equal(cli.choice, 'anthropic-cli');
+  assert.equal(cli.plugin, 'anthropic');
+  assert.equal(cli.auth, 'cli');
+  assert.equal(cli.billing, 'subscription');
+  assert.equal(cli.terms, 'allowed');
+  assert.match(cli.prerequisite!, /login stays in Claude Code/);
+  assert.match(cli.termsUrl!, /legal-and-compliance#authentication-and-credential-use/);
+  const key = routes().find((route) => route.choice === 'apiKey')!;
+  assert.equal(key.auth, 'api_key');
+  assert.equal(key.billing, 'api');
+  assert.equal(key.reason, 'API key (billed per use)');
+  assert.equal(key.offer, false);
   assert.equal(routeFor('anthropic', 'browser'), undefined);
-  assert.equal(routeFor('anthropic', 'code'), undefined);
-  // The Claude-plan routes are still labelled as the subscriptions they are, and require explicit app opt-in.
-  for (const choice of ['anthropic-cli', 'setup-token']) {
-    assert.equal(byChoice.get(choice)?.billing, 'subscription', choice);
-    assert.equal(byChoice.get(choice)?.reason, 'Requires an explicit app opt-in; the pinned Gateway does not expose this plan route', choice);
-  }
-  // An Anthropic API key is API billing, and is never offered by default.
-  assert.equal(byChoice.get('apiKey')?.billing, 'api');
-  assert.equal(byChoice.get('apiKey')?.offer, false);
-  assert.match(byChoice.get('apiKey')?.reason ?? '', /API key \(billed per use\)/);
-  // The CLI prerequisite is stated where it exists, so a card can say it in plain words.
-  assert.match(byChoice.get('anthropic-cli')?.prerequisite ?? '', /Claude CLI/);
+  const token = routes().find((route) => route.choice === 'setup-token')!;
+  assert.equal(token.terms, 'grey');
+  assert.equal(token.offer, false);
 });
 
 test('a route the pinned gateway refuses is not offered (B6)', () => {

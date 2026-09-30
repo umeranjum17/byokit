@@ -259,6 +259,10 @@ test('oc.state carries the kit and engine versions and the member\'s sign-ins', 
   w.fake.handle('models.authStatus', (p) => ({ providers: p.agentId === 'a' ? [{ provider: 'openai', status: 'ok' },
     { provider: 'xai', status: 'expired', profiles: [{ status: 'expired' }] }, { provider: 'minimax', status: 'missing' }] : [] }));
   assert.deepEqual((await a.oc.state()).signedIn, ['openai']);
+  w.fake.handle('openclaw.setup.detect', (p) => ({ candidates: p.agentId === 'a' ? [{ kind: 'claude-cli', credentials: true }] : [] }));
+  assert.deepEqual((await a.oc.state()).signedIn, ['openai', 'claude-cli']);
+  assert.equal(await w.kit.signedIn('a', 'claude-cli'), true);
+  w.fake.handle('openclaw.setup.detect', () => ({ candidates: [] }));
   w.fake.handle('models.authStatus', () => ({ providers: [], unavailable: { code: 'PREPARED_MODEL_AUTH_UNAVAILABLE' } }));
   assert.equal((await a.oc.state()).signedIn, undefined, 'no prepared status is unknown, not none');
   w.fake.handle('models.authStatus', (p) => ({ providers: p.agentId === 'a' ? [{ provider: 'openai', status: 'ok' }] : [] }));
@@ -397,4 +401,26 @@ test('serve binds per reach and pairs over its urls', async () => {
   const oc = openclawDevice(link);
   assert.equal((await oc.state()).state.phase, 'ready');
   await served.close();
+});
+
+test('native Claude sign-in is offered over the link and keeps account state in the engine', async () => {
+  const w = await world();
+  let loggedIn = true;
+  w.fake.handle('openclaw.setup.detect', () => ({ candidates: [{ kind: 'claude-cli', credentials: loggedIn }] }));
+  w.fake.handle('openclaw.setup.activate', (params) => {
+    assert.deepEqual(params, { agentId: 'a', kind: 'claude-cli' });
+    return { ok: true };
+  });
+  const a = await device(w, 'a');
+  assert.ok((await a.oc.routes()).some((route) => route.choice === 'anthropic-cli' && route.provider === 'claude-cli'));
+  await a.oc.signIn.start('claude-cli', 'browser');
+  const view = await until(async () => {
+    const next = await a.oc.signIn.view('claude-cli');
+    return next.signIn?.state === 'done' ? next : undefined;
+  });
+  assert.equal(view.ready, true);
+  assert.deepEqual((await a.oc.state()).signedIn, ['claude-cli']);
+  loggedIn = false;
+  assert.deepEqual(await a.oc.signIn.view('claude-cli'), { ready: false, signIn: null });
+  assert.deepEqual((await a.oc.state()).signedIn, []);
 });

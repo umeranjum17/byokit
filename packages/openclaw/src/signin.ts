@@ -1,7 +1,9 @@
 // Sign-in: the kit drives OpenClaw's own setup wizard loop and holds the ChatGPT callback port during a browser
-// sign-in; credentials never pass through kit or app (D11, 5.7).
+// sign-in; OAuth credentials stay in the engine/CLI. Explicit API keys go only to engine activation (D11).
 import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
+import { authStatus } from './auth-status.ts';
+import { signedInProviders } from './runs.ts';
 import { words } from './words.ts';
 import type { GatewayTransport, Member, SignInOptions, SignInView } from './types.ts';
 
@@ -21,7 +23,6 @@ const CANCEL_MS = 10_000;
 const TURNS = 200;
 const PASTE_MS = 15 * 60_000;
 
-type Entry = string | { provider?: unknown };
 type Step = { id?: string; type?: string; sensitive?: boolean; deviceCode?: { code?: string; expires_in?: number | string; expiresInMinutes?: number }; externalUrl?: string };
 type Pull = { done?: boolean; status?: string; error?: string; step?: Step };
 
@@ -78,6 +79,8 @@ export function signIn(
     stopApproval();
     o.signal?.removeEventListener('abort', cancel);
     owner.abort();
+    returned = undefined;
+    pasteIn = undefined;
     await closeCallback();
     on(view);
     settle(view);
@@ -93,6 +96,7 @@ export function signIn(
     return releasing;
   };
   const paste = (text: string): void => {
+    if (over) return;
     if (pasteIn) pasteIn(text);
     else returned = text; // the browser came back before the wizard asked; held for the text step
   };
@@ -139,8 +143,40 @@ export function signIn(
       if (!server) return { state: 'failed', via, why: 'busy' };
     }
     const { agentId } = await ctx.ensure(member);
-    // The session id is the client's to choose (5.7), and the start request carries no abort signal: the engine
-    // registers the session as it settles, so a cancel waits for it (release) rather than racing it.
+    // Native login is completed by the person in unmodified Claude Code. The pin does not expose this
+    // choice via auth.start; activation verifies the CLI route and persists it only after a live test succeeds.
+    if (o.authChoice === 'anthropic-cli' || o.authChoice === 'apiKey') {
+      settleStart();
+      let apiKey: string | undefined;
+      if (o.authChoice === 'anthropic-cli') {
+        const detected = await ctx.request('openclaw.setup.detect', { agentId }, { timeoutMs: STATUS_MS }) as {
+          candidates?: { kind?: string; credentials?: boolean }[];
+        };
+        if (!detected.candidates?.some((candidate) => candidate.kind === 'claude-cli' && candidate.credentials === true))
+          return { state: 'failed', via, why: 'failed', error: 'Sign in with Claude Code on this machine in the kit’s isolated HOME, then try again. The login stays in Claude Code.' };
+      } else {
+        say({ prompt: 'API key (billed per use)' });
+        apiKey = returned ?? await new Promise<string | undefined>((resolve) => {
+          const stop = (value?: string) => { clearTimeout(timer); signal.removeEventListener('abort', abort); pasteIn = undefined; resolve(value); };
+          const abort = () => stop();
+          const timer = setTimeout(abort, PASTE_MS);
+          pasteIn = stop;
+          signal.addEventListener('abort', abort, { once: true });
+          if (signal.aborted) abort();
+        });
+        returned = undefined;
+        if (!apiKey) return { state: 'failed', via, why: signal.aborted ? 'declined' : 'expired' };
+      }
+      if (signal.aborted) return { state: 'failed', via, why: 'declined' };
+      const result = await ctx.request('openclaw.setup.activate', {
+        agentId, kind: apiKey === undefined ? 'claude-cli' : 'api-key',
+        ...(apiKey === undefined ? {} : { authChoice: 'apiKey', apiKey }),
+      }, { timeoutMs: PULL_MS, signal }) as { ok?: boolean; error?: string };
+      // API secrets must never be echoed in a view, even if the gateway returns an error containing one.
+      return result.ok ? { state: 'done', via } : { state: 'failed', via, why: 'failed',
+        error: apiKey === undefined ? cut(result.error ?? 'Claude Code activation failed') : 'API key activation failed' };
+    }
+    // The client chooses the wizard id; cancellation waits for the engine to register it.
     sessionId = `byokit-${randomUUID()}`;
     let started: { done?: boolean };
     try {
@@ -241,7 +277,7 @@ export function signIn(
       if (signal.aborted) view = codeExpired ? expired() : cancelled();
       else if (sawDeviceCode && /expired_token|code.*expired|device.*(?:expired|timed out)/i.test(cut(error))) view = expired();
       else if (BUSY.test(cut(error))) view = { state: 'failed', via, why: 'busy' };
-      else view = { state: 'failed', via, why: 'failed', error: cut(error) };
+      else view = { state: 'failed', via, why: 'failed', error: o.authChoice === 'apiKey' ? 'API key activation failed' : cut(error) };
     }
     settleStart();
     if (view.state !== 'done') await release();
@@ -251,12 +287,10 @@ export function signIn(
   return { paste, cancel, done };
 }
 
-/** The providers this member's engine reports as signed in, from `models.authStatus` (a string or `{ provider }`). */
+/** Usable provider profiles plus native Claude Code readiness reported by the engine. */
 export async function providers(ctx: SignInCtx, member: Member, refresh?: boolean): Promise<string[]> {
   const { agentId } = await ctx.ensure(member);
-  const status = await ctx.request('models.authStatus', { agentId, ...(refresh ? { refresh: true } : {}) }, { timeoutMs: STATUS_MS }) as { providers?: Entry[] };
-  const names = (status?.providers ?? []).map((entry) => (typeof entry === 'string' ? entry : entry?.provider));
-  return [...new Set(names.filter((name): name is string => typeof name === 'string' && name !== ''))];
+  return signedInProviders(await authStatus(ctx.request, agentId, refresh, true)) ?? [];
 }
 
 export async function signOut(ctx: SignInCtx, member: Member, provider: string): Promise<void> {

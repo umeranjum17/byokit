@@ -408,7 +408,7 @@ test('providers reads both entry shapes, dedupes, and signOut names the provider
   });
   assert.deepEqual(await providers(ctx(fake), 'm1'), ['openai']);
   assert.deepEqual(await providers(ctx(fake), 'm1', true), ['openai', 'xai']);
-  assert.deepEqual(fake.calls[1]!.params, { agentId: 'm1', refresh: true });
+  assert.deepEqual(fake.calls.filter((call) => call.method === 'models.authStatus')[1]!.params, { agentId: 'm1', refresh: true });
   await signOut(ctx(fake), 'm1', 'openai');
   assert.deepEqual(fake.calls.at(-1), { method: 'models.authLogout', params: { provider: 'openai', agentId: 'm1' } });
 });
@@ -455,4 +455,40 @@ test('the kit never imports without an engine: a doctor run that cannot happen s
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });
   }
+});
+
+test('Claude Code sign-in uses engine detection and activation, never an OAuth wizard or credentials', async () => {
+  const fake = scripted({
+    'openclaw.setup.detect': () => ({ candidates: [{ kind: 'claude-cli', credentials: true }] }),
+    'openclaw.setup.activate': (params) => { assert.deepEqual(params, { agentId: 'm1', kind: 'claude-cli' }); return { ok: true }; },
+  });
+  assert.deepEqual(await signIn(ctx(fake), 'm1', { authChoice: 'anthropic-cli' }, () => {}).done,
+    { state: 'done', via: 'browser' });
+  assert.deepEqual(fake.methods(), ['openclaw.setup.detect', 'openclaw.setup.activate']);
+});
+
+test('Claude Code login missing or unknown refuses activation and asks for the native login', async () => {
+  for (const credentials of [false, undefined]) {
+    const fake = scripted({ 'openclaw.setup.detect': () => ({ candidates: [{ kind: 'claude-cli', credentials }] }) });
+    const result = await signIn(ctx(fake), 'm1', { authChoice: 'anthropic-cli' }, () => {}).done;
+    assert.equal(result.state, 'failed');
+    assert.match(result.error!, /login stays in Claude Code/);
+    assert.deepEqual(fake.methods(), ['openclaw.setup.detect']);
+  }
+});
+
+test('explicit Anthropic key entry is API billed and never echoed in views or errors', async () => {
+  const secret = 'test-secret-not-a-real-key';
+  const fake = scripted({
+    'openclaw.setup.activate': (params) => {
+      assert.deepEqual(params, { agentId: 'm1', kind: 'api-key', authChoice: 'apiKey', apiKey: secret });
+      throw new Error(secret);
+    },
+  });
+  const views: SignInView[] = [];
+  const drive = signIn(ctx(fake), 'm1', { authChoice: 'apiKey' }, (view) => views.push(view));
+  drive.paste(secret);
+  assert.equal((await drive.done).state, 'failed');
+  assert.equal(views[0]?.prompt, 'API key (billed per use)');
+  assert.ok(!JSON.stringify(views).includes(secret));
 });

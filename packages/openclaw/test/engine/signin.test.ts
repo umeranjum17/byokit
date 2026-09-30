@@ -285,3 +285,19 @@ test('the engine state directory is the only place a sign-in touches', () => {
   assert.ok(statSync(stateDir).isDirectory());
   assert.equal(statSync(join(stateDir, 'openclaw', 'openclaw.json')).mode & 0o777, 0o600);
 });
+
+
+test('native Claude auth seam asks a task-owned CLI, clears overrides, and returns no credentials', async () => {
+  const { probeClaudeCliAuthStatus } = await import(pathToFileURL(join(engineDir, 'node_modules', 'openclaw',
+    'dist', 'extensions', 'anthropic', 'cli-auth-seam.js')).href);
+  const command = join(install, 'fake-claude');
+  writeFileSync(command, `#!${process.execPath}
+if (process.argv.slice(2).join(' ') !== 'auth status --json') process.exit(2);
+if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_OAUTH_TOKEN) process.exit(3);
+console.log(JSON.stringify({ loggedIn: process.env.TEST_CLAUDE_LOGIN === 'yes', accessToken: 'fake-token-must-not-escape' }));
+`, { mode: 0o700 });
+  const env = { PATH: process.env.PATH, HOME: install, CLAUDE_CONFIG_DIR: join(install, '.claude'),
+    ANTHROPIC_API_KEY: 'fake-key', ANTHROPIC_OAUTH_TOKEN: 'fake-token', TEST_CLAUDE_LOGIN: 'yes' };
+  assert.deepEqual(probeClaudeCliAuthStatus({ command, env }), { status: 'available' });
+  assert.deepEqual(probeClaudeCliAuthStatus({ command, env: { ...env, TEST_CLAUDE_LOGIN: 'no' } }), { status: 'missing' });
+});
