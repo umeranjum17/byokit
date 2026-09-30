@@ -181,3 +181,35 @@ test('a device for a host that is not online is closed, and sockets past the per
   assert.equal((await closed(new WebSocket(`${r.ws}/relay/v1/host`)))[0], CLOSE.tooMany);
   assert.equal((await fetch(`${r.http}/elsewhere`)).status, 404, 'other paths are left to the embedding server');
 });
+
+test('custom tenant buckets share limits across addresses and undefined falls back to per-IP', async () => {
+  const kinds: string[] = [];
+  const r = await startRelay({ trustProxy: true, limitKey: ({ kind, request, host }) => {
+    kinds.push(kind);
+    assert.equal(host, undefined, 'unauthenticated lookup has no proven host');
+    // Test-only trusted proxy mapping, supplied by the embedding app.
+    return request.headers['x-tenant'] === 'same' ? 'tenant:same' : undefined;
+  } });
+  for (let i = 0; i < LIMITS.code; i++) {
+    assert.equal((await fetch(`${r.http}/relay/v1/codes/ABCDEF`, { headers: { 'x-forwarded-for': `192.0.2.${i}`, 'x-tenant': 'same' } })).status, 404);
+  }
+  assert.equal((await fetch(`${r.http}/relay/v1/codes/ABCDEF`, { headers: { 'x-forwarded-for': '192.0.2.99', 'x-tenant': 'same' } })).status, 429);
+  for (let i = 0; i < LIMITS.code; i++) {
+    assert.equal((await fetch(`${r.http}/relay/v1/codes/ABCDEF`, { headers: { 'x-forwarded-for': '192.0.2.100' } })).status, 404);
+  }
+  assert.equal((await fetch(`${r.http}/relay/v1/codes/ABCDEF`, { headers: { 'x-forwarded-for': '192.0.2.100' } })).status, 429);
+  assert.equal((await fetch(`${r.http}/relay/v1/codes/ABCDEF`, { headers: { 'x-forwarded-for': '192.0.2.101' } })).status, 404);
+  assert.ok(kinds.every((k) => k === 'code'));
+});
+
+test('host bucket selection receives only a successfully proven registration key', async () => {
+  const proven: string[] = [];
+  const r = await startRelay({ signup: { open: true, maxHosts: 2 }, limitKey: ({ kind, host }) => {
+    if (kind === 'enrol' && host) proven.push(host);
+    return host;
+  } });
+  const h = await startHost();
+  const c = hostClient(h, r.ws);
+  await until(() => c.client.status === 'online');
+  assert.deepEqual(proven, [h.id]);
+});

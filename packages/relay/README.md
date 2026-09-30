@@ -245,3 +245,40 @@ Per client address, per minute, as in muxr's relay: 60 WebSocket connections, 10
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](../../NOTICE).
+
+### Self-hosted signup and notification policy
+
+The embedding app runs the server and supplies these options; the kit operates no relay:
+
+```ts
+import { Relay, contentFreeNotify } from '@byokit/relay';
+
+const relay = await Relay.open({
+  signup: { open: true, maxHosts: 1000 },
+  notify: contentFreeNotify('There is news'),
+  limitKey: ({ host }) => host, // proven enrolment or valid action token; otherwise per-IP
+});
+```
+
+Signup defaults to `'enrol'`. `{ open: false, maxHosts: 1000 }` also requires enrolment.
+Open signup requires proof of the host key and limits automatic registrations against the current total host
+count, atomically with persistence. Existing hosts reconnect at capacity. Revoking a host frees a slot; with open
+signup enabled, that key can register again. Owner `admit()` remains an explicit override of the signup cap.
+Invalid caps (not positive safe integers) fail when opening the relay.
+
+`notify(notification, host)` receives a validated notification and the authenticated host id. Return a notification
+to transform it, or `undefined` to suppress it (`{ sent: 0 }`); promises are supported. Exceptions and invalid output
+reject the request without delivery. The content-free preset uses a fixed title, SHA-256 retry ids, no body, data or
+buttons, and preserves recipient selection, urgency and TTL. Deduplication uses the filtered id; keep transformations
+stable across retries. Hashes hide readable ids but do not protect guessable ids from dictionary attacks.
+
+`limitKey({ kind, request, host })` selects a bucket within each existing one-minute `LIMITS` category. Returning
+`undefined` uses the usual per-IP bucket (`trustProxy` controls forwarded addresses). `host` exists only after valid
+key proof during registration or for an unexpired push-action token. WebSocket upgrades, failed proofs and code
+lookups have no authenticated host. An app can map requests to tenant buckets using its own trusted authentication;
+never trust a caller's claimed host or tenant header. Custom keys replace per-IP buckets, so keep pre-authentication
+traffic on address limits unless a trusted tenant boundary is available.
+
+For reconnect reconciliation, provide a durable `RelayClient.store`, revoke removed devices through
+`RelayClient.revoke`, and resend current subscriptions once online. Pending unsubscribe records retry on every
+connection until acknowledged; the relay's store must remain durable too.

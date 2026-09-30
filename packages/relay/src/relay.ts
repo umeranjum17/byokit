@@ -23,8 +23,26 @@ export type Enrolment = { id: string; hash: string; name?: string; expires: numb
 export type RelayState = { hosts: HostRecord[]; enrolments: Enrolment[]; push: PushRecord[]; vapid?: Vapid };
 export type RelayStore = { load(): RelayState | undefined | Promise<RelayState | undefined>; save(s: RelayState): void | Promise<void> };
 
+/** A rate-limit bucket chosen by the embedding app. `host` is supplied only after proof or a valid action token;
+ *  pre-authentication requests have no host. Return undefined to retain the per-address bucket. */
+export type LimitContext = { kind: keyof typeof LIMITS; request: IncomingMessage; host?: string };
+export type NotifyFilter = (notification: Notification, host: string) => Notification | undefined | Promise<Notification | undefined>;
+
+/** Fixed-title pushes with opaque retry ids and no body, data or action buttons. Routing and delivery hints survive. */
+export function contentFreeNotify(title: string): NotifyFilter {
+  if (!parseNotification({ id: 'check', title })) throw new Error('bad notification title');
+  return (n) => ({ id: `n${sha(n.id)}`, title, ...(n.to && { to: n.to }),
+    ...(n.urgency && { urgency: n.urgency }), ...(n.ttl !== undefined && { ttl: n.ttl }) });
+}
+
 export type RelayOptions = {
   store?: RelayStore;
+  /** Default enrolment-only. Open signup still requires proof of key and caps automatic registrations. */
+  signup?: 'enrol' | { open: boolean; maxHosts: number };
+  /** Filters validated notifications before delivery. undefined suppresses delivery; exceptions fail closed. */
+  notify?: NotifyFilter;
+  /** Trusted host/tenant bucket selection; never derive a tenant from an unchecked header. */
+  limitKey?: (context: LimitContext) => string | undefined;
   /** Turns on the owner's HTTP routes (create an enrolment, list and revoke hosts), for this bearer token. */
   ownerToken?: string;
   /** Take the client's address from X-Forwarded-For (only behind a proxy you run). */
@@ -87,6 +105,10 @@ export class Relay {
   }
 
   static async open(opts: RelayOptions = {}): Promise<Relay> {
+    if (opts.signup && opts.signup !== 'enrol'
+      && (typeof opts.signup.open !== 'boolean' || !Number.isSafeInteger(opts.signup.maxHosts) || opts.signup.maxHosts < 1)) {
+      throw new Error('bad signup policy');
+    }
     const s = await opts.store?.load();
     const state: RelayState = { hosts: [...(s?.hosts ?? [])], enrolments: [...(s?.enrolments ?? [])], push: [...(s?.push ?? [])], vapid: s?.vapid };
     const relay = new Relay(opts, state);
@@ -150,8 +172,11 @@ export class Relay {
         return host ? json(res, 200, { host }) : json(res, 404, { error: 'no such code' });
       }
       if (path === '/relay/v1/push/action' && req.method === 'POST') {
-        if (this.limited('action', req)) return json(res, 429, { error: 'too many requests' });
+        if (!this.opts.limitKey && this.limited('action', req)) return json(res, 429, { error: 'too many requests' });
         const body: any = await readJson(req);
+        const token = this.tokens.get(String(body?.token ?? ''));
+        const host = token && token.expires >= this.now() ? token.host : undefined;
+        if (this.opts.limitKey && this.limited('action', req, host)) return json(res, 429, { error: 'too many requests' });
         const r = await this.action(String(body?.token ?? ''), String(body?.action ?? ''));
         return json(res, r.status, r.body);
       }
@@ -228,9 +253,10 @@ export class Relay {
     this.wss.close();
   }
 
-  private limited(kind: keyof typeof LIMITS, req: IncomingMessage): boolean {
+  private limited(kind: keyof typeof LIMITS, req: IncomingMessage, host?: string): boolean {
     const fwd = this.opts.trustProxy ? String(req.headers['x-forwarded-for'] ?? '').split(',')[0]!.trim() : '';
-    const key = `${kind}:${fwd || req.socket.remoteAddress}`;
+    const custom = this.opts.limitKey?.({ kind, request: req, ...(host && { host }) });
+    const key = JSON.stringify([kind, custom === undefined ? 'address' : 'custom', custom ?? (fwd || req.socket.remoteAddress)]);
     const now = this.now();
     if (this.buckets.size > 10_000) this.buckets.clear();
     const b = this.buckets.get(key);
@@ -291,11 +317,17 @@ export class Relay {
     }
     const id = hostId(key);
     if (!this.state.hosts.some((h) => h.id === id)) {
-      if (typeof m.enrol !== 'string') return fail(CLOSE.notEnrolled, 'not enrolled');
-      if (this.limited('enrol', req)) return fail(CLOSE.tooMany, 'too many requests');
-      const [eid, claim = ''] = m.enrol.split('.');
+      const open = this.opts.signup !== undefined && this.opts.signup !== 'enrol' && this.opts.signup.open;
+      if (!open && typeof m.enrol !== 'string') return fail(CLOSE.notEnrolled, 'not enrolled');
+      if (this.limited('enrol', req, id)) return fail(CLOSE.tooMany, 'too many requests');
+      const [eid, claim = ''] = typeof m.enrol === 'string' ? m.enrol.split('.') : [];
       const enrolled = await this.change((s) => {
         if (s.hosts.some((h) => h.id === id)) return true;
+        if (open && this.opts.signup && this.opts.signup !== 'enrol') {
+          if (s.hosts.length >= this.opts.signup.maxHosts) return false;
+          s.hosts.push({ id, key: b64url(key), name: cleanName(m.name, 'Computer'), added: this.now() });
+          return true;
+        }
         const e = s.enrolments.find((x) => x.id === eid);
         if (!e || !same(sha(claim), e.hash)) return false;
         s.enrolments = s.enrolments.filter((x) => x !== e);
@@ -382,8 +414,14 @@ export class Relay {
   }
 
   private async notify(host: string, raw: unknown): Promise<object> {
-    const n = parseNotification(raw);
+    let n = parseNotification(raw);
     if (!n) throw new Error('bad notification');
+    if (this.opts.notify) {
+      const filtered = await this.opts.notify(n, host);
+      if (filtered === undefined) return { sent: 0 };
+      n = parseNotification(filtered);
+      if (!n) throw new Error('bad filtered notification');
+    }
     const seen = this.sent.get(host) ?? [];
     // ponytail: remembered in memory, so a relay restart can deliver a retried notification twice.
     if (seen.includes(n.id) || this.pending.get(host)?.has(n.id)) return { sent: 0, duplicate: true };
