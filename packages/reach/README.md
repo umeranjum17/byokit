@@ -69,6 +69,7 @@ console.log(await reach({ port: 8792, via: 'lan', interfaces }));
 |---|---|
 | `reach({ port, via?, previous?, tailscale?, interfaces?, address? })` | The dial `urls`, the `bind` address, and the Serve `ingress` to persist (plus `pendingCleanup` when a removal failed) |
 | `directRoutes({ port, listen?, interfaces?, tailnetIPs?, hosts?, path? })` | Multiple direct listener `hosts` and pairing `urls`, with explicit loopback/tailnet/LAN scopes |
+| `phoneNetwork({ nativeModule? })` | Phone Wi-Fi/cellular transports and explicit VPN state (`yes`, `no`, `unknown`) |
 | `nativeAddresses({ nativeModule? })` | IPv4 interface evidence including actual prefix lengths; Node reads its interfaces by default |
 | `routeOf(url)` | Address hint: `home`, `tailscale`, `relay`, `loopback` or `unknown` |
 | `observe({ urls, priorEvidence?, nativeModule?, addresses?, probe? })` | Current prefix evidence and a bounded probe, retaining the host’s prior evidence |
@@ -175,10 +176,11 @@ before tailnet, remove duplicates, and include loopback only when there is no re
 ## Phone route evidence (React Native and Node)
 
 Use `@byokit/reach/react-native` explicitly or the root `react-native` export condition. Both expose
-`nativeAddresses`, `routeOf`, `observe` and `probe` with the same types as Node. These functions import no
-Node modules. The app supplies its native address module through `nativeModule` on each call; the kit does
-not install a native interface reader. This supports existing Expo/bare React Native modules and fakes
-without a global singleton. A reader implements `addresses(): Promise<NativeAddress[]>`, returning
+`nativeAddresses`, `routeOf`, `observe`, `probe` and `phoneNetwork` with the same types as Node. These functions import no
+Node modules. Expo apps use the bundled `ByokitReach` native module on Android/iOS by default. Rebuild the native
+binary after installing reach. Android reads interface prefixes and NetworkCapabilities; iOS reads
+interface netmasks and NWPath transports. Bare React Native apps can supply their native address module
+through `nativeModule` on each call. This supports existing modules and fakes without a global singleton. A reader implements `addresses(): Promise<NativeAddress[]>`, returning
 `{ address, prefixLength?, interface? }` for each IPv4 interface. Obtain `prefixLength` from the platform’s
 interface prefix/netmask, never a guessed /24. A legacy string-only reader needs an adapter and cannot
 supply prefix evidence until its native implementation exposes it.
@@ -204,6 +206,28 @@ const facts = await observe({
 });
 console.log(facts.home, facts.target, facts.knock?.state); // true, LAN URL, 'answers'
 ```
+
+For the VPN/wrong-network banner, `phoneNetwork()` returns a fresh active network snapshot:
+
+```ts
+import { phoneNetwork } from '@byokit/reach/react-native';
+
+// Expo: const network = await phoneNetwork();
+// Runnable fake for Umer's phone (Node can use the root import):
+const network = await phoneNetwork({ nativeModule: {
+  phoneNetwork: async () => ({ onWifi: true, cellular: false, vpnActive: 'yes' }),
+} });
+console.log(network); // { onWifi: true, cellular: false, vpnActive: 'yes' }
+```
+
+Android uses the active network's `TRANSPORT_WIFI`, `TRANSPORT_CELLULAR` and `TRANSPORT_VPN` capabilities;
+multiple transport flags can be true. iOS uses NWPath for Wi-Fi/cellular and always returns `vpnActive: 'unknown'`.
+No native reader, a failed read or unavailable path yields `{ onWifi: false, cellular: false, vpnActive: 'unknown' }`;
+false transport flags in that fallback do not prove a network is absent. Node returns that fallback unless a
+reader is injected. This snapshot never establishes that a particular peer can be reached. The package's
+native manifest supplies Android's normal `ACCESS_NETWORK_STATE` permission; no runtime permission dialog
+is needed. Expo autolinking discovers the bundled module; install `expo-modules-core` in a native app if it
+is not already present. JS-only environments can inject readers; all native loading is deferred until used.
 
 `observe` compares the host’s home IPv4 address against the phone’s actual interface prefix. It prefers a
 matching home URL, otherwise a tailnet URL when the snapshot includes a CGNAT address. `home` is unknown

@@ -4,7 +4,7 @@ import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { nativeAddresses, observe, probe, routeOf, type NativeAddress, type ProbeOptions } from '../src/index.ts';
+import { phoneNetwork, nativeAddresses, observe, probe, routeOf, type NativeAddress, type ProbeOptions } from '../src/index.ts';
 import { nativeAddresses as portableAddresses } from '../src/observe.ts';
 
 const answers = (async () => new Response('', { status: 503 })) as typeof fetch;
@@ -116,13 +116,22 @@ test('React Native public entry executes injected evidence under Node and has no
     format: 'esm', platform: 'browser', metafile: true, logLevel: 'silent',
     plugins: [{ name: 'fake-native-browser', setup(build) {
       build.onResolve({ filter: /^react-native-zeroconf$/ }, () => ({ path: 'zeroconf', namespace: 'fake' }));
-      build.onLoad({ filter: /.*/, namespace: 'fake' }, () => ({ contents: 'export default class Zeroconf {}' }));
+      build.onResolve({ filter: /^expo-modules-core$/ }, () => ({ path: 'expo', namespace: 'fake' }));
+      build.onLoad({ filter: /.*/, namespace: 'fake' }, (args) => ({ contents: args.path === 'zeroconf' ? 'export default class Zeroconf {}' : `
+        export function requireOptionalNativeModule(name) {
+          if (name !== 'ByokitReach') throw Error('wrong native module');
+          return { addresses: async () => [{address: '192.168.1.2', prefixLength: 24}],
+            phoneNetwork: async () => ({onWifi: true, cellular: false, vpnActive: 'yes'}) };
+        }` }));
     } }],
   });
   assert.ok(Object.keys(output.metafile!.inputs).every((path) => !path.includes('node:') && !path.endsWith('/index.ts') && !path.endsWith('/tailscale.ts')));
-  const rn: typeof import('../src/observe.ts') = await import(`data:text/javascript;base64,${Buffer.from(output.outputFiles[0]!.text).toString('base64')}`);
+  const rn: typeof import('../src/observe.ts') & typeof import('../src/phone-network.ts') = await import(`data:text/javascript;base64,${Buffer.from(output.outputFiles[0]!.text).toString('base64')}`);
   const nativeModule = snapshot({ address: '192.168.1.2', prefixLength: 24 });
   assert.deepEqual(await rn.nativeAddresses({ nativeModule }), await nativeAddresses({ nativeModule }));
+  assert.deepEqual(await rn.nativeAddresses(), [{ address: '192.168.1.2', prefixLength: 24 }]);
+  assert.deepEqual(await rn.phoneNetwork(), { onWifi: true, cellular: false, vpnActive: 'yes' });
+  assert.deepEqual(await rn.phoneNetwork({ nativeModule: null }), { onWifi: false, cellular: false, vpnActive: 'unknown' });
   assert.equal(rn.routeOf('ws://100.64.0.1'), routeOf('ws://100.64.0.1'));
   const probeOptions: ProbeOptions = { fetch: answers };
   assert.equal((await rn.probe('ws://192.168.1.20', probeOptions)).state, 'answers');
@@ -140,4 +149,20 @@ test('probe exercises a real loopback HTTP response and a closed port through No
   try { assert.equal((await probe(url, { timeout: 1000 })).state, 'answers'); }
   finally { await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); }
   assert.equal((await probe(url, { timeout: 1000 })).state, 'refused');
+});
+
+
+test('phoneNetwork preserves Android Wi-Fi/cellular/VPN evidence and iOS unknown VPN, including failures', async () => {
+  for (const evidence of [
+    { onWifi: true, cellular: false, vpnActive: 'yes' as const },
+    { onWifi: false, cellular: true, vpnActive: 'no' as const },
+    { onWifi: true, cellular: false, vpnActive: 'unknown' as const },
+    { onWifi: false, cellular: false, vpnActive: 'no' as const },
+    { onWifi: true, cellular: true, vpnActive: 'yes' as const },
+  ]) assert.deepEqual(await phoneNetwork({ nativeModule: { phoneNetwork: async () => evidence } }), evidence);
+  const unknown = { onWifi: false, cellular: false, vpnActive: 'unknown' };
+  assert.deepEqual(await phoneNetwork(), unknown);
+  assert.deepEqual(await phoneNetwork({ nativeModule: { phoneNetwork: async () => { throw new Error('native failed'); } } }), unknown);
+  assert.deepEqual(await phoneNetwork({ nativeModule: { phoneNetwork: async () => ({ onWifi: 'no', cellular: false }) as never } }), unknown);
+  assert.deepEqual(await phoneNetwork({ nativeModule: { phoneNetwork: async () => ({ onWifi: true, cellular: false, vpnActive: 'unsupported' }) as never } }), { ...unknown, onWifi: true });
 });

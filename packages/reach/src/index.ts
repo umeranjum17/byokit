@@ -4,6 +4,8 @@ import { routeChoices } from '@byokit/ui-core/route';
 import { FUNNEL_ERROR, inspectServe, serve, tailscaleState, tailscaleStatus, unserve, type ServeIngress, type ServeRoot, type TailscaleOptions, type TailscaleState } from './tailscale.ts';
 
 export * from './tailscale.ts';
+export { phoneNetwork } from './phone-network.ts';
+export type { PhoneNetwork, PhoneNetworkModule, PhoneNetworkOptions } from './phone-network.ts';
 export { routeOf, probe } from './observe.ts';
 export type { NativeAddress, NativeAddressesModule, NativeAddressesOptions, RouteKind, PriorEvidence, ProbeState, ProbeObservation, ProbeOptions, Observation, ObserveOptions } from './observe.ts';
 import { nativeAddresses as readAddresses, observe as observeWith, type NativeAddressesOptions, type ObserveOptions } from './observe.ts';

@@ -29,7 +29,11 @@
   "files": [
     "dist",
     "LICENSE",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "android",
+    "!android/build",
+    "ios",
+    "expo-module.config.json"
   ],
   "scripts": {
     "prepack": "tsc -b"
@@ -41,5 +45,16 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "peerDependencies": {
+    "expo-modules-core": ">=3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "expo-modules-core": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "expo-modules-core": "57.0.19"
   }
 }
