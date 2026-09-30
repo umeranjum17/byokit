@@ -7,7 +7,11 @@ import type { RealtimeAuth, RealtimeConfig, RealtimeProviderId, RealtimeUsage } 
 import { RealtimeError } from './types.ts';
 import { cleanProse } from './prose.ts';
 import { toolBridge } from './tools.ts';
-export { toolBridge, appBridge } from './tools.ts';
+import { realtimeAuthCheck } from './auth.ts';
+import type { RealtimeAuthCheckOptions } from './auth.ts';
+export { toolBridge, appBridge, delegationHandler } from './tools.ts';
+export { realtimeAuthCheck } from './auth.ts';
+export type { RealtimeAuthCheckOptions, RealtimeAuthStatus } from './auth.ts';
 export type { ToolHandler, ToolBridgeOptions } from './tools.ts';
 export type RealtimeEngineOptions = RealtimeConfig & {
   engine: RealtimeProviderId; auth: RealtimeAuth;
@@ -16,6 +20,8 @@ export type RealtimeEngineOptions = RealtimeConfig & {
   /** Only loopback overrides are accepted, for fake-provider flows. */
   endpoint?: string; redact?: RegExp[];
   onUsage?(usage: RealtimeUsage): void;
+  /** Optional read-only advisory check; never awaited before starting the provider. */
+  authCheck?: RealtimeAuthCheckOptions;
 };
 /** Provider sockets and SDP signaling run in a kit-owned child, never in the app process. */
 export function realtimeEngine(options: RealtimeEngineOptions) {
@@ -24,6 +30,7 @@ export function realtimeEngine(options: RealtimeEngineOptions) {
   if ((options.engine === 'chatgpt') !== (options.auth.kind === 'plan')) throw new RealtimeError('unsupported');
   let stopped = false, emittedClose = false;
   const lifetime = new AbortController();
+  const authCheck = options.authCheck ? realtimeAuthCheck(options.authCheck) : undefined;
   const start = Date.now();
   let child: ReturnType<typeof spawn> | undefined;
   let killTimer: ReturnType<typeof setTimeout> | undefined;
@@ -46,7 +53,7 @@ export function realtimeEngine(options: RealtimeEngineOptions) {
     options.emit(frame);
   };
   const finish = (reason?: string, retryable = false) => {
-    if (emittedClose) return; emittedClose = true; stopped = true; lifetime.abort(); options.bridge.close();
+    if (emittedClose) return; emittedClose = true; stopped = true; lifetime.abort(); authCheck?.close(); options.bridge.close();
     usage.seconds = (Date.now() - start) / 1000;
     options.onUsage?.({ ...usage }); emit({ type: 'realtime.usage', usage: { ...usage } }); emit({ type: 'realtime.closed', ...(retryable ? { retryable: true } : {}), ...(reason ? { reason: safe(reason) } : {}) });
     if (child && child.exitCode === null) { child.kill('SIGTERM'); killTimer = setTimeout(() => child?.kill('SIGKILL'), 1000); killTimer.unref(); }
@@ -98,7 +105,9 @@ export function realtimeEngine(options: RealtimeEngineOptions) {
     ready, usage,
     receive(raw: RealtimeClientFrame): boolean {
       if (stopped) return false;
-      const frame = parseRealtimeClientFrame(raw), line = `${JSON.stringify(frame)}\n`;
+      const frame = parseRealtimeClientFrame(raw);
+      if (options.bridge.receive(frame)) return true;
+      const line = `${JSON.stringify(frame)}\n`;
       if (!child) { const bytes = Buffer.byteLength(line); if (queuedBytes + bytes > 128 * 1024) { finish('Voice input overflowed.'); return false; } pending.push(line); queuedBytes += bytes; return true; }
       return send(line);
     },

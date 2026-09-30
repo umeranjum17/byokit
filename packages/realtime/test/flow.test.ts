@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer, WebSocket } from 'ws';
-import { realtimeEngine, toolBridge } from '../src/node.ts';
+import { realtimeEngine, toolBridge, delegationHandler } from '../src/node.ts';
 import { appBridge } from '../src/tools.ts';
-import { realtimeClient, parseRealtimeClientFrame, parseRealtimeHostFrame, realtimePcm16ByteLength, providers, type AudioPorts, type RealtimeHostFrame, type RealtimeClientFrame, type RealtimeStream } from '../src/index.ts';
+import { realtimeClient, realtimeAuthCheck, parseRealtimeClientFrame, parseRealtimeHostFrame, realtimePcm16ByteLength, providers, type AudioPorts, type RealtimeHostFrame, type RealtimeClientFrame, type RealtimeStream } from '../src/index.ts';
 import { webRtcPeer } from '../src/webrtc.ts';
 import { Accounts, memoryStore } from '../../accounts/src/portable.ts';
 import { mockOpenAI } from '../../accounts/src/testing/index.ts';
@@ -39,6 +39,8 @@ for (const provider of ['openai', 'gemini', 'xai'] as const) test(`${provider}: 
   engine.receive({ type: 'realtime.audio', data: 'AAA=' });
   engine.receive({ type: 'realtime.say', text: 'Hello Umer' });
   await waitFor(() => received.some(event => event.audio || event.realtimeInput?.audio));
+  assert.ok(received.some(event => event.item?.content?.[0]?.text === 'Hello Umer'
+    || event.clientContent?.turns?.[0]?.parts?.[0]?.text === 'Hello Umer'));
   const send = (value: unknown) => socket!.send(JSON.stringify(value));
   if (provider === 'gemini') {
     send({ toolCall: { functionCalls: [{ id: 'call-1', name: 'lookup', args: { person: 'Umer' } }] } });
@@ -92,6 +94,59 @@ test('ChatGPT: accounts sign-in, child SDP, delegation coalescing and subscripti
   await waitFor(() => frames.filter(frame => frame.type === 'realtime.webrtc.data' && JSON.parse(frame.data).type === 'delegation.context.append').length === 2);
   assert.equal(count, 1); engine.close(); assert.equal(engine.usage.basis, 'subscription'); assert.ok(!JSON.stringify(frames).includes(credential.access));
 });
+test('ChatGPT structured delegation preserves named targets, dedupes calls, and pushes lifecycle context', async t => {
+  const frames: RealtimeHostFrame[] = [], receipts: string[] = [];
+  let plans = 0;
+  const actions = [{ name: 'message', description: 'Send an authorized message to a named target', parameters: { type: 'object', properties: { agent: { type: 'string' }, text: { type: 'string' } }, required: ['agent', 'text'] } }];
+  const actionBridge = toolBridge({ tools: actions, handlers: { message: async args => {
+    assert.deepEqual(args, { agent: 'Avery', text: 'Please report progress' }); receipts.push('queued'); return 'Queued for Avery';
+  } }, emit: frame => frames.push(frame), failure: () => 'Failed' });
+  const delegate = delegationHandler({ bridge: actionBridge, plan: async request => { plans++; return `Clarify: ${request}`; } });
+  const delegateTools = [{ name: 'delegate', description: 'Delegate a request', parameters: { type: 'object' } }];
+  const bridge = toolBridge({ tools: delegateTools, handlers: { delegate }, emit: frame => frames.push(frame), failure: () => 'Failed' });
+  const engine = realtimeEngine({ engine: 'chatgpt', auth: { kind: 'plan', access: async () => ({ access: 'fake-token', accountId: 'fake-account' }) }, tools: delegateTools, bridge, emit: frame => frames.push(frame) });
+  t.after(() => { engine.close(); actionBridge.close(); });
+  await waitFor(() => frames.some(frame => frame.type === 'realtime.webrtc.start'));
+  const request = JSON.stringify({ name: 'message', arguments: { agent: 'Avery', text: 'Please report progress' } });
+  for (const id of ['s1', 's1', 's2']) engine.receive({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: { id, type: 'delegation', target: 'client', user_bidi_turn_id: 'same-turn', content: [{ type: 'input_text', text: request }] } }) });
+  await waitFor(() => frames.filter(frame => frame.type === 'realtime.webrtc.data' && JSON.parse(frame.data).type === 'delegation.context.append').length === 2);
+  assert.deepEqual(receipts, ['queued']); assert.equal(plans, 0);
+  engine.receive({ type: 'realtime.say', text: 'Host confirms Avery has finished the task.' });
+  await waitFor(() => frames.some(frame => frame.type === 'realtime.webrtc.data' && JSON.parse(frame.data).type === 'session.context.append'));
+  assert.ok(frames.some(frame => frame.type === 'realtime.webrtc.data' && JSON.parse(frame.data).content?.[0]?.text === 'Host confirms Avery has finished the task.'));
+  const context = { id: 'direct', signal: new AbortController().signal };
+  for (const invalid of ['{"name":', '{"name":"shell","arguments":{}}', '{"name":"message","arguments":null}', '{"name":"delegate","arguments":{}}']) {
+    assert.match(await delegate({ request: invalid }, context), /invalid/);
+  }
+  assert.equal(plans, 0); assert.deepEqual(receipts, ['queued']);
+  assert.equal(await delegate({ request: 'Which agent should receive this?' }, context), 'Clarify: Which agent should receive this?');
+  assert.equal(plans, 1);
+  const cancel = new AbortController(); cancel.abort();
+  await assert.rejects(delegate({ request }, { id: 'cancel', signal: cancel.signal }));
+  assert.deepEqual(receipts, ['queued']);
+});
+test('advisory auth is bounded, read-only and cannot gate or close a session', async t => {
+  for (const [value, status] of [[true, 'ready'], [false, 'signed-out']] as const) {
+    assert.equal(await realtimeAuthCheck({ peek: async () => value }).result, status);
+  }
+  assert.equal(await realtimeAuthCheck({ peek: async () => { throw new Error('unavailable'); } }).result, 'unknown');
+  assert.equal(await realtimeAuthCheck({ peek: async () => true, onStatus: () => { throw new Error('observer'); } }).result, 'ready');
+  const closed = realtimeAuthCheck({ peek: async () => { assert.fail('Closed checks never start'); } }); closed.close();
+  assert.equal(await closed.result, 'unknown');
+  const frames: RealtimeHostFrame[] = [], statuses: string[] = [];
+  let peekSignal!: AbortSignal, complete!: (ready: boolean) => void, accesses = 0;
+  const engine = realtimeEngine({ engine: 'chatgpt', auth: { kind: 'plan', access: async () => { accesses++; return { access: 'fake-token', accountId: 'fake-account' }; } },
+    authCheck: { timeoutMs: 100, peek: signal => { peekSignal = signal; return new Promise(resolve => { complete = resolve; }); }, onStatus: status => statuses.push(status) },
+    bridge: toolBridge({ tools: [], handlers: {}, emit: () => {}, failure: () => 'Failed' }), emit: frame => frames.push(frame) });
+  t.after(() => engine.close());
+  await engine.ready;
+  assert.equal(accesses, 1); assert.deepEqual(statuses, []);
+  await waitFor(() => frames.some(frame => frame.type === 'realtime.webrtc.start'));
+  await waitFor(() => statuses.length === 1);
+  assert.deepEqual(statuses, ['unknown']); assert.ok(peekSignal.aborted);
+  complete(false); await Promise.resolve(); assert.deepEqual(statuses, ['unknown']);
+  assert.ok(!frames.some(frame => frame.type === 'realtime.closed')); engine.close();
+});
 test('ChatGPT: BYOKit originator refusal, oversized SDP answer, and forbidden origins', async t => {
   let status = 403, answer = 'Refused';
   const server = createServer((_req, res) => { res.writeHead(status); res.end(answer); });
@@ -131,6 +186,37 @@ test('tool and app bridges: dedupe, timeout, cancellation and semantic reply', a
   const result = app.run('navigate', 'Home'); const request = frames[0]; assert.equal(request.type, 'realtime.app.request');
   if (request.type === 'realtime.app.request') app.receive({ type: 'realtime.app.result', requestId: request.requestId, ok: true, text: 'Opened Home' });
   assert.equal(await result, 'Opened Home'); app.close();
+});
+test('semantic app tool replies cross a fake client and provider child and close cancels pending replies', async t => {
+  const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  t.after(() => { for (const socket of server.clients) socket.terminate(); server.close(); });
+  const replies: string[] = [];
+  server.on('connection', socket => socket.on('message', raw => {
+    const event = JSON.parse(String(raw));
+    if (event.type === 'session.update') {
+      for (const reply of [
+        { type: 'session.updated' }, { type: 'response.created', response: { id: 'app-turn' } },
+        { type: 'response.function_call_arguments.done', response_id: 'app-turn', call_id: 'app-call', name: 'navigate', arguments: '{"target":"Home"}' },
+        { type: 'response.done', response: { id: 'app-turn', status: 'completed' } },
+      ]) socket.send(JSON.stringify(reply));
+    }
+    if (event.item?.type === 'function_call_output') replies.push(event.item.output);
+  }));
+  let engine!: ReturnType<typeof realtimeEngine>, deliver!: (frame: RealtimeHostFrame) => void;
+  const app = appBridge(frame => deliver(frame));
+  const appTools = [{ name: 'navigate', description: 'Open a semantic destination', parameters: { type: 'object' } }];
+  const bridge = toolBridge({ tools: appTools, app, handlers: { navigate: (args, ctx) => app.run('navigate', String(args.target), ctx.signal) }, emit: frame => deliver(frame), failure: () => 'Failed' });
+  const client = realtimeClient({ audio: audioPorts([]), onStatus() {}, onTurn() {},
+    onAppRequest: async (action, target) => { assert.equal(action, 'navigate'); assert.equal(target, 'Home'); return { ok: true, text: 'Opened Home' }; },
+    open: async () => ({ onFrame(fn) { deliver = fn; }, onClose() {}, send(frame) { return engine.receive(frame); },
+      start() { engine = realtimeEngine({ engine: 'openai', auth: { kind: 'key', key: 'fake-secret' }, tools: appTools, bridge,
+        endpoint: `ws://127.0.0.1:${(server.address() as AddressInfo).port}`, emit: frame => deliver(frame) }); }, close() { engine?.close(); } }),
+  });
+  t.after(() => { client.stop(); engine?.close(); });
+  await waitFor(() => replies.length === 1); assert.deepEqual(replies, ['Opened Home']);
+  const pending = app.run('view'); engine.close();
+  assert.equal(await pending, 'The app request was cancelled.');
 });
 function audioPorts(events: string[]): AudioPorts {
   return {

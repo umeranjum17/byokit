@@ -7,6 +7,8 @@ export type ToolBridgeOptions = {
   tools: RealtimeTool[]; handlers: Record<string, ToolHandler>;
   timeoutFor?: (name: string) => number; answerTimeoutMs?: number;
   failure(name: string, error: unknown, timedOut: boolean): string;
+  /** Route semantic app replies to the same bridge used by tool handlers. */
+  app?: ReturnType<typeof appBridge>;
 };
 /** Bounded, deduplicated tool execution. Product authorization stays in handlers. */
 export function toolBridge(options: ToolBridgeOptions) {
@@ -45,7 +47,32 @@ export function toolBridge(options: ToolBridgeOptions) {
     })();
     requests.set(id, { key, promise }); return promise;
   };
-  return { run, state, answered, receive: (_frame: RealtimeClientFrame) => false, close() { lifetime.abort(); clearTimeout(answerTimer); waiting = false; } };
+  return { run, state, answered, receive: (frame: RealtimeClientFrame) => options.app?.receive(frame) ?? false, close() { lifetime.abort(); options.app?.close(); clearTimeout(answerTimer); waiting = false; } };
+}
+
+/** Structured requests use the app's allowlisted tools; prose uses its planner. */
+export function delegationHandler(options: {
+  bridge: ReturnType<typeof toolBridge>;
+  plan?: (request: string, context: Parameters<ToolHandler>[1]) => Promise<string>;
+}): ToolHandler {
+  return async (args, context) => {
+    context.signal.throwIfAborted();
+    const request = args.request;
+    if (typeof request !== 'string' || !request.trim() || Buffer.byteLength(request) > 16000) return 'That delegated request is invalid.';
+    let structured: unknown;
+    try { structured = JSON.parse(request); }
+    catch {
+      // JSON-looking input is never reinterpreted as permission to plan an action.
+      if (/^[\s]*[\[{]/.test(request)) return 'That delegated request is invalid.';
+      return options.plan ? options.plan(request, context) : 'That delegation needs an app planner.';
+    }
+    if (!structured || typeof structured !== 'object' || Array.isArray(structured)) return 'That delegated request is invalid.';
+    const call = structured as Record<string, unknown>;
+    if (typeof call.name !== 'string' || !call.name.trim() || call.name === 'delegate'
+      || Object.keys(call).some(key => key !== 'name' && key !== 'arguments')) return 'That delegated request is invalid.';
+    // Arguments, including named targets, stay intact. The app validates and authorizes them.
+    return options.bridge.run(call.name, call.arguments === undefined ? {} : call.arguments, context.id, context.signal);
+  };
 }
 export function appBridge(emit: (frame: RealtimeHostFrame) => void | boolean, options: { timeoutMs?: number; maxPending?: number } = {}) {
   const pending = new Map<string, (text: string) => void>();

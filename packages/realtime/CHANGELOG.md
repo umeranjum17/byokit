@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- FIX: Route semantic app tool replies to the host bridge and cancel pending app requests when the session closes.
+- Add structured delegation through app-supplied tools, preserving named targets and operation ids.
+- Add a bounded, read-only advisory auth check that never gates session startup or initiates login.
 - Add interruption fencing and tool cancellation, bounded provider and transport reconnects, and fresh-call ChatGPT subscription voice interruption.
 
 ## 0.1.0 (2026-09-30)
