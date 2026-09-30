@@ -1,0 +1,1596 @@
+{
+  "rule": "Choose once: subscription candidates only unless explicitly named; most room, unknown above exhausted, earliest reset then list order. Explanations contain only ids, codes and figures. Bound and paid refusals belong to the runtime kit, not this portable chooser.",
+  "now": 1000000,
+  "cases": [
+    {
+      "name": "only",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {
+        "a": {
+          "left": 10,
+          "span": "week"
+        }
+      },
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "only",
+        "how": "auto",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "most room",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {
+        "a": {
+          "left": 10,
+          "span": "week"
+        },
+        "b": {
+          "left": 70,
+          "span": "week"
+        }
+      },
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "most_room",
+        "how": "auto",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "earlier reset",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {
+        "a": {
+          "left": 70,
+          "span": "week",
+          "resetsAt": 2000000
+        },
+        "b": {
+          "left": 70,
+          "span": "week",
+          "resetsAt": 1500000
+        }
+      },
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "earlier_reset",
+        "how": "auto",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "list order",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {
+        "a": {
+          "left": 70,
+          "span": "week",
+          "resetsAt": 2000000
+        },
+        "b": {
+          "left": 70,
+          "span": "week",
+          "resetsAt": 2000000
+        }
+      },
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "list_order",
+        "how": "auto",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "unknown readings",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "no_reading",
+        "how": "auto",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "all exhausted earliest refill",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {
+        "a": {
+          "left": 0,
+          "span": "week",
+          "resetsAt": 2000000
+        },
+        "b": {
+          "left": 0,
+          "span": "week",
+          "resetsAt": 1500000
+        }
+      },
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "refills_first",
+        "how": "auto",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "decision B unknown above exhausted",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {
+        "a": {
+          "left": 0,
+          "span": "week",
+          "resetsAt": 2000000
+        }
+      },
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "no_reading",
+        "how": "auto",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "known timestamp absent keeps room tier",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {
+        "a": {
+          "left": 80,
+          "span": "week"
+        },
+        "b": {
+          "left": 70,
+          "span": "week",
+          "at": 1000000
+        }
+      },
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "most_room",
+        "how": "auto",
+        "model": "p/m"
+      },
+      "considered": {
+        "a": {
+          "age": "unknown",
+          "tier": "room",
+          "confidence": "unknown"
+        }
+      }
+    },
+    {
+      "name": "stale reading becomes unknown",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {
+        "a": {
+          "left": 99,
+          "span": "week",
+          "at": -86400000
+        },
+        "b": {
+          "left": 5,
+          "span": "week",
+          "at": 1000000
+        }
+      },
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "most_room",
+        "how": "auto",
+        "model": "p/m"
+      },
+      "considered": {
+        "a": {
+          "tier": "unknown",
+          "confidence": "stale"
+        }
+      }
+    },
+    {
+      "name": "one reset absent",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {
+        "a": {
+          "left": 70,
+          "span": "week"
+        },
+        "b": {
+          "left": 70,
+          "span": "week",
+          "resetsAt": 1500000
+        }
+      },
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "earlier_reset",
+        "how": "auto",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "both resets absent",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {
+        "a": {
+          "left": 70,
+          "span": "week"
+        },
+        "b": {
+          "left": 70,
+          "span": "week"
+        }
+      },
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "list_order",
+        "how": "auto",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "exhausted without reset",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {
+        "a": {
+          "left": 0,
+          "span": "week"
+        },
+        "b": {
+          "left": 0,
+          "span": "week"
+        }
+      },
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "refills_first",
+        "how": "auto",
+        "model": "p/m"
+      },
+      "reason": "All p accounts are out of room. A refills first."
+    },
+    {
+      "name": "past reset is usable",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {
+        "a": {
+          "left": 0,
+          "span": "week",
+          "resetsAt": 999999
+        },
+        "b": {
+          "left": 0,
+          "span": "week",
+          "resetsAt": 2000000
+        }
+      },
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "most_room",
+        "how": "auto",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "reset exactly now is usable",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {
+        "a": {
+          "left": 0,
+          "span": "week",
+          "resetsAt": 1000000
+        },
+        "b": {
+          "left": 0,
+          "span": "week",
+          "resetsAt": 2000000
+        }
+      },
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "most_room",
+        "how": "auto",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "exclude signing",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "signing",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "only",
+        "how": "auto",
+        "model": "p/m"
+      },
+      "considered": {
+        "a": {
+          "out": "state"
+        }
+      }
+    },
+    {
+      "name": "exclude signed_out",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "signed_out",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "only",
+        "how": "auto",
+        "model": "p/m"
+      },
+      "considered": {
+        "a": {
+          "out": "state"
+        }
+      }
+    },
+    {
+      "name": "exclude needs_again",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "needs_again",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "only",
+        "how": "auto",
+        "model": "p/m"
+      },
+      "considered": {
+        "a": {
+          "out": "state"
+        }
+      }
+    },
+    {
+      "name": "exclude not_included",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "not_included",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "only",
+        "how": "auto",
+        "model": "p/m"
+      },
+      "considered": {
+        "a": {
+          "out": "state"
+        }
+      }
+    },
+    {
+      "name": "resting future",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "resting",
+          "billing": "subscription",
+          "until": 2000000
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "only",
+        "how": "auto",
+        "model": "p/m"
+      },
+      "considered": {
+        "a": {
+          "out": "resting",
+          "until": 2000000
+        }
+      }
+    },
+    {
+      "name": "resting elapsed",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "resting",
+          "billing": "subscription",
+          "until": 1000000
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {
+        "a": {
+          "left": 80,
+          "span": "week"
+        },
+        "b": {
+          "left": 70,
+          "span": "week"
+        }
+      },
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "most_room",
+        "how": "auto",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "resting without deadline",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "resting",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "only",
+        "how": "auto",
+        "model": "p/m"
+      },
+      "considered": {
+        "a": {
+          "out": "state"
+        }
+      }
+    },
+    {
+      "name": "API never Auto",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "api"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "only",
+        "how": "auto",
+        "model": "p/m"
+      },
+      "considered": {
+        "a": {
+          "out": "billing"
+        }
+      }
+    },
+    {
+      "name": "no account",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "signed_out",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": false,
+        "code": "none"
+      }
+    },
+    {
+      "name": "chosen",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "a"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "chosen",
+        "how": "chosen",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "unknown account",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "missing"
+      },
+      "expected": {
+        "ok": false,
+        "code": "unknown_account"
+      }
+    },
+    {
+      "name": "chosen API",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "api"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "a"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "chosen",
+        "how": "chosen",
+        "model": "p/m"
+      },
+      "considered": {
+        "a": {
+          "out": null
+        }
+      }
+    },
+    {
+      "name": "chosen resting",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "resting",
+          "billing": "subscription",
+          "until": 2000000
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "a"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "chosen",
+        "how": "chosen",
+        "model": "p/m"
+      },
+      "considered": {
+        "a": {
+          "out": null
+        }
+      }
+    },
+    {
+      "name": "chosen signed out judged only on demand",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "signed_out",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "a"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "chosen",
+        "how": "chosen",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "ready default",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {
+        "account": "a"
+      },
+      "selection": {
+        "account": "default"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "default",
+        "how": "default",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "API explicit default",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "api"
+        }
+      ],
+      "rooms": {},
+      "defaults": {
+        "account": "a"
+      },
+      "selection": {
+        "account": "default"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "default",
+        "how": "default",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "default falls back Auto",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "signed_out",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {
+        "account": "a"
+      },
+      "selection": {
+        "account": "default"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "only",
+        "how": "auto",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "Auto disabled first ready",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "signed_out",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "c",
+          "provider": "p",
+          "name": "C",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {
+        "b": {
+          "left": 5,
+          "span": "week"
+        },
+        "c": {
+          "left": 95,
+          "span": "week"
+        }
+      },
+      "defaults": {
+        "account": "a",
+        "auto": false
+      },
+      "selection": {
+        "account": "default"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "first_ready",
+        "how": "default",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "API never default fallback",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "api"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {
+        "auto": false
+      },
+      "selection": {
+        "account": "default"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "first_ready",
+        "how": "default",
+        "model": "p/m"
+      }
+    },
+    {
+      "name": "first provider in list",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "q",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "only",
+        "how": "auto",
+        "model": "p/m"
+      },
+      "considered": {
+        "b": {
+          "out": "provider"
+        }
+      }
+    },
+    {
+      "name": "default provider scopes Auto",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "q",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {
+        "account": "b"
+      },
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "only",
+        "how": "auto",
+        "model": "q/m"
+      },
+      "considered": {
+        "a": {
+          "out": "provider"
+        }
+      }
+    },
+    {
+      "name": "demand skips missing needs",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "p",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "auto",
+        "model": "p/m",
+        "needs": [
+          "p/n",
+          "p/n"
+        ]
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "only",
+        "how": "auto",
+        "model": "p/m"
+      },
+      "models": {
+        "a": [
+          {
+            "id": "p/m",
+            "available": true
+          }
+        ],
+        "b": [
+          {
+            "id": "p/m",
+            "available": true
+          },
+          {
+            "id": "p/n",
+            "available": true
+          }
+        ]
+      },
+      "considered": {
+        "a": {
+          "out": "model",
+          "missing": "p/n"
+        }
+      }
+    },
+    {
+      "name": "chosen missing demand",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "a",
+        "needs": [
+          "p/n"
+        ]
+      },
+      "expected": {
+        "ok": false,
+        "code": "not_included"
+      },
+      "considered": {
+        "a": {
+          "out": "model",
+          "missing": "p/n"
+        }
+      }
+    },
+    {
+      "name": "chosen unavailable model",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "a",
+        "model": "p/m"
+      },
+      "expected": {
+        "ok": false,
+        "code": "not_included"
+      },
+      "models": {
+        "a": [
+          {
+            "id": "p/m",
+            "available": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "default model when available",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {
+        "model": "p/n"
+      },
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "only",
+        "how": "auto",
+        "model": "p/n"
+      },
+      "models": {
+        "a": [
+          {
+            "id": "p/m",
+            "available": true
+          },
+          {
+            "id": "p/n",
+            "available": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "default model unavailable uses first available",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {
+        "model": "p/n"
+      },
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "a",
+        "why": "only",
+        "how": "auto",
+        "model": "p/m"
+      },
+      "models": {
+        "a": [
+          {
+            "id": "p/n",
+            "available": false
+          },
+          {
+            "id": "p/m",
+            "available": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "demand crosses provider ordering",
+      "accounts": [
+        {
+          "id": "a",
+          "provider": "p",
+          "name": "A",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "b",
+          "provider": "q",
+          "name": "B",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {},
+      "defaults": {},
+      "selection": {
+        "account": "auto",
+        "model": "q/m"
+      },
+      "expected": {
+        "ok": true,
+        "id": "b",
+        "why": "only",
+        "how": "auto",
+        "model": "q/m"
+      },
+      "considered": {
+        "a": {
+          "out": "model",
+          "missing": "q/m"
+        }
+      }
+    },
+    {
+      "name": "muxr roomier tightest window",
+      "accounts": [
+        {
+          "id": "found-claude",
+          "provider": "claude",
+          "name": "Personal",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "pa_work",
+          "provider": "claude",
+          "name": "Work",
+          "state": "ready",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {
+        "found-claude": {
+          "left": 30,
+          "span": "week"
+        },
+        "pa_work": {
+          "left": 60,
+          "span": "week"
+        }
+      },
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "pa_work",
+        "why": "most_room",
+        "how": "auto",
+        "model": "claude/m"
+      },
+      "reason": "Right now that's Work: 60% left this week"
+    },
+    {
+      "name": "muxr skips signed-out and names exhausted winner",
+      "accounts": [
+        {
+          "id": "found-claude",
+          "provider": "claude",
+          "name": "Personal",
+          "state": "ready",
+          "billing": "subscription"
+        },
+        {
+          "id": "pa_out",
+          "provider": "claude",
+          "name": "PA_OUT",
+          "state": "signed_out",
+          "billing": "subscription"
+        }
+      ],
+      "rooms": {
+        "found-claude": {
+          "left": 0,
+          "span": "week",
+          "resetsAt": 2000000
+        }
+      },
+      "defaults": {},
+      "selection": {
+        "account": "auto"
+      },
+      "expected": {
+        "ok": true,
+        "id": "found-claude",
+        "why": "only",
+        "how": "auto",
+        "model": "claude/m"
+      },
+      "considered": {
+        "pa_out": {
+          "out": "state"
+        }
+      },
+      "reasonContains": "out of room"
+    }
+  ]
+}

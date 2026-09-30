@@ -14,7 +14,12 @@
     "terms": "grey",
     "hidden": false,
     "why": "Signs in through Codex's own sign-in. OpenAI documents it for Codex, not for other apps, and has endorsed one other app using it.",
-    "source": "https://developers.openai.com/codex/auth"
+    "source": "https://developers.openai.com/codex/auth",
+    "multiAccount": {
+      "terms": "grey",
+      "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
+      "source": "https://developers.openai.com/codex/auth"
+    }
   },
   "openrouter": {
     "pi": "openrouter",
@@ -27,7 +32,12 @@
     "terms": "allowed",
     "hidden": false,
     "why": "Documented sign-in for any app, no registration. Pay-as-you-go credits, not a subscription.",
-    "source": "https://openrouter.ai/docs/guides/overview/auth/oauth"
+    "source": "https://openrouter.ai/docs/guides/overview/auth/oauth",
+    "multiAccount": {
+      "terms": "grey",
+      "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
+      "source": "https://openrouter.ai/docs/guides/overview/auth/oauth"
+    }
   },
   "grok": {
     "pi": "xai",
@@ -40,7 +50,12 @@
     "terms": "partner",
     "hidden": true,
     "why": "xAI allows plan sign-in only in apps it has partnered with.",
-    "source": "https://x.ai/news/grok-opencode"
+    "source": "https://x.ai/news/grok-opencode",
+    "multiAccount": {
+      "terms": "grey",
+      "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
+      "source": "https://x.ai/news/grok-opencode"
+    }
   },
   "copilot": {
     "pi": "github-copilot",
@@ -53,7 +68,12 @@
     "terms": "partner",
     "hidden": true,
     "why": "GitHub allows Copilot sign-in only in apps it has partnered with; this uses VS Code's client.",
-    "source": "https://github.blog/changelog/2026-01-16-github-copilot-now-supports-opencode"
+    "source": "https://github.blog/changelog/2026-01-16-github-copilot-now-supports-opencode",
+    "multiAccount": {
+      "terms": "grey",
+      "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
+      "source": "https://github.blog/changelog/2026-01-16-github-copilot-now-supports-opencode"
+    }
   },
   "anthropic": {
     "pi": "anthropic",
@@ -69,7 +89,12 @@
     "label": "API key (billed per use)",
     "offer": false,
     "why": "The app passes an Anthropic API key explicitly. API key (billed per use), never a default or subscription fallback.",
-    "source": "https://platform.claude.com/docs/en/api/overview"
+    "source": "https://platform.claude.com/docs/en/api/overview",
+    "multiAccount": {
+      "terms": "grey",
+      "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
+      "source": "https://platform.claude.com/docs/en/api/overview"
+    }
   },
   "claude": {
     "pi": "byokit-claude-plan",
@@ -85,6 +110,11 @@
     "terms": "grey",
     "hidden": false,
     "why": "Anthropic prohibits third-party Claude.ai sign-in without approval; this route may stop working or lead to account restrictions.",
-    "source": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use"
+    "source": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use",
+    "multiAccount": {
+      "terms": "grey",
+      "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
+      "source": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use"
+    }
   }
 }
