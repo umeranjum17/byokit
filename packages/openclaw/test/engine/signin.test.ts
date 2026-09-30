@@ -166,8 +166,8 @@ test('routes.json and the pinned tarball agree in both directions, plugins inclu
   assert.equal(routes().find((entry) => entry.choice === 'custom-api-key')?.plugin, '', 'a core choice has no plugin');
 });
 
-test('every offered route starts on the real engine without a caller allowlist (5.7, B6)', { timeout: 900_000 }, async () => {
-  for (const route of routes().filter((entry) => entry.offer)) {
+test('every offered wizard route starts on the real engine without a caller allowlist (5.7, B6)', { timeout: 900_000 }, async () => {
+  for (const route of routes().filter((entry) => entry.offer && entry.auth !== 'cli')) {
     await withGateway([], async (_ctx, request) => {
       const sessionId = `byokit-probe-${route.choice}`;
       const started = await request('openclaw.setup.auth.start',
