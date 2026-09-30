@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-09-30)
+
+
+
 - Export `fingerprint`, `fileUsageStore`, `memoryBackoffPolicy`, `retryAfterMs` and `backoffDelayMs` for host subscription usage adapters.
 - Add token quota sources for Claude, Codex, Copilot, Grok, MiniMax, Gemini and Kimi, with BYOKit's own user agent and no credential discovery.
 - Add `callLedger`, `normalizeTokens` and `priceCall` for attributed model calls, reported/partial/unknown counts and estimates from app price tables only, on the member ledger store seam.
