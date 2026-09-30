@@ -24,7 +24,7 @@ export function chatgptPlan(o: {
       const session = await o.session(signal);
       if (!session || !Array.isArray(session.scopes) || !session.scopes.includes('chatgpt.tokens.use.direct') ||
           !session.scopes.includes('resource.invoke') || typeof session.accessToken !== 'string' || !session.accessToken.trim()) {
-        throw new UnsupportedAccountError('ChatGPT plan usage needs a consented token-sharing session.');
+        throw new UnsupportedAccountError('This needs a ChatGPT sign-in that allows plan use.');
       }
       return session.accessToken;
     },

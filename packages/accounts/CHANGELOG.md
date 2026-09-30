@@ -17,6 +17,8 @@
 - Claude Pro/Max subscription PKCE sign-in, direct Messages and single-flight refresh with on-device credentials.
 
 - Anthropic Messages with an app-passed API key (billed per use), explicit model and opt-in; typed native requests, streamed text/tools/thinking/message events, usage/raw results and the shared IncompleteError contract for max_tokens/refusal (including with tools) on every platform.
+
+- Offer every subscription catalogue row by default on supported platforms, adding Claude, Kimi, Meta and Qwen labels; remove terms and visibility gates. API key (billed per use) rows remain opt-in. Simplify the ChatGPT plan-use error words.
 - Expose fresh subscription access to host-side capabilities using the app’s own sign-in.
 
 ## 0.11.0 (2026-09-30)
