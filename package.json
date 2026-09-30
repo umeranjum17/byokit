@@ -11,7 +11,7 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "build": "tsc -b packages/accounts packages/link packages/relay packages/decide packages/ui-core packages/reach packages/seal packages/secrets packages/openclaw packages/herdr packages/write packages/record packages/overlay packages/cloud packages/statusbar packages/usage packages/push && node scripts/fix-words-dts.cjs",
+    "build": "tsc -b packages/accounts packages/link packages/relay packages/decide packages/ui-core packages/reach packages/seal packages/secrets packages/openclaw packages/herdr packages/write packages/record packages/overlay packages/cloud packages/statusbar packages/usage packages/push packages/speak && node scripts/fix-words-dts.cjs",
     "check": "tsc -p tsconfig.json",
     "gen:write": "node packages/write/scripts/gen-types.ts",
     "gen:herdr": "node packages/herdr/scripts/gen-types.ts",
