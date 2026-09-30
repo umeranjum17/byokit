@@ -147,6 +147,7 @@ and non-interactive. The kit never configures or unlocks the person's keyring.
 ### Opt-in dual wrapping
 
 ```ts
+import { osKeyringSeal } from '@byokit/secrets/node';
 const seal = osKeyringSeal({ service: 'my-app', dualWrap: true });
 ```
 
