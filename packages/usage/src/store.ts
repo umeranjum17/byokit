@@ -1,6 +1,7 @@
 import { createHash, randomUUID, scryptSync } from 'node:crypto';
 import { chmodSync, closeSync, fstatSync, mkdirSync, openSync, readSync, renameSync, unlinkSync, writeFileSync, constants } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
+import { UsageError } from './types.ts';
 import { record } from './windows.ts';
 import type { Provider, StoredReading, UsageStore, Window } from './types.ts';
 export type Stored = StoredReading;
@@ -37,6 +38,7 @@ export function fingerprint(salt: string) {
   };
 }
 export function store(stateDir: string): UsageStore {
+  if (typeof stateDir !== 'string' || !isAbsolute(stateDir) || /[\0\r\n]/.test(stateDir)) throw new UsageError();
   const path = join(stateDir, 'plans-v2.json');
   function load(): Plans {
     const saved = readJson(path, 256 * 1024); const plans: Plans = {};
@@ -54,6 +56,7 @@ export function store(stateDir: string): UsageStore {
   return {
     get: (id: Provider, fp: string): Stored | undefined => load()[id]?.[fp],
     put(id: Provider, fp: string, reading: Stored): void {
+      if (!/^[a-f0-9]{64}$/.test(fp) || !Number.isFinite(reading.at)) return;
       const temporary = `${path}.${randomUUID()}.tmp`;
       try {
         const plans = load(); const entries = plans[id] ?? {};

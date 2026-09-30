@@ -3,9 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, statSync, symlinkSync, utimesSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
-import { usage, roomOf, tokenLedger, callLedger, normalizeTokens, priceCall, memoryTokenLedgerStore, TokenLedgerError, UsageError, claudeWindows, codexWindows, goWindows, zaiWindows, WORDS, usageWords, type Source, type Window } from '../src/index.ts';
+import { usage, fingerprint, fileUsageStore, memoryBackoffPolicy, retryAfterMs, backoffDelayMs, roomOf, tokenLedger, callLedger, normalizeTokens, priceCall, memoryTokenLedgerStore, TokenLedgerError, UsageError, claudeWindows, codexWindows, goWindows, zaiWindows, WORDS, usageWords, type Source, type Window } from '../src/index.ts';
 import { fakeCodex, fakeFetch, usageContract } from '../src/testing/index.ts';
-import { fingerprint } from '../src/store.ts';
 import payloads from './usage-payloads.json' with { type: 'json' };
 import plain from '../../../fixtures/conformance/plain-words.json' with { type: 'json' };
 
@@ -328,4 +327,43 @@ test('runtime call ledger: normalized provider counts, honest unknowns, app pric
   assert.equal(member.week.unknownCalls, 1);
   assert.throws(() => ledger.record('alice', { ...base, provider: 'codex', durationMs: -1 }), TokenLedgerError);
   assert.throws(() => ledger.query('alice', time + 1, time), TokenLedgerError);
+});
+
+
+test('public Claude replacement helpers share disk last-good and account backoff across readers', async () => {
+  const dir = scratchDir('usage-public-helpers');
+  const credentialsFile = join(dir, 'credentials.json');
+  writeFileSync(credentialsFile, JSON.stringify({ claudeAiOauth: { accessToken: 'fixture-secret', accountUuid: 'account-one' } }));
+  const source: Source = { provider: 'claude', credentialsFile };
+  const stateDir = join(dir, 'state');
+  const store = fileUsageStore(stateDir);
+  const backoff = memoryBackoffPolicy();
+  const http = fakeFetch([{ body: payloads.claude.raw }, { status: 429, retryAfter: '600' }, { body: payloads.claude.raw }]);
+  const options = { store, backoff, salt: payloads.salt, fetch: http.fetch };
+  const reader = usage(options);
+  const good = await reader.read(source, { nowMs });
+  const account = fingerprint(payloads.salt)('claude', 'account-one');
+  assert.equal(reader.account(source), account);
+  assert.deepEqual(fileUsageStore(stateDir).get('claude', account), { at: nowMs, windows: good.windows });
+  assert.equal((await reader.read(source, { nowMs: nowMs + 60_000 })).code, 'rate-limited');
+  assert.equal(backoff.get('claude', account), nowMs + 660_000);
+  backoff.set('claude', account, nowMs + 120_000);
+  const restarted = usage({ ...options, store: fileUsageStore(stateDir) });
+  assert.deepEqual(restarted.lastKnown(source, { nowMs: nowMs + 120_000 }), good);
+  assert.deepEqual(await restarted.read(source, { nowMs: nowMs + 120_000 }), { ...good, code: 'rate-limited' });
+  assert.equal(http.calls.length, 2);
+  assert.equal((await restarted.read(source, { nowMs: nowMs + 660_000 })).code, undefined);
+  assert.equal(http.calls.length, 3);
+  assert.doesNotMatch(readFileSync(join(stateDir, 'plans-v2.json'), 'utf8'), /fixture-secret|account-one|accessToken/);
+  assert.equal(statSync(join(stateDir, 'plans-v2.json')).mode & 0o777, 0o600);
+  assert.throws(() => fileUsageStore('relative'), UsageError);
+  store.put('claude', 'fixture-secret', { at: nowMs, windows: good.windows });
+  assert.equal(store.get('claude', 'fixture-secret'), undefined);
+  assert.equal(retryAfterMs('600', nowMs), 600_000);
+  assert.equal(retryAfterMs(new Date(nowMs + 600_000).toUTCString(), nowMs), 600_000);
+  assert.equal(retryAfterMs(new Date(nowMs - 60_000).toUTCString(), nowMs), 0);
+  for (const header of [null, undefined, '', '  ', 'invalid']) assert.equal(retryAfterMs(header, nowMs), undefined);
+  assert.equal(backoffDelayMs(undefined), 300_000);
+  assert.equal(backoffDelayMs(NaN), 300_000);
+  assert.equal(backoffDelayMs(600_000), 600_000);
 });

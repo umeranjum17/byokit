@@ -88,6 +88,47 @@ without `stateDir` an in-memory store is used. `memoryUsageStore()` is exported.
 old raw-payload stores so second-based and millisecond-based readings never mix.
 The default salt is `byokit/usage/account`.
 
+To replace a host's Claude quota adapter, pass the exact files the host already
+selected. Reuse the backoff policy across collector instances:
+
+```ts
+import { usage, fileUsageStore, memoryBackoffPolicy, fingerprint } from '@byokit/usage';
+const salt = 'my-app/usage/account';
+const store = fileUsageStore('/app/state/usage');
+const backoff = memoryBackoffPolicy();
+const source = {
+  provider: 'claude' as const,
+  credentialsFile: '/app/sign-ins/claude/.credentials.json',
+  configFile: '/app/sign-ins/claude/.claude.json',
+  statuslineFile: '/app/sign-ins/claude/statusline.json',
+};
+const reader = usage({ store, backoff, salt });
+const reading = await reader.read(source);
+const lastGood = reader.lastKnown(source);
+// For a host-owned non-secret account UUID, this matches reader.account(source).
+const accountKey = fingerprint(salt)('claude', accountUuid);
+const saved = store.get('claude', accountKey);
+```
+
+The kit replaces the credential/snapshot read, quota request, payload parsing,
+account fingerprint, last-good disk writes and 429 rest tracking. The host selects
+paths and displays the returned windows. A valid recent snapshot precedes the
+request; the request uses the kit's own user agent. No credential refresh occurs.
+Legacy raw stores require host migration into normalized millisecond readings;
+they are never loaded automatically.
+
+`fileUsageStore(absoluteStateDir)` exposes the same bounded atomic disk store as
+`stateDir`; invalid directory paths throw `UsageError`. Its keys must be 64-character
+hex fingerprints, and it persists only `{ at, windows }` with normalized fields.
+`fingerprint(salt)` returns `(provider, nonSecretIdentity) => string`; use the same
+salt as the reader and never supply a token as the identity.
+`memoryBackoffPolicy()` supplies shared per-provider/account rests, keeps the later
+rest when updated, and writes no files. The host can use `retryAfterMs(header, nowMs)`
+to parse Retry-After seconds or an HTTP date (invalid/absent values give `undefined`,
+past dates clamp to zero), and `backoffDelayMs(retryAfterMs)` to apply the default
+five-minute minimum. These helpers also support an app-owned Claude `read` hook
+without duplicating fingerprint, persistence or retry logic.
+
 Isolation: there is no home/path discovery or environment read. Only absolute files
 and the Codex binary explicitly supplied by the app are opened/run. Credential files
 are bounded regular files, with final symlinks rejected. The spawn uses argv and an

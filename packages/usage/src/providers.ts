@@ -1,3 +1,4 @@
+import { retryAfterMs } from './backoff.ts';
 import { spawn } from 'node:child_process';
 import type { Code, Source, SourceAnswer } from './types.ts';
 import { readJson, readJsonSnapshot } from './store.ts';
@@ -15,10 +16,9 @@ async function request(url: string, key: string, fetcher: typeof fetch, nowMs: n
       ...(extra.body !== undefined ? { 'content-type': 'application/json' } : {}), ...extra.headers },
       ...(extra.body !== undefined ? { method: 'POST', body: JSON.stringify(extra.body) } : {}), redirect: 'error', signal: controller.signal });
     if (response.status === 429) {
-      const retry = response.headers.get('retry-after'); const seconds = Number(retry);
-      const delay = retry !== null && Number.isFinite(seconds) ? seconds * 1000 : Date.parse(retry ?? '') - nowMs;
+      const delay = retryAfterMs(response.headers.get('retry-after'), nowMs);
       controller.abort();
-      return { code: 'rate-limited', retryAfterMs: Number.isFinite(delay) ? Math.max(0, delay) : undefined };
+      return { code: 'rate-limited', retryAfterMs: delay };
     }
     if (response.status !== 200) { controller.abort(); return { code: response.status === 401 ? 'auth' : response.status === 403 ? 'no-plan' : 'unavailable' }; }
     if (!response.body) return { code: 'incomplete' };

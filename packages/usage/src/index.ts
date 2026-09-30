@@ -1,3 +1,4 @@
+import { backoffDelayMs } from './backoff.ts';
 import { accessSync, constants, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { isAbsolute, join } from 'node:path';
@@ -10,7 +11,8 @@ export * from './types.ts';
 export { callLedger, normalizeTokens, priceCall, type CallLedger, type CallInput, type CallRecord, type CallQuery, type NormalizedTokens, type ModelPrice, type PriceTable, type CallCost } from './calls.ts';
 export { tokenLedger, memoryTokenLedgerStore, TokenLedgerError, type TokenLedger, type TokenLedgerStore, type TokenLedgerOptions, type TokenEntry, type TokenQuery } from './ledger.ts';
 export { roomOf } from './room.ts';
-export { memoryUsageStore } from './store.ts';
+export { fingerprint, store as fileUsageStore, memoryUsageStore } from './store.ts';
+export { retryAfterMs, backoffDelayMs, memoryBackoffPolicy } from './backoff.ts';
 export { claudeWindows, codexWindows, goWindows, zaiWindows, type CodexRateLimitResult } from './windows.ts';
 export { codexTokenWindows, copilotWindows, grokWindows, minimaxWindows, geminiWindows, kimiWindows } from './quota.ts';
 export { WORDS, words, usageWords, type WordKey } from './words.ts';
@@ -118,7 +120,7 @@ export function usage(options: UsageOptions): Usage {
           : 'bin' in source ? await codexUsage(source) : await providerGet(source, options.fetch ?? globalThis.fetch, clock);
       } catch { answer = { code: 'unavailable' }; }
       if (answer.code === 'rate-limited') {
-        let delay = Math.max(300_000, Number.isFinite(answer.retryAfterMs) ? answer.retryAfterMs! : 0);
+        let delay = backoffDelayMs(answer.retryAfterMs);
         try { const selected = options.backoff?.delayMs?.(answer.retryAfterMs); if (selected !== undefined && Number.isFinite(selected) && selected >= 0) delay = selected; } catch { /* default */ }
         backoffs.set(key, clock + delay);
         try { if (id.stable) options.backoff?.set(source.provider, id.key, clock + delay); } catch { /* internal backoff stands */ }
