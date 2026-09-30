@@ -209,16 +209,23 @@ test("shipped paths include engines, plugins, policies, schemas and native metad
   assert.equal(shippedPath("schema/a.json", ["schema/*.json"]), true);
 });
 
-test("published shipped changes require a real increase and release notes, private changes need notes", () => {
+test("published shipped changes accept Unreleased notes or a version increase with release notes", () => {
   const input = {
     changelogs: { link: "# Changelog\n\n## Unreleased\n\n- FIX: a fix.\n\n## 0.3.1\n\n- Initial.\n" },
     files: { link: ["dist", "CHANGELOG.md"] }, srcChanged: ["link"], depsChanged: [], versionChanged: [] as string[],
     versions: { link: { before: "0.3.1", after: "0.3.1", isPrivate: false } },
   };
-  assert.ok(lint(input).some((e) => e.includes("version increase")));
+  assert.deepEqual(lint(input), []);
+  const noted = input.changelogs.link;
+  input.changelogs.link = noted.replace("- FIX: a fix.\n", "");
+  assert.ok(lint(input).some((e) => e.includes("Unreleased bullet")));
+  input.changelogs.link = noted;
+  input.versions.link.after = "invalid";
+  input.versionChanged = ["link"];
+  assert.ok(lint(input).some((e) => e.includes("invalid or decreased version")));
   input.versions.link.after = "0.3.0";
   input.versionChanged = ["link"];
-  assert.ok(lint(input).some((e) => e.includes("version increase")));
+  assert.ok(lint(input).some((e) => e.includes("invalid or decreased version")));
   input.versions.link.after = "0.3.2";
   assert.ok(lint(input).some((e) => e.includes("non-empty changelog section")));
   input.changelogs.link = prepareChangelog(input.changelogs.link, "0.3.2", "2026-09-30", []);
@@ -229,7 +236,7 @@ test("published shipped changes require a real increase and release notes, priva
 });
 
 
-test("release lint CLI rejects a shipped schema without a bump and accepts noted releases on PR and push ranges", () => {
+test("release lint CLI requires notes for unchanged shipped schemas and accepts feature and release PR and push ranges", () => {
   const dir = mkdtempSync(join(tmpdir(), "release-lint-"));
   const run = (command: string, args: string[]) => spawnSync(command, args, { cwd: dir, encoding: "utf8" });
   const git = (...args: string[]) => {
@@ -246,7 +253,7 @@ test("release lint CLI rejects a shipped schema without a bump and accepts noted
     const changelogPath = join(dir, "packages/probe/CHANGELOG.md");
     const changelog = "# Changelog\n\n## Unreleased\n\n- FIX: validate schema fields.\n\n## 0.1.0\n\n- Initial.\n";
     writeFileSync(manifestPath, JSON.stringify(manifest));
-    writeFileSync(changelogPath, changelog);
+    writeFileSync(changelogPath, changelog.replace("- FIX: validate schema fields.\n", ""));
     writeFileSync(join(dir, "packages/probe/schema/v1.json"), "{}");
     git("init", "-q"); git("add", "."); git("commit", "-qm", "base");
     const base = git("rev-parse", "HEAD");
@@ -255,7 +262,14 @@ test("release lint CLI rejects a shipped schema without a bump and accepts noted
     const lintArgs = ["scripts/release.ts", "lint", "--base", base];
     const rejected = run(process.execPath, lintArgs);
     assert.equal(rejected.status, 1);
-    assert.match(rejected.stderr, /without a version increase/);
+    assert.match(rejected.stderr, /without a ## Unreleased bullet/);
+    writeFileSync(changelogPath, changelog);
+    git("add", "."); git("commit", "-qm", "note feature without bump");
+    for (const args of [lintArgs, [...lintArgs, "--direct"]]) {
+      const accepted = run(process.execPath, args);
+      assert.equal(accepted.status, 0, accepted.stderr);
+      assert.match(accepted.stdout, /release lint: ok/);
+    }
     manifest.version = "0.1.1";
     writeFileSync(manifestPath, JSON.stringify(manifest));
     writeFileSync(changelogPath, prepareChangelog(changelog, "0.1.1", "2026-09-30", []));

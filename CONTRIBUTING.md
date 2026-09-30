@@ -99,6 +99,8 @@ Two phases, because publishing happens only from merged main:
 1. **prepare** (on a branch, becomes a normal PR): `npm run release -- prepare link=patch relay=minor [--dry-run]`
 2. **publish** (on merged main): `npm run release -- publish [--dry-run]`
 
+Publish only publishes versions not yet on npm, so feature PRs keep versions unchanged and their Unreleased changes wait for the next prepare PR.
+
 Publish locally with the machine's npm session (npm's own 2FA prompt comes through; the script never takes
 an OTP or token), or dispatch `release.yml` (OIDC trusted publishing with provenance, no stored token) once
 the packages' trusted publishers name this repository and workflow file. The first publish of a new package is
