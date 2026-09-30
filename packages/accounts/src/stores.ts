@@ -1,10 +1,40 @@
 // Credential stores behind Pi's own CredentialStore seam: one per person, never a shared fallback. Each platform's
 // storage is only "load the record, save the record"; this file keeps every one of them serialized the same way, so a
 // refresh and a sign-out never interleave. No Node import here: phones and browsers use it too (see node-stores.ts).
-import type { Credential, CredentialStore } from '@earendil-works/pi-ai';
+import type { Credential, CredentialStore, OAuthCredential } from '@earendil-works/pi-ai';
 
 export type Record = { [providerId: string]: Credential };
-export type EndingStore = CredentialStore & { end(id: string, fn: (c: Credential | undefined) => Promise<void>): Promise<void> };
+type RefreshState = { generation: number; state: 'ready' | 'attempted' | 'uncertain' | 'terminal' };
+/** Extends the credential seam so two durable writes can bracket a refresh while holding the same lock. */
+export type RefreshStore = CredentialStore & {
+  refresh(id: string, due: (c: OAuthCredential) => boolean, rotate: (c: OAuthCredential) => Promise<OAuthCredential>): Promise<OAuthCredential | undefined>;
+};
+export type EndingStore = RefreshStore & { end(id: string, fn: (c: Credential | undefined) => Promise<void>): Promise<void> };
+
+/** No provider response or credential is included in this error. `status` lets Accounts ask for sign-in again. */
+export class RefreshRequiredError extends Error {
+  readonly status = 401;
+  constructor() { super('This sign-in needs to be connected again.'); this.name = 'RefreshRequiredError'; }
+}
+
+/** Legacy credentials have no marker. Unknown or incomplete state fails closed. */
+export function needsReauth(c: Credential | undefined): boolean {
+  if (c?.type !== 'oauth' || c.byokitRefresh === undefined) return false;
+  const marker = c.byokitRefresh as RefreshState | null;
+  return !marker || marker.state !== 'ready' || !Number.isSafeInteger(marker.generation) || marker.generation < 0;
+}
+
+/** Bare CredentialStore implementations cannot persist inside their modify callback. Require the transaction seam
+ *  rather than send a grant without its attempt marker; custom stores can use recordStore(load, save). */
+export async function refreshCredential(store: CredentialStore, id: string, due: (c: OAuthCredential) => boolean, rotate: (c: OAuthCredential) => Promise<OAuthCredential>) {
+  const refresh = (store as Partial<RefreshStore>).refresh;
+  if (refresh) return refresh.call(store, id, due, rotate);
+  const c = await store.read(id);
+  if (c?.type !== 'oauth') return undefined;
+  if (needsReauth(c)) throw new RefreshRequiredError();
+  if (!due(c)) return c;
+  throw new Error('Refresh requires a transactional credential store; use recordStore(load, save).');
+}
 
 /** A store over one whole record the platform loads and saves. Writes are serialized within this process; a write
  *  re-reads first, so a sign-in that took minutes never overwrites a provider that changed meanwhile. */
@@ -22,6 +52,33 @@ export function recordStore(load: () => Promise<Record>, save: (data: Record) =>
       await save({ ...(await load()), [id]: next });
       return next;
     }),
+    refresh: (id, due, rotate) => serial(async () => {
+      const current = (await load())[id];
+      if (current?.type !== 'oauth') return undefined;
+      if (needsReauth(current)) throw new RefreshRequiredError();
+      if (!due(current)) return current;
+      const generation = (current.byokitRefresh as RefreshState | undefined)?.generation ?? 0;
+      const attempted = { ...current, byokitRefresh: { generation, state: 'attempted' } satisfies RefreshState };
+      const write = async (c: OAuthCredential) => save({ ...(await load()), [id]: c });
+      // Never send if this write fails. The marker stays in the same sealed record as the old pair.
+      await write(attempted);
+      let next: OAuthCredential;
+      try {
+        next = await rotate(current);
+        if (next.refresh === current.refresh) throw new Error('Refresh did not replace the grant');
+        if (current.accountId && next.accountId !== current.accountId) throw new RefreshRequiredError();
+      }
+      catch (e: any) {
+        const state = [400, 401, 403].includes(e?.status) ? 'terminal' : 'uncertain';
+        // The before-send marker already prevents replay if the quarantine write also fails.
+        await write({ ...attempted, byokitRefresh: { generation, state } }).catch(() => {});
+        throw new RefreshRequiredError();
+      }
+      const committed = { ...current, ...next, byokitRefresh: { generation: generation + 1, state: 'ready' } satisfies RefreshState };
+      try { await write(committed); }
+      catch { throw new RefreshRequiredError(); }
+      return committed;
+    }),
     delete: (id) => serial(async () => { const data = await load(); if (id in data) { delete data[id]; await save(data); } }),
     end: (id, fn) => serial(async () => {
       try { await fn((await load())[id]); }
@@ -30,7 +87,7 @@ export function recordStore(load: () => Promise<Record>, save: (data: Record) =>
   };
 }
 
-export function memoryStore(): CredentialStore {
+export function memoryStore(): EndingStore {
   let data: Record = {};
   return recordStore(async () => ({ ...data }), async (d) => { data = d; });
 }
@@ -48,7 +105,7 @@ export type SecureStoreLike = {
  *  as a new generation, then `name` is pointed at it: a crash mid-write leaves the old sign-ins whole. `options` (e.g.
  *  `{ keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }`) is passed to every get, set and delete;
  *  without it Expo's default (`WHEN_UNLOCKED`) applies. */
-export function secureStore(secure: SecureStoreLike, name: string, options?: object): CredentialStore {
+export function secureStore(secure: SecureStoreLike, name: string, options?: object): EndingStore {
   const head = async () => { const [gen = '0', n = '0'] = (await secure.getItemAsync(name, options))?.split(':') ?? []; return { gen: Number(gen), n: Number(n) }; };
   const load = async () => {
     const { gen, n } = await head();
@@ -90,12 +147,14 @@ export function browserStore(name: string, db = 'byokit'): EndingStore {
     } finally { d.close(); }
   };
   const store = recordStore(async () => (await run<Record | undefined>('readonly', (s) => s.get(name))) ?? {}, (data) => run('readwrite', (s) => s.put(data, name)));
-  const locked = async <T>(id: string, fn: () => Promise<T>): Promise<T> =>
-    typeof navigator !== 'undefined' && navigator.locks ? await navigator.locks.request<Promise<T>>(`byokit:${db}:${name}:${id}`, fn) : fn();
+  // Every write replaces the whole record, so tabs must share a record lock, including the entire refresh.
+  const locked = async <T>(fn: () => Promise<T>): Promise<T> =>
+    typeof navigator !== 'undefined' && navigator.locks ? await navigator.locks.request<Promise<T>>(`byokit:${db}:${name}`, fn) : fn();
   return {
     ...store,
-    modify: (id, fn, options) => locked(id, () => store.modify(id, fn, options)),
-    delete: (id, options) => locked(id, () => store.delete(id, options)),
-    end: (id, fn) => locked(id, () => store.end(id, fn)),
+    modify: (id, fn, options) => locked(() => store.modify(id, fn, options)),
+    refresh: (id, due, rotate) => locked(() => store.refresh(id, due, rotate)),
+    delete: (id, options) => locked(() => store.delete(id, options)),
+    end: (id, fn) => locked(() => store.end(id, fn)),
   };
 }

@@ -1,0 +1,13 @@
+{
+  "rule": "A refresh transaction re-reads under the account's store lock, commits a non-secret generation attempt marker before sending, then commits the replacement pair before returning access. A failed attempt-marker save sends nothing. An attempted, uncertain or terminal generation requires sign-in again, even after reconstructing the store or requesting forced refresh. A replacement commit failure never returns the new access token or replays the old grant. A fresh sign-in replaces quarantine. This applies to the TypeScript portable engine, not the frozen Kotlin mirror or the desktop Pi engine.",
+  "cases": [
+    { "outcome": "lost-response", "state": "uncertain", "sends": 1 },
+    { "outcome": "commit-failure", "state": "attempted", "sends": 1 },
+    { "outcome": "terminal", "status": 400, "state": "terminal", "sends": 1 },
+    { "outcome": "terminal", "status": 401, "state": "terminal", "sends": 1 },
+    { "outcome": "terminal", "status": 403, "state": "terminal", "sends": 1 },
+    { "outcome": "server-error", "status": 500, "state": "uncertain", "sends": 1 },
+    { "outcome": "unchanged-grant", "state": "uncertain", "sends": 1 },
+    { "outcome": "attempt-save-failure", "sends": 0 }
+  ]
+}

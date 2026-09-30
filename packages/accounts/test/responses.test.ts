@@ -139,16 +139,24 @@ test('respond acts on coded failures in both SSE event forms', async () => {
   }
 });
 
-test('respond preserves a failed refresh as a network failure, not sign-out', async () => {
+test('respond requires sign-in after an uncertain refresh and never replays the grant', async () => {
   openai.state.expiresIn = 0;
   const a = await signedIn();
   openai.state.expiresIn = 864_000;
   const original = globalThis.fetch;
-  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
-    String(input) === `${openai.base}/oauth/token` ? Promise.reject(new Error('fetch failed')) : original(input, init)) as typeof fetch;
+  let sends = 0;
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) === `${openai.base}/oauth/token`) {
+      sends++;
+      return Promise.reject(new Error('fetch failed'));
+    }
+    return original(input, init);
+  }) as typeof fetch;
   try {
-    await assert.rejects(a.respond(1, { instructions: '', input: 'hi' }), (e: any) => e instanceof ResponseError && e.kind === 'network');
-    assert.equal((await a.status(1, 'chatgpt')).state, 'ready');
+    await assert.rejects(a.respond(1, { instructions: '', input: 'hi' }), (e: any) => e instanceof ResponseError && e.kind === 'signed_out');
+    assert.equal((await a.status(1, 'chatgpt')).state, 'needs_again');
+    await assert.rejects(a.respond(1, { instructions: '', input: 'hi' }), (e: any) => e instanceof ResponseError && e.kind === 'signed_out');
+    assert.equal(sends, 1);
   } finally { globalThis.fetch = original; }
 });
 

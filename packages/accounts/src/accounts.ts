@@ -7,11 +7,11 @@ import { offered, provider, type Provider } from './catalogue.ts';
 import { claims, PORTABLE, portableEngine } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
-import { memoryStore, type EndingStore } from './stores.ts';
+import { memoryStore, refreshCredential, type EndingStore, type RefreshStore } from './stores.ts';
 import { callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';
 
 /** What signing in needs from an engine: Pi's `Models`, or anything shaped like it (the coding agent's `ModelRuntime`). */
-type BoundStore = CredentialStore & { signOut: (id: string, p: Provider) => Promise<void> };
+type BoundStore = CredentialStore & Partial<Pick<RefreshStore, 'refresh'>> & { signOut: (id: string, p: Provider) => Promise<void> };
 export type AuthHost = Pick<Models, 'login' | 'logout' | 'checkAuth' | 'getAuth'> & { readCredential: CredentialStore['read']; credentialStore: BoundStore };
 export type Member = string | number;
 /** What the person sees while signing in: the provider's own page to open (`via: 'browser'`), or a code to type there
@@ -113,6 +113,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         read: (id) => base.read(id),
         list: () => base.list(),
         modify: (id, fn, options) => serial(() => base.modify(id, fn, options)),
+        refresh: (id, due, rotate) => serial(() => refreshCredential(base, id, due, rotate)),
         delete: (id, options) => serial(() => base.delete(id, options)),
         end: (id, fn) => serial(async () => {
           if (typeof (base as EndingStore).end === 'function') return (base as EndingStore).end(id, fn);
@@ -137,6 +138,16 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     return {
       read: (id, options) => raw.read(id, options),
       list: (options) => raw.list(options),
+      refresh: (id, due, rotate) => {
+        const account = key(id);
+        const started = this.generations.get(account) ?? 0;
+        return this.serial(account, async () => {
+          if (started !== (this.generations.get(account) ?? 0)) return undefined;
+          const next = await refreshCredential(raw, id, due, rotate);
+          // Sign-out waits on this lock and revokes the committed replacement pair.
+          return started === (this.generations.get(account) ?? 0) ? next : undefined;
+        });
+      },
       modify: (id, fn, options) => {
         const account = key(id);
         const stale = Symbol();
@@ -460,15 +471,16 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         const c = await this.store(member).read(pi);
         return c?.type === 'oauth' && c.expires > Date.now();
       }
-      // Only the provider refusing (400-403) counts as expiry. Anything else (a locked keychain read, storage failing)
-      // is unknown: try later, never sign the person out.
+      // A provider refusal or quarantined refresh requires sign-in again. A read failure before sending (for example
+      // a locked keychain) is unknown: try later.
       const status = (e as any)?.status;
       return typeof status !== 'number' || status < 400 || status > 403;
     });
   }
 
   /** Refresh every signed-in account an hour ahead of expiry (call it now and then), so a sign-in never lapses while
-   *  nobody is looking. Only the provider refusing signs it out, and `onExpired` says so once; a network hiccup doesn't. */
+   *  nobody is looking. A refusal or uncertain refresh requires sign-in again; `onExpired` says so once. A storage
+   *  read failure before sending remains unknown and can be retried. */
   async keepFresh(members: readonly M[]) {
     for (const m of members) for (const p of this.providers) {
       if (this.ready.get(`${m}:${p.key}`) !== true) continue;

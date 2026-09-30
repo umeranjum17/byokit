@@ -2,8 +2,7 @@
 import { constants, closeSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { dirname } from 'node:path';
-import type { CredentialStore } from '@earendil-works/pi-ai';
-import { recordStore } from './stores.ts';
+import { recordStore, type EndingStore } from './stores.ts';
 
 /** Pass Electron's safeStorage from the main process after ready, or an equivalent trusted sealing adapter.
  * Adapters without capability methods are responsible for ensuring their key is protected. */
@@ -17,7 +16,7 @@ export type SafeStorageLike = {
 /** One person's sealed sign-ins in an app-owned 0600 file inside a private 0700 folder.
  * No plaintext fallback. Writes are serialized per store instance; use one instance per path and a host lock
  * if multiple processes share it. The host owns the adapter and its key, separately from this file. */
-export function fileStore(path: string, safeStorage: SafeStorageLike): CredentialStore {
+export function fileStore(path: string, safeStorage: SafeStorageLike): EndingStore {
   const ready = () => {
     if (!safeStorage || typeof safeStorage.encryptString !== 'function' || typeof safeStorage.decryptString !== 'function') {
       throw new TypeError('fileStore requires a sealing adapter');
@@ -63,6 +62,11 @@ export function fileStore(path: string, safeStorage: SafeStorageLike): Credentia
       }
       finally { closeSync(fd); }
       renameSync(tmp, path);
+      // Windows does not support opening directories for fsync through this API.
+      if (!process.permission && process.platform !== 'win32') {
+        const dir = openSync(folder, constants.O_RDONLY);
+        try { fsyncSync(dir); } finally { closeSync(dir); }
+      }
     } finally { if (created) try { unlinkSync(tmp); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; } }
   };
   return recordStore(load, save);

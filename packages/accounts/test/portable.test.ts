@@ -5,7 +5,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { build } from 'esbuild';
-import { Accounts, credentialOf, devicePoll, deviceStart, memoryStore, portableEngine, recordStore, secureStore, type SecureStoreLike } from '../src/portable.ts';
+import { Accounts, credentialOf, devicePoll, deviceStart, memoryStore, portableEngine, recordStore, secureStore, RefreshRequiredError, type SecureStoreLike } from '../src/portable.ts';
 import { mockOpenAI } from '../src/testing/index.ts';
 import type { CredentialStore } from '@earendil-works/pi-ai';
 
@@ -168,6 +168,138 @@ test('refresh: ahead of expiry, rotating, one at a time; a refusal signs out onc
   assert.deepEqual(expired, [1], 'said once');
   assert.equal((await a.status(1, 'chatgpt')).state, 'needs_again');
   Object.assign(openai.state, { refuse: false, expiresIn: 864_000 });
+});
+
+test('refresh transaction fixtures: uncertain and terminal generations survive reconstruction without replay', async () => {
+  const original = globalThis.fetch;
+  const response = fixture('token-responses.json').cases[0].response;
+  const old = { ...credentialOf(response), expires: 0, extension: 'preserved' };
+  try {
+    for (const row of fixture('refresh-typescript.json').cases) {
+      let data: any = { 'openai-codex': old };
+      let writes = 0;
+      let sends = 0;
+      const store = () => recordStore(async () => structuredClone(data), async (next) => {
+        writes++;
+        if (row.outcome === 'attempt-save-failure' || (row.outcome === 'commit-failure' && writes > 1)) throw new Error('synthetic storage failure');
+        data = structuredClone(next);
+      });
+      globalThis.fetch = async () => {
+        sends++;
+        assert.deepEqual(data['openai-codex'].byokitRefresh, { generation: 0, state: 'attempted' }, 'attempt saved before send');
+        if (row.outcome === 'lost-response') throw new Error('synthetic lost response with canary-secret');
+        if (row.status) return new Response('canary-secret', { status: row.status });
+        return new Response(JSON.stringify({ ...response, refresh_token: row.outcome === 'unchanged-grant' ? old.refresh : 'rotated-grant' }));
+      };
+      await assert.rejects(portableEngine(store()).getAuth('openai-codex'), (e: Error) => {
+        assert.doesNotMatch(e.message, /canary-secret/);
+        return row.outcome === 'attempt-save-failure' || e instanceof RefreshRequiredError;
+      });
+      // A new engine AND a new store identity over the same persisted record lose all process-local state.
+      const restarted = portableEngine(store());
+      if (row.state) {
+        assert.equal(data['openai-codex'].byokitRefresh.state, row.state, row.outcome);
+        assert.equal(await restarted.checkAuth('openai-codex'), undefined);
+      }
+      await assert.rejects(restarted.getAuth('openai-codex', { minOAuthValidityMs: 365 * 86_400_000 }));
+      assert.equal(sends, row.sends, row.outcome);
+      assert.equal(data['openai-codex'].refresh, old.refresh, 'old pair never handed out after an attempt');
+    }
+  } finally { globalThis.fetch = original; }
+});
+
+test('refresh holds the store lock across both commits, re-reads when queued, and fresh sign-in replaces quarantine', async () => {
+  const original = globalThis.fetch;
+  const response = fixture('token-responses.json').cases[0].response;
+  const old = { ...credentialOf(response), expires: 0, extension: 'preserved' };
+  const store = memoryStore();
+  await store.modify('openai-codex', async () => old);
+  let sends = 0;
+  let release!: () => void;
+  let entered!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const sending = new Promise<void>((r) => { entered = r; });
+  try {
+    globalThis.fetch = async () => {
+      sends++;
+      entered();
+      await gate;
+      return new Response(JSON.stringify({ ...response, refresh_token: 'rotated-grant' }));
+    };
+    const first = portableEngine(store).getAuth('openai-codex');
+    await sending;
+    const second = portableEngine(store).getAuth('openai-codex');
+    const checking = portableEngine(store).checkAuth('openai-codex');
+    release();
+    const auth = await Promise.all([first, second]);
+    assert.equal(sends, 1);
+    assert.deepEqual(auth[0], auth[1]);
+    assert.deepEqual(await checking, { source: 'OAuth', type: 'oauth' }, 'a status check waits for the active refresh');
+    const committed: any = await store.read('openai-codex');
+    assert.equal(committed.refresh, 'rotated-grant');
+    assert.equal(committed.extension, 'preserved');
+    assert.deepEqual(committed.byokitRefresh, { generation: 1, state: 'ready' });
+    // A second generation can rotate, but never the old grant.
+    globalThis.fetch = async (_url, init) => {
+      sends++;
+      assert.equal(new URLSearchParams(String(init?.body)).get('refresh_token'), 'rotated-grant');
+      throw new Error('lost response');
+    };
+    await assert.rejects(portableEngine(store).getAuth('openai-codex', { minOAuthValidityMs: 365 * 86_400_000 }), RefreshRequiredError);
+    assert.deepEqual((await store.read('openai-codex') as any).byokitRefresh, { generation: 1, state: 'uncertain' });
+    await store.modify('openai-codex', async () => credentialOf(response));
+    assert.ok(await portableEngine(store).getAuth('openai-codex'), 'fresh sign-in can be used');
+    assert.equal(sends, 2);
+    // A refresh queued behind a store mutation must use its fresh read.
+    await store.modify('openai-codex', async () => old);
+    const signin = store.modify('openai-codex', async () => credentialOf(response));
+    const queued = portableEngine(store).getAuth('openai-codex');
+    await signin;
+    assert.ok(await queued);
+    assert.equal(sends, 2, 'queued refresh saw the replacement sign-in, not the stale pair');
+  } finally { release(); globalThis.fetch = original; }
+});
+
+test('secureStore: a process lost between refresh send and pair commit restarts into re-auth', async () => {
+  const original = globalThis.fetch;
+  const response = fixture('token-responses.json').cases[0].response;
+  const kept = new Map<string, string>();
+  let crash = false;
+  const secure: SecureStoreLike = {
+    getItemAsync: async (k) => kept.get(k) ?? null,
+    setItemAsync: async (k, v) => { if (crash) throw new Error('synthetic process lost'); kept.set(k, v); },
+    deleteItemAsync: async (k) => { kept.delete(k); },
+  };
+  const s = secureStore(secure, 'byokit.transaction');
+  await s.modify('openai-codex', async () => ({ ...credentialOf(response), expires: 0 }));
+  let sends = 0;
+  try {
+    globalThis.fetch = async () => {
+      sends++;
+      const marker: any = await secureStore(secure, 'byokit.transaction').read('openai-codex');
+      assert.equal(marker.byokitRefresh.state, 'attempted');
+      crash = true;
+      return new Response(JSON.stringify({ ...response, refresh_token: 'rotated-grant' }));
+    };
+    await assert.rejects(portableEngine(s).getAuth('openai-codex'), RefreshRequiredError);
+    crash = false;
+    const restarted = portableEngine(secureStore(secure, 'byokit.transaction'));
+    await assert.rejects(restarted.getAuth('openai-codex'), RefreshRequiredError);
+    assert.equal(sends, 1, 'the possibly spent grant was not replayed after restart');
+  } finally { globalThis.fetch = original; }
+});
+
+test('portable refresh refuses a custom store without a before-send transaction', async () => {
+  const original = globalThis.fetch;
+  const complete = memoryStore();
+  await complete.modify('openai-codex', async () => ({ type: 'oauth', access: 'a', refresh: 'r', expires: 0 }));
+  const { refresh: _refresh, end: _end, ...bare } = complete;
+  let sends = 0;
+  try {
+    globalThis.fetch = async () => { sends++; throw new Error('must not send'); };
+    await assert.rejects(portableEngine(bare).getAuth('openai-codex'), /transactional credential store/);
+    assert.equal(sends, 0);
+  } finally { globalThis.fetch = original; }
 });
 
 test('signing out while a refresh is under way: the sign-out wins, nothing comes back', async () => {
