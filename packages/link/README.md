@@ -174,6 +174,9 @@ The **handle** step authorizes the already-paired inviter, **offer** records the
 then **confirm** checks that metadata before approving the new peer:
 
 ```ts
+import { Host, keyPair, PublicLinkError } from '@byokit/link';
+
+declare const ui: { ask(question: string): Promise<boolean> };
 const urls = ['wss://relay.example/link/v1/your-host-id'];
 const host: Host = await Host.open({
   keys: keyPair(), name: 'Kitchen computer',
