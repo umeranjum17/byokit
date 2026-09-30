@@ -1,0 +1,102 @@
+{
+  "rule": "TypeScript-only: response.incomplete or an envelope with status incomplete notifies onEvent with an incomplete event and rejects with IncompleteError (a ResponseError with kind null), preserving incomplete_details.reason and the partial text/output in result. Missing reasons become unknown. This holds for streamed SSE, buffered SSE, and non-streaming JSON envelopes, with and without tools. Incompleteness does not rest or sign out the account. Completed success results remain unchanged.",
+  "cases": [
+    {
+      "stream": "data: {\"type\": \"response.output_text.delta\", \"delta\": \"Cut off\"}\n\ndata: {\"type\": \"response.incomplete\", \"response\": {\"status\": \"incomplete\", \"incomplete_details\": {\"reason\": \"max_output_tokens\"}, \"output\": [{\"type\": \"message\", \"content\": [{\"type\": \"output_text\", \"text\": \"Cut off\"}]}]}}\n\n",
+      "reason": "max_output_tokens",
+      "text": "Cut off",
+      "response": {
+        "status": "incomplete",
+        "incomplete_details": {
+          "reason": "max_output_tokens"
+        },
+        "output": [
+          {
+            "type": "message",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Cut off"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "stream": "data: {\"type\": \"response.output_text.delta\", \"delta\": \"Cut off\"}\n\ndata: {\"type\": \"response.completed\", \"response\": {\"status\": \"incomplete\", \"incomplete_details\": {\"reason\": \"max_output_tokens\"}, \"output\": [{\"type\": \"message\", \"content\": [{\"type\": \"output_text\", \"text\": \"Cut off\"}]}]}}\n\n",
+      "reason": "max_output_tokens",
+      "text": "Cut off",
+      "response": {
+        "status": "incomplete",
+        "incomplete_details": {
+          "reason": "max_output_tokens"
+        },
+        "output": [
+          {
+            "type": "message",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Cut off"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "stream": "data: {\"type\": \"response.output_text.delta\", \"delta\": \"Cut off\"}\n\ndata: {\"type\": \"response.incomplete\", \"response\": {\"status\": \"incomplete\", \"incomplete_details\": {\"reason\": \"content_filter\"}, \"output\": [{\"type\": \"message\", \"content\": [{\"type\": \"output_text\", \"text\": \"Cut off\"}]}]}}\n\n",
+      "reason": "content_filter",
+      "text": "Cut off",
+      "response": {
+        "status": "incomplete",
+        "incomplete_details": {
+          "reason": "content_filter"
+        },
+        "output": [
+          {
+            "type": "message",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Cut off"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "stream": "data: {\"type\": \"response.output_text.delta\", \"delta\": \"Cut off\"}\n\ndata: {\"type\": \"response.completed\", \"response\": {\"status\": \"incomplete\", \"incomplete_details\": {\"reason\": \"content_filter\"}, \"output\": [{\"type\": \"message\", \"content\": [{\"type\": \"output_text\", \"text\": \"Cut off\"}]}]}}\n\n",
+      "reason": "content_filter",
+      "text": "Cut off",
+      "response": {
+        "status": "incomplete",
+        "incomplete_details": {
+          "reason": "content_filter"
+        },
+        "output": [
+          {
+            "type": "message",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Cut off"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "stream": "data: {\"type\":\"response.incomplete\",\"response\":{\"status\":\"incomplete\",\"output\":[]}}\n\n",
+      "reason": "unknown",
+      "text": "",
+      "response": {
+        "status": "incomplete",
+        "output": []
+      }
+    }
+  ]
+}

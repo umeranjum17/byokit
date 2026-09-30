@@ -119,7 +119,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | `memoryStore`, `fileStore`, `secureStore`, `browserStore`, `recordStore` | One store per person: in memory, a 0600 file (Node entry only), Keychain/Keystore, IndexedDB, or your own load and save |
 | `offered`, `provider`, `PROVIDERS` | The catalogue: each provider's billing, terms status, reason and source |
 | `billingWords`, `say`, `WORDS`, `signInError`, `failure`, `clock`, `callbackPage` | The plain sentences every app shows the same way (`words.json`), a time in words, and the page a browser sees after a sign-in |
-| `respond`, `ResponseError`, `sseReader`, `limitResponse`, `isFunctionCall` | Ask ChatGPT's answers endpoint with a sign-in, with tools, pictures, thinking effort and an answer shape; the error with the words to show and the kind acted on |
+| `respond`, `ResponseError`, `IncompleteError`, `sseReader`, `limitResponse`, `isFunctionCall` | Ask ChatGPT's answers endpoint with a sign-in, with tools, pictures, thinking effort and an answer shape; the error with the words to show and the kind acted on |
 | `classify`, `REST_MS` | An error's kind (limit, overload, plan without this use, lapsed sign-in, network) and default rest times |
 | `planOf`, `claims` | The ChatGPT plan and email behind a sign-in, from its own token |
 | `deviceStart`, `devicePoll`, `credentialOf`, `portableEngine`, `PORTABLE` | The device-code flow, the sign-in built from a token answer, and the engine under `portable` |
@@ -216,6 +216,14 @@ const accounts = new Accounts({
 member's sign-in, refreshed first when due, and returns the whole text (`onText` gets each piece as it streams; the
 returned completion is authoritative). A limit or a lapsed sign-in is acted on as `failed()` does, then thrown as a
 `ResponseError` with the words to show and the kind acted on. Rules: [conformance fixtures](../../fixtures/README.md).
+
+A cut-off answer always throws `IncompleteError` (a `ResponseError` with `kind: null`), with or without tools.
+Its `reason` preserves the provider's `incomplete_details.reason`, including `max_output_tokens` and
+`content_filter` (`unknown` when absent). Its `result` holds the partial `{ text, output }` for apps that want to
+show it as unfinished. `onEvent` also receives `{ type: 'incomplete', reason }` before rejection; `onText` may
+already have shown partial words. This covers `response.incomplete` events and `status: 'incomplete'` envelopes,
+whether fetch streams SSE, buffers it, or returns JSON. The account stays signed in and is not put to rest.
+Successful return values are unchanged.
 
 The whole question passes through: `input` takes the turns so far (messages, with `input_image` where the person
 attached a picture), `tools` and `tool_choice` take the app's own function tools and built-ins (including

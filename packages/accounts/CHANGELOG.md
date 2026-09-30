@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.7.1 (2026-09-30)
+
+- FIX: a cut-off answer is now reported as cut off: `respond` throws `IncompleteError` with its reason and partial output, and notifies `onEvent`, instead of returning it as finished.
+
 ## 0.7.0 (2026-09-30)
 
 - Add the portable `chatgptPlan` adapter for a host-validated official token-sharing session, checking

@@ -3,7 +3,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Accounts, ResponseError, isFunctionCall, limitResponse, offered, PROVIDERS, memoryStore, sseReader, type ResponseStreamEvent } from '../src/portable.ts';
+import { Accounts, IncompleteError, ResponseError, isFunctionCall, limitResponse, offered, PROVIDERS, memoryStore, sseReader, type ResponseStreamEvent } from '../src/portable.ts';
 import { mockOpenAI } from '../src/testing/index.ts';
 
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`../../../fixtures/conformance/${name}`, import.meta.url), 'utf8'));
@@ -60,6 +60,50 @@ test("respond with a fetch that can't stream (React Native's own): the whole ans
   const pieces: string[] = [];
   assert.equal(await a.respond(1, { instructions: '', input: 'hi', onText: (d) => pieces.push(d) }), 'You said: hi');
   assert.equal(pieces.join(''), 'You said: hi');
+});
+
+test('respond reports recorded incomplete answers through events and errors, streamed or buffered, with or without tools', async () => {
+  for (const c of fixture('incomplete-typescript.json').cases) {
+    for (const mode of ['stream', 'buffered', 'json'] as const) for (const tools of [undefined, []]) {
+      const stubFetch = (async () => {
+        if (mode === 'json') return new Response(JSON.stringify(c.response), { headers: { 'content-type': 'application/json' } });
+        if (mode === 'buffered') return { ok: true, status: 200, text: async () => c.stream } as Response;
+        const bytes = new TextEncoder().encode(c.stream);
+        return new Response(new ReadableStream({
+          start(controller) {
+            // Split every byte, including JSON fields and event boundaries.
+            for (const byte of bytes) controller.enqueue(new Uint8Array([byte]));
+            controller.close();
+          },
+        }), { headers: { 'content-type': 'text/event-stream' } });
+      }) as typeof fetch;
+      const a = await signedIn({ fetch: stubFetch });
+      const events: ResponseStreamEvent[] = [];
+      const pieces: string[] = [];
+      const ask = { instructions: '', input: 'hi', onEvent: (e: ResponseStreamEvent) => events.push(e), onText: (d: string) => pieces.push(d) };
+      const answer = tools ? a.respond(1, { ...ask, tools }) : a.respond(1, ask);
+      await assert.rejects(answer, (e: unknown) => {
+        assert.ok(e instanceof IncompleteError);
+        assert.ok(e instanceof ResponseError);
+        assert.equal(e.kind, null);
+        assert.equal(e.reason, c.reason);
+        assert.equal(e.result.text, c.text);
+        assert.deepEqual(e.result.output, c.response.output);
+        assert.deepEqual(events.filter((event) => event.type === 'incomplete'), [{ type: 'incomplete', reason: c.reason }]);
+        return true;
+      });
+      assert.equal(pieces.join(''), c.text);
+      assert.equal((await a.status(1, 'chatgpt')).state, 'ready');
+      assert.equal(a.restingUntil(1, 'chatgpt'), 0);
+    }
+    const r = sseReader();
+    for (const byte of c.stream) r.push(byte);
+    for (const finish of [() => r.end(), () => r.result()]) assert.throws(finish, (e: unknown) => e instanceof IncompleteError && e.reason === c.reason && e.result.text === c.text);
+  }
+  const a = await signedIn({ fetch: (async () => new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'Complete' }] }] }), { headers: { 'content-type': 'application/json' } })) as typeof fetch });
+  assert.equal(await a.respond(1, { instructions: '', input: 'hi' }), 'Complete');
+  const failed = await signedIn({ fetch: (async () => new Response(JSON.stringify({ status: 'failed', error: { message: 'Request failed' }, output: [{ type: 'message', content: [{ type: 'output_text', text: 'Partial' }] }] }), { headers: { 'content-type': 'application/json' } })) as typeof fetch });
+  await assert.rejects(failed.respond(1, { instructions: '', input: 'hi' }), (e: unknown) => e instanceof ResponseError && e.message === 'Request failed');
 });
 
 test('respond preserves newlines in streamed and whole answers', async () => {
