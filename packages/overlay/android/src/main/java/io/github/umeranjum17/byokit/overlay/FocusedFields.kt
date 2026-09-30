@@ -25,7 +25,7 @@ data class InsertOpts(
 interface FieldNode {
   /** What identifies this field for a safe re-acquisition; null when it lacks a view id, bounds or package. */
   val identity: FieldIdentity? get() = null
-  /** The same field (same [identity]) found again in the active window, or null; the caller recycles it. */
+  /** The same field found again across window roots, or null; the caller recycles it. */
   fun reacquire(): FieldNode? = null
   /** Releases the wrapped node; the kit calls it only on nodes it obtained itself. */
   fun recycle() {}
@@ -133,36 +133,104 @@ object FocusedFields {
     return false
   }
 
-  /** The service's input focus, falling back only to accessibility focus. The caller recycles it. */
-  internal fun focus(service: AccessibilityService): AccessibilityNodeInfo? =
-    service.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: service.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
+  /** Owned roots from every interactive window, with the active root as a fallback. */
+  @Suppress("DEPRECATION")
+  internal fun roots(service: AccessibilityService): List<AccessibilityNodeInfo> {
+    val roots = mutableListOf<AccessibilityNodeInfo>()
+    for (window in service.windows.orEmpty()) {
+      try { window.root?.let { root -> if (roots.none { it === root }) roots += root } }
+      finally { window.recycle() }
+    }
+    service.rootInActiveWindow?.let { root -> if (roots.none { it === root }) roots += root }
+    return roots
+  }
+
+  /** Exact focus across window roots; four snapshots with at most 225 ms of settling pauses. */
+  @Suppress("DEPRECATION")
+  internal fun focus(service: AccessibilityService, pause: (Long) -> Unit = Thread::sleep): AccessibilityNodeInfo? {
+    var previous: AccessibilityNodeInfo? = null
+    try {
+      repeat(4) { attempt ->
+        if (attempt > 0) pause(75)
+        val current = focusNow(service)
+        // Chromium may briefly return the previous DOM focus even after refresh. Require two snapshots to
+        // agree, rather than treating the first readable virtual node as the current focus.
+        val stable = current != null && current == previous
+        if (previous !== current) previous?.recycle()
+        previous = current
+        if (stable) return current.also { previous = null }
+      }
+      return null
+    } finally {
+      previous?.recycle()
+    }
+  }
+
+  @Suppress("DEPRECATION")
+  private fun focusNow(service: AccessibilityService): AccessibilityNodeInfo? {
+    val roots = roots(service)
+    var kept: AccessibilityNodeInfo? = null
+    var denied = false
+    fun resolve(raw: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+      val wrapped = NodeWrap(raw, service)
+      var field: FieldNode? = null
+      try {
+        if (!raw.refresh()) return null
+        if (protected(wrapped)) { denied = true; return null }
+        field = find(wrapped)
+        val fresh = (field as? NodeWrap)?.node ?: return null
+        if (!fresh.refresh()) return null
+        if (protected(field)) { denied = true; return null }
+        kept = fresh
+        return fresh
+      } finally {
+        if (field !== wrapped && (field as? NodeWrap)?.node !== kept) field?.recycle()
+        if (raw !== kept && roots.none { it === raw }) wrapped.recycle()
+      }
+    }
+    try {
+      // Search input focus in ALL roots before considering accessibility focus in any root.
+      for (type in listOf(AccessibilityNodeInfo.FOCUS_INPUT, AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)) {
+        var foundFocus = false
+        for (root in roots) {
+          val raw = root.findFocus(type) ?: continue
+          foundFocus = true
+          resolve(raw)?.let { return it }
+          if (denied) return null
+        }
+        // Older hosts may expose focus before their window roots become available.
+        service.findFocus(type)?.let { raw ->
+          foundFocus = true
+          resolve(raw)?.let { return it }
+        }
+        if (denied || foundFocus) return null
+      }
+      return null
+    } finally {
+      roots.filter { it !== kept }.forEach { it.recycle() }
+    }
+  }
 
   /**
    * The focused editable field now (see [find]), kept for a later [insert] by the app's own service; null when no
    * editable field has focus. The caller recycles it.
    */
   fun capture(service: AccessibilityService): FieldNode? {
-    val root = NodeWrap(focus(service) ?: return null, service)
-    val node = find(root)
-    if (node !== root) root.recycle()
-    return node
+    return NodeWrap(focus(service) ?: return null, service)
   }
 
   /** The focused editable field's text, or null when no editable field has focus. */
   fun read(service: AccessibilityService): FocusedFieldText? {
     val raw = focus(service) ?: return null
-    val root = NodeWrap(raw, service)
-    val node = find(root)
+    val node = NodeWrap(raw, service)
     try {
-      if (node == null) return null
       return FocusedFieldText(
         raw.packageName?.toString() ?: "",
         node.shown() ?: return null,
         node.selection()?.let { (a, b) -> FieldSelection(a, b) },
       )
     } finally {
-      if (node !== root) node?.recycle()
-      root.recycle()
+      node.recycle()
     }
   }
 
@@ -221,7 +289,8 @@ object FocusedFields {
   ): String {
     if (cancellation.step { protected(node) }) return "failed"
     val identity = cancellation.step { node.identity }
-    var active = node
+    // Re-resolve the captured field even on the first try; never redirect to a different focused field.
+    var active = cancellation.step { (node as? NodeWrap)?.reacquire() } ?: node
     var whole: String? = null
     try {
       repeat(opts.attempts.coerceAtLeast(1)) { i ->
@@ -230,7 +299,7 @@ object FocusedFields {
           pause(opts.retryMs.coerceAtLeast(0))
           var denied = false
           cancellation.step {
-            if (identity != null) {
+            if (identity != null || node is NodeWrap) {
               val fresh = node.reacquire()
               if (fresh != null && fresh !== active) {
                 if (fresh.identity == identity && protected(fresh)) {
@@ -310,7 +379,7 @@ object FocusedFields {
 
 /** A live framework node as a [FieldNode]; re-acquires through [service], else the attached one. */
 internal class NodeWrap(
-  private val node: AccessibilityNodeInfo,
+  internal val node: AccessibilityNodeInfo,
   private val service: AccessibilityService? = null,
 ) : FieldNode {
   internal val owner = service ?: ByokitAccessibility.service
@@ -323,20 +392,73 @@ internal class NodeWrap(
     else FieldIdentity(id, listOf(b.left, b.top, b.right, b.bottom), app)
   }
   override fun reacquire(): FieldNode? {
-    val captured = identity ?: return null
-    val root = owner?.rootInActiveWindow ?: return null
-    return FocusedFields.sameField(NodeWrap(root, owner), captured)
+    val service = owner ?: return null
+    val captured = identity
+    // Chromium's virtual fields often have no resource id. Framework node identity still identifies exactly
+    // the captured virtual node; package/bounds alone must never select another field.
+    if (captured == null) {
+      val focused = FocusedFields.focus(service) ?: return null
+      if (focused == node) return NodeWrap(focused, service)
+      @Suppress("DEPRECATION") focused.recycle()
+      return null
+    }
+    val roots = FocusedFields.roots(service)
+    var consumed = 0
+    try {
+      for (root in roots) {
+        consumed++ // sameField takes ownership of this tree, including an unsuccessful root.
+        FocusedFields.sameField(NodeWrap(root, service), captured)?.let { return it }
+      }
+      return null
+    } finally {
+      @Suppress("DEPRECATION")
+      roots.drop(consumed).forEach { it.recycle() }
+    }
   }
   @Suppress("DEPRECATION")
   override fun recycle() = node.recycle()
   override val editable: Boolean get() = node.isEditable
   override val password: Boolean get() = node.isPassword
+  @Suppress("DEPRECATION")
   override fun findFocus(input: Boolean): FieldNode? {
     val focused = node.findFocus(if (input) AccessibilityNodeInfo.FOCUS_INPUT else AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
-      ?: return null
+    // WebView's provider can return the focused native container even when a virtual editor has input focus.
+    // Walk child snapshots by their EXACT focus flag; calling findFocus again on each virtual child can jump
+    // back to the native container. Never substitute an unfocused editable node.
+    val nested = if (focused == null || (!focused.isEditable && !focused.isPassword)) {
+      focusedDescendant(focused ?: node, input)
+    } else null
+    if (nested != null) {
+      if (focused !== node) focused?.recycle()
+      return NodeWrap(nested, owner)
+    }
+    if (focused == null) return null
     // A distinct snapshot of the same node may carry newer password/focus flags; keep that snapshot.
     if (focused === node) return this
     return NodeWrap(focused, owner)
+  }
+
+  @Suppress("DEPRECATION")
+  private fun focusedDescendant(root: AccessibilityNodeInfo, input: Boolean): AccessibilityNodeInfo? {
+    var remaining = 2048
+    fun visit(parent: AccessibilityNodeInfo, depth: Int): AccessibilityNodeInfo? {
+      if (depth >= 64) return null
+      for (i in 0 until parent.childCount) {
+        if (remaining-- <= 0) return null
+        val child = parent.getChild(i) ?: continue
+        var found: AccessibilityNodeInfo? = null
+        try {
+          if ((if (input) child.isFocused else child.isAccessibilityFocused) && (child.isEditable || child.isPassword)) {
+            found = child
+          } else found = visit(child, depth + 1)
+          if (found != null) return found
+        } finally {
+          if (found !== child) child.recycle()
+        }
+      }
+      return null
+    }
+    return visit(root, 0)
   }
   override fun parent(): FieldNode? = node.parent?.let { NodeWrap(it, owner) }
   override fun shown(): String? =

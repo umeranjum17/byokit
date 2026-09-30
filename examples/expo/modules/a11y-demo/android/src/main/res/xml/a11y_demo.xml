@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Window content for the focused field and the foreground app; interactive windows for the keyboard's inset. -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
-  android:accessibilityEventTypes="typeWindowStateChanged|typeAnnouncement"
+  android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged|typeWindowContentChanged|typeViewFocused|typeViewTextChanged|typeViewTextSelectionChanged|typeAnnouncement"
   android:accessibilityFeedbackType="feedbackGeneric"
-  android:accessibilityFlags="flagRetrieveInteractiveWindows"
+  android:accessibilityFlags="flagRetrieveInteractiveWindows|flagReportViewIds"
   android:canRetrieveWindowContent="true"
   android:description="@string/a11y_demo_description" />

@@ -27,8 +27,10 @@ Nothing reads another app's screen in the background, and the tap log keeps no t
 `@byokit/overlay/focused-field` works through the app's own accessibility service; the kit declares none. The service
 calls `ByokitAccessibility.attach(this)` in `onServiceConnected` and `ByokitAccessibility.detach(this)` in `onUnbind`,
 and in `onDestroy` (idempotent; cancels outstanding inserts), and its config sets `android:canRetrieveWindowContent="true"` and
-`android:accessibilityFlags="flagRetrieveInteractiveWindows"` (the example's is
-[`examples/expo/modules/a11y-demo`](../../examples/expo/modules/a11y-demo)). Then:
+`android:accessibilityFlags="flagRetrieveInteractiveWindows|flagReportViewIds"` (the example's is
+[`examples/expo/modules/a11y-demo`](../../examples/expo/modules/a11y-demo)). Subscribe to window/content changes,
+view focus, text changes and selection changes so Chromium keeps its virtual tree current. The old
+`flagRequestEnhancedWebAccessibility` is unused on API 26 and later (the kit's supported Android versions). Then:
 
 ```ts
 import { focusedField } from '@byokit/overlay/focused-field';
@@ -44,7 +46,10 @@ retries up to `attempts` times (default 2, pausing `retryMs`, default 150 ms, be
 window is on top Chrome refuses the set, so `{ attempts: 13, retryMs: 150 }` lands it. A contenteditable that dropped
 only the newlines resolves `'landedWithoutNewlines'` when `acceptNewlineLoss` is set, so the app can accept the text
 as typed; otherwise the text is copied for the person to paste (`'copied'`) or the insert `'failed'`. The field is
-resolved with input focus, then accessibility focus, including virtual nodes inside WebView content. With no focus
+resolved with input focus across every window root, then accessibility focus, including virtual nodes inside
+WebView content. Resolution refreshes the field and waits for two agreeing snapshots, with at most three 75 ms
+pauses while focus settles. Insertion re-acquires the same captured field before its first write, including virtual
+fields without resource ids (matched by framework node identity). With no focus
 the kit reports no field. A password node anywhere on the focused path prevents reads, writes and clipboard fallback. The same service also gives the `accessibility` host (no overlay switch needed),
 the foreground app that `rules` and `spots: 'per-app'` follow, and the keyboard's top so the bubble rests above it.
 The bubble's window never takes focus, so a tap or long press on it leaves the other app's field focused.

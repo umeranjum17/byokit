@@ -52,6 +52,8 @@ class NodeAdapterTest {
     var recycled = 0
     override fun isEditable() = editable
     override fun isPassword() = password
+    override fun isFocused() = inputFocused
+    override fun isAccessibilityFocused() = accessibilityFocused
     override fun refresh(): Boolean {
       if (passwordOnRefresh) password = true
       return if (deadReads > 0) { deadReads--; false } else !gone
@@ -181,10 +183,10 @@ class NodeAdapterTest {
     val focus = Info(kids = listOf(field), inputFocused = true)
     val captured = FocusedFields.capture(Service(focus = focus))!!
     assertEquals("hi", captured.shown())
-    assertEquals(1, focus.recycled)
-    assertEquals(0, field.recycled)
+    assertEquals(2, focus.recycled) // two settling snapshots
+    val releasedSnapshots = field.recycled // input traversal and guards own other snapshots of this fake
     captured.recycle()
-    assertEquals(1, field.recycled)
+    assertEquals(releasedSnapshots + 1, field.recycled)
 
     val self = Info(editable = true)
     val same = FocusedFields.capture(Service(focus = self))!!
@@ -192,7 +194,7 @@ class NodeAdapterTest {
     assertSame(null, FocusedFields.capture(Service()))
     val none = Info(kids = listOf(Info()))
     assertNull(FocusedFields.capture(Service(focus = none)))
-    assertEquals(1, none.recycled)
+    assertEquals(4, none.recycled) // bounded no-focus retries
     same.recycle()
   }
 
@@ -314,6 +316,31 @@ class NodeAdapterTest {
 
   @Test fun clipboardTurnedAwayIsFalseNotAThrow() {
     assertFalse(FocusedFields.clipboard(ContextWrapper(null))("hi"))
+  }
+
+  @Test fun windowRootFindsInputBeforeAccessibilityFallbackAndRefreshesTransientNodes() {
+    val accessible = Info(editable = true, inputFocused = false, accessibilityFocused = true, text = "other")
+    val field = Info(editable = true, text = "web field", deadReads = 1)
+    val page = Info(inputFocused = true, kids = listOf(Info(editable = true, inputFocused = false), field))
+    val service = Service(root = page, accessible = accessible)
+    val pauses = mutableListOf<Long>()
+    val focused = FocusedFields.focus(service) { pauses += it }
+    assertSame(field, focused)
+    assertEquals(listOf(75L, 75L), pauses) // unreadable first snapshot, then two agreeing snapshots
+    assertEquals(0, accessible.textReads)
+    assertEquals("web field", FieldNode.of(focused!!, service).shown())
+  }
+
+  @Test fun virtualInputFocusUnderANativeContainerNeverGuessesOrExposesPasswords() {
+    val decoy = Info(editable = true, inputFocused = false, text = "leave me")
+    val password = Info(editable = true, password = true, text = "secret")
+    val page = Info(inputFocused = true, kids = listOf(decoy, password))
+    assertNull(FocusedFields.read(Service(root = page)))
+    assertEquals("failed", FocusedFields.insert(page, "draft", copy = { error("must not copy") }))
+    assertEquals(0, decoy.textReads)
+    assertEquals(0, password.textReads)
+    assertEquals(emptyList<Int>(), decoy.actions)
+    assertEquals(emptyList<Int>(), password.actions)
   }
 
   @Test fun aDescendantFieldReacquiresThroughThePassedService() {

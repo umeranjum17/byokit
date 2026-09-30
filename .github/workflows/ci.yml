@@ -188,7 +188,7 @@ jobs:
             examples/dictation-android/build/outputs/androidTest-results/
 
   # @byokit/overlay's Expo module: the example prebuilds with the kit's config plugin and assembles with its Kotlin,
-  # then JVM tests and account-free consent/point-marker proof run on an emulator.
+  # then JVM tests, consent/point-marker proof and real Chromium WebView focus/insertion run on an emulator.
   overlay-android:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -223,12 +223,17 @@ jobs:
           target: google_apis
           profile: pixel_7
           disable-animations: true
-          script: cd examples/expo/android && ./gradlew :byokit-overlay:connectedDebugAndroidTest && cd .. && ./e2e-screen-frame.sh emulator-5554 .screen-captures
+          script: cd examples/expo/android && ./gradlew :byokit-overlay:connectedDebugAndroidTest :a11y-demo:connectedDebugAndroidTest -PreactNativeArchitectures=x86_64 && cd .. && ./e2e-screen-frame.sh emulator-5554 .screen-captures
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: byokit-screen-proof
           path: examples/expo/.screen-captures/*.png
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: overlay-webview-test-reports
+          path: examples/expo/modules/a11y-demo/android/build/outputs/androidTest-results/
 
   # @byokit/statusbar's Expo module, in the overlay-android shape: the example prebuilds with the kit's config plugin and
   # assembles with its Kotlin, then StatusRules' JVM tests run. The emulator proof is recorded in the PR (BK-S1).

@@ -9,10 +9,13 @@ android {
     minSdkVersion 26
     versionCode 1
     versionName "1.0.0"
+    testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
   }
 }
 
 dependencies {
   // ByokitAccessibility: the service hands itself to @byokit/overlay (docs/capability-kits.md 7.5).
   implementation project(':byokit-overlay')
+  androidTestImplementation 'androidx.test:runner:1.6.2'
+  androidTestImplementation 'androidx.test.ext:junit:1.2.1'
 }
