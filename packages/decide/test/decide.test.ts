@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
-import { cacheKey, decide, jev, MemoryCache, resolve, rules, type Question } from '../src/index.ts';
+import { cacheKey, decide, jev, MemoryCache, resolve, rules, type Question, type Answer } from '../src/index.ts';
 import { evaluate, format, parse, replay, summary } from '../src/eval.ts';
 
 const intent: Question = { kind: 'choice', options: { task: 'A new job', followup: 'About an earlier job', chat: 'Just talk' } };
@@ -356,4 +356,163 @@ test('an abort during backoff settles promptly without another call', async () =
   assert.match(r.intent.reason!, /abort|timed out/i);
   assert.equal(calls, 1);
   assert.ok(ms < 5000, `backoff aborted instead of waiting 30 s, took ${ms} ms`);
+});
+
+// Saved API-shape fixtures are hand-authored from official Responses documentation, not live recordings.
+test('OpenAI structured responses produce typed answers with self-reported confidence and usage/raw', async () => {
+  const { openai, OPENAI_ROUTES } = await import('../src/index.ts');
+  const fixture = JSON.parse(readFileSync(new URL('./fixtures/openai-responses.json', import.meta.url), 'utf8'));
+  const questions: Record<string, Question> = { intent, urgent: { kind: 'yesno', question: 'Urgent?' },
+    rating: { kind: 'score', levels: ['low', 'medium', 'high'] } };
+  let sent: any;
+  const backend = openai({ key: 'test-key', model: 'gpt-6.1-sol', request: { reasoning: { effort: 'low' },
+    max_output_tokens: 1024, text: { verbosity: 'low' }, instructions: 'Use the supplied rubric.' },
+    fetch: async (url, init) => {
+      assert.equal(url, 'https://api.openai.com/v1/responses');
+      assert.equal((init!.headers as any).authorization, 'Bearer test-key');
+      sent = JSON.parse(init!.body as string);
+      return Response.json(fixture.completed);
+    } });
+  const raw = await backend.ask({ text: 'please check the plumber today' }, questions, new AbortController().signal);
+  assert.equal(raw.intent?.confidence, undefined, 'no native confidence invented');
+  const result = await decide({}, questions, { privacy: 'may-leave', backends: [backend] });
+  assert.deepEqual([result.intent.answer, result.urgent.answer, result.rating.answer], ['followup', true, 2]);
+  assert.equal(result.intent.confidence, 0.8);
+  assert.equal(result.intent.confidenceSource, 'self-reported');
+  for (const a of Object.values(result)) {
+    assert.deepEqual(a.usage, { input_tokens: 84, output_tokens: 67 });
+    assert.deepEqual(a.raw, fixture.completed);
+  }
+  assert.deepEqual(sent.reasoning, { effort: 'low' });
+  assert.equal(sent.max_output_tokens, 1024);
+  assert.equal(sent.text.verbosity, 'low');
+  assert.match(sent.instructions, /Use the supplied rubric/);
+  assert.equal(sent.text.format.strict, true);
+  const shape = sent.text.format.schema.properties;
+  assert.deepEqual(shape.urgent.properties.probabilities.required, ['true', 'false']);
+  assert.deepEqual(shape.rating.properties.pick.enum, ['0', '1', '2']);
+  assert.deepEqual(shape.intent.properties.probabilities.required, ['task', 'followup', 'chat']);
+  assert.deepEqual(OPENAI_ROUTES.apiKey, { billing: 'api', offer: false });
+});
+
+test('OpenAI refuses, incomplete, malformed, missing and uncertain replies abstain with usage/raw intact', async () => {
+  const { openai } = await import('../src/index.ts');
+  const f = JSON.parse(readFileSync(new URL('./fixtures/openai-responses.json', import.meta.url), 'utf8'));
+  const textResponse = (text: string) => ({ ...f.completed, output: [{ type: 'message', content: [{ type: 'output_text', text }] }] });
+  const cases = [f.refusal, f.incomplete, textResponse('not json'), textResponse('{}'),
+    textResponse(JSON.stringify({ intent: { probabilities: p(0.5, 0.5, 0), pick: 'task' } })),
+    textResponse(JSON.stringify({ intent: { probabilities: p(0.5, 0.3, 0.2), pick: 'task' } })),
+    textResponse(JSON.stringify({ intent: { probabilities: p(0.9, 0.1, -1), pick: 'task' } }))];
+  for (const response of cases) {
+    const a: Answer = (await decide({}, { intent }, { privacy: 'may-leave', backends: [openai({ key: 'fake', model: 'gpt-6.1-sol',
+      fetch: async () => Response.json(response) })] })).intent;
+    assert.equal(a.abstained, true);
+    assert.deepEqual(a.usage, { input_tokens: 84, output_tokens: 67 });
+    assert.deepEqual(a.raw, response);
+    assert.equal(a.confidenceSource, 'self-reported');
+  }
+  let calls = 0;
+  const backend = openai({ key: 'fake', model: 'gpt-6.1-sol', fetch: async () => { calls++; return Response.json(f.completed); } });
+  await decide({}, { intent }, { privacy: 'stays-here', backends: [backend] });
+  assert.equal(calls, 0);
+});
+
+test('OpenAI and Jev share bounded 429 retry and abort behavior; other statuses never retry', async () => {
+  const { openai } = await import('../src/index.ts');
+  const f = JSON.parse(readFileSync(new URL('./fixtures/openai-responses.json', import.meta.url), 'utf8'));
+  let calls = 0;
+  const backend = openai({ key: 'fake', model: 'gpt-6.1-sol', maxRetries: 2, retryMaxMs: 1,
+    fetch: async () => { calls++; return calls < 3 ? new Response('', { status: 429, headers: { 'Retry-After': '1000' } }) : Response.json(f.completed); } });
+  assert.equal((await decide({}, { intent }, { privacy: 'may-leave', backends: [backend] })).intent.answer, 'followup');
+  assert.equal(calls, 3);
+  calls = 0;
+  await assert.rejects(openai({ key: 'fake', model: 'gpt-6.1-sol', fetch: async () => { calls++; return new Response('', { status: 401 }); } })
+    .ask({}, { intent }, new AbortController().signal), /http 401/);
+  assert.equal(calls, 1);
+  const controller = new AbortController();
+  const waiting = openai({ key: 'fake', model: 'gpt-6.1-sol', retryBaseMs: 500, fetch: async () => {
+    controller.abort(new Error('cancelled')); return new Response('', { status: 429 });
+  } });
+  await assert.rejects(waiting.ask({}, { intent }, controller.signal), /cancelled/);
+});
+
+test('official account route checks consent/catalogue, consumes completed SSE and never bills an API key', async () => {
+  const { openai, UnsupportedAccountError } = await import('../src/index.ts');
+  const { chatgptPlan } = await import('@byokit/accounts/chatgpt-plan');
+  const f = JSON.parse(readFileSync(new URL('./fixtures/openai-responses.json', import.meta.url), 'utf8'));
+  const scopes = ['resource.invoke', 'chatgpt.tokens.use.direct'];
+  let granted = scopes;
+  let visible = true;
+  let terminal = true;
+  let calls = 0;
+  let sent: any;
+  const account = chatgptPlan({ session: async () => ({ accessToken: 'plan-token', scopes: granted }) });
+  const backend = openai({ auth: 'account', account, model: 'gpt-6.1-sol', fetch: async (url, init) => {
+    calls++;
+    assert.equal((init!.headers as any).authorization, 'Bearer plan-token');
+    if (url === 'https://api.openai.com/v1/models') return Response.json({ models: visible ? [{ slug: 'gpt-6.1-sol', visibility: 'list' }] : [] });
+    assert.equal(url, 'https://api.openai.com/v1/responses');
+    sent = JSON.parse(init!.body as string);
+    const events = [{ type: 'response.output_text.delta', delta: '{"intent":' },
+      ...(terminal ? [{ type: 'response.completed', response: f.completed }] : [])];
+    const bytes = new TextEncoder().encode(events.map((e) => `event: ${e.type}\r\ndata: ${JSON.stringify(e)}\r\n\r\n`).join(''));
+    return new Response(new ReadableStream({ start(c) { for (let i = 0; i < bytes.length; i += 7) c.enqueue(bytes.slice(i, i + 7)); c.close(); } }));
+  } });
+  const result = (await decide({}, { intent }, { privacy: 'may-leave', backends: [backend] })).intent;
+  assert.equal(result.answer, 'followup');
+  assert.deepEqual(result.raw, f.completed);
+  assert.deepEqual(result.usage, { input_tokens: 84, output_tokens: 67 });
+  assert.equal(sent.store, false);
+  assert.equal(sent.stream, true);
+  assert.equal(Array.isArray(sent.input), true);
+  terminal = false;
+  assert.equal((await decide({}, { intent }, { privacy: 'may-leave', backends: [backend] })).intent.abstained, true, 'deltas cannot prove completion');
+  visible = false;
+  await assert.rejects(decide({}, { intent }, { privacy: 'may-leave', backends: [backend] }), UnsupportedAccountError);
+  const before = calls;
+  granted = ['openid'];
+  await assert.rejects(decide({}, { intent }, { privacy: 'may-leave', backends: [backend] }), UnsupportedAccountError);
+  assert.equal(calls, before, 'no consent: no fetch, no API fallback');
+  assert.throws(() => openai({ auth: 'account', account, model: 'gpt-6.1-sol', request: { max_output_tokens: 128 } }), UnsupportedAccountError);
+});
+
+test('plain config sets a backend once, per-call overrides isolate cache by provider/model/auth/person', async () => {
+  const { parseConfig, createDecider, ConfigError, UnsupportedAccountError } = await import('../src/index.ts');
+  const { chatgptPlan } = await import('@byokit/accounts/chatgpt-plan');
+  const f = JSON.parse(readFileSync(new URL('./fixtures/openai-responses.json', import.meta.url), 'utf8'));
+  assert.deepEqual(parseConfig(), { backend: 'jev', auth: 'apiKey' });
+  assert.deepEqual(parseConfig('{"backend":"openai","model":"gpt-6.1-sol"}'), { backend: 'openai', auth: 'apiKey', model: 'gpt-6.1-sol' });
+  for (const bad of ['{', [], { backend: 'other' }, { backend: 'openai' }, { auth: 'token' }, { unexpected: 1 }, { maxRetries: -1 },
+    { backend: 'openai', model: 'gpt-6.1-sol', request: { input: 'override' } }]) assert.throws(() => parseConfig(bad), ConfigError);
+  assert.throws(() => parseConfig({ backend: 'jev', auth: 'account' }), UnsupportedAccountError);
+  let calls = 0;
+  const config = parseConfig({ backend: 'openai', model: 'gpt-6.1-sol' });
+  const cache = new MemoryCache();
+  const run = createDecider(config, { privacy: 'may-leave', cache, host: { keys: { openai: 'openai-key', jev: 'jev-key' },
+    fetch: async (url, init) => {
+      calls++;
+      if (String(url).endsWith('/systemone')) {
+        assert.equal((init!.headers as any).authorization, 'Bearer jev-key');
+        return Response.json({ answers: { intent: { choice: 'task', probabilities: p(0.9, 0.1, 0), confidence: 0.9 } }, usage: { input_tokens: 2, output_tokens: 1 } });
+      }
+      return Response.json(f.completed);
+    } } });
+  assert.equal((await run({}, { intent })).intent.source, 'api');
+  const hit = (await run({}, { intent })).intent;
+  assert.equal(hit.source, 'cache');
+  assert.deepEqual(hit.raw, f.completed);
+  assert.deepEqual(hit.usage, { input_tokens: 84, output_tokens: 67 });
+  assert.equal(calls, 1);
+  assert.equal((await run({}, { intent }, { backend: 'jev' })).intent.answer, 'task');
+  assert.equal(calls, 2, 'backend switch bypasses the other backend cache');
+  await run({}, { intent }, { model: 'a-different-model' });
+  assert.equal(calls, 3);
+  const otherPerson = createDecider(config, { privacy: 'may-leave', cache, host: { keys: { openai: 'other-person-key' },
+    cacheScope: 'other-person', fetch: async () => { calls++; return Response.json(f.completed); } } });
+  assert.equal((await otherPerson({}, { intent })).intent.source, 'api');
+  assert.equal(calls, 4, 'another credential/person cannot reuse the first person cache');
+  assert.throws(() => createDecider({ backend: 'jev' }, { privacy: 'may-leave', host: {} })({}, { intent }, { backend: 'openai' }), ConfigError);
+  const account = chatgptPlan({ session: async () => ({ accessToken: 'fake', scopes: ['resource.invoke', 'chatgpt.tokens.use.direct'] }) });
+  await assert.rejects(decide({}, { intent }, { config: parseConfig({ backend: 'openai', auth: 'account', model: 'gpt-6.1-sol' }),
+    privacy: 'may-leave', cache, host: { account } }), ConfigError);
 });

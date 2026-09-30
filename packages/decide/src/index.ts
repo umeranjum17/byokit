@@ -1,6 +1,10 @@
 // Typed questions in, a typed answer with confidence out, abstaining below a floor. The floor, the per-option floors,
 // the runner-up and the tie are code, never a prompt: ported from firstmate's bin/fm-dispatch-resolve.sh.
 export { jev } from './jev.ts';
+export { openai, OPENAI_ROUTES, UnsupportedAccountError, type OpenAIOptions, type OpenAIRequestOptions } from './openai.ts';
+export { parseConfig, createDecider, ConfigError, type DecideConfig, type ConfigHost, type ConfigOptions } from './config.ts';
+import { UnsupportedAccountError } from '@byokit/accounts/chatgpt-plan';
+import { configuredBackend, configCacheKey, type ConfigOptions } from './config.ts';
 
 export type Question =
   /** Pick one option; `floors` holds an option's own floor, checked against that option's probability. */
@@ -14,6 +18,8 @@ export type Answer = {
   answer: string | boolean | number | null;
   confidence: number;
   probabilities?: Record<string, number>;
+  /** OpenAI probability estimates are self-reported, not calibrated provider confidence. */
+  confidenceSource?: 'self-reported';
   abstained: boolean;
   /** Why it abstained, or which runner-up it fell to. For logs, not for people. */
   reason?: string;
@@ -33,7 +39,7 @@ export type Usage = { input_tokens?: number; output_tokens?: number };
 /** A backend's answer before the floors: every option's probability, keyed as options (choice), 'true'/'false'
  * (yesno) or level indexes (score). A missing or malformed one is an abstain. `usage`/`raw` ride along through
  * the floors onto the `Answer`, so any backend can report cost accounting and the raw response, not only Jev. */
-export type Raw = { probabilities: Record<string, number>; confidence?: number; pick?: string; usage?: Usage; raw?: unknown };
+export type Raw = { probabilities: Record<string, number>; confidence?: number; pick?: string; usage?: Usage; raw?: unknown; confidenceSource?: 'self-reported' };
 
 export type Backend = {
   name: string;
@@ -156,8 +162,10 @@ export const FLOOR = 0.6;
 /** Asks each backend in order for the questions still unanswered; a failed or slow backend answers nothing.
  * With `opts.cache`, a stored answer is served as `source: 'cache'` without calling any backend; fresh answers
  * are stored as `source: 'api'` with the same `usage`/`raw` they carry. */
-export async function decide(state: unknown, questions: Record<string, Question>, opts: Options): Promise<Record<string, Answer>> {
-  const key = opts.cache ? cacheKey(state, questions) : undefined;
+export async function decide(state: unknown, questions: Record<string, Question>, opts: Options | ConfigOptions): Promise<Record<string, Answer>> {
+  const selected = 'config' in opts ? configuredBackend(opts) : undefined;
+  const backends = selected ? [selected.backend] : (opts as Options).backends;
+  const key = opts.cache ? selected ? configCacheKey(state, questions, selected.config, (opts as ConfigOptions).host) : cacheKey(state, questions) : undefined;
   if (opts.cache && key) {
     try {
       const hit = await opts.cache.get(key);
@@ -172,7 +180,7 @@ export async function decide(state: unknown, questions: Record<string, Question>
   }
   const out: Record<string, Answer> = Object.create(null);
   const open = () => Object.fromEntries(Object.entries(questions).filter(([k]) => !Object.hasOwn(out, k) || out[k].abstained));
-  for (const b of opts.backends) {
+  for (const b of backends) {
     if (b.leaves && opts.privacy !== 'may-leave') continue;
     const todo = open();
     if (!Object.keys(todo).length) break;
@@ -187,6 +195,7 @@ export async function decide(state: unknown, questions: Record<string, Question>
     try {
       raws = await Promise.race([b.ask(state, todo, controller.signal), deadline]);
     } catch (e) {
+      if (e instanceof UnsupportedAccountError) throw e;
       failed = `${b.name} failed: ${(e as Error).message}`;
     } finally {
       clearTimeout(timer);
@@ -214,7 +223,7 @@ export async function decide(state: unknown, questions: Record<string, Question>
 /** The floors on one raw answer. Exported for apps that hold a recorded answer.
  * `usage`/`raw` on the raw ride through onto the answer, answered or abstained. */
 export function resolve(q: Question, raw: Raw | undefined): Omit<Answer, 'by' | 'ms'> {
-  const carried = { ...(raw?.usage !== undefined && { usage: raw.usage }), ...(raw?.raw !== undefined && { raw: raw.raw }) };
+  const carried = { ...(raw?.confidenceSource && { confidenceSource: raw.confidenceSource }), ...(raw?.usage !== undefined && { usage: raw.usage }), ...(raw?.raw !== undefined && { raw: raw.raw }) };
   const keys = q.kind === 'choice' ? Object.keys(q.options) : q.kind === 'yesno' ? ['true', 'false'] : q.levels.map((_, i) => String(i));
   const p = raw?.probabilities;
   const ok = p && Object.keys(p).length === keys.length && keys.every((k) => Object.hasOwn(p, k) && typeof p[k] === 'number' && p[k] >= 0 && p[k] <= 1)

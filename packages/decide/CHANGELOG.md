@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add OpenAI general models used for typed decisions with Structured Outputs, self-reported probabilities,
+  usage/raw responses and shared 429 retries. API key (billed per use) requires explicit opt-in; official
+  consented account sessions use subscription billing. Add plain-object/JSON backend configuration and
+  per-call overrides with backend/model/account cache separation.
+
 ## 0.3.0 (2026-09-29)
 
 - FIX: Jev answers no longer drop the backend's token counts: every answer now carries `usage`

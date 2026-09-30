@@ -32,6 +32,10 @@
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
+    },
+    "./chatgpt-plan": {
+      "types": "./dist/chatgpt-plan.d.ts",
+      "default": "./dist/chatgpt-plan.js"
     }
   },
   "files": [

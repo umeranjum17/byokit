@@ -1,17 +1,43 @@
 {
   "name": "@byokit/decide",
   "version": "0.3.0",
-  "description": "Typed questions in, a typed answer with confidence out, abstaining below a floor. Rules and Jev backends, and an eval runner.",
+  "description": "Typed questions in, a typed answer with confidence out, abstaining below a floor. Rules, Jev and configurable OpenAI backends, and an eval runner.",
   "license": "Apache-2.0",
   "type": "module",
-  "repository": { "type": "git", "url": "git+https://github.com/umeranjum17/byokit.git", "directory": "packages/decide" },
-  "engines": { "node": ">=22.18" },
-  "exports": {
-    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-    "./eval": { "types": "./dist/eval.d.ts", "default": "./dist/eval.js" }
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umeranjum17/byokit.git",
+    "directory": "packages/decide"
   },
-  "bin": { "byokit-eval": "dist/cli.js" },
-  "files": ["dist", "evals", "CHANGELOG.md"],
-  "scripts": { "prepack": "tsc -b" },
-  "publishConfig": { "access": "public" }
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./eval": {
+      "types": "./dist/eval.d.ts",
+      "default": "./dist/eval.js"
+    }
+  },
+  "bin": {
+    "byokit-eval": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "evals",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "prepack": "tsc -b"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@byokit/accounts": "0.6.0",
+    "openai": "7.25.0"
+  }
 }

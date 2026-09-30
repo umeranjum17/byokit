@@ -276,3 +276,18 @@ tests and demos sign in and ask end to end with no account. Point the kit at it 
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](../../NOTICE).
+
+## Official ChatGPT plan token-sharing adapter
+
+`chatgptPlan({ session })`, also exported from `@byokit/accounts/chatgpt-plan`, binds a single person's
+validated [official token-sharing session](https://developers.openai.com/siwc/token-sharing-open-source) to a
+consumer such as `@byokit/decide`. `session(signal)` returns `{ accessToken, scopes }` after the host's own
+sign-in integration validates identity and refreshes tokens. The adapter checks `resource.invoke` and
+`chatgpt.tokens.use.direct` on every access; missing consent throws `UnsupportedAccountError` with
+`code: 'unsupported_account'`. Billing is `subscription`, with no API-key fallback.
+
+The host follows [official registration/sign-in](https://developers.openai.com/siwc/token-sharing-open-source/sign-in),
+including ID-token signature/issuer/audience/nonce verification and protected per-person storage. Plan usage is
+available to eligible open-source/local apps; paid/remote apps require approval. This adapter does not start an
+OAuth flow and does not convert the existing Codex `Accounts.login()` credential into a token-sharing session.
+It reads no environment or files, and remains portable to browsers and React Native.

@@ -9,7 +9,7 @@
 
 <p align="center"><strong>Typed questions in, a typed answer with confidence out.</strong><br/>
 Below a floor it abstains, so your app takes its safe default (ask the person) instead of guessing. Backends are your
-own <code>rules</code>, any model you can send a prompt to (on a phone, the person's own ChatGPT), and
+own <code>rules</code>, any model you can send a prompt to (on a phone, the person's own ChatGPT), OpenAI general models with Structured Outputs, and
 <a href="https://openrouter.ai/docs/guides/community/jev">Jev</a> (API-billed) over TypeSafe's API or OpenRouter. Labelled eval files
 set the floors.</p>
 
@@ -87,6 +87,9 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
 | `rules(fn)` | Your own function as a backend: return the answer for an obvious case, `undefined` otherwise. Stays on the device |
 | `answerer({ name, leaves, ask })` | Any `(prompt, signal) => text` model as a backend |
 | `jev({ key, via?, fetch?, maxRetries?, retryBaseMs?, retryMaxMs? })` | Jev as a backend, over TypeSafe's API (default) or OpenRouter (`via: 'openrouter'`). API-billed; retries 429s with backoff |
+| `openai({ model, key, request?, ... })` / `openai({ model, auth: 'account', account, request?, ... })` | OpenAI general models used for decisions; explicit API key or consented ChatGPT plan session |
+| `parseConfig(objectOrJSON)`, `createDecider(config, options)` | Validate portable config and set it once, with optional per-call overrides |
+| `ConfigError`, `UnsupportedAccountError`, `OPENAI_ROUTES` | Typed config/account errors and billing labels (API key is never offered by default) |
 | `MemoryCache`, `cacheKey(state, questions)` | In-memory reference cache for `decide({ cache })`, and the stable request key it uses |
 | `resolve(question, raw)` | The floors on one raw answer, for an app that holds a recorded answer |
 | `FLOOR` | The default floor, 0.6 |
@@ -126,6 +129,109 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
   - **Billing**: `rules` costs nothing. `answerer` with the person's ChatGPT uses their subscription. `jev()` is billed
   to the TypeSafe or OpenRouter key you pass.
 
+## OpenAI models used for decisions
+
+As of 2026-09-30, no dedicated OpenAI decision model appears in the official
+[model catalogue](https://developers.openai.com/api/docs/models) or
+[API changelog](https://developers.openai.com/api/docs/changelog). This backend uses a general model with
+[Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs), rather than claiming
+native decision confidence or abstention. `model` is required; there is no hidden OpenAI default.
+`gpt-6.1-sol`, released September 29, is the current example. Its standard short-context pricing per million tokens
+is $2 input, $0.10 cached input, $2.50 cache write and $10 output; check [pricing](https://developers.openai.com/api/docs/pricing)
+for longer contexts, other models and processing tiers.
+
+```ts
+import { decide, openai } from '@byokit/decide';
+
+const backend = openai({
+  model: 'gpt-6.1-sol', key: hostConfig.openaiKey, // API key (billed per use), explicit opt-in
+  request: { reasoning: { effort: 'low' }, max_output_tokens: 1024, text: { verbosity: 'low' } },
+});
+const answers = await decide(state, questions, { privacy: 'may-leave', backends: [backend] });
+```
+
+`request` uses the exactly pinned official OpenAI SDK's full Responses request types. Options pass through except
+`model`, `input` and `text.format`, which this backend generates. `request.instructions` adds host instructions;
+`request.text` keeps other text options. The SDK is used only for types, never imported at runtime.
+The backend POSTs to `https://api.openai.com/v1/responses` with a JSON schema for every question's answer keys,
+probabilities and pick. It parses `output_text` content from message items, including when reasoning items come first.
+
+The probabilities are **self-reported estimates**, not native calibrated provider confidence. Every OpenAI answer
+labels them `confidenceSource: 'self-reported'`. No provider confidence is invented: `resolve` derives confidence
+from the picked probability and applies the same floors, option floors, runner-up and tie rules as Jev.
+Refusal, incomplete output, missing questions and malformed JSON/probabilities abstain; answered and abstained
+answers carry the full response and its reported token counts. Streaming requires a completed terminal response;
+text deltas alone cannot answer a question. Fixtures in `test/fixtures/openai-responses.json` are hand-authored saved
+API-shape responses from the official documentation, not live model recordings. Tests never call a real model.
+
+### The person's ChatGPT plan
+
+[Official token sharing](https://developers.openai.com/siwc/token-sharing-open-source) permits eligible open-source
+and locally hosted apps to request ChatGPT plan usage with the person's explicit consent. Paid/remote apps need
+OpenAI's approval; signing in for identity alone is insufficient. The host completes the
+[official sign-in flow](https://developers.openai.com/siwc/token-sharing-open-source/sign-in), including ID-token
+signature/issuer/audience/nonce checks, and owns protected storage and refresh per person. Then bind that session
+through `@byokit/accounts`:
+
+```ts
+import { chatgptPlan } from '@byokit/accounts/chatgpt-plan';
+import { openai } from '@byokit/decide';
+
+const account = chatgptPlan({
+  // Host's official token-sharing integration, scoped to this person; refresh before returning.
+  session: async (signal) => {
+    const saved = await hostSignIn.validatedSessionFor(me, signal);
+    return { accessToken: saved.access_token, scopes: saved.scopes };
+  },
+});
+const backend = openai({ auth: 'account', account, model: chosenModel });
+```
+
+This accounts adapter consumes a validated session; it does not start a sign-in. The existing
+`Accounts.login()` Codex flow and `Accounts.respond()` are separate and cannot supply this token-sharing credential.
+`chatgptPlan` checks `resource.invoke` and `chatgpt.tokens.use.direct` on every request; the host supplies refreshed tokens.
+The backend verifies `chosenModel` against the selected account's current catalogue, uses the public Responses API,
+and sets `store: false`, `stream: true` and array input. It never sends tokens to ChatGPT backend-api endpoints.
+[Plan usage request restrictions](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)
+reject unsupported fields (including `max_output_tokens`, `temperature` and `metadata`); options valid for API keys
+may be unsupported for accounts.
+
+`UnsupportedAccountError` (`code: 'unsupported_account'`) is thrown for missing consent, missing account sessions,
+unavailable chosen models or unsupported account requests, including from `decide`. There is no API-key fallback.
+Ordinary transport/429 failures follow decide's existing failed-backend abstention behavior.
+`OPENAI_ROUTES.apiKey` labels billing `'api'` with `offer: false`; the account route labels `'subscription'` with consent required.
+
+## Set configuration once
+
+```ts
+import { createDecider, parseConfig, MemoryCache } from '@byokit/decide';
+
+// The host can build this from its own environment or file; the kit reads neither.
+const config = parseConfig({ backend: 'openai', auth: 'apiKey', model: 'gpt-6.1-sol',
+  request: { reasoning: { effort: 'low' } }, maxRetries: 2 });
+const decideForApp = createDecider(config, {
+  privacy: 'may-leave', cache: new MemoryCache(),
+  host: { keys: { jev: hostConfig.jevKey, openai: hostConfig.openaiKey }, account,
+    cacheScope: `${me}:${hostConfig.selectedAccountId}` }, // required for account caches
+});
+const answers = await decideForApp(state, questions);
+const viaJev = await decideForApp(state, questions, { backend: 'jev', auth: 'apiKey' });
+const viaPlan = await decideForApp(state, questions, { auth: 'account' });
+```
+
+Or call `decide(state, questions, { config, host, privacy, timeoutMs?, cache? })` directly.
+`parseConfig` accepts a plain object or JSON string and defaults to `{ backend: 'jev', auth: 'apiKey' }`, preserving
+Jev's `jev-latest` model and TypeSafe route. OpenAI requires an explicit `model`. Fields are `backend`, `auth`, `model`,
+`via` (Jev only), `request` (OpenAI only), `maxRetries`, `retryBaseMs`, `retryMaxMs`. Unknown fields, invalid JSON,
+wrong types and invalid retry values throw `ConfigError` (`code: 'invalid_config'`); Jev account auth throws
+`UnsupportedAccountError`. API-key credentials must be explicitly supplied by the host. A backend switch clears
+provider-specific model/route/request settings; an OpenAI switch must specify its model.
+
+Configured cache keys include backend, auth, model, request options and host credential/namespace in the hash,
+so switching provider, billing route, model or person cannot return another configuration's answer. When using the
+original `backends` API, dedicate each cache to the intended backend/model/person; its original request-only key
+semantics remain. Cache hits preserve usage, raw response and self-reported confidence labels.
+
 ## Usage, cache and retries
 
 Every `Answer` carries what its backend reported: `usage` (`input_tokens`/`output_tokens` when sent) and the raw
@@ -149,7 +255,7 @@ console.log(second.intent.source); // 'cache': same usage/raw, no backend call
 - **Retries**: only 429s retry, never other statuses. A 429 waits for `Retry-After` when present (seconds or HTTP
   date), else an exponential backoff from `retryBaseMs`; each wait is capped at `retryMaxMs`, so the total stays
   under `maxRetries` x `retryMaxMs`. Backoff respects the caller's `timeoutMs`/`AbortSignal`, including an abort
-  mid-wait, and each retry is API-billed like the first call.
+  mid-wait, and each retry uses the same billing route as the first call (API key or subscription).
 
 ## Phones and browsers
 
@@ -158,7 +264,7 @@ web; `test/react-native.test.ts` runs it where there is no Node.
 
 ## Keys
 
-`jev()` takes the key your host read from its own environment or config. The kit never reads an environment variable,
+`jev()` and API-key `openai()` take the key your host read from its own environment or config. The kit never reads an environment variable,
 and the key goes only into the one request header. Never ship a key inside an app: keep it on the home computer and let
 paired devices ask it.
 

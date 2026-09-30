@@ -42,3 +42,26 @@ test('answerer: a reply that isn\'t the JSON asked for is an abstain; stays-here
   const r = await decide({ text: 'the roof is leaking' }, q, { privacy: 'stays-here', backends: [sure] });
   assert.deepEqual([r.urgent.answer, r.urgent.confidence], [true, 0.8]);
 });
+
+test('OpenAI config and account adapter bundle without runtime SDK, Node or ambient credentials', async () => {
+  const bundle = await build({ stdin: { contents: `
+    import { createDecider, parseConfig } from '../src/index.ts';
+    import { chatgptPlan } from '@byokit/accounts/chatgpt-plan';
+    globalThis.account = chatgptPlan({ session: async () => ({ accessToken: 'host-token',
+      scopes: ['resource.invoke', 'chatgpt.tokens.use.direct'] }) });
+    const run = createDecider(parseConfig({ backend: 'openai', model: 'chosen-model' }), {
+      privacy: 'may-leave', host: { keys: { openai: 'host-key' }, fetch: async () => Response.json({ status: 'completed',
+        usage: { input_tokens: 4, output_tokens: 8 }, output: [{ type: 'message', content: [{ type: 'output_text',
+        text: JSON.stringify({ urgent: { probabilities: { true: 0.9, false: 0.1 }, pick: 'true' } }) }] }] }) } });
+    globalThis.result = run({}, { urgent: { kind: 'yesno', question: 'Urgent?' } });`,
+    resolveDir: import.meta.dirname, sourcefile: 'phone-openai.ts' }, bundle: true, platform: 'browser',
+    conditions: ['react-native'], format: 'iife', write: false, metafile: true, logLevel: 'silent' });
+  assert.deepEqual(Object.keys(bundle.metafile!.inputs).filter((f) => /node:|node_modules\/openai\//.test(f)), []);
+  const sandbox: any = { setTimeout, clearTimeout, AbortController, Response };
+  runInNewContext(bundle.outputFiles[0].text, sandbox);
+  const { urgent } = await sandbox.result;
+  assert.equal(urgent.answer, true);
+  assert.equal(urgent.confidenceSource, 'self-reported');
+  assert.equal(urgent.usage.input_tokens, 4);
+  assert.equal(await sandbox.account.access(new AbortController().signal), 'host-token');
+});

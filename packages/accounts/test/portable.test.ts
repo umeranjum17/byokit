@@ -290,3 +290,20 @@ test('secureStore: chunked under the size expo-secure-store allows, and a crash 
   await s.delete('openai-codex');
   assert.deepEqual([...kept.keys()], ['byokit.1'], 'old pieces cleaned up');
 });
+
+test('official token-sharing adapter checks consent on every use and keeps sessions per person', async () => {
+  const { chatgptPlan, UnsupportedAccountError } = await import('../src/chatgpt-plan.ts');
+  const scopes = ['resource.invoke', 'chatgpt.tokens.use.direct'];
+  let session = { accessToken: 'person-one', scopes };
+  const one = chatgptPlan({ session: async () => session });
+  const two = chatgptPlan({ session: async () => ({ accessToken: 'person-two', scopes }) });
+  const signal = new AbortController().signal;
+  assert.equal(one.billing, 'subscription');
+  assert.equal(await one.access(signal), 'person-one');
+  assert.equal(await two.access(signal), 'person-two');
+  session = { accessToken: 'rotated-one', scopes };
+  assert.equal(await one.access(signal), 'rotated-one', 'host refresh is consulted every use');
+  session = { accessToken: 'secret-that-must-not-appear', scopes: ['openid'] };
+  await assert.rejects(one.access(signal), (e: Error) => e instanceof UnsupportedAccountError &&
+    e.code === 'unsupported_account' && !e.message.includes(session.accessToken));
+});
