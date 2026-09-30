@@ -1226,8 +1226,13 @@ class FocusedFieldModule : Module()                                      // Expo
   - *Attach:* `ByokitAccessibility.attach(this)` / `detach(this)`, which supplies `host`, `foreground` and `keyboard`.
   - *Focused field:* `FocusedFields.capture(service)` at tap time, or `FieldNode.of(node)` over the
     `AccessibilityNodeInfo` the service captured itself with `findFocus(FOCUS_INPUT)` (falling back to
-    `FOCUS_ACCESSIBILITY`): only an exactly focused field is taken, never the first editable descendant; `FocusedFields.insert` takes either. A retry refreshes the captured node and, when it went stale (the panel still closing), re-acquires the
-    field from the active window only when view id, bounds and package all match, never a different field; the
+    `FOCUS_ACCESSIBILITY`): only an exactly focused field is taken, never the first editable descendant;
+    `capture`/`read` search every interactive window root and the active root, refresh and require two agreeing
+    snapshots with at most three 75 ms settling pauses. Native containers resolve virtual children by their exact
+    focus flags. The app's service retrieves window content, reports view ids and subscribes to window/content,
+    view focus, text and selection changes. `FocusedFields.insert` takes either. Before the first write and on
+    retries, it refreshes and re-acquires the field across window roots only when view id, bounds and package
+    all match (or framework node identity for virtual fields without ids), never a different field; the
     captured node stays the caller's to recycle. `FocusedFields.clipboard(context)` is the `copy` fallback. Insert
     blocks for up to `attempts x retryMs`, so the service calls it off the main thread. Each insert accepts an optional
     `InsertCancellation` (JS: `AbortSignal`); cancellation is checked before field reads, writes and copy fallback,
