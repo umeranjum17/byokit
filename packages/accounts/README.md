@@ -378,18 +378,20 @@ The kit never reads keys from environment variables, files or another tool's sig
 ```ts
 import { anthropic, AnthropicIncompleteError } from '@byokit/accounts';
 
-const claude = anthropic({ key: appKey });
-try {
-  const answer = await claude.respond({
-    model: 'claude-opus-5-5', max_tokens: 1024,
-    system: 'Be brief.', messages: [{ role: 'user', content: 'Hello' }],
-    result: true, onText: (delta) => show(delta),
-  });
-  // answer.text, answer.output, answer.usage, answer.raw
-} catch (error) {
-  if (error instanceof AnthropicIncompleteError) {
-    show(error.reason); // error.result carries partial text/output, usage and native raw response
-  } else throw error;
+export async function askClaude(appKey: string, show: (text: string) => void) {
+  const claude = anthropic({ key: appKey });
+  try {
+    const answer = await claude.respond({
+      model: 'claude-opus-5-5', max_tokens: 1024,
+      system: 'Be brief.', messages: [{ role: 'user', content: 'Hello' }],
+      result: true, onText: (delta) => show(delta),
+    });
+    // answer.text, answer.output, answer.usage, answer.raw
+  } catch (error) {
+    if (error instanceof AnthropicIncompleteError) {
+      show(error.reason); // error.result carries partial text/output, usage and native raw response
+    } else throw error;
+  }
 }
 ```
 
@@ -411,13 +413,18 @@ The key is used for that request, never stored by the kit; `login` does not laun
 The existing `@byokit/decide` seam accepts it without a new dependency:
 
 ```ts
+import { anthropic } from '@byokit/accounts';
 import { answerer } from '@byokit/decide';
-const backend = answerer({ name: 'anthropic', leaves: true,
-  ask: (prompt, signal) => claude.respond({
-    model: 'claude-opus-5-5', max_tokens: 2048, signal,
-    messages: [{ role: 'user', content: prompt }],
-  }),
-});
+
+export function claudeBackend(appKey: string) {
+  const claude = anthropic({ key: appKey });
+  return answerer({ name: 'anthropic', leaves: true,
+    ask: (prompt, signal) => claude.respond({
+      model: 'claude-opus-5-5', max_tokens: 2048, signal,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+}
 ```
 
 An incomplete answer throws through this text seam, so decide abstains rather than parsing a partial answer.
