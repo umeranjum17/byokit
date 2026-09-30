@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-- Depends on @byokit/accounts 0.7.0.
+## 0.4.1 (2026-09-30)
+
+- FIX: (from @byokit/accounts 0.7.1) a cut-off answer is now reported as cut off: `respond` throws `IncompleteError` with its reason and partial output, and notifies `onEvent`, instead of returning it as finished.
+- Depends on @byokit/accounts 0.7.1.
+
 ## 0.4.0 (2026-09-30)
 
 - Add OpenAI general models used for typed decisions with Structured Outputs, self-reported probabilities,
