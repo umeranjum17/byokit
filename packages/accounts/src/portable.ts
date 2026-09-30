@@ -10,4 +10,4 @@ export { WORDS, billingWords, callbackPage, clock, failure, say, signInError, ty
 
 export { chatgptPlan, UnsupportedAccountError, type ChatGPTPlanAccount, type ChatGPTPlanSession } from './chatgpt-plan.ts';
 
-export { anthropic, anthropicSseReader, type AnthropicAsk, type AnthropicCacheControl, type AnthropicContent, type AnthropicImage, type AnthropicMessage, type AnthropicOptions, type AnthropicRequest, type AnthropicResponse, type AnthropicResult, type AnthropicStreamEvent, type AnthropicText, type AnthropicThinking, type AnthropicTool, type AnthropicToolChoice, type AnthropicToolUse, type AnthropicUsage } from './anthropic.ts';
+export { anthropic, anthropicSseReader, AnthropicIncompleteError, type AnthropicAsk, type AnthropicCacheControl, type AnthropicContent, type AnthropicImage, type AnthropicMessage, type AnthropicOptions, type AnthropicRequest, type AnthropicResponse, type AnthropicResult, type AnthropicStreamEvent, type AnthropicText, type AnthropicThinking, type AnthropicTool, type AnthropicToolChoice, type AnthropicToolUse, type AnthropicUsage } from './anthropic.ts';

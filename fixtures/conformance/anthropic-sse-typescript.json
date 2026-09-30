@@ -1,5 +1,5 @@
 {
-  "rule": "Messages SSE replay: message_stop required; text/tool/thinking blocks preserved; cumulative usage merged; max_tokens and refusal incomplete even with empty content; partial tool JSON retained but not executable. No API call or account needed.",
+  "rule": "Messages SSE replay: message_stop required; text/tool/thinking blocks preserved; cumulative usage merged; max_tokens and refusal incomplete even with empty content; partial tool JSON retained but not executable. No API call or account needed. max_tokens/refusal always throw IncompleteError with the partial result, usage/raw and reason, including with tools or result:true; onEvent is notified exactly once. Buffered native JSON follows the same result/incomplete contract.",
   "source": "https://platform.claude.com/docs/en/build-with-claude/streaming",
   "recording": "Documented SSE sequence, anonymized with deterministic tool/thinking/error and truncation variants.",
   "cases": [

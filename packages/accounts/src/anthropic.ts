@@ -1,6 +1,6 @@
 // Messages over fetch alone. Authentication is explicit and separate from the request, so a future auth route can
 // supply different headers without changing messages, tools, events or results. No environment or credential reads.
-import { ResponseError, type ResponseResult } from './responses.ts';
+import { IncompleteError, ResponseError, type ResponseResult } from './responses.ts';
 
 export type AnthropicCacheControl = { type: 'ephemeral'; ttl?: '5m' | '1h' };
 export type AnthropicText = { type: 'text'; text: string; cache_control?: AnthropicCacheControl; citations?: unknown[] };
@@ -48,6 +48,14 @@ export type AnthropicResult = ResponseResult & {
   usage: AnthropicUsage;
   raw: AnthropicResponse;
 };
+/** The shared incomplete contract, with native usage/raw retained on the partial result. */
+export class AnthropicIncompleteError extends IncompleteError {
+  declare result: AnthropicResult;
+  constructor(reason: string, result: AnthropicResult) {
+    super(reason, result);
+    this.message = 'Anthropic cut off its answer before it was complete.';
+  }
+}
 export type AnthropicStreamEvent =
   | { type: 'text_delta'; delta: string }
   | { type: 'tool_use_delta'; index: number; id: string; name: string; delta: string }
@@ -162,7 +170,10 @@ export function anthropicSseReader(onText?: (delta: string) => void, onEvent?: (
     for (const part of parts) event(part);
   };
   const result = (): AnthropicResult => {
-    if (finished) return finished;
+    if (finished) {
+      if (finished.status === 'incomplete') throw new AnthropicIncompleteError(finished.incompleteReason!, finished);
+      return finished;
+    }
     drain(true);
     if (!stopped || !message) throw fail();
     const incomplete = message.stop_reason === 'max_tokens' || message.stop_reason === 'refusal';
@@ -191,6 +202,7 @@ export function anthropicSseReader(onText?: (delta: string) => void, onEvent?: (
     finished = { text, output, status: incomplete ? 'incomplete' : 'completed', ...(incomplete ? { incompleteReason: message.stop_reason! } : {}), usage: message.usage, raw: message };
     if (incomplete) onEvent?.({ type: 'incomplete', reason: message.stop_reason!, response: message });
     onEvent?.({ type: 'message_stop', message });
+    if (incomplete) throw new AnthropicIncompleteError(message.stop_reason!, finished);
     return finished;
   };
   return { push(chunk: string) { buffer += chunk; drain(false); }, result, end() { return result().text; } };
@@ -198,7 +210,7 @@ export function anthropicSseReader(onText?: (delta: string) => void, onEvent?: (
 
 const structuredCopy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
-/** Explicit API-key backend. Use respond({ result: true }) for usage/raw and an incomplete answer's reason. */
+/** Explicit API-key backend. Use respond({ result: true }) for usage/raw. Incomplete answers always throw. */
 export function anthropic(opts: AnthropicOptions) {
   if (!opts.key.trim()) throw new Error('Anthropic needs an API key (billed per use).');
   async function respond(o: AnthropicAsk & { result: true }): Promise<AnthropicResult>;
@@ -221,7 +233,19 @@ export function anthropic(opts: AnthropicOptions) {
     }
     const reader = anthropicSseReader(onText, onEvent);
     const body = res.body;
-    if (body?.getReader && typeof TextDecoder !== 'undefined') {
+    if (res.headers?.get('content-type')?.includes('application/json')) {
+      let message: unknown;
+      try { message = await res.json(); } catch { throw new ResponseError("Anthropic's answer could not be read.", null); }
+      if (!record(message) || !Array.isArray(message.content)) throw new ResponseError("Anthropic's answer could not be read.", null);
+      const emit = (event: unknown) => reader.push(`data: ${JSON.stringify(event)}\n\n`);
+      emit({ type: 'message_start', message: { ...message, content: [] } });
+      for (const [index, block] of message.content.entries()) {
+        emit({ type: 'content_block_start', index, content_block: block });
+        emit({ type: 'content_block_stop', index });
+      }
+      emit({ type: 'message_delta', delta: { stop_reason: message.stop_reason, stop_sequence: message.stop_sequence }, usage: message.usage });
+      emit({ type: 'message_stop' });
+    } else if (body?.getReader && typeof TextDecoder !== 'undefined') {
       const r = body.getReader(), decoder = new TextDecoder();
       try {
         for (let c = await r.read(); !c.done; c = await r.read()) reader.push(decoder.decode(c.value, { stream: true }));
@@ -232,8 +256,6 @@ export function anthropic(opts: AnthropicOptions) {
       } finally { r.releaseLock(); }
     } else reader.push(await res.text());
     const answer = reader.result();
-    // The string-only interface cannot carry incomplete metadata. Never pass a partial answer through it as success.
-    if (!o.tools && !result && answer.status === 'incomplete') throw new ResponseError(`Anthropic's answer is incomplete (${answer.incompleteReason}).`, null);
     return o.tools || result ? answer : answer.text;
   }
   return { respond };

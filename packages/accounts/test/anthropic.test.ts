@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Accounts, PROVIDERS, billingWords, anthropic, anthropicSseReader, isFunctionCall, ResponseError, type AnthropicStreamEvent, type AnthropicRequest } from '../src/portable.ts';
+import { Accounts, IncompleteError, AnthropicIncompleteError, PROVIDERS, billingWords, anthropic, anthropicSseReader, isFunctionCall, ResponseError, type AnthropicStreamEvent, type AnthropicRequest, type AnthropicResult } from '../src/portable.ts';
 import { answerer, decide } from '../../decide/src/index.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/anthropic-sse-typescript.json', import.meta.url), 'utf8'));
@@ -14,13 +14,24 @@ test('recorded Messages streams: text/tools/thinking, cumulative usage, incomple
       const r = anthropicSseReader((d) => deltas.push(d), (e) => events.push(e));
       const run = () => { for (const chunk of chunks) r.push(chunk); return r.result(); };
       if (c.error) { assert.throws(run, (e: any) => e instanceof ResponseError && e.message.includes(c.error) && (!c.kind || e.kind === c.kind), c.name); continue; }
-      const result = run();
+      let result: AnthropicResult | undefined;
+      if (c.reason) {
+        assert.throws(run, (e: any) => {
+          assert.ok(e instanceof IncompleteError);
+          assert.ok(e instanceof AnthropicIncompleteError);
+          assert.equal(e.reason, c.reason);
+          result = e.result;
+          return true;
+        });
+      } else result = run();
+      assert.ok(result);
       assert.equal(result.text, c.text, c.name);
       assert.equal(deltas.join(''), c.text);
       assert.equal(result.status, c.status);
       assert.equal(result.incompleteReason, c.reason);
       assert.deepEqual(result.usage, { input_tokens: 25, output_tokens: 15, cache_read_input_tokens: 5 });
-      assert.equal(r.result(), result, 'finish is idempotent');
+      if (c.reason) assert.throws(() => r.result(), (e: any) => e instanceof IncompleteError && e.result === result);
+      else assert.equal(r.result(), result, 'finish is idempotent');
       assert.equal(events.filter((e) => e.type === 'message_stop').length, 1);
       assert.equal(events.filter((e) => e.type === 'incomplete').length, c.reason ? 1 : 0);
       if (c.tool) {
@@ -97,9 +108,10 @@ test('plain text and explicit metadata contracts; no tools still returns usage/r
   for (const c of fixture.cases.filter((c: any) => c.reason)) {
     const incomplete = anthropic({ key: 'key', fetch: stub(c.stream).fetch });
     const events: AnthropicStreamEvent[] = [];
-    await assert.rejects(incomplete.respond({ ...noTools, onEvent: (e) => events.push(e) }), /incomplete/);
+    await assert.rejects(incomplete.respond({ ...noTools, onEvent: (e) => events.push(e) }), (e: any) => e instanceof IncompleteError && e.reason === c.reason);
     assert.equal(events.filter((e) => e.type === 'incomplete').length, 1);
-    assert.equal((await incomplete.respond({ ...request, result: true })).incompleteReason, c.reason);
+    for (const ask of [request, { ...request, result: true }, { ...noTools, result: true }])
+      await assert.rejects(incomplete.respond(ask), (e: any) => e instanceof AnthropicIncompleteError && e.reason === c.reason && e.result.usage.output_tokens === 15 && e.result.raw.stop_reason === c.reason);
   }
 });
 
@@ -132,5 +144,26 @@ test('decide answerer abstains on an incomplete Messages answer', async () => {
   const backend = answerer({ name: 'anthropic', leaves: true, ask: (prompt, signal) => p.respond({ model: 'explicit', max_tokens: 100, messages: [{ role: 'user', content: prompt }], signal }) });
   const answers = await decide({}, { ok: { kind: 'yesno', question: 'OK?' } }, { backends: [backend], privacy: 'may-leave' });
   assert.equal(answers.ok.abstained, true);
-  assert.match(answers.ok.reason!, /incomplete/);
+  assert.match(answers.ok.reason!, /cut off/);
+});
+
+
+test('buffered native JSON preserves complete/raw usage and throws the same incomplete error with or without tools', async () => {
+  for (const c of fixture.cases.filter((c: any) => !c.error && !c.partial)) {
+    const r = anthropicSseReader(); r.push(c.stream);
+    let raw;
+    try { raw = r.result().raw; } catch (e) {
+      assert.ok(e instanceof AnthropicIncompleteError); raw = e.result.raw;
+    }
+    const p = anthropic({ key: 'key', fetch: (async () => new Response(JSON.stringify(raw), {
+      headers: { 'content-type': 'application/json' },
+    })) as typeof fetch });
+    if (c.reason) {
+      for (const tools of [undefined, request.tools]) await assert.rejects(p.respond({ ...request, tools, result: true }),
+        (e: any) => e instanceof AnthropicIncompleteError && e.reason === c.reason && JSON.stringify(e.result.raw) === JSON.stringify(raw));
+    } else {
+      const result = await p.respond({ ...request, result: true });
+      assert.deepEqual(result.raw, raw); assert.equal(result.text, c.text);
+    }
+  }
 });

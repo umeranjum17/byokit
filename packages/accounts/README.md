@@ -376,24 +376,30 @@ This route is never a default or a subscription fallback. The app supplies the k
 The kit never reads keys from environment variables, files or another tool's sign-in.
 
 ```ts
-import { anthropic } from '@byokit/accounts';
+import { anthropic, AnthropicIncompleteError } from '@byokit/accounts';
 
 const claude = anthropic({ key: appKey });
-const answer = await claude.respond({
-  model: 'claude-opus-5-5', max_tokens: 1024,
-  system: 'Be brief.', messages: [{ role: 'user', content: 'Hello' }],
-  result: true, onText: (delta) => show(delta),
-});
-if (answer.status === 'incomplete') show(answer.incompleteReason);
-// answer.text, answer.output, answer.usage, answer.raw
+try {
+  const answer = await claude.respond({
+    model: 'claude-opus-5-5', max_tokens: 1024,
+    system: 'Be brief.', messages: [{ role: 'user', content: 'Hello' }],
+    result: true, onText: (delta) => show(delta),
+  });
+  // answer.text, answer.output, answer.usage, answer.raw
+} catch (error) {
+  if (error instanceof AnthropicIncompleteError) {
+    show(error.reason); // error.result carries partial text/output, usage and native raw response
+  } else throw error;
+}
 ```
 
 Native `system`, `messages` (images, thinking, tool calls/results), `tools`, `tool_choice`, `thinking`,
 `max_tokens`, `stop_sequences`, `metadata`, sampling and `output_config` pass through unchanged.
 `onEvent` carries text deltas, tool JSON deltas, completed tools/content blocks, message events and an
 incomplete event for `max_tokens` or `refusal`. A stream without `message_stop` fails. With `tools` or
-`result: true`, the result carries metadata; without either, it returns text and throws on an incomplete
-answer. Call `isFunctionCall` on normalized `output` items; use native `raw.content` for the next Messages turn.
+`result: true`, the result carries metadata; without either, it returns text. Incomplete answers always
+throw the shared `IncompleteError` contract (the `AnthropicIncompleteError` subtype retains typed native
+metadata), including with tools or `result: true`. Call `isFunctionCall` on normalized `output` items; use native `raw.content` for the next Messages turn.
 
 The catalogue's `label` is exactly `API key (billed per use)`; show it when presenting the explicit key route.
 `billingWords` also supplies the existing plain sentence about per-use charges.
