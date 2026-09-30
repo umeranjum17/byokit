@@ -1,5 +1,5 @@
-// The kit never reads process.env: a poisoned environment changes nothing, and a static
-// grep keeps process.env out of src/ for good.
+// Secret sources never come from the environment. Only automatic platform placement and
+// non-interactive keyring helpers may read the explicitly enumerated OS session settings.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -11,7 +11,12 @@ import { writeFileSync } from 'node:fs';
 
 const CANARY = 'sk-canary-env-7a3b';
 
-test('src/ never mentions process.env in code', () => {
+test('src/ reads only OS placement/session settings in the automatic sealing helpers', () => {
+  const allowed: Record<string, string[]> = {
+    'host-key-file.ts': ['XDG_STATE_HOME', 'LOCALAPPDATA', 'SystemRoot'],
+    'bounded-keyring.ts': ['HOME', 'USERPROFILE', 'SystemRoot', 'DBUS_SESSION_BUS_ADDRESS', 'NODE_OPTIONS'],
+    'keyring-worker.ts': ['DBUS_SESSION_BUS_ADDRESS'],
+  };
   const src = join(import.meta.dirname, '..', 'src');
   for (const file of readdirSync(src)) {
     if (!file.endsWith('.ts')) continue;
@@ -19,7 +24,8 @@ test('src/ never mentions process.env in code', () => {
     for (const [i, line] of lines.entries()) {
       // Comments may document the rule; code must not read the env.
       const code = line.split('//')[0].replace(/\/\*.*?\*\//g, '');
-      assert.ok(!code.includes('process.env'), `${file}:${i + 1} reads process.env`);
+      const matches = [...code.matchAll(/process\.env(?:\.([A-Za-z_][A-Za-z0-9_]*))?/g)];
+      for (const match of matches) assert.ok(match[1] && allowed[file]?.includes(match[1]), `${file}:${i + 1} reads an unapproved environment setting`);
     }
   }
 });

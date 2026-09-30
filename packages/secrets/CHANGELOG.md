@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- SECURITY: Automatic sealing uses a persistent owner-only host key when a non-interactive keyring is unavailable; exclude the key directory from sealed-store backups and lock all writers during rotation.
+- FIX: Headless, locked and unresponsive keyrings no longer require manual key provisioning or trigger an unlock prompt; sealing reports its active mode and file-key rotation resumes interrupted rewrites.
+
 - Prepare the desktop/server sealing adapters for public release.
 
 ## 0.3.0 (2026-09-30)

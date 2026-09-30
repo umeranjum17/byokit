@@ -504,8 +504,8 @@ the view fails with `why: 'busy'`. Mapping to `SignInView.why`: setup-admission-
 (`byokit.accounts list`; from O14, 5.15). `signIn`, `signedIn`, `providers` and `signOut` address the
 member agent, whose sign-in to a provider is that provider's first account (5.15); `addAccount` adds any further one.
 
-**Credential sealing**: `authSeal` takes the `@byokit/secrets` `SealingAdapter` interface (OS keyring or host-owned key),
-never a kit-created key. The pinned engine has no supported OAuth persistence hook: it stores JSON in both
+**Credential sealing**: `authSeal` takes the `@byokit/secrets` `SealingAdapter` interface (non-interactive OS keyring with automatic persistent host-key fallback, or an explicit host-owned key),
+the runtime kit delegates key management to that adapter. The pinned engine has no supported OAuth persistence hook: it stores JSON in both
 agent SQLite and the shared state SQLite database. The kit seals the complete isolated `state` and `home`
 directories, including SQLite journals, at rest. File symlinks are included only when their fully resolved
 targets are regular files inside the isolated engine root; they restore as regular files at the link paths.

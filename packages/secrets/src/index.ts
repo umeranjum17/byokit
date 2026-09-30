@@ -13,3 +13,6 @@ export { osKeyring, osKeyringStore } from './os-keyring.ts';
 export type { KeyringBackend, KeyringEntry, OSKeyringOptions } from './os-keyring.ts';
 export { osKeyringSeal, hostKeySeal } from './sealing.ts';
 export type { SealingAdapter, HostKey, HostKeySealOptions, OSKeyringSealOptions, OSKeyringSeal } from './sealing.ts';
+
+export { hostKeyFileSeal } from './host-key-file.ts';
+export type { HostKeyFileOptions, HostKeyFileSeal } from './host-key-file.ts';
