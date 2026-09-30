@@ -33,5 +33,5 @@ export async function claudeUsage(source: ClaudeSource, fetcher: typeof fetch, n
   const oauth = record(raw) && record(raw.claudeAiOauth) ? raw.claudeAiOauth : undefined;
   if (!oauth || typeof oauth.accessToken !== 'string' || !oauth.accessToken.trim() || oauth.accessToken.length > 16384 || /[\x00-\x20\x7f]/.test(oauth.accessToken)) return { code: 'not-connected' };
   if (typeof oauth.expiresAt !== 'number' || !Number.isFinite(oauth.expiresAt) || oauth.expiresAt <= nowMs) return { code: 'expired' };
-  return providerHttp('https://api.anthropic.com/api/oauth/usage', oauth.accessToken, fetcher, nowMs, { headers: source.headers });
+  return providerHttp('https://api.anthropic.com/api/oauth/usage', oauth.accessToken, fetcher, nowMs, { headers: { 'anthropic-beta': source.headers['anthropic-beta'], 'User-Agent': source.headers['User-Agent'] } });
 }

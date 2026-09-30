@@ -63,7 +63,7 @@ test('Claude managed-folder source never opens a default login, escapes its root
     const good=await reader.read(source);
     if(good.windows.length!==1)throw new Error('missing fake usage');
     for(const folder of [${JSON.stringify(join(d.home, '.claude'))},${JSON.stringify(join(root, 'outside'))}]){
-      try{await reader.read({...source,folder});throw new Error('accepted escape');}catch(e){if(!(e instanceof UsageError))throw e;}
+      try{await reader.read({...source,folder,credentialsFile:${JSON.stringify(join(d.home, '.claude', '.credentials.json'))}});throw new Error('accepted escape');}catch(e){if(!(e instanceof UsageError))throw e;}
     }
     reader.account(source);reader.connected(source);reader.lastKnown(source);
     const failed=await usage({stateDir:${JSON.stringify(stateDir)},fetch:async()=>{throw new Error(${JSON.stringify(CANARY)});}}).read(source);
@@ -81,6 +81,6 @@ test('Claude managed-folder source never opens a default login, escapes its root
   assert.ok(touches.every((p) => p === stateDir || p.startsWith(stateDir + '/') || p === join(d.home, '.claude', '.credentials.json')), touches.join('\n'));
   assert.equal(touches.filter((p) => p === join(d.home, '.claude', '.credentials.json')).length, 1);
   assert.deepEqual(d.changed(), []); assert.deepEqual(d.ran(), []);
-  assert.doesNotMatch(readFileSync(join(stateDir, 'plans-v1.json'), 'utf8'), new RegExp(CANARY));
+  assert.doesNotMatch(readFileSync(join(stateDir, 'plans-v2.json'), 'utf8'), new RegExp(CANARY));
   assert.ok(before.includes(CANARY), 'the request exercised a real managed canary credential');
 });

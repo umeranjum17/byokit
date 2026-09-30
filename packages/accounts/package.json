@@ -52,7 +52,7 @@
     "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"
   },
   "dependencies": {
-    "@byokit/usage": "0.1.0",
+    "@byokit/usage": "0.2.0",
     "@earendil-works/pi-ai": "0.87.1"
   },
   "publishConfig": {
