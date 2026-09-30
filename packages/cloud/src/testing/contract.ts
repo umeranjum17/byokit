@@ -30,7 +30,7 @@ export type TestFn = (
   fn: (t: MachineContractTestContext) => void | Promise<void>,
 ) => void | Promise<void>;
 
-export function machineContract(make: () => Promise<MachineBench>, o?: { test?: TestFn } | TestFn): void {
+export function machineContract(make: () => Promise<MachineBench>, o?: { test?: TestFn; recipe?: (name: string) => HostRecipe } | TestFn): void {
   const runTest: TestFn = typeof o === 'function'
     ? o
     : (o?.test ?? ((name, fn) => {
@@ -40,13 +40,13 @@ export function machineContract(make: () => Promise<MachineBench>, o?: { test?: 
     }));
 
   const sha = (c: string): Record<'linux-x64' | 'linux-arm64', string> => ({ 'linux-x64': c.repeat(64), 'linux-arm64': c.repeat(64) });
-  const recipe = (name: string): HostRecipe => ({
+  const recipe = (name: string): HostRecipe => (typeof o !== 'function' && o?.recipe ? o.recipe(name) : ({
     name,
     node: { version: '24.15.0', sha256: sha('a') },
     install: [['npm', 'ci']],
     run: { argv: ['node', 'server.mjs'], env: { PORT: '7310' } },
     workDir: '/home/user/app',
-  });
+  }));
   const variant = (name: string, patch: (r: HostRecipe) => HostRecipe): HostRecipe => patch(recipe(name));
 
   const createMachine = async (bench: MachineBench): Promise<Machine> => machine({ provider: bench.provider, store: bench.store });

@@ -35,6 +35,8 @@ jobs:
       - run: npm run check
       - run: node scripts/readme-check.ts
       - run: npm test # throwaway HOME, mocks only: no account, no network, no model
+      - name: M6 preparation dry run (fake provider and fake SSH only)
+        run: node scripts/machine-proof/run.ts --dry-run --output .lab/m6-dry.json
       - run: npm run smoke:pack
       - name: Release lint (PR)
         if: github.event_name == 'pull_request'

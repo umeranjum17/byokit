@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Allow lab callers to supply a real install fixture to the machine contract suite; fake defaults stay unchanged.
+
 - Scaffold (docs/cloud-kit.md M1): frozen public types (4.1 with 4.3 merged in), `MachineError`,
   words, `renderUnit`, recipe checks with the range compare and marker hash, node install argv, cost
   rules, `machine()` for 5.1–5.5 and 5.7, the fake provider and the contract suite, with

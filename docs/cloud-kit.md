@@ -255,7 +255,7 @@ export function stopSelf(o: { baseUrl: string; id: string; key: () => Promise<st
 
 // './testing'
 export function fakeProvider(o?: FakeProviderOptions): Provider & { fake: FakeControl }
-export function machineContract(make: () => Promise<MachineBench>, o?: { test?: TestFn } | TestFn): void
+export function machineContract(make: () => Promise<MachineBench>, o?: { test?: TestFn; recipe?: (name: string) => HostRecipe } | TestFn): void
 ```
 
 `FakeProviderOptions`, `FakeControl`, `MachineBench` and `TestFn` are defined by M1 in `src/testing/index.ts` with the
@@ -1221,6 +1221,36 @@ the `installs` switch on the sandbox bench.
     in 15.1.
 - **Acceptance:** the recorded run in this document with every check's result; the kit leaves `private` only after
   it. The run and the PR name no provider.
+
+### Run M6 (prepared, not yet a real-provider result)
+
+Preparation runner and typed app recipes: [scripts/machine-proof](../scripts/machine-proof/README.md).
+CI runs the runner against the loopback provider and fake SSH; simulated evidence never qualifies M6.
+The app supplies the provider URL and label, dated prices, pinned release archive and Node hashes,
+SSH fingerprint, recipe objects and private lab inputs. No provider is selected by BYOKit.
+
+The owner provides:
+
+- explicit approval of the lab spend, their own new provider account and payment card;
+- their own API key (stored in the app-passed private key file), plus their provider app sign-in for the G1 scope check;
+- a disposable plain Linux SSH VM with systemd, a non-root sudo-capable user, its SSH private key,
+  independently verified fingerprint and a phone-reachable TLS relay route;
+- their phone and engine sign-in to complete pairing and the device-code proof on the new machines.
+
+Before the paid run, the app maintainer stages `.lab/m6.ts` as described in the runner README.
+A new account's trial observations must be recorded before leaving the trial. The operator completes
+real phone/sign-in/workload observations during the command; the VM console supplies its power cycle.
+Run exactly:
+
+```sh
+node scripts/machine-proof/run.ts --live --config .lab/m6.ts --output .lab/m6-report.json --record-doc
+```
+
+The command records every M6 check for both adapters, including failures, in this section.
+It checkpoints a private local JSON report and created resource ids for interrupted-run cleanup.
+Contract and scrub sandboxes are disposable; the app lab machines remain for inspection and must
+be removed explicitly after review. `private: true` remains until a complete, reviewed live record;
+this preparation makes no publishing or real-provider-tested claim.
 
 **M7 — sleep and wake** · Opus design check, Muse build · deps: M6
 - **Files:** `src/{wake,idle}.ts`, `src/sandbox-api.ts` (`wakeKey`, `stopKey`, `revokeKey`),

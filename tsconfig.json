@@ -1,7 +1,7 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": { "noEmit": true, "composite": false, "declaration": false },
-  "include": ["packages/*/src", "packages/*/test", "examples/pwa", "examples/herdr-kit", "examples/openclaw-kit"],
+  "include": ["packages/*/src", "packages/*/test", "examples/pwa", "examples/herdr-kit", "examples/openclaw-kit", "scripts/machine-proof", "scripts/machine-proof.test.ts"],
   // expo-modules-core's types declare React Native globals (a numeric setTimeout, a required NODE_ENV) that would
   // leak into every Node package here; `tsc -b packages/<kit>` typechecks these files in their own program.
   "exclude": ["packages/overlay/src/rn.ts", "packages/overlay/src/focused-field.rn.ts", "packages/statusbar/src/rn.ts", "packages/push/src/rn.ts"]
