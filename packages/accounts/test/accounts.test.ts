@@ -106,7 +106,7 @@ test('limits: an account rests until it said, the ladder skips it, and a refusal
   assert.equal(said?.kind, 'rate_limit');
   assert.ok(Math.abs(kit.restingUntil(1, 'chatgpt') - (Date.now() + 30 * 60_000)) < 1000);
   assert.equal(kit.restingUntil(2, 'chatgpt'), 0, 'one person\'s limit is theirs alone');
-  assert.match((await kit.status(1, 'chatgpt')).words, /^ChatGPT is resting until \d+:\d\d\s?[ap]m\.$/);
+  assert.match((await kit.status(1, 'chatgpt')).words, /^ChatGPT is resting until (?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) )?\d+:\d\d\s?[ap]m\.$/);
   assert.equal(kit.ladder(1, ['chatgpt', 'grok']), 'grok');
   await kit.failed(1, 'grok', '503 overloaded');
   assert.equal((await kit.status(1, 'grok')).words, 'Grok is busy right now.');
