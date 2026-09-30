@@ -6,7 +6,6 @@ import { scratchDir } from '../../test-support.ts';
 import { Engine } from '../src/engine.ts';
 import { routes } from '../src/routes.ts';
 import { reconcileConfig, memoryLimited } from '../src/config.ts';
-import { routes } from '../src/routes.ts';
 
 const opts = (root: string) => ({ root, stateDir: root, port: 12345, pluginId: 'byokit', pluginDir: join(root, 'plugin'), policyPath: join(root, 'policy.mjs') });
 test('plugin allowlist merges caller ids, the bridge and only offered route plugins', () => {
