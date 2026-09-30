@@ -1,9 +1,0 @@
-Mac simulator inventory before deletion (data-directory mtime, Mac local UTC+04:00):
-438D5D3A-C748-4B3A-9432-452A43CEDC61 | muxr iOS Parity | iOS 26.3 | 3.3 GiB | 2026-09-29 06:35:39 +04:00 | removed first
-CDB82450-DB5C-48D8-8394-E80DD4AE136B | desklink-ios-flow-26.3 | iOS 26.3 | 1.8 GiB | 2026-09-29 15:08:33 +04:00 | removed second
-7AA63A31-2BF2-4B26-A099-FB03AA42286F | desklink-ios-flow-18.6 | iOS 18.6 | 1.3 GiB | 2026-09-29 15:09:04 +04:00 | removed third
-F26617CB-4D58-4101-99C9-161BC9A3E9DC | desklink-ios-flow-ipad | iOS 26.3 | 2.1 GiB | 2026-09-29 17:32:56 +04:00 | kept, most recent for runtime
-B3903217-FA46-41FA-A8A2-55765A356338 | desklink-ios-flow | iOS 18.6 | 1.6 GiB | 2026-09-29 17:34:06 +04:00 | kept, most recent for runtime
-All five were Shutdown. Deletions used xcrun simctl delete <udid> in the order above.
-No runtime was deleted: Xcode 16.4 uses iOS 18.6; Xcode 26.3 uses iOS 26.3.
-No Android AVD was deleted. Cache commands and before/after df are in mac-cleanup.log.
