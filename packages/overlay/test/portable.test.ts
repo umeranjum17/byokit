@@ -17,7 +17,7 @@ function source(target: Target, condition: string): string {
 }
 
 for (const platform of ['browser', 'react-native'] as const) {
-  for (const entry of ['.', './focused-field']) {
+  for (const entry of ['.', './focused-field', './screen-frame']) {
     const target = pkg.exports[entry];
     test(`${entry} bundles for ${platform} with no Node import`, async () => {
       const file = source(target, platform);
