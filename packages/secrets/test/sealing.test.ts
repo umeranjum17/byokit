@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { fileStore } from '../../accounts/src/node-stores.ts';
 import { scratchDir } from '../../test-support.ts';
 import { hostKeySeal, osKeyring, osKeyringSeal, osKeyringStore, type KeyringBackend } from '../src/index.ts';
+import { assertPrivateKeyringSession } from './private-session.ts';
 
 const CANARY = 'sk-umer-sealed-canary-😀\n\0';
 const code = (want: string) => (error: any) => error?.name === 'KeystoreError' && error.code === want && !error.message.includes(CANARY);
@@ -18,6 +19,31 @@ function fakeRing() {
   };
   return { ring, data };
 }
+
+test('real-keyring guard refuses the user bus, missing proof and inherited desktop settings before native calls', () => {
+  const root = '/tmp/ks.Umer01';
+  const bus = 'unix:path=/tmp/dbus-Umer123,guid=abcdef';
+  const isolated = {
+    BYOKIT_KEYRING_TEST_ROOT: root, DBUS_SESSION_BUS_ADDRESS: bus, BYOKIT_KEYRING_TEST_BUS: bus,
+    BYOKIT_KEYRING_OWNER_BUS: 'unix:path=/run/user/1000/bus',
+    XDG_RUNTIME_DIR: `${root}/runtime`, XDG_DATA_HOME: `${root}/data`,
+    XDG_CONFIG_HOME: `${root}/config`, XDG_CACHE_HOME: `${root}/cache`,
+  };
+  assert.doesNotThrow(() => assertPrivateKeyringSession(isolated));
+  for (const change of [
+    { BYOKIT_KEYRING_TEST_BUS: undefined },
+    { DBUS_SESSION_BUS_ADDRESS: isolated.BYOKIT_KEYRING_OWNER_BUS },
+    { BYOKIT_KEYRING_OWNER_BUS: bus },
+    { GNOME_KEYRING_CONTROL: '/run/user/1000/keyring' },
+    { DBUS_STARTER_ADDRESS: isolated.BYOKIT_KEYRING_OWNER_BUS },
+    { XDG_DATA_HOME: '/owner/data' },
+    { XDG_CONFIG_HOME: '/owner/config' },
+    { XDG_CACHE_HOME: '/owner/cache' },
+    { XDG_RUNTIME_DIR: '/run/user/1000' },
+    { BYOKIT_KEYRING_TEST_ROOT: '/owner/home' },
+  ]) assert.throws(() => assertPrivateKeyringSession({ ...isolated, ...change }), /private OS session/);
+  assert.throws(() => assertPrivateKeyringSession({ BYOKIT_REAL_KEYRING: '1' }), /private OS session/);
+});
 
 test('native backend forces persistent Secret Service and implements the common store seam', async () => {
   const calls: unknown[] = [];

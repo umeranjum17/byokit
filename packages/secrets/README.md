@@ -170,8 +170,11 @@ closed; hosts must bundle its platform binary with Electron and keep `.node` fil
   cannot reliably be erased. Never log keys, credentials or decrypted content.
 
 Tests inject `keyring: KeyringBackend` and never use the owner's keyring. A real Linux test is opt-in
-with `BYOKIT_REAL_KEYRING=1`, skips when no Secret Service is available, and must run in a disposable
-OS session. CI provisions a separate D-Bus/gnome-keyring session and uses `required` to demand proof.
+through `sh scripts/test-keyring.sh`, which clears the environment and creates a private HOME, XDG
+tree, D-Bus and daemon control directory. The test asserts the bus is the private one and refuses
+inherited desktop settings before any native call. Setting `BYOKIT_REAL_KEYRING` alone cannot
+authorize a real test. Without an available Secret Service the opt-in test skips, unless CI requires
+the provisioned service. CI runs the same isolated harness.
 Unit coverage exercises accounts' actual fileStore, fresh nonces, rotation, wrong keys, lost keys,
 metadata tampering, persistence failures and the explicit server path. macOS/Windows native runtime
 qualification remains host/platform CI work; the native API wrapper is fake-tested on every platform.
