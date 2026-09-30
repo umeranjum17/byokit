@@ -1,3 +1,4 @@
+import { responseFence } from './policy.ts';
 import { cleanProse } from './prose.ts';
 import { MAX_REALTIME_SDP_BYTES } from './frames.ts';
 import type { RealtimeClientFrame, RealtimeHostFrame } from './frames.ts';
@@ -15,6 +16,7 @@ export async function boundedBody(response: Response, max = MAX_REALTIME_SDP_BYT
   return new TextDecoder().decode(bytes);
 }
 export function createChatgptAdapter(options: AdapterOptions & { accountId: string }) {
+  const fence = responseFence();
   const lifetime = new AbortController(); let offered = false, closed = false;
   const safe = (text: unknown) => cleanProse(text, 'Voice could not complete that request.', 4000, options.redact);
   const delegations = new Map<string, Promise<string>>(), turns = new Map<string, Promise<string>>();
@@ -25,7 +27,7 @@ export function createChatgptAdapter(options: AdapterOptions & { accountId: stri
     chunks.push(chunk);
     for (const text of chunks) send({ type: id ? 'delegation.context.append' : 'session.context.append', ...(id ? { delegation_item_id: id } : {}), channel: 'speakable', content: [{ type: 'input_text', text }] });
   };
-  const close = (reason = 'Voice ended.') => { if (closed) return; closed = true; lifetime.abort(); options.bridge.close(); emit({ type: 'realtime.closed', reason: safe(reason) }); };
+  const close = (reason = 'Voice ended.', retryable = false) => { if (closed) return; closed = true; fence.interrupt(); lifetime.abort(); options.bridge.close(); emit({ type: 'realtime.closed', reason: safe(reason), ...(retryable ? { retryable: true } : {}) }); };
   const signalOffer = async (sdp: string) => {
     if (offered) throw new Error('Duplicate voice offer.'); offered = true;
     const endpoint = options.endpoint ?? CHATGPT_SIGNALING_URL;
@@ -44,7 +46,7 @@ export function createChatgptAdapter(options: AdapterOptions & { accountId: stri
   const data = async (raw: string) => {
     // Provider event vocabulary stays inside the credential child.
     const event = JSON.parse(raw);
-    if (event.type === 'turn.done' && typeof event.turn?.transcript === 'string') { const role = event.turn.role === 'assistant' ? 'agent' : 'user'; emit({ type: 'realtime.transcript', role, text: safe(event.turn.transcript) }); if (role === 'agent') options.bridge.answered(); options.bridge.state(role === 'agent' ? 'connected' : 'thinking'); }
+    if (event.type === 'turn.done' && typeof event.turn?.transcript === 'string') { const role = event.turn.role === 'assistant' ? 'agent' : 'user'; if (role === 'user') { fence.begin(); turns.clear(); emit({ type: 'realtime.audio.clear' }); } emit({ type: 'realtime.transcript', role, text: safe(event.turn.transcript) }); if (role === 'agent') options.bridge.answered(); options.bridge.state(role === 'agent' ? 'connected' : 'thinking'); }
     else if (event.type === 'session.started' || event.type === 'session.updated') options.bridge.state('connected');
     else if (event.type === 'output_audio.delta') options.bridge.state('speaking');
     else if (event.type === 'error') close(safe(event.message ?? event.error?.message));
@@ -54,9 +56,10 @@ export function createChatgptAdapter(options: AdapterOptions & { accountId: stri
       if (typeof id !== 'string' || !id || id.length > 128 || Buffer.byteLength(request) > 16000 || delegations.size >= 128 || delegations.has(id)) return;
       const turn = event.item.user_bidi_turn_id;
       const share = typeof turn === 'string' && turn.trim() && turn.length <= 128 ? JSON.stringify([turn.trim(), request.trim()]) : undefined;
+      const signal = fence.signal;
       let promise = share ? turns.get(share) : undefined;
-      if (!promise) { promise = options.bridge.run('delegate', { request }, `codex:${id}`, lifetime.signal); if (share) turns.set(share, promise); }
-      delegations.set(id, promise); const result = await promise; if (!closed) append(result, id);
+      if (!promise) { promise = options.bridge.run('delegate', { request }, `codex:${id}`, AbortSignal.any([lifetime.signal, signal])); if (share) turns.set(share, promise); }
+      delegations.set(id, promise); const result = await promise; if (!closed && !signal.aborted) append(result, id);
     }
   };
   emit({ type: 'realtime.webrtc.start', dataChannelLabel: 'oai-events' });
@@ -66,6 +69,7 @@ export function createChatgptAdapter(options: AdapterOptions & { accountId: stri
       if (frame.type === 'realtime.webrtc.offer') void signalOffer(frame.sdp).catch(() => close('Voice signaling failed.'));
       else if (frame.type === 'realtime.webrtc.data') void data(frame.data).catch(() => close('Invalid voice message.'));
       else if (frame.type === 'realtime.say') append(frame.text);
+      else if (frame.type === 'realtime.control' && frame.action === 'interrupt') { send({ type: 'session.close' }); close('Voice interrupted.', true); }
       else if (frame.type === 'realtime.control' && frame.action === 'stop') { send({ type: 'session.close' }); close(); }
     }, close,
   };

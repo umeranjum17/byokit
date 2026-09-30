@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import { responseFence } from '../policy.ts';
 import { cleanProse, providerRefusal as refusal } from '../prose.ts';
 import type { AdapterOptions } from '../adapter.ts';
 import type { RealtimeClientFrame } from '../frames.ts';
@@ -55,7 +56,7 @@ export function createAdapter(options: AdapterOptions): {
             syncProviderReadState();
         }
         else {
-            stdoutQueue.push({ line, done });
+            stdoutQueue.push({ line, done, audio: frame.type === 'realtime.audio' });
             stdoutBytes += line.length;
             syncProviderReadState();
         }
@@ -79,11 +80,12 @@ export function createAdapter(options: AdapterOptions): {
     const state: any = (value: any, detail: any): any => tools.state(value, detail);
     const PROMPT = options.instructions;
     const tools = options.bridge;
+    const fence = responseFence();
     let closing = false;
     const close: any = (reason: any, forceExit: any = false): any => {
         if (closing)
             return;
-        closing = true;
+        closing = true; fence.interrupt();
         clearTimeout(reconnectTimer);
         clearTimeout(stableTimer);
         tools.close();
@@ -160,6 +162,8 @@ export function createAdapter(options: AdapterOptions): {
         continueAfterClear(continuation);
     };
     const clearIncompleteOutput: any = (): any => {
+        fence.interrupt();
+        for (let index = stdoutQueue.length - 1; index >= 0; index--) { if (stdoutQueue[index].audio) { stdoutBytes -= stdoutQueue[index].line.length; stdoutQueue.splice(index, 1); } }
         outputFenced = true;
         responseActive = false;
         const continuation: any = deferredClearContinuation;
@@ -176,6 +180,7 @@ export function createAdapter(options: AdapterOptions): {
         continueAfterClear(continuation);
     };
     const fenceActiveResponse: any = (continuation: any): any => {
+        fence.interrupt();
         outputFenced = true;
         if (!responseActive) {
             if (deferredClearPending || playbackDrainQueue.length > 0) {
@@ -232,10 +237,10 @@ export function createAdapter(options: AdapterOptions): {
             return;
         switch (message.type) {
             case 'input_audio_buffer.speech_started':
-                if (playbackGenerations.size > 0 && clearedGeneration !== responseGeneration)
-                    clearIncompleteOutput();
+                clearIncompleteOutput();
                 break;
             case 'response.created':
+                if (!fence.begin(message.response?.id)) break;
                 responseGeneration += 1;
                 responseActive = true;
                 outputFenced = false;
@@ -244,11 +249,12 @@ export function createAdapter(options: AdapterOptions): {
             case 'response.output_audio.delta':
             case 'response.audio.delta': {
                 const audio: any = typeof message.delta === 'string' ? message.delta : typeof message.audio === 'string' ? message.audio : '';
-                if (audio && !outputFenced && emitAudio(audio))
+                if (audio && !outputFenced && fence.accepts(message.response_id) && emitAudio(audio))
                     playbackGenerations.add(responseGeneration);
                 break;
             }
             case 'response.done':
+                if (!fence.accepts(message.response?.id)) break;
                 if (!responseActive)
                     break;
                 responseActive = false;
@@ -269,12 +275,15 @@ export function createAdapter(options: AdapterOptions): {
                 }
                 break;
             case 'response.output_audio_transcript.done':
+                if (!fence.accepts(message.response_id)) break;
                 if (typeof message.transcript === 'string' && message.transcript.trim() !== '') {
                     tools.answered();
                     emit({ type: 'realtime.transcript', role: 'agent', text: message.transcript });
                 }
                 break;
             case 'response.function_call_arguments.done': {
+                if (!fence.accepts(message.response_id)) break;
+                const signal = fence.signal;
                 const callGeneration: any = responseGeneration;
                 void (async (): Promise<any> => {
                     let args: any = {};
@@ -284,12 +293,12 @@ export function createAdapter(options: AdapterOptions): {
                     catch { /* interrupted arguments */ }
                     let output: any;
                     try {
-                        output = await runTool(message.name, args, message.call_id);
+                        output = await tools.run(message.name, args, message.call_id, signal);
                     }
                     catch {
                         output = 'The request could not be completed. Please try again.';
                     }
-                    if (!currentProvider(current, epoch) || current.readyState !== WebSocket.OPEN || outputFenced || callGeneration !== responseGeneration)
+                    if (signal.aborted || !currentProvider(current, epoch) || current.readyState !== WebSocket.OPEN || outputFenced || callGeneration !== responseGeneration)
                         return;
                     current.send(JSON.stringify({
                         type: 'conversation.item.create',
@@ -355,6 +364,10 @@ export function createAdapter(options: AdapterOptions): {
                 stopped = true;
                 ws?.close();
                 close('ended');
+            }
+            else if (frame.action === 'interrupt') {
+                const cancel = responseActive; clearIncompleteOutput();
+                if (cancel && ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'response.cancel' }));
             }
             else if (frame.action === 'pause_output') {
                 outputPausedByClient = true;
@@ -496,6 +509,7 @@ export function createAdapter(options: AdapterOptions): {
             });
         });
         current.on('close', (code: any, reasonBuffer: any): any => {
+            if (stopped || ws !== current) return;
             const reason: any = cleanProviderProse(String(reasonBuffer), '', 160);
             const detail: any = `The voice provider disconnected (${code})${reason ? `: ${reason}` : '.'}`;
             if (providerError(reason).terminal) {

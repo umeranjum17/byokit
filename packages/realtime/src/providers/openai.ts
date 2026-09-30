@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import { responseFence } from '../policy.ts';
 import { cleanProse, providerRefusal as refusal } from '../prose.ts';
 import type { AdapterOptions } from '../adapter.ts';
 import type { RealtimeClientFrame } from '../frames.ts';
@@ -33,11 +34,16 @@ export function createAdapter(options: AdapterOptions): {
     };
     const state: any = (value: any, detail: any): any => tools.state(value, detail);
     const PROMPT = options.instructions;
+    const fence = responseFence();
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined, stableTimer: ReturnType<typeof setTimeout> | undefined;
+    let providerReconnects = 0, responseActive = false;
+    const interrupt = () => { fence.interrupt(); responseActive = false; pendingToolCalls.clear(); emit({ type: 'realtime.audio.clear' }); };
     let closing = false;
     const close: any = (reason: any): any => {
         if (closing)
             return;
-        closing = true;
+        closing = true; stopped = true; fence.interrupt();
+        clearTimeout(reconnectTimer); clearTimeout(stableTimer);
         tools.close();
         process.stdout.write(`${JSON.stringify({ type: 'realtime.closed', reason })}\n`, (): any => process.exit(0));
     };
@@ -64,42 +70,48 @@ export function createAdapter(options: AdapterOptions): {
             case 'session.updated':
                 providerReady = true;
                 emit({ type: 'realtime.ready', inputRate: RATE, outputRate: RATE });
+                clearTimeout(stableTimer); stableTimer = setTimeout(() => { providerReconnects = 0; }, 30000);
                 state('connected');
                 break;
             case 'input_audio_buffer.speech_started':
-                // ponytail: the generic stream has no playback clock; add a playback-progress frame before truncating provider history.
-                emit({ type: 'realtime.audio.clear' });
+                interrupt();
                 break;
             case 'response.created':
+                if (!fence.begin(message.response?.id)) break;
+                responseActive = true;
                 state('thinking');
                 break;
             case 'response.output_audio.delta':
             case 'response.audio.delta': {
                 const audio: any = typeof message.delta === 'string' ? message.delta : typeof message.audio === 'string' ? message.audio : '';
-                if (audio)
+                if (audio && fence.accepts(message.response_id))
                     emitAudio(audio);
                 break;
             }
             case 'response.done': {
             if (message.response?.usage) emit({ type: 'realtime.usage', usage: { seconds: 0, basis: 'tokens', inputTokens: message.response.usage.input_tokens ?? 0, outputTokens: message.response.usage.output_tokens ?? 0, audioInTokens: message.response.usage.input_token_details?.audio_tokens ?? 0, audioOutTokens: message.response.usage.output_token_details?.audio_tokens ?? 0, cachedTokens: message.response.usage.input_token_details?.cached_tokens ?? 0 } });
+                if (!fence.accepts(message.response?.id)) break;
+                responseActive = false;
                 const responseId: any = message.response?.id;
                 const calls: any = typeof responseId === 'string' ? pendingToolCalls.get(responseId) ?? [] : [];
                 if (typeof responseId === 'string')
                     pendingToolCalls.delete(responseId);
                 if (message.response?.status === 'completed' && calls.length > 0) {
+                    const signal = fence.signal, current = ws;
                     void (async (): Promise<any> => {
                         const outputs: any[] = [];
                         for (const call of calls) {
+                            if (signal.aborted) return;
                             let output: any;
                             try {
-                                output = await runTool(call.name, call.args, call.callId);
+                                output = await runTool(call.name, call.args, call.callId, signal);
                             }
                             catch {
                                 output = 'The request could not be completed. Please try again.';
                             }
                             outputs.push({ callId: call.callId, output });
                         }
-                        if (stopped || ws?.readyState !== WebSocket.OPEN)
+                        if (stopped || signal.aborted || ws !== current || ws?.readyState !== WebSocket.OPEN)
                             return;
                         for (const output of outputs) {
                             ws.send(JSON.stringify({
@@ -128,12 +140,14 @@ export function createAdapter(options: AdapterOptions): {
                 }
                 break;
             case 'response.output_audio_transcript.done':
+                if (!fence.accepts(message.response_id)) break;
                 if (typeof message.transcript === 'string' && message.transcript.trim() !== '') {
                     tools.answered();
                     emit({ type: 'realtime.transcript', role: 'agent', text: message.transcript });
                 }
                 break;
             case 'response.function_call_arguments.done': {
+                if (!fence.accepts(message.response_id)) break;
                 if (typeof message.response_id !== 'string')
                     break;
                 let args: any = {};
@@ -163,6 +177,12 @@ export function createAdapter(options: AdapterOptions): {
     function handleClientFrame(frame: any): any {
         if (tools.receive(frame))
             return;
+        if (frame.type === 'realtime.control' && frame.action === 'stop') { stopped = true; ws?.close(); close('ended'); return; }
+        if (frame.type === 'realtime.control' && frame.action === 'interrupt') {
+            const cancel = responseActive; interrupt();
+            if (cancel && ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'response.cancel' }));
+            return;
+        }
         if (ws?.readyState !== WebSocket.OPEN)
             return;
         if (frame.type === 'realtime.audio') {
@@ -175,27 +195,26 @@ export function createAdapter(options: AdapterOptions): {
             }));
             ws.send(JSON.stringify({ type: 'response.create' }));
         }
-        else if (frame.type === 'realtime.control' && frame.action === 'stop') {
-            stopped = true;
-            ws.close();
-            close('ended');
-        }
         // mute/unmute are enforced on the phone's capture side; nothing to forward.
     }
     function connectProvider(key: any): any {
         if (stopped)
             return;
+        providerReady = false;
         state('connecting');
         const current: any = new WebSocket(PROVIDER_URL, {
             headers: { Authorization: `Bearer ${key}` },
             maxPayload: 4 * 1024 * 1024,
         });
         ws = current;
+        let downHandled = false;
         const onDown: any = (reason: any): any => {
-            if (stopped || ws !== current)
+            if (downHandled || stopped || ws !== current)
                 return;
-            stopped = true;
-            close(reason);
+            downHandled = true; providerReady = false; clearTimeout(stableTimer); interrupt();
+            if (providerReconnects >= 2) { close(reason); return; }
+            providerReconnects++; state('connecting', 'Voice provider reconnecting');
+            reconnectTimer = setTimeout(() => connectProvider(key), providerReconnects * 500);
         };
         current.on('open', (): any => {
             if (stopped || ws !== current)
@@ -226,7 +245,7 @@ export function createAdapter(options: AdapterOptions): {
                 },
             }));
         });
-        current.on('message', (data: any): any => { if (ws === current)
+        current.on('message', (data: any): any => { if (!stopped && !downHandled && ws === current)
             handleOpenAiEvent(String(data)); });
         // ws suppresses 'error' and 'close' once this is handled, so the failure
         // path is driven from here. Auth and permission refusals are terminal:
@@ -246,6 +265,7 @@ export function createAdapter(options: AdapterOptions): {
             });
         });
         current.on('close', (code: any, reasonBuffer: any): any => {
+            if (stopped || ws !== current) return;
             const reason: any = cleanProviderProse(String(reasonBuffer), '', 160);
             const detail: any = `OpenAI session ended (${code})${reason ? `: ${reason}` : '.'}`;
             if (providerError(reason).terminal) {

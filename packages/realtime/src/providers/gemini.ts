@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import { responseFence } from '../policy.ts';
 import { cleanProse, providerRefusal as refusal } from '../prose.ts';
 import type { AdapterOptions } from '../adapter.ts';
 import type { RealtimeClientFrame } from '../frames.ts';
@@ -129,11 +130,14 @@ export function createAdapter(options: AdapterOptions): {
     };
     const state: any = (value: any, detail: any): any => tools.state(value, detail);
     const PROMPT = options.instructions;
+    const fence = responseFence();
+    const interrupt = () => { fence.interrupt(); clearTimeout(finishTimer); clearQueuedAudio(); inputTranscript = ''; outputTranscript = ''; turnThinking = false; emit({ type: 'realtime.audio.clear' }, undefined, true); };
     let closing = false;
     const close: any = (reason: any, force: any = false): any => {
         if (closing)
             return;
-        closing = true;
+        closing = true; stopped = true; fence.interrupt();
+        clearTimeout(reconnectTimer); clearTimeout(stableTimer); clearTimeout(finishTimer);
         tools.close();
         emit({ type: 'realtime.closed', reason }, (): any => process.exit(0), force);
     };
@@ -199,14 +203,13 @@ export function createAdapter(options: AdapterOptions): {
     const content: any = message.serverContent;
         if (content) {
             if (content.interrupted === true) {
-                clearQueuedAudio();
-                emit({ type: 'realtime.audio.clear' }, undefined, true);
+                interrupt();
             }
             if (typeof content.inputTranscription?.text === 'string')
                 inputTranscript += content.inputTranscription.text;
-            if (typeof content.outputTranscription?.text === 'string')
+            if (fence.accepts() && typeof content.outputTranscription?.text === 'string')
                 outputTranscript += content.outputTranscription.text;
-            for (const part of content.modelTurn?.parts ?? []) {
+            for (const part of fence.accepts() ? content.modelTurn?.parts ?? [] : []) {
                 const audio: any = part.inlineData?.data;
                 if (typeof audio === 'string' && audio) {
                     if (!turnThinking) {
@@ -217,6 +220,7 @@ export function createAdapter(options: AdapterOptions): {
                 }
             }
             if (content.turnComplete === true) {
+                if (!fence.accepts()) { fence.begin(); return; }
                 // Transcription chunks are independent and have no final bit; give late chunks one short grace window.
                 clearTimeout(finishTimer);
                 finishTimer = setTimeout(finishTurn, 150);
@@ -232,7 +236,8 @@ export function createAdapter(options: AdapterOptions): {
                 activeToolCalls.get(id)?.abort();
             }
         }
-        if (Array.isArray(message.toolCall?.functionCalls)) {
+        if (fence.accepts() && Array.isArray(message.toolCall?.functionCalls)) {
+            const signal = fence.signal, current = ws;
             void (async (): Promise<any> => {
                 const functionResponses: any = (await Promise.all(message.toolCall.functionCalls.map(async (call: any): Promise<any> => {
                     if (cancelledToolCalls.delete(call.id))
@@ -241,7 +246,7 @@ export function createAdapter(options: AdapterOptions): {
                     activeToolCalls.set(call.id, controller);
                     let output: any;
                     try {
-                        output = await runTool(call.name, call.args, call.id, controller.signal);
+                        output = await runTool(call.name, call.args, call.id, AbortSignal.any([controller.signal, signal]));
                     }
                     catch (error: any) {
                         if (cancelledToolCalls.delete(call.id) || error?.name === 'AbortError')
@@ -255,7 +260,7 @@ export function createAdapter(options: AdapterOptions): {
                         return undefined;
                     return { id: call.id, name: call.name, response: { result: text(output).slice(0, 24000) } };
                 }))).filter(Boolean);
-                if (stopped || ws?.readyState !== WebSocket.OPEN || functionResponses.length === 0)
+                if (stopped || signal.aborted || ws !== current || ws?.readyState !== WebSocket.OPEN || functionResponses.length === 0)
                     return;
                 ws.send(JSON.stringify({ toolResponse: { functionResponses } }));
             })();
@@ -290,6 +295,11 @@ export function createAdapter(options: AdapterOptions): {
                 outputDeadline = 0;
                 close('ended', true);
             }
+            else if (frame.action === 'interrupt') {
+                interrupt(); sessionHandle = '';
+                // Automatic VAD owns activity signals; rotate rather than invent a cancel packet.
+                ws?.resume(); ws?.close(1000, 'Interrupted');
+            }
             else if (frame.action === 'pause_output') {
                 outputPausedByClient = true;
                 outputDeadline = 0;
@@ -321,13 +331,17 @@ export function createAdapter(options: AdapterOptions): {
     function connectProvider(key: any): any {
         if (stopped)
             return;
-        providerReady = false;
+        clearTimeout(reconnectTimer); clearTimeout(stableTimer);
+        providerReady = false; fence.begin();
         state('connecting', providerReconnects === 0 ? undefined : 'Voice provider reconnecting');
         const current: any = new WebSocket(`${ENDPOINT}?key=${encodeURIComponent(key)}`, { maxPayload: 4 * 1024 * 1024 });
         ws = current;
+        let downHandled = false;
         const onDown: any = (reason: any): any => {
-            if (stopped || ws !== current)
+            if (downHandled || stopped || ws !== current)
                 return;
+            downHandled = true; providerReady = false; clearTimeout(stableTimer); interrupt();
+            state('connecting', 'Voice provider reconnecting');
             if (providerReconnects >= 2) {
                 close(reason, true);
                 return;
@@ -354,7 +368,7 @@ export function createAdapter(options: AdapterOptions): {
                 },
             }));
         });
-        current.on('message', (data: any): any => { if (ws === current)
+        current.on('message', (data: any): any => { if (!stopped && !downHandled && ws === current)
             handleGeminiEvent(String(data)); });
         // ws suppresses 'error' and 'close' once this is handled, so the failure
         // path is driven from here. Auth and permission refusals are terminal:
@@ -374,6 +388,7 @@ export function createAdapter(options: AdapterOptions): {
             });
         });
         current.on('close', (code: any, reasonBuffer: any): any => {
+            if (stopped || ws !== current) return;
             const reason: any = cleanProviderProse(String(reasonBuffer), '', 160);
             const detail: any = `The voice provider disconnected (${code})${reason ? `: ${reason}` : '.'}`;
             if (providerError(reason).terminal) {

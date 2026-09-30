@@ -18,7 +18,7 @@ export const MAX_REALTIME_CLOSE_REASON_BYTES = 2 * 1024;
 export type RealtimeOpen = { type: 'realtime.open'; context?: unknown };
 
 export type RealtimeState = 'connecting' | 'connected' | 'thinking' | 'speaking';
-export type RealtimeControlAction = 'mute' | 'unmute' | 'stop' | 'pause_output' | 'resume_output' | 'output_drained';
+export type RealtimeControlAction = 'mute' | 'unmute' | 'interrupt' | 'stop' | 'pause_output' | 'resume_output' | 'output_drained';
 export type RealtimeAppAction = 'view' | 'navigate' | 'activate';
 
 export interface RealtimeAudioClientFrame {
@@ -70,7 +70,7 @@ export interface RealtimeAudioHostFrame {
 export interface RealtimeAudioClearFrame { type: 'realtime.audio.clear' }
 export interface RealtimeStateFrame { type: 'realtime.state'; state: RealtimeState; detail?: string }
 export interface RealtimeTranscriptFrame { type: 'realtime.transcript'; role: 'user' | 'agent'; text: string }
-export interface RealtimeClosedFrame { type: 'realtime.closed'; reason?: string }
+export interface RealtimeClosedFrame { type: 'realtime.closed'; reason?: string; retryable?: boolean }
 export interface RealtimeAppRequestFrame {
     type: 'realtime.app.request';
     requestId: string;
@@ -97,7 +97,7 @@ export type RealtimeHostFrame =
     | RealtimeWebRtcAnswerFrame
     | RealtimeWebRtcDataHostFrame;
 
-const REALTIME_CONTROL_ACTIONS = new Set<RealtimeControlAction>(['mute', 'unmute', 'stop', 'pause_output', 'resume_output', 'output_drained']);
+const REALTIME_CONTROL_ACTIONS = new Set<RealtimeControlAction>(['mute', 'unmute', 'interrupt', 'stop', 'pause_output', 'resume_output', 'output_drained']);
 const REALTIME_APP_ACTIONS: Record<RealtimeAppAction, true> = { view: true, navigate: true, activate: true };
 const REALTIME_STATES = new Set<RealtimeState>(['connecting', 'connected', 'thinking', 'speaking']);
 
@@ -240,7 +240,8 @@ export function parseRealtimeHostFrame(value: unknown): RealtimeHostFrame {
         };
     }
     if (frame.type === 'realtime.closed') {
-        return { type: 'realtime.closed', ...(frame.reason === undefined ? {} : { reason: boundedText(frame.reason, MAX_REALTIME_CLOSE_REASON_BYTES, 'close reason') }) };
+        if (frame.retryable !== undefined && typeof frame.retryable !== 'boolean') throw new Error('invalid realtime retry policy');
+        return { type: 'realtime.closed', ...(frame.retryable === undefined ? {} : { retryable: frame.retryable }), ...(frame.reason === undefined ? {} : { reason: boundedText(frame.reason, MAX_REALTIME_CLOSE_REASON_BYTES, 'close reason') }) };
     }
     if (frame.type === 'realtime.webrtc.start') {
         return { type: 'realtime.webrtc.start', dataChannelLabel: dataChannelLabel(frame.dataChannelLabel) };

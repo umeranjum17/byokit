@@ -45,10 +45,10 @@ export function realtimeEngine(options: RealtimeEngineOptions) {
     }
     options.emit(frame);
   };
-  const finish = (reason?: string) => {
+  const finish = (reason?: string, retryable = false) => {
     if (emittedClose) return; emittedClose = true; stopped = true; lifetime.abort(); options.bridge.close();
     usage.seconds = (Date.now() - start) / 1000;
-    options.onUsage?.({ ...usage }); emit({ type: 'realtime.usage', usage: { ...usage } }); emit({ type: 'realtime.closed', ...(reason ? { reason: safe(reason) } : {}) });
+    options.onUsage?.({ ...usage }); emit({ type: 'realtime.usage', usage: { ...usage } }); emit({ type: 'realtime.closed', ...(retryable ? { retryable: true } : {}), ...(reason ? { reason: safe(reason) } : {}) });
     if (child && child.exitCode === null) { child.kill('SIGTERM'); killTimer = setTimeout(() => child?.kill('SIGKILL'), 1000); killTimer.unref(); }
   };
   const send = (line: string): boolean => {
@@ -82,7 +82,7 @@ export function realtimeEngine(options: RealtimeEngineOptions) {
         }
         const frame = parseRealtimeHostFrame(raw);
         if (frame.type === 'realtime.ready' || frame.type === 'realtime.webrtc.start') clearTimeout(startupTimer);
-        if (frame.type === 'realtime.closed') { finish(frame.reason); return; }
+        if (frame.type === 'realtime.closed') { finish(frame.reason, frame.retryable); return; }
         if (frame.type === 'realtime.usage') {
           for (const key of ['inputTokens', 'outputTokens', 'audioInTokens', 'audioOutTokens', 'cachedTokens'] as const) if (frame.usage[key] !== undefined) usage[key] = (usage[key] ?? 0) + frame.usage[key]!;
           usage.seconds = (Date.now() - start) / 1000; emit({ type: 'realtime.usage', usage: { ...usage } }); return;

@@ -34,6 +34,8 @@ export type RealtimeStream = PlaybackSink & {
 };
 export type RealtimeClientOptions = {
   open(): Promise<RealtimeStream>; audio: AudioPorts;
+  /** Transport closures retry by default. Return false for intentional or terminal closures. */
+  retryableClose?(reason?: string): boolean;
   webrtc?: (options: import('./webrtc.ts').WebRtcOptions) => Promise<import('./webrtc.ts').WebRtcHandle>;
   onStatus(status: 'connecting' | 'connected' | 'thinking' | 'speaking' | 'disconnected', reason?: string): void;
   onTurn(role: 'user' | 'agent', text: string): void;
