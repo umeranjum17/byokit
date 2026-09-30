@@ -10,14 +10,14 @@ const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
 const TYPES: Record<string, string> = { html: 'text/html', js: 'text/javascript', webmanifest: 'application/manifest+json', png: 'image/png' };
 
 export async function serve(port = 0, authBase?: string) {
-  const bundle = await build({ entryPoints: [here('app.ts')], bundle: true, platform: 'browser', format: 'esm', write: false, logLevel: 'silent',
+  const bundle = await build({ entryPoints: [here('app.ts'), here('pair.ts')], outdir: 'out', bundle: true, platform: 'browser', format: 'esm', write: false, logLevel: 'silent',
     define: { __BYOKIT_AUTH_BASE__: JSON.stringify(authBase) ?? 'undefined' } });
-  const app = bundle.outputFiles[0].text;
+  const apps = new Map(bundle.outputFiles.map((f) => [f.path.split('/').pop()!, f.text]));
   const server = createServer((req, res) => {
     const name = new URL(req.url ?? '/', 'http://x').pathname.slice(1) || 'index.html';
     const ext = name.split('.').pop()!;
     try {
-      const body = name === 'app.js' ? app : readFileSync(here(name.replace(/[^\w.-]/g, '')));
+      const body = apps.get(name) ?? readFileSync(here(name.replace(/[^\w.-]/g, '')));
       res.writeHead(200, { 'content-type': TYPES[ext] ?? 'application/octet-stream' }).end(body);
     } catch { res.writeHead(404).end(); }
   });

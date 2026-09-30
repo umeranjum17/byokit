@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.1.3 (2026-09-30)
+
+- Depends on @byokit/relay 0.2.2.
+- Depends on @byokit/link 0.4.0.
+
 - Depends on @byokit/ui-core 0.3.0.
 
 ## 0.1.2 (2026-09-30)

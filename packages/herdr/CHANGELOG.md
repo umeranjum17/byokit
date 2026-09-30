@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.1.5 (2026-09-30)
+
+- Depends on @byokit/relay 0.2.2.
+- Depends on @byokit/link 0.4.0.
+
 - The test fake's `fake.stream` ends with one `fake.stream.done` line on the same ordered byte stream, so the
   paused-terminal backpressure test asserts delivery causally instead of on a wall-clock wait.
 

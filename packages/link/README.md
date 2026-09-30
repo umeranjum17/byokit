@@ -80,6 +80,8 @@ answer: { echo: { text: 'hi' }, from: 'Pixel 9' }
 |---|---|
 | `Host` | The computer's end: `Host.open(options)`, then `accept`/`relay` sockets, `offer`/`code`/`enrol` to pair, `devices`, `setMeta`, `revoke`, `broadcast`, `close` |
 | `pairWithOffer`, `pairWithCode` | Pair a device from a scanned offer or a typed code; returns its `DeviceGrant` |
+| `parseOffer`, `offerText`, `cleanName` | Read a QR or link, build terminal-to-browser links, and clean a displayed name |
+| `encodeOffer`, `decodeOffer` | Complete offline offer in typeable groups, with a transcription checksum |
 | `pendingGrant` | A grant saved before pairing, for crash-safe pairing |
 | `DeviceLink` | A device's live link: `request`, `stream`, `addUrl`, `rekey`, `unpair`, `retry`, `stop` |
 | `LinkStream`, `WINDOW` | A duplex byte stream and its per-direction window (256 KB) |
@@ -128,6 +130,73 @@ More host policy, all optional:
 `offer({ base: 'https://app.example/pair' })` makes a link a browser can open instead of a bare QR text.
 Handler errors are logged on the host (`onError` can receive them). Devices see “Your computer couldn't do that.”
 unless the handler explicitly throws `new PublicLinkError('A message safe to show.')`.
+
+## Browser pairing
+
+Apps should offer browser pairing as **view-only by default**: `role: 'view'`, `kind: 'browser'`, a short
+`lifetime`, and a narrow `canView` policy. `control` is offered only when the app explicitly opts in.
+[SECURITY limit 7](SECURITY.md#known-limits) applies: IndexedDB sealing protects stored records, but a live
+XSS on the app's origin can still use an unlocked key. View-only limits that access; keep untrusted scripts off
+that origin. An `allow` policy, when supplied, must enforce the chosen role itself.
+
+```ts
+const { text } = host.offer({
+  role: 'view', kind: 'browser', lifetime: 15 * 60_000,
+  urls: ['wss://relay.example/link/v1/' + host.id],
+  base: 'https://app.example/pair.html',
+});
+console.log(text); // terminal-to-browser deep link; the offer stays after #
+```
+
+`offerText(parseOffer(text), 'https://app.example/pair.html')` makes the same deep link from an existing offer.
+There is no separate `offerLink`. Use `parseOffer(text, 0)` to inspect an expired offer; this does not renew it,
+and pairing still refuses an expired ticket.
+
+For an offline, typeable alternative, `encodeOffer(parseOffer(text))` holds the **entire offer**, including
+all direct and relay addresses. `decodeOffer(typed)` returns a `PairOffer` and checks expiry without contacting
+any service; pass `offerText(decoded)` to `pairWithOffer`. Groups of five characters may be separated by spaces
+or dashes; case is ignored, O means 0 and I/L mean 1. Other mistakes fail the checksum. The checksum catches
+transcription errors, not tampering: Noise authenticates the host and the person still approves the two words.
+This envelope is longer than the 12-character `host.code()` PSK code, which uses `pairWithCode` and a known
+host address. Both obey the same single-use, at-most-five-minute pairing window.
+
+The [PWA pairing page](../../examples/pwa/pair.html) accepts a deep link or pasted envelope, compares words,
+keeps the grant in `browserDeviceStore`, and requests `get.summary`. Run `npm run build`, then
+`node examples/pwa/serve.ts 8080` and open `http://127.0.0.1:8080/pair.html`. The host must expose a reachable
+WebSocket, permit `get.summary` with `canView`, and handle that request. Use HTTPS and `wss:` when deploying.
+
+### Short-lived peer invitations
+
+Compose invitations with the host's existing request handler, pending offer metadata and confirmation callback.
+The **handle** step authorizes the already-paired inviter, **offer** records the host-chosen invitation scope,
+then **confirm** checks that metadata before approving the new peer:
+
+```ts
+const urls = ['wss://relay.example/link/v1/your-host-id'];
+const host: Host = await Host.open({
+  keys: keyPair(), name: 'Kitchen computer',
+  canView: (req) => req.op === 'get.summary',
+  handle: (req, inviter) => {
+    if (req.op === 'peer.invite' && inviter.role === 'control') {
+      return host.offer({ role: 'view', kind: 'peer', urls,
+        meta: { invitedBy: inviter.id, scope: 'summary' } });
+    }
+    if (req.op === 'get.summary') return { text: 'Ready to read.' };
+    throw new PublicLinkError('That action is unavailable.');
+  },
+  confirm: async ({ kind, meta, name, words }) => {
+    const invitation = meta as { invitedBy?: string; scope?: string } | undefined;
+    if (kind !== 'peer' || invitation?.scope !== 'summary' ||
+        !host.devices().some((g) => g.id === invitation.invitedBy && g.role === 'control')) return false;
+    return ui.ask(`Pair ${name} to read the summary? Check “${words}”.`);
+  },
+});
+```
+
+Import `Host`, `keyPair` and `PublicLinkError` from `@byokit/link`; `ui.ask` is the app's approval UI. The app
+chooses metadata on the host, never from an untrusted invitee. No grant exists until `confirm` says yes. This is
+an online invitation: single-use and at most five minutes, with the host present for pairing. It is not a
+long-lived or host-offline signed invitation.
 
 ## Device
 
