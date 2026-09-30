@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { identity, type Identity } from '@byokit/usage';
 import { say } from './words.ts';
 
@@ -74,16 +74,18 @@ export function cliAccounts(options: CliOptions) {
     if (stateDir === own || stateDir.startsWith(own + '/')) throw new CliAccountError('bad-option');
   }
   // Parents must already be app-owned. Never follow a state/provider/folder symlink.
+  try { if (realpathSync(dirname(stateDir)) !== dirname(stateDir)) throw new CliAccountError('bad-option'); }
+  catch { throw new CliAccountError('bad-option'); }
   if (!directory(stateDir, true)) throw new CliAccountError('bad-option');
   chmodSync(stateDir, 0o700);
   const file = join(stateDir, 'accounts-v1.json');
   const created = new Set<string>(); const operations = new Map<string, Promise<unknown>>();
   function safe(r: Row): boolean {
     const parent = join(stateDir, r.provider);
-    return resolve(r.folder) === r.folder && r.folder.startsWith(parent + '/') && /^[a-f0-9]+$/.test(r.folder.slice(parent.length + 1)) && directory(stateDir) && directory(parent) && directory(r.folder);
+    return resolve(r.folder) === r.folder && r.folder.startsWith(parent + '/') && /^[a-f0-9]+$/.test(r.folder.slice(parent.length + 1)) && directory(stateDir) && realpathSync(stateDir) === stateDir && directory(parent) && directory(r.folder);
   }
   function load(): Row[] {
-    if (!directory(stateDir)) throw new CliAccountError('bad-option');
+    if (!directory(stateDir) || realpathSync(stateDir) !== stateDir) throw new CliAccountError('bad-option');
     const saved = json(file); if (!record(saved) || !Array.isArray(saved.accounts)) return [];
     const seen = new Set<string>(); const rows: Row[] = [];
     for (const candidate of saved.accounts) {
@@ -96,7 +98,7 @@ export function cliAccounts(options: CliOptions) {
     return rows;
   }
   function atomic(path: string, value: unknown) {
-    if (!directory(stateDir)) throw new CliAccountError('bad-option');
+    if (!directory(stateDir) || realpathSync(stateDir) !== stateDir) throw new CliAccountError('bad-option');
     const tmp = `${path}.${randomUUID()}.tmp`;
     try { writeFileSync(tmp, JSON.stringify(value), { mode: 0o600, flag: 'wx' }); renameSync(tmp, path); }
     catch { throw new CliAccountError('prepare-failed'); }

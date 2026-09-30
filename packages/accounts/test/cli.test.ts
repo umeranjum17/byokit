@@ -95,4 +95,14 @@ test('legacy bytes, host-owned rows, rollback, cancellation and folder escape re
   assert.deepEqual((await kit.list()).map((a) => a.id), [managed.id]);
   await assert.rejects(kit.remove('escape'), CliAccountError); await assert.rejects(kit.remove('symlink'), CliAccountError);
   assert.equal(readFileSync(join(outside, 'keep'), 'utf8'), 'untouched');
+  symlinkSync(outside, join(root, 'alias'));
+  assert.throws(() => cliAccounts({ stateDir: join(root, 'alias', 'new'), bins: {}, env }), CliAccountError);
+  assert.equal(existsSync(join(outside, 'new')), false, 'an ancestor alias is rejected before folder creation');
+  const attacked = await kit.add('claude');
+  symlinkSync(join(outside, 'keep'), attacked.signIn.completion);
+  const result = spawnSync('/bin/sh', ['-c', attacked.signIn.shell], { encoding: 'utf8' });
+  assert.notEqual(result.status, 0, 'completion creation cannot clobber a linked outside file');
+  await assert.rejects(kit.status(attacked.account.id), CliAccountError);
+  assert.equal(readFileSync(join(outside, 'keep'), 'utf8'), 'untouched');
+  await kit.remove(attacked.account.id);
 });
