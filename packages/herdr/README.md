@@ -169,6 +169,9 @@ The host supplies account folders and shares conversation history as needed. The
 credentials. To connect an account, open its CLI in a new tab and let the person complete the CLI's own login:
 
 ```ts
+import type { HerdrKit } from '@byokit/herdr';
+
+declare const kit: HerdrKit; // the host's started kit
 const signIn = await kit.openSignInTab({
   workspaceId: 'w1', kind: 'codex', cwd: '/home/me/project', env: { CODEX_HOME: '/app/accounts/work' },
 });
