@@ -1,0 +1,16 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'io.github.umeranjum17.byokit'
+version = '0.1.0'
+
+android {
+  namespace 'io.github.umeranjum17.byokit.speak'
+  defaultConfig {
+    minSdkVersion 26
+    versionCode 1
+    versionName '0.1.0'
+  }
+}

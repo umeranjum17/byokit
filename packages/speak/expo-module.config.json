@@ -1,0 +1,16 @@
+{
+  "platforms": [
+    "apple",
+    "android"
+  ],
+  "apple": {
+    "modules": [
+      "SpeakModule"
+    ]
+  },
+  "android": {
+    "modules": [
+      "io.github.umeranjum17.byokit.speak.SpeakModule"
+    ]
+  }
+}
