@@ -1,6 +1,6 @@
 // Sealed blocked-approval notices: the relay reads only a generic title, the phone opens the sealed body with its
 // own key (docs/runtime-kits.md 7.3). Portable: no Node import anywhere in it — `./device` re-exports `openNotice`.
-import { boxKeyPairFromSeed, openBox, sealBox } from '@byokit/seal';
+import { boxKeyPairFromSeed, openBoxFromSeed, sealBox } from '@byokit/seal';
 import type { BlockedAgent } from './types.ts';
 
 const ABC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -67,7 +67,7 @@ export function openNotice(data: Record<string, unknown>, seed: Uint8Array): Blo
   if (!(seed instanceof Uint8Array) || seed.length !== 32) return null;
   const bundle = decodeB64Url(data.sealed);
   if (bundle === null) return null;
-  const bytes = openBox(bundle, seed);
+  const bytes = openBoxFromSeed(bundle, seed);
   if (bytes === null) return null;
   let parsed: unknown;
   try {

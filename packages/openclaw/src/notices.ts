@@ -2,7 +2,7 @@
 // no node:* or Node-only imports may reach here (test/portable.test.ts guards the device entry
 // that re-exports openNotice). The relay reads only the generic title; the approval itself
 // travels sealed to the device's box key.
-import { openBox, sealBox } from '@byokit/seal';
+import { openBoxFromSeed, sealBox } from '@byokit/seal';
 import type { Approval } from './types.ts';
 
 const SOURCES = new Set(['gate', 'exec', 'plugin', 'question']);
@@ -58,7 +58,7 @@ export function openNotice(data: Record<string, unknown>, seed: Uint8Array): App
   if (!isBoxKey(seed)) return null;
   const bundle = b64urlDecode(data.sealed);
   if (!bundle) return null;
-  const bytes = openBox(bundle, seed);
+  const bytes = openBoxFromSeed(bundle, seed);
   if (!bytes) return null;
   try {
     const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));

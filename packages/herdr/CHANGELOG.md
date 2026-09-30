@@ -5,6 +5,10 @@
 - The test fake's `fake.stream` ends with one `fake.stream.done` line on the same ordered byte stream, so the
   paused-terminal backpressure test asserts delivery causally instead of on a wall-clock wait.
 
+## 0.1.4 (2026-09-30)
+
+- Preserve seed-based notice opening with @byokit/seal 0.2.0.
+
 ## 0.1.3
 
 - Depends on @byokit/reach 0.3.0.
