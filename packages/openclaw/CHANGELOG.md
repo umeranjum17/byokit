@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.3 (2026-09-30)
+
+
+
 - FIX: `prepare()` repairs stale engine manifests and missing or wrong-version dependencies before reusing an installed engine.
 
 ## 0.2.2 (2026-09-30)
