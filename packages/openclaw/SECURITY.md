@@ -37,8 +37,12 @@ The app must sandbox `ToolHost.call` and judge requests in `ToolHost.gate`.
 New supervisor directories use 0700 and new secret files use 0600. These creation
 modes alone do **not** repair all pre-existing permissions, reject every symlink,
 encrypt disk contents, or enforce Windows ACLs. The optional credential snapshot
-collects regular files only, refuses symlinks/special files within state/home and
-normalizes their POSIX modes; other paths still need host protection. Never use a shared/writable tree or point
+collects regular files and file symlinks whose fully resolved targets are regular
+files within the isolated engine root; links restore as regular files at the link
+paths. Outside-root, dangling and directory links, sockets, FIFOs and devices are
+skipped without reading their contents. Collected POSIX modes are normalized;
+other paths still need host protection. Skipped entries are not preserved in the
+snapshot and are removed with the live trees after successful sealing. Never use a shared/writable tree or point
 the kit at another product's state. Review existing permissions before adopting a
 tree; use an OS-protected app directory, encrypted disk and restricted backups.
 Do not log `doctorContext().env`, transport arguments, auth records or sign-in
@@ -172,8 +176,8 @@ Review completed 2026-09-30 by source inspection and offline regression coverage
   complete syscall tracing or an OS sandbox.
 - [x] Migration failure, existing profiles, private staging, member validation,
   confirmation and verified-source removal covered by `test/migrate.test.ts`.
-- [x] Optional credential sealing, wrong keys, tampering, concurrent owners, symlink
-  refusal, interrupted transitions and archive cleanup covered by
+- [x] Optional credential sealing, wrong keys, tampering, concurrent owners, safe file-link
+  materialization and skipped runtime/unsafe entries, interrupted transitions and archive cleanup covered by
   `test/engine-unit.test.ts`. The seal excludes gateway/device secrets and live state.
 - [x] Bridge fail-closed, timeout/disconnect and one-use input binding covered by
   `test/bridge.test.ts` and `test/plugin.test.ts`.
