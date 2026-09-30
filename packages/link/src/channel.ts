@@ -183,7 +183,7 @@ export class Channel {
     if (this.rx.nonce >= MAX_FRAMES) throw new Error('this connection has carried all it can; reconnect');
     const plain: Uint8Array = this.rx.decrypt(typeof frame === 'string' ? unb64(frame) : frame);
     const flag = plain[0];
-    if (flag > 3 || (this.parts.length && (flag & 2) !== this.kind)) throw new Error('bad frame');
+    if (!plain.byteLength || flag > 3 || (this.parts.length && (flag & 2) !== this.kind)) throw new Error('bad frame');
     this.kind = flag & 2;
     this.size += plain.byteLength - 1;
     if (this.size > MAX_MESSAGE) throw new Error('message too large');

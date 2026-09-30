@@ -1,0 +1,9 @@
+{
+  "rule": "An authenticated transport plaintext must include a frame-kind byte (0..3); stream messages must include a four-byte stream id. Invalid framing closes the connection.",
+  "invalid": [
+    { "name": "missing kind byte", "plain": [] },
+    { "name": "unknown kind", "plain": [4] },
+    { "name": "stream without id", "plain": [2] },
+    { "name": "truncated stream id", "plain": [2, 0, 0, 0] }
+  ]
+}

@@ -94,37 +94,91 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 
 ## Review checklist
 
-- [ ] The pinned versions of `noise-handshake`, `@noble/ciphers`, `sodium-universal`, `sodium-native`, `sodium-javascript`, `b4a` are
+- [x] The pinned versions of `noise-handshake`, `@noble/ciphers`, `sodium-universal`, `sodium-native`, `sodium-javascript`, `b4a` are
       the ones reviewed; `package-lock.json` integrity hashes match npm.
-- [ ] `test/channel.test.ts` vectors pass: `noise-handshake` matches cacophony for IK, XX, NNpsk0.
-- [ ] `Handshake` uses IK with the remote static key pre-set on the initiator, and XXpsk0 only with a PSK; the
+- [x] `test/channel.test.ts` vectors pass: `noise-handshake` matches cacophony for IK, XX, NNpsk0.
+- [x] `Handshake` uses IK with the remote static key pre-set on the initiator, and XXpsk0 only with a PSK; the
       prologue is `byokit-link-v1`.
-- [ ] The host sends nothing but a plaintext close before a handshake it can verify; no request is served before
+- [x] The host sends nothing but a plaintext close before a handshake it can verify; no request is served before
       `ready`.
-- [ ] Tickets and codes: 128-bit and 59-bit, single use (deleted on first presentation), 5-minute expiry checked at
+- [x] Tickets and codes: 128-bit and 59-bit, single use (deleted on first presentation), 5-minute expiry checked at
       presentation and before persisting the grant, 5 wrong tries withdraw all open tickets and codes.
-- [ ] Nothing is stored before `confirm` returns true; `confirm` failing or timing out means no.
-- [ ] Every connection's device key is checked against the grants at `auth`; every request re-checks the grant;
+- [x] Nothing is stored before `confirm` returns true; `confirm` failing or timing out means no.
+- [x] Every connection's device key is checked against the grants at `auth`; every request re-checks the grant;
       `revoke` removes the grant before closing sockets.
-- [ ] Host policy is enforced before the app handler; without `allow`, view-only defaults closed. Only an explicit `PublicLinkError` discloses its chosen message; other handler failures are logged on the host and return plain `failed`.
-- [ ] A device forgets its grant only on a sealed `revoked`, `ended` or `not-paired` (or when a pending pairing expires).
-- [ ] Names shown to people are stripped of control and direction-flipping characters and capped at 60.
-- [ ] `parseOffer` accepts only `ws:`/`wss:` addresses without credentials, at most 8, a 32-byte key and 16-byte
+- [x] Host policy is enforced before the app handler; without `allow`, view-only defaults closed. Only an explicit `PublicLinkError` discloses its chosen message; other handler failures are logged on the host and return plain `failed`.
+- [x] A device forgets its grant only on a sealed `revoked`, `ended` or `not-paired` (or when a pending pairing expires).
+- [x] Names shown to people are stripped of control and direction-flipping characters and capped at 60.
+- [x] `parseOffer` accepts only `ws:`/`wss:` addresses without credentials, at most 8, a 32-byte key and 16-byte
       ticket.
-- [ ] Offline offer decoding checks the checksum, version, canonical padding, bounds and all `parseOffer` rules, including expiry; inspecting with `now = 0` never renews a ticket. Legacy compact offers are accepted only on the migration read path, with their original pinned key, ticket, role and second-resolution expiry; they cannot change new encodings.
-- [ ] The channel refuses frames past 2³² − 1 and messages over 16 MB.
-- [ ] Stream opens re-check the grant and policy before the app's `stream` handler; data past a stream's window,
+- [x] Offline offer decoding checks the checksum, version, canonical padding, bounds and all `parseOffer` rules, including expiry; inspecting with `now = 0` never renews a ticket. Legacy compact offers are accepted only on the migration read path, with their original pinned key, ticket, role and second-resolution expiry; they cannot change new encodings.
+- [x] The channel refuses frames past 2³² − 1 and messages over 16 MB.
+- [x] Stream opens re-check the grant and policy before the app's `stream` handler; data past a stream's window,
       or stream data that isn't a binary inner message, drops the socket; streams end on disconnect and revoke.
-- [ ] The link relay test shows no plaintext, device name, request or device id in routed link frames (push metadata has a separate [boundary](../relay/SECURITY.md)).
-- [ ] The browser bundle has no Node built-ins, and the headless-browser test pairs and makes requests.
-- [ ] Grant changes (pair, enrol, revoke, expiry, unpair, rekey, last seen) all go through one serialized
+- [x] The link relay test shows no plaintext, device name, request or device id in routed link frames (push metadata has a separate [boundary](../relay/SECURITY.md)).
+- [x] The browser bundle has no Node built-ins, and the headless-browser test pairs and makes requests.
+- [x] Grant changes (pair, enrol, revoke, expiry, unpair, rekey, last seen) all go through one serialized
       transition that saves before memory changes; expiry closes live sockets even if the removal save fails.
-- [ ] `allow` (or, without it, role plus `canView`) runs before `handle`; a throwing policy refuses.
-- [ ] Expired grants are refused at `auth` and on requests, and live sockets close when access runs out.
-- [ ] Per-kind caps and `maxDevices` are checked inside the grant transition, so concurrent approvals can't exceed them.
-- [ ] A rekey's new key is stored on the device before the host hears it; the host promotes it only when the device
+- [x] `allow` (or, without it, role plus `canView`) runs before `handle`; a throwing policy refuses.
+- [x] Expired grants are refused at `auth` and on requests, and live sockets close when access runs out.
+- [x] Per-kind caps and `maxDevices` are checked inside the grant transition, so concurrent approvals can't exceed them.
+- [x] A rekey's new key is stored on the device before the host hears it; the host promotes it only when the device
       authenticates with it.
-- [ ] The handshake limiter runs before any Diffie-Hellman.
-- [ ] Nothing in the main entry reads or writes files, environment variables or other programs.
+- [x] The handshake limiter runs before any Diffie-Hellman.
+- [x] Nothing in the main entry reads or writes files, environment variables or other programs.
       `@byokit/link/node` `hostKeyFile(path)` touches only that path: 0600 in 0700, atomic, never replaces a file it
       can't read, refuses symlinks.
+
+## Recorded review — 2026-09-30
+
+This implementation review covers all 23 checklist rows in order on the branch based on `9ee1846`.
+It is a source and executable protocol review, not an independent cryptographic audit. Dependency
+versions did not change. `npm ci` reported zero vulnerabilities; for each of the six dependencies
+below, `npm view <name>@<version> dist.integrity` matched `package-lock.json`:
+`noise-handshake@4.2.0`, `@noble/ciphers@2.4.0`, `sodium-universal@5.0.1`,
+`sodium-native@5.1.0`, `sodium-javascript@0.8.0`, `b4a@1.9.0`.
+
+The checked boxes mean the implementation and named evidence passed this review. They do not
+remove the known limits above. Run the evidence offline after `npm ci` and `npm run build`:
+
+```sh
+TMPDIR=/tmp sh scripts/test.sh 'packages/link/test/*.test.ts' 'packages/relay/test/*.test.ts'
+```
+
+| Row | Result and evidence (paths relative to this package) |
+|---|---|
+| 1 | PASS: exact pins in `package.json`; registry integrity comparison above; installed lock via `npm ci`. |
+| 2 | PASS: `test/channel.test.ts`, cacophony IK/XX/NNpsk0, RFC 8439 and both sodium implementations. |
+| 3 | PASS: `src/channel.ts` constructor pins the remote IK key and prologue; typed-code right/wrong PSK test in `test/channel.test.ts`. |
+| 4 | PASS: `src/host.ts` connection state gates auth/pair before requests; `test/link.test.ts` security-review pre-ready request closes with no handler or grant. Before verification only a close is sent; after a verified IK message only the handshake answer precedes auth. |
+| 5 | PASS: `src/pairing.ts` rejection-sampled alphabet, `src/host.ts` ticket randomness/take/wrong; `test/link.test.ts` single-use QR/code, five wrong tries, lifetime cap and slow approval; `test/policy.test.ts` expiry during persistence. |
+| 6 | PASS: `src/host.ts` pair races confirm with timeout; `test/link.test.ts` decline, throwing/timed-out confirm and concurrent-confirm save tests. |
+| 7 | PASS: `test/link.test.ts` revoke/live socket, failed last-seen save and replacement grants; `test/policy.test.ts` auth/request checks after awaits. |
+| 8 | PASS: `test/policy.test.ts` R5, throwing policy in `test/link.test.ts`; handler failures expose only PublicLinkError in `test/link.test.ts` and `test/stream.test.ts`. |
+| 9 | PASS: `src/device.ts` sealed refusal gate; `test/link.test.ts` wrong-host response retains grant; `test/policy.test.ts` R4 and R9; plain closes never authorize forgetting. |
+| 10 | PASS: `test/pairing.test.ts` and `test/offer-envelope.test.ts` sanitization; seeded offer round trips in `test/parser-fuzz.test.ts`. |
+| 11 | PASS: `test/pairing.test.ts`, `test/offer-envelope.test.ts` and seed 0x3c02 cover key/ticket lengths, URL credentials/schemes/count and offer bounds. |
+| 12 | PASS: `test/offer-envelope.test.ts` current/legacy checksum, padding, bounds and expiry; seed 0x3c02 round trips 250 offers, aliases, corrupted symbols and invalid fields. |
+| 13 | PASS: `test/channel.test.ts` receive/send counter exhaustion and incoming/outgoing 16 MB limits. Found and fixed empty authenticated plaintext accepted as `{}`: `fixtures/conformance/link-frames-typescript.json`, `test/parser-fuzz.test.ts` and real socket close in `test/link.test.ts`. |
+| 14 | PASS: `test/stream.test.ts` R5 policy, T4 window overflow/disconnect/revoke and malformed stream data; authenticated bad flags/truncated stream ids in `test/parser-fuzz.test.ts`. |
+| 15 | PASS: `test/link.test.ts` blind relay and `../relay/test/relay.test.ts` assert no request, name, plaintext marker or device id in routed frames. Push metadata is explicitly outside this assertion. |
+| 16 | PASS: `test/browser.test.ts` esbuild browser boundary and actual headless Chromium pair/request; `test/react-native.test.ts` runs without Node globals. |
+| 17 | PASS: `src/host.ts` serialized transition; failed saves/concurrent confirmation in `test/link.test.ts`, R4 expiry closes despite failed save in `test/stream.test.ts`, R9 and X2a in `test/policy.test.ts`. |
+| 18 | PASS: `test/policy.test.ts` R5 including concurrent withdrawal and cached replies; throwing canView in `test/link.test.ts`. |
+| 19 | PASS: `test/policy.test.ts` R4 auth/requests/timer; `test/stream.test.ts` expired streams despite failed save/arriving frame. |
+| 20 | PASS: `test/link.test.ts` concurrent confirmations respect maxDevices; `test/policy.test.ts` M3 per-kind caps; `src/host.ts` counts inside serialized grant transition. |
+| 21 | PASS: `test/policy.test.ts` X2a failed staged-key save, promotion, queued old-key auth, retired sockets and staged-key enrolment. |
+| 22 | PASS: `src/host.ts` handshake calls admit before firstFrame/Handshake construction; `test/policy.test.ts` T8. Relayed devices count toward the total, not an IP bucket. |
+| 23 | PASS: `src/index.ts` portable import closure, browser/RN tests; `src/node.ts` uses exclusive random temp files and hard-link publication, lstat rejects final-path symlinks and unsafe permissions; K1 in `test/policy.test.ts` and temp-symlink checks in `test/stores.test.ts`. |
+
+Seed 0x3c01 adds 300 deterministic stream/JSON round trips, corruption, truncation, replay and
+invalid authenticated kind cases. Seeds are fixed in test names for reproducibility. Every parser
+rejection test exercises the real parser; authenticated malformed bytes are sealed with Transport
+so framing validation is reached rather than only AEAD rejection. The owning conformance fixture
+states the missing-kind rule before the source change.
+
+Residual file-system assumption: the app supplies a trusted path and trusted ancestor directories;
+`hostKeyFile` checks the immediate parent and final file, not an adversarial ancestor rename race.
+This review does not prove timing side-channel resistance or safety of a compromised host/device.
+The typed-code PAKE upgrade, at-rest adapter choices and app handler transaction boundary remain
+explicit host responsibilities described above.

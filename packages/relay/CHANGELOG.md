@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Document the relay threat model and review evidence; add seeded push envelope and host-proof fuzz tests.
+
 ## 0.4.0 (2026-09-30)
 
 - Add explicit capped open signup on self-hosted relays, with proof of key and atomic registration.
