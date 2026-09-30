@@ -127,7 +127,7 @@ export function openclawLink(
   const onAction = async (a: PushAction): Promise<unknown> => {
     const grant = seen.get(a.device);
     const member = grant ? o.memberOf(grant) : undefined;
-    if (member === undefined) throw refused();
+    if (member === undefined || grant?.role === 'view') throw refused();
     if (a.action !== 'allow' && a.action !== 'deny') throw refused();
     if (!kit.approvals(member).some((approval) => approval.id === a.event)) throw refused();
     await kit.decide(a.event, { allow: a.action === 'allow' });

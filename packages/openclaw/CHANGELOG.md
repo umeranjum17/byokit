@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- SECURITY: View-only devices can no longer resolve approvals through relay push actions.
+- Document the credential, migration and sealed-approval threat model in SECURITY.md, shipped with the package.
+- Run the shared engine isolation contract in npm test with an offline child; keep the pinned-engine check in test:engine.
+
 ## 0.3.1 (2026-09-30)
 
 
