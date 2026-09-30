@@ -272,7 +272,8 @@ export async function respond(o: Ask & Access): Promise<string | ResponseResult>
   if (res.headers?.get('content-type')?.includes('application/json')) {
     let response: unknown;
     try { response = JSON.parse(await res.text()); } catch { throw new ResponseError("ChatGPT's answer could not be read.", null); }
-    reader.push(`data: ${JSON.stringify({ type: isRecord(response) && response.status === 'incomplete' ? 'response.incomplete' : 'response.completed', response })}\n\n`);
+    const type = isRecord(response) ? `response.${String(response.status)}` : '';
+    reader.push(`data: ${JSON.stringify({ type, response })}\n\n`);
   } else if (body?.getReader && typeof TextDecoder !== 'undefined') {
     const r = body.getReader();
     const decoder = new TextDecoder();

@@ -102,6 +102,8 @@ test('respond reports recorded incomplete answers through events and errors, str
   }
   const a = await signedIn({ fetch: (async () => new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'Complete' }] }] }), { headers: { 'content-type': 'application/json' } })) as typeof fetch });
   assert.equal(await a.respond(1, { instructions: '', input: 'hi' }), 'Complete');
+  const failed = await signedIn({ fetch: (async () => new Response(JSON.stringify({ status: 'failed', error: { message: 'Request failed' }, output: [{ type: 'message', content: [{ type: 'output_text', text: 'Partial' }] }] }), { headers: { 'content-type': 'application/json' } })) as typeof fetch });
+  await assert.rejects(failed.respond(1, { instructions: '', input: 'hi' }), (e: unknown) => e instanceof ResponseError && e.message === 'Request failed');
 });
 
 test('respond preserves newlines in streamed and whole answers', async () => {
