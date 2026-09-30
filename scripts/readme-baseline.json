@@ -1,0 +1,188 @@
+[
+  {
+    "readme": "packages/accounts/README.md",
+    "block": 3,
+    "snapshot": "2bd3fa1d01224aa32999486abff566616b99518918891aa3f64ba4879618e124",
+    "reason": "Phone example requires Expo SecureStore and Expo fetch declarations unavailable in the Node workspace."
+  },
+  {
+    "readme": "packages/accounts/README.md",
+    "block": 4,
+    "snapshot": "b30f730c9d3bd8521bbdfb09cdd48197dbb4258eb487fdf9a4eec1a6070bffef",
+    "reason": "Diagnostic callbacks are a contextual fragment using host-supplied accounts and show."
+  },
+  {
+    "readme": "packages/accounts/README.md",
+    "block": 6,
+    "snapshot": "bc79bc2bfdd0f965b81e392989fdaa0508a83eac09fc33b8e5249b6d52a2a72b",
+    "reason": "Per-person storage fragment omits Accounts imports and host-supplied SecureStore context."
+  },
+  {
+    "readme": "packages/accounts/README.md",
+    "block": 7,
+    "snapshot": "fd8569a19e998fa84284c4f6bf0164c7aaeb8bf143dcccff33a8018a63359244",
+    "reason": "Asking fragment relies on earlier accounts setup, isFunctionCall and host-supplied show."
+  },
+  {
+    "readme": "packages/capture/README.md",
+    "block": 0,
+    "snapshot": "9e36a48d224ece73959ea03fc0a6c691b8c684dfa001d7b15f5c8c666695599c",
+    "reason": "No TypeScript example yet; strength item 6 adds one (kit later named record)."
+  },
+  {
+    "readme": "packages/compose/README.md",
+    "block": 0,
+    "snapshot": "9e36a48d224ece73959ea03fc0a6c691b8c684dfa001d7b15f5c8c666695599c",
+    "reason": "No TypeScript example yet; strength item 6 adds one (kit later named write)."
+  },
+  {
+    "readme": "packages/decide/README.md",
+    "block": 2,
+    "snapshot": "40bfbae3b18591fa44061f5258796ee7d84ffaebed32fe8e74bf8c3270572df7",
+    "reason": "Routing fragment omits hostConfig, askThePerson and route context."
+  },
+  {
+    "readme": "packages/decide/README.md",
+    "block": 3,
+    "snapshot": "73580d97c9732b5ccafd4c1cb2d7cfb37a34254be0281db2dfe47f733609bd27",
+    "reason": "Plan-discovery fragment uses host-supplied accounts and member context."
+  },
+  {
+    "readme": "packages/decide/README.md",
+    "block": 4,
+    "snapshot": "22607d677c6b58f8ee522c730d22707cec94ebf6cdd813469c8bb24d2fd882de",
+    "reason": "Model-selection fragment omits hostConfig, state and questions context."
+  },
+  {
+    "readme": "packages/decide/README.md",
+    "block": 5,
+    "snapshot": "687cc4b5ac7cc76e4521158275072ca589decc3770ad191ba92fcd1562525d5d",
+    "reason": "Plan-sign-in fragment omits the host sign-in adapter, member and chosen model."
+  },
+  {
+    "readme": "packages/decide/README.md",
+    "block": 6,
+    "snapshot": "101aa9234fc048bd3bc63a756480b3e293f8aaea121c34682622d30c26b898d3",
+    "reason": "Configuration fragment omits the host configuration, account, member and question inputs."
+  },
+  {
+    "readme": "packages/decide/README.md",
+    "block": 7,
+    "snapshot": "4e53e33512ea23be3a03f783a66c3ad769bd38bd5ad96e7dc5824cc132190b89",
+    "reason": "Cache/retry fragment omits hostConfig, input text and questions context."
+  },
+  {
+    "readme": "packages/keystore/README.md",
+    "block": 1,
+    "snapshot": "f28512231a4fbd132635514e6c210b7933fe57f778462fb0e48bd5b659c3bb7d",
+    "reason": "Quickstart leaves passphrase undeclared; strength item 6 supplies it."
+  },
+  {
+    "readme": "packages/link/README.md",
+    "block": 2,
+    "snapshot": "6615a56e17257f079ed1179dff9f136d800b0d4a3c7980b360682d9712f440cd",
+    "reason": "Host fragment omits app database, confirmation UI, sockets, device id and broadcast event context."
+  },
+  {
+    "readme": "packages/link/README.md",
+    "block": 3,
+    "snapshot": "104c0237d8cba6b4d093e6ae60b59b65d33952e70ca694b987843ae224798c23",
+    "reason": "Browser-offer fragment refers to an earlier host instance."
+  },
+  {
+    "readme": "packages/link/README.md",
+    "block": 4,
+    "snapshot": "34addd4233724e0e00c5deedc342e1d138497af189ad57e11824ac5dae213f7c",
+    "reason": "Peer-invitation fragment omits imports and host confirmation UI context."
+  },
+  {
+    "readme": "packages/link/README.md",
+    "block": 5,
+    "snapshot": "d02faa7e333b55d99925215ad9b3fb76199b7536f9ab3dff137885127addd211",
+    "reason": "Device fragment omits scanned offer, UI callbacks and host-provided secure storage."
+  },
+  {
+    "readme": "packages/link/README.md",
+    "block": 6,
+    "snapshot": "f6b80f4da0b89818f15a956c24c4470ab6282b4f472c86ccb3e362f75e42dd9f",
+    "reason": "Device-storage fragment omits imports, SecureStore, scanned offer and callbacks."
+  },
+  {
+    "readme": "packages/link/README.md",
+    "block": 7,
+    "snapshot": "67ce688872f69c8c1f68316f396c70c25068889d295991053a6651be2284d5c0",
+    "reason": "Stream fragment omits imports, host options, panes, device link and terminal context."
+  },
+  {
+    "readme": "packages/machine/README.md",
+    "block": 1,
+    "snapshot": "d0db22c678257ac1a3396a4afe8816b5e024ea5d1f7482efe373fee000a19065",
+    "reason": "Quickstart leaves provider, store and recipe undeclared; strength item 6 supplies fakes."
+  },
+  {
+    "readme": "packages/overlay/README.md",
+    "block": 3,
+    "snapshot": "f8e8e44011a105865523d0727ece54e71590810dff6345b0a0553c69a591a987",
+    "reason": "Field-edit fragment refers to an earlier focusedField object and app-provided draft."
+  },
+  {
+    "readme": "packages/reach/README.md",
+    "block": 1,
+    "snapshot": "d0ceda817257b9be494d0bfed8c496b37bc407a7d893993407e7f01ea12e26c2",
+    "reason": "Quickstart omits saved state, server and host setup; strength item 6 makes it runnable."
+  },
+  {
+    "readme": "packages/reach/README.md",
+    "block": 4,
+    "snapshot": "1c0916b26c2688d52bea5f579636772da0478bb98c9947ec8902d89891028a45",
+    "reason": "Native browse fragment needs the React Native exports and native dependency context."
+  },
+  {
+    "readme": "packages/relay/README.md",
+    "block": 2,
+    "snapshot": "04d400c1e220007996cd4d45c898cba12ca5a7406aa80d10b2fe365a46693b44",
+    "reason": "Relay-store fragment omits the host database implementation."
+  },
+  {
+    "readme": "packages/relay/README.md",
+    "block": 3,
+    "snapshot": "2130f2764dc871f3440caf7b7457fe93eee44daec45c5558e05e7b01f4e462bb",
+    "reason": "Owner-enrolment fragment omits the owner token and host id."
+  },
+  {
+    "readme": "packages/relay/README.md",
+    "block": 4,
+    "snapshot": "b4c448b24b10116a9a381f2ef7a5cfc1d50f9db541236ded8a833955dcd6f08e",
+    "reason": "Host-routing fragment omits host instance, token, logger, app and database."
+  },
+  {
+    "readme": "packages/relay/README.md",
+    "block": 5,
+    "snapshot": "d950c6ca685cf39c186c75c67c3cab696b1b3cae846035fb0a39f266216f5e6b",
+    "reason": "Typed-code fragment refers to earlier relay and host instances."
+  },
+  {
+    "readme": "packages/relay/README.md",
+    "block": 6,
+    "snapshot": "75b45be91c6ef8bfce950235adaf7044740b0fcb24548544ca23d523845cc0e6",
+    "reason": "Pairing fragment omits short code, full code and host id context."
+  },
+  {
+    "readme": "packages/relay/README.md",
+    "block": 7,
+    "snapshot": "37d64ddea87fc8d93942b174666c1896183fb2f64bfd468d1589b34eccf38414",
+    "reason": "Notification fragment refers to earlier relay and device instances."
+  },
+  {
+    "readme": "packages/seal/README.md",
+    "block": 2,
+    "snapshot": "256e122f46429c977473e86ad7bb38f7214d3d840ba3681515cd0e12dd74c8bc",
+    "reason": "Raw crypto fragment omits seed, plaintext and key inputs; strength item 6 supplies them."
+  },
+  {
+    "readme": "packages/seal/README.md",
+    "block": 3,
+    "snapshot": "9bd961b4bdf2350e0cd0d7f88e88ed0735b4abb4cdfdc0832c75dec544737b7c",
+    "reason": "Authenticated-box fragment omits imports and text input; strength item 6 supplies them."
+  }
+]
