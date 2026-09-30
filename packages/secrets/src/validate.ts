@@ -13,5 +13,11 @@ export function assertName(name: string, what = 'name'): void {
 /** Secrets travel on stdin, so NUL is allowed; the size cap bounds what a keyring CLI must swallow. */
 export function assertSecret(secret: string): void {
   if (typeof secret !== 'string') throw new KeystoreError('invalid', 'keystore secret must be a string');
-  if (Buffer.byteLength(secret, 'utf8') > MAX_SECRET_BYTES) throw new KeystoreError('invalid', 'keystore secret is larger than 1 MiB');
+  // Count UTF-8 bytes without Buffer or a TextEncoder polyfill on React Native.
+  let bytes = 0;
+  for (const character of secret) {
+    const point = character.codePointAt(0)!;
+    bytes += point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4;
+    if (bytes > MAX_SECRET_BYTES) throw new KeystoreError('invalid', 'keystore secret is larger than 1 MiB');
+  }
 }

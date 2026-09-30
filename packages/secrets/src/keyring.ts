@@ -11,7 +11,7 @@ import { assertName, assertSecret } from './validate.ts';
 export type KeyringTool = 'security' | 'secret-tool';
 
 export type KeyringOptions = {
-  /** Keyring partition; default 'byokit-keystore'. Same rules as a name. */
+  /** Keyring partition; default 'byokit-secrets'. Same rules as a name. */
   service?: string;
   /** Absolute path of the keyring CLI. Defaults: /usr/bin/security (darwin), /usr/bin/secret-tool (linux). */
   bin?: string;
@@ -24,7 +24,7 @@ export type KeyringOptions = {
 };
 
 const BASE_ENV = { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' } as const;
-const DEFAULT_SERVICE = 'byokit-keystore';
+const DEFAULT_SERVICE = 'byokit-secrets';
 const STDOUT_CAP = 1024 * 1024;
 const STDERR_TAIL = 2048;
 

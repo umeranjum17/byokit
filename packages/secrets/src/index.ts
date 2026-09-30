@@ -1,5 +1,5 @@
-// @byokit/keystore: one secret per name, from the OS keyring, a passphrase-sealed file,
-// or a host-passed override for CI. Node only: it spawns keyring CLIs and uses node:crypto.
+// @byokit/secrets: one secret per name, from the OS keyring, a passphrase-sealed file,
+// or a host-passed override for CI. This Node entry spawns keyring CLIs and uses node:crypto.
 export { KeystoreError } from './errors.ts';
 export type { KeystoreErrorCode } from './errors.ts';
 export type { Keystore } from './types.ts';

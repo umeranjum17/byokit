@@ -1,10 +1,10 @@
-# @byokit/keystore: threat model and review checklist
+# @byokit/secrets: threat model and review checklist
 
 ## What it protects
 
 Apps hold API keys. The store must make sure that:
 
-1. a key at rest lives in the OS keyring or in a passphrase-sealed file, never in a plaintext file;
+1. a key at rest lives in the OS keyring, native SecureStore, a passphrase-sealed file or authenticated web ciphertext, never in a plaintext file;
 2. a key in motion to the keyring CLI cannot be seen in `ps`, shell history, logs or the environment;
 3. a wrong passphrase opens nothing and changes nothing;
 4. the environment cannot smuggle a key or an entry into the kit (the kit never reads it);
@@ -14,10 +14,12 @@ Apps hold API keys. The store must make sure that:
 
 | Piece | Choice |
 |---|---|
-| Backends | OS keyring (`security` on macOS, `secret-tool` on Linux), passphrase file (scrypt + `sealSecretBox`), host-passed override map. One secret per name. |
+| Backends | OS keyring (`security` on macOS, `secret-tool` on Linux), passphrase file (scrypt + `sealSecretBox`), host-passed override map, Expo SecureStore and IndexedDB/WebCrypto. One secret per name. |
 | Secret to keyring CLI | Stdin only, as raw UTF-8 bytes. Argv holds only `bin`, the verb, flags, service and name. Env holds only `PATH`, `LANG` and host-passed extras. |
 | Keyring spawn | Absolute `bin` only (PATH is never searched); argv array, no shell; env passed explicitly so `process.env` is never inherited; per-call timeout (default 10 s) kills the process group (SIGTERM, SIGKILL 5 s later); stdout capped at 1 MB; stderr keeps a 2 KB tail for logs only, never in messages. |
 | Passphrase file | `{ v: 1, kdf: 'scrypt-16384-8-1', salt: 16 fresh random bytes per save, box: sealSecretBox(JSON { entries }) }`. Atomic write: 0700 folders, 0600 temp file, rename. `openSecretBox` null → `auth-failed`, fail closed. Derived keys zeroed after use. |
+| Phone | Optional Expo SecureStore peer; encoded names under an app prefix, consistent host-passed options on all calls; no plaintext simulator fallback. Platform errors are sanitized. |
+| Web | IndexedDB persists a non-extractable AES-256-GCM key and versioned ciphertext with a fresh 96-bit IV. Entry names are authenticated as AAD. Key initialization is atomic across tabs; operations finish on transaction commit. |
 | Override | A validated copy of the host's map. `process.env` never appears in `src/` (a test greps it out). |
 | Errors | `KeystoreError` codes `invalid` / `auth-failed` / `unsupported` / `unavailable` / `failed`. Messages name the entry, never the secret. Missing entries resolve null/false, not errors. |
 
@@ -47,6 +49,13 @@ Apps hold API keys. The store must make sure that:
 6. **Windows is unsupported in v1.** Credential Manager has no stable CLI the kit can drive and assert over;
    `win32` rejects `unsupported` until a drivable, fake-testable wire exists.
 
+7. **Web origin access is powerful.** Non-extractability prevents exporting key bytes through WebCrypto;
+   it does not stop same-origin scripts, XSS or browser extensions from asking that key to decrypt.
+   Entry names remain visible metadata. Clearing/evicting storage loses the key and requires sign-in again.
+8. **Native storage follows the app's OS policy.** Uninstall/backup/biometric changes can remove or invalidate
+   entries; SecureStore payload limits vary by OS. The host configures Expo's plugin and authentication policy.
+   Native delete is a read followed by a delete; concurrent callers may both return true.
+
 ## Review checklist
 
 - [ ] `src/` contains no `process.env`; spawns pass `env` explicitly (never inherit).
@@ -55,4 +64,6 @@ Apps hold API keys. The store must make sure that:
 - [ ] A wrong passphrase rejects `auth-failed`; the sealed file holds no plaintext canary.
 - [ ] `writeFileAtomic` creates 0700 folders and a 0600 file and replaces atomically (rename).
 - [ ] Error messages name entries, never secrets; stderr tails never reach messages.
-- [ ] The package is Node-only with no browser/React Native entry, and stays `private: true` until release.
+- [ ] Browser/React Native entries bundle and run without Node imports or globals; Expo is an optional peer.
+- [ ] Fake IndexedDB tests prove encrypted storage, non-extractability, fresh IVs, tamper rejection and atomic key initialization.
+- [ ] Fake SecureStore tests prove all methods use the same options and native errors cannot expose secrets.
