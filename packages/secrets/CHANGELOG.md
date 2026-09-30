@@ -4,8 +4,6 @@
 
 - Prepare the first public release with portable phone and web secret storage.
 
-## 0.2.0 (2026-09-30)
-
 - Add React Native SecureStore and web IndexedDB/WebCrypto AES-GCM backends behind
   the same get/set/delete API, with portable platform entries and an optional Expo peer.
 - Web storage persists a non-extractable AES-256 key, authenticates entry names, and

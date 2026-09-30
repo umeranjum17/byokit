@@ -18,7 +18,7 @@ until that contact is operational.
 
 The kit-specific threat models and checklists live in
 [link](packages/link/SECURITY.md), [relay](packages/relay/SECURITY.md),
-[seal](packages/seal/SECURITY.md), and [keystore](packages/keystore/SECURITY.md).
+[seal](packages/seal/SECURITY.md), and [secrets](packages/secrets/SECURITY.md).
 A checklist records review work; its presence alone does not establish a completed
 security review. Tests use fake credentials and isolated state, with outbound
 network blocked by `scripts/test-egress-guard.cjs`.

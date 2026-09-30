@@ -1239,7 +1239,7 @@ app. `app.plugin.js` adds nothing to the manifest.
   `expo-modules-core` external. It fails on
   any `node:*` import, and on any `expo-modules-core` import outside `rn.ts` and `focused-field.rn.ts`. The JVM tests
   run in the `overlay-android` job.
-- **keystore, isolation.** `test/keyring-isolation.test.ts` puts a decoy HOME beside the throwaway one and runs a
+- **secrets, isolation.** `test/keyring-isolation.test.ts` puts a decoy HOME beside the throwaway one and runs a
   child `node --permission --allow-fs-read=<repo> --allow-fs-write=<scratch> --allow-child-process` that stores a
   canary through the fake keyring CLIs (both tools) and the passphrase file under scratch. A control read of the
   decoy throws `ERR_ACCESS_DENIED`; the run asserts the decoy's canaries are byte-identical and the fakes' argv/env

@@ -66,12 +66,6 @@
     "reason": "Cache/retry fragment omits hostConfig, input text and questions context."
   },
   {
-    "readme": "packages/keystore/README.md",
-    "block": 1,
-    "snapshot": "f28512231a4fbd132635514e6c210b7933fe57f778462fb0e48bd5b659c3bb7d",
-    "reason": "Quickstart leaves passphrase undeclared; strength item 6 supplies it."
-  },
-  {
     "readme": "packages/link/README.md",
     "block": 2,
     "snapshot": "6615a56e17257f079ed1179dff9f136d800b0d4a3c7980b360682d9712f440cd",

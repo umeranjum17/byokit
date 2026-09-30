@@ -12,8 +12,10 @@ await keys.get('openai'); // 'sk-…' | null
 await keys.delete('openai'); // true when an entry existed
 
 // A passphrase-sealed file, sealed with @byokit/seal.
-const file = fileStore({ path: '/home/app/data/keys.json', passphrase });
-await file.set('openai', 'sk-…');
+async function saveToFile(passphrase: Uint8Array) { // supplied by the person through the host app
+  const file = fileStore({ path: '/home/app/data/keys.json', passphrase });
+  await file.set('openai', 'sk-…');
+}
 
 // CI: the host builds the map from process.env itself; the kit never reads it.
 const ci = overrideStore({ openai: process.env.OPENAI_API_KEY ?? '' });
