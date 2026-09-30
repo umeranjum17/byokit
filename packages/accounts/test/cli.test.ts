@@ -62,6 +62,9 @@ test('managed CLI flow: add, marker-gated status, native sign-in, rename, launch
     const login = calls.find((c) => c.argv.includes(provider === 'claude' ? 'login' : '--device-auth'));
     assert.deepEqual(login.argv, provider === 'claude' ? ['auth', 'login', '--claudeai'] : ['login', '--device-auth']);
     for (const call of calls) assert.deepEqual(call.env, signIn.env, 'status and login get exactly the passed environment plus the folder');
+    const reading = kit.status(account.id);
+    assert.throws(() => kit.signInAgain(account.id), CliAccountError, 'a synchronous sign-in cannot race an in-flight identity read');
+    assert.equal((await reading).state, 'ready');
     const again = kit.signInAgain(account.id); assert.equal(existsSync(again.completion), false);
     assert.equal((await kit.status(account.id)).state, 'signing');
     await kit.remove(account.id); assert.equal(existsSync(folder), false);

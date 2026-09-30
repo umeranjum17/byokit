@@ -211,7 +211,10 @@ export function cliAccounts(options: CliOptions) {
         return { account: { id: r.id, provider, name: suggestName(undefined, provider), billing: 'subscription', state: 'signing' }, signIn };
       } catch { rmSync(r.folder, { recursive: true, force: true }); throw new CliAccountError('prepare-failed'); }
     },
-    signInAgain: (id: string): SignInCommand => begin(row(id)),
+    signInAgain: (id: string): SignInCommand => {
+      if (operations.has(id)) throw new CliAccountError('prepare-failed');
+      return begin(row(id));
+    },
     status,
     async cancel(id: string): Promise<{ removed: boolean }> {
       if (created.has(id)) { await remove(id); return { removed: true }; }
