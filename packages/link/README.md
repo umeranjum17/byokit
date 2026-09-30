@@ -239,6 +239,85 @@ when `confirm` checks it; already-paired peers are independent grants unless the
 an online invitation: single-use and at most five minutes, with the host present for pairing. It is not a
 long-lived or host-offline signed invitation.
 
+## Typed pairing on a small terminal
+
+`host.shortCode(terms)` returns `{ code, expires }`. Feed the **whole** code to the existing
+`pairWithCode(url, code, options)` on the phone or browser. This is a typed alternative to the QR,
+not a smaller QR: its 57 printed characters fit on one line in an 80-column terminal. The device
+must already know an address (a host-served page can use its own address).
+
+### Security design
+
+The code format is `K1-<12 random characters>-<32 hexadecimal characters>`, grouped in fours.
+The random part uses the existing unbiased 31-symbol alphabet: `12 × log2(31) = 59.45` bits.
+The hexadecimal part is a **128-bit machine-key commitment**, BLAKE2b-128 of
+`byokit-link-short-key-v1` followed by the host's 32-byte X25519 public key. Case, whitespace and
+dashes are ignored; the version, lengths and alphabets are validated before dialing. A malformed
+commitment never falls back to the legacy 12-character code.
+
+Pairing reuses the pinned Noise XXpsk0 implementation and libsodium hash, with the random part
+as the existing PSK input. After authenticating Noise message 2, the device checks the responder's
+static public key against the commitment **before sending its own static key/name in message 3**,
+displaying words, or accepting a grant. Noise proves possession of the committed key's secret;
+a network attacker or malicious relay cannot substitute another key even if it knows the random
+part. Finding another key for this fixed commitment requires a targeted 128-bit preimage search.
+The commitment is public and adds no secret entropy. No new cryptographic primitive or PAKE is
+implemented. This intentionally keeps more characters than an eight-character password: XXpsk0
+permits offline guessing from a captured handshake even after expiry; the 59.45-bit random part
+is still the defense ([security limit 1](SECURITY.md#known-limits)). A shorter secret needs a
+reviewed PAKE and is outside this API.
+
+The host consumes the random code on its first valid presentation, including declined pairing.
+Five wrong code attempts withdraw **all** open codes and QR tickets; handshake limits remain
+300/minute globally and 30/minute per source when the app supplies `peer`. Codes expire after
+`pairMs` (at most five minutes), checked on presentation and through grant persistence. Replay,
+late approval and expiry never create a grant. Malicious routing can still deny service or consume
+a code by forwarding a live attempt. Anyone who photographs the full code can race to pair with
+the real host, so **both screens still show the same two words and host approval defaults to No**.
+Only an explicit affirmative response after matching words should return `true` from `confirm`.
+The kit has no approval UI; exceptions and confirmation timeouts decline.
+
+For relay discovery, display the separate six-character `RelayClient.code()` lookup alongside
+the full `host.shortCode()` pairing code. The device calls `findHost(relay, lookup)` from
+`@byokit/relay`, then `pairWithCode(url, fullPairingCode, options)`. Send **only the lookup** to
+`findHost`; never send the pairing secret to an HTTP lookup service. The lookup supplies an
+untrusted address, never a trusted machine key. A malicious lookup pointing at another host
+fails the commitment check. QR offers and legacy `host.code()` remain compatible; callers of
+the latter do not get this additional machine-key pinning.
+
+Runnable loopback example (Node 22.18+, `npm install @byokit/link ws`; save as `pair.ts`, run
+`node pair.ts`). In an app, show the code on the computer and let the phone type it:
+
+```ts
+import { createInterface } from 'node:readline/promises';
+import { WebSocketServer } from 'ws';
+import { DeviceLink, Host, keyPair, pairWithCode } from '@byokit/link';
+
+const terminal = createInterface({ input: process.stdin, output: process.stdout });
+const host = await Host.open({
+  keys: keyPair(), name: 'Umer’s computer',
+  confirm: async ({ name, words }) => {
+    console.log(`${name} shows “${words}”. Compare both screens.`);
+    return (await terminal.question('Do the words match? Approve? (y/N) ')).trim().toLowerCase() === 'y';
+  },
+  handle: () => ({ message: 'Hello, Umer' }),
+});
+const server = new WebSocketServer({ host: '127.0.0.1', port: 7300 });
+await new Promise<void>((resolve) => server.once('listening', resolve));
+server.on('connection', (ws) => host.accept(ws));
+const { code, expires } = host.shortCode({ role: 'control' });
+console.log(`Type ${code} before ${new Date(expires).toISOString()}`);
+try {
+  const grant = await pairWithCode('ws://127.0.0.1:7300/link', code, {
+    name: 'Umer’s phone', onWords: (words) => console.log(`Phone: “${words}”`),
+  });
+  const device = new DeviceLink(grant);
+  try { console.log(await device.request('hello')); } finally { device.stop(); }
+} finally {
+  terminal.close(); host.close(); server.close();
+}
+```
+
 ## Device
 
 To keep several paired computers, use `secureDeviceStores(secureStore, prefix?)` or
