@@ -1,0 +1,489 @@
+{
+  "format": "PCM16 LE mono 16000 Hz WAV",
+  "normalization": "NFKC, lowercase, punctuation as word boundaries",
+  "license": "Authored synthetic fixtures and generator under Apache-2.0; public-domain voice dataset provenance in NOTICE.md",
+  "sourceCommit": "6a9419563d574984f90a9cc1a63f6626dad33f1d",
+  "clips": [
+    {
+      "id": "clean-short",
+      "category": "clean",
+      "group": "core",
+      "file": "clean-short.wav",
+      "reference": "Open the settings and turn on dark mode.",
+      "sha256": "1dce94977e72f93f18989a8d5818b0e13e733269b571a005a20d7bcce14f49f3",
+      "source": "Synthetic Piper en_US-ljspeech-high voice, public-domain LJ Speech training data; source commit 6a9419563d574984f90a9cc1a63f6626dad33f1d",
+      "generation": {}
+    },
+    {
+      "id": "clean",
+      "category": "clean",
+      "group": "core",
+      "file": "clean.wav",
+      "reference": "Please check why the login screen takes so long to load on older phones, and fix it if you can.",
+      "sha256": "28d991b7860cb017fb9ee020d01e44ce8d2ed9f8aefcb9dedbb3d8d76cdccc6b",
+      "source": "Synthetic Piper en_US-ljspeech-high voice, public-domain LJ Speech training data; source commit 6a9419563d574984f90a9cc1a63f6626dad33f1d",
+      "generation": {}
+    },
+    {
+      "id": "noisy-hiss",
+      "category": "noisy",
+      "group": "core",
+      "file": "noisy-hiss.wav",
+      "reference": "Can you look at the failing build and tell me which test broke after the last change?",
+      "sha256": "de69f61d1fe20a00da4757cf967f25aa4d086bafda88499d1cb199d17fee4e91",
+      "source": "Synthetic Piper en_US-ljspeech-high voice, public-domain LJ Speech training data; source commit 6a9419563d574984f90a9cc1a63f6626dad33f1d",
+      "generation": {
+        "noise": {
+          "type": "pink",
+          "snrDb": 10
+        }
+      }
+    },
+    {
+      "id": "noisy-babble",
+      "category": "noisy",
+      "group": "core",
+      "file": "noisy-babble.wav",
+      "reference": "Write a short summary of what changed today and send it to the team channel.",
+      "sha256": "5041e69d67e865226985a1bef4f1b1d607db0519771254e00c6664ad048f199b",
+      "source": "Synthetic Piper en_US-ljspeech-high voice, public-domain LJ Speech training data; source commit 6a9419563d574984f90a9cc1a63f6626dad33f1d",
+      "generation": {
+        "pitch": 0.88,
+        "noise": {
+          "type": "babble",
+          "snrDb": 8
+        }
+      }
+    },
+    {
+      "id": "fast",
+      "category": "fast",
+      "group": "core",
+      "file": "fast.wav",
+      "reference": "Stop what you are doing, revert the last commit, and run the whole test suite again before pushing.",
+      "sha256": "a73c8ff33e1dfde88514e9871b0d17ce3cb831d83252125a6cd5de3b34326229",
+      "source": "Synthetic Piper en_US-ljspeech-high voice, public-domain LJ Speech training data; source commit 6a9419563d574984f90a9cc1a63f6626dad33f1d",
+      "generation": {
+        "lengthScale": 0.7
+      }
+    },
+    {
+      "id": "technical",
+      "category": "technical",
+      "group": "core",
+      "file": "technical.wav",
+      "reference": "Run npm install, then rebase this worktree onto main, fix the merge conflicts, and push the branch.",
+      "sha256": "3131442efccea95b311d42238538a2a96815fd37262800349fc4ade38495f121",
+      "source": "Synthetic Piper en_US-ljspeech-high voice, public-domain LJ Speech training data; source commit 6a9419563d574984f90a9cc1a63f6626dad33f1d",
+      "generation": {
+        "speak": "Run N P M install, then rebase this worktree onto main, fix the merge conflicts, and push the branch."
+      }
+    },
+    {
+      "id": "names",
+      "category": "names",
+      "group": "core",
+      "file": "names.wav",
+      "reference": "Ask Claude and Codex to check the muxr host, then restart Herdr and update BYOKit to the latest version.",
+      "sha256": "369a3bb199611c8286d2b22a608c2e823bfa0d25b665283874dc1cff424ac397",
+      "source": "Synthetic Piper en_US-ljspeech-high voice, public-domain LJ Speech training data; source commit 6a9419563d574984f90a9cc1a63f6626dad33f1d",
+      "generation": {
+        "speak": "Ask Claude and Codex to check the muxer host, then restart Herder and update B Y O Kit to the latest version.",
+        "pitch": 0.88
+      }
+    },
+    {
+      "id": "long",
+      "category": "long",
+      "group": "core",
+      "file": "long.wav",
+      "reference": "I want to change how the terminal screen handles long output. Right now when an agent prints a lot of text, the screen jumps back to the top and I lose my place. Keep the scroll position where it was unless I am already at the bottom. Also add a small button that takes me back to the latest output, and make sure it works on both phones and tablets.",
+      "sha256": "5637afc277399f6d66b47c7642f24975304527dfe281e372db1a75e71f00b592",
+      "source": "Synthetic Piper en_US-ljspeech-high voice, public-domain LJ Speech training data; source commit 6a9419563d574984f90a9cc1a63f6626dad33f1d",
+      "generation": {
+        "pitch": 0.88
+      }
+    },
+    {
+      "id": "long-names",
+      "category": "long",
+      "group": "core",
+      "file": "long-names.wav",
+      "reference": "Tell Codex to open a pull request for the dictation fix and ask Claude to review it. If the checks pass, merge it into main and clean up the worktree. Then send me a note in muxr with the link.",
+      "sha256": "730e2fa2aa00955cfe3bedc8f470af8047871db96440dec5cdba0cda2df9dcd7",
+      "source": "Synthetic Piper en_US-ljspeech-high voice, public-domain LJ Speech training data; source commit 6a9419563d574984f90a9cc1a63f6626dad33f1d",
+      "generation": {
+        "speak": "Tell Codex to open a pull request for the dictation fix and ask Claude to review it. If the checks pass, merge it into main and clean up the worktree. Then send me a note in muxer with the link."
+      }
+    },
+    {
+      "id": "quiet",
+      "category": "quiet",
+      "group": "core",
+      "file": "quiet.wav",
+      "reference": "Show me the last error from the build log and explain what it means.",
+      "sha256": "340efa028ea4a22ed61e2ac9354b9f64338ad0c6f4c9ad10b687c745b261073f",
+      "source": "Synthetic Piper en_US-ljspeech-high voice, public-domain LJ Speech training data; source commit 6a9419563d574984f90a9cc1a63f6626dad33f1d",
+      "generation": {
+        "speechRmsDb": -45
+      }
+    },
+    {
+      "id": "reverb",
+      "category": "noisy",
+      "group": "core",
+      "file": "reverb.wav",
+      "reference": "Move the save button to the top of the screen so it is easier to reach.",
+      "sha256": "016e46fbfd63ad7aeb9b65000cb5ccb1fb4b6a4c81f7bf704bd5b07be39da14a",
+      "source": "Synthetic Piper en_US-ljspeech-high voice, public-domain LJ Speech training data; source commit 6a9419563d574984f90a9cc1a63f6626dad33f1d",
+      "generation": {
+        "reverbS": 0.5,
+        "pitch": 0.88
+      }
+    },
+    {
+      "id": "pauses",
+      "category": "pauses",
+      "group": "core",
+      "file": "pauses.wav",
+      "reference": "First, pull the latest changes. Then run the tests. If anything fails, send me the output.",
+      "sha256": "6454f0320ee9c33fe596b6d57229f6005040ddf4deac8cac3fde66307ee8c16b",
+      "source": "Synthetic Piper en_US-ljspeech-high voice, public-domain LJ Speech training data; source commit 6a9419563d574984f90a9cc1a63f6626dad33f1d",
+      "generation": {
+        "pause": 1.2,
+        "lengthScale": 1.1
+      }
+    },
+    {
+      "id": "x-clean-1",
+      "category": "clean",
+      "group": "extended",
+      "file": "x-clean-1.wav",
+      "reference": "Add a loading spinner to the upload screen and hide it when the request finishes.",
+      "sha256": "4d42471d69617a161b4d31bc875026f4a1cb0ab1be4da44e79b5cace9c35c498",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {}
+    },
+    {
+      "id": "x-clean-2",
+      "category": "clean",
+      "group": "extended",
+      "file": "x-clean-2.wav",
+      "reference": "Why does the app crash when I rotate the phone during a video call?",
+      "sha256": "025e417a308bf08187af1480b86e7a92364961a11d6f3d04bd0b6f4691de9964",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "pitch": 0.88
+      }
+    },
+    {
+      "id": "x-hiss-5",
+      "category": "noisy",
+      "group": "extended",
+      "file": "x-hiss-5.wav",
+      "reference": "Rename the helper function and update every place that calls it.",
+      "sha256": "36abd117cb8304f477fa4752a51a8aa0e60b0ee97045ca38683a13889af7caf0",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "noise": {
+          "type": "pink",
+          "snrDb": 5
+        }
+      }
+    },
+    {
+      "id": "x-hiss-15",
+      "category": "noisy",
+      "group": "extended",
+      "file": "x-hiss-15.wav",
+      "reference": "Make the error message friendlier and tell the user what to try next.",
+      "sha256": "65a83b763a2135c31346a7c14d4299d636032866274815d4520c5c3f5e19023e",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "noise": {
+          "type": "pink",
+          "snrDb": 15
+        },
+        "pitch": 0.88
+      }
+    },
+    {
+      "id": "x-babble-5",
+      "category": "noisy",
+      "group": "extended",
+      "file": "x-babble-5.wav",
+      "reference": "Check the network tab and tell me which request is taking the longest.",
+      "sha256": "19891dafe3cfe1d79ab3c24984b71cbed2f64cf5e5a1e0906b7c540cbecef60a",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "noise": {
+          "type": "babble",
+          "snrDb": 5
+        }
+      }
+    },
+    {
+      "id": "x-babble-12",
+      "category": "noisy",
+      "group": "extended",
+      "file": "x-babble-12.wav",
+      "reference": "Split this file into two smaller modules and keep the public names the same.",
+      "sha256": "bbb228d414573aa94a23b882109a32578e8466994512abf72cfe16543e5a651e",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "noise": {
+          "type": "babble",
+          "snrDb": 12
+        },
+        "pitch": 0.88
+      }
+    },
+    {
+      "id": "x-reverb",
+      "category": "noisy",
+      "group": "extended",
+      "file": "x-reverb.wav",
+      "reference": "Delete the old migration script and write a short note about why it is gone.",
+      "sha256": "239efdf6cae6ea160272ed0758df75be0b68ad78c54f5845d0d675ce0d06f925",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "reverbS": 0.8
+      }
+    },
+    {
+      "id": "x-fast-1",
+      "category": "fast",
+      "group": "extended",
+      "file": "x-fast-1.wav",
+      "reference": "Undo that, go back to the previous version and try a smaller change this time.",
+      "sha256": "cc200f85b5408abb735ad1fa58d0ccc08d94efa7067808dd7027c670f77a0204",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "lengthScale": 0.65
+      }
+    },
+    {
+      "id": "x-fast-2",
+      "category": "fast",
+      "group": "extended",
+      "file": "x-fast-2.wav",
+      "reference": "Kill the dev server, clear the cache, start it again and reload the page.",
+      "sha256": "345547ab9feb47c7eb3d1e8fd76214e2be61f2a47594a64772452c72977ad8a3",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "lengthScale": 0.7,
+        "pitch": 0.88
+      }
+    },
+    {
+      "id": "x-tech-1",
+      "category": "technical",
+      "group": "extended",
+      "file": "x-tech-1.wav",
+      "reference": "Run git status, stash nothing, and show me the diff against origin main.",
+      "sha256": "868f36fcbe7fc79f1379c3c24934dd7a29920959127f7aff2d4452d7548380fa",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "speak": "Run git status, stash nothing, and show me the diff against origin main."
+      }
+    },
+    {
+      "id": "x-tech-2",
+      "category": "technical",
+      "group": "extended",
+      "file": "x-tech-2.wav",
+      "reference": "Bump the TypeScript version, run yarn install, and fix any new type errors.",
+      "sha256": "cc444a6ba09baaa05ded73ecf8b408014b99fc8ea06245226476364a4807f001",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "pitch": 0.88
+      }
+    },
+    {
+      "id": "x-tech-3",
+      "category": "technical",
+      "group": "extended",
+      "file": "x-tech-3.wav",
+      "reference": "Open the JSON config, set the timeout to thirty seconds, and restart the API server.",
+      "sha256": "3942e9dbc929f96527af982aaf194f75ca91d59c58431100cbec9322a0d7bdb0",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "speak": "Open the Jason config, set the timeout to thirty seconds, and restart the A P I server."
+      }
+    },
+    {
+      "id": "x-names-1",
+      "category": "names",
+      "group": "extended",
+      "file": "x-names-1.wav",
+      "reference": "Ask Codex to fix the Herdr pane bug while Claude reviews the muxr pull request.",
+      "sha256": "c4a22d821d0bcd70ea6a97888bc31800ebc8d5efa9ef89238192678dfd9b27cb",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "speak": "Ask Codex to fix the Herder pane bug while Claude reviews the muxer pull request."
+      }
+    },
+    {
+      "id": "x-names-2",
+      "category": "names",
+      "group": "extended",
+      "file": "x-names-2.wav",
+      "reference": "Use BYOKit for the pairing screen and make a new worktree for the npm upgrade.",
+      "sha256": "f9fd8fb9333332017734b3ebb768616598b153dfb66207fdca05578b9df15754",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "speak": "Use B Y O Kit for the pairing screen and make a new worktree for the N P M upgrade.",
+        "pitch": 0.88
+      }
+    },
+    {
+      "id": "x-long-1",
+      "category": "long",
+      "group": "extended",
+      "file": "x-long-1.wav",
+      "reference": "Let's plan the next release. First we need to finish the settings screen, because people keep asking for it. After that, fix the crash on older tablets. The crash happens when the keyboard opens while a dialog is showing. Last, update the help page so it matches the new layout, and send me a list of anything you could not finish.",
+      "sha256": "92e953ef73d3b407203e22424711520a06930c135b5113fda9fbd43c8395a77f",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {}
+    },
+    {
+      "id": "x-long-2",
+      "category": "long",
+      "group": "extended",
+      "file": "x-long-2.wav",
+      "reference": "I tried the new build this morning and a few things felt off. The first screen loads slowly, maybe two or three seconds. Scrolling the list stutters when images are loading. And the back button sometimes takes me to the wrong place. Can you look into all three and tell me which one is easiest to fix first?",
+      "sha256": "518c26637f93ee41196c81a6fbae25963f42a32debc686ae040c62669a6685ed",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "pitch": 0.88
+      }
+    },
+    {
+      "id": "x-pauses-1",
+      "category": "pauses",
+      "group": "extended",
+      "file": "x-pauses-1.wav",
+      "reference": "Okay. Let me think. Move the header down a little. Actually no, make it smaller instead.",
+      "sha256": "e445ceeacf1342257ceae3840af9720b81ee84b3b44fb8a466b40e8379d2f084",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "pause": 1.5
+      }
+    },
+    {
+      "id": "x-pauses-2",
+      "category": "pauses",
+      "group": "extended",
+      "file": "x-pauses-2.wav",
+      "reference": "Start with the tests. Once they pass, open a pull request. Then wait for my review.",
+      "sha256": "ca75ccad4f5e4608ef86b8726a687cf33b4a14f57b7add499aaaa5f6de2ca48a",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "pause": 2.0,
+        "pitch": 0.88
+      }
+    },
+    {
+      "id": "x-phone-long",
+      "category": "long",
+      "group": "extended",
+      "file": "x-phone-long.wav",
+      "reference": "Let's plan the next release. First we need to finish the settings screen, because people keep asking for it. After that, fix the crash on older tablets. The crash happens when the keyboard opens while a dialog is showing. Last, update the help page so it matches the new layout, and send me a list of anything you could not finish.",
+      "sha256": "26110f83b8655cdb5e247a979798bd44f08d782aa7c94926ed23f14fcf7399a2",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "speechRmsDb": -45,
+        "pitch": 0.88
+      }
+    },
+    {
+      "id": "x-phone-pauses",
+      "category": "pauses",
+      "group": "extended",
+      "file": "x-phone-pauses.wav",
+      "reference": "Start with the tests. Once they pass, open a pull request. Then wait for my review.",
+      "sha256": "a0ca9f364a53325016b554d05cb18c0078269e9783ef2f78ab363f9d3bdbf0d4",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "pause": 1.5,
+        "speechRmsDb": -45
+      }
+    },
+    {
+      "id": "x-phone-names",
+      "category": "names",
+      "group": "extended",
+      "file": "x-phone-names.wav",
+      "reference": "Ask Claude and Codex to check the muxr host, then restart Herdr and update BYOKit to the latest version.",
+      "sha256": "86ac16c37269e1f5d700ffcfaf9e6c5428eb6320c7e015de1614920114e40f92",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "speak": "Ask Claude and Codex to check the muxer host, then restart Herder and update B Y O Kit to the latest version.",
+        "speechRmsDb": -45
+      }
+    },
+    {
+      "id": "x-phone-clean",
+      "category": "clean",
+      "group": "extended",
+      "file": "x-phone-clean.wav",
+      "reference": "Please check why the login screen takes so long to load on older phones, and fix it if you can.",
+      "sha256": "ce0bd545dbda56c07c90d19f0c82986eb0a332b907bba120f14d9d2b3a50b9c5",
+      "source": "Synthetic Piper en_US-ljspeech-high voice; extended fixtures supplied with 2026-09-30 tuning report",
+      "generation": {
+        "speechRmsDb": -42,
+        "pitch": 0.88
+      }
+    }
+  ],
+  "profiles": [
+    {
+      "id": "default",
+      "settings": {}
+    },
+    {
+      "id": "application-vocabulary",
+      "settings": {
+        "initialPrompt": "muxr, Herdr, Codex, Claude, BYOKit, worktree, npm."
+      }
+    },
+    {
+      "id": "before-kit-defaults",
+      "settings": {
+        "language": "auto",
+        "chunkMs": 30000
+      },
+      "decode": {
+        "tokenTimestamps": true,
+        "maxLen": 60
+      }
+    },
+    {
+      "id": "before-live-release",
+      "settings": {
+        "language": "auto",
+        "threads": 4,
+        "beamSize": 5
+      }
+    },
+    {
+      "id": "historical-app-now",
+      "settings": {},
+      "legacy": {
+        "whisper": {
+          "language": "auto",
+          "maxThreads": 6,
+          "audioCtx": "fit",
+          "tokenTimestamps": true,
+          "maxLen": 60
+        },
+        "live": {
+          "readEverySeconds": 1,
+          "keepAfterSeconds": 6,
+          "silentLevel": 0.06,
+          "keptPromptChars": 200
+        }
+      }
+    }
+  ]
+}

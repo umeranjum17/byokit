@@ -1,0 +1,86 @@
+{
+  "format": "PCM16 LE mono 16000 Hz WAV",
+  "normalization": "NFKC, lowercase, remove punctuation, whitespace word boundaries",
+  "license": "Apache-2.0 synthetic audio and authored reference text; Flite voice attribution in NOTICE.txt",
+  "generator": "Flite slt voice, festvox/flite commit 6c9f20dc915b17f5619340069889db0aa007fcdc; scripts/generate-wer.py",
+  "clips": [
+    {
+      "id": "clean",
+      "category": "clean",
+      "file": "clean.wav",
+      "reference": "Please open the project and save the new changes before lunch.",
+      "sha256": "0dbe9eb851394d83b6fb46cbdb0d8ceba5be6ee1cd63a670281f22aacbb8196a",
+      "source": "Synthetic Flite slt speech; authored text; no human recording",
+      "generation": {
+        "durationStretch": 1
+      }
+    },
+    {
+      "id": "noisy",
+      "category": "noisy",
+      "file": "noisy.wav",
+      "reference": "Please open the project and save the new changes before lunch.",
+      "sha256": "7c30ddb9bda366f8b92521e252543e20ff8ce5381b99f1adce06ee72ec6c0c1b",
+      "source": "Same synthetic speech as clean; seeded uniform noise at 12 dB SNR, seed 731",
+      "generation": {
+        "durationStretch": 1
+      }
+    },
+    {
+      "id": "fast",
+      "category": "fast",
+      "file": "fast.wav",
+      "reference": "Check the build then run the tests and send the final report.",
+      "sha256": "89aa11c6dd3ea9cb70bba437e5899fc117170d7a9be6f090883583cdcee93688",
+      "source": "Synthetic Flite slt speech; authored text; duration stretch 0.7",
+      "generation": {
+        "durationStretch": 0.7
+      }
+    },
+    {
+      "id": "technical-names",
+      "category": "technical-names",
+      "file": "technical-names.wav",
+      "reference": "Use TypeScript with React Native and Whisper to build the Byokit adapter.",
+      "sha256": "a97ddad2bcccbc8097faa5923b1d49c61a0570e9476353827644b65ebed06553",
+      "source": "Synthetic Flite slt speech; authored technical vocabulary; no human recording",
+      "generation": {
+        "durationStretch": 1
+      }
+    }
+  ],
+  "profiles": [
+    {
+      "id": "default",
+      "settings": {}
+    },
+    {
+      "id": "english-vocabulary",
+      "settings": {
+        "language": "en",
+        "vocabulary": [
+          "TypeScript",
+          "React Native",
+          "Whisper",
+          "Byokit"
+        ],
+        "beamSize": 5,
+        "bestOf": 5
+      }
+    },
+    {
+      "id": "vad-gain",
+      "settings": {
+        "language": "en",
+        "gain": 1.5,
+        "chunkMs": 10000,
+        "vad": {
+          "enabled": true,
+          "threshold": 0.015,
+          "silenceMs": 500,
+          "paddingMs": 200
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,300 @@
+{
+  "binary": "whisper.cpp whisper-cli",
+  "manifest": "manifest.json",
+  "latencyBasis": "wall clock including fresh CLI/model load for each chunk; not phone latency",
+  "profiles": [
+    {
+      "id": "default",
+      "model": "ggml-base.en-q5_1.bin",
+      "settings": {
+        "language": "auto",
+        "initialPrompt": "",
+        "vocabulary": [],
+        "threads": 6,
+        "gain": 1,
+        "chunkMs": 30000,
+        "beamSize": -1,
+        "bestOf": 5,
+        "temperature": 0,
+        "temperatureInc": 0.2,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.015,
+          "silenceMs": 500,
+          "paddingMs": 200
+        }
+      },
+      "clips": [
+        {
+          "id": "clean",
+          "category": "clean",
+          "reference": "Please open the project and save the new changes before lunch.",
+          "hypothesis": "Please open the project and save the new changes before lunch.",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "errors": 0,
+          "referenceWords": 11,
+          "wer": 0,
+          "audioMs": 4515,
+          "latencyMs": 505.35328300000003,
+          "realTimeFactor": 0.11192763743078628
+        },
+        {
+          "id": "noisy",
+          "category": "noisy",
+          "reference": "Please open the project and save the new changes before lunch.",
+          "hypothesis": "Please open the project and save the new changes before launch.",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "errors": 1,
+          "referenceWords": 11,
+          "wer": 0.09090909090909091,
+          "audioMs": 4515,
+          "latencyMs": 494.935114,
+          "realTimeFactor": 0.10962018028792912
+        },
+        {
+          "id": "fast",
+          "category": "fast",
+          "reference": "Check the build then run the tests and send the final report.",
+          "hypothesis": "Check the build then run the tests and send the final report.",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "errors": 0,
+          "referenceWords": 12,
+          "wer": 0,
+          "audioMs": 4035,
+          "latencyMs": 490.987118,
+          "realTimeFactor": 0.1216820614622057
+        },
+        {
+          "id": "technical-names",
+          "category": "technical-names",
+          "reference": "Use TypeScript with React Native and Whisper to build the Byokit adapter.",
+          "hypothesis": "Use type S-grip with Reac native and whisper to build the biocat adapter.",
+          "substitutions": 3,
+          "deletions": 0,
+          "insertions": 1,
+          "errors": 4,
+          "referenceWords": 12,
+          "wer": 0.3333333333333333,
+          "audioMs": 4970,
+          "latencyMs": 498.3969749999999,
+          "realTimeFactor": 0.10028108148893358
+        }
+      ],
+      "summary": {
+        "errors": 5,
+        "referenceWords": 46,
+        "audioMs": 18035,
+        "latencyMs": 1989.67249,
+        "wer": 0.10869565217391304,
+        "meanLatencyMs": 497.4181225,
+        "realTimeFactor": 0.11032284391461047
+      }
+    },
+    {
+      "id": "english-vocabulary",
+      "model": "ggml-base.en-q5_1.bin",
+      "settings": {
+        "language": "en",
+        "initialPrompt": "",
+        "vocabulary": [
+          "TypeScript",
+          "React Native",
+          "Whisper",
+          "Byokit"
+        ],
+        "threads": 6,
+        "gain": 1,
+        "chunkMs": 30000,
+        "beamSize": 5,
+        "bestOf": 5,
+        "temperature": 0,
+        "temperatureInc": 0.2,
+        "vad": {
+          "enabled": false,
+          "threshold": 0.015,
+          "silenceMs": 500,
+          "paddingMs": 200
+        }
+      },
+      "clips": [
+        {
+          "id": "clean",
+          "category": "clean",
+          "reference": "Please open the project and save the new changes before lunch.",
+          "hypothesis": "Please open the project and save the new changes before lunch.",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "errors": 0,
+          "referenceWords": 11,
+          "wer": 0,
+          "audioMs": 4515,
+          "latencyMs": 563.8500059999999,
+          "realTimeFactor": 0.12488372225913619
+        },
+        {
+          "id": "noisy",
+          "category": "noisy",
+          "reference": "Please open the project and save the new changes before lunch.",
+          "hypothesis": "Please open the project and save the new changes before launch.",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "errors": 1,
+          "referenceWords": 11,
+          "wer": 0.09090909090909091,
+          "audioMs": 4515,
+          "latencyMs": 584.8199370000002,
+          "realTimeFactor": 0.1295282252491695
+        },
+        {
+          "id": "fast",
+          "category": "fast",
+          "reference": "Check the build then run the tests and send the final report.",
+          "hypothesis": "Check the build then run the tests and send the final report.",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "errors": 0,
+          "referenceWords": 12,
+          "wer": 0,
+          "audioMs": 4035,
+          "latencyMs": 582.2692280000001,
+          "realTimeFactor": 0.1443046413878563
+        },
+        {
+          "id": "technical-names",
+          "category": "technical-names",
+          "reference": "Use TypeScript with React Native and Whisper to build the Byokit adapter.",
+          "hypothesis": "Use Type SScript with React Native and Whisper to build the Biocat adapter.",
+          "substitutions": 2,
+          "deletions": 0,
+          "insertions": 1,
+          "errors": 3,
+          "referenceWords": 12,
+          "wer": 0.25,
+          "audioMs": 4970,
+          "latencyMs": 607.8929840000001,
+          "realTimeFactor": 0.12231247162977868
+        }
+      ],
+      "summary": {
+        "errors": 4,
+        "referenceWords": 46,
+        "audioMs": 18035,
+        "latencyMs": 2338.832155,
+        "wer": 0.08695652173913043,
+        "meanLatencyMs": 584.70803875,
+        "realTimeFactor": 0.12968295841419464
+      }
+    },
+    {
+      "id": "vad-gain",
+      "model": "ggml-base.en-q5_1.bin",
+      "settings": {
+        "language": "en",
+        "initialPrompt": "",
+        "vocabulary": [],
+        "threads": 6,
+        "gain": 1.5,
+        "chunkMs": 10000,
+        "beamSize": -1,
+        "bestOf": 5,
+        "temperature": 0,
+        "temperatureInc": 0.2,
+        "vad": {
+          "enabled": true,
+          "threshold": 0.015,
+          "silenceMs": 500,
+          "paddingMs": 200
+        }
+      },
+      "clips": [
+        {
+          "id": "clean",
+          "category": "clean",
+          "reference": "Please open the project and save the new changes before lunch.",
+          "hypothesis": "Please open the project and save the new changes before lunch.",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "errors": 0,
+          "referenceWords": 11,
+          "wer": 0,
+          "audioMs": 4515,
+          "latencyMs": 479.48483899999974,
+          "realTimeFactor": 0.1061981924695459
+        },
+        {
+          "id": "noisy",
+          "category": "noisy",
+          "reference": "Please open the project and save the new changes before lunch.",
+          "hypothesis": "Please open the project and save the new changes before launch.",
+          "substitutions": 1,
+          "deletions": 0,
+          "insertions": 0,
+          "errors": 1,
+          "referenceWords": 11,
+          "wer": 0.09090909090909091,
+          "audioMs": 4515,
+          "latencyMs": 470.0543310000003,
+          "realTimeFactor": 0.1041094863787376
+        },
+        {
+          "id": "fast",
+          "category": "fast",
+          "reference": "Check the build then run the tests and send the final report.",
+          "hypothesis": "Check the build then run the tests and send the final report.",
+          "substitutions": 0,
+          "deletions": 0,
+          "insertions": 0,
+          "errors": 0,
+          "referenceWords": 12,
+          "wer": 0,
+          "audioMs": 4035,
+          "latencyMs": 471.7402009999996,
+          "realTimeFactor": 0.11691206964064427
+        },
+        {
+          "id": "technical-names",
+          "category": "technical-names",
+          "reference": "Use TypeScript with React Native and Whisper to build the Byokit adapter.",
+          "hypothesis": "Use type S-grip with Reac native and whisper to build the biocat adapter.",
+          "substitutions": 3,
+          "deletions": 0,
+          "insertions": 1,
+          "errors": 4,
+          "referenceWords": 12,
+          "wer": 0.3333333333333333,
+          "audioMs": 4970,
+          "latencyMs": 495.6664460000002,
+          "realTimeFactor": 0.09973167927565396
+        }
+      ],
+      "summary": {
+        "errors": 5,
+        "referenceWords": 46,
+        "audioMs": 18035,
+        "latencyMs": 1916.9458169999998,
+        "wer": 0.10869565217391304,
+        "meanLatencyMs": 479.23645424999995,
+        "realTimeFactor": 0.10629031422234543
+      }
+    }
+  ],
+  "provenance": {
+    "date": "2026-09-30",
+    "platform": "Linux x86_64 CPU, AVX2, six inference threads",
+    "whisperCppCommit": "6e4ab854f67f743900934a703d5603419384c961",
+    "model": "ggml-base.en-q5_1.bin",
+    "modelSha256": "4baf70dd0d7c4247ba2b81fafd9c01005ac77c2f9ef064e00dcf195d0e2fdd2f",
+    "modelSource": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin",
+    "scope": "One synthetic desktop smoke run; defaults unchanged; does not qualify phone capture or latency"
+  }
+}

@@ -1,0 +1,156 @@
+{
+  "about": "Extended dictation fixtures (same format as pockit scripts/dictation/fixtures). Generated with makeFixtures.py and the public-domain en_US-ljspeech-high Piper voice; not committed.",
+  "fixtures": [
+    {
+      "id": "x-clean-1",
+      "kind": "clean",
+      "text": "Add a loading spinner to the upload screen and hide it when the request finishes."
+    },
+    {
+      "id": "x-clean-2",
+      "kind": "clean",
+      "text": "Why does the app crash when I rotate the phone during a video call?",
+      "pitch": 0.88
+    },
+    {
+      "id": "x-hiss-5",
+      "kind": "noisy",
+      "text": "Rename the helper function and update every place that calls it.",
+      "noise": {
+        "type": "pink",
+        "snrDb": 5
+      }
+    },
+    {
+      "id": "x-hiss-15",
+      "kind": "noisy",
+      "text": "Make the error message friendlier and tell the user what to try next.",
+      "noise": {
+        "type": "pink",
+        "snrDb": 15
+      },
+      "pitch": 0.88
+    },
+    {
+      "id": "x-babble-5",
+      "kind": "noisy",
+      "text": "Check the network tab and tell me which request is taking the longest.",
+      "noise": {
+        "type": "babble",
+        "snrDb": 5
+      }
+    },
+    {
+      "id": "x-babble-12",
+      "kind": "noisy",
+      "text": "Split this file into two smaller modules and keep the public names the same.",
+      "noise": {
+        "type": "babble",
+        "snrDb": 12
+      },
+      "pitch": 0.88
+    },
+    {
+      "id": "x-reverb",
+      "kind": "noisy",
+      "text": "Delete the old migration script and write a short note about why it is gone.",
+      "reverbS": 0.8
+    },
+    {
+      "id": "x-fast-1",
+      "kind": "fast",
+      "text": "Undo that, go back to the previous version and try a smaller change this time.",
+      "lengthScale": 0.65
+    },
+    {
+      "id": "x-fast-2",
+      "kind": "fast",
+      "text": "Kill the dev server, clear the cache, start it again and reload the page.",
+      "lengthScale": 0.7,
+      "pitch": 0.88
+    },
+    {
+      "id": "x-tech-1",
+      "kind": "technical",
+      "text": "Run git status, stash nothing, and show me the diff against origin main.",
+      "speak": "Run git status, stash nothing, and show me the diff against origin main."
+    },
+    {
+      "id": "x-tech-2",
+      "kind": "technical",
+      "text": "Bump the TypeScript version, run yarn install, and fix any new type errors.",
+      "pitch": 0.88
+    },
+    {
+      "id": "x-tech-3",
+      "kind": "technical",
+      "text": "Open the JSON config, set the timeout to thirty seconds, and restart the API server.",
+      "speak": "Open the Jason config, set the timeout to thirty seconds, and restart the A P I server."
+    },
+    {
+      "id": "x-names-1",
+      "kind": "names",
+      "text": "Ask Codex to fix the Herdr pane bug while Claude reviews the muxr pull request.",
+      "speak": "Ask Codex to fix the Herder pane bug while Claude reviews the muxer pull request."
+    },
+    {
+      "id": "x-names-2",
+      "kind": "names",
+      "text": "Use BYOKit for the pairing screen and make a new worktree for the npm upgrade.",
+      "speak": "Use B Y O Kit for the pairing screen and make a new worktree for the N P M upgrade.",
+      "pitch": 0.88
+    },
+    {
+      "id": "x-long-1",
+      "kind": "long",
+      "text": "Let's plan the next release. First we need to finish the settings screen, because people keep asking for it. After that, fix the crash on older tablets. The crash happens when the keyboard opens while a dialog is showing. Last, update the help page so it matches the new layout, and send me a list of anything you could not finish."
+    },
+    {
+      "id": "x-long-2",
+      "kind": "long",
+      "text": "I tried the new build this morning and a few things felt off. The first screen loads slowly, maybe two or three seconds. Scrolling the list stutters when images are loading. And the back button sometimes takes me to the wrong place. Can you look into all three and tell me which one is easiest to fix first?",
+      "pitch": 0.88
+    },
+    {
+      "id": "x-pauses-1",
+      "kind": "pauses",
+      "text": "Okay. Let me think. Move the header down a little. Actually no, make it smaller instead.",
+      "pause": 1.5
+    },
+    {
+      "id": "x-pauses-2",
+      "kind": "pauses",
+      "text": "Start with the tests. Once they pass, open a pull request. Then wait for my review.",
+      "pause": 2.0,
+      "pitch": 0.88
+    },
+    {
+      "id": "x-phone-long",
+      "kind": "long",
+      "text": "Let's plan the next release. First we need to finish the settings screen, because people keep asking for it. After that, fix the crash on older tablets. The crash happens when the keyboard opens while a dialog is showing. Last, update the help page so it matches the new layout, and send me a list of anything you could not finish.",
+      "speechRmsDb": -45,
+      "pitch": 0.88
+    },
+    {
+      "id": "x-phone-pauses",
+      "kind": "pauses",
+      "text": "Start with the tests. Once they pass, open a pull request. Then wait for my review.",
+      "pause": 1.5,
+      "speechRmsDb": -45
+    },
+    {
+      "id": "x-phone-names",
+      "kind": "names",
+      "text": "Ask Claude and Codex to check the muxr host, then restart Herdr and update BYOKit to the latest version.",
+      "speak": "Ask Claude and Codex to check the muxer host, then restart Herder and update B Y O Kit to the latest version.",
+      "speechRmsDb": -45
+    },
+    {
+      "id": "x-phone-clean",
+      "kind": "clean",
+      "text": "Please check why the login screen takes so long to load on older phones, and fix it if you can.",
+      "speechRmsDb": -42,
+      "pitch": 0.88
+    }
+  ]
+}
