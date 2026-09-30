@@ -6,6 +6,8 @@
 - FIX: (from @byokit/link 0.5.0) `decodeOffer()` reads legacy compact direct pairing codes with checksum, padding, bounds and expiry validation; new encodings keep the complete current format.
 ## 0.3.1 (2026-09-30)
 
+- Dependency update: pins @byokit/link 0.5.0.
+
 ## 0.3.0 (2026-09-30)
 
 - Add `ownerClient(url, token)` for listing hosts, creating enrolments and revoking hosts, with injectable fetch
