@@ -109,7 +109,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 - [x] Tickets and codes: 128-bit and 59-bit, single use (deleted on first presentation), 5-minute expiry checked at
       presentation and before persisting the grant, 5 wrong tries withdraw all open tickets and codes.
 - [x] Nothing is stored before `confirm` returns true; `confirm` failing or timing out means no.
-- [ ] Bound typed codes check the 128-bit machine-key commitment before message 3, displaying words or receiving a grant; malformed codes never downgrade to legacy pairing. Relay lookup receives only its separate routing code.
+- [x] Bound typed codes check the 128-bit machine-key commitment before message 3, displaying words or receiving a grant; malformed codes never downgrade to legacy pairing. Relay lookup receives only its separate routing code.
 - [x] Every connection's device key is checked against the grants at `auth`; every request re-checks the grant;
       `revoke` removes the grant before closing sockets.
 - [x] Host policy is enforced before the app handler; without `allow`, view-only defaults closed. Only an explicit `PublicLinkError` discloses its chosen message; other handler failures are logged on the host and return plain `failed`.
@@ -194,3 +194,12 @@ Residual file-system assumption: the app supplies a trusted path and trusted anc
 This review does not prove timing side-channel resistance or safety of a compromised host/device.
 The typed-code PAKE upgrade, at-rest adapter choices and app handler transaction boundary remain
 explicit host responsibilities described above.
+
+## Machine-bound typed code review — 2026-09-30
+
+The added checklist row is covered by `test/link.test.ts` (wrong code, replay, five-attempt
+lockout, expiry, late approval, refusal, normalization and malformed commitments),
+`../relay/test/relay.test.ts` (a substituted responder key fails even when it knows the secret,
+before device identity or words), and the browser and React Native pair/request tests.
+The Node README example also declines on Enter and approves only on `y`.
+This extends the recorded protocol review above; no handshake library or dependency changed.
