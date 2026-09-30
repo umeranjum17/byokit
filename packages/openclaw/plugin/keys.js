@@ -8,30 +8,41 @@ export function registerKeys(api) {
       respond(true, { ok: false });
       return;
     }
+    const diagnostics = params.action === 'ready' && params.diagnostics === true ? { stage: 'imports' } : undefined;
+    const reply = (value) => respond(true, { ...value, ...(diagnostics ? { diagnostics } : {}) });
     try {
       const { readFile, writeFile, rm } = await import('node:fs/promises');
       const { join } = await import('node:path');
       const { resolveAgentDir } = await import('openclaw/plugin-sdk/agent-runtime');
       const { updateAuthProfileStoreWithLock } = await import('openclaw/plugin-sdk/provider-auth');
       // Read the current config: activation changes the roster and selection during the same gateway lifetime.
+      if (diagnostics) diagnostics.stage = 'config';
       const config = JSON.parse(await readFile(process.env.OPENCLAW_CONFIG_PATH, 'utf8'));
       const keyId = `byokit-key-${member}`;
       if (!config.agents?.entries?.[member] || !config.agents?.entries?.[keyId]) {
-        respond(true, { ok: false });
+        reply({ ok: false });
         return;
       }
       const keyDir = resolveAgentDir(config, keyId);
       const marker = join(keyDir, 'byokit-key-ready.json');
       if (params.action === 'ready') {
+        if (diagnostics) diagnostics.stage = 'marker';
         const selected = JSON.parse(await readFile(marker, 'utf8'));
         let ready = false;
+        if (diagnostics) diagnostics.stage = 'store';
         await updateAuthProfileStoreWithLock({ agentDir: keyDir, updater(store) {
+          if (diagnostics) {
+            diagnostics.profiles = Object.entries(store.profiles).map(([id, p]) => ({ id, apiKey: p.type === 'api_key', local: p.copyToAgents === false }));
+            diagnostics.order = store.order;
+            diagnostics.selected = selected.profileId;
+            diagnostics.stage = 'checked';
+          }
           const profile = store.profiles[selected.profileId];
           ready = profile?.type === 'api_key' && profile.copyToAgents === false
             && store.order?.[profile.provider]?.length === 1 && store.order[profile.provider][0] === selected.profileId;
           return false;
         } });
-        respond(true, { ok: ready, ...(ready ? { model: selected.model } : {}) });
+        reply({ ok: ready, ...(ready ? { model: selected.model } : {}) });
         return;
       }
       await rm(marker, { force: true });
@@ -84,7 +95,7 @@ export function registerKeys(api) {
       respond(true, { ok: true });
     } catch {
       // Neither engine errors nor store contents (which contain secrets) ever leave this method.
-      respond(true, { ok: false });
+      reply({ ok: false });
     }
   }, { scope: 'operator.admin' });
 }

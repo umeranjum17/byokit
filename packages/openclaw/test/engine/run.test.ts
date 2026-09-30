@@ -213,14 +213,40 @@ test('API-key activation seals a sibling store; normal selection and stores rema
     assert.equal(profile.type, 'api_key');
     assert.equal(profile.copyToAgents, false);
     assert.deepEqual(stores['byokit-key-m1'].order.openai, [profile.id]);
+    // Config writes can restart a cold gateway. Poll its own local-store view, never an arbitrary delay.
+    const deadline = Date.now() + 60_000;
+    let ready = false;
+    let attempt = 0;
+    while (!ready && Date.now() < deadline) {
+      attempt++;
+      try {
+        const reply = await kit.callDynamic('byokit.keys', { member: 'm1', action: 'ready', diagnostics: Boolean(process.env.CI) }) as { ok: boolean; model?: string };
+        ready = reply.ok;
+        if (process.env.CI) console.log('key readiness', JSON.stringify({ attempt, phase: kit.state.phase, reply, stores }));
+      } catch {
+        if (process.env.CI) console.log('key readiness', JSON.stringify({ attempt, phase: kit.state.phase, transportFailed: true, stores }));
+      }
+      if (!ready) await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    assert.ok(ready, 'key profile must become visible in the gateway within 60 seconds');
     const callsBefore = stub.calls.length;
     const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:key', auth: 'apiKey', message: 'hello key' });
+    if (process.env.CI) console.log('key run', JSON.stringify({ phase: kit.state.phase, ok: end.ok }));
     assert.ok(end.ok, JSON.stringify(end));
     assert.ok(stub.calls.slice(callsBefore).length > 0);
     assert.ok(stub.calls.slice(callsBefore).every((c) => c.authorization === `Bearer ${canary}`));
     const other = await kit.run({ member: 'm2', sessionKey: 'agent:m2:key', auth: 'apiKey', message: 'hello' });
     assert.ok(!other.ok && 'kind' in other && other.kind === 'signed-out');
-    await kit.call('models.authLogout', { agentId: 'byokit-key-m1', provider: 'openai' });
+    // Logout is a typed pass-through; the test retries only the engine's explicit pre-execution refusal.
+    const logoutDeadline = Date.now() + 60_000;
+    for (;;) {
+      try { await kit.call('models.authLogout', { agentId: 'byokit-key-m1', provider: 'openai' }); break; }
+      catch (error) {
+        const retry = error as { code?: string; retryable?: boolean };
+        if (!(retry.code === 'UNAVAILABLE' && retry.retryable) || Date.now() >= logoutDeadline) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
     const removedBefore = stub.calls.length;
     const removed = await kit.run({ member: 'm1', sessionKey: 'agent:m1:key', auth: 'apiKey', message: 'hello' });
     assert.ok(!removed.ok && 'kind' in removed && removed.kind === 'signed-out');
