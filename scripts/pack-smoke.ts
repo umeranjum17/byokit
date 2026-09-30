@@ -201,6 +201,32 @@ assert.equal(check.length, 'Umer shipped the first version today.'.length);
         break;
       }
     }
+    // Exercise the packed realtime child entry, not only its static exports.
+    if (tgzByName.has("@byokit/realtime")) {
+      writeFileSync(join(appDir, "realtime.mjs"), `
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { realtimeEngine, toolBridge } from '@byokit/realtime/node';
+const server = createServer((_req, response) => response.end('v=0\\r\\ns=voice\\r\\n'));
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+const frames = [];
+const bridge = toolBridge({ tools: [], handlers: {}, emit: frame => frames.push(frame), failure: () => 'Failed' });
+const engine = realtimeEngine({ engine: 'chatgpt', auth: { kind: 'plan', access: async () => ({ access: 'test-token', accountId: 'test-account' }) }, endpoint: 'http://127.0.0.1:' + server.address().port, bridge, emit: frame => frames.push(frame) });
+const waitFor = async predicate => {
+  const deadline = Date.now() + 5000;
+  while (!predicate()) { if (Date.now() > deadline) throw new Error('packed realtime timed out'); await new Promise(resolve => setTimeout(resolve, 10)); }
+};
+try {
+  await waitFor(() => frames.some(frame => frame.type === 'realtime.webrtc.start'));
+  assert.equal(engine.receive({ type: 'realtime.webrtc.offer', sdp: 'v=0\\r\\n' }), true);
+  await waitFor(() => frames.some(frame => frame.type === 'realtime.webrtc.answer'));
+  assert.ok(!JSON.stringify(frames).includes('test-token'));
+} finally { engine.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+console.log('packed-realtime-child-ok');
+`);
+      try { sh("node", ["realtime.mjs"], appDir); }
+      catch (err) { fail("@byokit/realtime", `packed child flow failed: ${(err as Error).message}`); }
+    }
     // Package bins must start without a missing-module error.
     for (const { pkg, bin } of bins) {
       const r = spawnSync(join(appDir, "node_modules", ".bin", bin), [], {

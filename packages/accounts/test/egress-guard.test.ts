@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 // The suite is offline by contract (AGENTS.md: mocks only, no network); scripts/test.sh loads
 // scripts/test-egress-guard.cjs into every node of the run so a public address fails loudly while loopback
 // fake servers and Unix-socket IPC stay usable. This pins that boundary where it once leaked: an unstubbed
@@ -84,4 +85,15 @@ test('a datagram to a public address is denied', { skip: !guarded }, async () =>
     assert.throws(() => socket.send(Buffer.from('ping'), 53, '192.0.2.1'), /byokit tests are offline.*192\.0\.2\.1/);
     assert.throws(() => socket.connect(53, '192.0.2.1'), /byokit tests are offline.*192\.0\.2\.1/);
   } finally { socket.close(); }
+});
+
+
+test('Node children with an empty environment retain the egress guard', () => {
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    import { createConnection } from 'node:net';
+    if (!globalThis.__byokitEgressGuard) process.exit(2);
+    try { createConnection(53, '192.0.2.1'); process.exit(3); }
+    catch (error) { if (!error.message.includes('byokit tests are offline')) process.exit(4); }
+  `], { env: {}, encoding: 'utf8' });
+  assert.equal(child.status, 0, child.stderr);
 });

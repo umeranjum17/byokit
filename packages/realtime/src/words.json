@@ -1,0 +1,8 @@
+{
+  "realtime.connecting": "Connecting voice…",
+  "realtime.connected": "Listening",
+  "realtime.thinking": "Thinking…",
+  "realtime.speaking": "Speaking",
+  "realtime.closed": "Voice ended",
+  "realtime.error": "Voice could not connect. Please try again."
+}

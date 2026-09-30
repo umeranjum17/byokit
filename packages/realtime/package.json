@@ -1,0 +1,56 @@
+{
+  "name": "@byokit/realtime",
+  "version": "0.1.0",
+  "description": "Realtime voice sessions with host-held credentials and injected audio.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umeranjum17/byokit.git",
+    "directory": "packages/realtime"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    },
+    "./webrtc": {
+      "react-native": {
+        "types": "./dist/rn-webrtc.d.ts",
+        "default": "./dist/rn-webrtc.js"
+      },
+      "types": "./dist/webrtc.d.ts",
+      "default": "./dist/webrtc.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "ws": "8.21.3"
+  },
+  "peerDependencies": {
+    "react-native-webrtc": "124.0.8"
+  },
+  "peerDependenciesMeta": {
+    "react-native-webrtc": {
+      "optional": true
+    }
+  }
+}

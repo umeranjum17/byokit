@@ -255,18 +255,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     return r && r.until > Date.now() ? r.until : 0;
   }
 
-  /** An account's error, acted on. A limit or overload rests it (until when it said, or a default). A plan without this
-   *  use is marked so. A refusal is checked: a sign-in that no longer refreshes is signed out for real, one that still
-   *  does was a passing refusal and rests a few minutes (kind `overloaded`) rather than loop. Returns the kind acted on,
-   *  or null for an error that is not about the account; `network` changes nothing. */
-  /** Ask ChatGPT with this member's own sign-in, the answer streaming into `onText`; refreshed first when due. A
-   *  failure about the account (a limit, a lapsed sign-in) is acted on as `failed()` does, then thrown as a
-   *  ResponseError with the words to show. Without `tools` the answer is the plain text, as before: pass `input` as
-   *  words or as turns (messages with `input_image`, then the `function_call` with its `function_call_output`). With
-   *  `tools` it is the text with every output item, and `onEvent` sees each tool call as it lands. */
-  async respond(member: M, ask: Ask & { tools?: undefined }): Promise<string>;
-  async respond(member: M, ask: Ask & { tools: ResponseTool[] }): Promise<ResponseResult>;
-  async respond(member: M, ask: Ask): Promise<string | ResponseResult> {
+  /** Fresh ChatGPT access for a host-side capability. Never send this to another device. */
+  async access(member: M, signal?: AbortSignal): Promise<{ access: string; accountId: string }> {
+    signal?.throwIfAborted();
     const key = 'chatgpt';
     const p = this.offer(key);
     const rt = await this.runtime(member);
@@ -282,8 +273,23 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     }
     const c = await rt.readCredential(p.pi).catch(() => undefined);
     if (!access || c?.type !== 'oauth') throw new ResponseError(say('status.signedOut', { name: p.name }), 'signed_out');
+    signal?.throwIfAborted();
+    return { access, accountId: String(c.accountId ?? '') };
+  }
+
+  /** Ask ChatGPT with this member's own sign-in, the answer streaming into `onText`; refreshed first when due. A
+   *  failure about the account (a limit, a lapsed sign-in) is acted on as `failed()` does, then thrown as a
+   *  ResponseError with the words to show. Without `tools` the answer is the plain text, as before: pass `input` as
+   *  words or as turns (messages with `input_image`, then the `function_call` with its `function_call_output`). With
+   *  `tools` it is the text with every output item, and `onEvent` sees each tool call as it lands. */
+  async respond(member: M, ask: Ask & { tools?: undefined }): Promise<string>;
+  async respond(member: M, ask: Ask & { tools: ResponseTool[] }): Promise<ResponseResult>;
+  async respond(member: M, ask: Ask): Promise<string | ResponseResult> {
+    const key = 'chatgpt';
+    const p = this.offer(key);
+    const { access, accountId } = await this.access(member);
     try {
-      const base = { ...ask, access, accountId: String(c.accountId ?? ''), model: ask.model ?? p.models.strong, base: this.opts.apiBase, fetch: this.opts.fetch, originator: ask.originator ?? this.opts.originator };
+      const base = { ...ask, access, accountId, model: ask.model ?? p.models.strong, base: this.opts.apiBase, fetch: this.opts.fetch, originator: ask.originator ?? this.opts.originator };
       return ask.tools ? await respond({ ...base, tools: ask.tools }) : await respond({ ...base, tools: undefined });
     } catch (e: any) {
       if (e instanceof ResponseError && e.kind && e.kind !== 'network') {
@@ -294,6 +300,10 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     }
   }
 
+  /** An account's error, acted on. A limit or overload rests it (until when it said, or a default). A plan without this
+   *  use is marked so. A refusal is checked: a sign-in that no longer refreshes is signed out for real, one that still
+   *  does was a passing refusal and rests a few minutes (kind `overloaded`) rather than loop. Returns the kind acted on,
+   *  or null for an error that is not about the account; `network` changes nothing. */
   async failed(member: M, key: string, error: string | ResponseError) {
     const c = error instanceof ResponseError ? error.kind && { kind: error.kind, until: error.until } : classify(error);
     if (!c || c.kind === 'network') return c;

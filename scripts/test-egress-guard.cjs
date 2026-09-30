@@ -7,6 +7,20 @@
 'use strict';
 if (!globalThis.__byokitEgressGuard) {
   globalThis.__byokitEgressGuard = true;
+  // Kit children deliberately receive an empty environment. Keep this test-only
+  // preload on Node's argument list so clearing NODE_OPTIONS cannot bypass it.
+  const childProcess = require('node:child_process');
+  for (const method of ['spawn', 'spawnSync']) {
+    const original = childProcess[method];
+    childProcess[method] = function (file, args, ...rest) {
+      if (file === process.execPath || file === 'node') {
+        if (Array.isArray(args)) args = ['--require', __filename, ...args];
+        else { rest.unshift(args); args = ['--require', __filename]; }
+      }
+      return original.call(this, file, args, ...rest);
+    };
+  }
+
   const loopback = (host) => {
     if (host === undefined || host === '') return true; // node connects to localhost by default
     host = String(host).toLowerCase().replace(/^\[|\]$/g, '');
