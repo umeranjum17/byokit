@@ -20,9 +20,9 @@ import { mockOpenAI } from '../../../accounts/src/testing/index.ts';
 const install = scratchDir('o6-engine-signin');
 const engineDir = join(install, 'engine');
 const stateDir = join(install, 'state');
-// 5.6: the app lists exactly the `Route.plugin` of each route it signs in with, and this file signs in with ChatGPT.
+// 5.6: offered routes must work without the app having to allow their provider plugins itself.
 const engine = new Engine({ stateDir, engineDir, pluginId: 'byokit', tools: [], spawnEngine: true,
-  config: { plugins: { allow: ['openai'] } }, onState: () => {}, onExit: () => {} });
+  onState: () => {}, onExit: () => {} });
 let transport: GatewayTransport;
 let calls: string[] = [];
 let openai: Awaited<ReturnType<typeof mockOpenAI>>;
@@ -116,7 +116,7 @@ const signInCtx = () => {
   };
 };
 
-/** The kit's own ctx over a fresh task-owned gateway: one setup admission each, exactly these plugins allowed (5.6). */
+/** The kit's own ctx over a fresh task-owned gateway: one setup admission each, caller plugins merged (5.6). */
 async function withGateway<T>(plugins: string[], fn: (ctx: SignInCtx, request: GatewayTransport['request'], state: string) => Promise<T>): Promise<T> {
   const dir = scratchDir(`o6-gateway-${plugins.join('-') || 'none'}`);
   const state = join(dir, 'state');
@@ -153,7 +153,7 @@ test('routes.json and the pinned tarball agree in both directions, plugins inclu
   }
   assert.ok(routes().length >= 30, 'the table is the pin\'s whole inventory, not just the offered routes');
   // The other direction, and the owning plugin of every choice: nothing pinned is unrouted, and no route names the
-  // wrong plugin (an app allows exactly that id, 5.6).
+  // wrong plugin (the allowlist needs the owning id, 5.6).
   for (const [choice, plugin] of choices) {
     const route = routes().find((entry) => entry.choice === choice);
     assert.ok(route, `${choice} is a pinned auth choice with no route`);
@@ -163,9 +163,9 @@ test('routes.json and the pinned tarball agree in both directions, plugins inclu
   assert.equal(routes().find((entry) => entry.choice === 'custom-api-key')?.plugin, '', 'a core choice has no plugin');
 });
 
-test('every offered route starts on the real engine with only its plugin allowed (5.7, B6)', { timeout: 900_000 }, async () => {
+test('every offered route starts on the real engine without a caller allowlist (5.7, B6)', { timeout: 900_000 }, async () => {
   for (const route of routes().filter((entry) => entry.offer)) {
-    await withGateway([route.plugin], async (_ctx, request) => {
+    await withGateway([], async (_ctx, request) => {
       const sessionId = `byokit-probe-${route.choice}`;
       const started = await request('openclaw.setup.auth.start',
         { sessionId, agentId: 'm1', authChoice: route.choice }, { timeoutMs: 60_000 }) as { done?: boolean; error?: string };
@@ -224,7 +224,7 @@ test('real gateway: a sign-in cancelled at 0 ms frees the setup admission within
   });
 });
 
-test('real gateway: the drive shows the code, never asks wizard.status, and cancelling frees its own session', { timeout: 300_000 }, async () => {
+test('real gateway: without a caller allowlist the drive shows the code, never asks wizard.status, and cancelling frees its own session', { timeout: 300_000 }, async () => {
   const client = signInCtx();
   calls = [];
   assert.deepEqual(await providers(signInCtx(), 'm1'), [], 'nothing is signed in on a fresh engine');

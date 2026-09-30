@@ -1,6 +1,7 @@
 import { dirname, join } from 'node:path';
 import type { KitOptions } from './kit.ts';
 import type { Member } from './types.ts';
+import { routes } from './routes.ts';
 
 type Obj = Record<string, any>;
 const object = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -52,7 +53,8 @@ export function reconcileConfig(saved: object | undefined, o: {
   c.plugins ??= {};
   c.plugins.load ??= {};
   c.plugins.load.paths = [...new Set([...(c.plugins.load.paths ?? []).filter((p: string) => !p.includes('byokit-openclaw-bridge')), o.pluginDir])];
-  c.plugins.allow = [...new Set([...(c.plugins.allow ?? []), o.pluginId])];
+  c.plugins.allow = [...new Set([...(c.plugins.allow ?? []), o.pluginId,
+    ...routes().filter(route => route.offer && route.plugin).map(route => route.plugin)])];
   c.plugins.entries ??= {};
   c.plugins.entries[o.pluginId] = merge(c.plugins.entries[o.pluginId] ?? {}, { hooks: { timeouts: { before_tool_call: 200_000 } } });
   c.security ??= {};

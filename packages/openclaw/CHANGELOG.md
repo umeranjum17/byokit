@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- FIX: ChatGPT subscription device pairing was blocked by the plugin allowlist unless the app added the provider plugin itself. The kit now merges every offered route's provider plugin with the bridge and caller-provided plugins, without adding plugins for unoffered routes.
+
 ## 0.3.2 (2026-09-30)
 
 - Dependency update: pins @byokit/secrets 0.4.0.
