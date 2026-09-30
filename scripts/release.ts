@@ -326,8 +326,8 @@ export function lint(input: LintInput): string[] {
   for (const dir of new Set([...input.srcChanged, ...input.depsChanged])) {
     const version = input.versions?.[dir];
     if (version && !version.isPrivate && version.before !== null &&
-        (!/^\d+\.\d+\.\d+$/.test(version.after) || compareSemver(version.after, version.before) <= 0)) {
-      errors.push(`${dir}: shipped files or runtime manifest changed without a version increase`);
+        (!/^\d+\.\d+\.\d+$/.test(version.after) || compareSemver(version.after, version.before) < 0)) {
+      errors.push(`${dir}: shipped files or runtime manifest changed with an invalid or decreased version`);
     }
     const text = input.changelogs[dir];
     if (text == null) continue;
