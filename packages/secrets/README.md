@@ -1,6 +1,6 @@
 # @byokit/secrets
 
-One secret per name for apps that hold API keys: `get/set/delete(name)`. Five backends, one shape:
+One secret per name for apps that hold API keys: `get/set/delete(name)`. Platform stores plus ready Node sealing adapters:
 
 ```ts
 import { fileStore, keyringStore, overrideStore } from '@byokit/secrets';
@@ -40,6 +40,16 @@ await phone.set('openai', 'sk-…');
 ```
 
 ## Backends
+
+**Native OS keyring** (`osKeyringStore({ service })`). macOS Keychain, Windows Credential Manager and
+Linux Secret Service through the optional, exactly pinned `@napi-rs/keyring` 2.1.0 N-API binding.
+The synchronous form `osKeyring({ service })` implements `KeyringBackend` for sealing; the store form
+implements the common async API. The binding loads only on an operation. Linux explicitly requires
+`{ linux: { store: 'secret-service' } }`: no fallback to a kernel keyring that disappears on reboot.
+An absent/locked service or missing native binary throws `KeystoreError` with `code: 'unavailable'`.
+Only an actual absent entry returns null/false. Unsupported OSes throw `unsupported`.
+Names, service and values are validated before native calls; native errors are sanitized.
+Unlike the CLI backend, values ending in LF are preserved.
 
 **OS keyring** (`keyringStore`). macOS Keychain through `/usr/bin/security`, Secret Service through
 `/usr/bin/secret-tool`, each spawned by absolute path. The secret reaches the CLI only on stdin, never in
@@ -91,10 +101,111 @@ ciphertext have kit-owned formats, so pointing at an old app's database is not a
 ## Errors
 
 `KeystoreError` with `code`: `invalid` (bad name, secret, path, passphrase or options — messages name the
-entry, never the secret), `auth-failed` (wrong passphrase, tampered file or web ciphertext/key), `unsupported` (Windows keyring
-in v1), `unavailable` (missing keyring CLI, Expo peer or browser APIs), `failed` (anything else: platform
+entry, never the secret), `auth-failed` (wrong passphrase/key, tampered file or web ciphertext/key), `unsupported` (Windows CLI keyring
+or unsupported native OS), `unavailable` (missing/inaccessible native keyring, CLI, host key, Expo peer or browser APIs), `failed` (anything else: platform
 errors, timeouts, oversized output, unreadable files). Missing entries are not errors: `get` resolves null and
 `delete` resolves false.
+
+## Seal accounts files on desktop
+
+```ts
+import { fileStore } from '@byokit/accounts';
+import { osKeyringSeal } from '@byokit/secrets/node';
+
+const seal = osKeyringSeal({ service: 'Umer-desktop' });
+const accounts = fileStore('/app-owned/private/accounts.bin', seal);
+// Or directly: fileStore(path, osKeyringSeal({ service: 'Umer-desktop' })).
+```
+
+Use the app's own absolute path, with a private 0700 parent directory. Accounts 0.8.0's actual seam
+is `fileStore(path, adapter)`; the adapter synchronously implements `encryptString/decryptString`.
+Run this in Node or Electron's main process. Native calls may block or trigger OS authorization UI;
+keep them off renderer/request latency paths. Each service must be unique to an app/security context.
+`osKeyringSeal` probes access when constructed, creates a random 32-byte data key on the first write,
+and stores that key only in the OS keyring. Provider credentials remain in the sealed accounts file.
+No child process is spawned, so secrets never reach command arguments or child environments.
+The native library uses the host's OS session (including Linux D-Bus discovery); BYOKit does not read
+environment variables or configure/unlock the person's keyring.
+
+The envelope is `BKS1 | mode (1 byte) | key id (16 bytes) | sealSecretBox payload`, using
+`@byokit/seal`'s XSalsa20-Poly1305 with a fresh 24-byte nonce. The encrypted payload repeats the
+entire header and holds JSON `{ service, text }`; both header and app context are authenticated.
+Version changes, wrong keys, truncation, tampering or lost/corrupt key entries throw `auth-failed`.
+Missing native storage throws `unavailable`; there is no plaintext fallback or replacement key
+generation during decryption. The native binding never sees the file's credentials.
+
+`seal.rotateKey()` creates and verifies a fresh key, then activates it for subsequent writes.
+Old keys remain in the keyring so previous files and backups still open. Each immutable key has
+a random entry name, avoiding lost keys when two processes initialize/rotate at once; the last
+active-id update wins. A failed activation may leave an unused key. Instances re-read the active
+id on each write, so other processes pick up rotation. Rotation alone does not rewrite files:
+rewrite through accounts while holding the host's writer lock, verify, then retire old backups.
+To revoke an old key, the host deletes `byokit-seal-key-v1-<id>` through
+`osKeyring({ service }).delete(name)` only after every file using it has been migrated or retired.
+Deletion permanently prevents those backups from opening. The pointer is `byokit-seal-active-v1`;
+never delete the currently active data key. File writers still require a host lock across processes.
+
+### Binding choice and security review
+
+We evaluated platform CLIs and native bindings. The existing CLI store remains available for
+explicit host-controlled binaries/environments, but its interface is async and lacks Windows.
+The maintained [N-API keyring binding](https://github.com/Brooooooklyn/keyring-node) supplies
+prebuilt binaries for desktop architectures and direct native APIs without shell/argv secrets;
+N-API avoids a per-Electron-version ABI rebuild. Its [platform dependencies](https://github.com/Brooooooklyn/keyring-node/blob/main/Cargo.toml)
+use Keychain, Credential Manager and the same Secret Service protocol used by libsecret on Linux.
+We pin 2.1.0, whose [Linux store-selection API](https://github.com/Brooooooklyn/keyring-node#linux-backend-selection)
+lets us require persistent Secret Service. We reuse the kit's existing reviewed crypto primitive
+instead of introducing another algorithm or implementing crypto. A missing optional binding fails
+closed; hosts must bundle its platform binary with Electron and keep `.node` files outside ASAR.
+
+- Other local users: OS account isolation protects keyring data; accounts' private directories/files
+  also limit access. Privileged attackers and malware running as the same unlocked user can ask the
+  keyring to decrypt or inspect process memory; these adapters do not stop them.
+- Leaked files and backups: ciphertext alone reveals length/version/key id, but no API key.
+  Restoring it requires the original app service and retained OS keyring data (or the host key).
+  Copying both keyring material and files can defeat this protection; OS backup policy is host-owned.
+- Tampering fails authentication before accounts reads or writes a credential. Complete replay of an
+  older valid file remains possible; this adapter supplies no rollback/freshness guarantee.
+- Owned byte copies are zeroed after use; JavaScript strings, native copies and returned plaintext
+  cannot reliably be erased. Never log keys, credentials or decrypted content.
+
+Tests inject `keyring: KeyringBackend` and never use the owner's keyring. A real Linux test is opt-in
+through `sh scripts/test-keyring.sh`, which clears the environment and creates a private HOME, XDG
+tree, D-Bus and daemon control directory. The test asserts the bus is the private one and refuses
+inherited desktop settings before any native call. Setting `BYOKIT_REAL_KEYRING` alone cannot
+authorize a real test. Without an available Secret Service the opt-in test skips, unless CI requires
+the provisioned service. CI runs the same isolated harness.
+Unit coverage exercises accounts' actual fileStore, fresh nonces, rotation, wrong keys, lost keys,
+metadata tampering, persistence failures and the explicit server path. macOS/Windows native runtime
+qualification remains host/platform CI work; the native API wrapper is fake-tested on every platform.
+
+## Servers and headless Node
+
+Choose `hostKeySeal` explicitly when the server has no OS keyring. The host supplies exactly 32 bytes
+from its secret manager or an app-owned 0600 key file kept separately from the accounts data.
+There is no automatic selection, generated key file or plaintext fallback.
+
+```ts
+import { readFileSync } from 'node:fs';
+import { fileStore } from '@byokit/accounts';
+import { hostKeySeal } from '@byokit/secrets/node';
+
+// Host provisions this raw 32-byte key separately, with 0600 permissions.
+const seal = hostKeySeal({ key: readFileSync('/host-managed/keys/Umer.key'), service: 'Umer-server' });
+const accounts = fileStore('/app-owned/private/accounts.bin', seal);
+// A synchronous resolver is also supported:
+// hostKeySeal({ key: () => hostSecretCache.current32ByteKey(), service: 'Umer-server' })
+```
+
+Async secret-manager clients must resolve/cache the key before building the synchronous adapter.
+The adapter copies the host key per operation and zeroes its own copy; it never erases the host's
+bytes. A resolver failure throws sanitized `unavailable`; an invalid key length throws `invalid`.
+The host-key envelope uses the same authenticated format with mode 0 and a zero key id. It does not
+carry a key version: rotation is a host-controlled migration, decrypting with the old adapter and
+rewriting with the new adapter under the same writer lock. Retain old keys for backups as needed.
+Keep the key outside any backup/exposure boundary that includes the ciphertext; leaking both
+removes the protection. OS seals and host-key seals do not open each other's envelopes; switching
+requires this same deliberate decrypt/rewrite migration.
 
 ## Threat model
 

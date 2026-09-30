@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.3.0 (2026-09-30)
+
+
+
+- SECURITY: Provider access and refresh tokens persisted in plaintext engine stores; hosts can now pass `authSeal` from `@byokit/secrets` to seal the isolated stores while stopped and protect migration archives. Upgrade and call `prepare()` with an OS-keyring or host-owned-key adapter; protect live state and backups separately.
+- SECURITY: Verified retained-login sources are removed instead of archived in plaintext; existing confirmed copies and engine migration archives are removed or sealed on the next prepare.
+
 ## 0.2.5 (2026-09-30)
 
 - Dependency update: pins @byokit/relay 0.4.2.
@@ -13,11 +20,13 @@
 - Dependency update: pins @byokit/link 0.5.1.
 - FIX: (from @byokit/link 0.5.1) Reject an authenticated empty transport frame instead of decoding it as an empty control message.
 
+
 ## 0.2.3 (2026-09-30)
 
 
 
 - FIX: `prepare()` repairs stale engine manifests and missing or wrong-version dependencies before reusing an installed engine.
+
 
 ## 0.2.2 (2026-09-30)
 

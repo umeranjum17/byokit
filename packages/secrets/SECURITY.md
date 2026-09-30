@@ -14,7 +14,8 @@ Apps hold API keys. The store must make sure that:
 
 | Piece | Choice |
 |---|---|
-| Backends | OS keyring (`security` on macOS, `secret-tool` on Linux), passphrase file (scrypt + `sealSecretBox`), host-passed override map, Expo SecureStore and IndexedDB/WebCrypto. One secret per name. |
+| Backends | Native OS keyring (Keychain, Credential Manager, persistent Secret Service), explicit CLI keyring (`security` / `secret-tool`), passphrase file (scrypt + `sealSecretBox`), host-passed override map, Expo SecureStore and IndexedDB/WebCrypto. One secret per name. |
+| Accounts sealing | `osKeyringSeal` stores random 32-byte data keys and an active id in the native keyring; `hostKeySeal` uses a separately provisioned host key. Versioned secretbox envelopes authenticate the header and app service. Rotation retains old keys; missing/damaged keys never regenerate on decryption. See README for the reviewed format, backup and migration limits. |
 | Secret to keyring CLI | Stdin only, as raw UTF-8 bytes. Argv holds only `bin`, the verb, flags, service and name. Env holds only `PATH`, `LANG` and host-passed extras. |
 | Keyring spawn | Absolute `bin` only (PATH is never searched); argv array, no shell; env passed explicitly so `process.env` is never inherited; per-call timeout (default 10 s) kills the process group (SIGTERM, SIGKILL 5 s later); stdout capped at 1 MB; stderr keeps a 2 KB tail for logs only, never in messages. |
 | Passphrase file | `{ v: 1, kdf: 'scrypt-16384-8-1', salt: 16 fresh random bytes per save, box: sealSecretBox(JSON { entries }) }`. Atomic write: 0700 folders, 0600 temp file, rename. `openSecretBox` null → `auth-failed`, fail closed. Derived keys zeroed after use. |
@@ -32,7 +33,7 @@ Apps hold API keys. The store must make sure that:
 | **Someone reading the sealed file** | Copy it, tamper with it | Open it without the passphrase (scrypt + secretbox); tampering fails closed with `auth-failed`. Offline passphrase guessing is bounded only by passphrase strength: the KDF is scrypt-16384-8-1, not a memory-hard giant. Apps must ask the person for a strong passphrase. |
 | **A compromised environment** (poisoned `process.env`, decoy HOME) | Nothing through this kit | The kit reads no env var and inherits none into spawns; tests run it under a poisoned env and a decoy HOME with `--permission`. |
 | **A malicious keyring CLI at `bin`** | Only what the host handed it: the app passes `bin`, so a hostile path is the app's own bug | The default bins are fixed absolute OS paths. |
-| **Windows malware / another Windows user** | Out of scope: Credential Manager is unsupported in v1 | Every call rejects `unsupported` rather than falling back to plaintext. There is no plaintext fallback on any platform. |
+| **Windows malware / another Windows user** | A privileged or same-user process can access unlocked credentials | Native Credential Manager protects keys under the OS user's policy; ciphertext-only leaks cannot decrypt. The legacy CLI backend rejects `unsupported` on Windows. No plaintext fallback. |
 
 ## Known limits
 
@@ -46,8 +47,9 @@ Apps hold API keys. The store must make sure that:
    half a file) but last-writer-wins; add a file lock if two writers ever share one file.
 5. **No plaintext fallback, anywhere.** A missing keyring CLI is `unavailable`, a locked-out prompt the kit
    cannot answer is `failed`. The app shows words; the kit never retries a consent prompt.
-6. **Windows is unsupported in v1.** Credential Manager has no stable CLI the kit can drive and assert over;
-   `win32` rejects `unsupported` until a drivable, fake-testable wire exists.
+6. **Native keyrings follow the host OS session.** The pinned binding may block or prompt for authorization.
+   Missing/locked native storage rejects sanitized `unavailable`; Linux forces persistent Secret Service.
+   The legacy CLI backend alone remains unsupported on Windows.
 
 7. **Web origin access is powerful.** Non-extractability prevents exporting key bytes through WebCrypto;
    it does not stop same-origin scripts, XSS or browser extensions from asking that key to decrypt.
@@ -67,3 +69,8 @@ Apps hold API keys. The store must make sure that:
 - [ ] Browser/React Native entries bundle and run without Node imports or globals; Expo is an optional peer.
 - [ ] Fake IndexedDB tests prove encrypted storage, non-extractability, fresh IVs, tamper rejection and atomic key initialization.
 - [ ] Fake SecureStore tests prove all methods use the same options and native errors cannot expose secrets.
+- [ ] Accounts sealing tests prove fileStore integration, wrong-key/tamper failure without overwrite,
+  retained rotation keys, key read-back and explicit host-key selection on headless servers.
+- [ ] Real Secret Service testing clears inherited desktop settings, creates a private HOME/XDG/control
+  tree, and asserts the private D-Bus address before native calls; opt-in alone refuses the user bus.
+  Ordinary tests use injected fakes.

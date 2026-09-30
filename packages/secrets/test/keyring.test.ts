@@ -7,6 +7,9 @@ import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { keyringEnv, keyringStore } from '../src/index.ts';
 import { writeFakeCli, type FakeTool } from './fake-cli.ts';
+import { randomUUID } from 'node:crypto';
+import { osKeyring, osKeyringSeal } from '../src/index.ts';
+import { assertPrivateKeyringSession } from './private-session.ts';
 
 const CANARY = 'sk-canary-keyring-9f2c';
 const code = (want: string) => (e: any) => e?.code === want;
@@ -99,4 +102,41 @@ test('keyring names and secrets are validated before any spawn', async () => {
   await assert.rejects(store.get(''), code('invalid'));
   await assert.rejects(store.get('has\0nul'), code('invalid'));
   await assert.rejects(store.set('ok', 'x'.repeat(1024 * 1024 + 1)), code('invalid'));
+});
+
+// Opt in ONLY inside a disposable OS session (CI starts its own D-Bus/keyring daemon).
+// The ordinary offline suite never inspects or changes the owner's keyring.
+test('real Secret Service: native API, accounts seal and rotation', { skip: !process.env.BYOKIT_REAL_KEYRING }, (t) => {
+  if (process.platform !== 'linux') { t.skip('Linux Secret Service integration'); return; }
+  assertPrivateKeyringSession(process.env);
+  const service = `byokit-test-Umer-${randomUUID()}`;
+  const ring = osKeyring({ service });
+  try { assert.equal(ring.get('absent'), null); }
+  catch (error) {
+    if (process.env.BYOKIT_REAL_KEYRING === 'required') throw error;
+    t.skip('No Secret Service available'); return;
+  }
+  const names = new Set(['api', 'byokit-seal-active-v1']);
+  try {
+    assert.equal(ring.delete('api'), false);
+    ring.set('api', CANARY);
+    assert.equal(ring.get('api'), CANARY);
+    assert.equal(ring.delete('api'), true);
+    const tracked = {
+      get: (name: string) => ring.get(name),
+      set(name: string, value: string) { names.add(name); ring.set(name, value); },
+      delete: (name: string) => ring.delete(name),
+    };
+    const seal = osKeyringSeal({ service, keyring: tracked });
+    const old = Buffer.from(seal.encryptString(CANARY));
+    seal.rotateKey();
+    const newer = Buffer.from(seal.encryptString('rotated'));
+    const restarted = osKeyringSeal({ service });
+    assert.equal(restarted.decryptString(old), CANARY);
+    assert.equal(restarted.decryptString(newer), 'rotated');
+    newer[newer.length - 1] ^= 1;
+    assert.throws(() => restarted.decryptString(newer), code('auth-failed'));
+  } finally {
+    for (const name of names) ring.delete(name);
+  }
 });

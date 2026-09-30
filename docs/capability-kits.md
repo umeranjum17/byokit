@@ -1508,8 +1508,9 @@ later merges rebase.
 
 A secret store for Node 22.18+, React Native and browsers with one secret (a string) per name: `get/set/delete(name)`. It exists
 because `@byokit/seal` 0.1.0 is primitives only, so apps keep API keys in plaintext files. The name is
-capability-named (D-B). It only consumes seal and is independent of L-SEAL. Windows Credential Manager is
-unsupported in v1: with no explicit tool, every call on `win32` rejects `unsupported` (typed, fail closed).
+capability-named (D-B). It consumes seal and an optional native keyring binding and is independent of L-SEAL.
+Windows Credential Manager is supported by the native backend (11.7); the legacy CLI backend alone
+rejects `unsupported` on Windows (typed, fail closed).
 
 Five backends:
 
@@ -1642,6 +1643,50 @@ builds the map from `process.env` itself when it wants to; the kit never reads i
   options and sanitized errors. Fake IndexedDB plus local WebCrypto covers persistence, non-extractability,
   fresh IVs, concurrent initialization, tampering, entry swapping, aborted transactions and missing APIs.
 - `SECURITY.md` exists; the package is public at 0.2.0; build, check, test and `smoke:pack` are green.
+
+### 11.7 Desktop and server accounts sealing (0.3.0)
+
+Node-only exports add `osKeyring({ service, entry? }): KeyringBackend` (synchronous get/set/delete),
+`osKeyringStore` with the same options (async `Keystore`), and ready adapters:
+
+```ts
+export interface SealingAdapter {
+  encryptString(text: string): Uint8Array;
+  decryptString(data: Buffer): string;
+}
+export function osKeyringSeal(o: { service: string; keyring?: KeyringBackend }):
+  SealingAdapter & { rotateKey(): string };
+export function hostKeySeal(o: { key: Uint8Array | (() => Uint8Array); service?: string }): SealingAdapter;
+```
+
+These fit accounts 0.8.0's `fileStore(path, adapter)` without an accounts runtime dependency. Phone/web
+entries never import this code. Exactly pinned optional `@napi-rs/keyring` 2.1.0 supplies Keychain,
+Credential Manager and Secret Service native APIs; Linux must pass `store: 'secret-service'`, never
+the binding's implicit kernel-keyring fallback. Native code uses the OS session; the TS kit reads no
+environment variable and spawns no helper for these exports. A missing/locked backend or binding is
+sanitized `unavailable`, not a missing entry. Injectable `entry` and `keyring` are fake-only test seams.
+
+The OS seal probes availability at construction and creates a random 32-byte data key only on write.
+Immutable keys are stored as hex under `byokit-seal-key-v1-<random-16-byte-id>`, with an active id in
+`byokit-seal-active-v1`. Read-back verifies a new key before activation; concurrent creation cannot
+overwrite an existing key. No credential or generated key is stored beside the data. The wire is
+`BKS1 | mode (host=0, OS=1) | id (16) | sealSecretBox(header | JSON {service,text})`, with seal's fresh
+24-byte nonce. The header and service are authenticated. Missing/corrupt keys, wrong keys and tamper
+fail `auth-failed`; decryption never creates a replacement. Byte copies are zeroed after each operation.
+
+Rotation activates a fresh verified key, retains old keys for files/backups, and applies to every instance's
+next write. Hosts lock multi-process writers, rewrite files and retire backups before deleting old keys.
+Explicit headless selection uses `hostKeySeal` with a separately provisioned 32-byte key or synchronous
+resolver. It creates no key, saves no key and has no plaintext fallback. The host owns key rotation and
+old-key backup retention; the mode-0 wire has a zero id and no key version. Resolver failures are sanitized.
+
+Acceptance: fake-only native/keyring unit tests exercise accounts' real fileStore, rotation, tamper/wrong
+key rejection with no overwrite, dropped/failed key writes, unavailable storage and explicit headless
+sealing. Opt-in real Linux tests run in CI's own disposable D-Bus/Secret Service session, skipping when
+unavailable unless CI requires the provisioned service. `scripts/test-keyring.sh` clears inherited desktop
+settings and creates private HOME/XDG/control directories; the test asserts the private bus before any
+native call and refuses standalone opt-in. README records binding choice, threat model
+(other users, leaked files and backups), same-user/privileged attacker and rollback limits, and migrations.
 
 ## 12. `@byokit/statusbar`
 

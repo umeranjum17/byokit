@@ -9,3 +9,7 @@ export { fileStore } from './file.ts';
 export type { FileOptions } from './file.ts';
 export { writeFileAtomic } from './atomic.ts';
 export { overrideStore } from './override.ts';
+export { osKeyring, osKeyringStore } from './os-keyring.ts';
+export type { KeyringBackend, KeyringEntry, OSKeyringOptions } from './os-keyring.ts';
+export { osKeyringSeal, hostKeySeal } from './sealing.ts';
+export type { SealingAdapter, HostKey, HostKeySealOptions, OSKeyringSealOptions, OSKeyringSeal } from './sealing.ts';

@@ -54,7 +54,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D8 | Host-side kit APIs are full-power. Over a link, the pass-through (`oc.call`, `hd.call`) is **denied by default**; an app opts in with a `passThrough(method, grant)` predicate. Typed link ops are always member/scope-checked. |
 | D9 | Members. OpenClaw: a member is an app-chosen id matching `/^[a-z](?!.*--)[a-z0-9-]{0,23}$/` (no `--`, at most 24 characters, so every account agent id `<member>--<6 hex>` stays within 32), never `main`, `openclaw`, `crestodian` or starting `byokit-`; an agent that already exists under the older `/^[a-z][a-z0-9-]{0,31}$/` rule and is no member's account agent keeps working with its member agent only (D17), and no new member is created under the old rule. The id is used verbatim as the OpenClaw `agentId` of the member agent; every session key must start `agent:<member>:`, `agent:<member>--<6 hex>:` for an account agent in the member's index (5.15), or (key lane) exactly `agent:byokit-key-<member>:`; sign-ins are per agent (OpenClaw per-agent auth). Herdr: no member concept upstream; a link grant carries `meta.scope = { workspaces: 'all' \| string[] }`. |
 | D10 | Approvals. OpenClaw: (a) the kit's fail-closed tool bridge (Crewhouse's plugin hook → unix socket → app `gate()`), extended with a parked `ask` result; (b) OpenClaw's native `exec.approval.*`, `plugin.approval.*`, `question.*` surfaced through the same `Approval` shape. Herdr: an agent in `blocked` state is an approval; the answer is keys sent to that exact pane occupant (revision-checked). |
-| D11 | Sign-in. OpenClaw: the kit drives OpenClaw's own `openclaw.setup.auth.start` + `wizard.next` loop and holds the ChatGPT callback port during a browser sign-in; subscription credentials never pass through kit or app. Explicit API-key entry passes a secret only to typed `setup.activate`, never to kit storage, logs or return values (5.15). Herdr: each agent CLI's own login, done by the person inside that agent's pane (terminal stream); the kit never runs a login command, never copies credentials between homes, and never reads a CLI's credential files. |
+| D11 | Sign-in. OpenClaw: the kit drives OpenClaw's own `openclaw.setup.auth.start` + `wizard.next` loop and holds the ChatGPT callback port during a browser sign-in; credentials are owned by the engine; an optional host-injected seal sees bytes only to protect the isolated store at rest. Explicit API-key entry passes a secret only to typed `setup.activate`, never to kit storage, logs or return values (5.15). Herdr: each agent CLI's own login, done by the person inside that agent's pane (terminal stream); the kit never runs a login command, never copies credentials between homes, and never reads a CLI's credential files. |
 | D12 | Route policy is data, not code: `packages/openclaw/src/routes.json` labels every pinned auth choice (`subscription` / `api` / `local`, prerequisite, `offer`). The kit **labels and never decides for an app** (CONTRIBUTING): `signIn` accepts any pinned auth choice, while the ready-made `./link` and example UI list only `offer: true` routes. Claude-plan routes (`anthropic-cli`, `setup-token`) are `billing: 'subscription'`, `offer: false` with reason "byokit never adds Claude plan sign-in"; an app may still pass them explicitly, though the 2026.8.1 Gateway does not offer them through `openclaw.setup.auth.start`. |
 | D13 | Library code reads no environment variables except `PATH`, and only to locate `npm` for the engine install when `npmPath` is not given. Every spawned process gets an explicit env; `process.env` is never inherited. The Herdr binary path is always an explicit option. |
 | D14 | `npm test` stays network-free. Tests needing the real engine (network `npm ci` of the pin, loopback only afterwards) run under `npm run test:engine` in a separate CI job `openclaw-engine`. Real-Herdr contract runs happen only in an isolated lab under a `--herdr-lab` brief, never in CI and never against a person's Herdr. |
@@ -302,6 +302,7 @@ export interface GatewayTransport {
 ```ts
 export type KitOptions = {
   stateDir: string;
+  authSeal?: SealingAdapter;                       // @byokit/secrets seal: engine state/home sealed while stopped
   engineDir?: string;                    // default join(stateDir, 'openclaw', 'engine')
   npmPath?: string;                      // default: 'npm' found on PATH (the only env read, D13)
   enginePath?: string[];                 // extra dirs appended to the engine's PATH ('/usr/bin:/bin')
@@ -503,6 +504,20 @@ the view fails with `why: 'busy'`. Mapping to `SignInView.why`: setup-admission-
 (`byokit.accounts list`; from O14, 5.15). `signIn`, `signedIn`, `providers` and `signOut` address the
 member agent, whose sign-in to a provider is that provider's first account (5.15); `addAccount` adds any further one.
 
+**Credential sealing**: `authSeal` takes the `@byokit/secrets` `SealingAdapter` interface (OS keyring or host-owned key),
+never a kit-created key. The pinned engine has no supported OAuth persistence hook: it stores JSON in both
+agent SQLite and the shared state SQLite database. The kit seals the complete isolated `state` and `home`
+directories, including SQLite journals, at rest. `prepare()` seals existing plaintext stores and migration
+archives; `start()` authenticates the sealed snapshot before restoring files (0600, directories 0700).
+`stop()` waits for engine exit, writes and verifies a sealed snapshot atomically, then removes plaintext.
+An offline migration doctor temporarily opens the same store and reseals it in `finally`. A sealing failure
+rejects the operation rather than claiming stopped; the plaintext is retained for recovery. Abrupt host
+termination cannot run cleanup: next prepare authenticates the previous snapshot before sealing the
+remaining live files. Only one kit may own the sealed store at a time. Disabling the adapter on a sealed
+store rejects; there is no silent plaintext fallback. Existing engine migration archives and retained
+copies under `stateDir` are sealed with an event through `log`; sealed archives are never restored for
+the engine. External retained sources are touched only when explicitly passed to migration/confirmation.
+
 **Retained-login migration** (D15), Crewhouse `migrate`/`confirm` generalized:
 
 - `migrateRetainedLogin(member, source)` must run **before** `start()` (doctor refuses while a Gateway owns the
@@ -510,11 +525,11 @@ member agent, whose sign-in to a provider is that provider's first account (5.15
   `'nothing'`. `prepare()` first (never import without the engine). Stage `state/agents/<member>/agent/auth-profiles.json`
   (0600) as `{ version: 1, profiles: { '<provider>:default': credential } }` unless already staged; a `.moved-to-engine`
   source without `openai-codex` → `'nothing'`. Run doctor `--fix --yes --non-interactive` (120 s). Non-zero → delete
-  the staging, return `'failed'` (the original stays byte-identical). Zero → `'staged'`.
+  the staging, return `'failed'` (the original stays byte-identical). Zero → `'staged'`. With `authSeal`, the staging and imported store are resealed before returning.
 - `confirmRetainedLogin(member, source)` after `ready`: wanted providers = source keys mapped `openai-codex → openai`,
   else the provider map, else lower-case key; empty → `false`. Up to 3 × (`models.authStatus { agentId, refresh: true }`,
-  1.5 s apart); all present → for a path source rename `path → path.moved-to-engine` (if not already) and write the
-  empty `.canonicalized` marker, return `true`. Record sources return `true` and the app deletes its own copy.
+  1.5 s apart); all present → for a path source remove the verified original and any retained copy, and write the
+  empty `.canonicalized` marker, return `true`. No plaintext archive is created. Record sources return `true` and the app deletes its own copy.
   Anything else → `false`, nothing moves; the next boot retries without a second sign-in.
 
 ### 5.8 Runs, members and streams

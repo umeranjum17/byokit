@@ -150,3 +150,135 @@ test('prepare defaults to bridge.sock/__byokit and honors explicit bridge option
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// An opaque fake: only its in-memory map can recover bytes, and changed ciphertext is rejected.
+function fakeSeal() {
+  const values = new Map<string, string>();
+  let n = 0;
+  return {
+    encryptString(text: string) {
+      const id = `opaque-${++n}`;
+      values.set(id, text);
+      return new TextEncoder().encode(id);
+    },
+    decryptString(bytes: Buffer) {
+      const value = values.get(new TextDecoder().decode(bytes));
+      if (value === undefined) throw new Error('authentication failed');
+      return value;
+    },
+  };
+}
+
+test('sealed engine store covers SQLite, journals, JSON and isolated home; stop, prepare and restart retain no plaintext at rest', async () => {
+  const dir = scratchDir('seal');
+  const seal = fakeSeal();
+  const o = { stateDir: dir, authSeal: seal, pluginId: 'byokit', tools: [], spawnEngine: false, onState() {}, onExit() {} };
+  const engine = new Engine(o);
+  const agent = join(engine.root, 'state', 'agents', 'm1', 'agent');
+  const secret = 'access-token-canary-and-refresh-token';
+  mkdirSync(agent, { recursive: true });
+  mkdirSync(join(engine.root, 'home', '.codex'), { recursive: true });
+  for (const name of ['openclaw-agent.sqlite', 'openclaw-agent.sqlite-wal', 'auth-profiles.json']) writeFileSync(join(agent, name), secret);
+  writeFileSync(join(engine.root, 'state', 'openclaw.sqlite'), secret);
+  writeFileSync(join(engine.root, 'home', '.codex', 'auth.json'), secret);
+  await engine.prepare();
+  assert.equal(existsSync(join(engine.root, 'state')), false);
+  assert.equal(existsSync(join(engine.root, 'home')), false);
+  const sealed = join(engine.root, 'auth-store.sealed');
+  assert.equal(readFileSync(sealed).includes(secret), false);
+  await engine.prepare(); // must not replace the saved store with newly created empty directories
+  await engine.start();
+  assert.equal(readFileSync(join(agent, 'openclaw-agent.sqlite-wal'), 'utf8'), secret);
+  const { statSync } = await import('node:fs');
+  assert.equal(statSync(join(agent, 'openclaw-agent.sqlite')).mode & 0o777, 0o600);
+  assert.equal(statSync(agent).mode & 0o777, 0o700);
+  writeFileSync(join(agent, 'openclaw-agent.sqlite'), 'refreshed-token-canary');
+  await engine.stop();
+  assert.equal(existsSync(agent), false);
+  const restarted = new Engine(o);
+  await restarted.start();
+  assert.equal(readFileSync(join(agent, 'openclaw-agent.sqlite'), 'utf8'), 'refreshed-token-canary');
+  await restarted.stop();
+  assert.equal(existsSync(join(engine.root, 'home')), false);
+  assert.equal(readFileSync(sealed).includes(secret), false);
+  await assert.rejects(new Engine({ ...o, authSeal: undefined }).start(), /authSeal required/);
+  await restarted.start();
+  assert.equal(readFileSync(join(agent, 'openclaw-agent.sqlite'), 'utf8'), 'refreshed-token-canary', 'refusing a missing adapter cannot replace the snapshot with empty directories');
+  await restarted.stop();
+  // A power loss between removing the two live trees must retain the completed snapshot.
+  mkdirSync(join(engine.root, 'state'));
+  writeFileSync(join(engine.root, 'auth-store.cleanup'), '1');
+  await restarted.prepare();
+  await restarted.start();
+  assert.equal(readFileSync(join(agent, 'openclaw-agent.sqlite'), 'utf8'), 'refreshed-token-canary');
+  await restarted.stop();
+  writeFileSync(sealed, 'tampered');
+  await assert.rejects(new Engine(o).start(), /authentication failed/);
+  assert.equal(existsSync(agent), false, 'tamper rejection happens before any plaintext is restored');
+  writeFileSync(sealed, seal.encryptString(JSON.stringify({ v: 1, dirs: ['state'], files: [['state/../escape', 'dG9rZW4=']] })));
+  await assert.rejects(new Engine(o).start(), /invalid sealed credential file/);
+  assert.equal(existsSync(join(engine.root, 'escape')), false);
+
+});
+
+test('sealing rejects concurrent owners and symlinks, and does not claim stopped when the seal fails', async () => {
+  const dir = scratchDir('seal-errors');
+  const seal = fakeSeal();
+  let fail = false;
+  const states: string[] = [];
+  const o = { stateDir: dir, authSeal: { decryptString: seal.decryptString, encryptString: (text: string) => {
+    if (fail) throw new Error('key unavailable');
+    return seal.encryptString(text);
+  } }, pluginId: 'byokit', tools: [], spawnEngine: false, onState(s: { phase: string }) { states.push(s.phase); }, onExit() {} };
+  const engine = new Engine(o);
+  await engine.start();
+  const other = new Engine(o);
+  await assert.rejects(other.start(), /credential store is in use/);
+  writeFileSync(join(engine.root, 'state', 'auth.json'), 'still-recoverable');
+  fail = true;
+  await assert.rejects(engine.stop(), /key unavailable/);
+  assert.equal(states.includes('stopped'), false);
+  assert.equal(readFileSync(join(engine.root, 'state', 'auth.json'), 'utf8'), 'still-recoverable');
+  fail = false;
+  await engine.stop();
+  const { symlinkSync } = await import('node:fs');
+  mkdirSync(join(engine.root, 'state'));
+  symlinkSync(join(engine.root, 'token'), join(engine.root, 'state', 'auth.json'));
+  await assert.rejects(engine.prepare(), /regular files/);
+  rmSync(join(engine.root, 'state'), { recursive: true });
+});
+
+test('prepare seals old auth archives and offline migration reseals even after a doctor failure', async () => {
+  const { migrateRetainedLogin, confirmRetainedLogin } = await import('../src/migrate.ts');
+  const dir = scratchDir('seal-migrate');
+  const seal = fakeSeal();
+  const events: string[] = [];
+  const engine = new Engine({ stateDir: dir, authSeal: seal, pluginId: 'byokit', tools: [], spawnEngine: false,
+    log: (line) => events.push(line), onState() {}, onExit() {} });
+  const source = join(dir, 'legacy.json');
+  const moved = source + '.moved-to-engine';
+  writeFileSync(moved, JSON.stringify({ 'openai-codex': { type: 'oauth', access: 'migration-access', refresh: 'migration-refresh' } }));
+  const agent = join(engine.root, 'state', 'agents', 'm1', 'agent');
+  mkdirSync(agent, { recursive: true });
+  writeFileSync(join(agent, 'auth-profiles.json.migrated-old'), 'migration-access');
+  writeFileSync(join(agent, 'auth.json.sqlite-import.old.bak'), 'migration-refresh');
+  await engine.prepare();
+  assert.equal(existsSync(moved), false);
+  assert.equal(existsSync(moved + '.sealed'), true);
+  assert.equal(events.filter((line) => line === 'credential archive sealed').length, 3);
+  const ctx = { root: engine.root, seal, prepare: () => engine.prepare(),
+    withStore: <T>(task: () => Promise<T>) => engine.withAuthStore(task), doctor: () => ({ status: 1 }) };
+  assert.equal(await migrateRetainedLogin(ctx, 'm1', { path: source }), 'failed');
+  assert.equal(existsSync(join(engine.root, 'state')), false, 'doctor failure reseals the store');
+  assert.ok(seal.decryptString(readFileSync(moved + '.sealed')), 'unconfirmed legacy copy remains recoverable');
+  assert.equal(await migrateRetainedLogin({ ...ctx, doctor: () => ({ status: 0 }) }, 'm1', { path: source }), 'staged');
+  assert.equal(existsSync(join(agent, 'auth-profiles.json')), false);
+  await engine.start();
+  assert.match(readFileSync(join(agent, 'auth-profiles.json'), 'utf8'), /migration-access/);
+  assert.equal(existsSync(join(agent, 'auth-profiles.json.migrated-old')), false, 'archives are never restored as live sources');
+  assert.equal(await confirmRetainedLogin({ seal, callbackPort: 0, ensure: async () => ({ agentId: 'm1' }),
+    request: async () => ({ providers: ['openai'] }) }, 'm1', { path: source }), true);
+  assert.equal(existsSync(moved + '.sealed'), false);
+  assert.equal(existsSync(moved + '.canonicalized'), true);
+  await engine.stop();
+});
