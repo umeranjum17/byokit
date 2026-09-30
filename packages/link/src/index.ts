@@ -8,6 +8,7 @@ export {
 } from './device.ts';
 export { cleanName, decodeOffer, encodeOffer, normalizeCode, offerText, parseOffer } from './pairing.ts';
 export { LinkStream, WINDOW } from './stream.ts';
+export { check, LINK_PROBE, LINK_PROBE_OK, type CheckOptions, type CheckResult } from './check.ts';
 export type { PairOffer } from './pairing.ts';
 export { browserDeviceStore, browserDeviceStores, secureDeviceStore, secureDeviceStores, type DeviceStores, type KeptDevice, type SecureStoreLike } from './stores.ts';
 export { migrateGrant, GrantMigrationError, type GrantMigrationProblem } from './migrate.ts';
