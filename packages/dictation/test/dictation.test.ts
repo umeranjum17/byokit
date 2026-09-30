@@ -9,7 +9,7 @@ import fixture from '../../../fixtures/conformance/dictation-typescript.json' wi
 import { Dictation, DictateError, settleWords, applyWordReplacements, routes, systemEngine, installModel, type DictateSegment } from '../src/index.ts';
 import { chatgptEngine, openaiEngine, openrouterEngine, whisperEngine } from '../src/node.ts';
 import { fakeEngine, fakeMic } from '../src/testing.ts';
-import { wav } from '../src/text.ts';
+import { wav, mergeOverlap } from '../src/text.ts';
 import { whisperRnEngine, whisperSettings, type WhisperRnContext, type WhisperRnDecodeOptions, type WhisperSettings } from '../src/whisper.ts';
 import { wordErrorRate, runWer, checkWerRegression } from '../src/wer.ts';
 const tick = () => new Promise<void>(r => setImmediate(r));
@@ -17,6 +17,7 @@ async function until(fn: () => boolean) { for (let i = 0; i < 200; i++) { if (fn
 
 test('fixture: stable partials and whole-word final corrections', () => {
   for (const f of fixture.partials) assert.equal(settleWords(f.shown, f.previous, f.next), f.want);
+  for (const f of fixture.joins) assert.equal(mergeOverlap(f.previous, f.next), f.want);
   assert.equal(applyWordReplacements(fixture.replacements.text, fixture.replacements.map), fixture.replacements.want);
   assert.equal(applyWordReplacements('c++ is useful, ac++b', { 'c++': 'C Plus Plus' }), 'C Plus Plus is useful, ac++b');
   assert.deepEqual(routes().filter(r => r.offer).map(r => r.id), ['system', 'whisper', 'chatgpt']);
@@ -246,14 +247,96 @@ test('tuned Whisper keeps quiet audio across pauses, rereads the whole recording
   mic.push({ data: new Int16Array(16000).fill(150), at: 0 }); await until(() => reads.length === 1);
   mic.push({ data: new Int16Array(31 * 16000), at: 1000 }); await until(() => levels === 2);
   assert.equal(finals, 0);
-  mic.push({ data: new Int16Array(16000).fill(150), at: 32000 }); await until(() => reads.length === 2);
+  mic.push({ data: new Int16Array(16000).fill(150), at: 32000 }); await until(() => reads.length === 3);
   assert.equal(reads[0].decode.prompt, ''); assert.equal(reads[1].decode.prompt, '');
   const result = await handle.finish();
-  assert.equal(reads.length, 3); assert.equal(reads[2].bytes, 33 * 16000 * 2);
-  assert.equal(reads[2].decode.prompt, 'AppWord Context ExtraWord');
-  assert.equal(reads[2].decode.language, 'en'); assert.equal(reads[2].decode.audioCtx, 0);
-  assert.ok(!('beamSize' in reads[2].decode)); assert.equal(reads[2].decode.tokenTimestamps, false); assert.equal(reads[2].decode.maxLen, 0);
+  assert.equal(reads.length, 5); assert.equal(reads[3].bytes, 30 * 16000 * 2); assert.equal(reads[4].bytes, 8 * 16000 * 2);
+  assert.equal(reads[3].decode.prompt, 'AppWord Context ExtraWord');
+  assert.equal(reads[3].decode.language, 'en'); assert.equal(reads[3].decode.audioCtx, 0);
+  assert.ok(!('beamSize' in reads[3].decode)); assert.equal(reads[3].decode.tokenTimestamps, false); assert.equal(reads[3].decode.maxLen, 0);
   assert.equal(result.text, 'complete recording'); assert.equal(result.durationMs, 33000); assert.equal(finals, 1);
+  await engine.release();
+});
+
+test('long live Whisper finals cover every sample, merge joins, and enforce the configurable complete capture limit', async () => {
+  const reads: { seconds: number; first: number; last: number; decode: WhisperRnDecodeOptions }[] = [];
+  const readings = ['Begin here. Open the settings and press sa', 'the settings and press save. Then read the report and send it', 'read the report and send it tomorrow.'];
+  const engine = whisperRnEngine({ model: 42, settings: { vocabulary: ['AppWord'] }, async initWhisper() {
+    return { async release() {}, transcribeData(data, decode) {
+      const view = new DataView(data), text = readings[reads.length % readings.length];
+      reads.push({ seconds: data.byteLength / 32000, first: view.getInt16(0, true), last: view.getInt16(data.byteLength - 2, true), decode });
+      return { async stop() {}, promise: Promise.resolve({ result: text, segments: [{ text, t0: 9999, t1: 10000 }] }) };
+    } };
+  } });
+  const mic = fakeMic(), dictation = new Dictation({ engine, audio: mic.audio });
+  for (const maxSeconds of [0, -1, NaN, Infinity]) {
+    assert.throws(() => dictation.listen({ maxSeconds }), (e: DictateError) => e.code === 'unsupported');
+    assert.equal(dictation.state.phase, 'idle');
+  }
+  const handle = dictation.listen(); await tick();
+  const pcm = new Int16Array(61 * 16000);
+  for (let second = 0; second < 61; second++) pcm.fill(second + 1, second * 16000, (second + 1) * 16000);
+  let frames = 0; handle.on('level', () => frames++);
+  mic.push({ data: pcm, at: 0 }); await until(() => frames === 1);
+  const result = await handle.finish();
+  assert.deepEqual(reads.map(r => [r.seconds, r.first, r.last]), [[30, 1, 30], [30, 26, 55], [11, 51, 61]]);
+  assert.equal(result.text, 'Begin here. Open the settings and press save. Then read the report and send it tomorrow.');
+  assert.equal(result.segments.map(s => s.text).join(' '), result.text);
+  assert.equal(result.durationMs, 61000); assert.equal(mic.stops, 1);
+  for (const { decode } of reads) {
+    assert.equal(decode.audioCtx, 0); assert.equal(decode.tokenTimestamps, false); assert.equal(decode.maxLen, 0);
+    assert.equal(decode.language, 'en'); assert.ok(!('beamSize' in decode)); assert.equal(decode.prompt, 'AppWord');
+  }
+  // Exact default/custom boundaries pass; one additional sample fails before inference.
+  for (const [maxSeconds, seconds, reject] of [[undefined, 300, false], [undefined, 300 + 1 / 16000, true], [360, 360, false], [90, 90, false], [60, 61, true]] as const) {
+    const silent = fakeMic(), live = new Dictation({ engine, audio: silent.audio }).listen({ maxSeconds });
+    let levels = 0; live.on('level', () => levels++); await tick();
+    silent.push({ data: new Int16Array(Math.round(seconds * 16000)), at: 0 }); await until(() => levels === 1);
+    if (reject) await assert.rejects(live.finish(), (e: DictateError) => e.code === 'too-large');
+    else assert.equal((await live.finish()).durationMs, seconds * 1000);
+    assert.equal(silent.stops, 1); assert.equal(reads.length, 3);
+  }
+  const silent = fakeMic(), fake = fakeEngine([]), live = new Dictation({ engine: fake.engine, audio: silent.audio }).listen({ maxSeconds: 2 });
+  let framesSeen = 0; live.on('level', () => framesSeen++); await tick();
+  silent.push({ data: new Int16Array(2 * 16000), at: 0 }); await until(() => framesSeen === 1);
+  silent.push({ data: new Int16Array(1), at: 2000 }); await until(() => framesSeen === 2);
+  await assert.rejects(live.finish(), (e: DictateError) => e.code === 'too-large');
+  assert.equal(silent.stops, 1); assert.equal(fake.calls.length, 0);
+  await engine.release();
+});
+
+test('stopping during a Whisper preview drains all queued capture into one fresh final pass', async () => {
+  const reads: Int16Array[] = [];
+  let settlePreview!: () => void;
+  const engine = whisperRnEngine({ model: 1, async initWhisper() {
+    return { async release() {}, transcribeData(data) {
+      const view = new DataView(data), pcm = new Int16Array(data.byteLength / 2);
+      for (let i = 0; i < pcm.length; i++) pcm[i] = view.getInt16(i * 2, true);
+      reads.push(pcm);
+      const promise = reads.length === 1 ? new Promise<{ result: string; segments: [] }>(resolve => {
+        settlePreview = () => resolve({ result: 'first', segments: [] });
+      }) : Promise.resolve({ result: 'complete final', segments: [] });
+      return { async stop() { settlePreview(); }, promise };
+    } };
+  } });
+  const mic = fakeMic(), dictate = new Dictation({ engine, audio: mic.audio }), handle = dictate.listen({ onDeviceOnly: true });
+  await tick();
+  mic.push({ data: new Int16Array(16000).fill(1000), at: 0 }); await until(() => reads.length === 1);
+  mic.push({ data: new Int16Array(16000).fill(2000), at: 1000 });
+  mic.push({ data: new Int16Array(16000).fill(3000), at: 2000 });
+  const finishing = handle.finish(); assert.equal(handle.finish(), finishing);
+  settlePreview();
+  const result = await finishing;
+  assert.equal(reads.length, 2); assert.equal(reads[1].length, 3 * 16000);
+  assert.deepEqual([reads[1][0], reads[1][16000], reads[1][32000]], [1000, 2000, 3000]);
+  assert.equal(result.text, 'complete final'); assert.equal(result.durationMs, 3000); assert.equal(result.usage.audioMs, 3000);
+  assert.equal(mic.stops, 1); assert.equal(dictate.state.phase, 'idle');
+  // Cancel, without a following finish(), also stops capture but discards its queue.
+  const cancelledMic = fakeMic(), cancelling = new Dictation({ engine, audio: cancelledMic.audio });
+  const cancelled = cancelling.listen(); await tick(); cancelled.cancel();
+  await until(() => cancelling.state.phase === 'idle'); assert.equal(cancelledMic.stops, 1);
+  await assert.rejects(cancelled.finish(), (e: DictateError) => e.code === 'cancelled');
+  assert.equal(reads.length, 2);
   await engine.release();
 });
 

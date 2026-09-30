@@ -28,6 +28,8 @@ export class Dictation {
   }
   listen(o: DictateOptions = {}): DictationHandle {
     this.local(o);
+    const maxSeconds = o.maxSeconds ?? 300;
+    if (!Number.isFinite(maxSeconds) || maxSeconds <= 0) throw new DictateError('unsupported');
     if (this.state.phase !== 'idle') throw new DictateError('mic-busy');
     o.signal?.throwIfAborted();
     if (!this.engine.start && !this.audio) throw new DictateError('unsupported');
@@ -82,9 +84,9 @@ export class Dictation {
       if (cancelled || stopped) { await stream.stop(); return; }
     })();
     const capture = ready.then(async () => {
-      if (!stream || stopped || cancelled) return;
+      if (!stream || cancelled) return;
       for await (const frame of stream) {
-        if (stopped || cancelled) break;
+        if (cancelled) break;
         const rawLevel = rms(frame.data, 1);
         peakLevel = Math.max(peakLevel, rawLevel);
         const level = Math.min(1, rawLevel * 4);
@@ -95,8 +97,11 @@ export class Dictation {
           if (!speechAt) emit({ type: 'turn', phase: 'start' });
           speechAt = samples; silence = 0;
         } else silence += frame.data.length;
-        // Cap the live window independently of provider file-size limits.
-        if (samples > 60 * 16000) throw new DictateError('too-large');
+        // Bound the complete capture, including silence and already settled turns.
+        if (usage.audioMs > maxSeconds * 1000) throw new DictateError('too-large');
+        // stop() ends production, while the iterator drains captured frames.
+        // Finish must retain that tail without scheduling more live previews.
+        if (stopped) continue;
         if (!wholeFinal && speechAt && silence >= silenceSamples) await read(true);
         else if (this.engine.info.streaming === 'reread' && speechAt > readAt && samples - readAt >= 16000) await read(false);
         else if (!wholeFinal && !speechAt && silence >= silenceSamples) { offset += samples / 16; chunks = []; samples = silence = 0; }
@@ -106,6 +111,7 @@ export class Dictation {
     const cancel = () => {
       if (cancelled || this.state.phase === 'idle') return;
       cancelled = stopped = true; controller.abort(); native?.cancel();
+      void stream?.stop().catch(() => {});
       void Promise.all([ready.catch(() => {}), capture]).then(cleanup).catch(() => { this.stateTo('idle'); });
     };
     const abort = () => cancel();

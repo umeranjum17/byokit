@@ -1,5 +1,14 @@
 {
-  "rule": "Partials expose only the prefix agreed by two readings and never retract shown words. Finals apply whole-word replacements only. Finishing after silence does not re-read unchanged speech; cancelling returns no text and stops capture.",
+  "rule": "Partials expose only the prefix agreed by two readings and never retract shown words. Finals apply whole-word replacements only. Finishing drains every captured frame, including frames queued during an in-flight preview, before final inference. Finishing after silence does not re-read unchanged speech; cancelling discards queued frames, returns no text and stops capture. Live PCM capture includes silence and settled turns in a positive finite maxSeconds limit, default 300; exceeding it stops capture with too-large. Default Whisper finals use 30-second windows with 5-second overlap, align shared words without token timestamp cuts, and preserve full model context per window.",
+  "joins": [
+    {"previous":"Open the settings and press Save.", "next":"the settings and press save. Then close the window.", "want":"Open the settings and press Save. Then close the window."},
+    {"previous":"Go to the settings and press sa", "next":"the settings and press save before leaving.", "want":"Go to the settings and press save before leaving."},
+    {"previous":"Read the note. Go go go.", "next":"Go go go. Then stop.", "want":"Read the note. Go go go. Then stop."},
+    {"previous":"Please open the settings screen and save our file.", "next":"the settings screen and save your file. Then close the window.", "want":"Please open the settings screen and save your file. Then close the window."},
+    {"previous":"Keep this sentence.", "next":"Another unrelated sentence follows.", "want":"Keep this sentence. Another unrelated sentence follows."},
+    {"previous":"Open the settings screen. Keep all these later words in order.", "next":"Open the settings screen. Start a different task now.", "want":"Open the settings screen. Keep all these later words in order. Open the settings screen. Start a different task now."},
+    {"previous":"First check the build and open the log.", "next":"ild and open the log. Send the result.", "want":"First check the build and open the log. Send the result."}
+  ],
   "partials": [
     {"shown":"", "previous":"hello world", "next":"Hello world again", "want":"Hello world"},
     {"shown":"Hello world", "previous":"Hello world again", "next":"hello there", "want":"Hello world"},

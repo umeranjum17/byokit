@@ -1,4 +1,5 @@
 import { DictateError, type DictateEngine, type DictateInput, type DictateOptions, type DictateSegment, type DictateTranscript } from './types.ts';
+import { mergeOverlap } from './text.ts';
 
 /** Recommended model identity; the host still supplies its file/asset, never a discovered path. */
 export const DEFAULT_WHISPER_MODEL = 'base.en-q5_1';
@@ -123,16 +124,31 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
   checkAbort(o.signal);
   const segments: DictateSegment[] = [];
   let text = '', language: string | undefined;
-  const chunkSamples = s.chunkMs ? s.chunkMs * 16 : pcm.length;
+  const chunkSamples = (s.chunkMs || 30_000) * 16;
   for (const [start, end] of speechRanges(pcm, s)) {
-    for (let at = start; at < end; at += chunkSamples) {
+    const prefix = segments.map(segment => segment.text).join(' ');
+    const overlap = !s.chunkMs && end - start > chunkSamples ? 5_000 * 16 : 0;
+    let rangeText = '';
+    for (let at = start; at < end; at += chunkSamples - overlap) {
       checkAbort(o.signal);
       const chunk = pcm.slice(at, Math.min(end, at + chunkSamples));
-      const result = await run(chunk, whisperDecodeOptions(s, o, text));
+      // Automatic overlapping windows are fresh final readings. Feeding their
+      // overlap back as a prompt makes Whisper suppress it as already-known text.
+      const result = await run(chunk, whisperDecodeOptions(s, o, s.chunkMs ? text : ''));
       checkAbort(o.signal);
       if (result.isAborted) throw new DictateError('cancelled');
       language = result.language ?? language;
-      text = [text, result.result.trim()].filter(Boolean).join(' ');
+      rangeText = overlap && at > start ? mergeOverlap(rangeText, result.result) : [rangeText, result.result.trim()].filter(Boolean).join(' ');
+      text = [prefix, rangeText].filter(Boolean).join(' ');
+      if (overlap) {
+        // A merged range has range-level offsets, not fabricated word cuts from
+        // native segment metadata. Its text must agree with transcript.text.
+        if (at + chunkSamples >= end) {
+          segments.push({ id: String(segments.length), text: rangeText, final: true, language, startMs: start / 16, endMs: end / 16 });
+          break;
+        }
+        continue;
+      }
       const nativeSegments = result.segments.length ? result.segments : [{ text: result.result, t0: 0, t1: chunk.length / 160 }];
       for (const segment of nativeSegments) {
         segments.push({ id: String(segments.length), text: segment.text.trim(), final: true, language,
@@ -140,6 +156,7 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
       }
     }
   }
+  text = segments.map(segment => segment.text).join(' ').trim();
   return { text, segments, language, durationMs: pcm.length / 16, usage: { audioMs: pcm.length / 16, basis: 'free' } };
 }
 

@@ -1,4 +1,51 @@
 const wordKey = (word: string) => word.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+/** Align decoded overlap text, allowing clipped words at either window's edge.
+ * No token timestamps: retain the prefix through a shared phrase and continue
+ * from the later window, which has more audio context for the first window's tail.
+ */
+export function mergeOverlap(previous: string, next: string): string {
+  const before = previous.trim().split(/\s+/).filter(Boolean);
+  const after = next.trim().split(/\s+/).filter(Boolean);
+  const offset = Math.max(0, before.length - 40);
+  const a = before.slice(offset).map(wordKey), b = after.slice(0, 40).map(wordKey);
+  let exact = 0;
+  for (let count = 1; count <= Math.min(a.length, b.length); count++) {
+    if (a.slice(-count).every((word, i) => word && word === b[i])) exact = count;
+  }
+  if (exact >= 3) return [...before, ...after.slice(exact)].join(' ');
+  // Semi-global word alignment: only a suffix of the earlier reading can
+  // overlap a prefix of the later one. Penalize substitutions and skipped words
+  // so a repeated phrase in the middle cannot swallow unrelated trailing text.
+  const scores = Array.from({ length: a.length + 1 }, () => new Int16Array(b.length + 1));
+  const steps = Array.from({ length: a.length + 1 }, () => new Uint8Array(b.length + 1));
+  for (let j = 1; j <= b.length; j++) scores[0][j] = -2 * j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      const match = a[i - 1] && a[i - 1] === b[j - 1];
+      const diagonal = scores[i - 1][j - 1] + (match ? 3 : -2);
+      const up = scores[i - 1][j] - 2, left = scores[i][j - 1] - 2;
+      scores[i][j] = Math.max(diagonal, up, left);
+      steps[i][j] = diagonal >= up && diagonal >= left ? 0 : up >= left ? 1 : 2;
+    }
+  }
+  let end = 0;
+  for (let j = 1; j <= b.length; j++) if (scores[a.length][j] > scores[a.length][end]) end = j;
+  const matches: [number, number][] = [];
+  for (let i = a.length, j = end; i > 0 && j > 0;) {
+    const step = steps[i][j];
+    if (step === 0) {
+      i--; j--;
+      if (a[i] && a[i] === b[j]) matches.push([offset + i, j]);
+    } else if (step === 1) i--;
+    else j--;
+  }
+  if (matches.length >= 3 && scores[a.length][end] >= matches.length * 1.5) {
+    // Join inside the agreed overlap, away from either clipped audio edge.
+    const [left, right] = matches[Math.floor(matches.length / 2)];
+    return [...before.slice(0, left + 1), ...after.slice(right + 1)].join(' ');
+  }
+  return [...before, ...after.slice(exact)].join(' ');
+}
 /** Lifted from muxr: expose only agreeing words without retracting the prefix. */
 export function settleWords(shown: string, previous: string, next: string): string {
   const before = previous.split(/\s+/).filter(Boolean);

@@ -1,6 +1,8 @@
 export type DictateEngineId = 'system' | 'whisper' | 'openai' | 'openrouter' | 'chatgpt';
 export type DictateEngineInfo = { id: DictateEngineId; model?: string; onDevice: boolean; streaming: 'native' | 'reread' | 'utterance'; account: 'plan' | 'key' | 'none' };
-export type DictateOptions = { languages?: string[]; prompt?: string; keywords?: string[]; replacements?: Record<string, string>; punctuation?: boolean; timestamps?: 'none' | 'segment' | 'word'; onDeviceOnly?: boolean; signal?: AbortSignal };
+export type DictateOptions = { languages?: string[]; prompt?: string; keywords?: string[]; replacements?: Record<string, string>; punctuation?: boolean; timestamps?: 'none' | 'segment' | 'word'; onDeviceOnly?: boolean; signal?: AbortSignal;
+  /** Live PCM capture limit, including silence, in seconds. Defaults to 300; finite and positive. */
+  maxSeconds?: number };
 export type DictateSegment = { id: string; text: string; final: boolean; startMs?: number; endMs?: number; language?: string; words?: { text: string; startMs: number; endMs: number }[] };
 export type DictateUsage = { audioMs: number; basis: 'free' | 'minutes' | 'tokens' | 'subscription'; costUsd?: number; inputTokens?: number };
 export type DictateTranscript = { text: string; segments: DictateSegment[]; language?: string; durationMs?: number; usage: DictateUsage; engine: DictateEngineInfo };
@@ -16,7 +18,11 @@ export class DictateError extends Error {
 }
 /** PCM16 mono, 16 kHz, little endian. The app owns permission, capture and microphone arbitration. */
 export type AudioFrame = { data: Int16Array; at: number };
-export interface AudioMicStream extends AsyncIterable<AudioFrame> { stop(): Promise<void> }
+export interface AudioMicStream extends AsyncIterable<AudioFrame> {
+  /** Stop producing audio, unblock iteration, and yield already captured frames
+   * before the iterator ends. Must be idempotent; finish drains, cancel discards.
+   */
+  stop(): Promise<void> }
 export interface AudioMic { open(o: { rate: 16000; purpose: 'dictation'; signal?: AbortSignal }): Promise<AudioMicStream> }
 export type DictateInput = Uint8Array | Blob;
 export interface DictateEngine {
