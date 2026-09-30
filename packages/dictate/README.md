@@ -3,11 +3,15 @@
 Private working name for dictation and recording transcription. Returns text to your app with stable partials, final segments, language, timestamps and usage. Never sends the transcript anywhere on your behalf.
 
 ```ts
-import { Dictation } from '@byokit/dictate';
+import { Dictation, type AudioMic } from '@byokit/dictate';
 import { chatgptEngine } from '@byokit/dictate/node';
-import { provider } from '@byokit/accounts';
+import { provider, type Accounts } from '@byokit/accounts';
 
-// accounts is your @byokit/accounts instance; person is the selected member.
+// Supplied by your app: its accounts instance, selected member and microphone.
+declare const accounts: Accounts;
+declare const person: string;
+declare const yourMicrophonePort: AudioMic;
+declare function showText(text: string): void;
 const engine = chatgptEngine({
   access: async signal => {
     signal?.throwIfAborted();
@@ -16,7 +20,7 @@ const engine = chatgptEngine({
     const auth = await runtime.getAuth(id); // refresh under the accounts store's lock
     const credential = await runtime.readCredential(id);
     return { access: auth?.auth.apiKey ?? '',
-      accountId: credential?.type === 'oauth' ? credential.accountId : undefined };
+      accountId: credential?.type === 'oauth' && typeof credential.accountId === 'string' ? credential.accountId : undefined };
   },
 });
 const dictation = new Dictation({ engine, audio: yourMicrophonePort });
