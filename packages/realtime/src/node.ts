@@ -12,7 +12,7 @@ import { realtimeAuthCheck } from './auth.ts';
 import type { RealtimeAuthCheckOptions } from './auth.ts';
 export { toolBridge, appBridge, delegationHandler } from './tools.ts';
 export { realtimeAuthCheck } from './auth.ts';
-export type { RealtimeAuthCheckOptions, RealtimeAuthStatus } from './auth.ts';
+export type { RealtimeAuthCheckOptions, RealtimeAuthStatus, RealtimeAuthReason, RealtimeAuthResult, RealtimeAuthPeekResult } from './auth.ts';
 export type { ToolHandler, ToolBridgeOptions } from './tools.ts';
 export type { RealtimeSignalingIdentity } from './adapter.ts';
 export type RealtimeEngineOptions = RealtimeConfig & {

@@ -85,28 +85,40 @@ The app's `peek` callback must also never refresh, prompt or start login.
 
 ```ts
 import { realtimeEngine, toolBridge } from '@byokit/realtime/node';
-import type { RealtimeAuth, RealtimeHostFrame, RealtimeTool } from '@byokit/realtime';
+import type { RealtimeAuth, RealtimeHostFrame, RealtimeTool, RealtimeAuthPeekResult, RealtimeAuthResult } from '@byokit/realtime';
 
 declare const auth: Extract<RealtimeAuth, { kind: 'plan' }>;
 declare const tools: RealtimeTool[];
 declare const bridge: ReturnType<typeof toolBridge>;
 declare const emit: (frame: RealtimeHostFrame) => void;
-declare const peekSavedSignIn: (signal: AbortSignal) => Promise<boolean>;
+declare const peekSavedSignIn: (signal: AbortSignal) => Promise<RealtimeAuthPeekResult>;
 declare const updateSettingsBadge: (status: 'ready' | 'signed-out' | 'unknown') => void;
+declare const showSignInMessage: (result: RealtimeAuthResult) => void;
 const engine = realtimeEngine({
   engine: 'chatgpt', auth,
   tools, bridge, emit,
-  authCheck: { peek: peekSavedSignIn, onStatus: status => updateSettingsBadge(status) },
+  authCheck: { peek: peekSavedSignIn, onStatus: status => updateSettingsBadge(status), onResult: showSignInMessage },
 });
 ```
 
 `ready` means the app reports a saved sign-in, not provider entitlement.
-`signed-out` means the lookup returned false. Errors or a timeout produce
-`unknown`; the default timeout is one second, capped at ten seconds. Close
+`signed-out` means the lookup returned false or found an unusable saved sign-in.
+Unrecognized errors or a timeout produce `unknown`; the default timeout is one second, capped at ten seconds. Close
 cancels pending checks and suppresses late notifications. Normal session
 authentication still needs the credential from `auth.access`.
 For a standalone settings lookup, `realtimeAuthCheck({ peek })` is also exported
-from the portable entry and returns `{ result, close }`. Do not await this check
+from the portable entry and returns `{ result, details, close }`. `result` still
+resolves to the status string; `details` resolves to `{ state, reason?, message? }`,
+and engine `onResult` receives the same diagnostic object. A boolean or
+`{ state }` peek keeps the previous behavior without adding a reason.
+
+To report an expired saved sign-in, the read-only peek can return
+`{ state: 'signed-out', reason: 'login-expired' }`. Built-in reasons are
+`credential-permissions`, `login-expired`, `missing` and `unknown`; apps can
+supply additional reason strings. Messages use fixed plain wording and never
+copy exception text or credential paths. Missing-file errors map to `missing`,
+permission errors to `credential-permissions`, and expired-login errors to
+`login-expired`; unrecognized errors and timeouts report `unknown`. Do not await this check
 before opening a voice session or show a login prompt from its result.
 
 ## Lifecycle announcements and semantic app tools

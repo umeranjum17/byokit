@@ -125,6 +125,40 @@ test('ChatGPT structured delegation preserves named targets, dedupes calls, and 
   await assert.rejects(delegate({ request }, { id: 'cancel', signal: cancel.signal }));
   assert.deepEqual(receipts, ['queued']);
 });
+test('advisory auth reports safe reasons and keeps legacy status results', async () => {
+  const messages = {
+    'credential-permissions': 'Your saved sign-in must be readable only by you.',
+    'login-expired': 'Your saved sign-in has expired. Sign in again in settings.',
+    missing: 'No saved sign-in was found. Sign in in settings.',
+    unknown: 'Your saved sign-in could not be checked.',
+  } as const;
+  for (const reason of ['credential-permissions', 'login-expired', 'missing', 'unknown'] as const) {
+    const state = reason === 'unknown' ? 'unknown' : 'signed-out';
+    let observed: unknown;
+    const check = realtimeAuthCheck({ peek: async () => ({ state, reason }), onResult: value => { observed = value; } });
+    assert.equal(await check.result, state);
+    assert.deepEqual(await check.details, { state, reason, message: messages[reason] });
+    assert.deepEqual(observed, await check.details);
+  }
+  for (const state of ['ready', 'signed-out', 'unknown'] as const) {
+    assert.deepEqual(await realtimeAuthCheck({ peek: async () => ({ state }) }).details, { state });
+  }
+  for (const value of [true, false]) {
+    assert.deepEqual(await realtimeAuthCheck({ peek: async () => value }).details, { state: value ? 'ready' : 'signed-out' });
+  }
+  for (const [code, reason] of [['ENOENT', 'missing'], ['EACCES', 'credential-permissions'], ['EPERM', 'credential-permissions'], ['TOKEN_EXPIRED', 'login-expired']] as const) {
+    const error = Object.assign(new Error('private-token /private/sign-in'), { code });
+    const check = realtimeAuthCheck({ peek: async () => { throw error; } });
+    assert.deepEqual(await check.details, { state: 'signed-out', reason, message: messages[reason] });
+  }
+  for (const [message, reason] of [['Credential file must be owner-only: /private/token', 'credential-permissions'], ['Login expired: private-token', 'login-expired']] as const) {
+    assert.equal((await realtimeAuthCheck({ peek: async () => { throw new Error(message); } }).details).reason, reason);
+  }
+  assert.deepEqual(await realtimeAuthCheck({ peek: async () => { throw Object.assign(new Error('private-token'), { reason: 'private-token' }); } }).details,
+    { state: 'unknown', reason: 'unknown', message: messages.unknown });
+  assert.equal((await realtimeAuthCheck({ peek: async () => ({ state: 'unknown', reason: 'app-policy' }) }).details).reason, 'app-policy');
+  assert.equal(await realtimeAuthCheck({ peek: async () => true, onResult: () => { throw new Error('observer'); } }).result, 'ready');
+});
 test('advisory auth is bounded, read-only and cannot gate or close a session', async t => {
   for (const [value, status] of [[true, 'ready'], [false, 'signed-out']] as const) {
     assert.equal(await realtimeAuthCheck({ peek: async () => value }).result, status);
@@ -133,10 +167,10 @@ test('advisory auth is bounded, read-only and cannot gate or close a session', a
   assert.equal(await realtimeAuthCheck({ peek: async () => true, onStatus: () => { throw new Error('observer'); } }).result, 'ready');
   const closed = realtimeAuthCheck({ peek: async () => { assert.fail('Closed checks never start'); } }); closed.close();
   assert.equal(await closed.result, 'unknown');
-  const frames: RealtimeHostFrame[] = [], statuses: string[] = [];
+  const frames: RealtimeHostFrame[] = [], statuses: string[] = [], diagnostics: unknown[] = [];
   let peekSignal!: AbortSignal, complete!: (ready: boolean) => void, accesses = 0;
   const engine = realtimeEngine({ engine: 'chatgpt', auth: { kind: 'plan', access: async () => { accesses++; return { access: 'fake-token', accountId: 'fake-account' }; } },
-    authCheck: { timeoutMs: 100, peek: signal => { peekSignal = signal; return new Promise(resolve => { complete = resolve; }); }, onStatus: status => statuses.push(status) },
+    authCheck: { timeoutMs: 100, peek: signal => { peekSignal = signal; return new Promise(resolve => { complete = resolve; }); }, onStatus: status => statuses.push(status), onResult: value => diagnostics.push(value) },
     bridge: toolBridge({ tools: [], handlers: {}, emit: () => {}, failure: () => 'Failed' }), emit: frame => frames.push(frame) });
   t.after(() => engine.close());
   await engine.ready;
@@ -144,6 +178,7 @@ test('advisory auth is bounded, read-only and cannot gate or close a session', a
   await waitFor(() => frames.some(frame => frame.type === 'realtime.webrtc.start'));
   await waitFor(() => statuses.length === 1);
   assert.deepEqual(statuses, ['unknown']); assert.ok(peekSignal.aborted);
+  assert.deepEqual(diagnostics, [{ state: 'unknown', reason: 'unknown', message: 'Your saved sign-in could not be checked.' }]);
   complete(false); await Promise.resolve(); assert.deepEqual(statuses, ['unknown']);
   assert.ok(!frames.some(frame => frame.type === 'realtime.closed')); engine.close();
 });
