@@ -5,13 +5,14 @@ import { createServer } from 'node:net';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import { AuthStore } from './auth-store.ts';
 import { ENGINE_VERSION } from './constants.ts';
 import { reconcileConfig } from './config.ts';
 import { writePlugin, resolveBridge } from './bridge.ts';
 import type { KitOptions } from './kit.ts';
 import type { KitState, ToolSpec } from './types.ts';
 
-export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'installPolicy' | 'log' | 'bridge'> & {
+export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'installPolicy' | 'log' | 'bridge' | 'authSeal'> & {
   pluginId: string; tools: ToolSpec[]; gateBuiltins?: boolean; spawnEngine: boolean;
   onState(s: KitState): void; onExit(code: number | null): void;
 };
@@ -52,6 +53,8 @@ export class Engine {
   readonly bridgeSock: string;
   private readonly dir: string;
   private child?: ChildProcess;
+  private starting?: Promise<{ port: number; token: string; identityPath: string }>;
+  private readonly authStore: AuthStore;
   private stopping = false;
   private repaired = false;
   private prepared?: Promise<void>;
@@ -66,6 +69,7 @@ export class Engine {
     this.dir = o.engineDir ?? join(this.root, 'engine');
     this.bridgeSock = join(this.root, bridge.socketName);
     this.paramPrefix = bridge.paramPrefix;
+    this.authStore = new AuthStore({ root: this.root, stateDir: o.stateDir, engineDir: this.dir, seal: o.authSeal, log: o.log });
   }
   private state(phase: KitState['phase'], why?: KitState['why'], retryAt?: number) { this.o.onState({ phase, ...(why ? { why } : {}), ...(retryAt ? { retryAt } : {}) }); }
   private get entry() { return join(this.dir, 'node_modules', 'openclaw', 'openclaw.mjs'); }
@@ -88,7 +92,8 @@ export class Engine {
     return pending;
   }
   private async prepareOnce(): Promise<void> {
-    for (const d of [this.root, join(this.root, 'home'), join(this.root, 'state'), join(this.root, 'tmp'), join(this.root, 'install-home'), join(this.root, 'npm-cache'), join(this.o.stateDir, 'logs'), this.dir]) mkdirSync(d, { recursive: true, mode: 0o700 });
+    for (const d of [this.root, ...(!this.o.authSeal ? [join(this.root, 'home'), join(this.root, 'state')] : []), join(this.root, 'tmp'), join(this.root, 'install-home'), join(this.root, 'npm-cache'), join(this.o.stateDir, 'logs'), this.dir]) mkdirSync(d, { recursive: true, mode: 0o700 });
+    await this.authStore.prepare();
     if (this.o.spawnEngine) {
       const versionPath = join(this.dir, 'node_modules', 'openclaw', 'package.json');
       if (!existsSync(this.entry) || !installMatches(this.dir)) {
@@ -157,8 +162,21 @@ export class Engine {
       if (cmd.includes(this.entry) && cmd.includes('gateway')) process.kill(-pid, 'SIGTERM');
     } catch { /* pid is gone or not ours */ }
   }
-  async start(): Promise<{ port: number; token: string; identityPath: string }> {
+  start(): Promise<{ port: number; token: string; identityPath: string }> {
+    if (this.starting) return this.starting;
+    this.stopping = false;
+    const pending = this.startOnce();
+    this.starting = pending;
+    void pending.finally(() => { if (this.starting === pending) this.starting = undefined; }).catch(() => {});
+    return pending;
+  }
+  private async startOnce(): Promise<{ port: number; token: string; identityPath: string }> {
     await this.prepare();
+    await this.authStore.start();
+    try { return this.launch(); }
+    catch (error) { await this.authStore.stop(); throw error; }
+  }
+  private launch(): { port: number; token: string; identityPath: string } {
     const identityPath = join(this.root, 'device.json');
     if (!existsSync(identityPath)) {
       const { privateKey, publicKey } = generateKeyPairSync('ed25519');
@@ -166,7 +184,6 @@ export class Engine {
     }
     if (!this.o.spawnEngine) return { port: this.port, token: this.token, identityPath };
     if (this.child && this.child.exitCode === null) return { port: this.port, token: this.token, identityPath };
-    this.stopping = false;
     this.stalePid();
     this.state('starting');
     const { entry, env } = this.doctorContext();
@@ -174,33 +191,47 @@ export class Engine {
     try { this.child = spawn(process.execPath, [entry, 'gateway', '--port', String(this.port)], { cwd: env.HOME, env, detached: true, stdio: ['ignore', fd, fd] }); }
     finally { closeSync(fd); }
     const child = this.child;
+    child.on('error', () => {
+      if (this.child !== child || this.stopping) return;
+      this.child = undefined;
+      void this.authStore.stop().then(() => { this.state('failed', 'exited'); this.o.onExit(null); }, () => this.state('failed', 'exited'));
+    });
     if (!child.pid) { this.state('failed', 'exited'); throw new Error('engine spawn failed'); }
     writeFileSync(join(this.root, 'gateway.pid'), String(child.pid), { mode: 0o600 });
     child.once('exit', (code) => {
       if (this.child !== child || this.stopping) return;
       this.child = undefined;
-      this.o.onExit(code);
-      if (code === 78 && !this.repaired) {
-        this.repaired = true;
-        this.state('repairing');
-        const result = this.doctor(60_000);
-        if (result.status === 0) { void this.start().catch(() => this.state('failed', 'exited')); return; }
-      }
-      this.state('failed', 'exited');
+      rmSync(join(this.root, 'gateway.pid'), { force: true });
+      void (async () => {
+        await this.authStore.stop();
+        if (this.stopping) return;
+        if (code === 78 && !this.repaired) {
+          this.repaired = true;
+          this.state('repairing');
+          const result = await this.withAuthStore(async () => this.doctor(60_000));
+          if (result.status === 0 && !this.stopping) { await this.start(); return; }
+        }
+        this.state('failed', 'exited');
+        this.o.onExit(code);
+      })().catch(() => this.state('failed', 'exited'));
     });
     return { port: this.port, token: this.token, identityPath };
   }
+  withAuthStore<T>(task: () => Promise<T>): Promise<T> { return this.authStore.offline(task); }
   async stop(): Promise<void> {
     this.stopping = true;
+    await this.starting?.catch(() => {});
     const child = this.child;
-    this.child = undefined;
     if (child?.pid && child.exitCode === null) {
       try { process.kill(-child.pid, 'SIGTERM'); } catch { /* already gone */ }
-      for (let i = 0; i < 15 && child.exitCode === null; i++) await delay(200);
-      if (child.exitCode === null) { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ } }
-      for (let i = 0; i < 15 && child.exitCode === null; i++) await delay(200);
+      for (let i = 0; i < 15 && child.exitCode === null && child.signalCode === null; i++) await delay(200);
+      if (child.exitCode === null && child.signalCode === null) { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ } }
+      for (let i = 0; i < 15 && child.exitCode === null && child.signalCode === null; i++) await delay(200);
     }
+    if (child && child.exitCode === null && child.signalCode === null) throw new Error('engine did not stop; credential store still in use');
+    this.child = undefined;
     rmSync(join(this.root, 'gateway.pid'), { force: true });
+    await this.authStore.stop();
     rmSync(this.bridgeSock, { force: true });
     this.state('stopped');
   }

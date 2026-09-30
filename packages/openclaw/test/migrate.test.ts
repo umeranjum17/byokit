@@ -141,13 +141,12 @@ test('a retired copy that still holds openai-codex is repaired', async () => {
   assert.ok(bytes(house1.staging).includes('openai-codex:default'));
 });
 
-test('confirm moves the original aside only when every provider is signed in, and writes the marker', async () => {
+test('confirm removes the original only when every provider is signed in, and writes the marker', async () => {
   const house1 = house([{ provider: 'openai' }]);
   writeFileSync(house1.path, legacy());
-  const before = bytes(house1.path);
   assert.equal(await confirmRetainedLogin(house1.signInCtx, 'm1', { path: house1.path }), true);
   assert.equal(existsSync(house1.path), false);
-  assert.equal(bytes(`${house1.path}.moved-to-engine`), before, 'the retire is a rename, not a rewrite');
+  assert.equal(existsSync(`${house1.path}.moved-to-engine`), false, 'no plaintext archive is left');
   assert.equal(existsSync(`${house1.path}.moved-to-engine.canonicalized`), true);
   const status = house1.calls.filter((call) => call.method === 'models.authStatus');
   assert.deepEqual(status.map((call) => call.params), [{ agentId: 'm1', refresh: true }], 'one verdict is enough');
@@ -177,11 +176,11 @@ test('a record source is confirmed without touching a single file', async () => 
   assert.equal(existsSync(`${house1.path}.moved-to-engine`), false);
 });
 
-test('a retired copy that is already aside is marked, never renamed twice', async () => {
+test('a retired copy that is already aside is verified, removed and marked', async () => {
   const house1 = house([{ provider: 'openai' }]);
   writeFileSync(`${house1.path}.moved-to-engine`, legacy());
   assert.equal(await confirmRetainedLogin(house1.signInCtx, 'm1', { path: house1.path }), true);
-  assert.ok(existsSync(`${house1.path}.moved-to-engine`));
+  assert.equal(existsSync(`${house1.path}.moved-to-engine`), false);
   assert.ok(existsSync(`${house1.path}.moved-to-engine.canonicalized`));
 });
 

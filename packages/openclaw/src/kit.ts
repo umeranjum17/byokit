@@ -1,5 +1,6 @@
 // The OpenClawKit facade: state, complete pass-through (D6), members, sign-in, runs, approvals, config (5.3).
 // Built in O4 (and O5/O6/O8 for the delegated parts); until then every body refuses to run.
+import type { SealingAdapter } from '@byokit/secrets';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -39,6 +40,7 @@ import type {
 
 export type KitOptions = {
   stateDir: string;
+  authSeal?: SealingAdapter; // host-injected OS-keyring or host-owned-key seal; complete engine state/home at rest
   engineDir?: string; // default join(stateDir, 'openclaw', 'engine')
   npmPath?: string; // default: 'npm' found on PATH (the only env read, D13)
   enginePath?: string[]; // extra dirs appended to the engine's PATH ('/usr/bin:/bin')
@@ -541,6 +543,7 @@ export class OpenClawKit {
       await this.approvalsCtl.resync();
     } catch (error) {
       if (transport && this.transport === transport) await this.disconnect();
+      await this.engine.stop();
       if (this.current.phase !== 'needs-update' && !this.stopping) this.setState({ phase: 'failed', why: 'handshake' });
       throw error;
     }
@@ -624,11 +627,12 @@ export class OpenClawKit {
   }
 
   migrateRetainedLogin(member: Member, source: RetainedLogin): Promise<'staged' | 'nothing' | 'failed'> {
-    return migrateLogin({ root: this.engine.root, prepare: () => this.prepare(), doctor: () => this.engine.doctor(120_000) }, member, source);
+    return migrateLogin({ root: this.engine.root, prepare: () => this.prepare(), doctor: () => this.engine.doctor(120_000),
+      seal: this.o.authSeal, log: this.o.log, withStore: (task) => this.engine.withAuthStore(task) }, member, source);
   }
 
   confirmRetainedLogin(member: Member, source: RetainedLogin): Promise<boolean> {
-    return confirmLogin(this.signInCtx(), member, source);
+    return confirmLogin({ ...this.signInCtx(), seal: this.o.authSeal, log: this.o.log }, member, source);
   }
 
   // runs (5.8): the facade owns no run state; every call delegates to the O8 module
