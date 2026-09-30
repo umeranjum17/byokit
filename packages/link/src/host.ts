@@ -4,6 +4,7 @@
 import { Handshake, b64, b64url, firstFrame, hostId, messageBytes, random, unb64url, type Channel, type KeyPair } from './channel.ts';
 import { cleanName, codeKey, newCode, normalizeCode, offerText, type PairOffer } from './pairing.ts';
 import { PublicLinkError } from './device.ts';
+import { LINK_PROBE, LINK_PROBE_OK } from './check.ts';
 import { MAX_STREAMS, Streams, type LinkStream } from './stream.ts';
 
 export type Role = 'control' | 'view';
@@ -555,7 +556,13 @@ export class Host {
       message: (text) => {
         if (gone) return;
         try {
-          if (!ch) return typeof text === 'string' ? handshake(text) : end(4400, 'text frames only');
+          if (!ch) {
+            // A reachability probe (`check` in check.ts): answered read-only, before any handshake is spent. It
+            // touches no ticket, code, grant or counter, so a probed offer still pairs; the reply carries nothing
+            // but the fact a link host is here. Through a relay this rides the same bare frames as a handshake.
+            if (text === LINK_PROBE) { conn.send(LINK_PROBE_OK); return later(250, () => { if (!gone) conn.close(1000, 'probe'); }); }
+            return typeof text === 'string' ? handshake(text) : end(4400, 'text frames only');
+          }
           const m = ch.open(text); // throws unless this is the device's next authentic frame
           if (m === undefined || busy) return;
           if (dev) {

@@ -83,6 +83,7 @@ answer: { echo: { text: 'hi' }, from: 'Pixel 9' }
 | `parseOffer`, `offerText`, `cleanName` | Read a QR or link, build terminal-to-browser links, and clean a displayed name |
 | `encodeOffer`, `decodeOffer` | Complete offline offer in typeable groups, with a transcription checksum |
 | `pendingGrant` | A grant saved before pairing, for crash-safe pairing |
+| `check` | Probe URLs for a link host before pairing, without touching the offer |
 | `DeviceLink` | A device's live link: `request`, `stream`, `addUrl`, `rekey`, `unpair`, `retry`, `stop` |
 | `LinkStream`, `WINDOW` | A duplex byte stream and its per-direction window (256 KB) |
 | `LinkError`, `PublicLinkError`, `LINK_WORDS` | Failures with a plain `message` and a `code`; a handler error safe to show; the plain message for each failure code |
@@ -398,6 +399,27 @@ muxr's existing X25519 box keys can be used as link static keys without an excha
 
 The same X25519 key serves nacl.box and Noise while both transports run; a later rekey can rotate it. Muxr phones
 share one key across machines. Muxr parity beyond this migration is tracked separately.
+
+## Checking reachability before pairing
+
+```ts
+import { check, parseOffer } from '@byokit/link';
+
+// Before asking the person to approve, the phone probes the offer's URLs (the host probes its own advertised
+// URLs the same way, as a self-check only). Results come back in input order.
+export async function precheck(scanned: string): Promise<void> {
+  const { urls } = parseOffer(scanned);
+  const results = await check(urls, { timeoutMs: 5000 });
+  for (const r of results) {
+    if (!r.ok) console.log(`${r.url}: ${r.message}`);  // r.code is a LinkProblem: unreachable, timeout, wrong-host
+  }
+}
+```
+
+Probed four at a time by default (`concurrency` changes that). The probe answers read-only: it sends no ticket,
+so a checked offer still pairs afterwards, and the reply carries nothing but the fact a link host is there. It
+works in Node, browsers and React Native, and through a relay with no relay change (devices speak bare frames
+there).
 
 ## Links
 

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add `check(urls, { timeoutMs, concurrency, WebSocket })`: a per-URL reachability probe returning a `LinkProblem`
+  code plus its `LINK_WORDS` sentence, in input order. The host answers a new unauthenticated probe frame read-only
+  (no ticket, code, grant or counter touched; the reply leaks nothing but reachability), so a checked offer still
+  pairs afterwards. Runs in Node, browsers and React Native, direct and through a relay.
 - Add `onConnection(grant, online)` presence with first/last socket events and no duplicate-socket flapping.
 - Add serialized `Host.reload()`, optional `GrantStore.subscribe` notifications and Node `fileGrantStore`
   with cross-process file notifications and stale-write protection.
