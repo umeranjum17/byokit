@@ -22,9 +22,13 @@ It consumes `@byokit/seal` 0.2.0; keys are raw 32-byte X25519 **secret keys**, n
 
    ```ts
    import { setNoticeKey, clearNoticeKey } from '@byokit/push';
-   await setNoticeKey(deviceBoxSecret); // Uint8Array, 32 bytes
-   // Before logout, revocation, or handing the device to another account:
-   await clearNoticeKey();
+   async function provisionDeviceKey(deviceBoxSecret: Uint8Array) {
+     await setNoticeKey(deviceBoxSecret); // Raw X25519 secret, 32 bytes
+   }
+   // Call before logout, revocation, or handing the device to another account.
+   async function forgetDeviceKey() {
+     await clearNoticeKey();
+   }
    ```
 
    The React Native entry loads the Expo module. Default Node/web entries are native-free; provisioning
