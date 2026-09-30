@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- SECURITY: Focus resolution in web content is exact: input focus, then accessibility focus, never the first text box.
+  Password fields and password paths are never exposed or written, and never trigger clipboard fallback.
+
 ## 0.2.4
 
 - FIX: Export the Expo config plugin and package metadata so installed apps can resolve the plugin.

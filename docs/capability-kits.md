@@ -1107,8 +1107,11 @@ export const focusedField: FocusedField;
   tries: while the panel's window is on top Chrome refuses SET_TEXT, so ~13 x 150 ms lands it. If the text still does
   not match, a contenteditable that dropped only the newlines resolves `'landedWithoutNewlines'` when
   `acceptNewlineLoss` is set; otherwise the text goes on the clipboard (`'copied'`).
-- The field is the focused node itself when it is editable, else the first editable non-password focused descendant
-  (WebView/Chrome). The same search, read and insert are callable from Kotlin (`FocusedFields`, 7.5), so the app's
+- The field is resolved with `findFocus(FOCUS_INPUT)`, falling back to `FOCUS_ACCESSIBILITY`, including virtual
+  WebView nodes. An input-focused container may contain the accessibility-focused field. No focus means no field;
+  never guess the first editable child. A password node anywhere on the focused path (including ancestors and
+  focused descendants) prevents reads, writes and clipboard fallback. The same search, read and insert are callable
+  from Kotlin (`FocusedFields`, 7.5), so the app's
   service can read at tap time and insert into the captured node with no JS running.
 
 ### 7.5 Kotlin parts (package `io.github.umeranjum17.byokit.overlay`, one job each)
@@ -1152,11 +1155,11 @@ class PanelActivity : ReactActivity()                                    // tran
 class TapLog(context: Context) { fun add(app: String, action: String, at: Long); fun since(at: Long): List<TapEntry>; fun clear(); fun prune(now: Long) }  // 30 days
 class OverlayModule : Module()                                           // Expo module 'ByokitOverlay', maps NativeOverlay (7.3)
 data class InsertOpts(val attempts: Int = Insert.DEFAULT_ATTEMPTS, val retryMs: Long = Insert.RETRY_MS, val acceptNewlineLoss: Boolean = false)
-interface FieldNode { val identity: FieldIdentity?; fun reacquire(): FieldNode?; fun recycle(); val editable: Boolean; val password: Boolean; fun shown(): String?; fun set(text: String): Boolean; fun selection(): Pair<Int, Int>?; val childCount: Int; fun child(i: Int): FieldNode?
+interface FieldNode { val identity: FieldIdentity?; fun reacquire(): FieldNode?; fun recycle(); val editable: Boolean; val password: Boolean; fun shown(): String?; fun set(text: String): Boolean; fun selection(): Pair<Int, Int>?; fun findFocus(input: Boolean): FieldNode?; fun parent(): FieldNode?; val childCount: Int; fun child(i: Int): FieldNode?
   companion object { fun of(node: AccessibilityNodeInfo, service: AccessibilityService? = null): FieldNode } }   // the field, or a focused descendant; `of` wraps a node the app's service captured; faked in JVM tests
 data class FieldIdentity(val viewId: String, val bounds: List<Int>, val app: String)   // all three match, or it is not the same field
 object FocusedFields {                                                   // the Kotlin entry for the app's own service
-  fun find(node: FieldNode): FieldNode?                                  // the node itself or its first editable non-password focused descendant
+  fun find(node: FieldNode): FieldNode?                                  // input focus, else accessibility focus; no field on a password path or without focus
   fun capture(service: AccessibilityService): FieldNode?                 // the focused field now, kept for a later insert; the caller recycles it
   fun read(service: AccessibilityService): FocusedFieldText?
   fun insert(node: FieldNode, text: String, replace: String = "selection", opts: InsertOpts = InsertOpts(), pause: (Long) -> Unit = Thread::sleep, copy: (String) -> Boolean = { false }, cancellation: InsertCancellation = InsertCancellation(), service: AccessibilityService? = null): String
@@ -1179,8 +1182,8 @@ class FocusedFieldModule : Module()                                      // Expo
   the kit's internals (`NodeWrap`, the same-field search) behind it:
   - *Attach:* `ByokitAccessibility.attach(this)` / `detach(this)`, which supplies `host`, `foreground` and `keyboard`.
   - *Focused field:* `FocusedFields.capture(service)` at tap time, or `FieldNode.of(node)` over the
-    `AccessibilityNodeInfo` the service captured itself with `findFocus(FOCUS_INPUT)` (not a layout from an event:
-    below the node, the first editable non-password descendant is taken); `FocusedFields.insert` takes either. A retry refreshes the captured node and, when it went stale (the panel still closing), re-acquires the
+    `AccessibilityNodeInfo` the service captured itself with `findFocus(FOCUS_INPUT)` (falling back to
+    `FOCUS_ACCESSIBILITY`): only an exactly focused field is taken, never the first editable descendant; `FocusedFields.insert` takes either. A retry refreshes the captured node and, when it went stale (the panel still closing), re-acquires the
     field from the active window only when view id, bounds and package all match, never a different field; the
     captured node stays the caller's to recycle. `FocusedFields.clipboard(context)` is the `copy` fallback. Insert
     blocks for up to `attempts x retryMs`, so the service calls it off the main thread. Each insert accepts an optional
