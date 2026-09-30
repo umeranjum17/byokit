@@ -9,7 +9,7 @@ Pod::Spec.new do |s|
   s.author = 'Umer Anjum'
   s.homepage = 'https://github.com/umeranjum17/byokit'
   s.platforms = { :ios => '15.1' }
-  s.swift_version = '5.9'
+  s.swift_version = '5.0'
   s.source = { :git => 'https://github.com/umeranjum17/byokit.git' }
   s.static_framework = true
   s.dependency 'ExpoModulesCore'
