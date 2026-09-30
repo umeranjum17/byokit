@@ -3,7 +3,6 @@
 import { test, before, after, mock } from 'node:test';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
