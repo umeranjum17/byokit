@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.7.0 (2026-09-30)
+
+- Add the portable `chatgptPlan` adapter for a host-validated official token-sharing session, checking
+  ChatGPT plan usage consent on every access. Uses subscription billing and never falls back to an API key
+  (billed per use); the host owns sign-in, identity verification, storage and refresh per person.
+
 ## 0.6.0 (2026-09-30)
 
 - `respond` and `Accounts.respond` accept `originator` (or set it once on `Accounts`): the app's own originator header value. Default: 'byokit', as before.
