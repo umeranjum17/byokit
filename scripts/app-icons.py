@@ -68,7 +68,13 @@ W=2800; rows=[]; x=24;y=70; height=0
 for path,n in images:
     if x+n+24>W: x=24;y+=height+64;height=0
     uri='data:image/png;base64,'+base64.b64encode((ROOT/path).read_bytes()).decode()
-    rows.append(f'<image x="{x}" y="{y}" width="{n}" height="{n}" href="{uri}"/><text x="{x}" y="{y+n+18}" font-size="11" fill="#1b1b1a">{path} ({n}px)</text>')
+    rows.append(f'<image x="{x}" y="{y}" width="{n}" height="{n}" href="{uri}"/>')
+    if path.endswith('android-icon-background.png'):
+        rows.append(f'<text x="{x}" y="{y-12}" font-size="26" font-weight="bold">ANDROID BACKGROUND LAYER ONLY</text>')
+        rows.append(f'<text x="{x}" y="{y+n+28}" font-size="24">Intentional solid ink — paired with foreground; not an app icon</text>')
+        rows.append(f'<text x="{x}" y="{y+n+48}" font-size="14">{path} ({n}px)</text>')
+    else:
+        rows.append(f'<text x="{x}" y="{y+n+18}" font-size="11" fill="#1b1b1a">{path} ({n}px)</text>')
     x+=max(n,360)+24;height=max(height,n)
 y+=height+90
 # Mask previews use actual adaptive layer framing, which differs from the ordinary icon.
