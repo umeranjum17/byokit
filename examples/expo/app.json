@@ -34,7 +34,7 @@
           }
         }
       ],
-      "@byokit/status",
+      "@byokit/statusbar",
       [
         "expo-build-properties",
         {

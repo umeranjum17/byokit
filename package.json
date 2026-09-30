@@ -11,16 +11,16 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "build": "tsc -b packages/accounts packages/link packages/relay packages/decide packages/ui-core packages/reach packages/seal packages/keystore packages/openclaw packages/herdr packages/compose packages/capture packages/overlay packages/machine packages/status packages/usage && node scripts/fix-words-dts.cjs",
+    "build": "tsc -b packages/accounts packages/link packages/relay packages/decide packages/ui-core packages/reach packages/seal packages/keystore packages/openclaw packages/herdr packages/write packages/record packages/overlay packages/cloud packages/statusbar packages/usage && node scripts/fix-words-dts.cjs",
     "check": "tsc -p tsconfig.json",
-    "gen:compose": "node packages/compose/scripts/gen-types.ts",
+    "gen:write": "node packages/write/scripts/gen-types.ts",
     "gen:herdr": "node packages/herdr/scripts/gen-types.ts",
     "release": "node scripts/release.ts",
     "smoke:pack": "node scripts/pack-smoke.ts",
     "test": "sh scripts/test.sh",
     "test:browser": "sh scripts/test.sh 'examples/pwa/*.test.ts'",
     "test:engine": "sh scripts/test.sh 'packages/openclaw/test/engine/*.test.ts'",
-    "test:compose-engine": "sh scripts/test.sh 'packages/compose/test/engine/*.test.ts'",
+    "test:write-engine": "sh scripts/test.sh 'packages/write/test/engine/*.test.ts'",
     "gen:openclaw": "node packages/openclaw/scripts/gen-methods.ts"
   },
   "devDependencies": {
