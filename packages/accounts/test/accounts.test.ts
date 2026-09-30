@@ -37,11 +37,13 @@ const pick = (i: AuthInteraction) => i.prompt({ type: 'select', message: 'how', 
 const code = (i: AuthInteraction) => i.notify({ type: 'device_code', userCode: 'CREW-2026', verificationUri: 'https://example.test/device', expiresInSeconds: 900 });
 
 test('the catalogue offers every subscription by default and keeps API billing opt-in', async () => {
-  const subscriptions = ['chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta', 'qwen'];
+  const subscriptions = ['chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta', 'qwen', 'minimax'];
   assert.deepEqual(offered().map((p) => p.key), subscriptions);
   assert.deepEqual(new Kit(async () => {}).providers.map((p) => p.key), subscriptions);
   assert.deepEqual(offered(['openrouter']).map((p) => p.key), ['openrouter']);
   assert.deepEqual(offered(['claude', 'grok']).map((p) => p.key), ['claude', 'grok']);
+  const existing = ['chatgpt', 'grok', 'copilot', 'openrouter', 'minimax', 'claude'];
+  assert.deepEqual(offered(existing).map((p) => p.key), existing, 'existing explicit account lists keep every provider');
   for (const p of Object.values(PROVIDERS)) {
     assert.ok(p.billing === 'subscription' || p.billing === 'api', p.key);
     assert.ok(p.source.startsWith('https://'), p.key);

@@ -144,5 +144,21 @@
       "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
       "source": "https://chat.qwen.ai"
     }
+  },
+  "minimax": {
+    "pi": "minimax",
+    "name": "MiniMax",
+    "company": "MiniMax",
+    "models": {
+      "strong": "MiniMax-M3",
+      "fast": "MiniMax-M2.7-highspeed"
+    },
+    "billing": "subscription",
+    "source": "https://www.minimax.io",
+    "multiAccount": {
+      "terms": "grey",
+      "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
+      "source": "https://www.minimax.io"
+    }
   }
 }
