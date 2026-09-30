@@ -7,6 +7,7 @@
 - Add host-authenticated `RelayClient.self()` and `leave()`: read only the proven host's own record and live device
   connection count, or remove its registration, push addresses, action tokens and short codes. Leave clears confirmed
   pending unsubscriptions from the existing client store and stops; failed relay saves retain authority for retry.
+- Test machine-bound typed pairing through relay lookup, including rejection of a substituted host key before device identity is sent.
 
 ## 0.4.2 (2026-09-30)
 
