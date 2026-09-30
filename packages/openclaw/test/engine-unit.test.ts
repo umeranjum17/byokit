@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import fs, { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, symlinkSync, lstatSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scratchDir } from '../../test-support.ts';
@@ -221,7 +223,7 @@ test('sealed engine store covers SQLite, journals, JSON and isolated home; stop,
 
 });
 
-test('sealing rejects concurrent owners and symlinks, and does not claim stopped when the seal fails', async () => {
+test('sealing rejects concurrent owners, and does not claim stopped when the seal fails', async () => {
   const dir = scratchDir('seal-errors');
   const seal = fakeSeal();
   let fail = false;
@@ -241,11 +243,75 @@ test('sealing rejects concurrent owners and symlinks, and does not claim stopped
   assert.equal(readFileSync(join(engine.root, 'state', 'auth.json'), 'utf8'), 'still-recoverable');
   fail = false;
   await engine.stop();
-  const { symlinkSync } = await import('node:fs');
-  mkdirSync(join(engine.root, 'state'));
-  symlinkSync(join(engine.root, 'token'), join(engine.root, 'state', 'auth.json'));
-  await assert.rejects(engine.prepare(), /regular files/);
-  rmSync(join(engine.root, 'state'), { recursive: true });
+});
+
+test('sealed migration follows only in-root file symlinks and skips runtime entries', { skip: process.platform === 'win32' }, async (t) => {
+  const { migrateRetainedLogin } = await import('../src/migrate.ts');
+  const dir = scratchDir('seal-runtime');
+  const seal = fakeSeal();
+  const o = { stateDir: dir, authSeal: seal, pluginId: 'byokit', tools: [], spawnEngine: false, onState() {}, onExit() {} };
+  const engine = new Engine(o);
+  const state = join(engine.root, 'state');
+  const token = join(state, 'credentials', 'token.json');
+  const linked = join(state, 'linked.json');
+  const chain = join(state, 'chain.json');
+  // A sibling whose name shares the engine root prefix must still be outside the boundary.
+  const outside = join(engine.root + '-outside', 'canary');
+  const escape = join(state, 'outside.json');
+  const indirect = join(state, 'indirect.json');
+  const dangling = join(state, 'dangling.json');
+  const directory = join(state, 'directory');
+  const loop = join(state, 'loop');
+  const socket = join(state, 'runtime.sock');
+  const source = join(dir, 'retained.json');
+  mkdirSync(join(token, '..'), { recursive: true });
+  mkdirSync(join(outside, '..'), { recursive: true });
+  writeFileSync(token, 'in-root-token');
+  writeFileSync(outside, 'outside-root-canary', { mode: 0o644 });
+  writeFileSync(source, JSON.stringify({ 'openai-codex': { type: 'oauth', access: 'migration-access', refresh: 'migration-refresh' } }));
+  symlinkSync('credentials/token.json', linked);
+  symlinkSync('linked.json', chain);
+  symlinkSync(outside, escape);
+  symlinkSync('outside.json', indirect);
+  symlinkSync('missing.json', dangling);
+  symlinkSync('.', directory);
+  symlinkSync('loop', loop);
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(socket, resolve); });
+  const originalRead = fs.readFileSync;
+  const reads = t.mock.method(fs, 'readFileSync', (...args: Parameters<typeof fs.readFileSync>) => {
+    assert.ok(![outside, escape, indirect].includes(String(args[0])), 'outside-root canary must never be read');
+    return originalRead(...args);
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.equal(await migrateRetainedLogin({ root: engine.root, seal, prepare: () => engine.prepare(),
+      withStore: (task) => engine.withAuthStore(task), doctor: () => ({ status: 0 }) }, 'm1', { path: source }), 'staged');
+    assert.equal(existsSync(state), false, 'migration leaves the store sealed');
+    const saved = seal.decryptString(readFileSync(join(engine.root, 'auth-store.sealed')));
+    assert.equal(saved.includes(Buffer.from('outside-root-canary').toString('base64')), false);
+    assert.equal(reads.mock.calls.some(({ arguments: args }) => [outside, escape, indirect].includes(String(args[0]))), false);
+    assert.equal(originalRead(outside, 'utf8'), 'outside-root-canary');
+    assert.equal(lstatSync(outside).mode & 0o777, 0o644, 'outside-root permissions are untouched');
+    await engine.start();
+    for (const path of [token, linked, chain]) {
+      assert.equal(readFileSync(path, 'utf8'), 'in-root-token');
+      assert.equal(lstatSync(path).isFile(), true, 'followed symlinks restore as regular files');
+      assert.equal(lstatSync(path).mode & 0o777, 0o600);
+    }
+    for (const path of [escape, indirect, dangling, directory, loop, socket])
+      assert.equal(existsSync(path), false, 'skipped entries are never restored');
+    assert.match(readFileSync(join(state, 'agents', 'm1', 'agent', 'auth-profiles.json'), 'utf8'), /migration-access/);
+    await engine.stop();
+    await engine.start();
+    assert.equal(readFileSync(linked, 'utf8'), 'in-root-token', 'a second seal/restore retains the followed content');
+    await engine.stop();
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('prepare seals old auth archives and offline migration reseals even after a doctor failure', async () => {

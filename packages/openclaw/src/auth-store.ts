@@ -1,7 +1,7 @@
 // The pin persists OAuth JSON in both shared and agent SQLite. There is no public persistence hook.
 // Seal the complete isolated stores, including journals, only after their writer has exited.
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync, closeSync, fsyncSync, openSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync, closeSync, fsyncSync, openSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { SealingAdapter } from '@byokit/secrets';
 
 const encoder = new TextEncoder();
@@ -12,7 +12,7 @@ const live = (pid: number): boolean => {
   try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
 };
 function regular(path: string): void {
-  if (!lstatSync(path).isFile()) throw new Error('credential store requires regular files');
+  if (!lstatSync(path).isFile()) throw new Error(`credential store requires regular files: ${path}`);
 }
 function syncDir(path: string): void {
   if (process.platform === 'win32') return;
@@ -116,6 +116,7 @@ export class AuthStore {
   }
   private collect(): Snapshot {
     const s: Snapshot = { v: 1, dirs: [], files: [] };
+    const root = realpathSync(this.o.root);
     const walk = (path: string) => {
       const name = relative(this.o.root, path).split('\\').join('/');
       const stat = lstatSync(path);
@@ -125,9 +126,19 @@ export class AuthStore {
         for (const child of readdirSync(path).sort()) walk(join(path, child));
         return;
       }
-      regular(path);
-      chmodSync(path, 0o600);
-      s.files.push([name, readFileSync(path).toString('base64')]);
+      let file = path;
+      if (stat.isSymbolicLink()) {
+        try { file = realpathSync(path); } catch (error) {
+          if (['ENOENT', 'ENOTDIR', 'ELOOP'].includes((error as NodeJS.ErrnoException).code ?? '')) return;
+          throw error;
+        }
+        const target = relative(root, file);
+        if (isAbsolute(target) || target === '..' || target.startsWith(`..${sep}`)) return;
+        if (!lstatSync(file).isFile()) return;
+      } else if (!stat.isFile()) return;
+      // Read the checked target, but save the link's path: restore materializes a regular file there.
+      chmodSync(file, 0o600);
+      s.files.push([name, readFileSync(file).toString('base64')]);
     };
     for (const dir of ['state', 'home']) if (existsSync(join(this.o.root, dir))) walk(join(this.o.root, dir));
     return s;
