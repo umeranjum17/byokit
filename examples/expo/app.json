@@ -36,6 +36,12 @@
       ],
       "@byokit/statusbar",
       [
+        "@byokit/push",
+        {
+          "appGroup": "group.io.github.umeranjum17.byokit.example.notices"
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "android": {

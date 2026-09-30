@@ -1,0 +1,21 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+group = 'io.github.umeranjum17.byokit'
+version = '0.1.0'
+android {
+  namespace 'io.github.umeranjum17.byokit.notices'
+  defaultConfig {
+    minSdkVersion 24
+    versionCode 1
+    versionName '0.1.0'
+  }
+}
+dependencies {
+  implementation 'com.google.firebase:firebase-messaging:24.1.1'
+  implementation 'io.github.instantwebp2p:tweetnacl-java:1.1.2'
+  implementation 'androidx.core:core:1.17.0'
+  testImplementation 'junit:junit:4.13.2'
+  testImplementation 'org.json:json:20240303'
+}

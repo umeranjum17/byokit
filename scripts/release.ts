@@ -449,7 +449,7 @@ function cmdPrepare(rest: string[]): void {
   const args = rest.filter((a) => a !== "--dry-run");
   const branch = sh("git", ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
   if (branch === "HEAD" || branch === "main") throw new Error(`prepare refuses branch '${branch}': use a release branch, not main`);
-  if (sh("git", ["status", "--porcelain"]).trim() !== "") throw new Error("prepare refuses a dirty tree");
+  if (sh("git", ["statusbar", "--porcelain"]).trim() !== "") throw new Error("prepare refuses a dirty tree");
   const pkgs = workspacePackages();
   const byDir = new Map(pkgs.map((p) => [p.dir, p]));
   const requested = new Map<string, string>();
@@ -549,7 +549,7 @@ function cmdPrepare(rest: string[]): void {
 
 function cmdPublish(rest: string[]): void {
   const dryRun = rest.includes("--dry-run");
-  const dirty = sh("git", ["status", "--porcelain"]).trim() !== "";
+  const dirty = sh("git", ["statusbar", "--porcelain"]).trim() !== "";
   if (dirty && !dryRun) throw new Error("publish refuses a dirty tree");
   if (dirty) console.log("warning: dirty tree (dry-run)");
   let head = sh("git", ["rev-parse", "HEAD"]).trim();
@@ -582,7 +582,7 @@ function cmdPublish(rest: string[]): void {
   const npmOf = new Map<string, string[] | null>();
   for (const p of pkgs) npmOf.set(p.dir, npmVersions(p.name));
   const pending = pkgs.filter((p) => !(npmOf.get(p.dir) ?? [])?.includes(p.version));
-  const canonical = ["link", "seal", "keystore", "reach", "ui-core", "accounts", "decide", "relay", "openclaw", "herdr", "write", "record", "overlay", "cloud", "statusbar", "usage"];
+  const canonical = ["link", "seal", "keystore", "reach", "ui-core", "accounts", "decide", "relay", "openclaw", "herdr", "write", "record", "overlay", "cloud", "statusbar", "usage", "push"];
   const rank = (d: string): number => {
     const i = canonical.indexOf(d);
     return i < 0 ? canonical.length : i;
