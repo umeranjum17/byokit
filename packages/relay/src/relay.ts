@@ -15,9 +15,9 @@ import { CLOSE, challenge } from './proof.ts';
 import { deliver, parseNotification, parseSubscription, pushHosts, vapidKeys, type Notification, type PushRecord, type Vapid } from './push.ts';
 
 /** A host allowed to register. `id` is link's `hostId(key)`, the address devices dial. */
-export type HostRecord = { id: string; key: string; name: string; added: number };
+export type HostRecord = { id: string; key: string; name: string; added: number; meta?: unknown };
 /** An owner-created enrolment: the claim is kept only as a hash. */
-export type Enrolment = { id: string; hash: string; name?: string; expires: number };
+export type Enrolment = { id: string; hash: string; name?: string; expires: number; meta?: unknown };
 /** Everything the relay keeps. Save it where only the relay can read it; never restore an old copy automatically, as it
  *  could bring back a revoked host. */
 export type RelayState = { hosts: HostRecord[]; enrolments: Enrolment[]; push: PushRecord[]; vapid?: Vapid };
@@ -62,6 +62,16 @@ export const LIMITS = {
   enrol: 10, // enrolment claims
   proof: 10, // failed host proofs (muxr: failed mints)
 };
+
+export const MAX_ENROLMENT_META_BYTES = 4096;
+export type RelaySelf = { host: HostRecord; devices: number };
+
+function enrolmentMeta(value: unknown): unknown {
+  if (value === undefined) return undefined;
+  const json = JSON.stringify(value);
+  if (json === undefined || Buffer.byteLength(json) > MAX_ENROLMENT_META_BYTES) throw new Error('bad enrolment metadata');
+  return JSON.parse(json);
+}
 
 const ENROL_MS = 5 * 60_000;
 const CODE_MS = 5 * 60_000;
@@ -186,7 +196,7 @@ export class Relay {
         if (!owner || !presented || !same(presented, owner)) return json(res, 403, { error: 'owner only' });
         if (path === '/relay/v1/enrolments' && req.method === 'POST') {
           const body: any = await readJson(req);
-          return json(res, 201, await this.enrolment({ name: body?.name }));
+          return json(res, 201, await this.enrolment({ name: body?.name, meta: body?.meta }));
         }
         if (path === '/relay/v1/hosts' && req.method === 'GET') return json(res, 200, { hosts: this.hosts() });
         const one = /^\/relay\/v1\/hosts\/([A-Za-z0-9_-]{22})$/.exec(path);
@@ -210,13 +220,14 @@ export class Relay {
 
   /** A one-use enrolment a host claims within five minutes, by registering with it (`RelayClient({ enrol })`). Give
    *  the token to the machine's owner over a channel you trust; only its hash is kept. */
-  async enrolment(o: { name?: string; ttlMs?: number } = {}): Promise<{ token: string; expires: number }> {
+  async enrolment(o: { name?: string; ttlMs?: number; meta?: unknown } = {}): Promise<{ token: string; expires: number }> {
+    const meta = enrolmentMeta(o.meta);
     const id = b64url(randomBytes(9));
     const claim = b64url(randomBytes(32));
     const now = this.now();
     const expires = now + Math.min(o.ttlMs ?? ENROL_MS, ENROL_MS);
     await this.change((s) => {
-      s.enrolments = [...s.enrolments.filter((e) => e.expires > now), { id, hash: sha(claim), expires, ...(o.name ? { name: cleanName(o.name, 'Computer') } : {}) }];
+      s.enrolments = [...s.enrolments.filter((e) => e.expires > now), { id, hash: sha(claim), expires, ...(meta !== undefined ? { meta } : {}), ...(o.name ? { name: cleanName(o.name, 'Computer') } : {}) }];
     });
     return { token: `${id}.${claim}`, expires };
   }
@@ -227,6 +238,13 @@ export class Relay {
 
   /** Removes a host: its registration, push subscriptions and codes go, and its socket and its devices' close. */
   async revoke(id: string): Promise<boolean> {
+    const had = await this.removeHost(id);
+    const l = this.live.get(id);
+    if (l) this.drop(l, CLOSE.revoked, 'host revoked');
+    return had;
+  }
+
+  private async removeHost(id: string): Promise<boolean> {
     const had = await this.change((s) => {
       const present = s.hosts.some((h) => h.id === id);
       s.hosts = s.hosts.filter((h) => h.id !== id);
@@ -235,8 +253,11 @@ export class Relay {
     });
     for (const [c, v] of this.codes) if (v.host === id) this.codes.delete(c);
     for (const [t, v] of this.tokens) if (v.host === id) this.tokens.delete(t);
-    const l = this.live.get(id);
-    if (l) this.drop(l, CLOSE.revoked, 'host revoked');
+    this.sent.delete(id);
+    for (const [key, w] of this.waiting) if (w.live.id === id) {
+      this.waiting.delete(key);
+      w.resolve({ ok: false, error: 'host revoked' });
+    }
     return had;
   }
 
@@ -332,7 +353,7 @@ export class Relay {
         if (!e || !same(sha(claim), e.hash)) return false;
         s.enrolments = s.enrolments.filter((x) => x !== e);
         if (e.expires < this.now()) return false;
-        s.hosts = [...s.hosts, { id, key: b64url(key), name: cleanName(e.name ?? m.name, 'Computer'), added: this.now() }];
+        s.hosts = [...s.hosts, { id, key: b64url(key), name: cleanName(e.name ?? m.name, 'Computer'), added: this.now(), ...(e.meta !== undefined ? { meta: e.meta } : {}) }];
         return true;
       });
       if (!enrolled) return fail(CLOSE.enrolment, 'enrolment expired or used');
@@ -343,7 +364,8 @@ export class Relay {
     if (old) this.drop(old, CLOSE.replaced, 'replaced by a newer host');
     const l: Live = { id, ws, devices: new Map(), next: 0 };
     this.live.set(id, l);
-    ws.send(JSON.stringify({ t: 'ready', id, vapid: this.state.vapid!.publicKey }));
+    const record = this.state.hosts.find((h) => h.id === id)!;
+    ws.send(JSON.stringify({ t: 'ready', id, vapid: this.state.vapid!.publicKey, ...(record.meta !== undefined ? { meta: record.meta } : {}) }));
     return l;
   }
 
@@ -366,11 +388,24 @@ export class Relay {
       return w.resolve({ ok: m.ok === true, value: m.value, error: typeof m.error === 'string' ? m.error.slice(0, 200) : undefined });
     }
     const reply = (r: object) => { if (this.live.get(l.id) === l) l.ws.send(JSON.stringify({ t: 'res', id: m?.id, ...r })); };
+    if (m?.t === 'leave') {
+      void this.removeHost(l.id).then((removed) => {
+        reply({ ok: true, removed });
+        const current = this.live.get(l.id);
+        if (current) this.drop(current, CLOSE.revoked, 'host revoked');
+      }, (e) => reply({ ok: false, error: String(e?.message ?? e) }));
+      return;
+    }
     void this.control(l.id, m).then((r) => reply({ ok: true, ...r }), (e) => reply({ ok: false, error: String(e?.message ?? e) }));
   }
 
   private async control(host: string, m: any): Promise<object> {
     const now = this.now();
+    if (m?.t === 'self') {
+      const record = this.state.hosts.find((h) => h.id === host);
+      if (!record) throw new Error('host revoked');
+      return { host: record, devices: this.count(host) };
+    }
     if (m?.t === 'code') {
       for (const [c, v] of this.codes) if (v.expires < now) this.codes.delete(c);
       const mine = [...this.codes].filter(([, v]) => v.host === host);

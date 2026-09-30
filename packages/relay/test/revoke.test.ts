@@ -3,7 +3,7 @@
 // the unsubscribe in its store and resends it until the relay confirms.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RelayClient, type RelayClientStore, type RelayState } from '../src/index.ts';
+import { CLOSE, RelayClient, type RelayClientStore, type RelayState } from '../src/index.ts';
 import { hostClient, paired, startHost, startRelay, until } from './helpers.ts';
 
 const phone = { expo: 'ExponentPushToken[phone]' };
@@ -210,4 +210,23 @@ test('a second revoke that fails leaves the first one waiting for the relay', as
   Fake.last.close(1006);
   await first;
   client.stop();
+});
+
+
+test('leave clears durable pending unsubscriptions after host removal, including a lost reply', async () => {
+  const store = durable();
+  store.d = ['phone'];
+  const seen: string[] = [];
+  const { Fake } = scripted((m) => {
+    if (m.t === 'leave') Fake.last.close(CLOSE.revoked); // purged, but the res frame was lost
+    return [];
+  });
+  const client = new RelayClient(await startHost(), { url: 'ws://unused', WebSocket: Fake as any, store, onRevoked: (d) => seen.push(d) });
+  await until(() => client.status === 'online');
+  assert.deepEqual(await client.pending(), ['phone']);
+  await client.leave();
+  assert.deepEqual(await client.pending(), []);
+  assert.deepEqual(store.d, []);
+  assert.deepEqual(seen, ['phone']);
+  await assert.rejects(client.code(), /stopped/);
 });

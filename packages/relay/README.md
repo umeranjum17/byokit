@@ -85,7 +85,7 @@ reply: { pong: 'ping' }
 | Export | What it does |
 |---|---|
 | `Relay` | The relay server: `Relay.open(options)`, `attach(server)` (or `upgrade` / `request`), `admit`, `enrolment`, `hosts`, `revoke`, `count`, `close` |
-| `RelayClient` | The host's side: one outbound socket that proves the host's key and reconnects; `code`, `subscribe`, `unsubscribe`, `notify`, `revoke`, `stop` |
+| `RelayClient` | The host's side: one outbound socket that proves the host's key and reconnects; `code`, `subscribe`, `unsubscribe`, `notify`, `revoke`, `pending`, `self`, `leave`, `stop` |
 | `ownerClient` | The owner's HTTP API: `hosts`, `enrolment`, `revoke`; accepts an injected `fetch` |
 | `RelayOwnerError` | HTTP refusal with a numeric `status` and a `code`: `forbidden` (403), `not-found` (404), or `request-failed` |
 | `findHost` | The device's side: a short code → the link address to dial (also from `@byokit/relay/device`) |
@@ -282,3 +282,30 @@ traffic on address limits unless a trusted tenant boundary is available.
 For reconnect reconciliation, provide a durable `RelayClient.store`, revoke removed devices through
 `RelayClient.revoke`, and resend current subscriptions once online. Pending unsubscribe records retry on every
 connection until acknowledged; the relay's store must remain durable too.
+
+
+
+## Host enrolment metadata and self-service
+
+The owner can attach up to 4096 UTF-8 bytes of JSON to an enrolment through `relay.enrolment({ meta })` or
+`ownerClient(url, token).enrolment({ meta })`. The kit treats it as opaque data; URL meanings belong to the app:
+
+```ts
+const enrolment = await ownerClient(relayHttpUrl, ownerToken).enrolment({
+  name: 'Kitchen computer',
+  meta: { enrolmentUrl: 'https://relay.example/enrol', webUrl: 'https://app.example' },
+});
+const client = new RelayClient(host, { url: relayHostUrl, enrol: enrolment.token, store: pendingStore });
+const { host: record, devices } = await client.self();
+// record.meta is also available as client.meta after ready, including on reconnect.
+// devices counts live relay connections; the host alone knows which link grants authenticate them.
+await client.leave();
+```
+
+Metadata stays on the owner's and enrolled host's side. The relay neither fetches these URLs nor sends metadata to
+phones. `self()` needs the host's key proof, not the relay owner's token, and returns only `{ host: HostRecord, devices }`.
+`leave()` removes the host registration, all its push subscriptions, action tokens and short codes, closes its devices,
+clears confirmed pending unsubscriptions from the client's store, and stops. A failed relay save rejects without
+removing authority. Requests retry on reconnect while the client runs; after a host restart the app calls `leave()` again.
+It does not remove local link grants. With the default enrolment-only signup, returning after leaving requires a new owner enrolment.
+An explicitly open signup policy permits the key to register again, subject to its host cap.

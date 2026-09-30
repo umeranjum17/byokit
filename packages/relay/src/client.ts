@@ -4,6 +4,7 @@
 // device's unsubscribe is kept apart, in `store`: it is resent on every socket until the relay confirms it.
 import type { Host, Socket } from '@byokit/link';
 import { CLOSE, prove, type Challenge } from './proof.ts';
+import type { RelaySelf } from './relay.ts';
 import type { Notification, Subscription } from './push.ts';
 
 /** `replaced`: another copy of this host registered, so this one stopped. `refused`: the relay does not allow this
@@ -54,6 +55,8 @@ export class RelayClient {
   vapidKey?: string;
   /** This host's address on the relay; devices dial `<relay>/link/v1/<id>`. */
   id?: string;
+  /** Owner-set enrolment metadata, including app-defined URLs; never forwarded to devices. */
+  meta?: unknown;
   private host: Linked;
   private opts: RelayClientOptions;
   private ws?: Socket & { readyState: number };
@@ -83,8 +86,19 @@ export class RelayClient {
     this.connect();
   }
 
-  /** A short code (six characters, five minutes) a device can type to find this host on the relay; the person types
-   *  it with link's pairing code from `host.code()`. The relay learns only which host it points to. */
+  /** This key-proven host's own registration and live device connection count. */
+  self(): Promise<RelaySelf> { return this.call({ t: 'self' }); }
+
+  /** Removes this host and all its relay push addresses, action tokens and short codes, then stops.
+   * Pending device unsubscriptions are cleared only after the relay confirms removal. */
+  async leave(): Promise<void> {
+    await this.call({ t: 'leave' });
+    for (const d of [...this.revoking]) this.gone(d);
+    await this.change(() => []);
+    this.stop();
+  }
+
+  /** A short code (six characters, five minutes) to find this host; use with link's pairing code. */
   code(): Promise<{ code: string; expires: number }> { return this.call({ t: 'code' }); }
 
   /** Stores device `device`'s push address (a device sends it over the link; `device` is its grant id). Refused for a
@@ -268,6 +282,7 @@ export class RelayClient {
       if (m?.t === 'ready') {
         this.id = m.id;
         this.vapidKey = m.vapid;
+        this.meta = m.meta;
         this.tries = 0;
         this.host.relay(ws);
         this.set('online');
@@ -313,6 +328,12 @@ export class RelayClient {
       while (this.queue.length > QUEUE) this.queue.pop()!.reject(new Error('relay queue full'));
       const stop = STOPS[e?.code ?? 0];
       if (stop) {
+        if (e?.code === CLOSE.revoked || e?.code === CLOSE.notEnrolled) {
+          this.queue = this.queue.filter((c) => {
+            if ((c.msg as { t?: string }).t !== 'leave') return true;
+            c.resolve({ removed: true }); return false;
+          });
+        }
         // Not registered on the relay means it holds no push address for this host: nothing is left to unsubscribe.
         if (e!.code === CLOSE.revoked || e!.code === CLOSE.notEnrolled) for (const d of [...this.revoking]) this.gone(d);
         this.stopped = true;

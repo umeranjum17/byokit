@@ -404,4 +404,51 @@ test('notify hook can transform or suppress and fails closed on invalid output o
   mode = 'error';
   await assert.rejects(p.client.notify({ id: 'four', title: 'Original' }), /filter failed/);
   assert.equal(world.sent.length, 1);
+
+});
+
+
+test('host leave purges its record, push addresses, action tokens and codes; another host survives', async () => {
+  const world = pushWorld();
+  const r = await startRelay({ push: { fetch: world.fetch } });
+  let kept = ['pending-device'];
+  const a = await paired(r, 'Phone', { store: { load: () => kept, save: (d) => { kept = d; } } });
+  const b = await paired(r, 'Other');
+  await a.dev.link.request('hello');
+  await a.client.subscribe('phone', { expo: 'ExponentPushToken[phone]' });
+  await b.client.subscribe('other', { expo: 'ExponentPushToken[other]' });
+  const { code } = await a.client.code();
+  await a.client.notify({ id: 'leave-token', title: 'Approve', actions: ['yes'] });
+  const token = world.sent.at(-1)!.body[0].data.action;
+  await a.client.leave();
+  assert.deepEqual(await a.client.pending(), []);
+  assert.deepEqual(kept, []);
+  assert.deepEqual(r.saved()!.hosts.map((h) => h.id), [b.host.id]);
+  assert.deepEqual(r.saved()!.push.map((p) => p.host), [b.host.id]);
+  assert.equal((await fetch(`${r.http}/relay/v1/codes/${code}`)).status, 404);
+  assert.equal((await fetch(`${r.http}/relay/v1/push/action`, { method: 'POST', body: JSON.stringify({ token, action: 'yes' }) })).status, 404);
+  await until(() => a.dev.link.status === 'offline');
+  await assert.rejects(a.client.self(), /stopped/);
+  const retry = hostClient(a.host, r.ws);
+  await until(() => retry.client.status === 'refused');
+  assert.equal(b.client.status, 'online');
+  assert.deepEqual(await b.dev.link.request('survived'), { op: 'survived', by: b.grant.device.id });
+});
+
+test('a failed leave save preserves authority and allows the host to retry', async () => {
+  let saved: any;
+  let fail = false;
+  const r = await startRelay({ store: { load: () => saved, save: (s) => {
+    if (fail) { fail = false; throw new Error('disk failed'); }
+    saved = s;
+  } } });
+  const p = await paired(r);
+  await p.client.subscribe('phone', { expo: 'ExponentPushToken[phone]' });
+  fail = true;
+  await assert.rejects(p.client.leave(), /disk failed/);
+  assert.equal((await p.client.self()).host.id, p.host.id);
+  assert.equal(saved.push.length, 1);
+  await p.client.leave();
+  assert.deepEqual(saved.hosts, []);
+  assert.deepEqual(saved.push, []);
 });

@@ -19,7 +19,7 @@ export class RelayOwnerError extends Error {
 
 export type OwnerClient = {
   hosts(): Promise<OwnerHost[]>;
-  enrolment(o?: { name?: string }): Promise<OwnerEnrolment>;
+  enrolment(o?: { name?: string; meta?: unknown }): Promise<OwnerEnrolment>;
   /** True if the host was removed; false if it was already absent. */
   revoke(hostId: string): Promise<boolean>;
 };

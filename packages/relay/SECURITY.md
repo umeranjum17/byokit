@@ -116,3 +116,20 @@ TMPDIR=/tmp sh scripts/test.sh 'packages/link/test/*.test.ts' 'packages/relay/te
 The seeded tests are deterministic and run offline with the normal test egress guard. They cover
 JSON values reachable from the wire, not hostile in-process getters, proxies or cyclic objects.
 No production relay, account, notification provider or host credentials are used by this review.
+
+
+## Enrolment metadata and host controls
+
+Only the relay owner sets enrolment `meta`: JSON capped at 4096 UTF-8 bytes including JSON punctuation.
+It is persisted in the enrolled host's record and returned to that key-proven host in `ready` on every connection.
+The owner can also read it in `hosts()`. The relay never puts it in device frames, short-code lookups or push payloads,
+never interprets URLs inside it, and never fetches them. Apps choose the URL fields and decide what to disclose over link.
+Treat this metadata as relay-readable, not as an encrypted place for secrets.
+
+`self` and `leave` run only over the authenticated host socket, scoped to the key proven in its handshake; a supplied
+host id cannot select another host. `self` exposes that host's record and its live connection count (not authenticated
+link grant identities, which the blind relay cannot see). `leave` durably removes the registration and push records
+before confirming, invalidates short codes and action tokens, resolves outstanding actions with a refusal, and closes
+that host and its devices. A failed save keeps authority intact and lets the host retry. `RelayClient.leave()` clears its
+pending device-unsubscribe store after that confirmation and stops; a disconnected request retries while this client
+runs, but a host restart must call `leave()` again. Local link grants belong to the app and remain available for direct links.
