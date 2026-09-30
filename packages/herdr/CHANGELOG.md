@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.9 (2026-09-30)
+
+- Dependency update: pins @byokit/relay 0.4.1.
+- Dependency update: pins @byokit/link 0.5.1.
+- FIX: (from @byokit/link 0.5.1) Reject an authenticated empty transport frame instead of decoding it as an empty control message.
+
 ## 0.1.8 (2026-09-30)
 
 - Depends on @byokit/relay 0.4.0.

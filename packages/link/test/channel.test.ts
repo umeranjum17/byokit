@@ -168,6 +168,15 @@ test('big messages go in pieces; one past 16 MB drops the socket; the 32-bit cou
   const worn = ik();
   (worn.dc as any).tx.nonce = 2 ** 32 - 1;
   assert.throws(() => worn.dc.seal({}), /reconnect/);
+  (worn.hc as any).rx.nonce = 2 ** 32 - 1;
+  assert.throws(() => worn.hc.open(''), /reconnect/, 'receive counter never wraps either');
+  const incoming = ik();
+  const part = Buffer.alloc(60_001); part[0] = 1;
+  const tx = (incoming.dc as any).tx;
+  for (let size = 60_000; size <= 16 << 20; size += 60_000) {
+    assert.equal(incoming.hc.open(tx.encrypt(part)), undefined);
+  }
+  assert.throws(() => incoming.hc.open(tx.encrypt(part)), /message too large/, 'incoming reassembly is bounded');
 });
 
 

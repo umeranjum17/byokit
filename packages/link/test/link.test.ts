@@ -10,7 +10,36 @@ import {
   type DeviceGrant, type Grant, type HostOptions, type LinkStatus, type PairRequest,
 } from '../src/index.ts';
 import { parseOffer } from '../src/pairing.ts';
+import { Handshake } from '../src/channel.ts';
 import { closers, connect, pairWithCode, pairWithOffer, sleep, startHost, until } from './helpers.ts';
+
+test('security review: throwing or timed-out confirmation stores no grant', async () => {
+  for (const confirm of [() => { throw new Error('approval failed'); }, () => new Promise<boolean>(() => {})]) {
+    const h = await startHost({ confirm, pairMs: 300 });
+    await assert.rejects(pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' }),
+      (e: LinkError) => e.code === 'declined' && e.sealed);
+    assert.deepEqual(h.saved(), []);
+  }
+});
+
+test('security review: requests before ready and authenticated empty frames close without running a handler', async () => {
+  for (const empty of [false, true]) {
+    const h = await startHost();
+    const hs = new Handshake('ik', true, keyPair(), { remote: h.host.keys.publicKey });
+    const ws = new WebSocket(h.url);
+    const closed = new Promise<number>((resolve) => ws.addEventListener('close', (e) => resolve(e.code)));
+    ws.addEventListener('open', () => ws.send(hs.write({ v: 1 })));
+    ws.addEventListener('message', (e) => {
+      hs.read(String(e.data));
+      const ch = hs.channel();
+      ws.send(empty ? Buffer.from((ch as any).tx.encrypt(new Uint8Array())).toString('base64')
+        : ch.seal({ t: 'req', id: 1, key: 'unapproved', session: 'test', op: 'secret' })[0]);
+    }, { once: true });
+    assert.equal(await closed, 4400);
+    assert.deepEqual(h.ran, []);
+    assert.deepEqual(h.saved(), []);
+  }
+});
 
 test('scan to pair: the person at the host sees the same two words, then the device is granted', async () => {
   const h = await startHost();

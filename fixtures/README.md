@@ -19,5 +19,6 @@ those same files.
 | `conformance/sse-typescript.json` | TypeScript-only completion requirement, authoritative output, and coded SSE limits. |
 | `conformance/incomplete-typescript.json` | TypeScript-only cut-off answers: typed error, partial output, and incomplete event for SSE and JSON. |
 | `conformance/plain-words.json` | The pattern no sentence in `words.json` may match. |
+| `conformance/link-frames-typescript.json` | TypeScript link transport rejects missing kinds, unknown kinds and truncated stream ids. |
 
 Each fixture file states its rule in `rule`; `now` (epoch ms) is the fixed clock for time-dependent cases.

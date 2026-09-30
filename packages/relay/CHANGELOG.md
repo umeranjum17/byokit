@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.4.1 (2026-09-30)
+
+- Dependency update: pins @byokit/link 0.5.1.
+
+- FIX: (from @byokit/link 0.5.1) Reject an authenticated empty transport frame instead of decoding it as an empty control message.
+- Document the relay threat model and review evidence; add seeded push envelope and host-proof fuzz tests.
+
 ## 0.4.0 (2026-09-30)
 
 - Add explicit capped open signup on self-hosted relays, with proof of key and atomic registration.
