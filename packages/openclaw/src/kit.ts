@@ -560,7 +560,8 @@ export class OpenClawKit {
   }
 
   private closed(_why: string): void {
-    if (this.stopping || this.current.phase !== 'ready') return;
+    const engineFailed = _why === 'engine exited' && this.current.phase === 'failed' && this.current.why === 'exited';
+    if (this.stopping || (this.current.phase !== 'ready' && !engineFailed)) return;
     void this.disconnect();
     if (this.o.spawnEngine === false) { this.setState({ phase: 'failed', why: 'handshake' }); return; }
     const retryAt = Date.now() + Math.min(30_000, 1000 * 2 ** this.failures++);

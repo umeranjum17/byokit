@@ -14,6 +14,15 @@ const live = (pid: number): boolean => {
 function regular(path: string): void {
   if (!lstatSync(path).isFile()) throw new Error('credential store requires regular files');
 }
+function syncDir(path: string): void {
+  if (process.platform === 'win32') return;
+  const fd = openSync(path, 'r');
+  try { fsyncSync(fd); } finally { closeSync(fd); }
+}
+function removeMarker(path: string): void {
+  rmSync(path, { force: true });
+  syncDir(dirname(path));
+}
 function put(path: string, bytes: Uint8Array): void {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const tmp = `${path}.sealing-${process.pid}`;
@@ -23,10 +32,7 @@ function put(path: string, bytes: Uint8Array): void {
     try { fsyncSync(fd); } finally { closeSync(fd); }
     renameSync(tmp, path);
     // POSIX directory fsync makes the rename durable before any plaintext is removed.
-    if (process.platform !== 'win32') {
-      const parent = openSync(dirname(path), 'r');
-      try { fsyncSync(parent); } finally { closeSync(parent); }
-    }
+    syncDir(dirname(path));
   } finally { rmSync(tmp, { force: true }); }
 }
 type Snapshot = { v: 1; dirs: string[]; files: [string, string][] };
@@ -84,6 +90,14 @@ export class AuthStore {
       if (!lstatSync(this.lock).isDirectory() || lstatSync(this.lock).isSymbolicLink()) throw new Error('invalid credential lock');
       const owner = join(this.lock, 'pid');
       if (!existsSync(owner) || live(Number(readFileSync(owner, 'utf8')))) throw new Error('credential store is in use');
+      // Only one stale-owner recovery can proceed. Recheck after claiming it so a stale reader
+      // cannot remove the lock a newer owner has just acquired.
+      const recovery = join(this.lock, 'recovery');
+      try { mkdirSync(recovery, { mode: 0o700 }); } catch { throw new Error('credential store is in use'); }
+      if (!existsSync(owner) || live(Number(readFileSync(owner, 'utf8')))) {
+        rmSync(recovery, { recursive: true });
+        throw new Error('credential store is in use');
+      }
       rmSync(this.lock, { recursive: true });
     }
     mkdirSync(this.lock, { mode: 0o700 });
@@ -124,8 +138,8 @@ export class AuthStore {
     const previous = await this.read();
     if (previous && (existsSync(this.cleanup) || existsSync(this.restoring))) {
       for (const dir of ['state', 'home']) rmSync(join(this.o.root, dir), { recursive: true, force: true });
-      rmSync(this.cleanup, { force: true });
-      rmSync(this.restoring, { force: true });
+      removeMarker(this.cleanup);
+      removeMarker(this.restoring);
       this.o.log?.('interrupted credential transition recovered');
     }
     const hasLive = ['state', 'home'].some((dir) => existsSync(join(this.o.root, dir)));
@@ -137,7 +151,7 @@ export class AuthStore {
     if (this.o.seal.decryptString(readFileSync(this.file)) !== text) throw new Error('credential seal verification failed');
     put(this.cleanup, encoder.encode('1'));
     for (const dir of ['state', 'home']) rmSync(join(this.o.root, dir), { recursive: true, force: true });
-    rmSync(this.cleanup, { force: true });
+    removeMarker(this.cleanup);
   }
 
   private async restore(): Promise<void> {
@@ -151,7 +165,7 @@ export class AuthStore {
       for (const [path, data] of saved.files) put(join(this.o.root, path), Buffer.from(data, 'base64'));
     }
     for (const dir of ['state', 'home']) mkdirSync(join(this.o.root, dir), { recursive: true, mode: 0o700 });
-    rmSync(this.restoring, { force: true });
+    removeMarker(this.restoring);
   }
   async archives(): Promise<void> {
     const ignored = new Set([resolve(this.o.engineDir), ...['npm-cache', 'install-home', 'tmp', 'plugin', 'workspaces'].map((d) => resolve(this.o.root, d))]);
@@ -221,5 +235,6 @@ export async function retireArchive(path: string, seal?: SealingAdapter, log?: (
     } finally { bytes.fill(0); }
   }
   rmSync(path);
+  syncDir(dirname(path));
   log?.(seal ? 'credential archive sealed' : 'verified credential archive removed');
 }

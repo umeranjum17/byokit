@@ -102,8 +102,8 @@ export async function migrateRetainedLogin(
 }
 
 /**
- * After `ready`: the migration counts only when the Gateway itself reports every provider signed in. Only then does
- * a path source is removed without creating a plaintext archive — anything else leaves the sign-in where
+ * After `ready`: the migration counts only when the Gateway itself reports every provider signed in. Only then is
+ * a path source removed without creating a plaintext archive — anything else leaves the sign-in where
  * it was and the next boot retries it without asking the person to sign in again.
  */
 export async function confirmRetainedLogin(ctx: SignInCtx & { seal?: SealingAdapter; log?: (line: string) => void }, member: Member, source: RetainedLogin): Promise<boolean> {

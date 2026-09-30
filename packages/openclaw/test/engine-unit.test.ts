@@ -215,6 +215,10 @@ test('sealed engine store covers SQLite, journals, JSON and isolated home; stop,
   writeFileSync(sealed, 'tampered');
   await assert.rejects(new Engine(o).start(), /authentication failed/);
   assert.equal(existsSync(agent), false, 'tamper rejection happens before any plaintext is restored');
+  writeFileSync(sealed, seal.encryptString(JSON.stringify({ v: 1, dirs: ['state'], files: [['state/../escape', 'dG9rZW4=']] })));
+  await assert.rejects(new Engine(o).start(), /invalid sealed credential file/);
+  assert.equal(existsSync(join(engine.root, 'escape')), false);
+
 });
 
 test('sealing rejects concurrent owners and symlinks, and does not claim stopped when the seal fails', async () => {
