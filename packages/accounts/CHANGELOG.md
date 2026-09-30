@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.10.0 (2026-09-30)
+
+
+
+- Export portable `classifyFailure` and `Failure`, with an injectable clock and `REST_MS` fallbacks; retain `classify` as an alias.
+
 ## 0.9.0 (2026-09-30)
 
 

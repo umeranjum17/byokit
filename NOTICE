@@ -11,3 +11,7 @@ run it in. Some providers do not document that use; each one is labelled with
 its terms status in packages/accounts/src/catalogue.json, and the app decides
 what to offer. byokit never offers Claude plan sign-in, which Anthropic
 reserves for its own apps.
+
+@byokit/usage quota protocol normalization is informed by the MIT-licensed
+can1357/oh-my-pi readers at commit 2b023d1 (https://github.com/can1357/oh-my-pi).
+No upstream runtime code or credential discovery is included.

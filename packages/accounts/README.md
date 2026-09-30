@@ -122,7 +122,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | `offered`, `provider`, `PROVIDERS` | The catalogue: each provider's billing, terms status, reason and source |
 | `billingWords`, `say`, `WORDS`, `signInError`, `failure`, `clock`, `callbackPage` | The plain sentences every app shows the same way (`words.json`), a time in words, and the page a browser sees after a sign-in |
 | `respond`, `ResponseError`, `IncompleteError`, `sseReader`, `limitResponse`, `isFunctionCall` | Ask ChatGPT's answers endpoint with a sign-in, with tools, pictures, thinking effort and an answer shape; the error with the words to show and the kind acted on |
-| `classify`, `REST_MS` | An error's kind (limit, overload, plan without this use, lapsed sign-in, network) and default rest times |
+| `classifyFailure`, `classify`, `REST_MS` | An error's kind (limit, overload, plan without this use, lapsed sign-in, network) and default rest times |
 | `planOf`, `claims` | The ChatGPT plan and email behind a sign-in, from its own token |
 | `deviceStart`, `devicePoll`, `credentialOf`, `portableEngine`, `PORTABLE` | The device-code flow, the sign-in built from a token answer, and the engine under `portable` |
 | `isolate`, `INHERITED`, `emptyAuthContext` (`/isolate`) | Scrub inherited Pi settings and provider keys; ambient discovery off |
@@ -355,3 +355,9 @@ For a plaintext store, stop all writers, revoke the old credentials using the ol
 remove the old app-owned credential file, and sign in again with a sealing adapter. Old plaintext
 backups may retain tokens: delete them under the host's retention policy and revoke the affected
 credentials. Do not point this migration at another tool's sign-in directory.
+`classifyFailure(error, nowMs?)` returns a typed `Failure` (`{ kind, until }`) or `null`
+for an unrecognized error. `until` is epoch milliseconds when the error says "try again
+in N min/hours", and zero otherwise. For resting kinds, use
+`failure.until || nowMs + REST_MS[failure.kind]`; signed-out, not-included and network
+failures have no fallback rest. `classify` remains an alias. Pass a clock for deterministic
+classification; the default uses `Date.now()`. It stores and logs no error text.
