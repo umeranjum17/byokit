@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { b64url, cleanName, decodeOffer, encodeOffer, offerText, parseOffer, type PairOffer } from '../src/index.ts';
 
+import legacy from '../../../fixtures/conformance/legacy-offers-typescript.json' with { type: 'json' };
+
 const offer: PairOffer = { v: 1, host: b64url(new Uint8Array(32).fill(3)), ticket: b64url(new Uint8Array(16).fill(7)),
   name: 'Kitchen 🥣', urls: ['ws://127.0.0.1:7300/link', 'wss://relay.example/link/v1/abc'], expires: 1_900_000_000_123,
   role: 'view', lifetime: 60_000 };
@@ -43,4 +45,25 @@ test('offline encoding applies the QR parser address, key, ticket and name rules
     assert.throws(() => encodeOffer({ ...offer, ...patch }), /isn't a pairing code/);
   }
   assert.equal(decodeOffer(encodeOffer({ ...offer, name: '\u202eKitchen\u0007' }), 0).name, 'Kitchen');
+});
+
+test('legacy compact fixtures preserve the pinned key, ticket, role and second-resolution expiry', () => {
+  for (const fixture of legacy.valid) {
+    const expected = { v: 1 as const, host: offer.host, ticket: offer.ticket, name: 'your computer',
+      expires: 2_100_000_000_000, role: fixture.role, urls: fixture.urls };
+    for (const typed of [fixture.code, fixture.code.toLowerCase().replace(/-/g, ' \n')]) {
+      assert.deepEqual(decodeOffer(typed, 0), expected);
+      assert.deepEqual(decodeOffer(typed, expected.expires), expected);
+      assert.throws(() => decodeOffer(typed, expected.expires + 1), /run out/);
+    }
+    const decoded = decodeOffer(fixture.code, 0);
+    assert.deepEqual(decodeOffer(encodeOffer(decoded), 0), decoded);
+    assert.notEqual(encodeOffer(decoded), fixture.code);
+    assert.deepEqual(parseOffer(offerText(decoded), 0), decoded);
+    const compact = fixture.code.replace(/-/g, '');
+    for (const bad of [compact + '2', compact.slice(0, -1), compact.slice(0, -1) + '2', '26' + '2'.repeat(2048)]) {
+      assert.throws(() => decodeOffer(bad, 0), /didn't match/);
+    }
+  }
+  for (const fixture of legacy.invalid) assert.throws(() => decodeOffer(fixture.code, 0), /didn't match/, fixture.name);
 });

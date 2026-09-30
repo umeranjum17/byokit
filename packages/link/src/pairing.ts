@@ -87,10 +87,14 @@ export function encodeOffer(offer: PairOffer): string {
 }
 
 /** Read an offline offer without network access. Case, spaces and dashes are ignored; O means 0 and I/L mean 1.
+ * Old compact direct offers remain readable for migration; new offers always use the current format.
  * Other typos fail the checksum. Expiry and addresses follow `parseOffer`; `now = 0` permits inspection only. */
 export function decodeOffer(text: string, now = Date.now()): PairOffer {
   if (text.length > MAX_TYPED_OFFER) throw badOffer();
-  const s = text.toUpperCase().replace(/[\s-]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+  const compact = text.toUpperCase().replace(/[\s-]/g, '');
+  // Legacy v1 + role starts with 26 in its own alphabet; current v1 starts with 0.
+  if (compact.startsWith('26')) return decodeLegacyOffer(compact, now);
+  const s = compact.replace(/O/g, '0').replace(/[IL]/g, '1');
   if (!s || [...s].some((c) => !OFFER_ALPHABET.includes(c))) throw badOffer();
   const bytes: number[] = [];
   let bits = 0, value = 0;
@@ -104,6 +108,50 @@ export function decodeOffer(text: string, now = Date.now()): PairOffer {
   const b = Uint8Array.from(bytes);
   if (b.length < 6 || b[0] !== 1 || checksum(b.subarray(0, -4)) !== new DataView(b.buffer).getUint32(b.length - 4)) throw badOffer();
   return parseOffer(TAG + b64url(b.subarray(1, -4)), now);
+}
+
+// Migration read path only. The old direct envelope used seconds, a role byte and no name/lifetime.
+function decodeLegacyOffer(s: string, now: number): PairOffer {
+  const alphabet = '23456789ABCDEFGHJKMNPQRSTUVWXYZ0';
+  if (s.length > 2048 || [...s].some((c) => !alphabet.includes(c))) throw badOffer();
+  const bytes: number[] = [];
+  let bits = 0, value = 0;
+  for (const c of s) {
+    value = (value << 5 | alphabet.indexOf(c)) & 0xffff;
+    bits += 5;
+    if (bits >= 8) { bits -= 8; bytes.push((value >>> bits) & 255); }
+  }
+  if (s.length !== Math.ceil(bytes.length * 8 / 5) || (bits && (value & ((1 << bits) - 1)))) throw badOffer();
+  const b = Uint8Array.from(bytes);
+  if (b.length < 59 || b[0] !== 1 || b[1]! > 1) throw badOffer();
+  const end = b.length - 4;
+  const view = new DataView(b.buffer);
+  if (checksum(b.subarray(0, end)) !== view.getUint32(end)) throw badOffer();
+  const count = b[54]!;
+  if (!count || count > 8) throw badOffer();
+  let at = 55;
+  const urls: string[] = [];
+  for (let i = 0; i < count; i++) {
+    if (at >= end) throw badOffer();
+    const length = b[at++]!;
+    if (length === 0) {
+      if (at + 6 > end) throw badOffer();
+      const port = view.getUint16(at + 4);
+      if (!port) throw badOffer();
+      urls.push(`ws://${[...b.subarray(at, at + 4)].join('.')}:${port}/link`);
+      at += 6;
+    } else {
+      if (at + length > end) throw badOffer();
+      try { urls.push(new TextDecoder('utf-8', { fatal: true }).decode(b.subarray(at, at + length))); }
+      catch { throw badOffer(); }
+      at += length;
+    }
+  }
+  if (at !== end || urls.some((url) => !url.startsWith('ws:') || !wsUrl(url))) throw badOffer();
+  return parseOffer(offerText({
+    v: 1, host: b64url(b.subarray(2, 34)), ticket: b64url(b.subarray(34, 50)),
+    expires: view.getUint32(50) * 1000, name: 'your computer', role: b[1] ? 'control' : 'view', urls,
+  }), now);
 }
 
 /** Typed codes use letters and numbers nobody mixes up (no 0/O, 1/I/L). Twelve of them are about 59 bits: too many

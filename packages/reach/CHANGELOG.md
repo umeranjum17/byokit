@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.4.0 (2026-09-30)
+
+- FIX: direct Tailscale binds only the selected Self IPv4 address; `address` selects another local tailnet IP.
+- `routes()` includes Tailscale addresses, with optional CLI-reported IPs for unnamed interfaces.
+- `tailscaleState()` exposes validated `keyExpiry` and typed `Peer` diagnostics without throwing.
+
 ## 0.3.0
 
 - `tailscaleState()` returns installation, backend, sign-in and address diagnostics without throwing; `tailscaleStatus()` keeps its existing behavior.
