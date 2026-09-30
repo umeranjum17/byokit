@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.4.3 (2026-09-30)
+
+- Dependency update: pins @byokit/accounts 0.9.0.
+- SECURITY: (from @byokit/accounts 0.9.0) Prevent replay of single-use refresh grants in the portable engine by saving a generation attempt before sending and committing the replacement before returning access. An uncertain or terminal attempt requires sign-in again; custom stores must provide a refresh transaction, and restart safety depends on durable storage and a single refresh owner or host lock.
+
 ## 0.4.2 (2026-09-30)
 
 - Depends on @byokit/accounts 0.8.0.
