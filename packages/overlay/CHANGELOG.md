@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.1 (2026-09-30)
+
 - FIX: Text insertion no longer gives up while the panel is closing; it retries unreadable fields and only
   re-acquires a field with the same view id, bounds and package.
 
