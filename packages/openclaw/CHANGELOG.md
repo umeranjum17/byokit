@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Key readiness waits through the engine's retryable restart refusal after activation; missing keys still fail without another account.
+- API key (billed per use): `addKey` verifies and stores an explicitly entered key in a separate member-owned agent, with copying disabled and no automatic subscription fallback. `run({ auth: 'apiKey' })` selects it explicitly with separate history; key-entry labels, errors and route revision dates are included.
 
 ## 0.3.6 (2026-10-01)
 
@@ -54,7 +55,6 @@
 
 - FIX: `authSeal` no longer rejects retained-login migration when engine state contains symlinks or runtime entries. File symlinks whose fully resolved targets are regular files inside the isolated engine root are sealed and restored as regular files at the link paths; outside-root, dangling and directory symlinks (including loops), sockets, FIFOs and devices are skipped without reading their contents.
 - Depends on @byokit/ui-core 0.4.0.
-- API key (billed per use): `addKey` verifies and stores an explicitly entered key in a separate member-owned agent, with copying disabled and no automatic subscription fallback. `run({ auth: 'apiKey' })` selects it explicitly with separate history; key-entry labels, errors and route revision dates are included.
 
 ## 0.3.0 (2026-09-30)
 
