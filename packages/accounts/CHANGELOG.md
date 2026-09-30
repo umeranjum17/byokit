@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.11.0 (2026-09-30)
+
+
+
 - Expose fresh subscription access to host-side capabilities using the app’s own sign-in.
 
 ## 0.11.0 (2026-09-30)
