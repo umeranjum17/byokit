@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-09-30)
+
+
+
 - Prepare the first public release with portable phone and web secret storage.
 
 - Add React Native SecureStore and web IndexedDB/WebCrypto AES-GCM backends behind
