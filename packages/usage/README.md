@@ -162,7 +162,7 @@ they are never loaded automatically.
 
 `fileUsageStore(absoluteStateDir)` exposes the same bounded atomic disk store as
 `stateDir`; invalid directory paths throw `UsageError`. Its keys must be 64-character
-hex fingerprints, and it persists only `{ at, windows }` with normalized fields.
+hex fingerprints, and it persists normalized observations, hard blocks and poll metadata.
 `fingerprint(salt)` returns `(provider, nonSecretIdentity) => string`; use the same
 salt as the reader and never supply a token as the identity.
 `memoryBackoffPolicy()` supplies shared per-provider/account rests, keeps the later
