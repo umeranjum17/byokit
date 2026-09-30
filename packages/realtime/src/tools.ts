@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { RealtimeTool } from './types.ts';
 import type { RealtimeHostFrame, RealtimeClientFrame, RealtimeAppAction, RealtimeState } from './frames.ts';
+import { cleanProseBytes } from './prose.ts';
 export type ToolHandler = (args: Record<string, unknown>, context: { id: string; signal: AbortSignal }) => Promise<string>;
 export type ToolBridgeOptions = {
   emit(frame: RealtimeHostFrame): void;
@@ -16,7 +17,7 @@ export function toolBridge(options: ToolBridgeOptions) {
   const requests = new Map<string, { key: string; promise: Promise<string> }>();
   let active = 0, waiting = false;
   let answerTimer: ReturnType<typeof setTimeout> | undefined;
-  const state = (value: RealtimeState, detail?: string) => options.emit({ type: 'realtime.state', state: value === 'connected' && (active > 0 || waiting) ? 'thinking' : value, ...(detail ? { detail } : {}) });
+  const state = (value: RealtimeState, detail?: string, emit = options.emit) => emit({ type: 'realtime.state', state: value === 'connected' && (active > 0 || waiting) ? 'thinking' : value, ...(detail ? { detail: cleanProseBytes(detail, 'Voice could not complete that request.', 500) } : {}) });
   const answered = () => { if (active) return; clearTimeout(answerTimer); waiting = false; };
   const run = (name: string, args: unknown = {}, id: string = randomUUID(), signal?: AbortSignal): Promise<string> => {
     if (lifetime.signal.aborted) return Promise.resolve('The request was cancelled.');

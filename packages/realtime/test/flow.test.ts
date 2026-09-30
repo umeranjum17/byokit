@@ -295,6 +295,69 @@ test('WebRTC: injected media ordering, one peer, bounded signaling and stop clea
   assert.equal(handle.sendData('a'.repeat(32769)), false); assert.equal(handle.sendData('a'.repeat(32768)), true); assert.equal(handle.sendData('a'.repeat(32768)), true); assert.equal(handle.sendData('a'), false);
   await assert.rejects(handle.acceptAnswer('x')); await handle.acceptAnswer('v=0\r\n'); handle.setMuted(true); assert.equal(track.enabled, false); handle.stop(); handle.stop(); assert.equal(stoppedTracks, 1); assert.equal(events.filter(event => event === 'release').length, 1);
 });
+test('RN-shaped WebRTC starts without throwIfAborted, handles empty playback and flushes a muted report after clear', async t => {
+  const NativeController = AbortController;
+  t.mock.method(globalThis, 'AbortController', function () {
+    const controller = new NativeController();
+    Object.defineProperty(controller.signal, 'throwIfAborted', { value: undefined });
+    return controller;
+  });
+  const events: string[] = [], sent: RealtimeClientFrame[] = [], statuses: string[] = [];
+  let deliver!: (frame: RealtimeHostFrame) => void, blocked = false, afterDrain: (() => void) | undefined;
+  const audio = audioPorts(events);
+  audio.player.finish = () => false;
+  audio.player.afterDrain = (_kind, fn) => { if (!blocked) return false; afterDrain = fn; return true; };
+  audio.player.clear = () => { blocked = false; afterDrain = undefined; };
+  const track = { kind: 'audio', enabled: true, stop() { events.push('track-stop'); } };
+  const peer: any = { connectionState: 'connecting', iceGatheringState: 'complete', localDescription: { sdp: 'v=0\r\n' },
+    createDataChannel: () => ({ readyState: 'connecting', bufferedAmount: 0, send() {}, close() {} }), addTrack() {},
+    createOffer: async () => ({ type: 'offer', sdp: 'v=0\r\n' }), setLocalDescription: async () => {}, setRemoteDescription: async () => {}, close() {} };
+  const client = realtimeClient({ audio, onStatus: status => statuses.push(status), onTurn() {},
+    open: async () => ({ onFrame(fn) { deliver = fn; }, onClose() {}, start() {}, close() {}, send(frame) { sent.push(frame); return true; } }),
+    webrtc: options => webRtcPeer({ ...options, platform: { createPeer: () => peer,
+      getUserMedia: async () => ({ getAudioTracks: () => [track], getTracks: () => [track] }) as unknown as MediaStream } }),
+  });
+  t.after(() => client.stop());
+  await waitFor(() => !!deliver); deliver({ type: 'realtime.webrtc.start', dataChannelLabel: 'events' });
+  await waitFor(() => sent.some(frame => frame.type === 'realtime.webrtc.offer'));
+  peer.connectionState = 'connected'; peer.onconnectionstatechange();
+  client.setMuted(true);
+  deliver({ type: 'realtime.state', state: 'thinking' }); deliver({ type: 'realtime.state', state: 'connected' });
+  assert.equal(statuses.at(-1), 'connected');
+  blocked = true; client.speak('Avery has finished.'); assert.ok(afterDrain);
+  assert.ok(!sent.some(frame => frame.type === 'realtime.say'));
+  deliver({ type: 'realtime.audio.clear' });
+  assert.ok(sent.some(frame => frame.type === 'realtime.say' && frame.text === 'Avery has finished.'));
+  client.stop(); await waitFor(() => events.includes('release'));
+  assert.equal(events.filter(value => value === 'acquire').length, 1);
+  assert.equal(events.filter(value => value === 'release').length, 1);
+  assert.equal(events.filter(value => value === 'track-stop').length, 1);
+});
+test('opt-in carrier reconnect retains ready PCM capture and playback tail, then releases exactly once', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const events: string[] = [], frames: ((frame: RealtimeHostFrame) => void)[] = [], closes: (() => void)[] = [], sent: RealtimeClientFrame[][] = [];
+  let capture!: (data: string) => void;
+  const audio = audioPorts(events);
+  audio.capture = async (_rate, fn) => { events.push('capture'); capture = fn; return { pending: [], release: async () => { events.push('capture-release'); } }; };
+  const client = realtimeClient({ audio, preserveMediaOnReconnect: true, onStatus() {}, onTurn() {}, open: async () => {
+    const output: RealtimeClientFrame[] = []; sent.push(output);
+    return { onFrame(fn) { frames.push(fn); }, onClose(fn) { closes.push(() => fn('carrier lost')); }, start() {}, close() {}, send(frame) { output.push(frame); return true; } };
+  } });
+  t.after(() => client.stop());
+  const settle = () => new Promise<void>(resolve => setImmediate(resolve));
+  await settle(); frames[0]({ type: 'realtime.ready', inputRate: 24000, outputRate: 24000 }); await settle();
+  capture('AAA='); closes[0](); capture('AgACAA==');
+  assert.ok(!events.includes('clear')); assert.ok(!events.includes('release')); assert.ok(!events.includes('capture-release'));
+  await settle(); t.mock.timers.tick(500); await settle();
+  frames[1]({ type: 'realtime.ready', inputRate: 24000, outputRate: 24000 }); await settle();
+  capture('AQABAA==');
+  assert.equal(events.filter(value => value === 'acquire').length, 1); assert.equal(events.filter(value => value === 'capture').length, 1);
+  assert.deepEqual(sent[1], [{ type: 'realtime.audio', data: 'AQABAA==' }]);
+  closes[1](); client.stop(); await settle();
+  assert.equal(events.filter(value => value === 'release').length, 1); assert.equal(events.filter(value => value === 'capture-release').length, 1);
+  assert.equal(events.filter(value => value === 'unroute').length, 1);
+  t.mock.timers.tick(2000); await settle(); assert.equal(sent.length, 2);
+});
 test('portable imports and frame admission', async () => {
   const bundle = await build({ entryPoints: ['packages/realtime/src/index.ts'], bundle: true, write: false, platform: 'browser' });
   assert.ok(!bundle.outputFiles[0].text.includes('node:'));
@@ -408,7 +471,7 @@ test('WebRTC reconnect waits for the prior audio route to release before acquiri
   client.stop(); await waitFor(() => events.filter(event => event === 'unroute').length === 2);
   assert.equal(events.filter(event => event === 'release').length, 2); assert.equal(stoppedTracks, 2);
 });
-test('ChatGPT native turn interruption aborts delegation, and explicit interrupt requests fresh-call rotation', async t => {
+test('ChatGPT keeps delegation on a new user turn; explicit interrupt cancels and rotates the call', async t => {
   const frames: RealtimeHostFrame[] = []; let entered = false, aborted = false;
   const delegateTools = [{ name: 'delegate', description: 'Handle a request', parameters: { type: 'object' } }];
   const bridge = toolBridge({ tools: delegateTools, handlers: { delegate: async (_args, context) => { entered = true; context.signal.addEventListener('abort', () => { aborted = true; }); return new Promise(() => {}); } }, emit: frame => frames.push(frame), failure: () => 'Cancelled' });
@@ -417,11 +480,138 @@ test('ChatGPT native turn interruption aborts delegation, and explicit interrupt
   engine.receive({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: { id: 'old', type: 'delegation', target: 'client', content: [{ type: 'input_text', text: 'Demo request' }] } }) });
   await waitFor(() => entered);
   engine.receive({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: 'user', transcript: 'Stop please' } }) });
-  await waitFor(() => aborted && frames.some(frame => frame.type === 'realtime.audio.clear'));
+  await waitFor(() => frames.some(frame => frame.type === 'realtime.audio.clear'));
+  assert.equal(aborted, false);
   engine.receive({ type: 'realtime.control', action: 'interrupt' });
   await waitFor(() => frames.some(frame => frame.type === 'realtime.closed'));
+  assert.equal(aborted, true);
   assert.ok(frames.some(frame => frame.type === 'realtime.closed' && frame.retryable === true));
   assert.ok(!frames.some(frame => frame.type === 'realtime.webrtc.data' && JSON.parse(frame.data).type === 'delegation.context.append'));
+});
+test('ChatGPT long delegation survives user turns and retransmission; empty transcripts do nothing', async t => {
+  const frames: RealtimeHostFrame[] = []; let calls = 0, aborted = false, resolve!: (text: string) => void;
+  const delegateTools = [{ name: 'delegate', description: 'Delegate', parameters: { type: 'object' } }];
+  const bridge = toolBridge({ tools: delegateTools, timeoutFor: () => 340000, handlers: { delegate: async (_args, ctx) => {
+    calls++; ctx.signal.addEventListener('abort', () => { aborted = true; }); return new Promise(done => { resolve = done; });
+  } }, emit: frame => frames.push(frame), failure: () => 'The action is unconfirmed; do not repeat it.' });
+  const engine = realtimeEngine({ engine: 'chatgpt', auth: { kind: 'plan', access: async () => ({ access: 'fake-token', accountId: 'fake-account' }) }, tools: delegateTools, bridge, emit: frame => frames.push(frame) });
+  t.after(() => engine.close()); await engine.ready;
+  const event = (value: unknown) => engine.receive({ type: 'realtime.webrtc.data', data: JSON.stringify(value) });
+  const delegation = (id: string) => event({ type: 'delegation.created', item: { id, type: 'delegation', target: 'client', user_bidi_turn_id: 'original', content: [{ type: 'input_text', text: 'Watch Avery' }] } });
+  delegation('long-1'); await waitFor(() => calls === 1);
+  event({ type: 'turn.done', turn: { role: 'user', transcript: '' } });
+  event({ type: 'turn.done', turn: { role: 'assistant', transcript: ' \n\t ' } });
+  event({ type: 'turn.done', turn: { role: 'user', transcript: 'Keep watching' } });
+  delegation('long-2');
+  await waitFor(() => frames.some(frame => frame.type === 'realtime.transcript' && frame.text === 'Keep watching'));
+  assert.equal(aborted, false); assert.equal(calls, 1);
+  assert.equal(frames.filter(frame => frame.type === 'realtime.audio.clear').length, 1);
+  assert.deepEqual(frames.filter(frame => frame.type === 'realtime.transcript').map(frame => frame.text), ['Keep watching']);
+  resolve('Avery is done; this is the confirmed receipt.');
+  await waitFor(() => frames.filter(frame => frame.type === 'realtime.webrtc.data' && JSON.parse(frame.data).type === 'delegation.context.append').length === 2);
+  assert.equal(calls, 1); assert.equal(aborted, false);
+});
+test('host tool watchdog and failure wording reach the child without a second child budget', async t => {
+  const frames: RealtimeHostFrame[] = []; let timedOut = false;
+  const delegateTools = [{ name: 'delegate', description: 'Delegate', parameters: { type: 'object' } }];
+  const bridge = toolBridge({ tools: delegateTools, timeoutFor: name => { assert.equal(name, 'delegate'); return 20; },
+    handlers: { delegate: async () => new Promise(() => {}) }, emit: frame => frames.push(frame),
+    failure: (_name, _error, timeout) => { timedOut = timeout; return 'The action is unconfirmed; do not repeat it.'; } });
+  const engine = realtimeEngine({ engine: 'chatgpt', auth: { kind: 'plan', access: async () => ({ access: 'fake-token', accountId: 'fake-account' }) }, tools: delegateTools, bridge, emit: frame => frames.push(frame) });
+  t.after(() => engine.close()); await engine.ready;
+  engine.receive({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'delegation.created', item: { id: 'timeout', type: 'delegation', target: 'client', content: [{ type: 'input_text', text: 'Perform the action' }] } }) });
+  await waitFor(() => frames.some(frame => frame.type === 'realtime.webrtc.data' && JSON.parse(frame.data).type === 'delegation.context.append'));
+  assert.equal(timedOut, true);
+  assert.ok(frames.some(frame => frame.type === 'realtime.webrtc.data' && JSON.parse(frame.data).content?.[0]?.text === 'The action is unconfirmed; do not repeat it.'));
+});
+for (const provider of ['chatgpt', 'openai', 'gemini', 'xai'] as const) test(`${provider}: app hangup policy waits for the agent's farewell transcript`, async t => {
+  const frames: RealtimeHostFrame[] = []; let socket: WebSocket | undefined;
+  const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  t.after(() => { for (const ws of server.clients) ws.terminate(); server.close(); });
+  server.on('connection', ws => { socket = ws; ws.once('message', () => ws.send(JSON.stringify(provider === 'gemini' ? { setupComplete: {} } : { type: 'session.updated' }))); });
+  const engine = realtimeEngine({ engine: provider,
+    auth: provider === 'chatgpt' ? { kind: 'plan', access: async () => ({ access: 'fake-token', accountId: 'fake-account' }) } : { kind: 'key', key: 'fake-key' },
+    ...(provider === 'chatgpt' ? {} : { endpoint: `ws://127.0.0.1:${(server.address() as AddressInfo).port}` }),
+    hangup: text => text === 'Goodbye', bridge: toolBridge({ tools: [], handlers: {}, emit: frame => frames.push(frame), failure: () => 'Failed' }), emit: frame => frames.push(frame) });
+  t.after(() => engine.close()); await engine.ready;
+  if (provider !== 'chatgpt') await waitFor(() => frames.some(frame => frame.type === 'realtime.ready'));
+  const turn = (role: 'user' | 'agent', text: string) => {
+    if (provider === 'chatgpt') engine.receive({ type: 'realtime.webrtc.data', data: JSON.stringify({ type: 'turn.done', turn: { role: role === 'agent' ? 'assistant' : 'user', transcript: text } }) });
+    else if (provider === 'gemini') socket!.send(JSON.stringify({ serverContent: { [role === 'user' ? 'inputTranscription' : 'outputTranscription']: { text }, turnComplete: true } }));
+    else {
+      if (role === 'agent') socket!.send(JSON.stringify({ type: 'response.created', response: { id: 'farewell' } }));
+      socket!.send(JSON.stringify({ type: role === 'user' ? 'conversation.item.input_audio_transcription.completed' : 'response.output_audio_transcript.done', response_id: 'farewell', transcript: text }));
+    }
+  };
+  turn('user', 'Goodbye'); await waitFor(() => frames.some(frame => frame.type === 'realtime.transcript' && frame.role === 'user'));
+  assert.ok(!frames.some(frame => frame.type === 'realtime.closed'));
+  turn('agent', 'Goodbye, see you later.'); await waitFor(() => frames.some(frame => frame.type === 'realtime.closed'));
+  assert.ok(frames.some(frame => frame.type === 'realtime.transcript' && frame.role === 'agent'));
+  assert.deepEqual(frames.filter(frame => frame.type === 'realtime.closed'), [{ type: 'realtime.closed', reason: 'ended' }]);
+});
+test('parent keeps long transcripts, bounds Unicode and routes provider state through the engine emitter', async t => {
+  const frames: RealtimeHostFrame[] = []; let socket!: WebSocket;
+  const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  t.after(() => { for (const ws of server.clients) ws.terminate(); server.close(); });
+  server.on('connection', ws => { socket = ws; ws.once('message', () => ws.send(JSON.stringify({ type: 'session.updated' }))); });
+  const engine = realtimeEngine({ engine: 'openai', auth: { kind: 'key', key: 'fake-key' }, endpoint: `ws://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    bridge: toolBridge({ tools: [], handlers: {}, emit() {}, failure: () => 'Failed' }), emit: frame => frames.push(frame) });
+  t.after(() => engine.close()); await waitFor(() => frames.some(frame => frame.type === 'realtime.ready'));
+  const transcript = 'A'.repeat(2000);
+  socket.send(JSON.stringify({ type: 'response.created', response: { id: 'long' } }));
+  socket.send(JSON.stringify({ type: 'response.output_audio_transcript.done', response_id: 'long', transcript }));
+  socket.send(JSON.stringify({ type: 'error', error: { message: '界'.repeat(200) } }));
+  await waitFor(() => frames.some(frame => frame.type === 'realtime.state' && !!frame.detail));
+  assert.ok(frames.some(frame => frame.type === 'realtime.transcript' && frame.text === transcript));
+  for (const frame of frames) { parseRealtimeHostFrame(frame); if (frame.type === 'realtime.state' && frame.detail) assert.ok(Buffer.byteLength(frame.detail) <= 500); }
+  assert.ok(!frames.some(frame => frame.type === 'realtime.closed'));
+});
+test('child final refusal reason survives process exit and stdout drain', async t => {
+  const server = createServer((_request, response) => { response.writeHead(401); response.end('{"error":{"message":"This saved key has expired."}}'); });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => server.close());
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const frames: RealtimeHostFrame[] = [];
+    const engine = realtimeEngine({ engine: 'openai', auth: { kind: 'key', key: 'fake-key' }, endpoint: `ws://127.0.0.1:${(server.address() as AddressInfo).port}`,
+      bridge: toolBridge({ tools: [], handlers: {}, emit: frame => frames.push(frame), failure: () => 'Failed' }), emit: frame => frames.push(frame) });
+    t.after(() => engine.close()); await waitFor(() => frames.some(frame => frame.type === 'realtime.closed'));
+    const closed = frames.find(frame => frame.type === 'realtime.closed'); assert.equal(closed?.type, 'realtime.closed');
+    if (closed?.type === 'realtime.closed') assert.match(closed.reason!, /This saved key has expired/);
+    assert.equal(frames.filter(frame => frame.type === 'realtime.closed').length, 1);
+  }
+});
+test('credential errors retain sanitized app remedies and can use app authFailure wording', async () => {
+  for (const custom of [false, true]) {
+    const frames: RealtimeHostFrame[] = [];
+    const engine = realtimeEngine({ engine: 'chatgpt', auth: { kind: 'plan', access: async () => { throw new Error('Sign in again from Settings. token=secret-value'); } },
+      ...(custom ? { authFailure: () => 'The saved sign-in expired; sign in from Settings.' } : {}),
+      bridge: toolBridge({ tools: [], handlers: {}, emit() {}, failure: () => 'Failed' }), emit: frame => frames.push(frame) });
+    await engine.ready; engine.close();
+    const closed = frames.find(frame => frame.type === 'realtime.closed');
+    assert.equal(closed?.type, 'realtime.closed');
+    if (closed?.type === 'realtime.closed') assert.match(closed.reason!, custom ? /The saved sign-in expired/ : /Sign in again from Settings/);
+    assert.ok(!JSON.stringify(frames).includes('secret-value'));
+  }
+});
+test('ChatGPT prepares media during access, queues early offer until config, and uses explicit signaling identity', async t => {
+  const frames: RealtimeHostFrame[] = []; let resolveAccess!: (credential: { access: string; accountId: string }) => void;
+  let requests = 0, headers: any;
+  const server = createServer(async (request, response) => { requests++; headers = request.headers; const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(chunk);
+    assert.equal(JSON.parse(Buffer.concat(chunks).toString()).sdp, 'v=0\r\ns=early\r\n'); response.end('v=0\r\ns=answer\r\n'); });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => server.close());
+  const engine = realtimeEngine({ engine: 'chatgpt', auth: { kind: 'plan', access: () => new Promise(resolve => { resolveAccess = resolve; }) },
+    signalingIdentity: { originator: 'voice-app', userAgent: 'voice-app/1' }, endpoint: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    bridge: toolBridge({ tools: [], handlers: {}, emit: frame => frames.push(frame), failure: () => 'Failed' }), emit: frame => frames.push(frame) });
+  t.after(() => engine.close());
+  assert.equal(frames.filter(frame => frame.type === 'realtime.webrtc.start').length, 1);
+  engine.receive({ type: 'realtime.webrtc.offer', sdp: 'v=0\r\ns=early\r\n' }); assert.equal(requests, 0);
+  resolveAccess({ access: 'fake-token', accountId: 'fake-account' }); await engine.ready;
+  await waitFor(() => frames.some(frame => frame.type === 'realtime.webrtc.answer'));
+  assert.equal(requests, 1); assert.equal(headers.originator, 'voice-app'); assert.equal(headers['user-agent'], 'voice-app/1');
+  assert.equal(headers.authorization, 'Bearer fake-token'); assert.equal(frames.filter(frame => frame.type === 'realtime.webrtc.start').length, 1);
+  assert.throws(() => realtimeEngine({ engine: 'chatgpt', auth: { kind: 'plan', access: async () => ({ access: 'x', accountId: 'x' }) },
+    signalingIdentity: { originator: 'bad\r\nheader' }, bridge: toolBridge({ tools: [], handlers: {}, emit() {}, failure: () => 'Failed' }), emit() {} }), /protocol/);
 });
 test('client transport retries exhaust after two attempts, while normal provider close is terminal', async () => {
   let opens = 0; const statuses: string[] = [], events: string[] = [];

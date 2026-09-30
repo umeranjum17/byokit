@@ -7,8 +7,9 @@ export function realtimeClient(options: RealtimeClientOptions) {
   const audio = options.audio;
   let stopped = false, muted = false, epoch = 0, reconnects = 0;
   let retry: ReturnType<typeof setTimeout> | undefined, reconnectTimer: ReturnType<typeof setTimeout> | undefined, stableTimer: ReturnType<typeof setTimeout> | undefined;
-  type Attempt = { stream?: RealtimeStream; capture?: Awaited<ReturnType<typeof audio.capture>>; peer?: WebRtcHandle; acquired: boolean; ready: boolean; signal: AbortController; media?: Promise<void>; routeRelease?: Promise<void> };
+  type Attempt = { stream?: RealtimeStream; capture?: Awaited<ReturnType<typeof audio.capture>>; peer?: WebRtcHandle; acquired: boolean; ready: boolean; signal: AbortController; media?: Promise<void>; routeRelease?: Promise<void>; inputRate?: number; outputRate?: number };
   let attempt: Attempt | undefined;
+  let retained: Attempt | undefined;
   const mic: { data: string; bytes: number }[] = [], speech: string[] = [];
   let micBytes = 0;
   const stats = { micCaptured: 0, micSent: 0, micQueued: 0, micDropped: 0, transportReconnects: 0, providerReconnects: 0 };
@@ -21,11 +22,11 @@ export function realtimeClient(options: RealtimeClientOptions) {
     try { await current.capture?.release(); }
     finally { if (current.acquired) { current.acquired = false; audio.microphone.release(); await audio.unroute(); } }
   };
-  const reset = () => { clearTimeout(retry); retry = undefined; clearTimeout(stableTimer); audio.player.clear(); mic.length = 0; micBytes = 0; };
+  const reset = (clearPlayback = true) => { clearTimeout(retry); retry = undefined; clearTimeout(stableTimer); if (clearPlayback) audio.player.clear(); mic.length = 0; micBytes = 0; };
   const stop = (reason?: string) => {
     if (stopped) return;
     stopped = true; epoch++; clearTimeout(reconnectTimer); reset();
-    const current = attempt; attempt = undefined;
+    const current = attempt ?? retained; attempt = undefined; retained = undefined;
     current?.stream?.send({ type: 'realtime.control', action: 'stop' });
     void cleanup(current).catch(() => {}); audio.player.stop(); audio.player.release(); speech.length = 0;
     options.onStats?.({ ...stats }); options.onStatus('disconnected', reason);
@@ -43,8 +44,13 @@ export function realtimeClient(options: RealtimeClientOptions) {
   const reconnect = (current: Attempt, reason?: string) => {
     if (stopped || attempt !== current) return;
     if (options.retryableClose?.(reason) === false || reconnects >= 2) { stop(reason); return; }
-    attempt = undefined; epoch++; reset(); reconnects++; stats.transportReconnects++;
+    attempt = undefined; epoch++; reset(!options.preserveMediaOnReconnect); reconnects++; stats.transportReconnects++;
     options.onStatus('connecting', reason);
+    if (options.preserveMediaOnReconnect && current.capture && !current.peer) {
+      retained = current; current.signal.abort(); current.stream?.close();
+      if (current.stream) audio.player.unbind(current.stream);
+      reconnectTimer = setTimeout(connect, reconnects * 500); return;
+    }
     // A slow microphone release cannot overlap the next acquisition.
     void cleanup(current).then(() => {
       if (!stopped) reconnectTimer = setTimeout(connect, reconnects * 500);
@@ -53,11 +59,16 @@ export function realtimeClient(options: RealtimeClientOptions) {
   const connect = () => {
     if (stopped) return;
     reconnectTimer = undefined;
-    const current: Attempt = { acquired: false, ready: false, signal: new AbortController() };
+    const current: Attempt = { ...retained, stream: undefined, acquired: retained?.acquired ?? false, ready: false, signal: new AbortController() };
+    retained = undefined;
     attempt = current; const generation = ++epoch;
     const active = () => !stopped && attempt === current && epoch === generation;
     const onAudio = (data: string) => {
-      if (!active() || muted) return;
+      // A retained recorder's callback follows its capture handle into the new carrier.
+      const captureActive = options.preserveMediaOnReconnect && current.capture
+        ? !stopped && attempt?.capture === current.capture && attempt.ready
+        : active();
+      if (!captureActive || muted) return;
       try {
         const bytes = realtimePcm16ByteLength(data); stats.micCaptured++; options.onActivity?.(); options.onLevel?.('input', data);
         if (micBytes + bytes > 96000) { stats.micDropped++; throw new Error('Microphone buffer overflowed.'); }
@@ -69,7 +80,20 @@ export function realtimeClient(options: RealtimeClientOptions) {
       const frame = parseRealtimeHostFrame(raw); options.onActivity?.();
       switch (frame.type) {
         case 'realtime.ready':
+          if (current.capture && (current.inputRate !== frame.inputRate || current.outputRate !== frame.outputRate)) {
+            const capture = current.capture, acquired = current.acquired;
+            current.capture = undefined; current.acquired = false; current.ready = false;
+            // Cleanup also awaits this teardown if stop races a format change.
+            current.media = (async () => {
+              try { await capture.release(); }
+              finally { if (acquired) { audio.microphone.release(); await audio.unroute(); } }
+            })();
+            await current.media;
+            if (!active()) return;
+            current.media = undefined;
+          }
           if (current.media) { current.ready = true; stats.providerReconnects++; connected(); flush(); break; }
+          current.inputRate = frame.inputRate; current.outputRate = frame.outputRate;
           current.media = (async () => {
             await audio.microphone.acquire(); current.acquired = true;
             if (!active()) return;
@@ -95,11 +119,15 @@ export function realtimeClient(options: RealtimeClientOptions) {
         case 'realtime.webrtc.answer': await current.media; if (active()) await current.peer?.acceptAnswer(frame.sdp); break;
         case 'realtime.webrtc.data': await current.media; if (active() && !current.peer?.sendData(frame.data)) throw new Error('Voice channel overflowed.'); break;
         case 'realtime.audio': options.onLevel?.('output', frame.data); if (audio.player.admit(frame.data) !== 'ok') throw new Error('Voice playback could not accept audio.'); options.onStatus('speaking'); break;
-        case 'realtime.audio.clear': audio.player.clear(); break;
+        case 'realtime.audio.clear': audio.player.clear(); flush(); break;
         case 'realtime.transcript': options.onTurn(frame.role, frame.text); break;
         case 'realtime.state':
-          if (frame.state === 'connecting') { current.ready = false; reset(); }
-          if (frame.state === 'connected') audio.player.finish(() => { if (active()) options.onStatus('connected', frame.detail); }); else options.onStatus(frame.state, frame.detail);
+          if (frame.state === 'connecting') { current.ready = false; reset(!options.preserveMediaOnReconnect); }
+          if (frame.state === 'connected') {
+            let drained = false;
+            const onDrained = () => { if (!active() || drained) return; drained = true; options.onStatus('connected', frame.detail); flush(); };
+            if (!audio.player.finish(onDrained)) onDrained();
+          } else options.onStatus(frame.state, frame.detail);
           break;
         case 'realtime.closed': if (frame.retryable) reconnect(current, frame.reason); else stop(frame.reason); break;
         case 'realtime.app.request': {
