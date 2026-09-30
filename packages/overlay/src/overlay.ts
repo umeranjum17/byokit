@@ -17,6 +17,8 @@ const unsupported: Overlay = {
   openPermission: async () => {},
   start: async () => 'unsupported',
   stop: async () => {},
+  pointHere: async () => 'unsupported',
+  dismissPoint: async () => {},
   say: () => {},
   setMood: () => {},
   setLabel: () => {},
@@ -44,6 +46,14 @@ export function createOverlay(native: NativeOverlay | null): Overlay {
     openPermission: () => native.openPermission(),
     start: async (o) => { check(o); return native.start(o); },
     stop: () => native.stop(),
+    pointHere: async (o) => {
+      if (!Number.isFinite(o.x) || !Number.isFinite(o.y) || o.x < 0 || o.y < 0) throw new Error('overlay: point coordinates must be finite and non-negative');
+      if (!o.label.trim()) throw new Error('overlay: point label must not be empty');
+      const ms = o.ms ?? SAY_MS;
+      if (!Number.isFinite(ms) || ms < 1 || ms > 60000) throw new Error('overlay: point ms must be between 1 and 60000');
+      return native.pointHere({ ...o, ms });
+    },
+    dismissPoint: () => native.dismissPoint(),
     say: (text, mood, ms = SAY_MS, o) => native.say(text, mood ?? null, ms, o?.announce ?? false),
     setMood: (mood) => native.setMood(mood),
     setLabel: (label) => native.setLabel(label),

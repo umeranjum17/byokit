@@ -123,3 +123,63 @@ bubble with `ServiceBubble(WindowOverlayHost(this), moods, spots)`, which takes 
 
 **Status: ready to publish (BK-O3).** The bubble, both hosts, the panel, the tap log and the focused field are built
 and proven on an Android emulator (API 36). On iOS, the web and Node `overlay.state()` is `unsupported`.
+
+## One screen picture and a point marker
+
+`@byokit/overlay/screen-frame` asks Android's system consent dialog **every time** `frame()` is called. It captures
+one PNG after the dialog leaves, stops the projection and foreground service, and returns a local `file://` URI.
+It never uploads the picture. iOS, web and Node return `{ status: 'unsupported' }`; no ReplayKit support is claimed.
+
+With the config plugin above installed, this runnable handler starts the window overlay, captures, and points at
+the middle of the resulting image. Call it from a button in a foreground Expo development build (Expo Go cannot
+load this module). If permission settings open, return to the app and press the button again.
+
+```ts
+import { overlay } from '@byokit/overlay';
+import { screenFrame } from '@byokit/overlay/screen-frame';
+
+export async function showUmerWhere() {
+  const state = await overlay.start({
+    host: 'window', mood: 'calm',
+    notice: { channel: 'guide', title: 'Umer’s guide', text: 'Ready to help.', icon: 'ic_bubble' },
+  });
+  if (state === 'needs-permission') { await overlay.openPermission(); return; }
+  if (state !== 'on') return;
+  const frame = await screenFrame.frame();
+  if (frame.status !== 'captured') return;
+  const result = await overlay.pointHere({
+    x: frame.width / 2, y: frame.height / 2,
+    label: 'Umer, tap here', space: frame.space, ms: 2500,
+  });
+  if (result === 'display-changed') { /* ask for a fresh picture after rotating or resizing */ }
+  // Optional early removal: await overlay.dismissPoint();
+  // After using the image: await screenFrame.clear();
+}
+```
+
+`frame()` returns `captured` with `uri`, `mimeType: 'image/png'`, `width`, `height` and `space`; or `cancelled`,
+`busy`, `unsupported`, or `failed` with `reason: 'timeout' | 'display-changed' | 'capture-failed'`. Only one request
+can run at once. A missing foreground activity fails; denial and system revocation cancel. Capture times out after
+six seconds; an abandoned consent request times out after sixty seconds. Module teardown settles pending calls and
+stops its capture. The next request deletes the previous cached PNG, even if consent is denied; `clear()` also deletes
+it, and rejects during a capture. Copy a picture the app needs to retain before the next request.
+
+`space` describes the default display, including system bars: `width`, `height`, `density`, `densityDpi`, `rotation`
+(Android's 0–3 quarter turns), `displayId`, `origin: 'top-left'`, and `unit: 'physical-pixels'`. The PNG is not scaled.
+Android 14+ requests the entire default display; an OEM override to app-only capture or a geometry change fails
+instead of returning a picture with misleading coordinates. Protected content can be blank, as enforced by Android.
+If coordinates came from a resized preview, convert them back to the original image pixels first.
+
+`pointHere({ x, y, label, space?, ms? })` centres a ring at those full-display pixels, draws the label beside it and
+announces the full label for TalkBack. It needs an already started overlay (either host). It replaces the previous
+marker, defaults to 2500 ms (allowed range 1–60000), and returns `shown`, `not-running`, `needs-permission`,
+`display-changed`, or `unsupported`. Pass `frame.space` to reject stale geometry; without it the current display is
+used. Coordinates must be finite and inside the display, with a non-empty label. A marker never takes focus or
+accepts touches; its window opacity stays below Android's pass-through threshold. The bubble keeps its own existing
+touch behavior. `dismissPoint()`, `stop()`, native teardown and host loss remove the marker. Auto-dismiss uses elapsed
+time, with no animation. A ring near an edge may be clipped and a long visual label is shortened; TalkBack receives
+it in full.
+
+For an account-free emulator demo and repeatable consent/marker proof, build the Expo example with
+`EXPO_PUBLIC_SCREEN_DEMO=1` and run `examples/expo/e2e-screen-frame.sh <emulator-serial>`. Its two PNG captures are
+uploaded by the Android CI job and linked in the pull request.

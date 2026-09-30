@@ -14,6 +14,7 @@ const TABLE: [WordKey, string][] = [
   ['overlay.unsupported', "This device can't show a bubble over other apps."],
   ['field.copied', "Couldn't type it in, so it's copied. Paste it where you want it."],
   ['field.failed', "Couldn't type it in. Try again."],
+  ['screen.taking', 'Taking one picture of your screen'],
 ];
 
 test('words.json is the 7.7 table, verbatim and in order', () => {

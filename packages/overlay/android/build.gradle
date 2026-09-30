@@ -12,6 +12,7 @@ android {
     minSdkVersion 26
     versionCode 5
     versionName "0.2.4"
+    testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
   }
   // The JVM tests subclass framework types (AccessibilityNodeInfo, AccessibilityService) over android.jar's stubs.
   testOptions {
@@ -22,6 +23,16 @@ android {
 dependencies {
   // PanelActivity is a ReactActivity; the app's React Native Gradle plugin picks the version.
   implementation 'com.facebook.react:react-android'
+  androidTestImplementation 'androidx.test:runner:1.6.2'
+  androidTestImplementation 'androidx.test.ext:junit:1.2.1'
   testImplementation 'junit:junit:4.13.2'
   testImplementation 'org.robolectric:robolectric:4.16.1'
 }
+
+// The same sentences as the JS entry, scoped asset name to avoid collisions with an app's assets.
+def overlayWords = tasks.register('generateOverlayWords', Copy) {
+  from('../src') { include 'words.json'; rename 'words.json', 'byokit-overlay-words.json' }
+  into layout.buildDirectory.dir('generated/overlayWords')
+}
+android.sourceSets.main.assets.srcDir(layout.buildDirectory.dir('generated/overlayWords'))
+tasks.named('preBuild').configure { dependsOn overlayWords }

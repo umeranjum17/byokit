@@ -3,7 +3,13 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
   <application>
+    <service android:name="io.github.umeranjum17.byokit.overlay.ScreenFrameService"
+      android:foregroundServiceType="mediaProjection" android:exported="false" />
+    <activity android:name="io.github.umeranjum17.byokit.overlay.ScreenFrameActivity"
+      android:theme="@android:style/Theme.Translucent.NoTitleBar" android:excludeFromRecents="true"
+      android:taskAffinity="" android:exported="false" />
     <service
       android:name="io.github.umeranjum17.byokit.overlay.OverlayService"
       android:foregroundServiceType="specialUse"

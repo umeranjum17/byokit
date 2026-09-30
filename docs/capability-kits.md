@@ -1114,6 +1114,49 @@ export const focusedField: FocusedField;
   from Kotlin (`FocusedFields`, 7.5), so the app's
   service can read at tap time and insert into the captured node with no JS running.
 
+### Screen frames and point markers
+
+`@byokit/overlay/screen-frame` exports `screenFrame`, `createScreenFrame`, `ScreenFrame`,
+`NativeScreenFrame`, `ScreenFrameResult` and `ScreenSpace`. The default entry is native-free;
+React Native binds `ByokitScreenFrame` on Android and returns typed `unsupported` on iOS.
+
+```ts
+export type ScreenSpace = {
+  width: number; height: number; density: number; densityDpi: number;
+  rotation: 0 | 1 | 2 | 3; displayId: number;
+  origin: 'top-left'; unit: 'physical-pixels';
+};
+export type ScreenFrameResult =
+  | { status: 'captured'; uri: string; mimeType: 'image/png'; width: number; height: number; space: ScreenSpace }
+  | { status: 'cancelled' | 'busy' | 'unsupported' }
+  | { status: 'failed'; reason: 'timeout' | 'display-changed' | 'capture-failed' };
+export interface ScreenFrame {
+  frame(): Promise<ScreenFrameResult>;
+  clear(): Promise<void>;
+}
+export type NativeScreenFrame = ScreenFrame;
+export function createScreenFrame(native: NativeScreenFrame | null): ScreenFrame;
+export type PointHereOptions = { x: number; y: number; label: string; space?: ScreenSpace; ms?: number };
+export type PointHereResult = 'shown' | 'needs-permission' | 'not-running' | 'display-changed' | 'unsupported';
+```
+
+Both overlay entries export the point types. `Overlay` adds `pointHere(o: PointHereOptions):
+Promise<PointHereResult>` and `dismissPoint(): Promise<void>`. `NativeOverlay` receives the same options
+with `ms` required; JS supplies 2500 by default. It validates finite, nonnegative coordinates, a nonblank
+label and a duration of 1–60000 ms before passing all fields through.
+
+Every frame asks for fresh MediaProjection consent for the entire default display, including system bars.
+Only one request runs at once. Its PNG lives in app cache; the next request deletes previous kit frames,
+and `clear()` deletes them explicitly (rejecting during capture). A projection foreground service stops
+on success, denial, failure, timeout or teardown. Rotation or display geometry changes fail capture rather
+than returning an incompatible coordinate space. Nothing uploads the image.
+
+The marker uses full-display physical pixels from the image. Passing `space` rejects stale display metrics;
+React Native layout coordinates must first be multiplied by the display density. It requires a running
+window or accessibility overlay host. Its ring and label occupy a separate nonfocusable, nontouchable
+window, announce the label to accessibility clients, and dismiss on timeout, explicit dismissal, replacement,
+display changes or host teardown. Application overlay opacity stays below Android's tap-through threshold.
+
 ### 7.5 Kotlin parts (package `io.github.umeranjum17.byokit.overlay`, one job each)
 
 ```kotlin

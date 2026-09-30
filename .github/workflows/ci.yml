@@ -169,7 +169,7 @@ jobs:
           path: android/byokit-android/build/reports/tests/
 
   # @byokit/overlay's Expo module: the example prebuilds with the kit's config plugin and assembles with its Kotlin,
-  # then the module's JVM unit tests run. No device needed; the emulator proof is BK-O3's.
+  # then JVM tests and account-free consent/point-marker proof run on an emulator.
   overlay-android:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -185,10 +185,31 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+      # Release bundling resolves the linked kit exports and their dependencies from the repo root.
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
       - run: npm ci --no-audit --no-fund
         working-directory: examples/expo
-      - run: CI=1 npx expo prebuild -p android --no-install && (cd android && ./gradlew assembleDebug :byokit-overlay:testDebugUnitTest)
+      - run: CI=1 npx expo prebuild -p android --no-install && (cd android && ./gradlew assembleRelease :byokit-overlay:testDebugUnitTest)
         working-directory: examples/expo
+        env:
+          EXPO_PUBLIC_SCREEN_DEMO: '1'
+          NODE_ENV: production
+      - run: |
+          sudo chmod 666 /dev/kvm
+      - uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 36
+          arch: x86_64
+          target: google_apis
+          profile: pixel_7
+          disable-animations: true
+          script: cd examples/expo/android && ./gradlew :byokit-overlay:connectedDebugAndroidTest && cd .. && ./e2e-screen-frame.sh emulator-5554 .screen-captures
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: byokit-screen-proof
+          path: examples/expo/.screen-captures/*.png
 
   # @byokit/statusbar's Expo module, in the overlay-android shape: the example prebuilds with the kit's config plugin and
   # assembles with its Kotlin, then StatusRules' JVM tests run. The emulator proof is recorded in the PR (BK-S1).

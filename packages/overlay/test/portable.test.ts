@@ -8,7 +8,7 @@ import { build } from 'esbuild';
 
 type Target = string | { [condition: string]: Target };
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { exports: Record<string, Target> };
-const NATIVE = ['src/rn.ts', 'src/focused-field.rn.ts'];
+const NATIVE = ['src/rn.ts', 'src/focused-field.rn.ts', 'src/screen-frame.rn.ts'];
 
 /** The source file an export resolves to under `condition` (dist/x.js ↔ src/x.ts). */
 function source(target: Target, condition: string): string {
@@ -17,7 +17,7 @@ function source(target: Target, condition: string): string {
 }
 
 for (const platform of ['browser', 'react-native'] as const) {
-  for (const entry of ['.', './focused-field']) {
+  for (const entry of ['.', './focused-field', './screen-frame']) {
     const target = pkg.exports[entry];
     test(`${entry} bundles for ${platform} with no Node import`, async () => {
       const file = source(target, platform);
@@ -34,6 +34,7 @@ for (const platform of ['browser', 'react-native'] as const) {
       if (platform === 'browser') {
         const mod = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString('base64')}`);
         if (entry === '.') assert.equal(await mod.overlay.state(), 'unsupported');
+        else if (entry === './screen-frame') assert.deepEqual(await mod.screenFrame.frame(), { status: 'unsupported' });
         else assert.equal(await mod.focusedField.available(), false);
       }
     });
