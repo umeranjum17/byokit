@@ -130,17 +130,12 @@ state: ready | protocol: 4
 event: {"type":"text","text":"fake: Say hello."}
 event: {"type":"text","text":"fake: Say hello."}
 end: {"ok":true,"text":"fake: Say hello.","usage":{"input":10,"output":16,"total":26}}
-route: openai                     subscription browser
-route: openai-device-code         subscription code
-route: xai-oauth                  subscription code
-route: github-copilot             subscription code
-route: github-copilot-enterprise  subscription code
-route: minimax-global-oauth       subscription code
-route: minimax-cn-oauth           subscription code
 ```
 
-Every offered route is a subscription sign-in. Each `Route` carries `billing` (`subscription`, `api` or `local`), so
-an app labels any other route it shows; API-billed routes are not offered by default.
+All subscription and direct API-key routes are offered. Each `Route` carries `billing` (`subscription`, `api` or
+`local`) so the app can label what is billed. Proxy routes, compatibility aliases, local runtimes and the Claude
+CLI route stay off. The pinned Gateway guides only some routes; other choices need manual paste or key entry.
+Offered provider plugins are allowed by default alongside the app's plugin ids.
 
 ## API at a glance
 

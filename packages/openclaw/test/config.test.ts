@@ -4,6 +4,7 @@ import { rmSync, statSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { Engine } from '../src/engine.ts';
+import { routes } from '../src/routes.ts';
 import { reconcileConfig, memoryLimited } from '../src/config.ts';
 import { routes } from '../src/routes.ts';
 
@@ -44,6 +45,13 @@ test('fresh and adversarial config force isolation and no paid memory fallback',
   assert.equal(c.memory.search.fallback, 'none');
   assert.equal(c.agents.defaults.models['openai/*'].agentRuntime.id, 'openclaw');
   assert.equal(c.security.installPolicy.enabled, true);
+  const providerPlugins = [...new Set(routes().filter((route) => route.offer).map((route) => route.plugin))];
+  assert.deepEqual(c.plugins.allow, [...providerPlugins, 'byokit']);
+  for (const proxy of ['litellm', 'clawrouter', 'copilot-proxy']) assert.ok(!c.plugins.allow.includes(proxy));
+  const custom = reconcileConfig(c, { ...opts(root), app: { plugins: { allow: ['app-plugin'] } } }) as any;
+  assert.deepEqual(custom.plugins.allow, ['app-plugin', ...providerPlugins, 'byokit']);
+  assert.deepEqual((reconcileConfig(custom, opts(root)) as any).plugins.allow, custom.plugins.allow);
+
   // `agents.entries` is the engine's own agent-id map (5.6's `entries[*]`), exactly as the pin writes it.
   const hostile = reconcileConfig({ memory: { search: { provider: 'auto', fallback: 'openai' } }, agents: { entries: { m9: { memory: { search: { provider: 'openai', fallback: 'openai' } } } } } }, {
     ...opts(root), app: { gateway: { bind: 'lan', controlUi: { enabled: true }, tailscale: { mode: 'on' } }, discovery: { mdns: { mode: 'on' } } },

@@ -310,8 +310,7 @@ test('respond with the image_generation built-in: passed through, answered as te
 });
 
 test('tool pass-through changes no billing and offers no new route', () => {
-  assert.deepEqual(offered().map((p) => p.key), ['chatgpt', 'claude']);
+  assert.deepEqual(offered().map((p) => p.key), ['chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta', 'qwen']);
   assert.equal(PROVIDERS.chatgpt.billing, 'subscription');
-  assert.equal(PROVIDERS.chatgpt.terms, 'grey');
   assert.ok(!offered().some((p) => p.billing === 'api'), 'API rows stay opt-in');
 });

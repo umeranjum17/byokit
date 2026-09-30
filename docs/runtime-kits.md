@@ -55,7 +55,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D9 | Members. OpenClaw: a member is an app-chosen id matching `/^[a-z](?!.*--)[a-z0-9-]{0,23}$/` (no `--`, at most 24 characters, so every account agent id `<member>--<6 hex>` stays within 32), never `main`, `openclaw`, `crestodian` or starting `byokit-`; an agent that already exists under the older `/^[a-z][a-z0-9-]{0,31}$/` rule and is no member's account agent keeps working with its member agent only (D17), and no new member is created under the old rule. The id is used verbatim as the OpenClaw `agentId` of the member agent; every session key must start `agent:<member>:`, `agent:<member>--<6 hex>:` for an account agent in the member's index (5.15), or (key lane) exactly `agent:byokit-key-<member>:`; sign-ins are per agent (OpenClaw per-agent auth). Herdr: no member concept upstream; a link grant carries `meta.scope = { workspaces: 'all' \| string[] }`. |
 | D10 | Approvals. OpenClaw: (a) the kit's fail-closed tool bridge (Crewhouse's plugin hook → unix socket → app `gate()`), extended with a parked `ask` result; (b) OpenClaw's native `exec.approval.*`, `plugin.approval.*`, `question.*` surfaced through the same `Approval` shape. Herdr: an agent in `blocked` state is an approval; the answer is keys sent to that exact pane occupant (revision-checked). |
 | D11 | Sign-in. OpenClaw: the kit drives OpenClaw's own `openclaw.setup.auth.start` + `wizard.next` loop and holds the ChatGPT callback port during a browser sign-in; credentials are owned by the engine; an optional host-injected seal sees bytes only to protect the isolated store at rest. Native Claude login is completed in Claude Code in the isolated HOME, then detected and activated by the engine. Explicit API-key entry passes a secret only to typed `setup.activate`, never to kit storage, logs or return values (5.15). Herdr: each agent CLI's own login, done by the person inside an account-specific pane (terminal stream); `openSignInTab` opens that CLI in a new tab with the host's explicit account environment. The kit never runs a login command, copies credentials between homes, or reads a CLI's credential files. |
-| D12 | Route policy is data, not code: `packages/openclaw/src/routes.json` labels every pinned auth choice. `anthropic-cli` is offered as provider `claude-cli`, plugin `anthropic`, subscription billing via the person's own unmodified Claude Code login in the isolated engine HOME. Native login stays in Claude Code; the kit asks engine `setup.detect` and `setup.activate` (a live verification) rather than importing credentials. `apiKey` is explicit API billing, `offer: false`, for app opt-in only; `setup-token` stays grey and unoffered. Direct Claude.ai OAuth remains excluded. Anthropic's authentication-and-credential-use terms URL accompanies these rows. |
+| D12 | Route policy is data: all subscription routes, including native Claude Code (`anthropic-cli`, provider `claude-cli`) and `setup-token`, are offered by default with plain sign-in. API-billed routes are app opt-in only. Proxy routes, compatibility aliases, local runtimes and `copilot-proxy` remain off. Native login stays in Claude Code in the isolated HOME; the kit asks engine `setup.detect` and `setup.activate`. No consent screen or terms gate is added. |
 | D13 | Library code reads no environment variables except `PATH`, and only to locate `npm` for the engine install when `npmPath` is not given. Every spawned process gets an explicit env; `process.env` is never inherited. The Herdr binary path is always an explicit option. |
 | D14 | `npm test` stays network-free. Tests needing the real engine (network `npm ci` of the pin, loopback only afterwards) run under `npm run test:engine` in a separate CI job `openclaw-engine`. Real-Herdr contract runs happen only in an isolated lab under a `--herdr-lab` brief, never in CI and never against a person's Herdr. |
 | D15 | Retained-login migration source for OpenClaw is a Pi `auth.json`-shaped record (`{ [provider]: credential }`): a file path (Crewhouse's legacy engine) or an in-memory record (an app moving from `@byokit/accounts`' `fileStore`/`secureStore`). Retire only after the Gateway itself reports the member signed in to every provider in the source. |
@@ -484,20 +484,14 @@ Crewhouse's product choices (tool profile and deny list, `skills.allowBundled`, 
 **Routes** (`src/routes.json`, O6): one entry per auth choice in the pinned tarball's provider contracts:
 `{ "choice": "openai-device-code", "provider": "openai", "plugin": "openai", "billing": "subscription", "via": "code",
 "prerequisite": null, "offer": true, "reason": "…", "source": "dist/provider-contract-api-*.js (2026.8.1)" }`.
-Seeded from Crewhouse `docs/supported-subscriptions.md`: subscription routes `openai`, `openai-device-code`,
-`xai-oauth`, `github-copilot`, `github-copilot-enterprise`, `minimax-global-oauth`, `minimax-cn-oauth`
-(`offer: true`), `anthropic-cli` (`offer: true`, D12), `setup-token` (`offer: false`, D12); the seed's other Grok route
-`xai-device-code` is `offer: false` (manual-only upstream), and its `openrouter-oauth` is `offer: false` too (below);
-API routes listed there (`billing: 'api'`, `offer: false`, reason "API billing, not a subscription; shown only when
-an app asks"). `openrouter-oauth` is `billing: 'api'`, `offer: false` (upstream OAuth yields a credit-billed key, not
-a plan; no silent API billing). O6 verifies every choice id against the tarball and adds any the doc missed. Each
-entry's `plugin` is the `id` of the bundled `openclaw.plugin.json` whose `providerAuthChoices` lists the choice;
-`via` is `code` when that choice's `appGuidedAuth` is `device-code`, else `browser`. A choice the pinned Gateway does
-not offer through `openclaw.setup.auth.start` (`assistantVisibility: "manual-only"`, or no `appGuidedAuth`) is
-`offer: false`. The engine job asserts both directions (every route is a pinned choice, every pinned choice is a
-route) and that every `offer: true` route starts (first `wizard.next` without `not available` or
-`blocked by allowlist`) with only its `plugin` added to `plugins.allow`. `routes()` returns the
-table; `routeFor(provider, via)` picks the offered route.
+All subscription and direct API-key choices are offered, including `setup-token` and `openrouter-oauth`.
+Only proxy routes (`litellm-api-key`, `clawrouter-api-key`, `custom-api-key`), compatibility aliases,
+local runtimes, `copilot-proxy` stay off. Billing labels distinguish subscription from
+API key (billed per use); native `anthropic-cli` uses Claude Code in the isolated HOME. `routes()` returns the full table and
+`routeFor(provider, via)` picks the first offered route. Each `plugin` names the bundled manifest owning
+the choice; `via` is `code` for `appGuidedAuth: 'device-code'`, otherwise `browser`. Some offered routes
+need a manual paste or key: the 2026.8.1 Gateway does not guide every pinned choice. The engine job
+checks inventory and starts the routes the pin supports through its setup wizard.
 
 **signIn(member, { authChoice, via, signal? }, on)** — provider-owned wizard drive:
 `ensureMember`; `openclaw.setup.auth.start { sessionId: 'byokit-' + uuid, agentId, authChoice }` (60 s); pull steps
@@ -591,6 +585,8 @@ the engine. External retained sources are touched only when explicitly passed to
   non-ok receipt on a lifecycle-flagged run also ends `{ ok: false, aborted: true }`;
   else `{ ok: false, ...classify(message) }`.
   Always unsubscribe and unregister.
+- Offered subscription and direct API-key accounts use the same explicit per-run model selection;
+  a selected subscription never silently falls back to an API key (billed per use).
 - `spec.model` (`provider/model`) picks the account a run is called and billed on. It is refused before any request
   if it is not `provider/model` or carries an `@profile` pin. Before the run, `models.authStatus { agentId }` (once
   more with `refresh: true` while it answers `unavailable`) must list the provider (lowercased, as the engine
@@ -1940,8 +1936,7 @@ H1, and O12/H10 (README example rows); later merges rebase.
   finishes with the engine; giving up cancels its own session; person cancel cancels) plus: browser route holds the
   callback port and pastes the redirect; port taken → `why: 'busy'`; `wizard.status` never called.
   `routes.test.ts`: every choice id in `routes.json` exists in the pinned tarball (engine job reads it; the non-engine
-  test checks shape: billing ∈ {subscription, api, local}, `offer` boolean, reason non-empty); native `anthropic-cli` is offered; no API-key
-  fallback route has `offer: true`. `migrate.test.ts` (no engine, doctor stubbed via an injected runner): staging shape
+  test checks shape: billing ∈ {subscription, api, local}, `offer` boolean, reason non-empty); native `anthropic-cli` is offered; `setup-token` and direct API keys are offered. `migrate.test.ts` (no engine, doctor stubbed via an injected runner): staging shape
   `{ version: 1, profiles: { 'openai-codex:default': … } }`, 0600; failed doctor removes staging and leaves source
   bytes identical; confirm renames only when all providers are present, writes the marker, never on empty source;
   record source returns true and touches no file. `engine/*` = Crewhouse `openclaw-wizard.test.ts` real-gateway case

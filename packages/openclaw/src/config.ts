@@ -1,5 +1,6 @@
 import { dirname, join } from 'node:path';
 import type { KitOptions } from './kit.ts';
+import { routes } from './routes.ts';
 import type { Member } from './types.ts';
 import { routes } from './routes.ts';
 
