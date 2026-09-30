@@ -131,6 +131,10 @@ verified notes. H2 captures the real v0.9.1 schema in a lab.
 
 ## 4. Shared conventions
 
+Names, codes, errors, state, events, construction, options, words and export names follow
+[kit-conventions.md](kit-conventions.md); this section adds only what is specific to the runtime kits. Where this
+spec's binding sections prescribe a different shape, the spec wins until it is amended (kit-conventions Precedence).
+
 ### 4.1 Layers
 
 ```
@@ -155,9 +159,8 @@ app (niche workflow + UI)
 
 ### 4.3 States and plain words
 
-Each kit has one `state` object and emits `onState`. Every state and failure a person can see has a sentence in the
-kit's `src/words.json`, tested against the repo's banned-jargon expression (copy of
-`packages/accounts/test/units.test.ts` line 59). UI code shows `words(state)`; it never builds sentences from ids.
+Each kit has one `state` object and emits `onState`, and every state and failure a person can see has a sentence in
+the kit's `src/words.json` ([kit-conventions.md](kit-conventions.md) §5 and §9).
 
 ### 4.4 Link op naming
 

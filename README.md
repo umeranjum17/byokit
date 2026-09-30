@@ -25,6 +25,7 @@
   <a href="docs/runtime-kits.md">Runtime kits</a> ·
   <a href="docs/capability-kits.md">Capability kits</a> ·
   <a href="docs/cloud-kit.md">Cloud kit</a> ·
+  <a href="docs/kit-conventions.md">Kit conventions</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 

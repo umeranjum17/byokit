@@ -61,6 +61,10 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 
 ## 3. Where it fits
 
+Names, codes, errors, state, events, construction, options, words and export names follow
+[kit-conventions.md](kit-conventions.md). Where this spec prescribes a different shape, the spec wins until it is
+amended (kit-conventions Precedence).
+
 ```
 person's device: app UI ── @byokit/cloud (create, install, wake, cost, words) ── provider REST API | ssh
 the machine:     byokit-<app>.service → the app's host process (unchanged)
