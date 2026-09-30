@@ -32,7 +32,7 @@ surface (OpenClaw Gateway operator protocol; Herdr socket API and CLI), so no co
 They share connection adapters (`link`, `relay`, `reach`, `seal`, `ui-core`) and conventions, never a
 lowest-common-denominator interface. `@byokit/accounts` keeps serving direct-provider apps (including Ownvoice); its
 multi-account shapes (`Account`, `Room`, `RunSelection`, `Pick` as `AccountPick`) are restated structurally by this kit (5.15), never
-imported.
+imported. CLI sign-in status lives in `@byokit/herdr` `agentStatus` (B5); `@byokit/accounts` stays app-owned OAuth only and reports no CLI sign-in (B7).
 
 Out of scope for the build phase: releasing (firstmate/owner runs `release.yml`), muxr adoption (section 10), any
 operated service, and any change to `@byokit/accounts`, `link`, `relay`, `reach`, `seal`, `decide` or `ui-core`

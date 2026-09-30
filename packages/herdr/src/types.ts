@@ -46,6 +46,20 @@ export type { HerdrMethods, HerdrMethod, HerdrParams, HerdrResult } from './gene
 export type { HerdrEvents, HerdrEventName, HerdrEventOf, HerdrSubscription } from './generated/events.ts';
 
 export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown';
+// Onboarding readiness (B5): per-kind install + CLI sign-in state. `signedIn` answers only
+// what the kind's own CLI status command says — 'unknown' when the kind has no documented
+// non-secret status command or the command gives no answer. Credential files are never read.
+export type AgentCliSignIn = 'yes' | 'no' | 'unknown';
+export type AgentReadiness = {
+  kind: string; installed: boolean; signedIn: AgentCliSignIn;
+  installHint: string; signInHint?: string;
+};
+export type AgentStatusRunner = (command: string, args: string[],
+  o?: { stdin?: string; timeoutMs?: number }) => Promise<{ stdout: string } | undefined>;
+export type AgentStatusOptions = {
+  path?: string[]; aliases?: Record<string, string[]>;
+  run?: AgentStatusRunner; timeoutMs?: number;
+};
 export type AgentRef = { paneId: string; name?: string };
 export type StartAgent = {
   kind: string; cwd: string; name?: string;             // name: /^[a-z][a-z0-9_-]{0,31}$/
