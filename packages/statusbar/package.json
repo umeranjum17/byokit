@@ -1,6 +1,6 @@
 {
   "name": "@byokit/statusbar",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "One ongoing job as a status-bar chip on Android 16 (a promoted ongoing notification), with a counts-only lock-screen copy and up to three actions. On iOS and older Android it reports unsupported.",
   "license": "Apache-2.0",
   "type": "module",
@@ -20,7 +20,9 @@
       },
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./app.plugin.js": "./app.plugin.js",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -36,7 +38,7 @@
     "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"
   },
   "peerDependencies": {
-    "expo": ">=57.0.0",
+    "expo": ">=55.0.0",
     "expo-modules-core": ">=3.0.0"
   },
   "peerDependenciesMeta": {

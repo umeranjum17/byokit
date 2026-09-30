@@ -129,12 +129,12 @@ assert.equal(check.length, 'Umer shipped the first version today.'.length);
         bins.push({ pkg: e.name, bin: e.name });
       }
     }
-    const impLines = subpaths.map((s) => `await import(${JSON.stringify(s.spec)});`);
+    const impLines = subpaths.map((s) => `await import(${JSON.stringify(s.spec)}${s.spec.endsWith("/package.json") ? ", { with: { type: 'json' } }" : ""});`);
     writeFileSync(join(appDir, "imp.mjs"), `${impLines.join("\n")}\nconsole.log("import-all-ok");\n`);
     const browserSpecs = subpaths.filter((s) => s.browser);
     writeFileSync(
       join(appDir, "imp-browser.mjs"),
-      `${browserSpecs.map((s) => `await import(${JSON.stringify(s.spec)});`).join("\n")}\nconsole.log("import-browser-ok");\n`,
+      `${browserSpecs.map((s) => `await import(${JSON.stringify(s.spec)}${s.spec.endsWith("/package.json") ? ", { with: { type: 'json' } }" : ""});`).join("\n")}\nconsole.log("import-browser-ok");\n`,
     );
     try {
       sh("node", ["imp.mjs"], appDir);
@@ -146,8 +146,8 @@ assert.equal(check.length, 'Umer shipped the first version today.'.length);
     } catch (err) {
       for (const s of browserSpecs) fail(`${s.spec} [browser]`, `browser import failed: ${(err as Error).message.split("\n")[0]}`);
     }
-    // Consumer typecheck under three module resolutions.
-    const consumer = subpaths.map((s, i) => `import * as m${i} from ${JSON.stringify(s.spec)};\nvoid m${i};`).join("\n");
+    // Consumer typecheck under three module resolutions. Plugins and package metadata are runtime-only exports.
+    const consumer = subpaths.filter((s) => !s.spec.endsWith("/app.plugin.js") && !s.spec.endsWith("/package.json")).map((s, i) => `import * as m${i} from ${JSON.stringify(s.spec)};\nvoid m${i};`).join("\n");
     writeFileSync(join(appDir, "consumer.ts"), `${consumer}\n`);
     const tsc = join(appDir, "node_modules", ".bin", "tsc");
     const configs: Record<string, unknown> = {

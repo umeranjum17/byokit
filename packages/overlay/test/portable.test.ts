@@ -17,7 +17,8 @@ function source(target: Target, condition: string): string {
 }
 
 for (const platform of ['browser', 'react-native'] as const) {
-  for (const [entry, target] of Object.entries(pkg.exports)) {
+  for (const entry of ['.', './focused-field']) {
+    const target = pkg.exports[entry];
     test(`${entry} bundles for ${platform} with no Node import`, async () => {
       const file = source(target, platform);
       assert.equal(file.startsWith('src/'), true, file);

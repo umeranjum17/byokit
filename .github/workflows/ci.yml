@@ -208,6 +208,9 @@ jobs:
           java-version: 17
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
       - run: npm ci --no-audit --no-fund
+      - name: Packed plugin on Expo 55
+        run: node scripts/statusbar-expo-smoke.ts
+      - run: npm ci --no-audit --no-fund
         working-directory: examples/expo
       - run: CI=1 npx expo prebuild -p android --no-install && (cd android && ./gradlew assembleDebug :byokit-statusbar:testDebugUnitTest)
         working-directory: examples/expo
