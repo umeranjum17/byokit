@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.0 (2026-09-30)
+
+
+
 - FIX: Subscription hard-limit flags now override positive percentage room, including blocks without quota windows; cached reset times never clear them.
 - FIX: Claude subscription normalized and scoped quota rows now take precedence over legacy aggregates; missing usage remains unknown.
 - Expose observation age and poll outcomes separately; retain last-good figures through failed polls without changing account health.
