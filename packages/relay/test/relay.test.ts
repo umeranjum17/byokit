@@ -5,6 +5,22 @@ import assert from 'node:assert/strict';
 import { hostId, keyPair, pairWithCode } from '@byokit/link';
 import { CLOSE, LIMITS, RelayClient, findHost } from '../src/index.ts';
 import { closed, device, hostClient, paired, sleep, startHost, startRelay, until } from './helpers.ts';
+import { linkUrl } from '../src/device.ts';
+
+test('linkUrl builds device addresses from host ids and findHost reuses the same address', async () => {
+  const id = hostId(keyPair().publicKey);
+  for (const [protocol, expected] of [['https', 'wss'], ['wss', 'wss'], ['http', 'ws'], ['ws', 'ws']]) {
+    assert.equal(linkUrl(`${protocol}://relay.example:7300/ignored?query=1#fragment`, id), `${expected}://relay.example:7300/link/v1/${id}`);
+  }
+  assert.equal(linkUrl('http://[::1]:7300', id), `ws://[::1]:7300/link/v1/${id}`);
+  for (const bad of ['', 'x/../../other', 'a'.repeat(21), 'a'.repeat(23)]) assert.throws(() => linkUrl('https://relay.example', bad));
+  assert.throws(() => linkUrl('ftp://relay.example', id));
+  const relay = 'https://relay.example/path';
+  assert.equal(await findHost(relay, ' K7M2QX ', { fetch: async (input) => {
+    assert.equal(String(input), 'https://relay.example/relay/v1/codes/K7M2QX');
+    return Response.json({ host: id });
+  } }), linkUrl(relay, id));
+});
 
 test('a device reaches its host through the relay, which routes by host address and never sees plaintext', async () => {
   const r = await startRelay();
