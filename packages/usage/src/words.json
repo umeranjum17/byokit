@@ -1,0 +1,9 @@
+{
+  "code.not-connected": "{name} isn't signed in on this computer.",
+  "code.expired": "{name} needs a fresh sign-in in its own app.",
+  "code.auth": "{name} turned this sign-in down. Sign in again in its own app.",
+  "code.no-plan": "This {name} account has no plan with limits.",
+  "code.rate-limited": "{name} asked us to wait. Showing the last reading.",
+  "code.unavailable": "{name} didn't answer. Trying again shortly.",
+  "code.incomplete": "{name} answered in a way we can't read yet."
+}
