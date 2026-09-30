@@ -39,7 +39,7 @@ class NodeAdapterTest {
   ) : AccessibilityNodeInfo() {
     var focusSnapshot: Info? = null
     override fun equals(other: Any?): Boolean =
-      this === other || sameAs === other || (other is Info && other.sameAs === this)
+      other is Info && (sameAs ?: this) === (other.sameAs ?: other)
     override fun hashCode(): Int = System.identityHashCode(sameAs ?: this)
     var parentNode: Info? = null
     override fun getParent(): AccessibilityNodeInfo? = parentNode
@@ -96,6 +96,7 @@ class NodeAdapterTest {
     assertTrue(node.password)
     assertNull(node.shown())
     assertNull("password selections are hidden", node.selection())
+    assertEquals("plain selections stay ordered", 1 to 3, FieldNode.of(Info(selection = 3 to 1)).selection())
     assertEquals(identity, node.identity)
     assertEquals(1, node.childCount)
     assertTrue(node.child(0)!!.editable)
