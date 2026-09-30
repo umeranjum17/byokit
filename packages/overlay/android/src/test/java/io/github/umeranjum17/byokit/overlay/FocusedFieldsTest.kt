@@ -166,4 +166,68 @@ class FocusedFieldsTest {
     }
   }
 
+  @Test fun cancelMidRetryStopsReadsSetsAndCopyAndReturnsOnce() {
+    val node = FakeNode(editable = true, takesOn = 3)
+    val cancellation = InsertCancellation()
+    val results = mutableListOf<String>()
+    var copies = 0
+    results += FocusedFields.insert(node, "x", opts = InsertOpts(5),
+      pause = { cancellation.cancel(); cancellation.cancel() },
+      copy = { copies++; true }, cancellation = cancellation)
+    assertEquals(listOf("cancelled"), results)
+    assertEquals(1, node.sets)
+    assertEquals(2, node.reads)
+    assertEquals(0, copies)
+  }
+
+  @Test fun teardownMidRetryCancelsEveryPendingInsertAndLateStarts() {
+    val service = object : android.accessibilityservice.AccessibilityService() {
+      override fun onAccessibilityEvent(event: android.view.accessibility.AccessibilityEvent?) {}
+      override fun onInterrupt() {}
+    }
+    val outer = FakeNode(editable = true, takesOn = 3)
+    val inner = FakeNode(editable = true, takesOn = 3)
+    val results = mutableListOf<String>()
+    var copies = 0
+    results += FocusedFields.insert(outer, "x", opts = InsertOpts(5), service = service,
+      copy = { copies++; true }, pause = {
+        results += FocusedFields.insert(inner, "y", opts = InsertOpts(5), service = service,
+          copy = { copies++; true }, pause = { ByokitAccessibility.detach(service) })
+      })
+    assertEquals(listOf("cancelled", "cancelled"), results)
+    assertEquals(1, outer.sets)
+    assertEquals(1, inner.sets)
+    assertEquals(2, outer.reads)
+    assertEquals(2, inner.reads)
+    assertEquals(0, copies)
+    val late = FakeNode(editable = true)
+    assertEquals("cancelled", FocusedFields.insert(late, "late", service = service))
+    assertEquals(0, late.reads)
+    assertEquals(0, late.sets)
+  }
+
+  @Test fun preCancelledInsertAndCancellationDuringReadSkipWritesAndFallback() {
+    val cancellation = InsertCancellation().also { it.cancel() }
+    val node = FakeNode(editable = true)
+    assertEquals("cancelled", FocusedFields.insert(node, "x", cancellation = cancellation,
+      copy = { throw AssertionError("must not copy") }))
+    assertEquals(0, node.reads)
+    assertEquals(0, node.sets)
+
+    val duringRead = InsertCancellation()
+    val field = object : FieldNode by node {
+      override fun shown(): String? { duringRead.cancel(); return node.shown() }
+    }
+    assertEquals("cancelled", FocusedFields.insert(field, "x", cancellation = duringRead,
+      copy = { throw AssertionError("must not copy") }))
+    assertEquals(0, node.sets)
+  }
+
+  @Test fun cancellingAfterCompletionKeepsTheSingleCompletedResult() {
+    val cancellation = InsertCancellation()
+    assertEquals("inserted", FocusedFields.insert(FakeNode(editable = true), "x", cancellation = cancellation))
+    cancellation.cancel()
+    assertEquals("inserted", cancellation.finish("cancelled"))
+  }
+
 }

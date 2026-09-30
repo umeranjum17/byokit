@@ -23,11 +23,29 @@ object ByokitAccessibility {
   /** A host on attach, null on detach. */
   val hosts = Listeners<OverlayHost?>()
 
+  private val detached = java.util.WeakHashMap<AccessibilityService, Boolean>()
+  private val inserts = mutableMapOf<AccessibilityService, MutableSet<InsertCancellation>>()
+
+  @Synchronized internal fun track(service: AccessibilityService?, cancellation: InsertCancellation) {
+    if (service != null) {
+      if (detached[service] == true) cancellation.cancel()
+      else inserts.getOrPut(service) { mutableSetOf() }.add(cancellation)
+    }
+  }
+
+  @Synchronized internal fun untrack(service: AccessibilityService?, cancellation: InsertCancellation) {
+    inserts[service]?.let { pending ->
+      pending.remove(cancellation)
+      if (pending.isEmpty()) inserts.remove(service)
+    }
+  }
+
   /** Hands [service] to the kit (a different attached service is detached first); again for the same one is a no-op. */
   @Synchronized
   fun attach(service: AccessibilityService) {
     if (this.service === service) return
     this.service?.let(::detach)
+    detached.remove(service)
     this.service = service
     foreground = AccessibilityForegroundApp(service)
     keyboard = AccessibilityKeyboardInset(service)
@@ -39,6 +57,8 @@ object ByokitAccessibility {
   /** Takes [service] back; nothing when it is not the attached one. */
   @Synchronized
   fun detach(service: AccessibilityService) {
+    detached[service] = true
+    inserts.remove(service)?.forEach { it.cancel() }
     if (this.service !== service) return
     this.service = null
     (foreground as? AccessibilityForegroundApp)?.close()

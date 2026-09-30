@@ -26,7 +26,7 @@ Nothing reads another app's screen in the background, and the tap log keeps no t
 
 `@byokit/overlay/focused-field` works through the app's own accessibility service; the kit declares none. The service
 calls `ByokitAccessibility.attach(this)` in `onServiceConnected` and `ByokitAccessibility.detach(this)` in `onUnbind`,
-and its config sets `android:canRetrieveWindowContent="true"` and
+and in `onDestroy` (idempotent; cancels outstanding inserts), and its config sets `android:canRetrieveWindowContent="true"` and
 `android:accessibilityFlags="flagRetrieveInteractiveWindows"` (the example's is
 [`examples/expo/modules/a11y-demo`](../../examples/expo/modules/a11y-demo)). Then:
 
@@ -50,11 +50,22 @@ the foreground app that `rules` and `spots: 'per-app'` follow, and the keyboard'
 The bubble's window never takes focus, so a tap or long press on it leaves the other app's field focused.
 
 ```ts
-const result = await focusedField.insert(draft, { attempts: 13, retryMs: 150, acceptNewlineLoss: true });
+import { focusedField } from '@byokit/overlay/focused-field';
+
+const draft = 'First line\nSecond line';
+const capture = new AbortController();
+const pending = focusedField.insert(draft, { attempts: 13, retryMs: 150, acceptNewlineLoss: true, signal: capture.signal });
+// On capture invalidation: capture.abort();
+const result = await pending; // exactly one result, including 'cancelled'
 if (result === 'landedWithoutNewlines') { /* typed in, but check the line breaks */ }
 ```
 
-The bubble carries a TalkBack label (`label` in `start`, or `setLabel`, cleared with `null`), and
+Cancellation stops subsequent field reads, set-text actions and clipboard fallback; an action already in progress
+finishes before native cancellation returns. Every insert settles once. Service detach and native module teardown
+cancel pending inserts. Existing calls without a signal keep working.
+
+The bubble responds to TalkBack ACTION_CLICK and touch taps through the same click handler, once per activation.
+It carries a TalkBack label (`label` in `start`, or `setLabel`, cleared with `null`), and
 `say(text, mood, ms, { announce: true })` reads the pill aloud.
 
 A service that must show the bubble with no JS running (after a reboot or process death) drives it from Kotlin
@@ -68,12 +79,14 @@ captured node. The service can hand over the `AccessibilityNodeInfo` it captured
 class Assistant : AccessibilityService() {
   private lateinit var bubble: ServiceBubble
   private var field: AccessibilityNodeInfo? = null
+  private var insertCancellation: InsertCancellation? = null
 
   override fun onServiceConnected() {
     ByokitAccessibility.attach(this)
     bubble = ServiceBubble(ServiceBubble.drawables(this), PrefsSpotStore(this), ServiceBubble.reducedMotion(this))
     bubble.events.add { e ->
       if (e == OverlayEvent.Tap) {
+        insertCancellation?.cancel() // invalidate the previous capture before replacing it
         field = findFocus(AccessibilityNodeInfo.FOCUS_INPUT) // captured at tap time
         PanelActivity.launch(this, "Panel", emptyMap())
       }
@@ -81,16 +94,29 @@ class Assistant : AccessibilityService() {
     bubble.start(ServiceBubble.Config(mood = "calm", label = "Assistant", rules = savedRules()))
   }
 
-  fun insert(draft: String) = thread { // insert waits between tries: off the main thread
-    val node = field ?: return@thread
-    FocusedFields.insert(node, draft, opts = InsertOpts(attempts = 13), copy = FocusedFields.clipboard(this))
+  fun insert(draft: String) {
+    val node = field ?: return
+    insertCancellation?.cancel()
+    val cancellation = InsertCancellation() // created before launching the worker
+    insertCancellation = cancellation
+    thread { // insert waits between tries: off the main thread
+      val result = FocusedFields.insert(node, draft, opts = InsertOpts(attempts = 13),
+        copy = FocusedFields.clipboard(this), service = this, cancellation = cancellation)
+      // result is inserted, landedWithoutNewlines, copied, failed or cancelled, exactly once
+    }
   }
 
   override fun onUnbind(intent: Intent?): Boolean { bubble.stop(); ByokitAccessibility.detach(this); return false }
+  override fun onDestroy() { ByokitAccessibility.detach(this); bubble.stop(); super.onDestroy() }
   override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
   override fun onInterrupt() {}
 }
 ```
+
+Both Kotlin `insert` overloads accept an optional `InsertCancellation`; `cancel()` is idempotent and returns
+`"cancelled"` from the pending insert. Call `ByokitAccessibility.detach(this)` in `onUnbind` and `onDestroy` to cancel
+all service-owned inserts, including those with no explicit cancellation signal. The captured node remains owned
+by the caller and must stay alive until the insert returns. `FieldNode.of(node, service)` retains the service owner.
 
 `FocusedFields.capture(service)` does the same capture as a `FieldNode`. An app's own foreground service shows the
 bubble with `ServiceBubble(WindowOverlayHost(this), moods, spots)`, which takes no rules and shows everywhere.

@@ -2,8 +2,9 @@
 // ever available, read or typed in. React Native resolves `focused-field.rn.ts` instead.
 
 export type FocusedText = { app: string; text: string; selection: { start: number; end: number } | null };
-export type InsertResult = 'inserted' | 'landedWithoutNewlines' | 'copied' | 'failed';
+export type InsertResult = 'inserted' | 'landedWithoutNewlines' | 'copied' | 'failed' | 'cancelled';
 export type InsertOptions = {
+  signal?: AbortSignal;            // cancellation resolves cancelled; no further reads, sets or clipboard fallback
   replace?: 'selection' | 'all';   // default 'selection'
   attempts?: number;               // SET_TEXT tries; default 2 (a panel on top needs ~13 x 150 ms in Chrome)
   retryMs?: number;                // pause between tries; default 150
@@ -18,5 +19,5 @@ export interface FocusedField {
 export const focusedField: FocusedField = {
   available: async () => false,
   read: async () => null,
-  insert: async () => 'failed',
+  insert: async (_text, o) => o?.signal?.aborted ? 'cancelled' : 'failed',
 };

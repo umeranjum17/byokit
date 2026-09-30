@@ -114,12 +114,6 @@
     "reason": "Quickstart leaves provider, store and recipe undeclared; strength item 6 supplies fakes."
   },
   {
-    "readme": "packages/overlay/README.md",
-    "block": 3,
-    "snapshot": "f8e8e44011a105865523d0727ece54e71590810dff6345b0a0553c69a591a987",
-    "reason": "Field-edit fragment refers to an earlier focusedField object and app-provided draft."
-  },
-  {
     "readme": "packages/reach/README.md",
     "block": 1,
     "snapshot": "d0ceda817257b9be494d0bfed8c496b37bc407a7d893993407e7f01ea12e26c2",

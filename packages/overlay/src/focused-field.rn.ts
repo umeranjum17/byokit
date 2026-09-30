@@ -7,9 +7,11 @@ export type { FocusedField, FocusedText, InsertOptions, InsertResult } from './f
 
 /** What the Kotlin module exposes: insert takes its options as a plain record. */
 type NativeFocusedField = {
+  createInsert(): string;
+  cancelInsert(id: string): void;
   available(): Promise<boolean>;
   read(): Promise<FocusedText | null>;
-  insert(text: string, o: { replace: string; attempts: number; retryMs: number; acceptNewlineLoss: boolean }): Promise<InsertResult>;
+  insert(text: string, o: { operationId: string; replace: string; attempts: number; retryMs: number; acceptNewlineLoss: boolean }): Promise<InsertResult>;
 };
 
 const native = requireOptionalNativeModule<NativeFocusedField>('ByokitFocusedField');
@@ -20,10 +22,23 @@ const RETRY_MS = 150;
 export const focusedField: FocusedField = native ? {
   available: () => native.available(),
   read: () => native.read(),
-  insert: (text, o) => native.insert(text, {
-    replace: o?.replace ?? 'selection',
-    attempts: o?.attempts ?? ATTEMPTS,
-    retryMs: o?.retryMs ?? RETRY_MS,
-    acceptNewlineLoss: o?.acceptNewlineLoss ?? false,
-  }),
+  async insert(text, o) {
+    const signal = o?.signal;
+    if (signal?.aborted) return 'cancelled';
+    const operationId = native.createInsert();
+    const cancel = (): void => native.cancelInsert(operationId);
+    signal?.addEventListener('abort', cancel, { once: true });
+    if (signal?.aborted) cancel();
+    try {
+      return await native.insert(text, {
+        operationId,
+        replace: o?.replace ?? 'selection',
+        attempts: o?.attempts ?? ATTEMPTS,
+        retryMs: o?.retryMs ?? RETRY_MS,
+        acceptNewlineLoss: o?.acceptNewlineLoss ?? false,
+      });
+    } finally {
+      signal?.removeEventListener('abort', cancel);
+    }
+  },
 } : none;

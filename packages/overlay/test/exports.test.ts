@@ -25,6 +25,9 @@ test('`./focused-field` default is never available', async () => {
   assert.equal(await field.focusedField.read(), null);
   assert.equal(await field.focusedField.insert('hi'), 'failed');
   assert.equal(await field.focusedField.insert('hi', { replace: 'all' }), 'failed');
+  const controller = new AbortController();
+  controller.abort();
+  assert.equal(await field.focusedField.insert('hi', { signal: controller.signal }), 'cancelled');
 });
 
 test('the React Native entries export the same names over the native module', async () => {
@@ -64,9 +67,15 @@ test('the React Native focused field calls the native module, replacing the sele
         b.onResolve({ filter: /^expo-modules-core$/ }, () => ({ path: 'expo-modules-core', namespace: 'stub' }));
         b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({
           contents: `export const requireOptionalNativeModule = () => ({
+            createInsert: () => 'operation',
+            cancelInsert: () => { (globalThis.cancels ??= []).push('operation'); globalThis.finishInsert?.('cancelled'); },
             available: async () => true,
             read: async () => ({ app: 'a', text: 'hi', selection: { start: 0, end: 2 } }),
-            insert: async (...args) => { (globalThis.inserted ??= []).push(args); return 'inserted'; },
+            insert: async (...args) => {
+              (globalThis.inserted ??= []).push(args);
+              if (args[0] === 'pending') return new Promise(resolve => { globalThis.finishInsert = resolve; });
+              return 'inserted';
+            },
           });`,
         }));
       },
@@ -79,10 +88,23 @@ test('the React Native focused field calls the native module, replacing the sele
   assert.equal(await focusedField.insert('y', { replace: 'all' }), 'inserted');
   assert.equal(await focusedField.insert('z', { attempts: 13, retryMs: 150, acceptNewlineLoss: true }), 'inserted');
   assert.deepEqual((globalThis as { inserted?: unknown[] }).inserted, [
-    ['x', { replace: 'selection', attempts: 2, retryMs: 150, acceptNewlineLoss: false }],
-    ['y', { replace: 'all', attempts: 2, retryMs: 150, acceptNewlineLoss: false }],
-    ['z', { replace: 'selection', attempts: 13, retryMs: 150, acceptNewlineLoss: true }],
+    ['x', { operationId: 'operation', replace: 'selection', attempts: 2, retryMs: 150, acceptNewlineLoss: false }],
+    ['y', { operationId: 'operation', replace: 'all', attempts: 2, retryMs: 150, acceptNewlineLoss: false }],
+    ['z', { operationId: 'operation', replace: 'selection', attempts: 13, retryMs: 150, acceptNewlineLoss: true }],
   ]);
+  const controller = new AbortController();
+  let completions = 0;
+  const pending = focusedField.insert('pending', { signal: controller.signal }).then((result: InsertResult) => {
+    completions++;
+    return result;
+  });
+  controller.abort();
+  controller.abort();
+  assert.equal(await pending, 'cancelled');
+  assert.equal(completions, 1);
+  assert.deepEqual((globalThis as { cancels?: string[] }).cancels, ['operation']);
+  assert.equal(await focusedField.insert('already cancelled', { signal: controller.signal }), 'cancelled');
+  assert.equal((globalThis as { inserted?: unknown[] }).inserted?.length, 4);
 });
 
 test('public types keep their frozen shapes (7.3, 7.4)', () => {
@@ -99,7 +121,7 @@ test('public types keep their frozen shapes (7.3, 7.4)', () => {
   // @ts-expect-error the tap log has no text field (D-O)
   const tap: TapEntry = { app: 'a', at: 1, action: 'tap', text: 'x' };
   const text: FocusedText = { app: 'a', text: 'hi', selection: null };
-  const results: InsertResult[] = ['inserted', 'landedWithoutNewlines', 'copied', 'failed'];
+  const results: InsertResult[] = ['inserted', 'landedWithoutNewlines', 'copied', 'failed', 'cancelled'];
   const o: Overlay = kit.createOverlay(null);
   o.on('moved', (e) => { const y: number = e.y; void y; });
   const n: Pick<NativeOverlay, 'say' | 'setLabel' | 'taps'> = {
