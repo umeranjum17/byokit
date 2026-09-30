@@ -92,15 +92,22 @@ export async function reach(o: { port: number; via?: Via; previous?: ServeIngres
 
 /** The part of bonjour-service `advertise` uses; tests pass a fake. */
 export type Bonjour = {
-  publish(config: { name: string; type: string; port: number; host?: string; txt?: Record<string, string> }): { stop(cb?: () => void): void };
+  publish(config: { name: string; type: string; port: number; host?: string; txt?: Record<string, string> }): {
+    stop(cb?: () => void): void;
+    /** bonjour-service's record factory, called after its asynchronous name probe and again on teardown. */
+    records?(): BonjourRecord[];
+  };
   destroy(cb?: () => void): void;
 };
+
+export type BonjourRecord = { type: string; data: unknown };
 
 /**
  * Advertise `_<type>._tcp` on the LAN over mDNS so a phone can find this computer without typing an address. Put the
  * dial URL in `txt`; the phone must still check the host key, which link's handshake does. Returns `stop`.
  */
-export async function advertise(o: { type: string; port: number; name?: string; txt?: Record<string, string>; bonjour?: Bonjour }): Promise<{ stop(): Promise<void> }> {
+export async function advertise(o: { type: string; port: number; name?: string; txt?: Record<string, string>; addresses?: readonly string[]; bonjour?: Bonjour }): Promise<{ stop(): Promise<void> }> {
+  const addresses = new Set(o.addresses ?? routes().lan);
   // bonjour-service's typings give Service.stop as a bare CallableFunction; it takes a callback.
   const bonjour = o.bonjour ?? new (await import('bonjour-service')).default.Bonjour() as unknown as Bonjour;
   const service = bonjour.publish({
@@ -109,5 +116,12 @@ export async function advertise(o: { type: string; port: number; name?: string; 
     port: o.port,
     ...(o.txt ? { txt: o.txt } : {}),
   });
+  // publish() probes asynchronously before it calls records(). Keep that default probe enabled so no unfiltered
+  // records can be announced before this wrapper is installed. Teardown uses the same filtered factory.
+  if (service.records) {
+    const records = service.records.bind(service);
+    service.records = () => records().filter((record) =>
+      (record.type !== 'A' && record.type !== 'AAAA') || (typeof record.data === 'string' && addresses.has(record.data)));
+  }
   return { stop: () => new Promise((resolve) => service.stop(() => bonjour.destroy(resolve))) };
 }

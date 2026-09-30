@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.3.0
+
+- `tailscaleState()` returns installation, backend, sign-in and address diagnostics without throwing; `tailscaleStatus()` keeps its existing behavior.
+- Pure `needsSignin(status)` and `isPeer(status, ip)` helpers for raw Tailscale status JSON.
+- `advertise({ addresses })` filters published A/AAAA records to the selected addresses, defaulting to `routes().lan`.
+
 ## 0.2.0
 
 - React Native entry (`react-native` export condition): `browse({ type })` discovers computers on the local network over mDNS.

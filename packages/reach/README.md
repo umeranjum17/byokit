@@ -68,13 +68,15 @@ console.log(await reach({ port: 8792, via: 'lan', interfaces }));
 |---|---|
 | `reach({ port, via?, previous?, tailscale?, interfaces? })` | The dial `urls`, the `bind` address, and the Serve `ingress` to persist (plus `pendingCleanup` when a removal failed) |
 | `routes(interfaces?, ignore?)` | This computer's IPv4 routes: `lan` addresses and `private` overlay addresses |
-| `advertise({ type, port, name?, txt? })` | Publishes `_<type>._tcp` over mDNS (Node); returns `{ stop }` |
+| `advertise({ type, port, name?, txt?, addresses? })` | Publishes `_<type>._tcp` over mDNS (Node), using only selected addresses; returns `{ stop }` |
+| `tailscaleState({ bin?, timeoutMs? })` | Non-throwing installation, backend, sign-in and address diagnostics |
+| `needsSignin(status)`, `isPeer(status, ip)` | Pure helpers for raw `tailscale status --json`: explicit login state and peer IP membership |
 | `tailscaleStatus`, `tailscaleName`, `magicDnsName` | Read the local Tailscale state and this machine's MagicDNS name |
 | `inspectServe`, `serveRootProxy` | Check who holds the Serve root: `free`, `ours`, `occupied`, `funnel`, `disabled` or `inconclusive` |
 | `serve`, `unserve` | Make or remove the app's Serve mapping, with ownership checks |
 | `SERVE_OWNED_ERROR`, `FUNNEL_ERROR` | The error messages for a taken root and a root with Funnel on |
 | `browse({ type })`, `scan({ type, ms })` | React Native entry only: discover mDNS services, streamed or time-boxed |
-| Types | `Via`, `Reach`, `PrivateRoute`, `ServeIngress`, `ServeRoot`, `TailscaleOptions`, `Bonjour`; on React Native `BrowseService`, `BrowseHandle`, `BrowseOptions`, `BrowseEvents`, `BrowseEventName`, `ZeroconfLike` |
+| Types | `Via`, `Reach`, `PrivateRoute`, `ServeIngress`, `ServeRoot`, `TailscaleOptions`, `TailscaleState`, `Bonjour`, `BonjourRecord`; on React Native `BrowseService`, `BrowseHandle`, `BrowseOptions`, `BrowseEvents`, `BrowseEventName`, `ZeroconfLike` |
 
 ## Routes
 
@@ -125,14 +127,27 @@ The CLI is `tailscale` on `PATH`, then the macOS app. Pass `tailscale: { bin, ti
 lower-level steps are exported too: `tailscaleStatus`, `tailscaleName`, `inspectServe`, `serve`, `unserve`, and
 `routes` for the interface list.
 
+For a connection picker, `await tailscaleState()` returns `{ installed, backendState, needsSignin, reason,
+dnsName, ips }` without throwing. `backendState`, `reason` and the normalized `dnsName` can be absent when unknown.
+Missing CLI, timeouts, malformed JSON and daemon failures are diagnostic results; they never set up Serve or sign in.
+`needsSignin` is true only for `NeedsLogin`; `NeedsMachineAuth` instead asks for admin approval, and `Stopped`
+does not mean logged out. The existing `tailscaleStatus()` still throws on CLI failure.
+
+The pure helpers take **raw status JSON**, rather than the reduced `tailscaleState()` result. `isPeer(status, ip)`
+checks `Peer[*].TailscaleIPs`, accepts an IPv4-mapped socket address (`::ffff:100.64.0.2`), and excludes `Self`.
+Offline peers still count as peers. Peer membership is a discovery hint: link's handshake must authenticate the device.
+
 ## mDNS
 
 ### Advertise (Node)
 
-`advertise({ type, port, name?, txt? })` publishes `_<type>._tcp` with
+`advertise({ type, port, name?, txt?, addresses? })` publishes `_<type>._tcp` with
 [bonjour-service](https://www.npmjs.com/package/bonjour-service) and returns `{ stop }`. Put the dial URL in `txt`.
-bonjour-service answers with every interface's address, so the device should dial the URL in `txt`, not a resolved
-address. A device that finds the wrong computer fails link's handshake, because the host key is pinned.
+The kit filters bonjour-service's A/AAAA records to `addresses`, defaulting to `routes().lan`, so Docker, VPN and
+tailnet addresses are excluded by default. An explicit list can select interface addresses including IPv6; only
+addresses bonjour-service generates can be published. An empty list publishes no A/AAAA records. The selected list
+is snapshotted when advertising starts, and the same filter applies to goodbye records on stop. Discovery metadata
+(PTR, SRV and TXT) is preserved. A device that finds the wrong computer fails link's handshake, because the host key is pinned.
 
 ```ts
 import { advertise } from '@byokit/reach';
