@@ -14,7 +14,7 @@ export async function providerGet(source: Extract<Source, { key: string }>, fetc
       controller.abort();
       return { code: 'rate-limited', until: nowMs + Math.max(300_000, Number.isFinite(delay) ? delay : 0) };
     }
-    if (!response.ok) { controller.abort(); return { code: response.status === 401 ? 'auth' : response.status === 403 ? 'no-plan' : 'unavailable' }; }
+    if (response.status !== 200) { controller.abort(); return { code: response.status === 401 ? 'auth' : response.status === 403 ? 'no-plan' : 'unavailable' }; }
     if (!response.body) return { code: 'incomplete' };
     const chunks: Uint8Array[] = []; let size = 0;
     const reader = response.body.getReader();

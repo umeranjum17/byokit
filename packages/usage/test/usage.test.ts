@@ -92,9 +92,9 @@ test('codex relogin, API-key folder identities, explicit environment and bounded
 
 test('failed payloads and provider refusals are codes without bodies or secrets', async () => {
   const dir = scratchDir('usage-errors');
-  const fake = fakeFetch([{status:401},{status:403},{body:{success:false}},{body:{unexpected:'secret'}},{text:'secret'},{text:'x'.repeat(65537)},{status:503}]);
+  const fake = fakeFetch([{status:401},{status:403},{body:{success:false}},{body:{unexpected:'secret'}},{text:'secret'},{text:'x'.repeat(65537)},{status:503},{status:201,body:payloads.zai.raw}]);
   const reader = usage({stateDir:join(dir,'state'),fetch:fake.fetch});
-  for (const [i,code] of ['auth','no-plan','no-plan','incomplete','incomplete','incomplete','unavailable'].entries()) {
+  for (const [i,code] of ['auth','no-plan','no-plan','incomplete','incomplete','incomplete','unavailable','unavailable'].entries()) {
     const source: Source = {provider:'zai',key:`secret-${i}`};
     const r = await reader.read(source,{nowMs});assert.equal(r.code,code);assert.deepEqual(r.windows,[]);assert.doesNotMatch(JSON.stringify(r),/secret/);
     await reader.read(source,{nowMs:nowMs+59_999});assert.equal(fake.calls.length,i+1);
