@@ -2,14 +2,16 @@
 
 ## Unreleased
 
-- Depends on @byokit/relay 0.4.0.
 ## 0.1.8 (2026-09-30)
+
+- Depends on @byokit/relay 0.4.0.
+
+## 0.1.7 (2026-09-30)
 
 - Depends on @byokit/relay 0.3.1.
 - Depends on @byokit/reach 0.4.0.
 - Depends on @byokit/link 0.5.0.
 - FIX: (from @byokit/link 0.5.0) `decodeOffer()` reads legacy compact direct pairing codes with checksum, padding, bounds and expiry validation; new encodings keep the complete current format.
-## 0.1.7 (2026-09-30)
 
 - Dependency update: pins @byokit/link 0.5.0, @byokit/reach 0.4.0 and @byokit/relay 0.3.1.
 
