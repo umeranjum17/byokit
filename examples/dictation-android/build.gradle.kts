@@ -7,7 +7,8 @@ val bundleConsumer by tasks.registering(Exec::class) {
     inputs.dir(kitRoot.resolve("packages/dictation/dist"))
     outputs.dir(consumerAssets)
     doFirst { consumerAssets.get().asFile.mkdirs() }
-    commandLine("node", kitRoot.resolve("node_modules/esbuild/bin/esbuild"), rootDir.resolve("consumer.ts"),
+    // esbuild's installer may replace its JS launcher with the native executable.
+    commandLine(kitRoot.resolve("node_modules/esbuild/bin/esbuild"), rootDir.resolve("consumer.ts"),
         "--bundle", "--platform=browser", "--format=iife", "--outfile=${consumerAssets.get().asFile}/consumer.js")
 }
 android {
