@@ -47,7 +47,7 @@ test('fresh and adversarial config force isolation and no paid memory fallback',
   assert.equal(c.security.installPolicy.enabled, true);
   const providerPlugins = [...new Set(routes().filter((route) => route.offer).map((route) => route.plugin))];
   assert.deepEqual(c.plugins.allow, [...providerPlugins, 'byokit']);
-  for (const proxy of ['litellm', 'clawrouter', 'copilot-proxy']) assert.ok(!c.plugins.allow.includes(proxy));
+  for (const proxy of ['litellm', 'clawrouter', 'copilot-proxy', 'openrouter', 'google', 'fal']) assert.ok(!c.plugins.allow.includes(proxy));
   const custom = reconcileConfig(c, { ...opts(root), app: { plugins: { allow: ['app-plugin'] } } }) as any;
   assert.deepEqual(custom.plugins.allow, ['app-plugin', ...providerPlugins, 'byokit']);
   assert.deepEqual((reconcileConfig(custom, opts(root)) as any).plugins.allow, custom.plugins.allow);

@@ -137,30 +137,14 @@ route: github-copilot             subscription code
 route: github-copilot-enterprise  subscription code
 route: minimax-global-oauth       subscription code
 route: minimax-cn-oauth           subscription code
-route: openrouter-oauth           api          browser
-route: alibaba-model-studio-api-key api          browser
-route: apiKey                     api          browser
-route: fal-api-key                api          browser
-route: gemini-api-key             api          browser
-route: huggingface-api-key        api          browser
-route: microsoft-foundry-apikey   api          browser
-route: microsoft-foundry-entra    api          browser
-route: minimax-cn-api             api          browser
-route: minimax-global-api         api          browser
-route: nvidia-api-key             api          browser
-route: ollama-cloud               api          browser
-route: openai-api-key             api          browser
-route: opencode-go                api          browser
-route: openrouter-api-key         api          browser
-route: runway-api-key             api          browser
 route: setup-token                subscription browser
-route: together-api-key           api          browser
-route: xai-api-key                api          browser
 ```
 
-All subscription and direct API-key routes are offered. Each `Route` carries `billing` (`subscription`, `api` or
+Subscription sign-ins are offered by default. API-billed routes remain in `kit.routes()` with `offer: false`;
+apps can offer them when the app or person opts in, labelled API key (billed per use). Each `Route` carries `billing` (`subscription`, `api` or
 `local`) so the app can label what is billed. Proxy routes, compatibility aliases, local runtimes and the Claude
-CLI route stay off. The pinned Gateway guides only some routes; other choices need manual paste or key entry.
+CLI route stay off. The pinned Gateway guides only some routes; other choices need manual paste or key entry. For an opted-in route, allow its `plugin` id
+in the app configuration and pass its `choice` explicitly to `kit.signIn()`.
 Offered provider plugins are allowed by default alongside the app's plugin ids.
 
 ## API at a glance
