@@ -3,6 +3,7 @@
 ## Unreleased
 
 - SECURITY: View-only devices can no longer resolve approvals through relay push actions.
+- FIX: Existing authSeal calls using osKeyringSeal automatically pick up persistent headless sealing, including locked and unresponsive keyring fallback, without host changes.
 - Document the credential, migration and sealed-approval threat model in SECURITY.md, shipped with the package.
 - Run the shared engine isolation contract in npm test with an offline child; keep the pinned-engine check in test:engine.
 

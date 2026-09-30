@@ -171,7 +171,9 @@ person's back (memory search is never a paid provider).
 The pinned engine has no supported hook for sealing OAuth profile writes. Its `auth-profiles` loader stores
 credential JSON in agent SQLite databases and a shared state database, and doctor imports leave migration
 archives. `authSeal` therefore protects the complete isolated `state` and `home` directories, including SQLite
-journals. It uses the same injected `SealingAdapter` as `@byokit/secrets`; the kit creates no sealing key.
+journals. It uses the injected `SealingAdapter` from `@byokit/secrets`. `osKeyringSeal()` automatically
+falls back to a persistent private file key when no non-interactive keyring is available, including
+locked or unresponsive Linux keyrings; existing `authSeal` calls pick up the chain unchanged.
 
 ```ts
 import { osKeyringSeal, hostKeySeal } from '@byokit/secrets';
@@ -185,13 +187,20 @@ await kit.prepare(); // seals an existing plaintext store and migration archives
 await kit.start();   // authenticates and restores the isolated files for the engine
 await kit.stop();    // waits for exit, verifies an atomic sealed snapshot, then removes plaintext
 
-// A headless server supplies its own 32-byte key, held outside stateDir and its backups:
+// Inspect the adapter's mode for host UI: 'keyring' or 'host-key-file'.
+// Hosts can also explicitly supply a 32-byte key kept outside stateDir and its backups:
 declare const hostKey: Uint8Array;
 const server = new OpenClawKit({
   stateDir: './server-state',
   authSeal: hostKeySeal({ key: hostKey, service: 'my-app-runtime' }),
 });
 ```
+
+The automatic key lives in the platform state directory, separate from the engine store. A key
+on the same disk protects copied stores/backups only when the key directory is excluded; it does
+not protect against code running as the same OS user. See [secrets' rotation and threat model](../secrets/README.md#servers-and-headless-node).
+Stop the kit, acquire the host writer lock and call `seal.rotate()` with `auth-store.sealed` plus
+every retained sealed migration archive before retiring an automatic key.
 
 Without `authSeal`, engine credentials remain plaintext. With it, successful `prepare()` and `stop()` leave
 only a sealed snapshot, `auth-store.sealed`, for those directories. The adapter authenticates the snapshot

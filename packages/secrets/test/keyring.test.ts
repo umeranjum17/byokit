@@ -127,11 +127,11 @@ test('real Secret Service: native API, accounts seal and rotation', { skip: !pro
       set(name: string, value: string) { names.add(name); ring.set(name, value); },
       delete: (name: string) => ring.delete(name),
     };
-    const seal = osKeyringSeal({ service, keyring: tracked });
+    const seal = osKeyringSeal({ stateDir: scratchDir('seal-state'), service, keyring: tracked });
     const old = Buffer.from(seal.encryptString(CANARY));
     seal.rotateKey();
     const newer = Buffer.from(seal.encryptString('rotated'));
-    const restarted = osKeyringSeal({ service });
+    const restarted = osKeyringSeal({ stateDir: scratchDir('seal-state'), service });
     assert.equal(restarted.decryptString(old), CANARY);
     assert.equal(restarted.decryptString(newer), 'rotated');
     newer[newer.length - 1] ^= 1;
