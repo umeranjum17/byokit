@@ -2,9 +2,9 @@
 
 ## Unreleased
 
+- Add `migrateGrant(raw, { format: 'crewhouse-v0' })` for pre-kit phone pairings, with key, fingerprint and shape validation and typed errors.
+
 ## 0.5.1 (2026-09-30)
-
-
 
 - FIX: Reject an authenticated empty transport frame instead of decoding it as an empty control message.
 - Record the 23-item protocol review and add seeded frame, pairing offer and offline envelope fuzz tests.

@@ -10,3 +10,4 @@ export { cleanName, decodeOffer, encodeOffer, normalizeCode, offerText, parseOff
 export { LinkStream, WINDOW } from './stream.ts';
 export type { PairOffer } from './pairing.ts';
 export { browserDeviceStore, secureDeviceStore, type KeptDevice, type SecureStoreLike } from './stores.ts';
+export { migrateGrant, GrantMigrationError, type GrantMigrationProblem } from './migrate.ts';

@@ -11,10 +11,14 @@ import { Host, keyPair } from '../src/index.ts';
 test('React Native device pairs and requests without Node globals or TextDecoder', async () => {
   const bundle = await build({
     stdin: {
-      contents: `import { DeviceLink, pairWithOffer } from '../src/index.ts';
+      contents: `import { DeviceLink, pairWithOffer, migrateGrant } from '../src/index.ts';
+        import { b64, hash, unb64url } from '../src/channel.ts';
         globalThis.result = (async () => {
           const words = [];
-          const grant = await pairWithOffer(globalThis.offer, { name: 'Phone', onWords: (w) => words.push(w) });
+          const paired = await pairWithOffer(globalThis.offer, { name: 'Phone', onWords: (w) => words.push(w) });
+          const fp = Array.from(hash(16, unb64url(paired.host)).subarray(0, 8), b => b.toString(16).padStart(2, '0')).join('').match(/.{4}/g).join(' ');
+          const grant = migrateGrant({ sk: b64(unb64url(paired.secretKey)), crewdPk: b64(unb64url(paired.host)),
+            fp, urls: paired.urls, device: paired.device }, { format: 'crewhouse-v0' });
           const link = new DeviceLink(grant);
           const answer = await link.request('get.state');
           link.stop();
