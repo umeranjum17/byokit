@@ -185,6 +185,9 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+      # Release bundling resolves the linked kit exports and their dependencies from the repo root.
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
       - run: npm ci --no-audit --no-fund
         working-directory: examples/expo
       - run: CI=1 npx expo prebuild -p android --no-install && (cd android && ./gradlew assembleRelease :byokit-overlay:testDebugUnitTest)
