@@ -54,7 +54,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D8 | Host-side kit APIs are full-power. Over a link, the pass-through (`oc.call`, `hd.call`) is **denied by default**; an app opts in with a `passThrough(method, grant)` predicate. Typed link ops are always member/scope-checked. |
 | D9 | Members. OpenClaw: a member is an app-chosen id matching `/^[a-z](?!.*--)[a-z0-9-]{0,23}$/` (no `--`, at most 24 characters, so every account agent id `<member>--<6 hex>` stays within 32), never `main`, `openclaw`, `crestodian` or starting `byokit-`; an agent that already exists under the older `/^[a-z][a-z0-9-]{0,31}$/` rule and is no member's account agent keeps working with its member agent only (D17), and no new member is created under the old rule. The id is used verbatim as the OpenClaw `agentId` of the member agent; every session key must start `agent:<member>:`, `agent:<member>--<6 hex>:` for an account agent in the member's index (5.15), or (key lane) exactly `agent:byokit-key-<member>:`; sign-ins are per agent (OpenClaw per-agent auth). Herdr: no member concept upstream; a link grant carries `meta.scope = { workspaces: 'all' \| string[] }`. |
 | D10 | Approvals. OpenClaw: (a) the kit's fail-closed tool bridge (Crewhouse's plugin hook → unix socket → app `gate()`), extended with a parked `ask` result; (b) OpenClaw's native `exec.approval.*`, `plugin.approval.*`, `question.*` surfaced through the same `Approval` shape. Herdr: an agent in `blocked` state is an approval; the answer is keys sent to that exact pane occupant (revision-checked). |
-| D11 | Sign-in. OpenClaw: the kit drives OpenClaw's own `openclaw.setup.auth.start` + `wizard.next` loop and holds the ChatGPT callback port during a browser sign-in; credentials are owned by the engine; an optional host-injected seal sees bytes only to protect the isolated store at rest. Native Claude login is completed in Claude Code in the isolated HOME, then detected and activated by the engine. Explicit API-key entry passes a secret only to typed `setup.activate`, never to kit storage, logs or return values (5.15). Herdr: each agent CLI's own login, done by the person inside that agent's pane (terminal stream); the kit never runs a login command, never copies credentials between homes, and never reads a CLI's credential files. |
+| D11 | Sign-in. OpenClaw: the kit drives OpenClaw's own `openclaw.setup.auth.start` + `wizard.next` loop and holds the ChatGPT callback port during a browser sign-in; credentials are owned by the engine; an optional host-injected seal sees bytes only to protect the isolated store at rest. Native Claude login is completed in Claude Code in the isolated HOME, then detected and activated by the engine. Explicit API-key entry passes a secret only to typed `setup.activate`, never to kit storage, logs or return values (5.15). Herdr: each agent CLI's own login, done by the person inside an account-specific pane (terminal stream); `openSignInTab` opens that CLI in a new tab with the host's explicit account environment. The kit never runs a login command, copies credentials between homes, or reads a CLI's credential files. |
 | D12 | Route policy is data, not code: `packages/openclaw/src/routes.json` labels every pinned auth choice. `anthropic-cli` is offered as provider `claude-cli`, plugin `anthropic`, subscription billing via the person's own unmodified Claude Code login in the isolated engine HOME. Native login stays in Claude Code; the kit asks engine `setup.detect` and `setup.activate` (a live verification) rather than importing credentials. `apiKey` is explicit API billing, `offer: false`, for app opt-in only; `setup-token` stays grey and unoffered. Direct Claude.ai OAuth remains excluded. Anthropic's authentication-and-credential-use terms URL accompanies these rows. |
 | D13 | Library code reads no environment variables except `PATH`, and only to locate `npm` for the engine install when `npmPath` is not given. Every spawned process gets an explicit env; `process.env` is never inherited. The Herdr binary path is always an explicit option. |
 | D14 | `npm test` stays network-free. Tests needing the real engine (network `npm ci` of the pin, loopback only afterwards) run under `npm run test:engine` in a separate CI job `openclaw-engine`. Real-Herdr contract runs happen only in an isolated lab under a `--herdr-lab` brief, never in CI and never against a person's Herdr. |
@@ -1254,6 +1254,8 @@ export class HerdrKit {
   onChange(fn: (s: HerdrSnapshot) => void): () => void;
   // helpers
   startAgent(o: StartAgent): Promise<AgentRef>;
+  openSignInTab(o: OpenSignInTab): Promise<AgentRef>;
+  moveToAccount(target: AgentRef, o: MoveToAccount): Promise<MoveResult>;
   prompt(target: AgentRef, text: string, o?: { wait?: { until?: AgentStatus[]; timeoutMs: number } }): Promise<PromptReceipt>;
   sendKeys(target: AgentRef, keys: string[]): Promise<void>;
   wait(target: AgentRef, o: { until?: AgentStatus[]; timeoutMs: number }): Promise<AgentStatus>;
@@ -1275,6 +1277,15 @@ export type StartAgent = {
        | { split: string; direction: 'right' | 'down' } | { pane: string };
   worktree?: { branch?: string; base?: string };
   args?: string[]; env?: Record<string, string>; timeoutMs?: number;   // default 60_000
+};
+export type OpenSignInTab = Omit<StartAgent, 'place' | 'worktree'> & { workspaceId: string; label?: string };
+export type MoveToAccount = {
+  provider: 'claude' | 'codex'; folder: string; env?: Record<string, string>;
+  direction?: 'right' | 'down'; timeoutMs?: number;
+};
+export type MoveResult = { ok: true; session: string } | {
+  ok: false; code: 'too_early' | 'busy' | 'unsupported' | 'env_mismatch' | 'close_failed' | 'start_failed';
+  message: string; live?: string;
 };
 export type PromptReceipt = { paneId: string; terminalId: string; revision: number; status: AgentStatus };
 export type BlockedAgent = { paneId: string; workspaceId: string; tabId: string; kind?: string; revision: number; prompt: string; since: number };
@@ -1421,11 +1432,33 @@ spawn error (ENOENT → `missing/binary`) or exit before output. stderr keeps a 
 
 ### 6.6 Sign-in and retained login (D11)
 
-Herdr has no sign-in API; each agent CLI owns its login. The kit's "sign in" is: `startAgent({ kind, … })` and the
-person completes that agent's own first-run login in the pane over `terminal()` (link stream `hd.terminal`).
-`adopt` mode keeps the person's existing CLI logins because those CLIs read their own homes; the kit reads nothing.
-`own` mode is a fresh home: each CLI logs in once there, and that home is the product's one retained signed-in home.
-No credential is ever copied between homes. Words key `agent.signIn`.
+Herdr has no sign-in API; each agent CLI owns its login. `openSignInTab({ workspaceId, kind, cwd, env, … })`
+opens a new tab and starts that CLI with its explicit account environment; the person completes the CLI's own
+first-run login over `terminal()` (link stream `hd.terminal`). It never sends a login command or reads credentials.
+The host owns account folders and history sharing. Tokens stay on the device and never enter kit logs or results.
+Words key `agent.signIn`. Existing `startAgent.env` travels on placement create/split, never `agent.start`.
+An existing-pane start with non-empty env is refused: Herdr cannot change a running shell's environment.
+
+`moveToAccount(target, { provider, folder, env?, direction?, timeoutMs? })` accepts Claude accounts for Claude/Pi
+and Codex accounts for Codex/Pi. Resume arguments are `--resume <id>`, `resume <id>`, or `--session <path>`.
+The kit rereads the source agent: absent/launch-pending conversation → `too_early`, working/blocked or concurrent
+move → `busy`, unsupported agent/session kind → `unsupported`. The source account is never inspected.
+
+The move order is **start then close**:
+1. Split a new shell with the target account's environment (`CLAUDE_CONFIG_DIR` or `CODEX_HOME` overrides host env).
+2. Verify the shell's effective account folder using a random marker and exact whole-line match in unwrapped output; ignore typed
+   command echoes and poll up to the timeout. A mismatch or unreadable shell closes the new pane, returns
+   `env_mismatch`, and leaves the original untouched. Only the folder variable is echoed, never credentials.
+3. Resume in the new pane and wait for a ready agent publishing a conversation. Start/wait failure closes the
+   new pane and returns `start_failed` with the original pane as `live`; never close the source first.
+4. Close the original pane only after the new session is ready. If that close fails, close the new pane to roll
+   back and return `close_failed`. If rollback close also fails, `live` names the new pane, so the host can recover.
+5. Return the new pane id as `session` (Herdr kit sessions are addressed by pane id, including a new generation).
+
+Move messages are plain words with no caught errors, folders or tokens interpolated. `live` is a pane id. Every
+failure before the source closes leaves it live; failed cleanup can leave another pane for host recovery. No real
+Herdr lifecycle is exercised by the acceptance tests: fake/contract ports cover ordering, rollback, new generation,
+env mismatch (including prefix/echo cases), unsupported/too-early/busy and explicit sign-in-tab env.
 
 ### 6.7 Generation (`scripts/gen-types.ts`, H2)
 
@@ -1486,6 +1519,12 @@ sorted, deterministic; a test regenerates and compares.
 | `approval.stale` | That question already changed. Look again before answering. |
 | `close.wouldWiden` | Closing this would close more than you picked. Close the bigger one instead. |
 | `link.notAllowed` | This device can't do that. Ask the person at the computer. |
+| `move.too_early` | This conversation has not started yet. Try again in a moment. |
+| `move.busy` | Wait for this conversation to finish before moving it. |
+| `move.unsupported` | This conversation cannot move between these accounts. |
+| `move.env_mismatch` | The new pane did not receive that sign-in. Try again. |
+| `move.close_failed` | The old pane could not close. The move was undone where possible. |
+| `move.start_failed` | The new account could not take over. Try again. |
 
 ## 7. Connection adapters
 
