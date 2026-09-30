@@ -291,15 +291,20 @@ The owner can attach up to 4096 UTF-8 bytes of JSON to an enrolment through `rel
 `ownerClient(url, token).enrolment({ meta })`. The kit treats it as opaque data; URL meanings belong to the app:
 
 ```ts
-const enrolment = await ownerClient(relayHttpUrl, ownerToken).enrolment({
-  name: 'Kitchen computer',
-  meta: { enrolmentUrl: 'https://relay.example/enrol', webUrl: 'https://app.example' },
-});
-const client = new RelayClient(host, { url: relayHostUrl, enrol: enrolment.token, store: pendingStore });
-const { host: record, devices } = await client.self();
-// record.meta is also available as client.meta after ready, including on reconnect.
-// devices counts live relay connections; the host alone knows which link grants authenticate them.
-await client.leave();
+import type { Host } from '@byokit/link';
+import { ownerClient, RelayClient, type RelayClientStore } from '@byokit/relay';
+
+async function relayExample(host: Host, ownerToken: string, pendingStore: RelayClientStore) {
+  const enrolment = await ownerClient('https://relay.example', ownerToken).enrolment({
+    name: 'Kitchen computer',
+    meta: { enrolmentUrl: 'https://relay.example/enrol', webUrl: 'https://app.example' },
+  });
+  const client = new RelayClient(host, { url: 'wss://relay.example/relay/v1/host', enrol: enrolment.token, store: pendingStore });
+  const { host: record, devices } = await client.self();
+  // record.meta is also available as client.meta after ready, including on reconnect.
+  // devices counts live relay connections; the host alone knows which link grants authenticate them.
+  await client.leave();
+}
 ```
 
 Metadata stays on the owner's and enrolled host's side. The relay neither fetches these URLs nor sends metadata to
