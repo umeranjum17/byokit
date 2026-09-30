@@ -75,16 +75,18 @@ On a computer it uses Pi's [`@earendil-works/pi-ai`](https://www.npmjs.com/packa
 flows, pinned exactly:
 
 ```ts
+import type { SafeStorageLike } from '@byokit/accounts';
 import { isolate } from '@byokit/accounts/isolate'; // first, before any Pi import
 isolate('/path/to/app/engine');                     // scrub inherited Pi settings and provider keys
-const { Accounts, fileStore } = await import('@byokit/accounts');
-const { app, safeStorage } = await import('electron');
-await app.whenReady();
 
-const accounts = new Accounts({ store: (member) => fileStore(`/path/to/app/people/${member}/auth.json`, safeStorage) });
-const shown = await accounts.login(1, 'chatgpt', { via: 'code' }); // { state: 'waiting', code, url }
-// show shown.code and shown.url; the sign-in finishes by itself
-(await accounts.status(1, 'chatgpt')).words;                     // "ChatGPT is connected."
+// Your Electron main process waits for app.whenReady(), then passes its safeStorage here.
+export async function connect(safeStorage: SafeStorageLike) {
+  const { Accounts, fileStore } = await import('@byokit/accounts');
+  const accounts = new Accounts({ store: (member) => fileStore(`/path/to/app/people/${member}/auth.json`, safeStorage) });
+  const shown = await accounts.login(1, 'chatgpt', { via: 'code' }); // { state: 'waiting', code, url }
+  // show shown.code and shown.url; the sign-in finishes by itself
+  return { shown, status: await accounts.status(1, 'chatgpt') };
+}
 ```
 
 ### On a phone or in a browser
