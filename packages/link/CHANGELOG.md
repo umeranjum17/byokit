@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Public offer helpers and a checksummed offline offer envelope, browser pairing guidance and a PWA pairing page.
+
+## 0.4.0
+
+- Export `parseOffer`, `cleanName`, `offerText`, `encodeOffer` and `decodeOffer`.
+- Add browser pairing and short-lived peer invitation recipes, with a view-only PWA example.
+
 ## 0.3.2 (2026-09-29)
 
 - FIX: a phone app coming back from the background, or a hidden browser tab, no longer drops

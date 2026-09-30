@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pair this browser</title>
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+body { font: 18px/1.5 system-ui, sans-serif; max-width: 36rem; margin: 3rem auto; padding: 0 1rem; }
+textarea, button { font: inherit; padding: .7rem; box-sizing: border-box; }
+textarea { width: 100%; min-height: 8rem; } button { margin: .8rem 0; }
+output { display: block; } [hidden] { display: none; }
+</style>
+<h1>Pair this browser</h1>
+<p>Read from your computer here. To make changes, use an app that offers that choice.</p>
+<form id="pair">
+<label for="offer">Paste the invitation from your computer</label>
+<textarea id="offer" required autocomplete="off" spellcheck="false"></textarea>
+<button id="connect">Pair this browser</button>
+</form>
+<p id="words" aria-live="polite"></p>
+<p id="status" role="status"></p>
+<button id="read" hidden>Read from your computer</button>
+<output id="answer"></output>
+<script type="module" src="pair.js"></script>
+</html>

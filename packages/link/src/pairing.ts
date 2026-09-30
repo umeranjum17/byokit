@@ -22,7 +22,8 @@ export function offerText(offer: PairOffer, base?: string): string {
   return base ? `${base}#${body}` : body;
 }
 
-/** Scan (or pasted link) in, offer out; throws a plain sentence for anything that is not a live byokit pairing code. */
+/** Scan (or pasted link) in, offer out; throws a plain sentence for anything that is not a live byokit pairing code.
+ * Pass `0` as `now` to inspect an expired offer without connecting. */
 export function parseOffer(scanned: string, now = Date.now()): PairOffer {
   const at = scanned.indexOf(TAG);
   let o: any;
@@ -51,6 +52,58 @@ function wsUrl(u: unknown): boolean {
   } catch {
     return false;
   }
+}
+
+// A separate offline envelope, not the short PSK code. Preserve every offer field (including relay addresses and
+// exact expiry) rather than borrowing the reference's direct-only, second-resolution compact representation.
+const OFFER_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const MAX_TYPED_OFFER = 14_000;
+const badOffer = () => new Error("That code didn't match. Check it and try again.");
+
+// FNV-1a detects transcription errors. It is not authentication; the Noise handshake pins the host key.
+function checksum(bytes: Uint8Array): number {
+  let h = 2166136261;
+  for (const b of bytes) h = Math.imul(h ^ b, 16777619) >>> 0;
+  return h;
+}
+
+/** A complete offline offer in groups of five base32 characters, with a transcription checksum. This carries the
+ * same single-use ticket as the QR; it neither extends expiry nor replaces host approval. */
+export function encodeOffer(offer: PairOffer): string {
+  const checked = parseOffer(offerText(offer), 0);
+  const body = b4a.from(JSON.stringify(checked));
+  const bytes = new Uint8Array(1 + body.length + 4);
+  bytes[0] = 1;
+  bytes.set(body, 1);
+  new DataView(bytes.buffer).setUint32(bytes.length - 4, checksum(bytes.subarray(0, -4)));
+  let bits = 0, value = 0, out = '';
+  for (const b of bytes) {
+    value = (value << 8 | b) & 0xffff;
+    bits += 8;
+    while (bits >= 5) { bits -= 5; out += OFFER_ALPHABET[(value >>> bits) & 31]; }
+  }
+  if (bits) out += OFFER_ALPHABET[(value << (5 - bits)) & 31];
+  return out.match(/.{1,5}/g)!.join('-');
+}
+
+/** Read an offline offer without network access. Case, spaces and dashes are ignored; O means 0 and I/L mean 1.
+ * Other typos fail the checksum. Expiry and addresses follow `parseOffer`; `now = 0` permits inspection only. */
+export function decodeOffer(text: string, now = Date.now()): PairOffer {
+  if (text.length > MAX_TYPED_OFFER) throw badOffer();
+  const s = text.toUpperCase().replace(/[\s-]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+  if (!s || [...s].some((c) => !OFFER_ALPHABET.includes(c))) throw badOffer();
+  const bytes: number[] = [];
+  let bits = 0, value = 0;
+  for (const c of s) {
+    value = (value << 5 | OFFER_ALPHABET.indexOf(c)) & 0xffff;
+    bits += 5;
+    if (bits >= 8) { bits -= 8; bytes.push((value >>> bits) & 255); }
+  }
+  // Reject extra zero symbols as well as non-zero padding: one byte sequence has one canonical encoding.
+  if (s.length !== Math.ceil(bytes.length * 8 / 5) || (bits && (value & ((1 << bits) - 1)))) throw badOffer();
+  const b = Uint8Array.from(bytes);
+  if (b.length < 6 || b[0] !== 1 || checksum(b.subarray(0, -4)) !== new DataView(b.buffer).getUint32(b.length - 4)) throw badOffer();
+  return parseOffer(TAG + b64url(b.subarray(1, -4)), now);
 }
 
 /** Typed codes use letters and numbers nobody mixes up (no 0/O, 1/I/L). Twelve of them are about 59 bits: too many

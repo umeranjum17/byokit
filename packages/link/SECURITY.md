@@ -24,6 +24,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 | Conformance | `noise-handshake` is checked against the cacophony vectors for IK, XX and NNpsk0, which together cover every token of both handshakes; `@noble/ciphers` against the RFC 8439 AEAD vectors; and the transport against noise-handshake's own CipherState (sodium-native) and sodium-javascript, sealing and opening both ways (`test/channel.test.ts`). |
 | Frames | One Noise transport message per WebSocket frame. JSON control messages use base64 text; see Streams below for data frames. Per-direction CipherStates; the implicit nonce counter rejects any replayed, dropped, reordered or reflected frame, and any bad frame closes the socket. Messages over 60 KB are chunked; a reassembled message over 16 MB closes the socket. |
 | QR / pairing link | `byokit-link:1:<base64url JSON>`: `{v, host (X25519 public key), name, urls, ticket (128 bits), expires, role?, lifetime?}`. The optional role and access lifetime let the device show the terms; older parsers ignore them. As a link, it rides after `#`, which browsers never send to a server. |
+| Offline offer envelope | Versioned base32 of the complete validated offer plus a 32-bit FNV-1a transcription checksum. Case, whitespace, dashes and O/0, I/L/1 aliases are normalized; noncanonical padding is refused. The checksum is not authentication. The same QR ticket, host key, expiry and approval rules apply; relay addresses and grant terms are preserved. |
 | Typed code | 12 characters from a 31-character unambiguous alphabet (about 59 bits), `XXXX-XXXX-XXXX`. |
 | Pairing rules | Tickets and codes are single use (burned at first presentation, even when expired or refused), live 5 minutes through grant creation, and 5 wrong tries withdraw every open ticket and code. Nothing is stored until the person at the host approves; both screens show the same **two confirmation words**, derived from the handshake hash. Optional device cap. |
 | Grants | Held by the host with a device key and role; optional `kind`, `expires`, `nextKey` and `meta` support caps, expiry, rekey and app policy. Every handshake and request checks the grant. `allow` decides access when supplied; otherwise control is allowed and view-only uses `canView` (default: none). |
@@ -110,6 +111,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 - [ ] Names shown to people are stripped of control and direction-flipping characters and capped at 60.
 - [ ] `parseOffer` accepts only `ws:`/`wss:` addresses without credentials, at most 8, a 32-byte key and 16-byte
       ticket.
+- [ ] Offline offer decoding checks the checksum, version, canonical padding, bounds and all `parseOffer` rules, including expiry; inspecting with `now = 0` never renews a ticket.
 - [ ] The channel refuses frames past 2³² − 1 and messages over 16 MB.
 - [ ] Stream opens re-check the grant and policy before the app's `stream` handler; data past a stream's window,
       or stream data that isn't a binary inner message, drops the socket; streams end on disconnect and revoke.
