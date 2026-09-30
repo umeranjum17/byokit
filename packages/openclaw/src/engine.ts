@@ -21,6 +21,32 @@ const putChanged = (path: string, data: string) => {
   if (!existsSync(path) || readFileSync(path, 'utf8') !== data) writeFileSync(path, data, { mode: 0o600 });
 };
 
+type LockedPackage = { version: string; optional?: boolean; os?: string[]; cpu?: string[]; libc?: string[] };
+const supports = (list: string[] | undefined, value: string) => !list ||
+  (!list.includes(`!${value}`) && (list.includes('any') || list.every(item => item.startsWith('!')) || list.includes(value)));
+
+function installMatches(dir: string): boolean {
+  const manifests = ['package.json', 'package-lock.json'].map(file => ({
+    path: join(dir, file), shipped: readFileSync(join(kitDir, 'engine', file)),
+  }));
+  const lock = JSON.parse(manifests[1]!.shipped.toString('utf8')) as { packages: Record<string, LockedPackage> };
+  // npm omits optional binaries for other platforms (including the other Linux libc).
+  const report = process.platform === 'linux' ? process.report.getReport() as { header: { glibcVersionRuntime?: string } } : undefined;
+  const libc = report?.header.glibcVersionRuntime ? 'glibc' : process.platform === 'linux' ? 'musl' : '';
+  try {
+    if (manifests.some(({ path, shipped }) => !readFileSync(path).equals(shipped))) return false;
+    for (const [path, pkg] of Object.entries(lock.packages)) {
+      if (!path) continue; // The root manifest is checked byte for byte above.
+      if (pkg.optional && (!supports(pkg.os, process.platform) || !supports(pkg.cpu, process.arch) || !supports(pkg.libc, libc))) continue;
+      if (JSON.parse(readFileSync(join(dir, path, 'package.json'), 'utf8')).version !== pkg.version) return false;
+    }
+    return true;
+  } catch {
+    // Missing or unreadable manifests and malformed installed package metadata need repair too.
+    return false;
+  }
+}
+
 export class Engine {
   readonly root: string;
   readonly bridgeSock: string;
@@ -65,8 +91,7 @@ export class Engine {
     for (const d of [this.root, join(this.root, 'home'), join(this.root, 'state'), join(this.root, 'tmp'), join(this.root, 'install-home'), join(this.root, 'npm-cache'), join(this.o.stateDir, 'logs'), this.dir]) mkdirSync(d, { recursive: true, mode: 0o700 });
     if (this.o.spawnEngine) {
       const versionPath = join(this.dir, 'node_modules', 'openclaw', 'package.json');
-      const version = existsSync(versionPath) ? JSON.parse(readFileSync(versionPath, 'utf8')).version : undefined;
-      if (!existsSync(this.entry) || version !== ENGINE_VERSION) {
+      if (!existsSync(this.entry) || !installMatches(this.dir)) {
         this.state('installing');
         rmSync(join(this.dir, 'node_modules'), { recursive: true, force: true });
         for (const f of ['package.json', 'package-lock.json']) copyFileSync(join(kitDir, 'engine', f), join(this.dir, f));
