@@ -14,7 +14,7 @@ export type AnthropicContent = AnthropicText | AnthropicImage | AnthropicToolUse
   | { type: 'tool_result'; tool_use_id: string; content?: string | AnthropicContent[]; is_error?: boolean; cache_control?: AnthropicCacheControl }
   | { type: string; [key: string]: unknown };
 export type AnthropicMessage = { role: 'user' | 'assistant'; content: string | AnthropicContent[] };
-export type AnthropicTool = { name: string; description?: string; input_schema: { type: 'object'; properties?: Record<string, unknown>; required?: string[]; [key: string]: unknown }; cache_control?: AnthropicCacheControl; strict?: boolean }
+export type AnthropicTool = { name: string; description?: string; input_schema: { type: 'object'; properties?: Record<string, unknown>; required?: string[]; [key: string]: unknown }; cache_control?: AnthropicCacheControl; strict?: boolean; defer_loading?: boolean; input_examples?: Record<string, unknown>[]; allowed_callers?: string[]; [key: string]: unknown }
   | { type: string; name: string; [key: string]: unknown };
 export type AnthropicToolChoice = { type: 'auto' | 'any' | 'none'; disable_parallel_tool_use?: boolean }
   | { type: 'tool'; name: string; disable_parallel_tool_use?: boolean };
@@ -29,8 +29,8 @@ export type AnthropicRequest = {
   system?: string | AnthropicText[];
   tools?: AnthropicTool[];
   tool_choice?: AnthropicToolChoice;
-  thinking?: { type: 'enabled'; budget_tokens: number; display?: 'summarized' | 'omitted' }
-    | { type: 'disabled' } | { type: 'adaptive'; display?: 'summarized' | 'omitted' };
+  thinking?: { type: 'enabled'; budget_tokens: number; display?: 'summarized' | 'omitted' | 'updates' }
+    | { type: 'disabled' } | { type: 'adaptive'; display?: 'summarized' | 'omitted' | 'updates' };
   stop_sequences?: string[];
   metadata?: { user_id?: string };
   temperature?: number;

@@ -76,9 +76,9 @@ const request: AnthropicRequest = {
     { type: 'image', source: { type: 'url', url: 'https://example.test/image.png' } },
     { type: 'tool_result', tool_use_id: 'previous-tool', content: [{ type: 'text', text: 'noon' }] },
   ] }],
-  tools: [{ name: 'weather', input_schema: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] } }],
+  tools: [{ name: 'weather', defer_loading: true, input_schema: { type: 'object', properties: { city: { type: 'string' } }, required: ['city'] } }],
   tool_choice: { type: 'tool', name: 'weather', disable_parallel_tool_use: true },
-  thinking: { type: 'enabled', budget_tokens: 1024 }, stop_sequences: ['END'], metadata: { user_id: 'app-member' },
+  thinking: { type: 'enabled', budget_tokens: 1024, display: 'updates' }, stop_sequences: ['END'], metadata: { user_id: 'app-member' },
   temperature: 0.5, top_p: 0.9, top_k: 10, service_tier: 'standard_only',
   output_config: { effort: 'high', format: { type: 'json_schema', schema: { type: 'object' } } }, native_future_option: { enabled: true },
 };
