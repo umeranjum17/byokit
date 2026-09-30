@@ -6,7 +6,7 @@ import { protocolBounds } from './constants.ts';
 import { closePane, closeTab, closeWorkspace } from './close.ts';
 import { Supervisor } from './supervise.ts';
 import type {
-  AgentCliSignIn, AgentReadiness, AgentStatusOptions, AgentRef, AgentSessionRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,
+  AgentCliSignIn, AgentReadiness, AgentStartEvent, AgentStatusOptions, AgentRef, AgentSessionRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,
   HerdrParams, HerdrResult, HerdrSnapshot, HerdrSnapshotAgent, HerdrSnapshotPane, HerdrSnapshotWorkspace, HerdrState, HerdrSubscription, HerdrSubscribeStop, PromptReceipt, StartAgent, TerminalSession,
   HerdrTransport,
 } from './types.ts';
@@ -129,12 +129,14 @@ export class HerdrKit {
   private readonly callAny: Call = (method, params, timeoutMs) =>
     this.call(method as never, params as never, timeoutMs === undefined ? undefined : { timeoutMs });
   private readonly agents: ReturnType<typeof createAgents>;
+  private readonly startListeners = new Set<(e: AgentStartEvent) => void>();
   private readonly blockedList: Blocked;
   constructor(o: HerdrKitOptions) {
     this.o = o;
     this.supervisor = new Supervisor(o, (s) => { this.current = s; o.onState?.(s); });
     this.agents = createAgents({ call: this.callAny, snapshot: () => this.snapshot(),
-      reread: (paneId) => this.reread(paneId) });
+      reread: (paneId) => this.reread(paneId),
+      emitStart: (e) => { for (const fn of [...this.startListeners]) try { fn(e); } catch { /* a listener never breaks a start */ } } });
     this.blockedList = new Blocked({ call: this.callAny });
   }
   get state(): HerdrState { return this.current; }
@@ -388,6 +390,12 @@ export class HerdrKit {
    */
   statusWatchReady(): Promise<void> { return this.statusReadyPromise; }
   startAgent(o: StartAgent): Promise<AgentRef> { return this.agents.startAgent(o); }
+  // App-wide start lifecycle without polling: every startAgent's installing/ready/launchFailed
+  // lands here as well as on that call's own `onEvent`. Returns the unsubscribe function.
+  onStartAgent(fn: (e: AgentStartEvent) => void): () => void {
+    this.startListeners.add(fn);
+    return () => { this.startListeners.delete(fn); };
+  }
   prompt(target: AgentRef, text: string, o?: { wait?: { until?: AgentStatus[]; timeoutMs: number } }): Promise<PromptReceipt> { return this.agents.prompt(target, text, o); }
   sendKeys(target: AgentRef, keys: string[]): Promise<void> { return this.agents.sendKeys(target, keys); }
   wait(target: AgentRef, o: { until?: AgentStatus[]; timeoutMs: number }): Promise<AgentStatus> { return this.agents.wait(target, o); }

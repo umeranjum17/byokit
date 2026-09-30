@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `HerdrKit.startAgent` lifecycle events: `installing` (with the progress words) before a start
+  that needs an install, `ready` with the fresh ref, and `launchFailed` with a typed reason
+  (`placement-failed` | `pane-busy` | `install-failed` | `start-rejected`) plus plain words —
+  subscribable per call (`StartAgent.onEvent`) or app-wide (`kit.onStartAgent`), no polling.
+  The shape and rejection are unchanged. Install detection (`agentInstallState`, also on
+  `agentStatus` as `installState`) tells a real runnable binary apart from an auto-install
+  launcher such as a mise shim: shimmed or absent reads `installs-on-first-start`, sharing the
+  one probe path with `installedAgentKinds` (`resolveAgentBinary`, `isAutoInstallShim`).
+
 ## 0.2.0 (2026-09-30)
 
 - `HerdrKit.agentStatus(kinds)` (B5): per-kind onboarding readiness — installed plus CLI

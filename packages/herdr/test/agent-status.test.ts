@@ -37,7 +37,7 @@ test('agentStatus: signed in, signed out, pi words and unknown kinds', async () 
   };
   const out = await kit().agentStatus(['pi', 'claude', 'codex', 'mystery'], { path: [dir], run });
   assert.deepEqual(out.find((a) => a.kind === 'pi'),
-    { kind: 'pi', installed: false, signedIn: 'unknown', installHint: 'installs on first start' });
+    { kind: 'pi', installed: false, installState: 'installs-on-first-start', signedIn: 'unknown', installHint: 'installs on first start' });
   const claude = out.find((a) => a.kind === 'claude');
   assert.equal(claude?.installed, true);
   assert.equal(claude?.signedIn, 'yes');
@@ -47,7 +47,7 @@ test('agentStatus: signed in, signed out, pi words and unknown kinds', async () 
   assert.equal(codex?.signedIn, 'no', 'an empty account reads signed out, never throws');
   assert.match(codex?.signInHint ?? '', /`codex`/, 'the hint names the command to run');
   const mystery = out.find((a) => a.kind === 'mystery');
-  assert.deepEqual(mystery, { kind: 'mystery', installed: false, signedIn: 'unknown',
+  assert.deepEqual(mystery, { kind: 'mystery', installed: false, installState: 'installs-on-first-start', signedIn: 'unknown',
     installHint: 'Install the mystery command, then check again.' });
   // Only the CLIs' own status commands run — no credential file is ever opened.
   assert.deepEqual(seen.map((s) => [s.command, ...s.args].join(' ')).sort(),
@@ -58,7 +58,7 @@ test('agentStatus: a failing status command reads unknown, and aliases count as 
   const dir = binDir('herdr-agent-status-alias', ['cursor-agent']);
   const run: AgentStatusRunner = async () => undefined;
   const out = await kit().agentStatus(['cursor'], { path: [dir], aliases: { cursor: ['cursor-agent'] }, run });
-  assert.deepEqual(out, [{ kind: 'cursor', installed: true, signedIn: 'unknown',
+  assert.deepEqual(out, [{ kind: 'cursor', installed: true, installState: 'installed', signedIn: 'unknown',
     installHint: 'Install the cursor-agent command, then check again.' }]);
 });
 

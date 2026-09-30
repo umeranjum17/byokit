@@ -149,8 +149,8 @@ persistent grant store, and the phone page above.
 
 | Export | What it does |
 |---|---|
-| `HerdrKit` (`@byokit/herdr`) | The host-side kit, in `adopt` or `own` mode: `start`/`stop`, `state`, `snapshot`/`onChange`, `startAgent`, `prompt`, `sendKeys`, `wait`, `read`, `blocked`/`onBlocked`/`answer`, `closePane`/`closeTab`/`closeWorkspace`, `agentKinds`, `installedAgentKinds`, `agentStatus`, `terminal`, `onEvent`, `statusWatchReady`, and the pass-throughs `call`, `subscribe` and `cli` |
-| `agentStatus`, `agentProbePath`, `extraPathDirs`, `runStatusCommand` (`@byokit/herdr`) | Onboarding readiness: per-kind install + CLI sign-in without a Herdr connection (see below) |
+| `HerdrKit` (`@byokit/herdr`) | The host-side kit, in `adopt` or `own` mode: `start`/`stop`, `state`, `snapshot`/`onChange`, `startAgent`, `onStartAgent`, `prompt`, `sendKeys`, `wait`, `read`, `blocked`/`onBlocked`/`answer`, `closePane`/`closeTab`/`closeWorkspace`, `agentKinds`, `installedAgentKinds`, `agentStatus`, `agentInstallState`, `terminal`, `onEvent`, `statusWatchReady`, and the pass-throughs `call`, `subscribe` and `cli` |
+| `agentStatus`, `agentInstallState`, `agentProbePath`, `extraPathDirs`, `runStatusCommand`, `isAutoInstallShim`, `resolveAgentBinary` (`@byokit/herdr`) | Onboarding readiness: per-kind install + CLI sign-in without a Herdr connection (see below) |
 | `HERDR_VERSION`, `HERDR_PROTOCOL` | The pinned Herdr release (`0.9.1`) and the protocol the kit speaks (`22`) |
 | `words`, `agentWords`, `stateWords`, `WORDS` | Plain sentences for agent statuses and kit states |
 | `herdrLink` (`@byokit/herdr/link`) | The host side of the `hd.*` link ops, spread into `Host.open`; scopes each grant to its workspaces and can push sealed approval notices through a relay |
@@ -179,9 +179,12 @@ the extra install dirs a service PATH omits (`extraPathDirs`: `~/.local/bin`, th
 `~/.npm-global/bin`, Homebrew and the system dirs — the set muxr probed before this kit did).
 Sign-in comes only from each CLI's own documented non-secret status command, with a 10 s timeout;
 a kind whose CLI has none, or whose command gives no answer, reads `unknown`. Credential files
-are never opened, read or statted — only the signed-in boolean is kept. Herdr auto-installs Pi
-via mise on first start, so `pi` always reads `installed: false` with `installs on first start`
-rather than a missing-install error.
+are never opened, read or statted — only the signed-in boolean is kept. Install detection tells a
+real runnable binary apart from an auto-install launcher: a mise-style shim on PATH, or nothing
+on PATH at all, reads `installState: 'installs-on-first-start'` with `installed: false` — Herdr
+fetches the agent on first start — instead of a missing-install error. That covers `pi`, which
+Herdr installs via mise: a missing or shimmed `pi` reads `installed: false` with `installs on
+first start`, while a real `pi` binary reads `installed: true`.
 
 ```ts
 import { HerdrKit } from '@byokit/herdr';
@@ -193,10 +196,11 @@ console.log(await kit.agentStatus(['pi', 'claude', 'codex']));
 
 ```text
 [
-  { kind: 'pi', installed: false, signedIn: 'unknown', installHint: 'installs on first start' },
-  { kind: 'claude', installed: true, signedIn: 'yes',
+  { kind: 'pi', installed: false, installState: 'installs-on-first-start', signedIn: 'unknown',
+    installHint: 'installs on first start' },
+  { kind: 'claude', installed: true, installState: 'installed', signedIn: 'yes',
     installHint: 'Install the claude command, then check again.' },
-  { kind: 'codex', installed: true, signedIn: 'no',
+  { kind: 'codex', installed: true, installState: 'installed', signedIn: 'no',
     installHint: 'Install the codex command, then check again.',
     signInHint: 'On this computer run `codex`, sign in, then come back.' },
 ]
@@ -206,13 +210,35 @@ console.log(await kit.agentStatus(['pi', 'claude', 'codex']));
 |---|---|---|
 | `claude` | `claude auth status` (JSON `loggedIn`) | The CLI's own documented status; a signed-out CLI still prints its JSON, so only an empty answer reads `unknown`. |
 | `codex` | `codex app-server` with a pipelined `initialize` + `account/read` round | Codex exposes sign-in only over its app-server protocol; a record `account` in the second answer means signed in. |
-| `pi` | none (Herdr installs it via mise) | No probe: always `installed: false`, `installs on first start`. |
+| `pi` | none (Herdr installs it via mise) | Missing or shimmed: `installed: false`, `installs on first start`. A real binary reads `installed: true`. |
 | any other kind | none | No documented non-secret status command, so `unknown` until the kit covers it. |
 
-Options: `{ path, aliases }` as in `installedAgentKinds`; `{ run }` injects the command runner
+Options: `{ path, aliases }` as in `installedAgentKinds`; `{ readFile }` overrides the shim
+sniff's file-head reader (tests use fakes); `{ run }` injects the command runner
 (`(command, args, { stdin, timeoutMs }) => Promise<{ stdout } | undefined>`, so tests use fakes);
 `{ timeoutMs }` bounds each probe. `signInHint` rides kinds the kit knows how to check whenever they
 are not signed in; `installHint` always rides along.
+
+## Agent start lifecycle
+
+`startAgent` keeps its typed shape and rejection, and additionally reports the launch as events
+so an app shows `Installing…` instead of a blank start: `installing` (with the progress words)
+before a start that needs an install, `ready` with the fresh ref, and `launchFailed` with a typed
+`reason` (`placement-failed` | `pane-busy` | `install-failed` | `start-rejected`) plus plain words.
+Subscribe per call with `onEvent`, or app-wide with `kit.onStartAgent` — no polling either way.
+
+```ts
+import { HerdrKit } from '@byokit/herdr';
+
+const kit = new HerdrKit({ mode: 'adopt', bin: 'herdr', socketPath: '/tmp/herdr.sock' });
+const off = kit.onStartAgent((e) => {
+  if (e.phase === 'installing') console.log(e.message);       // Installing pi…
+  if (e.phase === 'launchFailed') console.log(e.reason, e.message);
+});
+await kit.startAgent({ kind: 'pi', cwd: '/home/me/project', place: { workspace: 'new' },
+  onEvent: (e) => { if (e.phase === 'ready') console.log(e.ref.paneId); } });
+off();
+```
 `call` and `subscribe` are typed pass-throughs to the complete socket API, and `cli()` reaches the full CLI.
 
 `start()` is non-fatal: if Herdr is down it rejects (state `failed`, e.g. `failed/socket`) and may be called again
