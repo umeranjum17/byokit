@@ -185,4 +185,14 @@ class NodeAdapterTest {
   @Test fun clipboardTurnedAwayIsFalseNotAThrow() {
     assertFalse(FocusedFields.clipboard(ContextWrapper(null))("hi"))
   }
+
+  @Test fun aDescendantFieldReacquiresThroughThePassedService() {
+    val fresh = Info(editable = true, text = "ab", lands = "ab!")
+    val stale = Info(editable = true, gone = true)
+    val captured = Info(kids = listOf(stale)) // a WebView focus: the field is a descendant
+    val result = FocusedFields.insert(captured, "!", pause = {}, service = Service(root = Info(kids = listOf(fresh))))
+    assertEquals("inserted", result)
+    assertEquals(emptyList<Int>(), stale.actions)
+    assertEquals("ab!", fresh.text)
+  }
 }

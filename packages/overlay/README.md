@@ -93,7 +93,7 @@ class Assistant : AccessibilityService() {
 ```
 
 `FocusedFields.capture(service)` does the same capture as a `FieldNode`. An app's own foreground service shows the
-bubble with `ServiceBubble(WindowOverlayHost(this), moods, spots)` (no rules apply without the accessibility service).
+bubble with `ServiceBubble(WindowOverlayHost(this), moods, spots)`, which takes no rules and shows everywhere.
 
 **Status: ready to publish (BK-O3).** The bubble, both hosts, the panel, the tap log and the focused field are built
 and proven on an Android emulator (API 36). On iOS, the web and Node `overlay.state()` is `unsupported`.

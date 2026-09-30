@@ -59,6 +59,7 @@ class ServiceBubbleTest {
   private val made = mutableListOf<FakeBubble>()
   private val topRules = Rules(defaults = listOf("com.app"))
   private val panels = Listeners<Boolean>()
+  private var openPanel: String? = null
 
   private fun service() = ServiceBubble(
     moods = { null },
@@ -69,6 +70,7 @@ class ServiceBubbleTest {
     foregroundNow = { foreground },
     keyboardNow = { keyboard },
     panels = panels,
+    panelApp = { openPanel },
   )
 
   @Test fun showsOnAttachWithMoodAndLabel() {
@@ -180,12 +182,14 @@ class ServiceBubbleTest {
     val s = service()
     s.start(ServiceBubble.Config(mood = "calm", rules = Rules(on = listOf("com.app", "com.b")), perAppSpots = true))
     val b = made.single()
+    openPanel = "com.own"
     panels.emit(true)
     assertEquals(1, b.hides)
     foreground.now = "com.own"
     foreground.emit("com.own") // the panel itself: ignored
     assertEquals("app:com.app", b.spotKey)
     foreground.now = "com.b"
+    openPanel = null
     panels.emit(false)
     assertEquals("app:com.b", b.spotKey)
     assertEquals(listOf("calm", "calm"), b.shown)
@@ -200,5 +204,39 @@ class ServiceBubbleTest {
     s.stop()
     panels.emit(false)
     assertEquals(listOf("calm", "calm"), made.single().shown)
+  }
+
+  @Test fun switchingAwayFromTheOpenPanelShowsTheBubbleAgain() {
+    attached = host
+    val s = service()
+    s.start(ServiceBubble.Config(mood = "calm", rules = Rules(on = listOf("com.app", "com.b"))))
+    val b = made.single()
+    openPanel = "com.own"
+    panels.emit(true)
+    foreground.emit("com.own")
+    assertEquals(listOf("calm"), b.shown)
+    foreground.emit("com.b") // home, then another app, with the panel still alive
+    assertEquals(listOf("calm", "calm"), b.shown)
+    foreground.emit("com.own") // back to the panel
+    assertEquals(3, b.hides)
+  }
+
+  @Test fun startWhileThePanelIsOpenKeepsTheBubbleHidden() {
+    attached = host
+    openPanel = "com.own"
+    val s = service()
+    s.start(ServiceBubble.Config(mood = "calm", rules = topRules))
+    assertEquals(emptyList<String>(), made.single().shown)
+    openPanel = null
+    panels.emit(false)
+    assertEquals(listOf("calm"), made.single().shown)
+  }
+
+  @Test fun aForegroundServiceHostIgnoresTheAccessibilityForegroundApp() {
+    val made = mutableListOf<FakeBubble>()
+    val s = ServiceBubble(host, moods = { null }, spots = FakeSpots(), bubbles = { FakeBubble().also { made += it } })
+    s.start(ServiceBubble.Config(mood = "calm", rules = Rules(paused = true), perAppSpots = true))
+    assertEquals(listOf("calm"), made.single().shown)
+    assertEquals(SpotStore.GLOBAL, made.single().spotKey)
   }
 }

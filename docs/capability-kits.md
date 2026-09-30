@@ -1160,16 +1160,16 @@ class FocusedFieldModule : Module()                                      // Expo
   the kit's internals (`NodeWrap`, the same-field search) behind it:
   - *Attach:* `ByokitAccessibility.attach(this)` / `detach(this)`, which supplies `host`, `foreground` and `keyboard`.
   - *Focused field:* `FocusedFields.capture(service)` at tap time, or `FieldNode.of(node)` over the
-    `AccessibilityNodeInfo` the service captured itself (from an event or `findFocus`); `FocusedFields.insert` takes
-    either. A retry refreshes the captured node and, when it went stale (the panel still closing), re-acquires the
+    `AccessibilityNodeInfo` the service captured itself with `findFocus(FOCUS_INPUT)` (not a layout from an event:
+    below the node, the first editable non-password descendant is taken); `FocusedFields.insert` takes either. A retry refreshes the captured node and, when it went stale (the panel still closing), re-acquires the
     field from the active window only when view id, bounds and package all match, never a different field; the
     captured node stays the caller's to recycle. `FocusedFields.clipboard(context)` is the `copy` fallback. Insert
     blocks for up to `attempts x retryMs`, so the service calls it off the main thread.
   - *Bubble:* `ServiceBubble` on the attached service's host, or `ServiceBubble(WindowOverlayHost(this), ...)` from the
     app's own foreground service; `drawables(context)`, `PrefsSpotStore(context)` and `reducedMotion(context)` supply
-    it. The rules apply while the foreground app is known (the accessibility service is attached); a window host
-    alone shows the bubble everywhere, as the JS `window` host takes no rules. It hides while the panel is open
-    (`hideWhilePanelOpen`) and re-reads the foreground app when it closes.
+    it. The fixed-host bubble knows no foreground app or keyboard: like the JS `window` host it takes no rules and
+    shows everywhere. It hides while the panel is on top (`hideWhilePanelOpen`, also when `start` finds it open),
+    shows again over another app the person switches to meanwhile, and re-reads the foreground app when it closes.
   - *Panel:* `events` delivers `Tap` and `LongPress`; the service opens the panel with
     `PanelActivity.launch(context, key, props)` and closes it with `PanelActivity.current?.finish()`.
   - *Placement, tap log, rules:* `Placement`, `SpotStore.key`, `TapLog(context)` and `Rules` are the same pure parts

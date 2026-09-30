@@ -46,7 +46,7 @@ interface FieldNode {
 
   companion object {
     /**
-     * The node an app's own accessibility service captured (at tap time, from an event or `findFocus`) as a
+     * The node an app's own accessibility service captured (at tap time, with `findFocus(FOCUS_INPUT)`) as a
      * [FieldNode], for [FocusedFields.find] and [FocusedFields.insert]. It re-acquires the same field through
      * [service], else the service attached with [ByokitAccessibility.attach]. [recycle] recycles [node].
      */
@@ -75,7 +75,10 @@ data class FocusedFieldText(val app: String, val text: String, val selection: Fi
  * tap time and inserts into the captured node, with no JS running. Password fields are never read or typed into.
  */
 object FocusedFields {
-  /** The node itself when it is an editable non-password field, else the first such focused descendant. */
+  /**
+   * The node itself when it is an editable non-password field, else its first such descendant in child order. Focus is
+   * not checked on descendants: pass the focused node (`findFocus(FOCUS_INPUT)`), not a layout from an event.
+   */
   fun find(node: FieldNode): FieldNode? {
     if (node.editable && !node.password) return node
     for (i in 0 until node.childCount) {
@@ -179,9 +182,9 @@ object FocusedFields {
   }
 
   /**
-   * [insert] for the node an app's own accessibility service captured: [node] itself when it is an editable
-   * non-password field, else its first such focused descendant, with the same retry and same-field re-acquisition
-   * (through [service], else the attached one). "failed" when there is no such field. [node] stays the caller's.
+   * [insert] for the node an app's own accessibility service captured with `findFocus(FOCUS_INPUT)`: [node] itself
+   * when it is an editable non-password field, else its first such descendant ([find]), with the same retry and
+   * same-field re-acquisition (through [service], else the attached one). "failed" when there is no such field. [node] stays the caller's.
    */
   fun insert(
     node: AccessibilityNodeInfo,
