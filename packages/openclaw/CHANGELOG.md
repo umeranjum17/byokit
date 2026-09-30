@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.0 (2026-09-30)
+
+
+
 - SECURITY: Provider access and refresh tokens persisted in plaintext engine stores; hosts can now pass `authSeal` from `@byokit/secrets` to seal the isolated stores while stopped and protect migration archives. Upgrade and call `prepare()` with an OS-keyring or host-owned-key adapter; protect live state and backups separately.
 - SECURITY: Verified retained-login sources are removed instead of archived in plaintext; existing confirmed copies and engine migration archives are removed or sealed on the next prepare.
 
