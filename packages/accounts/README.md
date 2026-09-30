@@ -77,9 +77,11 @@ flows, pinned exactly:
 ```ts
 import { isolate } from '@byokit/accounts/isolate'; // first, before any Pi import
 isolate('/path/to/app/engine');                     // scrub inherited Pi settings and provider keys
-import { Accounts, fileStore } from '@byokit/accounts';
+const { Accounts, fileStore } = await import('@byokit/accounts');
+const { app, safeStorage } = await import('electron');
+await app.whenReady();
 
-const accounts = new Accounts({ store: (member) => fileStore(`/path/to/app/people/${member}/auth.json`) });
+const accounts = new Accounts({ store: (member) => fileStore(`/path/to/app/people/${member}/auth.json`, safeStorage) });
 const shown = await accounts.login(1, 'chatgpt', { via: 'code' }); // { state: 'waiting', code, url }
 // show shown.code and shown.url; the sign-in finishes by itself
 (await accounts.status(1, 'chatgpt')).words;                     // "ChatGPT is connected."
@@ -116,7 +118,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 |---|---|
 | `Accounts` | Sign-in, status, sign-out, asking and limits for each member: `login`, `finished`, `status`, `plan`, `logout`, `respond`, `failed`, `ladder`, `keepFresh` |
 | `portable`, `computer`, `loopback` | The platform `Accounts` runs on: device code with `fetch` alone, or (Node entry only) Pi's flows and the loopback listener |
-| `memoryStore`, `fileStore`, `secureStore`, `browserStore`, `recordStore` | One store per person: in memory, a 0600 file (Node entry only), Keychain/Keystore, IndexedDB, or your own load and save |
+| `memoryStore`, `fileStore`, `secureStore`, `browserStore`, `recordStore` | One store per person: in memory, a sealed 0600 file (Node entry only), Keychain/Keystore, IndexedDB, or your own load and save |
 | `offered`, `provider`, `PROVIDERS` | The catalogue: each provider's billing, terms status, reason and source |
 | `billingWords`, `say`, `WORDS`, `signInError`, `failure`, `clock`, `callbackPage` | The plain sentences every app shows the same way (`words.json`), a time in words, and the page a browser sees after a sign-in |
 | `respond`, `ResponseError`, `IncompleteError`, `sseReader`, `limitResponse`, `isFunctionCall` | Ask ChatGPT's answers endpoint with a sign-in, with tools, pictures, thinking effort and an answer shape; the error with the words to show and the kind acted on |
@@ -135,7 +137,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | ChatGPT (subscription) | Its own page, straight back to this computer (port 1455); a code when asked or stuck | Device code | Device code |
 | OpenRouter (API billing) | Its own page, back to this computer (Pi's flow), when an app offers it (never by default) | Not yet | Not yet |
 | Grok, Copilot (hidden) | Pi's flows | No | No |
-| Where sign-ins are kept | `fileStore(path)`, sealed with Electron's `safeStorage` when given | `browserStore(name)` (IndexedDB) | `secureStore(SecureStore, name)` (Keychain, Keystore) |
+| Where sign-ins are kept | `fileStore(path, safeStorage)`, sealing required | `browserStore(name)` (IndexedDB) | `secureStore(SecureStore, name)` (Keychain, Keystore) |
 
 Device code works everywhere: OpenAI's sign-in endpoints answer any web page. The page-straight-back sign-in needs a
 listener on the computer the browser runs on, so it is desktop only: ChatGPT sends the browser back to
@@ -182,12 +184,12 @@ the local sign-in even if the revoke fails. A failed revoke rejects after local 
 sign-in may remain active.
 
 Within one store instance, a refresh already in progress finishes first, so sign-out uses its rotated token. If a
-cancelled sign-in finishes late, `onSignOutError` reports a failed revoke of its discarded credential (or it is logged
+cancelled sign-in finishes late, `onSignOutError` reports a failed revoke of its discarded credential (or a generic failure is logged
 when no handler is set).
 
 ## One person, one store
 
-`memoryStore()`, `fileStore(path)` (0600, the same shape as Pi's `auth.json`), `secureStore(SecureStore, name,
+`memoryStore()`, `fileStore(path, safeStorage)` (sealed, 0600), `secureStore(SecureStore, name,
 options?)` or `browserStore(name)`; any other storage with `recordStore(load, save)`. Writes are serialized within a
 store instance; `browserStore` also uses Web Locks across tabs for the same provider when available. Never a shared
 fallback.
@@ -299,3 +301,24 @@ including ID-token signature/issuer/audience/nonce verification and protected pe
 available to eligible open-source/local apps; paid/remote apps require approval. This adapter does not start an
 OAuth flow and does not convert the existing Codex `Accounts.login()` credential into a token-sharing session.
 It reads no environment or files, and remains portable to browsers and React Native.
+
+
+## Desktop credential storage security
+
+`fileStore(path, safeStorage)` requires a sealing adapter; there is no plaintext fallback.
+In Electron, pass `safeStorage` after `app.whenReady()`. The store refuses unavailable encryption
+and the Linux `basic_text` backend. Other adapters must protect their keys outside the credential
+file and provide authenticated encryption. For a Node service, use a host-owned keystore through
+`recordStore(load, save)`, or provide an equivalent sealing adapter; the kit never discovers a key
+or invokes an OS keyring itself. Use `memoryStore()` for temporary sign-ins.
+
+Use an app-owned directory: the immediate folder must be a real 0700 directory and credential
+files must be private regular files. Reuse one store instance for each path; a host lock is required
+if several processes write the same file. See [SECURITY.md](SECURITY.md) for the threat model and limits.
+
+**Migration from 0.7.x and earlier:** `fileStore(path)` is no longer accepted. Existing files already
+sealed with the same adapter remain readable. Plain JSON is never silently imported or overwritten.
+For a plaintext store, stop all writers, revoke the old credentials using the old app's sign-out flow,
+remove the old app-owned credential file, and sign in again with a sealing adapter. Old plaintext
+backups may retain tokens: delete them under the host's retention policy and revoke the affected
+credentials. Do not point this migration at another tool's sign-in directory.

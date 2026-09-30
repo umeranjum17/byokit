@@ -1,3 +1,4 @@
+import { sealing } from './sealing.ts';
 // Run by isolation.test.ts in a child process: the real Pi engine, a ChatGPT sign-in up to its code (the provider's
 // endpoints mocked), a stored sign-in and its status, all in the app's own folder. Prints one JSON line.
 import { join } from 'node:path';
@@ -16,7 +17,7 @@ globalThis.fetch = async (input: string | URL | Request) => {
   throw new Error(`no network in this test: ${url}`);
 };
 
-const store = (m: string | number) => fileStore(join(app, 'people', String(m), 'auth.json'));
+const store = (m: string | number) => fileStore(join(app, 'people', String(m), 'auth.json'), sealing);
 const kit = new Accounts({ store, offer: ['chatgpt', 'openrouter'] }); // named: API billing is never in the default
 const shown = await kit.login(1, 'chatgpt', { via: 'code' });
 kit.cancel(1, 'chatgpt');

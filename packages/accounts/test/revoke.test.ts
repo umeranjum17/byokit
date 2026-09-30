@@ -155,3 +155,23 @@ test('a late sign-in cannot restore credentials and reports a failed revoke', as
     assert.equal(await a.signedIn(1, 'chatgpt'), false);
   }
 });
+
+
+test('discarded credential revoke failure logs omit fetch errors and tokens', async () => {
+  const originalConsole = console.error;
+  const originalFetch = globalThis.fetch;
+  const logs: unknown[][] = [];
+  console.error = (...args) => { logs.push(args); };
+  const a = new RaceKit();
+  try {
+    globalThis.fetch = async () => { throw new Error('refresh-canary access-canary api-key-canary'); };
+    await a.login(1, 'chatgpt', { via: 'code' });
+    await a.loginStarted.promise;
+    const finished = a.finished(1, 'chatgpt');
+    await a.logout(1, 'chatgpt');
+    a.releaseLogin.resolve();
+    await finished;
+    assert.deepEqual(logs, [['Sign-out of a discarded credential failed']]);
+    assert.equal(await a.external.read('openai-codex'), undefined);
+  } finally { a.stop(); console.error = originalConsole; globalThis.fetch = originalFetch; }
+});

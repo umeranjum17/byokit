@@ -142,3 +142,20 @@ test('keepFresh signs out only an account whose provider refuses, and says so on
   assert.deepEqual(expired, ['1:chatgpt']);
   assert.equal((await kit.status(1, 'chatgpt')).state, 'needs_again');
 });
+
+
+test('sign-in failure logs contain no provider secrets, URLs, causes or member data', async () => {
+  const secret = 'access-canary refresh-canary api-key-canary';
+  const logs: unknown[][] = [];
+  const original = console.error;
+  console.error = (...args) => { logs.push(args); };
+  const kit = new Kit(async () => {
+    throw new Error(`provider returned ${secret} https://example.test/?token=${secret}`, { cause: { secret } });
+  });
+  try {
+    await kit.login('private-member-canary', 'chatgpt', { via: 'code' });
+    await kit.finished('private-member-canary', 'chatgpt');
+    assert.equal(kit.view('private-member-canary', 'chatgpt')?.state, 'failed');
+    assert.deepEqual(logs, [['Sign-in failed']]);
+  } finally { kit.stop(); console.error = original; }
+});

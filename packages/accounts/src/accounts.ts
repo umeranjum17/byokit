@@ -147,7 +147,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
             try { await revoke(this.opts.authBase ? `${this.opts.authBase}/oauth/revoke` : p.revoke!, p.clientId, next); } catch (e) {
               const error = e instanceof Error ? e : new Error(String(e));
               if (this.onSignOutError) this.onSignOutError(member, p.key, error);
-              else console.error(`sign-out ${p.key} for member ${member}:`, error);
+              else console.error('Sign-out of a discarded credential failed');
               throw error;
             }
           }
@@ -406,8 +406,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     } catch (e: any) {
       if (flow.state !== 'waiting') return; // cancelled: already settled
       const error = String(e?.message ?? e);
-      console.error(`sign-in ${key} for member ${member}:`, error);
       const why: Why = e?.why ?? (flow.timedOut ? 'tooLong' : failure(error));
+      console.error('Sign-in failed');
       Object.assign(flow, { state: 'failed', url: undefined, code: undefined, expiresAt: undefined, why,
         error: why === 'busy' || why === 'tooLong' ? say(`signIn.${why}`, { name: p.name }) : signInError(p.name, error) });
     } finally {
