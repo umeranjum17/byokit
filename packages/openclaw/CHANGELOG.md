@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.2 (2026-09-30)
+
+- Dependency update: pins @byokit/secrets 0.4.0.
+
 - SECURITY: View-only devices can no longer resolve approvals through relay push actions.
 - FIX: Existing authSeal calls using osKeyringSeal automatically pick up persistent headless sealing, including locked and unresponsive keyring fallback, without host changes.
 - Document the credential, migration and sealed-approval threat model in SECURITY.md, shipped with the package.
