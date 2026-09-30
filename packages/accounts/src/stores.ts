@@ -158,3 +158,8 @@ export function browserStore(name: string, db = 'byokit'): EndingStore {
     end: (id, fn) => locked(() => store.end(id, fn)),
   };
 }
+
+/** A device-owned @byokit/secrets backend, supplied by the host; no runtime Node import. One store per member/name. */
+export function keystoreStore(keystore: { get(name: string): Promise<string | null>; set(name: string, secret: string): Promise<void> }, name: string): CredentialStore {
+  return recordStore(async () => JSON.parse(await keystore.get(name) ?? '{}'), async (data) => keystore.set(name, JSON.stringify(data)));
+}

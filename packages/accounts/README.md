@@ -8,7 +8,7 @@
 </p>
 
 <p align="center"><strong>Sign in with the AI plan you already pay for, inside your own app.</strong><br/>
-ChatGPT on every platform; OpenRouter on computers when an app offers it (API billing, never by default); Grok and
+ChatGPT and Claude Pro/Max on every platform (Claude needs Web Crypto); OpenRouter on computers when an app offers it (API billing, never by default); Grok and
 GitHub Copilot hidden by default. Anthropic uses an app-passed API key (billed per use), explicitly opted in. Sign-ins go into your app's own store: on a computer (Node, Electron), in a browser
 (a PWA, Electron's renderer) and on a phone (React Native and Expo, iOS and Android). One import; your bundler picks
 the platform's side (`package.json`'s `react-native` and `browser` conditions).</p>
@@ -135,6 +135,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | | Computer (Node, Electron main) | Browser (PWA, Electron renderer) | Phone (React Native: iOS, Android) |
 |---|---|---|---|
 | ChatGPT (subscription) | Its own page, straight back to this computer (port 1455); a code when asked or stuck | Device code | Device code |
+| Claude Pro/Max (subscription) | Provider page, paste its code back | Same PKCE flow; token endpoint CORS required | Same PKCE flow; app supplies Web Crypto |
 | Anthropic (API key, billed per use) | App passes its own key, explicitly | Same fetch-only Messages provider | Same fetch-only Messages provider |
 | OpenRouter (API billing) | Its own page, back to this computer (Pi's flow), when an app offers it (never by default) | Not yet | Not yet |
 | Grok, Copilot (hidden) | Pi's flows | No | No |
@@ -163,7 +164,7 @@ for (const p of offered(['chatgpt', 'openrouter'])) console.log(`${p.name}: ${bi
 ```
 
 ```text
-[ 'chatgpt' ]
+[ 'chatgpt', 'claude' ]
 ChatGPT: Uses your ChatGPT plan.
 OpenRouter: Charged per use to your OpenRouter account, not a plan.
 ```
@@ -434,3 +435,57 @@ export function claudeBackend(appKey: string) {
 An incomplete answer throws through this text seam, so decide abstains rather than parsing a partial answer.
 Browser apps should keep the API key in an app-owned server proxy (`base`); React Native can pass a streaming
 fetch such as Expo's. `betas` explicitly opts into native beta headers.
+
+## Claude Pro/Max subscription
+
+Anthropic's [developer guidance](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use) prohibits third-party Claude.ai login without approval; BYOKit has no approval, and this route may stop working or lead to account restrictions (the separately billed API-key route is the documented alternative).
+
+Claude is available by default. Open its page, then paste the returned `code#state` into the app:
+
+```ts
+import { Accounts, memoryStore } from '@byokit/accounts';
+
+const member = 1;
+const credentials = memoryStore(); // replace with device-owned persistent storage in your app
+const accounts = new Accounts({ store: () => credentials });
+const pastedCode = 'code#state'; // collect the actual returned value from the person
+const pending = await accounts.login(member, 'claude');
+// Open pending.url in the person's browser, then collect the code from that page.
+accounts.paste(member, 'claude', pastedCode);
+await accounts.finished(member, 'claude');
+const text = await accounts.respond(member, {
+  provider: 'claude', model: 'claude-opus-5-5', max_tokens: 1024,
+  messages: [{ role: 'user', content: 'Hello' }],
+});
+```
+
+The manual HTTPS callback works without a local listener or an installed CLI. It uses PKCE (secure random verifier,
+SHA-256 challenge), independent state, strict `code#state` validation, and direct JSON exchange/refresh at
+`platform.claude.com/v1/oauth/token`. Refresh is single-flight for one store, saves an attempt before sending and commits the rotated credentials before
+returning access. An omitted replacement requires sign-in again. `ClaudePlanExpiredError` means sign in again, including after a refused or uncertain rotation or a
+failed durable save; a persisted attempt prevents replay after restart. A custom store must provide the refresh transaction seam (use
+`recordStore(load, save)`); a host lock is required for multiple processes. Local logout removes only this app's credentials; it does not promise server
+revocation. A Messages authentication refusal requests re-authentication without replaying the request or switching
+billing to an API key.
+
+Tokens belong in one device-owned `CredentialStore` per member. `keystoreStore(hostKeystore, 'member.1')` adapts
+`@byokit/secrets` without importing Node into the portable entry. Electron can pass safeStorage to `fileStore`;
+its sealed file writes atomically with mode 0600; a sealing adapter is required. Use one process per file (or a host-supplied cross-process lock).
+Phones use `secureStore` with device-only accessibility. PWA `browserStore` uses IndexedDB and Web Locks; page
+scripts can read its credentials. Tokens are never collected by a BYOKit server or logged. The default is memory-only.
+
+React Native hosts pass `claudePlan: { crypto: webCrypto }` when global Web Crypto is unavailable;
+`ClaudePlanPlatformError` reports missing secure randomness/SHA-256. Browsers require the provider token endpoint's
+CORS support; a network/CORS failure stays on-device and does not trigger a proxy. Browser User-Agent restrictions
+can affect compatibility. Tests replay protocol-shaped captures offline; no live OAuth, CORS, or current inference
+compatibility is claimed. This implementation supplies the manual-flow headers and Claude Code identity prelude,
+without relying on Pi's provider or executing an installed Claude CLI.
+
+Protocol references: [Hermes credentials at 57a22675, PKCE/exchange](https://github.com/NousResearch/hermes-agent/blob/57a22675ef9f7761111feba9d24e5c366db3134b/agent/anthropic_credentials.py#L747),
+[Hermes headers/identity](https://github.com/NousResearch/hermes-agent/blob/57a22675ef9f7761111feba9d24e5c366db3134b/agent/anthropic_adapter.py#L219),
+[oh-my-pi auth rule at 2b023d1b](https://github.com/can1357/oh-my-pi/blob/2b023d1b80133c523d66412602d99b5427408395/packages/catalog/src/compat/rules/auth/anthropic.kdl#L1),
+and [oh-my-pi refresh](https://github.com/can1357/oh-my-pi/blob/2b023d1b80133c523d66412602d99b5427408395/packages/ai/src/registry/engine/refresh.ts#L62).
+The common route follows Hermes's platform token host, three scopes and `axios/1.7.9` token User-Agent,
+with inference `claude-code/2.1.74 (external, cli)`, `x-app: cli`, bearer authorization, Messages version
+`2023-06-01` and betas `claude-code-20250219,oauth-2025-04-20`. The implementation is independent;
+[NOTICE](NOTICE) records the MIT protocol references.

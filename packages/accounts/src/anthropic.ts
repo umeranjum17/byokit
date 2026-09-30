@@ -213,18 +213,31 @@ const structuredCopy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as 
 /** Explicit API-key backend. Use respond({ result: true }) for usage/raw. Incomplete answers always throw. */
 export function anthropic(opts: AnthropicOptions) {
   if (!opts.key.trim()) throw new Error('Anthropic needs an API key (billed per use).');
+  return anthropicMessages({ ...opts, headers: { 'x-api-key': opts.key } });
+}
+
+/** Internal auth seam for the API-key and subscription routes. */
+export function anthropicMessages(opts: Pick<AnthropicOptions, 'fetch' | 'base' | 'betas'> & {
+  headers: Record<string, string>; prepare?: (request: AnthropicRequest) => AnthropicRequest; safeErrors?: boolean;
+}) {
   async function respond(o: AnthropicAsk & { result: true }): Promise<AnthropicResult>;
   async function respond(o: AnthropicAsk & { tools: AnthropicTool[] }): Promise<AnthropicResult>;
   async function respond(o: AnthropicAsk & { tools?: undefined; result?: false }): Promise<string>;
   async function respond(o: AnthropicAsk): Promise<string | AnthropicResult>;
   async function respond(o: AnthropicAsk): Promise<string | AnthropicResult> {
+    try { return await run(o); } catch (e) {
+      if (!opts.safeErrors || e instanceof AnthropicIncompleteError) throw e;
+      throw new ResponseError('Claude could not answer. Try again or sign in again.', e instanceof ResponseError ? e.kind : 'network');
+    }
+  }
+  async function run(o: AnthropicAsk): Promise<string | AnthropicResult> {
     const { onText, onEvent, signal, result, ...request } = o;
     if (!request.model || !Number.isSafeInteger(request.max_tokens) || request.max_tokens <= 0) throw new Error('Anthropic needs a model and a positive max_tokens.');
     const res = await (opts.fetch ?? fetch)(`${(opts.base ?? 'https://api.anthropic.com').replace(/\/$/, '')}/v1/messages`, {
       method: 'POST', signal,
-      headers: { 'content-type': 'application/json', accept: 'text/event-stream', 'x-api-key': opts.key, 'anthropic-version': '2023-06-01',
+      headers: { 'content-type': 'application/json', accept: 'text/event-stream', 'anthropic-version': '2023-06-01', ...opts.headers,
         ...(opts.betas?.length ? { 'anthropic-beta': opts.betas.join(',') } : {}) },
-      body: JSON.stringify({ ...request, stream: true }),
+      body: JSON.stringify({ ...(opts.prepare ? opts.prepare(request) : request), stream: true }),
     });
     if (!res.ok) {
       let body: unknown;

@@ -3,6 +3,7 @@
 // The engine does the signing in (Pi's own flows on a computer, portableEngine on phones and in browsers); the app only
 // shows the provider's page to open or the code to type. No Node import here: see index.ts for the computer's side.
 import type { AuthPrompt, CredentialStore, Models } from '@earendil-works/pi-ai';
+import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
 import { offered, provider, type Provider } from './catalogue.ts';
 import { claims, PORTABLE, portableEngine } from './engine.ts';
@@ -27,7 +28,9 @@ export type Loopback = (port: number, handle: (path: string) => Promise<{ status
 /** What differs by platform: the engine that signs in, which providers it can, and (on a computer) a loopback listener. */
 export type Platform = { engine: (credentials: CredentialStore, authBase?: string) => AuthHost; signsIn: (pi: string) => boolean; loopback?: Loopback };
 /** Phones and browsers: ChatGPT by device code, no listener. */
-export const portable: Platform = { engine: (c, base) => portableEngine(c, { base }), signsIn: (pi) => PORTABLE.includes(pi) };
+export const portable: Platform = { engine: (c, base) => portableEngine(c, { base }), signsIn: (pi) => pi === CLAUDE_PLAN_ID || PORTABLE.includes(pi) };
+
+export type ClaudePlanAsk = AnthropicAsk & { provider: 'claude' };
 
 export type AnthropicAccountAsk = AnthropicAsk & { provider: 'anthropic'; key: string };
 
@@ -52,6 +55,8 @@ export type AccountsOptions<M extends Member = Member> = {
   apiBase?: string;
   /** Anthropic Messages origin: an app-owned proxy or stand-in. */
   anthropicBase?: string;
+  /** Claude PKCE transport and Web Crypto supplied by the app (React Native). */
+  claudePlan?: ClaudePlanOptions;
   /** The fetch `respond` asks with: one that streams on a phone (Expo's `expo/fetch`). Default: the platform's. */
   fetch?: typeof fetch;
   /** The originator header `respond` sends. Default: 'byokit'. */
@@ -81,6 +86,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   private opts: AccountsOptions<M>;
   private runtimes = new Map<string, Promise<R>>();
   private stores = new Map<string, EndingStore>();
+  private baseStores = new Map<string, CredentialStore>();
   private generations = new Map<string, number>();
   private signals = new WeakMap<AbortSignal, number>();
   private chains = new Map<string, Promise<void>>();
@@ -112,6 +118,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     let s = this.stores.get(String(member));
     if (!s) {
       const base = (this.opts.store ?? memoryStore)(member);
+      this.baseStores.set(String(member), base);
       let chain: Promise<unknown> = Promise.resolve();
       const serial = <T>(fn: () => Promise<T>) => { const result = chain.then(fn); chain = result.catch(() => {}); return result; };
       s = {
@@ -203,7 +210,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   protected engine(member: M, raw: CredentialStore): Promise<R> {
     const credentials = this.boundStore(member, raw);
-    return Promise.resolve(Object.assign(this.platform.engine(credentials, this.opts.authBase), {
+    return Promise.resolve(Object.assign(withClaudePlan(this.platform.engine(credentials, this.opts.authBase), credentials, this.baseStores.get(String(member)) ?? raw, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch }), {
       credentialStore: credentials, readCredential: (id: string) => credentials.read(id),
     }) as R);
   }
@@ -287,14 +294,41 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    *  ResponseError with the words to show. Without `tools` the answer is the plain text, as before: pass `input` as
    *  words or as turns (messages with `input_image`, then the `function_call` with its `function_call_output`). With
    *  `tools` it is the text with every output item, and `onEvent` sees each tool call as it lands. */
+  async respond(member: M, ask: ClaudePlanAsk & { result: true }): Promise<AnthropicResult>;
+  async respond(member: M, ask: ClaudePlanAsk & { tools: AnthropicTool[] }): Promise<AnthropicResult>;
+  async respond(member: M, ask: ClaudePlanAsk & { tools?: undefined; result?: false }): Promise<string>;
+  async respond(member: M, ask: ClaudePlanAsk): Promise<string | AnthropicResult>;
   async respond(member: M, ask: AnthropicAccountAsk & { result: true }): Promise<AnthropicResult>;
   async respond(member: M, ask: AnthropicAccountAsk & { tools: AnthropicTool[] }): Promise<AnthropicResult>;
   async respond(member: M, ask: AnthropicAccountAsk & { tools?: undefined; result?: false }): Promise<string>;
   async respond(member: M, ask: AnthropicAccountAsk): Promise<string | AnthropicResult>;
   async respond(member: M, ask: Ask & { tools?: undefined }): Promise<string>;
   async respond(member: M, ask: Ask & { tools: ResponseTool[] }): Promise<ResponseResult>;
-  async respond(member: M, query: Ask | AnthropicAccountAsk): Promise<string | ResponseResult> {
+  async respond(member: M, query: Ask | AnthropicAccountAsk | ClaudePlanAsk): Promise<string | ResponseResult> {
     const ask = query as Ask;
+    if ('provider' in query && query.provider === 'claude') {
+      this.offer('claude');
+      const rt = await this.runtime(member);
+      const { provider: _provider, ...request } = query as ClaudePlanAsk;
+      let access: string | undefined;
+      try { access = (await rt.getAuth(CLAUDE_PLAN_ID))?.auth?.apiKey; }
+      catch (e) {
+        if (e instanceof ClaudePlanExpiredError) { this.forget(member, 'claude'); this.onExpired?.(member, 'claude'); }
+        throw e;
+      }
+      if (!access) throw new ClaudePlanExpiredError();
+      try { return await claudePlanMessages(access, { fetch: this.opts.fetch }).respond(request); }
+      catch (e) {
+        if (e instanceof ResponseError && e.kind === 'signed_out') {
+          await this.logout(member, 'claude').catch(() => {});
+          this.forget(member, 'claude');
+          this.onExpired?.(member, 'claude');
+          throw new ClaudePlanExpiredError();
+        }
+        if (e instanceof ResponseError && e.kind) await this.failed(member, 'claude', e);
+        throw e;
+      }
+    }
     if ('provider' in query && query.provider === 'anthropic') {
       this.offer('anthropic');
       const { provider: _provider, key, ...request } = query as AnthropicAccountAsk;
@@ -419,7 +453,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       },
     });
     const timer = setTimeout(() => { flow.timedOut = true; flow.abort.abort(); }, this.opts.signInMs ?? 15 * 60_000);
-    const stuck = setTimeout(() => this.toCode(flow), this.opts.redirectMs ?? 3 * 60_000);
+    const stuck = p.key === 'claude' ? undefined : setTimeout(() => this.toCode(flow), this.opts.redirectMs ?? 3 * 60_000);
     // Listen where the provider sends the browser back (the engine then finds the port taken and waits to be handed the address).
     const port = p.callbackPort && (this.opts.callbackPort ?? p.callbackPort);
     const catcher = port && body.via !== 'code' && this.platform.loopback ? await this.catchRedirect(this.platform.loopback, flow, p.name, port).catch(() => null) : undefined;

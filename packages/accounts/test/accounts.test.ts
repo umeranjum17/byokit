@@ -36,20 +36,20 @@ class Kit extends Accounts {
 const pick = (i: AuthInteraction) => i.prompt({ type: 'select', message: 'how', options: [{ id: 'browser', label: 'Browser' }, { id: 'device_code', label: 'Device code' }] });
 const code = (i: AuthInteraction) => i.notify({ type: 'device_code', userCode: 'CREW-2026', verificationUri: 'https://example.test/device', expiresInSeconds: 900 });
 
-test('the catalogue: ChatGPT by default, OpenRouter only when named, Grok and Copilot only when asked, Anthropic API billing explicit', async () => {
-  assert.deepEqual(offered().map((p) => p.key), ['chatgpt']);
-  assert.deepEqual(new Kit(async () => {}).providers.map((p) => p.key), ['chatgpt'], 'a computer offers no API billing by default');
+test('the catalogue: ChatGPT and Claude by default, OpenRouter only when named, Grok and Copilot only when asked, Anthropic API billing explicit', async () => {
+  assert.deepEqual(offered().map((p) => p.key), ['chatgpt', 'claude']);
+  assert.deepEqual(new Kit(async () => {}).providers.map((p) => p.key), ['chatgpt', 'claude'], 'a computer offers no API billing by default');
   assert.deepEqual(offered(['openrouter']).map((p) => p.key), ['openrouter'], 'named explicitly, still listed');
   assert.deepEqual(offered(['chatgpt', 'grok', 'copilot']).map((p) => p.key), ['chatgpt', 'grok', 'copilot']);
   for (const p of Object.values(PROVIDERS)) assert.ok(p.billing === 'subscription' || p.billing === 'api', p.key);
-  assert.deepEqual(Object.fromEntries(Object.values(PROVIDERS).map((p) => [p.key, p.billing])), { chatgpt: 'subscription', openrouter: 'api', grok: 'subscription', copilot: 'subscription', anthropic: 'api' });
+  assert.deepEqual(Object.fromEntries(Object.values(PROVIDERS).map((p) => [p.key, p.billing])), { chatgpt: 'subscription', openrouter: 'api', grok: 'subscription', copilot: 'subscription', anthropic: 'api', claude: 'subscription' });
   assert.equal(PROVIDERS.chatgpt.models.strong, 'gpt-6-sol');
   assert.equal(PROVIDERS.anthropic.auth, 'api-key');
   assert.equal(PROVIDERS.anthropic.offer, false);
   assert.equal(PROVIDERS.anthropic.label, 'API key (billed per use)');
   assert.deepEqual(offered(['anthropic']).map((p) => p.key), ['anthropic']);
   for (const p of Object.values(PROVIDERS)) assert.ok(p.terms && p.why && p.source.startsWith('https://'), p.key);
-  assert.deepEqual(Object.fromEntries(Object.values(PROVIDERS).map((p) => [p.key, p.terms])), { chatgpt: 'grey', openrouter: 'allowed', grok: 'partner', copilot: 'partner', anthropic: 'allowed' });
+  assert.deepEqual(Object.fromEntries(Object.values(PROVIDERS).map((p) => [p.key, p.terms])), { chatgpt: 'grey', openrouter: 'allowed', grok: 'partner', copilot: 'partner', anthropic: 'allowed', claude: 'grey' });
   await assert.rejects(new Kit(async () => {}).login(1, 'grok'), /not offered/);
 });
 
@@ -106,7 +106,7 @@ test('limits: an account rests until it said, the ladder skips it, and a refusal
   assert.equal(said?.kind, 'rate_limit');
   assert.ok(Math.abs(kit.restingUntil(1, 'chatgpt') - (Date.now() + 30 * 60_000)) < 1000);
   assert.equal(kit.restingUntil(2, 'chatgpt'), 0, 'one person\'s limit is theirs alone');
-  assert.match((await kit.status(1, 'chatgpt')).words, /^ChatGPT is resting until \d+:\d\d\s?[ap]m\.$/);
+  assert.match((await kit.status(1, 'chatgpt')).words, /^ChatGPT is resting until (?:(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) )?\d+:\d\d\s?[ap]m\.$/);
   assert.equal(kit.ladder(1, ['chatgpt', 'grok']), 'grok');
   await kit.failed(1, 'grok', '503 overloaded');
   assert.equal((await kit.status(1, 'grok')).words, 'Grok is busy right now.');
