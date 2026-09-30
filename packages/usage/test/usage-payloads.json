@@ -1,5 +1,5 @@
 {
-  "provenance": "Sanitized shapes from the host usage diagnostic fixtures; fixed timestamps and no real credentials.",
+  "provenance": "Sanitized protocol shapes from pinned upstream quota readers (can1357/oh-my-pi 2b023d1), synthetic values, fixed times and no real credentials.",
   "salt": "muxr/usage/account",
   "claude": {
     "identity": "fixture-claude-account",
@@ -20,14 +20,14 @@
         "kind": "session",
         "usedPercent": 21,
         "minutes": 300,
-        "resetsAt": 1788616800
+        "resetsAt": 1788616800000
       },
       {
         "provider": "claude",
         "kind": "weekly",
         "usedPercent": 42,
         "minutes": 10080,
-        "resetsAt": 1788616800
+        "resetsAt": 1788616800000
       }
     ]
   },
@@ -57,14 +57,14 @@
         "kind": "session",
         "usedPercent": 25,
         "minutes": 300,
-        "resetsAt": 1788616800
+        "resetsAt": 1788616800000
       },
       {
         "provider": "codex",
         "kind": "weekly",
         "usedPercent": 90,
         "minutes": 10080,
-        "resetsAt": 1788616800
+        "resetsAt": 1788616800000
       }
     ]
   },
@@ -96,20 +96,20 @@
         "kind": "rolling",
         "usedPercent": 0,
         "minutes": 300,
-        "resetsAt": 1788616800
+        "resetsAt": 1788616800000
       },
       {
         "provider": "opencode",
         "kind": "weekly",
         "usedPercent": 21,
         "minutes": 10080,
-        "resetsAt": 1788616800
+        "resetsAt": 1788616800000
       },
       {
         "provider": "opencode",
         "kind": "monthly",
         "usedPercent": 22,
-        "resetsAt": 1788616800
+        "resetsAt": 1788616800000
       }
     ]
   },
@@ -149,14 +149,151 @@
         "kind": "session",
         "usedPercent": 4,
         "minutes": 300,
-        "resetsAt": 1788616800
+        "resetsAt": 1788616800000
       },
       {
         "provider": "zai",
         "kind": "weekly",
         "usedPercent": 1,
         "minutes": 10080,
-        "resetsAt": 1788616800
+        "resetsAt": 1788616800000
+      }
+    ]
+  },
+  "copilot": {
+    "identity": "fixture-copilot-account",
+    "raw": {
+      "quota_reset_date": "2026-09-05T14:00:00Z",
+      "quota_snapshots": {
+        "premium_interactions": {
+          "percent_remaining": 70,
+          "unlimited": false
+        }
+      }
+    },
+    "windows": [
+      {
+        "provider": "copilot",
+        "kind": "monthly",
+        "usedPercent": 30,
+        "resetsAt": 1788616800000,
+        "limit": "premium_interactions"
+      }
+    ]
+  },
+  "grok": {
+    "identity": "fixture-grok-account",
+    "raw": {
+      "config": {
+        "creditUsagePercent": 35,
+        "currentPeriod": {
+          "type": "WEEK",
+          "start": "2026-08-29T14:00:00Z",
+          "end": "2026-09-05T14:00:00Z"
+        }
+      }
+    },
+    "windows": [
+      {
+        "provider": "grok",
+        "kind": "weekly",
+        "usedPercent": 35,
+        "minutes": 10080,
+        "resetsAt": 1788616800000
+      }
+    ]
+  },
+  "minimax": {
+    "identity": "fixture-minimax-account",
+    "raw": {
+      "base_resp": {
+        "status_code": 0
+      },
+      "model_remains": [
+        {
+          "model_name": "general",
+          "current_interval_remaining_percent": 60,
+          "end_time": 1788616800000,
+          "current_weekly_remaining_percent": 80,
+          "weekly_end_time": 1788616800000
+        }
+      ]
+    },
+    "windows": [
+      {
+        "provider": "minimax",
+        "kind": "rolling",
+        "usedPercent": 40,
+        "resetsAt": 1788616800000,
+        "limit": "general"
+      },
+      {
+        "provider": "minimax",
+        "kind": "weekly",
+        "usedPercent": 20,
+        "minutes": 10080,
+        "resetsAt": 1788616800000,
+        "limit": "general"
+      }
+    ]
+  },
+  "gemini": {
+    "identity": "fixture-gemini-account",
+    "raw": {
+      "buckets": [
+        {
+          "modelId": "gemini-pro",
+          "remainingFraction": 0.75,
+          "resetTime": "2026-09-05T14:00:00Z"
+        }
+      ]
+    },
+    "windows": [
+      {
+        "provider": "gemini",
+        "kind": "custom",
+        "usedPercent": 25,
+        "resetsAt": 1788616800000,
+        "limit": "gemini-pro"
+      }
+    ]
+  },
+  "kimi": {
+    "identity": "fixture-kimi-account",
+    "raw": {
+      "usage": {
+        "limit": 100,
+        "remaining": 80,
+        "resetTime": "2026-09-05T14:00:00Z"
+      },
+      "limits": [
+        {
+          "window": {
+            "duration": 5,
+            "timeUnit": "HOUR"
+          },
+          "detail": {
+            "limit": 100,
+            "used": 10,
+            "resetTime": "2026-09-05T14:00:00Z"
+          }
+        }
+      ]
+    },
+    "windows": [
+      {
+        "provider": "kimi",
+        "kind": "weekly",
+        "usedPercent": 20,
+        "minutes": 10080,
+        "resetsAt": 1788616800000
+      },
+      {
+        "provider": "kimi",
+        "kind": "session",
+        "usedPercent": 10,
+        "minutes": 300,
+        "resetsAt": 1788616800000
       }
     ]
   }

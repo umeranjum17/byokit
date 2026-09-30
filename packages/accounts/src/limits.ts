@@ -4,9 +4,11 @@ export type Kind = 'rate_limit' | 'overloaded' | 'signed_out' | 'not_included' |
 export const REST_MS: Record<Kind, number> = { rate_limit: 60 * 60_000, overloaded: 5 * 60_000, signed_out: 0, not_included: 0, network: 0 };
 
 /** `until` is 0 when the error didn't say. Anything unrecognised is null: the app fails that one request. */
-export function classify(error: string): { kind: Kind; until: number } | null {
+export type Failure = { kind: Kind; until: number };
+/** Pure when the host passes its clock. REST_MS supplies the fallback rest duration. */
+export function classifyFailure(error: string, nowMs: number = Date.now()): Failure | null {
   const m = /try again in ~?(\d+)\s*(min|h)/i.exec(error);
-  const until = m ? Date.now() + Number(m[1]) * (m[2].toLowerCase() === 'h' ? 3_600_000 : 60_000) : 0;
+  const until = m ? nowMs + Number(m[1]) * (m[2].toLowerCase() === 'h' ? 3_600_000 : 60_000) : 0;
   if (/your plan doesn't include/i.test(error)) return { kind: 'not_included', until };
   if (/usage limit|rate.?limit|quota|too many requests|\b429\b/i.test(error)) return { kind: 'rate_limit', until };
   if (/overloaded|high demand|\b50[234]\b|unavailable/i.test(error)) return { kind: 'overloaded', until };
@@ -14,3 +16,6 @@ export function classify(error: string): { kind: Kind; until: number } | null {
   if (/fetch failed|network|ENOTFOUND|EAI_AGAIN|ECONN|socket hang up/i.test(error)) return { kind: 'network', until };
   return null;
 }
+
+/** Backwards-compatible name for classifyFailure. */
+export const classify = classifyFailure;

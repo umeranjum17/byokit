@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, readFileSync, readdirSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
-import { PROVIDERS, WORDS, billingWords, classify, fileStore, isolate, say, signInError } from '../src/index.ts';
+import { PROVIDERS, WORDS, billingWords, classify, classifyFailure, REST_MS, fileStore, isolate, say, signInError } from '../src/index.ts';
 
 test('the file store: Pi\'s auth.json shape, 0600 in a 0700 folder, serialized writes', async () => {
   const dir = join(scratchDir('store'), 'people', '1');
@@ -102,4 +102,18 @@ test('plain words only: no codes, commands, paths, model ids or jargon a person 
   assert.equal(billingWords(PROVIDERS.chatgpt), 'Uses your ChatGPT plan.');
   assert.equal(billingWords(PROVIDERS.openrouter), 'Charged per use to your OpenRouter account, not a plan.');
   assert.equal(signInError('ChatGPT', 'device code login is not enabled'), 'ChatGPT needs device sign-in turned on first: in ChatGPT, Settings, Security, turn on device code sign-in, then try again.');
+});
+
+
+test('classifyFailure exports typed failures and fallback rest times without changing classify', () => {
+  const now = 1_000;
+  assert.deepEqual(classifyFailure('usage limit; try again in ~30 MIN', now), { kind: 'rate_limit', until: now + 1_800_000 });
+  assert.deepEqual(classifyFailure('429 try again in 2 HOURS', now), { kind: 'rate_limit', until: now + 7_200_000 });
+  assert.deepEqual(classifyFailure("your plan doesn't include helpers"), { kind: 'not_included', until: 0 });
+  assert.deepEqual(classifyFailure('503 overloaded'), { kind: 'overloaded', until: 0 });
+  assert.deepEqual(classifyFailure('invalid access token'), { kind: 'signed_out', until: 0 });
+  assert.deepEqual(classifyFailure('socket hang up'), { kind: 'network', until: 0 });
+  assert.equal(classifyFailure('context window exceeded'), null);
+  assert.equal(classify, classifyFailure);
+  assert.deepEqual(REST_MS, { rate_limit: 3_600_000, overloaded: 300_000, signed_out: 0, not_included: 0, network: 0 });
 });
