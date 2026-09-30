@@ -1,6 +1,6 @@
 {
   "name": "@byokit/ui-core",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Headless sign-in, pairing and runtime-kit view state for any UI, plus plain-words copy.",
   "license": "Apache-2.0",
   "type": "module",
@@ -32,6 +32,10 @@
     "./kits": {
       "types": "./dist/kits.d.ts",
       "default": "./dist/kits.js"
+    },
+    "./steps": {
+      "types": "./dist/steps.d.ts",
+      "default": "./dist/steps.js"
     }
   },
   "files": [

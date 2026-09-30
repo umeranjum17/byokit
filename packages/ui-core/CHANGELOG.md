@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.4.0 (2026-09-30)
+
+- `@byokit/ui-core/steps` (no React): `stepsView(steps)` turns the caller's own steps into the rows a stepper or
+  inline checks draw (`{ id, state: todo | checking | ok | failed, words, fix }`, same in a terminal and on a
+  phone); `stepsText(rows, { title })` draws the same rows as text lines for a terminal. Step ids stay
+  caller-defined, and a failed step without its own `fix` says "Try again."
+
 ## 0.3.0 (2026-09-30)
 
 - FIX: pairing links parse on React Native, where `URL.canParse` is missing and `hostname` is empty for `ws://`:
