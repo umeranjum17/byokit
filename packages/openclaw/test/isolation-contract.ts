@@ -26,7 +26,8 @@ export async function isolationContract(install?: (dir: string) => string): Prom
   const originalKey = process.env.OPENAI_API_KEY;
   process.env.OPENAI_API_KEY = 'should-not-be-inherited';
   const states: string[] = [];
-  const engine = new Engine({ stateDir: join(dir, 'own'), ...(install ? { engineDir: install(dir) } : {}), pluginId: 'byokit', tools: [], spawnEngine: true,
+  // Node rejects npm's ci arguments if an offline fixture ever needs repair; never invoke real npm.
+  const engine = new Engine({ stateDir: join(dir, 'own'), ...(install ? { engineDir: install(dir), npmPath: process.execPath } : {}), pluginId: 'byokit', tools: [], spawnEngine: true,
     onState: s => states.push(`${s.phase}/${s.why ?? ''}`), onExit() {} });
   try {
     const { port, token, identityPath } = await engine.start();
