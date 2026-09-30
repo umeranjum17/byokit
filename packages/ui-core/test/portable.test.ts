@@ -11,7 +11,7 @@ import { words as ocWords } from '../../openclaw/src/words.ts';
 import { approvalsStore, herdrStore, runStore, useApprovals, useBlocked, useHerdrTree, useRun } from '../src/index.ts';
 
 for (const condition of ['browser', 'react-native'] as const) {
-  for (const entry of ['index', 'kits', 'phase', 'route', 'link']) {
+  for (const entry of ['index', 'kits', 'phase', 'route', 'link', 'steps']) {
     test(`${entry} bundles for ${condition} with nothing from Node${entry === 'kits' ? ' and no React' : ''}`, async () => {
       const bundle = await build({
         entryPoints: [new URL(`../src/${entry}.ts`, import.meta.url).pathname],

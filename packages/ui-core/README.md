@@ -108,6 +108,8 @@ export function useChatGptSheet() {
 | `consentWords({ hostName, role, device?, detail? })` | The question before pairing |
 | `pairingView({ phase, hostName?, words?, error?, device?, detail? })` | The pairing sheet's title and words for each phase |
 | `linkWords(status, hostName)` | The link's status in one sentence |
+| `stepsView(steps)` | The stepper rows to draw, from the caller's own step ids and states |
+| `stepsText(rows, { title })` | The same rows as text lines for a terminal |
 | `runStore(oc)`, `runView(state, { words, name })` | One run: the reply streaming in, the tool at work, how it ended in the kit's words |
 | `approvalsStore(oc)`, `approvalWords(a, words, helper)` | The approvals waiting for a yes, live, each gone when answered or expired |
 | `herdrStore(hd)`, `herdrTreeView(tree)`, `blockedView(state)` | Herdr's agents by where they run, and the ones waiting for an answer, live |
@@ -115,7 +117,7 @@ export function useChatGptSheet() {
 | Types | `Phase`, `SignInView`, `AccountView`, `UseSignIn`, `Route`, `PairPhase`, `Role`, `DeviceKind`, `LinkStatus`; `RouteKind` from `@byokit/ui-core/route` |
 
 Entry points: `@byokit/ui-core` (everything, including the React hooks), `@byokit/ui-core/phase`,
-`@byokit/ui-core/route`, `@byokit/ui-core/link` and `@byokit/ui-core/kits` (no React dependency).
+`@byokit/ui-core/route`, `@byokit/ui-core/link`, `@byokit/ui-core/kits` and `@byokit/ui-core/steps` (no React dependency).
 
 ## Sign-in phases
 
@@ -156,6 +158,48 @@ Pairing with `@byokit/link`, from `@byokit/ui-core/link` (no React either):
   isn't the app (`phone`, or `browser` for the web pairing link); `detail` adds one app sentence after.
 - `pairingView({ phase, hostName, words, error, device?, detail? })`: scan, compare the two words, waiting for a yes, paired, failed.
 - `linkWords(status, hostName)`: the link's status in one sentence.
+
+## Stepper rows
+
+`stepsView()` (also `@byokit/ui-core/steps`, no React) turns the caller's own steps into the rows a stepper or
+inline checks draw, so a terminal and a phone show the same words. Each step keeps the id its caller chose, the
+state it is in (`todo`, `checking`, `ok`, `failed`), the plain words to show, and the one next action when it
+failed. `stepsText()` draws the same rows as text lines for a terminal; a phone draws the rows in its own list.
+A failed step without its own `fix` says "Try again."
+
+```ts
+import { stepsText, stepsView } from '@byokit/ui-core/steps';
+
+// Onboarding "Checking this computer": ids are the app's own, states come from its probes.
+const rows = stepsView([
+  { id: 'runner', state: 'ok', label: 'Agent runner', detail: 'ready' },
+  { id: 'agents', state: 'ok', label: 'Agents found', detail: 'Claude Code (signed in) · Codex (needs sign-in)' },
+  { id: 'wifi', state: 'ok', label: 'Wi-Fi', detail: 'this computer is at 192.168.1.144' },
+  { id: 'tailscale', state: 'todo', label: 'Tailscale', detail: 'not installed on this computer' },
+]);
+console.log(stepsText(rows, { title: 'Checking this computer' }));
+
+// "Setting up" reuses the same rows with its own ids; a failed check names its fix:
+console.log(stepsView([
+  { id: 'serve', state: 'failed', label: 'muxr', detail: 'not answering', fix: "muxr didn't start. Press r to retry." },
+])[0]);
+```
+
+Output from running it with Node:
+
+```text
+Checking this computer
+  ✓ Agent runner: ready
+  ✓ Agents found: Claude Code (signed in) · Codex (needs sign-in)
+  ✓ Wi-Fi: this computer is at 192.168.1.144
+  ○ Tailscale: not installed on this computer
+{
+  id: 'serve',
+  state: 'failed',
+  words: 'muxr: not answering',
+  fix: "muxr didn't start. Press r to retry."
+}
+```
 
 ## Runtime kits' state
 
