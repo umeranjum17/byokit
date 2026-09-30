@@ -60,6 +60,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci --no-audit --no-fund
+      - run: npm run build
       - run: sudo apt-get update && sudo apt-get install -y dbus-x11 gnome-keyring
       - name: Native Secret Service round trip and rotation
         run: sh scripts/test-keyring.sh
