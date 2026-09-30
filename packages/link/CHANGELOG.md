@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.0 (2026-09-30)
+
 - Export `parseOffer`, `cleanName`, `offerText`, `encodeOffer` and `decodeOffer`.
 - Add browser pairing and short-lived peer invitation recipes, with a view-only PWA example.
 

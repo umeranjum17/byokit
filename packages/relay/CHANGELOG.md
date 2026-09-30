@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Depends on @byokit/link 0.4.0.
+## 0.2.2 (2026-09-30)
+
 ## 0.2.1
 - FIX: A half-open host socket no longer looks alive forever. `RelayClient` pings the relay every
   20 s (`pingMs` option) and the relay answers `pong`; after two silent rounds the client closes
