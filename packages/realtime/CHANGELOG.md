@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.1 (2026-09-30)
+
+
+
 - FIX: Report saved-sign-in failure reasons and plain remedies in advisory auth checks while preserving existing status results.
 
 ## 0.2.0 (2026-09-30)
