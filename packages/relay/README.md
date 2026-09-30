@@ -86,7 +86,10 @@ reply: { pong: 'ping' }
 |---|---|
 | `Relay` | The relay server: `Relay.open(options)`, `attach(server)` (or `upgrade` / `request`), `admit`, `enrolment`, `hosts`, `revoke`, `count`, `close` |
 | `RelayClient` | The host's side: one outbound socket that proves the host's key and reconnects; `code`, `subscribe`, `unsubscribe`, `notify`, `revoke`, `stop` |
+| `ownerClient` | The owner's HTTP API: `hosts`, `enrolment`, `revoke`; accepts an injected `fetch` |
+| `RelayOwnerError` | HTTP refusal with a numeric `status` and a `code`: `forbidden` (403), `not-found` (404), or `request-failed` |
 | `findHost` | The device's side: a short code → the link address to dial (also from `@byokit/relay/device`) |
+| `linkUrl` | A relay URL and known host id → the link address to dial (also from `@byokit/relay/device`) |
 | `LIMITS` | Per-client-address limits per minute |
 | `CLOSE` | WebSocket close codes the relay uses (replaced, not enrolled, bad proof, enrolment, revoked, too many) |
 | `isAllowedEndpoint`, `isExpoToken` | Checks for Web Push endpoints and Expo push tokens |
@@ -117,6 +120,23 @@ Routes:
 | `GET /relay/v1/codes/<code>` | a device | a short code → `{ host }` |
 | `POST /relay/v1/push/action` | a device | `{ token, action }`: a notification's button, answered by the host |
 | `POST /relay/v1/enrolments`, `GET /relay/v1/hosts`, `DELETE /relay/v1/hosts/<id>` | the owner (`Authorization: Bearer <ownerToken>`) | make an enrolment, list and revoke hosts |
+
+Use the typed owner client instead of assembling these requests:
+
+```ts
+import { ownerClient, RelayOwnerError } from '@byokit/relay';
+
+const owner = ownerClient('https://relay.example', ownerToken);  // optional third argument: { fetch }
+const hosts = await owner.hosts();             // HostRecord plus online and devices
+const { token, expires } = await owner.enrolment({ name: 'Build server' }); // name is optional
+const removed = await owner.revoke(hostId);    // false if already absent
+```
+
+HTTP refusals throw `RelayOwnerError`: `status` is the HTTP status and `code` is `forbidden` for 403,
+`not-found` for 404, or `request-failed` for other errors. A missing host on `revoke` returns `false`, as the
+server's delete is idempotent. Fetch/network errors pass through. The client refuses redirects and accepts
+HTTP or HTTPS relay URLs; use HTTPS outside loopback. Keep the owner token out of devices and public browser code.
+BYOKit supplies the library; the app chooses and runs its relay.
 
 ## Which hosts may register
 
@@ -165,10 +185,12 @@ const { code } = host.code({ role: 'control' });  // e.g. 7KQ4-M2XP-9RTH, for li
 ```
 
 ```ts
-import { findHost } from '@byokit/relay/device';
+import { findHost, linkUrl } from '@byokit/relay/device';
 import { pairWithCode } from '@byokit/link';
 const url = await findHost('https://relay.example', short);   // wss://relay.example/link/v1/<host id>
 const grant = await pairWithCode(url, code, { name: 'Pixel 9', onWords: (words) => console.log('Verify on host:', words) });
+// With a host id already known, no lookup is needed:
+const known = linkUrl('https://relay.example', hostId);
 ```
 
 The relay only ever learns which host a short code points to, never link's code.

@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { hostId, keyPair } from '@byokit/link';
-import { CLOSE } from '../src/index.ts';
+import { CLOSE, ownerClient, RelayOwnerError } from '../src/index.ts';
 import { closed, grantStore, hostClient, paired, startHost, startRelay, until } from './helpers.ts';
 
 const owner = 'owner-secret-for-tests';
@@ -17,9 +17,9 @@ test('a machine enrols once with an owner-created enrolment, and its relay addre
   // The owner makes one over HTTP; nobody else can.
   assert.equal((await fetch(`${r.http}/relay/v1/enrolments`, { method: 'POST' })).status, 403);
   assert.equal((await fetch(`${r.http}/relay/v1/enrolments`, { method: 'POST', headers: bearer('guess') })).status, 403);
-  const res = await fetch(`${r.http}/relay/v1/enrolments`, { method: 'POST', headers: bearer(owner), body: JSON.stringify({ name: 'Build server' }) });
-  assert.equal(res.status, 201);
-  const { token, expires } = (await res.json()) as { token: string; expires: number };
+  const client = ownerClient(r.http, owner);
+  assert.deepEqual(await client.hosts(), []);
+  const { token, expires } = await client.enrolment({ name: 'Build server' });
   assert.equal(expires, now + 5 * 60_000);
   assert.equal((await r.relay.enrolment({ ttlMs: 600_000 })).expires, now + 5 * 60_000);
   assert.equal((await r.relay.enrolment({ ttlMs: 1000 })).expires, now + 1000);
@@ -30,6 +30,7 @@ test('a machine enrols once with an owner-created enrolment, and its relay addre
   await until(() => ca.client.status === 'online');
   assert.equal(ca.client.id, hostId(a.keys.publicKey));
   assert.deepEqual(r.relay.hosts().map((h) => [h.id, h.name]), [[a.id, 'Build server']]);
+  assert.deepEqual(await client.hosts(), r.relay.hosts());
   assert.equal(r.saved()!.enrolments.length, 2, 'only this claim is used up');
 
   // A replay by another machine is refused, and so is a machine with no enrolment at all.
@@ -67,8 +68,8 @@ test('revoking machine B closes B and its devices, refuses B from then on, and l
   const a = await paired(r, 'Phone A');
   const b = await paired(r, 'Phone B');
   await b.dev.link.request('hello');
-  const res = await fetch(`${r.http}/relay/v1/hosts/${b.host.id}`, { method: 'DELETE', headers: bearer(owner) });
-  assert.deepEqual(await res.json(), { ok: true, removed: true });
+  const client = ownerClient(r.http, owner);
+  assert.equal(await client.revoke(b.host.id), true);
   await until(() => b.client.status === 'refused');
   assert.equal(b.wire.length > 0 && b.seen.at(-1), 'refused');
   await until(() => b.dev.link.status === 'offline');
@@ -77,11 +78,49 @@ test('revoking machine B closes B and its devices, refuses B from then on, and l
   const again = hostClient(await startHost(b.host.keys, grantStore()), r.ws);
   await until(() => again.client.status === 'refused');
   // Revoking again is harmless; A never noticed.
-  assert.deepEqual(await (await fetch(`${r.http}/relay/v1/hosts/${b.host.id}`, { method: 'DELETE', headers: bearer(owner) })).json(), { ok: true, removed: false });
+  assert.equal(await client.revoke(b.host.id), false);
   assert.equal(a.client.status, 'online');
   assert.deepEqual(await a.dev.link.request('still'), { op: 'still', by: a.grant.device.id });
-  const list = (await (await fetch(`${r.http}/relay/v1/hosts`, { headers: bearer(owner) })).json()) as { hosts: { id: string }[] };
-  assert.deepEqual(list.hosts.map((h) => h.id), [a.host.id]);
+  assert.deepEqual((await client.hosts()).map((h) => h.id), [a.host.id]);
+});
+
+test('owner client reports typed HTTP refusals and injects fetch for every operation', async () => {
+  const r = await startRelay({ ownerToken: owner });
+  const denied = ownerClient(r.http, 'guess');
+  for (const call of [() => denied.hosts(), () => denied.enrolment(), () => denied.revoke('a'.repeat(22))]) {
+    await assert.rejects(call(), (e: unknown) => e instanceof RelayOwnerError && e.status === 403 && e.code === 'forbidden');
+  }
+  await assert.rejects(ownerClient(r.http, owner).revoke('not-a-host'),
+    (e: unknown) => e instanceof RelayOwnerError && e.status === 404 && e.code === 'not-found');
+  const calls: { url: string; init: RequestInit }[] = [];
+  const client = ownerClient('https://relay.example/ignored', owner, { fetch: async (input, init) => {
+    calls.push({ url: String(input), init: init! });
+    return Response.json(init!.method === 'GET' ? { hosts: [] } : init!.method === 'POST' ? { token: 'one-use', expires: 123 } : { removed: false });
+  } });
+  assert.deepEqual(await client.hosts(), []);
+  assert.deepEqual(await client.enrolment(), { token: 'one-use', expires: 123 });
+  await client.enrolment({ name: 'Laptop' });
+  assert.equal(await client.revoke('unknown/id'), false);
+  assert.deepEqual(calls.map((c) => [c.url, c.init.method, c.init.body]), [
+    ['https://relay.example/relay/v1/hosts', 'GET', undefined],
+    ['https://relay.example/relay/v1/enrolments', 'POST', '{}'],
+    ['https://relay.example/relay/v1/enrolments', 'POST', '{"name":"Laptop"}'],
+    ['https://relay.example/relay/v1/hosts/unknown%2Fid', 'DELETE', undefined],
+  ]);
+  for (const c of calls) {
+    assert.equal(new Headers(c.init.headers).get('authorization'), `Bearer ${owner}`);
+    assert.equal(c.init.redirect, 'error', 'do not forward the owner token through redirects');
+  }
+  assert.equal(new Headers(calls[2]!.init.headers).get('content-type'), 'application/json');
+  for (const status of [404, 500]) {
+    const absent = ownerClient(r.http, owner, { fetch: async () => new Response('private-server-error', { status }) });
+    await assert.rejects(absent.hosts(), (e: unknown) => e instanceof RelayOwnerError && e.status === status
+      && e.code === (status === 404 ? 'not-found' : 'request-failed') && !e.message.includes('private-server-error'));
+  }
+  const offline = new Error('offline');
+  await assert.rejects(ownerClient(r.http, owner, { fetch: async () => { throw offline; } }).hosts(), (e) => e === offline);
+  assert.throws(() => ownerClient('wss://relay.example', owner));
+  assert.throws(() => ownerClient('https://user:password@relay.example', owner));
 });
 
 test('revocation during an enrolment save cannot install a live host', async () => {

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `ownerClient(url, token)` for listing hosts, creating enrolments and revoking hosts, with injectable fetch
+  and typed HTTP errors, and `linkUrl(relay, hostId)` in the device entry for constructing link addresses.
+
 ## 0.2.2 (2026-09-30)
 
 - Depends on @byokit/link 0.4.0.
