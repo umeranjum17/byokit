@@ -1114,7 +1114,7 @@ export const focusedField: FocusedField;
   from Kotlin (`FocusedFields`, 7.5), so the app's
   service can read at tap time and insert into the captured node with no JS running.
 
-### Screen frames and point markers (0.3.0)
+### Screen frames and point markers
 
 `@byokit/overlay/screen-frame` exports `screenFrame`, `createScreenFrame`, `ScreenFrame`,
 `NativeScreenFrame`, `ScreenFrameResult` and `ScreenSpace`. The default entry is native-free;
