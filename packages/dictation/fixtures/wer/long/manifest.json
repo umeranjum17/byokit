@@ -1,0 +1,90 @@
+{
+  "clips": [
+    {
+      "id": "joined-66",
+      "category": "long",
+      "file": "joined-66.wav",
+      "reference": "I want to change how the terminal screen handles long output. Right now when an agent prints a lot of text, the screen jumps back to the top and I lose my place. Keep the scroll position where it was unless I am already at the bottom. Also add a small button that takes me back to the latest output, and make sure it works on both phones and tablets. Let's plan the next release. First we need to finish the settings screen, because people keep asking for it. After that, fix the crash on older tablets. The crash happens when the keyboard opens while a dialog is showing. Last, update the help page so it matches the new layout, and send me a list of anything you could not finish. I tried the new build this morning and a few things felt off. The first screen loads slowly, maybe two or three seconds. Scrolling the list stutters when images are loading. And the back button sometimes takes me to the wrong place. Can you look into all three and tell me which one is easiest to fix first?",
+      "sha256": "6e2d1959499404554400ddac7bfab5613a0e0367f0f66f3ccabfdad45f016554",
+      "source": "Concatenated synthetic Piper en_US-ljspeech-high regression clips; see ../regression/NOTICE.md",
+      "generation": {
+        "sourceManifest": "../regression/manifest.json",
+        "sourceIds": [
+          "long",
+          "x-long-1",
+          "x-long-2"
+        ],
+        "trailingSilenceSamples": 0
+      }
+    },
+    {
+      "id": "joined-97",
+      "category": "long",
+      "file": "joined-97.wav",
+      "reference": "I want to change how the terminal screen handles long output. Right now when an agent prints a lot of text, the screen jumps back to the top and I lose my place. Keep the scroll position where it was unless I am already at the bottom. Also add a small button that takes me back to the latest output, and make sure it works on both phones and tablets. Let's plan the next release. First we need to finish the settings screen, because people keep asking for it. After that, fix the crash on older tablets. The crash happens when the keyboard opens while a dialog is showing. Last, update the help page so it matches the new layout, and send me a list of anything you could not finish. I tried the new build this morning and a few things felt off. The first screen loads slowly, maybe two or three seconds. Scrolling the list stutters when images are loading. And the back button sometimes takes me to the wrong place. Can you look into all three and tell me which one is easiest to fix first? Tell Codex to open a pull request for the dictation fix and ask Claude to review it. If the checks pass, merge it into main and clean up the worktree. Then send me a note in muxr with the link. Ask Claude and Codex to check the muxr host, then restart Herdr and update BYOKit to the latest version. Run npm install, then rebase this worktree onto main, fix the merge conflicts, and push the branch.",
+      "sha256": "fbf29a91bb50bbc0b8c62c800a5b3dc720c3698092c1b43dd77992c26a7dadca",
+      "source": "Concatenated synthetic Piper en_US-ljspeech-high regression clips; see ../regression/NOTICE.md",
+      "generation": {
+        "sourceManifest": "../regression/manifest.json",
+        "sourceIds": [
+          "long",
+          "x-long-1",
+          "x-long-2",
+          "long-names",
+          "names",
+          "technical"
+        ],
+        "trailingSilenceSamples": 0
+      }
+    },
+    {
+      "id": "joined-300",
+      "category": "long",
+      "file": "joined-300.wav",
+      "reference": "I want to change how the terminal screen handles long output. Right now when an agent prints a lot of text, the screen jumps back to the top and I lose my place. Keep the scroll position where it was unless I am already at the bottom. Also add a small button that takes me back to the latest output, and make sure it works on both phones and tablets. Let's plan the next release. First we need to finish the settings screen, because people keep asking for it. After that, fix the crash on older tablets. The crash happens when the keyboard opens while a dialog is showing. Last, update the help page so it matches the new layout, and send me a list of anything you could not finish. I tried the new build this morning and a few things felt off. The first screen loads slowly, maybe two or three seconds. Scrolling the list stutters when images are loading. And the back button sometimes takes me to the wrong place. Can you look into all three and tell me which one is easiest to fix first? Tell Codex to open a pull request for the dictation fix and ask Claude to review it. If the checks pass, merge it into main and clean up the worktree. Then send me a note in muxr with the link. Ask Claude and Codex to check the muxr host, then restart Herdr and update BYOKit to the latest version. Run npm install, then rebase this worktree onto main, fix the merge conflicts, and push the branch. Please check why the login screen takes so long to load on older phones, and fix it if you can. First, pull the latest changes. Then run the tests. If anything fails, send me the output. Let's plan the next release. First we need to finish the settings screen, because people keep asking for it. After that, fix the crash on older tablets. The crash happens when the keyboard opens while a dialog is showing. Last, update the help page so it matches the new layout, and send me a list of anything you could not finish. I tried the new build this morning and a few things felt off. The first screen loads slowly, maybe two or three seconds. Scrolling the list stutters when images are loading. And the back button sometimes takes me to the wrong place. Can you look into all three and tell me which one is easiest to fix first? Please check why the login screen takes so long to load on older phones, and fix it if you can. Okay. Let me think. Move the header down a little. Actually no, make it smaller instead. Use BYOKit for the pairing screen and make a new worktree for the npm upgrade. I want to change how the terminal screen handles long output. Right now when an agent prints a lot of text, the screen jumps back to the top and I lose my place. Keep the scroll position where it was unless I am already at the bottom. Also add a small button that takes me back to the latest output, and make sure it works on both phones and tablets. Open the JSON config, set the timeout to thirty seconds, and restart the API server. Start with the tests. Once they pass, open a pull request. Then wait for my review. Tell Codex to open a pull request for the dictation fix and ask Claude to review it. If the checks pass, merge it into main and clean up the worktree. Then send me a note in muxr with the link. Let's plan the next release. First we need to finish the settings screen, because people keep asking for it. After that, fix the crash on older tablets. The crash happens when the keyboard opens while a dialog is showing. Last, update the help page so it matches the new layout, and send me a list of anything you could not finish. Why does the app crash when I rotate the phone during a video call? Ask Claude and Codex to check the muxr host, then restart Herdr and update BYOKit to the latest version. Start with the tests. Once they pass, open a pull request. Then wait for my review. Run npm install, then rebase this worktree onto main, fix the merge conflicts, and push the branch. Please check why the login screen takes so long to load on older phones, and fix it if you can.",
+      "sha256": "ff19f276c90d834be9a167d3ca486ddf4a3fc1b59087aa18dde14b00a3b9a80e",
+      "source": "Concatenated synthetic Piper en_US-ljspeech-high regression clips; see ../regression/NOTICE.md",
+      "generation": {
+        "sourceManifest": "../regression/manifest.json",
+        "sourceIds": [
+          "long",
+          "x-long-1",
+          "x-long-2",
+          "long-names",
+          "names",
+          "technical",
+          "clean",
+          "pauses",
+          "x-phone-long",
+          "x-long-2",
+          "x-phone-clean",
+          "x-pauses-1",
+          "x-names-2",
+          "long",
+          "x-tech-3",
+          "x-phone-pauses",
+          "long-names",
+          "x-long-1",
+          "x-clean-2",
+          "names",
+          "x-pauses-2",
+          "technical",
+          "x-phone-clean"
+        ],
+        "trailingSilenceSamples": 20520
+      }
+    }
+  ],
+  "profiles": [
+    {
+      "id": "default",
+      "settings": {}
+    },
+    {
+      "id": "application-vocabulary",
+      "settings": {
+        "initialPrompt": "muxr, Herdr, Codex, Claude, BYOKit, worktree, npm."
+      }
+    }
+  ]
+}

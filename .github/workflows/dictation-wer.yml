@@ -59,9 +59,15 @@ jobs:
         run: |
           node packages/dictation/dist/wer-cli.js --binary "$PWD/.lab/wer-cache/build/whisperBench" --model "$PWD/.lab/wer-cache/ggml-base.en-q5_1.bin" --backend rn-bench --manifest packages/dictation/fixtures/wer/regression/manifest.json --profile default --profile application-vocabulary --repeats 1 --threads 2 --progress --output .lab/wer-ci.json
           node packages/dictation/scripts/bench/gate.mjs .lab/wer-ci.json packages/dictation/fixtures/wer/regression/baseline.json
+      - name: Measure 66-second, 97-second and five-minute dictation separately
+        run: |
+          node packages/dictation/dist/wer-cli.js --binary "$PWD/.lab/wer-cache/build/whisperBench" --model "$PWD/.lab/wer-cache/ggml-base.en-q5_1.bin" --backend rn-bench --manifest packages/dictation/fixtures/wer/long/manifest.json --profile default --profile application-vocabulary --repeats 1 --threads 2 --progress --output .lab/wer-long-ci.json > /dev/null
+          node packages/dictation/scripts/bench/gate.mjs .lab/wer-long-ci.json packages/dictation/fixtures/wer/long/baseline.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: dictation-wer
-          path: .lab/wer-ci.json
+          path: |
+            .lab/wer-ci.json
+            .lab/wer-long-ci.json
           include-hidden-files: true

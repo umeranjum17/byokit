@@ -21,10 +21,10 @@ export function fakeMic() {
     return {
       async stop() { if (!stopped) { stops++; stopped = true; wake?.(); } },
       async *[Symbol.asyncIterator]() {
-        while (!stopped) {
+        while (!stopped || queue.length) {
           if (!queue.length) await new Promise<void>(r => { wake = r; });
           wake = undefined;
-          if (!stopped && queue.length) yield queue.shift()!;
+          if (queue.length) yield queue.shift()!;
         }
       },
     };

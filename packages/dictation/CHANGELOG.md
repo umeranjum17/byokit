@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- FIX: Accept live dictation up to a configurable 300-second default limit and join overlapping Whisper final windows without cutting words at token timestamps.
+- FIX: Drain audio captured during an in-flight preview before final inference so stopping preserves the complete recording.
+
 ## 0.2.0 (2026-09-30)
 
 
