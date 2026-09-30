@@ -1,6 +1,6 @@
 {
   "name": "@byokit/overlay",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "A floating bubble over other apps on Android: a panel that opens on tap, per-app visibility rules, a text-free tap log and an optional focused-field reader. On iOS it reports unsupported.",
   "license": "Apache-2.0",
   "type": "module",
