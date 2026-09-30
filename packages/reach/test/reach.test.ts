@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
-import { advertise, inspectServe, reach, routes, serve, tailscaleName, unserve, type Bonjour, type ServeIngress } from '../src/index.ts';
+import { advertise, inspectServe, isPeer, needsSignin, reach, routes, serve, tailscaleName, tailscaleState, tailscaleStatus, unserve, type Bonjour, type BonjourRecord, type ServeIngress } from '../src/index.ts';
 
 const dir = scratchDir('reach');
 const bin = join(dir, 'tailscale');
@@ -286,4 +286,95 @@ test('advertise publishes one mDNS service and stops it', async () => {
   await ad.stop();
   assert.deepEqual(calls[0], { name: 'Desk', type: 'muxr', port: 8792, txt: { url: 'ws://192.168.1.8:8792' } });
   assert.deepEqual(calls.slice(1), ['stop', 'destroy']);
+});
+
+test('Tailscale diagnostics report backend state without changing the throwing status API', async () => {
+  fake({ ...self, BackendState: 'Running' });
+  const at = mark();
+  assert.deepEqual(await tailscaleState(tailscale), {
+    installed: true, backendState: 'Running', needsSignin: false, reason: undefined,
+    dnsName: 'dev.tailnet.ts.net', ips: ['100.64.0.1', 'fd7a::1'],
+  });
+  assert.equal(since(at), 'status --json\n');
+  for (const backendState of ['NeedsLogin', 'NeedsMachineAuth', 'Stopped', 'Starting', 'FutureState']) {
+    fake({ BackendState: backendState });
+    const result = await tailscaleState(tailscale);
+    assert.equal(result.backendState, backendState);
+    assert.equal(result.needsSignin, backendState === 'NeedsLogin');
+    if (['NeedsLogin', 'NeedsMachineAuth', 'Stopped'].includes(backendState)) assert.ok(result.reason);
+    assert.deepEqual(result.ips, []);
+  }
+  const missing = { bin: join(dir, 'not-installed') };
+  assert.deepEqual(await tailscaleState(missing), { installed: false, needsSignin: false, ips: [], reason: 'Tailscale is not installed' });
+  assert.equal(await tailscaleStatus(missing), undefined);
+  for (const [script, reason] of [
+    ['echo unavailable >&2; exit 1', /unavailable/],
+    ['echo not-json', /invalid status JSON/],
+    ['echo null', /invalid status JSON/],
+    ['echo "[]"', /invalid status JSON/],
+    ['exec /bin/sleep 30', /timed out/],
+  ] as const) {
+    writeFileSync(bin, `#!/bin/sh\n${script}\n`);
+    chmodSync(bin, 0o755);
+    const options = { bin, timeoutMs: 50 };
+    const result = await tailscaleState(options);
+    assert.equal(result.installed, true);
+    assert.equal(result.needsSignin, false);
+    assert.match(result.reason!, reason);
+    assert.deepEqual(result.ips, []);
+    // The legacy API still throws on CLI failure, malformed JSON and timeout.
+    if (!['echo null', 'echo "[]"'].includes(script)) await assert.rejects(tailscaleStatus(options));
+  }
+  writeFileSync(bin, `#!/bin/sh\nprintf '%s' '{"BackendState":"NeedsLogin"}'; exit 1\n`);
+  chmodSync(bin, 0o755);
+  assert.equal((await tailscaleState(tailscale)).needsSignin, true);
+  fake({ BackendState: 1, Self: { DNSName: 'invalid/name', TailscaleIPs: [1, null, '100.64.0.1'] } });
+  const malformed = await tailscaleState(tailscale);
+  assert.equal(malformed.backendState, undefined);
+  assert.equal(malformed.dnsName, undefined);
+  assert.deepEqual(malformed.ips, ['100.64.0.1']);
+});
+
+test('pure Tailscale helpers use explicit login state and peer membership, not address ranges or Self', () => {
+  assert.equal(needsSignin({ BackendState: 'NeedsLogin' }), true);
+  for (const status of [undefined, null, {}, { BackendState: 'NeedsMachineAuth' }, { BackendState: 'Stopped' }]) {
+    assert.equal(needsSignin(status), false);
+  }
+  const status = { ...self, Peer: { a: { TailscaleIPs: ['100.64.0.2', 'fd7a::2'], Online: false }, b: null, c: { TailscaleIPs: '100.64.0.3' } } };
+  for (const ip of ['100.64.0.2', '::ffff:100.64.0.2', 'fd7a::2']) assert.equal(isPeer(status, ip), true);
+  for (const ip of ['100.64.0.1', '100.64.0.3', '100.64.0.99', '192.168.1.1', '']) assert.equal(isPeer(status, ip), false);
+  for (const invalid of [undefined, null, {}, { Peer: [] }, { Peer: 'invalid' }]) assert.equal(isPeer(invalid, '100.64.0.2'), false);
+});
+
+test('advertise filters A/AAAA on announcement and goodbye, leaving discovery records intact', async () => {
+  const metadata: BonjourRecord[] = [
+    { type: 'PTR', data: 'Desk._muxr._tcp.local' },
+    { type: 'SRV', data: { port: 8792, target: 'desk.local' } },
+    { type: 'TXT', data: { url: 'ws://192.168.1.8:8792' } },
+  ];
+  const addresses = ['192.168.1.8', 'fd00::8'];
+  const records = [...metadata, ...['192.168.1.8', '172.17.0.1', '100.64.0.1', '127.0.0.1'].map((data) => ({ type: 'A', data })),
+    ...['fd00::8', 'fd7a::1', '::1'].map((data) => ({ type: 'AAAA', data }))];
+  let stopped: BonjourRecord[] = [];
+  const service = {
+    records() { assert.equal(this, service); return records; },
+    stop(cb?: () => void) { stopped = this.records(); cb?.(); },
+  };
+  const bonjour: Bonjour = { publish: () => service, destroy: (cb) => cb?.() };
+  const ad = await advertise({ type: 'muxr', port: 8792, addresses, bonjour });
+  addresses.push('100.64.0.1'); // The allowlist is snapshotted, not mutated by the caller afterward.
+  const expected = [...metadata, { type: 'A', data: '192.168.1.8' }, { type: 'AAAA', data: 'fd00::8' }];
+  assert.deepEqual(service.records(), expected);
+  await ad.stop();
+  assert.deepEqual(stopped, expected);
+
+  // An explicit empty list publishes no address records; omitted addresses use the LAN route list.
+  for (const allowed of [[], undefined]) {
+    const lan = routes().lan;
+    const factory = { records: () => [...metadata, ...lan.map((data) => ({ type: 'A', data })), { type: 'AAAA', data: 'fd7a::1' }], stop: (cb?: () => void) => cb?.() };
+    const publisher: Bonjour = { publish: () => factory, destroy: (cb) => cb?.() };
+    const handle = await advertise({ type: 'muxr', port: 8792, addresses: allowed, bonjour: publisher });
+    assert.deepEqual(factory.records(), [...metadata, ...(allowed === undefined ? lan.map((data) => ({ type: 'A', data })) : [])]);
+    await handle.stop();
+  }
 });

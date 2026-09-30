@@ -50,6 +50,64 @@ export function magicDnsName(value: unknown): string | undefined {
   return name.split('.').every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) ? name : undefined;
 }
 
+/** True only when `tailscale status --json` explicitly reports that a login is needed. */
+export function needsSignin(status: unknown): boolean {
+  return (status as { BackendState?: unknown } | null)?.BackendState === 'NeedsLogin';
+}
+
+/** Whether an address appears in the status's Peer map. A discovery hint, never device authentication. */
+export function isPeer(status: unknown, ip: string): boolean {
+  const peers = (status as { Peer?: unknown } | null)?.Peer;
+  if (!peers || typeof peers !== 'object' || Array.isArray(peers) || !ip) return false;
+  const address = ip.replace(/^::ffff:/i, '');
+  return Object.values(peers).some((peer) => {
+    const ips = (peer as { TailscaleIPs?: unknown } | null)?.TailscaleIPs;
+    return Array.isArray(ips) && ips.includes(address);
+  });
+}
+
+/** A read-only diagnostic snapshot; absent fields mean the CLI could not provide them. */
+export type TailscaleState = {
+  installed: boolean;
+  backendState?: string;
+  needsSignin: boolean;
+  reason?: string;
+  dnsName?: string;
+  ips: string[];
+};
+
+/** Read local Tailscale state without throwing, signing in, or changing any Serve mapping. */
+export async function tailscaleState(o?: TailscaleOptions): Promise<TailscaleState> {
+  const empty: TailscaleState = { installed: true, needsSignin: false, ips: [] };
+  try {
+    const r = await run(['status', '--json'], o);
+    if (r.error?.code === 'ENOENT') return { ...empty, installed: false, reason: 'Tailscale is not installed' };
+    if (r.error?.code === 'ETIMEDOUT') return { ...empty, reason: 'Tailscale status timed out; restart tailscaled or choose LAN' };
+    // A failing CLI may still return useful backend state (for example, NeedsLogin).
+    let status: { BackendState?: unknown; Self?: { DNSName?: unknown; TailscaleIPs?: unknown } } | undefined;
+    try {
+      const parsed: unknown = JSON.parse(r.stdout);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) status = parsed;
+    } catch { /* Report malformed output as data below. */ }
+    const backendState = typeof status?.BackendState === 'string' ? status.BackendState : undefined;
+    const signin = needsSignin(status);
+    const reason = r.code !== 0
+      ? `Tailscale is installed but unavailable: ${(r.stderr || r.error?.message || '').trim() || 'sign in first'}`
+      : !status ? 'Tailscale returned invalid status JSON'
+      : signin ? 'Sign in to Tailscale'
+      : backendState === 'NeedsMachineAuth' ? 'Approve this machine in the Tailscale admin console'
+      : backendState === 'Stopped' ? 'Tailscale is stopped'
+      : undefined;
+    return {
+      installed: true, backendState, needsSignin: signin, reason,
+      dnsName: magicDnsName(status?.Self?.DNSName),
+      ips: Array.isArray(status?.Self?.TailscaleIPs) ? status.Self.TailscaleIPs.filter((ip): ip is string => typeof ip === 'string') : [],
+    };
+  } catch (error) {
+    return { ...empty, reason: error instanceof Error ? error.message : 'Tailscale status is unavailable' };
+  }
+}
+
 /** `tailscale status --json`, reduced: undefined when Tailscale isn't installed; throws when it is but can't answer. */
 export async function tailscaleStatus(o?: TailscaleOptions): Promise<{ dnsName?: unknown; ips: string[] } | undefined> {
   const r = await run(['status', '--json'], o);

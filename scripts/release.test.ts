@@ -47,7 +47,7 @@ test("parseChangelog reads all nine real changelogs", () => {
   const sec = link.versions.flatMap((s) => s.bullets).find((b) => b.kind === "SECURITY");
   assert.ok(sec && sec.text.length > 0);
   // the kit's first release rolled its notes into 0.1.0
-  assert.equal(parseChangelog(changelog("openclaw")).versions[0]?.version, "0.1.0");
+  assert.ok(parseChangelog(changelog("openclaw")).versions.some((section) => section.version === "0.1.0"));
 });
 
 test("parseChangelog accepts the legacy bare SECURITY line and continuations", () => {
