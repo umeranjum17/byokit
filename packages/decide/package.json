@@ -1,6 +1,6 @@
 {
   "name": "@byokit/decide",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Typed questions in, a typed answer with confidence out, abstaining below a floor. Rules, Jev and configurable OpenAI backends, and an eval runner.",
   "license": "Apache-2.0",
   "type": "module",
@@ -37,7 +37,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@byokit/accounts": "0.7.1",
+    "@byokit/accounts": "0.8.0",
     "openai": "7.25.0"
   }
 }
