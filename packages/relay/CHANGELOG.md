@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0 (2026-09-30)
+
 - Add `ownerClient(url, token)` for listing hosts, creating enrolments and revoking hosts, with injectable fetch
   and typed HTTP errors, and `linkUrl(relay, hostId)` in the device entry for constructing link addresses.
 
