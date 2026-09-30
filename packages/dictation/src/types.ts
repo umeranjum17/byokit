@@ -21,6 +21,8 @@ export interface AudioMic { open(o: { rate: 16000; purpose: 'dictation'; signal?
 export type DictateInput = Uint8Array | Blob;
 export interface DictateEngine {
   readonly info: DictateEngineInfo;
+  /** Optional live energy gate: normalized PCM RMS (before the UI's ×4 scale). */
+  readonly capture?: { speechThreshold: number; silenceMs: number };
   available?(locale?: string): Promise<'ready' | 'needs-download' | 'unsupported' | 'mic-blocked'>;
   transcribe(input: DictateInput, o: DictateOptions): Promise<Omit<DictateTranscript, 'engine'>>;
   start?(o: DictateOptions, on: (s: DictateSegment) => void): { stop(): Promise<void>; cancel(): void };

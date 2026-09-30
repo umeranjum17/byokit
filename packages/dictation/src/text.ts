@@ -29,8 +29,8 @@ export function wav(samples: readonly Int16Array[]): Uint8Array {
   let at = 44; for (const s of samples) for (const x of s) { v.setInt16(at, x, true); at += 2; }
   return out;
 }
-export function rms(data: Int16Array): number {
+export function rms(data: Int16Array, scale = 4): number {
   if (!data.length) return 0;
   let sum = 0; for (const x of data) sum += (x / 32768) ** 2;
-  return Math.min(1, Math.sqrt(sum / data.length) * 4);
+  return Math.min(1, Math.sqrt(sum / data.length) * scale);
 }

@@ -11,6 +11,9 @@
     "./node": {"types":"./dist/node.d.ts", "default":"./dist/node.js"},
     "./testing": {"types":"./dist/testing.d.ts", "default":"./dist/testing.js"}
   },
-  "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md"],
-  "scripts": {"prepack":"tsc -b"}
+  "files": ["dist", "fixtures/wer", "scripts/generate-wer.py", "README.md", "LICENSE", "CHANGELOG.md"],
+  "bin": {"byokit-dictation-wer":"./dist/wer-cli.js"},
+  "scripts": {"prepack":"tsc -b"},
+  "peerDependencies": {"whisper.rn":"0.7.2"},
+  "peerDependenciesMeta": {"whisper.rn":{"optional":true}}
 }

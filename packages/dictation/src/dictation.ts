@@ -34,6 +34,8 @@ export class Dictation {
     this.stateTo('listening');
     const controller = new AbortController();
     const options = { ...o, signal: controller.signal };
+    const speechThreshold = this.engine.capture?.speechThreshold ?? 0.015;
+    const silenceSamples = (this.engine.capture?.silenceMs ?? 500) * 16;
     const listeners = new Map<string, Set<(e: DictationEvent) => void>>();
     const emit = (e: DictationEvent) => { if (!cancelled) for (const fn of listeners.get(e.type) ?? []) fn(e); };
     const segments = new Map<string, DictateSegment>();
@@ -81,18 +83,19 @@ export class Dictation {
       if (!stream || stopped || cancelled) return;
       for await (const frame of stream) {
         if (stopped || cancelled) break;
-        const level = rms(frame.data);
+        const rawLevel = rms(frame.data, 1);
+        const level = Math.min(1, rawLevel * 4);
         emit({ type: 'level', rms: level });
         chunks.push(frame.data.slice()); samples += frame.data.length; usage.audioMs += frame.data.length / 16;
-        if (level >= 0.06) {
+        if (rawLevel >= speechThreshold && rawLevel > 0) {
           if (!speechAt) emit({ type: 'turn', phase: 'start' });
           speechAt = samples; silence = 0;
         } else silence += frame.data.length;
         // Cap the live window independently of provider file-size limits.
         if (samples > 60 * 16000) throw new DictateError('too-large');
-        if (speechAt && silence >= 8000) await read(true);
+        if (speechAt && silence >= silenceSamples) await read(true);
         else if (this.engine.info.streaming === 'reread' && speechAt > readAt && samples - readAt >= 16000) await read(false);
-        else if (!speechAt && silence >= 8000) { offset += samples / 16; chunks = []; samples = silence = 0; }
+        else if (!speechAt && silence >= silenceSamples) { offset += samples / 16; chunks = []; samples = silence = 0; }
       }
     }).catch(async e => { failure = e; stopped = true; await stream?.stop(); });
     const cleanup = async () => { await stream?.stop(); o.signal?.removeEventListener('abort', abort); this.stateTo('idle'); };
