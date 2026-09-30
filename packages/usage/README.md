@@ -191,7 +191,7 @@ environment built from the host's explicit `env` plus `CODEX_HOME=home`; pass PA
 and HOME explicitly when needed. No tokens in logs, errors, readings or public hooks;
 no credential write-back, telemetry, automatic refresh or reset-credit spend.
 
-Built-in requests send `User-Agent: byokit/usage/0.2.0`, never another app's identity.
+Built-in requests send `User-Agent: byokit/usage/0.3.0`, never another app's identity.
 A refusal returns a code; with no last-good quota, room is unknown. Fixed endpoints
 are Anthropic `api/oauth/usage`, ChatGPT `backend-api/wham/usage`, GitHub
 `copilot_internal/user`, Grok `v1/billing` (weekly credits then monthly when needed),

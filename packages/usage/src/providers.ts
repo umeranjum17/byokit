@@ -6,7 +6,7 @@ import { claudeWindows, record, type CodexRateLimitResult } from './windows.ts';
 import { grokWindows } from './quota.ts';
 export type Answer = SourceAnswer;
 type TokenSource = Extract<Source, { access: string } | { key: string }>;
-const USER_AGENT = 'byokit/usage/0.2.0';
+const USER_AGENT = 'byokit/usage/0.3.0';
 /** One bounded request; credentials and response bodies never become errors. */
 async function request(url: string, key: string, fetcher: typeof fetch, nowMs: number, extra: { headers?: Record<string, string>; body?: unknown } = {}, pacing?: { hook?: PacingHook; provider: Source['provider']; account: string; signal?: AbortSignal }): Promise<Answer> {
   const controller = new AbortController();
