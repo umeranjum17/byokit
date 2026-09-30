@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `routeChoices()`: every onboarding route (`tailscale`, `tailscale-direct`, `private`, `lan`, plus `cloudflare`
+  and `external`) in everyday words (`{ code, title, sentence, needs }`), in recommendation order. The one word
+  table reach's `recommend()` draws `sentence` and `needs` from.
+
 ## 0.4.0 (2026-09-30)
 
 - `@byokit/ui-core/steps` (no React): `stepsView(steps)` turns the caller's own steps into the rows a stepper or

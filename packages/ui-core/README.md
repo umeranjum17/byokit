@@ -103,6 +103,7 @@ export function useChatGptSheet() {
 | `stepOf(phase)` | Where the three-step progress bar ("Open", "Say yes", "Done") stands |
 | `useSignIn({ read, start?, cancel, offline?, ms?, pinned? })` | React hook: starts the sign-in as the sheet opens, polls, and handles cancel, close, keep-work and "use a code instead"; without `start` it only watches and nothing begins |
 | `describeRoute(url, kind?)` | Names the route a dial address takes, for a pairing or settings screen |
+| `routeChoices()` | Every onboarding route in everyday words (`{ code, title, sentence, needs }`), in recommendation order |
 | `qrMatrix(text, { border }?)` | The pairing QR as rows of dark and light modules, with its quiet border (2 unless given) |
 | `qrText(text, { border }?)` | The same QR as half-block text rows for a terminal |
 | `consentWords({ hostName, role, device?, detail? })` | The question before pairing |
@@ -114,7 +115,7 @@ export function useChatGptSheet() {
 | `approvalsStore(oc)`, `approvalWords(a, words, helper)` | The approvals waiting for a yes, live, each gone when answered or expired |
 | `herdrStore(hd)`, `herdrTreeView(tree)`, `blockedView(state)` | Herdr's agents by where they run, and the ones waiting for an answer, live |
 | `useRun`, `useApprovals`, `useHerdrTree`, `useBlocked` | React hooks over those stores |
-| Types | `Phase`, `SignInView`, `AccountView`, `UseSignIn`, `Route`, `PairPhase`, `Role`, `DeviceKind`, `LinkStatus`; `RouteKind` from `@byokit/ui-core/route` |
+| Types | `Phase`, `SignInView`, `AccountView`, `UseSignIn`, `Route`, `RouteChoice`, `RouteCode`, `PairPhase`, `Role`, `DeviceKind`, `LinkStatus`; `RouteKind` from `@byokit/ui-core/route` |
 
 Entry points: `@byokit/ui-core` (everything, including the React hooks), `@byokit/ui-core/phase`,
 `@byokit/ui-core/route`, `@byokit/ui-core/link`, `@byokit/ui-core/kits` and `@byokit/ui-core/steps` (no React dependency).
@@ -144,6 +145,17 @@ into the phase to draw:
 `describeRoute(url, kind?)` (also `@byokit/ui-core/route`, no React) names the route a dial address takes, for a
 pairing or settings screen. Pass `tailscale`, `direct`, `private`, or `lan` when known (map reach's `tailscale-direct`
 to `direct`); without provenance, 100.64/10 is labeled Private network rather than assumed to be Tailscale.
+
+`routeChoices()` (same entry, no React) is the one word table for the onboarding route list: `{ code, title,
+sentence, needs }` per route in recommendation order, a superset of reach's `Via` (it also covers the temporary
+Cloudflare link and your own server, which reach does not probe). Reach's `recommend()` takes `sentence` and
+`needs` from here and only adds availability.
+
+```ts
+import { routeChoices } from '@byokit/ui-core/route';
+
+console.log(routeChoices().map((c) => `${c.title}: ${c.sentence}`));
+```
 
 ## Pairing words
 
