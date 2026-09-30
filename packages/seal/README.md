@@ -33,20 +33,21 @@ Seal and open a box, keep a JSON value in a secretbox, and sign and verify a mes
 
 ```ts
 import {
-  boxKeyPairFromSeed, sealBox, openBox,
+  boxKeyPair, boxPublicKey, boxKeyPairFromSeed, sealBox, openBox, openBoxFromSeed,
+  box, openAuthBox, sealNotice, openNotice,
   sealJson, openJson,
   signingKeyPairFromSeed, signDetached, verifyDetached,
 } from '@byokit/seal';
 
 const text = new TextEncoder().encode('hello from the phone');
 
-// Box: anyone with the recipient's public key can seal; only the seed opens.
+// Box: anyone with the recipient's public key can seal; only the secret opens.
 const recipientSeed = crypto.getRandomValues(new Uint8Array(32));
 const recipient = boxKeyPairFromSeed(recipientSeed);
 const bundle = sealBox(text, recipient.publicKey);
 console.log('box bytes:', bundle.length);
-console.log('opened:', new TextDecoder().decode(openBox(bundle, recipientSeed)!));
-console.log('wrong seed:', openBox(bundle, crypto.getRandomValues(new Uint8Array(32))));
+console.log('opened:', new TextDecoder().decode(openBox(bundle, recipient.secretKey)!));
+console.log('wrong key:', openBox(bundle, crypto.getRandomValues(new Uint8Array(32))));
 
 // Secretbox JSON: one 32-byte key seals and opens data at rest.
 const key = crypto.getRandomValues(new Uint8Array(32));
@@ -68,7 +69,7 @@ Output of running the TypeScript file with `node` (Node 22.18+):
 ```text
 box bytes: 92
 opened: hello from the phone
-wrong seed: null
+wrong key: null
 json: { machines: [ 'desk' ] }
 tampered json: null
 signature bytes: 64 secret key bytes: 64
@@ -82,9 +83,16 @@ The 92-byte box is 32 (ephemeral public key) + 24 (nonce) + 16 (MAC) + 20 (the m
 
 | Export | What it does |
 |---|---|
+| `boxKeyPair(rng?)` | Fresh raw 32-byte X25519 secret and its public key |
+| `boxPublicKey(secret)` | X25519 public key from a raw 32-byte secret |
 | `boxKeyPairFromSeed(seed)` | X25519 key pair from a 32-byte seed; same as libsodium `crypto_box_seed_keypair` |
 | `sealBox(bytes, recipientPublicKey, rng?)` | Seals bytes to a public key with a fresh ephemeral key |
-| `openBox(bundle, recipientSeed)` | Opens a box; `Uint8Array` or `null` |
+| `openBox(bundle, recipientSecret)` | Opens with a raw secret; `Uint8Array` or `null` |
+| `openBoxFromSeed(bundle, recipientSeed)` | Opens with a seed, as in the original API |
+| `box(bytes, theirPublic, mySecret, rng?)` | Known-sender authenticated box |
+| `openAuthBox(bundle, theirPublic, mySecret)` | Opens a known-sender box; `Uint8Array` or `null` |
+| `sealNotice(value, boxPublicKey, rng?)` | JSON in an anonymous box; `{ v: 1, sealed: string }` |
+| `openNotice(data, secret)` | Opens a notice with a raw secret; `unknown` or `null` |
 | `sealSecretBox(bytes, key, rng?)` | Seals bytes with a 32-byte secret key |
 | `openSecretBox(bundle, key)` | Opens a secretbox; `Uint8Array` or `null` |
 | `sealJson(value, key, rng?)` | `JSON.stringify`, UTF-8, then secretbox |
@@ -98,14 +106,15 @@ Every call in one place:
 
 ```ts
 import {
-  boxKeyPairFromSeed, sealBox, openBox,
+  boxKeyPair, boxPublicKey, boxKeyPairFromSeed, sealBox, openBox, openBoxFromSeed,
+  box, openAuthBox, sealNotice, openNotice,
   sealSecretBox, openSecretBox, sealJson, openJson,
   signingKeyPairFromSeed, signDetached, verifyDetached,
 } from '@byokit/seal';
 
 const recipient = boxKeyPairFromSeed(recipientSeed); // 32-byte seed; same as libsodium crypto_box_seed_keypair
 const bundle = sealBox(plaintext, recipient.publicKey);
-const opened = openBox(bundle, recipientSeed); // Uint8Array | null
+const opened = openBox(bundle, recipient.secretKey); // Uint8Array | null
 const sealed = sealSecretBox(plaintext, secretboxKey); // 32-byte key
 const unsealed = openSecretBox(sealed, secretboxKey); // Uint8Array | null
 const stored = sealJson({ machines: [] }, secretboxKey);
@@ -115,12 +124,34 @@ const signature = signDetached(plaintext, signing.secretKey); // 64-byte signatu
 verifyDetached(plaintext, signature, signing.publicKey); // boolean
 ```
 
+## Raw keys, authenticated boxes and notices
+
+```ts
+const sender = boxKeyPair();
+const device = boxKeyPair();
+const authenticated = box(text, device.publicKey, sender.secretKey);
+const opened = openAuthBox(authenticated, sender.publicKey, device.secretKey);
+const notice = sealNotice({ kind: 'completed', job: 'build' }, device.publicKey);
+const event = openNotice(notice, device.secretKey);
+```
+
+`openBox` now takes a raw X25519 secret. For stored seeds, keep `boxKeyPairFromSeed(seed)` and pass its
+`secretKey`, or replace the old `openBox(bundle, seed)` call with `openBoxFromSeed(bundle, seed)`.
+Stored ciphertext and seed derivation are unchanged. A raw secret and a seed are different inputs.
+
+A known-sender box requires a trusted public key for the peer; both peers can produce its ciphertext, so it is
+not a signature. Anonymous boxes and notices do not identify the sender. Validate decrypted notice values in
+the app before acting on them. JSON `null` is indistinguishable from an opening failure; undefined values,
+cyclic objects and BigInts cannot be sealed as JSON.
+
 ## Formats
 
 - `sealBox` emits ephemeral X25519 public key (32) | nonce (24) | `crypto_box_easy` ciphertext (16-byte MAC first).
+- `box` emits nonce (24) | `crypto_box_easy` ciphertext (16-byte MAC first).
+- `sealNotice` emits `{ v: 1, sealed }`, where `sealed` is unpadded base64url of `sealBox` UTF-8 JSON bytes.
 - `sealSecretBox` emits nonce (24) | `crypto_secretbox_easy` ciphertext.
 - `sealJson` uses `JSON.stringify` then UTF-8; `openJson` parses UTF-8 and returns `null` on failure.
-- `openBox` and `openSecretBox` return `null` for short, tampered, or wrong-key bundles.
+- `openBox`, `openAuthBox` and `openSecretBox` return `null` for short, tampered, or wrong-key bundles.
 - Invalid key lengths passed to seal/sign throw.
 
 ## Randomness and keys
@@ -153,6 +184,7 @@ including tamper and wrong-key cases. Run `npm run build && npm run check && npm
 
 - [byokit](../../README.md), the repository root
 - [CHANGELOG.md](CHANGELOG.md)
+- [SECURITY.md](SECURITY.md)
 - [`examples/expo`](../../examples/expo): box, secretbox and signatures on iOS and Android, with the
   `crypto.getRandomValues` polyfill (`expo-crypto`) in `polyfills.ts`
 

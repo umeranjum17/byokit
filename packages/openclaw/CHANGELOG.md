@@ -4,6 +4,10 @@
 
 - Depends on @byokit/ui-core 0.3.0.
 
+## 0.1.2 (2026-09-30)
+
+- Preserve seed-based notice opening with @byokit/seal 0.2.0.
+
 ## 0.1.1
 
 - Depends on @byokit/reach 0.3.0.

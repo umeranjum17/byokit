@@ -1,6 +1,6 @@
 {
   "name": "@byokit/seal",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Portable NaCl-compatible box, secretbox and signatures.",
   "license": "Apache-2.0",
   "type": "module",
@@ -22,7 +22,8 @@
     "dist",
     "README.md",
     "LICENSE",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "SECURITY.md"
   ],
   "scripts": {
     "prepack": "tsc -b"

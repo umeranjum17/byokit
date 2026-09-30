@@ -258,7 +258,7 @@ export default function App() {
       const box = boxKeyPairFromSeed(key);
       const signer = signingKeyPairFromSeed(key);
       const matches = (opened: Uint8Array | null) => opened !== null && new TextDecoder().decode(opened) === 'byokit on a phone';
-      setSealed(matches(openBox(sealBox(bytes, box.publicKey), key)) &&
+      setSealed(matches(openBox(sealBox(bytes, box.publicKey), box.secretKey)) &&
         matches(openSecretBox(sealSecretBox(bytes, key), key)) &&
         verifyDetached(bytes, signDetached(bytes, signer.secretKey), signer.publicKey) ? 'Seal works.' : 'Seal failed.');
     } catch (e) { setSealed(`Seal failed: ${String(e)}`); }

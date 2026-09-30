@@ -1,6 +1,6 @@
 {
   "name": "@byokit/keystore",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "One secret per name: the OS keyring, a passphrase-sealed file, or a host-passed override for CI.",
   "license": "Apache-2.0",
   "type": "module",
@@ -30,7 +30,7 @@
     "prepack": "tsc -b"
   },
   "dependencies": {
-    "@byokit/seal": "0.1.0"
+    "@byokit/seal": "0.2.0"
   },
   "publishConfig": {
     "access": "public"
