@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.1
+
+- FIX: Export the Expo config plugin and package metadata so installed apps can resolve the plugin; support Expo 55 and later.
+
 ## 0.1.0 (2026-09-30)
 
 - Proven on Android emulators (BK-S1): on API 36.1 the chip shows, the lock screen shows only the public copy,

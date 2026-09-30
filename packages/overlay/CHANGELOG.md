@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.4
+
+- FIX: Export the Expo config plugin and package metadata so installed apps can resolve the plugin.
+
 ## 0.2.3 (2026-09-30)
 
 

@@ -21,7 +21,9 @@
       },
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./app.plugin.js": "./app.plugin.js",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
