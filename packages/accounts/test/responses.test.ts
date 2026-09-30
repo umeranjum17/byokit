@@ -3,7 +3,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Accounts, IncompleteError, ResponseError, isFunctionCall, limitResponse, offered, PROVIDERS, memoryStore, sseReader, type ResponseStreamEvent } from '../src/portable.ts';
+import { Accounts, IncompleteError, ResponseError, isFunctionCall, limitResponse, offered, PROVIDERS, memoryStore, respond, sseReader, type ResponseStreamEvent } from '../src/portable.ts';
 import { mockOpenAI } from '../src/testing/index.ts';
 
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`../../../fixtures/conformance/${name}`, import.meta.url), 'utf8'));
@@ -221,6 +221,31 @@ test('respond with tools: a function call streams as typed events, then a tool-r
       { type: 'function_call_output', call_id: 'call_1', output: 'noon' },
     ],
   }), 'You did: noon');
+});
+
+test('ChatGPT subscription respond passes true/false parallel tool calls and omits the provider default', async () => {
+  const bodies: unknown[] = [];
+  const stubFetch = (async (_url: any, init: any) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'Done' }] }] }), { headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+  const a = await signedIn({ fetch: stubFetch });
+  const tools = [{ type: 'function' as const, name: 'tap', parameters: { type: 'object', properties: {} } }];
+  for (const parallelToolCalls of [true, false, undefined]) {
+    const ask = { instructions: 'Act in order.', input: 'tap', tools, tool_choice: 'auto' as const,
+      ...(parallelToolCalls === undefined ? {} : { parallelToolCalls }) };
+    const expected = {
+      model: PROVIDERS.chatgpt.models.strong, store: false, stream: true, instructions: ask.instructions,
+      input: [{ role: 'user', content: [{ type: 'input_text', text: 'tap' }] }], tools, tool_choice: 'auto',
+      ...(parallelToolCalls === undefined ? {} : { parallel_tool_calls: parallelToolCalls }),
+      text: { verbosity: 'low' }, reasoning: { effort: 'none' },
+    };
+    // Both public entries share the same builder, including phones and browsers.
+    assert.equal((await a.respond(1, ask)).text, 'Done');
+    assert.deepEqual(bodies.at(-1), expected);
+    assert.equal((await respond({ ...ask, access: 'synthetic-token', accountId: 'synthetic-account', model: PROVIDERS.chatgpt.models.strong, fetch: stubFetch })).text, 'Done');
+    assert.deepEqual(bodies.at(-1), expected);
+  }
 });
 
 test('respond with an image turn: the picture rides along, the words echo back', async () => {

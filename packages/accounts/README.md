@@ -260,6 +260,11 @@ already have shown partial words. This covers `response.incomplete` events and `
 whether fetch streams SSE, buffers it, or returns JSON. The account stays signed in and is not put to rest.
 Successful return values are unchanged.
 
+Set `parallelToolCalls: false` to request one tool call at a time; `true` allows parallel calls. Both pass through as
+`parallel_tool_calls`; omitting it sends nothing and keeps the provider default. `respond` supports only the ChatGPT
+subscription route; OpenRouter, Grok and Copilot are credential routes without `respond` support, and there is no
+Anthropic response route.
+
 The whole question passes through: `input` takes the turns so far (messages, with `input_image` where the person
 attached a picture), `tools` and `tool_choice` take the app's own function tools and built-ins (including
 `image_generation`), `reasoning.effort` how hard the model thinks, and `text` how long the answer is with the shape it
