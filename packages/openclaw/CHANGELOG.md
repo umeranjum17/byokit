@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-09-30)
+
 - Full run options over the link (v1 A6): `oc.run` and `openclawDevice(link).run(message, o)` forward `system`,
   `images`, `thinking` and `tools`, each type-checked. `RunSpec.tools` is the run's subset of the app's tools
   (`KitOptions.tools` names, listed by the new `kit.toolNames()`): the bridge refuses any other app tool before
