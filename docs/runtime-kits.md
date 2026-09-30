@@ -279,7 +279,7 @@ export type Approval = {
 };
 export type Decision = { allow: boolean; reason?: string; answer?: unknown };   // answer: question.* only
 export type KitState = {
-  phase: 'stopped' | 'installing' | 'starting' | 'repairing' | 'ready' | 'restarting' | 'failed' | 'needs-update';
+  phase: 'stopped' | 'installing' | 'starting' | 'repairing' | 'ready' | 'restarting' | 'failed' | 'needs-update' | 'locked';
   why?: 'install' | 'handshake' | 'exited' | 'port' | 'version';
   retryAt?: number;
 };
@@ -329,7 +329,7 @@ export class OpenClawKit {
   constructor(o: KitOptions);
   readonly state: KitState;
   prepare(): Promise<void>;              // install + layout + config, no launch; idempotent
-  start(): Promise<void>;                // prepare, launch, handshake, bridge up; resolves at 'ready'
+  start(): Promise<void>;                // prepare, launch, handshake, bridge up; resolves at 'ready' or recoverable 'locked'
   stop(): Promise<void>;
   // complete pass-through (D6)
   call<M extends GatewayMethod>(method: M, params: GatewayParams<M>, o?: CallOptions): Promise<GatewayResult<M>>;
@@ -505,7 +505,17 @@ the view fails with `why: 'busy'`. Mapping to `SignInView.why`: setup-admission-
 member agent, whose sign-in to a provider is that provider's first account (5.15); `addAccount` adds any further one.
 
 **Credential sealing**: `authSeal` takes the `@byokit/secrets` `SealingAdapter` interface (non-interactive OS keyring with automatic persistent host-key fallback, or an explicit host-owned key),
-the runtime kit delegates key management to that adapter. The pinned engine has no supported OAuth persistence hook: it stores JSON in both
+the runtime kit delegates key management to that adapter. Opening follows the envelope mode, never the
+adapter's current write mode. A locked or unresponsive keyring reports `KeystoreError('keyring-locked')`.
+`prepare()` and `start()` resolve with `phase: 'locked'` and plain recovery words, without launching the
+engine or changing the sealed snapshot; a later `start()` retries after unlock. Engine.start returns
+`undefined` on this recoverable state, and the kit must skip connecting. Other sealing failures still reject.
+Dual-wrap is explicit opt-in (`dualWrap: true`, default off) and weakens protection to the owner-only host
+key file. SealingAdapter may expose `upgrade(data: Buffer): Uint8Array | undefined`; readers verify the
+replacement decrypts to the same text, then atomically replace under their writer lock. With dual-wrap
+on, reading a keyring-only store while unlocked upgrades it; failure leaves the previous store usable.
+Successful reads adopt the store mode for writes. Locked dual updates reuse authenticated encrypted
+wrapping metadata with fresh payload nonces; plaintext keys are not cached. The pinned engine has no supported OAuth persistence hook: it stores JSON in both
 agent SQLite and the shared state SQLite database. The kit seals the complete isolated `state` and `home`
 directories, including SQLite journals, at rest. File symlinks are included only when their fully resolved
 targets are regular files inside the isolated engine root; they restore as regular files at the link paths.
@@ -710,7 +720,7 @@ export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath
 export class Engine {
   constructor(o: EngineOptions); readonly root: string; readonly bridgeSock: string;
   prepare(): Promise<void>;
-  start(): Promise<{ port: number; token: string; identityPath: string }>;   // spawned (or not) and port known
+  start(): Promise<{ port: number; token: string; identityPath: string } | undefined>;   // undefined while credentials locked
   stop(): Promise<void>;
   doctor(timeoutMs: number): { status: number | null };                      // offline doctor --fix run
   doctorContext(): { entry: string; env: Record<string, string> };
@@ -803,6 +813,7 @@ export function openNotice(data: Record<string, unknown>, seed: Uint8Array): App
 | `engine.installing` | Getting things ready on this computer. The first time takes a few minutes. |
 | `engine.starting` | Starting up… |
 | `engine.repairing` | Fixing a small problem with the setup. This takes a moment. |
+| `engine.locked` | Your saved sign-in is locked. Unlock your password storage, then try again. |
 | `engine.ready` | Ready. |
 | `engine.restarting` | Something stopped. Starting it again by itself. |
 | `engine.failed` | This computer couldn't start the helper. Restart the app to try again. |

@@ -2,6 +2,7 @@
   "engine.installing": "Getting things ready on this computer. The first time takes a few minutes.",
   "engine.starting": "Starting up…",
   "engine.repairing": "Fixing a small problem with the setup. This takes a moment.",
+  "engine.locked": "Your saved sign-in is locked. Unlock your password storage, then try again.",
   "engine.ready": "Ready.",
   "engine.restarting": "Something stopped. Starting it again by itself.",
   "engine.failed": "This computer couldn't start the helper. Restart the app to try again.",

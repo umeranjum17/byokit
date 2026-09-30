@@ -83,6 +83,7 @@ mock.method(globalThis, 'fetch', (input, options) => {
   });
   syncBuiltinESMExports();
   const ctx = await engine.start();
+  assert.ok(ctx);
   for (let waited = 0; waited < 120_000; waited += 200) {
     if (await listening(ctx.port)) break;
     await delay(200);
@@ -125,6 +126,7 @@ async function withGateway<T>(plugins: string[], fn: (ctx: SignInCtx, request: G
   let probeTransport: GatewayTransport | undefined;
   try {
     const seam = await probe.start();
+    assert.ok(seam);
     for (let waited = 0; waited < 120_000; waited += 200) {
       if (await listening(seam.port)) break;
       await delay(200);

@@ -172,8 +172,16 @@ The pinned engine has no supported hook for sealing OAuth profile writes. Its `a
 credential JSON in agent SQLite databases and a shared state database, and doctor imports leave migration
 archives. `authSeal` therefore protects the complete isolated `state` and `home` directories, including SQLite
 journals. It uses the injected `SealingAdapter` from `@byokit/secrets`. `osKeyringSeal()` automatically
-falls back to a persistent private file key when no non-interactive keyring is available, including
-locked or unresponsive Linux keyrings; existing `authSeal` calls pick up the chain unchanged.
+uses a persistent private file key for new stores when no non-interactive keyring is available.
+Opening follows the saved envelope's mode. A locked or unresponsive keyring-only store leaves
+`kit.state.phase === 'locked'`: `prepare()` and `start()` resolve, show `stateWords(kit.state)` for
+recovery, and keep the sealed snapshot unchanged without launching the engine. Call `start()` again
+after unlock to restore the same credentials, even if a fallback key directory now exists.
+
+For hosts whose keyring stays locked, opt into `osKeyringSeal({ service, dualWrap: true })`.
+While unlocked, reading an existing keyring-only snapshot atomically upgrades it to dual-wrap.
+Later starts and stops can use the host wrap without prompting. Default off: **protection is only
+as strong as the owner-only host-key file**, which must stay outside sealed-store backups.
 
 ```ts
 import { osKeyringSeal, hostKeySeal } from '@byokit/secrets';
@@ -187,7 +195,7 @@ await kit.prepare(); // seals an existing plaintext store and migration archives
 await kit.start();   // authenticates and restores the isolated files for the engine
 await kit.stop();    // waits for exit, verifies an atomic sealed snapshot, then removes plaintext
 
-// Inspect the adapter's mode for host UI: 'keyring' or 'host-key-file'.
+// Inspect the adapter's write mode: 'keyring', 'host-key-file' or opt-in 'dual-wrap'.
 // Hosts can also explicitly supply a 32-byte key kept outside stateDir and its backups:
 declare const hostKey: Uint8Array;
 const server = new OpenClawKit({
@@ -200,7 +208,8 @@ The automatic key lives in the platform state directory, separate from the engin
 on the same disk protects copied stores/backups only when the key directory is excluded; it does
 not protect against code running as the same OS user. See [secrets' rotation and threat model](../secrets/README.md#servers-and-headless-node).
 Stop the kit, acquire the host writer lock and call `seal.rotate()` with `auth-store.sealed` plus
-every retained sealed migration archive before retiring an automatic key.
+every retained sealed migration archive before retiring an automatic key. Rotate each envelope mode
+separately; dual-wrap rotation retains old wrapping keys for backups.
 
 Without `authSeal`, engine credentials remain plaintext. With it, successful `prepare()` and `stop()` leave
 only a sealed snapshot, `auth-store.sealed`, for those directories. The adapter authenticates the snapshot

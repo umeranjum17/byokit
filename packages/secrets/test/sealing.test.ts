@@ -24,6 +24,68 @@ function fakeRing() {
   return { ring, data };
 }
 
+test('keyring-only stores survive locked open and unlock without changing ciphertext', async () => {
+  const { ring } = fakeRing();
+  const o = { service: 'locked-open', stateDir: scratchDir('locked-open'), keyring: ring };
+  const path = join(o.stateDir, 'private', 'accounts.bin');
+  await fileStore(path, osKeyringSeal(o)).modify('provider', async () => ({ type: 'api_key', key: CANARY }));
+  const bytes = readFileSync(path);
+  const get = ring.get;
+  ring.get = () => { throw new Error('locked'); };
+  const reopened = fileStore(path, osKeyringSeal(o));
+  await assert.rejects(reopened.read('provider'), code('keyring-locked'));
+  await assert.rejects(reopened.delete('provider'), code('keyring-locked'));
+  assert.deepEqual(readFileSync(path), bytes);
+  ring.get = get;
+  assert.equal((await reopened.read('provider'))?.type, 'api_key');
+  assert.ok(existsSync(hostKeyFileDirectory(o)), 'locked construction created a fallback directory');
+  assert.equal((await fileStore(path, osKeyringSeal(o)).read('provider'))?.type, 'api_key', 'fallback directory cannot override a mode-1 header');
+  assert.deepEqual(readFileSync(path), bytes);
+});
+
+test('dual wrapping opens while locked, authenticates both wraps and atomically upgrades keyring-only stores', async () => {
+  const { ring } = fakeRing();
+  const o = { service: 'dual-test', stateDir: scratchDir('dual-wrap'), keyring: ring };
+  const path = join(o.stateDir, 'private', 'accounts.bin');
+  await fileStore(path, osKeyringSeal(o)).modify('provider', async () => ({ type: 'api_key', key: CANARY }));
+  const original = readFileSync(path);
+  assert.equal(original[4], 1);
+  const dual = osKeyringSeal({ ...o, dualWrap: true });
+  const upgraded = fileStore(path, dual);
+  // A failed atomic rename leaves the original envelope/key intact and retryable.
+  const rename = fs.renameSync;
+  fs.renameSync = ((from, to) => { if (to === path) throw new Error('interrupted'); return rename(from, to); }) as typeof fs.renameSync;
+  syncBuiltinESMExports();
+  try { await assert.rejects(upgraded.read('provider'), /interrupted/); }
+  finally { fs.renameSync = rename; syncBuiltinESMExports(); }
+  assert.deepEqual(readFileSync(path), original);
+  assert.equal((await upgraded.read('provider'))?.type, 'api_key');
+  const bytes = readFileSync(path);
+  assert.equal(bytes[4], 3);
+  assert.ok(!bytes.includes(Buffer.from(CANARY)));
+  const hostPath = join(o.stateDir, 'private', 'host.bin');
+  await fileStore(hostPath, hostKeyFileSeal(o)).modify('provider', async () => ({ type: 'api_key', key: CANARY }));
+  const hostBytes = readFileSync(hostPath);
+  const directlySealed = Buffer.from(dual.encryptString(CANARY));
+  const get = ring.get;
+  ring.get = () => { throw new Error('locked'); };
+  const locked = osKeyringSeal({ ...o, dualWrap: true });
+  assert.equal(locked.decryptString(directlySealed), CANARY);
+  assert.equal((await fileStore(hostPath, locked).read('provider'))?.type, 'api_key');
+  assert.deepEqual(readFileSync(hostPath), hostBytes, 'mode-2 stores are not upgraded');
+  assert.equal((await fileStore(path, locked).read('provider'))?.type, 'api_key');
+  assert.deepEqual(readFileSync(path), bytes);
+  // Even the inaccessible keyring wrap is bound into the payload authentication.
+  for (const at of [0, 4, 5, 21, 25, 29, 55, 29 + bytes.readUInt32BE(21) + 50, bytes.length - 1]) {
+    const tampered = Buffer.from(bytes); tampered[at] ^= at === 4 ? 128 : 1;
+    assert.throws(() => locked.decryptString(tampered), code('auth-failed'));
+  }
+  ring.get = get;
+  assert.equal(osKeyringSeal(o).decryptString(bytes), dual.decryptString(bytes));
+  assert.equal(dual.decryptString(original), osKeyringSeal(o).decryptString(original));
+  assert.throws(() => osKeyringSeal({ ...o, dualWrap: true, fallback: false }), code('invalid'));
+});
+
 test('real-keyring guard refuses the user bus, missing proof and inherited desktop settings before native calls', () => {
   const root = '/tmp/ks.Umer01';
   const bus = 'unix:path=/tmp/dbus-Umer123,guid=abcdef';
@@ -303,13 +365,37 @@ test('private Secret Service: locked/hung probes never unlock or prompt; opencla
     import { join } from 'node:path';
     const mode = process.argv[1];
     const stateDir = process.argv[2];
+    const recovery = process.argv[3];
     const start = Date.now();
     const seal = osKeyringSeal({ service: 'fake-service', stateDir, timeoutMs: 500 });
+    if (recovery === 'open') {
+      const rawFile = join(stateDir, 'probe.sealed');
+      const original = readFileSync(rawFile);
+      const states = [];
+      const engine = new Engine({ stateDir: join(stateDir, 'engine-state'), authSeal: seal, pluginId: 'byokit', tools: [], spawnEngine: false, onState(s) { states.push(s); }, onExit() {} });
+      const file = join(engine.root, 'auth-store.sealed');
+      const bytes = readFileSync(file);
+      if (mode === 'unlocked') {
+        assert.equal(seal.decryptString(original), 'key-canary');
+        await engine.start();
+        assert.equal(readFileSync(join(engine.root, 'state', 'auth.json'), 'utf8'), 'engine-auth-canary');
+        await engine.stop();
+      } else {
+        assert.throws(() => seal.decryptString(original), e => e.code === 'keyring-locked');
+        await engine.prepare();
+        assert.equal(await engine.start(), undefined);
+        assert.equal(states.at(-1).phase, 'locked');
+        assert.deepEqual(readFileSync(file), bytes);
+      }
+      assert.deepEqual(readFileSync(rawFile), original);
+      process.exit(0);
+    }
     assert.equal(seal.mode, mode === 'unlocked' ? 'keyring' : 'host-key-file');
     assert.ok(Date.now() - start < 2000, 'probe is bounded');
     const ciphertext = Buffer.from(seal.encryptString('key-canary'));
     assert.equal(seal.decryptString(ciphertext), 'key-canary');
     assert.equal(ciphertext.includes('key-canary'), false);
+    writeFileSync(join(stateDir, 'probe.sealed'), ciphertext, { mode: 0o600 });
     const engine = new Engine({ stateDir: join(stateDir, 'engine-state'), authSeal: seal, pluginId: 'byokit', tools: [], spawnEngine: false, onState() {}, onExit() {} });
     const credentials = join(engine.root, 'state', 'auth.json');
     mkdirSync(join(engine.root, 'state'), { recursive: true });
@@ -359,6 +445,18 @@ test('private Secret Service: locked/hung probes never unlock or prompt; opencla
       mkdirSync(stateDir, { mode: 0o700 });
       await new Promise((resolve, reject) => {
         const child = spawn(process.execPath, ['--input-type=module', '-e', ${JSON.stringify(childProgram)}, mode, stateDir], { stdio: ['ignore', 'pipe', 'pipe'] });
+        let output = ''; child.stdout.on('data', b => output += b); child.stderr.on('data', b => output += b);
+        child.on('error', reject); child.on('exit', code => code === 0 ? resolve() : reject(new Error(output)));
+      });
+    }
+    const recoveryDir = ${JSON.stringify(root)} + '/recovery';
+    mkdirSync(recoveryDir, { mode: 0o700 });
+    for (const phase of ['unlocked', 'locked', 'hung', 'unlocked']) {
+      mode = phase;
+      const operation = phase === 'unlocked' && !keys.has('recovery-created') ? 'seal' : 'open';
+      keys.set('recovery-created', Buffer.alloc(0));
+      await new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, ['--input-type=module', '-e', ${JSON.stringify(childProgram)}, mode, recoveryDir, operation], { stdio: ['ignore', 'pipe', 'pipe'] });
         let output = ''; child.stdout.on('data', b => output += b); child.stderr.on('data', b => output += b);
         child.on('error', reject); child.on('exit', code => code === 0 ? resolve() : reject(new Error(output)));
       });

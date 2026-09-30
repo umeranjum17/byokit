@@ -30,7 +30,9 @@ export async function isolationContract(install?: (dir: string) => string): Prom
   const engine = new Engine({ stateDir: join(dir, 'own'), ...(install ? { engineDir: install(dir), npmPath: process.execPath } : {}), pluginId: 'byokit', tools: [], spawnEngine: true,
     onState: s => states.push(`${s.phase}/${s.why ?? ''}`), onExit() {} });
   try {
-    const { port, token, identityPath } = await engine.start();
+    const ctx = await engine.start();
+    assert.ok(ctx);
+    const { port, token, identityPath } = ctx;
     assert.notEqual(port, 18789);
     assert.equal(token.length, 64);
     for (const file of [identityPath, join(engine.root, 'token')])

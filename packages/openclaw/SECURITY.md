@@ -23,6 +23,13 @@ running as the app's user, a compromised host/engine/plugin, or readable backups
 The isolated environment and tool gate are not an OS filesystem/network sandbox.
 The app must sandbox `ToolHost.call` and judge requests in `ToolHost.gate`.
 
+A locked or unresponsive keyring leaves the sealed snapshot unchanged. `prepare()` and `start()`
+resolve with `phase: 'locked'`, do not restore plaintext or launch the engine, and a later start
+retries after unlock. Opt-in dual wrapping opens through an owner-only host key without prompting;
+its protection is only as strong as that file, which must stay outside sealed-store backups.
+Unlocked keyring-only snapshots upgrade atomically under the store's exclusive lock after verifying
+the replacement decrypts to identical contents. Other sealing failures still reject.
+
 ## Secrets at rest and in memory
 
 | Asset | Location relative to `stateDir` | Protection and consequence of theft |

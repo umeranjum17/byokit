@@ -97,6 +97,7 @@ test('Engine.start keeps a legacy device.json byte-for-byte', async () => {
     writeFileSync(join(root, 'device.json'), before, { mode: 0o600 });
     const engine = new Engine({ stateDir: dir, pluginId: 'byokit', tools: [], spawnEngine: false, onState() {}, onExit() {} });
     const ctx = await engine.start();
+    assert.ok(ctx);
     try {
       assert.equal(ctx.identityPath, join(root, 'device.json'));
       assert.equal(readFileSync(join(root, 'device.json'), 'utf8'), before);

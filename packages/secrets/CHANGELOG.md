@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- SECURITY: Add opt-in dual wrapping with a keyring and owner-only host key; its protection is only as strong as the host-key file, which must stay out of sealed-store backups. The default remains keyring-only when available.
+- FIX: Open sealed stores using their header mode, even after a locked start creates a fallback directory. Locked or unresponsive keyring-only reads report recoverable keyring-locked and preserve the store; unlocked reads can atomically upgrade existing stores to opt-in dual wrapping.
+
 ## 0.4.0 (2026-09-30)
 
 

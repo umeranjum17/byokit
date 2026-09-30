@@ -101,7 +101,7 @@ ciphertext have kit-owned formats, so pointing at an old app's database is not a
 ## Errors
 
 `KeystoreError` with `code`: `invalid` (bad name, secret, path, passphrase or options — messages name the
-entry, never the secret), `auth-failed` (wrong passphrase/key, tampered file or web ciphertext/key), `unsupported` (Windows CLI keyring
+entry, never the secret), `keyring-locked` (sealed keyring credentials temporarily inaccessible; retry after unlock), `auth-failed` (wrong passphrase/key, tampered file or web ciphertext/key), `unsupported` (Windows CLI keyring
 or unsupported native OS), `unavailable` (missing/inaccessible native keyring, CLI, host key, Expo peer or browser APIs), `failed` (anything else: platform
 errors, timeouts, oversized output, unreadable files). Missing entries are not errors: `get` resolves null and
 `delete` resolves false.
@@ -124,9 +124,15 @@ keep them off renderer/request latency paths. Each service must be unique to an 
 `osKeyringSeal` tries non-interactive OS keyring access when constructed. If available, it creates a
 random 32-byte data key on the first write and stores it in the OS keyring. If the service is absent,
 locked or unresponsive, it automatically uses the persistent host-key file described below.
-`seal.mode` reports `'keyring'` or `'host-key-file'`; `hostKeySeal().mode` is `'host-key'`.
+`seal.mode` reports the current write mode (successful reads adopt the store's mode): `'keyring'`, `'host-key-file'` or opt-in `'dual-wrap'`; `hostKeySeal().mode` is `'host-key'`.
 Pass `fallback: false` when the keyring is mandatory. Once a file key exists, it remains the mode
-for that service even if a keyring becomes available later; changing modes requires migration. Provider credentials remain in the sealed accounts file.
+for new writes to that service even if a keyring becomes available later. **Reads always follow the store
+header**: mode 1 uses the keyring, mode 2 uses the host file key, regardless of the write mode or an
+existing fallback directory. A mode-1 store opened while the keyring is locked or unresponsive throws
+sanitized `KeystoreError` code `keyring-locked`, not `auth-failed`; it stays unchanged. Retry the read
+after unlock (the same adapter works). `@byokit/openclaw` resolves `prepare()`/`start()` in a `locked`
+state with plain words, and a later `start()` retries. It does not launch the helper with an empty store.
+Provider credentials remain in the sealed accounts file.
 Automatic keyring selection runs operations in a short-lived helper with a 1000 ms timeout
 (`timeoutMs`, 100–5000 ms). Key material travels over private stdin/stdout pipes, never arguments or
 child environment variables. Electron helpers use `ELECTRON_RUN_AS_NODE=1`; hosts that disable
@@ -137,6 +143,38 @@ Windows uses the native Credential Manager backend. The pinned macOS native bind
 authorization UI, so automatic selection uses the file key there; explicit `osKeyring()` remains
 available to hosts that permit interaction. Injected `keyring` backends must themselves be bounded
 and non-interactive. The kit never configures or unlocks the person's keyring.
+
+### Opt-in dual wrapping
+
+```ts
+import { osKeyringSeal } from '@byokit/secrets/node';
+const seal = osKeyringSeal({ service: 'my-app', dualWrap: true });
+```
+
+Default **off**. When the keyring is accessible, each mode-3 envelope wraps a fresh random payload
+key with both the OS keyring and the persistent owner-only host file key. A locked or unresponsive
+keyring can open this envelope through the host wrap without prompting. The payload authenticates
+both wrapping envelopes, their lengths, the outer header and service. **A dual-wrapped store is only
+as strong as the owner-only host-key file**, even if the OS keyring is locked. Exclude the host-key
+directory from backups/exposure boundaries containing ciphertext; same-user code and whole-disk
+copies containing both key and store can decrypt it. `dualWrap: true` with `fallback: false` is invalid.
+
+Reading an existing keyring-only store while unlocked upgrades it to dual-wrap atomically through
+accounts `fileStore` or OpenClaw's `authSeal`. Authentication/validation and a decrypt-equality check
+precede replacement; a failure or interrupted replacement leaves the original key/store usable.
+Hold the app's exclusive writer lock when multiple processes share a store. Other consumers of the
+adapter must call its optional `upgrade(bytes)` after validating decrypted contents, verify equality,
+and atomically replace the file themselves; `decryptString` alone never changes disk.
+
+A newly constructed adapter without keyring access still selects host-key-file for new stores.
+Successful reads adopt the stored mode for subsequent writes, so an unlocked keyring-only store
+stays keyring-only and a dual store stays dual. While locked, dual updates reuse only authenticated
+encrypted wrapping metadata with a fresh payload nonce; plaintext keys are never cached. Creating
+new dual wraps requires keyring access. There is no automatic rewrite of a locked keyring-only store.
+Dual `rotate(paths)` creates a new keyring wrapping key and reseals the supplied stores, retaining
+prior wrapping keys for backups. It does not retire or rotate the shared host-file wrapping key. Rotate mixed-mode archives in separate groups.
+
+### Envelope and keyring rotation
 
 The envelope is `BKS1 | mode (1 byte) | key id (16 bytes) | sealSecretBox payload`, using
 `@byokit/seal`'s XSalsa20-Poly1305 with a fresh 24-byte nonce. The encrypted payload repeats the

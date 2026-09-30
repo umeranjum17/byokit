@@ -22,7 +22,7 @@ Apps hold API keys. The store must make sure that:
 | Phone | Optional Expo SecureStore peer; encoded names under an app prefix, consistent host-passed options on all calls; no plaintext simulator fallback. Platform errors are sanitized. |
 | Web | IndexedDB persists a non-extractable AES-256-GCM key and versioned ciphertext with a fresh 96-bit IV. Entry names are authenticated as AAD. Key initialization is atomic across tabs; operations finish on transaction commit. |
 | Override | A validated copy of the host's map. Credential environment variables are never read; a static test restricts OS placement/session reads to the automatic sealing helpers. |
-| Errors | `KeystoreError` codes `invalid` / `auth-failed` / `unsupported` / `unavailable` / `failed`. Messages name the entry, never the secret. Missing entries resolve null/false, not errors. |
+| Errors | `KeystoreError` codes `invalid` / `auth-failed` / `keyring-locked` / `unsupported` / `unavailable` / `failed`. Messages name the entry, never the secret. Missing entries resolve null/false, not errors. |
 
 ## Adversaries and what stops them
 
@@ -51,17 +51,23 @@ Apps hold API keys. The store must make sure that:
    Missing/locked native storage rejects sanitized `unavailable`; Linux forces persistent Secret Service.
    The legacy CLI backend alone remains unsupported on Windows. Automatic sealing uses a bounded
    helper and never calls Linux Unlock/Prompt; missing, locked or hung services select a private
-   persistent file key. Automatic macOS selection uses a file key because the pinned binding
+   persistent file key for new writes. Reads dispatch on the stored header: keyring-only
+   envelopes report recoverable `keyring-locked` while inaccessible, never use the file decoder,
+   and remain usable after unlock even if a fallback directory now exists. Automatic macOS selection uses a file key because the pinned binding
    cannot suppress authorization UI. Explicit native APIs remain host-controlled.
 
 7. **Automatic file keys share the OS user boundary.** Copies of sealed stores are protected only
    if their key directory is excluded. Whole-disk copies, privileged attackers and code running
    as the same OS user can access the key. Rotation requires a host writer lock and a complete
    list of stores/archives; omitted old ciphertext becomes unreadable after retirement.
-8. **Web origin access is powerful.** Non-extractability prevents exporting key bytes through WebCrypto;
+8. **Dual wrapping is explicit and weakens the boundary.** With `dualWrap: true`, keyring
+   access is unnecessary for reading mode-3 envelopes: the owner-only host key can unwrap the
+   payload key. Protection is only as strong as that file. The default is off. Upgrades authenticate
+   the source and replacement before atomic rename and retain the original key for recovery.
+9. **Web origin access is powerful.** Non-extractability prevents exporting key bytes through WebCrypto;
    it does not stop same-origin scripts, XSS or browser extensions from asking that key to decrypt.
    Entry names remain visible metadata. Clearing/evicting storage loses the key and requires sign-in again.
-9. **Native storage follows the app's OS policy.** Uninstall/backup/biometric changes can remove or invalidate
+10. **Native storage follows the app's OS policy.** Uninstall/backup/biometric changes can remove or invalidate
    entries; SecureStore payload limits vary by OS. The host configures Expo's plugin and authentication policy.
    Native delete is a read followed by a delete; concurrent callers may both return true.
 

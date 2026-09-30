@@ -110,6 +110,58 @@ assert.equal(check.length, 'Umer shipped the first version today.'.length);
       const nested = join(appDir, "node_modules", e.name, "node_modules", "@byokit");
       if (existsSync(nested)) fail(e.name, `nested @byokit under ${e.name}: a pin the tarballs do not satisfy`);
     }
+    writeFileSync(join(appDir, "locked-seal.mjs"), `
+import assert from 'node:assert/strict';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileStore } from '@byokit/accounts';
+import { osKeyringSeal } from '@byokit/secrets/node';
+import { OpenClawKit, stateWords } from '@byokit/openclaw';
+import { fakeGateway } from '@byokit/openclaw/testing';
+const stateDir = join(process.cwd(), 'seal-state');
+mkdirSync(stateDir, { mode: 0o700 });
+const keys = new Map();
+let locked = false;
+const keyring = { get(name) { if (locked) throw new Error('locked'); return keys.get(name) ?? null; },
+  set(name, value) { keys.set(name, value); }, delete: name => keys.delete(name) };
+const o = { service: 'packed-seal', stateDir, keyring };
+const seal = osKeyringSeal(o);
+const path = join(stateDir, 'private', 'accounts.bin');
+await fileStore(path, seal).modify('provider', async () => ({ type: 'api_key', key: 'packed-canary' }));
+const before = readFileSync(path);
+const engineRoot = join(stateDir, 'openclaw');
+mkdirSync(join(engineRoot, 'state'), { recursive: true });
+writeFileSync(join(engineRoot, 'state', 'auth.json'), 'packed-login');
+await new OpenClawKit({ stateDir, authSeal: seal, spawnEngine: false }).prepare();
+const engineFile = join(engineRoot, 'auth-store.sealed');
+const engineBefore = readFileSync(engineFile);
+locked = true;
+const fallback = osKeyringSeal(o);
+await assert.rejects(fileStore(path, fallback).read('provider'), e => e.code === 'keyring-locked');
+const kit = new OpenClawKit({ stateDir, authSeal: fallback, spawnEngine: false, transport: fakeGateway().factory });
+await kit.prepare(); await kit.start();
+assert.equal(kit.state.phase, 'locked');
+assert.match(stateWords(kit.state), /saved sign-in is locked/);
+assert.deepEqual(readFileSync(path), before);
+assert.deepEqual(readFileSync(engineFile), engineBefore);
+locked = false;
+await kit.start(); assert.equal(kit.state.phase, 'ready'); await kit.stop();
+const dual = osKeyringSeal({ ...o, dualWrap: true });
+await fileStore(path, dual).read('provider');
+assert.equal(readFileSync(path)[4], 3);
+const dualKit = new OpenClawKit({ stateDir, authSeal: dual, spawnEngine: false, transport: fakeGateway().factory });
+await dualKit.prepare();
+locked = true;
+assert.equal((await fileStore(path, osKeyringSeal({ ...o, dualWrap: true })).read('provider')).key, 'packed-canary');
+await dualKit.start(); assert.equal(dualKit.state.phase, 'ready'); await dualKit.stop();
+assert.equal(readFileSync(engineFile)[4], 3);
+`);
+    try {
+      sh("node", ["locked-seal.mjs"], appDir);
+      pass("sealing [locked recovery and dual wrapping]");
+    } catch (err) {
+      fail("sealing [locked recovery and dual wrapping]", (err as Error).message);
+    }
     // Import every export subpath, default and browser conditions.
     const subpaths: { spec: string; browser: boolean }[] = [];
     const bins: { pkg: string; bin: string }[] = [];

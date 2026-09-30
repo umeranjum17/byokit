@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { hostKeyFileDirectory, hostKeyFileSeal, durableReplace, type HostKeyFileOptions } from './host-key-file.ts';
 import { boundedKeyring } from './bounded-keyring.ts';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { openSecretBox, sealSecretBox } from '@byokit/seal';
 import { KeystoreError } from './errors.ts';
 import type { KeyringBackend } from './os-keyring.ts';
@@ -9,9 +9,11 @@ import { assertName } from './validate.ts';
 
 /** Structurally matches @byokit/accounts' SafeStorageLike; no accounts runtime dependency. */
 export interface SealingAdapter {
-  readonly mode?: 'keyring' | 'host-key-file' | 'host-key';
+  readonly mode?: 'keyring' | 'host-key-file' | 'host-key' | 'dual-wrap';
   encryptString(text: string): Uint8Array;
   decryptString(data: Buffer): string;
+  /** Optional authenticated migration. Caller verifies and atomically replaces under its writer lock. */
+  upgrade?(data: Buffer): Uint8Array | undefined;
 }
 
 export type HostKey = Uint8Array | (() => Uint8Array);
@@ -24,16 +26,18 @@ export type HostKeySealOptions = {
 export type OSKeyringSealOptions = HostKeyFileOptions & {
   /** Disable the automatic file fallback when an OS keyring is mandatory. */
   fallback?: boolean;
+  /** Also wrap with an owner-only host file key. Default false; weakens protection to that file. */
+  dualWrap?: boolean;
   /** Bound each native operation; default 1000 ms, maximum 5000 ms. */
   timeoutMs?: number;
   /** Inject a fake in tests; production uses native OS APIs. Dedicated to this service. */
   keyring?: KeyringBackend;
 };
 export interface OSKeyringSeal extends SealingAdapter {
-  readonly mode: 'keyring' | 'host-key-file';
-  /** Keyring only: activate a fresh key, retaining old keys. Returns its id. */
+  readonly mode: 'keyring' | 'host-key-file' | 'dual-wrap';
+  /** Keyring and dual modes: activate a fresh key, retaining old keys. Returns its id. */
   rotateKey(): string;
-  /** Re-seal every supplied file then retire its old key; hold the host writer lock. */
+  /** Re-seal supplied files under the host writer lock; dual mode retains wrapping keys. */
   rotate(paths?: readonly string[]): void;
 }
 
@@ -104,7 +108,7 @@ export function hostKeySeal(o: HostKeySealOptions): SealingAdapter {
 }
 
 /** Ready adapter for accounts.fileStore(path, osKeyringSeal({ service })). */
-function keyringSeal(o: OSKeyringSealOptions): OSKeyringSeal {
+function keyringSeal(o: OSKeyringSealOptions, probe = false): OSKeyringSeal {
   assertName(o?.service, 'service');
   const service = o.service;
   const ring = o.keyring ?? boundedKeyring({ service, timeoutMs: o.timeoutMs });
@@ -139,7 +143,7 @@ function keyringSeal(o: OSKeyringSealOptions): OSKeyringSeal {
     return id;
   };
   // Probe non-interactive access before selecting keyring mode, without creating a key.
-  call(() => ring.get(ACTIVE));
+  if (probe) call(() => ring.get(ACTIVE));
   return {
     mode: 'keyring',
     encryptString(text) {
@@ -151,9 +155,14 @@ function keyringSeal(o: OSKeyringSealOptions): OSKeyringSeal {
     },
     decryptString(data) {
       const header = headerOf(data, 1);
-      const key = readKey(header.subarray(5).toString('hex'));
-      try { return decrypt(data, key, header, service); }
-      finally { key.fill(0); }
+      try {
+        const key = readKey(header.subarray(5).toString('hex'));
+        try { return decrypt(data, key, header, service); }
+        finally { key.fill(0); }
+      } catch (error) {
+        if (error instanceof KeystoreError && error.code === 'unavailable') throw keyringLocked();
+        throw error;
+      }
     },
     rotateKey: rotate,
     rotate(paths) {
@@ -168,19 +177,134 @@ function keyringSeal(o: OSKeyringSealOptions): OSKeyringSeal {
   };
 }
 
-/** Keyring first; once provisioned, the app's file key remains its stable mode. */
+const keyringLocked = () => new KeystoreError('keyring-locked', 'Saved sign-in is locked or temporarily inaccessible; try again after unlocking password storage');
+const inaccessible = (error: unknown) => error instanceof KeystoreError && ['unavailable', 'unsupported', 'keyring-locked'].includes(error.code);
+
+/** Writes use the selected mode; reads always use the authenticated envelope's mode. */
 export function osKeyringSeal(o: OSKeyringSealOptions): OSKeyringSeal {
   assertName(o?.service, 'service');
-  const fallback = () => {
-    const file = hostKeyFileSeal(o);
-    return { ...file, rotateKey(): string {
-      throw new KeystoreError('invalid', 'Use rotate(paths) to rotate an automatic host key');
-    } };
-  };
-  if (o.fallback !== false && existsSync(hostKeyFileDirectory(o))) return fallback();
-  try { return keyringSeal(o); }
-  catch (error) {
-    if (o.fallback === false || !(error instanceof KeystoreError) || !['unavailable', 'unsupported'].includes(error.code)) throw error;
-    return fallback();
+  if (o.dualWrap && o.fallback === false) throw new KeystoreError('invalid', 'Dual wrapping requires the host key fallback');
+  let ring: OSKeyringSeal | undefined;
+  let file: ReturnType<typeof hostKeyFileSeal> | undefined;
+  const host = () => file ??= hostKeyFileSeal(o);
+  const keyring = () => ring ??= keyringSeal(o);
+  let mode: OSKeyringSeal['mode'] = 'host-key-file';
+  if (o.dualWrap || o.fallback === false || !existsSync(hostKeyFileDirectory(o))) {
+    try { ring = keyringSeal(o, true); mode = o.dualWrap ? 'dual-wrap' : 'keyring'; }
+    catch (error) { if (!inaccessible(error) || o.fallback === false) throw error; }
   }
+  if (mode === 'host-key-file') host();
+  const ringDecrypt = (data: Buffer): string => {
+    try { return keyring().decryptString(data); }
+    catch (error) { if (inaccessible(error)) throw keyringLocked(); throw error; }
+  };
+  // Mode 3: header | two u32 wrap lengths | keyring wrap | host wrap | payload box.
+  // Both wraps contain the random payload key and the outer header. The payload also
+  // authenticates a hash of BOTH wraps and their lengths, even when one is inaccessible.
+  let dualSource: Buffer | undefined;
+  const context = (wraps: Buffer) => `${o.service}:dual:${createHash('sha256').update(wraps).digest('hex')}`;
+  const dualEncrypt = (text: string): Uint8Array => {
+    const header = makeHeader(3, randomBytes(16));
+    const key = randomBytes(32);
+    try {
+      const wrappedText = JSON.stringify({ header: header.toString('hex'), key: key.toString('hex') });
+      let a: Buffer;
+      try { a = Buffer.from(keyring().encryptString(wrappedText)); }
+      catch (error) {
+        if (!inaccessible(error) || !dualSource) throw error;
+        // Reuse only encrypted wrapping metadata from a fully authenticated read.
+        // Fresh secretbox nonces permit updating its payload while the keyring stays locked.
+        return dualRewrite(text, dualSource);
+      }
+      const b = Buffer.from(host().encryptString(wrappedText));
+      const lengths = Buffer.alloc(8); lengths.writeUInt32BE(a.length, 0); lengths.writeUInt32BE(b.length, 4);
+      const wraps = Buffer.concat([lengths, a, b]);
+      const payload = Buffer.from(encrypt(text, key, header, context(wraps)));
+      return Buffer.concat([header, wraps, payload.subarray(HEADER_BYTES)]);
+    } finally { key.fill(0); }
+  };
+  const dualParts = (data: Buffer, payload = true) => {
+    const header = headerOf(data, 3);
+    if (data.length < HEADER_BYTES + 8) throw authFailed();
+    const aLength = data.readUInt32BE(HEADER_BYTES), bLength = data.readUInt32BE(HEADER_BYTES + 4);
+    const split = HEADER_BYTES + 8 + aLength, end = split + bLength;
+    if (aLength < HEADER_BYTES + 40 + HEADER_BYTES || bLength < HEADER_BYTES + 40 + HEADER_BYTES || end > data.length - (payload ? 40 + HEADER_BYTES : 0)) throw authFailed();
+    const a = data.subarray(HEADER_BYTES + 8, split), b = data.subarray(split, end);
+    headerOf(a, 1); headerOf(b, 2);
+    let text: string;
+    try { text = ringDecrypt(a); }
+    catch (error) { if (!inaccessible(error)) throw error; text = host().decryptString(b); }
+    let key: Buffer;
+    try {
+      const wrap = JSON.parse(text) as { header?: unknown; key?: unknown };
+      if (wrap?.header !== header.toString('hex') || typeof wrap.key !== 'string' || !/^[a-f0-9]{64}$/.test(wrap.key)) throw authFailed();
+      key = Buffer.from(wrap.key, 'hex');
+    } catch { throw authFailed(); }
+    return { header, key, wraps: data.subarray(HEADER_BYTES, end), end };
+  };
+  const dualRewrite = (text: string, source: Buffer): Uint8Array => {
+    const { header, key, wraps } = dualParts(source, false);
+    try { return Buffer.concat([header, wraps, Buffer.from(encrypt(text, key, header, context(wraps))).subarray(HEADER_BYTES)]); }
+    finally { key.fill(0); }
+  };
+  const dualDecrypt = (data: Buffer): string => {
+    const { header, key, wraps, end } = dualParts(data);
+    try {
+      const text = decrypt(Buffer.concat([header, data.subarray(end)]), key, header, context(wraps));
+      dualSource = Buffer.from(data.subarray(0, end));
+      return text;
+    } finally { key.fill(0); }
+  };
+  const adapter: OSKeyringSeal = {
+    get mode() { return mode; },
+    encryptString(text) {
+      if (mode === 'dual-wrap') return dualEncrypt(text);
+      return mode === 'keyring' ? keyring().encryptString(text) : host().encryptString(text);
+    },
+    decryptString(data) {
+      // Validate the common header BEFORE invoking any backend.
+      headerOf(data, data?.[4]);
+      if (data[4] === 1) {
+        const text = ringDecrypt(data);
+        mode = o.dualWrap ? 'dual-wrap' : 'keyring';
+        return text;
+      }
+      if (data[4] === 2) {
+        const text = host().decryptString(data);
+        if (!o.dualWrap) mode = 'host-key-file';
+        return text;
+      }
+      if (data[4] === 3) {
+        const text = dualDecrypt(data);
+        mode = 'dual-wrap';
+        return text;
+      }
+      throw authFailed();
+    },
+    upgrade(data) {
+      if (!o.dualWrap || data[4] !== 1) return undefined;
+      // A failed upgrade never mutates the input or retires its original key.
+      return dualEncrypt(ringDecrypt(data));
+    },
+    rotateKey() {
+      if (mode === 'host-key-file') throw new KeystoreError('invalid', 'Use rotate(paths) to rotate an automatic host key');
+      return keyring().rotateKey();
+    },
+    rotate(paths) {
+      if (!paths?.length) {
+        if (mode === 'host-key-file') { host().rotate(paths); return; }
+        throw new KeystoreError('invalid', 'Rotation requires all sealed store paths');
+      }
+      const bytes = paths.map(path => ({ path, data: readFileSync(path) }));
+      if (new Set(bytes.map(({ data }) => data[4])).size !== 1) throw new KeystoreError('invalid', 'Rotate each sealing mode separately');
+      // Authenticate and adopt the stores' mode before choosing a rotation backend.
+      const sources = bytes.map(({ path, data }) => ({ path, text: adapter.decryptString(data) }));
+      if (mode === 'host-key-file') { host().rotate(paths); return; }
+      if (mode === 'keyring') { keyring().rotate(paths); return; }
+      // Retain prior wrapping keys until callers deliberately retire their backups.
+      keyring().rotateKey();
+      for (const { path, text } of sources) durableReplace(path, adapter.encryptString(text));
+    },
+  };
+  return adapter;
 }

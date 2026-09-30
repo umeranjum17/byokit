@@ -9,6 +9,8 @@ import { recordStore, type EndingStore } from './stores.ts';
 export type SafeStorageLike = {
   encryptString(text: string): Uint8Array;
   decryptString(data: Buffer): string;
+  /** Optional authenticated format upgrade; fileStore verifies and atomically replaces it. */
+  upgrade?(data: Buffer): Uint8Array | undefined;
   isEncryptionAvailable?(): boolean;
   getSelectedStorageBackend?(): string;
 };
@@ -41,12 +43,23 @@ export function fileStore(path: string, safeStorage: SafeStorageLike): EndingSto
     try {
       const st = fstatSync(fd);
       if (!st.isFile() || (st.mode & 0o077)) throw new Error('Credential storage requires a private regular file');
-      return JSON.parse(safeStorage.decryptString(readFileSync(fd)));
+      const bytes = readFileSync(fd);
+      const text = safeStorage.decryptString(bytes);
+      const data = JSON.parse(text);
+      const upgraded = safeStorage.upgrade?.(bytes);
+      if (upgraded) {
+        if (safeStorage.decryptString(Buffer.from(upgraded)) !== text) throw new Error('Credential upgrade verification failed');
+        replace(upgraded);
+      }
+      return data;
     } finally { closeSync(fd); }
   };
   const save = async (data: object) => {
     ready();
     const sealed = safeStorage.encryptString(JSON.stringify(data, null, 2));
+    replace(sealed);
+  };
+  const replace = (sealed: Uint8Array) => {
     mkdirSync(folder, { recursive: true, mode: 0o700 });
     privateFolder();
     const tmp = `${path}.${process.pid}.${randomBytes(12).toString('hex')}.tmp`;
