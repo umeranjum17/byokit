@@ -362,3 +362,46 @@ test('a notification button reaches the host and its answer comes back; one use,
   assert.equal((await press(t4, 'yes')).status, 503, 'the computer is offline; the button still works later');
   assert.equal((await press('made-up', 'yes')).status, 404);
 });
+
+test('server content-free preset strips content and actions, hashes ids and retains delivery routing', async () => {
+  const { contentFreeNotify } = await import('../src/index.ts');
+  const world = pushWorld();
+  const r = await startRelay({ notify: contentFreeNotify('News is ready'), push: { fetch: world.fetch } });
+  const p = await paired(r);
+  await p.client.subscribe('phone', { expo: 'ExponentPushToken[phone]' });
+  await p.client.subscribe('other', { expo: 'ExponentPushToken[other]' });
+  const n = { id: 'private-event', title: 'Private title', body: 'private body', data: { private: true }, actions: ['secret'], to: ['phone'] };
+  assert.deepEqual(await p.client.notify(n, { includeContent: true }), { sent: 1 });
+  const msg = world.sent[0]!.body[0];
+  assert.equal(msg.title, 'News is ready');
+  assert.match(msg.collapseId, /^n[A-Za-z0-9_-]{43}$/);
+  assert.deepEqual(msg.data, { id: msg.collapseId, title: 'News is ready' });
+  assert.doesNotMatch(JSON.stringify(world.sent), /private|secret|other|Private/);
+  assert.deepEqual(await p.client.notify(n, { includeContent: true }), { sent: 0, duplicate: true });
+  assert.equal(world.sent.length, 1);
+  assert.throws(() => contentFreeNotify(''), /bad notification title/);
+});
+
+test('notify hook can transform or suppress and fails closed on invalid output or exceptions', async () => {
+  const world = pushWorld();
+  let mode = 'transform';
+  let host: string | undefined;
+  const r = await startRelay({ push: { fetch: world.fetch }, notify: async (n, id) => {
+    host = id;
+    if (mode === 'drop') return undefined;
+    if (mode === 'error') throw new Error('filter failed');
+    return { ...n, title: mode === 'invalid' ? '' : 'Filtered' };
+  } });
+  const p = await paired(r);
+  await p.client.subscribe('phone', { expo: 'ExponentPushToken[phone]' });
+  assert.deepEqual(await p.client.notify({ id: 'one', title: 'Original' }), { sent: 1 });
+  assert.equal(host, p.host.id);
+  assert.equal(world.sent[0]!.body[0].title, 'Filtered');
+  mode = 'drop';
+  assert.deepEqual(await p.client.notify({ id: 'two', title: 'Original' }), { sent: 0 });
+  mode = 'invalid';
+  await assert.rejects(p.client.notify({ id: 'three', title: 'Original' }), /bad filtered notification/);
+  mode = 'error';
+  await assert.rejects(p.client.notify({ id: 'four', title: 'Original' }), /filter failed/);
+  assert.equal(world.sent.length, 1);
+});

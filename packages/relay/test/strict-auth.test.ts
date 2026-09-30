@@ -73,3 +73,16 @@ test('a device socket cannot act as a host: what it sends is only ever a frame f
   assert.deepEqual(await closed(d), [1013, 'host offline']);
   assert.equal(r.relay.hosts()[0]!.online, false);
 });
+
+test('open signup still rejects forged proofs before registration or host bucket selection', async () => {
+  const hosts: string[] = [];
+  const r = await startRelay({ signup: { open: true, maxHosts: 1 }, limitKey: ({ host }) => {
+    if (host) hosts.push(host);
+    return host;
+  } });
+  const keys = keyPair();
+  const denied = await register(r.ws, () => ({ t: 'hello', key: b64u(keys.publicKey), proof: b64u(new Uint8Array(32)) }));
+  assert.equal(denied.close?.[0], CLOSE.badProof);
+  assert.deepEqual(r.relay.hosts(), []);
+  assert.deepEqual(hosts, []);
+});

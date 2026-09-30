@@ -2,11 +2,17 @@
 
 ## Unreleased
 
-- Depends on @byokit/link 0.5.0.
-- FIX: (from @byokit/link 0.5.0) `decodeOffer()` reads legacy compact direct pairing codes with checksum, padding, bounds and expiry validation; new encodings keep the complete current format.
+- Add explicit capped open signup on self-hosted relays, with proof of key and atomic registration.
+- Add a server notification filter and `contentFreeNotify(title)` preset for fixed-title pushes with hashed ids
+  and no body, data or buttons.
+- Add trusted host/tenant rate-limit bucket selection, retaining per-IP limits by default, and document
+  durable reconnect reconciliation.
+
 ## 0.3.1 (2026-09-30)
 
+- FIX: (from @byokit/link 0.5.0) `decodeOffer()` reads legacy compact direct pairing codes with checksum, padding, bounds and expiry validation; new encodings keep the complete current format.
 - Dependency update: pins @byokit/link 0.5.0.
+
 
 ## 0.3.0 (2026-09-30)
 

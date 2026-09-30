@@ -207,3 +207,35 @@ test('a machine cannot register under another machine\'s address: the proof is f
   assert.deepEqual(await closed(ws), [CLOSE.badProof, 'bad proof']);
   assert.equal(r.relay.hosts()[0]!.online, false);
 });
+
+test('open signup caps concurrent registrations, permits reconnects, and frees slots on revoke', async () => {
+  const r = await startRelay({ signup: { open: true, maxHosts: 1 } });
+  const hs = await Promise.all([startHost(), startHost()]);
+  const cs = hs.map((h) => hostClient(h, r.ws));
+  await until(() => cs.every((c) => ['online', 'refused'].includes(c.client.status)));
+  assert.deepEqual(cs.map((c) => c.client.status).sort(), ['online', 'refused']);
+  const admitted = cs.findIndex((c) => c.client.status === 'online');
+  cs[admitted]!.client.stop();
+  const back = hostClient(hs[admitted]!, r.ws);
+  await until(() => back.client.status === 'online');
+  assert.equal(r.relay.hosts().length, 1);
+  await r.relay.revoke(hs[admitted]!.id);
+  const next = hostClient(hs[1 - admitted]!, r.ws);
+  await until(() => next.client.status === 'online');
+  assert.equal(r.relay.hosts().length, 1);
+});
+
+test('explicit closed signup requires enrolment and invalid caps fail before opening', async () => {
+  for (const signup of ['enrol' as const, { open: false, maxHosts: 1 }]) {
+    const r = await startRelay({ signup });
+    const h = await startHost();
+    const denied = hostClient(h, r.ws);
+    await until(() => denied.client.status === 'refused');
+    const { token } = await r.relay.enrolment();
+    const enrolled = hostClient(h, r.ws, { enrol: token });
+    await until(() => enrolled.client.status === 'online');
+  }
+  for (const maxHosts of [0, -1, 1.5, Infinity, NaN]) {
+    await assert.rejects(startRelay({ signup: { open: true, maxHosts } }), /bad signup policy/);
+  }
+});

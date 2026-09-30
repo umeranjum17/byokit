@@ -20,3 +20,21 @@ through link. `findHost` uses the same address construction after the short-code
 ## Device revoke
 
 `RelayClient.revoke(device)` saves the device to the client's `store` before removing its link grant, and resends the unsubscribe on every connection until the relay confirms that the device's push subscriptions and action tokens are gone (or the relay no longer has the host at all). A relay that is down, restarting or behind a full offline queue delays the removal but no longer loses it. The default store is memory: without a durable one, a host that restarts before the relay confirms forgets the pending unsubscribe, and the relay may keep notifying the removed device.
+
+## Self-hosted policy options
+
+Enrolment-only signup remains the default. Open signup explicitly admits any key that proves possession, up to the
+configured automatic-registration cap. Concurrent registrations share the serialized store update. The cap includes
+existing registrations, never evicts them, and does not constrain the owner's explicit `admit`. Open signup allows a
+revoked key to register again; use enrolment-only signup when revocation must prohibit automatic return.
+
+The server `notify` hook enforces delivery policy on every host. `contentFreeNotify(title)` replaces the title, hashes
+the id and removes body, data and actions before delivery. It preserves delivery hints and recipients. The relay still
+receives the original plaintext; this protects what leaves it, not what an untrusted relay can read. A deterministic
+hash is opaque text, not encryption, and guessable ids remain guessable. Filter exceptions and invalid output stop
+delivery; filter code is trusted app code.
+
+`limitKey` is trusted app policy and replaces the address bucket when it returns a key. Host context is supplied only
+from successful key proof or an unexpired action capability, never from a claimed key or URL. Pre-authentication
+requests retain per-IP limits unless the app supplies a key; tenant mappings must come from trusted authentication,
+not unchecked headers. Categories remain separate and the existing counts/windows apply.
