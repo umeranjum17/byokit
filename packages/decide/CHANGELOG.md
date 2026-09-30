@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.4.4 (2026-09-30)
+
+- Dependency update: pins @byokit/accounts 0.10.0.
+
 ## 0.4.3 (2026-09-30)
 
 - Dependency update: pins @byokit/accounts 0.9.0.
