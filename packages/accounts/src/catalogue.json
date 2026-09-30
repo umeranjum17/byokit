@@ -54,5 +54,21 @@
     "hidden": true,
     "why": "GitHub allows Copilot sign-in only in apps it has partnered with; this uses VS Code's client.",
     "source": "https://github.blog/changelog/2026-01-16-github-copilot-now-supports-opencode"
+  },
+  "anthropic": {
+    "pi": "anthropic",
+    "name": "Claude",
+    "company": "Anthropic",
+    "models": {
+      "strong": "claude-opus-5-5"
+    },
+    "billing": "api",
+    "terms": "allowed",
+    "hidden": false,
+    "auth": "api-key",
+    "label": "API key (billed per use)",
+    "offer": false,
+    "why": "The app passes an Anthropic API key explicitly. API key (billed per use), never a default or subscription fallback.",
+    "source": "https://platform.claude.com/docs/en/api/overview"
   }
 }

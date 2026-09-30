@@ -1,5 +1,5 @@
-// Routes are data (5.7, D12): the shape an app can trust, every offered route a subscription, and no Anthropic
-// CLI/API fallback ever among them. The engine job re-checks every choice id against the pinned tarball.
+// Routes are data (5.7, D12): the shape an app can trust, every offered route a subscription, and no implicit API
+// fallback among them. The engine job re-checks every choice id against the pinned tarball.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { routeFor, routes } from '../src/routes.ts';
@@ -54,22 +54,23 @@ test('OpenRouter is API-billed, never offered (no silent API billing)', () => {
   assert.equal(routeFor('openrouter', 'code'), undefined);
 });
 
-test('no Anthropic route is offered: no CLI and no API-key fallback (D12)', () => {
+test('Anthropic routes require explicit app opt-in; API keys are labelled as billed per use (D12)', () => {
   const byChoice = new Map(routes().map((route) => [route.choice, route]));
   for (const route of routes()) {
     if (route.provider !== 'anthropic' && !route.choice.startsWith('anthropic-')) continue;
-    assert.equal(route.offer, false, `${route.choice} must never be offered`);
+    assert.equal(route.offer, false, `${route.choice} must require explicit opt-in`);
   }
   assert.equal(routeFor('anthropic', 'browser'), undefined);
   assert.equal(routeFor('anthropic', 'code'), undefined);
-  // The Claude-plan routes are still labelled as the subscriptions they are, and never added by the kit.
+  // The Claude-plan routes are still labelled as the subscriptions they are, and require explicit app opt-in.
   for (const choice of ['anthropic-cli', 'setup-token']) {
     assert.equal(byChoice.get(choice)?.billing, 'subscription', choice);
-    assert.equal(byChoice.get(choice)?.reason, 'byokit never adds Claude plan sign-in', choice);
+    assert.equal(byChoice.get(choice)?.reason, 'Requires an explicit app opt-in; the pinned Gateway does not expose this plan route', choice);
   }
-  // An Anthropic API key is API billing, and is never offered either.
+  // An Anthropic API key is API billing, and is never offered by default.
   assert.equal(byChoice.get('apiKey')?.billing, 'api');
   assert.equal(byChoice.get('apiKey')?.offer, false);
+  assert.match(byChoice.get('apiKey')?.reason ?? '', /API key \(billed per use\)/);
   // The CLI prerequisite is stated where it exists, so a card can say it in plain words.
   assert.match(byChoice.get('anthropic-cli')?.prerequisite ?? '', /Claude CLI/);
 });

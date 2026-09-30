@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Anthropic Messages with an app-passed API key (billed per use), explicit model and opt-in; typed native requests, streamed text/tools/thinking/message events, usage/raw results and incomplete max_tokens/refusal handling on every platform.
 - Expose fresh subscription access to host-side capabilities using the app’s own sign-in.
 
 ## 0.11.0 (2026-09-30)

@@ -229,8 +229,8 @@ platform checks and their limits, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 `catalogue.json` labels every provider with its billing (`subscription` or `api`) and its terms status. ChatGPT is a
 subscription sign-in on every platform. OpenRouter is API-billed and only on computers, and is never offered unless an
-app lists it itself; Grok and GitHub Copilot are hidden by default. Claude plan sign-in is never offered: Anthropic
-reserves it for its own apps. Show `billingWords(p)` next to every provider you list.
+app lists it itself; Grok and GitHub Copilot are hidden by default. Anthropic Messages uses an app-passed
+API key (billed per use) on every platform, only when an app explicitly opts in. Show `billingWords(p)` next to every provider you list.
 
 ## What byokit never touches
 

@@ -36,17 +36,20 @@ class Kit extends Accounts {
 const pick = (i: AuthInteraction) => i.prompt({ type: 'select', message: 'how', options: [{ id: 'browser', label: 'Browser' }, { id: 'device_code', label: 'Device code' }] });
 const code = (i: AuthInteraction) => i.notify({ type: 'device_code', userCode: 'CREW-2026', verificationUri: 'https://example.test/device', expiresInSeconds: 900 });
 
-test('the catalogue: ChatGPT by default, OpenRouter only when named, Grok and Copilot only when asked, never Claude', async () => {
+test('the catalogue: ChatGPT by default, OpenRouter only when named, Grok and Copilot only when asked, Anthropic API billing explicit', async () => {
   assert.deepEqual(offered().map((p) => p.key), ['chatgpt']);
   assert.deepEqual(new Kit(async () => {}).providers.map((p) => p.key), ['chatgpt'], 'a computer offers no API billing by default');
   assert.deepEqual(offered(['openrouter']).map((p) => p.key), ['openrouter'], 'named explicitly, still listed');
   assert.deepEqual(offered(['chatgpt', 'grok', 'copilot']).map((p) => p.key), ['chatgpt', 'grok', 'copilot']);
   for (const p of Object.values(PROVIDERS)) assert.ok(p.billing === 'subscription' || p.billing === 'api', p.key);
-  assert.deepEqual(Object.fromEntries(Object.values(PROVIDERS).map((p) => [p.key, p.billing])), { chatgpt: 'subscription', openrouter: 'api', grok: 'subscription', copilot: 'subscription' });
+  assert.deepEqual(Object.fromEntries(Object.values(PROVIDERS).map((p) => [p.key, p.billing])), { chatgpt: 'subscription', openrouter: 'api', grok: 'subscription', copilot: 'subscription', anthropic: 'api' });
   assert.equal(PROVIDERS.chatgpt.models.strong, 'gpt-6-sol');
-  assert.ok(!Object.values(PROVIDERS).some((p) => p.pi === 'anthropic'));
+  assert.equal(PROVIDERS.anthropic.auth, 'api-key');
+  assert.equal(PROVIDERS.anthropic.offer, false);
+  assert.equal(PROVIDERS.anthropic.label, 'API key (billed per use)');
+  assert.deepEqual(offered(['anthropic']).map((p) => p.key), ['anthropic']);
   for (const p of Object.values(PROVIDERS)) assert.ok(p.terms && p.why && p.source.startsWith('https://'), p.key);
-  assert.deepEqual(Object.fromEntries(Object.values(PROVIDERS).map((p) => [p.key, p.terms])), { chatgpt: 'grey', openrouter: 'allowed', grok: 'partner', copilot: 'partner' });
+  assert.deepEqual(Object.fromEntries(Object.values(PROVIDERS).map((p) => [p.key, p.terms])), { chatgpt: 'grey', openrouter: 'allowed', grok: 'partner', copilot: 'partner', anthropic: 'allowed' });
   await assert.rejects(new Kit(async () => {}).login(1, 'grok'), /not offered/);
 });
 

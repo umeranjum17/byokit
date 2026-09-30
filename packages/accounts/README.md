@@ -9,7 +9,7 @@
 
 <p align="center"><strong>Sign in with the AI plan you already pay for, inside your own app.</strong><br/>
 ChatGPT on every platform; OpenRouter on computers when an app offers it (API billing, never by default); Grok and
-GitHub Copilot hidden by default. Sign-ins go into your app's own store: on a computer (Node, Electron), in a browser
+GitHub Copilot hidden by default. Anthropic uses an app-passed API key (billed per use), explicitly opted in. Sign-ins go into your app's own store: on a computer (Node, Electron), in a browser
 (a PWA, Electron's renderer) and on a phone (React Native and Expo, iOS and Android). One import; your bundler picks
 the platform's side (`package.json`'s `react-native` and `browser` conditions).</p>
 
@@ -135,6 +135,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | | Computer (Node, Electron main) | Browser (PWA, Electron renderer) | Phone (React Native: iOS, Android) |
 |---|---|---|---|
 | ChatGPT (subscription) | Its own page, straight back to this computer (port 1455); a code when asked or stuck | Device code | Device code |
+| Anthropic (API key, billed per use) | App passes its own key, explicitly | Same fetch-only Messages provider | Same fetch-only Messages provider |
 | OpenRouter (API billing) | Its own page, back to this computer (Pi's flow), when an app offers it (never by default) | Not yet | Not yet |
 | Grok, Copilot (hidden) | Pi's flows | No | No |
 | Where sign-ins are kept | `fileStore(path, safeStorage)`, sealing required | `browserStore(name)` (IndexedDB) | `secureStore(SecureStore, name)` (Keychain, Keystore) |
@@ -152,7 +153,7 @@ doesn't answer other web pages), so a PWA's model calls go through the app's own
 platform are shown: OpenRouter is API-billed and never offered by default. An explicit list is not platform-filtered,
 so choose from the table above. Show `billingWords(p)` next to every provider you list.
 
-Claude plan sign-in is never offered: Anthropic reserves it for its own apps.
+Anthropic Messages uses an app-passed API key (billed per use), with explicit opt-in; its authentication is separate from the Messages request.
 
 ```ts
 import { Accounts, billingWords, offered } from '@byokit/accounts';
@@ -368,3 +369,51 @@ failures have no fallback rest. `classify` remains an alias. Pass a clock for de
 classification; the default uses `Date.now()`. It stores and logs no error text.
 
 For a capability running where the sign-in lives, `await accounts.access(member, signal)` returns fresh `{ access, accountId }` from the app’s own ChatGPT store. Keep these credentials in that process; proxy signaling or relay media for another device. This uses the same refresh and signed-out behavior as `respond`.
+
+## Anthropic Messages: API key (billed per use)
+
+This route is never a default or a subscription fallback. The app supplies the key and an explicit model.
+The kit never reads keys from environment variables, files or another tool's sign-in.
+
+```ts
+import { anthropic } from '@byokit/accounts';
+
+const claude = anthropic({ key: appKey });
+const answer = await claude.respond({
+  model: 'claude-opus-5-5', max_tokens: 1024,
+  system: 'Be brief.', messages: [{ role: 'user', content: 'Hello' }],
+  result: true, onText: (delta) => show(delta),
+});
+if (answer.status === 'incomplete') show(answer.incompleteReason);
+// answer.text, answer.output, answer.usage, answer.raw
+```
+
+Native `system`, `messages` (images, thinking, tool calls/results), `tools`, `tool_choice`, `thinking`,
+`max_tokens`, `stop_sequences`, `metadata`, sampling and `output_config` pass through unchanged.
+`onEvent` carries text deltas, tool JSON deltas, completed tools/content blocks, message events and an
+incomplete event for `max_tokens` or `refusal`. A stream without `message_stop` fails. With `tools` or
+`result: true`, the result carries metadata; without either, it returns text and throws on an incomplete
+answer. Call `isFunctionCall` on normalized `output` items; use native `raw.content` for the next Messages turn.
+
+The catalogue's `label` is exactly `API key (billed per use)`; show it when presenting the explicit key route.
+`billingWords` also supplies the existing plain sentence about per-use charges.
+
+An `Accounts` instance can also use this route, with `offer: ['anthropic']` and
+`accounts.respond(member, { provider: 'anthropic', key: appKey, model, max_tokens, messages, result: true })`.
+The key is used for that request, never stored by the kit; `login` does not launch a plan flow for this route.
+
+The existing `@byokit/decide` seam accepts it without a new dependency:
+
+```ts
+import { answerer } from '@byokit/decide';
+const backend = answerer({ name: 'anthropic', leaves: true,
+  ask: (prompt, signal) => claude.respond({
+    model: 'claude-opus-5-5', max_tokens: 2048, signal,
+    messages: [{ role: 'user', content: prompt }],
+  }),
+});
+```
+
+An incomplete answer throws through this text seam, so decide abstains rather than parsing a partial answer.
+Browser apps should keep the API key in an app-owned server proxy (`base`); React Native can pass a streaming
+fetch such as Expo's. `betas` explicitly opts into native beta headers.
