@@ -119,6 +119,7 @@ class Bubble(
       layoutParams = LinearLayout.LayoutParams(size, size)
       scaleType = ImageView.ScaleType.FIT_CENTER
       contentDescription = a11yLabel
+      setOnClickListener { events.emit(OverlayEvent.Tap) }
       setOnTouchListener(Touch(context))
     }
     pill = TextView(context).apply {
@@ -236,7 +237,7 @@ class Bubble(
           val (screen, top) = screen()
           when {
             dragging -> settle(Placement.snap(x + rowOffset(), y, screen, bubbleSize(), top, imeTopPx))
-            !longPressed -> { v.performClick(); events.emit(OverlayEvent.Tap) }
+            !longPressed -> v.performClick()
           }
         }
         MotionEvent.ACTION_CANCEL -> {

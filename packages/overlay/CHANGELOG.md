@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.2.3 (2026-09-30)
+
+
+
+- FIX: Bubble activation now emits the same Tap for TalkBack ACTION_CLICK and touch taps, without double firing.
+- FIX: Inserts accept cancellation, stop subsequent field reads, writes and clipboard fallback, and settle once
+  with a cancelled result. Service detach and native module teardown cancel all outstanding inserts.
+
 ## 0.2.2 (2026-09-30)
 
 - FIX: Apps' own accessibility services can now pass the field they captured: `FieldNode.of(node)` and

@@ -1070,8 +1070,9 @@ Entries:
 
 ```ts
 export type FocusedText = { app: string; text: string; selection: { start: number; end: number } | null };
-export type InsertResult = 'inserted' | 'landedWithoutNewlines' | 'copied' | 'failed';
+export type InsertResult = 'inserted' | 'landedWithoutNewlines' | 'copied' | 'failed' | 'cancelled';
 export type InsertOptions = {
+  signal?: AbortSignal;            // cancellation settles once with cancelled
   replace?: 'selection' | 'all';   // default 'selection'
   attempts?: number;               // SET_TEXT tries; default 2 (a panel on top needs ~13 x 150 ms in Chrome)
   retryMs?: number;                // pause between tries; default 150
@@ -1144,10 +1145,11 @@ object FocusedFields {                                                   // the 
   fun find(node: FieldNode): FieldNode?                                  // the node itself or its first editable non-password focused descendant
   fun capture(service: AccessibilityService): FieldNode?                 // the focused field now, kept for a later insert; the caller recycles it
   fun read(service: AccessibilityService): FocusedFieldText?
-  fun insert(node: FieldNode, text: String, replace: String = "selection", opts: InsertOpts = InsertOpts(), pause: (Long) -> Unit = Thread::sleep, copy: (String) -> Boolean = { false }): String
-  fun insert(node: AccessibilityNodeInfo, text: String, replace: String = "selection", opts: InsertOpts = InsertOpts(), pause: (Long) -> Unit = Thread::sleep, copy: (String) -> Boolean = { false }, service: AccessibilityService? = null): String   // finds the field at or under node; "failed" when none
+  fun insert(node: FieldNode, text: String, replace: String = "selection", opts: InsertOpts = InsertOpts(), pause: (Long) -> Unit = Thread::sleep, copy: (String) -> Boolean = { false }, cancellation: InsertCancellation = InsertCancellation(), service: AccessibilityService? = null): String
+  fun insert(node: AccessibilityNodeInfo, text: String, replace: String = "selection", opts: InsertOpts = InsertOpts(), pause: (Long) -> Unit = Thread::sleep, copy: (String) -> Boolean = { false }, service: AccessibilityService? = ByokitAccessibility.service, cancellation: InsertCancellation = InsertCancellation()): String   // finds the field at or under node; "failed" when none
   fun clipboard(context: Context): (String) -> Boolean                  // the copy fallback
 }
+class InsertCancellation { fun cancel() }                               // one operation, idempotent cancellation
 class FocusedFieldModule : Module()                                      // Expo module 'ByokitFocusedField' (BK-O3)
 ```
 
@@ -1167,7 +1169,10 @@ class FocusedFieldModule : Module()                                      // Expo
     below the node, the first editable non-password descendant is taken); `FocusedFields.insert` takes either. A retry refreshes the captured node and, when it went stale (the panel still closing), re-acquires the
     field from the active window only when view id, bounds and package all match, never a different field; the
     captured node stays the caller's to recycle. `FocusedFields.clipboard(context)` is the `copy` fallback. Insert
-    blocks for up to `attempts x retryMs`, so the service calls it off the main thread.
+    blocks for up to `attempts x retryMs`, so the service calls it off the main thread. Each insert accepts an optional
+    `InsertCancellation` (JS: `AbortSignal`); cancellation is checked before field reads, writes and copy fallback,
+    and returns `cancelled` exactly once. Service detach and native module teardown cancel pending inserts.
+    Services detach in both `onUnbind` and `onDestroy`. Bubble touch and accessibility ACTION_CLICK share one Tap handler.
   - *Bubble:* `ServiceBubble` on the attached service's host, or `ServiceBubble(WindowOverlayHost(this), ...)` from the
     app's own foreground service; `drawables(context)`, `PrefsSpotStore(context)` and `reducedMotion(context)` supply
     it. The fixed-host bubble knows no foreground app or keyboard: like the JS `window` host it takes no rules and

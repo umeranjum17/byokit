@@ -47,15 +47,23 @@ object Insert {
     opts: InsertOpts,
     pause: (Long) -> Unit,
     copy: (String) -> Boolean,
+    cancellation: InsertCancellation = InsertCancellation(),
   ): String {
-    repeat(opts.attempts.coerceAtLeast(1)) { i ->
-      if (i > 0) pause(opts.retryMs.coerceAtLeast(0))
-      field.set(whole)
-      val shown = field.text()
-      if (shown == whole) return "inserted"
-      if (opts.acceptNewlineLoss && shown != null && lostOnlyNewlines(whole, shown)) return "landedWithoutNewlines"
+    try {
+      repeat(opts.attempts.coerceAtLeast(1)) { i ->
+        cancellation.step { }
+        if (i > 0) pause(opts.retryMs.coerceAtLeast(0))
+        cancellation.step { field.set(whole) }
+        val shown = cancellation.step { field.text() }
+        if (shown == whole) return cancellation.finish("inserted")
+        if (opts.acceptNewlineLoss && shown != null && lostOnlyNewlines(whole, shown)) {
+          return cancellation.finish("landedWithoutNewlines")
+        }
+      }
+      return cancellation.finish(if (cancellation.step { copy(text) }) "copied" else "failed")
+    } catch (_: InsertCancelled) {
+      return cancellation.finish("cancelled")
     }
-    return if (copy(text)) "copied" else "failed"
   }
 
   /** Whether [shown] is [whole] with only its newlines gone (what a contenteditable reports after a landed insert). */
@@ -65,6 +73,7 @@ object Insert {
 
 /** The JS insert options as a record. */
 class InsertRecord : Record {
+  @Field val operationId: String? = null
   @Field val replace: String = "selection"
   @Field val attempts: Double = 2.0
   @Field val retryMs: Double = 150.0
@@ -76,8 +85,30 @@ class InsertRecord : Record {
  * accessibility service, only when the app calls. Password fields are never read or typed into.
  */
 class FocusedFieldModule : Module() {
+  private data class Job(val cancellation: InsertCancellation, val service: android.accessibilityservice.AccessibilityService?)
+  private val jobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
+  private val ids = java.util.concurrent.atomic.AtomicLong()
+
+  private fun createJob(): Pair<String, Job> {
+    val id = ids.incrementAndGet().toString()
+    val job = Job(InsertCancellation(), ByokitAccessibility.service)
+    ByokitAccessibility.track(job.service, job.cancellation)
+    jobs[id] = job
+    return id to job
+  }
+
   override fun definition() = ModuleDefinition {
     Name("ByokitFocusedField")
+
+    Function("createInsert") { createJob().first }
+    Function("cancelInsert") { id: String -> jobs[id]?.cancellation?.cancel(); Unit }
+    OnDestroy {
+      jobs.values.forEach { job ->
+        job.cancellation.cancel()
+        ByokitAccessibility.untrack(job.service, job.cancellation)
+      }
+      jobs.clear()
+    }
 
     AsyncFunction("available") { ByokitAccessibility.service != null }
     AsyncFunction("read") {
@@ -90,15 +121,24 @@ class FocusedFieldModule : Module() {
       )
     }
     AsyncFunction("insert") { text: String, o: InsertRecord ->
-      val service = ByokitAccessibility.service ?: return@AsyncFunction "failed"
-      val raw = service.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return@AsyncFunction "failed"
+      val (id, job) = o.operationId?.let { id ->
+        id to (jobs[id] ?: return@AsyncFunction "cancelled")
+      } ?: createJob()
+      var raw: AccessibilityNodeInfo? = null
       try {
+        val service = job.service ?: return@AsyncFunction job.cancellation.finish("failed")
+        raw = job.cancellation.step { service.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) }
+        val node = raw ?: return@AsyncFunction job.cancellation.finish("failed")
         FocusedFields.insert(
-          raw, text, o.replace, InsertOpts(o.attempts.toInt(), o.retryMs.toLong(), o.acceptNewlineLoss),
-          Thread::sleep, ::copy, service,
+          node, text, o.replace, InsertOpts(o.attempts.toInt(), o.retryMs.toLong(), o.acceptNewlineLoss),
+          Thread::sleep, ::copy, service, job.cancellation,
         )
+      } catch (_: InsertCancelled) {
+        job.cancellation.finish("cancelled")
       } finally {
-        @Suppress("DEPRECATION") raw.recycle()
+        @Suppress("DEPRECATION") raw?.recycle()
+        ByokitAccessibility.untrack(job.service, job.cancellation)
+        jobs.remove(id)
       }
     }
   }

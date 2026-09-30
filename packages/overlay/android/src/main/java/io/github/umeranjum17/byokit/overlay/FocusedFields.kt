@@ -137,7 +137,8 @@ object FocusedFields {
    * Inserts [text] into [node] (usually from [find] or [capture]): compose over the selection (or `replace = "all"`),
    * set, read back, and retry up to [InsertOpts.attempts] times, pausing [InsertOpts.retryMs]. A retry re-acquires
    * the same field (same view id, bounds and package, never a different field) when [node] went stale. Otherwise
-   * [copy] gets the text: "inserted", "landedWithoutNewlines", "copied" or "failed". [node] stays the caller's.
+   * [copy] gets the text: "inserted", "landedWithoutNewlines", "copied" or "failed". Cancellation returns "cancelled"
+   * before subsequent reads, writes or copy fallback; service detach cancels pending inserts. [node] stays the caller's.
    * [pause] blocks by default, so call it off the main thread.
    */
   fun insert(
@@ -147,35 +148,55 @@ object FocusedFields {
     opts: InsertOpts = InsertOpts(),
     pause: (Long) -> Unit = Thread::sleep,
     copy: (String) -> Boolean = { false },
+    cancellation: InsertCancellation = InsertCancellation(),
+    service: AccessibilityService? = (node as? NodeWrap)?.owner ?: ByokitAccessibility.service,
   ): String {
-    val identity = node.identity
+    ByokitAccessibility.track(service, cancellation)
+    try {
+      val value = insertSteps(node, text, replace, opts, pause, copy, cancellation)
+      return cancellation.finish(value)
+    } catch (_: InsertCancelled) {
+      return cancellation.finish("cancelled")
+    } finally {
+      ByokitAccessibility.untrack(service, cancellation)
+    }
+  }
+
+  private fun insertSteps(
+    node: FieldNode, text: String, replace: String, opts: InsertOpts,
+    pause: (Long) -> Unit, copy: (String) -> Boolean, cancellation: InsertCancellation,
+  ): String {
+    val identity = cancellation.step { node.identity }
     var active = node
     var whole: String? = null
     try {
       repeat(opts.attempts.coerceAtLeast(1)) { i ->
+        cancellation.step { }
         if (i > 0) {
           pause(opts.retryMs.coerceAtLeast(0))
-          if (identity != null) {
-            val fresh = node.reacquire()
-            if (fresh != null && fresh !== active) {
-              if (fresh.editable && !fresh.password && fresh.identity == identity) {
-                if (active !== node) active.recycle()
-                active = fresh
-              } else if (fresh !== node) fresh.recycle()
+          cancellation.step {
+            if (identity != null) {
+              val fresh = node.reacquire()
+              if (fresh != null && fresh !== active) {
+                if (fresh.editable && !fresh.password && fresh.identity == identity) {
+                  if (active !== node) active.recycle()
+                  active = fresh
+                } else if (fresh !== node) fresh.recycle()
+              }
             }
           }
         }
-        val current = active.shown() ?: return@repeat
-        if (whole == null) whole = Insert.compose(current, active.selection(), text, replace)
+        val current = cancellation.step { active.shown() } ?: return@repeat
+        if (whole == null) whole = Insert.compose(current, cancellation.step { active.selection() }, text, replace)
         val target = whole!!
-        active.set(target)
-        val shown = active.shown()
+        cancellation.step { active.set(target) }
+        val shown = cancellation.step { active.shown() }
         if (shown == target) return "inserted"
         if (opts.acceptNewlineLoss && shown != null && Insert.lostOnlyNewlines(target, shown)) {
           return "landedWithoutNewlines"
         }
       }
-      return if (copy(text)) "copied" else "failed"
+      return if (cancellation.step { copy(text) }) "copied" else "failed"
     } finally {
       if (active !== node) active.recycle()
     }
@@ -193,14 +214,22 @@ object FocusedFields {
     opts: InsertOpts = InsertOpts(),
     pause: (Long) -> Unit = Thread::sleep,
     copy: (String) -> Boolean = { false },
-    service: AccessibilityService? = null,
+    service: AccessibilityService? = ByokitAccessibility.service,
+    cancellation: InsertCancellation = InsertCancellation(),
   ): String {
-    val root = NodeWrap(node, service)
-    val field = find(root) ?: return "failed"
+    ByokitAccessibility.track(service, cancellation)
+    var root: FieldNode? = null
+    var field: FieldNode? = null
     try {
-      return insert(field, text, replace, opts, pause, copy)
+      root = cancellation.step { NodeWrap(node, service) }
+      field = cancellation.step { find(root!!) }
+      val value = field?.let { insertSteps(it, text, replace, opts, pause, copy, cancellation) } ?: "failed"
+      return cancellation.finish(value)
+    } catch (_: InsertCancelled) {
+      return cancellation.finish("cancelled")
     } finally {
-      if (field !== root) field.recycle()
+      if (field !== root) field?.recycle()
+      ByokitAccessibility.untrack(service, cancellation)
     }
   }
 
@@ -217,6 +246,7 @@ internal class NodeWrap(
   private val node: AccessibilityNodeInfo,
   private val service: AccessibilityService? = null,
 ) : FieldNode {
+  internal val owner = service ?: ByokitAccessibility.service
   override val identity: FieldIdentity? = run {
     val id = node.viewIdResourceName?.takeIf { it.isNotBlank() }
     val app = node.packageName?.toString()?.takeIf { it.isNotBlank() }
@@ -227,8 +257,8 @@ internal class NodeWrap(
   }
   override fun reacquire(): FieldNode? {
     val captured = identity ?: return null
-    val root = (service ?: ByokitAccessibility.service)?.rootInActiveWindow ?: return null
-    return FocusedFields.sameField(NodeWrap(root, service), captured)
+    val root = owner?.rootInActiveWindow ?: return null
+    return FocusedFields.sameField(NodeWrap(root, owner), captured)
   }
   @Suppress("DEPRECATION")
   override fun recycle() = node.recycle()
@@ -246,5 +276,5 @@ internal class NodeWrap(
     return minOf(a, b) to maxOf(a, b)
   }
   override val childCount: Int get() = node.childCount
-  override fun child(i: Int): FieldNode? = node.getChild(i)?.let { NodeWrap(it, service) }
+  override fun child(i: Int): FieldNode? = node.getChild(i)?.let { NodeWrap(it, owner) }
 }
