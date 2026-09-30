@@ -1,3 +1,5 @@
+export { nativeAddresses, routeOf, observe, probe } from './observe.ts';
+export type { NativeAddress, NativeAddressesModule, NativeAddressesOptions, RouteKind, PriorEvidence, ProbeState, ProbeObservation, ProbeOptions, Observation, ObserveOptions } from './observe.ts';
 import Zeroconf from 'react-native-zeroconf';
 import { browse as browseWith, scan as scanWith, type BrowseHandle, type BrowseOptions, type BrowseService } from './browse.ts';
 

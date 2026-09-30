@@ -11,6 +11,10 @@
   or nameless), then a private overlay, then Same Wi-Fi. Words from ui-core's `routeChoices()`; probes
   `tailscaleState`/`inspectServe`/`routes()` live unless `state`, `serve`, `lan` and `private` fakes are passed.
 
+- `directRoutes()` combines explicit loopback, tailnet and LAN listener scopes with typed hosts and ordered dial URLs.
+- Node and React Native share `nativeAddresses()`, `routeOf()`, `observe()` and bounded `probe()` observations; native readers are injectable and home evidence uses actual prefixes.
+- Explicit `@byokit/reach/react-native` entry alongside the existing export condition.
+
 ## 0.4.0 (2026-09-30)
 
 - FIX: direct Tailscale binds only the selected Self IPv4 address; `address` selects another local tailnet IP.

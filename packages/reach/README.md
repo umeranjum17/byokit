@@ -68,6 +68,11 @@ console.log(await reach({ port: 8792, via: 'lan', interfaces }));
 | Export | What it does |
 |---|---|
 | `reach({ port, via?, previous?, tailscale?, interfaces?, address? })` | The dial `urls`, the `bind` address, and the Serve `ingress` to persist (plus `pendingCleanup` when a removal failed) |
+| `directRoutes({ port, listen?, interfaces?, tailnetIPs?, hosts?, path? })` | Multiple direct listener `hosts` and pairing `urls`, with explicit loopback/tailnet/LAN scopes |
+| `nativeAddresses({ nativeModule? })` | IPv4 interface evidence including actual prefix lengths; Node reads its interfaces by default |
+| `routeOf(url)` | Address hint: `home`, `tailscale`, `relay`, `loopback` or `unknown` |
+| `observe({ urls, priorEvidence?, nativeModule?, addresses?, probe? })` | Current prefix evidence and a bounded probe, retaining the host’s prior evidence |
+| `probe(url, { timeout?, fetch? })` | Typed `answers`, `refused`, `timeout` or `unknown` observation |
 | `routes(interfaces?, tailnetIPs?)` | This computer's IPv4 routes: `lan` addresses, `private` overlay addresses and `tailscale` addresses |
 | `recommend({ port?, interfaces?, tailscale?, state?, serve?, lan?, private?, current? })` | Every route in everyday words, recommended first: `{ via, recommended, sentence, needs, disabledReason? }` per route |
 | `advertise({ type, port, name?, txt?, addresses? })` | Publishes `_<type>._tcp` over mDNS (Node), using only selected addresses; returns `{ stop }` |
@@ -135,6 +140,87 @@ The order is the current healthy route (pass it as `current`), then Tailscale Se
 root is taken, disabled, funnelled, or nameless — then a private overlay, then Same Wi-Fi. Tailscale installed but
 signed out stays selectable, with sign-in in `needs`, while Same Wi-Fi is recommended. Nothing ready means no entry
 is recommended and every entry carries its `disabledReason`.
+
+## Multiple direct listeners
+
+`directRoutes` is synchronous and runs no CLI, Serve or listener. By default it selects loopback plus
+classified tailnet addresses. A supplied `listen` enables only its true scopes. LAN binds the individual
+LAN addresses, so enabling LAN does not implicitly open unrelated overlays or disabled scopes.
+Pass `tailscaleState().ips` as `tailnetIPs` for unnamed interfaces. Addresses must exist in the interface
+snapshot; CLI evidence alone does not create a listener. Refresh the snapshot and reconcile listeners
+when the network or pairing-window policy changes.
+
+```ts
+import type { NetworkInterfaceInfo } from 'node:os';
+import { directRoutes } from '@byokit/reach';
+
+const nic = (address: string): NetworkInterfaceInfo => ({ address, netmask: '255.255.255.0',
+  family: 'IPv4', mac: '02:00:00:00:00:01', internal: false, cidr: `${address}/24` });
+const umer = directRoutes({
+  port: 8792, path: '/link',
+  interfaces: { en0: [nic('192.168.1.20')], utun3: [nic('100.101.2.3')] },
+  tailnetIPs: ['100.101.2.3'],
+  listen: { loopback: true, tailnet: true, lan: true },
+});
+console.log(umer.hosts); // ['127.0.0.1', '100.101.2.3', '192.168.1.20']
+console.log(umer.urls);  // ['ws://192.168.1.20:8792/link', 'ws://100.101.2.3:8792/link']
+// Create a server for each host; give urls to link's offer only after those servers listen.
+```
+
+`hosts` overrides scope selection with explicit pinned listeners (pass an array rather than a comma-separated
+string). An explicitly pinned `0.0.0.0` deliberately opens every IPv4 interface; its dial URLs expand only
+to classified LAN/tailnet addresses. An empty `hosts` array returns no listeners or URLs. Dial URLs put LAN
+before tailnet, remove duplicates, and include loopback only when there is no remote candidate.
+
+## Phone route evidence (React Native and Node)
+
+Use `@byokit/reach/react-native` explicitly or the root `react-native` export condition. Both expose
+`nativeAddresses`, `routeOf`, `observe` and `probe` with the same types as Node. These functions import no
+Node modules. The app supplies its native address module through `nativeModule` on each call; the kit does
+not install a native interface reader. This supports existing Expo/bare React Native modules and fakes
+without a global singleton. A reader implements `addresses(): Promise<NativeAddress[]>`, returning
+`{ address, prefixLength?, interface? }` for each IPv4 interface. Obtain `prefixLength` from the platform’s
+interface prefix/netmask, never a guessed /24. A legacy string-only reader needs an adapter and cannot
+supply prefix evidence until its native implementation exposes it.
+
+This example runs without native networking (use the Node root import to run it under Node):
+
+```ts
+import { nativeAddresses, routeOf, observe, probe } from '@byokit/reach/react-native';
+import type { NativeAddressesModule } from '@byokit/reach/react-native';
+
+const umer: NativeAddressesModule = {
+  addresses: async () => [{ address: '192.168.1.2', prefixLength: 23, interface: 'wlan0' }],
+};
+const fakeFetch: typeof fetch = async () => new Response('', { status: 503 });
+console.log(await nativeAddresses({ nativeModule: umer }));
+console.log(routeOf('ws://100.64.0.3:8792/link')); // 'tailscale'
+console.log(await probe('ws://192.168.0.20:8792/link', { timeout: 4000, fetch: fakeFetch }));
+const facts = await observe({
+  urls: ['ws://192.168.0.20:8792/link', 'ws://100.64.0.3:8792/link'],
+  nativeModule: umer,
+  priorEvidence: { anywhere: 'anywhere', peer: true, reached: { tailscale: 123 } },
+  probe: { timeout: 4000, fetch: fakeFetch },
+});
+console.log(facts.home, facts.target, facts.knock?.state); // true, LAN URL, 'answers'
+```
+
+`observe` compares the host’s home IPv4 address against the phone’s actual interface prefix. It prefers a
+matching home URL, otherwise a tailnet URL when the snapshot includes a CGNAT address. `home` is unknown
+(`undefined`) without usable prefix evidence; `vpn` is unknown without addresses. `tailnet` means a
+candidate URL exists; `vpn` means a local CGNAT address exists. CGNAT and `.ts.net` classification are route
+hints, not proof of Tailscale, a shared peer, Wi-Fi association or reachability. `routeOf` identifies relay
+URLs by `/link/v1/` and returns `unknown` for malformed/unsupported or other public URLs. IPv6 evidence is
+not yet supported. `priorEvidence` retains what the authenticated host previously said; it is not refreshed
+by this observation. `addresses` can supply a snapshot directly; Node defaults to its own IPv4 interfaces.
+An unavailable/failed native module gives an empty snapshot and never invents network evidence.
+
+`probe` maps WebSocket URLs to HTTP(S) and preserves their path. Every HTTP status means `answers`, not
+an authenticated link. An explicit `ECONNREFUSED` means `refused`; generic native fetch errors (including
+possible DNS/TLS failures) mean `unknown`. `timeout` bounds the operation even when fetch ignores abort.
+The default bound is 4000 ms. A probe is an active request only to the URL the caller passes (or the candidate
+`observe` selects); it never runs the Tailscale CLI, signs in or changes Serve. Inject `fetch` for offline tests.
+Apps decide their own offline wording and still authenticate with link.
 
 ## Tailscale rules
 
