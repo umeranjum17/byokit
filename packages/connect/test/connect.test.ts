@@ -30,7 +30,7 @@ function fake() {
   };
   return { fetch: fetcher, forms, count: () => count, refreshes: () => refreshes, set: (body: unknown, code = 200) => { tokenBody = body; status = code; }, offline: () => { fail = true; } };
 }
-function options(http = fake(), store = memory()): ConnectOptions { return { store, person: 'alice', client: { id: 'client' }, redirectUri: 'https://device.test/callback', fetch: http.fetch }; }
+function options(http = fake(), store = memory()): ConnectOptions { return { store, person: 'Umer', client: { id: 'client' }, redirectUri: 'https://device.test/callback', fetch: http.fetch }; }
 function callback(url: string, uri = 'https://device.test/callback', code = 'code-canary') { const u = new URL(uri); u.searchParams.set('state', new URL(url).searchParams.get('state')!); u.searchParams.set('code', code); return u; }
 async function signed(opts: ConnectOptions, target = app) { const c = connect(target, opts); const flow = await c.signIn(); await flow.finish(callback(flow.url, opts.redirectUri)); return c; }
 function error(code: string) { return (e: unknown) => e instanceof ConnectError && e.code === code && !/canary/.test(e.message); }
@@ -51,10 +51,10 @@ test('PKCE, state, exact callback and one-shot exchange; per-person store isolat
   assert.equal(createHash('sha256').update(form.get('code_verifier')!).digest('base64url'), auth.searchParams.get('code_challenge'));
   await assert.rejects(flow.finish(callback(flow.url)), error('callback'));
   assert.equal(await connection.token(), 'access-canary');
-  assert.equal(await connect(app, { ...opts, person: 'bob' }).connected(), false);
-  await signed({ ...opts, person: 'bob' });
+  assert.equal(await connect(app, { ...opts, person: 'person-2' }).connected(), false);
+  await signed({ ...opts, person: 'person-2' });
   await connection.disconnect(); assert.equal(await connection.connected(), false);
-  assert.equal(await connect(app, { ...opts, person: 'bob' }).token(), 'access-canary');
+  assert.equal(await connect(app, { ...opts, person: 'person-2' }).token(), 'access-canary');
   assert.equal(store.values.size, 1);
 });
 
@@ -159,7 +159,7 @@ test('MCP discovery follows challenge, issuer path, DCR, resource binding and re
     if (url.endsWith('/token')) return response({ access_token: 'mcp-access', refresh_token: 'mcp-refresh', token_type: 'Bearer', expires_in: 3600, scope: 'read' });
     throw new Error('unexpected request');
   };
-  const store = memory(), opts: ConnectOptions = { store, person: 'alice', redirectUri: 'myapp://callback', fetch: fetcher, now: () => now };
+  const store = memory(), opts: ConnectOptions = { store, person: 'Umer', redirectUri: 'myapp://callback', fetch: fetcher, now: () => now };
   const c = connect('https://resource.test/mcp', opts), flow = await c.signIn();
   assert.equal(new URL(flow.url).searchParams.get('resource'), 'https://resource.test');
   await flow.finish(callback(flow.url, opts.redirectUri));
