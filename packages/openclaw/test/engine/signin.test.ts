@@ -3,15 +3,16 @@
 import { test, before, after, mock } from 'node:test';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
+import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
+import { setImmediate as turn, setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../../src/engine.ts';
 import { gatewayTransport } from '../../src/transport.ts';
 import { providers, signIn, type SignInCtx } from '../../src/signin.ts';
+import { words } from '../../src/words.ts';
 import { routes } from '../../src/routes.ts';
 import { scratchDir } from '../../../test-support.ts';
 import type { GatewayTransport, SignInView } from '../../src/types.ts';
@@ -238,7 +239,7 @@ test('real gateway: without a caller allowlist the drive shows the code, never a
     `the drive displays the loopback fake code: ${JSON.stringify({ views, requests: openai.state.requests.map(request => request.path) })}`);
   handle.cancel();
   const end = await handle.done;
-  assert.deepEqual(end, { state: 'failed', via: 'code', why: 'declined' });
+  assert.deepEqual(end, { state: 'failed', via: 'code', why: 'declined', error: words('signin.cancelled') });
   assert.ok(!calls.includes('wizard.status'), 'the drive never asks a method that carries no step');
   assert.ok(calls.includes('wizard.cancel'), 'the person\'s exit cancels its own session');
   // The admission is free for the next attempt.
@@ -250,6 +251,34 @@ test('real gateway: without a caller allowlist the drive shows the code, never a
   }
   assert.ok(retry, 'a cancelled sign-in locks the next one out');
   await client.request('wizard.cancel', { sessionId: retry.sessionId }, { timeoutMs: 10_000 }).catch(() => {});
+});
+
+test('the pinned wizard completes device approval after three minutes of fake time', async (t) => {
+  // Exercise the real engine's WizardSession and prompter without a provider account or outbound fetch.
+  const dist = join(engineDir, 'node_modules', 'openclaw', 'dist');
+  const file = readdirSync(dist).find((name) => name.startsWith('session-') && name.endsWith('.js')
+    && readFileSync(join(dist, name), 'utf8').includes('WizardSession as t'));
+  assert.ok(file, 'the pin must expose its wizard implementation');
+  const { t: WizardSession } = await import(pathToFileURL(join(dist, file)).href);
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const session = new WizardSession(async (prompter: any) => {
+    await prompter.deviceCode({ code: 'UMER-2026', expiresInMinutes: 15 });
+    await new Promise((resolve) => setTimeout(resolve, 181_000));
+  });
+  const request: GatewayTransport['request'] = async (method, params: any, options) => {
+    if (method === 'openclaw.setup.auth.start') return { done: false };
+    if (method === 'wizard.cancel') { session.cancel(); return {}; }
+    assert.equal(method, 'wizard.next');
+    if (params.answer) await session.answer(params.answer.stepId, params.answer.value);
+    // The actual client requires null to disable its default timeout on a long request.
+    if (params.answer) assert.equal(options?.timeoutMs, null);
+    return session.next();
+  };
+  const handle = signIn({ request, ensure: async () => ({ agentId: 'umer' }), callbackPort: 0 },
+    'umer', { authChoice: 'openai-device-code', via: 'code' }, () => {});
+  await turn();
+  t.mock.timers.tick(181_000);
+  assert.deepEqual(await handle.done, { state: 'done', via: 'code' });
 });
 
 test('the engine state directory is the only place a sign-in touches', () => {

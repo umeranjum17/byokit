@@ -488,10 +488,14 @@ route) and that every `offer: true` route starts (first `wizard.next` without `n
 `blocked by allowlist`) with only its `plugin` added to `plugins.allow`. `routes()` returns the
 table; `routeFor(provider, via)` picks the offered route.
 
-**signIn(member, { authChoice, via }, on)** — Crewhouse `runtime.ts` `signIn` loop, unchanged in behavior:
+**signIn(member, { authChoice, via, signal? }, on)** — provider-owned wizard drive:
 `ensureMember`; `openclaw.setup.auth.start { sessionId: 'byokit-' + uuid, agentId, authChoice }` (60 s); pull steps
-only with `wizard.next` (120 s each, max 200 turns; never `wizard.status`); a `deviceCode` step → view
-`{ code, url }` then acknowledge `{ stepId }`; a non-sensitive `text` step → wait for `paste` (15 min) then answer
+only with `wizard.next` (120 s for ordinary steps, max 200 turns; never `wizard.status`); a `deviceCode` step → view
+`{ code, url }` then acknowledge `{ stepId }`. That acknowledgment and subsequent progress pulls wait until
+`deviceCode.expires_in` seconds (when supplied), otherwise the pin's `expiresInMinutes`; if neither is present,
+the engine owns expiry and the request has `timeoutMs: null`. The caller's optional `signal` and handle's `cancel()`
+release only this session. Code expiry yields `why: 'expired'`, cancellation `why: 'declined'`, with plain words.
+A non-sensitive `text` step → wait for `paste` (15 min) then answer
 `{ stepId, value }`; `note|confirm|select|action` → surface `externalUrl`, acknowledge; `progress` → pull again.
 Every exit short of done calls `wizard.cancel { sessionId }` for **its own** session. For `via: 'browser'` with
 `authChoice` `openai`, the kit holds `127.0.0.1:<callbackPort>` for the sign-in's life: any request pastes
@@ -824,6 +828,7 @@ export function openNotice(data: Record<string, unknown>, seed: Uint8Array): App
 | `member.network` | Can't reach {name} right now. This keeps trying by itself. |
 | `signin.returned` | Thanks. Finishing the sign-in — you can go back to the app now. |
 | `signin.busy` | Another sign-in is already in progress. Finish or cancel it, then try again. |
+| `signin.cancelled` | Sign-in cancelled. You can start again whenever you are ready. |
 | `signin.expired` | The sign-in took too long. Start it again. |
 | `approval.ask` | {helper} wants to {summary}. Allow it? |
 | `approval.expired` | Nobody answered in time, so this wasn't allowed. |

@@ -77,6 +77,8 @@ export type RunEnd =
   | { ok: false; aborted: true }
   | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other'; until?: number; message: string };
 
+export type SignInOptions = { authChoice: string; via?: 'browser' | 'code'; signal?: AbortSignal };
+
 export type SignInView = {
   state: 'waiting' | 'done' | 'failed';
   via: 'browser' | 'code';
@@ -124,14 +126,14 @@ export interface GatewayTransport {
   start(): Promise<Hello>;
   // expectFinal: resolve with the method's final response, handing an interim `status: 'accepted'` to onAccepted.
   request(method: string, params?: unknown, o?: {
-    timeoutMs?: number; signal?: AbortSignal; expectFinal?: boolean; onAccepted?: (payload: unknown) => void;
+    timeoutMs?: number | null; signal?: AbortSignal; expectFinal?: boolean; onAccepted?: (payload: unknown) => void;
   }): Promise<unknown>;
   onEvent(fn: (e: { event: string; payload?: unknown }) => void): () => void;
   onClose(fn: (why: string) => void): () => void;
   stop(): Promise<void>;
 }
 
-export type CallOptions = { timeoutMs?: number; signal?: AbortSignal };
+export type CallOptions = { timeoutMs?: number | null; signal?: AbortSignal };
 
 // Pass-through typing (4.6): re-exports of the generated method/event tables (O2 fills the tables, these names are
 // frozen by 5.3).

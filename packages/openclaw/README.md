@@ -33,20 +33,35 @@ the pinned engine and needs a real ChatGPT sign-in, so it is not run here):
 ```ts
 import { OpenClawKit } from '@byokit/openclaw';
 
-const kit = new OpenClawKit({ stateDir: './openclaw-state' });
+const kit = new OpenClawKit({ stateDir: './openclaw-state', config: { plugins: { allow: ['openai'] } } });
 await kit.start(); // installs the pinned engine under stateDir, spawns it, connects
 
-await kit.ensureMember('ana');
-const signIn = kit.signIn('ana', { authChoice: 'openai-device-code', via: 'code' }, (view) => console.log(view));
-await signIn.done;
+await kit.ensureMember('umer');
+const controller = new AbortController(); // call controller.abort() when Umer cancels
+const signIn = kit.signIn('umer', {
+  authChoice: 'openai-device-code', via: 'code', signal: controller.signal,
+}, (view) => { if (view.code) console.log('Open', view.url, 'and enter', view.code); });
+const signedIn = await signIn.done;
+if (signedIn.state !== 'done') {
+  console.log(signedIn.error); // plain words; why is 'expired' or 'declined' on expiry or cancellation
+  await kit.stop();
+  process.exit(0);
+}
 
 const end = await kit.run(
-  { member: 'ana', sessionKey: 'agent:ana:main', message: 'Say hello.' },
+  { member: 'umer', sessionKey: 'agent:umer:main', message: 'Say hello.' },
   (e) => { if (e.type === 'text') console.log(e.text); },
 );
 console.log(end);
 await kit.stop();
 ```
+
+Device approval can take longer than two minutes. The kit waits through the engine's advertised code lifetime
+(`expiresInMinutes` on the pin, or `expires_in` seconds when supplied), including progress pulls. If the engine
+supplies no lifetime, it owns the deadline. Ordinary wizard requests keep their 120-second timeout.
+`signIn.cancel()` or the optional caller `signal` cancels this sign-in and releases its wizard session.
+`done` returns a typed `SignInView`: `why: 'expired'` for an expired code, `why: 'declined'` for cancellation,
+with a plain sentence in `error`. `SignInOptions` is exported from the host entry.
 
 To choose which of a member's accounts a run uses, pass `model: 'provider/model'` in the run spec (for example
 `'openai/gpt-5.1'`, where `provider` is an id `kit.providers(member)` lists). That provider is the one called and billed for this run only, with no fallback to another
@@ -77,9 +92,9 @@ const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: fakeGatew
 try {
   await kit.start();
   console.log('state:', kit.state.phase, '| protocol:', kit.hello?.protocol);
-  await kit.ensureMember('ana');
+  await kit.ensureMember('umer');
   const end = await kit.run(
-    { member: 'ana', sessionKey: 'agent:ana:main', message: 'Say hello.' },
+    { member: 'umer', sessionKey: 'agent:umer:main', message: 'Say hello.' },
     (e) => console.log('event:', JSON.stringify(e)),
   );
   console.log('end:', JSON.stringify(end));

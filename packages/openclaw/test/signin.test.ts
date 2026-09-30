@@ -6,7 +6,7 @@ import { createServer, request as httpRequest, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
+import { setImmediate as turn, setTimeout as delay } from 'node:timers/promises';
 import { providers, signIn, signOut, type SignInCtx } from '../src/signin.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { scratchDir } from '../../test-support.ts';
@@ -95,6 +95,109 @@ test('sign-in: the device code is pulled and shown, and the card finishes when t
   assert.equal(fake.methods().filter((m) => m === 'openclaw.setup.auth.start').length, 1, 'the session is started once');
 });
 
+// Model the real transport's timeout and signal while the engine holds wizard.next for approval.
+function approvalGateway(afterMs: number, deviceCode: Record<string, unknown> = { code: 'UMER-2026', expiresInMinutes: 15 }, progress = false) {
+  let shown = false;
+  return scripted({
+    'openclaw.setup.auth.start': () => ({ done: false }),
+    'wizard.cancel': () => ({ status: 'cancelled' }),
+    'wizard.next': (params: any, options?: any) => {
+      if (!shown) { shown = true; return { step: { ...DEVICE_STEP, deviceCode } }; }
+      if (params.answer && progress) { progress = false; return { step: { id: 'waiting', type: 'progress' } }; }
+      return new Promise((resolve, reject) => {
+        const timers: NodeJS.Timeout[] = [];
+        const stop = (error?: Error) => {
+          timers.forEach(clearTimeout);
+          options.signal.removeEventListener('abort', abort);
+          if (error) reject(error);
+          else resolve({ done: true, status: 'done' });
+        };
+        const abort = () => stop(new Error('aborted'));
+        options.signal.addEventListener('abort', abort, { once: true });
+        timers.push(setTimeout(() => stop(), afterMs));
+        if (options.timeoutMs != null) timers.push(setTimeout(() => stop(new Error('gateway request timeout for wizard.next')), options.timeoutMs));
+      });
+    },
+  });
+}
+
+test('device approval after more than three minutes succeeds, including a progress pull', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const fake = approvalGateway(181_000, undefined, true);
+  const handle = signIn(ctx(fake), 'umer', { authChoice: 'openai-device-code', via: 'code' }, () => {});
+  await turn();
+  t.mock.timers.tick(181_000);
+  assert.deepEqual(await handle.done, { state: 'done', via: 'code' });
+});
+
+test('device code expiry returns typed expired and cancels only its own session', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const fake = approvalGateway(900_000, { code: 'UMER-2026', expires_in: 240 });
+  const handle = signIn(ctx(fake), 'umer', { authChoice: 'openai-device-code', via: 'code' }, () => {});
+  await turn();
+  t.mock.timers.tick(240_000);
+  assert.deepEqual(await handle.done, { state: 'failed', via: 'code', why: 'expired', error: words('signin.expired') });
+  assert.equal(fake.calls.filter((c) => c.method === 'wizard.cancel').length, 1);
+  assert.equal(fake.calls.at(-1)?.params.sessionId, fake.calls[0]?.params.sessionId);
+});
+
+test('a caller signal cancels device approval through the kit facade', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const fake = approvalGateway(900_000);
+  const stateDir = scratchDir('o6-device-cancel');
+  const gateway = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: (seam) => {
+    const transport = gateway.factory(seam);
+    return { ...transport, request: (method, params, options) => method.startsWith('wizard.') || method === 'openclaw.setup.auth.start'
+      ? fake.request(method, params, options) : transport.request(method, params, options) };
+  } });
+  try {
+    await kit.start();
+    const controller = new AbortController();
+    const views: SignInView[] = [];
+    const handle = kit.signIn('umer', { authChoice: 'openai-device-code', via: 'code', signal: controller.signal }, (view) => views.push(view));
+    await turn();
+    t.mock.timers.tick(181_000);
+    controller.abort();
+    const end = await handle.done;
+    assert.deepEqual(end, { state: 'failed', via: 'code', why: 'declined', error: words('signin.cancelled') });
+    assert.deepEqual(views.at(-1), end);
+    assert.equal(fake.calls.filter((c) => c.method === 'wizard.cancel').length, 1);
+  } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('without an expiry field the engine owns the device deadline', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  const fake = approvalGateway(181_000, { code: 'UMER-2026' });
+  const handle = signIn(ctx(fake), 'umer', { authChoice: 'openai-device-code', via: 'code' }, () => {});
+  await turn();
+  t.mock.timers.tick(181_000);
+  assert.equal((await handle.done).state, 'done');
+});
+
+test('ordinary wizard steps still use the short request timeout', async () => {
+  const fake = scripted({
+    'openclaw.setup.auth.start': () => ({ done: false }),
+    'wizard.next': (params: any, options?: any) => {
+      assert.equal(options.timeoutMs, 120_000);
+      return params.answer ? { done: true } : { step: { id: 'ordinary', type: 'note' } };
+    },
+  });
+  assert.equal((await signIn(ctx(fake), 'umer', { authChoice: 'openai-device-code', via: 'code' }, () => {}).done).state, 'done');
+});
+
+test('provider expiry after a help note is still typed expired', async () => {
+  let pulls = 0;
+  const fake = scripted({
+    'openclaw.setup.auth.start': () => ({ done: false }),
+    'wizard.cancel': () => ({}),
+    'wizard.next': () => ++pulls === 1 ? { step: DEVICE_STEP }
+      : pulls === 2 ? { step: { id: 'help', type: 'note' } }
+      : { done: true, status: 'error', error: 'OpenAI device authorization timed out after 15 minutes.' },
+  });
+  assert.equal((await signIn(ctx(fake), 'umer', { authChoice: 'openai-device-code', via: 'code' }, () => {}).done).why, 'expired');
+});
+
 test('sign-in: a step that asks for a note is acknowledged and its address is surfaced', async () => {
   const fake = scripted({
     'openclaw.setup.auth.start': () => ({ sessionId: 'byokit-fake-note', done: false }),
@@ -139,7 +242,7 @@ test('sign-in: the person cancels, and this session is the one cancelled', async
   await delay(50);
   handle.cancel();
   const end = await handle.done;
-  assert.deepEqual(end, { state: 'failed', via: 'code', why: 'declined' });
+  assert.deepEqual(end, { state: 'failed', via: 'code', why: 'declined', error: words('signin.cancelled') });
   assert.deepEqual(views.at(-1), end, 'the card is told how it ended');
   assert.deepEqual(fake.calls.filter((call) => call.method === 'wizard.cancel').map((call) => call.params?.sessionId),
     [fake.calls[0]!.params.sessionId]);
