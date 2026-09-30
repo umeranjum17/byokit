@@ -12,6 +12,9 @@ not log credentials or include provider response bodies in OAuth errors. The ful
 MCP client can return private content and server error messages; handle those as
 private app data. Close each MCP client when finished.
 
+Each handle snapshots and freezes its provider settings so an existing grant cannot
+be retargeted by a later settings mutation.
+
 Remote endpoints require HTTPS, with HTTP allowed only on loopback. Requests refuse
 redirects, so credentials cannot follow a server redirect. Callback addresses support
 HTTPS, loopback HTTP and host-registered native app schemes. PKCE, unpredictable

@@ -25,19 +25,24 @@ function random(): string { return base64url(crypto.getRandomValues(new Uint8Arr
 
 /** One person's connection on one device; the host owns the store and browser. */
 export class Connection {
-  readonly provider: Provider;
+  readonly provider: Readonly<Provider>;
   private options: ConnectOptions;
   private key: string;
   private storageKey?: Promise<string>;
   private slot: Slot;
   constructor(target: ProviderId | Provider | string, options: ConnectOptions) {
-    this.provider = typeof target === 'string'
+    const provider: Provider = typeof target === 'string'
       ? (Object.hasOwn(providers, target) ? providers[target as ProviderId] : { id: endpoint(target).href, name: 'App', mcpUrl: endpoint(target).href })
-      : { ...target };
+      : target;
+    this.provider = Object.freeze({ ...provider,
+      oauth: provider.oauth && Object.freeze({ ...provider.oauth }),
+      scopes: provider.scopes && Object.freeze([...provider.scopes]),
+      extra: provider.extra && Object.freeze({ ...provider.extra }),
+    });
     if (!options.person || !this.provider.id) throw new ConnectError('configuration');
     redirect(options.redirectUri);
     if (this.provider.mcpUrl) endpoint(this.provider.mcpUrl);
-    this.options = { ...options, client: options.client && { ...options.client } };
+    this.options = { ...options, scopes: options.scopes && Object.freeze([...options.scopes]), client: options.client && { ...options.client } };
     this.key = `byokit.connect:${JSON.stringify([options.person, this.provider.id, this.provider.mcpUrl ?? '', this.provider.oauth?.token ?? this.provider.issuer ?? '', options.client?.id ?? ''])}`;
     this.slot = slotFor(options.store, this.key);
   }

@@ -56,6 +56,18 @@ test('PKCE, state, exact callback and one-shot exchange; per-person store isolat
   assert.equal(store.values.size, 1);
 });
 
+test('a connection snapshots provider settings and cannot be retargeted after signing in', async () => {
+  const target: Provider = { ...app, oauth: { ...app.oauth! }, mcpUrl: 'https://resource.test/mcp', scopes: ['read'] };
+  const opts = options(), c = connect(target, opts);
+  target.oauth!.token = 'https://other.test/token'; target.mcpUrl = 'https://other.test/mcp';
+  assert.equal(c.provider.oauth!.token, app.oauth!.token);
+  assert.equal(c.provider.mcpUrl, 'https://resource.test/mcp');
+  assert.throws(() => { Object.assign(c.provider, { mcpUrl: 'https://other.test/mcp' }); }, TypeError);
+  assert.throws(() => { Object.assign(c.provider.oauth!, { token: 'https://other.test/token' }); }, TypeError);
+  const flow = await c.signIn(); await flow.finish(callback(flow.url));
+  assert.equal(await c.token(), 'access-canary');
+});
+
 test('long connection identities fit the real keystore contract and restore across handles', async () => {
   const http = fake(), store = overrideStore({});
   const target = { ...app, id: 'long-provider-' + 'x'.repeat(300), mcpUrl: 'https://resource.test/' + 'path'.repeat(150) };
