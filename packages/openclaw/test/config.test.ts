@@ -5,8 +5,27 @@ import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { Engine } from '../src/engine.ts';
 import { reconcileConfig, memoryLimited } from '../src/config.ts';
+import { routes } from '../src/routes.ts';
 
 const opts = (root: string) => ({ root, stateDir: root, port: 12345, pluginId: 'byokit', pluginDir: join(root, 'plugin'), policyPath: join(root, 'policy.mjs') });
+test('plugin allowlist merges caller ids, the bridge and only offered route plugins', () => {
+  const root = '/tmp/byokit-config-check';
+  const offered = [...new Set(routes().filter(route => route.offer).map(route => route.plugin))];
+  assert.ok(offered.includes('openai'), 'ChatGPT device pairing needs the openai plugin');
+  const fresh = reconcileConfig(undefined, opts(root)) as any;
+  assert.deepEqual(fresh.plugins.allow, ['byokit', ...offered]);
+  const saved = { plugins: { allow: ['memory-core', 'openai', 'memory-core'] } };
+  const app = { plugins: { allow: ['custom', 'openai', 'custom', 'bridge'] } };
+  const merged = reconcileConfig(saved, { ...opts(root), pluginId: 'bridge', app }) as any;
+  assert.deepEqual(merged.plugins.allow, [...new Set(['custom', 'openai', 'bridge', ...offered])]);
+  assert.deepEqual(reconcileConfig(saved, opts(root)), reconcileConfig(reconcileConfig(saved, opts(root)), opts(root)));
+  for (const route of routes().filter(route => !route.offer && !offered.includes(route.plugin))) {
+    assert.ok(!fresh.plugins.allow.includes(route.plugin), `${route.choice} is not enabled`);
+  }
+  assert.deepEqual(saved.plugins.allow, ['memory-core', 'openai', 'memory-core']);
+  assert.deepEqual(app.plugins.allow, ['custom', 'openai', 'custom', 'bridge']);
+});
+
 test('fresh and adversarial config force isolation and no paid memory fallback', () => {
   const root = '/tmp/byokit-config-check';
   const c = reconcileConfig(undefined, opts(root)) as any;
