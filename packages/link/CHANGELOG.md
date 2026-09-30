@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.0 (2026-09-30)
+
 - FIX: `decodeOffer()` reads legacy compact direct pairing codes with checksum, padding, bounds and expiry validation; new encodings keep the complete current format.
 
 ## 0.4.0 (2026-09-30)
