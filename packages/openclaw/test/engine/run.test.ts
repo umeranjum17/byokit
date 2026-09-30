@@ -219,12 +219,16 @@ test('API-key activation seals a sibling store; normal selection and stores rema
     let attempt = 0;
     while (!ready && Date.now() < deadline) {
       attempt++;
+      let reply: { ok: boolean; model?: string } | undefined;
       try {
-        const reply = await kit.callDynamic('byokit.keys', { member: 'm1', action: 'ready', diagnostics: Boolean(process.env.CI) }) as { ok: boolean; model?: string };
-        ready = reply.ok;
-        if (process.env.CI) console.log('key readiness', JSON.stringify({ attempt, phase: kit.state.phase, reply, stores }));
+        reply = await kit.callDynamic('byokit.keys', { member: 'm1', action: 'ready', diagnostics: Boolean(process.env.CI) }) as typeof reply;
       } catch {
         if (process.env.CI) console.log('key readiness', JSON.stringify({ attempt, phase: kit.state.phase, transportFailed: true, stores }));
+      }
+      if (reply) {
+        assert.equal(JSON.stringify(reply).includes(canary), false, 'readiness metadata never contains the key');
+        ready = reply.ok;
+        if (process.env.CI) console.log('key readiness', JSON.stringify({ attempt, phase: kit.state.phase, reply, stores }));
       }
       if (!ready) await new Promise((resolve) => setTimeout(resolve, 250));
     }

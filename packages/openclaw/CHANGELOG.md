@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Key readiness waits through the engine's retryable restart refusal after activation; missing keys still fail without another account.
+
 ## 0.3.6 (2026-10-01)
 
 - FIX: Live orphan gateways recover after the engine rewrites its process title. Recovery verifies the recorded launch pid and process start time with the executable and isolated store paths; ambiguous ownership preserves the saved sign-in state.

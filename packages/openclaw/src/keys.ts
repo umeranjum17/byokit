@@ -9,6 +9,7 @@ export function createKeys(ctx: {
   root: string;
   request: GatewayTransport['request'];
   ensure(member: Member): Promise<{ agentId: string }>;
+  restarting?(): boolean;
 }) {
   // Serialize key replacement and key runs, so an in-flight run never sees a half-installed replacement.
   const tails = new Map<string, Promise<unknown>>();
@@ -48,10 +49,20 @@ export function createKeys(ctx: {
     },
     async ready(member: Member): Promise<{ agentId: string; model: string } | undefined> {
       if (!check(member)) return undefined;
-      try {
-        const ready = await control(member, 'ready');
-        return ready.ok && ready.model ? { agentId: keyAgentId(member), model: ready.model } : undefined;
-      } catch { return undefined; }
+      const deadline = Date.now() + 60_000;
+      for (;;) {
+        try {
+          const ready = await control(member, 'ready');
+          return ready.ok && ready.model ? { agentId: keyAgentId(member), model: ready.model } : undefined;
+        } catch (error) {
+          // Config writes may drain/restart the gateway after activation. This read is safe to retry;
+          // an absent profile or a terminal refusal still fails closed immediately.
+          const refusal = error as { code?: string; retryable?: boolean } | null;
+          const transient = ctx.restarting?.() || (refusal?.code === 'UNAVAILABLE' && refusal.retryable === true);
+          if (!transient || Date.now() >= deadline) return undefined;
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+      }
     },
   };
 }

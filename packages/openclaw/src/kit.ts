@@ -495,6 +495,7 @@ export class OpenClawKit {
       gateBuiltins: o.gateBuiltins !== false, spawnEngine: o.spawnEngine !== false,
       onState: (s) => this.setState(s), onExit: () => this.closed('engine exited') });
     this.keys = createKeys({ root: this.engine.root,
+      restarting: () => this.current.phase === 'restarting' || this.current.phase === 'starting',
       request: (method, params, options) => this.request()(method, params, options),
       ensure: (member) => this.ensureMember(member) });
     const slot: { bridge?: Pick<Bridge, 'resolveAsk'> } = {};
