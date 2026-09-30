@@ -27,6 +27,12 @@ const TABLE: readonly (readonly [WordKey, string])[] = [
   ['approval.stale', 'That question already changed. Look again before answering.'],
   ['close.wouldWiden', 'Closing this would close more than you picked. Close the bigger one instead.'],
   ['link.notAllowed', "This device can't do that. Ask the person at the computer."],
+  ["move.too_early", "This conversation has not started yet. Try again in a moment."],
+  ["move.busy", "Wait for this conversation to finish before moving it."],
+  ["move.unsupported", "This conversation cannot move between these accounts."],
+  ["move.env_mismatch", "The new pane did not receive that sign-in. Try again."],
+  ["move.close_failed", "The old pane could not close. The move was undone where possible."],
+  ["move.start_failed", "The new account could not take over. Try again."],
 ];
 
 test('words.json is the 6.9 table verbatim — same keys, same sentences, nothing extra', () => {

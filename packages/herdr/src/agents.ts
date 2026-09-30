@@ -89,6 +89,9 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
   }
 
   async function startAgentInner(o: StartAgent, onStartPhase?: () => void): Promise<AgentRef> {
+    if ('pane' in o.place && Object.keys(o.env ?? {}).length > 0) {
+      throw fail('env_mismatch', 'This pane needs to be opened again to use that sign-in.');
+    }
     const timeout = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     const env = o.env === undefined ? {} : { env: o.env };
     let paneId: string | undefined;

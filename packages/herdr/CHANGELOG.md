@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Move a conversation to another subscription account with `moveToAccount`: verify the target shell folder,
+  resume and wait before closing the original pane, and roll back the new pane on failure.
+- Open each CLI’s own sign-in in an account-specific tab with `openSignInTab` and the host’s explicit env.
+- FIX: Refuse non-empty `StartAgent.env` on existing panes instead of silently using the old subscription.
+
 - `HerdrKit.startAgent` lifecycle events: `installing` (with the progress words) before a start
   that needs an install, `ready` with the fresh ref, and `launchFailed` with a typed reason
   (`placement-failed` | `pane-busy` | `install-failed` | `start-rejected`) plus plain words —

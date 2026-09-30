@@ -1,3 +1,4 @@
+import { createAccountPanes } from './accounts.ts';
 import { createAgents, type Call } from './agents.ts';
 import { Blocked } from './approvals.ts';
 import { runCli } from './cli.ts';
@@ -8,7 +9,7 @@ import { Supervisor } from './supervise.ts';
 import type {
   AgentCliSignIn, AgentReadiness, AgentStartEvent, AgentStatusOptions, AgentRef, AgentSessionRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,
   HerdrParams, HerdrResult, HerdrSnapshot, HerdrSnapshotAgent, HerdrSnapshotPane, HerdrSnapshotWorkspace, HerdrState, HerdrSubscription, HerdrSubscribeStop, PromptReceipt, StartAgent, TerminalSession,
-  HerdrTransport,
+  HerdrTransport, MoveToAccount, MoveResult, OpenSignInTab,
 } from './types.ts';
 
 const kinds = ['pane.agent_detected', 'pane.created', 'pane.closed', 'pane.moved', 'pane.exited', 'pane.updated',
@@ -128,12 +129,14 @@ export class HerdrKit {
   private readonly o: HerdrKitOptions;
   private readonly callAny: Call = (method, params, timeoutMs) =>
     this.call(method as never, params as never, timeoutMs === undefined ? undefined : { timeoutMs });
+  private readonly accountPanes: ReturnType<typeof createAccountPanes>;
   private readonly agents: ReturnType<typeof createAgents>;
   private readonly startListeners = new Set<(e: AgentStartEvent) => void>();
   private readonly blockedList: Blocked;
   constructor(o: HerdrKitOptions) {
     this.o = o;
     this.supervisor = new Supervisor(o, (s) => { this.current = s; o.onState?.(s); });
+    this.accountPanes = createAccountPanes({ call: this.callAny, startAgent: (o) => this.startAgent(o) });
     this.agents = createAgents({ call: this.callAny, snapshot: () => this.snapshot(),
       reread: (paneId) => this.reread(paneId),
       emitStart: (e) => { for (const fn of [...this.startListeners]) try { fn(e); } catch { /* a listener never breaks a start */ } } });
@@ -389,6 +392,8 @@ export class HerdrKit {
    * status events instead of opening a second watch.
    */
   statusWatchReady(): Promise<void> { return this.statusReadyPromise; }
+  openSignInTab(o: OpenSignInTab): Promise<AgentRef> { return this.accountPanes.openSignInTab(o); }
+  moveToAccount(target: AgentRef, o: MoveToAccount): Promise<MoveResult> { return this.accountPanes.moveToAccount(target, o); }
   startAgent(o: StartAgent): Promise<AgentRef> { return this.agents.startAgent(o); }
   // App-wide start lifecycle without polling: every startAgent's installing/ready/launchFailed
   // lands here as well as on that call's own `onEvent`. Returns the unsubscribe function.
