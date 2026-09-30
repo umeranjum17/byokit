@@ -406,7 +406,8 @@ test('an unsendable request is removed both online and during replay', async () 
 });
 
 test('through a relay that routes on a header and never sees plaintext', async () => {
-  const h = await startHost();
+  const presence: boolean[] = [];
+  const h = await startHost({ onConnection: (_, online) => presence.push(online), deviceMeta: () => ({ app: 'private-ready-marker' }) });
   // A toy relay: devices dial /link/v1/<host id>; the host keeps one socket at /host. Frames pass through as-is.
   const wire: string[] = [];
   const server = createServer();
@@ -442,15 +443,21 @@ test('through a relay that routes on a header and never sees plaintext', async (
 
   assert.equal(h.host.id, hostId(h.host.keys.publicKey));
   const grant = await pairWithOffer(h.host.offer({ role: 'control', urls: [`${relay}/link/v1/${h.host.id}`] }).text, { name: 'Away phone' });
+  await until(() => !h.host.devices()[0].online);
+  presence.length = 0;
   const d = connect(grant);
+  const duplicate = connect(grant);
+  await until(() => d.link.status === 'online' && duplicate.link.status === 'online');
+  assert.deepEqual(presence, [true]);
   assert.deepEqual(await d.link.request('send.secret', { text: 'plaintext-marker' }), { op: 'send.secret', args: { text: 'plaintext-marker' }, by: grant.device.id });
   const all = wire.join('\n');
   assert.ok(wire.length > 4);
-  assert.doesNotMatch(all, /plaintext-marker|Away phone|send\.secret|Kitchen/, 'the relay saw only ciphertext');
+  assert.doesNotMatch(all, /plaintext-marker|private-ready-marker|Away phone|send\.secret|Kitchen/, 'the relay saw only ciphertext');
   assert.doesNotMatch(all, new RegExp(grant.device.id), "and never the device's id");
   // Revoke works the same way through the relay.
   await h.host.revoke(grant.device.id);
-  await until(() => d.link.status === 'removed');
+  await until(() => d.link.status === 'removed' && duplicate.link.status === 'removed');
+  assert.deepEqual(presence, [true, false]);
 });
 
 test('migration: a device the app already trusts (paired under an older protocol) is enrolled without pairing again', async () => {

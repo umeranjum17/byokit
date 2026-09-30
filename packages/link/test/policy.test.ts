@@ -7,7 +7,8 @@ import { chmodSync, lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSy
 import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
 import { LinkError, b64url, keyPair, keyPairFrom, pendingGrant, unb64url, type Grant, type GrantTerms } from '../src/index.ts';
-import { hostKeyFile } from '../src/node.ts';
+import { spawnSync } from 'node:child_process';
+import { fileGrantStore, hostKeyFile } from '../src/node.ts';
 import { parseOffer } from '../src/pairing.ts';
 import { connect, pairWithOffer, sleep, startHost, until } from './helpers.ts';
 
@@ -655,4 +656,181 @@ test('0.1 compatibility: a device ignores what it does not know, and old offers 
   const parsed = parseOffer(`byokit-link:1:${Buffer.from(JSON.stringify(old)).toString('base64url')}`);
   assert.equal(parsed.role, undefined);
   assert.equal(pendingGrant(`byokit-link:1:${Buffer.from(JSON.stringify(old)).toString('base64url')}`, { name: 'P' }).device.role, 'view', 'unknown role: assume the lesser');
+});
+
+
+test('M-LINK-3: presence counts first/last sockets, revoke and close without duplicate flapping', async () => {
+  const events: [string, boolean][] = [];
+  const h = await startHost({ onConnection: (g, online) => events.push([g.id, online]) });
+  const grant = await paired(h);
+  await until(() => !h.host.devices()[0].online);
+  events.length = 0;
+  const a = connect(grant), b = connect(grant);
+  await until(() => a.link.status === 'online' && b.link.status === 'online');
+  assert.deepEqual(events, [[grant.device.id, true]]);
+  a.link.stop();
+  await sleep(50);
+  assert.deepEqual(events, [[grant.device.id, true]]);
+  b.link.stop();
+  await until(() => events.length === 2);
+  const c = connect(grant), d = connect(grant);
+  await until(() => c.link.status === 'online' && d.link.status === 'online');
+  await h.host.revoke(grant.device.id);
+  await until(() => c.link.status === 'removed' && d.link.status === 'removed');
+  assert.deepEqual(events.map((e) => e[1]), [true, false, true, false]);
+  h.host.close();
+  await sleep(50);
+  assert.equal(events.length, 4);
+});
+
+test('M-LINK-3: failed unpair keeps presence; successful unpair ends all sockets once', async () => {
+  let saved: Grant[] = [], fail = false;
+  const events: boolean[] = [];
+  const h = await startHost({ grants: { load: () => saved, save: (g) => { if (fail) throw new Error('disk full'); saved = g; } },
+    onConnection: (_, online) => events.push(online) });
+  const grant = await paired(h);
+  await until(() => !h.host.devices()[0].online);
+  events.length = 0;
+  const a = connect(grant), b = connect(grant);
+  await until(() => a.link.status === 'online' && b.link.status === 'online');
+  fail = true;
+  await assert.rejects(a.link.unpair());
+  assert.deepEqual(events, [true]);
+  fail = false;
+  await a.link.unpair();
+  await until(() => b.link.status === 'removed');
+  assert.deepEqual(events, [true, false]);
+});
+
+test('M-LINK-4a: ready metadata is host-chosen, sealed, kept after pair and refreshed after reconnect', async () => {
+  const h = await startHost({ deviceMeta: (g) => ({ app: 'demo', scope: (g.meta as any)?.scope }) });
+  const grant = await paired(h, { meta: { scope: 'summary', secret: 'private-host-data' } });
+  assert.deepEqual(grant.meta, { app: 'demo', scope: 'summary' });
+  assert.ok(!JSON.stringify(grant).includes('private-host-data'));
+  await h.host.setMeta(grant.device.id, { scope: 'other', secret: 'private-host-data' });
+  const d = connect(grant);
+  await until(() => d.link.status === 'online');
+  assert.deepEqual(d.link.grant.meta, { app: 'demo', scope: 'other' });
+  const plain = await startHost();
+  assert.equal((await paired(plain, { meta: { secret: 'never-expose' } })).meta, undefined);
+});
+
+test('M-LINK-4a: subscribed file grants reload a cross-process removal and unsubscribe on close', async () => {
+  const path = join(scratchDir('link-grants'), 'grants.json');
+  const store = fileGrantStore(path, 20);
+  const events: boolean[] = [];
+  const h = await startHost({ grants: store, onConnection: (_, online) => events.push(online) });
+  const grant = await paired(h);
+  const d = connect(grant);
+  await until(() => d.link.status === 'online');
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `import { fileGrantStore } from ${JSON.stringify(new URL('../src/node.ts', import.meta.url).href)}; await fileGrantStore(process.argv[1]).save([]);`, path], { encoding: 'utf8' });
+  assert.equal(child.status, 0, child.stderr);
+  await until(() => d.link.status === 'removed');
+  assert.deepEqual(h.host.devices(), []);
+  assert.equal(events.at(-1), false);
+  assert.equal(lstatSync(path).mode & 0o777, 0o600);
+  h.host.close();
+  const before = events.length;
+  await store.save([]);
+  await sleep(60);
+  assert.equal(events.length, before);
+});
+
+test('M-LINK-4a: reload reads without saving and a failed read leaves the authority intact', async () => {
+  let saved: Grant[] = [], fail = false, writes = 0;
+  const h = await startHost({ grants: { load: () => { if (fail) throw new Error('unreadable'); return saved; }, save: (g) => { saved = g; writes++; } } });
+  const grant = await paired(h);
+  const d = connect(grant);
+  await until(() => d.link.status === 'online');
+  const before = writes;
+  fail = true;
+  await assert.rejects(h.host.reload(), /unreadable/);
+  assert.equal(h.host.devices()[0].id, grant.device.id);
+  assert.equal(h.host.devices()[0].online, true);
+  fail = false;
+  saved = [];
+  await h.host.reload();
+  await until(() => d.link.status === 'removed');
+  assert.equal(writes, before, 'reload never overwrites the durable authority');
+});
+
+test('M-LINK-6: delegated invitations keep host-selected scope and refuse a revoked inviter', async () => {
+  let h: Awaited<ReturnType<typeof startHost>>;
+  h = await startHost({
+    handle: (req, inviter) => {
+      if (req.op !== 'peer.invite' || inviter.role !== 'control') throw new Error('forbidden');
+      return h.host.offer({ urls: [h.url], role: 'view', kind: 'peer', lifetime: 60_000, meta: { invitedBy: inviter.id, scope: 'summary' } });
+    },
+    confirm: (req) => req.kind !== 'peer' || ((req.meta as any)?.scope === 'summary'
+      && h.host.devices().some((g) => g.id === (req.meta as any)?.invitedBy && g.role === 'control')),
+    allow: (req, g) => g.kind === 'peer' ? req.op === 'get.summary' : g.role === 'control',
+  });
+  const parent = await paired(h);
+  const inviter = connect(parent);
+  const invitation = await inviter.link.request('peer.invite', { role: 'control' }) as { text: string };
+  const peer = await pairWithOffer(invitation.text, { name: 'Peer' });
+  assert.equal(peer.device.role, 'view');
+  assert.equal(h.host.devices().find((g) => g.id === peer.device.id)?.kind, 'peer');
+  const peerLink = connect(peer);
+  await assert.rejects(peerLink.link.request('peer.invite'), (e: any) => e.code === 'view-only');
+  const next = await inviter.link.request('peer.invite') as { text: string };
+  await h.host.revoke(parent.device.id);
+  await assert.rejects(pairWithOffer(next.text, { name: 'Late peer' }), (e: any) => e.code === 'declined');
+});
+
+
+test('M-LINK-4a: file store rejects stale writes instead of restoring an externally revoked grant', async () => {
+  const path = join(scratchDir('link-grants-conflict'), 'grants.json');
+  const first = fileGrantStore(path), second = fileGrantStore(path);
+  await first.save([]);
+  await first.load();
+  await second.load();
+  const grant: Grant = { id: 'peer', key: b64url(keyPair().publicKey), name: 'Peer', role: 'view', created: Date.now() };
+  await second.save([grant]);
+  await assert.rejects(async () => { await first.save([]); }, /reload before saving/);
+  assert.deepEqual(await first.load(), [grant]);
+  await first.save([]);
+  assert.deepEqual(await second.load(), []);
+});
+
+test('M-LINK-4a: reload moves a live expiry timer when the authority shortens access', async () => {
+  let saved: Grant[] = [];
+  const h = await startHost({ grants: { load: () => saved, save: (g) => { saved = g; } } });
+  const grant = await paired(h, { lifetime: 60_000 });
+  const d = connect(grant);
+  await until(() => d.link.status === 'online');
+  saved = saved.map((g) => ({ ...g, expires: Date.now() + 80 }));
+  await h.host.reload();
+  await until(() => d.link.status === 'removed');
+  assert.deepEqual(h.host.devices(), []);
+});
+
+
+test('M-LINK-3: callback failures do not interrupt live host shutdown', async () => {
+  const events: boolean[] = [];
+  const h = await startHost({ onConnection: (_, online) => { events.push(online); throw new Error('app callback'); } });
+  const grant = await paired(h);
+  await until(() => !h.host.devices()[0].online);
+  events.length = 0;
+  const a = connect(grant), b = connect(grant);
+  await until(() => a.link.status === 'online' && b.link.status === 'online');
+  h.host.close();
+  assert.deepEqual(events, [true, false]);
+  assert.equal(h.host.devices()[0].online, false);
+  assert.ok(h.errors.length >= 2);
+});
+
+test('M-LINK-4a: unchanged reload does not invalidate an asynchronous policy decision', async () => {
+  let saved: Grant[] = [], entered!: () => void, release!: () => void;
+  const waiting = new Promise<void>((r) => { entered = r; });
+  const held = new Promise<void>((r) => { release = r; });
+  const h = await startHost({ grants: { load: () => structuredClone(saved), save: (g) => { saved = g; } },
+    allow: async () => { entered(); await held; return true; } });
+  const d = connect(await paired(h));
+  const request = d.link.request('get.state');
+  await waiting;
+  await h.host.reload();
+  release();
+  assert.equal((await request as any).op, 'get.state');
 });

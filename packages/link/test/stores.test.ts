@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { build } from 'esbuild';
 import { chromium } from 'playwright';
 import { WebSocketServer } from 'ws';
-import { DeviceLink, Host, keyPair, pairWithOffer, secureDeviceStore, type SecureStoreLike } from '../src/index.ts';
+import { DeviceLink, Host, keyPair, pairWithOffer, secureDeviceStore, secureDeviceStores, type SecureStoreLike } from '../src/index.ts';
 import { fileDeviceStore } from '../src/node.ts';
 
 const host = await Host.open({ keys: keyPair(), name: 'Kitchen computer', confirm: () => true, handle: (r) => ({ op: r.op }) });
@@ -196,6 +196,21 @@ test('K4: the grant in IndexedDB, sealed by a non-extractable AES-GCM key; the s
         const { browserDeviceStore } = await import('/stores.js' as string);
         return browserDeviceStore('kitchen').load();
       }), fresh);
+      const multi = await otherTab.evaluate(async (g) => {
+        const { browserDeviceStores } = await import('/stores.js' as string);
+        const stores = browserDeviceStores('multi');
+        const empty = await stores.list();
+        await Promise.all([stores.save('kitchen', g), stores.save('office', { ...g, hostName: 'Office' })]);
+        const names = (await browserDeviceStores('multi').list()).sort();
+        await stores.store('kitchen').clear();
+        return { empty, names, after: await stores.list(), removed: await stores.load('kitchen'), other: await stores.load('office') };
+      }, fresh);
+      assert.deepEqual(multi.empty, []);
+      assert.deepEqual(multi.names, ['kitchen', 'office']);
+      assert.deepEqual(multi.after, ['office']);
+      assert.equal(multi.removed, null);
+      assert.equal(multi.other.hostName, 'Office');
+      assert.equal(multi.other.secretKey, fresh.secretKey);
     } finally { await browser.close(); site.close(); }
   });
 
@@ -231,4 +246,29 @@ test("a computer's grant: a 0600 file, sealed with Electron's safeStorage when g
   assert.deepEqual(await fileDeviceStore(path, safeStorage).load(), grant);
   await store.clear();
   assert.equal(await store.load(), null);
+});
+
+
+test('M-LINK-5: secure multi-grant index survives restart and concurrent instances; remove preserves neighbours', async () => {
+  const kept = new Map<string, string>();
+  const secure: SecureStoreLike = {
+    getItemAsync: async (k) => kept.get(k) ?? null,
+    setItemAsync: async (k, v) => { kept.set(k, v); },
+    deleteItemAsync: async (k) => { kept.delete(k); },
+  };
+  const a = secureDeviceStores(secure), b = secureDeviceStores(secure);
+  const grant = await pair();
+  assert.deepEqual(await a.list(), []);
+  await Promise.all([a.save('kitchen', grant), b.save('office', { ...grant, hostName: 'Office' })]);
+  assert.deepEqual((await b.list()).sort(), ['kitchen', 'office']);
+  assert.equal((await b.store('office').load())?.hostName, 'Office');
+  await a.store('kitchen').clear();
+  assert.equal(await b.load('kitchen'), null);
+  assert.deepEqual(await b.list(), ['office']);
+  assert.equal((await a.load('office'))?.secretKey, grant.secretKey);
+  await assert.rejects(a.save('../escape', grant));
+  // A failed write after index commit leaves no orphaned secret and list omits the missing entry.
+  const failing = { ...secure, setItemAsync: async (k: string, v: string) => { if (k.endsWith('.grant.failed')) throw new Error('store unavailable'); kept.set(k, v); } };
+  await assert.rejects(secureDeviceStores(failing).save('failed', grant));
+  assert.deepEqual(await a.list(), ['office']);
 });

@@ -79,19 +79,19 @@
   },
   {
     "readme": "packages/link/README.md",
-    "block": 5,
+    "block": 6,
     "snapshot": "d02faa7e333b55d99925215ad9b3fb76199b7536f9ab3dff137885127addd211",
     "reason": "Device fragment omits scanned offer, UI callbacks and host-provided secure storage."
   },
   {
     "readme": "packages/link/README.md",
-    "block": 6,
+    "block": 7,
     "snapshot": "f6b80f4da0b89818f15a956c24c4470ab6282b4f472c86ccb3e362f75e42dd9f",
     "reason": "Device-storage fragment omits imports, SecureStore, scanned offer and callbacks."
   },
   {
     "readme": "packages/link/README.md",
-    "block": 7,
+    "block": 8,
     "snapshot": "67ce688872f69c8c1f68316f396c70c25068889d295991053a6651be2284d5c0",
     "reason": "Stream fragment omits imports, host options, panes, device link and terminal context."
   },

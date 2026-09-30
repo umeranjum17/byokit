@@ -28,6 +28,10 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 | Typed code | 12 characters from a 31-character unambiguous alphabet (about 59 bits), `XXXX-XXXX-XXXX`. |
 | Pairing rules | Tickets and codes are single use (burned at first presentation, even when expired or refused), live 5 minutes through grant creation, and 5 wrong tries withdraw every open ticket and code. Nothing is stored until the person at the host approves; both screens show the same **two confirmation words**, derived from the handshake hash. Optional device cap. |
 | Grants | Held by the host with a device key and role; optional `kind`, `expires`, `nextKey` and `meta` support caps, expiry, rekey and app policy. Every handshake and request checks the grant. `allow` decides access when supplied; otherwise control is allowed and view-only uses `canView` (default: none). |
+| Presence and reload | Presence counts authenticated live sockets per grant and fires only on first/last. Store notifications trigger a serialized `Host.reload` with no write-back; removed/key-changed/role-changed grants close live sockets, and changed expiry reschedules access. A failed read preserves the last known authority and reports the failure: notifications are eventual, so an app needing instantaneous external-authority checks must enforce them in `allow`. The Node file backend uses a cooperating-writer lock and rejects stale snapshots; it polls only the app's chosen path and stops when the host closes. |
+| Ready metadata | Only the opt-in `deviceMeta(grant)` projection is sent to the device, inside the sealed `ready`. Host grant metadata is private by default. The app must not project credentials. |
+| Device collections | Secure-store grants have a private index and serialized per-runtime writes; interrupted saves leave filterable missing entries rather than orphaned grants. IndexedDB collections enumerate sealed entries and preserve per-entry non-extractable keys and clear/save tombstones. This is one device's computers, not a hosted multi-tenant credential service. |
+| Delegated pairing | An authenticated inviter asks `handle` for a host-issued, constrained offer; `confirm` validates host-chosen scope and the inviter's current authority before approving it. The existing single-use/five-minute/approval rules apply. Apps enforce scope in `allow`; no offline or long-lived bearer invitation is added. Paired peers are independent grants, so cascading revoke is an app policy. |
 | Revoke | Deletes the grant, sends a sealed `revoked` to its live sockets, then closes them. No key rotation is needed: there are no shared keys. |
 | Refusals | A host that can read the device's handshake answers refusals (`not-paired`, `expired`, `ended`, `declined`, `full`) inside the channel, so the device can trust them (e.g. forget its grant). Anything unauthenticated (a plaintext close) only changes what the device *says*, never what it deletes. |
 | Requests | `{t:'req', id, key, session, ack, op, args, notValidAfter?}`. The device sends its highest contiguous received reply id on each request and reconnect authentication. The host retains replies until acknowledged across reconnects; a fresh app session clears abandoned replies. At 1000 unacknowledged replies it refuses new requests with `busy`, without evicting answers. The cache is in memory unless the app supplies an `answers` store. |
@@ -128,6 +132,12 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 - [x] Nothing in the main entry reads or writes files, environment variables or other programs.
       `@byokit/link/node` `hostKeyFile(path)` touches only that path: 0600 in 0700, atomic, never replaces a file it
       can't read, refuses symlinks.
+
+- [ ] Presence fires once on first/last sockets, including failed/successful unpair, reload, expiry and close.
+- [ ] A grant reload never saves its snapshot back; failed reads preserve memory; Node stale writes reject.
+- [ ] Ready metadata is opt-in, sealed, refreshed on reconnect, and never implicitly includes Grant.meta.
+- [ ] Device collection removal preserves neighbours, excludes tombstones and retains browser key protection.
+- [ ] Delegated invitation scope is host-chosen, redemption checks the current inviter, and peer requests remain policy-checked.
 
 ## Recorded review — 2026-09-30
 
