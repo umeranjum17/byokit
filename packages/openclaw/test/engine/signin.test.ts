@@ -1,8 +1,11 @@
 // The pinned engine's own wizard, for real (5.7, O6): every choice id in routes.json exists in the tarball, and the
 // drive speaks the contract the gateway actually serves — steps only from wizard.next, one setup admission at a time.
-import { test, before, after } from 'node:test';
+import { test, before, after, mock } from 'node:test';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -12,6 +15,7 @@ import { providers, signIn, type SignInCtx } from '../../src/signin.ts';
 import { routes } from '../../src/routes.ts';
 import { scratchDir } from '../../../test-support.ts';
 import type { GatewayTransport, SignInView } from '../../src/types.ts';
+import { mockOpenAI } from '../../../accounts/src/testing/index.ts';
 
 const install = scratchDir('o6-engine-signin');
 const engineDir = join(install, 'engine');
@@ -21,6 +25,7 @@ const engine = new Engine({ stateDir, engineDir, pluginId: 'byokit', tools: [], 
   config: { plugins: { allow: ['openai'] } }, onState: () => {}, onExit: () => {} });
 let transport: GatewayTransport;
 let calls: string[] = [];
+let openai: Awaited<ReturnType<typeof mockOpenAI>>;
 
 /** The pin's own inventory: every bundled manifest's `providerAuthChoices`, and the manifest id that owns each. */
 const pinnedChoices = (): { choices: Map<string, string>; staticChoices: string } => {
@@ -50,6 +55,33 @@ export const listening = (port: number): Promise<boolean> => new Promise((resolv
 });
 
 before(async () => {
+  openai = await mockOpenAI({ email: 'umer@example.com' });
+  // Only this file's task-owned gateway receives the auth fake. The tarball,
+  // production spawn policy and offline egress guard remain intact.
+  const preload = join(install, 'auth-fake.mjs');
+  writeFileSync(preload, `
+import { mock } from 'node:test';
+const fetch = globalThis.fetch;
+// The pinned engine recognizes mock.method's mock metadata as its fetch injection seam.
+mock.method(globalThis, 'fetch', (input, options) => {
+  const url = new URL(input instanceof Request ? input.url : input);
+  if (url.origin === 'https://auth.openai.com') {
+    const base = new URL(${JSON.stringify(openai.base)});
+    url.protocol = base.protocol; url.host = base.host;
+    input = input instanceof Request ? new Request(url, input) : url;
+  }
+  return fetch(input, options);
+});
+`, { mode: 0o600 });
+  const spawn = childProcess.spawn;
+  mock.method(childProcess, 'spawn', (...args: Parameters<typeof spawn>) => {
+    const [file, argv, options] = args;
+    if (file === process.execPath && Array.isArray(argv) && argv.includes(join(engineDir, 'node_modules', 'openclaw', 'openclaw.mjs'))) {
+      return spawn(file, ['--import', pathToFileURL(preload).href, ...argv], options);
+    }
+    return spawn(...args);
+  });
+  syncBuiltinESMExports();
   const ctx = await engine.start();
   for (let waited = 0; waited < 120_000; waited += 200) {
     if (await listening(ctx.port)) break;
@@ -61,7 +93,10 @@ before(async () => {
   assert.equal(hello.protocol, 4);
 }, { timeout: 600_000 });
 
-after(async () => { await transport?.stop(); await engine.stop(); });
+after(async () => {
+  try { await transport?.stop(); await engine.stop(); }
+  finally { mock.restoreAll(); syncBuiltinESMExports(); await openai?.close(); }
+});
 
 /** The kit's own ctx over the real gateway. */
 const signInCtx = () => {
@@ -197,6 +232,8 @@ test('real gateway: the drive shows the code, never asks wizard.status, and canc
   const handle = signIn(client, 'm1', { authChoice: 'openai-device-code', via: 'code' }, (view) => views.push(view));
   for (let waited = 0; waited < 120_000 && !views.length; waited += 100) await delay(100);
   assert.ok(views.length, 'the wizard never answered with a step');
+  assert.ok(views.some(view => view.state === 'waiting' && view.code?.startsWith('MOCK-')),
+    `the drive displays the loopback fake code: ${JSON.stringify({ views, requests: openai.state.requests.map(request => request.path) })}`);
   handle.cancel();
   const end = await handle.done;
   assert.deepEqual(end, { state: 'failed', via: 'code', why: 'declined' });
