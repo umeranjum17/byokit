@@ -3,6 +3,7 @@
 // The engine does the signing in (Pi's own flows on a computer, portableEngine on phones and in browsers); the app only
 // shows the provider's page to open or the code to type. No Node import here: see index.ts for the computer's side.
 import type { AuthPrompt, CredentialStore, Models } from '@earendil-works/pi-ai';
+import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
 import { offered, provider, type Provider } from './catalogue.ts';
 import { claims, PORTABLE, portableEngine } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
@@ -28,8 +29,10 @@ export type Platform = { engine: (credentials: CredentialStore, authBase?: strin
 /** Phones and browsers: ChatGPT by device code, no listener. */
 export const portable: Platform = { engine: (c, base) => portableEngine(c, { base }), signsIn: (pi) => PORTABLE.includes(pi) };
 
+export type AnthropicAccountAsk = AnthropicAsk & { provider: 'anthropic'; key: string };
+
 export type AccountsOptions<M extends Member = Member> = {
-  /** The accounts this app offers, in order. Default: every provider not hidden (ChatGPT, OpenRouter). */
+  /** The accounts this app offers, in order. Default: supported subscription providers not hidden. */
   offer?: readonly string[];
   /** Each member's own store. Default: in memory. */
   store?: (member: M) => CredentialStore;
@@ -47,6 +50,8 @@ export type AccountsOptions<M extends Member = Member> = {
   authBase?: string;
   /** Where ChatGPT answers `respond`, for a stand-in in tests and demos. */
   apiBase?: string;
+  /** Anthropic Messages origin: an app-owned proxy or stand-in. */
+  anthropicBase?: string;
   /** The fetch `respond` asks with: one that streams on a phone (Expo's `expo/fetch`). Default: the platform's. */
   fetch?: typeof fetch;
   /** The originator header `respond` sends. Default: 'byokit'. */
@@ -282,9 +287,19 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    *  ResponseError with the words to show. Without `tools` the answer is the plain text, as before: pass `input` as
    *  words or as turns (messages with `input_image`, then the `function_call` with its `function_call_output`). With
    *  `tools` it is the text with every output item, and `onEvent` sees each tool call as it lands. */
+  async respond(member: M, ask: AnthropicAccountAsk & { result: true }): Promise<AnthropicResult>;
+  async respond(member: M, ask: AnthropicAccountAsk & { tools: AnthropicTool[] }): Promise<AnthropicResult>;
+  async respond(member: M, ask: AnthropicAccountAsk & { tools?: undefined; result?: false }): Promise<string>;
+  async respond(member: M, ask: AnthropicAccountAsk): Promise<string | AnthropicResult>;
   async respond(member: M, ask: Ask & { tools?: undefined }): Promise<string>;
   async respond(member: M, ask: Ask & { tools: ResponseTool[] }): Promise<ResponseResult>;
-  async respond(member: M, ask: Ask): Promise<string | ResponseResult> {
+  async respond(member: M, query: Ask | AnthropicAccountAsk): Promise<string | ResponseResult> {
+    const ask = query as Ask;
+    if ('provider' in query && query.provider === 'anthropic') {
+      this.offer('anthropic');
+      const { provider: _provider, key, ...request } = query as AnthropicAccountAsk;
+      return anthropic({ key, fetch: this.opts.fetch, base: this.opts.anthropicBase }).respond(request);
+    }
     const key = 'chatgpt';
     const p = this.offer(key);
     const { access, accountId } = await this.access(member);
@@ -341,7 +356,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    *  stalls times out; nothing is kept unless the engine then sees a working sign-in; every failure ends in one plain
    *  sentence. Returns as soon as there is a page to open or a code to show (or it is over); the rest carries on by itself. */
   async login(member: M, key: string, body: { via?: 'code' | 'browser'; fresh?: boolean } = {}): Promise<SignIn | null> {
-    this.offer(key);
+    const p = this.offer(key);
+    if (p.auth === 'api-key') throw new Error('Use the app-provided API key (billed per use) to ask this provider.');
     const id = `${member}:${key}`;
     const pending = this.signingOut.get(id);
     if (pending) await pending.catch(() => {});

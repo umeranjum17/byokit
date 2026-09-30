@@ -3,7 +3,8 @@
 The shared fixtures, including `revoke.json`, are the frozen `byokit-android` Kotlin baseline. TypeScript-only additions live in `*-typescript.json`; `@byokit/accounts` tests apply those alongside the shared cases (replacing a shared HTTP case with the same body where needed). Change a rule in its owning fixture first.
 
 The shared data itself has one copy, `packages/accounts/src/catalogue.json` and `words.json`; the Kotlin build bundles
-those same files.
+those same files. Catalogue conformance checks the explicit Anthropic API billing and opt-in labels without adding
+a Messages backend to the frozen Kotlin runtime.
 
 | File | What it is |
 |---|---|
@@ -20,6 +21,7 @@ those same files.
 | `conformance/sse-typescript.json` | TypeScript-only completion requirement, authoritative output, and coded SSE limits. |
 | `conformance/incomplete-typescript.json` | TypeScript-only cut-off answers: typed error, partial output, and incomplete event for SSE and JSON. |
 | `conformance/dictation-typescript.json` | Stable live partials, final-only corrections, silence and cancellation. |
+| `conformance/anthropic-sse-typescript.json` | Recorded Messages SSE, usage, tools/thinking, truncation, refusal and protocol errors (TypeScript only). |
 | `conformance/plain-words.json` | The pattern no sentence in `words.json` may match. |
 | `conformance/link-frames-typescript.json` | TypeScript link transport rejects missing kinds, unknown kinds and truncated stream ids. |
 

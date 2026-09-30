@@ -148,7 +148,19 @@ assert.equal(check.length, 'Umer shipped the first version today.'.length);
     }
     // Consumer typecheck under three module resolutions. Plugins and package metadata are runtime-only exports.
     const consumer = subpaths.filter((s) => !s.spec.endsWith("/app.plugin.js") && !s.spec.endsWith("/package.json")).map((s, i) => `import * as m${i} from ${JSON.stringify(s.spec)};\nvoid m${i};`).join("\n");
-    writeFileSync(join(appDir, "consumer.ts"), `${consumer}\n`);
+    const anthropicConsumer = `
+import { Accounts, anthropic, type AnthropicResult } from '@byokit/accounts';
+const claude = anthropic({ key: 'app-owned-key' });
+const native = { model: 'explicit-model', max_tokens: 1024,
+  messages: [{ role: 'user' as const, content: 'Hello' }] };
+const text: Promise<string> = claude.respond(native);
+const result: Promise<AnthropicResult> = claude.respond({ ...native, result: true });
+const accountResult: Promise<AnthropicResult> = new Accounts({ offer: ['anthropic'] }).respond('member', {
+  ...native, provider: 'anthropic', key: 'app-owned-key', result: true,
+});
+void text; void result; void accountResult;
+`;
+    writeFileSync(join(appDir, "consumer.ts"), `${consumer}\n${anthropicConsumer}\n`);
     const tsc = join(appDir, "node_modules", ".bin", "tsc");
     const configs: Record<string, unknown> = {
       nodenext: {

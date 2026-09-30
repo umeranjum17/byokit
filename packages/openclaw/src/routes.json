@@ -117,7 +117,7 @@
     "via": "browser",
     "prerequisite": "the Claude CLI, signed in inside the engine's own folder",
     "offer": false,
-    "reason": "byokit never adds Claude plan sign-in",
+    "reason": "Requires an explicit app opt-in; the pinned Gateway does not expose this plan route",
     "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)"
   },
   {
@@ -128,7 +128,7 @@
     "via": "browser",
     "prerequisite": null,
     "offer": false,
-    "reason": "API billing, not a subscription; never offered (D12): no Anthropic API fallback.",
+    "reason": "API key (billed per use); shown only when an app explicitly asks.",
     "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)"
   },
   {
@@ -348,7 +348,7 @@
     "via": "browser",
     "prerequisite": null,
     "offer": false,
-    "reason": "byokit never adds Claude plan sign-in",
+    "reason": "Requires an explicit app opt-in; the pinned Gateway does not expose this plan route",
     "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)"
   },
   {

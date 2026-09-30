@@ -48,7 +48,7 @@ runtime-tested here because no simulator is available.
 - Sources are TypeScript that Node runs directly (type stripping): no enums, namespaces or parameter properties, and
   relative imports carry the `.ts` extension.
 - Provider terms are data (`packages/accounts/src/catalogue.json`), with a one-line reason and a source. The kit labels
-  and never decides for an app. Claude plan sign-in is never added.
+  and never decides for an app. Anthropic Messages uses an app-passed API key (billed per use), with explicit opt-in.
 - Plain words live in `words.json` and are tested against a banned-jargon list.
 - Pi's `@earendil-works/pi-ai` is pinned exactly. Bump it deliberately, with the isolation tests green.
 
