@@ -1,6 +1,12 @@
 [
   {
     "readme": "packages/accounts/README.md",
+    "block": 2,
+    "snapshot": "b210634b0e6b86b7f2e2a3896da85a1e05f56239b9c71994fa5587fc5087f195",
+    "reason": "Desktop example requires Electron declarations supplied by the host app, unavailable in the Node workspace."
+  },
+  {
+    "readme": "packages/accounts/README.md",
     "block": 3,
     "snapshot": "2bd3fa1d01224aa32999486abff566616b99518918891aa3f64ba4879618e124",
     "reason": "Phone example requires Expo SecureStore and Expo fetch declarations unavailable in the Node workspace."
@@ -22,18 +28,6 @@
     "block": 7,
     "snapshot": "fd8569a19e998fa84284c4f6bf0164c7aaeb8bf143dcccff33a8018a63359244",
     "reason": "Asking fragment relies on earlier accounts setup, isFunctionCall and host-supplied show."
-  },
-  {
-    "readme": "packages/capture/README.md",
-    "block": 0,
-    "snapshot": "9e36a48d224ece73959ea03fc0a6c691b8c684dfa001d7b15f5c8c666695599c",
-    "reason": "No TypeScript example yet; strength item 6 adds one (kit later named record)."
-  },
-  {
-    "readme": "packages/compose/README.md",
-    "block": 0,
-    "snapshot": "9e36a48d224ece73959ea03fc0a6c691b8c684dfa001d7b15f5c8c666695599c",
-    "reason": "No TypeScript example yet; strength item 6 adds one (kit later named write)."
   },
   {
     "readme": "packages/decide/README.md",
@@ -114,9 +108,9 @@
     "reason": "Stream fragment omits imports, host options, panes, device link and terminal context."
   },
   {
-    "readme": "packages/machine/README.md",
+    "readme": "packages/cloud/README.md",
     "block": 1,
-    "snapshot": "d0db22c678257ac1a3396a4afe8816b5e024ea5d1f7482efe373fee000a19065",
+    "snapshot": "c5b666431d61363a7633f45f090b4ff03af2bade841dd829d8a5735d6dc4c6e1",
     "reason": "Quickstart leaves provider, store and recipe undeclared; strength item 6 supplies fakes."
   },
   {

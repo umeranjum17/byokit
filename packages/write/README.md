@@ -8,14 +8,33 @@ The app or agent writes the drafts; this kit checks them over the pinned public
 It ships a typed client (`new Compose()`), a `write` agent CLI with plain TOON output, and `./testing` (a fake
 engine and a contract suite).
 
-**Status: in development, private.** The client, CLI, fake engine and engine seams are built
-([docs/capability-kits.md](../../docs/capability-kits.md) §9.2). The engine's protocol 1 schema is committed in
-`schema/engine-protocol-1.json` (sha256 in `ENGINE_SCHEMA_SHA256`) and the typed wire is generated from it
-(`npm run gen:write`).
+## Install
 
-Real engine: the contract suite runs against `ownvoice-engine` 0.1.0 in CI job `write-engine`
-(`npm run test:write-engine`), in process and through its own bin. Until the engine is on npm, that job runs it
-from its public source at the schema's commit; the kit publishes once the engine is its exact dependency.
+Node 22.18 or later:
+
+```sh
+npm install @byokit/write@0.1.0
+```
+
+The kit installs its exact dependency `ownvoice-engine@0.1.0` from npm. No engine checkout or separate install is
+needed. The committed protocol 1 schema is in `schema/engine-protocol-1.json` (sha256 in `ENGINE_SCHEMA_SHA256`);
+`npm run gen:write` regenerates the typed wire. CI's `write-engine` job runs the real engine contract in process
+and through its own bin.
+
+```ts
+import { Compose } from '@byokit/write';
+
+const writer = new Compose();
+const draft = 'Umer shipped the first version today.';
+const [check] = await writer.check({ drafts: [draft], platform: 'x' });
+console.log(check.fits, check.words);
+```
+
+The installed agent CLI uses the same engine:
+
+```sh
+npx write platforms
+```
 
 Threads come back as the engine writes them, numbered (`1/3 …`).
 

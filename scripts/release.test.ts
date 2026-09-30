@@ -265,6 +265,18 @@ test("release lint CLI rejects a shipped schema without a bump and accepts noted
       assert.equal(accepted.status, 0, accepted.stderr);
       assert.match(accepted.stdout, /release lint: ok/);
     }
+    // A private scaffold's version has never shipped: removing private releases it at that same version.
+    writeFileSync(manifestPath, JSON.stringify({ ...manifest, private: true }));
+    git("add", "."); git("commit", "-qm", "private scaffold");
+    const privateBase = git("rev-parse", "HEAD");
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    writeFileSync(changelogPath, "# Changelog\n\n## Unreleased\n\n## 0.1.1\n\n- Initial public release.\n");
+    git("add", "."); git("commit", "-qm", "first public release");
+    for (const direct of [[], ["--direct"]]) {
+      const accepted = run(process.execPath, ["scripts/release.ts", "lint", "--base", privateBase, ...direct]);
+      assert.equal(accepted.status, 0, accepted.stderr);
+      assert.match(accepted.stdout, /release lint: ok/);
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
