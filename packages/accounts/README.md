@@ -156,6 +156,9 @@ so choose from the table above. Show `billingWords(p)` next to every provider yo
 
 Anthropic Messages uses an app-passed API key (billed per use), with explicit opt-in; its authentication is separate from the Messages request.
 
+Native Claude CLI sign-in uses the managed-folder entry.
+Approved exception: the `./cli` entry reads and runs only app-managed per-account folders under `stateDir` and the absolute CLI binaries the app passes; it never touches the person's default login; tokens never leave the device and are never logged.
+
 ```ts
 import { Accounts, billingWords, offered } from '@byokit/accounts';
 
@@ -551,3 +554,34 @@ Identity and re-authentication stay with the host's canonical device store or en
 scoped by member/provider proves identity; names and emails do not. The TypeScript identity fixture records
 wrong-account, duplicate identity, changed-email, absent-identity, removal/refresh and extension-field boundaries
 for runtime integration; the chooser consumes host-validated state and never adopts credentials itself.
+
+## Managed CLI accounts (Node only)
+
+`@byokit/accounts/cli` exports `cliAccounts`, `CliAccountError`, `CliProvider`, `CliAccount`, `CliOptions` and `SignInCommand`. Accounts use subscription billing. The portable entries and the `Accounts` class retain their existing sign-in flows.
+
+```ts
+import { cliAccounts } from '@byokit/accounts/cli';
+const accounts = cliAccounts({
+  stateDir: '/app/state/plans',
+  bins: { claude: '/app/bin/claude', codex: '/app/bin/codex' },
+  env: { HOME: '/app/home', PATH: '/app/bin:/usr/bin:/bin' },
+  historyFrom: { claude: '/app/history/projects', codex: '/app/history/sessions' },
+  prepare: async (folder, provider) => { /* app-owned setup, such as installing hooks */ },
+});
+const { account, signIn } = await accounts.add('claude');
+// Run signIn.shell in the app's sign-in tab, or run signIn.argv with signIn.env
+// and create signIn.completion privately only after that command succeeds.
+const current = await accounts.status(account.id);
+const { set, unset } = accounts.launchEnv(account.id);
+// Apply unset to the launch environment, then apply set, before starting the agent.
+```
+
+`stateDir` must be an absolute app-owned directory with an existing parent. The kit creates it at 0700 and creates private `<provider>/<hex>` account folders below it. `bins` are absolute paths; PATH is never used to find the CLI. Status and login use an environment built from nothing plus the app's `env`, after removing provider credential overrides and adding the managed-folder variable. Pass proxy or temporary-directory settings explicitly if needed. `launchEnv` returns the folder variable in `set` and the provider overrides in `unset`; hosts must apply both so a stray API key (billed per use) cannot override the chosen subscription.
+
+`add` returns a `signing` account and the native login command. `status` stays `signing` until the completion marker exists, including after a host restart, and does not run a second native client during pending sign-in. The shell uses a private per-folder lock and marks completion only after successful login. Stop the app's sign-in tab before `cancel` or `remove`; the kit does not supervise that tab. `signInAgain` reuses a pending command or starts a new completion cycle. Native CLIs own their refresh transactions; the kit neither copies credentials nor refreshes grants. A crashed sign-in shell can leave its lock; the host should stop that process and remove only that managed lock before retrying.
+
+`list` probes managed folders concurrently; `status`, `rename`, `remove` and `cancel` serialize operations per account. Only signed-in state (`ready` or `signed_out`), email and plan come from native status output; no credential file is opened and raw CLI errors and output are discarded. `rename` accepts a trimmed name of 1–64 characters. `cancel` removes only folders added by this instance; for existing accounts it ends the pending completion cycle without deleting the account. `remove` deletes only a validated managed folder. `historyFrom` creates a history symlink inside that folder; it never creates or writes the target, even when it is missing. A throwing `prepare` rolls back the new folder.
+
+The existing `accounts-v1.json` `{version:1,accounts:[{id,provider,name,folder,found}]}` and `auto-terms-v1.json` `{acknowledged:true}` encodings remain unchanged, with 0600 files and atomic replacement. The kit preserves but excludes `found-*` and `found:true` rows, which belong to the host's default-login adapter. Legacy managed rows without kit completion sidecars retain their native signed-in status; new or re-signing rows require the completion marker. Symlinked account folders and records outside the provider/hex layout are refused.
+
+`usageSource(id)` returns a Codex Source for `@byokit/usage`; Claude returns `undefined`, and its usage Source is `{provider:'claude', folder:set.CLAUDE_CONFIG_DIR, headers}` in a usage reader whose `stateDir` is the same managed root. `kinds` serves only the matching native agent (`claude` or `codex`); Pi is excluded until its folder mapping is verified. `resumeArgs` accepts an `id` conversation reference for these kinds. `termsAcknowledged` and `acknowledgeTerms` keep the host's existing terms bit; they do not gate sign-in. `suggestName` uses the first part of an email, falling back to the provider's name.

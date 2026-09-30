@@ -2,6 +2,7 @@ export type Provider = 'claude' | 'codex' | 'opencode' | 'zai' | 'copilot' | 'gr
 /** Host-owned identity makes readings survive token renewal. Tokens never become stored identities. */
 type Identity = { accountId?: string };
 export type Source =
+  | { provider: 'claude'; folder: string; headers: { 'anthropic-beta': string; 'User-Agent': string } }
   | { provider: 'codex'; bin: string; home: string; env?: Record<string, string> }
   | { provider: 'codex'; access: string; accountId: string }
   | ({ provider: 'claude'; access: string; accountUuid?: string } & Identity)

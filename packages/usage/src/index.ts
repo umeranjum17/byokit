@@ -6,7 +6,16 @@ import { fingerprint, readJson, store, memoryUsageStore, safeWindows, safePoll }
 import { claudeWindows, codexWindows, goWindows, record, zaiWindows, type CodexRateLimitResult } from './windows.ts';
 import { codexHardLimit, codexTokenWindows, copilotWindows, grokWindows, minimaxWindows, geminiWindows, kimiWindows } from './quota.ts';
 import { UsageError, type Reading, type ReadOptions, type Source, type Usage, type UsageOptions, type Poll } from './types.ts';
+import { codexIdentity, type Identity } from './identity.ts';
+import { claudeUsage as managedClaudeUsage, claudeCredential, managedClaudeFolder } from './claude.ts';
 export * from './types.ts';
+export type { Identity } from './identity.ts';
+/** Identity runs only the named binary, never opens a credential file. */
+export async function identity(source: Extract<Source, { bin: string }>): Promise<Identity> {
+  if (!record(source) || !('bin' in source) || 'folder' in source || 'credentialsFile' in source || 'read' in source) throw new UsageError();
+  validate(source);
+  return codexIdentity(source);
+}
 export { callLedger, normalizeTokens, priceCall, type CallLedger, type CallInput, type CallRecord, type CallQuery, type NormalizedTokens, type ModelPrice, type PriceTable, type CallCost } from './calls.ts';
 export { tokenLedger, memoryTokenLedgerStore, TokenLedgerError, type TokenLedger, type TokenLedgerStore, type TokenLedgerOptions, type TokenEntry, type TokenQuery } from './ledger.ts';
 export { roomOf } from './room.ts';
@@ -17,9 +26,12 @@ export { codexHardLimit, codexTokenWindows, copilotWindows, grokWindows, minimax
 export { WORDS, words, usageWords, type WordKey } from './words.ts';
 const providers = ['claude', 'codex', 'opencode', 'zai', 'copilot', 'grok', 'minimax', 'gemini', 'kimi'];
 const validText = (v: unknown): v is string => typeof v === 'string' && !v.includes('\0') && !/[\r\n]/.test(v) && v.length <= 16384;
-function validate(source: Source): void {
+function validate(source: Source, stateDir?: string): void {
   if (!record(source) || !providers.includes(source.provider)) throw new UsageError();
-  if ('credentialsFile' in source) {
+  if ('folder' in source) {
+    if (source.provider !== 'claude' || !validText(source.folder) || !isAbsolute(source.folder) || !stateDir || !managedClaudeFolder(source.folder, stateDir)) throw new UsageError();
+    if (!record(source.headers) || !['anthropic-beta', 'User-Agent'].every((key) => validText(source.headers[key as keyof typeof source.headers]) && source.headers[key as keyof typeof source.headers].length <= 1024)) throw new UsageError();
+  } else if ('credentialsFile' in source) {
     if (source.provider !== 'claude' || ![source.credentialsFile, ...[source.configFile, source.statuslineFile].filter((v) => v !== undefined)].every((v) => validText(v) && isAbsolute(v))) throw new UsageError();
   } else if ('read' in source) {
     if (source.provider !== 'claude' || typeof source.read !== 'function' || !validText(source.accountUuid) || !source.accountUuid || source.connected !== undefined && typeof source.connected !== 'function') throw new UsageError();
@@ -56,16 +68,20 @@ export function usage(options: UsageOptions): Usage {
   const failures = new Map<string, number>();
   const now = (opts?: ReadOptions) => opts?.nowMs ?? (options.now ?? Date.now)();
   function connected(source: Source): boolean {
-    validate(source);
+    validate(source, options.stateDir);
+    if ('folder' in source) return claudeCredential(source.folder) !== undefined;
     if ('credentialsFile' in source) return claudeAuth(source) !== undefined;
     if ('read' in source) { try { return source.connected?.() ?? true; } catch { return false; } }
     if ('bin' in source) { try { accessSync(source.bin, constants.X_OK); return statSync(source.bin).isFile(); } catch { return false; } }
     return ('access' in source ? source.access : source.key).trim() !== '';
   }
   function account(source: Source): string | undefined {
-    validate(source);
+    validate(source, options.stateDir);
     let id: string | undefined;
-    if ('credentialsFile' in source) id = claudeAuth(source)?.account;
+    if ('folder' in source) {
+      const stat = claudeCredential(source.folder);
+      id = stat ? `${source.folder}\0${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}` : undefined;
+    } else if ('credentialsFile' in source) id = claudeAuth(source)?.account;
     else if ('read' in source) id = source.accountUuid;
     else if ('bin' in source) {
       const raw = readJson(join(source.home, 'auth.json'), 64 * 1024);
@@ -107,7 +123,7 @@ export function usage(options: UsageOptions): Usage {
     } catch { return undefined; }
   }
   async function read(source: Source, opts?: ReadOptions): Promise<Reading> {
-    validate(source); const clock = now(opts);
+    validate(source, options.stateDir); const clock = now(opts);
     const empty = (code: Reading['code']): Reading => ({ provider: source.provider, windows: [], code, poll: { at: clock, outcome: code ?? 'unavailable' } });
     if (!connected(source)) return empty('not-connected');
     const id = identity(source); const key = `${source.provider}\0${id.key}`;
@@ -134,7 +150,7 @@ export function usage(options: UsageOptions): Usage {
       let answer: Answer;
       const pacing = { hook: options.pace, provider: source.provider, account: id.key, signal: opts?.signal };
       try {
-        answer = 'read' in source ? await customClaude(source, clock, pacing) : 'credentialsFile' in source ? await claudeUsage(source, options.fetch ?? globalThis.fetch, clock, pacing)
+        answer = 'folder' in source ? await managedClaudeUsage(source, options.fetch ?? globalThis.fetch, clock, pacing) : 'read' in source ? await customClaude(source, clock, pacing) : 'credentialsFile' in source ? await claudeUsage(source, options.fetch ?? globalThis.fetch, clock, pacing)
           : 'bin' in source ? await codexUsage(source) : await providerGet(source, options.fetch ?? globalThis.fetch, clock, pacing);
       } catch { answer = { code: 'unavailable' }; }
       const rows = safeWindows(source.provider, windows(source, answer.raw, clock));

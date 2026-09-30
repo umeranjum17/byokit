@@ -57,5 +57,10 @@
   "pick.age": "Read {ago} ago",
   "pick.ageUnknown": "Reading time unknown",
   "ago.minutes": "{n} minutes",
-  "ago.hours": "{n} hours"
+  "ago.hours": "{n} hours",
+  "cli.unknownAccount": "Choose an account from the list.",
+  "cli.invalidName": "Give the account a name up to 64 characters.",
+  "cli.kindMismatch": "That agent cannot use this account.",
+  "cli.prepareFailed": "Could not prepare the account. Try again.",
+  "cli.badOption": "The app supplied invalid account options."
 }

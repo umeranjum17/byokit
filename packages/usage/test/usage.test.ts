@@ -464,3 +464,51 @@ test('poll outcomes retain source age, separate refresh failure, durable retry a
   abort.abort();
   assert.equal((await pending).code, 'unavailable'); assert.equal(sent, 0);
 });
+
+test('shared Codex identity client returns only approved identity fields, with the passed environment', async () => {
+  const { identity } = await import('../src/index.ts');
+  const root = scratchDir('codex-identity'); const home = join(root, 'home'); mkdirSync(home);
+  const fake = fakeCodex({ dir: join(root, 'bin'), raw: { account: { type: 'chatgpt', email: 'alice@example.test', planType: 'plus', access_token: 'secret-token' } } });
+  const source = { provider: 'codex' as const, bin: fake.bin, home, env: { HOME: home, ONLY_PASSED: 'yes' } };
+  assert.deepEqual(await identity(source), { signedIn: true, email: 'alice@example.test', plan: 'plus' });
+  const invocation = fake.invocations()[0];
+  assert.deepEqual(invocation.env, { ...source.env, CODEX_HOME: home });
+  assert.deepEqual(invocation.requests.map((r) => (r as { method: string }).method), ['initialize', 'account/read']);
+  fake.script({ raw: { account: null, access_token: 'secret-token' } });
+  assert.deepEqual(await identity(source), { signedIn: false });
+  fake.script({ flood: true }); assert.deepEqual(await identity(source), { signedIn: false });
+  await assert.rejects(identity({ ...source, bin: 'codex' }), UsageError);
+});
+
+test('managed Claude usage is read-only, bounded and carries app-passed headers without exposing credentials', async () => {
+  const root = scratchDir('claude-managed'); const folder = join(root, 'claude', 'abcdef'); mkdirSync(folder, { recursive: true });
+  const credential = join(folder, '.credentials.json');
+  const token = 'synthetic-secret-token';
+  writeFileSync(credential, JSON.stringify({ claudeAiOauth: { accessToken: token, refreshToken: 'synthetic-refresh', expiresAt: nowMs + 300_000 } }), { mode: 0o600 });
+  const before = readFileSync(credential, 'utf8'); const metadata = statSync(credential);
+  const source: Source = { provider: 'claude', folder, headers: { 'anthropic-beta': 'app-beta', 'User-Agent': 'app-agent' } };
+  const http = fakeFetch([{ body: { ...payloads.claude.raw, access_token: token } }, { status: 429 }, { text: token }, { status: 401 }, { text: 'x'.repeat(65537) }]);
+  const reader = usage({ stateDir: root, fetch: http.fetch });
+  assert.ok(reader.connected(source)); const identity = reader.account(source);
+  const [good, duplicate] = await Promise.all([reader.read(source, { nowMs }), reader.read(source, { nowMs })]);
+  assert.deepEqual(good.windows, payloads.claude.windows); assert.deepEqual(good, duplicate); assert.equal(http.calls.length, 1);
+  assert.equal(http.calls[0].url, 'https://api.anthropic.com/api/oauth/usage');
+  assert.deepEqual(http.calls[0].init?.headers, { accept: 'application/json', authorization: `Bearer ${token}`, 'anthropic-beta': 'app-beta', 'User-Agent': 'app-agent' });
+  assert.equal(http.calls[0].init?.redirect, 'error');
+  assert.deepEqual(await reader.read(source, { nowMs: nowMs + 59_999 }), good);
+  assert.deepEqual(usage({ stateDir: root }).lastKnown(source, { nowMs: nowMs + 60_000 }), good);
+  assert.equal((await reader.read(source, { nowMs: nowMs + 60_000 })).code, 'rate-limited');
+  assert.equal((await reader.read(source, { nowMs: nowMs + 61_000 })).code, 'rate-limited'); assert.equal(http.calls.length, 2);
+  for (const code of ['incomplete', 'auth', 'incomplete']) {
+    const result = await usage({ stateDir: root, fetch: http.fetch }).read(source, { nowMs: nowMs + 60_000 });
+    assert.equal(result.code, code); assert.doesNotMatch(JSON.stringify(result), /synthetic-secret-token|synthetic-refresh/);
+  }
+  assert.equal(readFileSync(credential, 'utf8'), before); assert.equal(statSync(credential).mtimeMs, metadata.mtimeMs);
+  assert.doesNotMatch(readFileSync(join(root, 'plans-v2.json'), 'utf8'), /synthetic-secret-token|synthetic-refresh|access_token/);
+  writeFileSync(credential, JSON.stringify({ claudeAiOauth: { accessToken: token, expiresAt: nowMs - 1 } }));
+  assert.notEqual(reader.account(source), identity, 'credential metadata change invalidates cached account readings without loading tokens');
+  const expired = await usage({ stateDir: root, fetch: http.fetch }).read(source, { nowMs });
+  assert.equal(expired.code, 'expired'); assert.deepEqual(expired.windows, []); assert.equal(http.calls.length, 5);
+  unlinkSync(credential); assert.equal(reader.connected(source), false);
+  assert.equal((await reader.read(source, { nowMs })).code, 'not-connected');
+});

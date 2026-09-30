@@ -32,6 +32,8 @@ runtime-tested here because no simulator is available.
   kits ([docs/capability-kits.md](docs/capability-kits.md)) have their own carve-out: `@byokit/write` may load only
   its exactly pinned public engine package, and `@byokit/record` may spawn only a recorder implementing recorder
   protocol v1 that the app passes by absolute path, or the bundled Linux X11 recorder; their ordinary tests use fakes; the bundled recorder smoke uses an isolated Xvfb.
+  Approved exception: the `./cli` entry reads and runs only app-managed per-account folders under `stateDir` and the absolute CLI binaries the app passes; it never touches the person's default login; tokens never leave the device and are never logged.
+  Claude usage may read only a managed folder under its passed `stateDir`, without refreshing or writing credentials; expired credentials require sign-in again. Headers are app-passed and tokens never enter readings, stores, errors or logs.
   `@byokit/usage` reads only the sign-in folder the app passes and spawns only the Codex binary the app passes
   by absolute path, with an environment built from nothing plus what the app passes; its tests use fakes only. `@byokit/overlay` and
   `@byokit/statusbar` and `@byokit/push` run only their own native code inside the app or its notification extension. `@byokit/cloud` ([docs/cloud-kit.md](docs/cloud-kit.md)) spawns only the
@@ -49,6 +51,7 @@ runtime-tested here because no simulator is available.
   relative imports carry the `.ts` extension.
 - Provider terms are data (`packages/accounts/src/catalogue.json`), with a one-line reason and a source. The kit labels
   and never decides for an app. Anthropic Messages uses an app-passed API key (billed per use), with explicit opt-in.
+  Approved exception: the `./cli` entry reads and runs only app-managed per-account folders under `stateDir` and the absolute CLI binaries the app passes; it never touches the person's default login; tokens never leave the device and are never logged.
 - Plain words live in `words.json` and are tested against a banned-jargon list.
 - Pi's `@earendil-works/pi-ai` is pinned exactly. Bump it deliberately, with the isolation tests green.
 

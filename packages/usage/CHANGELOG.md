@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- SECURITY: Claude subscription usage may read credentials only from app-managed folders under the passed stateDir, without refresh or credential writes; default logins and folder escapes are refused, tokens stay in one request and never enter output, errors, logs or stored readings.
+- Share the bounded Codex app-server client between identity and subscription usage reads.
+
 ## 0.3.0 (2026-10-01)
 
 

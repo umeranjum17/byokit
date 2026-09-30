@@ -45,3 +45,42 @@ test('isolation: credential symlinks cannot cause reads beyond the named folder'
   assert.equal(reader.account({provider:'codex',bin:fake.bin,home}),fingerprint('byokit/usage/account')('codex',`codex-home\0${home}`));
   assert.notEqual(reader.account({provider:'codex',bin:fake.bin,home}),reader.account({provider:'codex',bin:fake.bin,home:join(root,'different')}));
 });
+
+test('Claude managed-folder source never opens a default login, escapes its root, or leaks canary tokens', () => {
+  const root = scratchDir('claude-source-isolation'); const d = decoy(join(root, 'decoy'));
+  const stateDir = join(root, 'plans'); const folder = join(stateDir, 'claude', 'abcdef'); mkdirSync(folder, { recursive: true });
+  const credential = join(folder, '.credentials.json');
+  writeFileSync(credential, JSON.stringify({ claudeAiOauth: { accessToken: CANARY, refreshToken: `${CANARY}-refresh`, expiresAt: Date.now() + 300_000 } }));
+  const before = readFileSync(credential, 'utf8');
+  const log = join(root, 'trace'); writeFileSync(log, '');
+  const module = new URL('../src/index.ts', import.meta.url).href;
+  const child = spawnSync(process.execPath, ['--import', traceFs, '--input-type=module', '-e', `
+    const {usage,UsageError} = await import(${JSON.stringify(module)});
+    const {readdirSync,readFileSync,symlinkSync,unlinkSync}=await import('node:fs');
+    let calls=0;
+    const reader=usage({stateDir:${JSON.stringify(stateDir)},fetch:async()=>{calls++;return new Response(JSON.stringify({five_hour:{utilization:12},access_token:${JSON.stringify(CANARY)}}));}});
+    const source=${JSON.stringify({ provider: 'claude', folder, headers: { 'anthropic-beta': 'passed', 'User-Agent': 'passed' } })};
+    const good=await reader.read(source);
+    if(good.windows.length!==1)throw new Error('missing fake usage');
+    for(const folder of [${JSON.stringify(join(d.home, '.claude'))},${JSON.stringify(join(root, 'outside'))}]){
+      try{await reader.read({...source,folder});throw new Error('accepted escape');}catch(e){if(!(e instanceof UsageError))throw e;}
+    }
+    reader.account(source);reader.connected(source);reader.lastKnown(source);
+    const failed=await usage({stateDir:${JSON.stringify(stateDir)},fetch:async()=>{throw new Error(${JSON.stringify(CANARY)});}}).read(source);
+    unlinkSync(${JSON.stringify(credential)});
+    symlinkSync(${JSON.stringify(join(d.home, '.claude', '.credentials.json'))},${JSON.stringify(credential)});
+    const linked=await reader.read(source);
+    if(linked.code!=='not-connected')throw new Error('credential link accepted');
+    if(calls!==1)throw new Error('unexpected provider request');
+    console.log(JSON.stringify({good,failed,linked}));
+  `], { encoding: 'utf8', timeout: 20_000, env: { ...process.env, ...d.env, TRACE_ROOTS: [...d.roots, stateDir].join(':'), TRACE_LOG: log } });
+  assert.equal(child.status, 0, child.stderr); assert.doesNotMatch(child.stdout + child.stderr, new RegExp(CANARY));
+  const touches = readFileSync(log, 'utf8').trim().split('\n');
+  assert.ok(touches.includes(credential));
+  // Symlink creation names the target without opening it; all other operations stay under stateDir.
+  assert.ok(touches.every((p) => p === stateDir || p.startsWith(stateDir + '/') || p === join(d.home, '.claude', '.credentials.json')), touches.join('\n'));
+  assert.equal(touches.filter((p) => p === join(d.home, '.claude', '.credentials.json')).length, 1);
+  assert.deepEqual(d.changed(), []); assert.deepEqual(d.ran(), []);
+  assert.doesNotMatch(readFileSync(join(stateDir, 'plans-v1.json'), 'utf8'), new RegExp(CANARY));
+  assert.ok(before.includes(CANARY), 'the request exercised a real managed canary credential');
+});

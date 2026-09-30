@@ -66,7 +66,7 @@ Deleting local files alone does not revoke tokens, and deletion cannot erase old
 
 Tests use fake providers, temporary homes, filesystem canaries and Node permissions;
 `npm test` blocks outbound networking and checks the owner's existing setup byte for byte.
-The kit never invokes the owner's installed tools or borrows environment API keys.
+The kit never borrows environment API keys. Its Node-only `./cli` exception invokes only app-passed absolute CLI binaries against app-managed folders; it never opens credential files or the person's default login. Native CLI credentials remain on the device under the CLI's own storage policy; they do not pass through `fileStore` sealing.
 
 ## Review record
 

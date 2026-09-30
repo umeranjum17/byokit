@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- SECURITY: Add a Node-only managed CLI account boundary for subscription sign-in: only app-owned folders and explicitly passed absolute binaries, no default login access, no credential-file reads, no token output, and launch environment credential shedding.
+- Add managed CLI account creation, marker-gated sign-in, status, rename, cancellation, history links and removal, with legacy roster and terms compatibility.
+- Bound native status deadlines even when a passed CLI ignores termination; stdout is capped and only the owned child is terminated.
+
 ## 0.13.0 (2026-10-01)
 
 
