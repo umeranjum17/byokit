@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Offer the native Claude Code / Agent SDK subscription route (`claude-cli`, plugin `anthropic`), keeping login in Claude Code in the isolated engine HOME. Sign-in uses engine detection and live activation; `oc.state` reports native login readiness.
+- Support explicit Anthropic API key activation with a per-use billing label and secret-safe views; never offer an API-key fallback. Direct Claude.ai OAuth and setup-token offers remain excluded.
+- Verify native and API per-run provider/model forwarding, tool events and strict refusal of `@profile` pins.
+
 ## 0.3.3 (2026-09-30)
 
 - Dependency update: pins @byokit/secrets 0.5.0.
@@ -28,9 +32,6 @@
 
 - FIX: `authSeal` no longer rejects retained-login migration when engine state contains symlinks or runtime entries. File symlinks whose fully resolved targets are regular files inside the isolated engine root are sealed and restored as regular files at the link paths; outside-root, dangling and directory symlinks (including loops), sockets, FIFOs and devices are skipped without reading their contents.
 - Depends on @byokit/ui-core 0.4.0.
-- Offer the native Claude Code / Agent SDK subscription route (`claude-cli`, plugin `anthropic`), keeping login in Claude Code in the isolated engine HOME. Sign-in uses engine detection and live activation; `oc.state` reports native login readiness.
-- Support explicit Anthropic API key activation with a per-use billing label and secret-safe views; never offer an API-key fallback. Direct Claude.ai OAuth and setup-token offers remain excluded.
-- Verify native and API per-run provider/model forwarding, tool events and strict refusal of `@profile` pins.
 
 ## 0.3.0 (2026-09-30)
 
