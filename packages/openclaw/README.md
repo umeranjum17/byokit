@@ -113,6 +113,32 @@ state: ready | protocol: 4
 event: {"type":"text","text":"fake: Say hello."}
 event: {"type":"text","text":"fake: Say hello."}
 end: {"ok":true,"text":"fake: Say hello.","usage":{"input":10,"output":16,"total":26}}
+route: openai                     subscription browser
+route: openai-device-code         subscription code
+route: xai-oauth                  subscription code
+route: github-copilot             subscription code
+route: github-copilot-enterprise  subscription code
+route: minimax-global-oauth       subscription code
+route: minimax-cn-oauth           subscription code
+route: openrouter-oauth           api          browser
+route: alibaba-model-studio-api-key api          browser
+route: apiKey                     api          browser
+route: fal-api-key                api          browser
+route: gemini-api-key             api          browser
+route: huggingface-api-key        api          browser
+route: microsoft-foundry-apikey   api          browser
+route: microsoft-foundry-entra    api          browser
+route: minimax-cn-api             api          browser
+route: minimax-global-api         api          browser
+route: nvidia-api-key             api          browser
+route: ollama-cloud               api          browser
+route: openai-api-key             api          browser
+route: opencode-go                api          browser
+route: openrouter-api-key         api          browser
+route: runway-api-key             api          browser
+route: setup-token                subscription browser
+route: together-api-key           api          browser
+route: xai-api-key                api          browser
 ```
 
 All subscription and direct API-key routes are offered. Each `Route` carries `billing` (`subscription`, `api` or
