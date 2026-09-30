@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
@@ -143,13 +143,35 @@ export function cliAccounts(options: CliOptions) {
   async function readIdentity(r: Row): Promise<Identity> {
     if (r.provider === 'codex') return identity({ provider: 'codex', bin: binary('codex'), home: r.folder, env: spawnEnv(r) });
     return new Promise((accept) => {
-      execFile(binary('claude'), ['auth', 'status'], { env: spawnEnv(r), timeout: 15_000, maxBuffer: 256 * 1024 }, (error, stdout) => {
-        if (Buffer.byteLength(stdout) > 64 * 1024 || error && 'killed' in error && error.killed) { accept({ signedIn: false }); return; }
-        let raw: unknown; try { raw = JSON.parse(stdout); } catch { accept({ signedIn: false }); return; }
-        if (!record(raw) || raw.loggedIn !== true) { accept({ signedIn: false }); return; }
+      const child = spawn(binary('claude'), ['auth', 'status'], { env: spawnEnv(r), stdio: ['ignore', 'pipe', 'ignore'] });
+      let stdout = ''; let bytes = 0; let settled = false; let escalation: NodeJS.Timeout | undefined;
+      const finish = (answer: Identity) => {
+        if (settled) return;
+        settled = true; clearTimeout(timer);
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill('SIGTERM');
+          escalation = setTimeout(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); }, 1000);
+        }
+        accept(answer);
+      };
+      const timer = setTimeout(() => finish({ signedIn: false }), 15_000);
+      child.once('error', () => finish({ signedIn: false }));
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (chunk: string) => {
+        if (settled) return;
+        bytes += Buffer.byteLength(chunk);
+        if (bytes > 256 * 1024) { finish({ signedIn: false }); return; }
+        stdout += chunk;
+      });
+      child.once('close', () => {
+        clearTimeout(escalation);
+        if (settled) return;
+        if (bytes > 64 * 1024) { finish({ signedIn: false }); return; }
+        let raw: unknown; try { raw = JSON.parse(stdout); } catch { finish({ signedIn: false }); return; }
+        if (!record(raw) || raw.loggedIn !== true) { finish({ signedIn: false }); return; }
         const email = typeof raw.email === 'string' && raw.email.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw.email) ? raw.email : undefined;
         const plan = [raw.subscriptionType, raw.plan, raw.planName, raw.tier].find((v) => typeof v === 'string' && /^[a-zA-Z][a-zA-Z0-9 _+-]{0,63}$/.test(v));
-        accept({ signedIn: true, ...(email ? { email } : {}), ...(typeof plan === 'string' ? { plan } : {}) });
+        finish({ signedIn: true, ...(email ? { email } : {}), ...(typeof plan === 'string' ? { plan } : {}) });
       });
     });
   }

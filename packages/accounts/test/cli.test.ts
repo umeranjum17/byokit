@@ -12,11 +12,16 @@ function fake(dir: string, provider: CliProvider) {
   writeFileSync(log, '');
   writeFileSync(bin, `#!${process.execPath}
 const fs = require('node:fs');
-fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({argv:process.argv.slice(2),env:process.env})+'\\n');
+if (process.env.STATUS_MODE === 'hang') process.on('SIGTERM',()=>{});
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({argv:process.argv.slice(2),env:process.env,pid:process.pid})+'\\n');
 const account = {email:'alice.work@example.test',planType:'plus',subscriptionType:'pro',access_token:'private-fake-token'};
 if (process.argv[2] === 'app-server') {
  let b=''; process.stdin.on('data',c=>{b+=c;for(;;){const i=b.indexOf('\\n');if(i<0)break;const r=JSON.parse(b.slice(0,i));b=b.slice(i+1);console.log(JSON.stringify({id:r.id,result:r.id===1?{}:{account}}));}});
-} else if (process.argv[2] === 'auth' && process.argv[3] === 'status') console.log(JSON.stringify({loggedIn:true,...account}));
+} else if (process.argv[2] === 'auth' && process.argv[3] === 'status') {
+ if (process.env.STATUS_MODE === 'hang') setInterval(()=>{},1000);
+ else if (process.env.STATUS_MODE === 'flood') console.log('x'.repeat(256*1024+1));
+ else console.log(JSON.stringify({loggedIn:true,...account}));
+}
 `, { mode: 0o755 });
   return { bin, calls: () => readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)) };
 }
@@ -65,6 +70,28 @@ test('managed CLI flow: add, marker-gated status, native sign-in, rename, launch
   assert.deepEqual(prepared, ['claude', 'codex']); assert.deepEqual(await kit.list(), []);
   assert.equal(readFileSync(join(history, 'keep'), 'utf8'), 'history');
   assert.equal(statSync(join(stateDir, 'accounts-v1.json')).mode & 0o777, 0o600);
+});
+
+test('native Claude status resolves at its deadline and reaps a child that ignores termination', async (t) => {
+  const root = scratchDir('cli-deadline'); const claude = fake(join(root, 'bins'), 'claude');
+  const kit = cliAccounts({ stateDir: join(root, 'plans'), bins: { claude: claude.bin }, env: { HOME: join(root, 'home'), PATH: '/unused', STATUS_MODE: 'hang' } });
+  const { account, signIn } = await kit.add('claude'); writeFileSync(signIn.completion, 'complete', { mode: 0o600 });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const pending = kit.status(account.id);
+  const end = Date.now() + 5000;
+  while (claude.calls().length === 0 && Date.now() < end) await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(claude.calls().length, 1);
+  const pid = claude.calls()[0].pid;
+  t.mock.timers.tick(15_000); assert.equal((await pending).state, 'signed_out');
+  t.mock.timers.tick(1000);
+  let alive = true;
+  for (let i = 0; i < 1000 && alive; i++) {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    try { process.kill(pid, 0); } catch { alive = false; }
+  }
+  assert.equal(alive, false, 'the owned child is reaped after escalation');
+  const flood = cliAccounts({ stateDir: join(root, 'plans'), bins: { claude: claude.bin }, env: { HOME: join(root, 'home'), PATH: '/unused', STATUS_MODE: 'flood' } });
+  assert.equal((await flood.status(account.id)).state, 'signed_out');
 });
 
 test('legacy bytes, host-owned rows, rollback, cancellation and folder escape rejection', async () => {
