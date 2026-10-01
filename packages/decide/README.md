@@ -166,6 +166,28 @@ API-shape responses from the official documentation, not live model recordings. 
 
 ### The person's ChatGPT plan
 
+For an app already using Accounts, bind the same person's Codex/ChatGPT subscription login directly:
+
+```ts
+import { Accounts, memoryStore } from '@byokit/accounts';
+import { openai } from '@byokit/decide';
+
+const accounts = new Accounts({ store: () => memoryStore() }); // use protected storage in your app
+// Show the sign-in returned by accounts.login('Umer', 'chatgpt'), then await accounts.finished(...).
+const account = accounts.chatgpt('Umer');
+const backend = openai({ auth: 'account', account, model: 'gpt-6-sol' });
+```
+
+This handle routes through `Accounts.respond`, including its refresh, limit and sign-out handling.
+Tokens stay in the app's own store; the handle exposes none. No separate token-sharing session or
+API key (billed per use) is needed. ChatGPT subscription sign-in is offered by default. Use this
+handle where the sign-in lives, including React Native; Accounts owns its fetch transport.
+Supported `request` fields are `instructions`, `text`, `reasoning`, `tools`, `tool_choice`,
+`parallel_tool_calls`, `store: false` and `stream: true`; other fields throw `UnsupportedAccountError`.
+Answers retain reported token usage and self-reported confidence. Missing usage stays absent.
+
+Apps with an official token-sharing integration can continue using the separate adapter below.
+
 [Official token sharing](https://developers.openai.com/siwc/token-sharing-open-source) permits eligible open-source
 and locally hosted apps to request ChatGPT plan usage with the person's explicit consent. Paid/remote apps need
 OpenAI's approval; signing in for identity alone is insufficient. The host completes the
@@ -187,8 +209,9 @@ const account = chatgptPlan({
 const backend = openai({ auth: 'account', account, model: chosenModel });
 ```
 
-This accounts adapter consumes a validated session; it does not start a sign-in. The existing
-`Accounts.login()` Codex flow and `Accounts.respond()` are separate and cannot supply this token-sharing credential.
+The token-sharing adapter consumes a validated session; it does not start a sign-in. The
+`accounts.chatgpt(member)` handle uses the existing Codex login through `Accounts.respond()` instead;
+it does not convert that credential into a token-sharing session.
 `chatgptPlan` checks `resource.invoke` and `chatgpt.tokens.use.direct` on every request; the host supplies refreshed tokens.
 The backend verifies `chosenModel` against the selected account's current catalogue, uses the public Responses API,
 and sets `store: false`, `stream: true` and array input. It never sends tokens to ChatGPT backend-api endpoints.

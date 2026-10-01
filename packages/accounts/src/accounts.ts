@@ -9,6 +9,7 @@ import { offered, provider, type Provider } from './catalogue.ts';
 import { claims, PORTABLE, portableEngine } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
+import type { ChatGPTRespondAccount } from './chatgpt-plan.ts';
 import { memoryStore, refreshCredential, type EndingStore, type RefreshStore } from './stores.ts';
 import { callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';
 
@@ -302,8 +303,10 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   async respond(member: M, ask: AnthropicAccountAsk & { tools: AnthropicTool[] }): Promise<AnthropicResult>;
   async respond(member: M, ask: AnthropicAccountAsk & { tools?: undefined; result?: false }): Promise<string>;
   async respond(member: M, ask: AnthropicAccountAsk): Promise<string | AnthropicResult>;
-  async respond(member: M, ask: Ask & { tools?: undefined }): Promise<string>;
+  async respond(member: M, ask: Ask & { result: true }): Promise<ResponseResult>;
+  async respond(member: M, ask: Ask & { tools?: undefined; result?: false }): Promise<string>;
   async respond(member: M, ask: Ask & { tools: ResponseTool[] }): Promise<ResponseResult>;
+  async respond(member: M, ask: Ask): Promise<string | ResponseResult>;
   async respond(member: M, query: Ask | AnthropicAccountAsk | ClaudePlanAsk): Promise<string | ResponseResult> {
     const ask = query as Ask;
     if ('provider' in query && query.provider === 'claude') {
@@ -339,7 +342,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const { access, accountId } = await this.access(member);
     try {
       const base = { ...ask, access, accountId, model: ask.model ?? p.models.strong, base: this.opts.apiBase, fetch: this.opts.fetch, originator: ask.originator ?? this.opts.originator };
-      return ask.tools ? await respond({ ...base, tools: ask.tools }) : await respond({ ...base, tools: undefined });
+      return await respond(base);
     } catch (e: any) {
       if (e instanceof ResponseError && e.kind && e.kind !== 'network') {
         const acted = await this.failed(member, key, e);
@@ -347,6 +350,13 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       }
       throw e;
     }
+  }
+
+  /** Bind this member's existing ChatGPT subscription login for consumers such as decide. Each request uses
+   * the current sign-in and Accounts' refresh/limit/sign-out handling; the handle exposes no credentials. */
+  chatgpt(member: M): ChatGPTRespondAccount {
+    this.offer('chatgpt');
+    return { billing: 'subscription', respond: (ask) => this.respond(member, ask) };
   }
 
   /** An account's error, acted on. A limit or overload rests it (until when it said, or a default). A plan without this

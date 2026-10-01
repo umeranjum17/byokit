@@ -118,7 +118,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 
 | Export | What it does |
 |---|---|
-| `Accounts` | Sign-in, status, sign-out, asking and limits for each member: `login`, `finished`, `status`, `plan`, `logout`, `respond`, `failed`, `ladder`, `keepFresh` |
+| `Accounts` | Sign-in, status, sign-out, asking and limits for each member: `login`, `finished`, `status`, `plan`, `logout`, `respond`, `chatgpt`, `failed`, `ladder`, `keepFresh` |
 | `portable`, `computer`, `loopback` | The platform `Accounts` runs on: device code with `fetch` alone, or (Node entry only) Pi's flows and the loopback listener |
 | `memoryStore`, `fileStore`, `secureStore`, `browserStore`, `recordStore` | One store per person: in memory, a sealed 0600 file (Node entry only), Keychain/Keystore, IndexedDB, or your own load and save |
 | `offered`, `provider`, `PROVIDERS` | The catalogue: each provider's billing, models and source |
@@ -256,12 +256,15 @@ const accounts = new Accounts({
 
 `respond(member, { instructions, input, model?, onText?, signal? })` asks ChatGPT's own answers endpoint with the
 member's sign-in, refreshed first when due, and returns the whole text (`onText` gets each piece as it streams; the
-returned completion is authoritative). A limit or a lapsed sign-in is acted on as `failed()` does, then thrown as a
+returned completion is authoritative). Pass `result: true` to receive `{ text, output, usage? }` even without tools.
+`usage` retains provider-reported `input_tokens`, `output_tokens` and native details in the same shape as the
+Messages route; absent usage stays absent. Subscription token counts do not imply an API-key charge.
+A limit or a lapsed sign-in is acted on as `failed()` does, then thrown as a
 `ResponseError` with the words to show and the kind acted on. Rules: [conformance fixtures](../../fixtures/README.md).
 
 A cut-off answer always throws `IncompleteError` (a `ResponseError` with `kind: null`), with or without tools.
 Its `reason` preserves the provider's `incomplete_details.reason`, including `max_output_tokens` and
-`content_filter` (`unknown` when absent). Its `result` holds the partial `{ text, output }` for apps that want to
+`content_filter` (`unknown` when absent). Its `result` holds the partial `{ text, output, usage? }` for apps that want to
 show it as unfinished. `onEvent` also receives `{ type: 'incomplete', reason }` before rejection; `onText` may
 already have shown partial words. This covers `response.incomplete` events and `status: 'incomplete'` envelopes,
 whether fetch streams SSE, buffers it, or returns JSON. The account stays signed in and is not put to rest.
@@ -331,6 +334,14 @@ tests and demos sign in and ask end to end with no account. Point the kit at it 
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](../../NOTICE).
+
+## ChatGPT subscription handles
+
+After `Accounts.login(member, 'chatgpt')` finishes, `accounts.chatgpt(member)` returns a member-bound
+subscription handle for `openai({ auth: 'account', account: handle, model })` in `@byokit/decide`.
+It routes requests through `Accounts.respond`, which keeps tokens in the app's store and refreshes them
+before use. The handle contains no credentials, follows sign-out, and needs no additional sign-in or
+API key (billed per use). ChatGPT remains offered by default. Use the handle only where the sign-in lives.
 
 ## Official ChatGPT plan token-sharing adapter
 
@@ -589,3 +600,22 @@ Native status reads resolve within 15 seconds. Claude stdout is capped at 256 KB
 The existing `accounts-v1.json` `{version:1,accounts:[{id,provider,name,folder,found}]}` and `auto-terms-v1.json` `{acknowledged:true}` encodings remain unchanged, with 0600 files and atomic replacement. The kit preserves but excludes `found-*` and `found:true` rows, which belong to the host's default-login adapter. Legacy managed rows without kit completion sidecars retain their native signed-in status; new or re-signing rows require the completion marker. Symlinked account folders and records outside the provider/hex layout are refused.
 
 `usageSource(id)` returns a Codex Source for `@byokit/usage`; Claude returns `undefined`, and its usage Source is `{provider:'claude', folder:set.CLAUDE_CONFIG_DIR, headers}` in a usage reader whose `stateDir` is the same managed root. `kinds` serves only the matching native agent (`claude` or `codex`); Pi is excluded until its folder mapping is verified. `resumeArgs` accepts an `id` conversation reference for these kinds. `termsAcknowledged` and `acknowledgeTerms` keep the host's existing terms bit; they do not gate sign-in. `suggestName` uses the first part of an email, falling back to the provider's name.
+
+
+## Scripted sign-in stand-in
+
+`mockOpenAI({ answers })` from `@byokit/accounts/testing` runs the normal device-code sign-in and
+ChatGPT response path on loopback. Each script has `{ match, text, usage? }`: a string matches a
+substring of joined input text, a regex tests it, and a function receives it and returns a boolean.
+The first match wins, including on repeat requests; unmatched input retains echo/tool behavior.
+Replace `mock.state.answers` between requests to change scripts. Counts are explicit fake data.
+
+```ts
+import { mockOpenAI } from '@byokit/accounts/testing';
+
+const mock = await mockOpenAI({ email: 'umer@example.com', answers: [
+  { match: 'Umer', text: 'Ready.', usage: { input_tokens: 12, output_tokens: 3 } },
+  { match: /finished/i, text: 'Done.' },
+  { match: (prompt) => prompt.includes('help'), text: 'I can help.' },
+] });
+```

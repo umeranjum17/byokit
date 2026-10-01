@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- FIX: ChatGPT subscription respond() now retains reported token usage with result: true or tools, including partial results for incomplete answers.
+- Bind an existing ChatGPT subscription login to a member-bound chatgpt() handle without exposing credentials.
+- Script mockOpenAI answers with string, regex or function prompt matchers and optional token usage.
+
 ## 0.14.0 (2026-10-01)
 
 - Dependency update: pins @byokit/usage 0.4.0.

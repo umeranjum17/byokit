@@ -6,8 +6,13 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import type { ResponseUsage } from '../responses.ts';
 
-export type MockOpenAIOptions = { port?: number; host?: string; plan?: string; email?: string; expiresIn?: number; log?: (line: string) => void };
+/** First matching script wins. Strings match a substring; regexes and predicates inspect the joined input text.
+ * Unmatched prompts retain the echo/tool behavior. Counts are supplied explicitly, never estimated. */
+export type MockOpenAIAnswer = { match: string | RegExp | ((prompt: string) => boolean); text: string; usage?: ResponseUsage };
+export type MockOpenAIOptions = { port?: number; host?: string; plan?: string; email?: string; expiresIn?: number;
+  answers?: readonly MockOpenAIAnswer[]; log?: (line: string) => void };
 
 /** An access token as OpenAI shapes it: the account, the plan and the email in its claims. */
 export const mockJwt = (plan = 'plus', email = 'sara@example.com', n = 0) => ['eyJhbGciOiJub25lIn0', Buffer.from(JSON.stringify({
@@ -16,13 +21,15 @@ export const mockJwt = (plan = 'plus', email = 'sara@example.com', n = 0) => ['e
   scp: ['openid', 'profile', 'email', 'offline_access'], pad: 'x'.repeat(1200),
 })).toString('base64url'), 'sig'].join('.');
 
-export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', email = 'sara@example.com', expiresIn = 864_000, log }: MockOpenAIOptions = {}) {
+export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', email = 'sara@example.com', expiresIn = 864_000, answers = [], log }: MockOpenAIOptions = {}) {
   const codes = new Map<string, { device: string; approved?: boolean; denied?: boolean }>();
   let issued = 0, asked = 0;
   const state = {
     /** Refresh tokens OpenAI still honours; a refresh spends the old one (rotation), sign-out revokes one. */
     live: new Set<string>(),
     requests: [] as { path: string; body: string }[],
+    /** Scripts may be replaced between requests, without restarting the sign-in stand-in. */
+    answers: [...answers],
     /** Refuse every refresh, as when the person signed out elsewhere. */
     refuse: false,
     /** Seconds each issued token lives. */
@@ -99,12 +106,17 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
           for (const part of content) if (part?.type === 'input_text' && typeof part.text === 'string') said.push(part.text);
         }
         const words = said.join(' ');
+        let scripted: MockOpenAIAnswer | undefined;
+        try {
+          scripted = state.answers.find(({ match }) => typeof match === 'string' ? words.includes(match)
+            : typeof match === 'function' ? match(words) : new RegExp(match.source, match.flags).test(words));
+        } catch { return send(500, { error: { message: 'The stand-in could not match this prompt.' } }); }
         const schema = (asked.text as any)?.format?.type === 'json_schema';
-        const text = answered !== undefined ? `You did: ${answered}`
+        const text = scripted ? scripted.text : answered !== undefined ? `You did: ${answered}`
           : schema ? JSON.stringify({ echo: words ? `You said: ${words}` : 'You said nothing' })
           : `You said: ${words}`;
         const called = Array.isArray(asked.tools) ? asked.tools.filter((t: any) => t?.type === 'function') : [];
-        if (called.length > 0 && answered === undefined) {
+        if (!scripted && called.length > 0 && answered === undefined) {
           // A tool turn: the model calls the first function tool, streamed as argument deltas and one finished item,
           // then the completion with the output list. The app answers with a `function_call_output` turn next.
           const name = String(called[0].name ?? 'tool');
@@ -124,7 +136,9 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
           res.write(`event: response.output_text.delta\ndata: ${JSON.stringify({ type: 'response.output_text.delta', delta })}\n\n`);
           await new Promise((r) => setTimeout(r, 5));
         }
-        return res.end('event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\ndata: [DONE]\n\n');
+        return res.end(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: {
+          status: 'completed', ...(scripted?.usage && { usage: scripted.usage }),
+        } })}\n\ndata: [DONE]\n\n`);
       }
       case '/oauth/revoke':
         state.live.delete(json().token);
