@@ -9,6 +9,10 @@ import { scratchDir } from '../../test-support.ts';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../src/engine.ts';
+import { OpenClawKit } from '../src/kit.ts';
+import { fakeGateway } from '../src/testing/fake-gateway.ts';
+import { hostKeySeal } from '../../secrets/src/index.ts';
+import { once } from 'node:events';
 
 const shippedEngine = fileURLToPath(new URL('../engine/', import.meta.url));
 const lock = JSON.parse(readFileSync(join(shippedEngine, 'package-lock.json'), 'utf8')) as {
@@ -117,11 +121,14 @@ process.exit(78);`);
   try {
     mkdirSync(join(dir, 'openclaw'));
     writeFileSync(join(dir, 'openclaw', 'gateway.pid'), String(unrelated.pid));
+    await assert.rejects(engine.start(), (e: unknown) => e instanceof Error && 'code' in e && e.code === 'engine-already-running');
+    assert.equal(unrelated.exitCode, null);
+    const exited = once(unrelated, 'exit'); unrelated.kill(); await exited;
+    states.length = 0;
     await engine.start();
     for (let i = 0; i < 50 && !states.includes('failed'); i++) await delay(100);
     assert.deepEqual(states.filter(x => ['starting', 'repairing', 'failed'].includes(x)), ['starting', 'repairing', 'starting', 'failed']);
     assert.equal(readFileSync(join(engineDir, 'doctors'), 'utf8'), '1');
-    assert.equal(unrelated.exitCode, null);
   } finally {
     await engine.stop();
     unrelated.kill();
@@ -347,4 +354,99 @@ test('prepare seals old auth archives and offline migration reseals even after a
   assert.equal(existsSync(moved + '.sealed'), false);
   assert.equal(existsSync(moved + '.canonicalized'), true);
   await engine.stop();
+});
+
+
+test('a killed host leaves a live gateway: failed cleanup preserves guards, verified recovery retains the login, dead pid recovery still works', { skip: process.platform !== 'linux', timeout: 30_000 }, async () => {
+  const dir = scratchDir('orphan');
+  const engineDir = join(dir, 'engine');
+  const root = join(dir, 'openclaw');
+  const key = new Uint8Array(32).fill(7);
+  const authSeal = hostKeySeal({ key });
+  seedInstall(engineDir);
+  const ready = join(root, 'ready');
+  writeFileSync(join(engineDir, 'node_modules/openclaw/openclaw.mjs'), `
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+const state = join(process.env.OPENCLAW_STATE_DIR, 'auth.json');
+const initialized = ${JSON.stringify(join(root, 'initialized'))};
+if (!existsSync(initialized)) {
+  writeFileSync(state, 'refreshed-login');
+  writeFileSync(initialized, '1');
+} else if (readFileSync(state, 'utf8') !== 'refreshed-login') process.exit(1);
+writeFileSync(${JSON.stringify(ready)}, String(process.pid));
+process.on('SIGTERM', () => process.exit(0));
+setInterval(() => {}, 1000);
+`);
+  const hostFile = join(dir, 'host.mjs');
+  writeFileSync(hostFile, `
+import { Engine } from ${JSON.stringify(new URL('../src/engine.ts', import.meta.url).href)};
+import { hostKeySeal } from ${JSON.stringify(new URL('../../secrets/src/index.ts', import.meta.url).href)};
+const engine = new Engine({ stateDir: ${JSON.stringify(dir)}, engineDir: ${JSON.stringify(engineDir)},
+  authSeal: hostKeySeal({ key: new Uint8Array(32).fill(7) }), pluginId: 'byokit', tools: [], spawnEngine: true,
+  onState() {}, onExit() {} });
+await engine.start();
+setInterval(() => {}, 1000);
+`);
+  mkdirSync(join(root, 'state'), { recursive: true });
+  writeFileSync(join(root, 'state', 'auth.json'), 'saved-login');
+  const host = spawn(process.execPath, [hostFile], { stdio: ['ignore', 'ignore', 'pipe'] });
+  let gateway = 0;
+  const kit = new OpenClawKit({ stateDir: dir, engineDir, authSeal, transport: fakeGateway().factory });
+  const unrelated = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  try {
+    for (let i = 0; i < 100 && !existsSync(ready) && host.exitCode === null; i++) await delay(50);
+    assert.ok(existsSync(ready), 'detached gateway reached its ordinary launch');
+    gateway = Number(readFileSync(ready, 'utf8'));
+    const before = readFileSync(join(root, 'auth-store.sealed'));
+    await assert.rejects(kit.start(), (e: unknown) => e instanceof Error && 'code' in e && e.code === 'engine-already-running');
+    assert.deepEqual(readFileSync(join(root, 'auth-store.sealed')), before);
+    const killed = once(host, 'exit'); host.kill('SIGKILL'); await killed;
+    process.kill(gateway, 0);
+    const pidFile = join(root, 'gateway.pid');
+    const lockPid = join(root, 'auth-store.lock', 'pid');
+    const sealed = readFileSync(join(root, 'auth-store.sealed'));
+    // An ambiguous live pid must be neither signalled nor overwritten, even by connect's catch/stop.
+    writeFileSync(pidFile, String(unrelated.pid));
+    await assert.rejects(kit.start(), (e: unknown) => e instanceof Error && 'code' in e && e.code === 'engine-already-running');
+    assert.deepEqual(kit.state, { phase: 'failed', why: 'engine-already-running' });
+    await kit.stop();
+    assert.equal(readFileSync(pidFile, 'utf8'), String(unrelated.pid));
+    assert.equal(readFileSync(lockPid, 'utf8'), String(host.pid));
+    assert.deepEqual(readFileSync(join(root, 'auth-store.sealed')), sealed);
+    assert.equal(readFileSync(join(root, 'state', 'auth.json'), 'utf8'), 'refreshed-login');
+    assert.equal(unrelated.exitCode, null);
+    process.kill(gateway, 0);
+    // Restore the original orphan guard; a verified, dead-host gateway can stop and restart safely.
+    writeFileSync(pidFile, String(gateway));
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    const restartedPid = Number(readFileSync(pidFile, 'utf8'));
+    assert.notEqual(restartedPid, gateway);
+    for (let i = 0; i < 100 && Number(readFileSync(ready, 'utf8')) !== restartedPid; i++) await delay(50);
+    assert.equal(Number(readFileSync(ready, 'utf8')), restartedPid, 'new gateway read the retained login before reporting ready');
+    assert.equal(readFileSync(join(root, 'state', 'auth.json'), 'utf8'), 'refreshed-login');
+    await kit.stop();
+    assert.equal(existsSync(join(root, 'state')), false);
+    assert.equal(existsSync(pidFile), false);
+    // Reboot-style leftovers are recovered under the credential lock.
+    mkdirSync(join(root, 'auth-store.lock'));
+    writeFileSync(lockPid, String(host.pid));
+    writeFileSync(pidFile, String(host.pid));
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    const recoveredPid = Number(readFileSync(pidFile, 'utf8'));
+    for (let i = 0; i < 100 && Number(readFileSync(ready, 'utf8')) !== recoveredPid; i++) await delay(50);
+    assert.equal(Number(readFileSync(ready, 'utf8')), recoveredPid, 'dead-pid restart also read the retained login');
+    assert.equal(readFileSync(join(root, 'state', 'auth.json'), 'utf8'), 'refreshed-login');
+    await kit.stop();
+    assert.equal(existsSync(lockPid), false);
+    assert.equal(existsSync(pidFile), false);
+  } finally {
+    if (host.exitCode === null && host.signalCode === null) { const exited = once(host, 'exit'); host.kill('SIGKILL'); await exited; }
+    if (gateway) { try { process.kill(gateway, 'SIGKILL'); } catch {} }
+    const exited = once(unrelated, 'exit'); unrelated.kill(); await exited;
+    await kit.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

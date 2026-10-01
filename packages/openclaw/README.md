@@ -232,7 +232,14 @@ before any restoration; a wrong key, tampering, or a missing adapter rejects. Fi
 have mode 0600 and directories 0700. File symlinks are sealed only when their fully resolved targets are
 regular files inside the isolated engine root; they restore as regular files at the link paths. Outside-root,
 dangling and directory symlinks (including loops), sockets, FIFOs and devices are skipped.
-One kit owns the store at a time; a live owner or orphan gateway blocks preparation instead of racing its writes.
+One kit owns the store at a time. After a host crash, preparation stops a verified same-user gateway
+only when its host lock owner is dead, waits up to three seconds for exit, then seals and restores the
+leftover state under the acquired lock. If process identity is ambiguous (including unavailable process
+inspection or a rewritten command line), another host is alive, or shutdown times out, `prepare()` and
+`start()` reject with exported `EngineAlreadyRunningError` (`code: 'engine-already-running'`). The kit reports
+`{ phase: 'failed', why: 'engine-already-running' }`; show `stateWords(kit.state)` and retry after the other
+session stops. Failed-start cleanup and `stop()` on an instance with no ownership preserve the other
+writer's pid, lock, sealed snapshot and live state.
 Sealing copies the whole store through memory, so startup and stop cost grows with session history.
 
 The migration doctor temporarily opens the same store and reseals it even when import fails. Once the gateway

@@ -15,6 +15,7 @@ const TABLE: Record<string, string> = {
   'engine.locked': 'Your saved sign-in is locked. Unlock your password storage, then try again.',
   'engine.ready': 'Ready.',
   'engine.restarting': 'Something stopped. Starting it again by itself.',
+  'engine.alreadyRunning': 'Your saved sign-in is in use. Try again after the other session stops.',
   'engine.failed': "This computer couldn't start the helper. Restart the app to try again.",
   'engine.needsUpdate': 'This app needs an update to keep working.',
   'member.signedOut': 'Sign in with {name} to start.',
@@ -56,6 +57,7 @@ test('every KitState.phase a person can see has its sentence; stopped is never o
   assert.equal(at('ready'), TABLE['engine.ready']);
   assert.equal(at('restarting'), TABLE['engine.restarting']);
   assert.equal(at('failed'), TABLE['engine.failed']);
+  assert.equal(stateWords({ phase: 'failed', why: 'engine-already-running' }), TABLE['engine.alreadyRunning']);
   assert.equal(at('needs-update'), TABLE['engine.needsUpdate']);
   assert.equal(at('locked'), TABLE['engine.locked']);
   assert.equal(at('stopped'), '');
