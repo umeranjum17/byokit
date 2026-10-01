@@ -573,7 +573,12 @@ the engine. External retained sources are touched only when explicitly passed to
   extraSystemPrompt, idempotencyKey: uuid, attachments?, thinking?, provider?, model? }` with `expectFinal`: the
   interim `status: 'accepted'` frame names the run (its `runId` is taken as it lands), then `agent.wait { runId,
   timeoutMs: 3_600_000 }` (client timeout 3_610_000) decides the end as before. `status === 'ok'` → final text event
-  and `{ ok: true, text: terminalReply.text ?? last, usage?, planWindow? }`. `usage` is the `agent` request's final
+  and `{ ok: true, text, usage?, planWindow? }`. Silent/empty terminal dispositions produce empty text. Otherwise
+  text comes from string `result.payloads[].text` fields in the `agent` final frame, joined in order with two
+  newlines (including explicit empty strings); absent payload text falls back to the last assistant stream
+  text, then terminal text, then empty text. The terminal snapshot is sanitized and capped at 4096 characters
+  by the pin, so it must not supersede complete generated text. Final callback, schema validation and RunEnd
+  use the same selected text; streaming stops before that final callback. `usage` is the `agent` request's final
   frame `result.meta.agentMeta.usage` (the pin sums every model call of the run, compaction included, and omits zero
   buckets), renamed `reasoningTokens → reasoning`, plus `agentMeta.costUsd` when the engine priced the model; the
   kit waits at most 5 s for that frame after the wait says ok, and no frame or no usage is no `usage`. `planWindow`
