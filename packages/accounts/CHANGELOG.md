@@ -20,14 +20,10 @@
 - Dependency update: pins @byokit/usage 0.4.0.
 
 - SECURITY: Add a Node-only managed CLI account boundary for subscription sign-in: only app-owned folders and explicitly passed absolute binaries, no default login access, no credential-file reads, no token output, and launch environment credential shedding.
-- FIX: Build device-owned secrets before accounts so API key routes compile in a fresh checkout.
 - Add managed CLI account creation, marker-gated sign-in, status, rename, cancellation, history links and removal, with legacy roster and terms compatibility.
 - Share the portable chooser's AccountLike type and accept normalized subscription usage with millisecond reset times.
 - Bound native status deadlines even when a passed CLI ignores termination; stdout is capped and only the owned child is terminated.
 - Offer every subscription catalogue row by default on supported platforms, adding Kimi, Meta, Qwen and MiniMax labels; preserve Claude Pro/Max sign-in and remove terms and visibility gates. API key (billed per use) rows remain opt-in. Simplify the ChatGPT plan-use error words.
-
-- Add opt-in member OpenAI, TypeSafe and OpenRouter API key (billed per use) routes,
-  stored through device-owned secrets stores with redacted outcomes and decide handoff.
 
 ## 0.13.0 (2026-10-01)
 
