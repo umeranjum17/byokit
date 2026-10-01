@@ -23,6 +23,14 @@ const putChanged = (path: string, data: string) => {
   if (!existsSync(path) || readFileSync(path, 'utf8') !== data) writeFileSync(path, data, { mode: 0o600 });
 };
 
+function processStartTime(pid: number): string {
+  const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+  // comm can contain spaces and parentheses; field 22 is index 19 after its final ')'.
+  const startTime = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+  if (!startTime || !/^\d+$/.test(startTime)) throw new Error('unverifiable engine start time');
+  return startTime;
+}
+
 type LockedPackage = { version: string; optional?: boolean; os?: string[]; cpu?: string[]; libc?: string[] };
 const supports = (list: string[] | undefined, value: string) => !list ||
   (!list.includes(`!${value}`) && (list.includes('any') || list.every(item => item.startsWith('!')) || list.includes(value)));
@@ -161,13 +169,14 @@ export class Engine {
     if (process.platform !== 'linux' || !process.getuid) return false;
     try {
       const proc = `/proc/${pid}`;
-      const cmd = readFileSync(`${proc}/cmdline`, 'utf8').split('\0');
+      const identity = JSON.parse(readFileSync(join(this.root, 'gateway.identity'), 'utf8')) as { pid?: unknown; startTime?: unknown };
       const env = readFileSync(`${proc}/environ`, 'utf8').split('\0');
       const home = join(this.root, 'home');
       const owner = join(this.root, 'auth-store.lock', 'pid');
       return statSync(proc).uid === process.getuid()
+        && Number(readFileSync(join(this.root, 'gateway.pid'), 'utf8')) === pid
+        && identity.pid === pid && identity.startTime === processStartTime(pid)
         && realpathSync(`${proc}/exe`) === realpathSync(process.execPath)
-        && cmd.indexOf(this.entry) > 0 && cmd[cmd.indexOf(this.entry) + 1] === 'gateway'
         && realpathSync(`${proc}/cwd`) === realpathSync(home)
         && env.includes(`HOME=${home}`)
         && env.includes(`OPENCLAW_STATE_DIR=${join(this.root, 'state')}`)
@@ -184,13 +193,9 @@ export class Engine {
     const occupied = () => { this.state('failed', 'engine-already-running'); return new EngineAlreadyRunningError(); };
     if (!this.verifiedOrphan(pid)) throw occupied();
     // Verify a stable process identity again immediately before signalling this pid, never its group.
-    const identity = () => {
-      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
-      return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]; // starttime, not a reusable pid alone
-    };
     try {
-      const before = identity();
-      if (!before || !this.verifiedOrphan(pid) || before !== identity()) throw occupied();
+      const before = processStartTime(pid);
+      if (!this.verifiedOrphan(pid) || before !== processStartTime(pid)) throw occupied();
     } catch {
       if (!pidAlive(pid)) return;
       throw occupied();
@@ -247,6 +252,9 @@ export class Engine {
       void this.authStore.stop().then(() => { this.state('failed', 'exited'); this.o.onExit(null); }, () => this.state('failed', 'exited'));
     });
     if (!child.pid) { this.state('failed', 'exited'); throw new Error('engine spawn failed'); }
+    if (process.platform === 'linux') {
+      writeFileSync(join(this.root, 'gateway.identity'), JSON.stringify({ pid: child.pid, startTime: processStartTime(child.pid) }), { mode: 0o600 });
+    }
     writeFileSync(join(this.root, 'gateway.pid'), String(child.pid), { mode: 0o600 });
     child.once('exit', (code) => {
       if (this.child !== child || this.stopping) return;
@@ -269,7 +277,10 @@ export class Engine {
   }
   private removeOwnedPid(pid: number | undefined): void {
     const path = join(this.root, 'gateway.pid');
-    if (pid && existsSync(path) && readFileSync(path, 'utf8') === String(pid)) rmSync(path, { force: true });
+    if (pid && existsSync(path) && readFileSync(path, 'utf8') === String(pid)) {
+      rmSync(path, { force: true });
+      rmSync(join(this.root, 'gateway.identity'), { force: true });
+    }
   }
   withAuthStore<T>(task: () => Promise<T>): Promise<T> { return this.authStore.offline(task); }
   async stop(): Promise<void> {
