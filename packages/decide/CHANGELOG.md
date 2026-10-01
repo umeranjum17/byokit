@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Add named inline image inputs (bytes or data URLs with MIME) to decisions and evaluations, with
+  image references in criteria, portable cache keys, and typed refusal for models without image support.
+- Answerer-backed decisions preserve per-call usage and model rationales, including abstentions and
+  cache hits; existing text-only answerers remain compatible. Subscription lanes stay host-owned;
+  API key (billed per use) routes still require explicit opt-in.
+- Add generic recorded answers and evaluateDecisions for image evals through the kit backend seam;
+  offline replay remains the default.
+
 ## 0.4.7 (2026-10-01)
 
 - Dependency update: pins @byokit/accounts 0.13.0.

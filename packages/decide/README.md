@@ -83,18 +83,18 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
 
 | Export | What it does |
 |---|---|
-| `decide(state, questions, { privacy, backends, timeoutMs?, cache? })` | Asks each backend in order for the questions still unanswered; returns an `Answer` per question |
+| `decide(state, questions, { privacy, backends, images?, timeoutMs?, cache? })` | Asks each backend in order for the questions still unanswered; returns an `Answer` per question |
 | `rules(fn)` | Your own function as a backend: return the answer for an obvious case, `undefined` otherwise. Stays on the device |
-| `answerer({ name, leaves, ask })` | Any `(prompt, signal) => text` model as a backend |
+| `answerer({ name, leaves, supportsImages?, ask })` | A host-owned model: `(prompt, signal, images) => text` or `{ text, usage?, rationale?, raw? }` |
 | `jev({ key, via?, fetch?, maxRetries?, retryBaseMs?, retryMaxMs? })` | Jev as a backend, over TypeSafe's API (default) or OpenRouter (`via: 'openrouter'`). API-billed; retries 429s with backoff |
 | `openai({ model, key, request?, ... })` / `openai({ model, auth: 'account', account, request?, ... })` | OpenAI general models used for decisions; explicit API key or consented ChatGPT plan session |
 | `parseConfig(objectOrJSON)`, `createDecider(config, options)` | Validate portable config and set it once, with optional per-call overrides |
-| `ConfigError`, `UnsupportedAccountError`, `OPENAI_ROUTES` | Typed config/account errors and billing labels (API key is never offered by default) |
-| `MemoryCache`, `cacheKey(state, questions)` | In-memory reference cache for `decide({ cache })`, and the stable request key it uses |
+| `ConfigError`, `UnsupportedAccountError`, `UnsupportedImagesError`, `InvalidImageError`, `OPENAI_ROUTES` | Typed config/account errors and billing labels (API key is never offered by default) |
+| `MemoryCache`, `cacheKey(state, questions, images?)` | In-memory reference cache for `decide({ cache })`, and the stable request key it uses |
 | `resolve(question, raw)` | The floors on one raw answer, for an app that holds a recorded answer |
 | `FLOOR` | The default floor, 0.6 |
-| `Question`, `Answer`, `Raw`, `Usage`, `Backend`, `DecideCache`, `Options` | The types |
-| `@byokit/decide/eval`: `evaluate`, `replay`, `parse`, `format`, `summary` | Run and print an eval report over any backends |
+| `Question`, `Answer`, `Raw`, `Usage`, `ImageInput`, `DecisionImage`, `AnswererReply`, `AnswererOptions`, `Backend`, `DecideCache`, `Options` | The types |
+| `@byokit/decide/eval`: `evaluate`, `evaluateDecisions`, `replay`, `parse`, `format`, `summary` | Run and print an eval report over any backends |
 | `byokit-eval` (bin) | Replay or refresh an eval file from the command line |
 
 ## Questions and floors
@@ -219,10 +219,10 @@ const viaJev = await decideForApp(state, questions, { backend: 'jev', auth: 'api
 const viaPlan = await decideForApp(state, questions, { auth: 'account' });
 ```
 
-Or call `decide(state, questions, { config, host, privacy, timeoutMs?, cache? })` directly.
+Or call `decide(state, questions, { config, host, privacy, images?, timeoutMs?, cache? })` directly.
 `parseConfig` accepts a plain object or JSON string and defaults to `{ backend: 'jev', auth: 'apiKey' }`, preserving
 Jev's `jev-latest` model and TypeSafe route. OpenAI requires an explicit `model`. Fields are `backend`, `auth`, `model`,
-`via` (Jev only), `request` (OpenAI only), `maxRetries`, `retryBaseMs`, `retryMaxMs`. Unknown fields, invalid JSON,
+`via` (Jev only), `request` and `supportsImages` (OpenAI only), `maxRetries`, `retryBaseMs`, `retryMaxMs`. Unknown fields, invalid JSON,
 wrong types and invalid retry values throw `ConfigError` (`code: 'invalid_config'`); Jev account auth throws
 `UnsupportedAccountError`. API-key credentials must be explicitly supplied by the host. A backend switch clears
 provider-specific model/route/request settings; an OpenAI switch must specify its model.
@@ -318,6 +318,86 @@ console.log(summary(f.decision, 'rules', report));
 urgent (rules): 5 cases
   agree 2/5   clear-but-wrong 0 (0%)   abstained 3 (60%)   ms min/median/max 0/0/1
 ```
+
+## Images and explanations
+
+Pass `images` alongside the state. Each image has a unique `id`, an image `mime`, and either non-empty
+`Uint8Array` `bytes` or a base64 `dataUrl` whose MIME matches. The kit accepts inline data only; the host owns
+file reading, screenshots, resizing and any image-size policy. A question's optional `images` list names the
+images its criteria refer to; instructions and rubric levels can refer to the same IDs. All supplied images are
+attached in order, including reference images.
+
+```ts
+import { answerer, decide, type DecisionImage, type Usage } from '@byokit/decide';
+
+// Supplied by the app's subscription lane and screenshot storage.
+declare const hostModel: { capabilities: { images: boolean } };
+declare const memberLane: { respond(request: { prompt: string; signal: AbortSignal; images: readonly DecisionImage[] }):
+  Promise<{ text: string; usage?: Usage }> };
+declare const candidatePng: Uint8Array;
+declare const referenceDataUrl: string;
+
+const backend = answerer({
+  name: 'member-model', leaves: true,
+  supportsImages: hostModel.capabilities.images, // capability of the model the app selected
+  ask: async (prompt, signal, images) => {
+    // Host's kit-backed subscription lane. It owns sign-in and provider image mapping.
+    const result = await memberLane.respond({ prompt, signal, images });
+    return { text: result.text, usage: result.usage };
+  },
+});
+const { craft } = await decide({ rubric: 'Compare the candidate with the reference.' }, {
+  craft: { kind: 'score', levels: ['Needs work', 'Meets the reference'],
+    instructions: 'Judge candidate against reference.', images: ['candidate', 'reference'] },
+}, {
+  privacy: 'may-leave', backends: [backend],
+  images: [
+    { id: 'candidate', mime: 'image/png', bytes: candidatePng },
+    { id: 'reference', mime: 'image/png', dataUrl: referenceDataUrl },
+  ],
+});
+// craft.rationale explains the model's judgment; craft.reason explains a resolver abstention.
+// craft.usage carries the model call's reported input_tokens/output_tokens, even if it abstains.
+```
+
+The third `ask` argument contains normalized `{ id, mime, dataUrl }` images; prompt text describes their IDs and
+order without embedding the bytes. The requested JSON is
+`{ "craft": { "probabilities": { "0": 0.2, "1": 0.8 }, "rationale": "Matches the reference." } }`.
+Old replies shaped `{ "craft": { "0": 0.2, "1": 0.8 } }` still work. A structured `AnswererReply` can also supply
+one call-wide `rationale` as a fallback and `raw` as the safe response body. Missing usage or rationale stays
+absent; the kit invents neither. Usage is **per model call**, repeated on each question answered by that call:
+count it once, not by summing every question. Cache hits preserve it and the rationale; use `source` to exclude
+cached answers from live billing totals. Malformed or missing answers still keep reported usage.
+
+`supportsImages: true` is required on `answerer`, custom model backends and `openai` when the selected model
+supports images. The app supplies that capability from its model selection, rather than the kit guessing from
+model names. Jev is text only. Kit model backends without image support throw `UnsupportedImagesError`
+(`code: 'unsupported_images'`) before sending a request, including when called directly; there is no automatic
+provider or billing fallback. `InvalidImageError` (`code: 'invalid_image'`) rejects invalid image data, duplicate IDs
+and missing question references. Privacy filtering happens before capability refusal, so `stays-here` never
+sends images to a remote backend. Local `rules` can inspect normalized images in their fourth callback argument.
+
+For OpenAI, use `openai({ auth: 'account', account, model: chosenModel, supportsImages: true })` for a consented
+subscription, or explicitly supply `key` for API key (billed per use). Image parts use the Responses format on both
+routes. `createDecider` accepts images in its third call argument, e.g. `run(state, questions, { images })`.
+Cache keys include image bytes, MIME, IDs and order, in addition to the existing model/account configuration.
+No sign-in, billing route or stored token behavior changes.
+
+Image evals use the same question and attachment IDs. Each JSONL case may contain `images` and a generic
+`recorded` raw answer (`probabilities`, optional `pick`, `usage`, `rationale`), alongside the existing `jev` recordings.
+`format` serializes bytes as data URLs; `parse` validates images and the question's references in every case.
+`recorded` takes precedence over `jev` in offline replay. This header and case illustrate named image criteria:
+
+```jsonl
+{"decision":"craft","question":{"kind":"score","levels":["Candidate falls below reference","Candidate matches reference"],"images":["candidate","reference"]},"note":"Hand-authored example, not a live recording"}
+{"state":{"rubric":"Compare composition"},"images":[{"id":"candidate","mime":"image/png","dataUrl":"data:image/png;base64,AQ=="},{"id":"reference","mime":"image/png","dataUrl":"data:image/png;base64,Ag=="}],"expect":1,"recorded":{"probabilities":{"0":0.1,"1":0.9},"rationale":"Matches the reference.","usage":{"input_tokens":12,"output_tokens":5}}}
+```
+
+The one-byte payloads above illustrate the schema only; supply actual encoded images for model runs.
+`evaluateDecisions(file, { privacy, backends })` forwards each case's images through `decide` automatically,
+including subscription-backed answerers; `evaluate(cases, replay(question))` and the CLI replay them offline.
+`byokit-eval --live` remains an explicit API-billed Jev path and refuses image cases with `UnsupportedImagesError`.
+App-specific rubrics, reference corpora and acceptance thresholds stay in the host.
 
 ## Links
 

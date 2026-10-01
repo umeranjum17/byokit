@@ -49,8 +49,9 @@ for (const path of files) {
     const backend = jev({ key, via, fetch: keep });
     ask = async (c: Case): Promise<Answer> => {
       last = undefined;
-      const a = (await decide(c.state, { [f.decision]: q }, { privacy: 'may-leave', backends: [backend] }))[f.decision];
+      const a = (await decide(c.state, { [f.decision]: q }, { privacy: 'may-leave', backends: [backend], images: c.images }))[f.decision];
       if (o.record && a.probabilities) {
+        delete c.recorded; // The refreshed Jev answer replaces a generic recording too.
         Object.assign(c, { jev: last, ms: a.ms });
         refreshed++;
       }
@@ -58,7 +59,7 @@ for (const path of files) {
     };
   }
   const r = await evaluate(f.cases, ask);
-  console.log(summary(`${path}: ${f.decision}`, via ? `jev via ${via}` : 'jev, recorded', r));
+  console.log(summary(`${path}: ${f.decision}`, via ? `jev via ${via}` : 'recorded', r));
   if (via && o.record && refreshed) writeFileSync(path, format({ ...f, note: refreshed === f.cases.length
     ? `answers recorded live from Jev via ${via}, ${new Date().toISOString().slice(0, 10)}`
     : `partial live refresh ${refreshed}/${f.cases.length} via ${via}; ${f.note ?? 'previous provenance unknown'}` }));
