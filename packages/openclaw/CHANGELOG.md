@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.4.0 (2026-10-01)
+
+- Dependency update: pins @byokit/ui-core 0.6.0.
+- Dependency update: pins @byokit/reach 0.6.0.
+
 - Key readiness waits through the engine's retryable restart refusal after activation; missing keys still fail without another account.
 - API key (billed per use): `addKey` verifies and stores an explicitly entered key in a separate member-owned agent, with copying disabled and no automatic subscription fallback. `run({ auth: 'apiKey' })` selects it explicitly with separate history; key-entry labels, errors and route revision dates are included.
 - Offer subscription sign-ins, including pasted tokens and native Claude Code, by default and allow their provider plugins. API key (billed per use) routes remain app opt-in; proxies, compatibility aliases and local routes stay off.
