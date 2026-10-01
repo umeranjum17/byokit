@@ -55,6 +55,23 @@ Local mock checks and unsigned-in screenshots do not satisfy the live acceptance
 The live browser page sends real calls to the selected provider; serving the page
 locally does not replace the provider with a local model or a mock.
 
+After signing in in the running example, capture each plan with the explicit live
+driver. Replace the address with the exact one printed by the example:
+
+```sh
+npx playwright install chromium
+node examples/decide-plan/capture.ts --live http://127.0.0.1:8080/ chatgpt
+node examples/decide-plan/capture.ts --live http://127.0.0.1:8080/ claude
+```
+
+The driver clicks the real page, asks all 12 messages, captures full-resolution
+screens and a video, and records an operator answer of No when the plan abstains.
+It saves every result, including failures. It exits unsuccessfully if any expected
+answer is wrong, the missing-deadline handoff is absent, the embedded instruction
+changes the result, or the page reports an error. It never completes sign-in or
+reads a saved credential. Its output is isolated by provider under
+`.lab/evidence/decide-plan/`; Playwright's original video is `live.webm`.
+
 ## Offline check
 
 ```sh
