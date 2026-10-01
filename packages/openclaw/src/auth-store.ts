@@ -3,14 +3,11 @@
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync, closeSync, fsyncSync, openSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { SealingAdapter } from '@byokit/secrets';
+import { EngineAlreadyRunningError, pidAlive as live } from './engine-status.ts';
 
 const encoder = new TextEncoder();
 const archive = (name: string) => /^(auth-profiles|auth-state|auth|oauth)\.json\.(migrated-.+|sqlite-import\..+\.bak)$/.test(name)
   || name.endsWith('.moved-to-engine');
-const live = (pid: number): boolean => {
-  if (!Number.isSafeInteger(pid) || pid < 1) return false;
-  try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
-};
 function regular(path: string): void {
   if (!lstatSync(path).isFile()) throw new Error(`credential store requires regular files: ${path}`);
 }
@@ -82,27 +79,37 @@ export class AuthStore {
   private acquire(): void {
     if (this.owned) return;
     if (existsSync(this.file) && !this.o.seal) throw new Error('authSeal required for sealed credential store');
-    if (!this.o.seal) return;
     // Never race a live gateway or another kit, including an orphan after its host crashed.
     const gateway = join(this.o.root, 'gateway.pid');
-    if (existsSync(gateway) && live(Number(readFileSync(gateway, 'utf8')))) throw new Error('credential store is in use');
+    if (existsSync(gateway) && live(Number(readFileSync(gateway, 'utf8')))) throw new EngineAlreadyRunningError();
     if (existsSync(this.lock)) {
       if (!lstatSync(this.lock).isDirectory() || lstatSync(this.lock).isSymbolicLink()) throw new Error('invalid credential lock');
       const owner = join(this.lock, 'pid');
-      if (!existsSync(owner) || live(Number(readFileSync(owner, 'utf8')))) throw new Error('credential store is in use');
+      if (!existsSync(owner) || live(Number(readFileSync(owner, 'utf8')))) throw new EngineAlreadyRunningError();
       // Only one stale-owner recovery can proceed. Recheck after claiming it so a stale reader
       // cannot remove the lock a newer owner has just acquired.
       const recovery = join(this.lock, 'recovery');
-      try { mkdirSync(recovery, { mode: 0o700 }); } catch { throw new Error('credential store is in use'); }
+      try { mkdirSync(recovery, { mode: 0o700 }); } catch { throw new EngineAlreadyRunningError(); }
       if (!existsSync(owner) || live(Number(readFileSync(owner, 'utf8')))) {
         rmSync(recovery, { recursive: true });
-        throw new Error('credential store is in use');
+        throw new EngineAlreadyRunningError();
       }
       rmSync(this.lock, { recursive: true });
     }
-    mkdirSync(this.lock, { mode: 0o700 });
-    writeFileSync(join(this.lock, 'pid'), String(process.pid), { mode: 0o600, flag: 'wx' });
+    try { mkdirSync(this.lock, { mode: 0o700 }); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') throw new EngineAlreadyRunningError();
+      throw error;
+    }
     this.owned = true;
+    try {
+      writeFileSync(join(this.lock, 'pid'), String(process.pid), { mode: 0o600, flag: 'wx' });
+      // Recheck under the acquired lock before removing a dead writer's guard.
+      if (existsSync(gateway)) {
+        if (live(Number(readFileSync(gateway, 'utf8')))) throw new EngineAlreadyRunningError();
+        removeMarker(gateway);
+      }
+    } catch (error) { this.release(); throw error; }
   }
   private release(): void {
     if (!this.owned) return;
@@ -221,7 +228,7 @@ export class AuthStore {
   }
   stop(): Promise<void> {
     return this.serial(async () => {
-      this.acquire();
+      if (!this.owned) return;
       await this.archives();
       await this.persist();
       this.active = false;

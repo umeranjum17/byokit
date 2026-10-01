@@ -397,8 +397,13 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
    `ENGINE_VERSION`, else `needs-update/version` (never silently run another version). Token file `openclaw/token`
    (32 random bytes hex, 0600, created once). Port file `openclaw/port` (free loopback port chosen once; refuse 18789
    → `failed/port`). Write the bridge plugin (5.9) and reconcile config (5.6).
-2. **start()**: kill a stale engine only if `openclaw/gateway.pid`'s `/proc/<pid>/cmdline` contains both the engine
-   entry and `gateway` (never another app's pid); spawn `process.execPath <entry> gateway --port <port>` detached,
+2. **start()**: before preparing or restoring credentials, inspect `openclaw/gateway.pid`. A live orphan may
+   receive SIGTERM only after verifying the same user, executable, gateway command, isolated HOME/state/config
+   paths and a dead host lock owner; wait at most 3 s for its exit. Ambiguous ownership, a live host or a
+   shutdown timeout rejects with exported `EngineAlreadyRunningError` (`code: 'engine-already-running'`) and
+   `failed/engine-already-running`, without modifying guards or state. On platforms without process identity
+   verification, live pids are ambiguous. Dead pid guards are removed only under the acquired store lock.
+   Then spawn `process.execPath <entry> gateway --port <port>` detached,
     cwd = isolated HOME, env = 5.5, stdout/stderr appended to `logs/openclaw.log` (0600); write the pidfile. Device
     identity `openclaw/device.json` (ed25519, created once when missing, 0600; the transport reads both the kit's
     `{ privateKey, publicKey }` shape and the Crewhouse legacy `{ deviceId, publicKeyPem, privateKeyPem }` shape, and
@@ -409,7 +414,9 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
 3. **Crash**: on child exit while not stopping: drop the transport, state `restarting` with
    `retryAt = now + min(30 s, 1 s × 2^failures)`, then `start()` again; failures reset on a successful handshake.
 4. **stop()**: stop transport; SIGTERM the process group; wait 3 s; SIGKILL; wait 3 s; await exit; close the bridge
-   socket and delete it. State `stopped`.
+   socket and delete it. Only the instance's child pid guard and acquired credential lock/state may be
+   cleaned; failed-start cleanup and stop without ownership never acquire a lock to seal or delete state.
+   State `stopped`.
 5. `doctorContext()` returns the entry and isolated env for an offline doctor run (migration).
 
 ### 5.5 Isolated engine env
@@ -820,6 +827,7 @@ export function openNotice(data: Record<string, unknown>, seed: Uint8Array): App
 | `engine.locked` | Your saved sign-in is locked. Unlock your password storage, then try again. |
 | `engine.ready` | Ready. |
 | `engine.restarting` | Something stopped. Starting it again by itself. |
+| `engine.alreadyRunning` | Your saved sign-in is in use. Try again after the other session stops. |
 | `engine.failed` | This computer couldn't start the helper. Restart the app to try again. |
 | `engine.needsUpdate` | This app needs an update to keep working. |
 | `member.signedOut` | Sign in with {name} to start. |

@@ -162,6 +162,61 @@ assert.equal(readFileSync(engineFile)[4], 3);
     } catch (err) {
       fail("sealing [locked recovery and dual wrapping]", (err as Error).message);
     }
+    // The packed kit must refuse a live orphan without failed-start cleanup consuming its guards/store.
+    writeFileSync(join(appDir, "openclaw-orphan.mjs"), `
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { OpenClawKit, EngineAlreadyRunningError, stateWords } from '@byokit/openclaw';
+import { fakeGateway } from '@byokit/openclaw/testing';
+import { hostKeySeal } from '@byokit/secrets';
+const stateDir = join(process.cwd(), 'orphan-state');
+const root = join(stateDir, 'openclaw');
+const authSeal = hostKeySeal({ key: new Uint8Array(32).fill(9) });
+const kit = new OpenClawKit({ stateDir, authSeal, spawnEngine: false, transport: fakeGateway().factory });
+mkdirSync(join(root, 'state'), { recursive: true });
+writeFileSync(join(root, 'state', 'auth.json'), 'packed-login');
+await kit.prepare();
+const sealed = readFileSync(join(root, 'auth-store.sealed'));
+const deadHost = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' });
+await once(deadHost, 'exit');
+const gateway = spawn(process.execPath, ['-e', 'process.stdout.write("ready"); setInterval(() => {}, 1000)'], { stdio: ['ignore', 'pipe', 'ignore'] });
+await once(gateway.stdout, 'data');
+const pid = join(root, 'gateway.pid');
+const lock = join(root, 'auth-store.lock');
+mkdirSync(lock);
+writeFileSync(join(lock, 'pid'), String(deadHost.pid));
+writeFileSync(pid, String(gateway.pid));
+mkdirSync(join(root, 'state'));
+writeFileSync(join(root, 'state', 'auth.json'), 'packed-refreshed-login');
+try {
+  await assert.rejects(kit.start(), e => e instanceof EngineAlreadyRunningError && e.code === 'engine-already-running');
+  assert.equal(kit.state.why, 'engine-already-running');
+  assert.match(stateWords(kit.state), /saved sign-in is in use/);
+  await kit.stop();
+  assert.equal(readFileSync(pid, 'utf8'), String(gateway.pid));
+  assert.equal(readFileSync(join(lock, 'pid'), 'utf8'), String(deadHost.pid));
+  assert.deepEqual(readFileSync(join(root, 'auth-store.sealed')), sealed);
+  assert.equal(readFileSync(join(root, 'state', 'auth.json'), 'utf8'), 'packed-refreshed-login');
+} finally {
+  const exited = once(gateway, 'exit'); gateway.kill(); await exited;
+}
+await kit.start();
+assert.equal(kit.state.phase, 'ready');
+assert.equal(readFileSync(join(root, 'state', 'auth.json'), 'utf8'), 'packed-refreshed-login');
+assert.equal(existsSync(pid), false);
+await kit.stop();
+assert.equal(existsSync(lock), false);
+assert.equal(existsSync(join(root, 'state')), false);
+`);
+    try {
+      sh("node", ["openclaw-orphan.mjs"], appDir);
+      pass("@byokit/openclaw [orphan ownership and dead-pid recovery]");
+    } catch (err) {
+      fail("@byokit/openclaw [orphan ownership and dead-pid recovery]", (err as Error).message);
+    }
     // Import every export subpath, default and browser conditions.
     const subpaths: { spec: string; browser: boolean }[] = [];
     const bins: { pkg: string; bin: string }[] = [];

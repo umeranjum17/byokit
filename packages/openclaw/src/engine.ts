@@ -1,11 +1,12 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { randomBytes, generateKeyPairSync } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, copyFileSync, rmSync, realpathSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AuthStore } from './auth-store.ts';
+import { EngineAlreadyRunningError, pidAlive } from './engine-status.ts';
 import { ENGINE_VERSION } from './constants.ts';
 import { reconcileConfig } from './config.ts';
 import { writePlugin, resolveBridge } from './bridge.ts';
@@ -94,6 +95,7 @@ export class Engine {
   }
   private async prepareOnce(): Promise<void> {
     if (!this.o.authSeal && existsSync(join(this.root, 'auth-store.sealed'))) throw new Error('authSeal required for sealed credential store');
+    await this.recoverOrphan();
     for (const d of [this.root, ...(!this.o.authSeal ? [join(this.root, 'home'), join(this.root, 'state')] : []), join(this.root, 'tmp'), join(this.root, 'install-home'), join(this.root, 'npm-cache'), join(this.o.stateDir, 'logs'), this.dir]) mkdirSync(d, { recursive: true, mode: 0o700 });
     try { await this.authStore.prepare(); this.credentialsLocked = false; }
     catch (error) { if (this.locked(error)) return; throw error; }
@@ -155,15 +157,49 @@ export class Engine {
     const result = spawnSync(process.execPath, [entry, 'doctor', '--fix', '--yes', '--non-interactive'], { cwd: env.HOME, env, timeout: timeoutMs, stdio: 'pipe' });
     return { status: result.status };
   }
-  private stalePid() {
+  private verifiedOrphan(pid: number): boolean {
+    if (process.platform !== 'linux' || !process.getuid) return false;
+    try {
+      const proc = `/proc/${pid}`;
+      const cmd = readFileSync(`${proc}/cmdline`, 'utf8').split('\0');
+      const env = readFileSync(`${proc}/environ`, 'utf8').split('\0');
+      const home = join(this.root, 'home');
+      const owner = join(this.root, 'auth-store.lock', 'pid');
+      return statSync(proc).uid === process.getuid()
+        && realpathSync(`${proc}/exe`) === realpathSync(process.execPath)
+        && cmd.indexOf(this.entry) > 0 && cmd[cmd.indexOf(this.entry) + 1] === 'gateway'
+        && realpathSync(`${proc}/cwd`) === realpathSync(home)
+        && env.includes(`HOME=${home}`)
+        && env.includes(`OPENCLAW_STATE_DIR=${join(this.root, 'state')}`)
+        && env.includes(`OPENCLAW_CONFIG_PATH=${join(this.root, 'openclaw.json')}`)
+        && existsSync(owner) && !pidAlive(Number(readFileSync(owner, 'utf8')));
+    } catch { return false; }
+  }
+  private async recoverOrphan(): Promise<void> {
+    if (this.child && this.child.exitCode === null && this.child.signalCode === null) return;
     const path = join(this.root, 'gateway.pid');
     if (!existsSync(path)) return;
     const pid = Number(readFileSync(path, 'utf8'));
-    if (!Number.isSafeInteger(pid) || pid < 1) return;
+    if (!pidAlive(pid)) return; // AuthStore removes stale guards only under its lock.
+    const occupied = () => { this.state('failed', 'engine-already-running'); return new EngineAlreadyRunningError(); };
+    if (!this.verifiedOrphan(pid)) throw occupied();
+    // Verify a stable process identity again immediately before signalling this pid, never its group.
+    const identity = () => {
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+      return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]; // starttime, not a reusable pid alone
+    };
     try {
-      const cmd = readFileSync(`/proc/${pid}/cmdline`, 'utf8');
-      if (cmd.includes(this.entry) && cmd.includes('gateway')) process.kill(-pid, 'SIGTERM');
-    } catch { /* pid is gone or not ours */ }
+      const before = identity();
+      if (!before || !this.verifiedOrphan(pid) || before !== identity()) throw occupied();
+    } catch {
+      if (!pidAlive(pid)) return;
+      throw occupied();
+    }
+    try { process.kill(pid, 'SIGTERM'); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw occupied(); }
+    for (let i = 0; i < 15 && pidAlive(pid); i++) await delay(200);
+    if (pidAlive(pid)) throw occupied();
+    // The new store owner now seals crash leftovers under its lock before restoring them.
   }
   start(): Promise<{ port: number; token: string; identityPath: string } | undefined> {
     if (this.starting) return this.starting;
@@ -185,7 +221,11 @@ export class Engine {
     try { await this.authStore.start(); }
     catch (error) { if (this.locked(error)) return undefined; throw error; }
     try { return this.launch(); }
-    catch (error) { await this.authStore.stop(); throw error; }
+    catch (error) {
+      // A launch failure after spawn still has a writer; the caller's stop must await its exit.
+      if (!this.child) await this.authStore.stop();
+      throw error;
+    }
   }
   private launch(): { port: number; token: string; identityPath: string } {
     const identityPath = join(this.root, 'device.json');
@@ -195,7 +235,6 @@ export class Engine {
     }
     if (!this.o.spawnEngine) return { port: this.port, token: this.token, identityPath };
     if (this.child && this.child.exitCode === null) return { port: this.port, token: this.token, identityPath };
-    this.stalePid();
     this.state('starting');
     const { entry, env } = this.doctorContext();
     const fd = openSync(join(this.o.stateDir, 'logs', 'openclaw.log'), 'a', 0o600);
@@ -212,7 +251,7 @@ export class Engine {
     child.once('exit', (code) => {
       if (this.child !== child || this.stopping) return;
       this.child = undefined;
-      rmSync(join(this.root, 'gateway.pid'), { force: true });
+      this.removeOwnedPid(child.pid);
       void (async () => {
         await this.authStore.stop();
         if (this.stopping) return;
@@ -228,6 +267,10 @@ export class Engine {
     });
     return { port: this.port, token: this.token, identityPath };
   }
+  private removeOwnedPid(pid: number | undefined): void {
+    const path = join(this.root, 'gateway.pid');
+    if (pid && existsSync(path) && readFileSync(path, 'utf8') === String(pid)) rmSync(path, { force: true });
+  }
   withAuthStore<T>(task: () => Promise<T>): Promise<T> { return this.authStore.offline(task); }
   async stop(): Promise<void> {
     this.stopping = true;
@@ -241,9 +284,8 @@ export class Engine {
     }
     if (child && child.exitCode === null && child.signalCode === null) throw new Error('engine did not stop; credential store still in use');
     this.child = undefined;
-    rmSync(join(this.root, 'gateway.pid'), { force: true });
+    this.removeOwnedPid(child?.pid);
     if (!this.credentialsLocked) await this.authStore.stop();
-    rmSync(this.bridgeSock, { force: true });
     this.state('stopped');
   }
 }
