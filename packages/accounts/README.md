@@ -166,7 +166,7 @@ for (const p of offered(['chatgpt', 'openrouter'])) console.log(`${p.name}: ${bi
 ```
 
 ```text
-[ 'chatgpt', 'claude' ]
+[ 'chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta', 'qwen', 'minimax' ]
 ChatGPT: Uses your ChatGPT plan.
 OpenRouter: Charged per use to your OpenRouter account, not a plan.
 ```
@@ -439,8 +439,6 @@ Browser apps should keep the API key in an app-owned server proxy (`base`); Reac
 fetch such as Expo's. `betas` explicitly opts into native beta headers.
 
 ## Claude Pro/Max subscription
-
-Anthropic's [developer guidance](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use) prohibits third-party Claude.ai login without approval; BYOKit has no approval, and this route may stop working or lead to account restrictions (the separately billed API-key route is the documented alternative).
 
 Claude is available by default. Open its page, then paste the returned `code#state` into the app:
 
