@@ -2,6 +2,7 @@
 // The key is the host's: the app reads it from its own environment or config and hands it here. The kit never reads
 // an environment variable, never ships a key and never puts it anywhere but the one request header.
 import type { Backend, Question, Raw } from './index.ts';
+import { UnsupportedImagesError } from './images.ts';
 import { parseUsage, retryFetch, type RetryOptions } from './http.ts';
 
 const BASE = { typesafe: 'https://api.typesafe.ai', openrouter: 'https://openrouter.ai/api' };
@@ -17,7 +18,8 @@ export function jev(opts: {
   return {
     name: 'jev',
     leaves: true,
-    async ask(state, questions, signal) {
+    async ask(state, questions, signal, images = []) {
+      if (images.length) throw new UnsupportedImagesError('jev');
       const body = JSON.stringify({ model: 'jev-latest', state, questions: Object.fromEntries(Object.entries(questions).map(([k, q]) => [k, wire(q)])) });
       const res = await request(`${BASE[via]}/v1/systemone`, {
         method: 'POST', signal,

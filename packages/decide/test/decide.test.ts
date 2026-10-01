@@ -6,8 +6,9 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
-import { cacheKey, decide, jev, MemoryCache, resolve, rules, type Question, type Answer } from '../src/index.ts';
-import { evaluate, format, parse, replay, summary } from '../src/eval.ts';
+import { answerer, cacheKey, decide, jev, MemoryCache, resolve, rules, openai, createDecider, parseConfig,
+  InvalidImageError, UnsupportedImagesError, type ImageInput, type Question, type Answer } from '../src/index.ts';
+import { evaluate, evaluateDecisions, format, parse, replay, summary } from '../src/eval.ts';
 
 const intent: Question = { kind: 'choice', options: { task: 'A new job', followup: 'About an earlier job', chat: 'Just talk' } };
 const p = (task: number, followup: number, chat: number) => ({ task, followup, chat });
@@ -206,7 +207,7 @@ test('live recording preserves failed cases and labels partial refresh', () => {
   const old = { type: 'noul', noul: 0.9 };
   writeFileSync(path, format({ decision: 'urgent', question, note: 'hand-made, not recorded', cases: [
     { state: 'fail', expect: true, jev: old, ms: 42 },
-    { state: 'ok', expect: false, jev: old, ms: 43 },
+    { state: 'ok', expect: false, jev: old, recorded: { probabilities: { true: 0.9, false: 0.1 } }, ms: 43 },
   ] }));
   const before = readFileSync(path, 'utf8');
   const env = { PATH: process.env.PATH, TYPESAFE_API_KEY: 'test-key' };
@@ -219,6 +220,7 @@ test('live recording preserves failed cases and labels partial refresh', () => {
   const f = parse(readFileSync(path, 'utf8'));
   assert.deepEqual([f.cases[0].jev, f.cases[0].ms], [old, 42]);
   assert.deepEqual(f.cases[1].jev, { type: 'noul', noul: 0.1 });
+  assert.equal(f.cases[1].recorded, undefined, 'successful refresh replaces generic recordings');
   assert.match(f.note!, /partial live refresh 1\/2.*hand-made, not recorded/);
 });
 
@@ -447,7 +449,7 @@ test('official account route checks consent/catalogue, consumes completed SSE an
   let calls = 0;
   let sent: any;
   const account = chatgptPlan({ session: async () => ({ accessToken: 'plan-token', scopes: granted }) });
-  const backend = openai({ auth: 'account', account, model: 'gpt-6.1-sol', fetch: async (url, init) => {
+  const backend = openai({ auth: 'account', account, model: 'gpt-6.1-sol', supportsImages: true, fetch: async (url, init) => {
     calls++;
     assert.equal((init!.headers as any).authorization, 'Bearer plan-token');
     if (url === 'https://api.openai.com/v1/models') return Response.json({ models: visible ? [{ slug: 'gpt-6.1-sol', visibility: 'list' }] : [] });
@@ -458,10 +460,12 @@ test('official account route checks consent/catalogue, consumes completed SSE an
     const bytes = new TextEncoder().encode(events.map((e) => `event: ${e.type}\r\ndata: ${JSON.stringify(e)}\r\n\r\n`).join(''));
     return new Response(new ReadableStream({ start(c) { for (let i = 0; i < bytes.length; i += 7) c.enqueue(bytes.slice(i, i + 7)); c.close(); } }));
   } });
-  const result = (await decide({}, { intent }, { privacy: 'may-leave', backends: [backend] })).intent;
+  const result = (await decide({}, { intent }, { privacy: 'may-leave', backends: [backend],
+    images: [{ id: 'shot', mime: 'image/png', bytes: new Uint8Array([1]) }] })).intent;
   assert.equal(result.answer, 'followup');
   assert.deepEqual(result.raw, f.completed);
   assert.deepEqual(result.usage, { input_tokens: 84, output_tokens: 67 });
+  assert.equal(sent.input[0].content[2].image_url, 'data:image/png;base64,AQ==');
   assert.equal(sent.store, false);
   assert.equal(sent.stream, true);
   assert.equal(Array.isArray(sent.input), true);
@@ -515,4 +519,149 @@ test('plain config sets a backend once, per-call overrides isolate cache by prov
   const account = chatgptPlan({ session: async () => ({ accessToken: 'fake', scopes: ['resource.invoke', 'chatgpt.tokens.use.direct'] }) });
   await assert.rejects(decide({}, { intent }, { config: parseConfig({ backend: 'openai', auth: 'account', model: 'gpt-6.1-sol' }),
     privacy: 'may-leave', cache, host: { account } }), ConfigError);
+});
+
+test('image decisions retain answerer per-call usage and per-question rationale through floors and cache', async () => {
+  const images: ImageInput[] = [{ id: 'candidate', mime: 'image/png', bytes: new Uint8Array([0, 1, 255]) },
+    { id: 'reference', mime: 'image/jpeg', dataUrl: 'data:image/jpeg;base64,AQI=' }];
+  const questions: Record<string, Question> = {
+    craft: { kind: 'yesno', question: 'Does candidate match reference?', images: ['candidate', 'reference'] },
+    score: { kind: 'score', levels: ['weak', 'strong'], images: ['candidate'], floor: 0.95 },
+  };
+  let calls = 0;
+  const backend = answerer({ name: 'host-model', leaves: true, supportsImages: true,
+    ask: async (prompt, signal, attachments) => {
+      calls++;
+      assert.equal(signal.aborted, false);
+      assert.match(prompt, /Does candidate match reference/);
+      assert.match(prompt, /"images":\["candidate","reference"\]/);
+      assert.ok(!prompt.includes('base64'), 'image bytes are attachments, not JSON prompt text');
+      assert.deepEqual(attachments, [{ id: 'candidate', mime: 'image/png', dataUrl: 'data:image/png;base64,AAH/' }, images[1]]);
+      return { text: JSON.stringify({ craft: { probabilities: { true: 0.9, false: 0.1 }, rationale: 'Matches the reference.' },
+        score: { probabilities: { 0: 0.1, 1: 0.9 }, rationale: 'Strong, but uncertain.' } }),
+        usage: { input_tokens: 31, output_tokens: 12 } };
+    } });
+  const cache = new MemoryCache();
+  const options = { privacy: 'may-leave' as const, backends: [backend], images, cache };
+  const first = await decide({ rubric: 'compare' }, questions, options);
+  assert.equal(first.craft.answer, true);
+  assert.equal(first.score.abstained, true);
+  assert.equal(first.craft.rationale, 'Matches the reference.');
+  assert.equal(first.score.rationale, 'Strong, but uncertain.');
+  for (const a of Object.values(first)) assert.deepEqual(a.usage, { input_tokens: 31, output_tokens: 12 });
+  const hit = await decide({ rubric: 'compare' }, questions, options);
+  assert.equal(calls, 1);
+  assert.equal(hit.craft.source, 'cache');
+  assert.equal(hit.craft.rationale, first.craft.rationale);
+  assert.deepEqual(hit.score.usage, first.score.usage);
+  assert.equal(cacheKey({}, questions, images), cacheKey({}, questions, [
+    { id: 'candidate', mime: 'image/png', dataUrl: 'data:image/png;base64,AAH/' }, images[1],
+  ]), 'equivalent bytes and data URLs share a key');
+  assert.notEqual(cacheKey({}, questions, images), cacheKey({}, questions, [{ id: 'candidate', mime: 'image/png', bytes: new Uint8Array([1]) }, images[1]]));
+  assert.notEqual(cacheKey({}, questions, images), cacheKey({}, questions, [...images].reverse()));
+  let privateCalls = 0;
+  const privateBackend = answerer({ name: 'host', leaves: true, supportsImages: true, ask: async () => { privateCalls++; return ''; } });
+  const privateAnswer = await decide({}, questions, { privacy: 'stays-here', backends: [privateBackend], images });
+  assert.equal(privateCalls, 0);
+  assert.equal(privateAnswer.craft.abstained, true);
+});
+
+test('answerer retains usage on malformed, missing and legacy replies without inventing counts or rationales', async () => {
+  const questions: Record<string, Question> = { urgent: { kind: 'yesno', question: 'Urgent?' } };
+  for (const text of ['not JSON', '{}', '{"urgent":{"probabilities":{"true":1}}}']) {
+    const a = (await decide({}, questions, { privacy: 'may-leave', backends: [answerer({ name: 'host', leaves: true,
+      ask: async () => ({ text, usage: { input_tokens: 7, output_tokens: 2 }, rationale: 'Unable to judge.' }) })] })).urgent;
+    assert.equal(a.abstained, true);
+    assert.deepEqual(a.usage, { input_tokens: 7, output_tokens: 2 });
+    assert.equal(a.rationale, 'Unable to judge.');
+    assert.equal(a.raw, text);
+  }
+  const old = (await decide({}, questions, { privacy: 'may-leave', backends: [answerer({ name: 'host', leaves: true,
+    ask: async () => '{"urgent":{"true":0.9,"false":0.1}}' })] })).urgent;
+  assert.equal(old.answer, true);
+  assert.equal(old.rationale, undefined);
+  assert.equal(old.usage, undefined);
+  const namedOptions: Question = { kind: 'choice', options: { probabilities: 'Option one', rationale: 'Option two' } };
+  const named = (await decide({}, { namedOptions }, { privacy: 'may-leave', backends: [answerer({ name: 'host', leaves: true,
+    ask: async () => '{"namedOptions":{"probabilities":0.9,"rationale":0.1}}' })] })).namedOptions;
+  assert.equal(named.answer, 'probabilities', 'legacy option names remain unreserved');
+  const invalid = (await decide({}, questions, { privacy: 'may-leave', backends: [answerer({ name: 'host', leaves: true,
+    ask: async () => ({ text: '{"urgent":{"true":0.9,"false":0.1}}', usage: { input_tokens: -1, output_tokens: NaN } }) })] })).urgent;
+  assert.equal(invalid.answer, true);
+  assert.equal(invalid.usage, undefined);
+});
+
+test('image input rejects unsupported models and invalid images or references before dispatch', async () => {
+  const questions: Record<string, Question> = { urgent: { kind: 'yesno', question: 'Urgent?', images: ['shot'] } };
+  const images: ImageInput[] = [{ id: 'shot', mime: 'image/png', dataUrl: 'data:image/png;base64,AQ==' }];
+  let calls = 0;
+  const backend = answerer({ name: 'text-only', leaves: true, ask: async () => { calls++; return ''; } });
+  const o = { privacy: 'may-leave' as const, backends: [backend], images };
+  await assert.rejects(decide({}, questions, o), (e: unknown) => e instanceof UnsupportedImagesError && e.code === 'unsupported_images');
+  await assert.rejects(backend.ask({}, questions, new AbortController().signal, images as any), UnsupportedImagesError);
+  for (const back of [jev({ key: 'explicit', fetch: async () => { calls++; return Response.json({}); } }),
+    openai({ key: 'explicit', model: 'text-only', fetch: async () => { calls++; return Response.json({}); } })]) {
+    await assert.rejects(decide({}, questions, { ...o, backends: [back] }), UnsupportedImagesError);
+    await assert.rejects(back.ask({}, questions, new AbortController().signal, images as any), UnsupportedImagesError);
+  }
+  for (const bad of [[], [images[0], images[0]], [{ ...images[0], mime: 'image/jpeg' }],
+    [{ ...images[0], dataUrl: 'https://example.test/shot.png' }],
+    [{ ...images[0], dataUrl: 'data:image/png;base64,AAA\n' }], [{ id: 'shot', mime: 'image/png', bytes: new Uint8Array() }]]) {
+    await assert.rejects(decide({}, questions, { ...o, images: bad as ImageInput[] }), InvalidImageError);
+  }
+  assert.equal(calls, 0);
+  const bytes = new Uint8Array(256 * 1024 + 1).map((_, i) => i % 256);
+  const encoded = `data:image/png;base64,${Buffer.from(bytes).toString('base64')}`;
+  assert.equal(cacheKey({}, {}, [{ id: 'large', mime: 'image/png', bytes }]),
+    cacheKey({}, {}, [{ id: 'large', mime: 'image/png', dataUrl: encoded }]), 'large screenshot payloads normalize without regex recursion');
+});
+
+test('OpenAI image requests use content parts with named references and return rationale on explicit API billing', async () => {
+  const images: ImageInput[] = [{ id: 'shot', mime: 'image/png', bytes: new Uint8Array([1]) }];
+  const question: Question = { kind: 'yesno', question: 'Readable?', images: ['shot'] };
+  let sent: any;
+  const run = createDecider(parseConfig({ backend: 'openai', model: 'host-chosen-vision-model', supportsImages: true }), {
+    privacy: 'may-leave', host: { keys: { openai: 'explicit-test-key' }, fetch: async (_url, init) => {
+      sent = JSON.parse(init!.body as string);
+      assert.equal((init!.headers as any).authorization, 'Bearer explicit-test-key');
+      return Response.json({ status: 'completed', usage: { input_tokens: 8, output_tokens: 3 }, output: [
+        { type: 'message', content: [{ type: 'output_text', text: '{"readable":{"probabilities":{"true":0.9,"false":0.1},"pick":"true","rationale":"Clear type."}}' }] },
+      ] });
+    } } });
+  const a = (await run({}, { readable: question }, { images })).readable;
+  assert.equal(a.answer, true);
+  assert.equal(a.rationale, 'Clear type.');
+  assert.deepEqual(a.usage, { input_tokens: 8, output_tokens: 3 });
+  assert.deepEqual(sent.input[0].content.slice(1), [{ type: 'input_text', text: 'Image: shot' },
+    { type: 'input_image', image_url: 'data:image/png;base64,AQ==', detail: 'auto' }]);
+  assert.deepEqual(JSON.parse(sent.input[0].content[0].text).questions.readable.images, ['shot']);
+  assert.equal(sent.text.format.schema.properties.readable.properties.rationale.type, 'string');
+  assert.equal(sent.text.format.schema.properties.readable.required.includes('rationale'), true);
+  await assert.rejects(run({}, { readable: question }, { images, supportsImages: false }), UnsupportedImagesError);
+});
+
+test('image evals round-trip bytes, validate named criteria, run kit backends and replay generic recordings offline', async () => {
+  const file = parse(format({ decision: 'readable', question: { kind: 'yesno', question: 'Compare shot to reference.', images: ['shot', 'reference'] },
+    note: 'Hand-authored image shapes and probabilities; not a live model recording.', cases: [{ state: { rubric: 'type' }, expect: true,
+      images: [{ id: 'shot', mime: 'image/png', bytes: new Uint8Array([1]) }, { id: 'reference', mime: 'image/png', dataUrl: 'data:image/png;base64,Ag==' }],
+      recorded: { probabilities: { true: 0.9, false: 0.1 }, usage: { input_tokens: 3, output_tokens: 2 }, rationale: 'Clear.' }, ms: 5 }] }));
+  assert.equal(format(parse(format(file))), format(file));
+  assert.equal(file.cases[0].images?.[0].dataUrl, 'data:image/png;base64,AQ==');
+  const a = await replay(file.question)(file.cases[0]);
+  assert.equal(a.rationale, 'Clear.');
+  assert.deepEqual(a.usage, { input_tokens: 3, output_tokens: 2 });
+  const offline = await evaluate(file.cases, replay(file.question));
+  assert.deepEqual([offline.agree, offline.clearWrong], [1, 0]);
+  const report = await evaluateDecisions(file, { privacy: 'may-leave', backends: [answerer({ name: 'host', leaves: true, supportsImages: true,
+    ask: async (prompt, _signal, images) => {
+      assert.match(prompt, /Compare shot to reference/);
+      assert.deepEqual(images.map((image) => image.id), ['shot', 'reference']);
+      return { text: '{"readable":{"probabilities":{"true":0.9,"false":0.1},"rationale":"Clear."}}', usage: { input_tokens: 3, output_tokens: 2 } };
+    } })] });
+  assert.deepEqual([report.cases, report.agree, report.clearWrong], [1, 1, 0]);
+  assert.throws(() => parse(format({ ...file, cases: [{ ...file.cases[0], images: [file.cases[0].images![0]] }] })), InvalidImageError);
+  const path = join(scratchDir('image-eval'), 'images.jsonl');
+  writeFileSync(path, format(file));
+  const cli = new URL('../src/cli.ts', import.meta.url).pathname;
+  assert.match(execFileSync(process.execPath, [cli, path], { encoding: 'utf8' }), /agree 1\/1/);
 });

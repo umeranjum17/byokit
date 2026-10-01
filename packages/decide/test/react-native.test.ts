@@ -13,7 +13,11 @@ test('the main entry bundles for React Native with nothing from Node, and decide
         globalThis.result = decide({ text: 'can you check if the plumber replied?' }, {
           intent: { kind: 'choice', options: { task: 'Something new', followup: 'About an earlier job', chat: 'Just talking' } },
         }, { privacy: 'may-leave', backends: [answerer({ name: 'phone-model', leaves: true,
-          ask: async () => '{"intent": {"task": 0.05, "followup": 0.9, "chat": 0.05}}' })] });`,
+          supportsImages: true, ask: async (prompt, signal, images) => {
+            if (images[0].dataUrl !== 'data:image/png;base64,AQI=') throw new Error('image lost');
+            return { text: '{"intent": {"probabilities": {"task": 0.05, "followup": 0.9, "chat": 0.05}, "rationale": "Earlier job."}}',
+              usage: { input_tokens: 4, output_tokens: 2 } };
+          } })], images: [{ id: 'shot', mime: 'image/png', bytes: new Uint8Array([1, 2]) }] });`,
       resolveDir: import.meta.dirname, sourcefile: 'phone.ts',
     },
     bundle: true, platform: 'browser', format: 'iife', conditions: ['react-native'], write: false, logLevel: 'silent', metafile: true,
@@ -24,6 +28,8 @@ test('the main entry bundles for React Native with nothing from Node, and decide
   const { intent } = await sandbox.result;
   assert.equal(intent.answer, 'followup');
   assert.equal(intent.by, 'phone-model');
+  assert.equal(intent.rationale, 'Earlier job.');
+  assert.equal(intent.usage.input_tokens, 4);
 });
 
 test('answerer: a reply that isn\'t the JSON asked for is an abstain; stays-here never asks a model that leaves', async () => {
