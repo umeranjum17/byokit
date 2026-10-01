@@ -285,3 +285,5 @@ Alternatively, this package's `roomOf(reading, nowMs)` returns a structural `Roo
 that the accounts chooser accepts directly. Preserve the original measurement time.
 
 `identity(codexSource)` shares the app-server transport, calls `account/read` with a 15-second deadline, never opens a credential file, and returns only `{signedIn,email?,plan?}`. Managed-folder HTTP usage carries only the app-passed headers plus Bearer authorization and JSON accept; it uses the same bounded HTTP transport.
+
+Managed-folder Claude usage uses the shared poll-health and normalized quota pipeline, including scoped hard blocks, unknown usage, last-good observation times, account retry policies and cancellable host origin pacing.
