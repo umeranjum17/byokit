@@ -1,0 +1,14 @@
+{
+  "name": "byokit-realtime-android-proof",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": { "typecheck": "tsc -p tsconfig.json" },
+  "dependencies": {
+    "@byokit/realtime": "file:../../packages/realtime",
+    "expo": "57.0.25",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-webrtc": "124.0.8"
+  }
+}

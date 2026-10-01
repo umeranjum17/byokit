@@ -194,8 +194,10 @@ function endCall() { client.stop(); }
 ```
 
 `attachMic()` awaits the app's microphone permission/service lease, captures
-an audio track and uses `sender.replaceTrack(track)`. `releaseMic()` awaits
-`replaceTrack(null)`, stops capture tracks and releases the lease so the app
+an audio track and uses `sender.replaceTrack(track)` before enabling the sender's
+encoding. Lazy peers negotiate `sendrecv` with an inactive encoding: Android's
+audio device cannot start recording just because an answer is applied.
+`releaseMic()` disables that encoding before `replaceTrack(null)`, stops capture tracks and releases the lease so the app
 can stop its microphone service and clear the OS indicator. Neither operation
 renegotiates. Repeated calls are safe; release or stop during pending capture
 cleans up when that capture resolves. Reconnecting starts another lazy peer;

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- SECURITY: Lazy WebRTC capture no longer opens the Android microphone or sends untapped speech before `attachMic()`; `releaseMic()` closes recording while keeping the call connected. Apps using lazy capture should update.
+
 ## 0.3.0 (2026-10-01)
 
 

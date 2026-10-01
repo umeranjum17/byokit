@@ -42,6 +42,16 @@ export async function webRtcPeer(options: WebRtcOptions): Promise<WebRtcHandle &
   };
   options.signal?.addEventListener('abort', stop, { once: true });
   const fail = (error: Error) => { if (!stopped) { options.onError(error); stop(); } };
+  const setSending = async (active: boolean) => {
+    if (options.capture !== 'lazy') return;
+    const parameters = sender!.getParameters();
+    if (!parameters.encodings.length) throw new Error('Voice capture control is unavailable.');
+    parameters.encodings.forEach(encoding => { encoding.active = active; });
+    await sender!.setParameters(parameters);
+    // The native bridge can resolve even when the engine rejects setParameters.
+    const applied = sender!.getParameters().encodings;
+    if (!applied.length || applied.some(encoding => encoding.active !== active)) throw new Error('Voice capture control failed.');
+  };
   const captureMic = async (generation: number) => {
     await options.audio.microphone.acquire(); acquired = true;
     if (stopped || generation !== micEpoch) { clearMic(); return; }
@@ -61,19 +71,26 @@ export async function webRtcPeer(options: WebRtcOptions): Promise<WebRtcHandle &
         const captured = await captureMic(generation);
         if (captured) {
           await sender!.replaceTrack(captured.getAudioTracks()[0]);
+          if (!stopped && generation === micEpoch) await setSending(true);
           if (stopped || generation !== micEpoch) {
-            if (!stopped) await sender!.replaceTrack(null);
+            if (!stopped) { await setSending(false); await sender!.replaceTrack(null); }
             clearMic();
           }
         }
-      } catch (error) { clearMic(); throw error; }
+      } catch (error) {
+        // Never leave a trackless native send stream recording after a failure.
+        try { if (!stopped && options.capture === 'lazy') { await setSending(false); await sender!.replaceTrack(null); } }
+        catch { stop(); }
+        clearMic(); throw error;
+      }
     });
   };
   const releaseMic = () => {
     micEpoch++;
     stream?.getAudioTracks().forEach(track => { track.enabled = false; });
     return serializeMic(async () => {
-      try { if (!stopped && stream) await sender!.replaceTrack(null); }
+      try { if (!stopped && stream) { await setSending(false); await sender!.replaceTrack(null); } }
+      catch (error) { if (options.capture === 'lazy') stop(); throw error; }
       finally { clearMic(); }
     });
   };
@@ -100,7 +117,12 @@ export async function webRtcPeer(options: WebRtcOptions): Promise<WebRtcHandle &
     dataChannel.onclose = () => fail(new Error('Voice channel closed.'));
     current.onconnectionstatechange = () => { if (stopped) return; if (current.connectionState === 'connected') options.onConnectionState('connected'); else if (['failed', 'closed'].includes(current.connectionState)) fail(new Error('Voice connection ended.')); else options.onConnectionState('connecting'); };
     current.ontrack = event => { const track = event.track; if (track.kind !== 'audio' || stopped) return; options.onRemoteAudio(!track.muted); track.onmute = () => options.onRemoteAudio(false); track.onunmute = () => options.onRemoteAudio(true); track.onended = () => options.onRemoteAudio(false); };
-    if (options.capture === 'lazy') sender = current.addTransceiver('audio', { direction: 'sendrecv' }).sender;
+    if (options.capture === 'lazy') {
+      // Android starts the device module for an active send stream even without
+      // a track. Disable the encoding before either description can be applied.
+      sender = current.addTransceiver('audio', { direction: 'sendrecv', sendEncodings: [{ active: false }] }).sender;
+      await setSending(false);
+    }
     else {
       const input = stream!.getAudioTracks()[0]; if (!input) throw new Error('Microphone is unavailable.');
       input.onmute = () => options.onInterruption(true); input.onunmute = () => options.onInterruption(false); input.onended = () => fail(new Error('Microphone ended.'));
