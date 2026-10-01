@@ -1,5 +1,6 @@
 // The fail-closed tool bridge (5.9, O5): unknown runs, permit binding, allowOnce, parked asks, garbage frames.
 import assert from 'node:assert/strict';
+import { EventEmitter, once } from 'node:events';
 import { readFileSync, rmSync } from 'node:fs';
 import { connect } from 'node:net';
 import { join } from 'node:path';
@@ -53,7 +54,7 @@ function askBridge(sockPath: string, message: unknown): Promise<Record<string, u
 }
 
 async function withBridge(
-  o: { permitted?: (tool: string) => boolean; approvalTimeoutMs?: number } & { host?: ToolHost } = {},
+  o: { permitted?: (tool: string) => boolean; approvalTimeoutMs?: number; onAsk?: (a: Approval) => void } & { host?: ToolHost } = {},
   fn: (bridge: Bridge, sockPath: string, seen: { asked: Approval[]; gone: string[] }) => Promise<void>,
 ): Promise<void> {
   const dir = scratchDir('o5-bridge');
@@ -65,7 +66,7 @@ async function withBridge(
     tools: new Set(['note', 'other']),
     permitted: o.permitted ?? (() => true),
     approvalTimeoutMs: o.approvalTimeoutMs ?? 5_000,
-    onAsk: (a) => seen.asked.push(a),
+    onAsk: (a) => { seen.asked.push(a); o.onAsk?.(a); },
     onAskGone: (id) => seen.gone.push(id),
   });
   await bridge.start();
@@ -230,11 +231,13 @@ test('allowOnce admits exactly one matching unregistered call', async () =>
     });
   }));
 
-test('an ask parks until decide allows, denies, or expires', async () =>
-  withBridge({}, async (bridge, sockPath, seen) => {
+test('an ask parks until decide allows, denies, or expires', async () => {
+  const asks = new EventEmitter();
+  await withBridge({ onAsk: (a) => asks.emit('ask', a) }, async (bridge, sockPath, seen) => {
     bridge.register({ sessionKey: 'agent:m1:x', member: 'm1' });
+    const firstAsk = once(asks, 'ask', { signal: AbortSignal.timeout(10_000) });
     const pending = askBridge(sockPath, { kind: 'gate', key: 'agent:m1:x', tool: 'note', input: { mode: 'ask' } });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await firstAsk;
     assert.equal(seen.asked.length, 1);
     assert.equal(seen.asked[0].source, 'gate');
     assert.equal(seen.asked[0].member, 'm1');
@@ -245,13 +248,15 @@ test('an ask parks until decide allows, denies, or expires', async () =>
     assert.equal(typeof allowed.permit, 'string');
     assert.deepEqual(seen.gone, [seen.asked[0].id]);
 
+    const secondAsk = once(asks, 'ask', { signal: AbortSignal.timeout(10_000) });
     const denied = askBridge(sockPath, { kind: 'gate', key: 'agent:m1:x', tool: 'note', input: { mode: 'ask' } });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await secondAsk;
     assert.equal(seen.asked.length, 2);
     assert.ok(bridge.resolveAsk(seen.asked[1].id, { allow: false, reason: 'not now' }));
     assert.deepEqual(await denied, { allow: false, reason: 'not now' });
     assert.equal(bridge.resolveAsk('missing', { allow: true }), false);
-  }));
+  });
+});
 
 test('a dead asker unparks its ask instead of leaving a permit for nobody', async () =>
   withBridge({}, async (bridge, sockPath, seen) => {
