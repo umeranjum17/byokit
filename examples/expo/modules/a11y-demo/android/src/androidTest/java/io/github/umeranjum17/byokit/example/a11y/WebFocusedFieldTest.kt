@@ -37,12 +37,24 @@ class WebFocusedFieldTest {
     val (interactive, locked, secure) = deviceState()
     println("WebView device $label: interactive=$interactive, keyguardLocked=$locked, keyguardSecure=$secure")
     // Keep the owner/precondition evidence bounded, rather than dumping every window or service.
-    val owners = shell("dumpsys window windows").lineSequence().filter {
+    val owners = shell("dumpsys window displays").lineSequence().filter {
       it.contains("mCurrentFocus") || it.contains("mFocusedApp") ||
         it.contains("mTopFocusedDisplayId") || it.contains("mObscuringWindow") ||
         it.contains("keyguard", ignoreCase = true)
     }.take(12).map { it.trim().take(512) }.joinToString("\n")
     println("WebView windows $label:\n$owners")
+    // Input focus owners follow their section headings on separate lines; keep those entries together.
+    var focusSection = false
+    val inputFocus = shell("dumpsys input").lineSequence().filter {
+      val line = it.trim()
+      val heading = line.startsWith("FocusedApplications:") ||
+        line.startsWith("FocusedWindows:") || line.startsWith("FocusRequests:")
+      val entry = focusSection && line.startsWith("displayId=")
+      if (heading) focusSection = true
+      else if (line.isNotEmpty() && !entry) focusSection = false
+      heading || entry || line.startsWith("FocusedDisplayId:")
+    }.take(12).map { it.trim().take(512) }.joinToString("\n")
+    println("WebView input $label:\n$inputFocus")
   }
 
   private fun prepareDevice() {
