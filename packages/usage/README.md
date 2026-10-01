@@ -47,6 +47,18 @@ original observation time. Poll 429 (`rate-limited`), host renewal failure
 (`refresh-failed`) and credential refusals are distinct; usage never changes
 account health or renews credentials.
 
+The managed-folder source is `{ provider: 'claude', folder, headers: { 'anthropic-beta', 'User-Agent' } }`. Paths must be absolute; removed or empty keys mean disconnected. Claude headers are app-passed. The Claude folder must resolve inside the reader's `stateDir` as `<stateDir>/claude/<hex>`, matching managed CLI account folders. Default `.claude` roots, paths outside the root, and symlinked folders or credential files are refused. Use the managed plans root as the usage reader's stateDir; its quota store coexists with the account roster. The default login's usage adapter remains with the host.
+
+Approved exception: the `./cli` entry reads and runs only app-managed per-account folders under `stateDir` and the absolute CLI binaries the app passes; it never touches the person's default login; tokens never leave the device and are never logged. Under the same managed-folder boundary, usage may read `.credentials.json` only for a single Claude subscription usage request. It does not refresh, write, rename or copy credentials; expired or malformed credentials return `expired` or `not-connected`, requiring sign-in again. The token is held in memory only for that request and never enters readings, stored quotas, errors or logs. Folder and credential metadata supply the cache fingerprint without loading a token, and credential changes invalidate the cached account reading.
+
+`read(source, { nowMs? })` returns `{ provider, windows, at, code? }`; `at` and all
+`resetsAt` fields are **epoch milliseconds** in 0.2.0. This changes 0.1.0's seconds
+reset convention. Windows include kind, used percent, optional duration in minutes,
+reset time, limit label and limited flag. Parsers are exported for host integrations:
+`claudeWindows`, `codexWindows` (app-server), `codexTokenWindows`, `goWindows`,
+`zaiWindows`, `copilotWindows`, `grokWindows`, `minimaxWindows`, `geminiWindows`,
+`kimiWindows(raw, nowMs)`.
+
 Windows include kind, optional reported `usedPercent`, duration, reset, limit,
 `limited` and `scope: { model?, surface? }`. Missing usage is unknown, never zero.
 Claude `limits[]` session/weekly-all rows override corresponding legacy aggregates,
@@ -197,6 +209,8 @@ and HOME explicitly when needed. No tokens in logs, errors, readings or public h
 no credential write-back, telemetry, automatic refresh or reset-credit spend.
 
 Built-in requests send `User-Agent: byokit/usage/0.3.0`, never another app's identity.
+
+Token and explicit-file sources send `User-Agent: byokit/usage/0.2.0`, never another app's identity.
 A refusal returns a code; with no last-good quota, room is unknown. Fixed endpoints
 are Anthropic `api/oauth/usage`, ChatGPT `backend-api/wham/usage`, GitHub
 `copilot_internal/user`, Grok `v1/billing` (weekly credits then monthly when needed),
@@ -269,3 +283,7 @@ When passing normalized windows to `@byokit/accounts`' structural helper, use
 legacy reset seconds; normalized usage windows in 0.2.0+ already use milliseconds.
 Alternatively, this package's `roomOf(reading, nowMs)` returns a structural `Room`
 that the accounts chooser accepts directly. Preserve the original measurement time.
+
+`identity(codexSource)` shares the app-server transport, calls `account/read` with a 15-second deadline, never opens a credential file, and returns only `{signedIn,email?,plan?}`. Managed-folder HTTP usage carries only the app-passed headers plus Bearer authorization and JSON accept; it uses the same bounded HTTP transport.
+
+Managed-folder Claude usage uses the shared poll-health and normalized quota pipeline, including scoped hard blocks, unknown usage, last-good observation times, account retry policies and cancellable host origin pacing.

@@ -29,6 +29,10 @@
       "types": "./dist/isolate.d.ts",
       "default": "./dist/isolate.js"
     },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "default": "./dist/cli.js"
+    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
@@ -48,6 +52,7 @@
     "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"
   },
   "dependencies": {
+    "@byokit/usage": "0.3.0",
     "@earendil-works/pi-ai": "0.87.1"
   },
   "publishConfig": {

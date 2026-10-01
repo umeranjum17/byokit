@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, statSync, symlinkSync, utimesSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
-import { usage, fingerprint, fileUsageStore, memoryBackoffPolicy, retryAfterMs, backoffDelayMs, roomOf, tokenLedger, callLedger, normalizeTokens, priceCall, memoryTokenLedgerStore, TokenLedgerError, UsageError, claudeWindows, codexWindows, goWindows, zaiWindows, WORDS, usageWords, type Source, type Window } from '../src/index.ts';
+import { usage, fingerprint, fileUsageStore, memoryUsageStore, memoryBackoffPolicy, retryAfterMs, backoffDelayMs, roomOf, tokenLedger, callLedger, normalizeTokens, priceCall, memoryTokenLedgerStore, TokenLedgerError, UsageError, claudeWindows, codexWindows, goWindows, zaiWindows, WORDS, usageWords, type Source, type Window } from '../src/index.ts';
 import { fakeCodex, fakeFetch, usageContract } from '../src/testing/index.ts';
 import payloads from './usage-payloads.json' with { type: 'json' };
 import edge from '../../../fixtures/conformance/usage-typescript.json' with { type: 'json' };
@@ -463,4 +463,78 @@ test('poll outcomes retain source age, separate refresh failure, durable retry a
   const pending = paced.read({ provider: 'codex', accountId: 'paced', access: 'synthetic' }, { nowMs: clock, signal: abort.signal });
   abort.abort();
   assert.equal((await pending).code, 'unavailable'); assert.equal(sent, 0);
+});
+
+test('managed Claude source shares pacing, scoped hard blocks and last-good poll health', async () => {
+  const root = scratchDir('claude-managed-poll'); const folder = join(root, 'claude', 'abcdef'); mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'synthetic-managed-token', expiresAt: nowMs + 900_000 } }));
+  const source: Source = { provider: 'claude', folder, headers: { 'anthropic-beta': 'passed', 'User-Agent': 'passed' } };
+  const http = fakeFetch([{ body: { limits: [{ kind: 'weekly_scoped', limit_reached: true, scope: { model: 'synthetic-model', surface: 'subagent' } }] } }, { status: 503 }]);
+  const paced: unknown[] = [];
+  const reader = usage({ stateDir: root, fetch: http.fetch, pace: async (request) => {
+    paced.push({ provider: request.provider, account: request.account, origin: request.origin });
+    assert.equal(request.signal.aborted, false);
+  } });
+  const good = await reader.read(source, { nowMs });
+  assert.equal(good.windows[0].usedPercent, undefined);
+  assert.equal(roomOf(good, nowMs).left, 0);
+  assert.deepEqual(roomOf(good, nowMs).scope, { model: 'synthetic-model', surface: 'subagent' });
+  assert.deepEqual(good.poll, { at: nowMs, outcome: 'ok' });
+  const failed = await reader.read(source, { nowMs: nowMs + 60_000 });
+  assert.equal(failed.at, good.at); assert.deepEqual(failed.windows, good.windows);
+  assert.deepEqual(failed.poll, { at: nowMs + 60_000, outcome: 'unavailable', retryAt: nowMs + 120_000 });
+  assert.deepEqual(usage({ stateDir: root }).lastKnown(source, { nowMs: nowMs + 61_000 }), failed);
+  assert.equal(paced.length, 2); assert.deepEqual(paced[0], { provider: 'claude', account: reader.account(source), origin: 'https://api.anthropic.com' });
+  const controller = new AbortController(); controller.abort();
+  const cancelled = await usage({ fetch: http.fetch, stateDir: root, store: memoryUsageStore() }).read(source, { nowMs, signal: controller.signal });
+  assert.equal(cancelled.code, 'unavailable'); assert.equal(http.calls.length, 2);
+  assert.doesNotMatch(JSON.stringify({ good, failed, cancelled, paced }) + readFileSync(join(root, 'plans-v2.json'), 'utf8'), /synthetic-managed-token/);
+});
+
+test('shared Codex identity client returns only approved identity fields, with the passed environment', async () => {
+  const { identity } = await import('../src/index.ts');
+  const root = scratchDir('codex-identity'); const home = join(root, 'home'); mkdirSync(home);
+  const fake = fakeCodex({ dir: join(root, 'bin'), raw: { account: { type: 'chatgpt', email: 'alice@example.test', planType: 'plus', access_token: 'secret-token' } } });
+  const source = { provider: 'codex' as const, bin: fake.bin, home, env: { HOME: home, ONLY_PASSED: 'yes' } };
+  assert.deepEqual(await identity(source), { signedIn: true, email: 'alice@example.test', plan: 'plus' });
+  const invocation = fake.invocations()[0];
+  assert.deepEqual(invocation.env, { ...source.env, CODEX_HOME: home });
+  assert.deepEqual(invocation.requests.map((r) => (r as { method: string }).method), ['initialize', 'account/read']);
+  fake.script({ raw: { account: null, access_token: 'secret-token' } });
+  assert.deepEqual(await identity(source), { signedIn: false });
+  fake.script({ flood: true }); assert.deepEqual(await identity(source), { signedIn: false });
+  await assert.rejects(identity({ ...source, bin: 'codex' }), UsageError);
+});
+
+test('managed Claude usage is read-only, bounded and carries app-passed headers without exposing credentials', async () => {
+  const root = scratchDir('claude-managed'); const folder = join(root, 'claude', 'abcdef'); mkdirSync(folder, { recursive: true });
+  const credential = join(folder, '.credentials.json');
+  const token = 'synthetic-secret-token';
+  writeFileSync(credential, JSON.stringify({ claudeAiOauth: { accessToken: token, refreshToken: 'synthetic-refresh', expiresAt: nowMs + 300_000 } }), { mode: 0o600 });
+  const before = readFileSync(credential, 'utf8'); const metadata = statSync(credential);
+  const source: Source = { provider: 'claude', folder, headers: { 'anthropic-beta': 'app-beta', 'User-Agent': 'app-agent' } };
+  const http = fakeFetch([{ body: { ...payloads.claude.raw, access_token: token } }, { status: 429 }, { text: token }, { status: 401 }, { text: 'x'.repeat(65537) }]);
+  const reader = usage({ stateDir: root, fetch: http.fetch });
+  assert.ok(reader.connected(source)); const identity = reader.account(source);
+  const [good, duplicate] = await Promise.all([reader.read(source, { nowMs }), reader.read(source, { nowMs })]);
+  assert.deepEqual(good.windows, payloads.claude.windows); assert.deepEqual(good, duplicate); assert.equal(http.calls.length, 1);
+  assert.equal(http.calls[0].url, 'https://api.anthropic.com/api/oauth/usage');
+  assert.deepEqual(http.calls[0].init?.headers, { accept: 'application/json', authorization: `Bearer ${token}`, 'anthropic-beta': 'app-beta', 'User-Agent': 'app-agent' });
+  assert.equal(http.calls[0].init?.redirect, 'error');
+  assert.deepEqual(await reader.read(source, { nowMs: nowMs + 59_999 }), good);
+  assert.deepEqual(usage({ stateDir: root }).lastKnown(source, { nowMs: nowMs + 60_000 }), good);
+  assert.equal((await reader.read(source, { nowMs: nowMs + 60_000 })).code, 'rate-limited');
+  assert.equal((await reader.read(source, { nowMs: nowMs + 61_000 })).code, 'rate-limited'); assert.equal(http.calls.length, 2);
+  for (const code of ['incomplete', 'auth', 'incomplete']) {
+    const result = await usage({ stateDir: root, store: memoryUsageStore(), fetch: http.fetch }).read(source, { nowMs: nowMs + 60_000 });
+    assert.equal(result.code, code); assert.doesNotMatch(JSON.stringify(result), /synthetic-secret-token|synthetic-refresh/);
+  }
+  assert.equal(readFileSync(credential, 'utf8'), before); assert.equal(statSync(credential).mtimeMs, metadata.mtimeMs);
+  assert.doesNotMatch(readFileSync(join(root, 'plans-v2.json'), 'utf8'), /synthetic-secret-token|synthetic-refresh|access_token/);
+  writeFileSync(credential, JSON.stringify({ claudeAiOauth: { accessToken: token, expiresAt: nowMs - 1 } }));
+  assert.notEqual(reader.account(source), identity, 'credential metadata change invalidates cached account readings without loading tokens');
+  const expired = await usage({ stateDir: root, fetch: http.fetch }).read(source, { nowMs });
+  assert.equal(expired.code, 'expired'); assert.deepEqual(expired.windows, []); assert.equal(http.calls.length, 5);
+  unlinkSync(credential); assert.equal(reader.connected(source), false);
+  assert.equal((await reader.read(source, { nowMs })).code, 'not-connected');
 });
