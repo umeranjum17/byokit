@@ -678,6 +678,9 @@ it connected locally; the selected provider checks validity on the first request
 Built-in stores keep a non-secret account index alongside sealed credentials. Custom stores use `recordStore(load, save)` to supply the same transaction seam. New sign-ins are staged until they succeed:
 
 ```ts
+import { Accounts } from '@byokit/accounts';
+
+const accounts = new Accounts(); // in-memory store; pass your app's store to persist
 const added = await accounts.add('Umer', 'chatgpt', { via: 'code' });
 // Show added.signIn, then poll view('Umer', added.id) as with login.
 await accounts.finished('Umer', added.id);
