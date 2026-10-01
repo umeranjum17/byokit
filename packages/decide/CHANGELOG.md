@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- FIX: The Message desk example no longer labels a missing estimate as self-reported 0% confidence; unavailable answers show no estimate.
+- Document the Message desk example for typed ChatGPT and Claude subscription decisions, self-reported confidence and human handoff below the floor.
+
 ## 0.5.0 (2026-10-01)
 
 - Dependency update: pins @byokit/accounts 0.14.0.

@@ -402,6 +402,7 @@ App-specific rubrics, reference corpora and acceptance thresholds stay in the ho
 ## Links
 
 - [byokit](../../README.md): the other packages
+- [`examples/decide-plan`](../../examples/decide-plan): ChatGPT and Claude plan decisions, visible confidence floors and human handoff
 - [`examples/expo`](../../examples/expo): uses `@byokit/decide` in a React Native app
 - [CHANGELOG.md](CHANGELOG.md)
 

@@ -39,6 +39,7 @@ jobs:
           export TMPDIR=$(mktemp -d /tmp/bk-XXXX)
           trap 'node -e '\''require("node:fs").rmSync(process.env.TMPDIR, { recursive: true, force: true })'\''' EXIT
           npm test # throwaway HOME, mocks only: no account, no network, no model
+          sh scripts/test.sh examples/decide-plan/e2e.test.ts
       - name: M6 preparation dry run (fake provider and fake SSH only)
         run: node scripts/machine-proof/run.ts --dry-run --output .lab/m6-dry.json
       - name: Packed kit consumers
