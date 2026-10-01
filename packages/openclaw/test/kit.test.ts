@@ -251,6 +251,7 @@ test('schema validation precedes explicit API-key readiness and keeps its snapsh
     (schema.enum as unknown as string[])[0] = 'after';
     return { ok: true, model: 'openai/fake-key-model' };
   });
+  fake.handle('agent', () => ({ runId: 'schema', status: 'ok', result: { payloads: [{ text: '"before"' }] } }));
   fake.handle('agent.wait', () => ({ status: 'ok', terminalReply: { text: '"before"' } }));
   const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:json', auth: 'apiKey', message: 'Report', schema });
   assert.ok(end.ok);

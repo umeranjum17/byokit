@@ -30,6 +30,8 @@ function harness(reply?: string) {
   const runs = createRuns({
     request: async (method, params, options) => {
       const result = await t.request(method, params, options);
+      if (method === 'agent' && reply !== undefined) return { ...(result as object),
+        result: { ...(result as { result: object }).result, payloads: [{ text: reply }] } };
       return method === 'agent.wait' && reply !== undefined
         ? { ...(result as object), terminalReply: { text: reply } } : result;
     },
@@ -208,7 +210,7 @@ test('a run names only kit tools: an unknown one is refused before any request, 
 });
 
 /** createRuns over a hand-driven transport: the `agent` request plays `play` then settles with `final`. */
-function scripted(o: { text?: string; final?: unknown; auth?: unknown; play?: (emit: (stream: string, data: unknown) => void) => void }) {
+function scripted(o: { text?: string; final?: unknown; wait?: unknown; auth?: unknown; play?: (emit: (stream: string, data: unknown) => void) => void }) {
   const listeners = new Set<(e: { event: string; payload?: unknown }) => void>();
   const calls: string[] = [];
   const request: GatewayTransport['request'] = async (method, _params, opts) => {
@@ -218,7 +220,7 @@ function scripted(o: { text?: string; final?: unknown; auth?: unknown; play?: (e
       o.play?.((stream, data) => { for (const fn of listeners) fn({ event: 'agent', payload: { runId: 'r1', stream, data } }); });
       return o.final ?? { runId: 'r1', status: 'ok' };
     }
-    if (method === 'agent.wait') return { status: 'ok', terminalReply: { text: o.text ?? 'done' } };
+    if (method === 'agent.wait') return o.wait ?? { status: 'ok', terminalReply: { text: o.text ?? 'done' } };
     if (method === 'models.authStatus') return o.auth ?? { providers: [] };
     throw new Error(`unexpected ${method}`);
   };
@@ -426,5 +428,81 @@ test('runtime required arrays and unions of required lists never promise missing
     void promised;
     assert.equal(optional, undefined);
     assert.deepEqual(end.data, {});
+  }
+});
+
+// Synthetic transport replay of the established engine 2026.8.1 packet boundary, not a provider generation.
+test('complete final answers supersede capped snapshots with coherent callbacks and terminal fallbacks', async () => {
+  const text = JSON.stringify({ report: 'x'.repeat(27_930) });
+  assert.equal(text.length, 27_943);
+  const spec = { member: 'm1', sessionKey: 'agent:m1:complete', message: 'report' };
+  const frame = (payloads: unknown[]) => ({ result: { payloads, meta: { agentMeta: { usage: { output: 8_684 } } } } });
+  const capped = { status: 'ok', terminalReply: { disposition: 'visible', text: text.slice(0, 4095) + '…' } };
+  // Final payload authority also handles a missing or partial stream, not just the observed complete stream.
+  for (const streamed of [undefined, text.slice(0, 100), text]) {
+    const events: RunEvent[] = [];
+    const s = scripted({ wait: capped, final: frame([{ text }]), play: (emit) => {
+      if (streamed !== undefined) emit('assistant', { text: streamed });
+    } });
+    const end = await s.runs.run({ ...spec, schema: { type: 'object', properties: { report: { type: 'string' } }, required: ['report'] } },
+      (e) => events.push(e));
+    assert.ok(end.ok);
+    assert.equal(end.text, text);
+    assert.deepEqual(end.data, JSON.parse(text));
+    assert.deepEqual(end.usage, { output: 8_684 });
+    assert.deepEqual(events.at(-1), { type: 'text', text });
+    assert.equal(s.calls.filter((c) => c === 'agent').length, 1);
+  }
+  // Preserve payload order and empty strings, with no trimming or media-to-text coercion.
+  const cases: { final: unknown; wait: unknown; streamed?: string; expected: string }[] = [
+    { final: frame([{ text: 'first' }, { mediaUrl: 'image' }, { text: 'second' }]), wait: capped, expected: 'first\n\nsecond' },
+    { final: frame([{ text: '' }]), wait: capped, streamed: 'transient', expected: '' },
+    { final: frame([]), wait: capped, streamed: text, expected: text },
+    { final: { status: 'accepted' }, wait: capped, streamed: '', expected: '' },
+    { final: frame([{ text: 3 }]), wait: capped, expected: capped.terminalReply.text },
+    { final: frame([]), wait: { status: 'ok' }, expected: '' },
+    ...['silent', 'empty'].map((disposition) => ({ final: frame([{ text: 'NO_REPLY' }]),
+      wait: { status: 'ok', terminalReply: { disposition } }, streamed: 'transient', expected: '' })),
+  ];
+  for (const c of cases) {
+    const events: RunEvent[] = [];
+    const s = scripted({ final: c.final, wait: c.wait, play: (emit) => {
+      if (c.streamed !== undefined) emit('assistant', { text: c.streamed });
+    } });
+    const end = await s.runs.run(spec, (e) => events.push(e));
+    assert.ok(end.ok);
+    assert.equal(end.text, c.expected);
+    assert.deepEqual(events.at(-1), { type: 'text', text: c.expected });
+  }
+  // A late final frame is consumed before the final callback; a rejected frame falls back to the stream.
+  for (const reject of [false, true]) {
+    const final = new Promise((resolve, fail) => setTimeout(() => reject ? fail(new Error('lost final frame')) : resolve(frame([{ text }])), 10));
+    const s = scripted({ final, wait: capped, play: (emit) => emit('assistant', { text }) });
+    const events: RunEvent[] = [];
+    const end = await s.runs.run(spec, (e) => events.push(e));
+    assert.ok(end.ok && end.text === text);
+    assert.deepEqual(events.at(-1), { type: 'text', text });
+  }
+  // A missing final frame must not strand a successful wait receipt beyond the existing grace.
+  const keepAlive = setTimeout(() => {}, 6_000);
+  try {
+    const s = scripted({ final: new Promise(() => {}), wait: capped,
+      play: (emit) => emit('assistant', { text }) });
+    const events: RunEvent[] = [];
+    const end = await s.runs.run(spec, (e) => events.push(e));
+    assert.ok(end.ok && end.text === text);
+    assert.deepEqual(events.at(-1), { type: 'text', text });
+  } finally {
+    clearTimeout(keepAlive);
+  }
+  // Non-successful wait outcomes never become a success from an otherwise complete final payload.
+  for (const wait of [{ status: 'error', stopReason: 'aborted' }, { status: 'error', error: 'bad request' }]) {
+    const events: RunEvent[] = [];
+    const s = scripted({ final: frame([{ text }]), wait });
+    const end = await s.runs.run(spec, (e) => events.push(e));
+    assert.equal(end.ok, false);
+    assert.deepEqual(events, []);
+    if (wait.stopReason) assert.deepEqual(end, { ok: false, aborted: true });
+    else assert.ok(!end.ok && 'message' in end && end.message === 'bad request');
   }
 });
