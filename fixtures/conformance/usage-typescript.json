@@ -1,0 +1,100 @@
+{
+  "rule": "Hard blocks override positive room without changing reported usage; scoped limits take precedence over legacy rows; unknown usage and age stay unknown. Poll failures retain figures without changing account health. Auto consumes Room and keeps its existing most-room policy, with conservative scope and 24h numeric eligibility.",
+  "now": 1788600000000,
+  "codex": [
+    {
+      "raw": {
+        "rate_limit": {
+          "limit_reached": true,
+          "primary_window": {
+            "used_percent": 20,
+            "limit_window_seconds": 18000,
+            "reset_after_seconds": 60
+          }
+        }
+      },
+      "left": 0,
+      "reset": 1788600060000
+    },
+    {
+      "raw": {
+        "rate_limit": {
+          "limit_reached": true
+        }
+      },
+      "left": 0
+    },
+    {
+      "raw": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 20,
+            "reset_at": 1788600120,
+            "reset_after_seconds": 60
+          }
+        }
+      },
+      "left": 80,
+      "reset": 1788600120000
+    }
+  ],
+  "claude": {
+    "five_hour": {
+      "utilization": 10
+    },
+    "seven_day": {
+      "utilization": 10
+    },
+    "limits": [
+      {
+        "kind": "session",
+        "percent": 20
+      },
+      {
+        "kind": "weekly_all",
+        "percent": 30
+      },
+      {
+        "kind": "weekly_scoped",
+        "percent": 100,
+        "scope": {
+          "model": "synthetic-model",
+          "surface": "subagent"
+        }
+      },
+      {
+        "kind": "weekly_scoped",
+        "scope": {
+          "model": "unknown-model"
+        }
+      }
+    ]
+  },
+  "age": [
+    {
+      "at": 1788600000000,
+      "freshness": "fresh",
+      "left": 80
+    },
+    {
+      "at": 1788513599999,
+      "freshness": "stale",
+      "left": "unknown"
+    },
+    {
+      "at": 1788600000001,
+      "freshness": "future",
+      "left": "unknown"
+    },
+    {
+      "freshness": "unknown",
+      "left": "unknown"
+    }
+  ],
+  "failures": [
+    "rate-limited",
+    "refresh-failed",
+    "unavailable",
+    "incomplete"
+  ]
+}

@@ -1,17 +1,25 @@
 import { retryAfterMs } from './backoff.ts';
 import { spawn } from 'node:child_process';
-import type { Code, Source, SourceAnswer } from './types.ts';
+import type { Code, Source, SourceAnswer, PacingHook } from './types.ts';
 import { readJson, readJsonSnapshot } from './store.ts';
 import { claudeWindows, record, type CodexRateLimitResult } from './windows.ts';
 import { grokWindows } from './quota.ts';
-export interface Answer { raw?: unknown; code?: Code; retryAfterMs?: number }
+export type Answer = SourceAnswer;
 type TokenSource = Extract<Source, { access: string } | { key: string }>;
 const USER_AGENT = 'byokit/usage/0.2.0';
 /** One bounded request; credentials and response bodies never become errors. */
-async function request(url: string, key: string, fetcher: typeof fetch, nowMs: number, extra: { headers?: Record<string, string>; body?: unknown } = {}): Promise<Answer> {
+async function request(url: string, key: string, fetcher: typeof fetch, nowMs: number, extra: { headers?: Record<string, string>; body?: unknown } = {}, pacing?: { hook?: PacingHook; provider: Source['provider']; account: string; signal?: AbortSignal }): Promise<Answer> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10_000);
+  const abort = () => controller.abort();
+  pacing?.signal?.addEventListener('abort', abort, { once: true });
+  if (pacing?.signal?.aborted) controller.abort();
+  const timer = setTimeout(abort, 10_000);
   try {
+    if (pacing?.hook) await Promise.race([pacing.hook({ provider: pacing.provider, account: pacing.account, origin: new URL(url).origin, signal: controller.signal }), new Promise<never>((_, reject) => {
+      if (controller.signal.aborted) reject(new Error());
+      else controller.signal.addEventListener('abort', () => reject(new Error()), { once: true });
+    })]);
+    if (controller.signal.aborted) return { code: 'unavailable' };
     const response = await fetcher(url, { headers: { accept: 'application/json', authorization: `Bearer ${key}`, 'User-Agent': USER_AGENT,
       ...(extra.body !== undefined ? { 'content-type': 'application/json' } : {}), ...extra.headers },
       ...(extra.body !== undefined ? { method: 'POST', body: JSON.stringify(extra.body) } : {}), redirect: 'error', signal: controller.signal });
@@ -34,11 +42,11 @@ async function request(url: string, key: string, fetcher: typeof fetch, nowMs: n
     let raw: unknown;
     try { raw = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return { code: 'incomplete' }; }
     return record(raw) ? { raw } : { code: 'incomplete' };
-  } catch { return { code: 'unavailable' }; } finally { clearTimeout(timer); }
+  } catch { return { code: 'unavailable' }; } finally { clearTimeout(timer); pacing?.signal?.removeEventListener('abort', abort); }
 }
-export async function providerGet(source: TokenSource, fetcher: typeof fetch, nowMs: number): Promise<Answer> {
+export async function providerGet(source: TokenSource, fetcher: typeof fetch, nowMs: number, pacing?: { hook?: PacingHook; provider: Source['provider']; account: string; signal?: AbortSignal }): Promise<Answer> {
   const key = 'access' in source ? source.access : source.key;
-  const get = (url: string, extra?: { headers?: Record<string, string>; body?: unknown }) => request(url, key, fetcher, nowMs, extra);
+  const get = (url: string, extra?: { headers?: Record<string, string>; body?: unknown }) => request(url, key, fetcher, nowMs, extra, pacing);
   switch (source.provider) {
     case 'claude': return get('https://api.anthropic.com/api/oauth/usage', { headers: { 'anthropic-beta': 'oauth-2025-04-20' } });
     case 'codex': return get('https://chatgpt.com/backend-api/wham/usage', { headers: { 'ChatGPT-Account-Id': source.accountId } });
@@ -72,13 +80,25 @@ export async function providerGet(source: TokenSource, fetcher: typeof fetch, no
   }
 }
 /** A host hook gets the same deadline and failure envelope as built-in sources. */
-export async function customClaude(source: Extract<Source, { read: unknown }>, nowMs: number): Promise<Answer> {
-  const controller = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined;
+export async function customClaude(source: Extract<Source, { read: unknown }>, nowMs: number, pacing?: { hook?: PacingHook; account: string; signal?: AbortSignal }): Promise<Answer> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  pacing?.signal?.addEventListener('abort', abort, { once: true });
+  if (pacing?.signal?.aborted) controller.abort();
+  const timer = setTimeout(abort, 10_000);
   try {
-    return await Promise.race([source.read({ nowMs, signal: controller.signal }), new Promise<SourceAnswer>((resolve) => {
-      timer = setTimeout(() => { controller.abort(); resolve({ code: 'unavailable' }); }, 10_000);
+    const operation = async (): Promise<Answer> => {
+      if (source.origin && pacing?.hook) await pacing.hook({ provider: source.provider, account: pacing.account, origin: source.origin, signal: controller.signal });
+      if (controller.signal.aborted) return { code: 'unavailable' };
+      const answer = await source.read({ nowMs, signal: controller.signal });
+      // Host readers may return cached figures; only the host knows observation time.
+      return { ...answer, at: answer.at };
+    };
+    return await Promise.race([operation(), new Promise<Answer>((resolve) => {
+      if (controller.signal.aborted) resolve({ code: 'unavailable' });
+      else controller.signal.addEventListener('abort', () => resolve({ code: 'unavailable' }), { once: true });
     })]);
-  } catch { return { code: 'unavailable' }; } finally { clearTimeout(timer); }
+  } catch { return { code: 'unavailable' }; } finally { clearTimeout(timer); pacing?.signal?.removeEventListener('abort', abort); }
 }
 export function codexUsage(source: Extract<Source, { bin: string }>): Promise<Answer> {
   return new Promise((resolve) => {
@@ -129,11 +149,15 @@ export function claudeAuth(source: Extract<Source, { credentialsFile: string }>)
   if (typeof identity !== 'string' || !identity || identity.length > 16384) return undefined;
   return { token, account: identity, ...(typeof credentials.expiresAt === 'number' && Number.isFinite(credentials.expiresAt) ? { expiresAt: credentials.expiresAt } : {}) };
 }
-export async function claudeUsage(source: Extract<Source, { credentialsFile: string }>, fetcher: typeof fetch, nowMs: number): Promise<Answer> {
+export async function claudeUsage(source: Extract<Source, { credentialsFile: string }>, fetcher: typeof fetch, nowMs: number, pacing?: { hook?: PacingHook; provider: Source['provider']; account: string; signal?: AbortSignal }): Promise<Answer> {
   const snapshot = source.statuslineFile ? readJsonSnapshot(source.statuslineFile, 64 * 1024) : undefined;
-  if (snapshot && nowMs >= snapshot.modified && nowMs - snapshot.modified < 300_000 && claudeWindows(snapshot.value).length) return { raw: snapshot.value };
+  if (snapshot && record(snapshot.value) && claudeWindows(snapshot.value).length) {
+    const rawTime = snapshot.value.fetched_at;
+    const at = typeof rawTime === 'number' ? rawTime : typeof rawTime === 'string' ? Date.parse(rawTime) : undefined;
+    if (at === undefined || !Number.isFinite(at) || nowMs < at || nowMs - at < 300_000) return { raw: snapshot.value, at };
+  }
   const auth = claudeAuth(source);
   if (!auth) return { code: 'not-connected' };
   if (auth.expiresAt !== undefined && auth.expiresAt <= nowMs) return { code: 'expired' };
-  return providerGet({ provider: 'claude', access: auth.token }, fetcher, nowMs);
+  return providerGet({ provider: 'claude', access: auth.token }, fetcher, nowMs, pacing);
 }

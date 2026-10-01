@@ -6,10 +6,10 @@ left, estimates no cost and never rotates an account.
 
 ```ts
 import { usage, roomOf } from '@byokit/usage';
-// Supplied by the host's signed-in account.
+const reader = usage({ stateDir: '/app/state/usage' });
+// Pass the token and account id from your app-owned sign-in store.
 declare const token: string;
 declare const account: { id: string };
-const reader = usage({ stateDir: '/app/state/usage' });
 const source = { provider: 'codex' as const, access: token, accountId: account.id };
 const reading = await reader.read(source);
 const room = roomOf(reading, Date.now());
@@ -27,28 +27,53 @@ Sources:
 - `{ provider: 'codex', bin, home, env? }` retains the explicit local app-server source.
 - `{ provider: 'claude', credentialsFile, configFile?, statuslineFile? }` is a
   read-only adapter for files the app explicitly supplies. It reads `claudeAiOauth`
-  and optionally `oauthAccount.accountUuid`. A valid statusline snapshot younger
-  than five minutes precedes the endpoint. An expired token is never sent.
-- `{ provider: 'claude', accountUuid, read, connected? }` delegates to the app's
-  reader. `read({ nowMs, signal })` returns `{ raw?, code?, retryAfterMs? }` using
-  the same Claude payload dialect. It has a ten-second deadline, with the signal
+  and optionally `oauthAccount.accountUuid`. A statusline snapshot uses its body `fetched_at` (epoch milliseconds or ISO date),
+  never file mtime. Known snapshots younger than five minutes precede the endpoint;
+  undated/future snapshots remain visible with unknown/future age. An expired token is never sent.
+- `{ provider: 'claude', accountUuid, read, origin?, connected? }` delegates to the app's
+  reader. `read({ nowMs, signal })` returns `{ raw?, code?, retryAfterMs?, at?, limited? }` using
+  the same Claude payload dialect. The host supplies the actual observation `at`;
+  omitted means unknown age, including engine-cached figures. `limited: true` can
+  report an authoritative block without fabricating a window. `origin` is the
+  host reader's optional HTTP origin for pacing. It has a ten-second deadline, with the signal
   aborted at expiry. The optional synchronous `connected()` hook controls whether
   last-good readings remain visible; exceptions count as disconnected.
 
-`read(source, { nowMs? })` returns `{ provider, windows, at, code? }`; `at` and all
-`resetsAt` fields are **epoch milliseconds** in 0.2.0. This changes 0.1.0's seconds
-reset convention. Windows include kind, used percent, optional duration in minutes,
-reset time, limit label and limited flag. Parsers are exported for host integrations:
-`claudeWindows`, `codexWindows` (app-server), `codexTokenWindows`, `goWindows`,
-`zaiWindows`, `copilotWindows`, `grokWindows`, `minimaxWindows`, `geminiWindows`,
-`kimiWindows(raw, nowMs)`.
+`read(source, { nowMs?, signal? })` returns `{ provider, windows, at?, limited?, poll?, code? }`.
+`at` is source observation time; it is absent when unavailable. `poll` contains
+last attempt time, `outcome` (`ok` or a safe failure code) and optional `retryAt`.
+All timestamps are epoch milliseconds. A failed poll keeps the figures and their
+original observation time. Poll 429 (`rate-limited`), host renewal failure
+(`refresh-failed`) and credential refusals are distinct; usage never changes
+account health or renews credentials.
 
-`roomOf(reading, nowMs)` returns `{ left, span, resetsAt?, at }` using the tightest
-window. Span maps session/week/month and maps rolling/custom to `tightest`. Missing
-windows, readings older than 24 hours, future readings, or disconnected/expired/auth/
-no-plan readings give `{ left: 'unknown', at }`. A temporary rate limit or failed
-update can still show the last-good room and its original timestamp. Auto selection
-belongs to the accounts kit; usage only reports room.
+Windows include kind, optional reported `usedPercent`, duration, reset, limit,
+`limited` and `scope: { model?, surface? }`. Missing usage is unknown, never zero.
+Claude `limits[]` session/weekly-all rows override corresponding legacy aggregates,
+even if incomplete; dynamic weekly-scoped rows retain model and surface. Legacy
+`five_hour`/`seven_day` are fallback for absent aggregate kinds. These are synthetic
+contract fixtures; fresh live provider payload qualification has not been run.
+
+Parsers are exported: `claudeWindows`, `codexWindows` (app-server),
+`codexTokenWindows(raw, nowMs?)`, `codexHardLimit`, `goWindows`, `zaiWindows`,
+`copilotWindows`, `grokWindows`, `minimaxWindows`, `geminiWindows`, `kimiWindows`.
+Codex absolute reset takes precedence; relative seconds require a captured clock.
+Hard flags do not replace the reported percentage or invent an absent window.
+Hosts using exported Codex parsers must carry `codexHardLimit(raw)` into the reading
+as `limited` to represent windowless blocks.
+
+`roomOf(reading, nowMs)` returns `left`, observation `at?`, `ageMs?`, `freshness`
+(`fresh`, `stale`, `future`, `unknown`), `poll?`, and the tightest row's `scope?`.
+Numeric results include `span` and optional reset. Authoritative hard blocks give
+zero eligibility room even without a percentage/window, with `limited: true`;
+a predicted reset never clears a block. Otherwise undated/future/older-than-24h
+readings and disconnected/expired/auth/no-plan readings give unknown room.
+Incomplete windows cannot establish positive room; known exhaustion still stands.
+Scope is conservative across all windows until hosts implement model demand for
+every model/surface a run can use, including subagents and fallbacks.
+Temporary poll failures may retain eligible last-good room and its age; a poll
+failure itself never exhausts or moves an account. Auto's shared input contract is
+`fixtures/conformance/usage-typescript.json` and runtime spec section 13.
 
 `connected(source)` and `account(source)` are synchronous. `account` returns a salted
 fingerprint of a non-secret host id, credential account UUID, token subject, or explicit
@@ -59,34 +84,45 @@ disk store is used. Tokens never become persisted fingerprint inputs.
 
 Good reads have no code. Bad sources throw `UsageError` (`code: 'bad-source'`); other
 failures resolve codes without bodies or secrets. `lastKnown(source, { nowMs? })`
-returns a connected account's last-good reading for up to 24 hours. Reads have a
-60-second floor and concurrent deduplication per provider/account. The default 429
-backoff honors Retry-After with a five-minute minimum. `UsageOptions.now` supplies
+returns a connected account's last-good figures and most recent poll outcome.
+Ordinary dated readings expire after 24 hours; authoritative blocks stay until a
+new successful read replaces them. Undated figures remain available for display
+with unknown room. Reads have a
+60-second floor and concurrent deduplication per provider/account. Default 429
+backoff honors Retry-After with a five-minute minimum. Unknown/transient and
+refresh failures back off exponentially from one minute to one hour; these are
+kit defaults, not universal provider policy. Failure counters are separate by
+outcome and account, cleared by a successful quota poll. `UsageOptions.now` supplies
 the default clock; a per-call clock overrides it. An injected `fetch` wins; otherwise
 global fetch is resolved on each read.
 
 The host may supply public synchronous persistence and backoff hooks:
 
 ```ts
-import { usage, type UsageStore, type BackoffPolicy } from '@byokit/usage';
-declare const appStore: UsageStore;
-declare const appBackoff: BackoffPolicy;
+import { usage, type UsageStore, type BackoffState } from '@byokit/usage';
+// Replace these maps with your app's durable store to retain state across restart.
+const appStore: UsageStore = {
+  get(provider, fingerprint) { return saved.get(`${provider}/${fingerprint}`); },
+  put(provider, fingerprint, reading) { saved.set(`${provider}/${fingerprint}`, reading); },
+};
+const saved = new Map<string, import('@byokit/usage').StoredReading>();
+const appBackoff = new Map<string, BackoffState | number>();
 const reader = usage({
   store: {
     get(provider, fingerprint) { return appStore.get(provider, fingerprint); },
     put(provider, fingerprint, reading) { appStore.put(provider, fingerprint, reading); },
   },
   backoff: {
-    get(provider, fingerprint) { return appBackoff.get(provider, fingerprint); },
-    set(provider, fingerprint, untilMs) { appBackoff.set(provider, fingerprint, untilMs); },
-    delayMs(retryAfterMs) { return Math.max(300_000, retryAfterMs ?? 0); },
+    get(provider, fingerprint) { return appBackoff.get(`${provider}/${fingerprint}`); },
+    set(provider, fingerprint, untilMs, state) { appBackoff.set(`${provider}/${fingerprint}`, state ?? untilMs); },
+    delayMs(retryAfterMs, { outcome, failures }) { return Math.max(300_000, retryAfterMs ?? 0); },
   },
 });
 ```
 
-`UsageStore` holds only `{ at, windows }`; only whitelisted normalized fields cross
+`UsageStore` holds `{ at?, windows, limited?, poll? }`; only whitelisted normalized fields cross
 this boundary. Exceptions from host hooks do not expose data or fail a provider read.
-Internal 429 backoff remains effective if a host backoff hook fails. The 60-second
+Internal backoff remains effective if a host backoff hook fails. The 60-second
 minimum retry interval applies even if a policy selects a shorter delay. By default,
 `stateDir` selects an atomic disk store (0700 directory, 0600 file, 256 KB cap), or
 without `stateDir` an in-memory store is used. `memoryUsageStore()` is exported.
@@ -126,7 +162,7 @@ they are never loaded automatically.
 
 `fileUsageStore(absoluteStateDir)` exposes the same bounded atomic disk store as
 `stateDir`; invalid directory paths throw `UsageError`. Its keys must be 64-character
-hex fingerprints, and it persists only `{ at, windows }` with normalized fields.
+hex fingerprints, and it persists normalized observations, hard blocks and poll metadata.
 `fingerprint(salt)` returns `(provider, nonSecretIdentity) => string`; use the same
 salt as the reader and never supply a token as the identity.
 `memoryBackoffPolicy()` supplies shared per-provider/account rests, keeps the later
@@ -136,6 +172,23 @@ past dates clamp to zero), and `backoffDelayMs(retryAfterMs)` to apply the defau
 five-minute minimum. These helpers also support an app-owned Claude `read` hook
 without duplicating fingerprint, persistence or retry logic.
 
+`BackoffPolicy.set(provider, fingerprint, untilMs, state?)` receives a normalized
+`state` with `{ untilMs, at, outcome, failures }` on a retryable failure, and zero
+eligibility time without state after success. Persist and return that state from
+`get` to preserve outcome and retry eligibility across restart. Legacy numeric
+`get` values still work; their reason is unavailable when no stored poll supplies it.
+`delayMs(retryAfterMs, { outcome, failures })` chooses host policy; a valid server
+Retry-After is always a lower bound, alongside the existing one-minute floor.
+
+`UsageOptions.pace({ provider, account, origin, signal })` is an optional async host
+hook before each HTTP usage request (including provider discovery/fallback reads).
+The host can share an origin-keyed queue across reader instances. Distinct origins
+are independent; the kit adds no global queue or fixed origin spacing. Account is
+a fingerprint, never a token. Host Claude readers opt in with `source.origin`.
+The hook shares the request deadline and can be cancelled by `ReadOptions.signal`;
+no request is sent when pacing fails or is cancelled. In-flight duplicate callers
+share the first caller's operation/signal. There is no polling timer or inference ping.
+
 Isolation: there is no home/path discovery or environment read. Only absolute files
 and the Codex binary explicitly supplied by the app are opened/run. Credential files
 are bounded regular files, with final symlinks rejected. The spawn uses argv and an
@@ -143,7 +196,7 @@ environment built from the host's explicit `env` plus `CODEX_HOME=home`; pass PA
 and HOME explicitly when needed. No tokens in logs, errors, readings or public hooks;
 no credential write-back, telemetry, automatic refresh or reset-credit spend.
 
-Built-in requests send `User-Agent: byokit/usage/0.2.0`, never another app's identity.
+Built-in requests send `User-Agent: byokit/usage/0.3.0`, never another app's identity.
 A refusal returns a code; with no last-good quota, room is unknown. Fixed endpoints
 are Anthropic `api/oauth/usage`, ChatGPT `backend-api/wham/usage`, GitHub
 `copilot_internal/user`, Grok `v1/billing` (weekly credits then monthly when needed),

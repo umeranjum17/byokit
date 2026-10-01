@@ -24,6 +24,7 @@ a Messages backend to the frozen Kotlin runtime.
 | `conformance/incomplete-typescript.json` | TypeScript-only cut-off answers: typed error, partial output, and incomplete event for SSE and JSON. |
 | `conformance/dictation-typescript.json` | Stable live partials, final-only corrections, silence and cancellation. |
 | `conformance/anthropic-sse-typescript.json` | Recorded Messages SSE, usage, tools/thinking, truncation, refusal and protocol errors (TypeScript only). |
+| `conformance/usage-typescript.json` | TypeScript quota normalization and account Auto input contract: hard blocks, scope, age and poll failures. |
 | `conformance/plain-words.json` | The pattern no sentence in `words.json` may match. |
 | `conformance/auto-pick-typescript.json` | TypeScript portable Auto/default/explicit selection, demand, age, explanations and deterministic ranking; shared with runtime kits. |
 | `conformance/identity-reauth-typescript.json` | TypeScript identity ownership and re-authentication boundaries; engine-owned adoption, chooser consumes validated records. |
