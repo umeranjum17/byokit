@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `directRoutes()` combines explicit loopback, tailnet and LAN listener scopes with typed hosts and ordered dial URLs.
+- Node and React Native share `nativeAddresses()`, `routeOf()`, `observe()` and bounded `probe()` observations; native readers are injectable and home evidence uses actual prefixes.
+- Explicit `@byokit/reach/react-native` entry alongside the existing export condition.
+- `phoneNetwork()` exposes Android active Wi-Fi/cellular/VPN capabilities and iOS transport evidence with unknown VPN state; bundled Expo readers also supply actual IPv4 interface prefixes.
+
 ## 0.5.0 (2026-10-01)
 
 - Dependency update: pins @byokit/ui-core 0.5.0.
@@ -10,11 +15,6 @@
   first — current healthy route, then Tailscale Serve (direct when the Serve root is taken, disabled, funnelled,
   or nameless), then a private overlay, then Same Wi-Fi. Words from ui-core's `routeChoices()`; probes
   `tailscaleState`/`inspectServe`/`routes()` live unless `state`, `serve`, `lan` and `private` fakes are passed.
-
-- `directRoutes()` combines explicit loopback, tailnet and LAN listener scopes with typed hosts and ordered dial URLs.
-- Node and React Native share `nativeAddresses()`, `routeOf()`, `observe()` and bounded `probe()` observations; native readers are injectable and home evidence uses actual prefixes.
-- Explicit `@byokit/reach/react-native` entry alongside the existing export condition.
-- `phoneNetwork()` exposes Android active Wi-Fi/cellular/VPN capabilities and iOS transport evidence with unknown VPN state; bundled Expo readers also supply actual IPv4 interface prefixes.
 
 ## 0.4.0 (2026-09-30)
 
