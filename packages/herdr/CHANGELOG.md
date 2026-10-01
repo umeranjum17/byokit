@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- SECURITY: StartAgent and openSignInTab accept a clean launch environment with explicit unsets, verified before launch in idle shells on new or existing panes; credential values stay out of terminal commands, argv and errors, preventing inherited API key (billed per use) variables from overriding subscription sign-in.
+
 ## 0.4.1 (2026-10-01)
 
 - Dependency update: pins @byokit/relay 0.5.1.

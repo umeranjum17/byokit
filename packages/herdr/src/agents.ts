@@ -11,6 +11,7 @@ import type { AgentCliSignIn, AgentInstallProbe, AgentInstallState, AgentLaunchF
   AgentReadiness, AgentStartEvent, AgentStatusOptions,
   AgentStatusRunner, AgentRef, AgentStatus, HerdrSnapshot, PromptReceipt, StartAgent } from './types.ts';
 import { words } from './words.ts';
+import { prepareLaunchEnv, type LaunchEnvironment } from './launch-env.ts';
 
 export type Call = (method: string, params: Record<string, unknown>, timeoutMs?: number) => Promise<unknown>;
 
@@ -84,16 +85,19 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
     } catch (error) {
       const reason = classifyStartFailure(error, { installExpected, stage });
       emit({ phase: 'launchFailed', kind: o.kind, reason, message: launchFailureWords(reason, o.kind) });
+      if (o.env && typeof o.env.env === 'object') throw fail(codeOf(error) === 'env_mismatch' ? 'env_mismatch' : 'start_failed', words('agent.notReady'));
       throw error;
     }
   }
 
   async function startAgentInner(o: StartAgent, onStartPhase?: () => void): Promise<AgentRef> {
-    if ('pane' in o.place && Object.keys(o.env ?? {}).length > 0) {
+    const launch = o.env && typeof o.env.env === 'object' && Array.isArray(o.env.unset)
+      ? o.env as LaunchEnvironment : undefined;
+    if (!launch && 'pane' in o.place && Object.keys(o.env ?? {}).length > 0) {
       throw fail('env_mismatch', 'This pane needs to be opened again to use that sign-in.');
     }
     const timeout = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    const env = o.env === undefined ? {} : { env: o.env };
+    const env = o.env === undefined || launch ? {} : { env: o.env };
     let paneId: string | undefined;
     let created = false;
     if (o.worktree !== undefined) {
@@ -126,6 +130,13 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       paneId = o.place.pane;
     }
     if (paneId === undefined) throw new Error('herdr: the placement answered no pane id');
+    if (launch) {
+      try { await prepareLaunchEnv(call, paneId, launch, timeout); }
+      catch (error) {
+        if (created) { try { await call('pane.close', { pane_id: paneId }); } catch { /* best effort */ } }
+        throw error;
+      }
+    }
     onStartPhase?.();
     const name = agentName(o);
     const params = { pane_id: paneId, kind: o.kind, name,
@@ -143,6 +154,7 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
         if (created) {
           try { await call('pane.close', { pane_id: paneId }); } catch { /* rollback is best-effort */ }
         }
+        if (launch) throw fail('start_failed', words('agent.notReady'));
         throw error;
       }
     }

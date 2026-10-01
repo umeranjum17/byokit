@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- SECURITY: Add launchEnv to scrub inherited provider credentials, including subscription tokens and API key (billed per use) variables; isolate now prepares only the app folder and never mutates process.env. Apps must pass launchEnv().env when spawning a child.
+
 ## 0.16.0 (2026-10-01)
 
 - FIX: Build device-owned secrets before accounts so API key routes compile in a fresh checkout.
