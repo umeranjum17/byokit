@@ -37,19 +37,35 @@ class WebFocusedFieldTest {
     var ready = false
     instrumentation.runOnMainSync {
       ready = activity.web.run {
-        isAttachedToWindow && isShown && hasWindowFocus() && width > 0 && height > 0 && !isLayoutRequested
+        isAttachedToWindow && isShown && hasWindowFocus() && isLaidOut && width > 0 && height > 0
       }
     }
     return ready
   }
 
+  private fun pageState(activity: WebFieldActivity): String {
+    var state = ""
+    instrumentation.runOnMainSync {
+      state = activity.web.run {
+        "attached=$isAttachedToWindow, shown=$isShown, windowFocus=${hasWindowFocus()}, " +
+          "laidOut=$isLaidOut, size=${width}x$height, layoutRequested=$isLayoutRequested"
+      }
+    }
+    return state
+  }
+
   private fun awaitPage(activity: WebFieldActivity) {
     assertTrue("Local WebView page loaded", activity.loaded.await(60, TimeUnit.SECONDS))
     val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60)
+    var observed = ""
     while (!pageReady(activity)) {
-      assertTrue("WebView attached, laid out and window focused", System.nanoTime() < deadline)
+      val state = pageState(activity)
+      if (state != observed) { println("WebView waiting for page: $state"); observed = state }
+      assertTrue("WebView attached, laid out and window focused: $state", System.nanoTime() < deadline)
+      instrumentation.runOnMainSync { activity.web.requestFocus() }
       Thread.sleep(100)
     }
+    println("WebView page ready: ${pageState(activity)}")
     // onPageFinished does not guarantee that the DOM has reached the next rendered frame.
     val drawn = CountDownLatch(1)
     instrumentation.runOnMainSync {
