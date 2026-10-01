@@ -9,11 +9,13 @@ type Raw = Record<string, any>;
 function harness(t: TestContext) {
   const calls: { method: string; params: Raw }[] = [];
   const agents = new Map<string, Raw>([['old', { agent: 'claude', agent_status: 'idle',
+    terminal_id: 'original-terminal', name: 'original',
     cwd: '/repo', agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'conversation' } }]]);
   const panes = new Map<string, Raw>([['old', {}]]);
   const state = { failStart: false, failClose: new Set<string>(), answer: undefined as string | undefined,
     echoReads: 0, promptEcho: false, waitReady: true, generation: 'conversation', marker: '',
-    splitGate: undefined as Promise<void> | undefined, readFails: false, interactive: true, publish: true, variable: '', unsetPresent: false };
+    splitGate: undefined as Promise<void> | undefined, readFails: false, interactive: true, publish: true, variable: '', unsetPresent: false,
+    unreachable: new Set<string>(), beforeClose: undefined as ((id: string) => void) | undefined, afterClose: undefined as ((id: string) => void) | undefined };
   let next = 0;
   const transport: HerdrTransport = {
     async call(method, params) {
@@ -21,9 +23,10 @@ function harness(t: TestContext) {
       if (method === 'ping') return { protocol: HERDR_PROTOCOL };
       if (method === 'session.snapshot') return { snapshot: { workspaces: [], tabs: [], panes: [], agents: [] } };
       if (method === 'agent.get') {
+        if (state.unreachable.has(String(params.target))) throw new Error('fixture transport unavailable');
         const agent = agents.get(String(params.target));
         if (!agent) throw new Error('missing agent');
-        return { agent };
+        return { agent: structuredClone(agent) };
       }
       if (method === 'pane.split' || method === 'tab.create') {
         await state.splitGate;
@@ -49,13 +52,16 @@ function harness(t: TestContext) {
         if (state.failStart) throw new Error('secret-canary');
         const kind = params.kind;
         agents.set(String(params.pane_id), { agent: kind, agent_status: state.waitReady ? 'idle' : 'working',
+          terminal_id: `terminal-${params.pane_id}`, name: params.name,
           interactive_ready: state.interactive, agent_session: state.publish ? { source: 'herdr', agent: kind, kind: kind === 'pi' ? 'path' : 'id', value: state.generation } : undefined });
         return {};
       }
       if (method === 'pane.close') {
+        state.beforeClose?.(String(params.pane_id));
         if (state.failClose.has(String(params.pane_id))) throw new Error('secret-canary');
         panes.delete(String(params.pane_id));
         agents.delete(String(params.pane_id));
+        state.afterClose?.(String(params.pane_id));
         return {};
       }
       return {};
@@ -272,4 +278,65 @@ test('move and moveToAccount share the source lock', async (t) => {
   if (!concurrent.ok) assert.equal(concurrent.code, 'busy');
   release();
   assert.equal((await pending).ok, true);
+});
+
+// Public adopt transport boundary: close takes effect before the socket loses its ACK.
+// Both public move APIs use the same recovery; no real pane or account lifecycle runs.
+test('move close ACK fixture: verify the original before discarding a ready survivor', async (t) => {
+  for (const api of ['move', 'moveToAccount'] as const) {
+    for (const fault of ['lost', 'refused', 'rollback-lost', 'source-unreachable', 'all-unreachable',
+      'source-unreachable-refused', 'no-survivors', 'source-replaced', 'replacement-replaced', 'replacement-exited']) {
+      const h = harness(t); await h.ready;
+      if (fault === 'refused' || fault === 'rollback-lost' || fault === 'replacement-replaced' || fault === 'source-unreachable-refused') h.state.failClose.add('old');
+      h.state.beforeClose = (id) => {
+        if (id === 'old' && fault === 'source-unreachable-refused') h.state.unreachable.add('old');
+      };
+      h.state.afterClose = (id) => {
+        if (id === 'new1' && fault === 'rollback-lost') throw new Error('fixture cleanup ACK lost');
+        if (id !== 'old') return;
+        if (fault === 'source-unreachable' || fault === 'all-unreachable') h.state.unreachable.add('old');
+        if (fault === 'all-unreachable') h.state.unreachable.add('new1');
+        if (fault === 'no-survivors' || fault === 'replacement-exited') { h.agents.delete('new1'); h.panes.delete('new1'); }
+        if (fault === 'source-replaced') {
+          h.panes.set('old', {});
+          h.agents.set('old', { ...structuredClone(h.agents.get('new1')), terminal_id: 'different-terminal', name: 'original' });
+        }
+        throw new Error('fixture source close applied but ACK lost');
+      };
+      // A refused source close can coincide with a different agent taking the new pane.
+      if (fault === 'replacement-replaced') {
+        // Exercise the supported transport, rather than patching any private move helper.
+        h.state.failClose.delete('old');
+        h.state.afterClose = (id) => {
+          if (id !== 'old') return;
+          h.panes.set('old', {});
+          h.agents.set('old', { agent: 'claude', agent_status: 'idle', terminal_id: 'original-terminal', name: 'original',
+            agent_session: { agent: 'claude', kind: 'id', value: 'conversation' } });
+          Object.assign(h.agents.get('new1')!, { terminal_id: 'unrelated-terminal' });
+          throw new Error('fixture close uncertain and replacement changed');
+        };
+      }
+      let staged = 0, replaced = 0;
+      const result = api === 'moveToAccount' ? await h.move() : await h.kit.move({
+        paneId: 'old', kind: 'claude', args: ['--resume', 'conversation'], set: { CLAUDE_CONFIG_DIR: '/new/claude' },
+        unset: ['ANTHROPIC_API_KEY'], timeoutMs: 250,
+        onStaged() { staged++; }, onReplaced() { replaced++; },
+      });
+      assert.equal(result.ok, false, `${api}/${fault}`);
+      if (result.ok) assert.fail('ambiguous close must report uncertainty');
+      assert.equal(result.code, 'close_failed');
+      const expectedLive = ['all-unreachable', 'no-survivors', 'replacement-exited'].includes(fault) ? undefined
+        : ['refused', 'rollback-lost', 'replacement-replaced'].includes(fault) ? 'old' : 'new1';
+      assert.equal(result.live, expectedLive, `${api}/${fault}`);
+      if (result.live !== undefined) assert.ok(h.panes.has(result.live), 'never invent a live pane');
+      assert.equal(replaced, 0, 'no success notification on uncertain outcome');
+      assert.equal(staged, api === 'move' ? 1 : 0);
+      const closes = h.calls.filter((c) => c.method === 'pane.close').map((c) => c.params.pane_id);
+      assert.deepEqual(closes, ['refused', 'rollback-lost'].includes(fault) ? ['old', 'new1'] : ['old']);
+      assert.equal(h.agents.size, fault === 'no-survivors' || fault === 'replacement-exited' ? 0
+        : ['source-replaced', 'replacement-replaced', 'source-unreachable-refused'].includes(fault) ? 2 : 1);
+      assert.ok(!JSON.stringify(result).includes('fixture source close'));
+      console.log(`public adopt close-ACK fixture ${api}/${fault}: ${JSON.stringify(result)}`);
+    }
+  }
 });

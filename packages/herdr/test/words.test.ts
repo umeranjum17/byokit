@@ -31,7 +31,7 @@ const TABLE: readonly (readonly [WordKey, string])[] = [
   ["move.busy", "Wait for this conversation to finish before moving it."],
   ["move.unsupported", "This conversation cannot move between these accounts."],
   ["move.env_mismatch", "The new pane did not receive that sign-in. Try again."],
-  ["move.close_failed", "The old pane could not close. The move was undone where possible."],
+  ["move.close_failed", "The move could not be confirmed. Check the remaining panes before trying again."],
   ["move.start_failed", "The new account could not take over. Try again."],
   ['turn.failed', 'This turn could not be confirmed. Check the helper before trying again.'],
 ];
