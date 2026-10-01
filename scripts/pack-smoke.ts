@@ -89,6 +89,32 @@ function main(): void {
       ["install", "--no-audit", "--no-fund", ...tgzPaths, `typescript@${tsVersion.version}`, "@types/node@22"],
       appDir,
     );
+    // Paired decisions must work from the tarball without a credential on the phone or a live provider.
+    writeFileSync(join(appDir, "paired-decide.mjs"), `
+import assert from 'node:assert/strict';
+import { decide, jevHost, pairedJev, PairedHostError } from '@byokit/decide';
+const handler = jevHost({ billing: 'api-key-billed-per-use',
+  keys: { get: () => 'packed-host-only' },
+  fetch: async () => Response.json({ answers: { urgent: { noul: 0.9 } },
+    usage: { input_tokens: 2, output_tokens: 1 }, private: 'packed-host-only' }),
+});
+const device = { id: 'umer-phone', name: 'Umer', role: 'control', key: 'public', created: 1 };
+const link = { status: 'online', request: async (op, args) => handler({ op, args }, device) };
+const answers = await decide({ name: 'Umer' }, { urgent: { kind: 'yesno', question: 'Urgent?' } },
+  { privacy: 'may-leave', backends: [pairedJev({ link })] });
+assert.equal(answers.urgent.answer, true);
+assert.equal(answers.urgent.usage.input_tokens, 2);
+assert.equal(answers.urgent.raw, undefined);
+assert.ok(!JSON.stringify(answers).includes('packed-host-only'));
+await assert.rejects(pairedJev({ link: null }).ask({}, {}, new AbortController().signal),
+  e => e instanceof PairedHostError && e.code === 'not-paired');
+`);
+    try {
+      sh("node", ["paired-decide.mjs"], appDir);
+      pass("@byokit/decide [paired host]");
+    } catch (err) {
+      fail("@byokit/decide [paired host]", (err as Error).message);
+    }
     // The writing engine must arrive from npm with the packed kit and answer through its default loader.
     writeFileSync(join(appDir, "write-engine.mjs"), `
 import assert from 'node:assert/strict';

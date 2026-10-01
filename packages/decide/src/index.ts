@@ -3,6 +3,9 @@ export { InvalidSchemaError, type OutputSchema, type SchemaOutput } from './sche
 // Typed questions in, a typed answer with confidence out, abstaining below a floor. The floor, the per-option floors,
 // the runner-up and the tie are code, never a prompt: ported from firstmate's bin/fm-dispatch-resolve.sh.
 export { jev } from './jev.ts';
+export { pairedJev, jevHost, PAIRED_JEV_OP, type PairedJevLink, type JevHostKeys } from './paired.ts';
+export { PairedHostError, type PairedHostProblem } from './paired-errors.ts';
+import { PairedHostError } from './paired-errors.ts';
 export { openai, OPENAI_ROUTES, UnsupportedAccountError, type OpenAIOptions, type OpenAIRequestOptions } from './openai.ts';
 export { parseConfig, createDecider, ConfigError, type DecideConfig, type ConfigHost, type ConfigOptions } from './config.ts';
 import { UnsupportedAccountError } from '@byokit/accounts/chatgpt-plan';
@@ -212,7 +215,7 @@ export async function decide(state: unknown, questions: Record<string, Question>
     try {
       raws = await Promise.race([b.ask(state, todo, controller.signal, images), deadline]);
     } catch (e) {
-      if (e instanceof UnsupportedAccountError || e instanceof UnsupportedImagesError || e instanceof InvalidImageError) throw e;
+      if (e instanceof UnsupportedAccountError || e instanceof UnsupportedImagesError || e instanceof InvalidImageError || e instanceof PairedHostError) throw e;
       failed = `${b.name} failed: ${(e as Error).message}`;
     } finally {
       clearTimeout(timer);

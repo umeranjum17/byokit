@@ -519,3 +519,80 @@ mismatches reject with `ClaudeCodeError`; cut-off output has `name: 'IncompleteE
 `code: 'incomplete'`. Failures use fixed text and never include stderr. It is also a `Backend` for
 `decide(..., { privacy: 'may-leave', backends: [backend] })` choice, yes/no and score questions;
 its confidence estimates are self-reported and still go through decide's ordinary floors.
+
+## Jev from a paired phone
+
+`pairedJev()` sends questions through an existing `@byokit/link` DeviceLink to the user's
+computer. The computer holds the API key (billed per use) and calls Jev; the phone receives
+only probabilities and token usage. Pairing does not enable paid decisions. The host app
+must ask for billing consent before constructing `jevHost()` with the explicit billing label.
+
+On the computer, compose the handler into the app's existing link host. This example uses
+an app-owned, passphrase-sealed `@byokit/secrets` store. The passphrase and key are supplied
+through the host app, never a phone bundle or ambient credential lookup.
+
+```ts
+import { Host, keyPair, type HostOptions } from '@byokit/link';
+import { fileStore } from '@byokit/secrets';
+import { jevHost, PAIRED_JEV_OP } from '@byokit/decide';
+
+async function enablePaidDecisions(passphrase: Uint8Array, consent: boolean, confirm: HostOptions['confirm']) {
+  if (!consent) return; // Ask the person: API key (billed per use).
+  const secrets = fileStore({ path: '/home/app/data/decision-keys.json', passphrase });
+  // Save the key through the host app with secrets.set('jev-typesafe', key).
+  const paid = jevHost({
+    billing: 'api-key-billed-per-use', via: 'typesafe',
+    keys: { get: (_device, via) => secrets.get(`jev-${via}`) },
+  });
+  return Host.open({
+    keys: keyPair(), name: 'Umer computer', confirm,
+    // This host offers only paid decisions, to paired control devices.
+    allow: (request, device) => device.role === 'control' && request.op === PAIRED_JEV_OP,
+    handle: paid,
+  }); // Use the app's existing grant store, pairing approval UI and socket wiring in production.
+}
+```
+
+On the phone, pass the existing paired link (or `null` before pairing):
+
+```ts
+import type { DeviceLink } from '@byokit/link';
+import { decide, pairedJev, PairedHostError } from '@byokit/decide';
+
+async function askFromPhone(link: DeviceLink | null) {
+  try {
+    return await decide({ name: 'Umer', text: 'The roof is leaking' }, {
+      urgent: { kind: 'yesno', question: 'Is this urgent?' },
+    }, { privacy: 'may-leave', timeoutMs: 30_000, backends: [pairedJev({ link, timeoutMs: 25_000 })] });
+  } catch (error) {
+    if (error instanceof PairedHostError) return { problem: error.code, words: error.message };
+    throw error;
+  }
+}
+```
+
+- `PairedHostError.code` is `host-offline`, `not-paired`, `key-missing`, `disabled`,
+  `not-allowed`, `invalid-request`, `request-failed` or `cancelled`. These errors propagate
+  through `decide()` so the app can offer reconnection, pairing or host key setup. Error words
+  contain no provider or storage details. A missing key never falls back to another billing route.
+- `JevHostKeys.get(device, via)` receives the authenticated grant. Adapt an accounts member
+  key route here when available, or scope a sealed secrets store to the member the host maps
+  from that grant. Never accept a member id, key, model, URL or billing route from request data.
+- Link pairing authentication, revocation and `Host.allow` apply before the handler runs.
+  Compose `PAIRED_JEV_OP` into an existing host's dispatcher and policy rather than replacing
+  its other operations. `enabled(device)` can withdraw host billing consent dynamically.
+- The host bounds provider work to 20 seconds by default and accepts at most 100 questions
+  with 100 options/levels each. The phone request deadline defaults to 30 seconds and refuses
+  to enqueue while offline. Set its request timeout below `decide().timeoutMs` to receive
+  typed transport timeouts; the general decide deadline otherwise abstains as usual.
+  `privacy: 'stays-here'` skips the paired backend entirely.
+- Paired Jev is text only, like direct Jev: image attachments throw `UnsupportedImagesError`
+  before any request or billing.
+- Floors, runner-up selection and abstention remain on the phone. Usage is preserved; arbitrary
+  provider JSON (`raw`) is intentionally omitted. Keep caches scoped to a person and paired host;
+  cached decisions do not check current host consent or connectivity.
+- Cancellation stops waiting on the phone; it cannot undo work or billing already started on the
+  host. Link resends a pending request across reconnects with its original deduplication key.
+  A fresh application retry is a new billable call. Durable deduplication uses the existing
+  link `AnswerStore`; a host crash before saving an answer can still cause a repeat call.
+- A hosted proxy is a follow-up, outside this paired-host route.
