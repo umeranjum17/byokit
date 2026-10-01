@@ -3,7 +3,9 @@
 // integration (docs/cloud-kit.md). Portable entry: no `node:*` import.
 
 export { machine } from './machine.ts';
-export { sandboxApi } from './sandbox-api.ts';
+export { boat } from './boat.ts';
+/** @deprecated Use boat(). */
+export { boat as sandboxApi } from './boat.ts';
 export { claim } from './claim.ts';
 export type { ClaimStep } from './claim.ts';
 export { wakeResolve } from './wake.ts';

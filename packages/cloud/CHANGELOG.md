@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Name the Boat adapter `boat()` and its provider docs; retain `sandboxApi()` as a
+  deprecated alias and preserve the stored provider id and adapter behavior.
+
 - Allow lab callers to supply a real install fixture to the machine contract suite; fake defaults stay unchanged.
 
 - Scaffold (docs/cloud-kit.md M1): frozen public types (4.1 with 4.3 merged in), `MachineError`,

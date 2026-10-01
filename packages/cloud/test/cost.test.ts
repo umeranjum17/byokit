@@ -10,19 +10,19 @@ const CHECKED = new Date().toISOString().slice(0, 10);
 
 const sandboxSmall: Price = {
   size: 'small', perHour: 0.018, planFloorPerMonth: 20, asleepPerHour: 0,
-  currency: 'USD', basis: 'incl. IPv4, excl. VAT', source: 'http://sandbox.test/prices', checked: CHECKED,
+  currency: 'USD', basis: 'incl. IPv4, excl. VAT', source: 'http://boat.test/prices', checked: CHECKED,
 };
 const sandboxDefault: Price = {
   size: 'default', perHour: 0.036, planFloorPerMonth: 20, asleepPerHour: 0,
-  currency: 'USD', basis: 'incl. IPv4, excl. VAT', source: 'http://sandbox.test/prices', checked: CHECKED,
+  currency: 'USD', basis: 'incl. IPv4, excl. VAT', source: 'http://boat.test/prices', checked: CHECKED,
 };
 const budgetVm: Price = {
   size: 'vm-small', perMonthCap: 5.99, asleepPerHour: 5.99 / 730,
-  currency: 'EUR', basis: 'list', source: 'http://sandbox.test/prices', checked: CHECKED,
+  currency: 'EUR', basis: 'list', source: 'http://boat.test/prices', checked: CHECKED,
 };
 const mainstreamVm: Price = {
   size: 'vm-main', perMonthCap: 24, asleepPerHour: 24 / 730,
-  currency: 'USD', basis: 'list', source: 'http://sandbox.test/prices', checked: CHECKED,
+  currency: 'USD', basis: 'list', source: 'http://boat.test/prices', checked: CHECKED,
 };
 
 test('the four 10.2 always-on figures via estimate', () => {

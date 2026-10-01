@@ -1,21 +1,21 @@
-// Sandbox API adapter tests (docs/cloud-kit.md M4 acceptance): the adapter against the
+// Boat adapter tests (docs/cloud-kit.md M4 acceptance): the adapter against the
 // loopback fake server — rule 3 from the request log, every 6.2 row, exec/write/remove
 // semantics, retries, usage/key/plan/why (G2, G3) and the trial retry.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { machine } from '../src/machine.ts';
-import { sandboxApi } from '../src/sandbox-api.ts';
+import { boat } from '../src/boat.ts';
 import { startFakeSandboxServer, type SandboxServer } from '../src/testing/fake-sandbox-server.ts';
 import { memoryStore } from '../src/testing/fake-provider.ts';
 import type { MachineRef, Price, Provider } from '../src/types.ts';
 
 const prices = (): readonly Price[] => [{
   size: 'small', perHour: 0.018, planFloorPerMonth: 20, asleepPerHour: 0,
-  currency: 'USD', basis: 'incl. IPv4, excl. VAT', source: 'http://sandbox.test/prices', checked: '2026-09-29',
+  currency: 'USD', basis: 'incl. IPv4, excl. VAT', source: 'http://boat.test/prices', checked: '2026-09-29',
 }];
 
 const setup = async (server: SandboxServer, key = 'test-key'): Promise<{ provider: Provider; ref: MachineRef }> => {
-  const provider = sandboxApi({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => key });
+  const provider = boat({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => key });
   const ref = await provider.create!({ name: 'web', size: 'small', keepCopies: true, idempotencyKey: 'bench-1' });
   return { provider, ref };
 };
@@ -53,7 +53,7 @@ test('rule 3: create carries noEnv, no body carries env, resume/fork carry no no
 test('trial: create, resume and fork retry once with 7200 and the same idempotency key', async () => {
   const server = await startFakeSandboxServer({ trial: true });
   try {
-    const provider = sandboxApi({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
+    const provider = boat({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
     const m = machine({ provider, store: memoryStore() });
     const ref = await m.create({ name: 'web', size: 'small', keepCopies: true });
     const creates = server.requests.filter((r) => r.method === 'POST' && r.path === '/sandboxes');
@@ -198,7 +198,7 @@ test('write outside /home/user/ and /tmp/ rejects before any request', async () 
 test('create retries with the same Idempotency-Key after a dropped connection', async () => {
   const server = await startFakeSandboxServer();
   try {
-    const provider = sandboxApi({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
+    const provider = boat({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
     await provider.account();
     const m = machine({ provider, store: memoryStore() });
     server.dropNext(1);
@@ -241,17 +241,17 @@ test('remove sends the delete-confirmation header, polls the deletion, then dele
 test('401 rejects unauthorized, 429 and 5xx retry three times, and the key never leaks into errors', async () => {
   const server = await startFakeSandboxServer();
   try {
-    const bad = sandboxApi({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'sk-secret-123' });
+    const bad = boat({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'sk-secret-123' });
     const e = await bad.account().catch((err) => err);
     assert.equal(e.code, 'unauthorized');
     assert.ok(!e.message.includes('sk-secret-123'), 'the key never appears in an error message');
-    const good = sandboxApi({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
+    const good = boat({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
     server.failNext([{ status: 429 }, { status: 503 }, { status: 500 }]);
     const before = server.requests.length;
     assert.equal(await good.account(), 'acct-test');
     assert.equal(server.requests.length - before, 4, 'three retries after the first attempt');
     server.failNext([{ status: 429 }, { status: 429 }, { status: 429 }, { status: 429 }]);
-    const exhausted = sandboxApi({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
+    const exhausted = boat({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
     const e2 = await exhausted.account().then(() => null, (err) => err);
     assert.equal(e2?.code, 'provider');
   } finally {
@@ -287,12 +287,12 @@ test('usage maps to Usage, a zero balance rejects balance, key maps expiry', asy
 
 test('plan maps the trial answer', async () => {
   const server = await startFakeSandboxServer({
-    trial: true, trialEndsAt: '2026-10-06', canStayOn: false, checkoutUrl: 'http://sandbox.test/checkout',
+    trial: true, trialEndsAt: '2026-10-06', canStayOn: false, checkoutUrl: 'http://boat.test/checkout',
   });
   try {
     const { provider } = await setup(server);
     assert.deepEqual(await provider.plan!(), {
-      inTrial: true, trialEndsAt: '2026-10-06', canStayOn: false, checkoutUrl: 'http://sandbox.test/checkout',
+      inTrial: true, trialEndsAt: '2026-10-06', canStayOn: false, checkoutUrl: 'http://boat.test/checkout',
     });
   } finally {
     await server.close();
@@ -334,17 +334,17 @@ test('why maps every stop reason, and null without one', async () => {
   }
 });
 
-test('fixtures map http://sandbox.test onto the loopback bench through fetch', async () => {
+test('fixtures map http://boat.test onto the loopback bench through fetch', async () => {
   const server = await startFakeSandboxServer();
   try {
     const port = new URL(server.url).port;
-    const provider = sandboxApi({
-      baseUrl: 'http://sandbox.test/api/v1',
+    const provider = boat({
+      baseUrl: 'http://boat.test/api/v1',
       label: 'Test',
       prices: prices(),
       key: async () => 'test-key',
       fetch: ((url: unknown, init: unknown) =>
-        fetch(String(url).replace('http://sandbox.test', `http://127.0.0.1:${port}`), init as RequestInit)) as typeof fetch,
+        fetch(String(url).replace('http://boat.test', `http://127.0.0.1:${port}`), init as RequestInit)) as typeof fetch,
     });
     assert.equal(await provider.account(), 'acct-test');
   } finally {

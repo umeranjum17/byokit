@@ -96,12 +96,6 @@
     "reason": "Stream fragment omits imports, host options, panes, device link and terminal context."
   },
   {
-    "readme": "packages/cloud/README.md",
-    "block": 1,
-    "snapshot": "c5b666431d61363a7633f45f090b4ff03af2bade841dd829d8a5735d6dc4c6e1",
-    "reason": "Quickstart leaves provider, store and recipe undeclared; strength item 6 supplies fakes."
-  },
-  {
     "readme": "packages/reach/README.md",
     "block": 1,
     "snapshot": "d0ceda817257b9be494d0bfed8c496b37bc407a7d893993407e7f01ea12e26c2",
