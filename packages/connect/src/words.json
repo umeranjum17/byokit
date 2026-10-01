@@ -1,0 +1,21 @@
+{
+  "errors": {
+    "configuration": "This app needs its connection settings filled in.",
+    "discovery": "Could not find the app’s sign-in page.",
+    "registration": "The app could not set up sign-in. Try again.",
+    "callback": "This sign-in link does not match. Start again.",
+    "expired": "This sign-in link has expired. Start again.",
+    "declined": "Nothing was connected. Try again whenever you like.",
+    "scope": "Some permissions were left out. Sign in again and select them.",
+    "token": "The app did not finish connecting. Try again.",
+    "signin": "Sign in to this app again.",
+    "network": "Could not reach the app. Check your connection and try again."
+  },
+  "browser": {
+    "unavailable": "This page is not available.",
+    "mismatch": "This sign-in link does not match. Return to the app.",
+    "finishing": "Sign-in is already finishing. Return to the app.",
+    "connected": "Connected. You can return to the app.",
+    "failed": "Sign-in did not finish. Return to the app and try again."
+  }
+}
