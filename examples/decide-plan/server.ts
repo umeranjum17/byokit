@@ -20,7 +20,7 @@ export type Result = {
 };
 
 export async function serve(options: { port?: number; accounts?: AccountHost; commit?: string; evidenceDir?: string } = {}) {
-  const accounts = options.accounts ?? new Accounts({ app: 'Message desk', offer: ['chatgpt', 'claude'] });
+  const accounts = options.accounts ?? new Accounts({ app: 'Message desk', offer: ['chatgpt', 'claude'], signInMs: 60 * 60_000 });
   const commit = options.commit ?? execFileSync('git', ['rev-parse', 'HEAD'], { cwd: fileURLToPath(new URL('../..', import.meta.url)), encoding: 'utf8' }).trim();
   const bundle = await build({ entryPoints: [fileURLToPath(new URL('./app.ts', import.meta.url))], bundle: true, write: false, platform: 'browser', format: 'esm' });
   const page = await readFile(new URL('./index.html', import.meta.url));
