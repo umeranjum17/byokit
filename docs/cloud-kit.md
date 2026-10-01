@@ -6,7 +6,7 @@ the builder stops and asks rather than designs. Section 14 is the work-package l
 
 Contents: [1 Goal](#1-goal) · [2 Decisions](#2-decisions) · [3 Where it fits](#3-where-it-fits) ·
 [4 Public types](#4-public-types-srctypests-frozen) · [5 `Machine`](#5-machine-srcmachinets) ·
-[6 Sandbox API adapter](#6-sandbox-api-adapter-srcsandbox-apits) · [7 SSH VM adapter](#7-ssh-vm-adapter-srcsshts) ·
+[6 Boat adapter](#6-boat-adapter-srcboatts) · [7 SSH VM adapter](#7-ssh-vm-adapter-srcsshts) ·
 [8 Installing and supervising](#8-installing-and-supervising-the-host-process) · [9 Reach](#9-reach-from-phone-and-web) ·
 [10 Cost](#10-cost) · [11 Credentials](#11-credentials) · [12 Words](#12-words-srcwordsjson) ·
 [13 Security, tests and isolation](#13-security-tests-and-isolation) · [14 Work packages](#14-work-packages) ·
@@ -22,8 +22,8 @@ does three things:
 - keeps that process running;
 - says what it costs them, as their own bill.
 
-The person-facing words say "your cloud computer". Nothing in BYOKit names a machine provider: not code, docs, words,
-tests, commits or PR text. The app passes the provider's address, a label to show, and dated price rows.
+The person-facing words say "your cloud computer". Third-party adapters keep the provider's name: `boat()` is the
+Boat adapter. The app passes the provider's address, a label to show, and dated price rows; the kit selects no default provider.
 
 A person who wants their app's host process to stay on while their own computer sleeps, or who has only a phone, uses
 it the way a coding app uses `@byokit/herdr`: the kit supplies the typed, tested integration; the app keeps its own
@@ -43,11 +43,11 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | # | Decision |
 |---|---|
 | D-1 | The name is `@byokit/cloud`, a capability word. Rejected: a provider's name (capability-kits D-B), `sandbox` (already means OpenClaw's agent sandbox), `cloud` and `hosted` (read as a service BYOKit runs), `host` (collides with link's `Host`), `remote` (vague). |
-| D-2 | No machine provider is named anywhere in BYOKit, with the capability-kits D-B strictness. Adapters are named for the API shape they speak: `sandboxApi()` and `sshVm()`. Test fixtures use the host `sandbox.test`. The provider's label comes from the app at run time. |
+| D-2 | Third-party adapters keep the provider's name: `boat()` is the Boat adapter; `sshVm()` describes the provider-independent SSH transport. Docs name Boat and fixtures use `boat.test`, mapped to loopback. The provider's label still comes from the app at run time. `sandboxApi()` remains a deprecated alias with the same signature; the persisted provider id remains `sandbox-api` for existing records and install behavior. No default provider or URL is added. |
 | D-3 | A capability kit, not a third aggregator. It sits beside `@byokit/openclaw` and `@byokit/herdr`: the app still picks one runtime kit, and that kit runs inside the app's host process on the machine exactly as it does at home. `@byokit/cloud` only decides where that process runs. It imports no other kit and no kit imports it. `@byokit/accounts` is untouched. |
-| D-4 | Two adapters behind one `Provider` type (4). **Sandbox API**: create, sleep, wake, snapshot, fork, remove, exec, write and an HTTPS URL per port, over `fetch` with no vendor SDK. **SSH VM**: any rented Linux machine the person already created; exec, write, install and supervise only, through the `ssh` binary the app passes by absolute path. Optional `Provider` methods an adapter cannot do are absent, and the UI hides that action. |
+| D-4 | Two adapters behind one `Provider` type (4). **Boat**: create, sleep, wake, snapshot, fork, remove, exec, write and an HTTPS URL per port, over `fetch` with no vendor SDK. **SSH VM**: any rented Linux machine the person already created; exec, write, install and supervise only, through the `ssh` binary the app passes by absolute path. Optional `Provider` methods an adapter cannot do are absent, and the UI hides that action. |
 | D-5 | Types in section 4 are frozen at M1. A change is a spec change first: stop and ask. |
-| D-6 | Entries. `.` is portable (Node, Electron, React Native): everything 3.1's `index.ts` re-exports (types, `machine()`, `sandboxApi()`, `claim()` (M8), `MachineError`, `estimate()`, the words helpers and M7's `wakeResolve()`); no `node:*` import. `./ssh` is Node only (`sshVm()`, `sshHostKey()`). `./idle` (M7: `idle()`, `stopSelf()`) runs on the machine inside the host process and is portable. `./testing` is Node only: the fake provider and the contract suite. No other entries. The sandbox API adapter does not run from a web page (15.1), so browsers and PWAs set up from the phone app or a desktop app. |
+| D-6 | Entries. `.` is portable (Node, Electron, React Native): everything 3.1's `index.ts` re-exports (types, `machine()`, `boat()` (and deprecated `sandboxApi()`), `claim()` (M8), `MachineError`, `estimate()`, the words helpers and M7's `wakeResolve()`); no `node:*` import. `./ssh` is Node only (`sshVm()`, `sshHostKey()`). `./idle` (M7: `idle()`, `stopSelf()`) runs on the machine inside the host process and is portable. `./testing` is Node only: the fake provider and the contract suite. No other entries. The Boat adapter does not run from a web page (15.1), so browsers and PWAs set up from the phone app or a desktop app. |
 | D-7 | One person, one provider account, one machine per app install. The kit refuses a `MachineRef` whose `account` differs from `provider.account()`. An app operator provisioning on its own account for users is pooling and is not supported. |
 | D-8 | Model credentials are signed in on the machine, inside the aggregator (11). They are never copied from the person's computer and never pass through the provider's own credential features. Sandboxes are created with nothing of the person's passed in (`noEnv: true`). |
 | D-9 | Reach: the person's own `@byokit/relay` runs on the machine beside the host (the relay README's "self-hosted, beside one host" model). Phones pair with the unchanged `@byokit/link`, whose Noise IK with a pinned host key is the only gate. No provider access token goes in any URL (9). |
@@ -94,7 +94,8 @@ packages/cloud/
     recipe.ts         # recipe checks (8.1), range compare, FNV-1a marker hash, pure
     node.ts           # node check and install argv (8.3 step 4), pure
     cost.ts           # estimate(), cost rules (10)
-    sandbox-api.ts    # sandboxApi() (6)
+    boat.ts           # boat() (6)
+    sandbox-api.ts    # deprecated compatibility re-export of boat()
     ssh.ts            # './ssh': sshVm(), sshHostKey() (7)
     claim.ts          # claim() (G1, M8)
     wake.ts           # wakeResolve() (M7)
@@ -196,13 +197,15 @@ export interface Machine {
   remove(confirm: string): Promise<void>
 }
 export function machine(o: { provider: Provider; store: MachineStore }): Machine
-export function sandboxApi(o: { baseUrl: string; label: string; prices: readonly Price[]; key: () => Promise<string>; fetch?: typeof fetch }): Provider
+export function boat(o: { baseUrl: string; label: string; prices: readonly Price[]; key: () => Promise<string>; fetch?: typeof fetch }): Provider
+/** @deprecated Use boat(). Same function and persisted provider id. */
+export const sandboxApi: typeof boat
 // './ssh' entry (Node only):
 export function sshVm(o: { ssh: string /* absolute */; host: string; port?: number; user: string; keyPath: string; stateDir: string; label: string; monthly?: Price }): Provider
 ```
 
-`types.ts` holds the types; the three functions are declared where section 3.1 puts them, with exactly these
-signatures. The provider key reaches `sandboxApi()` through the app's `key` callback, which the app reads from its
+`types.ts` holds the types; the functions and compatibility alias are declared where section 3.1 puts them, with exactly these
+signatures. The provider key reaches `boat()` through the app's `key` callback, which the app reads from its
 `MachineStore` record's `providerKey`; `machine()` never reads `providerKey` itself.
 
 ### 4.2 Additions beyond the frozen block
@@ -326,7 +329,7 @@ export function claim(o: { baseUrl: string; fetch?: typeof fetch; signal?: Abort
 1. `ref` non-null: reject `exists`.
 2. `name` must match `^[a-z][a-z0-9-]{0,31}$`, `size` must be one of `provider.sizes()` ids unless `sizes()` is empty:
    else reject `bad-recipe` naming the field.
-3. **Provider with `create`** (sandbox API): the kit makes one idempotency key per `create` call,
+3. **Provider with `create`** (Boat): the kit makes one idempotency key per `create` call,
    `` `byokit-${name}-${n}` `` where `n` is 16 random base36 chars from `crypto.getRandomValues` (available on Node 22,
    Electron, React Native with Hermes, and browsers). It calls `provider.create({ name, size, keepCopies, idempotencyKey })`,
    retrying up to 3 times with the same key on `unreachable` only.
@@ -399,9 +402,9 @@ recovery. It is the only write `Machine` offers; anything else goes in the recip
   run user plants can only redirect a write the run user could make anyway.
 - The app's host watches that directory.
 
-## 6. Sandbox API adapter (`src/sandbox-api.ts`)
+## 6. Boat adapter (`src/boat.ts`)
 
-`sandboxApi()` speaks one public REST shape (15.1) over `o.fetch ?? globalThis.fetch`. Every request sends
+`boat()` speaks one public REST shape (15.1) over `o.fetch ?? globalThis.fetch`. Every request sends
 `Authorization: Bearer <await o.key()>` and `Content-Type: application/json`, to `` `${baseUrl}${path}` ``. `id` is
 `'sandbox-api'`; `label` and `prices()` are the app's; `sizes()` is the 15.1 table.
 
@@ -580,15 +583,15 @@ Run after 8.3 step 2, once the machine user and home are known:
 - The machine user is not `user`. With `user` set, the machine user is not `root` (a home under `/root` cannot be
   opened to another user safely).
 - `workDir` is inside the run user's home: the machine home, or with `user` set, `<machine home>/.users/<user>/`. Every
-  piece of app state must live there: on the sandbox API only the machine user's home is kept across sleep, which is
+  piece of app state must live there: on Boat only the machine user's home is kept across sleep, which is
   why a `user`'s home sits inside it.
 
 ### 8.2 Words used below
 
-- **Machine user, machine home:** the login the adapter runs as (`user` on the sandbox API, `o.user` on the SSH VM)
+- **Machine user, machine home:** the login the adapter runs as (`user` on Boat, `o.user` on the SSH VM)
   and its home directory.
 - **Run user:** `recipe.user` if set, else the machine user.
-- **Root access:** the sandbox API always has it. On an SSH VM, `o.user` of `root` has it; otherwise the kit runs
+- **Root access:** Boat always has it. On an SSH VM, `o.user` of `root` has it; otherwise the kit runs
   `exec(['true'], { root: true })` (which sends `sudo -n true`) and exit 0 means it has it.
 - **As root:** `exec` with `root: true`.
 - **As the run user:** without `user`, plain `exec`; with `user`, `exec` with `root: true` of
@@ -693,14 +696,14 @@ WantedBy=multi-user.target
 - Every `ExecStart` and `ExecStartPre` argument and every `Environment` value is double-quoted, with `\` → `\\`,
   `"` → `\"`, `%` → `%%` and, in `ExecStart`/`ExecStartPre` only, `$` → `$$`.
 - The file ends with one newline and no trailing spaces. The rendered bytes are the golden files in `test/golden/`.
-- The sandbox API uses a system unit because only `/etc`, `/usr`, `/opt`, `/root`, `/srv` and the home survive sleep:
+- Boat uses a system unit because only `/etc`, `/usr`, `/opt`, `/root`, `/srv` and the home survive sleep:
   a user unit's linger flag lives under `/var` and could be lost on wake. The SSH VM uses a user unit plus linger so
   the kit needs no root there unless the recipe asks for it.
 
 ### 8.5 `update`, `host`, `logs`
 
 - `update(recipe)`: 8.3 steps 1-4 (root steps rerun only when the marker is missing, so `installRoot` must be
-  idempotent: on the sandbox API `/var` does not survive sleep); the two `mkdir`s of 8.3 step 5, then each `update`
+  idempotent: on Boat `/var` does not survive sleep); the two `mkdir`s of 8.3 step 5, then each `update`
   argv in workDir; 8.3 steps 6 and 7; re-render the unit and rewrite it only if its bytes changed (then `daemon-reload`); then
   `systemctl [--user] restart byokit-<name>.service`. A recipe with no `update` runs the same sequence with no update argv, then restarts.
 - `host()`: `systemctl [--user] show byokit-<ref.name>.service -p LoadState,ActiveState,SubState,NRestarts`:
@@ -805,13 +808,13 @@ Every cost sentence says it is the person's own bill from `{label}`, not from th
 
 ### 10.2 Worked examples (public list prices, 2026-09-29; the app supplies real rows)
 
-| Case | Sandbox API, 2 vCPU / 4 GB / 12 GB, $0.018/h, $20/month plan floor | Sandbox API, 4 / 8 / 50, $0.036/h, same floor | Budget VM, 2 / 4 / 40, €5.99/month cap | Mainstream VM, 2 / 4 / 80, $24/month |
+| Case | Boat, 2 vCPU / 4 GB / 12 GB, $0.018/h, $20/month plan floor | Boat, 4 / 8 / 50, $0.036/h, same floor | Budget VM, 2 / 4 / 40, €5.99/month cap | Mainstream VM, 2 / 4 / 80, $24/month |
 |---|---|---|---|---|
 | Always on (730 h) | $13.14 of time; **$20** (the floor) | **$26.28** | **€5.99** | **$24** |
 | Asleep 16 h a day | $4.38 of time; **still $20** | $8.76; **still $20** | €5.99, billed while off | $24, billed while off |
 | Kept, never run | no machine or copy charge; **$20 while the plan is kept** | same | delete and keep a snapshot | per-GB snapshot charge |
 
-Sleep saves money only above a plan floor. A budget VM is the cheapest always-on option; the sandbox API earns its
+Sleep saves money only above a plan floor. A budget VM is the cheapest always-on option; Boat earns its
 price through phone-only setup, create, fork, sleep and HTTPS URLs without a domain. `estimate` for the first column
 at `hoursOn: 730` is `{ perMonth: 20, floor: 20, currency: 'USD', basis: 'list', … }`.
 
@@ -940,7 +943,7 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
 
 ### 13.1 Rules (binding for M1-M8)
 
-1. **BYOKit operates nothing:** no relay, no wake service, no provider account, no default URL, no vendor name.
+1. **BYOKit operates nothing:** no relay, no wake service, no provider account, no default URL; naming an adapter does not select a provider.
 2. **One person, one provider account, one machine per app install** (D-7, 5.1).
 3. **`noEnv: true` on create; no `env` key on any request.** The kit never calls the provider's secrets, environments
    or agent-credential endpoints. The contract fails if a create body lacks `noEnv: true`, if any body carries an
@@ -957,7 +960,7 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
    fake-CLI precedent).
 10. **Never read or write the owner's `~/.ssh`**, `~/.pi`, Herdr, muxr or CLIs. M2's isolation test runs the fs
     tracer over the SSH adapter.
-11. **Accepted risk, stated to the person by the app:** without `HostRecipe.user`, the host on the sandbox API runs as
+11. **Accepted risk, stated to the person by the app:** without `HostRecipe.user`, the host on Boat runs as
     the machine user, who has passwordless sudo, so any agent tool the aggregator runs can become root on that
     machine. This is the same trust the person gives agents on their own computer. An app that sets `user` (G7) runs
     its host as a kit-created user without sudo, whose home sits under `<machine home>/.users/` so it still survives
@@ -1046,7 +1049,7 @@ Builders: **Opus** (spec, architecture, real-provider proof) and **Muse** (build
   only. A signature change is a spec change: stop and ask.
 - **Exports test:** each package edits `test/exports.test.ts`, replacing stub assertions naming its own id with
   behaviour assertions.
-- Nothing committed names a machine provider (D-2). Every PR's diff, commit messages and PR text are checked for it.
+- Adapter names and provider docs follow D-2. Competing products are never named in commits or PR text.
 
 ### 14.1 Dependency graph
 
@@ -1066,8 +1069,7 @@ the `installs` switch on the sandbox bench.
 - **Files:** `docs/cloud-kit.md`; the D-15 sentence in `CONTRIBUTING.md` and `README.md`; the direction line (1) and a
   contents link in `README.md`.
 - **Acceptance:** main approves; section 4.1 matches the approved design's types exactly, except that comment
-  cross-references point at this document's sections; no machine provider is named
-  in the diff.
+  cross-references point at this document's sections; adapter names follow D-2.
 
 **M1 — scaffold, pure parts, fake and contract** · Muse · deps: M0
 - **Files:**
@@ -1077,10 +1079,10 @@ the `installs` switch on the sandbox bench.
   - Every 3.1 source file. Real bodies: `types.ts` (4.1 with 4.3 merged in), `errors.ts`, `words.ts`, `words.json`,
     `unit.ts`, `recipe.ts`, `node.ts`, `cost.ts`, `machine.ts` for 5.1-5.5 and 5.7, and
     `testing/{index,fake-machine,fake-provider,contract}.ts`. Stubs: `machine.ts`' `install`, `update`, `host`, `logs`
-    and `deliver` (M3), `sandbox-api.ts` and `testing/fake-sandbox-server.ts` (M4), `ssh.ts` and `testing/fake-ssh.ts`
+    and `deliver` (M3), `boat.ts` and `testing/fake-sandbox-server.ts` (M4), `ssh.ts` and `testing/fake-ssh.ts`
     (M2), `wake.ts` and `idle.ts` (M7), `claim.ts` (M8).
   - Tests: `test/{exports,words,unit,recipe,node,cost,machine,contract,portable}.test.ts`, and `test/golden/` with three
-    unit files: sandbox API system unit, SSH VM user unit, and a system unit for a recipe with `user` and `selfId`.
+    unit files: Boat system unit, SSH VM user unit, and a system unit for a recipe with `user` and `selfId`.
   - Root: `package.json` `scripts.build` gains `packages/cloud` after `packages/overlay`;
     `scripts/fix-words-dts.cjs` gains `machine`; `scripts/release.ts` canonical order gains `machine` after
     `overlay`; `tsconfig.json` references it if the others are referenced there; both README packages tables gain a
@@ -1142,15 +1144,15 @@ the `installs` switch on the sandbox bench.
   - `host()` maps every 8.5 row; `update` rewrites the unit only when its bytes changed; `host`, `logs` and `sleep`
       pick the unit kind from the `test -e` probe.
 
-**M4 — sandbox API adapter** · Muse · deps: M1
-- **Files:** `src/sandbox-api.ts`, `src/testing/fake-sandbox-server.ts` (a loopback `node:http` server on
+**M4 — Boat adapter** · Muse · deps: M1
+- **Files:** `src/boat.ts`, `src/testing/fake-sandbox-server.ts` (a loopback `node:http` server on
   `127.0.0.1:0` answering the 6.1 routes with the response fields 15.1 lists, a state machine per id, a request log,
-  and command execution delegated to `fakeMachine()`), `test/sandbox-api.test.ts`, the sandbox bench in
+  and command execution delegated to `fakeMachine()`), `test/boat.test.ts`, the sandbox bench in
   `test/contract.test.ts`, and additions to `test/portable.test.ts`. The M4 brief gives the builder the provider's
   public API document; the fake copies only the fields 6.1 uses, and nothing committed names the provider or its host
-  (fixtures use `http://sandbox.test`, mapped to the loopback port through the `fetch` option).
+  (fixtures use `http://boat.test`, mapped to the loopback port through the `fetch` option).
 - **Acceptance:**
-  - `machineContract` passes against `sandboxApi` over the fake server, with `installs` on if M3 has merged and off
+  - `machineContract` passes against `boat` over the fake server, with `installs` on if M3 has merged and off
     otherwise; the later of M3 and M4 turns it on.
   - Rule 3 assertions from the request log: create has `noEnv: true`; no body has `env`; resume and fork bodies have
     no `noEnv`; create, resume and fork send `ttlSeconds: null`, and after the fake's trial error exactly one retry
@@ -1202,7 +1204,7 @@ the `installs` switch on the sandbox bench.
 - **Files:** `packages/cloud/test/lab/proof.ts` (excluded from `npm test`; `lab/` is not in the glob), a
   "Real-provider run" section appended to this document, README "Tested against a real provider" line (date and
   adapter only), `private` removed, CHANGELOG bullet.
-- **Checks,** on one real sandbox API machine and one real SSH VM, each recorded:
+- **Checks,** on one real Boat machine and one real SSH VM, each recorded:
   - the full `machineContract` against both;
   - a real app host recipe to `running`, and the app's own doctor on the machine: unprivileged user namespaces and
     whether a 12 GB disk is enough (else the recommended size moves up);
@@ -1253,18 +1255,18 @@ be removed explicitly after review. `private: true` remains until a complete, re
 this preparation makes no publishing or real-provider-tested claim.
 
 **M7 — sleep and wake** · Opus design check, Muse build · deps: M6
-- **Files:** `src/{wake,idle}.ts`, `src/sandbox-api.ts` (`wakeKey`, `stopKey`, `revokeKey`),
+- **Files:** `src/{wake,idle}.ts`, `src/boat.ts` (`wakeKey`, `stopKey`, `revokeKey`),
   `src/testing/fake-sandbox-server.ts` (key routes), `test/{wake,idle}.test.ts`, README section.
 - **Behaviour:**
   - `wakeResolve({ provider, ref, port })` returns a `Dial.resolve` function for link. Before every dial it calls
     `status()`. Only when `asleep` does it call `wake()` and then `url(port)` (re-hosting the relay port), resolving
     the new URL's host with the dialled path. When the machine is already `on`, or `unknown`, it resolves the dialled
     URL unchanged (an unreachable machine then fails the dial on its own).
-  - **Wake keys (G11).** `sandboxApi` implements `wakeKey(ref, { label })`: one key per phone, labelled with the
+  - **Wake keys (G11).** `boat` implements `wakeKey(ref, { label })`: one key per phone, labelled with the
     phone's name, scoped to read, resume and host on `ref.id`; and `revokeKey(id)`. The app mints one when it pairs an
     owner phone, stores it in that phone's secure store with `WHEN_UNLOCKED_THIS_DEVICE_ONLY`
     (`packages/accounts/README.md`), and revokes it when it removes that phone.
-  - **Stop-only key.** `sandboxApi` implements `stopKey(ref)`: a key scoped to stop on `ref.id` only. The setup device
+  - **Stop-only key.** `boat` implements `stopKey(ref)`: a key scoped to stop on `ref.id` only. The setup device
     mints it and hands it to the host with `deliver(recipe, 'stop-key', bytes)`, so it lives at
     `<workDir>/.byokit/inbox/stop-key` (0600). It is inside snapshots and forks, and any process on the machine can
     stop the machine with it; the README and the app's copies screen say so.
@@ -1284,7 +1286,7 @@ this preparation makes no publishing or real-provider-tested claim.
   - `portable.test.ts` covers `./idle`.
 
 **M8 — account link and copy detection** · Muse · deps: M6
-- **Files:** `src/claim.ts`, `src/sandbox-api.ts` (`selfId` from 15.1), `src/machine.ts` (writing `boot.mjs`),
+- **Files:** `src/claim.ts`, `src/boat.ts` (`selfId` from 15.1), `src/machine.ts` (writing `boot.mjs`),
   `src/unit.ts` (the boot script template, a pure string; `ExecStartPre` rendering is M1's), `test/{claim,boot}.test.ts`, `src/testing/fake-sandbox-server.ts` (sign-in routes), README section.
 - **Behaviour:** 11.5 and 8.7. The sign-in routes and fields are confirmed against the API document in M8's brief;
   M6 records only whether the claimed key's scopes are enough and the `selfId` argv (15.1).
@@ -1302,14 +1304,14 @@ BYOKit waits on it.
 
 ## 15. Known facts builders must not re-derive
 
-### 15.1 The sandbox API shape (public docs, read 2026-09-29)
+### 15.1 Boat API shape (public docs, read 2026-09-29)
 
 - Bearer key. Machines are "sandboxes". Machine user `user`, home `/home/user`, passwordless sudo,
   real systemd, x86_64, a current Node preinstalled.
 - Sizes (`sizes()`): `small` = 2 vCPU / 4 GB / 12 GB disk; `default` = 4 vCPU / 8 GB / 50 GB disk.
 - Sandbox states: `init`, `provisioning`, `provisioned`, `cloning`, `ready`, `idle`, `running`, `archiving`, `archived`,
   `error`, `cancelled`.
-- `baseUrl` is the full API root including the version path (fixtures: `http://sandbox.test/api/v1`); every path in
+- `baseUrl` is the full API root including the version path (fixtures: `http://boat.test/api/v1`); every path in
   6.1 is relative to it. `claim()` and `stopSelf()` take the same `baseUrl`.
 - `ttlSeconds: null` disables auto-stop. The trial caps the TTL at 2 h, so always-on needs a paid account.
 - `Idempotency-Key` is scoped to the account and kept 24 h.
