@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.5.1 (2026-10-01)
+
+- Dependency update: pins @byokit/accounts 0.15.0.
+
 - FIX: openai({ auth: 'account' }) now accepts an Accounts ChatGPT subscription handle, so an existing Codex login needs no separate token-sharing session or API key (billed per use).
 
 ## 0.5.0 (2026-10-01)

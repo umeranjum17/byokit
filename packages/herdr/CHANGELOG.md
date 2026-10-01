@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.4.1 (2026-10-01)
+
+- Dependency update: pins @byokit/relay 0.5.1.
+
 - FIX: Preserve the ready replacement after a lost source-close acknowledgment unless fresh reads verify the original conversation survived; report only a verified recovery conversation, or omit `live` when verification is unavailable.
 
 ## 0.4.0 (2026-10-01)

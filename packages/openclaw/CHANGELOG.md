@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.5.0 (2026-10-01)
+
+- Dependency update: pins @byokit/relay 0.5.1.
+
 - FIX: Wait for approval callbacks in the bridge parking test instead of assuming the gate finishes within 50 ms.
 - FIX: Successful runs preserve complete generated text in the final callback and result instead of replacing it with a capped terminal snapshot; silent and empty replies remain empty.
 

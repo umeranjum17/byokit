@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.0 (2026-10-01)
+
 - Add a React Native entry for local call/token ledgers and pure quota helpers; subscription and API key (billed per use) attribution is preserved, with estimates only from app prices.
 
 ## 0.4.0 (2026-10-01)

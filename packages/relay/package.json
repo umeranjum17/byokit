@@ -1,6 +1,6 @@
 {
   "name": "@byokit/relay",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "A blind relay for @byokit/link: hosts dial out, devices reach them by address; host proof of key, enrolment, push notifications.",
   "license": "Apache-2.0",
   "type": "module",
