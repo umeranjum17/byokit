@@ -40,6 +40,8 @@ export type RealtimeClientOptions = {
   /** Retain ready PCM capture and the playback tail across carrier reconnects.
    * WebRTC still needs a fresh peer. Pending microphone acquisition is never retained. */
   preserveMediaOnReconnect?: boolean;
+  /** WebRTC only: negotiate without capture, then use attachMic/releaseMic. PCM is unchanged. */
+  capture?: 'eager' | 'lazy';
   webrtc?: (options: import('./webrtc.ts').WebRtcOptions) => Promise<import('./webrtc.ts').WebRtcHandle>;
   onStatus(status: 'connecting' | 'connected' | 'thinking' | 'speaking' | 'disconnected', reason?: string): void;
   onTurn(role: 'user' | 'agent', text: string): void;

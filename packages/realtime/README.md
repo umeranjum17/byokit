@@ -169,6 +169,46 @@ The main entry is portable for web and React Native and loads no native code. `.
 
 `AudioPorts` requires microphone acquisition/release, PCM capture, playback admission/drain and audio routing. The app owns permissions and its microphone service. Acquire must resolve only after that service is ready. The client awaits it before capture. Each client owns its ports; the app must arbitrate shared microphones.
 
+## Preconnect without microphone capture
+
+Set `capture: 'lazy'` for a browser or React Native WebRTC session. Startup
+negotiates one `sendrecv` audio transceiver with no sender track: it calls
+neither `audio.microphone.acquire()` nor `getUserMedia`, so the app's microphone
+foreground service stays stopped. The playback route remains available.
+
+```ts
+import { realtimeClient, type AudioPorts, type RealtimeStream } from '@byokit/realtime';
+import { webRtcPeer } from '@byokit/realtime/webrtc';
+declare const audio: AudioPorts;
+declare const openVoiceStream: () => Promise<RealtimeStream>;
+const client = realtimeClient({
+  open: openVoiceStream, audio, webrtc: webRtcPeer, capture: 'lazy',
+  onStatus() {}, onTurn() {},
+});
+// Once WebRTC setup has started, await this before accepting speech:
+async function beginTalking() { await client.attachMic(); }
+// When idle, release hardware capture while keeping the call connected:
+async function becomeIdle() { await client.releaseMic(); }
+// End the call and release all media:
+function endCall() { client.stop(); }
+```
+
+`attachMic()` awaits the app's microphone permission/service lease, captures
+an audio track and uses `sender.replaceTrack(track)`. `releaseMic()` awaits
+`replaceTrack(null)`, stops capture tracks and releases the lease so the app
+can stop its microphone service and clear the OS indicator. Neither operation
+renegotiates. Repeated calls are safe; release or stop during pending capture
+cleans up when that capture resolves. Reconnecting starts another lazy peer;
+the app explicitly attaches again when it needs input.
+
+The built-in `webRtcPeer` handle also exposes both methods for direct use.
+Custom peer factories may implement these optional methods; client attach
+rejects if the current peer does not support them or setup has not started.
+The default is eager capture, and PCM capture is unchanged. `setMuted()` still
+only toggles track delivery; use `releaseMic()` to relinquish capture. Mute
+state persists when a new track is attached. Each client owns its `AudioPorts`;
+`microphone.release()` must stop the app-owned foreground service.
+
 Close the client and engine when the call ends. `client.interrupt()` clears playback and aborts unfinished tools; old response output is fenced. Transient provider and transport failures retry twice, after 500 and 1,000 ms, with a fresh budget after 30 healthy seconds. Sent audio, speech and tool calls are never replayed. The app can mark transport closure terminal with `retryableClose`. Explicit ChatGPT interruption opens a fresh call; explicit Gemini interruption rotates its provider session. Native speech interruption remains provider-driven. No STT/LLM/TTS chain is exported. See [the lift contract](../../docs/realtime-kit.md) for bounds, events and usage.
 
 ## Reconnect and host policy
