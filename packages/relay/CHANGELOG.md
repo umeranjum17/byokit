@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add host-owned `JobChannel` history and portable `readJobStream`: ordered text, image bytes, usage and end
+  frames over encrypted link streams, with device-scoped job ids and replay after a reconnect cursor.
+  History is bounded and in memory; execution, retention and subscription/API key (billed per use) policy stay app-supplied.
 - Add owner-set enrolment `meta` (JSON capped at 4096 UTF-8 bytes), retained in the host record and exposed in
   `ready` / `RelayClient.meta`, including on reconnect. URL fields stay app-defined and metadata never reaches devices.
 - Add host-authenticated `RelayClient.self()` and `leave()`: read only the proven host's own record and live device

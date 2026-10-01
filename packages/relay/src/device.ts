@@ -1,5 +1,6 @@
 // The device's side, for typed pairing through a relay: turn the short code the host showed into the address to dial.
 // No Node APIs, so it runs in browsers and React Native too.
+export { readJobStream, MAX_JOB_FRAME_BYTES, type JobPart, type JobFrame, type JobCursor } from './jobs.ts';
 
 /** The link address for an already-known host id (not its public key). */
 export function linkUrl(relay: string, hostId: string): string {
