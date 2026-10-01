@@ -1570,8 +1570,13 @@ The move order is **start then close**:
    `env_mismatch`, and leaves the original untouched. Only the folder variable is echoed, never credentials.
 3. Resume in the new pane and wait for a ready agent publishing a conversation. Start/wait failure closes the
    new pane and returns `start_failed` with the original pane as `live`; never close the source first.
-4. Close the original pane only after the new session is ready. If that close fails, close the new pane to roll
-   back and return `close_failed`. If rollback close also fails, `live` names the new pane, so the host can recover.
+4. Close the original pane only after the new session is ready. A close error can be a lost acknowledgment
+   after deletion. Return `close_failed`, and close the replacement only when fresh `agent.get` reads verify
+   both original and replacement identities (kind, conversation, and terminal/name when published). If the source
+   is absent, changed or unreachable, preserve the replacement. Re-read after rollback, including lost cleanup
+   acknowledgments; `live` names a verified surviving conversation and is omitted when neither is verifiable.
+   Uncertainty is never success and never fires `onReplaced`. These are bounded observations, not an atomic
+   server transaction; the pinned protocol has no conditional close to prevent an independent later mutation.
 5. Return the new pane id as `session` (Herdr kit sessions are addressed by pane id, including a new generation).
 
 `move({ paneId, kind, args, set, unset?, onStaged?, onReplaced?, timeoutMs? })` uses the same transaction and
@@ -1663,7 +1668,7 @@ sorted, deterministic; a test regenerates and compares.
 | `move.busy` | Wait for this conversation to finish before moving it. |
 | `move.unsupported` | This conversation cannot move between these accounts. |
 | `move.env_mismatch` | The new pane did not receive that sign-in. Try again. |
-| `move.close_failed` | The old pane could not close. The move was undone where possible. |
+| `move.close_failed` | The move could not be confirmed. Check the remaining panes before trying again. |
 | `move.start_failed` | The new account could not take over. Try again. |
 | `turn.failed` | This turn could not be confirmed. Check the helper before trying again. |
 

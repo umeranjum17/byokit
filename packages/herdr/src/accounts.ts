@@ -64,8 +64,8 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
   }
 
   async function perform(target: AgentRef, o: MoveToAccount, request?: Move): Promise<MoveToAccountResult> {
-    const failed = (code: Extract<MoveToAccountResult, { ok: false }>['code'], live = target.paneId): MoveToAccountResult =>
-      ({ ok: false, code, message: words(`move.${code}`), live });
+    const failed = (code: Extract<MoveToAccountResult, { ok: false }>['code'], live: string | null = target.paneId): MoveToAccountResult =>
+      ({ ok: false, code, message: words(`move.${code}`), ...(live === null ? {} : { live }) });
     if (moving.has(target.paneId)) return failed('busy');
     moving.add(target.paneId);
     try {
@@ -88,6 +88,7 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
       if (!Number.isFinite(timeout) || timeout <= 0) return failed('start_failed');
       const variable = o.provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
       let paneId: string;
+      let replacement: Raw;
       try {
         const split = await call('pane.split', { target_pane_id: target.paneId,
           direction: o.direction ?? 'right', focus: false,
@@ -118,7 +119,7 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
             && (request === undefined || ready.interactive_ready === true)
             && ready.agent === kind && ready.agent_session?.agent === kind
             && ready.agent_session?.kind === session.kind && typeof ready.agent_session?.value === 'string'
-            && ready.agent_session.value.length > 0) break;
+            && ready.agent_session.value.length > 0) { replacement = ready; break; }
           if (Date.now() >= deadline) throw new Error('not ready');
           await sleep(Math.min(100, Math.max(1, deadline - Date.now())));
         }
@@ -127,8 +128,29 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
         return failed('start_failed', cleaned ? target.paneId : paneId);
       }
       if (!await close(target.paneId)) {
-        const cleaned = await close(paneId);
-        return failed('close_failed', cleaned ? target.paneId : paneId);
+        // A lost ACK can mean the close already applied. Never destroy the ready
+        // replacement unless a fresh read proves the original conversation survived.
+        // Compare identity, not revision: status changes can legitimately bump revision.
+        const survives = async (id: string, expected: Raw): Promise<boolean> => {
+          try {
+            const current = (await call('agent.get', { target: id }, timeout) as Raw)?.agent;
+            return !!current && current.agent === expected.agent && current.launch_pending !== true
+              && ['idle', 'working', 'blocked', 'done'].includes(current.agent_status)
+              && current.agent_session?.agent === expected.agent_session?.agent
+              && current.agent_session?.kind === expected.agent_session?.kind
+              && current.agent_session?.value === expected.agent_session?.value
+              && (expected.terminal_id === undefined || current.terminal_id === expected.terminal_id)
+              && (expected.name === undefined || current.name === expected.name);
+          } catch { return false; } // unavailable is not proof of survival
+        };
+        const replacementAlive = await survives(paneId, replacement);
+        const sourceAlive = await survives(target.paneId, agent);
+        if (sourceAlive && replacementAlive) await close(paneId);
+        // Re-read after cleanup too: its ACK can also be lost, or another actor can
+        // replace a pane. `live` is optional precisely when neither can be verified.
+        const live = await survives(paneId, replacement) ? paneId
+          : await survives(target.paneId, agent) ? target.paneId : null;
+        return failed('close_failed', live);
       }
       // The source is closed: a notification failure cannot undo a successful move.
       try { request?.onReplaced?.(paneId); } catch { /* notification only */ }

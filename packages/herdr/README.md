@@ -192,8 +192,12 @@ if (moved.ok) console.log(moved.session); // new pane to follow
 
 A move accepts Claude for Claude folders and Codex for Codex folders. Pi ignores these folder variables and is refused. It verifies the new shell's effective
 account folder, resumes the conversation there, waits for a ready session, then closes the old pane. A failed
-start preserves the original; a failed source close rolls back the new pane. Failures return a plain `message`
-and a `live` pane id for recovery, including when cleanup fails. Wait until a conversation is idle or done before
+start preserves the original. A failed source close rolls back the new pane only after fresh reads verify
+both conversations' identities. A lost close acknowledgment can mean the original already closed: the kit
+preserves the replacement when the source is absent, replaced or unreachable and returns `close_failed`.
+After uncertain source close or cleanup, `live` names a freshly verified surviving conversation; it is omitted
+when neither conversation can be verified. Check the remaining panes before retrying. Independent changes
+can still happen after verification; the server has no conditional close transaction. Failures return a plain `message`. Wait until a conversation is idle or done before
 moving it. `StartAgent.env` applies to newly created placements; existing shells cannot receive a new env.
 Tokens stay on the device and are never logged. Each provider's own terms apply to how you use your plan.
 
@@ -219,7 +223,8 @@ await kit.cli(['integration', 'install', 'codex'], { env: { CODEX_HOME: '/app/ac
 
 `MoveResult` names the new pane as `paneId`; `moveToAccount` retains its `session` result as
 `MoveToAccountResult`. Both share the same per-source lock. Staging runs before verification/start; a staging
-exception rolls back. Replacement notification runs after closing the source and cannot undo the move.
+exception rolls back. Replacement notification runs once after an acknowledged source close and cannot undo the move.
+An ambiguous close returns failure without a replacement notification, even if the source has disappeared.
 `move` clears `unset` in the new shell, verifies the account folder and unset names' absence, and requires an interactive
 agent publishing a conversation before closing the source. The pinned start API has no command-prefix/env
 field, so this uses shell `unset` rather than `env -u`; shells that cannot clear a variable fail closed.
