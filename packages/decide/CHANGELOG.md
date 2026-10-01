@@ -4,6 +4,10 @@
 
 - Document the Message desk example for typed ChatGPT and Claude subscription decisions, self-reported confidence and human handoff below the floor.
 
+## 0.5.0 (2026-10-01)
+
+- Dependency update: pins @byokit/accounts 0.14.0.
+
 - Accept inline PNG/JPEG images for structured generation and the subscription CLI backend, using the shared image types; generation cache keys include canonical image bytes, MIME and IDs.
 
 - Add named inline image inputs (bytes or data URLs with MIME) to decisions and evaluations, with

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.4.0 (2026-10-01)
+
+- Dependency update: pins @byokit/reach 0.6.0.
+
 - Add `move` with caller resume args, credential shedding, staging/replacement hooks and `MoveResult.paneId`.
 - Add per-call `cli` env overlays for managed folder hook installation.
 - Report surviving replacement panes when environment verification rollback fails; refuse folder moves for agents that ignore the folder variables.

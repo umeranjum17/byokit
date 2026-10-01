@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.14.0 (2026-10-01)
+
+- Dependency update: pins @byokit/usage 0.4.0.
+
 - SECURITY: Add a Node-only managed CLI account boundary for subscription sign-in: only app-owned folders and explicitly passed absolute binaries, no default login access, no credential-file reads, no token output, and launch environment credential shedding.
 - Add managed CLI account creation, marker-gated sign-in, status, rename, cancellation, history links and removal, with legacy roster and terms compatibility.
 - Share the portable chooser's AccountLike type and accept normalized subscription usage with millisecond reset times.
