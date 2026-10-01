@@ -136,6 +136,15 @@ function matches(s: SchemaNode, v: unknown): boolean {
   return true;
 }
 
+function utf8Length(text: string): number {
+  let length = 0;
+  for (const char of text) {
+    const code = char.codePointAt(0)!;
+    length += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+  }
+  return length;
+}
+
 /** Snapshot a JSON-only schema before any await; no mutation can change the prompt or its validation. */
 export function outputSchema(value: unknown): { json: string; prompt: string; parse(text: string): { data: unknown } | undefined } {
   let json: string | undefined;
@@ -146,7 +155,7 @@ export function outputSchema(value: unknown): { json: string; prompt: string; pa
       return v;
     });
   } catch { invalid(); }
-  if (!json || json.length > 65_536 || new TextEncoder().encode(json).length > 65_536) invalid();
+  if (!json || json.length > 65_536 || utf8Length(json) > 65_536) invalid();
   const schema: unknown = JSON.parse(json);
   if (!record(schema)) invalid(); // the public run contract requires an object at its root
   checkSchema(schema);

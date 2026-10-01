@@ -88,7 +88,7 @@ test('structured generation and its cache run without Node or native globals', a
     })();`, resolveDir: import.meta.dirname, sourcefile: 'phone-generation.ts' },
     bundle: true, platform: 'browser', format: 'iife', conditions: ['react-native'], write: false, metafile: true, logLevel: 'silent' });
   assert.deepEqual(Object.keys(bundle.metafile!.inputs).filter((f) => /node:|claude-code/.test(f)), []);
-  const sandbox: any = { setTimeout, clearTimeout, AbortController, TextEncoder };
+  const sandbox: any = { setTimeout, clearTimeout, AbortController };
   runInNewContext(bundle.outputFiles[0].text, sandbox);
   const { answer, calls } = await sandbox.result;
   assert.equal(answer.data.name, 'Umer');
