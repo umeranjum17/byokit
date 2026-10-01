@@ -2,8 +2,10 @@ import { createHash, randomUUID, scryptSync } from 'node:crypto';
 import { chmodSync, closeSync, fstatSync, mkdirSync, openSync, readSync, renameSync, unlinkSync, writeFileSync, constants } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { UsageError } from './types.ts';
-import { record, quotaScope } from './windows.ts';
-import type { Provider, StoredReading, UsageStore, Window, Poll } from './types.ts';
+import { record } from './windows.ts';
+import type { Provider, StoredReading, UsageStore, Poll } from './types.ts';
+import { safeWindows } from './safe-windows.ts';
+export { safeWindows } from './safe-windows.ts';
 export type Stored = StoredReading;
 type Plans = Partial<Record<Provider, Record<string, Stored>>>;
 /** Bounded regular files only; do not follow credential or state symlinks. */
@@ -76,18 +78,6 @@ export function store(stateDir: string): UsageStore {
   };
 }
 
-/** Public stores receive only these quota fields, never raw provider payloads. */
-export function safeWindows(provider: Provider, raw: unknown): Window[] {
-  return (Array.isArray(raw) ? raw : []).slice(0, 64).flatMap((value) => {
-    if (!record(value) || !['session', 'weekly', 'monthly', 'rolling', 'custom'].includes(String(value.kind)) || value.usedPercent !== undefined && (typeof value.usedPercent !== 'number' || !Number.isFinite(value.usedPercent))) return [];
-    return [{ provider, kind: value.kind as Window['kind'], ...(typeof value.usedPercent === 'number' ? { usedPercent: Math.max(0, Math.min(100, value.usedPercent)) } : {}),
-      ...(quotaScope(value.scope) ? { scope: quotaScope(value.scope) } : {}),
-      ...(typeof value.minutes === 'number' && Number.isFinite(value.minutes) && value.minutes > 0 ? { minutes: value.minutes } : {}),
-      ...(typeof value.resetsAt === 'number' && Number.isFinite(value.resetsAt) ? { resetsAt: value.resetsAt } : {}),
-      ...(value.limited === true ? { limited: true } : {}),
-      ...(typeof value.limit === 'string' && value.limit.length <= 80 ? { limit: value.limit } : {}) }];
-  });
-}
 export function memoryUsageStore(): UsageStore {
   const readings = new Map<string, StoredReading>();
   return { get: (provider, account) => { const r = readings.get(`${provider}\0${account}`); return r ? { at: r.at, windows: safeWindows(provider, r.windows), ...(r.limited ? { limited: true } : {}), ...(safePoll(r.poll) ? { poll: safePoll(r.poll) } : {}) } : undefined; },
