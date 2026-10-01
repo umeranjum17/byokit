@@ -1,0 +1,23 @@
+# Multiple accounts (WP1)
+
+Each member owns a credential record. Legacy provider engine keys remain readable; the first public account id is the provider key, followed by `<provider>.<8 hex>` for later accounts. `.accounts` stores only names, emails, plans, addedAt and defaults. Account-specific engines see credential views and never the index. `viewStore(store, providerId, storageId)` exposes only that provider slot, with the refresh and ending transaction seams. `IndexStore.index(fn?, {signal?}?)` serializes a non-secret index/record mutation; a cancellation during its durable write restores the previous record before releasing the lock.
+
+Portable shared types are exported from `multi.ts`: AccountId, AccountRef, Via, ProviderInfo, Account and ModelInfo. Existing selection helpers are unchanged.
+
+Accounts adds `list(member): Promise<Account[]>`, `add(member, provider, {via?, key?}?): Promise<{id: AccountId; signIn?: SignIn}>`, `rename(member, id, name): Promise<Account>`, `remove(member, id): Promise<void>`, `defaults(member): Promise<Defaults>` and `setDefaults(member, defaults): Promise<void>`. CRUD requires an index-capable store, supplied by every built-in store or `recordStore(load, save)`. Built-in stores, including `keystoreStore`, return `EndingStore` (credential, refresh, ending and index seams). API-key addition is deferred to WP4.
+
+An add starts a fresh sign-in with a provisional id. Await `finished(member, id)` for completion; `view(member, id).id` then gives the canonical id. Matching provider identity replaces the existing credential and preserves its name, creation time and defaults; a different identity adds an account. The provisional id remains an alias for that canonical account in this Accounts instance. Incomplete or failed additions never enter the credential record. Identity uses accountId, then stable OAuth claims, then email; absent identity never deduplicates.
+
+Existing provider-key calls choose that provider's default account, else its first account. Synchronous readiness helpers use the last resolved default (updated by `setDefaults` and asynchronous provider calls); account list rows always read their own state. Explicit suffixed ids select one account. Status retains `account` and adds `id` and `provider`; hooks receive account ids. `runtime(member, id?)` supports a view for a specific account; `access(member, signal?, id?)` exposes a host-only ChatGPT capability for it. A non-ChatGPT public id rejects with `ResponseError(kind: 'not_included')` before opening any credential runtime or calling `getAuth`; it never selects or returns another provider's grant. Run selection and models remain WP2.
+
+## Read-only native Pi descriptor
+
+`nativePiAccount({stateDir, folder, bin, home}): NativePiAccount` describes an independently app-owned Pi folder at `<stateDir>/pi/<hex>`; all paths are absolute, existing folders cannot be symlinks, and stateDir cannot be a default CLI folder beneath home. It returns `{kind: 'pi', bin, launch: {set: {PI_CODING_AGENT_DIR: folder}, unset: string[]}, resumeArgs(ref)}`. The descriptor never reads/writes credentials, creates folders, signs in or claims readiness/identity. `resumeArgs({kind:'path'|'id', value})` returns `['--session', value]`. The host combines `launch` with `launchEnv({base, account: descriptor.launch})`, invokes `bin`, and keeps native Pi authentication independent of Claude/Codex. Pin-qualified native behavior: Pi 0.87.1, fixture credential selection and actual RPC resume; no live sign-in or paid response claim.
+
+This is not a mapping from Claude accounts to Pi, and does not add Pi to `cliAccounts.kinds('claude')` or Auto. Pi native sign-in/status/identity-to-row semantics still need an explicit host contract before managed roster/Auto adoption. Found-row default mutation remains forbidden.
+
+## Managed CLI availability
+
+`cliAccounts.list()` and `status(id)` retain an owned managed row when its provider binary was not supplied, returning `state: 'not_included'` without reading its grant, launching a process or changing sign-in markers. Shared Auto excludes that row. `add`, `signInAgain` and `usageSource` still require the explicitly supplied provider binary; missing availability is not authority to use PATH or the person's default login. Found rows stay excluded and all managed operations reject them.
+
+Fresh browser sign-in uses catalogue `fresh: {param, value}`. ChatGPT requests `prompt=login`. Loopback ports are reserved process-wide until the flow ends or switches to code; another flow uses device code, or paste for providers without it. No credential or key enters the index, public views, errors or output.

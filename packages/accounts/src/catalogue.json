@@ -8,6 +8,7 @@
       "fast": "gpt-6-luna"
     },
     "callbackPort": 1455,
+    "fresh": { "param": "prompt", "value": "login" },
     "clientId": "app_EMoamEEZ73f0CkXaXp7hrann",
     "revoke": "https://auth.openai.com/oauth/revoke",
     "billing": "subscription",

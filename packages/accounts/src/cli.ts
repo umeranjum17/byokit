@@ -64,6 +64,35 @@ function directory(path: string, create = false): boolean {
     return false;
   }
 }
+export type NativePiAccount = {
+  kind: 'pi'; bin: string;
+  launch: { set: { PI_CODING_AGENT_DIR: string }; unset: string[] };
+  resumeArgs(ref: { kind: 'id' | 'path'; value: string }): string[];
+};
+/** Read-only Pi 0.87.1 launch descriptor; no grant reads, sign-in or readiness claim. */
+export function nativePiAccount(options: { stateDir: string; folder: string; bin: string; home: string }): NativePiAccount {
+  if (!record(options) || [options.stateDir, options.folder, options.bin, options.home].some(v => !text(v) || !isAbsolute(v))) throw new CliAccountError('bad-option');
+  const stateDir = resolve(options.stateDir); const parent = join(stateDir, 'pi'); const folder = resolve(options.folder);
+  for (const path of ['.claude', '.codex', '.pi']) {
+    const own = join(resolve(options.home), path);
+    if (stateDir === own || stateDir.startsWith(own + '/')) throw new CliAccountError('bad-option');
+  }
+  if (!folder.startsWith(parent + '/') || !/^[a-f0-9]+$/.test(folder.slice(parent.length + 1))) throw new CliAccountError('bad-option');
+  try {
+    for (const path of [stateDir, parent, folder]) {
+      if (!directory(path) || realpathSync(path) !== path) throw new CliAccountError('bad-option');
+    }
+  } catch { throw new CliAccountError('bad-option'); }
+  return {
+    kind: 'pi', bin: options.bin,
+    launch: { set: { PI_CODING_AGENT_DIR: folder }, unset: ['PI_CODING_AGENT_SESSION_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'] },
+    resumeArgs(ref) {
+      if (!record(ref) || (ref.kind !== 'id' && ref.kind !== 'path') || !text(ref.value) || !ref.value || ref.value.startsWith('-')) throw new CliAccountError('kind-mismatch');
+      return ['--session', ref.value];
+    },
+  };
+}
+
 /** Only app-managed folders and explicitly supplied absolute CLI binaries. */
 export function cliAccounts(options: CliOptions) {
   if (!record(options) || !text(options.stateDir) || !isAbsolute(options.stateDir) || !record(options.bins) || !record(options.env) || !text(options.env.PATH) || !text(options.env.HOME) || !isAbsolute(options.env.HOME)) throw new CliAccountError('bad-option');
@@ -181,6 +210,7 @@ export function cliAccounts(options: CliOptions) {
   async function status(id: string): Promise<CliAccount> {
     return serial(id, async () => {
       const r = row(id);
+      if (!bins[r.provider]) return { id: r.id, provider: r.provider, name: r.name.trim() || suggestName(undefined, r.provider), billing: 'subscription', state: 'not_included' };
       const signing = marker(pending(r)) && !marker(complete(r));
       if (signing) return { id: r.id, provider: r.provider, name: r.name.trim() || suggestName(undefined, r.provider), billing: 'subscription', state: 'signing' };
       const info = await readIdentity(r);

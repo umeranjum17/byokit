@@ -15,8 +15,8 @@ export type MockOpenAIOptions = { port?: number; host?: string; plan?: string; e
   answers?: readonly MockOpenAIAnswer[]; log?: (line: string) => void };
 
 /** An access token as OpenAI shapes it: the account, the plan and the email in its claims. */
-export const mockJwt = (plan = 'plus', email = 'sara@example.com', n = 0) => ['eyJhbGciOiJub25lIn0', Buffer.from(JSON.stringify({
-  'https://api.openai.com/auth': { chatgpt_account_id: 'acct-1', chatgpt_plan_type: plan }, 'https://api.openai.com/profile': { email }, n,
+export const mockJwt = (plan = 'plus', email = 'sara@example.com', n = 0, accountId = 'acct-1') => ['eyJhbGciOiJub25lIn0', Buffer.from(JSON.stringify({
+  'https://api.openai.com/auth': { chatgpt_account_id: accountId, chatgpt_plan_type: plan }, 'https://api.openai.com/profile': { email }, n,
   // As long as a real one, whose claims fill about 1.5 kB.
   scp: ['openid', 'profile', 'email', 'offline_access'], pad: 'x'.repeat(1200),
 })).toString('base64url'), 'sig'].join('.');
@@ -34,16 +34,17 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
     refuse: false,
     /** Seconds each issued token lives. */
     expiresIn,
+    accountId: 'acct-1', email, plan,
     /** Drop this many device-code polls on the floor, as a phone does to a backgrounded app. */
     dropPolls: 0,
     /** Answer the next question with this HTTP error instead (a limit, a lapsed sign-in), then answer normally. */
     fail: undefined as { status: number; body: string } | undefined,
   };
   const accessOf = new Map<string, string>(); // refresh token → the access token issued with it
-  const issue = () => {
+  const issue = (identity = { accountId: state.accountId, email: state.email, plan: state.plan }) => {
     const refresh = `rt_${++issued}`;
     state.live.add(refresh);
-    accessOf.set(refresh, mockJwt(plan, email, issued));
+    accessOf.set(refresh, mockJwt(identity.plan, identity.email, issued, identity.accountId));
     return { access_token: accessOf.get(refresh)!, refresh_token: refresh, expires_in: state.expiresIn, id_token: 'x' };
   };
   const approve = (userCode: string, deny = false) => {
@@ -90,11 +91,15 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
           return send(200, issue());
         }
         if (state.refuse || !state.live.delete(form.get('refresh_token') ?? '')) return send(401, { error: { code: 'refresh_token_reused', message: 'invalid_grant' } });
-        return send(200, issue());
+        {
+          const access = accessOf.get(form.get('refresh_token')!)!;
+          const claims = JSON.parse(Buffer.from(access.split('.')[1], 'base64url').toString());
+          return send(200, issue({ accountId: claims['https://api.openai.com/auth'].chatgpt_account_id, plan: claims['https://api.openai.com/auth'].chatgpt_plan_type, email: claims['https://api.openai.com/profile'].email }));
+        }
       case '/codex/responses': {
         const bearer = req.headers.authorization?.replace(/^Bearer /, '');
         if (state.fail) { const f = state.fail; state.fail = undefined; return send(f.status, f.body); }
-        if (![...state.live].some((r) => accessOf.get(r) === bearer) || req.headers['chatgpt-account-id'] !== 'acct-1')
+        if (![...state.live].some((r) => accessOf.get(r) === bearer) || req.headers['chatgpt-account-id'] !== (bearer && JSON.parse(Buffer.from(bearer.split('.')[1], 'base64url').toString())['https://api.openai.com/auth'].chatgpt_account_id))
           return send(401, { error: { message: 'Provided authentication token is expired. Please try signing in again.' } });
         const asked = json();
         const turns = Array.isArray(asked.input) ? asked.input : [];

@@ -11,7 +11,9 @@ import { claims, PORTABLE, portableEngine } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
 import type { ChatGPTRespondAccount } from './chatgpt-plan.ts';
-import { memoryStore, refreshCredential, type EndingStore, type RefreshStore } from './stores.ts';
+import { emptyIndex, viewStore, memoryStore, refreshCredential, type EndingStore, type RefreshStore } from './stores.ts';
+import type { Account, Defaults, Via } from './multi.ts';
+import type { Credential } from '@earendil-works/pi-ai';
 import { callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';
 
 /** What signing in needs from an engine: Pi's `Models`, or anything shaped like it (the coding agent's `ModelRuntime`). */
@@ -20,8 +22,8 @@ export type AuthHost = Pick<Models, 'login' | 'logout' | 'checkAuth' | 'getAuth'
 export type Member = string | number;
 /** What the person sees while signing in: the provider's own page to open (`via: 'browser'`), or a code to type there
  *  (`via: 'code'`), never the engine's own prompts. `why` names how a failed one failed, for apps that word it themselves. */
-export type SignIn = { state: 'waiting' | 'done' | 'failed'; via?: 'browser' | 'code'; url?: string; code?: string; expiresAt?: number; error?: string; why?: Why };
-export type Status = { account: string; name: string; state: 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included'; until?: number; words: string };
+export type SignIn = { id?: string; state: 'waiting' | 'done' | 'failed'; via?: 'browser' | 'code'; url?: string; code?: string; expiresAt?: number; error?: string; why?: Why };
+export type Status = { id: string; provider: string; account: string; name: string; state: 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included'; until?: number; words: string };
 type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text: string) => void; refuse?: (e: Error) => void; timedOut?: boolean; toCode?: boolean;
   oauthState?: string; done?: Promise<void>; shown?: () => void };
 
@@ -75,6 +77,7 @@ export function planOf(access: string): { plan: string; email: string; work: boo
   return { plan, email: String(c['https://api.openai.com/profile']?.email ?? c.email ?? ''), work: /^(team|business|enterprise|edu|education|k12)/.test(plan) };
 }
 
+const ports = new Set<number>();
 const offline = (e: any) => failure(String(e?.message)) === 'offline';
 
 /** Ends a sign-in on the provider's side, as Codex's own logout does (openai/codex#17825): the refresh token, else the
@@ -109,6 +112,128 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   onExpired?: (member: M, key: string) => void;
   onSignOutError?: (member: M, key: string, error: Error) => void;
 
+  private additions = new Map<string, EndingStore>();
+  private aliases = new Map<string, string>();
+  private preferred = new Map<string, string>();
+  private accountKey(member: M, key: string) { return this.aliases.get(`${member}:${key}`) ?? key; }
+  private stateKey(member: M, key: string) { return this.accountKey(member, this.preferred.get(`${member}:${key}`) ?? key); }
+  private providerKey(key: string) { return key.split('.')[0]; }
+  private storageKey(key: string) { return key.includes('.') ? key : this.offer(key).pi; }
+  private async resolveKey(member: M, key: string) {
+    if (key.includes('.')) return this.accountKey(member, key);
+    const index = await this.index(member);
+    const ids = (await this.store(member).list()).map((c) => this.publicKey(c.providerId)).filter((id) => this.providerKey(id) === key);
+    const chosen = ids.includes(index.defaults.account ?? '') ? index.defaults.account! : ids[0] ?? key;
+    this.preferred.set(`${member}:${key}`, chosen);
+    return chosen;
+  }
+  private publicKey(key: string) { return this.providers.find((p) => p.pi === key)?.key ?? key; }
+  private index(member: M) { return this.store(member).index(); }
+
+  async list(member: M): Promise<Account[]> {
+    const index = await this.index(member);
+    const rows: Account[] = [];
+    for (const c of await this.store(member).list()) {
+      const id = this.publicKey(c.providerId);
+      const p = this.providers.find((p) => p.key === this.providerKey(id));
+      if (!p) continue;
+      const status = await this.accountStatus(member, id);
+      const token = await this.store(member).read(c.providerId);
+      const info = token?.type === 'oauth' ? planOf(token.access) : undefined;
+      rows.push({ id, provider: p.key, route: p.pi, name: index.names[id] ?? p.name, label: p.label ?? p.name,
+        billing: p.billing, state: status.state, ...(status.until ? { until: status.until } : {}),
+        ...(index.emails[id] || info?.email ? { email: index.emails[id] || info?.email } : {}),
+        ...(index.plans[id] || info?.plan ? { plan: index.plans[id] || info?.plan } : {}), addedAt: index.addedAt[id] ?? 0 });
+    }
+    return rows;
+  }
+
+  async defaults(member: M): Promise<Defaults> { return (await this.index(member)).defaults; }
+  async setDefaults(member: M, defaults: Defaults): Promise<void> {
+    const accounts = await this.list(member);
+    if (defaults.account && !accounts.some((a) => a.id === defaults.account)) throw new Error('No such account.');
+    await this.store(member).index((i) => { i.defaults = { ...defaults }; });
+    for (const p of this.providers) {
+      const rows = accounts.filter((a) => a.provider === p.key);
+      const chosen = rows.find((a) => a.id === defaults.account) ?? rows[0];
+      if (chosen) this.preferred.set(`${member}:${p.key}`, chosen.id);
+      else this.preferred.delete(`${member}:${p.key}`);
+    }
+  }
+  async rename(member: M, id: string, name: string): Promise<Account> {
+    id = this.accountKey(member, id);
+    const account = (await this.list(member)).find((a) => a.id === id);
+    if (!account) throw new Error('No such account.');
+    name = name.trim();
+    if (!name) throw new Error('Give this account a name.');
+    await this.store(member).index((i) => { i.names[id] = name; });
+    this.onChange?.(member, id);
+    return { ...account, name };
+  }
+  async remove(member: M, id: string): Promise<void> {
+    id = this.accountKey(member, id);
+    try { await this.endAccount(member, id, true); }
+    finally {
+      await this.store(member).index((i) => {
+        for (const map of [i.names, i.emails, i.plans, i.addedAt]) delete map[id];
+        if (i.defaults.account === id) delete i.defaults.account;
+      });
+      this.preferred.delete(`${member}:${this.providerKey(id)}`);
+      await this.resolveKey(member, this.providerKey(id));
+    }
+  }
+  async add(member: M, key: string, options: { via?: Via; key?: string } = {}): Promise<{ id: string; signIn?: SignIn }> {
+    const p = this.offer(key);
+    if (p.auth === 'api-key' || options.key || options.via === 'key' || options.via === 'session') throw new Error('This sign-in method is not available here.');
+    if (key !== p.key) throw new Error('Choose a provider to add an account.');
+    await this.store(member).index(() => {}); // Validate the storage seam before starting a flow.
+    const bytes = new Uint8Array(4);
+    let id: string;
+    do {
+      // These are non-secret row ids, not OAuth state. Older phone hosts need no crypto shim for them.
+      if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
+      else for (let n = 0; n < bytes.length; n++) bytes[n] = Math.floor(Math.random() * 256);
+      id = `${key}.${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+    } while (this.additions.has(`${member}:${id}`) || await this.store(member).read(id));
+    this.additions.set(`${member}:${id}`, memoryStore());
+    const signIn = await this.login(member, id, { via: options.via === 'code' ? 'code' : 'browser', fresh: true });
+    return { id, ...(signIn ? { signIn } : {}) };
+  }
+  private identity(c: Credential | undefined): string | undefined {
+    if (c?.type !== 'oauth') return undefined;
+    if (typeof c.accountId === 'string' && c.accountId) return c.accountId;
+    try {
+      const j = claims(c.access);
+      const identity = j.sub ?? j['https://api.openai.com/auth']?.chatgpt_account_id ?? j.email ?? j['https://api.openai.com/profile']?.email;
+      return typeof identity === 'string' && identity ? identity : undefined;
+    } catch { return undefined; }
+  }
+  private async commitAddition(member: M, key: string, flow: Flow) {
+    const staged = this.additions.get(`${member}:${key}`);
+    if (!staged) return key;
+    const p = this.offer(key);
+    const c = await staged.read(p.pi);
+    if (!c) throw new Error('No usable sign-in.');
+    let canonical = key;
+    await this.store(member).index((index, data) => {
+      if (flow.state !== 'waiting' || flow.abort.signal.aborted) throw new Error('Login cancelled');
+      const identity = this.identity(c);
+      const entries = Object.entries(data).filter(([id]) => !id.startsWith('.') && this.providerKey(this.publicKey(id)) === p.key);
+      const match = identity && entries.find(([, old]) => this.identity(old as Credential) === identity);
+      canonical = match ? this.publicKey(match[0]) : entries.length ? key : p.key;
+      data[this.storageKey(canonical)] = c;
+      index.addedAt[canonical] ??= Date.now();
+      const info = c.type === 'oauth' ? planOf(c.access) : undefined;
+      if (info?.email) index.emails[canonical] = info.email;
+      if (info?.plan) index.plans[canonical] = info.plan;
+    }, { signal: flow.abort.signal });
+    this.aliases.set(`${member}:${key}`, canonical);
+    flow.id = canonical;
+    this.additions.delete(`${member}:${key}`);
+    this.runtimes.delete(`${member}:${key}`);
+    return canonical;
+  }
+
   private platform: Platform;
   /** Offered: the providers named in `offer`, else every subscription provider that this platform can sign in to. */
   constructor(opts: AccountsOptions<M> = {}, platform: Platform = portable) {
@@ -126,6 +251,12 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       let chain: Promise<unknown> = Promise.resolve();
       const serial = <T>(fn: () => Promise<T>) => { const result = chain.then(fn); chain = result.catch(() => {}); return result; };
       s = {
+        index: (fn, options) => {
+          const index = (base as Partial<EndingStore>).index;
+          if (index) return serial(() => index.call(base, fn, options));
+          if (fn) throw new Error('Multiple accounts require recordStore(load, save).');
+          return Promise.resolve(emptyIndex());
+        },
         read: (id) => base.read(id),
         list: () => base.list(),
         modify: (id, fn, options) => serial(() => base.modify(id, fn, options)),
@@ -149,8 +280,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     try { return await work; } finally { if (this.chains.get(id) === tail) this.chains.delete(id); }
   }
 
-  protected boundStore(member: M, raw: CredentialStore): BoundStore {
-    const key = (id: string) => `${member}:${this.providers.find((p) => p.pi === id)?.key ?? id}`;
+  protected boundStore(member: M, raw: CredentialStore, accountId?: string): BoundStore {
+    const key = (id: string) => `${member}:${accountId ?? this.providers.find((p) => p.pi === id)?.key ?? id}`;
     return {
       read: (id, options) => raw.read(id, options),
       list: (options) => raw.list(options),
@@ -173,7 +304,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
           if (next?.type === 'oauth' && p?.revoke) {
             try { await revoke(this.opts.authBase ? `${this.opts.authBase}/oauth/revoke` : p.revoke!, p.clientId, next); } catch (e) {
               const error = e instanceof Error ? e : new Error(String(e));
-              if (this.onSignOutError) this.onSignOutError(member, p.key, error);
+              if (this.onSignOutError) this.onSignOutError(member, accountId ?? p.key, error);
               else console.error('Sign-out of a discarded credential failed');
               throw error;
             }
@@ -212,9 +343,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     };
   }
 
-  protected engine(member: M, raw: CredentialStore): Promise<R> {
-    const credentials = this.boundStore(member, raw);
-    return Promise.resolve(Object.assign(withClaudePlan(this.platform.engine(credentials, this.opts.authBase), credentials, this.baseStores.get(String(member)) ?? raw, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch }), {
+  protected engine(member: M, raw: CredentialStore, accountId?: string): Promise<R> {
+    const credentials = this.boundStore(member, raw, accountId);
+    return Promise.resolve(Object.assign(withClaudePlan(this.platform.engine(credentials, this.opts.authBase), credentials, accountId ? raw : this.baseStores.get(String(member)) ?? raw, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch }), {
       credentialStore: credentials, readCredential: (id: string) => credentials.read(id),
     }) as R);
   }
@@ -222,14 +353,27 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   /** A member's engine, holding only their own sign-ins (`store(member)`). Override to use another engine with the same seam. */
   protected open(member: M): Promise<R> { return this.engine(member, this.store(member)); }
 
-  runtime(member: M) {
+  runtime(member: M, accountId?: string): Promise<R> {
+    if (accountId && !accountId.includes('.')) return this.runtime(member);
+    if (accountId) {
+      accountId = this.accountKey(member, accountId);
+      const id = `${member}:${accountId}`;
+      let r = this.runtimes.get(id);
+      if (!r) {
+        const p = this.offer(accountId);
+        const staged = this.additions.get(id);
+        const raw = staged ?? viewStore(this.store(member), p.pi, this.storageKey(accountId));
+        this.runtimes.set(id, r = this.engine(member, raw, accountId));
+      }
+      return r;
+    }
     let r = this.runtimes.get(String(member));
     if (!r) this.runtimes.set(String(member), r = this.open(member));
     return r;
   }
 
   private offer(key: string) {
-    const p = provider(key);
+    const p = provider(this.providerKey(key));
     if (!this.providers.includes(p)) throw Object.assign(new Error('AI account not offered here'), { status: 404 });
     return p;
   }
@@ -274,10 +418,15 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** Signed in, from the engine's own side-effect-free check. */
   async signedIn(member: M, key: string) {
+    key = this.additions.has(`${member}:${key}`) ? key : await this.resolveKey(member, key);
+    return this.checked(member, key);
+  }
+
+  private async checked(member: M, key: string) {
     const p = this.offer(key);
     const ok = p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)
       ? !!(await this.keys(member, (store) => store.get(`accounts.${key}`)))
-      : !!(await (await this.runtime(member)).checkAuth(p.pi).catch(() => undefined));
+      : !!(await (await this.runtime(member, key)).checkAuth(p.pi).catch(() => undefined));
     this.ready.set(`${member}:${key}`, ok);
     if (ok) this.lapsed.delete(`${member}:${key}`);
     return ok;
@@ -285,45 +434,53 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** Which ChatGPT the member signed in with: its plan, email, and whether it is a work account. Null when not signed in. */
   async plan(member: M) {
-    const c = await (await this.runtime(member)).readCredential(this.offer('chatgpt').pi).catch(() => undefined);
+    const key = await this.resolveKey(member, 'chatgpt');
+    const c = await (await this.runtime(member, key)).readCredential(this.offer('chatgpt').pi).catch(() => undefined);
     return c?.type === 'oauth' ? planOf(c.access) : null;
   }
 
   /** Whether the member's plan lacks this use; `on` records what the provider said, or that the person changed plans. */
-  notIncluded(member: M, key: string, on?: boolean) {
+  notIncluded(member: M, key: string, on?: boolean) { return this.accountNotIncluded(member, this.stateKey(member, key), on); }
+
+  private accountNotIncluded(member: M, key: string, on?: boolean) {
     const id = `${member}:${key}`;
     if (on !== undefined) { if (on) this.without.add(id); else this.without.delete(id); this.onChange?.(member, key); }
     return this.without.has(id);
   }
 
   /** Known to be unusable: signed out, or a plan without this use. An unchecked account counts as usable, so a first run still tries. */
-  unready(member: M, key: string) { return this.ready.get(`${member}:${key}`) === false || this.without.has(`${member}:${key}`); }
+  unready(member: M, key: string) { key = this.stateKey(member, key); return this.ready.get(`${member}:${key}`) === false || this.without.has(`${member}:${key}`); }
 
   /** The account turned a request away (its sign-in lapsed): signed out until the person signs in again. */
-  forget(member: M, key: string) {
+  forget(member: M, key: string) { this.forgetAccount(member, this.stateKey(member, key)); }
+
+  private forgetAccount(member: M, key: string) {
     this.ready.set(`${member}:${key}`, false);
     this.lapsed.add(`${member}:${key}`);
     this.onChange?.(member, key);
   }
 
   /** 0 when the account is available; otherwise when it stops resting. */
-  restingUntil(member: M, key: string) {
+  restingUntil(member: M, key: string) { return this.accountRestingUntil(member, this.stateKey(member, key)); }
+
+  private accountRestingUntil(member: M, key: string) {
     const r = this.rests.get(`${member}:${key}`);
     return r && r.until > Date.now() ? r.until : 0;
   }
 
   /** Fresh ChatGPT access for a host-side capability. Never send this to another device. */
-  async access(member: M, signal?: AbortSignal): Promise<{ access: string; accountId: string }> {
+  async access(member: M, signal?: AbortSignal, accountId?: string): Promise<{ access: string; accountId: string }> {
     signal?.throwIfAborted();
-    const key = 'chatgpt';
+    const key = accountId ? this.accountKey(member, accountId) : await this.resolveKey(member, 'chatgpt');
+    if (this.providerKey(key) !== 'chatgpt') throw new ResponseError('This capability needs a ChatGPT subscription account.', 'not_included');
     const p = this.offer(key);
-    const rt = await this.runtime(member);
+    const rt = await this.runtime(member, key);
     let access: string | undefined;
     try { access = (await rt.getAuth(p.pi))?.auth?.apiKey; }
     catch (e: any) {
       if ([400, 401, 403].includes(e?.status)) {
         await rt.credentialStore.delete(p.pi);
-        this.forget(member, key);
+        this.forgetAccount(member, key);
         throw new ResponseError(say('status.needsAgain', { name: p.name }), 'signed_out');
       }
       throw new ResponseError('ChatGPT could not refresh its sign-in. Try again when the network is back.', 'network');
@@ -408,10 +565,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    *  does was a passing refusal and rests a few minutes (kind `overloaded`) rather than loop. Returns the kind acted on,
    *  or null for an error that is not about the account; `network` changes nothing. */
   async failed(member: M, key: string, error: string | ResponseError) {
+    key = await this.resolveKey(member, key);
     const c = error instanceof ResponseError ? error.kind && { kind: error.kind, until: error.until } : classify(error);
     if (!c || c.kind === 'network') return c;
     if (c.kind === 'signed_out' && await this.recheck(member, key)) c.kind = 'overloaded';
-    if (c.kind === 'not_included') this.notIncluded(member, key, true);
+    if (c.kind === 'not_included') this.accountNotIncluded(member, key, true);
     else if (c.kind !== 'signed_out') {
       c.until ||= Date.now() + REST_MS[c.kind];
       this.rests.set(`${member}:${key}`, { until: c.until, kind: c.kind });
@@ -427,13 +585,18 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** Where one account stands, in one plain sentence every app shows the same way. */
   async status(member: M, key: string): Promise<Status> {
+    key = this.additions.has(`${member}:${key}`) ? key : await this.resolveKey(member, key);
+    return this.accountStatus(member, key);
+  }
+
+  private async accountStatus(member: M, key: string): Promise<Status> {
     const { name } = this.offer(key);
     const id = `${member}:${key}`;
-    const s = (state: Status['state'], w: WordKey, until?: number): Status => ({ account: key, name, state, until, words: say(w, { name, until: until ? clock(until) : '' }) });
+    const s = (state: Status['state'], w: WordKey, until?: number): Status => ({ id: key, provider: this.providerKey(key), account: key, name, state, until, words: say(w, { name, until: until ? clock(until) : '' }) });
     if (this.flows.get(id)?.state === 'waiting') return s('signing', 'status.signing');
-    const until = this.restingUntil(member, key);
+    const until = this.accountRestingUntil(member, key);
     if (until) return s('resting', this.rests.get(id)!.kind === 'rate_limit' ? 'status.resting' : 'status.busy', until);
-    if (!(this.ready.get(id) ?? await this.signedIn(member, key))) return this.lapsed.has(id) ? s('needs_again', 'status.needsAgain') : s('signed_out', 'status.signedOut');
+    if (!(this.ready.get(id) ?? await this.checked(member, key))) return this.lapsed.has(id) ? s('needs_again', 'status.needsAgain') : s('signed_out', 'status.signedOut');
     return this.without.has(id) ? s('not_included', 'status.notIncluded') : s('ready', 'status.ready');
   }
 
@@ -446,6 +609,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   async login(member: M, key: string, body: { via?: 'code' | 'browser'; fresh?: boolean } = {}): Promise<SignIn | null> {
     const p = this.offer(key);
     if (p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)) throw new Error('Connect an API key after agreeing to billing per use.');
+    key = this.additions.has(`${member}:${key}`) ? key : await this.resolveKey(member, key);
     const id = `${member}:${key}`;
     const pending = this.signingOut.get(id);
     if (pending) await pending.catch(() => {});
@@ -467,7 +631,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
 
   /** The whole sign-in, for when the caller wants to wait for its end (tests do). */
-  finished(member: M, key: string) { return this.flows.get(`${member}:${key}`)?.done ?? Promise.resolve(); }
+  finished(member: M, key: string) { key = this.preferred.get(`${member}:${key}`) ?? key; return this.flows.get(`${member}:${key}`)?.done ?? Promise.resolve(); }
 
   private toCode(flow: Flow) {
     if (flow.state !== 'waiting' || flow.via !== 'browser' || flow.toCode) return;
@@ -478,7 +642,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   private async signIn(member: M, key: string, body: { via?: 'code' | 'browser'; fresh?: boolean }, flow: Flow) {
     const p = this.offer(key);
     const id = `${member}:${key}`;
-    const rt = await this.runtime(member);
+    const rt = await this.runtime(member, key);
     let codeOffered = false;
     const attempt = (via?: 'code' | 'browser') => rt.login(p.pi, 'oauth', {
       signal: flow.abort.signal,
@@ -498,7 +662,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       notify: (e) => {
         if (e.type === 'auth_url') {
           const url = new URL(e.url);
-          if (body.fresh) url.searchParams.set('prompt', 'login'); // "Use my personal account": ask which account, again
+          if (body.fresh && p.fresh) url.searchParams.set(p.fresh.param, p.fresh.value); // "Use my personal account": ask which account, again
           Object.assign(flow, { via: 'browser', url: url.toString(), code: undefined, oauthState: url.searchParams.get('state') ?? undefined });
         }
         if (e.type === 'device_code') Object.assign(flow, { via: 'code', code: e.userCode, url: e.verificationUri, expiresAt: e.expiresInSeconds ? Date.now() + e.expiresInSeconds * 1000 : undefined });
@@ -510,24 +674,35 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const stuck = p.key === 'claude' ? undefined : setTimeout(() => this.toCode(flow), this.opts.redirectMs ?? 3 * 60_000);
     // Listen where the provider sends the browser back (the engine then finds the port taken and waits to be handed the address).
     const port = p.callbackPort && (this.opts.callbackPort ?? p.callbackPort);
-    const catcher = port && body.via !== 'code' && this.platform.loopback ? await this.catchRedirect(this.platform.loopback, flow, p.name, port).catch(() => null) : undefined;
+    let reserved = !!port && body.via !== 'code' && !!this.platform.loopback && !ports.has(port);
+    if (reserved) ports.add(port!);
+    const catcher = reserved && this.platform.loopback ? await this.catchRedirect(this.platform.loopback, flow, p.name, port!).catch(() => null) : undefined;
+    let closed = false;
+    const close = () => {
+      if (!closed) { catcher?.close(); closed = true; }
+      if (reserved) { ports.delete(port!); reserved = false; }
+    };
     try {
-      if (catcher === null) throw Object.assign(new Error('port busy'), { why: 'busy' as const });
-      try { await attempt(body.via ?? (catcher ? 'browser' : undefined)); } catch (e) {
+      if (catcher === null && !this.additions.has(id)) throw Object.assign(new Error('port busy'), { why: 'busy' as const });
+      try { await attempt(catcher === null || (port && !reserved && body.via !== 'code') ? 'code' : body.via ?? (catcher ? 'browser' : undefined)); } catch (e) {
         // The code instead: asked for, or the page never came back. Also when a browser sign-in could not return here at all.
         if (!flow.toCode && (catcher || body.via === 'code' || !codeOffered || flow.abort.signal.aborted)) throw e;
         Object.assign(flow, { url: undefined, code: undefined, via: 'code' });
-        catcher?.close();
+        close();
         await attempt('code');
       }
       if (flow.generation !== (this.generations.get(id) ?? 0) || flow.state !== 'waiting') return;
       if (!(await rt.checkAuth(p.pi).catch(() => undefined))) { await rt.logout(p.pi).catch(() => {}); throw new Error('no usable credential'); }
       if (flow.generation !== (this.generations.get(id) ?? 0) || flow.state !== 'waiting') return;
+      const canonical = await this.commitAddition(member, key, flow);
       flow.state = 'done';
+      this.ready.set(`${member}:${canonical}`, true);
+      for (const set of [this.lapsed, this.without]) set.delete(`${member}:${canonical}`);
+      this.rests.delete(`${member}:${canonical}`);
       this.ready.set(id, true);
       for (const s of [this.lapsed, this.without]) s.delete(id);
       this.rests.delete(id);
-      this.onSignedIn?.(member, key);
+      this.onSignedIn?.(member, flow.id ?? key);
     } catch (e: any) {
       if (flow.state !== 'waiting') return; // cancelled: already settled
       const error = String(e?.message ?? e);
@@ -538,8 +713,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     } finally {
       clearTimeout(timer);
       clearTimeout(stuck);
-      catcher?.close();
-      this.onChange?.(member, key);
+      close();
+      if (flow.state !== 'done') { this.additions.delete(id); this.runtimes.delete(id); }
+      this.onChange?.(member, flow.id ?? key);
     }
   }
 
@@ -564,13 +740,16 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** The redirect address (or a code) pasted back, for when the browser couldn't return to this computer by itself. */
   paste(member: M, key: string, text: string) {
+    key = this.preferred.get(`${member}:${key}`) ?? key;
     const f = this.flows.get(`${member}:${key}`);
     if (f?.state !== 'waiting' || !f.paste) throw Object.assign(new Error('no sign-in is waiting'), { status: 409 });
     f.paste(text.trim());
   }
 
   /** Stop a sign-in and forget it; nothing it started is kept. */
-  cancel(member: M, key: string) {
+  cancel(member: M, key: string) { this.cancelFlow(member, this.preferred.get(`${member}:${key}`) ?? key); }
+
+  private cancelFlow(member: M, key: string) {
     const f = this.flows.get(`${member}:${key}`);
     if (f?.state === 'waiting') { f.state = 'failed'; f.abort.abort(); f.refuse?.(new Error('cancelled')); }
     this.flows.delete(`${member}:${key}`);
@@ -581,10 +760,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const p = this.offer(key);
     if (p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)) return this.signedIn(member, key);
     const pi = p.pi;
-    return (await this.runtime(member)).getAuth(pi, { minOAuthValidityMs }).then(Boolean, async (e: Error) => {
+    key = this.accountKey(member, key);
+    return (await this.runtime(member, key)).getAuth(pi, { minOAuthValidityMs }).then(Boolean, async (e: Error) => {
       if (offline(e)) return true;
       if (e?.message === `OAuth refresh returned a token that expires too soon for ${pi}`) {
-        const c = await this.store(member).read(pi);
+        const c = await this.store(member).read(this.storageKey(key));
         return c?.type === 'oauth' && c.expires > Date.now();
       }
       // A provider refusal or quarantined refresh requires sign-in again. A read failure before sending (for example
@@ -598,30 +778,42 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    *  nobody is looking. A refusal or uncertain refresh requires sign-in again; `onExpired` says so once. A storage
    *  read failure before sending remains unknown and can be retried. */
   async keepFresh(members: readonly M[]) {
-    for (const m of members) for (const p of this.providers) {
-      if (this.ready.get(`${m}:${p.key}`) !== true) continue;
-      const ok = await this.refreshed(m, p.key, 60 * 60_000);
-      if (!ok) { this.forget(m, p.key); this.onExpired?.(m, p.key); }
+    for (const m of members) {
+      const keys = new Set([...this.ready].filter(([id, ready]) => ready && id.startsWith(`${m}:`)).map(([id]) => this.accountKey(m, id.slice(String(m).length + 1))));
+      for (const row of await this.store(m).list().catch(() => [])) keys.add(this.publicKey(row.providerId));
+      for (const key of keys) {
+        if (!this.providers.some((p) => p.key === this.providerKey(key)) || this.ready.get(`${m}:${key}`) === false) continue;
+        const ok = await this.refreshed(m, key, 60 * 60_000);
+        if (!ok) { this.forgetAccount(m, key); this.onExpired?.(m, key); }
+      }
     }
   }
 
   /** After the account turned a request away: true if its sign-in still refreshes; if not, it is signed out for good. */
   async recheck(member: M, key: string) {
+    key = await this.resolveKey(member, key);
     const p = this.offer(key);
     // A saved API key cannot refresh itself after an authentication refusal.
     const ok = p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)
       ? false : await this.refreshed(member, key, 365 * 86_400_000);
-    if (!ok) { await this.logout(member, key).catch(() => {}); this.forget(member, key); }
+    if (!ok) { await this.logout(member, key).catch(() => {}); this.forgetAccount(member, key); }
     return ok;
   }
 
   /** Signs out here, and at the provider too where it can end a sign-in (ChatGPT), best effort: the sign-in is deleted
    *  here whatever the provider answers. */
-  async logout(member: M, key: string) {
+  logout(member: M, key: string) { return this.endAccount(member, key); }
+
+  private async endAccount(member: M, key: string, exact = false) {
+    // Invalidate synchronously before any storage read can yield to an in-flight refresh.
+    const initial = this.accountKey(member, exact ? key : this.preferred.get(`${member}:${key}`) ?? key);
+    const initialId = `${member}:${initial}`;
+    this.generations.set(initialId, (this.generations.get(initialId) ?? 0) + 1);
+    key = exact || this.additions.has(`${member}:${key}`) ? this.accountKey(member, key) : await this.resolveKey(member, key);
     const p = this.offer(key);
     const id = `${member}:${key}`;
-    this.generations.set(id, (this.generations.get(id) ?? 0) + 1);
-    this.cancel(member, key);
+    if (id !== initialId) this.generations.set(id, (this.generations.get(id) ?? 0) + 1);
+    this.cancelFlow(member, key);
     const work = (async () => {
       if (p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)) {
         await this.serial(id, () => this.keys(member, (store) => store.delete(`accounts.${key}`)));
@@ -629,7 +821,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         this.onChange?.(member, key);
         return;
       }
-      const rt = await this.runtime(member);
+      const rt = await this.runtime(member, key);
       let error: unknown;
       try {
         if (p.revoke) await rt.credentialStore.signOut(p.pi, p);
@@ -644,8 +836,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
 
   view(member: M, key: string): SignIn | null {
+    key = this.preferred.get(`${member}:${key}`) ?? key;
     const f = this.flows.get(`${member}:${key}`);
-    return f ? { state: f.state, via: f.via, url: f.url, code: f.code, expiresAt: f.state === 'waiting' ? f.expiresAt : undefined, error: f.error, why: f.why } : null;
+    return f ? { ...(f.id ? { id: f.id } : {}), state: f.state, via: f.via, url: f.url, code: f.code, expiresAt: f.state === 'waiting' ? f.expiresAt : undefined, error: f.error, why: f.why } : null;
   }
 
   stop() { for (const f of this.flows.values()) f.abort.abort(); }
