@@ -93,8 +93,10 @@ Every package has `packages/<pkg>/CHANGELOG.md`, shipped in its tarball, in this
 - Never name competing products in entries, commits, branches or PR text.
 - Version headings are `## <x.y.z>` with an optional ` (<YYYY-MM-DD>)`.
 - A PR that changes `packages/<pkg>/src/**` or the `dependencies` of `packages/<pkg>/package.json` adds at
-  least one bullet under that package's `## Unreleased` (CI's `release lint` fails the PR otherwise; release
-  PRs that only bump `version` are exempt). The PR body copies every `SECURITY:`/`FIX:` bullet verbatim so
+  least one bullet in `packages/<pkg>/changes/<short-unique-slug>.md`. The slug can be the branch name,
+  with slashes replaced by hyphens. Use the same bullet syntax and prefixes shown above; a fragment can
+  contain multiple bullets. Add a fragment file; do not edit `CHANGELOG.md` directly (CI's `release lint`
+  fails the PR otherwise; release PRs that only bump `version` are exempt). The PR body copies every `SECURITY:`/`FIX:` bullet verbatim so
   reviewers see it.
 
 ## Releasing
@@ -109,7 +111,7 @@ Two phases, because publishing happens only from merged main:
 1. **prepare** (on a branch, becomes a normal PR): `npm run release -- prepare link=patch relay=minor [--dry-run]`
 2. **publish** (on merged main): `npm run release -- publish [--dry-run]`
 
-Publish only publishes versions not yet on npm, so feature PRs keep versions unchanged and their Unreleased changes wait for the next prepare PR.
+Publish only publishes versions not yet on npm, so feature PRs keep versions unchanged and their fragments and existing Unreleased changes wait for the next prepare PR.
 
 Publish locally with the machine's npm session (npm's own 2FA prompt comes through; the script never takes
 an OTP or token), or dispatch `release.yml` (OIDC trusted publishing with provenance, no stored token) once
