@@ -22,9 +22,10 @@ function standIn(store = memoryStore()) {
   return { a, store, calls, set(value: any, code = 200) { response = value; status = code; } };
 }
 
-test('Claude is a default grey subscription route; API key remains separate and explicit', () => {
-  assert.deepEqual(offered().map((p) => p.key), ['chatgpt', 'claude']);
-  assert.equal(PROVIDERS.claude.terms, 'grey'); assert.equal(PROVIDERS.claude.billing, 'subscription');
+test('Claude is a default subscription route; API key remains separate and explicit', () => {
+  assert.ok(offered().some((p) => p.key === 'claude'));
+  assert.ok(!offered().some((p) => p.billing === 'api'));
+  assert.equal(PROVIDERS.claude.billing, 'subscription');
   assert.deepEqual(new Accounts().providers.map((p) => p.key), ['chatgpt', 'claude']);
 });
 

@@ -6,6 +6,7 @@
 - Add managed CLI account creation, marker-gated sign-in, status, rename, cancellation, history links and removal, with legacy roster and terms compatibility.
 - Share the portable chooser's AccountLike type and accept normalized subscription usage with millisecond reset times.
 - Bound native status deadlines even when a passed CLI ignores termination; stdout is capped and only the owned child is terminated.
+- Offer every subscription catalogue row by default on supported platforms, adding Kimi, Meta, Qwen and MiniMax labels; preserve Claude Pro/Max sign-in and remove terms and visibility gates. API key (billed per use) rows remain opt-in. Simplify the ChatGPT plan-use error words.
 
 ## 0.13.0 (2026-10-01)
 
@@ -22,8 +23,6 @@
 - Claude Pro/Max subscription PKCE sign-in, direct Messages and single-flight refresh with on-device credentials.
 
 - Anthropic Messages with an app-passed API key (billed per use), explicit model and opt-in; typed native requests, streamed text/tools/thinking/message events, usage/raw results and the shared IncompleteError contract for max_tokens/refusal (including with tools) on every platform.
-
-- Offer every subscription catalogue row by default on supported platforms, adding Claude, Kimi, Meta, Qwen and MiniMax labels; remove terms and visibility gates. API key (billed per use) rows remain opt-in. Simplify the ChatGPT plan-use error words.
 - Expose fresh subscription access to host-side capabilities using the app’s own sign-in.
 
 ## 0.11.0 (2026-09-30)
