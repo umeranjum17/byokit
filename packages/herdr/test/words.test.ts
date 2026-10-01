@@ -33,6 +33,7 @@ const TABLE: readonly (readonly [WordKey, string])[] = [
   ["move.env_mismatch", "The new pane did not receive that sign-in. Try again."],
   ["move.close_failed", "The old pane could not close. The move was undone where possible."],
   ["move.start_failed", "The new account could not take over. Try again."],
+  ['turn.failed', 'This turn could not be confirmed. Check the helper before trying again.'],
 ];
 
 test('words.json is the 6.9 table verbatim — same keys, same sentences, nothing extra', () => {

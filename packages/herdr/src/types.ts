@@ -104,6 +104,31 @@ export type Move = {
 export type MoveResult = { ok: true; paneId: string } | Extract<MoveToAccountResult, { ok: false }>;
 export type PromptReceipt = { paneId: string; terminalId: string; revision: number; status: AgentStatus;
   agentSession?: AgentSessionRef };
+export type AgentTurnFiles = {
+  /** Relative paths, including directories. Returning true prunes the entry. `.git` is always excluded. */
+  exclude?: (relativePath: string) => boolean;
+  maxFiles?: number; maxBytes?: number;
+};
+export type AgentTurnResultPolicy<T> = {
+  schema: Record<string, unknown>;
+  /** Use the app's JSON Schema validator; false or a throw rejects the payload. */
+  validate: (value: unknown) => value is T;
+  maxBytes?: number;
+};
+export type AgentTurnOptions<T = unknown> = {
+  prompt: string; cwd: string; timeoutMs?: number; signal?: AbortSignal;
+  files?: AgentTurnFiles; result?: AgentTurnResultPolicy<T>;
+  onEnd?: (end: AgentTurnEnd<T>) => void;
+};
+export type AgentTurnResult<T = unknown> =
+  | { state: 'not-requested' | 'missing' }
+  | { state: 'invalid'; reason: 'format' | 'schema' | 'too-large' | 'unsafe-file' }
+  | { state: 'valid'; value: T };
+export type AgentTurnEnd<T = unknown> = {
+  id: string; target: AgentRef; receipt: PromptReceipt; status: 'idle' | 'done';
+  changedFiles: { path: string; change: 'added' | 'modified' | 'deleted' }[];
+  result: AgentTurnResult<T>;
+};
 export type BlockedAgent = { paneId: string; workspaceId: string; tabId: string; kind?: string; revision: number; prompt: string; since: number };
 export type AgentSessionRef = { source: string; agent: string; kind: string; value: string };
 export type HerdrSnapshotWorktree = {

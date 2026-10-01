@@ -10,4 +10,5 @@ export type {
   AgentRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,
   HerdrMethods, HerdrParams, HerdrProtocolRange, HerdrResult, HerdrSnapshot, HerdrState, HerdrSubscription, HerdrSubscribeStop, HerdrTransport,
   Move, MoveToAccount, MoveToAccountResult, MoveResult, OpenSignInTab, PromptReceipt, StartAgent, TerminalSession,
+  AgentTurnEnd, AgentTurnOptions, AgentTurnFiles, AgentTurnResult, AgentTurnResultPolicy,
 } from './types.ts';

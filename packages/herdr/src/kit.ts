@@ -11,6 +11,8 @@ import type {
   HerdrParams, HerdrResult, HerdrSnapshot, HerdrSnapshotAgent, HerdrSnapshotPane, HerdrSnapshotWorkspace, HerdrState, HerdrSubscription, HerdrSubscribeStop, PromptReceipt, StartAgent, TerminalSession,
   HerdrTransport, Move, MoveToAccount, MoveToAccountResult, MoveResult, OpenSignInTab,
 } from './types.ts';
+import type { AgentTurnEnd, AgentTurnOptions } from './types.ts';
+import { createTurns } from './turns.ts';
 
 const kinds = ['pane.agent_detected', 'pane.created', 'pane.closed', 'pane.moved', 'pane.exited', 'pane.updated',
   'workspace.created', 'workspace.closed', 'workspace.renamed', 'workspace.updated', 'tab.created', 'tab.closed', 'tab.renamed'];
@@ -133,6 +135,7 @@ export class HerdrKit {
   private readonly agents: ReturnType<typeof createAgents>;
   private readonly startListeners = new Set<(e: AgentStartEvent) => void>();
   private readonly blockedList: Blocked;
+  private readonly turns: ReturnType<typeof createTurns>;
   constructor(o: HerdrKitOptions) {
     this.o = o;
     this.supervisor = new Supervisor(o, (s) => { this.current = s; o.onState?.(s); });
@@ -141,6 +144,7 @@ export class HerdrKit {
       reread: (paneId) => this.reread(paneId),
       emitStart: (e) => { for (const fn of [...this.startListeners]) try { fn(e); } catch { /* a listener never breaks a start */ } } });
     this.blockedList = new Blocked({ call: this.callAny });
+    this.turns = createTurns(this);
   }
   get state(): HerdrState { return this.current; }
   private publish() { for (const fn of this.listeners) fn(this.snapshot()); }
@@ -348,6 +352,7 @@ export class HerdrKit {
     }
   }
   async stop(): Promise<void> {
+    this.turns.stop();
     ++this.generation;
     this.statusReadyResolve?.();
     this.statusReadyPromise = Promise.resolve();
@@ -403,6 +408,8 @@ export class HerdrKit {
     return () => { this.startListeners.delete(fn); };
   }
   prompt(target: AgentRef, text: string, o?: { wait?: { until?: AgentStatus[]; timeoutMs: number } }): Promise<PromptReceipt> { return this.agents.prompt(target, text, o); }
+  runTurn<T = unknown>(target: AgentRef, o: AgentTurnOptions<T>): Promise<AgentTurnEnd<T>> { return this.turns.runTurn(target, o); }
+  onTurnEnd(fn: (end: AgentTurnEnd) => void): () => void { return this.turns.onTurnEnd(fn); }
   sendKeys(target: AgentRef, keys: string[]): Promise<void> { return this.agents.sendKeys(target, keys); }
   wait(target: AgentRef, o: { until?: AgentStatus[]; timeoutMs: number }): Promise<AgentStatus> { return this.agents.wait(target, o); }
   read(paneId: string, o?: { source?: 'visible' | 'recent' | 'recent_unwrapped' | 'detection'; lines?: number; ansi?: boolean }): Promise<{ text: string; truncated: boolean }> { return this.agents.read(paneId, o); }
