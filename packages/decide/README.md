@@ -434,6 +434,7 @@ when keeping a durable cache; the CLI's default model selection can change indep
 import { generate, MemoryGenerationCache } from '@byokit/decide';
 import { claudeCode } from '@byokit/decide/claude-code';
 
+declare const hostConfig: { model: string };
 const backend = claudeCode({
   bin: '/absolute/path/to/claude',
   configDir: '/absolute/path/to/app-sign-in',
@@ -454,8 +455,8 @@ const result = await generate<{ name: string; scenes: { duration: number }[] }>(
   { state: { name: 'Umer', brief: 'A six-second introduction.' } }, schema,
   { backends: [backend], cache: new MemoryGenerationCache(), budget: { maxOutputTokens: 8192 } },
 );
-if (result.data === null) useLocalPlan();
-else render(result.data);
+if (result.data === null) console.log(result.failure?.message);
+else console.log(result.data);
 ```
 
 ## Subscription CLI on Node / Electron
@@ -490,6 +491,13 @@ not change accounts' existing sign-in behavior.
 Direct API:
 
 ```ts
+import { claudeCode } from '@byokit/decide/claude-code';
+
+const backend = claudeCode({ bin: '/absolute/path/to/claude',
+  configDir: '/absolute/path/to/app-sign-in', timeoutMs: 120_000 });
+const controller = new AbortController();
+const schema = { type: 'object', required: ['title'],
+  properties: { title: { type: 'string' } }, additionalProperties: false } as const;
 const { data, text, usage, raw } = await backend.generate({
   system: 'Make a complete storyboard.', prompt: 'Introduce Umer in six seconds.',
   schema, signal: controller.signal,
