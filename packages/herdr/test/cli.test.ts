@@ -4,6 +4,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { HerdrKit } from '../src/kit.ts';
 import { runCli } from '../src/cli.ts';
 import { makeShim, type Shim } from './shim.ts';
 
@@ -51,4 +52,16 @@ test('an 8 MB stdout flood rejects instead of buffering without bound', async ()
 test('a missing binary rejects with the missing/binary code', async () => {
   await assert.rejects(runCli(join(shim.dir, 'nope'), env, ['record']),
     (e: NodeJS.ErrnoException) => e.code === 'missing/binary' && /missing\/binary/.test(e.message));
+});
+
+test('kit.cli: per-call env overlays explicit kit env without inheriting the process or changing later calls', async () => {
+  const kit = new HerdrKit({ mode: 'adopt', bin: shim.bin, socketPath: '/never-used', env: { ...env, SHIM_OUT: shim.out } });
+  await kit.cli(['record'], { env: { CLAUDE_CONFIG_DIR: '/managed/account' } });
+  const first = JSON.parse(await readFile(shim.out, 'utf8'));
+  assert.equal(first.env.CLAUDE_CONFIG_DIR, '/managed/account');
+  assert.equal(first.env.PATH, env.PATH);
+  assert.equal(first.env.HERDR_SOCKET_PATH, env.HERDR_SOCKET_PATH);
+  assert.equal(first.env.ANTHROPIC_API_KEY, undefined);
+  await kit.cli(['record']);
+  assert.equal(JSON.parse(await readFile(shim.out, 'utf8')).env.CLAUDE_CONFIG_DIR, undefined);
 });

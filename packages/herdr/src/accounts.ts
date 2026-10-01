@@ -2,7 +2,7 @@
 // the decided start-then-close order; only fake transports exercise this in tests.
 import { randomBytes } from 'node:crypto';
 import type { Call } from './agents.ts';
-import type { AgentRef, MoveResult, MoveToAccount, OpenSignInTab, StartAgent } from './types.ts';
+import type { AgentRef, Move, MoveResult, MoveToAccount, MoveToAccountResult, OpenSignInTab, StartAgent } from './types.ts';
 import { words } from './words.ts';
 
 type Raw = Record<string, any>;
@@ -19,11 +19,12 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
 
   // A shell rc can override placement env. Verify what the shell actually resolves, rather
   // than pane.get's launch env. The variable name is fixed by the provider, never caller text.
-  async function checkEnv(paneId: string, variable: string, folder: string, timeout: number): Promise<boolean> {
+  async function checkEnv(paneId: string, variable: string, folder: string, timeout: number, absent = false): Promise<boolean> {
     const marker = `BYOKIT_ACCOUNT_${randomBytes(8).toString('hex')}`;
     const deadline = Date.now() + timeout;
+    const expansion = absent ? '${' + variable + '+x}' : '$' + variable;
     try {
-      await call('pane.send_text', { pane_id: paneId, text: `echo ${marker}="$${variable}"\n` }, timeout);
+      await call('pane.send_text', { pane_id: paneId, text: `echo ${marker}="${expansion}"\n` }, timeout);
       for (;;) {
         const result = await call('pane.read', { pane_id: paneId, source: 'recent_unwrapped', lines: 40,
           format: 'text', strip_ansi: true }, Math.max(1, deadline - Date.now())) as Raw;
@@ -33,6 +34,21 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
         if (Date.now() >= deadline) return false;
         await sleep(Math.min(100, Math.max(1, deadline - Date.now())));
       }
+    } catch { return false; }
+  }
+
+  // agent.start has no env/unset/command field in the pinned protocol. Clear credentials in
+  // the shell that launches it, then verify absence (never echo credential values).
+  async function prepareEnv(paneId: string, set: Record<string, string>, unset: string[], variable: string, timeout: number): Promise<boolean> {
+    const entries = Object.entries(set);
+    if ([...entries.map(([key]) => key), ...unset].some((key) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
+      || entries.some(([, value]) => typeof value !== 'string' || /[\r\n\0]/.test(value))
+      || unset.some((key) => key in set)) return false;
+    try {
+      if (unset.length > 0) await call('pane.send_text', { pane_id: paneId, text: `unset ${unset.join(' ')}\n` }, timeout);
+      if (!await checkEnv(paneId, variable, set[variable]!, timeout)) return false;
+      for (const key of unset) if (!await checkEnv(paneId, key, '', timeout, true)) return false;
+      return true;
     } catch { return false; }
   }
 
@@ -47,8 +63,8 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
     }
   }
 
-  async function moveToAccount(target: AgentRef, o: MoveToAccount): Promise<MoveResult> {
-    const failed = (code: Extract<MoveResult, { ok: false }>['code'], live = target.paneId): MoveResult =>
+  async function perform(target: AgentRef, o: MoveToAccount, request?: Move): Promise<MoveToAccountResult> {
+    const failed = (code: Extract<MoveToAccountResult, { ok: false }>['code'], live = target.paneId): MoveToAccountResult =>
       ({ ok: false, code, message: words(`move.${code}`), live });
     if (moving.has(target.paneId)) return failed('busy');
     moving.add(target.paneId);
@@ -61,14 +77,14 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
         || session.value.length === 0) return failed('too_early');
       if (!['idle', 'done'].includes(agent.agent_status)) return failed('busy');
       const kind = agent.agent;
-      if (!['claude', 'codex'].includes(o.provider) || ![o.provider, 'pi'].includes(kind)
-        || session.agent !== kind) return failed('unsupported');
-      const args = kind === 'pi' && session.kind === 'path' ? ['--session', session.value]
-        : kind === 'claude' && session.kind === 'id' ? ['--resume', session.value]
-        : kind === 'codex' && session.kind === 'id' ? ['resume', session.value] : undefined;
-      if (args === undefined) return failed('unsupported');
+      if (!['claude', 'codex'].includes(o.provider) || kind !== o.provider
+        || (request !== undefined && request.kind !== kind)
+        || session.agent !== kind || session.kind !== 'id') return failed('unsupported');
+      const args = request?.args ?? (kind === 'claude' && session.kind === 'id' ? ['--resume', session.value]
+        : kind === 'codex' && session.kind === 'id' ? ['resume', session.value] : undefined);
+      if (args === undefined || !Array.isArray(args) || args.length === 0 || args.some((a) => typeof a !== 'string' || /[\r\n\0]/.test(a))) return failed('unsupported');
       if (!o.folder || /[\r\n\0]/.test(o.folder)) return failed('env_mismatch');
-      const timeout = o.timeoutMs ?? 15_000;
+      const timeout = o.timeoutMs ?? 60_000;
       if (!Number.isFinite(timeout) || timeout <= 0) return failed('start_failed');
       const variable = o.provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
       let paneId: string;
@@ -80,20 +96,32 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
         if (typeof split?.pane?.pane_id !== 'string') return failed('start_failed');
         paneId = split.pane.pane_id;
       } catch { return failed('start_failed'); }
-      if (!await checkEnv(paneId, variable, o.folder, timeout)) {
-        await close(paneId);
-        return failed('env_mismatch');
+      const rollback = async (code: Extract<MoveToAccountResult, { ok: false }>['code']) =>
+        failed(code, await close(paneId) ? target.paneId : paneId);
+      try { request?.onStaged?.(paneId); }
+      catch { return rollback('start_failed'); }
+      if (request !== undefined && !await prepareEnv(paneId, request.set, request.unset ?? [], variable, timeout)) {
+        return rollback('env_mismatch');
+      }
+      if (request === undefined && !await checkEnv(paneId, variable, o.folder, timeout)) {
+        return rollback('env_mismatch');
       }
       try {
         // Unique names avoid colliding with the still-live source agent.
         await ctx.startAgent({ kind, cwd: agent.foreground_cwd ?? agent.cwd ?? '.',
           name: `move-${randomBytes(8).toString('hex')}`, place: { pane: paneId }, args, timeoutMs: timeout });
         await call('agent.wait', { target: paneId, until: ['idle', 'done'], timeout_ms: timeout }, timeout + 5000);
-        const ready = (await call('agent.get', { target: paneId }) as Raw)?.agent;
-        if (!ready || ready.launch_pending === true || !['idle', 'done'].includes(ready.agent_status)
-          || ready.agent !== kind || ready.agent_session?.agent !== kind
-          || ready.agent_session?.kind !== session.kind || typeof ready.agent_session?.value !== 'string'
-          || ready.agent_session.value.length === 0) throw new Error('not ready');
+        const deadline = Date.now() + timeout;
+        for (;;) {
+          const ready = (await call('agent.get', { target: paneId }, Math.max(1, deadline - Date.now())) as Raw)?.agent;
+          if (ready && ready.launch_pending !== true && ['idle', 'done'].includes(ready.agent_status)
+            && (request === undefined || ready.interactive_ready === true)
+            && ready.agent === kind && ready.agent_session?.agent === kind
+            && ready.agent_session?.kind === session.kind && typeof ready.agent_session?.value === 'string'
+            && ready.agent_session.value.length > 0) break;
+          if (Date.now() >= deadline) throw new Error('not ready');
+          await sleep(Math.min(100, Math.max(1, deadline - Date.now())));
+        }
       } catch {
         const cleaned = await close(paneId);
         return failed('start_failed', cleaned ? target.paneId : paneId);
@@ -102,9 +130,20 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
         const cleaned = await close(paneId);
         return failed('close_failed', cleaned ? target.paneId : paneId);
       }
+      // The source is closed: a notification failure cannot undo a successful move.
+      try { request?.onReplaced?.(paneId); } catch { /* notification only */ }
       return { ok: true, session: paneId };
     } finally { moving.delete(target.paneId); }
   }
 
-  return { openSignInTab, moveToAccount };
+  async function move(o: Move): Promise<MoveResult> {
+    const variable = o.kind === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
+    const result = await perform({ paneId: o.paneId }, {
+      provider: o.kind === 'claude' ? 'claude' : 'codex', folder: o.set[variable] ?? '',
+      env: o.set, timeoutMs: o.timeoutMs,
+    }, o);
+    return result.ok ? { ok: true, paneId: result.session } : result;
+  }
+
+  return { openSignInTab, move, moveToAccount: (target: AgentRef, o: MoveToAccount) => perform(target, o) };
 }
