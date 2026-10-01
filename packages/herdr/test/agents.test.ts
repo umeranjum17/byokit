@@ -118,6 +118,25 @@ test('prompt maps a good receipt to the kit shape', async () => {
   } finally { await kit.stop(); }
 });
 
+test('prompt carries the responding conversation without another read', async () => {
+  for (const agentSession of [
+    { source: 'herdr', agent: 'codex', kind: 'id', value: 'new-generation' },
+    { source: 'herdr', agent: 'pi', kind: 'path', value: '/conversation.jsonl' },
+    null, undefined,
+  ]) {
+    const { kit, calls } = doubleKit({ answer: (method) => method === 'agent.prompt'
+      ? { ...goodReceipt, agent: { ...goodReceipt.agent, agent_session: agentSession } } : {} });
+    try {
+      await kit.start();
+      const before = calls.length;
+      const receipt = await kit.prompt({ paneId: 'w1:p2' }, 'hi');
+      assert.deepEqual(receipt, { paneId: 'w1:p2', terminalId: 't1', revision: 1, status: 'working',
+        ...(agentSession == null ? {} : { agentSession }) });
+      assert.deepEqual(calls.slice(before).map((call) => call.method), ['agent.prompt']);
+    } finally { await kit.stop(); }
+  }
+});
+
 test('prompt rejects every malformed receipt field variant', async () => {
   const agent = goodReceipt.agent as Record<string, unknown>;
   const variants: unknown[] = [
