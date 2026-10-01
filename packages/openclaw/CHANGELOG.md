@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- FIX: Wait for approval callbacks in the bridge parking test instead of assuming the gate finishes within 50 ms.
 - Add app-supplied output schemas to host and device runs, with inferred result data, local final-answer validation and typed output failures. Subscription routes and explicit API key (billed per use) opt-in are unchanged.
 
 ## 0.4.0 (2026-10-01)
