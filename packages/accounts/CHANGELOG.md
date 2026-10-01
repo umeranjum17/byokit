@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add portable, choose-once multi-account selection with most-room ordering, unknown room above exhausted, and secret-free candidate explanations. Auto and default fallback use subscription accounts only; an API key (billed per use) must be explicitly selected.
+- Export roomOf and roomWords, shared Auto conformance fixtures, and descriptive multi-account terms data.
+
 ## 0.12.0 (2026-09-30)
 
 
@@ -11,9 +14,6 @@
 
 - Anthropic Messages with an app-passed API key (billed per use), explicit model and opt-in; typed native requests, streamed text/tools/thinking/message events, usage/raw results and the shared IncompleteError contract for max_tokens/refusal (including with tools) on every platform.
 - Expose fresh subscription access to host-side capabilities using the app’s own sign-in.
-
-- Add portable, choose-once multi-account selection with most-room ordering, unknown room above exhausted, and secret-free candidate explanations. Auto and default fallback use subscription accounts only; an API key (billed per use) must be explicitly selected.
-- Export roomOf and roomWords, shared Auto conformance fixtures, and descriptive multi-account terms data.
 
 ## 0.11.0 (2026-09-30)
 
