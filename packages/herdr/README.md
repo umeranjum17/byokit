@@ -149,7 +149,7 @@ persistent grant store, and the phone page above.
 
 | Export | What it does |
 |---|---|
-| `HerdrKit` (`@byokit/herdr`) | The host-side kit, in `adopt` or `own` mode: `start`/`stop`, `state`, `snapshot`/`onChange`, `startAgent`, `onStartAgent`, `prompt`, `sendKeys`, `wait`, `read`, `blocked`/`onBlocked`/`answer`, `closePane`/`closeTab`/`closeWorkspace`, `agentKinds`, `installedAgentKinds`, `agentStatus`, `agentInstallState`, `terminal`, `onEvent`, `statusWatchReady`, and the pass-throughs `call`, `subscribe` and `cli` |
+| `HerdrKit` (`@byokit/herdr`) | The host-side kit, in `adopt` or `own` mode: `start`/`stop`, `state`, `snapshot`/`onChange`, `startAgent`, `openSignInTab`, `moveToAccount`, `onStartAgent`, `prompt`, `sendKeys`, `wait`, `read`, `blocked`/`onBlocked`/`answer`, `closePane`/`closeTab`/`closeWorkspace`, `agentKinds`, `installedAgentKinds`, `agentStatus`, `agentInstallState`, `terminal`, `onEvent`, `statusWatchReady`, and the pass-throughs `call`, `subscribe` and `cli` |
 | `agentStatus`, `agentInstallState`, `agentProbePath`, `extraPathDirs`, `runStatusCommand`, `isAutoInstallShim`, `resolveAgentBinary` (`@byokit/herdr`) | Onboarding readiness: per-kind install + CLI sign-in without a Herdr connection (see below) |
 | `HERDR_VERSION`, `HERDR_PROTOCOL` | The pinned Herdr release (`0.9.1`) and the protocol the kit speaks (`22`) |
 | `words`, `agentWords`, `stateWords`, `WORDS` | Plain sentences for agent statuses and kit states |
@@ -162,6 +162,32 @@ persistent grant store, and the phone page above.
 
 Types (`HerdrKitOptions`, `HerdrState`, `StartAgent`, `PromptReceipt`, `BlockedAgent`, `HerdrSnapshot`,
 `HerdrMethod`/`HerdrParams`/`HerdrResult`, `HerdrEventName`/`HerdrEventOf`, ...) come from the main entry.
+
+## Account-specific sign-ins and moves
+
+The host supplies account folders and shares conversation history as needed. The kit never reads or copies
+credentials. To connect an account, open its CLI in a new tab and let the person complete the CLI's own login:
+
+```ts
+import type { HerdrKit } from '@byokit/herdr';
+
+declare const kit: HerdrKit; // the host's started kit
+const signIn = await kit.openSignInTab({
+  workspaceId: 'w1', kind: 'codex', cwd: '/home/me/project', env: { CODEX_HOME: '/app/accounts/work' },
+});
+// Attach terminal(signIn.paneId, …) for the CLI's own sign-in screen.
+const moved = await kit.moveToAccount({ paneId: 'w1:p2' }, {
+  provider: 'codex', folder: '/app/accounts/work',
+});
+if (moved.ok) console.log(moved.session); // new pane to follow
+```
+
+A move accepts Claude/Pi for Claude folders and Codex/Pi for Codex folders. It verifies the new shell's effective
+account folder, resumes the conversation there, waits for a ready session, then closes the old pane. A failed
+start preserves the original; a failed source close rolls back the new pane. Failures return a plain `message`
+and a `live` pane id for recovery, including when cleanup fails. Wait until a conversation is idle or done before
+moving it. `StartAgent.env` applies to newly created placements; existing shells cannot receive a new env.
+Tokens stay on the device and are never logged. Each provider's own terms apply to how you use your plan.
 
 ## Two ways in
 

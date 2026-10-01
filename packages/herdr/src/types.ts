@@ -88,6 +88,15 @@ export type StartAgent = {
   onEvent?: (e: AgentStartEvent) => void;   // per-call lifecycle: installing/ready/launchFailed
   installProbe?: AgentInstallProbe;          // install detection overrides (tests use fakes)
 };
+export type OpenSignInTab = Omit<StartAgent, 'place' | 'worktree'> & { workspaceId: string; label?: string };
+export type MoveToAccount = {
+  provider: 'claude' | 'codex'; folder: string; env?: Record<string, string>;
+  direction?: 'right' | 'down'; timeoutMs?: number;
+};
+export type MoveResult = { ok: true; session: string } | {
+  ok: false; code: 'too_early' | 'busy' | 'unsupported' | 'env_mismatch' | 'close_failed' | 'start_failed';
+  message: string; live?: string;
+};
 export type PromptReceipt = { paneId: string; terminalId: string; revision: number; status: AgentStatus };
 export type BlockedAgent = { paneId: string; workspaceId: string; tabId: string; kind?: string; revision: number; prompt: string; since: number };
 export type AgentSessionRef = { source: string; agent: string; kind: string; value: string };
