@@ -35,7 +35,7 @@ export type ClaudePlanAsk = AnthropicAsk & { provider: 'claude' };
 export type AnthropicAccountAsk = AnthropicAsk & { provider: 'anthropic'; key: string };
 
 export type AccountsOptions<M extends Member = Member> = {
-  /** The accounts this app offers, in order. Default: supported subscription providers not hidden. */
+  /** The accounts this app offers, in order. Default: every subscription provider supported on this platform. */
   offer?: readonly string[];
   /** Each member's own store. Default: in memory. */
   store?: (member: M) => CredentialStore;
@@ -106,7 +106,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   onSignOutError?: (member: M, key: string, error: Error) => void;
 
   private platform: Platform;
-  /** Offered: the providers named in `offer`, else every provider not hidden that this platform can sign in to. */
+  /** Offered: the providers named in `offer`, else every subscription provider that this platform can sign in to. */
   constructor(opts: AccountsOptions<M> = {}, platform: Platform = portable) {
     this.opts = opts;
     this.platform = platform;

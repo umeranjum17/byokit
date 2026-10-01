@@ -8,8 +8,8 @@
 </p>
 
 <p align="center"><strong>Sign in with the AI plan you already pay for, inside your own app.</strong><br/>
-ChatGPT and Claude Pro/Max on every platform (Claude needs Web Crypto); OpenRouter on computers when an app offers it (API billing, never by default); Grok and
-GitHub Copilot hidden by default. Anthropic uses an app-passed API key (billed per use), explicitly opted in. Sign-ins go into your app's own store: on a computer (Node, Electron), in a browser
+ChatGPT and Claude Pro/Max on every platform (Claude needs Web Crypto); Grok, GitHub Copilot, Kimi and Meta on computers.
+OpenRouter and Anthropic API keys are billed per use and require explicit app opt-in. Sign-ins go into your app's own store: on a computer (Node, Electron), in a browser
 (a PWA, Electron's renderer) and on a phone (React Native and Expo, iOS and Android). One import; your bundler picks
 the platform's side (`package.json`'s `react-native` and `browser` conditions).</p>
 
@@ -75,16 +75,18 @@ On a computer it uses Pi's [`@earendil-works/pi-ai`](https://www.npmjs.com/packa
 flows, pinned exactly:
 
 ```ts
+import type { SafeStorageLike } from '@byokit/accounts';
 import { isolate } from '@byokit/accounts/isolate'; // first, before any Pi import
 isolate('/path/to/app/engine');                     // scrub inherited Pi settings and provider keys
-const { Accounts, fileStore } = await import('@byokit/accounts');
-const { app, safeStorage } = await import('electron');
-await app.whenReady();
 
-const accounts = new Accounts({ store: (member) => fileStore(`/path/to/app/people/${member}/auth.json`, safeStorage) });
-const shown = await accounts.login(1, 'chatgpt', { via: 'code' }); // { state: 'waiting', code, url }
-// show shown.code and shown.url; the sign-in finishes by itself
-(await accounts.status(1, 'chatgpt')).words;                     // "ChatGPT is connected."
+// Your Electron main process waits for app.whenReady(), then passes its safeStorage here.
+export async function connect(safeStorage: SafeStorageLike) {
+  const { Accounts, fileStore } = await import('@byokit/accounts');
+  const accounts = new Accounts({ store: (member) => fileStore(`/path/to/app/people/${member}/auth.json`, safeStorage) });
+  const shown = await accounts.login(1, 'chatgpt', { via: 'code' }); // { state: 'waiting', code, url }
+  // show shown.code and shown.url; the sign-in finishes by itself
+  return { shown, status: await accounts.status(1, 'chatgpt') };
+}
 ```
 
 ### On a phone or in a browser
@@ -119,7 +121,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | `Accounts` | Sign-in, status, sign-out, asking and limits for each member: `login`, `finished`, `status`, `plan`, `logout`, `respond`, `failed`, `ladder`, `keepFresh` |
 | `portable`, `computer`, `loopback` | The platform `Accounts` runs on: device code with `fetch` alone, or (Node entry only) Pi's flows and the loopback listener |
 | `memoryStore`, `fileStore`, `secureStore`, `browserStore`, `recordStore` | One store per person: in memory, a sealed 0600 file (Node entry only), Keychain/Keystore, IndexedDB, or your own load and save |
-| `offered`, `provider`, `PROVIDERS` | The catalogue: each provider's billing, terms status, reason and source |
+| `offered`, `provider`, `PROVIDERS` | The catalogue: each provider's billing, models and source |
 | `billingWords`, `say`, `WORDS`, `signInError`, `failure`, `clock`, `callbackPage` | The plain sentences every app shows the same way (`words.json`), a time in words, and the page a browser sees after a sign-in |
 | `respond`, `ResponseError`, `IncompleteError`, `sseReader`, `limitResponse`, `isFunctionCall` | Ask ChatGPT's answers endpoint with a sign-in, with tools, pictures, thinking effort and an answer shape; the error with the words to show and the kind acted on |
 | `classifyFailure`, `classify`, `REST_MS` | An error's kind (limit, overload, plan without this use, lapsed sign-in, network) and default rest times |
@@ -138,7 +140,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | Claude Pro/Max (subscription) | Provider page, paste its code back | Same PKCE flow; token endpoint CORS required | Same PKCE flow; app supplies Web Crypto |
 | Anthropic (API key, billed per use) | App passes its own key, explicitly | Same fetch-only Messages provider | Same fetch-only Messages provider |
 | OpenRouter (API billing) | Its own page, back to this computer (Pi's flow), when an app offers it (never by default) | Not yet | Not yet |
-| Grok, Copilot (hidden) | Pi's flows | No | No |
+| Grok, Copilot, Kimi, Meta | Pi's flows | No | No |
 | Where sign-ins are kept | `fileStore(path, safeStorage)`, sealing required | `browserStore(name)` (IndexedDB) | `secureStore(SecureStore, name)` (Keychain, Keystore) |
 
 Device code works everywhere: OpenAI's sign-in endpoints answer any web page. The page-straight-back sign-in needs a
@@ -148,13 +150,13 @@ doesn't answer other web pages), so a PWA's model calls go through the app's own
 
 ## Catalogue and billing
 
-`catalogue.json` holds each provider with its billing (`subscription`, `api`) and terms status (`allowed`, `grey`,
-`partner`), a one-line reason and a source. The kit labels; your app decides what to offer
-(`new Accounts({ offer: ['chatgpt'] })`). Without an explicit `offer`, only subscription sign-ins supported on this
-platform are shown: OpenRouter is API-billed and never offered by default. An explicit list is not platform-filtered,
-so choose from the table above. Show `billingWords(p)` next to every provider you list.
-
-Anthropic Messages uses an app-passed API key (billed per use), with explicit opt-in; its authentication is separate from the Messages request.
+`catalogue.json` holds each provider's billing (`subscription`, `api`), models and source.
+All subscription rows are offered by default on platforms that support their sign-in. API-billed rows
+are offered only when the app names them. An explicit `offer` list is not platform-filtered.
+The `Provider` shape no longer has `terms`, `hidden` or `why`, and `Terms` is no longer exported.
+Qwen and MiniMax have subscription catalogue rows; their paste and portal sign-in flows follow in later work packages.
+Each provider's own terms apply to how you use your plan.
+Anthropic Messages uses an app-passed API key (billed per use); authentication is separate from the Messages request.
 
 Native Claude CLI sign-in uses the managed-folder entry.
 Approved exception: the `./cli` entry reads and runs only app-managed per-account folders under `stateDir` and the absolute CLI binaries the app passes; it never touches the person's default login; tokens never leave the device and are never logged.
@@ -167,7 +169,7 @@ for (const p of offered(['chatgpt', 'openrouter'])) console.log(`${p.name}: ${bi
 ```
 
 ```text
-[ 'chatgpt', 'claude' ]
+[ 'chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta', 'qwen', 'minimax' ]
 ChatGPT: Uses your ChatGPT plan.
 OpenRouter: Charged per use to your OpenRouter account, not a plan.
 ```
@@ -440,8 +442,6 @@ Browser apps should keep the API key in an app-owned server proxy (`base`); Reac
 fetch such as Expo's. `betas` explicitly opts into native beta headers.
 
 ## Claude Pro/Max subscription
-
-Anthropic's [developer guidance](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use) prohibits third-party Claude.ai login without approval; BYOKit has no approval, and this route may stop working or lead to account restrictions (the separately billed API-key route is the documented alternative).
 
 Claude is available by default. Open its page, then paste the returned `code#state` into the app:
 

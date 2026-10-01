@@ -137,10 +137,15 @@ route: github-copilot             subscription code
 route: github-copilot-enterprise  subscription code
 route: minimax-global-oauth       subscription code
 route: minimax-cn-oauth           subscription code
+route: anthropic-cli              subscription browser
+route: setup-token                subscription browser
 ```
 
-Every offered route is a subscription sign-in. Each `Route` carries `billing` (`subscription`, `api` or `local`), so
-an app labels any other route it shows; API-billed routes are not offered by default.
+Subscription sign-ins are offered by default. API-billed routes remain in `kit.routes()` with `offer: false`;
+apps can offer them when the app or person opts in, labelled API key (billed per use). Each `Route` carries `billing` (`subscription`, `api` or
+`local`) so the app can label what is billed. Proxy routes, compatibility aliases, local runtimes stay off. Native Claude Code sign-in is offered by default. The pinned Gateway guides only some routes; other choices need manual paste or key entry. For an opted-in route, allow its `plugin` id
+in the app configuration and pass its `choice` explicitly to `kit.signIn()`.
+Offered provider plugins are allowed by default alongside the app's plugin ids.
 
 ## API at a glance
 

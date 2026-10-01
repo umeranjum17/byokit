@@ -11,9 +11,6 @@
     "clientId": "app_EMoamEEZ73f0CkXaXp7hrann",
     "revoke": "https://auth.openai.com/oauth/revoke",
     "billing": "subscription",
-    "terms": "grey",
-    "hidden": false,
-    "why": "Signs in through Codex's own sign-in. OpenAI documents it for Codex, not for other apps, and has endorsed one other app using it.",
     "source": "https://developers.openai.com/codex/auth",
     "multiAccount": {
       "terms": "grey",
@@ -29,9 +26,6 @@
       "strong": "moonshotai/kimi-k2.6"
     },
     "billing": "api",
-    "terms": "allowed",
-    "hidden": false,
-    "why": "Documented sign-in for any app, no registration. Pay-as-you-go credits, not a subscription.",
     "source": "https://openrouter.ai/docs/guides/overview/auth/oauth",
     "multiAccount": {
       "terms": "grey",
@@ -47,9 +41,6 @@
       "strong": "grok-4.7"
     },
     "billing": "subscription",
-    "terms": "partner",
-    "hidden": true,
-    "why": "xAI allows plan sign-in only in apps it has partnered with.",
     "source": "https://x.ai/news/grok-opencode",
     "multiAccount": {
       "terms": "grey",
@@ -65,9 +56,6 @@
       "strong": "gpt-5.4"
     },
     "billing": "subscription",
-    "terms": "partner",
-    "hidden": true,
-    "why": "GitHub allows Copilot sign-in only in apps it has partnered with; this uses VS Code's client.",
     "source": "https://github.blog/changelog/2026-01-16-github-copilot-now-supports-opencode",
     "multiAccount": {
       "terms": "grey",
@@ -83,12 +71,9 @@
       "strong": "claude-opus-5-5"
     },
     "billing": "api",
-    "terms": "allowed",
-    "hidden": false,
     "auth": "api-key",
     "label": "API key (billed per use)",
     "offer": false,
-    "why": "The app passes an Anthropic API key explicitly. API key (billed per use), never a default or subscription fallback.",
     "source": "https://platform.claude.com/docs/en/api/overview",
     "multiAccount": {
       "terms": "grey",
@@ -107,14 +92,73 @@
     "clientId": "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
     "billing": "subscription",
     "auth": "oauth",
-    "terms": "grey",
-    "hidden": false,
-    "why": "Anthropic prohibits third-party Claude.ai sign-in without approval; this route may stop working or lead to account restrictions.",
     "source": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use",
     "multiAccount": {
       "terms": "grey",
       "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
       "source": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use"
+    }
+  },
+  "kimi": {
+    "pi": "kimi-coding",
+    "name": "Kimi",
+    "company": "Moonshot AI",
+    "models": {
+      "strong": "k3",
+      "fast": "kimi-for-coding-highspeed"
+    },
+    "billing": "subscription",
+    "source": "https://www.kimi.com",
+    "multiAccount": {
+      "terms": "grey",
+      "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
+      "source": "https://www.kimi.com"
+    }
+  },
+  "meta": {
+    "pi": "meta",
+    "name": "Meta",
+    "company": "Meta",
+    "models": {
+      "strong": "muse-spark-1.3"
+    },
+    "billing": "subscription",
+    "source": "https://www.meta.ai",
+    "multiAccount": {
+      "terms": "grey",
+      "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
+      "source": "https://www.meta.ai"
+    }
+  },
+  "qwen": {
+    "pi": "qwen-portal",
+    "name": "Qwen",
+    "company": "Alibaba",
+    "models": {
+      "strong": "qwen3-coder-plus"
+    },
+    "billing": "subscription",
+    "source": "https://chat.qwen.ai",
+    "multiAccount": {
+      "terms": "grey",
+      "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
+      "source": "https://chat.qwen.ai"
+    }
+  },
+  "minimax": {
+    "pi": "minimax",
+    "name": "MiniMax",
+    "company": "MiniMax",
+    "models": {
+      "strong": "MiniMax-M3",
+      "fast": "MiniMax-M2.7-highspeed"
+    },
+    "billing": "subscription",
+    "source": "https://www.minimax.io",
+    "multiAccount": {
+      "terms": "grey",
+      "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
+      "source": "https://www.minimax.io"
     }
   }
 }

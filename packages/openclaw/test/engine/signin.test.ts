@@ -29,23 +29,28 @@ let calls: string[] = [];
 let openai: Awaited<ReturnType<typeof mockOpenAI>>;
 
 /** The pin's own inventory: every bundled manifest's `providerAuthChoices`, and the manifest id that owns each. */
-const pinnedChoices = (): { choices: Map<string, string>; staticChoices: string } => {
+const pinnedChoices = (): { choices: Map<string, string>; guided: Set<string>; staticChoices: string } => {
   const pkg = join(engineDir, 'node_modules', 'openclaw');
   assert.equal(JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8')).version, '2026.8.1', 'the pinned tarball is installed');
   const choices = new Map<string, string>();
+  const guided = new Set<string>();
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) { walk(path); continue; }
       if (entry.name !== 'openclaw.plugin.json') continue;
-      const manifest = JSON.parse(readFileSync(path, 'utf8')) as { id?: string; providerAuthChoices?: { choiceId?: string }[] };
-      for (const choice of manifest.providerAuthChoices ?? []) if (choice.choiceId) choices.set(choice.choiceId, manifest.id ?? '');
+      const manifest = JSON.parse(readFileSync(path, 'utf8')) as { id?: string; providerAuthChoices?: { choiceId?: string; appGuidedAuth?: string; assistantVisibility?: string }[] };
+      for (const choice of manifest.providerAuthChoices ?? []) {
+        if (!choice.choiceId) continue;
+        choices.set(choice.choiceId, manifest.id ?? '');
+        if (choice.appGuidedAuth && choice.assistantVisibility !== 'manual-only') guided.add(choice.choiceId);
+      }
     }
   };
   walk(join(pkg, 'dist'));
   // The one core static choice lives outside every manifest (auth-choice-options.static.ts).
   const options = readdirSync(join(pkg, 'dist')).filter((name) => name.startsWith('auth-choice-options-'));
-  return { choices, staticChoices: options.map((name) => readFileSync(join(pkg, 'dist', name), 'utf8')).join('\n') };
+  return { choices, guided, staticChoices: options.map((name) => readFileSync(join(pkg, 'dist', name), 'utf8')).join('\n') };
 };
 
 /** The gateway needs a moment to bind after spawn: connect only once the port answers. */
@@ -166,8 +171,10 @@ test('routes.json and the pinned tarball agree in both directions, plugins inclu
   assert.equal(routes().find((entry) => entry.choice === 'custom-api-key')?.plugin, '', 'a core choice has no plugin');
 });
 
-test('every offered wizard route starts on the real engine without a caller allowlist (5.7, B6)', { timeout: 900_000 }, async () => {
-  for (const route of routes().filter((entry) => entry.offer && entry.auth !== 'cli')) {
+test('every offered app-guided route starts without a caller allowlist (5.7, B6)', { timeout: 900_000 }, async () => {
+  const { guided } = pinnedChoices();
+  assert.ok(guided.has('openai-device-code'), 'guided choices are read from the pinned inventory');
+  for (const route of routes().filter((entry) => entry.offer && guided.has(entry.choice))) {
     await withGateway([], async (_ctx, request) => {
       const sessionId = `byokit-probe-${route.choice}`;
       const started = await request('openclaw.setup.auth.start',

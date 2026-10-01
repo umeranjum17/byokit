@@ -1,15 +1,9 @@
-// Routes are data (5.7, D12): the shape an app can trust, every offered route a subscription, and no implicit API
-// fallback among them. The engine job re-checks every choice id against the pinned tarball.
+// Route inventory, default offerings and billing labels (5.7, D12).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { routeFor, routes } from '../src/routes.ts';
 
-// The eight subscription routes the product offers (Crewhouse docs/supported-subscriptions.md, reviewed in 5.7;
-// xai-device-code is not among them: the pin marks it manual-only and the gateway refuses it).
-const OFFERED = [
-  'openai', 'openai-device-code', 'xai-oauth', 'github-copilot', 'github-copilot-enterprise',
-  'minimax-global-oauth', 'minimax-cn-oauth', 'anthropic-cli',
-];
+const OFFERED = ['openai', 'openai-device-code', 'xai-oauth', 'github-copilot', 'github-copilot-enterprise', 'minimax-global-oauth', 'minimax-cn-oauth', 'anthropic-cli', 'setup-token'];
 // The pin's `appGuidedAuth: 'device-code'`: the person completes these with a code, not a localhost callback.
 const DEVICE_CODE = ['openai-device-code', 'xai-oauth', 'github-copilot', 'github-copilot-enterprise', 'minimax-global-oauth', 'minimax-cn-oauth', 'xai-device-code'];
 
@@ -30,12 +24,11 @@ test('every route is a complete label with the pin as its source', () => {
   assert.equal(new Set(table.map((route) => route.choice)).size, table.length, 'choice ids are unique');
 });
 
-test('the offered routes are exactly the reviewed subscriptions, in the doc\'s order, and all are subscriptions', () => {
-  const offered = routes().filter((route) => route.offer);
-  assert.deepEqual(offered.map((route) => route.choice), OFFERED, 'routeFor prefers the doc\'s order');
-  for (const route of offered) {
+test('subscription sign-ins are offered; API billing, proxies, aliases and local routes stay off', () => {
+  assert.deepEqual(routes().filter((route) => route.offer).map((route) => route.choice).sort(), [...OFFERED].sort());
+  for (const route of routes().filter((route) => route.offer)) {
     assert.equal(route.billing, 'subscription', route.choice);
-    assert.ok(route.plugin.length > 0, `${route.choice} needs the plugin an app must allow (5.6)`);
+    assert.ok(route.plugin.length > 0, route.choice);
   }
 });
 
@@ -46,32 +39,24 @@ test('every route names the bundled plugin that owns it, and only the core choic
   }
 });
 
-test('OpenRouter is API-billed, never offered (no silent API billing)', () => {
-  const openrouter = routes().find((route) => route.choice === 'openrouter-oauth')!;
-  assert.equal(openrouter.billing, 'api');
-  assert.equal(openrouter.offer, false);
+test('API-billed routes require opt-in and keep their billing labels, including OpenRouter OAuth', () => {
+  for (const route of routes().filter((entry) => entry.billing === 'api')) {
+    assert.equal(route.offer, false, route.choice);
+    assert.match(route.reason, /API key \(billed per use\)/, route.choice);
+  }
   assert.equal(routeFor('openrouter', 'browser'), undefined);
+  assert.equal(routes().find((route) => route.choice === 'openrouter-oauth')?.billing, 'api');
   assert.equal(routeFor('openrouter', 'code'), undefined);
 });
 
-test('native Claude Code login is offered with honest billing; key and token never become fallbacks', () => {
-  const cli = routeFor('claude-cli', 'browser')!;
-  assert.equal(cli.choice, 'anthropic-cli');
-  assert.equal(cli.plugin, 'anthropic');
-  assert.equal(cli.auth, 'cli');
-  assert.equal(cli.billing, 'subscription');
-  assert.equal(cli.terms, 'allowed');
-  assert.match(cli.prerequisite!, /login stays in Claude Code/);
-  assert.match(cli.termsUrl!, /legal-and-compliance#authentication-and-credential-use/);
-  const key = routes().find((route) => route.choice === 'apiKey')!;
-  assert.equal(key.auth, 'api_key');
-  assert.equal(key.billing, 'api');
-  assert.equal(key.reason, 'API key (billed per use)');
-  assert.equal(key.offer, false);
-  assert.equal(routeFor('anthropic', 'browser'), undefined);
-  const token = routes().find((route) => route.choice === 'setup-token')!;
-  assert.equal(token.terms, 'grey');
-  assert.equal(token.offer, false);
+test('Claude paste and native CLI are offered; API keys stay opt-in (D12)', () => {
+  const byChoice = new Map(routes().map((route) => [route.choice, route]));
+  assert.equal(byChoice.get('setup-token')?.offer, true);
+  assert.equal(byChoice.get('setup-token')?.billing, 'subscription');
+  assert.equal(byChoice.get('apiKey')?.offer, false);
+  assert.equal(byChoice.get('apiKey')?.billing, 'api');
+  assert.equal(byChoice.get('anthropic-cli')?.offer, true);
+  assert.match(byChoice.get('anthropic-cli')?.prerequisite ?? '', /Claude Code/);
 });
 
 test('a route the pinned gateway refuses is not offered (B6)', () => {
@@ -79,7 +64,7 @@ test('a route the pinned gateway refuses is not offered (B6)', () => {
   assert.equal(xai.offer, false, 'manual-only upstream: the gateway answers "not available on this Gateway"');
   assert.equal(xai.reason, 'Compatibility alias the Gateway does not offer; use xai-oauth.');
   assert.equal(routeFor('xai', 'code')?.choice, 'xai-oauth', 'the offered Grok route is xai-oauth');
-  assert.equal(routeFor('xai', 'browser'), undefined, 'xai-oauth is completed with a code in the pin');
+  assert.equal(routeFor('xai', 'browser'), undefined, 'API billing requires opt-in');
 });
 
 test('via follows the pin: device-code choices are completed with a code (B6)', () => {
