@@ -34,6 +34,10 @@ runtime-tested here because no simulator is available.
   protocol v1 that the app passes by absolute path, or the bundled Linux X11 recorder; their ordinary tests use fakes; the bundled recorder smoke uses an isolated Xvfb.
   Approved exception: the `./cli` entry reads and runs only app-managed per-account folders under `stateDir` and the absolute CLI binaries the app passes; it never touches the person's default login; tokens never leave the device and are never logged.
   Claude usage may read only a managed folder under its passed `stateDir`, without refreshing or writing credentials; expired credentials require sign-in again. Headers are app-passed and tokens never enter readings, stores, errors or logs.
+  `@byokit/decide/claude-code` spawns only the unmodified Claude binary the host passes by absolute path,
+  in a temporary home and working directory with the separate `CLAUDE_CONFIG_DIR` the host names. The user signs in
+  there with the binary itself; the kit never opens or copies credentials, inherits API keys, or falls back to API billing.
+  Tests use an offline fake binary.
   `@byokit/usage` reads only the sign-in folder the app passes and spawns only the Codex binary the app passes
   by absolute path, with an environment built from nothing plus what the app passes; its tests use fakes only. `@byokit/overlay` and
   `@byokit/statusbar` and `@byokit/push` run only their own native code inside the app or its notification extension. `@byokit/cloud` ([docs/cloud-kit.md](docs/cloud-kit.md)) spawns only the

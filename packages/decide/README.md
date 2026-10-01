@@ -408,3 +408,114 @@ App-specific rubrics, reference corpora and acceptance thresholds stay in the ho
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](https://github.com/umeranjum17/byokit/blob/main/NOTICE).
+
+## Structured generation
+
+`generate<T>({ state, images? }, schema, { backends, cache, budget })` returns a complete, locally validated
+`data` value or `data: null` with a fixed `failure` code/message. It keeps `text`, reported `usage`,
+`raw`, `by`, `ms` and `source: 'api' | 'cache'`. The generic type is the app's declaration;
+validation uses the supplied schema. The runner tries backends in order and stores only successes.
+An `IncompleteError` is a failure, even if it contains a usable-looking partial object.
+
+Images use the shared `ImageInput` type: unique IDs plus PNG/JPEG bytes or matching MIME/base64
+data URLs. `image/jpg` is normalized to `image/jpeg`; other formats are refused with
+`InvalidImageError` and must be converted by the host. The kit never fetches URLs or reads image
+files. Generation backends must declare `supportsImages: true`; a text-only backend is refused
+with `UnsupportedImagesError`. Image bytes and data URLs for the same payload share a cache key.
+
+The bounded JSON Schema subset supports objects, required fields, additional properties, arrays,
+length/item/property counts, unique items, enums/const, numeric bounds, types and boolean/composition
+schemas. Unknown constraints, including `$ref`, `pattern` and `format`, fail before a backend runs.
+Schemas are snapshotted before awaiting a backend. The same validator runs in the CLI adapter.
+
+The budget defaults to 120 seconds for the backend sequence and 16,384 output tokens. Set
+`budget.maxOutputTokens: 8192` for an 8k answer. Hosts implementing `GenerationBackend` must honour
+`maxOutputTokens` and reject incomplete answers; the runner enforces the time limit and validates
+complete values again. `signal` cancels generation. `privacy: 'stays-here'` skips hosted backends.
+There is no default disk cache. `MemoryGenerationCache` is the portable reference; cache keys cover
+state, canonical image bytes/MIME/IDs, schema, backend, model, host-supplied account/config identity and output budget. Pin a model
+when keeping a durable cache; the CLI's default model selection can change independently.
+
+```ts
+import { generate, MemoryGenerationCache, type ImageInput } from '@byokit/decide';
+import { claudeCode } from '@byokit/decide/claude-code';
+
+declare const hostConfig: { model: string };
+declare const images: readonly ImageInput[]; // PNG/JPEG bytes or matching data URLs supplied by the host
+const backend = claudeCode({
+  bin: '/absolute/path/to/claude',
+  configDir: '/absolute/path/to/app-sign-in',
+  model: hostConfig.model,
+  timeoutMs: 120_000,
+});
+const schema = {
+  type: 'object', required: ['name', 'scenes'], additionalProperties: false,
+  properties: {
+    name: { type: 'string' },
+    scenes: { type: 'array', items: {
+      type: 'object', required: ['duration'], additionalProperties: false,
+      properties: { duration: { type: 'number', minimum: 1, maximum: 120 } },
+    } },
+  },
+} as const;
+const result = await generate<{ name: string; scenes: { duration: number }[] }>(
+  { state: { name: 'Umer', brief: 'A six-second introduction.' }, images }, schema,
+  { backends: [backend], cache: new MemoryGenerationCache(), budget: { maxOutputTokens: 8192 } },
+);
+if (result.data === null) console.log(result.failure?.message);
+else console.log(result.data);
+```
+
+## Subscription CLI on Node / Electron
+
+The `@byokit/decide/claude-code` subpath is Node-only. The main entry, including `generate`, stays
+portable on browsers and React Native. The host supplies the absolute path of the user's own
+**unmodified** Claude binary (v2.1.286 or later) and an existing, separate absolute sign-in directory.
+The adapter's `billing` is always `'subscription'`; it has no API-key input or fallback. Before
+generation, it asks the binary for `auth status` and requires a signed-in first-party `claude.ai`
+account. Unknown or API authentication is refused before any model request; status metadata is discarded.
+
+Sign in **yourself**, through the binary's own flow, using the same isolated directory:
+
+```sh
+mkdir -p /absolute/path/to/app-sign-in
+CLAUDE_CONFIG_DIR=/absolute/path/to/app-sign-in /absolute/path/to/claude auth login
+```
+
+Choose your subscription account. Do not copy credentials from an existing installation, sign in
+with a Console API key, or point `configDir` at your ordinary `.claude` folder. The kit neither runs
+login nor reads, copies or intermediates credentials. Its separate config directory belongs to the
+binary and is retained between calls. Its temporary home and working directory are removed after
+each call, including cancellation and timeouts. The child's environment is built from a fixed
+minimal set: no ambient keys, OAuth tokens, proxy settings or Node preload scripts.
+
+[Claude Code's authentication and credential-use terms](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use)
+explicitly permit an end user to sign in to the unmodified binary using their own subscription;
+sign-in must use Anthropic's own flow, and developers may not collect or intermediate those credentials.
+Each user supplies their own installation and account. This adapter adds a route to decide and does
+not change accounts' existing sign-in behavior.
+
+Direct API:
+
+```ts
+import { claudeCode } from '@byokit/decide/claude-code';
+import type { ImageInput } from '@byokit/decide';
+
+declare const images: readonly ImageInput[];
+const backend = claudeCode({ bin: '/absolute/path/to/claude',
+  configDir: '/absolute/path/to/app-sign-in', timeoutMs: 120_000 });
+const controller = new AbortController();
+const schema = { type: 'object', required: ['title'],
+  properties: { title: { type: 'string' } }, additionalProperties: false } as const;
+const { data, text, usage, raw } = await backend.generate({
+  system: 'Make a complete storyboard.', prompt: 'Introduce Umer in six seconds.',
+  images, schema, signal: controller.signal,
+});
+```
+
+The adapter runs headless JSON-schema output over stream-JSON input, with built-in tools and MCP
+unavailable, customization/hook loading disabled, and no saved session. Invalid JSON or schema
+mismatches reject with `ClaudeCodeError`; cut-off output has `name: 'IncompleteError'` and
+`code: 'incomplete'`. Failures use fixed text and never include stderr. It is also a `Backend` for
+`decide(..., { privacy: 'may-leave', backends: [backend] })` choice, yes/no and score questions;
+its confidence estimates are self-reported and still go through decide's ordinary floors.

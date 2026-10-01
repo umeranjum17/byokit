@@ -1,3 +1,5 @@
+export { generate, generationCacheKey, MemoryGenerationCache, type GenerationInput, type GenerationRequest, type GenerationBackend, type GenerationResult, type GenerationCache, type GenerationOptions, type GenerationBudget, type Generated } from './generate.ts';
+export { InvalidSchemaError, type OutputSchema, type SchemaOutput } from './schema.ts';
 // Typed questions in, a typed answer with confidence out, abstaining below a floor. The floor, the per-option floors,
 // the runner-up and the tie are code, never a prompt: ported from firstmate's bin/fm-dispatch-resolve.sh.
 export { jev } from './jev.ts';
