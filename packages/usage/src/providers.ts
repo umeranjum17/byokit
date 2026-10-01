@@ -80,7 +80,7 @@ export async function providerGet(source: TokenSource, fetcher: typeof fetch, no
   }
 }
 /** A host hook gets the same deadline and failure envelope as built-in sources. */
-export async function customClaude(source: Extract<Source, { read: unknown }>, nowMs: number, pacing?: { hook?: PacingHook; account: string; signal?: AbortSignal }): Promise<Answer> {
+export async function customClaude(source: Extract<Source, { read: unknown }>, nowMs: number, pacing?: { hook?: PacingHook; account?: string; signal?: AbortSignal }): Promise<Answer> {
   const controller = new AbortController();
   const abort = () => controller.abort();
   pacing?.signal?.addEventListener('abort', abort, { once: true });
@@ -88,7 +88,7 @@ export async function customClaude(source: Extract<Source, { read: unknown }>, n
   const timer = setTimeout(abort, 10_000);
   try {
     const operation = async (): Promise<Answer> => {
-      if (source.origin && pacing?.hook) await pacing.hook({ provider: source.provider, account: pacing.account, origin: source.origin, signal: controller.signal });
+      if ('origin' in source && source.origin && pacing?.hook && pacing.account !== undefined) await pacing.hook({ provider: source.provider, account: pacing.account, origin: source.origin, signal: controller.signal });
       if (controller.signal.aborted) return { code: 'unavailable' };
       const answer = await source.read({ nowMs, signal: controller.signal });
       // Host readers may return cached figures; only the host knows observation time.
