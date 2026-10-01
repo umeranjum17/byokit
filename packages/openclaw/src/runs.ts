@@ -115,7 +115,7 @@ export function createRuns(ctx: {
     const agentId = keyAgent ?? (await ctx.ensure(spec.member)).agentId;
     const sessionKey = keyAgent ? `agent:${keyAgent}:${spec.sessionKey.slice(`agent:${spec.member}:`.length)}` : spec.sessionKey;
     const release = spec.register !== false ? ctx.bridge.register({ sessionKey, member: spec.member }, spec.tools) : undefined;
-    let last = '';
+    let last: string | undefined;
     let runId = ''; // gateway events for other runs carry a real runId and never match the empty one
     let ended = false;
     // The engine flags an aborted run on its lifecycle end event; the wait receipt itself only says
@@ -181,15 +181,25 @@ export function createRuns(ctx: {
       const started = await Promise.race([ack, final]) as { runId: string };
       runId = started.runId;
       const result = await ctx.request('agent.wait', { runId, timeoutMs: WAIT_MS }, { timeoutMs: WAIT_CLIENT_MS }) as {
-        status?: string; stopReason?: string; terminalReply?: { text?: string }; error?: unknown; message?: unknown;
+        status?: string; stopReason?: string; terminalReply?: { disposition?: string; text?: string }; error?: unknown; message?: unknown;
       };
       if (result.status === 'ok') {
-        const text = typeof result.terminalReply?.text === 'string' ? result.terminalReply.text : last;
+        const done = await Promise.race([final.catch(() => undefined), delay(FINAL_GRACE_MS, undefined, { ref: false })]);
+        ended = true; // no later stream event may supersede the final callback
+        const frame = isRecord(done) && isRecord(done.result) ? done.result : {};
+        const payloadText = Array.isArray(frame.payloads)
+          ? frame.payloads.filter((p): p is Record<string, unknown> & { text: string } => isRecord(p) && typeof p.text === 'string')
+            .map((p) => p.text) : [];
+        // The pin's terminal snapshot is capped display evidence, not the complete generated answer.
+        // Its silent/empty disposition still controls visibility, even after transient streamed text.
+        const terminal = result.terminalReply;
+        const text = terminal?.disposition === 'silent' || terminal?.disposition === 'empty' ? ''
+          : payloadText.length ? payloadText.join('\n\n')
+          : last ?? (typeof terminal?.text === 'string' ? terminal.text : '');
         on?.({ type: 'text', text }); // the final cumulative text (unvalidated)
         const parsed = output?.parse(text);
         if (output && !parsed) return { ok: false, kind: 'output', message: words('member.output') };
-        const done = await Promise.race([final.catch(() => undefined), delay(FINAL_GRACE_MS, undefined, { ref: false })]);
-        const meta = isRecord(done) && isRecord(done.result) && isRecord(done.result.meta) ? done.result.meta : {};
+        const meta = isRecord(frame.meta) ? frame.meta : {};
         const agentMeta = isRecord(meta.agentMeta) ? meta.agentMeta : {};
         const usage = usageOf(agentMeta);
         const planWindow = typeof agentMeta.provider === 'string'

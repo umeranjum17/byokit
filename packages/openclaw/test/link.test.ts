@@ -58,6 +58,8 @@ async function world(o: { passThrough?: (method: string, grant: Grant) => boolea
     const t = fake.factory(ctx);
     return { ...t, request: async (method, params, options) => {
       const result = await t.request(method, params, options);
+      if (method === 'agent' && o.reply) return { ...(result as object),
+        result: { ...(result as { result: object }).result, payloads: [{ text: o.reply() }] } };
       return method === 'agent.wait' && o.reply
         ? { ...(result as object), terminalReply: { text: o.reply() } } : result;
     } };
