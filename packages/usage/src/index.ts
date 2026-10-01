@@ -16,7 +16,7 @@ export async function identity(source: Extract<Source, { bin: string }>): Promis
   validate(source);
   return codexIdentity(source);
 }
-export { callLedger, normalizeTokens, priceCall, type CallLedger, type CallInput, type CallRecord, type CallQuery, type NormalizedTokens, type ModelPrice, type PriceTable, type CallCost } from './calls.ts';
+export { callLedger, normalizeTokens, priceCall, type CallLedger, type CallInput, type CallRecord, type CallQuery, type RunQuery, type NormalizedTokens, type ModelPrice, type PriceTable, type CallCost } from './calls.ts';
 export { tokenLedger, memoryTokenLedgerStore, TokenLedgerError, type TokenLedger, type TokenLedgerStore, type TokenLedgerOptions, type TokenEntry, type TokenQuery } from './ledger.ts';
 export { roomOf } from './room.ts';
 export { fingerprint, store as fileUsageStore, memoryUsageStore } from './store.ts';

@@ -5,6 +5,8 @@
 - SECURITY: Claude subscription usage may read credentials only from app-managed folders under the passed stateDir, without refresh or credential writes; default logins and folder escapes are refused, tokens stay in one request and never enter output, errors, logs or stored readings.
 - Share the bounded Codex app-server client between identity and subscription usage reads.
 - Apply shared poll health, scoped quota and hard-limit semantics to managed Claude usage, including cancellable host pacing.
+- Add host lane/route attribution and member-scoped per-run token queries to `callLedger`, sharing existing limits and app-owned cap policy.
+- Accept OpenClaw run usage with separate cache buckets alongside accounts and decide results, without provider calls or logging. Subscription attribution defaults on; API key (billed per use) attribution stays explicit and labelled.
 
 ## 0.3.0 (2026-10-01)
 
