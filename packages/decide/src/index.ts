@@ -3,7 +3,7 @@ export { InvalidSchemaError, type OutputSchema, type SchemaOutput } from './sche
 // Typed questions in, a typed answer with confidence out, abstaining below a floor. The floor, the per-option floors,
 // the runner-up and the tie are code, never a prompt: ported from firstmate's bin/fm-dispatch-resolve.sh.
 export { jev } from './jev.ts';
-export { openai, OPENAI_ROUTES, UnsupportedAccountError, type OpenAIOptions, type OpenAIRequestOptions } from './openai.ts';
+export { openai, OPENAI_ROUTES, UnsupportedAccountError, type OpenAIAccount, type OpenAIOptions, type OpenAIRequestOptions } from './openai.ts';
 export { parseConfig, createDecider, ConfigError, type DecideConfig, type ConfigHost, type ConfigOptions } from './config.ts';
 import { UnsupportedAccountError } from '@byokit/accounts/chatgpt-plan';
 export { UnsupportedImagesError, InvalidImageError, type ImageInput, type DecisionImage } from './images.ts';

@@ -49,19 +49,19 @@
   },
   {
     "readme": "packages/decide/README.md",
-    "block": 5,
+    "block": 6,
     "snapshot": "687cc4b5ac7cc76e4521158275072ca589decc3770ad191ba92fcd1562525d5d",
     "reason": "Plan-sign-in fragment omits the host sign-in adapter, member and chosen model."
   },
   {
     "readme": "packages/decide/README.md",
-    "block": 6,
+    "block": 7,
     "snapshot": "101aa9234fc048bd3bc63a756480b3e293f8aaea121c34682622d30c26b898d3",
     "reason": "Configuration fragment omits the host configuration, account, member and question inputs."
   },
   {
     "readme": "packages/decide/README.md",
-    "block": 7,
+    "block": 8,
     "snapshot": "4e53e33512ea23be3a03f783a66c3ad769bd38bd5ad96e7dc5824cc132190b89",
     "reason": "Cache/retry fragment omits hostConfig, input text and questions context."
   },

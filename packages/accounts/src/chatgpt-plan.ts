@@ -1,3 +1,11 @@
+import type { Ask, ResponseResult } from './responses.ts';
+
+/** A member-bound Accounts ChatGPT subscription handle. Credentials stay inside Accounts. */
+export type ChatGPTRespondAccount = {
+  readonly billing: 'subscription';
+  respond(ask: Ask & { result: true }): Promise<ResponseResult>;
+};
+
 /** A host-owned, validated Sign in with ChatGPT token-sharing session. The host completes the official
  * OAuth flow (including ID-token verification), stores it per person, and refreshes it before returning it.
  * This adapter never discovers credentials, starts a login, or substitutes a Codex credential. */
