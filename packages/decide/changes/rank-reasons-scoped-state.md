@@ -1,0 +1,4 @@
+- SECURITY: Backend failures no longer copy arbitrary exception messages into answer diagnostics, where private state or credentials could appear; only HTTP status, timeout, abort and cut-off diagnostics are retained.
+- Add rank questions returning every candidate id in order with optional backend-reported scores; rules, OpenAI, answerer and the Node subscription adapter support explicit ordering, and Jev orders Choice probabilities as a documented fallback.
+- Add opt-in personReason explanations separate from diagnostic reasons, with plain-text and length validation and no explanations on abstained answers.
+- Add per-question state replacement, privacy narrowing and backend allowlists; scoped requests exclude shared state and other questions, stays-here questions never leave the device, and rules-only questions never reach a model.
