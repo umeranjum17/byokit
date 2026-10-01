@@ -92,7 +92,7 @@ test("production adapter closes a context when initial page setup fails", async 
 
 test("real driver starts only the app-named fake executable, with private profile and no host secrets", async () => {
   const root = await mkdtemp(join(tmpdir(), "browser-process-test-"));
-  const bin = join(root, "fake-chromium");
+  const bin = join(root, "fake-chromium.cjs");
   const report = join(root, "launch.json");
   const previous = process.env.BROWSER_TEST_SECRET;
   process.env.BROWSER_TEST_SECRET = "host-credential-canary";
