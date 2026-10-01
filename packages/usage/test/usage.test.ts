@@ -620,3 +620,67 @@ test('managed Claude usage is read-only, bounded and carries app-passed headers 
   unlinkSync(credential); assert.equal(reader.connected(source), false);
   assert.equal((await reader.read(source, { nowMs })).code, 'not-connected');
 });
+
+
+test('ephemeral Claude snapshot is identity-free, uncached and source-local with honest failures', async () => {
+  let sharedCalls = 0;
+  const shared = (): never => { sharedCalls++; throw new Error('shared identity state accessed'); };
+  const reader = usage({ store: { get: shared, put: shared }, backoff: { get: shared, set: shared }, pace: async () => shared(), fetch: async () => { shared(); return new Response(); } });
+  let calls = 0; let signedIn = true;
+  const snapshot = { rate_limits: payloads.claude.raw, fetched_at: nowMs, accessToken: 'must-not-escape', folder: 'must-not-escape' };
+  const source: Source = { provider: 'claude', ephemeral: true, connected: () => signedIn, read: async () => {
+    calls++;
+    return calls === 1 ? { raw: snapshot, at: snapshot.fetched_at } : { code: 'rate-limited', retryAfterMs: 600_000 };
+  } };
+  assert.equal(reader.account(source), undefined);
+  assert.equal(reader.lastKnown(source), undefined);
+  const fresh = await reader.read(source, { nowMs });
+  assert.deepEqual(fresh.windows, payloads.claude.windows);
+  assert.equal(roomOf(fresh, nowMs).left, 58);
+  assert.equal(roomOf(fresh, nowMs).freshness, 'fresh');
+  assert.doesNotMatch(JSON.stringify(fresh), /must-not-escape|accessToken|folder/);
+  // Even a successful read is not cached; the next call observes the source again.
+  const failed = await reader.read(source, { nowMs: nowMs + 1 });
+  assert.equal(failed.code, 'rate-limited');
+  assert.deepEqual(failed.windows, []);
+  assert.equal(failed.at, undefined);
+  assert.equal(failed.poll?.retryAt, nowMs + 600_001);
+  assert.equal((await reader.read(source, { nowMs: nowMs + 2 })).code, 'rate-limited');
+  assert.equal(calls, 2);
+  const other: Source = { provider: 'claude', ephemeral: true, read: async () => ({ raw: snapshot }) };
+  assert.equal((await reader.read(other, { nowMs })).code, undefined);
+  assert.equal(roomOf(await reader.read(other, { nowMs }), nowMs).freshness, 'unknown');
+  assert.equal((await usage({}).read(source, { nowMs })).code, 'rate-limited');
+  signedIn = false;
+  assert.equal((await reader.read(source, { nowMs })).code, 'not-connected');
+  assert.equal(reader.connected(source), false);
+  assert.equal(reader.lastKnown(source), undefined);
+  assert.equal(calls, 3);
+  for (const answer of [{}, { raw: 'invalid' }, { code: 'not-connected' as const }, { code: 'auth' as const }, { code: 'expired' as const }]) {
+    const result = await reader.read({ provider: 'claude', ephemeral: true, read: async () => answer }, { nowMs });
+    assert.equal(result.code, 'code' in answer ? answer.code : 'incomplete');
+    assert.equal(roomOf(result, nowMs).left, 'unknown');
+  }
+  const hard = await reader.read({ provider: 'claude', ephemeral: true, read: async () => ({ limited: true, at: nowMs }) }, { nowMs });
+  assert.equal(roomOf(hard, nowMs).left, 0);
+  await assert.rejects(reader.read({ ...other, accountUuid: 'invented' } as Source), UsageError);
+  assert.equal(sharedCalls, 0);
+});
+
+test('ephemeral Claude concurrent reads share only their operation and respect deadline/cancellation', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let signal: AbortSignal | undefined; let calls = 0;
+  const source: Source = { provider: 'claude', ephemeral: true, read: async (opts) => {
+    signal = opts.signal; calls++;
+    return new Promise(() => {});
+  } };
+  const reader = usage({});
+  const a = reader.read(source, { nowMs }); const b = reader.read(source, { nowMs });
+  t.mock.timers.tick(10_000);
+  assert.equal((await a).code, 'unavailable'); assert.deepEqual(await a, await b);
+  assert.equal(signal?.aborted, true); assert.equal(calls, 1);
+  assert.equal((await reader.read(source, { nowMs: nowMs + 1 })).poll?.retryAt, nowMs + 60_000);
+  const controller = new AbortController(); controller.abort();
+  assert.equal((await reader.read({ ...source }, { nowMs, signal: controller.signal })).code, 'unavailable');
+  assert.equal(calls, 1);
+});
