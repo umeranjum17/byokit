@@ -116,6 +116,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   private aliases = new Map<string, string>();
   private preferred = new Map<string, string>();
   private accountKey(member: M, key: string) { return this.aliases.get(`${member}:${key}`) ?? key; }
+  private stateKey(member: M, key: string) { return this.accountKey(member, this.preferred.get(`${member}:${key}`) ?? key); }
   private providerKey(key: string) { return key.split('.')[0]; }
   private storageKey(key: string) { return key.includes('.') ? key : this.offer(key).pi; }
   private async resolveKey(member: M, key: string) {
@@ -149,10 +150,15 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   async defaults(member: M): Promise<Defaults> { return (await this.index(member)).defaults; }
   async setDefaults(member: M, defaults: Defaults): Promise<void> {
-    if (defaults.account && !(await this.list(member)).some((a) => a.id === defaults.account)) throw new Error('No such account.');
+    const accounts = await this.list(member);
+    if (defaults.account && !accounts.some((a) => a.id === defaults.account)) throw new Error('No such account.');
     await this.store(member).index((i) => { i.defaults = { ...defaults }; });
-    this.preferred.clear();
-    if (defaults.account) this.preferred.set(`${member}:${this.providerKey(defaults.account)}`, defaults.account);
+    for (const p of this.providers) {
+      const rows = accounts.filter((a) => a.provider === p.key);
+      const chosen = rows.find((a) => a.id === defaults.account) ?? rows[0];
+      if (chosen) this.preferred.set(`${member}:${p.key}`, chosen.id);
+      else this.preferred.delete(`${member}:${p.key}`);
+    }
   }
   async rename(member: M, id: string, name: string): Promise<Account> {
     id = this.accountKey(member, id);
@@ -172,7 +178,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         for (const map of [i.names, i.emails, i.plans, i.addedAt]) delete map[id];
         if (i.defaults.account === id) delete i.defaults.account;
       });
-      this.preferred.clear();
+      this.preferred.delete(`${member}:${this.providerKey(id)}`);
+      await this.resolveKey(member, this.providerKey(id));
     }
   }
   async add(member: M, key: string, options: { via?: Via; key?: string } = {}): Promise<{ id: string; signIn?: SignIn }> {
@@ -224,7 +231,6 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     flow.id = canonical;
     this.additions.delete(`${member}:${key}`);
     this.runtimes.delete(`${member}:${key}`);
-    this.preferred.clear();
     return canonical;
   }
 
@@ -298,7 +304,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
           if (next?.type === 'oauth' && p?.revoke) {
             try { await revoke(this.opts.authBase ? `${this.opts.authBase}/oauth/revoke` : p.revoke!, p.clientId, next); } catch (e) {
               const error = e instanceof Error ? e : new Error(String(e));
-              if (this.onSignOutError) this.onSignOutError(member, p.key, error);
+              if (this.onSignOutError) this.onSignOutError(member, accountId ?? p.key, error);
               else console.error('Sign-out of a discarded credential failed');
               throw error;
             }
@@ -434,27 +440,30 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
 
   /** Whether the member's plan lacks this use; `on` records what the provider said, or that the person changed plans. */
-  notIncluded(member: M, key: string, on?: boolean) {
-    key = this.accountKey(member, key);
+  notIncluded(member: M, key: string, on?: boolean) { return this.accountNotIncluded(member, this.stateKey(member, key), on); }
+
+  private accountNotIncluded(member: M, key: string, on?: boolean) {
     const id = `${member}:${key}`;
     if (on !== undefined) { if (on) this.without.add(id); else this.without.delete(id); this.onChange?.(member, key); }
     return this.without.has(id);
   }
 
   /** Known to be unusable: signed out, or a plan without this use. An unchecked account counts as usable, so a first run still tries. */
-  unready(member: M, key: string) { key = this.accountKey(member, key); return this.ready.get(`${member}:${key}`) === false || this.without.has(`${member}:${key}`); }
+  unready(member: M, key: string) { key = this.stateKey(member, key); return this.ready.get(`${member}:${key}`) === false || this.without.has(`${member}:${key}`); }
 
   /** The account turned a request away (its sign-in lapsed): signed out until the person signs in again. */
-  forget(member: M, key: string) {
-    key = this.accountKey(member, key);
+  forget(member: M, key: string) { this.forgetAccount(member, this.stateKey(member, key)); }
+
+  private forgetAccount(member: M, key: string) {
     this.ready.set(`${member}:${key}`, false);
     this.lapsed.add(`${member}:${key}`);
     this.onChange?.(member, key);
   }
 
   /** 0 when the account is available; otherwise when it stops resting. */
-  restingUntil(member: M, key: string) {
-    key = this.accountKey(member, key);
+  restingUntil(member: M, key: string) { return this.accountRestingUntil(member, this.stateKey(member, key)); }
+
+  private accountRestingUntil(member: M, key: string) {
     const r = this.rests.get(`${member}:${key}`);
     return r && r.until > Date.now() ? r.until : 0;
   }
@@ -470,7 +479,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     catch (e: any) {
       if ([400, 401, 403].includes(e?.status)) {
         await rt.credentialStore.delete(p.pi);
-        this.forget(member, key);
+        this.forgetAccount(member, key);
         throw new ResponseError(say('status.needsAgain', { name: p.name }), 'signed_out');
       }
       throw new ResponseError('ChatGPT could not refresh its sign-in. Try again when the network is back.', 'network');
@@ -559,7 +568,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const c = error instanceof ResponseError ? error.kind && { kind: error.kind, until: error.until } : classify(error);
     if (!c || c.kind === 'network') return c;
     if (c.kind === 'signed_out' && await this.recheck(member, key)) c.kind = 'overloaded';
-    if (c.kind === 'not_included') this.notIncluded(member, key, true);
+    if (c.kind === 'not_included') this.accountNotIncluded(member, key, true);
     else if (c.kind !== 'signed_out') {
       c.until ||= Date.now() + REST_MS[c.kind];
       this.rests.set(`${member}:${key}`, { until: c.until, kind: c.kind });
@@ -584,7 +593,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const id = `${member}:${key}`;
     const s = (state: Status['state'], w: WordKey, until?: number): Status => ({ id: key, provider: this.providerKey(key), account: key, name, state, until, words: say(w, { name, until: until ? clock(until) : '' }) });
     if (this.flows.get(id)?.state === 'waiting') return s('signing', 'status.signing');
-    const until = this.restingUntil(member, key);
+    const until = this.accountRestingUntil(member, key);
     if (until) return s('resting', this.rests.get(id)!.kind === 'rate_limit' ? 'status.resting' : 'status.busy', until);
     if (!(this.ready.get(id) ?? await this.checked(member, key))) return this.lapsed.has(id) ? s('needs_again', 'status.needsAgain') : s('signed_out', 'status.signedOut');
     return this.without.has(id) ? s('not_included', 'status.notIncluded') : s('ready', 'status.ready');
@@ -737,8 +746,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
 
   /** Stop a sign-in and forget it; nothing it started is kept. */
-  cancel(member: M, key: string) {
-    key = this.preferred.get(`${member}:${key}`) ?? key;
+  cancel(member: M, key: string) { this.cancelFlow(member, this.preferred.get(`${member}:${key}`) ?? key); }
+
+  private cancelFlow(member: M, key: string) {
     const f = this.flows.get(`${member}:${key}`);
     if (f?.state === 'waiting') { f.state = 'failed'; f.abort.abort(); f.refuse?.(new Error('cancelled')); }
     this.flows.delete(`${member}:${key}`);
@@ -773,18 +783,19 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       for (const key of keys) {
         if (!this.providers.some((p) => p.key === this.providerKey(key)) || this.ready.get(`${m}:${key}`) === false) continue;
         const ok = await this.refreshed(m, key, 60 * 60_000);
-        if (!ok) { this.forget(m, key); this.onExpired?.(m, key); }
+        if (!ok) { this.forgetAccount(m, key); this.onExpired?.(m, key); }
       }
     }
   }
 
   /** After the account turned a request away: true if its sign-in still refreshes; if not, it is signed out for good. */
   async recheck(member: M, key: string) {
+    key = await this.resolveKey(member, key);
     const p = this.offer(key);
     // A saved API key cannot refresh itself after an authentication refusal.
     const ok = p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)
       ? false : await this.refreshed(member, key, 365 * 86_400_000);
-    if (!ok) { await this.logout(member, key).catch(() => {}); this.forget(member, key); }
+    if (!ok) { await this.logout(member, key).catch(() => {}); this.forgetAccount(member, key); }
     return ok;
   }
 
@@ -801,7 +812,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const p = this.offer(key);
     const id = `${member}:${key}`;
     if (id !== initialId) this.generations.set(id, (this.generations.get(id) ?? 0) + 1);
-    this.cancel(member, key);
+    this.cancelFlow(member, key);
     const work = (async () => {
       if (p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)) {
         await this.serial(id, () => this.keys(member, (store) => store.delete(`accounts.${key}`)));

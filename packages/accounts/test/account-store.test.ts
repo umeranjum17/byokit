@@ -58,6 +58,17 @@ test('WP1: different ChatGPT identity adds, same identity replaces; independent 
     assert.deepEqual((await runtime.credentialStore.list()).map((r) => r.providerId), ['openai-codex']);
     assert.equal((await runtime.readCredential('openai-codex') as any).accountId, 'umer-work');
     assert.equal((await a.list('Other member')).length, 0);
+    await a.failed(member, 'chatgpt', '503 overloaded');
+    assert.ok(a.restingUntil(member, 'chatgpt') > Date.now(), 'legacy rest follows the default account');
+    assert.equal((await a.list(member)).find((r) => r.id === 'chatgpt')!.state, 'ready', 'first account remains independent');
+    assert.equal((await a.list(member)).find((r) => r.id === work)!.state, 'resting');
+    a.notIncluded(member, 'chatgpt', true);
+    assert.equal(a.unready(member, 'chatgpt'), true);
+    assert.equal(a.notIncluded(member, work), true);
+    a.notIncluded(member, 'chatgpt', false);
+    a.forget(member, 'chatgpt');
+    assert.equal(a.unready(member, 'chatgpt'), true);
+    assert.equal((await a.list(member)).find((r) => r.id === 'chatgpt')!.state, 'ready');
     const legacy = await a.login(member, 'chatgpt', { via: 'code' });
     mock.approve(legacy!.code!);
     await a.finished(member, 'chatgpt');
