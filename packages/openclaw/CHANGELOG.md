@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Offer subscription sign-ins, including pasted tokens and native Claude Code, by default and allow their provider plugins. API key (billed per use) routes remain app opt-in; proxies, compatibility aliases and local routes stay off.
+
 ## 0.3.6 (2026-10-01)
 
 - FIX: Live orphan gateways recover after the engine rewrites its process title. Recovery verifies the recorded launch pid and process start time with the executable and isolated store paths; ambiguous ownership preserves the saved sign-in state.
@@ -52,7 +54,6 @@
 
 - FIX: `authSeal` no longer rejects retained-login migration when engine state contains symlinks or runtime entries. File symlinks whose fully resolved targets are regular files inside the isolated engine root are sealed and restored as regular files at the link paths; outside-root, dangling and directory symlinks (including loops), sockets, FIFOs and devices are skipped without reading their contents.
 - Depends on @byokit/ui-core 0.4.0.
-- Offer subscription sign-ins, including paste, by default and allow their provider plugins. API key (billed per use) routes stay listed and require app or person opt-in. Keep proxy, compatibility, local and Claude CLI routes off.
 
 ## 0.3.0 (2026-09-30)
 
@@ -74,6 +75,8 @@
 
 
 ## 0.2.3 (2026-09-30)
+
+
 
 - FIX: `prepare()` repairs stale engine manifests and missing or wrong-version dependencies before reusing an installed engine.
 
