@@ -49,7 +49,9 @@ test('Claude binary seam: isolated subscription, structured generation, scalar d
   const root = await mkdtemp(join(tmpdir(), 'byokit-decide-generate-'));
   const configDir = join(root, 'app-sign-in');
   const ambient = join(root, 'ambient-config');
-  const homeClaude = join(process.env.HOME!, '.claude');
+  const decoyHome = join(root, 'ambient-home');
+  const homeClaude = join(decoyHome, '.claude');
+  const previousHome = process.env.HOME;
   const previousConfig = process.env.CLAUDE_CONFIG_DIR;
   try {
     await mkdir(configDir);
@@ -61,6 +63,7 @@ test('Claude binary seam: isolated subscription, structured generation, scalar d
     const before = await readdir(homeClaude);
     const bin = join(root, 'fake-claude');
     await writeFile(bin, fakeSource, { mode: 0o700 });
+    process.env.HOME = decoyHome;
     process.env.CLAUDE_CONFIG_DIR = ambient;
     const backend = claudeCode({ bin, configDir, model: 'chosen-model', timeoutMs: 5000 });
     assert.equal(backend.billing, 'subscription');
@@ -123,6 +126,8 @@ test('Claude binary seam: isolated subscription, structured generation, scalar d
     await assert.rejects(missing.generate({ prompt: 'normal', schema }), ClaudeCodeError);
     assert.throws(() => claudeCode({ bin, configDir: homeClaude, timeoutMs: 100 }), /separate/);
   } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
     if (previousConfig === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = previousConfig;
     await rm(join(homeClaude, 'byokit-test-canary'), { force: true });
