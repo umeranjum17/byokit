@@ -6,7 +6,7 @@ export type Billing = 'subscription' | 'api';
 export type MultiAccountTerms = { terms: 'allowed' | 'grey' | 'partner' | 'forbidden'; why: string; source: string };
 /** `callbackPort`: where the provider sends the browser back after its own sign-in page, fixed for the client Pi signs in as.
  *  `revoke`: where signing out ends the sign-in on the provider's side too, for the client `clientId`. */
-export type Provider = { key: string; pi: string; name: string; company: string; models: { strong: string; fast?: string }; callbackPort?: number; clientId?: string; revoke?: string; billing: Billing; auth?: 'api-key' | 'oauth'; label?: string; offer?: boolean; source: string; multiAccount: MultiAccountTerms };
+export type Provider = { key: string; pi: string; name: string; company: string; models: { strong: string; fast?: string }; fresh?: { param: string; value: string }; callbackPort?: number; clientId?: string; revoke?: string; billing: Billing; auth?: 'api-key' | 'oauth'; label?: string; offer?: boolean; source: string; multiAccount: MultiAccountTerms };
 
 export const PROVIDERS: Record<string, Provider> = Object.fromEntries(Object.entries(CATALOGUE).map(([key, p]) => [key, { key, ...p } as Provider]));
 

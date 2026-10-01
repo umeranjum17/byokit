@@ -4,8 +4,8 @@ export { Accounts, planOf, portable, type AccountsOptions, type ClaudePlanAsk, t
 export { PROVIDERS, offered, provider, type Billing, type MultiAccountTerms, type Provider } from './catalogue.ts';
 export { PORTABLE, claims, credentialOf, devicePoll, deviceStart, portableEngine, type EngineOptions, type Poll } from './engine.ts';
 export { REST_MS, classify, classifyFailure, type Failure, type Kind } from './limits.ts';
-export { IncompleteError, ResponseError, isFunctionCall, limitResponse, respond, sseReader, type Ask, type ResponseFunctionCall, type ResponseInputItem, type ResponseOutputItem, type ResponseOutputMessage, type ResponseReasoning, type ResponseResult, type ResponseUsage, type ResponseStreamEvent, type ResponseText, type ResponseTextFormat, type ResponseTool, type ResponseToolChoice } from './responses.ts';
-export { browserStore, keystoreStore, memoryStore, recordStore, secureStore, RefreshRequiredError, type RefreshStore, type SecureStoreLike } from './stores.ts';
+export { IncompleteError, ResponseError, isFunctionCall, limitResponse, respond, sseReader, type Ask, type ResponseFunctionCall, type ResponseInputItem, type ResponseOutputItem, type ResponseOutputMessage, type ResponseReasoning, type ResponseResult, type ResponseStreamEvent, type ResponseText, type ResponseTextFormat, type ResponseTool, type ResponseToolChoice } from './responses.ts';
+export { viewStore, type EndingStore, type AccountStore, type AccountsIndex, type IndexStore, browserStore, keystoreStore, memoryStore, recordStore, secureStore, RefreshRequiredError, type RefreshStore, type SecureStoreLike } from './stores.ts';
 export { WORDS, billingWords, callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';
 
 export { chatgptPlan, UnsupportedAccountError, type ChatGPTPlanAccount, type ChatGPTRespondAccount, type ChatGPTPlanSession } from './chatgpt-plan.ts';
@@ -14,4 +14,4 @@ export { anthropic, anthropicSseReader, AnthropicIncompleteError, type Anthropic
 
 export { ClaudePlanExpiredError, ClaudePlanPlatformError, claudeAuthorization, claudeCode, type ClaudePlanOptions } from './claude-plan.ts';
 
-export { chooseAccount, resolveSelection, roomOf, roomWords, type AccountLike, type AccountPick, type Considered, type Defaults, type PickWhy, type Room, type RoomSpan, type RunSelection, type SignInState } from './multi.ts';
+export { chooseAccount, resolveSelection, roomOf, roomWords, type AccountId, type AccountRef, type Account, type Via, type ProviderInfo, type ModelInfo, type AccountLike, type AccountPick, type Considered, type Defaults, type PickWhy, type Room, type RoomSpan, type RunSelection, type SignInState } from './multi.ts';

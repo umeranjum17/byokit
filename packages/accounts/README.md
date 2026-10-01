@@ -672,3 +672,19 @@ no key, and storage failures have fixed, redacted messages.
 With `keyStore` configured, the existing `openrouter` route uses saved member keys;
 without it, its existing explicit sign-in flow remains available. Saving a key marks
 it connected locally; the selected provider checks validity on the first request.
+
+### Several accounts per member
+
+Built-in stores keep a non-secret account index alongside sealed credentials. Custom stores use `recordStore(load, save)` to supply the same transaction seam. New sign-ins are staged until they succeed:
+
+```ts
+const added = await accounts.add('Umer', 'chatgpt', { via: 'code' });
+// Show added.signIn, then poll view('Umer', added.id) as with login.
+await accounts.finished('Umer', added.id);
+const id = accounts.view('Umer', added.id)?.id; // canonical id after identity dedupe
+if (id) await accounts.rename('Umer', id, 'Work');
+const rows = await accounts.list('Umer');
+if (id) await accounts.setDefaults('Umer', { account: id });
+```
+
+A different identity adds a row; reconnecting the same identity replaces its credential and preserves its name and default. Failed additions leave existing accounts intact. `remove(member, id)` signs out only that row. Existing `login(member, provider)` selects that provider's default account, else its first. Status includes `id` and `provider`; hooks receive account ids. Host capabilities can call `runtime(member, id)` or `access(member, signal, id)` for a specific account. Tokens stay on the device and never enter list rows or the index. See [the WP1 contract](../../docs/accounts-multi.md).

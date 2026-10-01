@@ -1,0 +1,13 @@
+# Multiple accounts (WP1)
+
+Each member owns a credential record. Legacy provider engine keys remain readable; the first public account id is the provider key, followed by `<provider>.<8 hex>` for later accounts. `.accounts` stores only names, emails, plans, addedAt and defaults. Account-specific engines see credential views and never the index. `viewStore(store, providerId, storageId)` exposes only that provider slot, with the refresh and ending transaction seams. `IndexStore.index(fn?, {signal?}?)` serializes a non-secret index/record mutation; a cancellation during its durable write restores the previous record before releasing the lock.
+
+Portable shared types are exported from `multi.ts`: AccountId, AccountRef, Via, ProviderInfo, Account and ModelInfo. Existing selection helpers are unchanged.
+
+Accounts adds `list(member): Promise<Account[]>`, `add(member, provider, {via?, key?}?): Promise<{id: AccountId; signIn?: SignIn}>`, `rename(member, id, name): Promise<Account>`, `remove(member, id): Promise<void>`, `defaults(member): Promise<Defaults>` and `setDefaults(member, defaults): Promise<void>`. CRUD requires an index-capable store, supplied by every built-in store or `recordStore(load, save)`. Built-in stores, including `keystoreStore`, return `EndingStore` (credential, refresh, ending and index seams). API-key addition is deferred to WP4.
+
+An add starts a fresh sign-in with a provisional id. Await `finished(member, id)` for completion; `view(member, id).id` then gives the canonical id. Matching provider identity replaces the existing credential and preserves its name, creation time and defaults; a different identity adds an account. The provisional id remains an alias for that canonical account in this Accounts instance. Incomplete or failed additions never enter the credential record. Identity uses accountId, then stable OAuth claims, then email; absent identity never deduplicates.
+
+Existing provider-key calls choose that provider's default account, else its first account. Explicit suffixed ids select one account. Status retains `account` and adds `id` and `provider`; hooks receive account ids. `runtime(member, id?)` supports a view for a specific account; `access(member, signal?, id?)` exposes a host-only ChatGPT capability for it. Run selection and models remain WP2.
+
+Fresh browser sign-in uses catalogue `fresh: {param, value}`. ChatGPT requests `prompt=login`. Loopback ports are reserved process-wide until the flow ends or switches to code; another flow uses device code, or paste for providers without it. No credential or key enters the index, public views, errors or output.

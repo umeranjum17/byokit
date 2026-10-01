@@ -71,7 +71,7 @@ test('a code sign-in: the code shows at once, the sign-in finishes by itself, an
   assert.equal((await kit.status(1, 'chatgpt')).words, 'Signing in to ChatGPT…');
   await kit.finished(1, 'chatgpt');
   assert.equal(kit.view(1, 'chatgpt')?.state, 'done');
-  assert.deepEqual(await kit.status(1, 'chatgpt'), { account: 'chatgpt', name: 'ChatGPT', state: 'ready', until: undefined, words: 'ChatGPT is connected.' });
+  assert.deepEqual(await kit.status(1, 'chatgpt'), { id: 'chatgpt', provider: 'chatgpt', account: 'chatgpt', name: 'ChatGPT', state: 'ready', until: undefined, words: 'ChatGPT is connected.' });
   assert.equal((await kit.status(2, 'chatgpt')).state, 'signed_out');
   assert.equal(await kit.signedIn(2, 'chatgpt'), false);
 });

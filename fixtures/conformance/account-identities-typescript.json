@@ -1,0 +1,13 @@
+{
+  "scope": "TypeScript account storage; the Kotlin mirror stays frozen",
+  "member": "Umer",
+  "identities": [
+    { "accountId": "umer-personal", "email": "umer@example.com", "expectedCount": 1 },
+    { "accountId": "umer-work", "email": "umer@work.example", "expectedCount": 2 },
+    { "accountId": "umer-work", "email": "umer@work.example", "expectedCount": 2 }
+  ],
+  "replacement": "preserve id, name, addedAt and defaults; replace credentials",
+  "firstId": "chatgpt",
+  "additionalId": "^chatgpt\\.[0-9a-f]{8}$",
+  "index": ["names", "emails", "plans", "addedAt", "defaults"]
+}

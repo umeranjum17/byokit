@@ -32,3 +32,5 @@ a Messages backend to the frozen Kotlin runtime.
 | `conformance/link-frames-typescript.json` | TypeScript link transport rejects missing kinds, unknown kinds and truncated stream ids. |
 
 Each fixture file states its rule in `rule`; `now` (epoch ms) is the fixed clock for time-dependent cases.
+
+`account-identities-typescript.json` fixes WP1 identity addition/replacement and non-secret index rules for the TypeScript kit; the frozen Kotlin mirror does not implement this feature.
