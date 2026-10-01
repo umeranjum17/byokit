@@ -77,13 +77,14 @@ test('structured generation and its cache run without Node or native globals', a
     import { generate, MemoryGenerationCache } from '../src/index.ts';
     const cache = new MemoryGenerationCache();
     let calls = 0;
-    const backend = { name: 'phone-model', model: 'chosen', leaves: false, generate: async () => {
+    const backend = { name: 'phone-model', model: 'chosen', leaves: false, supportsImages: true, generate: async (request) => {
+      if (request.images[0].dataUrl !== 'data:image/png;base64,AQID') throw new Error('wrong image');
       calls++; return { data: { name: 'Umer' }, text: '' };
     } };
     const schema = { type: 'object', required: ['name'], properties: { name: { type: 'string' } } };
     globalThis.result = (async () => {
-      await generate({ state: {} }, schema, { backends: [backend], cache });
-      const answer = await generate({ state: {} }, schema, { backends: [backend], cache });
+      await generate({ state: {}, images: [{ id: 'Umer-design', mime: 'image/png', bytes: new Uint8Array([1, 2, 3]) }] }, schema, { backends: [backend], cache });
+      const answer = await generate({ state: {}, images: [{ id: 'Umer-design', mime: 'image/png', bytes: new Uint8Array([1, 2, 3]) }] }, schema, { backends: [backend], cache });
       return { answer, calls };
     })();`, resolveDir: import.meta.dirname, sourcefile: 'phone-generation.ts' },
     bundle: true, platform: 'browser', format: 'iife', conditions: ['react-native'], write: false, metafile: true, logLevel: 'silent' });

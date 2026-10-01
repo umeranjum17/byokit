@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Accept inline PNG/JPEG images for structured generation and the subscription CLI backend, using the shared image types; generation cache keys include canonical image bytes, MIME and IDs.
+
 - Add named inline image inputs (bytes or data URLs with MIME) to decisions and evaluations, with
   image references in criteria, portable cache keys, and typed refusal for models without image support.
 - Answerer-backed decisions preserve per-call usage and model rationales, including abstentions and

@@ -24,7 +24,7 @@ if (process.argv.includes('auth')) {
   process.exit(0);
 }
 const request = JSON.parse(stdin);
-const prompt = request.message.content[0].text;
+const prompt = request.message.content.filter((part) => part.type === 'text').at(-1).text;
 const args = process.argv.slice(2);
 writeFileSync(process.env.CLAUDE_CONFIG_DIR + '/invocation.json', JSON.stringify({ args, request, env: process.env, cwd: process.cwd() }));
 if (prompt === 'hang') { setInterval(() => {}, 1000); }
@@ -95,11 +95,20 @@ test('Claude binary seam: isolated subscription, structured generation, scalar d
     assert.deepEqual(await readdir(ambient), ['canary']);
     assert.equal(await readFile(join(ambient, 'canary'), 'utf8'), 'unchanged');
     assert.equal(await readFile(join(configDir, '.credentials.json'), 'utf8'), 'the fake never opens this');
+    const image = { id: 'Umer-design', mime: 'image/png', bytes: new Uint8Array([137, 80, 78, 71]) };
+    await backend.generate({ prompt: 'normal', schema, images: [image] });
+    const imageLog = JSON.parse(await readFile(join(configDir, 'invocation.json'), 'utf8'));
+    assert.deepEqual(imageLog.request.message.content[1], { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw==' } });
+    assert.equal(imageLog.request.message.content[0].text, 'Image: Umer-design');
+    await backend.generate({ prompt: 'normal', schema, images: [{ id: 'Umer-jpeg', mime: 'image/jpg', dataUrl: 'data:image/jpg;base64,/9j/2Q==' }] });
+    const jpegLog = JSON.parse(await readFile(join(configDir, 'invocation.json'), 'utf8'));
+    assert.equal(jpegLog.request.message.content[1].source.media_type, 'image/jpeg');
+    await assert.rejects(backend.generate({ prompt: 'normal', schema, images: [{ ...image, mime: 'image/webp' }] }), { name: 'InvalidImageError' });
     const answers = await decide({ name: 'Umer' }, {
-      choice: { kind: 'choice', options: { keep: 'Keep it', drop: 'Drop it' } },
+      choice: { kind: 'choice', images: ['Umer-design'], options: { keep: 'Keep it', drop: 'Drop it' } },
       yesno: { kind: 'yesno', question: 'Keep it?' },
       score: { kind: 'score', levels: ['Good', 'Poor'] },
-    }, { privacy: 'may-leave', backends: [backend] });
+    }, { privacy: 'may-leave', backends: [backend], images: [image] });
     assert.deepEqual(Object.values(answers).map((a) => a.answer), ['keep', true, 0]);
     assert.equal(answers.choice.confidenceSource, 'self-reported');
     const cache = new MemoryGenerationCache();
@@ -108,6 +117,11 @@ test('Claude binary seam: isolated subscription, structured generation, scalar d
     assert.deepEqual(first.data, data);
     assert.equal(second.source, 'cache');
     assert.equal(cache.size, 1);
+    const imageFirst = await generate<typeof data>({ state: { name: 'Umer' }, images: [image] }, schema, { backends: [backend], cache });
+    const imageSecond = await generate<typeof data>({ state: { name: 'Umer' }, images: [image] }, schema, { backends: [backend], cache });
+    assert.deepEqual(imageFirst.data, data);
+    assert.equal(imageSecond.source, 'cache');
+    assert.equal(cache.size, 2);
     for (const [prompt, code] of [['broken', 'invalid_json'], ['partial', 'invalid_output'], ['incomplete', 'incomplete'], ['stderr', 'process']] as const) {
       await assert.rejects(backend.generate({ prompt, schema }), (error: unknown) => error instanceof ClaudeCodeError && error.code === code && !error.message.includes('private diagnostic'));
     }
@@ -151,6 +165,17 @@ test('generation validates locally, refuses unsupported schemas, separates model
   assert.notEqual(key, generationCacheKey({ state: 'changed' }, schema, backend));
   assert.notEqual(key, generationCacheKey({ state: 'Umer' }, { ...schema, title: 'another' }, backend));
   assert.notEqual(key, generationCacheKey({ state: 'Umer' }, schema, { ...backend, model: 'two' }));
+  const image = { id: 'Umer-design', mime: 'image/png', bytes: new Uint8Array([1, 2, 3]) };
+  const imageKey = generationCacheKey({ state: 'Umer', images: [image] }, schema, backend);
+  assert.notEqual(key, imageKey);
+  assert.notEqual(imageKey, generationCacheKey({ state: 'Umer', images: [{ ...image, bytes: new Uint8Array([1, 2, 4]) }] }, schema, backend));
+  assert.equal(imageKey, generationCacheKey({ state: 'Umer', images: [{ id: image.id, mime: image.mime, dataUrl: 'data:image/png;base64,AQID' }] }, schema, backend));
+  await assert.rejects(generate({ state: 'Umer', images: [image] }, schema, opts), { name: 'UnsupportedImagesError' });
+  const imageBackend = { ...backend, supportsImages: true, async generate(request: any) {
+    assert.deepEqual(request.images, [{ id: image.id, mime: image.mime, dataUrl: 'data:image/png;base64,AQID' }]);
+    return { data, text: '' };
+  } };
+  assert.deepEqual((await generate({ state: 'Umer', images: [image] }, schema, { backends: [imageBackend] })).data, data);
   for (const invalid of [{ name: 'Umer' }, { ...data, extra: true }, { name: 'Other', scenes: [{ duration: 6 }] },
     { name: 'Umer', scenes: [] }, { name: 'Umer', scenes: [{ duration: 0 }] }, { name: 'Umer', scenes: [{ duration: 121 }] }]) {
     response = invalid;

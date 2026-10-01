@@ -411,11 +411,17 @@ Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](https://github.com/umeranjum17/b
 
 ## Structured generation
 
-`generate<T>({ state }, schema, { backends, cache, budget })` returns a complete, locally validated
+`generate<T>({ state, images? }, schema, { backends, cache, budget })` returns a complete, locally validated
 `data` value or `data: null` with a fixed `failure` code/message. It keeps `text`, reported `usage`,
 `raw`, `by`, `ms` and `source: 'api' | 'cache'`. The generic type is the app's declaration;
 validation uses the supplied schema. The runner tries backends in order and stores only successes.
 An `IncompleteError` is a failure, even if it contains a usable-looking partial object.
+
+Images use the shared `ImageInput` type: unique IDs plus PNG/JPEG bytes or matching MIME/base64
+data URLs. `image/jpg` is normalized to `image/jpeg`; other formats are refused with
+`InvalidImageError` and must be converted by the host. The kit never fetches URLs or reads image
+files. Generation backends must declare `supportsImages: true`; a text-only backend is refused
+with `UnsupportedImagesError`. Image bytes and data URLs for the same payload share a cache key.
 
 The bounded JSON Schema subset supports objects, required fields, additional properties, arrays,
 length/item/property counts, unique items, enums/const, numeric bounds, types and boolean/composition
@@ -427,14 +433,15 @@ The budget defaults to 120 seconds for the backend sequence and 16,384 output to
 `maxOutputTokens` and reject incomplete answers; the runner enforces the time limit and validates
 complete values again. `signal` cancels generation. `privacy: 'stays-here'` skips hosted backends.
 There is no default disk cache. `MemoryGenerationCache` is the portable reference; cache keys cover
-state, schema, backend, model, host-supplied account/config identity and output budget. Pin a model
+state, canonical image bytes/MIME/IDs, schema, backend, model, host-supplied account/config identity and output budget. Pin a model
 when keeping a durable cache; the CLI's default model selection can change independently.
 
 ```ts
-import { generate, MemoryGenerationCache } from '@byokit/decide';
+import { generate, MemoryGenerationCache, type ImageInput } from '@byokit/decide';
 import { claudeCode } from '@byokit/decide/claude-code';
 
 declare const hostConfig: { model: string };
+declare const images: readonly ImageInput[]; // PNG/JPEG bytes or matching data URLs supplied by the host
 const backend = claudeCode({
   bin: '/absolute/path/to/claude',
   configDir: '/absolute/path/to/app-sign-in',
@@ -452,7 +459,7 @@ const schema = {
   },
 } as const;
 const result = await generate<{ name: string; scenes: { duration: number }[] }>(
-  { state: { name: 'Umer', brief: 'A six-second introduction.' } }, schema,
+  { state: { name: 'Umer', brief: 'A six-second introduction.' }, images }, schema,
   { backends: [backend], cache: new MemoryGenerationCache(), budget: { maxOutputTokens: 8192 } },
 );
 if (result.data === null) console.log(result.failure?.message);
@@ -492,7 +499,9 @@ Direct API:
 
 ```ts
 import { claudeCode } from '@byokit/decide/claude-code';
+import type { ImageInput } from '@byokit/decide';
 
+declare const images: readonly ImageInput[];
 const backend = claudeCode({ bin: '/absolute/path/to/claude',
   configDir: '/absolute/path/to/app-sign-in', timeoutMs: 120_000 });
 const controller = new AbortController();
@@ -500,7 +509,7 @@ const schema = { type: 'object', required: ['title'],
   properties: { title: { type: 'string' } }, additionalProperties: false } as const;
 const { data, text, usage, raw } = await backend.generate({
   system: 'Make a complete storyboard.', prompt: 'Introduce Umer in six seconds.',
-  schema, signal: controller.signal,
+  images, schema, signal: controller.signal,
 });
 ```
 
