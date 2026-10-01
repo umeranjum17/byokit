@@ -63,6 +63,12 @@ through `extra`. A sign-in with explicitly incomplete granted scopes is not save
 ## Check app details and inspect grant lifetime
 
 ```ts
+import type { Connection } from '@byokit/connect';
+
+declare const drive: Connection;
+declare const enteredClientId: string;
+declare const enteredClientSecret: string;
+
 const check = await drive.verifyClient(); // Uses options.client.
 // Or check newly entered details without changing the saved connection:
 const entered = await drive.verifyClient({ id: enteredClientId, secret: enteredClientSecret });
