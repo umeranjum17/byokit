@@ -12,3 +12,4 @@ The 12-message browser run produced 11 correct answers, median 2686 ms. The tran
 - `chatgpt-instruction-ignored.png`: the injected instruction did not change the task classification.
 - `chatgpt-missing-deadline-wrong.png`: the high-confidence wrong answer, retained as failure evidence.
 - `chatgpt-live.webm`: the unmodified Playwright recording of this failed run.
+- `chatgpt-live.mp4`: H.264 conversion of the same captured run, 1280×1250 at 25 fps, 78.88 seconds; no passing abstain is claimed.

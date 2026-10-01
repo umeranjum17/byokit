@@ -3,7 +3,8 @@
 Status: **first ChatGPT run failed acceptance; corrected question awaiting a fresh live run**.
 No live Claude result is claimed.
 
-Source baseline: current main `40ecf7e9c121ec9a8fc18fc4103453541b8172b7`.
+Current main baseline: `7a692353b13ed41c2522e20ffe21407c06b76c5d`.
+First evidence baseline: `40ecf7e9c121ec9a8fc18fc4103453541b8172b7`.
 First captured candidate: `5af2c8a93183b866d76838d57632e64e3b5cb734`.
 
 On 2026-10-01, a real ChatGPT plan answered the 12-message browser set using requested
