@@ -189,7 +189,12 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       || a.pane_id !== target.paneId) {
       throw new Error('Herdr did not queue the prompt.');
     }
-    return { paneId: a.pane_id, terminalId: a.terminal_id, revision: a.revision, status: a.agent_status as AgentStatus };
+    const session = a.agent_session;
+    const agentSession = isObj(session) && typeof session.source === 'string'
+      && typeof session.agent === 'string' && typeof session.kind === 'string' && typeof session.value === 'string'
+      ? { source: session.source, agent: session.agent, kind: session.kind, value: session.value } : undefined;
+    return { paneId: a.pane_id, terminalId: a.terminal_id, revision: a.revision, status: a.agent_status as AgentStatus,
+      ...(agentSession === undefined ? {} : { agentSession }) };
   }
 
   async function wait(target: AgentRef, o: { until?: AgentStatus[]; timeoutMs: number }): Promise<AgentStatus> {

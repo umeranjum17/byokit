@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `PromptReceipt.agentSession` optionally identifies the conversation from the prompt response without an extra read.
+
 - FIX: Refuse non-empty `StartAgent.env` on existing panes instead of silently using the old subscription.
 - Move a conversation to another subscription account with `moveToAccount`: verify the target shell folder,
   resume and wait before closing the original pane, and roll back the new pane on failure.

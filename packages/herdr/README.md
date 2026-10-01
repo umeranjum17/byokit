@@ -160,6 +160,13 @@ persistent grant store, and the phone page above.
 | `startFakeHerdr`, `writeBinShim`, `herdrContract` (`@byokit/herdr/testing`) | The kit's stand-in Herdr, a bin shim that runs it, and the contract suite the kit passes |
 | `ensureHerdr`, `fetchHerdr`, `HERDR_ASSETS` (`@byokit/herdr/binary`) | Opt-in pinned fetch: the v0.9.1 asset for the current platform into an app-owned dir, sha256-verified, executable, returned as the absolute `own`-mode `bin`; refused (nothing left) on a hash mismatch or unsupported platform |
 
+`PromptReceipt` contains `paneId`, `terminalId`, `revision`, and `status`. Its optional
+`agentSession` (`{ source, agent, kind, value }`) identifies the conversation that received
+this prompt, taken directly from the `agent.prompt` response without another read.
+`kind` distinguishes a session id from a session path; `value` is that id or path.
+Herdr exposes no separate generation counter. When Herdr omits the session (or returns
+null), `agentSession` is absent; callers can fall back to their existing checks.
+
 Types (`HerdrKitOptions`, `HerdrState`, `StartAgent`, `PromptReceipt`, `BlockedAgent`, `HerdrSnapshot`,
 `HerdrMethod`/`HerdrParams`/`HerdrResult`, `HerdrEventName`/`HerdrEventOf`, ...) come from the main entry.
 

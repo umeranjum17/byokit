@@ -1313,7 +1313,8 @@ export type MoveResult = { ok: true; session: string } | {
   ok: false; code: 'too_early' | 'busy' | 'unsupported' | 'env_mismatch' | 'close_failed' | 'start_failed';
   message: string; live?: string;
 };
-export type PromptReceipt = { paneId: string; terminalId: string; revision: number; status: AgentStatus };
+export type PromptReceipt = { paneId: string; terminalId: string; revision: number; status: AgentStatus;
+  agentSession?: AgentSessionRef }; // from the prompt response only; absent when Herdr omits it
 export type BlockedAgent = { paneId: string; workspaceId: string; tabId: string; kind?: string; revision: number; prompt: string; since: number };
 export type AgentSessionRef = { source: string; agent: string; kind: string; value: string };
 export type HerdrSnapshotWorktree = {
