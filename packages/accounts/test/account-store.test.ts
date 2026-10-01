@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Accounts, WORDS, callbackPage, memoryStore, recordStore, viewStore, type AuthHost, type Platform } from '../src/portable.ts';
+import { Accounts, ResponseError, WORDS, callbackPage, memoryStore, recordStore, viewStore, type AuthHost, type Platform } from '../src/portable.ts';
 import { mockOpenAI } from '../src/testing/index.ts';
 import type { Record as CredentialRecord } from '../src/stores.ts';
 import { connect, pairWithOffer, startHost } from '../../link/test/helpers.ts';
@@ -83,6 +83,31 @@ test('WP1: different ChatGPT identity adds, same identity replaces; independent 
     assert.equal((await a.list(member)).length, 0);
     assert.equal((await a.defaults(member)).account, undefined);
   } finally { a.stop(); await mock.close(); }
+});
+
+test('ChatGPT host access refuses another provider before opening its credential runtime', async () => {
+  const store = memoryStore();
+  const secret = 'WP1-other-provider-secret';
+  for (const id of ['xai', 'grok.12345678']) await store.modify(id, async () => ({ type: 'oauth', access: secret, refresh: secret, expires: Date.now() + 864_000_000, accountId: 'umer-grok' }));
+  let engines = 0; let authCalls = 0;
+  const platform: Platform = {
+    signsIn: () => true,
+    engine: (credentials) => {
+      engines++;
+      return {
+        credentialStore: credentials, readCredential: (id: string) => credentials.read(id),
+        getAuth: async () => { authCalls++; return { auth: { apiKey: secret } }; },
+      } as unknown as AuthHost;
+    },
+  };
+  const a = new Accounts({ offer: ['chatgpt', 'grok'], store: () => store }, platform);
+  try {
+    for (const id of ['grok', 'grok.12345678']) {
+      await assert.rejects(a.access('Umer', undefined, id), (error: Error) => error instanceof ResponseError && error.kind === 'not_included' && !error.message.includes(secret));
+      assert.equal(engines, 0, 'refusal precedes opening another provider credential runtime');
+      assert.equal(authCalls, 0, 'refusal precedes getAuth');
+    }
+  } finally { a.stop(); }
 });
 
 test('failed and cancelled additions leave existing credentials intact', async () => {

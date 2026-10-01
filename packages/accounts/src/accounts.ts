@@ -472,6 +472,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   async access(member: M, signal?: AbortSignal, accountId?: string): Promise<{ access: string; accountId: string }> {
     signal?.throwIfAborted();
     const key = accountId ? this.accountKey(member, accountId) : await this.resolveKey(member, 'chatgpt');
+    if (this.providerKey(key) !== 'chatgpt') throw new ResponseError('This capability needs a ChatGPT subscription account.', 'not_included');
     const p = this.offer(key);
     const rt = await this.runtime(member, key);
     let access: string | undefined;
