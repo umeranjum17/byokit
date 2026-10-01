@@ -391,3 +391,10 @@ package, never touches a person's other AI tools. Its tests run against a fake H
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](../../NOTICE).
+
+`startAgent` and `openSignInTab` accept the accounts `launchEnv()` result as `env: launch`.
+The host and Herdr must share a filesystem. New panes and existing idle POSIX shells apply
+the settings and unsets through a private temporary file before launch; only the file path
+is sent to the terminal. Busy panes and unsupported shells fail closed. Legacy record env
+still travels on new-pane placement, and remains refused on existing panes. Credential
+values must never be supplied in agent args.

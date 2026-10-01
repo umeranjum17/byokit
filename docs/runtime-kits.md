@@ -1355,7 +1355,7 @@ export type StartAgent = {
   place: { workspace: 'new'; label?: string } | { tab: 'new'; workspaceId: string; label?: string }
        | { split: string; direction: 'right' | 'down' } | { pane: string };
   worktree?: { branch?: string; base?: string };
-  args?: string[]; env?: Record<string, string>; timeoutMs?: number;   // default 60_000
+  args?: string[]; env?: Record<string, string> | { env: Record<string, string>; unset: string[] }; timeoutMs?: number;   // default 60_000
 };
 export type OpenSignInTab = Omit<StartAgent, 'place' | 'worktree'> & { workspaceId: string; label?: string };
 export type MoveToAccount = {
@@ -1560,7 +1560,13 @@ opens a new tab and starts that CLI with its explicit account environment; the p
 first-run login over `terminal()` (link stream `hd.terminal`). It never sends a login command or reads credentials.
 The host owns account folders and history sharing. Tokens stay on the device and never enter kit logs or results.
 Words key `agent.signIn`. Existing `startAgent.env` travels on placement create/split, never `agent.start`.
-An existing-pane start with non-empty env is refused: Herdr cannot change a running shell's environment.
+Legacy record env on existing panes remains refused. `StartAgent.env` also accepts the accounts launch-env
+result `{ env, unset }`. This result is applied in an idle POSIX shell through a host-local private file;
+only its path reaches terminal text. The kit disables tracing, verifies assignments and absence without
+printing values, and waits for a random success marker before `agent.start`. Unsupported or busy shells
+fail closed. Created panes roll back on preparation failure; caller-owned panes remain open. The file is
+removed after preparation, including failure. Runtime errors on this path are replaced with generic words.
+`openSignInTab` accepts the same result. No credential values enter commands, argv or kit logs.
 
 `moveToAccount(target, { provider, folder, env?, direction?, timeoutMs? })` accepts Claude accounts for Claude
 and Codex accounts for Codex. Resume arguments are `--resume <id>` or `resume <id>`. Pi ignores these account

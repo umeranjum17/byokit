@@ -76,8 +76,11 @@ flows, pinned exactly:
 
 ```ts
 import type { SafeStorageLike } from '@byokit/accounts';
-import { isolate } from '@byokit/accounts/isolate'; // first, before any Pi import
-isolate('/path/to/app/engine');                     // scrub inherited Pi settings and provider keys
+import { isolate, launchEnv } from '@byokit/accounts/isolate';
+const dir = isolate('/path/to/app/engine'); // creates the folder; never changes process.env
+const launch = launchEnv({ set: { PI_CODING_AGENT_DIR: dir, PI_OFFLINE: '1',
+  PI_TELEMETRY: '0', PI_SKIP_VERSION_CHECK: '1' } });
+// Pass launch.env to spawn(), or launch to Herdr's startAgent({ env: launch, ... }).
 
 // Your Electron main process waits for app.whenReady(), then passes its safeStorage here.
 export async function connect(safeStorage: SafeStorageLike) {
@@ -127,7 +130,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | `classifyFailure`, `classify`, `REST_MS` | An error's kind (limit, overload, plan without this use, lapsed sign-in, network) and default rest times |
 | `planOf`, `claims` | The ChatGPT plan and email behind a sign-in, from its own token |
 | `deviceStart`, `devicePoll`, `credentialOf`, `portableEngine`, `PORTABLE` | The device-code flow, the sign-in built from a token answer, and the engine under `portable` |
-| `isolate`, `INHERITED`, `emptyAuthContext` (`/isolate`) | Scrub inherited Pi settings and provider keys; ambient discovery off |
+| `isolate`, `launchEnv`, `INHERITED`, `emptyAuthContext` (`/isolate`) | Prepare app folders; copy and scrub child environments; ambient discovery off |
 | `mockOpenAI`, `mockJwt`, `decoy`, `traceFs`, `CANARY` (`/testing`) | A stand-in OpenAI, and the decoy-HOME harness and fs tracer for isolation tests |
 
 `computer`, `loopback` and `fileStore` come from the Node entry only; `isolate` and `/testing` need Node too.
@@ -601,6 +604,13 @@ The existing `accounts-v1.json` `{version:1,accounts:[{id,provider,name,folder,f
 
 `usageSource(id)` returns a Codex Source for `@byokit/usage`; Claude returns `undefined`, and its usage Source is `{provider:'claude', folder:set.CLAUDE_CONFIG_DIR, headers}` in a usage reader whose `stateDir` is the same managed root. `kinds` serves only the matching native agent (`claude` or `codex`); Pi is excluded until its folder mapping is verified. `resumeArgs` accepts an `id` conversation reference for these kinds. `termsAcknowledged` and `acknowledgeTerms` keep the host's existing terms bit; they do not gate sign-in. `suggestName` uses the first part of an email, falling back to the provider's name.
 
+`launchEnv({ base?, account?, set?, unset? })` copies `base` (default: `process.env`), removes
+provider namespaces derived from the catalogue and inherited API keys, then applies account settings
+and explicit settings. Explicit unsets win. `account` accepts `{ set, unset? }`, including the result
+of `cliAccounts.launchEnv(id)`. PATH, HOME and locale remain unless explicitly unset. The result
+`{ env, unset }` lists removed names for shells which already inherited them. An explicit `set` is
+a host opt-in; never put its credential values in terminal commands or logs. `isolate(dir)` retains
+its directory return value but no longer changes global environment variables.
 
 ## Scripted sign-in stand-in
 

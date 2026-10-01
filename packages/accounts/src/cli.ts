@@ -4,6 +4,7 @@ import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openS
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { identity, type Identity } from '@byokit/usage';
 import { say } from './words.ts';
+import { launchEnv as cleanLaunchEnv } from './isolate.ts';
 import type { AccountLike } from './multi.ts';
 
 export type CliProvider = 'claude' | 'codex';
@@ -114,10 +115,7 @@ export function cliAccounts(options: CliOptions) {
   function binary(p: CliProvider): string { const bin = bins[p]; if (!bin) throw new CliAccountError('bad-option'); return bin; }
   function launch(r: Row) { return { set: { [folderVar(r.provider)]: r.folder }, unset: [...shed[r.provider]] }; }
   function spawnEnv(r: Row) {
-    const out = { ...env };
-    for (const key of shed[r.provider]) delete out[key];
-    delete out.CLAUDE_CONFIG_DIR; delete out.CODEX_HOME;
-    return { ...out, ...launch(r).set };
+    return cleanLaunchEnv({ base: env, account: launch(r) }).env;
   }
   function command(r: Row): SignInCommand {
     const argv = r.provider === 'claude' ? [binary(r.provider), 'auth', 'login', '--claudeai'] : [binary(r.provider), 'login', '--device-auth'];

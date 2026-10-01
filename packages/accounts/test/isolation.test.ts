@@ -26,6 +26,7 @@ test("a sign-in, a stored sign-in and its status never touch anyone else's AI se
   assert.deepEqual([out.code, out.url], ['MOCK-12345', 'https://auth.openai.com/codex/device'], 'the real ChatGPT sign-in reached its code');
   assert.deepEqual([out.cancelled, out.ready, out.openrouter, out.other], [false, true, false, false]);
   assert.equal(out.words, 'ChatGPT is connected.');
+  assert.equal(out.unchanged, true);
   assert.deepEqual(out.env, ['PI_CODING_AGENT_DIR', 'PI_OFFLINE', 'PI_SKIP_VERSION_CHECK', 'PI_TELEMETRY']);
   assert.ok(out.asked.every((u: string) => u.startsWith('auth.openai.com/api/accounts/deviceauth/')), out.asked.join(', '));
 
