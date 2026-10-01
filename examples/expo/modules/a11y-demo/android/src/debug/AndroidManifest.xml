@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <application>
+    <activity android:name=".ForegroundFixtureActivity" android:exported="true" />
     <activity android:name=".WebFieldActivity" android:exported="false" />
     <service android:name=".WebFieldService" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="true">
       <intent-filter>
