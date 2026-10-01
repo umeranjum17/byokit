@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.5 (2026-10-01)
+
+
+
 - FIX: Failed engine starts no longer remove another live gateway’s guards or saved sign-in state. Verified dead-host gateways stop gracefully before restart; ambiguous ownership returns a typed engine-already-running error and preserves the store.
 
 ## 0.3.4 (2026-09-30)
