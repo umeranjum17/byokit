@@ -20,6 +20,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 |---|---|
 | Handshake, every connection | `Noise_IK_25519_ChaChaPoly_BLAKE2b`, prologue `byokit-link-v1`. The device knows the host's static key (from the QR, then its grant); its own static key travels encrypted in message 1. Fresh ephemerals per connection: forward secrecy. |
 | Handshake, typed code | `Noise_XXpsk0_25519_ChaChaPoly_BLAKE2b`, PSK = BLAKE2b-256(`byokit-link-code-v1` ‖ code). Only a holder of the code can finish; each side learns the other's static key. |
+| Machine-bound typed code | `Host.shortCode()` prepends `K1` to the existing 59.45-bit secret and appends BLAKE2b-128(`byokit-link-short-key-v1` ‖ host public key) in hex. The device verifies that public commitment after Noise message 2, before revealing its identity in message 3. Untrusted address lookup cannot replace the pinned machine key, even with the secret. Full [design and example](README.md#typed-pairing-on-a-small-terminal). |
 | Library | Handshakes: `noise-handshake` 4.2.0 (Holepunch, Apache-2.0) over libsodium: `sodium-native` in Node, `sodium-javascript` 0.8.0 in browsers and React Native. Frames after the handshake: ChaCha20-Poly1305 from `@noble/ciphers` 2.4.0 (Paul Miller, MIT, audited, no dependencies) on every platform, because sodium-javascript's ChaCha20 was slower in a Hermes CLI benchmark on a desktop CPU (`bench/hermes.sh`); this is not a phone measurement. Same cipher, same Noise nonce, byte-identical frames: no wire change. Pinned exactly. No crypto of our own. |
 | Conformance | `noise-handshake` is checked against the cacophony vectors for IK, XX and NNpsk0, which together cover every token of both handshakes; `@noble/ciphers` against the RFC 8439 AEAD vectors; and the transport against noise-handshake's own CipherState (sodium-native) and sodium-javascript, sealing and opening both ways (`test/channel.test.ts`). |
 | Frames | One Noise transport message per WebSocket frame. JSON control messages use base64 text; see Streams below for data frames. Per-direction CipherStates; the implicit nonce counter rejects any replayed, dropped, reordered or reflected frame, and any bad frame closes the socket. Messages over 60 KB are chunked; a reassembled message over 16 MB closes the socket. |
@@ -108,6 +109,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 - [x] Tickets and codes: 128-bit and 59-bit, single use (deleted on first presentation), 5-minute expiry checked at
       presentation and before persisting the grant, 5 wrong tries withdraw all open tickets and codes.
 - [x] Nothing is stored before `confirm` returns true; `confirm` failing or timing out means no.
+- [x] Bound typed codes check the 128-bit machine-key commitment before message 3, displaying words or receiving a grant; malformed codes never downgrade to legacy pairing. Relay lookup receives only its separate routing code.
 - [x] Every connection's device key is checked against the grants at `auth`; every request re-checks the grant;
       `revoke` removes the grant before closing sockets.
 - [x] Host policy is enforced before the app handler; without `allow`, view-only defaults closed. Only an explicit `PublicLinkError` discloses its chosen message; other handler failures are logged on the host and return plain `failed`.
@@ -192,3 +194,12 @@ Residual file-system assumption: the app supplies a trusted path and trusted anc
 This review does not prove timing side-channel resistance or safety of a compromised host/device.
 The typed-code PAKE upgrade, at-rest adapter choices and app handler transaction boundary remain
 explicit host responsibilities described above.
+
+## Machine-bound typed code review — 2026-09-30
+
+The added checklist row is covered by `test/link.test.ts` (wrong code, replay, five-attempt
+lockout, expiry, late approval, refusal, normalization and malformed commitments),
+`../relay/test/relay.test.ts` (a substituted responder key fails even when it knows the secret,
+before device identity or words), and the browser and React Native pair/request tests.
+The Node README example also declines on Enter and approves only on `y`.
+This extends the recorded protocol review above; no handshake library or dependency changed.

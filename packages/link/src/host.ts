@@ -2,7 +2,7 @@
 // keeps one durable grant per device, answers their requests, and removes them. It never listens on anything itself:
 // the app hands it WebSockets (`accept`), or one relay socket that carries many devices (`relay`).
 import { Handshake, b64, b64url, firstFrame, hostId, messageBytes, random, unb64url, type Channel, type KeyPair } from './channel.ts';
-import { cleanName, codeKey, newCode, normalizeCode, offerText, type PairOffer } from './pairing.ts';
+import { bindCode, cleanName, codeKey, newCode, normalizeCode, offerText, type PairOffer } from './pairing.ts';
 import { PublicLinkError } from './device.ts';
 import { LINK_PROBE, LINK_PROBE_OK } from './check.ts';
 import { MAX_STREAMS, Streams, type LinkStream } from './stream.ts';
@@ -261,6 +261,13 @@ export class Host {
     this.codes.set(normalizeCode(code)!, p);
     this.tries = 0;
     return { code, expires: p.expires };
+  }
+
+  /** A 57-character typed offer that pins this machine's key. Use the whole code with `pairWithCode`;
+   *  addresses come separately (e.g. relay `findHost`). Same approval, single use and expiry as `code`. */
+  shortCode(o: GrantTerms): { code: string; expires: number } {
+    const { code, expires } = this.code(o);
+    return { code: bindCode(code, this.keys.publicKey), expires };
   }
 
   /** Withdraws every open QR and code. */
