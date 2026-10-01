@@ -39,7 +39,9 @@ runtime-tested here because no simulator is available.
   kit-owned config, and holds only the provider keys the app's store gives it and the scoped keys it mints for that
   app. Its tests use a loopback fake and a fake `ssh`. `@byokit/secrets` uses native OS keyring APIs or spawns
   explicitly selected OS keyring CLIs by absolute path with an environment built from nothing plus only what
-  the host passes. Ordinary tests use fakes; real native keyring CI runs in its own disposable OS session. Tests use
+  the host passes. `@byokit/browser` starts only the installed Chromium/Chrome the app selects by absolute path,
+  with a kit-owned temporary profile and HOME; ordinary tests use fakes and never a person's browser profile.
+  Ordinary keyring tests use fakes; real native keyring CI runs in its own disposable OS session. Tests use
   the harness in `packages/accounts/src/testing` (a decoy HOME, an fs tracer, canary
   tokens) and must never need a real account, the network or a model call. `npm test` fails if your own `~/.pi` changed during the run.
 - **One package per concern**, small and dependency-light. Prefer deleting to adding.
