@@ -158,7 +158,7 @@ jobs:
       - run: npx expo export --platform android --platform ios --output-dir dist
         working-directory: examples/expo
 
-  # Frozen Kotlin mirror JVM tests plus the TypeScript dictation consumer on a disposable Android emulator.
+  # Frozen Kotlin mirror JVM tests, dictation, and real RN lazy microphone privacy on a disposable emulator.
   android:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -176,24 +176,33 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run build
       - run: android/test.sh
+      - run: npm ci --no-audit --no-fund
+        working-directory: examples/realtime-android
+      - name: Build real React Native microphone fixture
+        run: npm run typecheck && CI=1 npx expo prebuild -p android --no-install && (cd android && CI=1 NODE_ENV=production ./gradlew assembleRelease -PreactNativeArchitectures=x86_64 --no-daemon)
+        working-directory: examples/realtime-android
       - name: Enable KVM for the disposable emulator
         run: sudo chmod 666 /dev/kvm
-      - name: Dictation system recognizer consumer
+      - name: Dictation and lazy microphone consumers
         uses: ReactiveCircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2
         with:
           api-level: 35
           arch: x86_64
           target: default
           disable-animations: true
-          script: ./android/gradlew -p examples/dictation-android --no-daemon connectedDebugAndroidTest
+          script: |
+            ./android/gradlew -p examples/dictation-android --no-daemon connectedDebugAndroidTest
+            ./examples/realtime-android/e2e-android.sh emulator-5554
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-test-reports
+          include-hidden-files: true
           path: |
             android/byokit-android/build/reports/tests/
             examples/dictation-android/build/reports/androidTests/
             examples/dictation-android/build/outputs/androidTest-results/
+            examples/realtime-android/.proof/
 
   # @byokit/overlay's Expo module: the example prebuilds with the kit's config plugin and assembles with its Kotlin,
   # then JVM tests, consent/point-marker proof and real Chromium WebView focus/insertion run on an emulator.

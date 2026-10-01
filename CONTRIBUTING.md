@@ -22,6 +22,9 @@ Phones: `examples/expo` (`npm ci`, `npm run typecheck`, `npm run bundle` for the
 OpenAI and a link host on this computer).
 Include the Android emulator result in the PR. CI builds both platform bundles; iOS is typechecked and bundled, not
 runtime-tested here because no simulator is available.
+The [realtime Android consumer](examples/realtime-android/README.md) checks lazy
+microphone privacy through the native WebRTC bridge against a local stand-in peer.
+CI runs it alongside dictation on an emulator; its script refuses physical phones.
 
 ## Rules
 
