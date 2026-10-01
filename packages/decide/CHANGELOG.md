@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.5.3 (2026-10-01)
+
+- Dependency update: pins @byokit/accounts 0.16.0.
+- FIX: (from @byokit/accounts 0.16.0) Build device-owned secrets before accounts so API key routes compile in a fresh checkout.
+
 ## 0.5.2 (2026-10-01)
 
 - Dependency update: pins @byokit/accounts 0.15.1.

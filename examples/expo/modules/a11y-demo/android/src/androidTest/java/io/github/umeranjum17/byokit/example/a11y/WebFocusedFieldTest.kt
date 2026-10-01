@@ -1,8 +1,11 @@
 package io.github.umeranjum17.byokit.example.a11y
 
+import android.app.KeyguardManager
 import android.app.UiAutomation
 import android.accessibilityservice.AccessibilityService
+import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
 import android.view.accessibility.AccessibilityNodeInfo
 import android.webkit.WebView
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -21,6 +24,40 @@ class WebFocusedFieldTest {
 
   private fun shell(command: String): String = automation.executeShellCommand(command).use {
     android.os.ParcelFileDescriptor.AutoCloseInputStream(it).bufferedReader().readText().trim()
+  }
+
+  private fun deviceState(): Triple<Boolean, Boolean, Boolean> {
+    val context = instrumentation.targetContext
+    val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    val keyguard = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+    return Triple(power.isInteractive, keyguard.isKeyguardLocked, keyguard.isKeyguardSecure)
+  }
+
+  private fun windowState(label: String) {
+    val (interactive, locked, secure) = deviceState()
+    println("WebView device $label: interactive=$interactive, keyguardLocked=$locked, keyguardSecure=$secure")
+    // Keep the owner/precondition evidence bounded, rather than dumping every window or service.
+    val owners = shell("dumpsys window windows").lineSequence().filter {
+      it.contains("mCurrentFocus") || it.contains("mFocusedApp") ||
+        it.contains("mTopFocusedDisplayId") || it.contains("mObscuringWindow") ||
+        it.contains("keyguard", ignoreCase = true)
+    }.take(12).map { it.trim().take(512) }.joinToString("\n")
+    println("WebView windows $label:\n$owners")
+  }
+
+  private fun prepareDevice() {
+    windowState("before setup")
+    val (interactive, _, _) = deviceState()
+    if (!interactive) {
+      shell("input keyevent KEYCODE_WAKEUP")
+      windowState("after wake")
+    }
+    // Never send credentials or try to bypass a secure lock. An unresolved lock still fails awaitPage.
+    val (_, locked, secure) = deviceState()
+    if (locked && !secure) {
+      shell("wm dismiss-keyguard")
+      windowState("after keyguard dismissal")
+    }
   }
 
   private fun js(activity: WebFieldActivity, script: String): String {
@@ -55,13 +92,17 @@ class WebFocusedFieldTest {
   }
 
   private fun awaitPage(activity: WebFieldActivity) {
-    assertTrue("Local WebView page loaded", activity.loaded.await(60, TimeUnit.SECONDS))
+    val loaded = activity.loaded.await(60, TimeUnit.SECONDS)
+    if (!loaded) windowState("page load timeout")
+    assertTrue("Local WebView page loaded", loaded)
     val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60)
     var observed = ""
     while (!pageReady(activity)) {
       val state = pageState(activity)
       if (state != observed) { println("WebView waiting for page: $state"); observed = state }
-      assertTrue("WebView attached, laid out and window focused: $state", System.nanoTime() < deadline)
+      val withinDeadline = System.nanoTime() < deadline
+      if (!withinDeadline) windowState("page focus timeout")
+      assertTrue("WebView attached, laid out and window focused: $state", withinDeadline)
       instrumentation.runOnMainSync { activity.web.requestFocus() }
       Thread.sleep(100)
     }
@@ -145,6 +186,7 @@ class WebFocusedFieldTest {
     val enabled = shell("settings get secure accessibility_enabled")
     var activity: WebFieldActivity? = null
     try {
+      prepareDevice()
       val component = "${context.packageName}/${WebFieldService::class.java.name}"
       shell("settings put secure enabled_accessibility_services $component")
       shell("settings put secure accessibility_enabled 1")
