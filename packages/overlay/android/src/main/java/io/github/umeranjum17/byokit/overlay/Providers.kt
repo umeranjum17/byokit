@@ -29,9 +29,31 @@ interface KeyboardInset {
  */
 class AccessibilityForegroundApp(private val service: AccessibilityService) : ForegroundApp {
   private val watch = Watch { current }
+  @Suppress("DEPRECATION")
   override val current: String? get() = runCatching {
     val root = if (Build.VERSION.SDK_INT >= 33) service.getRootInActiveWindow(0) else service.rootInActiveWindow
-    root?.packageName?.toString()
+    if (root == null) return@runCatching null
+    try {
+      val window = root.window
+      val overlay = try {
+        window?.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY ||
+          (root.packageName?.toString() == service.packageName &&
+            (window?.type == AccessibilityWindowInfo.TYPE_SYSTEM || PanelActivity.current != null))
+      } finally { window?.recycle() }
+      if (!overlay) return@runCatching root.packageName?.toString()?.takeIf { it.isNotBlank() }
+      // A host overlay can become the active root. Resolve only an active/focused application window,
+      // never an arbitrary background app and never children or screen text.
+      val windows = service.windows
+      try {
+        val underlying = windows.firstOrNull {
+          it.type == AccessibilityWindowInfo.TYPE_APPLICATION && (it.isActive || it.isFocused) &&
+            (PanelActivity.current == null || it.id != root.windowId)
+        } ?: return@runCatching null
+        val appRoot = if (Build.VERSION.SDK_INT >= 33) underlying.getRoot(0) else underlying.root
+        try { appRoot?.packageName?.toString()?.takeIf { it.isNotBlank() } }
+        finally { appRoot?.recycle() }
+      } finally { windows.forEach { it.recycle() } }
+    } finally { root.recycle() }
   }.getOrNull()
   override fun onChange(fn: (String?) -> Unit): () -> Unit = watch.onChange(fn)
   internal fun close() = watch.close()

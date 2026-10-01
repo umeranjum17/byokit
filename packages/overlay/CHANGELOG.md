@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `overlay.foregroundApp()` and `overlay.on('foregroundApp', ...)` expose only the current Android package from
+  the app's attached accessibility service, excluding host overlays; off or unknown returns null.
+
 - FIX: Focused web fields in Chrome and WebView now resolve reliably across window roots, refresh while focus
   settles, and re-acquire the same field before insertion. Password fields remain hidden and are never written.
 - One-shot Android screen capture at `@byokit/overlay/screen-frame`, with fresh system consent for every PNG,

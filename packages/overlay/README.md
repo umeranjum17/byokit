@@ -129,6 +129,26 @@ bubble with `ServiceBubble(WindowOverlayHost(this), moods, spots)`, which takes 
 **Status: ready to publish (BK-O3).** The bubble, both hosts, the panel, the tap log and the focused field are built
 and proven on an Android emulator (API 36). On iOS, the web and Node `overlay.state()` is `unsupported`.
 
+## Foreground app package
+
+With the app's existing accessibility service attached through `ByokitAccessibility.attach(this)`, read the
+current package even when no text field is focused or the bubble is stopped:
+
+```ts
+const unsubscribe = overlay.on('foregroundApp', ({ app }) => { /* update per-app suggestions */ });
+const app = await overlay.foregroundApp(); // Android package name or null
+// When finished:
+unsubscribe();
+```
+
+The getter and change event expose only the package name. They use the service's active window root, without
+reading screen text or traversing children, and need no new permission or UsageStats access. The existing
+foreground watcher checks every 400 ms while listening; changes include `null` when the package is unknown or
+the service detaches. Host overlay windows are excluded; an active/focused application window supplies the
+underlying package when available. The kit's translucent panel is also excluded; while it covers the active app,
+the result can be `null`. The host's regular activity still counts as an app. iOS, web and Node return
+`null` and emit no changes. Subscribe and then read once to initialize suggestions.
+
 ## One screen picture and a point marker
 
 `@byokit/overlay/screen-frame` asks Android's system consent dialog **every time** `frame()` is called. It captures
