@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add app-supplied output schemas to host and device runs, with inferred result data, local final-answer validation and typed output failures. Subscription routes and explicit API key (billed per use) opt-in are unchanged.
+
 ## 0.4.0 (2026-10-01)
 
 - Dependency update: pins @byokit/ui-core 0.6.0.

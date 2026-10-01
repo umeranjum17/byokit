@@ -158,7 +158,7 @@ $('signout').onclick = async () => {
 
 // ---- A run ----
 
-const END_WORDS = { 'signed-out': 'member.signedOut', resting: 'member.resting', plan: 'member.plan', network: 'member.network' } as const;
+const END_WORDS = { 'signed-out': 'member.signedOut', resting: 'member.resting', plan: 'member.plan', network: 'member.network', output: 'member.output' } as const;
 function endWords(end: RunEnd): string {
   if (end.ok) return '';
   if ('aborted' in end) return 'Stopped.';

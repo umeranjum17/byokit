@@ -94,6 +94,46 @@ ends ok carries `usage` (the engine's token total for the run, and `costUsd` whe
 `openclawDevice(link).run(message, o)` takes the same options over the link, and `state()` adds the kit and engine
 versions and the providers the device's member is signed in to.
 
+For a validated JSON answer, pass a literal `schema`. The result's `data` is inferred from that schema:
+
+```ts
+import type { OpenClawKit } from '@byokit/openclaw';
+
+async function summarize(kit: OpenClawKit) {
+  const end = await kit.run({
+    member: 'umer', sessionKey: 'agent:umer:report', message: 'Summarize the work.',
+    schema: {
+      type: 'object',
+      properties: { summary: { type: 'string' }, ready: { type: 'boolean' } },
+      required: ['summary', 'ready'],
+      additionalProperties: false,
+    },
+  });
+  if (end.ok && end.data) {
+    const summary: string = end.data.summary;
+    const ready: boolean = end.data.ready;
+    // Show summary and ready in the app.
+  }
+  return end;
+}
+```
+
+`openclawDevice(link).run(message, { schema })` carries the same schema and typed result over the link.
+The pinned engine has no general schema parameter: the kit adds a JSON-only instruction to the run's
+system prompt, then parses and validates the final answer locally. Partial text events are unvalidated.
+Malformed JSON or a schema mismatch returns `{ ok: false, kind: 'output', message }`; the message never
+includes the answer. The kit sends one agent request, with no kit retries or sign-in changes. Subscription
+routes stay subscriptions; an API key (billed per use) still requires the app's explicit opt-in.
+
+The supported JSON Schema subset covers types (including nullable arrays of types), objects with
+`properties`, `required` and `additionalProperties`, arrays with one `items` schema, `enum`, `const`,
+`anyOf`, `oneOf`, `allOf`, `not`, numeric bounds, string/array/object length bounds and `uniqueItems`.
+Annotations `title`, `description`, `default`, `examples` and the draft-07 `$schema` are accepted;
+defaults are never inserted and values are never coerced. Unsupported keywords (including `$ref`,
+`format` and `pattern`), malformed schemas, schemas over 64 KiB or over 32 levels deep throw before
+any Gateway request. Use `as const` for schemas defined separately; dynamic schemas return unknown
+`data`. App-specific business checks belong in the app after validation.
+
 The same kit runs offline against the fake Gateway from `@byokit/openclaw/testing` (no engine, no network, no
 account), and lists the sign-in routes it offers:
 

@@ -11,6 +11,7 @@
   "member.signedOut": "Sign in with {name} to start.",
   "member.resting": "{name} needs a break until {time}.",
   "member.plan": "Your {name} plan doesn't include this.",
+  "member.output": "The answer did not match the requested format.",
   "member.network": "Can't reach {name} right now. This keeps trying by itself.",
   "signin.returned": "Thanks. Finishing the sign-in — you can go back to the app now.",
   "signin.busy": "Another sign-in is already in progress. Finish or cancel it, then try again.",
