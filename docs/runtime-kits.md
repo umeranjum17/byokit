@@ -237,8 +237,9 @@ export interface ToolHost {
   // every tool call, engine builtins (builtin: true, never passed to call) included, unless gateBuiltins is false
   call(run: RunRef, tool: string, input: Record<string, unknown>, signal: AbortSignal): Promise<string>;
 }
-export interface RunSpec extends RunRef {
+export interface RunSpec<S extends OutputSchema | undefined = OutputSchema | undefined> extends RunRef {
   message: string; system?: string;
+  schema?: S;                                                 // validated JSON output (5.8.1)
   images?: { data: string; mimeType: string }[];
   thinking?: 'off' | 'low' | 'medium' | 'high';
   model?: string;                                              // 'provider/model' (5.8); with `account`, a model of that account
@@ -261,11 +262,11 @@ export type RunUsage = { input?: number; output?: number; cacheRead?: number; ca
   reasoning?: number; total?: number; costUsd?: number };      // the engine's run total
 export type PlanWindow = { provider: string; plan?: string;
   windows: { label: string; usedPercent: number; resetAt?: number }[] };   // usedPercent 0-100, resetAt epoch ms
-export type RunEnd =
-  | { ok: true; text: string; usage?: RunUsage; planWindow?: PlanWindow;   // each only when the engine reports it
+export type RunEnd<T = unknown> =
+  | { ok: true; text: string; data?: T; usage?: RunUsage; planWindow?: PlanWindow;   // data: validated schema; usage/window: engine reports
       account?: AccountId; model?: string }                    // both exactly when the run used an account (5.15)
   | { ok: false; aborted: true }
-  | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other'; until?: number; message: string };
+  | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other' | 'output'; until?: number; message: string };
 export type SignInView = {
   state: 'waiting' | 'done' | 'failed'; via: 'browser' | 'code';
   url?: string; code?: string; error?: string;
@@ -363,7 +364,7 @@ export class OpenClawKit {
   move(ref: RunRef, to: AccountId): Promise<MoveResult>;
   // runs (5.8)
   toolNames(): string[];                                        // KitOptions.tools names: what RunSpec.tools may carry
-  run(spec: RunSpec, on?: (e: RunEvent) => void): Promise<RunEnd>;
+  run<const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void): Promise<RunEnd<SchemaOutput<S>>>;
   steer(sessionKey: string, text: string, o?: { auth?: 'apiKey' }): Promise<void>;   // app or engine key (5.15)
   abort(sessionKey: string, o?: { auth?: 'apiKey' }): Promise<void>;
   // approvals (5.9)
@@ -624,6 +625,31 @@ the engine. External retained sources are touched only when explicitly passed to
 - `steer` → `sessions.steer { sessionKey, message }`; `abort` → `chat.abort { sessionKey }`.
 - Streams: `onEvent` delivers every Gateway event (typed); the link adapter filters by member (7.1).
 
+### 5.8.1 Structured output
+
+`RunSpec.schema` is an app-supplied JSON Schema object in the kit's supported subset (`OutputSchema`).
+`run<const S>(spec: RunSpec<S>)` returns `RunEnd<SchemaOutput<S>>`; successful schema runs include `data`,
+inferred from literal types, object properties/required keys, arrays and enums. Dynamic schemas yield unknown.
+The portable device run takes the same schema and returns the same typed end over `oc.run`.
+
+The pinned `agent` protocol has no general output-schema parameter. Its `swarmOutputSchema` belongs to swarm
+collectors and is not a general run contract. The kit appends a JSON-only instruction and the schema to the
+per-run `extraSystemPrompt`, preserving the caller's system text, and validates the final cumulative text locally.
+It never calls a provider directly, switches sign-in routes, enables API billing, or retries a model call.
+Partial text events remain unvalidated. Invalid JSON or a schema mismatch ends `kind: 'output'`, with a fixed
+message that never contains the answer; it never returns an unvalidated `data` as success. Usage and quota windows
+are preserved on a successful result. Engine failures and aborts retain their existing outcomes.
+
+Supported keywords: `type` (including nullable type arrays), `properties`, `required`, `additionalProperties`,
+`items` (one schema), `enum`, `const`, `anyOf`, `oneOf`, `allOf`, `not`, `minimum`, `maximum`,
+`exclusiveMinimum`, `exclusiveMaximum`, `minLength`, `maxLength`, `minItems`, `maxItems`, `uniqueItems`,
+`minProperties`, `maxProperties`, plus `title`, `description`, `default`, `examples` and the draft-07 `$schema`
+annotation. Other keywords (including references, formats and patterns) and malformed schemas are refused
+before member creation or a Gateway request; they are never silently ignored. The schema is snapshotted before
+account readiness or the run and limited to 64 KiB and 32 nested schemas. The facade passes that prepared
+snapshot to `createRuns` so an explicit API-key readiness await cannot change its constraints. Validation neither coerces values nor fills defaults.
+App-specific business checks belong in the app after the validated result.
+
 ### 5.9 Tools, approvals and the bridge
 
 **Plugin** (`plugin/index.js`, written to `<root>/plugin/` at prepare with a generated `openclaw.plugin.json`
@@ -800,7 +826,8 @@ export function confirmRetainedLogin(ctx: SignInCtx, member: Member, source: Ret
 // runs.ts (O8)
 export function createRuns(ctx: { request: GatewayTransport['request']; onEvent: GatewayTransport['onEvent'];
   ensure(member: Member): Promise<{ agentId: string }>; bridge: Pick<Bridge, 'register' | 'unregister'> }):
-  { run(spec: RunSpec, on?: (e: RunEvent) => void): Promise<RunEnd>; steer(k: string, t: string): Promise<void>; abort(k: string): Promise<void> };
+  { run<const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void, keyAgent?: string,
+      preparedOutput?: ReturnType<typeof outputSchema>): Promise<RunEnd<SchemaOutput<S>>>; steer(k: string, t: string): Promise<void>; abort(k: string): Promise<void> };
 // locks.ts (O14)
 export function createLocks(): { shared<T>(agentId: string, work: () => Promise<T>): Promise<T>;
   exclusive<T>(agentIds: string[], work: () => Promise<T>): Promise<T>; live(agentId: string): boolean };
@@ -852,6 +879,7 @@ export function openNotice(data: Record<string, unknown>, seed: Uint8Array): App
 | `member.signedOut` | Sign in with {name} to start. |
 | `member.resting` | {name} needs a break until {time}. |
 | `member.plan` | Your {name} plan doesn't include this. |
+| `member.output` | The answer did not match the requested format. |
 | `member.network` | Can't reach {name} right now. This keeps trying by itself. |
 | `signin.returned` | Thanks. Finishing the sign-in — you can go back to the app now. |
 | `signin.busy` | Another sign-in is already in progress. Finish or cancel it, then try again. |
@@ -1634,7 +1662,7 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 | `oc.signin.cancel` | `{ provider }` | `null` |
 | `oc.signout` | `{ provider }` | `null` |
 | `oc.sessions` *view* | — | `sessions.list` filtered to the member's keys (member agent and account agents, D9) |
-| `oc.run` (stream) | `{ sessionKey?, message, model?, account?, needs?, auth?, system?, images?, thinking?, tools? }` (`account` an id of the member's, `'default'` or `'auto'`; `auth` only `'apiKey'`) | frames `RunEvent` then `{ type: 'end', end: RunEnd }`; key defaults to `agent:<member>:link:<uuid>`; options are type-checked (`thinking` one of `off|low|medium|high`, `images` `{ data, mimeType }[]`, `needs` a `'provider/model'` string array refused like a malformed `model`); a `tools` name outside `kit.toolNames()` → `link.notAllowed` |
+| `oc.run` (stream) | `{ sessionKey?, message, model?, account?, needs?, auth?, system?, images?, thinking?, tools?, schema? }` (`account` an id of the member's, `'default'` or `'auto'`; `auth` only `'apiKey'`) | frames `RunEvent` then `{ type: 'end', end: RunEnd }`; key defaults to `agent:<member>:link:<uuid>`; options are type-checked (`thinking` one of `off|low|medium|high`, `images` `{ data, mimeType }[]`, `needs` a `'provider/model'` string array refused like a malformed `model`); a `tools` name outside `kit.toolNames()` → `link.notAllowed` |
 | `oc.steer` | `{ sessionKey, text, auth? }` | `null` (key must be the member's, D9) |
 | `oc.abort` | `{ sessionKey, auth? }` | `null` (key must be the member's, D9) |
 | `oc.accounts` *view* | — | `Account[]` (5.15) |
@@ -1680,7 +1708,7 @@ export type OpenClawLinkEvent =                             // oc.events frames
   | { [E in GatewayEventName]: { event: E; payload: GatewayEventPayload<E> } }[GatewayEventName]
   | { event: 'approval'; change: 'added' | 'resolved'; approval: Approval };
 export type SessionRow = { sessionKey: string; [k: string]: unknown };
-export type DeviceRunOptions = { sessionKey?: string; model?: string; account?: AccountRef | 'default' | 'auto'; needs?: string[]; auth?: 'apiKey'; system?: string;
+export type DeviceRunOptions<S extends OutputSchema | undefined = OutputSchema | undefined> = { schema?: S; sessionKey?: string; model?: string; account?: AccountRef | 'default' | 'auto'; needs?: string[]; auth?: 'apiKey'; system?: string;
   images?: { data: string; mimeType: string }[]; thinking?: 'off' | 'low' | 'medium' | 'high'; tools?: string[] };
 export type DeviceState = { state: KitState; words: string; version: string; engine: string; signedIn?: string[] };
 export function openclawDevice(link: DeviceLink): {
@@ -1698,7 +1726,7 @@ export function openclawDevice(link: DeviceLink): {
   models(id: AccountId): Promise<ModelInfo[]>; room(id: AccountId, demand?: string[]): Promise<Room>;
   defaults(): Promise<Defaults>; setDefaults(d: Defaults): Promise<void>; pick(sel: RunSelection, o?: { sessionKey?: string }): Promise<AccountPick>;
   move(sessionKey: string, to: AccountId): Promise<MoveResult>;
-  run(message: string, o?: DeviceRunOptions): AsyncIterable<RunEvent | { type: 'end'; end: RunEnd }>;
+  run<const S extends OutputSchema | undefined = undefined>(message: string, o?: DeviceRunOptions<S>): AsyncIterable<RunEvent | { type: 'end'; end: RunEnd<SchemaOutput<S>> }>;
   steer(k: string, t: string, o?: { auth?: 'apiKey' }): Promise<void>; abort(k: string, o?: { auth?: 'apiKey' }): Promise<void>;
   approvals(): Promise<Approval[]>; decide(id: string, d: Decision): Promise<void>;
   events(): AsyncIterable<OpenClawLinkEvent>;

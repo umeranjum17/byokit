@@ -21,6 +21,8 @@ export type {
   RunEvent,
   RunRef,
   RunSpec,
+  OutputSchema,
+  SchemaOutput,
   RunUsage,
   SignInOptions,
   SignInView,

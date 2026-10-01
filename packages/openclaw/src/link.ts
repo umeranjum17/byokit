@@ -19,6 +19,7 @@ import type { OpenClawKit } from './kit.ts';
 import { b64urlDecode, sealNotice } from './notices.ts';
 import { routeFor } from './routes.ts';
 import { authStatus } from './auth-status.ts';
+import { outputSchema } from './output.ts';
 import { signedInProviders } from './runs.ts';
 import type { Approval, Member, RunSpec, SignInView } from './types.ts';
 import { stateWords, words } from './words.ts';
@@ -48,7 +49,7 @@ function memberSessions(result: unknown, member: Member): Record<string, unknown
 
 /** `oc.run`'s run options, type-checked; the kit's own checks (account, tool names) still apply. */
 function runOptions(args: Record<string, unknown>): Omit<RunSpec, 'member' | 'sessionKey' | 'register' | 'meta'> {
-  const { message, model, auth, system, images, thinking, tools } = args;
+  const { message, model, auth, system, images, thinking, tools, schema } = args;
   const ok = typeof message === 'string'
     && (model === undefined || typeof model === 'string')
     && (auth === undefined || auth === 'apiKey')
@@ -57,9 +58,11 @@ function runOptions(args: Record<string, unknown>): Omit<RunSpec, 'member' | 'se
       isRecord(i) && typeof i.data === 'string' && typeof i.mimeType === 'string')))
     && (thinking === undefined || (typeof thinking === 'string' && THINKING.has(thinking)))
     && (tools === undefined || (Array.isArray(tools) && tools.every((t) => typeof t === 'string')));
-  if (!ok) throw new Error('oc.run needs { message, sessionKey?, model?, system?, images?, thinking?, tools? }');
+  if (!ok) throw new Error('oc.run needs { message, sessionKey?, model?, auth?, system?, images?, thinking?, tools?, schema? }');
+  if (schema !== undefined) outputSchema(schema);
   return {
     message: message as string,
+    ...(schema === undefined ? {} : { schema: schema as RunSpec['schema'] }),
     ...(model === undefined ? {} : { model: model as string }),
     ...(auth === undefined ? {} : { auth: 'apiKey' as const }),
     ...(system === undefined ? {} : { system: system as string }),

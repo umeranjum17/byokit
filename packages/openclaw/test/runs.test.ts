@@ -4,10 +4,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import { createRuns } from '../src/runs.ts';
-import type { GatewayTransport, Member, RunEvent } from '../src/types.ts';
+import type { GatewayTransport, Member, RunEvent, OutputSchema } from '../src/types.ts';
 
 /** createRuns wired to a fresh fake: a recording bridge double and a live-listener counter around the transport. */
-function harness() {
+function harness(reply?: string) {
   const fake = fakeGateway();
   const t = fake.factory({ port: 0, token: 't', identityPath: '', bridgeSock: '' });
   const registered: string[] = [];
@@ -28,7 +28,11 @@ function harness() {
     return { agentId: member };
   };
   const runs = createRuns({
-    request: t.request,
+    request: async (method, params, options) => {
+      const result = await t.request(method, params, options);
+      return method === 'agent.wait' && reply !== undefined
+        ? { ...(result as object), terminalReply: { text: reply } } : result;
+    },
     onEvent,
     ensure,
     bridge: { register: (r, tools) => { registered.push(r.sessionKey); subsets.push(tools); return () => { unregistered.push(r.sessionKey); }; } },
@@ -204,7 +208,7 @@ test('a run names only kit tools: an unknown one is refused before any request, 
 });
 
 /** createRuns over a hand-driven transport: the `agent` request plays `play` then settles with `final`. */
-function scripted(o: { final?: unknown; auth?: unknown; play?: (emit: (stream: string, data: unknown) => void) => void }) {
+function scripted(o: { text?: string; final?: unknown; auth?: unknown; play?: (emit: (stream: string, data: unknown) => void) => void }) {
   const listeners = new Set<(e: { event: string; payload?: unknown }) => void>();
   const calls: string[] = [];
   const request: GatewayTransport['request'] = async (method, _params, opts) => {
@@ -214,7 +218,7 @@ function scripted(o: { final?: unknown; auth?: unknown; play?: (emit: (stream: s
       o.play?.((stream, data) => { for (const fn of listeners) fn({ event: 'agent', payload: { runId: 'r1', stream, data } }); });
       return o.final ?? { runId: 'r1', status: 'ok' };
     }
-    if (method === 'agent.wait') return { status: 'ok', terminalReply: { text: 'done' } };
+    if (method === 'agent.wait') return { status: 'ok', terminalReply: { text: o.text ?? 'done' } };
     if (method === 'models.authStatus') return o.auth ?? { providers: [] };
     throw new Error(`unexpected ${method}`);
   };
@@ -297,4 +301,130 @@ test('Claude native and Anthropic API runs preserve provider/model and tool even
   h.fake.handle('openclaw.setup.detect', () => ({ candidates: [{ kind: 'claude-cli', credentials: false }] }));
   const end = await h.runs.run({ member: 'm1', sessionKey: 'agent:m1:out', message: 'hi', model: 'claude-cli/claude-sonnet-5' });
   assert.ok(!end.ok && 'kind' in end && end.kind === 'signed-out');
+});
+
+test('a literal output schema infers data, preserves system/options and validates only the final answer', async () => {
+  const text = '{"status":"ready","count":2,"files":["app.ts"]}';
+  const h = harness(text);
+  h.fake.handle('models.authStatus', () => ({ providers: [{ provider: 'openai', status: 'ok',
+    usage: { plan: 'plus', windows: [{ label: '5h', usedPercent: 10 }] } }] }));
+  const schema = { type: 'object', properties: {
+    status: { enum: ['ready', 'waiting'] }, count: { type: 'integer', minimum: 0 },
+    files: { type: 'array', items: { type: 'string' } }, note: { type: ['string', 'null'] },
+  }, required: ['status', 'count', 'files'], additionalProperties: false } as const satisfies OutputSchema;
+  const images = [{ data: 'aGk=', mimeType: 'image/png' }];
+  const events: RunEvent[] = [];
+  const end = await h.runs.run({ member: 'm1', sessionKey: 'agent:m1:json', message: 'make a report',
+    system: 'Be brief.', model: 'openai/gpt-5.1', schema, images, thinking: 'low', tools: ['report'] }, (e) => events.push(e));
+  assert.ok(end.ok && end.data);
+  const status: 'ready' | 'waiting' = end.data.status;
+  const count: number = end.data.count;
+  const files: string[] = end.data.files;
+  const note: string | null | undefined = end.data.note;
+  // @ts-expect-error the schema does not allow an arbitrary status string
+  const bad: 'failed' = end.data.status;
+  void bad;
+  assert.deepEqual([status, count, files, note], ['ready', 2, ['app.ts'], undefined]);
+  assert.equal(end.text, text);
+  assert.ok(end.usage);
+  assert.deepEqual(end.planWindow, { provider: 'openai', plan: 'plus', windows: [{ label: '5h', usedPercent: 10 }] });
+  assert.deepEqual(events.at(-1), { type: 'text', text });
+  const params = h.fake.calls.find((c) => c.method === 'agent')?.params as Record<string, unknown>;
+  assert.equal(params.extraSystemPrompt, `Be brief.\n\nReturn only one JSON value matching this JSON Schema, with no markdown or surrounding text.\n${JSON.stringify(schema)}`);
+  assert.equal('schema' in params, false); // pin's agent params are closed
+  assert.deepEqual(params.attachments, [{ mimeType: 'image/png', content: 'aGk=' }]);
+  assert.equal(params.thinking, 'low');
+  assert.deepEqual([params.provider, params.model], ['openai', 'gpt-5.1']);
+  assert.deepEqual(h.subsets, [['report']]);
+  assert.equal(h.listeners(), 0);
+  assert.deepEqual(h.unregistered, ['agent:m1:json']);
+});
+
+test('structured output fails closed for malformed JSON, missing/wrong values and unknown fields', async () => {
+  const schema = { type: 'object', properties: { score: { type: 'integer', minimum: 1, maximum: 5 } },
+    required: ['score'], additionalProperties: false } as const;
+  for (const text of ['not JSON secret-answer', '```json\n{"score":3}\n```', '{}', '{"score":"3"}',
+    '{"score":0}', '{"score":6}', '{"score":3.5}', '{"score":3,"extra":true}', 'null']) {
+    const s = scripted({ text });
+    const end = await s.runs.run({ member: 'm1', sessionKey: 'agent:m1:invalid', message: 'report', schema });
+    assert.deepEqual(end, { ok: false, kind: 'output', message: 'The answer did not match the requested format.' });
+  }
+});
+
+test('supported schema constraints enforce JSON values without coercion or defaults', async () => {
+  const cases: [OutputSchema, unknown, unknown][] = [
+    [{ type: ['string', 'null'], minLength: 1, maxLength: 1 }, '😀', 'ab'],
+    [{ type: 'number', exclusiveMinimum: 0, exclusiveMaximum: 2 }, 1.5, 2],
+    [{ type: 'array', items: { type: 'integer' }, minItems: 1, maxItems: 2, uniqueItems: true }, [1, 2], [1, 1]],
+    [{ type: 'object', minProperties: 1, maxProperties: 1, additionalProperties: { type: 'boolean' } }, { a: true }, { a: 'true' }],
+    [{ enum: [{ a: 1, b: 2 }] }, { b: 2, a: 1 }, { a: 1 }],
+    [{ const: false }, false, true],
+    [{ anyOf: [{ type: 'string' }, { type: 'null' }] }, null, 1],
+    [{ oneOf: [{ type: 'number' }, { type: 'integer' }] }, 1.5, 1],
+    [{ allOf: [{ type: 'number' }, { minimum: 1 }], not: { const: 2 } }, 1, 2],
+    [{ type: 'object', properties: { blocked: false }, required: ['needed'] }, { needed: 1 }, { needed: 1, blocked: null }],
+    [{ type: 'array', items: false }, [], [1]],
+  ];
+  for (const [schema, good, bad] of cases) {
+    for (const [value, ok] of [[good, true], [bad, false]] as const) {
+      const s = scripted({ text: JSON.stringify(value) });
+      const end = await s.runs.run({ member: 'm1', sessionKey: 'agent:m1:constraints', message: 'report', schema });
+      assert.equal(end.ok, ok, JSON.stringify({ schema, value }));
+      if (end.ok) assert.deepEqual(end.data, value);
+    }
+  }
+  const infinite = scripted({ text: '{"n":1e400}' });
+  assert.equal((await infinite.runs.run({ member: 'm1', sessionKey: 'agent:m1:overflow', message: 'report', schema: {} })).ok, false);
+});
+
+test('invalid/unsupported schemas are refused before any member or Gateway request; schemas are snapshotted', async () => {
+  const cyclic: Record<string, unknown> = {};
+  cyclic.properties = { loop: cyclic };
+  const deep: Record<string, unknown> = {};
+  let sub = deep;
+  for (let i = 0; i < 34; i++) { sub.items = {}; sub = sub.items as Record<string, unknown>; }
+  for (const schema of [null, true, [], { type: 'date' }, { type: ['string', 'string'] }, { format: 'email' },
+    { properties: { x: { $ref: 'https://example.com/schema' } } }, { required: [1] }, { minimum: '0' },
+    { minItems: -1 }, { enum: [] }, { items: [] }, { oneOf: [] }, { additionalProperties: 1 },
+    { const: Infinity }, { default: undefined }, { description: 'x'.repeat(65_536) }, cyclic, deep]) {
+    const h = harness();
+    await assert.rejects(h.runs.run({ member: 'm1', sessionKey: 'agent:m1:bad-schema', message: 'report',
+      schema: schema as OutputSchema }), /invalid or unsupported output schema/);
+    assert.deepEqual(h.fake.calls, []);
+    assert.equal(h.listeners(), 0);
+  }
+  const schema = { type: 'string', enum: ['before'] } as const;
+  const s = scripted({ text: '"before"' });
+  const pending = s.runs.run({ member: 'm1', sessionKey: 'agent:m1:snapshot', message: 'report', schema });
+  (schema.enum as unknown as string[])[0] = 'after';
+  const end = await pending;
+  assert.ok(end.ok);
+  assert.equal(end.data, 'before');
+});
+
+test('schema runs preserve abort and engine failure outcomes without extra model calls', async () => {
+  const h = harness();
+  h.fake.failNext('agent.wait', 'usage limit, try again in 5 min');
+  const limited = await h.runs.run({ member: 'm1', sessionKey: 'agent:m1:limit-json', message: 'report', schema: { type: 'object' } });
+  assert.ok(!limited.ok && 'kind' in limited && limited.kind === 'resting');
+  const key = 'agent:m1:abort-json';
+  const aborted = await h.runs.run({ member: 'm1', sessionKey: key, message: 'report', schema: { type: 'object' } },
+    (e) => { if (e.type === 'text') void h.runs.abort(key); });
+  assert.deepEqual(aborted, { ok: false, aborted: true });
+  assert.equal(h.fake.calls.filter((c) => c.method === 'agent').length, 2);
+});
+
+test('runtime required arrays and unions of required lists never promise missing result fields', async () => {
+  for (const required of [[] as string[], [] as readonly [] | readonly ['value']]) {
+    const s = scripted({ text: '{}' });
+    const end = await s.runs.run({ member: 'm1', sessionKey: 'agent:m1:dynamic-required', message: 'report',
+      schema: { type: 'object', properties: { value: { type: 'string' } }, required, additionalProperties: false } });
+    assert.ok(end.ok && end.data);
+    const optional: string | undefined = end.data.value;
+    // @ts-expect-error a runtime required-list cannot guarantee the property exists
+    const promised: string = end.data.value;
+    void promised;
+    assert.equal(optional, undefined);
+    assert.deepEqual(end.data, {});
+  }
 });

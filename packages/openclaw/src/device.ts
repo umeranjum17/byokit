@@ -15,12 +15,14 @@ import type {
   KitState,
   Route,
   RunEnd,
+  OutputSchema,
+  SchemaOutput,
   RunEvent,
   SignInView,
 } from './types.ts';
 
 export type { GatewayEventName, GatewayEventPayload, GatewayMethod, GatewayParams, GatewayResult } from './types.ts';
-export type { Approval, Decision, KitState, PlanWindow, Route, RunEnd, RunEvent, RunUsage, SignInView } from './types.ts';
+export type { Approval, Decision, KitState, PlanWindow, Route, RunEnd, RunEvent, RunUsage, SignInView, OutputSchema, SchemaOutput } from './types.ts';
 
 /** One `oc.events` frame: a member's Gateway event, typed by name, or an approval add/resolve (7.2). */
 export type OpenClawLinkEvent =
@@ -30,10 +32,11 @@ export type OpenClawLinkEvent =
 /** One `oc.sessions` row: `sessions.list` filtered to the member's `agent:<member>:` keys. */
 export type SessionRow = { sessionKey: string; [k: string]: unknown };
 
-type EndFrame = { type: 'end'; end: RunEnd };
+type EndFrame<T = unknown> = { type: 'end'; end: RunEnd<T> };
 
 /** `oc.run`'s options beside the message: the member's own session, account, and the kit's run options. */
-export type DeviceRunOptions = {
+export type DeviceRunOptions<S extends OutputSchema | undefined = OutputSchema | undefined> = {
+  schema?: S;
   sessionKey?: string;
   model?: string; // 'provider/model'
   auth?: 'apiKey';
@@ -176,7 +179,7 @@ export function openclawDevice(link: DeviceLink): {
   };
   signOut(p: string): Promise<void>;
   sessions(): Promise<SessionRow[]>;
-  run(message: string, o?: DeviceRunOptions): AsyncIterable<RunEvent | { type: 'end'; end: RunEnd }>;
+  run<const S extends OutputSchema | undefined = undefined>(message: string, o?: DeviceRunOptions<S>): AsyncIterable<RunEvent | EndFrame<SchemaOutput<S>>>;
   steer(k: string, t: string, o?: { auth?: 'apiKey' }): Promise<void>;
   abort(k: string, o?: { auth?: 'apiKey' }): Promise<void>;
   approvals(): Promise<Approval[]>;
@@ -208,30 +211,30 @@ export function openclawDevice(link: DeviceLink): {
       await link.request('oc.signout', { provider: p });
     },
     sessions: () => link.request('oc.sessions') as Promise<SessionRow[]>,
-    run: (message, o) => {
+    run: <const S extends OutputSchema | undefined = undefined>(message: string, o?: DeviceRunOptions<S>) => {
       const inner = liveStream(() =>
         link.stream('oc.run', { message, ...(o?.sessionKey ? { sessionKey: o.sessionKey } : {}),
           ...(o?.model !== undefined ? { model: o.model } : {}), ...(o?.system !== undefined ? { system: o.system } : {}),
           ...(o?.auth !== undefined ? { auth: o.auth } : {}),
           ...(o?.images !== undefined ? { images: o.images } : {}), ...(o?.thinking !== undefined ? { thinking: o.thinking } : {}),
-          ...(o?.tools !== undefined ? { tools: o.tools } : {}) }));
+          ...(o?.tools !== undefined ? { tools: o.tools } : {}), ...(o?.schema !== undefined ? { schema: o.schema } : {}) }));
       let finished = false;
       return {
         [Symbol.asyncIterator]() {
           const it = inner[Symbol.asyncIterator]();
           return {
-            next: async (): Promise<IteratorResult<RunEvent | EndFrame>> => {
+            next: async (): Promise<IteratorResult<RunEvent | EndFrame<SchemaOutput<S>>>> => {
               if (finished) return { value: undefined, done: true };
               const frame = await it.next();
               if (frame.done) return { value: undefined, done: true };
               if (isRecord(frame.value) && frame.value.type === 'end') {
                 finished = true;
                 await it.return?.();
-                return { value: frame.value as EndFrame, done: false };
+                return { value: frame.value as EndFrame<SchemaOutput<S>>, done: false };
               }
               return { value: frame.value as RunEvent, done: false };
             },
-            return: async (): Promise<IteratorResult<RunEvent | EndFrame>> => {
+            return: async (): Promise<IteratorResult<RunEvent | EndFrame<SchemaOutput<S>>>> => {
               finished = true;
               await it.return?.();
               return { value: undefined, done: true };

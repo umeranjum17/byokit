@@ -50,11 +50,18 @@ type World = {
   stop(): void;
 };
 
-async function world(o: { passThrough?: (method: string, grant: Grant) => boolean; relay?: boolean; tools?: boolean } = {}): Promise<World> {
+async function world(o: { passThrough?: (method: string, grant: Grant) => boolean; relay?: boolean; tools?: boolean; reply?: () => string } = {}): Promise<World> {
   const fake = fakeGateway();
   const stateDir = scratchDir('o9');
   // tools: two app tools, every call allowed and answered with its own name.
-  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, ...(o.tools ? {
+  const kit = new OpenClawKit({ stateDir, transport: (ctx) => {
+    const t = fake.factory(ctx);
+    return { ...t, request: async (method, params, options) => {
+      const result = await t.request(method, params, options);
+      return method === 'agent.wait' && o.reply
+        ? { ...(result as object), terminalReply: { text: o.reply() } } : result;
+    } };
+  }, spawnEngine: false, ...(o.tools ? {
     tools: ['report', 'lookup'].map((name) => ({ name, description: name, parameters: { type: 'object' } })),
     host: { gate: async () => ({ allow: true as const }), call: async (_run, tool) => `${tool} done` },
   } : {}) });
@@ -423,4 +430,39 @@ test('native Claude sign-in is offered over the link and keeps account state in 
   loggedIn = false;
   assert.deepEqual(await a.oc.signIn.view('claude-cli'), { ready: false, signIn: null });
   assert.deepEqual((await a.oc.state()).signedIn, []);
+});
+
+
+test('a device schema run validates on the host and returns typed data over the real sealed link', async () => {
+  let text = '{"summary":"Ready"}';
+  const w = await world({ reply: () => text });
+  const a = await device(w, 'a');
+  const schema = { type: 'object', properties: { summary: { type: 'string' } },
+    required: ['summary'], additionalProperties: false } as const;
+
+  let returned = false;
+  for await (const frame of a.oc.run('report', { schema, system: 'Be brief.' })) {
+    if (frame.type !== 'end') continue;
+    assert.ok(frame.end.ok && frame.end.data);
+    const summary: string = frame.end.data.summary;
+    assert.equal(summary, 'Ready');
+    assert.equal(frame.end.text, text);
+    assert.ok(frame.end.usage);
+    returned = true;
+  }
+  assert.ok(returned);
+  const params = w.fake.calls.find((c) => c.method === 'agent')?.params as Record<string, unknown>;
+  assert.ok(String(params.extraSystemPrompt).startsWith('Be brief.\n\nReturn only one JSON value'));
+  assert.ok(String(params.extraSystemPrompt).endsWith(JSON.stringify(schema)));
+  text = '{"summary":123}';
+  for await (const frame of a.oc.run('report', { schema })) {
+    if (frame.type === 'end') assert.deepEqual(frame.end,
+      { ok: false, kind: 'output', message: 'The answer did not match the requested format.' });
+  }
+  const before = w.fake.calls.length;
+  await assert.rejects(async () => {
+    for await (const _ of a.oc.run('report', { schema: { properties: { summary: { format: 'email' } } } } as never)) void _;
+  }, LinkRefused);
+  assert.equal(w.fake.calls.length, before);
+  w.stop();
 });

@@ -14,6 +14,7 @@ import { createMembers } from './members.ts';
 import { keyAgentId, KEY_PREFIX, MEMBER_ID } from './members.ts';
 import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLogin } from './migrate.ts';
 import { createRuns } from './runs.ts';
+import { outputSchema } from './output.ts';
 import { createKeys, type AddKeyResult } from './keys.ts';
 import { routes as routeTable } from './routes.ts';
 import { providers as engineProviders, signIn as startSignIn, signOut as engineSignOut, type SignInCtx } from './signin.ts';
@@ -35,6 +36,8 @@ import type {
   RunEnd,
   RunEvent,
   RunSpec,
+  OutputSchema,
+  SchemaOutput,
   SignInOptions,
   SignInView,
   ToolHost,
@@ -677,8 +680,12 @@ export class OpenClawKit {
     return (this.o.tools ?? []).map((t) => t.name);
   }
 
-  run(spec: RunSpec, on?: (e: RunEvent) => void): Promise<RunEnd> {
+  run<const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void): Promise<RunEnd<SchemaOutput<S>>> {
     if (spec.auth !== undefined && spec.auth !== 'apiKey') return Promise.reject(new Error('Choose a supported account option.'));
+    // Snapshot before account readiness awaits; invalid schemas never reach the Gateway.
+    let output: ReturnType<typeof outputSchema> | undefined;
+    try { output = spec.schema === undefined ? undefined : outputSchema(spec.schema); }
+    catch (error) { return Promise.reject(error); }
     if (spec.auth === 'apiKey') return this.keys.exclusive(spec.member, async () => {
       if (!spec.sessionKey.startsWith(`agent:${spec.member}:`)) throw new Error('This conversation belongs to another member.');
       const selected = await this.keys.ready(spec.member);
@@ -686,9 +693,9 @@ export class OpenClawKit {
       if (spec.model !== undefined && spec.model !== selected.model)
         return { ok: false, kind: 'plan', message: 'Choose the model saved with this key.' };
       // RunRef.member stays the person for app gates; the engine receives the isolated agent and history.
-      return this.runs().run({ ...spec, model: selected.model }, on, selected.agentId);
+      return this.runs().run({ ...spec, model: selected.model }, on, selected.agentId, output);
     });
-    return this.runs().run(spec, on);
+    return this.runs().run(spec, on, undefined, output);
   }
 
   private runKey(sessionKey: string, o?: { auth?: 'apiKey' }): string {
