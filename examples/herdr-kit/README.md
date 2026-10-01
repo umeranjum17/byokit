@@ -43,6 +43,13 @@ Options: `--port` (default 7310), `--via` (`auto`: Tailscale when it is installe
 (what the phone calls this computer), `--path` (where Herdr's panes look for agent programs; default the folder
 Herdr is in plus the system folders).
 
+For a guarded lab session, provision Herdr through the lab helper first, then pass
+`--socket <absolute lab socket path>` and `--herdr <absolute lab-helper wrapper path>`.
+This selects the kit's `adopt` mode: restarting or stopping this example leaves the
+managed session running. The wrapper must route every command through the named lab
+helper. Only the helper provisions, stops and tears down that session; do not use the
+own-mode commands above in a guarded lab.
+
 Try it without Herdr: `BYOKIT_EXAMPLE_FAKE=1 npm start` runs the kit's stand-in Herdr, whose one agent answers
 `fake pi: <your message>` and asks a question when you send `ask permission`.
 
