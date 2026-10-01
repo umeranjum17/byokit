@@ -602,7 +602,11 @@ import { Accounts } from '@byokit/accounts';
 import { fileStore } from '@byokit/secrets';
 import { jev, openai } from '@byokit/decide';
 
-// The host supplies its private data folder and a device-owned passphrase.
+// The host supplies these values; never hardcode real keys in source.
+declare const dataFolder: string;
+declare const passphrase: Uint8Array;
+declare const enteredKey: string;
+declare const chosenModel: string;
 const accounts = new Accounts({
   offer: ['openai', 'typesafe', 'openrouter'],
   keyStore: (member) => fileStore({ path: `${dataFolder}/${member}.keys`, passphrase }),
