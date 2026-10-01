@@ -4,7 +4,7 @@
 // shows the provider's page to open or the code to type. No Node import here: see index.ts for the computer's side.
 import type { Keystore } from '@byokit/secrets';
 import type { AuthPrompt, CredentialStore, Models } from '@earendil-works/pi-ai';
-import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
+import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfile, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
 import { offered, provider, type Provider } from './catalogue.ts';
 import { claims, PORTABLE, portableEngine } from './engine.ts';
@@ -105,6 +105,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    *  restart simply tries once more. */
   private without = new Set<string>();
   private rests = new Map<string, { until: number; kind: Kind }>();
+  /** Which Claude plan each member signed in with, read once per sign-in. */
+  private claudePlans = new Map<string, Promise<{ plan: string; email: string; work: boolean }>>();
   onChange?: (member: M, key: string) => void;
   /** A sign-in just finished and works. */
   onSignedIn?: (member: M, key: string) => void;
@@ -432,11 +434,27 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     return ok;
   }
 
-  /** Which ChatGPT the member signed in with: its plan, email, and whether it is a work account. Null when not signed in. */
-  async plan(member: M) {
-    const key = await this.resolveKey(member, 'chatgpt');
-    const c = await (await this.runtime(member, key)).readCredential(this.offer('chatgpt').pi).catch(() => undefined);
-    return c?.type === 'oauth' ? planOf(c.access) : null;
+  /** Which plan the member signed in with (ChatGPT's by default, or Claude's): its plan, email, and whether it is a work
+   *  account; `planLabel` says it ("ChatGPT Plus"). Null when not signed in. Claude's comes from its profile, read once
+   *  per sign-in; an empty plan when Claude doesn't say. */
+  async plan(member: M, provider = 'chatgpt') {
+    const key = await this.resolveKey(member, provider);
+    const rt = await this.runtime(member, key);
+    const c = await rt.readCredential(this.offer(key).pi).catch(() => undefined);
+    if (c?.type !== 'oauth') return null;
+    if (provider !== 'claude') return planOf(c.access);
+    const id = `${member}:${key}`;
+    let read = this.claudePlans.get(id);
+    if (!read) {
+      read = (async () => {
+        const access = (await rt.getAuth(CLAUDE_PLAN_ID))?.auth?.apiKey;
+        if (!access) throw new Error('signed out');
+        return claudeProfile(access, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch });
+      })();
+      this.claudePlans.set(id, read);
+      read.catch(() => { if (this.claudePlans.get(id) === read) this.claudePlans.delete(id); });
+    }
+    return read.catch(() => ({ plan: '', email: '', work: false }));
   }
 
   /** Whether the member's plan lacks this use; `on` records what the provider said, or that the person changed plans. */
@@ -699,6 +717,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       this.ready.set(`${member}:${canonical}`, true);
       for (const set of [this.lapsed, this.without]) set.delete(`${member}:${canonical}`);
       this.rests.delete(`${member}:${canonical}`);
+      this.claudePlans.delete(id);
+      this.claudePlans.delete(`${member}:${canonical}`);
       this.ready.set(id, true);
       for (const s of [this.lapsed, this.without]) s.delete(id);
       this.rests.delete(id);
@@ -813,6 +833,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const p = this.offer(key);
     const id = `${member}:${key}`;
     if (id !== initialId) this.generations.set(id, (this.generations.get(id) ?? 0) + 1);
+    this.claudePlans.delete(id);
     this.cancelFlow(member, key);
     const work = (async () => {
       if (p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)) {

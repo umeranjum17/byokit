@@ -1,13 +1,16 @@
 // "Sign in with ChatGPT" in a real browser (headless Chromium through Playwright), end to end against the stand-in
 // OpenAI on another origin, as a person does it: the code on the page, typed on the provider's page in another tab,
-// kept in IndexedDB across a reload, refreshed, signed out (revoked there). Plus what makes it an installable PWA.
+// kept in IndexedDB across a reload, signed out (revoked there). "Sign in with Claude": its page's code pasted back,
+// the plan named, an answer streamed, through the page's own server to recorded stand-ins. Plus what makes it an
+// installable PWA.
 // BYOKIT_EXAMPLE_SHOTS=<folder> takes the README pictures, showing the code in OpenAI's own format, not the stand-in's.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { build } from 'esbuild';
+import type { Page } from 'playwright';
 import { mockOpenAI } from '../../packages/accounts/src/testing/index.ts';
 import { serve } from './serve.ts';
 
@@ -17,45 +20,90 @@ const openai = await mockOpenAI();
 const site = await serve(0, openai.base);
 const browser = await chromium.launch({ executablePath });
 after(async () => { await browser.close(); site.close(); await openai.close(); });
+/** A part of one provider's card. */
+const part = (page: Page, key: string, name: string) => page.locator(`#${key} [data-${name}]`);
 
-test('sign in with ChatGPT in a browser: device code, kept across a reload, refreshed, signed out', async () => {
+test('sign in with ChatGPT in a browser: device code, the plan named, kept across a reload, signed out', async () => {
   const context = await browser.newContext();
   const page = await context.newPage();
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.goto(`${site.url}?openai=https://attacker.example`);
-  const status = page.locator('#status');
+  const status = part(page, 'chatgpt', 'status');
   await assert.doesNotReject(status.filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor());
-  assert.equal(await page.locator('#sheet').isVisible(), false, 'no sign-in sheet before the person starts');
+  assert.equal(await part(page, 'chatgpt', 'sheet').isVisible(), false, 'no sign-in sheet before the person starts');
 
-  await page.click('#signin');
-  const code = (await page.locator('#code').filter({ hasText: /^MOCK-/ }).textContent())!;
-  assert.equal(await page.locator('#open').getAttribute('href'), `${openai.base}/codex/device`);
+  await part(page, 'chatgpt', 'signin').click();
+  const code = (await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).textContent())!;
+  assert.equal(await part(page, 'chatgpt', 'open').getAttribute('href'), `${openai.base}/codex/device`);
+  assert.equal(await part(page, 'chatgpt', 'paste').isVisible(), false, 'nothing to paste for a device code');
 
   // The person opens the provider's page from the link and types the code there.
-  const [provider] = await Promise.all([context.waitForEvent('page'), page.click('#open')]);
+  const [provider] = await Promise.all([context.waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
   await provider.fill('#code', code);
   await provider.click('#continue');
   assert.match((await provider.locator('#words').textContent())!, /Signed in/);
   await provider.close();
 
   await status.filter({ hasText: 'ChatGPT is connected.' }).waitFor();
-  assert.equal(await page.locator('#plan').textContent(), 'sara@example.com, plus plan');
+  await part(page, 'chatgpt', 'badge').filter({ hasText: 'ChatGPT Plus' }).waitFor();
+  assert.equal(await part(page, 'chatgpt', 'who').textContent(), 'Signed in as sara@example.com');
 
   await page.reload();
   await status.filter({ hasText: 'ChatGPT is connected.' }).waitFor(); // kept in this browser's IndexedDB
 
-  await page.click('#recheck');
-  await page.locator('#note').filter({ hasText: 'the sign-in was refreshed' }).waitFor();
-  assert.ok(openai.state.requests.some((r) => r.body.includes('grant_type=refresh_token')));
-
-  await page.click('#signout');
+  await part(page, 'chatgpt', 'signout').click();
   await status.filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor();
-  assert.equal(await page.locator('#sheet').isVisible(), false, 'old code is hidden after sign-out');
+  assert.equal(await part(page, 'chatgpt', 'sheet').isVisible(), false, 'old code is hidden after sign-out');
   assert.ok(openai.state.requests.some((r) => r.path === '/oauth/revoke'), 'ended at OpenAI too');
   await page.reload();
   await status.filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor();
   assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('sign in with Claude in a browser: its page, the code pasted back, the plan named, an answer streamed', async () => {
+  const fixture = (f: string) => JSON.parse(readFileSync(new URL(`../../fixtures/conformance/${f}`, import.meta.url), 'utf8'));
+  const plan = fixture('claude-plan-typescript.json'), messages = fixture('claude-messages-typescript.json').cases[0];
+  // Routed here, so the page's own requests are seen (a service worker's would not be).
+  const context = await browser.newContext({ serviceWorkers: 'block' });
+  const page = await context.newPage();
+  const asked: { url: string; headers: Record<string, string>; body: any }[] = [];
+  const answer = (body: string, type = 'application/json') => async (route: any) => {
+    asked.push({ url: route.request().url(), headers: route.request().headers(), body: route.request().postDataJSON() });
+    await route.fulfill({ body, contentType: type });
+  };
+  await page.route('**/fwd/claude/v1/oauth/token', answer(JSON.stringify({ ...plan.exchange, expires_in: 28_800 }))); // a real sign-in lasts hours
+  await page.route('**/fwd/anthropic/api/oauth/profile', answer(JSON.stringify({ account: { email: 'umer@example.com' }, organization: { organization_type: 'claude_max' } })));
+  await page.route('**/fwd/anthropic/v1/messages**', answer(messages.stream, 'text/event-stream'));
+  await page.goto(site.url);
+  const status = part(page, 'claude', 'status');
+  await status.filter({ hasText: "Claude isn't signed in yet." }).waitFor();
+
+  await part(page, 'claude', 'signin').click();
+  const open = new URL((await part(page, 'claude', 'open').getAttribute('href'))!);
+  assert.equal(open.origin + open.pathname, plan.authorize, "Claude's own page");
+  assert.equal(await part(page, 'claude', 'code').isVisible(), false, 'no code to type for Claude');
+  await part(page, 'claude', 'pasted').fill(`recorded-code#${open.searchParams.get('state')}`);
+  await part(page, 'claude', 'connect').click();
+
+  await status.filter({ hasText: 'Claude is connected.' }).waitFor();
+  await part(page, 'claude', 'badge').filter({ hasText: 'Claude Max' }).waitFor();
+  assert.equal(await part(page, 'claude', 'who').textContent(), 'Signed in as umer@example.com');
+  assert.equal(asked[0].body.code, 'recorded-code');
+
+  await part(page, 'claude', 'question').fill('Hello');
+  await part(page, 'claude', 'ask').click();
+  await part(page, 'claude', 'answer').filter({ hasText: messages.text }).waitFor();
+  const inference = asked.find((a) => a.url.includes('/v1/messages'))!;
+  assert.equal(inference.headers.authorization, 'Bearer recorded-access');
+  assert.equal(inference.body.messages[0].content, 'Hello');
+
+  await page.reload();
+  await status.filter({ hasText: 'Claude is connected.' }).waitFor(); // kept in this browser's IndexedDB
+  await part(page, 'claude', 'signout').click();
+  await status.filter({ hasText: "Claude isn't signed in yet." }).waitFor();
+  assert.equal((await fetch(`${site.url}fwd/elsewhere/x`)).status, 404, 'the page server passes on only to its named providers');
   await context.close();
 });
 
@@ -127,7 +175,7 @@ test('the README pictures: signed out, the code, connected', { skip: !process.en
     const context = await browser.newContext({ viewport: { width: 390, height: 450 }, deviceScaleFactor: 2 });
     const page = await context.newPage();
     await page.goto(site.url);
-    await page.locator('#status').filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor();
+    await part(page, 'chatgpt', 'status').filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor();
     return { context, page, shot: (name: string) => page.screenshot({ path: join(process.env.BYOKIT_EXAMPLE_SHOTS!, `${name}.png`) }) };
   };
   const first = await open();
@@ -137,16 +185,16 @@ test('the README pictures: signed out, the code, connected', { skip: !process.en
     route.fulfill({ json: { ...await (await route.fetch()).json(), user_code: 'WDJB-MJHT' } }));
   await first.page.route(`${openai.base}/api/accounts/deviceauth/token`, (route) =>
     route.fulfill({ status: 403, json: { error: { code: 'deviceauth_authorization_pending' } }, headers: { 'access-control-allow-origin': '*' } }));
-  await first.page.click('#signin');
-  await first.page.locator('#code').filter({ hasText: 'WDJB-MJHT' }).waitFor();
+  await part(first.page, 'chatgpt', 'signin').click();
+  await part(first.page, 'chatgpt', 'code').filter({ hasText: 'WDJB-MJHT' }).waitFor();
   await first.shot('pwa-2-code');
   await first.context.close();
 
   const { context, page, shot } = await open();
-  const status = page.locator('#status');
-  await page.click('#signin');
-  const code = (await page.locator('#code').filter({ hasText: /-/ }).textContent())!;
-  const [provider] = await Promise.all([context.waitForEvent('page'), page.click('#open')]);
+  const status = part(page, 'chatgpt', 'status');
+  await part(page, 'chatgpt', 'signin').click();
+  const code = (await part(page, 'chatgpt', 'code').filter({ hasText: /-/ }).textContent())!;
+  const [provider] = await Promise.all([context.waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
   await provider.fill('#code', code);
   await provider.click('#continue');
   await provider.close();

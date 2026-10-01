@@ -5,30 +5,56 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#1b1b1a">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#111111">
+<meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#151514" media="(prefers-color-scheme: dark)">
 <title>byokit example</title>
 <style>
-  body { font: 18px/1.4 system-ui, sans-serif; max-width: 28em; margin: 3em auto; padding: 0 1em; }
-  button { font: inherit; display: block; width: 100%; margin: .6em 0; padding: .7em; border: 0; border-radius: .6em; background: #111; color: #fff; }
-  #code { font-size: 2em; font-weight: 700; letter-spacing: .1em; }
-  .small { font-size: .85em; color: #555; }
-  [hidden] { display: none; }
+  :root { color-scheme: light dark; --bg: #f6f5f2; --card: #fff; --ink: #1b1b1a; --soft: #6b6a66; --line: #e4e2dc; --primary: #1b1b1a; --on-primary: #fff; --badge: #ecebe6; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #151514; --card: #1f1f1d; --ink: #f2f1ed; --soft: #a3a29d; --line: #33322f; --primary: #f2f1ed; --on-primary: #151514; --badge: #2c2b29; } }
+  body { font: 17px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--ink); max-width: 30em; margin: 0 auto; padding: 2.5em 16px; }
+  h1 { font-size: 1.6em; margin: 0 0 .2em; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin: 16px 0; }
+  .card h2 { font-size: 1.15em; margin: 0; display: flex; align-items: center; gap: .5em; }
+  .badge { font-size: .75em; font-weight: 600; background: var(--badge); border-radius: 99px; padding: .15em .7em; }
+  .small, .status { color: var(--soft); font-size: .9em; margin: .3em 0; }
+  .primary, .secondary { font: inherit; display: block; box-sizing: border-box; width: 100%; margin: .6em 0 0; padding: .75em; border-radius: 12px; text-align: center; text-decoration: none; cursor: pointer; }
+  .primary { background: var(--primary); color: var(--on-primary); border: 0; font-weight: 600; }
+  .secondary { background: none; color: var(--ink); border: 1px solid var(--line); }
+  .quiet { font: inherit; font-size: .9em; background: none; border: 0; color: var(--soft); padding: .4em 0; margin-top: .4em; cursor: pointer; text-decoration: underline; }
+  .code { font-size: 2em; font-weight: 700; letter-spacing: .1em; margin: .2em 0; }
+  input, textarea { font: inherit; box-sizing: border-box; width: 100%; padding: .65em .8em; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--ink); margin-top: .6em; }
+  .answer { white-space: pre-wrap; margin: .8em 0 0; }
+  [hidden] { display: none !important; }
 </style>
-<h1>byokit in a browser</h1>
-<p><a href="usage.html">See plan usage</a></p>
-<p id="status">…</p>
-<p id="plan" class="small"></p>
-<p id="note" class="small"></p>
-<section id="sheet" hidden>
-  <p id="words"></p>
-  <p id="code"></p>
-  <p><a id="open" target="_blank" rel="noopener">Open ChatGPT</a></p>
-  <button id="cancel">Cancel</button>
-</section>
-<button id="signin" hidden>Sign in with ChatGPT</button>
-<button id="recheck" hidden>Check the sign-in</button>
-<button id="signout" hidden>Sign out</button>
+<h1>Umer's AI plans</h1>
+<p class="small">Sign in with a plan you already pay for. Your sign-ins stay in this browser.</p>
+<p class="small"><a href="usage.html">See plan usage</a></p>
+<div id="cards"></div>
+<template id="card">
+  <section class="card">
+    <h2><span data-name></span><span class="badge" data-badge hidden></span></h2>
+    <p class="status" data-status>…</p>
+    <p class="small" data-who hidden></p>
+    <p class="small" data-note hidden></p>
+    <div data-sheet hidden>
+      <p data-words></p>
+      <p class="code" data-code hidden></p>
+      <a class="primary" data-open target="_blank" rel="noopener"></a>
+      <div data-paste hidden>
+        <input data-pasted autocomplete="off" autocapitalize="off" spellcheck="false">
+        <button class="primary" data-connect></button>
+      </div>
+      <button class="secondary" data-cancel>Cancel</button>
+    </div>
+    <button class="primary" data-signin hidden></button>
+    <div data-ready hidden>
+      <textarea data-question rows="2"></textarea>
+      <button class="primary" data-ask>Ask</button>
+      <p class="answer" data-answer hidden></p>
+      <button class="quiet" data-signout>Sign out</button>
+    </div>
+  </section>
+</template>
 <script type="module" src="app.js"></script>
 </html>

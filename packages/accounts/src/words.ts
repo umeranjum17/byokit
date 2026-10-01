@@ -24,6 +24,9 @@ export function failure(error: string): Why {
   return 'failed';
 }
 
+/** The plan a sign-in is, as a person says it: "ChatGPT Plus", "Claude Max"; just the provider when the plan is unknown. */
+export const planLabel = (name: string, plan = '') => plan ? `${name} ${plan[0].toUpperCase()}${plan.slice(1).replace(/_/g, ' ')}` : name;
+
 /** What the person pays, in one plain sentence to show next to the provider. */
 export const billingWords = (p: Provider) => say(`billing.${p.billing}`, { name: p.name, company: p.company });
 

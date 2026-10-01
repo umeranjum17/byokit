@@ -25,6 +25,7 @@ export type ClaudePlanOptions = {
   /** Stand-ins for offline tests. Production uses the Hermes-reference endpoints directly. */
   authorizeUrl?: string;
   tokenUrl?: string;
+  profileUrl?: string;
   /** On React Native, pass a Web Crypto implementation supplied by the app. */
   crypto?: Pick<Crypto, 'getRandomValues' | 'subtle'>;
   now?: () => number;
@@ -140,6 +141,20 @@ export function withClaudePlan(engine: AuthHost, credentials: CredentialStore, l
       return c ? { auth: { apiKey: c.access }, source: 'OAuth' } : undefined;
     })(engine.getAuth),
   });
+}
+
+/** Which Claude plan a sign-in is (`max`, `pro`, `team`, `enterprise`), from the provider's own profile; '' when it
+ *  doesn't say. `work`: a Team or Enterprise plan, which follows the employer's rules. */
+export async function claudeProfile(access: string, options: Pick<ClaudePlanOptions, 'fetch' | 'profileUrl'> = {}) {
+  const res = await (options.fetch ?? fetch)(options.profileUrl ?? 'https://api.anthropic.com/api/oauth/profile', {
+    headers: { authorization: `Bearer ${access}`, 'anthropic-beta': 'oauth-2025-04-20' }, signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new Error('Claude could not say which plan this is.');
+  const j: any = await res.json();
+  const type = String(j?.organization?.organization_type ?? '').toLowerCase().replace(/^claude_/, '');
+  const plan = /^[a-z][a-z0-9_]{0,31}$/.test(type) ? type : j?.account?.has_claude_max ? 'max' : j?.account?.has_claude_pro ? 'pro' : '';
+  const email = j?.account?.email ?? j?.account?.email_address;
+  return { plan, email: typeof email === 'string' ? email : '', work: /^(team|enterprise)/.test(plan) };
 }
 
 /** Hermes's baseline native-client fingerprint. No installed CLI is consulted for its version. */
