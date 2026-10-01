@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.5.0 (2026-10-01)
+
+- Dependency update: pins @byokit/link 0.7.0.
+
 - Add host-owned `JobChannel` history and portable `readJobStream`: ordered text, image bytes, usage and end
   frames over encrypted link streams, with device-scoped job ids and replay after a reconnect cursor.
   History is bounded and in memory; execution, retention and subscription/API key (billed per use) policy stay app-supplied.

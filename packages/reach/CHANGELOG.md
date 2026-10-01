@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.5.0 (2026-10-01)
+
+- Dependency update: pins @byokit/ui-core 0.5.0.
+
 - `recommend()`: one entry per route (`{ via, recommended, sentence, needs, disabledReason? }`), recommended
   first — current healthy route, then Tailscale Serve (direct when the Serve root is taken, disabled, funnelled,
   or nameless), then a private overlay, then Same Wi-Fi. Words from ui-core's `routeChoices()`; probes

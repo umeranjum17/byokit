@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.7.0 (2026-10-01)
+
+
+
 - SECURITY: `Host.shortCode()` adds a machine-key commitment to typed pairing; `pairWithCode()` verifies it before disclosing device identity or asking for approval. Legacy codes remain compatible; use the full new code when relay lookup is untrusted.
 - Add `check(urls, { timeoutMs, concurrency, WebSocket })`: a per-URL reachability probe returning a `LinkProblem`
   code plus its `LINK_WORDS` sentence, in input order. The host answers a new unauthenticated probe frame read-only

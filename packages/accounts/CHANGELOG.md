@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.13.0 (2026-10-01)
+
+
+
 - Add portable, choose-once multi-account selection with most-room ordering, unknown room above exhausted, and secret-free candidate explanations. Auto and default fallback use subscription accounts only; an API key (billed per use) must be explicitly selected.
 - Export roomOf and roomWords, shared Auto conformance fixtures, and descriptive multi-account terms data.
 
