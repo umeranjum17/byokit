@@ -1,7 +1,7 @@
 import { record as isRecord } from './windows.ts';
 import { memoryTokenLedgerStore, TokenLedgerError, type TokenLedgerStore, type TokenEntry } from './ledger.ts';
 import type { Window } from './types.ts';
-import { safeWindows } from './store.ts';
+import { safeWindows } from './safe-windows.ts';
 
 export interface NormalizedTokens {
   /** Input includes cache reads and cache writes; cache counts are subsets. */

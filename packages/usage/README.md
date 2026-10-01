@@ -1,6 +1,7 @@
 # @byokit/usage
 
 Read subscription quota windows per provider and per account on Node 22.18 or later.
+React Native also supports local call/token accounting and pure quota parsing.
 The app owns sign-in, token renewal, account labels and selection. The kit reads room
 left, estimates no cost and never rotates an account.
 
@@ -357,3 +358,51 @@ that the accounts chooser accepts directly. Preserve the original measurement ti
 `identity(codexSource)` shares the app-server transport, calls `account/read` with a 15-second deadline, never opens a credential file, and returns only `{signedIn,email?,plan?}`. Managed-folder HTTP usage carries only the app-passed headers plus Bearer authorization and JSON accept; it uses the same bounded HTTP transport.
 
 Managed-folder Claude usage uses the shared poll-health and normalized quota pipeline, including scoped hard blocks, unknown usage, last-good observation times, account retry policies and cancellable host origin pacing.
+
+## React Native
+
+The `react-native` condition of `@byokit/usage` selects a portable entry. The explicit
+`@byokit/usage/react-native` subpath selects the same API when a bundler does not
+use export conditions. It needs no native module, Node shim, credentials or network.
+The default Node entry and browser resolution are unchanged.
+
+```ts
+import { callLedger, tokenLedger, memoryTokenLedgerStore } from '@byokit/usage/react-native';
+const store = memoryTokenLedgerStore(); // Replace with an app-owned synchronous durable store.
+const calls = callLedger({ store });
+const tokens = tokenLedger({ store, cap: 10_000 });
+const time = Date.now();
+calls.record('member-1', {
+  provider: 'openai', account: 'app-account', model: 'app-model', runId: 'run-1',
+  time, billing: 'api', lane: 'host-lane', route: 'host-route',
+  usage: { input_tokens: 12, output_tokens: 8 },
+});
+const daily = tokens.query('member-1', time, time + 1);
+const history = calls.query('member-1', time, time + 1);
+const runs = calls.runs('member-1', time, time + 1);
+const run = calls.queryRun('member-1', 'run-1', time, time + 1);
+```
+
+This entry exports `callLedger`, `tokenLedger`, `memoryTokenLedgerStore`,
+`TokenLedgerError`, `normalizeTokens`, `priceCall`, all quota parsers listed above,
+`codexHardLimit`, `roomOf` and the words helpers, with their corresponding types
+(including `RunQuery`). `callLedger` supports the same `runs`/`queryRun` methods and
+host-supplied lane/route attribution as the Node entry.
+The app supplies provider usage and quota payloads; `usage()`, credential/file
+adapters, `identity()`, fingerprints and disk quota stores remain Node-only.
+
+Counts retain reported/partial/unknown provenance. Missing counts remain unknown;
+unknown calls suppress a positive remaining allowance. Subscription and API key
+(billed per use) calls retain their separate billing attribution. Cost is absent
+unless a matching app-owned price table supplies an estimate, labelled
+“Person's own plan” or “Person's API bill”; no provider prices are invented and a
+subscription quota is never converted into an API charge.
+
+The offline consumer fixture in `test/rn-fixture.ts` exercises the built package's
+React Native export. After building, run
+`BYOKIT_HERMES=/absolute/path/to/hermes sh scripts/test.sh 'packages/usage/test/react-native.test.ts'`
+from the repository root to execute it in a Hermes CLI VM. Without that optional
+binary, the same contract runs in a sandbox without Node globals; the Hermes check
+is skipped. The standalone fixture uses the locked Expo Babel preset's `hermes-v0`
+profile to lower classes for legacy Hermes CLI VMs. This is VM qualification, not
+an Expo SDK runtime, emulator or native UI test.
