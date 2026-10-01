@@ -81,6 +81,7 @@ test('sign in with Claude in a browser: its page, the code pasted back, the plan
   await status.filter({ hasText: "Claude isn't signed in yet." }).waitFor();
 
   await part(page, 'claude', 'signin').click();
+  await page.locator('#claude [data-open][href*="state="]').waitFor();
   const open = new URL((await part(page, 'claude', 'open').getAttribute('href'))!);
   assert.equal(open.origin + open.pathname, plan.authorize, "Claude's own page");
   assert.equal(await part(page, 'claude', 'code').isVisible(), false, 'no code to type for Claude');

@@ -4,6 +4,7 @@ import { createServer, type IncomingHttpHeaders } from 'node:http';
 import { readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
@@ -29,13 +30,15 @@ export async function serve(port = 0, authBase?: string) {
     if (fwd === 'fwd') {
       // Passed on as it came, the answer streamed straight back; nothing is kept or logged.
       if (!Object.hasOwn(UPSTREAM, name)) return res.writeHead(404).end();
+      const gone = new AbortController(); // the page went away: stop asking upstream too
+      res.on('close', () => { if (!res.writableFinished) gone.abort(); });
       try {
-        const up = await fetch(UPSTREAM[name] + rest.join('/') + url.search, {
+        const up = await fetch(UPSTREAM[name] + rest.join('/') + url.search, { signal: gone.signal,
           method: req.method, headers: headers(req.headers), body: req.method === 'GET' || req.method === 'HEAD' ? undefined : new Uint8Array(await body(req)),
         });
         res.writeHead(up.status, { 'content-type': up.headers.get('content-type') ?? 'application/octet-stream', 'cache-control': 'no-store' });
-        if (up.body) Readable.fromWeb(up.body as any).pipe(res); else res.end();
-      } catch { if (!res.headersSent) res.writeHead(502); res.end(); }
+        if (up.body) await pipeline(Readable.fromWeb(up.body as any), res); else res.end();
+      } catch { if (res.headersSent) res.destroy(); else res.writeHead(502).end(); }
       return;
     }
     const file = url.pathname.slice(1) || 'index.html';

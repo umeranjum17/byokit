@@ -54,7 +54,6 @@ function SignInSheet({ k, onClose }: { k: Key; onClose: () => void }) {
   const failed = accounts.view(ME, k)?.error;
   return (
     <View testID={tid(k, 'sheet')} style={s.sheet}>
-      <Text testID={tid(k, 'phase')} style={s.small}>{sheet.phase}</Text>
       {sheet.phase === 'opening' && <Text style={s.words}>{say('signIn.opening', { name })}</Text>}
       {sheet.phase === 'code' && <>
         <Text style={s.words}>On the {name} page, type this code:</Text>
@@ -66,7 +65,10 @@ function SignInSheet({ k, onClose }: { k: Key; onClose: () => void }) {
         <Button id={tid(k, 'open')} label={`Open ${name}`} onPress={() => Linking.openURL(sheet.url!)} />
         <TextInput testID={tid(k, 'paste')} value={pasted} onChangeText={setPasted} placeholder={`Paste the code from the ${name} page`}
           autoCapitalize="none" autoCorrect={false} style={s.input} />
-        <Button id={tid(k, 'connect')} label="Connect" onPress={() => { try { accounts.paste(ME, k, pasted); setPasted(''); } catch {} }} />
+        <Button id={tid(k, 'connect')} label="Connect" onPress={() => {
+          if (!pasted.trim()) return;
+          try { accounts.paste(ME, k, pasted); setPasted(''); } catch {}
+        }} />
       </>}
       {(sheet.phase === 'failed' || sheet.phase === 'expired' || sheet.phase === 'cancelled') && <>
         <Text testID={tid(k, 'failed')} style={s.words}>{failed ?? say('signIn.cancelled')}</Text>
@@ -118,10 +120,13 @@ function Plan({ k }: { k: Key }) {
   const [plan, setPlan] = useState<{ plan: string; email: string } | null>(null);
   const [signing, setSigning] = useState(false);
   const [note, setNote] = useState('');
+  const drawing = useRef(0);
   const refresh = async () => {
+    const mine = ++drawing.current;
     const now = await accounts.status(ME, k);
-    setStatus(now);
-    setPlan(now.state === 'ready' ? await accounts.plan(ME, k) : null);
+    const named = signedIn(now) ? await accounts.plan(ME, k) : null;
+    if (mine !== drawing.current) return; // a later refresh (a sign-out, say) already said how things are
+    setStatus(now); setPlan(named);
   };
   useEffect(() => { refreshers.set(k, refresh); refresh(); return () => { refreshers.delete(k); }; }, []);
   return (
@@ -134,7 +139,7 @@ function Plan({ k }: { k: Key }) {
       {!!plan?.email && <Text testID={tid(k, 'who')} style={s.small}>Signed in as {plan.email}</Text>}
       {!!note && <Text testID={tid(k, 'note')} style={s.small}>{note}</Text>}
       {signing ? <SignInSheet k={k} onClose={() => { setSigning(false); refresh(); }} />
-        : status?.state === 'ready' ? <>
+        : signedIn(status) ? <>
           <Ask k={k} />
           {k === 'chatgpt' && <Button id="recheck" label="Check the sign-in" onPress={async () => {
             // Forces a refresh (the token rotates): what the app does when ChatGPT turns a request away.
@@ -149,6 +154,8 @@ function Plan({ k }: { k: Key }) {
   );
 }
 const refreshers = new Map<Key, () => void>();
+/** Signed in, even while resting or when the plan lacks something: Ask says why, and Sign out stays. */
+const signedIn = (s: Status | null) => s?.state === 'ready' || s?.state === 'resting' || s?.state === 'not_included';
 
 /** Pair with a computer from its pairing code (scanned or pasted), compare the two words, then use the link. */
 function Pair() {

@@ -106,7 +106,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   private without = new Set<string>();
   private rests = new Map<string, { until: number; kind: Kind }>();
   /** Which Claude plan each member signed in with, read once per sign-in. */
-  private claudePlans = new Map<string, Promise<{ plan: string; email: string; work: boolean }>>();
+  private claudePlans = new Map<string, { refresh: string; read: Promise<{ plan: string; email: string; work: boolean }> }>();
   onChange?: (member: M, key: string) => void;
   /** A sign-in just finished and works. */
   onSignedIn?: (member: M, key: string) => void;
@@ -436,25 +436,22 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** Which plan the member signed in with (ChatGPT's by default, or Claude's): its plan, email, and whether it is a work
    *  account; `planLabel` says it ("ChatGPT Plus"). Null when not signed in. Claude's comes from its profile, read once
-   *  per sign-in; an empty plan when Claude doesn't say. */
+   *  per sign-in with the stored access, never refreshing it; an empty plan when Claude doesn't say or the access is due. */
   async plan(member: M, provider = 'chatgpt') {
     const key = await this.resolveKey(member, provider);
-    const rt = await this.runtime(member, key);
-    const c = await rt.readCredential(this.offer(key).pi).catch(() => undefined);
+    const c = await (await this.runtime(member, key)).readCredential(this.offer(key).pi).catch(() => undefined);
     if (c?.type !== 'oauth') return null;
     if (provider !== 'claude') return planOf(c.access);
+    const unknown = { plan: '', email: '', work: false };
     const id = `${member}:${key}`;
-    let read = this.claudePlans.get(id);
-    if (!read) {
-      read = (async () => {
-        const access = (await rt.getAuth(CLAUDE_PLAN_ID))?.auth?.apiKey;
-        if (!access) throw new Error('signed out');
-        return claudeProfile(access, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch });
-      })();
-      this.claudePlans.set(id, read);
-      read.catch(() => { if (this.claudePlans.get(id) === read) this.claudePlans.delete(id); });
+    let kept = this.claudePlans.get(id);
+    if (kept?.refresh !== c.refresh) {
+      if (c.expires <= Date.now() + 300_000) return unknown; // refreshing is for asking, not for a label
+      const read = claudeProfile(c.access, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch });
+      this.claudePlans.set(id, kept = { refresh: c.refresh, read });
+      read.catch(() => { if (this.claudePlans.get(id)?.read === read) this.claudePlans.delete(id); });
     }
-    return read.catch(() => ({ plan: '', email: '', work: false }));
+    return kept.read.catch(() => unknown);
   }
 
   /** Whether the member's plan lacks this use; `on` records what the provider said, or that the person changed plans. */
@@ -849,6 +846,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         else await rt.logout(p.pi);
       } catch (e) { error = e; }
       this.ready.set(id, false);
+      this.claudePlans.delete(id); // a read started while signing out
       this.onChange?.(member, key);
       if (error) throw error;
     })();

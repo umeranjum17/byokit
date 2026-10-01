@@ -37,12 +37,16 @@ function card(key: 'chatgpt' | 'claude') {
   q<HTMLInputElement>('pasted').placeholder = `Paste the code from the ${name} page`;
   q<HTMLTextAreaElement>('question').placeholder = `Ask ${name} something`;
 
+  let drawing = 0;
   async function draw() {
+    const mine = ++drawing;
     const status = await accounts.status(ME, key);
-    const ready = status.state === 'ready';
+    // Signed in, even while resting or when the plan lacks something: Ask says why, and Sign out stays.
+    const ready = status.state === 'ready' || status.state === 'resting' || status.state === 'not_included';
     const plan = ready ? await accounts.plan(ME, key) : null;
+    if (mine !== drawing) return; // a later draw (a sign-out, say) already said how things are
     const view = accounts.view(ME, key);
-    const phase = phaseOf({ ready, signIn: view });
+    const phase = phaseOf({ ready: status.state === 'ready', signIn: view });
     const waiting = view?.state === 'waiting';
     q('status').textContent = status.words;
     q('badge').textContent = plan ? planLabel(name, plan.plan) : '';
@@ -66,6 +70,7 @@ function card(key: 'chatgpt' | 'claude') {
   q('cancel').onclick = () => accounts.cancel(ME, key);
   q('connect').onclick = () => {
     const pasted = q<HTMLInputElement>('pasted');
+    if (!pasted.value.trim()) return pasted.focus();
     try { accounts.paste(ME, key, pasted.value); pasted.value = ''; } catch { note(say('signIn.failed', { name })); }
   };
   q('ask').onclick = async () => {

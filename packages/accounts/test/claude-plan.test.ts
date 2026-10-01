@@ -193,6 +193,16 @@ test('the plan is named from the Claude profile, read once per sign-in; unknown,
   const u = standIn(); await u.store.modify(id, async () => token(fixture.now + 3600_000)); u.set({ organization: { organization_type: 'claude_team' } });
   assert.equal((await u.a.plan(1, 'claude'))?.work, true);
 
+  // Another writer of the same store signs in someone else: the label follows the credential, not the member.
+  u.set({ account: { email: 'other@example.com' }, organization: { organization_type: 'claude_pro' } });
+  await u.store.modify(id, async () => ({ ...token(fixture.now + 3600_000), refresh: 'another-refresh' }));
+  assert.deepEqual(await u.a.plan(1, 'claude'), { plan: 'pro', email: 'other@example.com', work: false });
+
+  // Naming the plan never refreshes the sign-in, so it can never spend or lose it.
+  const v = standIn(); await v.store.modify(id, async () => token(Date.now() + 60_000)); v.set({ organization: { organization_type: 'claude_max' } });
+  assert.deepEqual(await v.a.plan(1, 'claude'), { plan: '', email: '', work: false });
+  assert.equal(v.calls.length, 0); assert.equal((await v.store.read(id))?.type, 'oauth');
+
   assert.equal(planLabel('Claude', 'max'), 'Claude Max');
   assert.equal(planLabel('ChatGPT', 'plus'), 'ChatGPT Plus');
   assert.equal(planLabel('Claude', ''), 'Claude');
