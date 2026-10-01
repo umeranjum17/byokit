@@ -521,3 +521,31 @@ binary, the same contract runs in a sandbox without Node globals; the Hermes che
 is skipped. The standalone fixture uses the locked Expo Babel preset's `hermes-v0`
 profile to lower classes for legacy Hermes CLI VMs. This is VM qualification, not
 an Expo SDK runtime, emulator or native UI test.
+
+### A consistent plan screen (web and React Native)
+
+Import `planView` from `@byokit/usage/view`, the portable entry with no Node,
+credential or network imports. Pass a single snapshot of your call ledger and the
+quota reading paired with its account identity:
+
+```ts
+import { planView } from '@byokit/usage/view';
+const view = planView({ provider: 'codex', account: accountId, calls, nowMs: Date.now(),
+  quota: { account: accountId, reading } });
+```
+
+Render `view.label`, `view.roomText`, `view.quotaText`, `view.today`,
+`view.activity`, `view.people` and `view.models` together. Today, the 30-day
+activity insight, people and models use exactly the same provider/account-filtered
+calls. People carry member identities: resolve those to your app's display names.
+Do not render identities directly. Counts with missing measurements have no
+`tokens`; `knownTokens` is only a subtotal and `unknownCalls` explains the gap.
+Empty activity says “No recorded calls”, never that the whole plan was unused.
+Quota covers the whole plan, including activity outside the app; it cannot be
+inferred from recorded tokens. Failed polls do not imply exhaustion. `room`
+retains the observation age, scope and reset timestamp for a meter or reset label.
+Use `modelLabel(id)` for model names; unknown ids display “AI model”.
+
+Run `node examples/pwa/serve.ts` and open `/usage.html` for the shared Umer
+fixture ledger. In Expo, set `EXPO_PUBLIC_USAGE_DEMO=1`. These examples are
+explicitly labelled sample activity and never read a real sign-in.

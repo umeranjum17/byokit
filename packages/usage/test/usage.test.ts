@@ -684,3 +684,30 @@ test('ephemeral Claude concurrent reads share only their operation and respect d
   assert.equal((await reader.read({ ...source }, { nowMs, signal: controller.signal })).code, 'unavailable');
   assert.equal(calls, 1);
 });
+
+test('plan view keeps every activity section account-scoped and poll failure distinct from exhaustion', async () => {
+  const { planView, planLabel, modelLabel } = await import('../src/view.ts');
+  const fixture = (await import('../../../fixtures/conformance/usage-view-typescript.json', { with: { type: 'json' } })).default;
+  const ledger = callLedger();
+  const call = ledger.record('umer', { provider: fixture.provider, account: fixture.account, model: fixture.model,
+    runId: 'one', time: fixture.now, billing: 'subscription', usage: { total: fixture.tokens } });
+  const other = { ...call, account: 'other', tokens: { total: 9, provenance: 'partial' as const } };
+  const failed: import('../src/types.ts').Reading = { provider: 'codex', windows: [], code: 'rate-limited' };
+  const view = planView({ provider: 'codex', account: fixture.account, calls: [call, other], nowMs: fixture.now,
+    quota: { account: fixture.account, reading: failed } });
+  assert.equal(view.label, fixture.planLabel); assert.equal(view.room.left, 'unknown');
+  assert.equal(view.today.tokens, fixture.tokens); assert.equal(view.activity.tokens, fixture.tokens);
+  assert.equal(view.people[0]?.tokens, fixture.tokens); assert.equal(view.models[0]?.label, fixture.modelLabel);
+  assert.equal(view.activity.text, '1 recorded call in 30 days');
+  const unknown = planView({ provider: 'codex', account: fixture.account, calls: [call, { ...call, tokens: { provenance: 'unknown' } }], nowMs: fixture.now });
+  assert.equal(unknown.today.tokens, undefined); assert.equal(unknown.today.knownTokens, fixture.tokens);
+  assert.equal(unknown.people[0]?.unknownCalls, 1);
+  assert.throws(() => planView({ provider: 'codex', account: fixture.account, calls: [], nowMs: fixture.now, quota: { account: 'other', reading: failed } }));
+  assert.equal(modelLabel('claude-opus-5-5'), 'Claude Opus 5.5');
+  assert.equal(modelLabel('private-binary-name'), 'AI model');
+  assert.equal(planLabel('claude'), 'Claude plan');
+  assert.equal(planView({ provider: 'codex', account: fixture.account, calls: [], nowMs: fixture.now,
+    quota: { account: fixture.account, reading: { ...failed, limited: true } } }).room.left, 0);
+  const { build } = await import('esbuild');
+  await build({ entryPoints: ['packages/usage/src/view.ts'], bundle: true, platform: 'browser', write: false, logLevel: 'silent' });
+});

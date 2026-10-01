@@ -28,6 +28,10 @@
     "./react-native": {
       "types": "./dist/rn.d.ts",
       "default": "./dist/rn.js"
+    },
+    "./view": {
+      "types": "./dist/view.d.ts",
+      "default": "./dist/view.js"
     }
   },
   "files": [

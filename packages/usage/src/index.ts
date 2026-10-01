@@ -201,3 +201,5 @@ export function usage(options: UsageOptions): Usage {
   }
   return { read, lastKnown, connected, account };
 }
+
+export { planView, planLabel, modelLabel, type PlanView, type ActivityCount } from './view.ts';
