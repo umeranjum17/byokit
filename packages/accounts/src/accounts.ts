@@ -343,7 +343,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     } catch (e: any) {
       if (e instanceof ResponseError && e.kind && e.kind !== 'network') {
         const acted = await this.failed(member, key, e);
-        if (acted && acted.kind !== e.kind) throw new ResponseError(e.message, acted.kind, acted.until);
+        if (acted && acted.kind !== e.kind) throw new ResponseError(e.message, acted.kind, acted.until,
+          e.status !== undefined ? { status: e.status, retryAfter: e.retryAfter } : undefined);
       }
       throw e;
     }

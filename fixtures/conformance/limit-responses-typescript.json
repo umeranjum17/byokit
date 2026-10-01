@@ -1,5 +1,5 @@
 {
-  "rule": "TypeScript HTTP errors preserve the provider's code: usage_not_included is not_included, usage_limit_reached and rate_limit_exceeded or status 429 are rate_limit. The shared HTTP cases otherwise keep their messages and reset times.",
+  "rule": "TypeScript HTTP errors preserve the provider's code: usage_not_included is not_included, usage_limit_reached and rate_limit_exceeded or status 429 are rate_limit. The shared HTTP cases otherwise keep their messages and reset times. respond's ResponseError also carries the HTTP status and only the Retry-After header, so callers can retry 429 without adding request headers or other response headers to the error.",
   "now": 1790000000000,
   "cases": [
     {
@@ -9,5 +9,10 @@
       "until": null,
       "message": "You have hit your ChatGPT usage limit."
     }
+  ],
+  "retry": [
+    { "status": 429, "retryAfter": "0.05" },
+    { "status": 429, "retryAfter": "Tue, 01 Jan 2030 00:00:00 GMT" },
+    { "status": 503, "retryAfter": "1" }
   ]
 }
