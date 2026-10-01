@@ -69,6 +69,7 @@ console.log(await reach({ port: 8792, via: 'lan', interfaces }));
 |---|---|
 | `reach({ port, via?, previous?, tailscale?, interfaces?, address? })` | The dial `urls`, the `bind` address, and the Serve `ingress` to persist (plus `pendingCleanup` when a removal failed) |
 | `routes(interfaces?, tailnetIPs?)` | This computer's IPv4 routes: `lan` addresses, `private` overlay addresses and `tailscale` addresses |
+| `recommend({ port?, interfaces?, tailscale?, state?, serve?, lan?, private?, current? })` | Every route in everyday words, recommended first: `{ via, recommended, sentence, needs, disabledReason? }` per route |
 | `advertise({ type, port, name?, txt?, addresses? })` | Publishes `_<type>._tcp` over mDNS (Node), using only selected addresses; returns `{ stop }` |
 | `tailscaleState({ bin?, timeoutMs? })` | Non-throwing installation, backend, sign-in, key expiry, peer and address diagnostics |
 | `needsSignin(status)`, `isPeer(status, ip)` | Pure helpers for raw `tailscale status --json`: explicit login state and peer IP membership |
@@ -77,7 +78,7 @@ console.log(await reach({ port: 8792, via: 'lan', interfaces }));
 | `serve`, `unserve` | Make or remove the app's Serve mapping, with ownership checks |
 | `SERVE_OWNED_ERROR`, `FUNNEL_ERROR` | The error messages for a taken root and a root with Funnel on |
 | `browse({ type })`, `scan({ type, ms })` | React Native entry only: discover mDNS services, streamed or time-boxed |
-| Types | `Via`, `Reach`, `PrivateRoute`, `ServeIngress`, `ServeRoot`, `TailscaleOptions`, `TailscaleState`, `TailscalePeer`, `Bonjour`, `BonjourRecord`; on React Native `BrowseService`, `BrowseHandle`, `BrowseOptions`, `BrowseEvents`, `BrowseEventName`, `ZeroconfLike` |
+| Types | `Via`, `Reach`, `RecommendVia`, `RecommendEntry`, `RecommendOptions`, `PrivateRoute`, `ServeIngress`, `ServeRoot`, `TailscaleOptions`, `TailscaleState`, `TailscalePeer`, `Bonjour`, `BonjourRecord`; on React Native `BrowseService`, `BrowseHandle`, `BrowseOptions`, `BrowseEvents`, `BrowseEventName`, `ZeroconfLike` |
 
 ## Routes
 
@@ -102,6 +103,38 @@ including CGNAT addresses without Tailscale evidence, stay in `private`. The fun
 IPv6-only networks: not yet.
 
 Tailscale is transport only. Link's handshake still checks every device key.
+
+### Recommend
+
+`recommend()` lists one entry per concrete route (`tailscale`, `tailscale-direct`, `private`, `lan`) with the
+recommended one first, so the recommendation order and the everyday copy live in one place. `sentence` and `needs`
+come from ui-core's `routeChoices()`; only availability is added here. `auto` is not a route: it picks the
+recommended entry. Pass `state`, `serve`, `lan` and `private` fakes to decide without touching Tailscale or the
+network; with no options it probes this computer (`tailscaleState`, `inspectServe` on `port`, `routes`).
+
+```ts
+import { recommend } from '@byokit/reach';
+
+const entries = await recommend({
+  state: { installed: true, backendState: 'Running', needsSignin: false, dnsName: 'dev.tailnet.ts.net', ips: ['100.64.0.1'] },
+  serve: { status: 'free' },
+  lan: ['192.168.1.20'],
+  private: [],
+});
+console.log(entries.map((e) => `${e.recommended ? '●' : '○'} ${e.via}: ${e.sentence}`));
+```
+
+```text
+● tailscale: Your phone reaches this computer from anywhere.
+○ tailscale-direct: Same as above without Tailscale Serve. Pick this if Serve is already used on this computer for something else.
+○ private: Pick this if this computer and phone are already on one.
+○ lan: Easiest. Works while your phone is on the same Wi-Fi as this computer. Nothing else to install.
+```
+
+The order is the current healthy route (pass it as `current`), then Tailscale Serve — direct Tailscale when the Serve
+root is taken, disabled, funnelled, or nameless — then a private overlay, then Same Wi-Fi. Tailscale installed but
+signed out stays selectable, with sign-in in `needs`, while Same Wi-Fi is recommended. Nothing ready means no entry
+is recommended and every entry carries its `disabledReason`.
 
 ## Tailscale rules
 
@@ -210,7 +243,8 @@ values only). The pinned `react-native-zeroconf` dependency (`0.14.0`) is suppli
 
 `test/reach.test.ts` ports muxr's `checkTailscaleIngress` and uses a fake tailscale CLI that logs every call. The real
 binary never runs, and no packet goes out: mDNS advertise is tested with a fake publisher, and the React Native
-browse API with a fake zeroconf module.
+browse API with a fake zeroconf module. `test/recommend.test.ts` covers the recommendation order with injected
+state, Serve-root and interface fakes, plus one live-probe run against the fake CLI.
 
 ## Links
 

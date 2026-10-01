@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { describeRoute } from '../src/route.ts';
+import { describeRoute, routeChoices } from '../src/route.ts';
 
 test('describeRoute names the route a dial address takes', () => {
   assert.equal(describeRoute('wss://desk.tail0de54.ts.net'), 'Tailscale');
@@ -49,5 +49,13 @@ test('describeRoute parses pairing links on React Native, where URL.canParse is 
     assert.equal(describeRoute(undefined), undefined);
   } finally {
     globalThis.URL = RealURL;
+  }
+});
+
+test('routeChoices is the one word table: every route code once, in recommendation order', () => {
+  const choices = routeChoices();
+  assert.deepEqual(choices.map((c) => c.code), ['tailscale', 'tailscale-direct', 'private', 'lan', 'cloudflare', 'external']);
+  for (const c of choices) {
+    assert.ok(c.title.length > 0 && c.sentence.length > 0 && c.needs.length > 0, c.code);
   }
 });

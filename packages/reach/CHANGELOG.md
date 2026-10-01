@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `recommend()`: one entry per route (`{ via, recommended, sentence, needs, disabledReason? }`), recommended
+  first — current healthy route, then Tailscale Serve (direct when the Serve root is taken, disabled, funnelled,
+  or nameless), then a private overlay, then Same Wi-Fi. Words from ui-core's `routeChoices()`; probes
+  `tailscaleState`/`inspectServe`/`routes()` live unless `state`, `serve`, `lan` and `private` fakes are passed.
+
 ## 0.4.0 (2026-09-30)
 
 - FIX: direct Tailscale binds only the selected Self IPv4 address; `address` selects another local tailnet IP.
