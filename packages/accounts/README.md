@@ -589,3 +589,42 @@ Native status reads resolve within 15 seconds. Claude stdout is capped at 256 KB
 The existing `accounts-v1.json` `{version:1,accounts:[{id,provider,name,folder,found}]}` and `auto-terms-v1.json` `{acknowledged:true}` encodings remain unchanged, with 0600 files and atomic replacement. The kit preserves but excludes `found-*` and `found:true` rows, which belong to the host's default-login adapter. Legacy managed rows without kit completion sidecars retain their native signed-in status; new or re-signing rows require the completion marker. Symlinked account folders and records outside the provider/hex layout are refused.
 
 `usageSource(id)` returns a Codex Source for `@byokit/usage`; Claude returns `undefined`, and its usage Source is `{provider:'claude', folder:set.CLAUDE_CONFIG_DIR, headers}` in a usage reader whose `stateDir` is the same managed root. `kinds` serves only the matching native agent (`claude` or `codex`); Pi is excluded until its folder mapping is verified. `resumeArgs` accepts an `id` conversation reference for these kinds. `termsAcknowledged` and `acknowledgeTerms` keep the host's existing terms bit; they do not gate sign-in. `suggestName` uses the first part of an email, falling back to the provider's name.
+
+## Member API keys (billed per use)
+
+Offer `openai`, `typesafe` (Jev), or `openrouter` explicitly. Show each catalogue
+`label`: “API key (billed per use by OpenAI/TypeSafe/OpenRouter)”. Ask the member
+to agree to per-use billing before calling `saveKey`. These routes never enter
+`ladder`, even when a subscription is unavailable.
+
+```ts
+import { Accounts } from '@byokit/accounts';
+import { fileStore } from '@byokit/secrets';
+import { jev, openai } from '@byokit/decide';
+
+// The host supplies its private data folder and a device-owned passphrase.
+const accounts = new Accounts({
+  offer: ['openai', 'typesafe', 'openrouter'],
+  keyStore: (member) => fileStore({ path: `${dataFolder}/${member}.keys`, passphrase }),
+});
+// After Umer explicitly agrees to billing per use, pass the entered key:
+await accounts.saveKey('Umer', 'typesafe', enteredKey, { billedPerUse: true });
+const decisions = jev({ key: await accounts.key('Umer', 'typesafe') });
+// After saving the corresponding keys with the same consent:
+const routedDecisions = jev({ key: await accounts.key('Umer', 'openrouter'), via: 'openrouter' });
+const generalDecisions = openai({ key: await accounts.key('Umer', 'openai'), model: chosenModel });
+await accounts.logout('Umer', 'typesafe'); // deletes the saved key on this device
+```
+
+Use a fixed host-owned mapping from member ids to private paths; never use untrusted
+member text as a filesystem path. `keyStore(member)` must refer to the same store
+across calls and a separate namespace per member. On phones use secrets' `nativeStore`;
+in browsers use `webStore` with a separate database per member. There is no default
+key store or plaintext fallback. Keys stay in device storage and are handed only to
+the selected provider's request on the host; never serialize `key()` into views,
+snapshots, logs, or messages to another device. Status and connection results contain
+no key, and storage failures have fixed, redacted messages.
+
+With `keyStore` configured, the existing `openrouter` route uses saved member keys;
+without it, its existing explicit sign-in flow remains available. Saving a key marks
+it connected locally; the selected provider checks validity on the first request.

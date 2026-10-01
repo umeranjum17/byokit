@@ -2,6 +2,7 @@
 // person's plan breaks the vendors' terms, so every sign-in, rest and refresh is keyed by member and account.
 // The engine does the signing in (Pi's own flows on a computer, portableEngine on phones and in browsers); the app only
 // shows the provider's page to open or the code to type. No Node import here: see index.ts for the computer's side.
+import type { Keystore } from '@byokit/secrets';
 import type { AuthPrompt, CredentialStore, Models } from '@earendil-works/pi-ai';
 import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
@@ -39,6 +40,8 @@ export type AccountsOptions<M extends Member = Member> = {
   offer?: readonly string[];
   /** Each member's own store. Default: in memory. */
   store?: (member: M) => CredentialStore;
+  /** Device-owned @byokit/secrets store per member. Required to save API keys; no plaintext fallback. */
+  keyStore?: (member: M) => Keystore;
   /** The app's name, for the page the provider's sign-in sends the browser back to. */
   app?: string;
   /** Longest a sign-in may wait: longer than any provider's code lives. */
@@ -230,9 +233,50 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     return p;
   }
 
+  private keyRoute(key: string) {
+    const p = this.offer(key);
+    if (p.auth !== 'api-key' && key !== 'openrouter') throw new Error('This account uses a subscription sign-in.');
+    return p;
+  }
+
+  private async keys<T>(member: M, action: (store: Keystore) => Promise<T>): Promise<T> {
+    try {
+      if (!this.opts.keyStore) throw new Error();
+      return await action(this.opts.keyStore(member));
+    } catch { throw new Error('Saved keys could not be opened or changed. Try again after unlocking this device.'); }
+  }
+
+  /** Explicit consent to per-use billing. Saves only in this member's device-owned secrets store. */
+  async saveKey(member: M, key: string, secret: string, consent: { billedPerUse: true }): Promise<SignIn> {
+    this.keyRoute(key);
+    if (consent?.billedPerUse !== true) throw new Error('Agree to billing per use before connecting this key.');
+    if (typeof secret !== 'string' || !secret.trim()) throw new Error('Enter a key to connect this account.');
+    return this.serial(`${member}:${key}`, async () => {
+      await this.keys(member, (store) => store.set(`accounts.${key}`, secret));
+      this.ready.set(`${member}:${key}`, true);
+      this.lapsed.delete(`${member}:${key}`);
+      this.without.delete(`${member}:${key}`);
+      this.rests.delete(`${member}:${key}`);
+      this.onSignedIn?.(member, key);
+      this.onChange?.(member, key);
+      return { state: 'done' };
+    });
+  }
+
+  /** Host-only credential handoff to jev({key}) or openai({key}); never include the result in a view or log. */
+  async key(member: M, key: string): Promise<string> {
+    const p = this.keyRoute(key);
+    const value = await this.keys(member, (store) => store.get(`accounts.${key}`));
+    if (!value) throw new ResponseError(say('status.signedOut', { name: p.name }), 'signed_out');
+    return value;
+  }
+
   /** Signed in, from the engine's own side-effect-free check. */
   async signedIn(member: M, key: string) {
-    const ok = !!(await (await this.runtime(member)).checkAuth(this.offer(key).pi).catch(() => undefined));
+    const p = this.offer(key);
+    const ok = p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)
+      ? !!(await this.keys(member, (store) => store.get(`accounts.${key}`)))
+      : !!(await (await this.runtime(member)).checkAuth(p.pi).catch(() => undefined));
     this.ready.set(`${member}:${key}`, ok);
     if (ok) this.lapsed.delete(`${member}:${key}`);
     return ok;
@@ -368,7 +412,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** The first choice whose account is neither resting nor known to be unusable: the fallback ladder. */
   ladder<T>(member: M, choices: readonly T[], key: (c: T) => string = String) {
-    return choices.find((c) => !this.restingUntil(member, key(c)) && !this.unready(member, key(c)));
+    return choices.find((c) => provider(key(c)).billing === 'subscription' && !this.restingUntil(member, key(c)) && !this.unready(member, key(c)));
   }
 
   /** Where one account stands, in one plain sentence every app shows the same way. */
@@ -391,7 +435,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    *  sentence. Returns as soon as there is a page to open or a code to show (or it is over); the rest carries on by itself. */
   async login(member: M, key: string, body: { via?: 'code' | 'browser'; fresh?: boolean } = {}): Promise<SignIn | null> {
     const p = this.offer(key);
-    if (p.auth === 'api-key') throw new Error('Use the app-provided API key (billed per use) to ask this provider.');
+    if (p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)) throw new Error('Connect an API key after agreeing to billing per use.');
     const id = `${member}:${key}`;
     const pending = this.signingOut.get(id);
     if (pending) await pending.catch(() => {});
@@ -524,7 +568,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
 
   private async refreshed(member: M, key: string, minOAuthValidityMs: number) {
-    const pi = this.offer(key).pi;
+    const p = this.offer(key);
+    if (p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)) return this.signedIn(member, key);
+    const pi = p.pi;
     return (await this.runtime(member)).getAuth(pi, { minOAuthValidityMs }).then(Boolean, async (e: Error) => {
       if (offline(e)) return true;
       if (e?.message === `OAuth refresh returned a token that expires too soon for ${pi}`) {
@@ -551,7 +597,10 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** After the account turned a request away: true if its sign-in still refreshes; if not, it is signed out for good. */
   async recheck(member: M, key: string) {
-    const ok = await this.refreshed(member, key, 365 * 86_400_000);
+    const p = this.offer(key);
+    // A saved API key cannot refresh itself after an authentication refusal.
+    const ok = p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)
+      ? false : await this.refreshed(member, key, 365 * 86_400_000);
     if (!ok) { await this.logout(member, key).catch(() => {}); this.forget(member, key); }
     return ok;
   }
@@ -564,6 +613,12 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     this.generations.set(id, (this.generations.get(id) ?? 0) + 1);
     this.cancel(member, key);
     const work = (async () => {
+      if (p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)) {
+        await this.serial(id, () => this.keys(member, (store) => store.delete(`accounts.${key}`)));
+        this.ready.set(id, false);
+        this.onChange?.(member, key);
+        return;
+      }
       const rt = await this.runtime(member);
       let error: unknown;
       try {

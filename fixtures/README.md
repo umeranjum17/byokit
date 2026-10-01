@@ -8,6 +8,7 @@ a Messages backend to the frozen Kotlin runtime.
 
 | File | What it is |
 |---|---|
+| `conformance/member-keys-typescript.json` | TypeScript-only explicit member API-key consent, billing, sealing and redaction rules. |
 | `conformance/claude-messages-typescript.json` | TypeScript-only native Claude Messages stream captures. |
 | `conformance/claude-plan-typescript.json` | TypeScript-only Claude subscription PKCE, strict state, exchange and refresh rules (offline protocol captures). |
 | `conformance/signin-errors.json` | A failed sign-in's message → the `words.json` key to show. |
