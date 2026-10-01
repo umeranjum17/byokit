@@ -6,7 +6,8 @@ import { createHash } from 'node:crypto';
 import { build } from 'esbuild';
 import { connect, ConnectError, providers, type Provider, type ConnectOptions, CallToolResultSchema, ToolListChangedNotificationSchema } from '../src/index.ts';
 import { connectLoopback } from '../src/node.ts';
-import { overrideStore } from '../../secrets/src/index.ts';
+import { scratchDir } from '../../test-support.ts';
+import { osKeyringSeal, overrideStore } from '../../secrets/src/index.ts';
 import type { Keystore } from '@byokit/secrets';
 
 function memory(): Keystore & { values: Map<string, string> } {
@@ -85,6 +86,36 @@ test('long connection identities fit the real keystore contract and restore acro
   const c = await signed(opts, target);
   assert.equal(await connect(target, opts).token(), 'access-canary');
   await c.disconnect(); assert.equal(await c.connected(), false);
+});
+
+test('a secrets-sealed host store keeps sign-in and rotated refresh grants out of persisted plaintext', async () => {
+  const keys = new Map<string, string>(), persisted = memory(), http = fake();
+  const sealing = { service: 'connect-sealed-test', stateDir: scratchDir('connect-sealed'), fallback: false,
+    keyring: { get: (name: string) => keys.get(name) ?? null, set: (name: string, value: string) => { keys.set(name, value); }, delete: (name: string) => keys.delete(name) } };
+  const wrap = (): Keystore => {
+    const seal = osKeyringSeal(sealing);
+    return {
+      async get(name) {
+        const value = await persisted.get(name);
+        if (value === null) return null;
+        const record = JSON.parse(seal.decryptString(Buffer.from(value, 'base64')));
+        if (record.name !== name || typeof record.secret !== 'string') throw new Error('Stored sign-in could not be opened.');
+        return record.secret;
+      },
+      async set(name, secret) { await persisted.set(name, Buffer.from(seal.encryptString(JSON.stringify({ name, secret }))).toString('base64')); },
+      delete: name => persisted.delete(name),
+    };
+  };
+  const opts = { ...options(http), store: wrap() }, c = await signed(opts);
+  const initial = [...persisted.values.values()][0];
+  assert.equal(Buffer.from(initial, 'base64').subarray(0, 4).toString(), 'BKS1');
+  http.set({ access_token: 'rotated-access-canary', refresh_token: 'rotated-refresh-canary', expires_in: 3600, token_type: 'Bearer' });
+  assert.equal(await c.token('access-canary'), 'rotated-access-canary');
+  assert.notEqual([...persisted.values.values()][0], initial);
+  for (const value of persisted.values.values()) assert.doesNotMatch(Buffer.from(value, 'base64').toString(), /access-canary|refresh-canary/);
+  const reopened = connect(app, { ...opts, store: wrap() });
+  assert.equal(await reopened.token(), 'rotated-access-canary');
+  await reopened.disconnect(); assert.equal(persisted.values.size, 0);
 });
 
 test('declined, unticked, expired, cancelled and superseded flows never save tokens', async () => {

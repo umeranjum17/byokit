@@ -144,6 +144,46 @@ name. Use a durable device
 store; do not send this record to a shared server. See [SECURITY.md](SECURITY.md)
 for concurrency and callback boundaries.
 
+## Sealed desktop token storage
+
+In Node or Electron's main process, wrap the host's durable store before passing
+it to connect. This adapter writes only authenticated ciphertext, including after
+refresh; the store's names are bound inside the sealed payload.
+
+```ts
+import { connect } from '@byokit/connect';
+import { osKeyringSeal, type Keystore } from '@byokit/secrets/node';
+
+// Your app's durable, per-person store; it receives ciphertext only.
+declare const ciphertextStore: Keystore;
+const seal = osKeyringSeal({ service: 'crewhouse-connect-Umer', dualWrap: true });
+const store: Keystore = {
+  async get(name) {
+    const value = await ciphertextStore.get(name);
+    if (value === null) return null;
+    const record = JSON.parse(seal.decryptString(Buffer.from(value, 'base64')));
+    if (record.name !== name || typeof record.secret !== 'string') throw new Error('Stored sign-in could not be opened.');
+    return record.secret;
+  },
+  async set(name, secret) {
+    const bytes = seal.encryptString(JSON.stringify({ name, secret }));
+    await ciphertextStore.set(name, Buffer.from(bytes).toString('base64'));
+  },
+  delete: name => ciphertextStore.delete(name),
+};
+const notion = connect('notion', {
+  store, person: 'Umer', redirectUri: 'https://your-app.example/connect/callback',
+});
+```
+
+Keep one adapter/store instance per person and app, and use an app writer lock if
+multiple processes share storage. Dual wrapping permits reads through an owner-only
+host key when the keyring is locked; keep that key separate from ciphertext backups.
+Omit `dualWrap` and pass `fallback: false` when an accessible OS keyring is required.
+See [secrets' sealing guide](../secrets/README.md#seal-accounts-files-on-desktop) for
+platform behavior, key protection and rotation. Sign in and refresh normally through
+the connection handle; never persist its returned access token separately.
+
 ## Crewhouse adoption
 
 Replace the OAuth, token-file and `RemoteMcp` portions of `src/connections.ts` with

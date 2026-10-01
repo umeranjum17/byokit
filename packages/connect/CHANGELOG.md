@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Document a secrets-sealed desktop store and verify encrypted refresh-token persistence.
 - Add per-person third-party sign-in, token refresh and typed remote MCP connections.
 
 ## 0.1.0 (2026-09-30)
