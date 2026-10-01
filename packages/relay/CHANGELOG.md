@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.1 (2026-10-01)
+
 - FIX: Wait for the temporary pairing socket to close before checking live device counts in the reconnect job test.
 
 ## 0.5.0 (2026-10-01)
