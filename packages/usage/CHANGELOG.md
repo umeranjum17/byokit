@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.6.0 (2026-10-01)
+
+- FIX: Claude subscription quota snapshots can now be read through an identity-free ephemeral host callback without credentials or a fabricated account UUID; readings never enter a cache or shared store, and retry state stays local to the source.
+
 ## 0.5.0 (2026-10-01)
 
 - Add a React Native entry for local call/token ledgers and pure quota helpers; subscription and API key (billed per use) attribution is preserved, with estimates only from app prices.

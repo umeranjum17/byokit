@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.5.2 (2026-10-01)
+
+- Dependency update: pins @byokit/accounts 0.15.1.
+- FIX: (from @byokit/usage 0.6.0) Claude subscription quota snapshots can now be read through an identity-free ephemeral host callback without credentials or a fabricated account UUID; readings never enter a cache or shared store, and retry state stays local to the source.
+
 ## 0.5.1 (2026-10-01)
 
 - Dependency update: pins @byokit/accounts 0.15.0.
