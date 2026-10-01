@@ -51,7 +51,9 @@ The app owns URL normalization and supplies local file paths deliberately.
 Each session owns one page and a private temporary profile. Operations are serialized
 in call order; use separate sessions for concurrent documents. `close()` waits for
 queued work, closes the browser, and removes its profile, including on a close error.
-Close is idempotent; later operations reject. Startup failure removes the profile.
+Close is idempotent; later operations reject. Startup failure cleans up the profile.
+If the OS refuses cleanup after retries, the call rejects with a plain error and
+the host's normal temporary-folder cleanup may still be needed.
 Always close in `finally`; forced process termination can leave temporary directories
 for the host's normal temp cleanup. Cookies and page storage last only for this session.
 

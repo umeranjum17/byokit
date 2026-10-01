@@ -52,7 +52,9 @@ export async function createBrowser(options: BrowserOptions, launch: BrowserLaun
       !isAbsolute(options.executablePath)) throw new BrowserError("invalid-input");
   if (!await executable(options.executablePath)) throw new BrowserError("browser-missing");
   // mkdtemp creates a private 0700 directory; no caller-supplied profile or browser attachment exists.
-  const root = await mkdtemp(join(tmpdir(), "byokit-browser-"));
+  const root = await mkdtemp(join(tmpdir(), "byokit-browser-")).catch(() => {
+    throw new BrowserError("launch-failed");
+  });
   const env = { ...options.env, HOME: root, USERPROFILE: root, APPDATA: root, LOCALAPPDATA: root,
     XDG_CONFIG_HOME: root, XDG_CACHE_HOME: root, XDG_DATA_HOME: root, TMPDIR: root, TMP: root, TEMP: root };
   let driver;
@@ -61,7 +63,9 @@ export async function createBrowser(options: BrowserOptions, launch: BrowserLaun
       viewport: { ...viewport }, deviceScaleFactor, timeoutMs, sandbox: options.sandbox ?? true,
       reducedMotion: options.reducedMotion ?? "reduce", env });
   } catch {
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 3 }).catch(() => {
+      throw new BrowserError("launch-failed");
+    });
     throw new BrowserError("launch-failed");
   }
   // One document per session. Queue captures and mutations so concurrent calls cannot race documents.
@@ -131,7 +135,11 @@ export async function createBrowser(options: BrowserOptions, launch: BrowserLaun
       closing = chain.then(async () => {
         try { await driver.close(); }
         catch { throw new BrowserError("close-failed"); }
-        finally { await rm(root, { recursive: true, force: true }); }
+        finally {
+          await rm(root, { recursive: true, force: true, maxRetries: 3 }).catch(() => {
+            throw new BrowserError("close-failed");
+          });
+        }
       });
       return closing;
     },

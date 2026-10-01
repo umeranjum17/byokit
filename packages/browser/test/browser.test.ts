@@ -136,6 +136,26 @@ test("failed startup and failed close remove the private profile and suppress ra
   await assert.rejects(access(dirname(fake.launches[0].profileDir)));
 });
 
+test("an unavailable temporary folder reports a plain startup failure without exposing its path", async () => {
+  const root = await mkdtemp(join(tmpdir(), "browser-temp-test-"));
+  const before = process.env.TMPDIR;
+  const fake = fakeBrowser();
+  process.env.TMPDIR = join(root, "private-path-canary");
+  try {
+    await assert.rejects(createBrowser({ executablePath: process.execPath }, fake.launch), error => {
+      assert.ok(error instanceof BrowserError);
+      assert.equal(error.code, "launch-failed");
+      assert.ok(!String(error.stack).includes("private-path-canary"));
+      assert.equal(error.cause, undefined);
+      return true;
+    });
+    assert.equal(fake.launches.length, 0);
+  } finally {
+    if (before === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = before;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("queued operations retain document order; close drains them once and refuses new work", async () => {
   const fake = fakeBrowser();
   let release!: () => void;
