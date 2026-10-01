@@ -34,8 +34,14 @@ export interface CallInput {
   account: string;
   model: string;
   runId: string;
+  /** App-selected host lane and runtime route; never inferred from a model id. */
+  lane?: string;
+  route?: string;
   time: number;
-  billing: 'subscription' | 'api';
+  /** Subscription by default; API key (billed per use) attribution is explicit. */
+  billing?: 'subscription' | 'api';
+  /** OpenClaw reports input separately from cache reads/writes. */
+  usageFormat?: 'provider' | 'openclaw';
   /** Native provider usage/envelope, or normalized input/output/cachedInput/cacheWrite/total counts. */
   usage?: unknown;
   payer?: string;
@@ -43,7 +49,9 @@ export interface CallInput {
   state?: 'completed' | 'cancelled' | 'failed';
   limits?: readonly Window[];
 }
-export interface CallRecord extends Omit<CallInput, 'usage' | 'limits'> {
+export interface CallRecord extends Omit<CallInput, 'usage' | 'limits' | 'billing' | 'usageFormat'> {
+  billing: 'subscription' | 'api';
+  billingLabel: "Person's own plan" | "Person's API bill";
   tokens: NormalizedTokens;
   state: 'completed' | 'cancelled' | 'failed';
   cost?: CallCost;
@@ -59,7 +67,12 @@ export interface CallQuery {
 export interface CallLedger {
   record(member: string, call: CallInput): CallRecord;
   query(member: string, from: number, to: number): CallQuery;
+  /** All runs with recorded calls in [from, to), in first-call order. */
+  runs(member: string, from: number, to: number): RunQuery[];
+  /** One member's run, restricted to [from, to). Empty runs have zero totals. */
+  queryRun(member: string, runId: string, from: number, to: number): RunQuery;
 }
+export interface RunQuery extends CallQuery { runId: string }
 const object = (value: unknown): Record<string, unknown> => isRecord(value) ? value : {};
 const count = (value: unknown): number | undefined => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 const text = (value: unknown): value is string => typeof value === 'string' && !!value && value.length <= 1024 && !/[\0\r\n]/.test(value);
@@ -77,10 +90,18 @@ function normalized(input?: number, output?: number, cachedInput?: number, cache
     provenance: input !== undefined && output !== undefined && derived !== undefined ? 'reported' : [input, output, cachedInput, cacheWrite, measured].some((v) => v !== undefined) ? 'partial' : 'unknown' };
 }
 /** Pure normalization of reported counts, never estimates from text or shared decision invocations. */
-export function normalizeTokens(provider: string, raw: unknown): NormalizedTokens {
+export function normalizeTokens(provider: string, raw: unknown, format: 'provider' | 'openclaw' = 'provider'): NormalizedTokens {
   const envelope = object(raw);
   const usage = object(envelope.usage ?? envelope.usageMetadata ?? raw);
   if (usage.provenance === 'unknown' || usage.provenance === 'estimated') return { provenance: 'unknown' };
+  if (format === 'openclaw') {
+    if (!['input', 'output', 'cacheRead', 'cacheWrite', 'total'].some((key) => count(usage[key]) !== undefined)) return { provenance: 'unknown' };
+    const uncached = count(usage.input);
+    const cached = count(usage.cacheRead) ?? (usage.cacheRead === undefined ? 0 : undefined);
+    const written = count(usage.cacheWrite) ?? (usage.cacheWrite === undefined ? 0 : undefined);
+    const input = uncached !== undefined && cached !== undefined && written !== undefined ? sum(uncached, cached, written) : undefined;
+    return normalized(input, count(usage.output), cached, written, count(usage.total));
+  }
   if (['input', 'output', 'total'].some((key) => key in usage)) return normalized(count(usage.input), count(usage.output), count(usage.cachedInput), count(usage.cacheWrite), count(usage.total));
   if (provider === 'claude' || provider === 'anthropic') {
     if (!['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens'].some((key) => count(usage[key]) !== undefined)) return { provenance: 'unknown' };
@@ -122,20 +143,34 @@ function aggregate(calls: readonly CallRecord[]): NormalizedTokens {
   const field = (key: keyof Omit<NormalizedTokens, 'provenance'>): number | undefined => calls.every((call) => call.tokens[key] !== undefined) ? count(calls.reduce((total, call) => total + call.tokens[key]!, 0)) : undefined;
   return normalized(field('input'), field('output'), field('cachedInput'), field('cacheWrite'), field('total'));
 }
+function summarize(calls: CallRecord[]): CallQuery {
+  const costs = new Map<string, CallCost>();
+  for (const call of calls) {
+    if (!call.cost) continue;
+    const key = `${call.cost.currency}\0${call.cost.billing}`; const previous = costs.get(key);
+    costs.set(key, { ...call.cost, amount: (previous?.amount ?? 0) + call.cost.amount });
+  }
+  return { calls, tokens: aggregate(calls), costs: [...costs.values()], unpricedCalls: calls.filter((call) => !call.cost).length };
+}
 /** Every recorded attempt is a call; the host records retries separately under its run id. */
 export function callLedger(options: { store?: TokenLedgerStore; prices?: PriceTable } = {}): CallLedger {
   const store = options.store ?? memoryTokenLedgerStore();
-  return {
+  const ledger: CallLedger = {
     record(member, call) {
       if (!text(member) || !call || ![call.provider, call.account, call.model, call.runId].every(text) || !time(call.time)
-        || !['subscription', 'api'].includes(call.billing) || call.payer !== undefined && !text(call.payer)
+        || call.billing !== undefined && !['subscription', 'api'].includes(call.billing) || call.payer !== undefined && !text(call.payer)
+        || call.lane !== undefined && !text(call.lane) || call.route !== undefined && !text(call.route)
+        || call.usageFormat !== undefined && !['provider', 'openclaw'].includes(call.usageFormat)
         || call.durationMs !== undefined && (typeof call.durationMs !== 'number' || !Number.isFinite(call.durationMs) || call.durationMs < 0)
         || call.state !== undefined && !['completed', 'cancelled', 'failed'].includes(call.state) || call.limits !== undefined && !Array.isArray(call.limits)) throw new TokenLedgerError('invalid');
-      const tokens = normalizeTokens(call.provider, call.usage);
-      const cost = priceCall(tokens, options.prices?.[call.provider]?.[call.model], call.billing);
+      const billing = call.billing ?? 'subscription';
+      const tokens = normalizeTokens(call.provider, call.usage, call.usageFormat);
+      const cost = priceCall(tokens, options.prices?.[call.provider]?.[call.model], billing);
       const limits = call.limits?.flatMap((window) => safeWindows(window.provider, [window]));
       const result: CallRecord = { provider: call.provider, account: call.account, model: call.model, runId: call.runId, time: call.time,
-        billing: call.billing, payer: call.payer ?? member, state: call.state ?? 'completed', tokens,
+        billing, billingLabel: billing === 'subscription' ? "Person's own plan" : "Person's API bill",
+        payer: call.payer ?? member, state: call.state ?? 'completed', tokens,
+        ...(call.lane === undefined ? {} : { lane: call.lane }), ...(call.route === undefined ? {} : { route: call.route }),
         ...(call.durationMs === undefined ? {} : { durationMs: call.durationMs }), ...(cost ? { cost } : {}), ...(limits ? { limits } : {}) };
       try { store.record(member, { time: call.time, tokens: tokens.total ?? 0, call: copyCall(result) }); } catch { throw new TokenLedgerError('store'); }
       return result;
@@ -146,18 +181,26 @@ export function callLedger(options: { store?: TokenLedgerStore; prices?: PriceTa
       try { entries = store.query(member, from, to); } catch { throw new TokenLedgerError('store'); }
       if (!Array.isArray(entries)) throw new TokenLedgerError('invalid');
       const calls = entries.filter((entry) => entry.call && entry.time >= from && entry.time < to).map((entry) => copyCall(entry.call!)).sort((a, b) => a.time - b.time);
-      const costs = new Map<string, CallCost>();
-      for (const call of calls) {
-        if (!call.cost) continue;
-        const key = `${call.cost.currency}\0${call.cost.billing}`; const previous = costs.get(key);
-        costs.set(key, { ...call.cost, amount: (previous?.amount ?? 0) + call.cost.amount });
+      return summarize(calls);
+    },
+    runs(member, from, to) {
+      const groups = new Map<string, CallRecord[]>();
+      for (const call of ledger.query(member, from, to).calls) {
+        const calls = groups.get(call.runId) ?? [];
+        calls.push(call); groups.set(call.runId, calls);
       }
-      return { calls, tokens: aggregate(calls), costs: [...costs.values()], unpricedCalls: calls.filter((call) => !call.cost).length };
+      return [...groups].map(([runId, calls]) => ({ runId, ...summarize(calls) }));
+    },
+    queryRun(member, runId, from, to) {
+      if (!text(runId)) throw new TokenLedgerError('invalid');
+      return { runId, ...summarize(ledger.query(member, from, to).calls.filter((call) => call.runId === runId)) };
     },
   };
+  return ledger;
 }
 
 function copyCall(call: CallRecord): CallRecord {
-  return { ...call, tokens: { ...call.tokens }, ...(call.cost ? { cost: { ...call.cost } } : {}),
+  return { ...call, billingLabel: call.billing === 'subscription' ? "Person's own plan" : "Person's API bill",
+    tokens: { ...call.tokens }, ...(call.cost ? { cost: { ...call.cost } } : {}),
     ...(call.limits ? { limits: call.limits.map((window) => ({ ...window })) } : {}) };
 }

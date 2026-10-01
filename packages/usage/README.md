@@ -242,8 +242,11 @@ or store exception text. Entries are counts only, never sign-in tokens.
 
 `callLedger({ store?, prices? })` records runtime model calls through the same
 `TokenLedgerStore` seam. `record(member, { provider, account, model, runId, time,
-billing, usage?, payer?, durationMs?, state?, limits? })` returns and stores one
-`CallRecord`. `billing` is `subscription` or `api`; `payer` defaults to the member.
+billing?, usage?, usageFormat?, lane?, route?, payer?, durationMs?, state?, limits? })`
+returns and stores one `CallRecord`. `billing` defaults to `subscription`; passing
+`api` explicitly attributes an API key (billed per use) call. Every record carries
+`billingLabel: "Person's own plan" | "Person's API bill"`, even without a price
+estimate. `payer` defaults to the member.
 `state` is `completed` (default), `cancelled` or `failed`. The host records each
 actual model call, including retries, and supplies the provider's final usage when
 available. No missing counts are inferred from words or decision sub-answers.
@@ -277,6 +280,73 @@ calls with unknown total counts, member/day/week results expose `unknownCalls`,
 `tokens` is the known subtotal, and week `remaining` is omitted. Cap and price
 policy remain the host's. All times, durations and quota reset timestamps are
 milliseconds. There is no transport, credential discovery or automatic rotation.
+
+Record host lanes and routes with optional app-supplied `lane` and `route` fields.
+`runs(member, from, to)` returns a `RunQuery` per run in first-call order;
+`queryRun(member, runId, from, to)` returns one run. Each result contains `runId`,
+time-sorted `calls` (including lane, route, model and limits), aggregate `tokens`,
+`costs` and `unpricedCalls`, using the same `[from, to)` bounds as `query`.
+An absent run returns no calls and zero tokens. A run's totals cover only calls
+inside the requested range; pass the run's full time range for its complete total.
+Retries and multiple routes/models are added under the app's run id. Members remain
+separate even when run ids match. Missing counts stay unknown in run totals, and
+the shared member ledger continues to withhold remaining allowance when needed.
+
+Pass a result with a `usage` field directly, or pass just its usage. For accounts'
+Messages result and decide's reported answer usage, the default provider format
+handles native `input_tokens`/`output_tokens` counts. For OpenClaw `RunEnd`, pass
+`usageFormat: 'openclaw'`: its `input` excludes `cacheRead`/`cacheWrite`, so the kit
+adds those buckets once and preserves reported output and total. Reasoning is
+already part of output and never added again. Missing/inconsistent usage stays
+partial/unknown; engine cost estimates, raw answers and secrets are discarded.
+`normalizeTokens(provider, result, 'openclaw')` exposes the same pure conversion.
+
+```ts
+import { callLedger, memoryTokenLedgerStore, tokenLedger } from '@byokit/usage';
+import type { RunEnd } from '@byokit/openclaw';
+import type { AnthropicResult } from '@byokit/accounts';
+import type { Answer } from '@byokit/decide';
+
+const store = memoryTokenLedgerStore();
+const calls = callLedger({ store });
+// The app supplies its member policy, run identity and selected lane/route/model.
+const limits = tokenLedger({ store, cap: (member) => member === 'member-one' ? 50_000 : undefined });
+const context = {
+  provider: 'anthropic', account: 'non-secret-account-id', model: 'selected-model',
+  lane: 'host', route: 'anthropic-cli', runId: 'run-one',
+};
+declare const end: RunEnd; // Returned by the kit's existing run; no extra request.
+if (end.ok) {
+  calls.record('member-one', { ...context, time: Date.now(), usage: end, usageFormat: 'openclaw' });
+}
+
+declare const answer: Answer;
+// Record once per actual backend invocation, not once per question or cache hit.
+// The host selected this API-billed backend only after the person's opt-in.
+if (answer.source === 'api') {
+  calls.record('member-one', { ...context, route: 'decision', billing: 'api',
+    time: Date.now(), usage: answer });
+}
+declare const messages: AnthropicResult;
+// API key (billed per use); consent and the original request belong to the app.
+calls.record('member-one', { ...context, route: 'anthropic', billing: 'api',
+  time: Date.now(), usage: messages });
+
+declare const runStartedAt: number;
+const run = calls.queryRun('member-one', 'run-one', runStartedAt, Date.now() + 1);
+const history = calls.runs('member-one', runStartedAt, Date.now() + 1);
+const allowance = limits.query('member-one', runStartedAt, Date.now() + 1);
+```
+
+The host records either an OpenClaw aggregate result or its individual calls, never
+both. Decide can attach one invocation's usage to several answers; record it once,
+and skip `source: 'cache'` answers. String-only accounts/answerer results carry no
+counts and remain unknown; the ledger makes no recovery requests. Model, provider,
+lane and route describe the actual execution and are supplied by the app; there is
+no fallback to an API-billed route. Per-run counts stay on device, in memory by
+default. A custom store must keep them on device and apply the app's retention
+policy. The kit never logs counts, sends telemetry or stores the raw result.
+Iteration budgets, stopping rules, consent and presentation belong to the app.
 
 When passing normalized windows to `@byokit/accounts`' structural helper, use
 `roomOf(reading.windows, reading.at, 'milliseconds')`. Its two-argument form is for

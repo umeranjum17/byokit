@@ -8,6 +8,9 @@ import { fakeCodex, fakeFetch, usageContract } from '../src/testing/index.ts';
 import payloads from './usage-payloads.json' with { type: 'json' };
 import edge from '../../../fixtures/conformance/usage-typescript.json' with { type: 'json' };
 import plain from '../../../fixtures/conformance/plain-words.json' with { type: 'json' };
+import { anthropic } from '../../accounts/src/anthropic.ts';
+import { decide, MemoryCache } from '../../decide/src/index.ts';
+import type { RunEnd } from '../../openclaw/src/types.ts';
 
 const nowMs = 1788600000000;
 for (const provider of ['claude', 'codex', 'opencode', 'zai', 'copilot', 'grok', 'minimax', 'gemini', 'kimi'] as const) {
@@ -330,6 +333,85 @@ test('runtime call ledger: normalized provider counts, honest unknowns, app pric
   assert.throws(() => ledger.query('alice', time + 1, time), TokenLedgerError);
 });
 
+
+test('host results aggregate per run with lane attribution, member limits and no extra calls', async () => {
+  const store = memoryTokenLedgerStore();
+  const ledger = callLedger({ store });
+  const base = { provider: 'anthropic', account: 'host-account', model: 'model-one', runId: 'run-one', time: nowMs,
+    lane: 'host', route: 'anthropic-cli', limits: payloads.claude.windows as Window[] };
+  let requests = 0;
+  const account = anthropic({ key: 'fixture-key', fetch: async () => {
+    requests++;
+    return Response.json({ id: 'message-one', type: 'message', role: 'assistant', model: 'model-one',
+      content: [{ type: 'text', text: 'never-store-answer' }], stop_reason: 'end_turn', stop_sequence: null,
+      usage: payloads.runtime[1].raw.usage });
+  } });
+  const direct = await account.respond({ model: 'model-one', max_tokens: 100,
+    messages: [{ role: 'user', content: 'never-store-prompt' }], result: true });
+  // The host explicitly opted into this API-key call before making it.
+  const billed = ledger.record('alice', { ...base, route: 'anthropic', billing: 'api', usage: direct });
+  assert.equal(billed.billingLabel, "Person's API bill");
+  const end: RunEnd = { ...payloads.hostRuns.openclaw, ok: true };
+  assert.ok(end.ok);
+  const subscription = ledger.record('alice', { ...base, time: nowMs + 1, usage: end, usageFormat: 'openclaw' });
+  assert.equal(subscription.billing, 'subscription');
+  assert.equal(subscription.billingLabel, "Person's own plan");
+  assert.deepEqual(subscription.tokens, payloads.runtime[1].tokens);
+  assert.equal(subscription.cost, undefined); // Engine price guesses never enter the ledger.
+  let decisions = 0;
+  const cache = new MemoryCache();
+  const backend = { name: 'fixture', leaves: false, async ask() {
+    decisions++;
+    return { check: { probabilities: { true: 1, false: 0 }, usage: payloads.hostRuns.decide, raw: { secret: 'never-store-secret' } } };
+  } };
+  const questions = { check: { kind: 'yesno' as const, question: 'Ready?' } };
+  const options = { privacy: 'stays-here' as const, backends: [backend], cache };
+  const answer = (await decide('fixture-state', questions, options)).check;
+  ledger.record('alice', { ...base, provider: 'fixture', route: 'decision', model: 'model-two', time: nowMs + 2, usage: answer });
+  const cached = (await decide('fixture-state', questions, options)).check;
+  assert.equal(cached.source, 'cache'); // Host records actual calls only, not cached answers.
+  ledger.record('bob', { ...base, usage: direct });
+  ledger.record('alice', { ...base, runId: 'run-two', time: nowMs + 3, usage: { input: 1, output: 2, cachedInput: 0 } });
+  // A call outside the requested range cannot contribute to the run.
+  ledger.record('alice', { ...base, time: nowMs - 1, usage: direct });
+  const restarted = callLedger({ store });
+  const run = restarted.queryRun('alice', 'run-one', nowMs, nowMs + 3);
+  assert.equal(run.runId, 'run-one');
+  assert.equal(run.calls.length, 3);
+  assert.deepEqual(run.tokens, payloads.hostRuns.tokens);
+  assert.equal(run.tokens.cachedInput, undefined); // Decide did not report cache counts.
+  assert.deepEqual(run.calls.map((call) => [call.lane, call.route, call.model]),
+    [['host', 'anthropic', 'model-one'], ['host', 'anthropic-cli', 'model-one'], ['host', 'decision', 'model-two']]);
+  assert.deepEqual(run.calls[0].limits, payloads.claude.windows);
+  assert.deepEqual(restarted.runs('alice', nowMs, nowMs + 4).map((run) => [run.runId, run.tokens.total]), [['run-one', 290], ['run-two', 3]]);
+  assert.equal(restarted.queryRun('bob', 'run-one', nowMs, nowMs + 3).tokens.total, 120);
+  const allowance = tokenLedger({ store, cap: () => 500 }).query('alice', nowMs, nowMs + 4);
+  assert.equal(allowance.tokens, 293);
+  assert.equal(allowance.week.tokens, 413); // Prior attempt counts in the seven-day allowance.
+  assert.equal(allowance.week.remaining, 87);
+  assert.doesNotMatch(JSON.stringify(run), /never-store|fixture-key|costUsd|raw/);
+  run.calls[0].tokens.input = 999;
+  run.calls[0].limits![0].usedPercent = 99;
+  assert.equal(restarted.queryRun('alice', 'run-one', nowMs, nowMs + 3).tokens.input, 240);
+  assert.deepEqual(restarted.queryRun('alice', 'run-one', nowMs, nowMs + 3).calls[0].limits, payloads.claude.windows);
+  assert.deepEqual(restarted.queryRun('alice', 'missing', nowMs, nowMs + 4).tokens,
+    { input: 0, output: 0, cachedInput: 0, cacheWrite: 0, total: 0, provenance: 'reported' });
+  ledger.record('alice', { ...base, time: nowMs + 4, state: 'failed' });
+  assert.equal(restarted.queryRun('alice', 'run-one', nowMs, nowMs + 5).tokens.total, undefined);
+  assert.equal(tokenLedger({ store, cap: 500 }).query('alice', nowMs, nowMs + 5).week.remaining, undefined);
+  assert.deepEqual(normalizeTokens('anthropic', {}, 'openclaw'), { provenance: 'unknown' });
+  assert.deepEqual(normalizeTokens('anthropic', { usage: { output: 7 } }, 'openclaw'),
+    { output: 7, cachedInput: 0, cacheWrite: 0, provenance: 'partial' });
+  assert.deepEqual(normalizeTokens('anthropic', { input: 10, output: 5, cacheRead: 2, total: 15 }, 'openclaw'), { provenance: 'unknown' });
+  assert.throws(() => ledger.record('alice', { ...base, lane: 'host\nsecret' }), TokenLedgerError);
+  assert.throws(() => ledger.record('alice', { ...base, route: '' }), TokenLedgerError);
+  assert.throws(() => ledger.record('alice', { ...base, usageFormat: 'other' as 'openclaw' }), TokenLedgerError);
+  assert.throws(() => restarted.queryRun('alice', '', nowMs, nowMs + 5), TokenLedgerError);
+  assert.throws(() => restarted.runs('alice', nowMs + 5, nowMs), TokenLedgerError);
+  assert.throws(() => restarted.queryRun('alice', 'run-one', nowMs + 5, nowMs), TokenLedgerError);
+  assert.equal(requests, 1);
+  assert.equal(decisions, 1);
+});
 
 test('public Claude replacement helpers share disk last-good and account backoff across readers', async () => {
   const dir = scratchDir('usage-public-helpers');
