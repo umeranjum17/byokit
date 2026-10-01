@@ -4,6 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readlinkSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cliAccounts, CliAccountError, type CliProvider } from '../src/cli.ts';
+import { resolveSelection } from '../src/multi.ts';
+import { roomOf } from '@byokit/usage';
 import { scratchDir } from '../../test-support.ts';
 
 function fake(dir: string, provider: CliProvider) {
@@ -49,6 +51,12 @@ test('managed CLI flow: add, marker-gated status, native sign-in, rename, launch
     const ready = await kit.status(account.id);
     assert.equal(ready.state, 'ready'); assert.equal(ready.email, 'alice.work@example.test');
     assert.equal(ready.name, 'Alice'); assert.doesNotMatch(JSON.stringify(ready), /private-fake-token|access_token/);
+    const nowMs = 1_800_000_000_000;
+    const usageReading = { provider, at: nowMs, windows: [{ provider, kind: 'session' as const, usedPercent: 12, resetsAt: nowMs + 300_000 }] };
+    const pick = resolveSelection([ready], {}, { account: 'auto', model: 'passed-model' }, () => roomOf(usageReading, nowMs), nowMs);
+    assert.equal(pick.ok, true);
+    if (pick.ok) assert.equal(pick.account.id, ready.id);
+    assert.equal(pick.considered[0].resetsAt, nowMs + 300_000, 'normalized usage milliseconds reach shared account selection unchanged');
     assert.equal((await kit.rename(account.id, ' Work ')).name, 'Work');
     const launch = kit.launchEnv(account.id);
     assert.deepEqual(launch.set, { [provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME']: folder });

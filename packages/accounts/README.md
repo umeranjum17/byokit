@@ -559,6 +559,8 @@ for runtime integration; the chooser consumes host-validated state and never ado
 
 `@byokit/accounts/cli` exports `cliAccounts`, `CliAccountError`, `CliProvider`, `CliAccount`, `CliOptions` and `SignInCommand`. Accounts use subscription billing. The portable entries and the `Accounts` class retain their existing sign-in flows.
 
+`CliAccount` extends the portable chooser's `AccountLike`. Pass normalized usage through `@byokit/usage`'s `roomOf(reading, nowMs)` when selecting an account, preserving millisecond reset times and the original measurement time.
+
 ```ts
 import { cliAccounts } from '@byokit/accounts/cli';
 const accounts = cliAccounts({

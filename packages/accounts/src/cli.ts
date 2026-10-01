@@ -4,10 +4,11 @@ import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openS
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { identity, type Identity } from '@byokit/usage';
 import { say } from './words.ts';
+import type { AccountLike } from './multi.ts';
 
 export type CliProvider = 'claude' | 'codex';
-/** Structural AccountLike surface; the CLI entry remains Node-only. */
-export type CliAccount = { id: string; provider: CliProvider; name: string; state: 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included'; billing: 'subscription'; until?: number; email?: string; plan?: string };
+/** Shared selection surface; the CLI entry remains Node-only. */
+export type CliAccount = AccountLike & { provider: CliProvider; billing: 'subscription'; email?: string; plan?: string };
 export type CliOptions = {
   stateDir: string;
   bins: Partial<Record<CliProvider, string>>;
