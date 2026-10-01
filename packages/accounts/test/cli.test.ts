@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readlinkSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { cliAccounts, CliAccountError, type CliProvider } from '../src/cli.ts';
+import { cliAccounts, nativePiAccount, CliAccountError, type CliProvider } from '../src/cli.ts';
 import { resolveSelection } from '../src/multi.ts';
 import { roomOf } from '@byokit/usage';
 import { scratchDir } from '../../test-support.ts';
@@ -81,6 +81,49 @@ test('managed CLI flow: add, marker-gated status, native sign-in, rename, launch
   assert.deepEqual(prepared, ['claude', 'codex']); assert.deepEqual(await kit.list(), []);
   assert.equal(readFileSync(join(history, 'keep'), 'utf8'), 'history');
   assert.equal(statSync(join(stateDir, 'accounts-v1.json')).mode & 0o777, 0o600);
+});
+
+test('read-only native Pi descriptor selects only an independent owned folder and exact session', () => {
+  const root = scratchDir('cli-pi'); const home = join(root, 'home'); const stateDir = join(root, 'plans');
+  const folder = join(stateDir, 'pi', 'abcdef'); mkdirSync(folder, { recursive: true });
+  const auth = join(folder, 'auth.json'); writeFileSync(auth, 'unreadable-fixture-grant', { mode: 0 });
+  const descriptor = nativePiAccount({ stateDir, folder, bin: '/app/bin/pi', home });
+  assert.equal(descriptor.kind, 'pi'); assert.equal(descriptor.bin, '/app/bin/pi');
+  assert.deepEqual(descriptor.launch.set, { PI_CODING_AGENT_DIR: folder });
+  assert.deepEqual(descriptor.resumeArgs({ kind: 'path', value: join(root, 'umer.jsonl') }), ['--session', join(root, 'umer.jsonl')]);
+  assert.deepEqual(descriptor.resumeArgs({ kind: 'id', value: '11111111-1111-4111-8111-111111111111' }), ['--session', '11111111-1111-4111-8111-111111111111']);
+  for (const value of ['', '--resume', 'bad\u0000value']) assert.throws(() => descriptor.resumeArgs({ kind: 'path', value }), CliAccountError);
+  assert.throws(() => nativePiAccount({ stateDir, folder: home, bin: '/app/bin/pi', home }), CliAccountError);
+  assert.throws(() => nativePiAccount({ stateDir: join(home, '.pi'), folder, bin: '/app/bin/pi', home }), CliAccountError);
+  assert.throws(() => nativePiAccount({ stateDir, folder, bin: 'pi', home }), CliAccountError);
+  symlinkSync(folder, join(stateDir, 'pi', 'deadbeef'));
+  assert.throws(() => nativePiAccount({ stateDir, folder: join(stateDir, 'pi', 'deadbeef'), bin: '/app/bin/pi', home }), CliAccountError);
+  assert.equal(statSync(auth).mode & 0o777, 0, 'descriptor does not modify grants');
+});
+
+test('missing provider binary keeps list and Auto isolated without consuming pending markers', async () => {
+  const root = scratchDir('cli-unavailable'); const stateDir = join(root, 'plans');
+  const claude = fake(join(root, 'bins'), 'claude');
+  const env = { HOME: join(root, 'home'), PATH: '/unused' };
+  const unavailable = { id: 'pa_umer_codex', provider: 'codex', name: 'Umer', folder: join(stateDir, 'codex', 'abcdef'), found: false };
+  const ready = { id: 'pa_umer_claude', provider: 'claude', name: 'Umer Work', folder: join(stateDir, 'claude', 'abcdef'), found: false };
+  for (const r of [unavailable, ready]) mkdirSync(r.folder, { recursive: true });
+  const pending = join(unavailable.folder, '.byokit-signin-pending'); writeFileSync(pending, 'pending');
+  const roster = JSON.stringify({ version: 1, accounts: [unavailable, ready] });
+  writeFileSync(join(stateDir, 'accounts-v1.json'), roster);
+  const kit = cliAccounts({ stateDir, env, bins: { claude: claude.bin } });
+  const rows = await kit.list();
+  assert.deepEqual(rows.map(r => r.state), ['not_included', 'ready']);
+  assert.equal((await kit.status(unavailable.id)).state, 'not_included');
+  assert.equal(readFileSync(pending, 'utf8'), 'pending');
+  assert.equal(readFileSync(join(stateDir, 'accounts-v1.json'), 'utf8'), roster);
+  const pick = resolveSelection(rows, {}, { account: 'auto', model: 'passed-model' }, () => ({ left: 'unknown' }), Date.now());
+  assert.equal(pick.ok, true); if (pick.ok) assert.equal(pick.account.id, ready.id);
+  assert.throws(() => kit.signInAgain(unavailable.id), e => e instanceof CliAccountError && e.code === 'bad-option');
+  await assert.rejects(kit.add('codex'), e => e instanceof CliAccountError && e.code === 'bad-option');
+  assert.throws(() => kit.usageSource(unavailable.id), e => e instanceof CliAccountError && e.code === 'bad-option');
+  const restored = cliAccounts({ stateDir, env, bins: { codex: fake(join(root, 'bins'), 'codex').bin } });
+  assert.equal((await restored.status(unavailable.id)).state, 'signing', 'availability does not complete a pending login');
 });
 
 test('native Claude status resolves at its deadline and reaps a child that ignores termination', async (t) => {

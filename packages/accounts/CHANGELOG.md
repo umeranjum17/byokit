@@ -3,7 +3,6 @@
 ## Unreleased
 
 - SECURITY: Add launchEnv to scrub inherited provider credentials, including subscription tokens and API key (billed per use) variables; isolate now prepares only the app folder and never mutates process.env. Apps must pass launchEnv().env when spawning a child.
-- Add independent subscription accounts per member, fresh sign-in, identity replacement, account names and defaults.
 
 ## 0.16.0 (2026-10-01)
 

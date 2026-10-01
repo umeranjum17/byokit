@@ -600,6 +600,8 @@ const { set, unset } = accounts.launchEnv(account.id);
 
 Native status reads resolve within 15 seconds. Claude stdout is capped at 256 KB and identity JSON at 64 KB; the shared Codex client caps stdout at 64 KB. Timeout or excess output terminates only that owned child, with SIGTERM followed by SIGKILL after one second if it is still alive.
 
+If the host does not supply a provider executable, its managed rows remain visible as `not_included`; list and Auto continue for the other providers. No identity probe runs and pending markers remain intact. Connect/reconnect and usage for that provider still require its explicitly supplied executable.
+
 The existing `accounts-v1.json` `{version:1,accounts:[{id,provider,name,folder,found}]}` and `auto-terms-v1.json` `{acknowledged:true}` encodings remain unchanged, with 0600 files and atomic replacement. The kit preserves but excludes `found-*` and `found:true` rows, which belong to the host's default-login adapter. Legacy managed rows without kit completion sidecars retain their native signed-in status; new or re-signing rows require the completion marker. Symlinked account folders and records outside the provider/hex layout are refused.
 
 `usageSource(id)` returns a Codex Source for `@byokit/usage`; Claude returns `undefined`, and its usage Source is `{provider:'claude', folder:set.CLAUDE_CONFIG_DIR, headers}` in a usage reader whose `stateDir` is the same managed root. `kinds` serves only the matching native agent (`claude` or `codex`); Pi is excluded until its folder mapping is verified. `resumeArgs` accepts an `id` conversation reference for these kinds. `termsAcknowledged` and `acknowledgeTerms` keep the host's existing terms bit; they do not gate sign-in. `suggestName` uses the first part of an email, falling back to the provider's name.
@@ -611,6 +613,29 @@ of `cliAccounts.launchEnv(id)`. PATH, HOME and locale remain unless explicitly u
 `{ env, unset }` lists removed names for shells which already inherited them. An explicit `set` is
 a host opt-in; never put its credential values in terminal commands or logs. `isolate(dir)` retains
 its directory return value but no longer changes global environment variables.
+
+### Native Pi and found-row boundaries
+
+The managed roster/sign-in API supports Claude and Codex only. `nativePiAccount` supplies a **read-only launch descriptor** for a separately owned Pi folder, qualified against native Pi 0.87.1. It neither reads a grant nor claims sign-in state or identity:
+
+```ts
+import { nativePiAccount } from '@byokit/accounts/cli';
+import { launchEnv } from '@byokit/accounts/isolate';
+
+declare const appStateDir: string;
+declare const ownedPiFolder: string; // existing <appStateDir>/pi/<hex>, never a default folder
+declare const piBin: string; // app-supplied absolute binary
+declare const appHome: string;
+declare const sessionPath: string;
+const pi = nativePiAccount({ stateDir: appStateDir, folder: ownedPiFolder, bin: piBin, home: appHome });
+const childEnv = launchEnv({ base: { HOME: appHome, PATH: '/usr/bin:/bin' }, account: pi.launch }).env;
+const argv = pi.resumeArgs({ kind: 'path', value: sessionPath });
+// The host spawns pi.bin with argv and childEnv; native Pi owns its grants and session.
+```
+
+Pi uses its own `auth.json` in `PI_CODING_AGENT_DIR`; a Claude managed folder alone does **not** select the same account in Pi. Do not advertise `kinds('claude')` as including Pi, pass a Claude grant to Pi, or fall back to the person's default Pi folder. Pi roster/sign-in/Auto adoption still needs a separately defined native status/identity-to-row contract. Proof uses fixture identities and actual native RPC resume, not live sign-in or paid responses.
+
+Found rows are read-only host records, not managed accounts. `signInAgain`, `launchEnv`, and other managed operations reject them. To sign in again to a found login, the person uses that provider's normal native account UI themselves, outside this kit; the host may explain that workflow but must not execute a default-folder sign-in command or mark completion from a managed sidecar. Alternatively, offer **Connect an account** to create a separate app-owned login. The existing found row remains unchanged. This does not authorize a consumer to remove its existing Pi or account-move affordances; an adoption whose UI requires unsupported capabilities stays unlanded until its owner supplies a compatible contract or explicit product disposition.
 
 ## Scripted sign-in stand-in
 
