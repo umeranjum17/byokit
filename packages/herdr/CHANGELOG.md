@@ -9,6 +9,9 @@
 - Add `move` with caller resume args, credential shedding, staging/replacement hooks and `MoveResult.paneId`.
 - Add per-call `cli` env overlays for managed folder hook installation.
 - Report surviving replacement panes when environment verification rollback fails; refuse folder moves for agents that ignore the folder variables.
+- Track a subscription agent's turn with `runTurn` and `onTurnEnd`: acknowledged Herdr status
+  events, optional JSON validated by the app's schema validator, and changed files from bounded
+  before/after snapshots of the app-owned working directory. No additional API billing path.
 
 ## 0.3.0 (2026-10-01)
 

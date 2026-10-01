@@ -1433,6 +1433,44 @@ export class Blocked {
 // notices.ts (H7; portable): sealNotice(b: BlockedAgent, boxPublicKey), openNotice(data, seed): BlockedAgent | null
 ```
 
+### 6.2.1 Turn results
+
+`runTurn<T>(target, options): Promise<AgentTurnEnd<T>>` adds host-side turn tracking to an existing
+agent; it neither starts a CLI nor changes its subscription. `options` supplies `prompt`, an absolute
+app-owned `cwd`, optional `timeoutMs` (default 300000), `signal`, `onEnd`, file policy (`exclude`,
+`maxFiles`, `maxBytes`), and optional result policy `{ schema, validate, maxBytes }`. `schema` is an
+app-supplied JSON Schema sent as instructions; `validate(unknown): value is T` is the app's schema
+validator. No provider API or additional billing path is introduced. `onTurnEnd(fn)` subscribes
+app-wide; `onEnd` and the promise carry the same completed turn, exactly once.
+
+Before delivery, the kit acknowledges a pane-specific Herdr status subscription, checks that the
+agent is idle and its working directory matches, and snapshots that directory. Completion requires
+an observed `working` followed by `idle` or `done` after delivery starts; initial idle, blocked,
+unknown and prompt receipts alone never end a turn. It buffers a completion arriving before the
+prompt receipt. Rejected delivery, watch loss, pane replacement/closure, cancellation, timeout and
+kit stop reject and clean up without emitting completion. They do not stop the agent. Apps retain
+their existing blocked-agent approval flow. Herdr's status detection is the end signal, not proof
+that the requested work succeeded; no native semantic run-result API exists in the pinned schema.
+
+With result policy, the prompt asks the agent to write a fresh, turn-specific JSON file directly in
+`cwd`, containing `{ turnId, result }`, before it finishes. The kit reads only that bounded regular
+file without following symlinks, checks the id, parses JSON, and calls the supplied validator. The
+end object carries `id`, `target`, `receipt`, terminal `status`, sorted `changedFiles` (relative paths
+and `added`/`modified`/`deleted`), and a result discriminant: `not-requested`, `missing`, `invalid`
+(reason `format`/`schema`/`too-large`/`unsafe-file`), or `valid` with the typed value. Invalid bytes
+are never returned or logged. The kit removes its result file; it is excluded from changed files.
+
+File snapshots compare content, executable/permission modes and symlink targets, including
+untracked files and existing dirty edits; they do not depend on Git or timestamps. `.git` is always
+excluded, directories are pruned by the app's `exclude(relativePath)` policy, symlinks are recorded
+without traversing them, and special files are ignored. Defaults bound each scan to 10000 entries
+and 128 MiB of regular-file content; exceeding a bound or an unreadable/racing tree rejects instead
+of returning a partial list. Files changed and restored between snapshots do not appear. Apps must
+reserve the pane and directory exclusively for the turn: the kit prevents overlapping turns in
+its own instance, but cannot attribute writes by other clients/processes. Branching, applying,
+rollback, task success and device authorization remain app policy. This host-only helper grants
+no new link/device operation; apps forward the result through their authorized job channel.
+
 ### 6.3 Supervision and connection (`src/supervise.ts`, `src/socket.ts`)
 
 - `own` mode: refuse unless `bin` is an absolute path to an executable (`missing/binary`). Env =
@@ -1627,6 +1665,7 @@ sorted, deterministic; a test regenerates and compares.
 | `move.env_mismatch` | The new pane did not receive that sign-in. Try again. |
 | `move.close_failed` | The old pane could not close. The move was undone where possible. |
 | `move.start_failed` | The new account could not take over. Try again. |
+| `turn.failed` | This turn could not be confirmed. Check the helper before trying again. |
 
 ## 7. Connection adapters
 

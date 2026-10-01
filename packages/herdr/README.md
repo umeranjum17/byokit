@@ -307,6 +307,64 @@ off();
 `start()` is non-fatal: if Herdr is down it rejects (state `failed`, e.g. `failed/socket`) and may be called again
 afterwards, so the host comes up while Herdr is down by retrying `start()` in a backoff loop.
 
+## Turn results
+
+`runTurn` prompts an existing subscription agent and resolves after Herdr reports that it worked
+and returned to `idle` or `done`. Subscribe app-wide with `onTurnEnd`, or use the call's `onEnd`.
+An initial idle or a blocked approval does not finish the turn; keep using `onBlocked`/`answer`.
+No provider API or additional billing path is involved.
+
+```ts
+import { HerdrKit } from '@byokit/herdr';
+
+const kit = new HerdrKit({ mode: 'adopt', bin: 'herdr', socketPath: '/tmp/herdr.sock' });
+await kit.start();
+const target = await kit.startAgent({ kind: 'codex', cwd: '/app/worktree', place: { workspace: 'new' } });
+const off = kit.onTurnEnd((end) => console.log(end.changedFiles));
+const end = await kit.runTurn(target, {
+  prompt: 'Implement the requested change, then report whether the build passed.',
+  cwd: '/app/worktree',
+  timeoutMs: 10 * 60_000,
+  files: { exclude: (path) => path === 'node_modules' || path === 'dist' },
+  result: {
+    schema: { type: 'object', required: ['buildPassed'], additionalProperties: false,
+      properties: { buildPassed: { type: 'boolean' } } },
+    // For larger schemas, call the app's existing JSON Schema validator here.
+    validate: (value: unknown): value is { buildPassed: boolean } =>
+      typeof value === 'object' && value !== null && 'buildPassed' in value &&
+      typeof value.buildPassed === 'boolean' && Object.keys(value).length === 1,
+  },
+});
+if (end.result.state === 'valid') console.log(end.result.value.buildPassed);
+off();
+```
+
+The kit asks the agent to write `{ turnId, result }` to a fresh JSON file in that folder before
+finishing. It checks the id, parses and validates the bounded file, and removes it. The result
+is `not-requested` without a policy, `missing` if the agent did not write it, `invalid` with a
+reason if it could not be accepted, or `valid` with a typed value. Unchecked payloads are never
+returned or logged; the transient result file is excluded from `changedFiles`. Default result
+limit: 1 MiB (`result.maxBytes`). The agent must follow these instructions; Herdr has no native
+schema-enforced response API. Task success is a separate app decision.
+
+`changedFiles` lists sorted relative paths with `added`, `modified` or `deleted`, including
+untracked files and changes to already-dirty files. Snapshots compare content, modes and symlink
+targets, do not traverse symlinks, always exclude `.git`, and ignore special files. Files changed
+and restored during the turn do not appear. Use `files.exclude` to prune generated or sensitive
+folders. Each scan defaults to 10000 entries and 128 MiB of regular-file content; set
+`files.maxFiles`/`maxBytes` to change these limits. An incomplete scan rejects the call.
+
+Reserve the pane and folder exclusively while the turn runs. Overlapping calls in one kit are
+refused, but changes by other apps or processes cannot be attributed to this agent. The supplied
+absolute `cwd` must match Herdr's reported working directory. Timeout, watch loss, pane closure or
+replacement, `kit.stop()` and an aborted `signal` reject without a completion event. Monitoring
+cancellation does not interrupt the agent; it may still finish or write its result file later.
+Herdr's working-to-idle/done detection is the end signal, not proof of semantic success. The kit
+does not guess completion from elapsed silence or a prompt receipt.
+
+This helper runs on the host. Apps own branches, review/apply/rollback and authorized forwarding
+of results to devices; it adds no link permission or device operation.
+
 ## Status
 
 Pinned to Herdr v0.9.1. The schema snapshot (`schema/herdr-api-0.9.1.json`, protocol 22) generates the typed surface
