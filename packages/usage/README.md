@@ -530,6 +530,10 @@ quota reading paired with its account identity:
 
 ```ts
 import { planView } from '@byokit/usage/view';
+import type { CallRecord, Reading } from '@byokit/usage';
+const accountId = 'umer-chatgpt';
+const calls: CallRecord[] = []; // This account's recorded calls, if any.
+const reading: Reading = { provider: 'codex', windows: [] }; // Room left is unknown.
 const view = planView({ provider: 'codex', account: accountId, calls, nowMs: Date.now(),
   quota: { account: accountId, reading } });
 ```
