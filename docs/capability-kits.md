@@ -134,6 +134,15 @@ packages/write/
 `{ "write": "dist/cli.js" }`; `files` `dist`, `schema`, `README.md`, `LICENSE`, `CHANGELOG.md`. Dependencies:
 none at BK-0; BK-P2 adds `"ownvoice-engine": "<exact>"`.
 
+The React Native condition selects `dist/portable.js`; `./portable` explicitly selects the same entry for other
+bundlers. Its `Compose` requires `{ engine: Engine }` (exported as `ComposeOptions`, also named
+`PortableComposeOptions`). It shares all methods, validation and the version gate with the Node client, but
+imports neither Node adapters nor the pinned engine. Node's `.` entry and CLI retain the lazy pinned default.
+The host owns its engine/transport and text privacy. The current pinned engine's lookbehind expressions are not
+Hermes-compatible, so the portable entry does not load it. Protocol 1 and generated/public wire parity are
+unchanged: no voice-sample field or behavior is defined. The built-entry scripted protocol fixture is
+`packages/write/test/fixtures/portable.ts`, with Hermes runner `packages/write/test/hermes.sh`.
+
 ### 4.2 Engine wire (what the kit expects from `ownvoice-engine` protocol 1)
 
 The engine package exports `handle(request)`. It also has a bin that reads one JSON request on stdin and writes one
