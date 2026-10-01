@@ -18,6 +18,7 @@ export function realtimeClient(options: RealtimeClientOptions) {
     current.signal.abort(); current.stream?.close(); if (current.stream) audio.player.unbind(current.stream);
     await current.media?.catch(() => {});
     current.peer?.stop();
+    await current.peer?.releaseMic?.();
     await current.routeRelease;
     try { await current.capture?.release(); }
     finally { if (current.acquired) { current.acquired = false; audio.microphone.release(); await audio.unroute(); } }
@@ -107,7 +108,7 @@ export function realtimeClient(options: RealtimeClientOptions) {
         case 'realtime.webrtc.start':
           if (current.media) break;
           if (!options.webrtc) throw new Error('Voice media is unsupported.');
-          current.media = options.webrtc({ label: frame.dataChannelLabel, audio: { ...audio, unroute() { return current.routeRelease = audio.unroute(); } }, signal: current.signal.signal,
+          current.media = options.webrtc({ label: frame.dataChannelLabel, capture: options.capture, audio: { ...audio, unroute() { return current.routeRelease = audio.unroute(); } }, signal: current.signal.signal,
             onOffer(sdp) { if (active() && !current.stream?.send({ type: 'realtime.webrtc.offer', sdp })) reconnect(current, 'Voice offer could not be sent.'); },
             onData(data) { if (active() && !current.stream?.send({ type: 'realtime.webrtc.data', data })) reconnect(current, 'Voice channel overflowed.'); },
             onRemoteAudio(speaking) { if (active()) options.onStatus(speaking ? 'speaking' : 'connected'); },
@@ -147,6 +148,19 @@ export function realtimeClient(options: RealtimeClientOptions) {
   options.onStatus('connecting'); connect();
   return {
     stop,
+    async attachMic() {
+      const current = attempt;
+      if (stopped || !current?.media) throw new Error('Voice media is unavailable.');
+      await current.media;
+      if (stopped || attempt !== current || !current.peer?.attachMic) throw new Error('Voice media is unavailable.');
+      await current.peer.attachMic();
+    },
+    async releaseMic() {
+      const current = attempt;
+      if (!current?.media) return;
+      await current.media;
+      await current.peer?.releaseMic?.();
+    },
     interrupt() { if (stopped) return; audio.player.clear(); speech.length = 0; if (!attempt?.stream?.send({ type: 'realtime.control', action: 'interrupt' })) { if (attempt) reconnect(attempt, 'Voice interruption could not be sent.'); } },
     setMuted(value: boolean) { muted = value; attempt?.peer?.setMuted(value); if (value) { mic.length = 0; micBytes = 0; } },
     speak(text: string) { if (stopped) return; const frame = parseRealtimeClientFrame({ type: 'realtime.say', text }); if (frame.type !== 'realtime.say') return; if (speech.length >= 16) { fail(new Error('Voice request buffer overflowed.')); return; } speech.push(frame.text); flush(); },
