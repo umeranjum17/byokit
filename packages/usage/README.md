@@ -379,10 +379,100 @@ that the accounts chooser accepts directly. Preserve the original measurement ti
 
 Managed-folder Claude usage uses the shared poll-health and normalized quota pipeline, including scoped hard blocks, unknown usage, last-good observation times, account retry policies and cancellable host origin pacing.
 
-The token and call ledgers accept host-supplied entries/results; they are not
-harness-log or ccusage readers. A bounded incremental log source (including file
-offsets, rotation and bounded work per update) remains outstanding. This snapshot
-source does not implement it or scan real logs.
+The token and call ledgers accept host-supplied entries/results. For explicit local
+JSONL files, the Node entry now provides `harnessLog`; subscription snapshot reads
+remain separate from measured token accounting.
+
+```ts
+import { harnessLog, callLedger } from '@byokit/usage';
+const log = harnessLog({ files: [{ path: '/app/selected/transcript.jsonl', format: 'claude' }] });
+const calls = callLedger();
+const page = await log.read({ maxBytes: 65_536, maxLines: 256, maxEntries: 128,
+  deadlineMs: 100, signal: new AbortController().signal });
+// The app supplies real attribution; a log event id is not an account or run id.
+declare const member: string, account: string, runId: string, lane: string, route: string;
+for (const entry of page.entries) {
+  if (entry.provider === undefined || entry.model === undefined) continue;
+  calls.record(member, { provider: entry.provider, model: entry.model, account, runId,
+    lane, route, billing: 'subscription', time: entry.time, usage: entry.usage });
+}
+// Continue bounded pages when page.more is true; schedule future polls in the host.
+```
+
+`harnessLog({ files, maxLineBytes?, maxIdentities? })` selects exact absolute regular
+files, at most 256, without directory traversal, environment reads, credential
+discovery, CLIs, network, default paths or background work. Final symlinks are refused.
+Platforms lacking `O_NOFOLLOW` return `unavailable` without opening files.
+The caller owns selecting trusted paths, including their ancestors. It exports typed
+`HarnessLogEntry`, options, page and work counters. It is Node-only; React Native
+continues to accept host-supplied entries through the portable ledgers.
+
+Supported dialects are the consumer's synthetic fixtures, not live-log qualification:
+
+- `pi` and `omp`: assistant `message.usage` with input/output/cacheRead/cacheWrite,
+  entry id and timestamp. Message timestamp takes precedence for observation time;
+  entry id plus entry timestamp deduplicates forks. `message.provider` and model
+  are preserved when present; no provider is guessed.
+- `claude`: assistant `message.usage` with native token buckets, ISO timestamp,
+  message id and requestId. The message/request pair deduplicates per-block and
+  resumed copies; synthetic model rows are skipped. Provider is `anthropic`.
+- `codex`: `session_meta.model_provider`, `turn_context.model`, then
+  `event_msg`/`token_count` with `info.total_token_usage.total_tokens` and
+  `last_token_usage`. Valid growing cumulative totals emit the reported last usage;
+  repeated totals are skipped. Timestamp plus cumulative total deduplicates copied
+  events. Missing provider/model stays absent; malformed observations do not move
+  the cumulative watermark. No gaps between totals are estimated or recovered.
+
+Usage reuses `normalizeTokens`: input includes cache subsets, absent counts remain
+partial/unknown, and costs, prompts, tool content and raw identities are discarded.
+Event `id` is a SHA-256 digest of format and the evidenced event identity. It is
+used only for deduplication, never to manufacture a member, account, run, route or
+billing attribution. Arbitrary transcript metadata cannot establish those identities.
+OpenCode SQLite, other harness dialects and ccusage's daily/session extras are
+unsupported. This API does not run ccusage or replace its aggregate results.
+
+Each `read()` returns only newly observed events in explicit file order, with
+`work` counters for physical bytes/read calls, checked files, processed lines,
+parser calls, malformed/oversized lines, duplicates and resets. Unchanged input
+requires metadata checks but reads zero content bytes and invokes no parser.
+Byte budgets include lines without usage; no whole-log read occurs per poll.
+The default budgets are 64 KiB, 256 lines and 128 emitted entries; upper limits
+are 1 MiB, 10,000 lines and 10,000 entries. A chunk is at most 16 KiB. Read-ahead
+bytes wait in a bounded buffer and are parsed on later pages without rereading.
+Incomplete lines retain bytes across polls and emit only after the newline.
+Lines beyond `maxLineBytes` (64 KiB by default, at most 1 MiB) are skipped through
+their newline and counted as oversized. Malformed JSON and unsupported usage
+identities are counted and omitted; unrelated records are omitted.
+
+Cancellation and the elapsed deadline (100 ms by default, at most 10 seconds)
+are checked before/after filesystem operations and between lines. These are
+cooperative bounds: an OS filesystem operation itself cannot be interrupted.
+`cancelled`/`deadline` pages can contain committed entries: consume them before
+resuming. `more` indicates unfinished work, including stopped/error pages; false
+can leave an unfinished line awaiting append. Concurrent calls return `busy`
+without sharing already-emitted entries. File errors return `unavailable`, without
+paths, bodies or OS errors. Invalid configuration throws `HarnessLogError` with
+`code: 'bad-source'` and a fixed message.
+
+Inode identity changes, decreases in observed file size and changed metadata at
+the same size reset that file's cursor/context. Event digests remain retained so
+rotation/replay copies are not counted again. This is an append-only event stream:
+old emitted entries are not retracted when a file is replaced or removed. In-place
+rewrites that grow a file are unsupported; the writer must truncate or rotate it.
+Drain pages before removing/rotating unread files, or explicitly select the retained
+archive in a new reader with the host's replay/deduplication policy. This reader
+cannot recover bytes removed before it observes them.
+Codex cumulative resets within one file are unsupported. Cross-file identities
+use exactly the evidenced dialect keys; distinct events with the same key cannot
+be distinguished. Reader state is in memory; creating a new reader replays input.
+The host owns restart checkpoints, retention and recording each returned event once.
+
+The reader retains at most `maxIdentities` digests (100,000 by default, at most
+1,000,000). It returns `capacity` before consuming a new event beyond that limit;
+it never silently evicts identities and then emits duplicates. Further progress
+requires a caller-owned retention/replay policy and a new reader. No giant-source
+or real 10 GB performance result is claimed; qualification measures small synthetic
+fixtures through the built public export.
 
 ## React Native
 
