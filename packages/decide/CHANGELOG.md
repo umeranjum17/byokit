@@ -14,6 +14,8 @@
 - Add portable structured generation with local schema validation, complete-value results, model-separated caching, output budgets up to 16k tokens, and fixed failure messages.
 - Add the Node-only `claude-code` adapter for an app-named unmodified binary and separate sign-in directory, labelled subscription with no API-key fallback. Tools, MCP, hooks and session persistence are disabled; tests use an offline fake binary.
 
+- Add an opt-in paired-host Jev backend over @byokit/link: the host holds the API key (billed per use), while phones receive probabilities and usage with typed pairing, connectivity and missing-key errors.
+
 ## 0.4.7 (2026-10-01)
 
 - Dependency update: pins @byokit/accounts 0.13.0.

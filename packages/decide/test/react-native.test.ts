@@ -96,3 +96,24 @@ test('structured generation and its cache run without Node or native globals', a
   assert.equal(answer.source, 'cache');
   assert.equal(calls, 1);
 });
+
+test('paired Jev bundles for phones without a runtime link or credential store import', async () => {
+  const bundle = await build({ stdin: { contents: `
+    import { pairedJev, decide } from '../src/index.ts';
+    const link = { status: 'online', request: async (op, args) => {
+      if (op !== 'decide.jev' || args.state.name !== 'Umer') throw new Error('Wrong request');
+      return { v: 1, ok: true, answers: { urgent: { probabilities: { true: 0.9, false: 0.1 },
+        usage: { input_tokens: 2, output_tokens: 1 } } } };
+    } };
+    globalThis.result = decide({ name: 'Umer' }, { urgent: { kind: 'yesno', question: 'Urgent?' } },
+      { privacy: 'may-leave', backends: [pairedJev({ link })] });`,
+    resolveDir: import.meta.dirname, sourcefile: 'phone-paired.ts' }, bundle: true, platform: 'browser',
+    conditions: ['react-native'], format: 'iife', write: false, metafile: true, logLevel: 'silent' });
+  assert.deepEqual(Object.keys(bundle.metafile!.inputs).filter((f) => /node:|packages\/(link|secrets)\//.test(f)), []);
+  const sandbox: any = { setTimeout, clearTimeout, AbortController };
+  runInNewContext(bundle.outputFiles[0].text, sandbox);
+  const { urgent } = await sandbox.result;
+  assert.equal(urgent.answer, true);
+  assert.equal(urgent.by, 'jev-paired');
+  assert.equal(urgent.usage.input_tokens, 2);
+});
