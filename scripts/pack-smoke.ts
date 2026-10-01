@@ -105,6 +105,36 @@ assert.equal(check.length, 'Umer shipped the first version today.'.length);
     } catch (err) {
       fail("@byokit/write [npm engine]", (err as Error).message);
     }
+    // Hosted MCP must run with the packed exports and its SDK dependency, outside the workspace.
+    writeFileSync(join(appDir, "mcp.mjs"), `
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { deviceFlow, hostedMcp } from '@byokit/mcp';
+import { overrideStore } from '@byokit/secrets';
+let kit;
+const http = createServer((req, res) => { void kit.handle(req, res); });
+await new Promise(resolve => http.listen(0, '127.0.0.1', resolve));
+const url = 'http://127.0.0.1:' + http.address().port + '/mcp';
+const auth = deviceFlow({ store: overrideStore({}), verificationUri: url + '/approve' });
+const offer = auth.begin(); auth.approve(offer.user_code, { id: 'umer', name: 'Umer' });
+const { access_token: token } = await auth.poll(offer.device_code);
+kit = hostedMcp({ name: 'packed', version: '0.1.0', url, auth, mount(m) {
+  m.tool('hello', { inputSchema: {} }, (_args, ctx) => ({ content: [{ type: 'text', text: ctx.principal.name }] }));
+} });
+const client = new Client({ name: 'smoke', version: '1' });
+try {
+  await client.connect(new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { Authorization: 'Bearer ' + token } } }));
+  assert.equal((await client.listTools()).tools[0].name, 'hello');
+  assert.deepEqual((await client.callTool({ name: 'hello' })).content, [{ type: 'text', text: 'Umer' }]);
+} finally {
+  await client.close(); await kit.close(); http.closeAllConnections();
+  await new Promise(resolve => http.close(resolve));
+}
+`);
+    try { sh("node", ["mcp.mjs"], appDir); pass("@byokit/mcp [hosted HTTP]"); }
+    catch (err) { fail("@byokit/mcp [hosted HTTP]", (err as Error).message); }
     // Exact internal pins must resolve to the tarball set, never nested copies.
     for (const e of entries) {
       const nested = join(appDir, "node_modules", e.name, "node_modules", "@byokit");

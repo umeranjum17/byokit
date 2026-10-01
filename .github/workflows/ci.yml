@@ -34,10 +34,18 @@ jobs:
       - run: npm run build
       - run: npm run check
       - run: node scripts/readme-check.ts
-      - run: npm test # throwaway HOME, mocks only: no account, no network, no model
+      - name: Isolated tests (including hosted MCP HTTP round trip)
+        run: |
+          export TMPDIR=$(mktemp -d /tmp/bk-XXXX)
+          trap 'node -e '\''require("node:fs").rmSync(process.env.TMPDIR, { recursive: true, force: true })'\''' EXIT
+          npm test # throwaway HOME, mocks only: no account, no network, no model
       - name: M6 preparation dry run (fake provider and fake SSH only)
         run: node scripts/machine-proof/run.ts --dry-run --output .lab/m6-dry.json
-      - run: npm run smoke:pack
+      - name: Packed kit consumers
+        run: |
+          export TMPDIR=$(mktemp -d /tmp/bk-XXXX)
+          trap 'node -e '\''require("node:fs").rmSync(process.env.TMPDIR, { recursive: true, force: true })'\''' EXIT
+          npm run smoke:pack
       - name: Release lint (PR)
         if: github.event_name == 'pull_request'
         env:
