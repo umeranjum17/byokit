@@ -10,6 +10,7 @@ import { codexIdentity, type Identity } from './identity.ts';
 import { claudeUsage as managedClaudeUsage, claudeCredential, managedClaudeFolder } from './claude.ts';
 import { ephemeralClaude } from './ephemeral.ts';
 export * from './types.ts';
+export { harnessLog, HarnessLogError, type HarnessLog, type HarnessLogFile, type HarnessLogFormat, type HarnessLogEntry, type HarnessLogOptions, type HarnessLogReadOptions, type HarnessLogPage, type HarnessLogWork } from './log.ts';
 export type { Identity } from './identity.ts';
 /** Identity runs only the named binary, never opens a credential file. */
 export async function identity(source: Extract<Source, { bin: string }>): Promise<Identity> {

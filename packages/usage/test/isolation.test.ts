@@ -10,6 +10,32 @@ import { usage } from '../src/index.ts';
 import { fingerprint } from '../src/store.ts';
 import payloads from './usage-payloads.json' with { type: 'json' };
 
+test('isolation: built log source opens only the selected synthetic transcript and emits no secrets', () => {
+  const root = scratchDir('usage-log-isolation'); const d = decoy(join(root, 'decoy'));
+  const path = join(root, 'selected.jsonl');
+  writeFileSync(path, JSON.stringify({ type: 'assistant', timestamp: '2026-10-01T12:00:00Z', requestId: 'fixture-request',
+    message: { role: 'assistant', id: 'fixture-message', model: 'fixture-model', content: CANARY,
+      usage: { input_tokens: 10, output_tokens: 20 } } }) + '\n');
+  const log = join(root, 'trace'); writeFileSync(log, '');
+  const child = spawnSync(process.execPath, ['--import', traceFs, '--input-type=module', '-e', `
+    const { harnessLog, HarnessLogError } = await import('@byokit/usage');
+    const source = harnessLog({files:[{path:${JSON.stringify(path)},format:'claude'}]});
+    const result = await source.read();
+    if(result.entries.length!==1||result.entries[0].usage.total!==30)throw new Error('missing counts');
+    const unchanged=await source.read();
+    if(unchanged.work.bytesRead||unchanged.work.parserCalls)throw new Error('rescanned transcript');
+    let error;
+    try { harnessLog({files:[{path:${JSON.stringify(CANARY)},format:'claude'}]}); }
+    catch(e) { if(!(e instanceof HarnessLogError))throw e; error={message:e.message,code:e.code}; }
+    console.log(JSON.stringify({result,unchanged,error}));
+  `], { encoding: 'utf8', timeout: 10000, env: { ...process.env, ...d.env, TRACE_ROOTS: [...d.roots, path].join(':'), TRACE_LOG: log } });
+  assert.equal(child.status, 0, child.stderr);
+  assert.doesNotMatch(child.stdout + child.stderr, new RegExp(CANARY));
+  const touches = readFileSync(log, 'utf8').trim().split('\n');
+  assert.ok(touches.includes(path)); assert.ok(touches.every((p) => p === path), touches.join('\n'));
+  assert.deepEqual(d.changed(), []); assert.deepEqual(d.ran(), []);
+});
+
 test('isolation: only the passed sign-in folder is read; ambient sign-ins and keys are untouched', () => {
   const root = scratchDir('usage-isolation'); const d = decoy(join(root,'decoy'));
   const home = join(root,'passed');mkdirSync(home);
