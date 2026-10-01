@@ -25,6 +25,8 @@ a Messages backend to the frozen Kotlin runtime.
 | `conformance/dictation-typescript.json` | Stable live partials, final-only corrections, silence and cancellation. |
 | `conformance/anthropic-sse-typescript.json` | Recorded Messages SSE, usage, tools/thinking, truncation, refusal and protocol errors (TypeScript only). |
 | `conformance/plain-words.json` | The pattern no sentence in `words.json` may match. |
+| `conformance/auto-pick-typescript.json` | TypeScript portable Auto/default/explicit selection, demand, age, explanations and deterministic ranking; shared with runtime kits. |
+| `conformance/identity-reauth-typescript.json` | TypeScript identity ownership and re-authentication boundaries; engine-owned adoption, chooser consumes validated records. |
 | `conformance/link-frames-typescript.json` | TypeScript link transport rejects missing kinds, unknown kinds and truncated stream ids. |
 
 Each fixture file states its rule in `rule`; `now` (epoch ms) is the fixed clock for time-dependent cases.

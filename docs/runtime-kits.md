@@ -884,7 +884,9 @@ export type Considered = { id: AccountId;
   missing?: string;                                    // out 'model': the first demanded 'provider/model' it lacks
   tier?: 'room' | 'unknown' | 'exhausted';            // candidates only: Choosing's tier A, B or C
   left: number | 'unknown'; span?: RoomSpan; resetsAt?: number;
-  age: number | 'unknown' };                           // ms from the reading's `at` to nowMs
+  age: number | 'unknown';                            // ms from the reading's `at` to nowMs
+  confidence: 'known' | 'stale' | 'unknown';             // known timestamp, older than 24h, or unmeasured/undated
+  reason: PickWhy | 'state' | 'resting' | 'billing' | 'model' | 'provider' | 'bound' };
 export type PickWhy = 'chosen' | 'default' | 'first_ready' | 'only' | 'most_room' | 'earlier_reset' | 'list_order' |
   'no_reading' | 'refills_first';
 export type AccountPick =
@@ -942,6 +944,12 @@ O14 a member runs only on its own sign-ins, and one that never signed in reads `
   local profile: `ready` for a usable one, `needs_again` when expired, `signed_out` when missing; `not_included` when
   its route is no longer in `routes.json`.
 
+The TypeScript identity boundaries are recorded in `fixtures/conformance/identity-reauth-typescript.json`:
+wrong-account re-auth is refused, duplicate nonblank provider identities use the canonical account, a changed
+email alone does not change identity, and absent identity never merges accounts by email. Identity is scoped
+by member/provider. The fixture's adoption actions belong to the sealed engine integration; portable chooser
+tests exercise the host-validated records, and canonical-store tests cover removal races and extension fields.
+
 **Sealing** (`plugin/accounts.js`, gateway method `byokit.accounts`, `operator.admin`, loaded by `plugin/index.js`,
 using the plugin SDK's `resolveAgentDir` and local-only `updateAuthProfileStoreWithLock`; every failure answers
 `{ ok: false }`, and no answer carries a secret):
@@ -969,6 +977,11 @@ using the plugin SDK's `resolveAgentDir` and local-only `updateAuthProfileStoreW
 - Before any sign-in on an existing agent the kit notes that agent's primary model (`config.get`); when the sign-in's
   profile is adopted away or cleared from it, the kit restores that primary model (the pin's sign-in rewrote it).
 - `clear { agentId }`: removes every profile from the agent's own store.
+
+`@byokit/accounts`' structural `roomOf(windows, at, resetUnit?)` keeps legacy reset seconds as its default;
+normalized `@byokit/usage` 0.2.0+ windows use epoch milliseconds and must pass `resetUnit: 'milliseconds'`
+(the third argument is the unit string). A normalized usage `Room` can also pass directly to the chooser.
+The source measurement `at` and chooser clocks always use epoch milliseconds.
 
 **Choosing.** `src/pick.ts` holds `consider`, `chooseAccount` and `resolveSelection` (5.13), pure, ported from
 `@byokit/accounts`; `fixtures/conformance/auto-pick-typescript.json` is the parity table both packages' tests run (its
@@ -1010,7 +1023,9 @@ every other row is marked as Auto would mark it, so the app can show why each wa
 default → `how: 'default'`, `why: 'default'`; the `auto: false` fallback → `how: 'default'`, `why: 'first_ready'`;
 else `how: 'auto'` and Auto's: `only` (one candidate); in tier A against the next tier-A candidate (or, alone in tier
 A, `most_room`): more `left` → `most_room`, the same `left` and an earlier `resetsAt` (by step 2's order) →
-`earlier_reset`, else `list_order`; tier B → `no_reading`; tier C → `refills_first`. `considered` holds ids, figures
+`earlier_reset`, else `list_order`; tier B → `no_reading`; tier C → `refills_first`. `considered.reason` is the exclusion
+code or the deterministic ranking comparison with the winner (the winner gets the pick's `why`). `confidence`
+describes the measurement age, never sign-in health. `considered` holds ids, figures
 and codes only, never an email, name or engine line; the app renders it with the `pick.*` and `room.*` words
 (`pick.why.<why>` for the pick, `pick.out.<out>` and a `room.*` or `pick.age*` line per row).
 `pick(member, sel, { sessionKey })` applies Runs steps 1-2 for that key (their refusals answer `code: 'bound'` or
@@ -1154,7 +1169,10 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
 | `auto.room` | Right now that's {name}: {room} |
 | `auto.unknown` | Right now that's {name} (no recent reading) |
 | `auto.refills` | All {provider} accounts are out of room until {time}. {name} refills first. |
+| `auto.refillsNoTime` | All {provider} accounts are out of room. {name} refills first. |
+| `auto.terms` | Auto may use either of a provider's accounts. |
 | `auto.none` | No signed-in {provider} account. |
+| `room.unknown` | Room left unknown |
 | `room.session` | {left} left this session |
 | `room.week` | {left} left this week |
 | `room.month` | {left} left this month |

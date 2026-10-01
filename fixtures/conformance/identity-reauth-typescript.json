@@ -1,0 +1,109 @@
+{
+  "rule": "Identity adoption is engine-owned, scoped by member/provider and nonblank provider account id; email/name never proves ownership. Picker tests consume host-validated after records and prove ids remain stable; these are not an implementation of engine adoption. Generations prevent removal racing a delayed write. The canonical store round-trips engine extension fields unchanged.",
+  "cases": [
+    {
+      "name": "wrong account re-auth cannot replace the named identity",
+      "before": {
+        "id": "p.a",
+        "who": "identity-a",
+        "email": "work@example.test"
+      },
+      "attempt": {
+        "who": "identity-b",
+        "email": "work@example.test"
+      },
+      "ownerAction": "refuse",
+      "after": [
+        {
+          "id": "p.a",
+          "who": "identity-a",
+          "email": "work@example.test"
+        }
+      ],
+      "selected": "p.a"
+    },
+    {
+      "name": "duplicate identity stays on canonical id",
+      "before": {
+        "id": "p.a",
+        "who": "identity-a",
+        "email": "work@example.test"
+      },
+      "attempt": {
+        "who": "identity-a",
+        "email": "work@example.test"
+      },
+      "ownerAction": "adopt_into_canonical",
+      "after": [
+        {
+          "id": "p.a",
+          "who": "identity-a",
+          "email": "work@example.test"
+        }
+      ],
+      "selected": "p.a"
+    },
+    {
+      "name": "changed email is display data with same provider identity",
+      "before": {
+        "id": "p.a",
+        "who": "identity-a",
+        "email": "old@example.test"
+      },
+      "attempt": {
+        "who": "identity-a",
+        "email": "new@example.test"
+      },
+      "ownerAction": "adopt_into_canonical",
+      "after": [
+        {
+          "id": "p.a",
+          "who": "identity-a",
+          "email": "new@example.test"
+        }
+      ],
+      "selected": "p.a"
+    },
+    {
+      "name": "missing identity cannot merge by email",
+      "before": {
+        "id": "p.a",
+        "who": "identity-a",
+        "email": "work@example.test"
+      },
+      "attempt": {
+        "email": "work@example.test"
+      },
+      "ownerAction": "keep_distinct",
+      "after": [
+        {
+          "id": "p.a",
+          "who": "identity-a",
+          "email": "work@example.test"
+        },
+        {
+          "id": "p.b",
+          "email": "work@example.test"
+        }
+      ],
+      "selected": "p.b"
+    }
+  ],
+  "removalRace": {
+    "member": "one",
+    "otherMember": "two",
+    "provider": "chatgpt",
+    "credentialProvider": "openai-codex"
+  },
+  "extension": {
+    "type": "api_key",
+    "key": "synthetic-key",
+    "vendorExtension": {
+      "identity": "synthetic-id",
+      "nested": [
+        "preserve",
+        1
+      ]
+    }
+  }
+}

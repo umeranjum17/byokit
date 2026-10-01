@@ -489,3 +489,65 @@ The common route follows Hermes's platform token host, three scopes and `axios/1
 with inference `claude-code/2.1.74 (external, cli)`, `x-app: cli`, bearer authorization, Messages version
 `2023-06-01` and betas `claude-code-20250219,oauth-2025-04-20`. The implementation is independent;
 [NOTICE](NOTICE) records the MIT protocol references.
+
+## Choosing between accounts
+
+The portable entry exports `chooseAccount`, `resolveSelection`, `roomOf`, `roomWords` and the structural
+`AccountLike`, `AccountPick`, `Room`, `Considered`, `RunSelection` and `Defaults` types. The host supplies its own
+account records and readings; these functions never read credentials, sign in, refresh, start a run or switch a
+running conversation. Resolve once before starting and keep the selected account for the whole run.
+
+```ts
+import { resolveSelection, roomOf, type AccountLike, type Defaults } from '@byokit/accounts';
+
+// Host-provided account, model and measurement accessors:
+declare const accounts: readonly AccountLike[];
+declare const defaults: Defaults;
+declare function windowsFor(account: AccountLike, demand: readonly string[]):
+  { usedPercent: number; kind: string; resetsAt?: number }[];
+declare function measuredAt(account: AccountLike): number | undefined;
+declare function modelsFor(account: AccountLike): { id: string; available: boolean }[];
+declare function startRunWith(account: AccountLike, model: string): void;
+
+const pick = resolveSelection(accounts, defaults, { account: 'auto', needs: ['provider/model'] },
+  (account, demand) => roomOf(windowsFor(account, demand), measuredAt(account), 'milliseconds'), Date.now(),
+  (account) => modelsFor(account));
+if (pick.ok) startRunWith(pick.account, pick.model);
+```
+
+Auto uses ready subscription accounts (including a rest whose deadline has elapsed). It ranks usable readings
+by most room, earlier refill, then list order; unknown readings follow; exhausted accounts refill first. A reading
+older than 24 hours counts as unknown. A numeric reading without a measurement time retains its room tier,
+with unknown age/confidence. Explicit account ids bypass state and billing filtering: the host must verify the
+selected account is ready before starting, and a failed explicit selection never falls back to another account.
+API key accounts (billed per use) are used only when explicitly selected by id or a ready default.
+
+`sel.model` and deduplicated `sel.needs` form the demand passed to the room reader. Supply `models` to verify
+every demanded model is available. Without it, the host owns model eligibility; `model` is the explicit or default
+model, or an empty string when neither is provided. With a model list, no available model returns `not_included`.
+Without a demand, selection stays within the default account's provider, or the first provider in list order.
+
+Each pick includes every account's `considered` row in list order. It holds only ids, exclusion/ranking codes,
+room figures, measurement age and confidence (`known`, `stale`, `unknown`); no names, emails, credential fields
+or engine messages are copied. The winning row's `reason` is the pick's `why`; other candidate reasons describe
+the deterministic comparison to the Auto winner. Excluded rows carry their first exclusion code. Account ids
+and model ids supplied by the host must themselves be secret-free. The generic returned `account` is the original
+host record: keep credentials outside that record before exposing the whole pick to UI or logs.
+
+`AccountLike.until`, `nowMs`, `Room.at`, `Room.resetsAt` and `Considered.age` use **milliseconds**.
+`roomOf(windows, at, resetUnit?)` accepts structural windows. Legacy reset **epoch seconds** are the default,
+converted by 1000 exactly once. For normalized `@byokit/usage` 0.2.0+ windows, pass `'milliseconds'` as the
+third argument; reset times then stay unchanged. A normalized usage `Room` also passes directly to the chooser.
+The optional `at` is always the original measurement time in epoch milliseconds.
+The current structural input contains `usedPercent`, `kind`, and optional `resetsAt`; hard-limit/model-scope and
+poll-health ingestion is a follow-up to the pending usage extension. Hosts must supply demand-filtered windows
+and authoritative eligibility rather than interpreting an unavailable quota reading as a fresh successful read.
+
+`Provider.multiAccount` gives a terms assessment, reason and source for multiple accounts of that service.
+A grey assessment records missing explicit documentation; it does not gate selection. `auto.terms`, `auto.*`,
+`room.*` and `pick.*` words are exported in `WORDS`.
+
+Identity and re-authentication stay with the host's canonical device store or engine. A provider account id
+scoped by member/provider proves identity; names and emails do not. The TypeScript identity fixture records
+wrong-account, duplicate identity, changed-email, absent-identity, removal/refresh and extension-field boundaries
+for runtime integration; the chooser consumes host-validated state and never adopts credentials itself.
