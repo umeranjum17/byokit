@@ -1,6 +1,6 @@
 {
   "name": "@byokit/realtime",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Realtime voice sessions with host-held credentials and injected audio.",
   "license": "Apache-2.0",
   "type": "module",

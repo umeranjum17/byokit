@@ -2,7 +2,15 @@
 
 ## Unreleased
 
+## 0.3.6 (2026-10-01)
+
 - FIX: Live orphan gateways recover after the engine rewrites its process title. Recovery verifies the recorded launch pid and process start time with the executable and isolated store paths; ambiguous ownership preserves the saved sign-in state.
+
+- Dependency update: pins @byokit/ui-core 0.5.0.
+- Dependency update: pins @byokit/reach 0.5.0.
+- Dependency update: pins @byokit/relay 0.5.0.
+- Dependency update: pins @byokit/link 0.7.0.
+- SECURITY: (from @byokit/link 0.7.0) `Host.shortCode()` adds a machine-key commitment to typed pairing; `pairWithCode()` verifies it before disclosing device identity or asking for approval. Legacy codes remain compatible; use the full new code when relay lookup is untrusted.
 
 ## 0.3.5 (2026-10-01)
 

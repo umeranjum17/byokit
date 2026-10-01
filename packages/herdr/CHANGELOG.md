@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.3.0 (2026-10-01)
+
+- Dependency update: pins @byokit/reach 0.5.0.
+- Dependency update: pins @byokit/relay 0.5.0.
+- Dependency update: pins @byokit/link 0.7.0.
+
 - `PromptReceipt.agentSession` optionally identifies the conversation from the prompt response without an extra read.
 
 - FIX: Refuse non-empty `StartAgent.env` on existing panes instead of silently using the old subscription.

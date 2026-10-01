@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.5.0 (2026-10-01)
+
+
+
 - `routeChoices()`: every onboarding route (`tailscale`, `tailscale-direct`, `private`, `lan`, plus `cloudflare`
   and `external`) in everyday words (`{ code, title, sentence, needs }`), in recommendation order. The one word
   table reach's `recommend()` draws `sentence` and `needs` from.
