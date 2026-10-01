@@ -37,12 +37,6 @@
   },
   {
     "readme": "packages/decide/README.md",
-    "block": 3,
-    "snapshot": "73580d97c9732b5ccafd4c1cb2d7cfb37a34254be0281db2dfe47f733609bd27",
-    "reason": "Plan-discovery fragment uses host-supplied accounts and member context."
-  },
-  {
-    "readme": "packages/decide/README.md",
     "block": 4,
     "snapshot": "22607d677c6b58f8ee522c730d22707cec94ebf6cdd813469c8bb24d2fd882de",
     "reason": "Model-selection fragment omits hostConfig, state and questions context."

@@ -85,15 +85,16 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
 |---|---|
 | `decide(state, questions, { privacy, backends, images?, timeoutMs?, cache? })` | Asks each backend in order for the questions still unanswered; returns an `Answer` per question |
 | `rules(fn)` | Your own function as a backend: return the answer for an obvious case, `undefined` otherwise. Stays on the device |
-| `answerer({ name, leaves, supportsImages?, ask })` | A host-owned model: `(prompt, signal, images) => text` or `{ text, usage?, rationale?, raw? }` |
+| `answerer({ name, leaves, supportsImages?, ask, text?, maxRetries?, retryBaseMs?, retryMaxMs? })` | A host-owned model: `(prompt, signal, images, request) => text` or `{ text, usage?, rationale?, raw? }`; typed text options and bounded 429 retries |
 | `jev({ key, via?, fetch?, maxRetries?, retryBaseMs?, retryMaxMs? })` | Jev as a backend, over TypeSafe's API (default) or OpenRouter (`via: 'openrouter'`). API-billed; retries 429s with backoff |
 | `openai({ model, key, request?, ... })` / `openai({ model, auth: 'account', account, request?, ... })` | OpenAI general models used for decisions; explicit API key or consented ChatGPT plan session |
 | `parseConfig(objectOrJSON)`, `createDecider(config, options)` | Validate portable config and set it once, with optional per-call overrides |
 | `ConfigError`, `UnsupportedAccountError`, `UnsupportedImagesError`, `InvalidImageError`, `OPENAI_ROUTES` | Typed config/account errors and billing labels (API key is never offered by default) |
+| `RateLimitError` | An answerer callback exhausted its 429 retries (`status: 429`, `retries`); `decide()` abstains on this failure |
 | `MemoryCache`, `cacheKey(state, questions, images?)` | In-memory reference cache for `decide({ cache })`, and the stable request key it uses |
 | `resolve(question, raw)` | The floors on one raw answer, for an app that holds a recorded answer |
 | `FLOOR` | The default floor, 0.6 |
-| `Question`, `Answer`, `Raw`, `Usage`, `ImageInput`, `DecisionImage`, `AnswererReply`, `AnswererOptions`, `Backend`, `DecideCache`, `Options` | The types |
+| `Question`, `Answer`, `Raw`, `Usage`, `ImageInput`, `DecisionImage`, `AnswererReply`, `AnswererOptions`, `AnswererRequestOptions`, `AnswererBackend`, `RetryOptions`, `Backend`, `DecideCache`, `Options` | The types |
 | `@byokit/decide/eval`: `evaluate`, `evaluateDecisions`, `replay`, `parse`, `format`, `summary` | Run and print an eval report over any backends |
 | `byokit-eval` (bin) | Replay or refresh an eval file from the command line |
 
@@ -112,20 +113,37 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
   `timeoutMs` (default 5 s) answers nothing.
 - `privacy: 'stays-here'` skips every backend the state would leave the device for (Jev, or any answerer with
   `leaves: true`), so private text never goes to one.
-- **Any model**: `answerer({ name, leaves, ask })` makes a backend of any `(prompt, signal) => text`. On a phone, that
+- **Any model**: `answerer({ name, leaves, ask })` makes a backend of any `(prompt, signal, images, request) => text`. Existing
+  callbacks still work; the third argument remains the image attachments. Structured replies preserve host-supplied
+  usage, rationale and raw metadata; plain string replies expose only the recognized answers. On a phone, that
   is the ChatGPT the person signed in to with [`@byokit/accounts`](../accounts), on their own plan:
 
   ```ts
+  import type { Accounts, AuthHost } from '@byokit/accounts';
   import { answerer } from '@byokit/decide';
 
-  const chatgpt = answerer({
-    name: 'chatgpt',
-    leaves: true,
-    ask: (p, signal) => accounts.respond(me, { instructions: 'Reply with JSON only.', input: p, signal }),
-  });
+  // Pass the app's existing Accounts instance and signed-in member (for example, 'Umer').
+  function chatgptBackend(accounts: Accounts<AuthHost, string>, me: string) {
+    return answerer({
+      name: 'chatgpt',
+      leaves: true,
+      text: { format: { type: 'json_object' } }, // or a json_schema matching the question/probability map
+      ask: (p, signal, _images, request) => accounts.respond(me, { ...request, input: p, signal }),
+    });
+  }
   ```
 
-  It asks for each answer's probability as JSON; any other reply is an abstain.
+  It treats state as data in a delimited JSON block and asks for each answer's probability as JSON; any other reply
+  is an abstain. Every answer it produces, including abstentions and failures, carries
+  `confidenceSource: 'self-reported'`: these estimates are not calibrated provider confidence.
+  The callback's fourth argument carries trusted `instructions` and unchanged `text`; forward both to
+  `accounts.respond` as above so the state guard also reaches the provider's instruction field.
+  HTTP errors with `status: 429` retry twice by default, using `retryAfter` or `headers.get('retry-after')` when
+  supplied. Current `accounts.respond` errors expose that metadata. Other errors never retry. Waits use the same
+  exponential backoff as Jev/OpenAI (`retryBaseMs: 1000`, `retryMaxMs: 2000`), capped per wait, and stop on abort.
+  Calling the backend's `ask` directly throws `RateLimitError` on exhaustion; `decide` abstains and may try the next
+  backend. Callback messages and provider bodies are omitted from failure reasons. Each retry uses the same billing
+  route as its first call (subscription or API key, billed per use).
   - **Billing**: `rules` costs nothing. `answerer` with the person's ChatGPT uses their subscription. `jev()` is billed
   to the TypeSafe or OpenRouter key you pass.
 

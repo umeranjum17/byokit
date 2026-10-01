@@ -13,7 +13,7 @@ a Messages backend to the frozen Kotlin runtime.
 | `conformance/signin-errors.json` | A failed sign-in's message → the `words.json` key to show. |
 | `conformance/classify.json` | A model-call failure message → `rate_limit`, `overloaded`, `signed_out`, `network` or none, plus "resting until". |
 | `conformance/limit-responses.json` | Shared ChatGPT HTTP error (status + body) → kind, until, message. |
-| `conformance/limit-responses-typescript.json` | TypeScript-only plan exclusion: `usage_not_included` remains distinct from a rate limit. |
+| `conformance/limit-responses-typescript.json` | TypeScript-only plan exclusion and HTTP status/Retry-After metadata for caller retries. |
 | `conformance/token-responses.json` | A token response → the stored credential (same shape as pi-ai's `{type:"oauth",access,refresh,expires,accountId}`). |
 | `conformance/refresh-typescript.json` | TypeScript portable refresh: before-send attempt state, committed rotation, and no replay after uncertainty or terminal refusal. |
 | `conformance/device-code.json` | Device-code start and poll responses → parsed result. |

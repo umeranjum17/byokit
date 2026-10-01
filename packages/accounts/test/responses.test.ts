@@ -31,6 +31,21 @@ test('shared and TypeScript HTTP errors preserve their kind and message', () => 
   for (const c of cases.values()) assert.deepEqual(limitResponse(c.status, c.body, shared.now), { kind: c.kind, until: c.until, message: c.message }, c.body);
 });
 
+test('respond exposes only status and Retry-After metadata for callers retrying HTTP failures', async () => {
+  for (const c of fixture('limit-responses-typescript.json').retry) {
+    await assert.rejects(respond({ instructions: '', input: 'Umer', access: 'synthetic-token', accountId: 'synthetic-account',
+      model: 'test-model', fetch: async () => new Response('', { status: c.status,
+        headers: { 'Retry-After': c.retryAfter, 'x-private': 'synthetic private credential' } }) }), (e: unknown) => {
+      assert.ok(e instanceof ResponseError);
+      assert.equal(e.status, c.status);
+      assert.equal(e.retryAfter, c.retryAfter);
+      assert.ok(!JSON.stringify(e).includes('synthetic private credential'));
+      assert.ok(!JSON.stringify(e).includes('synthetic-token'));
+      return true;
+    });
+  }
+});
+
 async function signedIn(opts: { fetch?: typeof fetch } = {}) {
   const a = new Accounts<any, number>({ store: () => memoryStore(), authBase: openai.base, apiBase: openai.base, ...opts });
   const v = (await a.login(1, 'chatgpt'))!;
