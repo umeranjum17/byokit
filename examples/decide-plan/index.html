@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Message desk</title><link rel="stylesheet" href="/style.css"></head>
+<body><main>
+  <header><a class="brand" href="/">Message desk</a><span>For Umer</span></header>
+  <section class="intro"><h1>A clear answer.<br>A question when unsure.</h1><p>Sort everyday requests with your own AI plan. When a detail is missing, you make the call.</p></section>
+  <section class="workspace" aria-label="Message decisions">
+    <aside><h2>Your plans</h2><div id="plans"></div><p class="privacy">Sign-ins stay on this computer, in memory. Closing the app ends this session.</p><h2>Try a message</h2><div id="messages"></div><button id="run-all" type="button" disabled>Ask about all 12 messages</button></aside>
+    <section class="answer-pane"><div id="billing"></div><div id="current" aria-live="polite"><h2>Start with your plan</h2><p>Sign in, then choose a message. You’ll see the answer, its confidence, and how long it took.</p></div><div id="summary"></div><details><summary>Earlier answers</summary><div id="history"></div></details></section>
+  </section><p id="error" role="alert"></p>
+  <footer>Confidence is the AI’s own estimate. It is not a measured accuracy rate.</footer>
+</main><script type="module" src="/app.js"></script></body></html>
