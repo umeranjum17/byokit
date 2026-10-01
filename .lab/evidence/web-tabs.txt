@@ -1,0 +1,344 @@
+result: undefined
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state
+page:
+  title: Your plans · BYOKit
+  refs: 31
+snapshot:
+uid=g5:4_0 RootWebArea "Your plans · BYOKit" url="http://127.0.0.1:21872/usage.html"
+  uid=g5:4_1 main
+    uid=g5:4_2 StaticText "Umer’s plans"
+    uid=g5:4_3 heading "Usage" level="1"
+    uid=g5:4_4 StaticText "Sample activity · October 1"
+    uid=g5:4_5 navigation "Choose a plan"
+      uid=g5:4_6 button "ChatGPT plan"
+      uid=g5:4_7 button "Claude plan"
+      uid=g5:4_8 button "GitHub Copilot plan"
+      uid=g5:4_9 button "Grok plan"
+      uid=g5:4_10 button "MiniMax plan"
+      uid=g5:4_11 button "Gemini plan"
+      uid=g5:4_12 button "Kimi plan"
+      uid=g5:4_13 button "GLM plan"
+      uid=g5:4_14 button "AI plan"
+    uid=g5:5_0 heading "Claude plan" level="2"
+    uid=g5:5_1 StaticText "75% left"
+    uid=g5:5_2 StaticText "Room left covers your whole plan. Counts below cover recorded calls only."
+    uid=g5:5_3 StaticText "Refills October 2 · weekly allowance"
+    uid=g5:5_4 StaticText "Today · recorded"
+    uid=g5:5_5 StaticText "2,400 tokens"
+    uid=g5:5_6 heading "Activity" level="3"
+    uid=g5:5_7 StaticText "1 recorded call in 30 days"
+    uid=g5:5_8 StaticText "30 days · recorded"
+    uid=g5:5_9 StaticText "2,400 tokens"
+    uid=g5:5_10 heading "Who used this plan · 30 days" level="3"
+    uid=g5:5_11 StaticText "Umer"
+    uid=g5:5_12 StaticText "2,400 tokens"
+    uid=g5:5_13 heading "Models · recorded" level="3"
+    uid=g5:5_14 StaticText "Claude Opus 5.5"
+    uid=g5:5_15 StaticText "2,400 tokens"
+help[3]:
+  Run `chrome-devtools-axi click @g5:4_6` to click the "ChatGPT plan" button
+  Run `chrome-devtools-axi scroll down` to scroll down
+  Use `chrome-devtools-axi eval <expr>` for JS expressions. For multi-statement code, pass a function: `eval "() => { ...; return result }"`
+screenshot: /home/umer/.treehouse/byokit-48ee6a/21/byokit/.lab/evidence/web-usage-claude.png
+result: undefined
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state
+page:
+  title: Your plans · BYOKit
+  refs: 31
+snapshot:
+uid=g6:4_0 RootWebArea "Your plans · BYOKit" url="http://127.0.0.1:21872/usage.html"
+  uid=g6:4_1 main
+    uid=g6:4_2 StaticText "Umer’s plans"
+    uid=g6:4_3 heading "Usage" level="1"
+    uid=g6:4_4 StaticText "Sample activity · October 1"
+    uid=g6:4_5 navigation "Choose a plan"
+      uid=g6:4_6 button "ChatGPT plan"
+      uid=g6:4_7 button "Claude plan"
+      uid=g6:4_8 button "GitHub Copilot plan"
+      uid=g6:4_9 button "Grok plan"
+      uid=g6:4_10 button "MiniMax plan"
+      uid=g6:4_11 button "Gemini plan"
+      uid=g6:4_12 button "Kimi plan"
+      uid=g6:4_13 button "GLM plan"
+      uid=g6:4_14 button "AI plan"
+    uid=g6:6_0 heading "GitHub Copilot plan" level="2"
+    uid=g6:6_1 StaticText "75% left"
+    uid=g6:6_2 StaticText "Room left covers your whole plan. Counts below cover recorded calls only."
+    uid=g6:6_3 StaticText "Refills October 2 · weekly allowance"
+    uid=g6:6_4 StaticText "Today · recorded"
+    uid=g6:6_5 StaticText "3,600 tokens"
+    uid=g6:6_6 heading "Activity" level="3"
+    uid=g6:6_7 StaticText "1 recorded call in 30 days"
+    uid=g6:6_8 StaticText "30 days · recorded"
+    uid=g6:6_9 StaticText "3,600 tokens"
+    uid=g6:6_10 heading "Who used this plan · 30 days" level="3"
+    uid=g6:6_11 StaticText "Umer"
+    uid=g6:6_12 StaticText "3,600 tokens"
+    uid=g6:6_13 heading "Models · recorded" level="3"
+    uid=g6:6_14 StaticText "AI model"
+    uid=g6:6_15 StaticText "3,600 tokens"
+help[3]:
+  Run `chrome-devtools-axi click @g6:4_6` to click the "ChatGPT plan" button
+  Run `chrome-devtools-axi scroll down` to scroll down
+  Use `chrome-devtools-axi eval <expr>` for JS expressions. For multi-statement code, pass a function: `eval "() => { ...; return result }"`
+screenshot: /home/umer/.treehouse/byokit-48ee6a/21/byokit/.lab/evidence/web-usage-copilot.png
+result: undefined
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state
+page:
+  title: Your plans · BYOKit
+  refs: 31
+snapshot:
+uid=g7:4_0 RootWebArea "Your plans · BYOKit" url="http://127.0.0.1:21872/usage.html"
+  uid=g7:4_1 main
+    uid=g7:4_2 StaticText "Umer’s plans"
+    uid=g7:4_3 heading "Usage" level="1"
+    uid=g7:4_4 StaticText "Sample activity · October 1"
+    uid=g7:4_5 navigation "Choose a plan"
+      uid=g7:4_6 button "ChatGPT plan"
+      uid=g7:4_7 button "Claude plan"
+      uid=g7:4_8 button "GitHub Copilot plan"
+      uid=g7:4_9 button "Grok plan"
+      uid=g7:4_10 button "MiniMax plan"
+      uid=g7:4_11 button "Gemini plan"
+      uid=g7:4_12 button "Kimi plan"
+      uid=g7:4_13 button "GLM plan"
+      uid=g7:4_14 button "AI plan"
+    uid=g7:7_0 heading "Grok plan" level="2"
+    uid=g7:7_1 StaticText "75% left"
+    uid=g7:7_2 StaticText "Room left covers your whole plan. Counts below cover recorded calls only."
+    uid=g7:7_3 StaticText "Refills October 2 · weekly allowance"
+    uid=g7:7_4 StaticText "Today · recorded"
+    uid=g7:7_5 StaticText "4,800 tokens"
+    uid=g7:7_6 heading "Activity" level="3"
+    uid=g7:7_7 StaticText "1 recorded call in 30 days"
+    uid=g7:7_8 StaticText "30 days · recorded"
+    uid=g7:7_9 StaticText "4,800 tokens"
+    uid=g7:7_10 heading "Who used this plan · 30 days" level="3"
+    uid=g7:7_11 StaticText "Umer"
+    uid=g7:7_12 StaticText "4,800 tokens"
+    uid=g7:7_13 heading "Models · recorded" level="3"
+    uid=g7:7_14 StaticText "AI model"
+    uid=g7:7_15 StaticText "4,800 tokens"
+help[3]:
+  Run `chrome-devtools-axi click @g7:4_6` to click the "ChatGPT plan" button
+  Run `chrome-devtools-axi scroll down` to scroll down
+  Use `chrome-devtools-axi eval <expr>` for JS expressions. For multi-statement code, pass a function: `eval "() => { ...; return result }"`
+screenshot: /home/umer/.treehouse/byokit-48ee6a/21/byokit/.lab/evidence/web-usage-grok.png
+result: undefined
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state
+page:
+  title: Your plans · BYOKit
+  refs: 31
+snapshot:
+uid=g8:4_0 RootWebArea "Your plans · BYOKit" url="http://127.0.0.1:21872/usage.html"
+  uid=g8:4_1 main
+    uid=g8:4_2 StaticText "Umer’s plans"
+    uid=g8:4_3 heading "Usage" level="1"
+    uid=g8:4_4 StaticText "Sample activity · October 1"
+    uid=g8:4_5 navigation "Choose a plan"
+      uid=g8:4_6 button "ChatGPT plan"
+      uid=g8:4_7 button "Claude plan"
+      uid=g8:4_8 button "GitHub Copilot plan"
+      uid=g8:4_9 button "Grok plan"
+      uid=g8:4_10 button "MiniMax plan"
+      uid=g8:4_11 button "Gemini plan"
+      uid=g8:4_12 button "Kimi plan"
+      uid=g8:4_13 button "GLM plan"
+      uid=g8:4_14 button "AI plan"
+    uid=g8:8_0 heading "MiniMax plan" level="2"
+    uid=g8:8_1 StaticText "75% left"
+    uid=g8:8_2 StaticText "Room left covers your whole plan. Counts below cover recorded calls only."
+    uid=g8:8_3 StaticText "Refills October 2 · weekly allowance"
+    uid=g8:8_4 StaticText "Today · recorded"
+    uid=g8:8_5 StaticText "6,000 tokens"
+    uid=g8:8_6 heading "Activity" level="3"
+    uid=g8:8_7 StaticText "1 recorded call in 30 days"
+    uid=g8:8_8 StaticText "30 days · recorded"
+    uid=g8:8_9 StaticText "6,000 tokens"
+    uid=g8:8_10 heading "Who used this plan · 30 days" level="3"
+    uid=g8:8_11 StaticText "Umer"
+    uid=g8:8_12 StaticText "6,000 tokens"
+    uid=g8:8_13 heading "Models · recorded" level="3"
+    uid=g8:8_14 StaticText "AI model"
+    uid=g8:8_15 StaticText "6,000 tokens"
+help[3]:
+  Run `chrome-devtools-axi click @g8:4_6` to click the "ChatGPT plan" button
+  Run `chrome-devtools-axi scroll down` to scroll down
+  Use `chrome-devtools-axi eval <expr>` for JS expressions. For multi-statement code, pass a function: `eval "() => { ...; return result }"`
+screenshot: /home/umer/.treehouse/byokit-48ee6a/21/byokit/.lab/evidence/web-usage-minimax.png
+result: undefined
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state
+page:
+  title: Your plans · BYOKit
+  refs: 31
+snapshot:
+uid=g9:4_0 RootWebArea "Your plans · BYOKit" url="http://127.0.0.1:21872/usage.html"
+  uid=g9:4_1 main
+    uid=g9:4_2 StaticText "Umer’s plans"
+    uid=g9:4_3 heading "Usage" level="1"
+    uid=g9:4_4 StaticText "Sample activity · October 1"
+    uid=g9:4_5 navigation "Choose a plan"
+      uid=g9:4_6 button "ChatGPT plan"
+      uid=g9:4_7 button "Claude plan"
+      uid=g9:4_8 button "GitHub Copilot plan"
+      uid=g9:4_9 button "Grok plan"
+      uid=g9:4_10 button "MiniMax plan"
+      uid=g9:4_11 button "Gemini plan"
+      uid=g9:4_12 button "Kimi plan"
+      uid=g9:4_13 button "GLM plan"
+      uid=g9:4_14 button "AI plan"
+    uid=g9:9_0 heading "Gemini plan" level="2"
+    uid=g9:9_1 StaticText "75% left"
+    uid=g9:9_2 StaticText "Room left covers your whole plan. Counts below cover recorded calls only."
+    uid=g9:9_3 StaticText "Refills October 2 · weekly allowance"
+    uid=g9:9_4 StaticText "Today · recorded"
+    uid=g9:9_5 StaticText "7,200 tokens"
+    uid=g9:9_6 heading "Activity" level="3"
+    uid=g9:9_7 StaticText "1 recorded call in 30 days"
+    uid=g9:9_8 StaticText "30 days · recorded"
+    uid=g9:9_9 StaticText "7,200 tokens"
+    uid=g9:9_10 heading "Who used this plan · 30 days" level="3"
+    uid=g9:9_11 StaticText "Umer"
+    uid=g9:9_12 StaticText "7,200 tokens"
+    uid=g9:9_13 heading "Models · recorded" level="3"
+    uid=g9:9_14 StaticText "AI model"
+    uid=g9:9_15 StaticText "7,200 tokens"
+help[3]:
+  Run `chrome-devtools-axi click @g9:4_6` to click the "ChatGPT plan" button
+  Run `chrome-devtools-axi scroll down` to scroll down
+  Use `chrome-devtools-axi eval <expr>` for JS expressions. For multi-statement code, pass a function: `eval "() => { ...; return result }"`
+screenshot: /home/umer/.treehouse/byokit-48ee6a/21/byokit/.lab/evidence/web-usage-gemini.png
+result: undefined
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state
+page:
+  title: Your plans · BYOKit
+  refs: 31
+snapshot:
+uid=g10:4_0 RootWebArea "Your plans · BYOKit" url="http://127.0.0.1:21872/usage.html"
+  uid=g10:4_1 main
+    uid=g10:4_2 StaticText "Umer’s plans"
+    uid=g10:4_3 heading "Usage" level="1"
+    uid=g10:4_4 StaticText "Sample activity · October 1"
+    uid=g10:4_5 navigation "Choose a plan"
+      uid=g10:4_6 button "ChatGPT plan"
+      uid=g10:4_7 button "Claude plan"
+      uid=g10:4_8 button "GitHub Copilot plan"
+      uid=g10:4_9 button "Grok plan"
+      uid=g10:4_10 button "MiniMax plan"
+      uid=g10:4_11 button "Gemini plan"
+      uid=g10:4_12 button "Kimi plan"
+      uid=g10:4_13 button "GLM plan"
+      uid=g10:4_14 button "AI plan"
+    uid=g10:10_0 heading "Kimi plan" level="2"
+    uid=g10:10_1 StaticText "75% left"
+    uid=g10:10_2 StaticText "Room left covers your whole plan. Counts below cover recorded calls only."
+    uid=g10:10_3 StaticText "Refills October 2 · weekly allowance"
+    uid=g10:10_4 StaticText "Today · recorded"
+    uid=g10:10_5 StaticText "8,400 tokens"
+    uid=g10:10_6 heading "Activity" level="3"
+    uid=g10:10_7 StaticText "1 recorded call in 30 days"
+    uid=g10:10_8 StaticText "30 days · recorded"
+    uid=g10:10_9 StaticText "8,400 tokens"
+    uid=g10:10_10 heading "Who used this plan · 30 days" level="3"
+    uid=g10:10_11 StaticText "Umer"
+    uid=g10:10_12 StaticText "8,400 tokens"
+    uid=g10:10_13 heading "Models · recorded" level="3"
+    uid=g10:10_14 StaticText "AI model"
+    uid=g10:10_15 StaticText "8,400 tokens"
+help[3]:
+  Run `chrome-devtools-axi click @g10:4_6` to click the "ChatGPT plan" button
+  Run `chrome-devtools-axi scroll down` to scroll down
+  Use `chrome-devtools-axi eval <expr>` for JS expressions. For multi-statement code, pass a function: `eval "() => { ...; return result }"`
+screenshot: /home/umer/.treehouse/byokit-48ee6a/21/byokit/.lab/evidence/web-usage-kimi.png
+result: undefined
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state
+page:
+  title: Your plans · BYOKit
+  refs: 31
+snapshot:
+uid=g11:4_0 RootWebArea "Your plans · BYOKit" url="http://127.0.0.1:21872/usage.html"
+  uid=g11:4_1 main
+    uid=g11:4_2 StaticText "Umer’s plans"
+    uid=g11:4_3 heading "Usage" level="1"
+    uid=g11:4_4 StaticText "Sample activity · October 1"
+    uid=g11:4_5 navigation "Choose a plan"
+      uid=g11:4_6 button "ChatGPT plan"
+      uid=g11:4_7 button "Claude plan"
+      uid=g11:4_8 button "GitHub Copilot plan"
+      uid=g11:4_9 button "Grok plan"
+      uid=g11:4_10 button "MiniMax plan"
+      uid=g11:4_11 button "Gemini plan"
+      uid=g11:4_12 button "Kimi plan"
+      uid=g11:4_13 button "GLM plan"
+      uid=g11:4_14 button "AI plan"
+    uid=g11:11_0 heading "GLM plan" level="2"
+    uid=g11:11_1 StaticText "75% left"
+    uid=g11:11_2 StaticText "Room left covers your whole plan. Counts below cover recorded calls only."
+    uid=g11:11_3 StaticText "Refills October 2 · weekly allowance"
+    uid=g11:11_4 StaticText "Today · recorded"
+    uid=g11:11_5 StaticText "9,600 tokens"
+    uid=g11:11_6 heading "Activity" level="3"
+    uid=g11:11_7 StaticText "1 recorded call in 30 days"
+    uid=g11:11_8 StaticText "30 days · recorded"
+    uid=g11:11_9 StaticText "9,600 tokens"
+    uid=g11:11_10 heading "Who used this plan · 30 days" level="3"
+    uid=g11:11_11 StaticText "Umer"
+    uid=g11:11_12 StaticText "9,600 tokens"
+    uid=g11:11_13 heading "Models · recorded" level="3"
+    uid=g11:11_14 StaticText "AI model"
+    uid=g11:11_15 StaticText "9,600 tokens"
+help[3]:
+  Run `chrome-devtools-axi click @g11:4_6` to click the "ChatGPT plan" button
+  Run `chrome-devtools-axi scroll down` to scroll down
+  Use `chrome-devtools-axi eval <expr>` for JS expressions. For multi-statement code, pass a function: `eval "() => { ...; return result }"`
+screenshot: /home/umer/.treehouse/byokit-48ee6a/21/byokit/.lab/evidence/web-usage-zai.png
+result: undefined
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state
+page:
+  title: Your plans · BYOKit
+  refs: 31
+snapshot:
+uid=g12:4_0 RootWebArea "Your plans · BYOKit" url="http://127.0.0.1:21872/usage.html"
+  uid=g12:4_1 main
+    uid=g12:4_2 StaticText "Umer’s plans"
+    uid=g12:4_3 heading "Usage" level="1"
+    uid=g12:4_4 StaticText "Sample activity · October 1"
+    uid=g12:4_5 navigation "Choose a plan"
+      uid=g12:4_6 button "ChatGPT plan"
+      uid=g12:4_7 button "Claude plan"
+      uid=g12:4_8 button "GitHub Copilot plan"
+      uid=g12:4_9 button "Grok plan"
+      uid=g12:4_10 button "MiniMax plan"
+      uid=g12:4_11 button "Gemini plan"
+      uid=g12:4_12 button "Kimi plan"
+      uid=g12:4_13 button "GLM plan"
+      uid=g12:4_14 button "AI plan"
+    uid=g12:12_0 heading "AI plan" level="2"
+    uid=g12:12_1 StaticText "75% left"
+    uid=g12:12_2 StaticText "Room left covers your whole plan. Counts below cover recorded calls only."
+    uid=g12:12_3 StaticText "Refills October 2 · weekly allowance"
+    uid=g12:12_4 StaticText "Today · recorded"
+    uid=g12:12_5 StaticText "10,800 tokens"
+    uid=g12:12_6 heading "Activity" level="3"
+    uid=g12:12_7 StaticText "1 recorded call in 30 days"
+    uid=g12:12_8 StaticText "30 days · recorded"
+    uid=g12:12_9 StaticText "10,800 tokens"
+    uid=g12:12_10 heading "Who used this plan · 30 days" level="3"
+    uid=g12:12_11 StaticText "Umer"
+    uid=g12:12_12 StaticText "10,800 tokens"
+    uid=g12:12_13 heading "Models · recorded" level="3"
+    uid=g12:12_14 StaticText "AI model"
+    uid=g12:12_15 StaticText "10,800 tokens"
+help[3]:
+  Run `chrome-devtools-axi click @g12:4_6` to click the "ChatGPT plan" button
+  Run `chrome-devtools-axi scroll down` to scroll down
+  Use `chrome-devtools-axi eval <expr>` for JS expressions. For multi-statement code, pass a function: `eval "() => { ...; return result }"`
+screenshot: /home/umer/.treehouse/byokit-48ee6a/21/byokit/.lab/evidence/web-usage-opencode.png
