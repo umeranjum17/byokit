@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- FIX: Live orphan gateways recover after the engine rewrites its process title. Recovery verifies the recorded launch pid and process start time with the executable and isolated store paths; ambiguous ownership preserves the saved sign-in state.
+
 ## 0.3.5 (2026-10-01)
 
 

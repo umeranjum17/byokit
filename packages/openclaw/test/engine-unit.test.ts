@@ -370,6 +370,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 const state = join(process.env.OPENCLAW_STATE_DIR, 'auth.json');
 const initialized = ${JSON.stringify(join(root, 'initialized'))};
+process.title = 'openclaw-gateway';
 if (!existsSync(initialized)) {
   writeFileSync(state, 'refreshed-login');
   writeFileSync(initialized, '1');
@@ -419,6 +420,29 @@ setInterval(() => {}, 1000);
     process.kill(gateway, 0);
     // Restore the original orphan guard; a verified, dead-host gateway can stop and restart safely.
     writeFileSync(pidFile, String(gateway));
+    const identityFile = join(root, 'gateway.identity');
+    const identityBytes = readFileSync(identityFile);
+    const identity = JSON.parse(identityBytes.toString()) as { pid: number; startTime: string };
+    // A reused pid or an older gateway without a recorded launch cannot establish ownership.
+    for (const ambiguous of [
+      undefined,
+      '{broken',
+      JSON.stringify({ ...identity, pid: unrelated.pid }),
+      JSON.stringify({ ...identity, startTime: String(BigInt(identity.startTime) + 1n) }),
+    ]) {
+      if (ambiguous === undefined) rmSync(identityFile);
+      else writeFileSync(identityFile, ambiguous);
+      await assert.rejects(kit.start(), (e: unknown) => e instanceof Error && 'code' in e && e.code === 'engine-already-running');
+      await kit.stop();
+      assert.equal(readFileSync(pidFile, 'utf8'), String(gateway));
+      assert.equal(readFileSync(lockPid, 'utf8'), String(host.pid));
+      assert.deepEqual(readFileSync(join(root, 'auth-store.sealed')), sealed);
+      assert.equal(readFileSync(join(root, 'state', 'auth.json'), 'utf8'), 'refreshed-login');
+      if (ambiguous === undefined) assert.equal(existsSync(identityFile), false);
+      else assert.equal(readFileSync(identityFile, 'utf8'), ambiguous);
+      process.kill(gateway, 0);
+    }
+    writeFileSync(identityFile, identityBytes);
     await kit.start();
     assert.equal(kit.state.phase, 'ready');
     const restartedPid = Number(readFileSync(pidFile, 'utf8'));
@@ -429,6 +453,7 @@ setInterval(() => {}, 1000);
     await kit.stop();
     assert.equal(existsSync(join(root, 'state')), false);
     assert.equal(existsSync(pidFile), false);
+    assert.equal(existsSync(identityFile), false);
     // Reboot-style leftovers are recovered under the credential lock.
     mkdirSync(join(root, 'auth-store.lock'));
     writeFileSync(lockPid, String(host.pid));

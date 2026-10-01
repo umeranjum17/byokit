@@ -398,8 +398,12 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
    (32 random bytes hex, 0600, created once). Port file `openclaw/port` (free loopback port chosen once; refuse 18789
    → `failed/port`). Write the bridge plugin (5.9) and reconcile config (5.6).
 2. **start()**: before preparing or restoring credentials, inspect `openclaw/gateway.pid`. A live orphan may
-   receive SIGTERM only after verifying the same user, executable, gateway command, isolated HOME/state/config
-   paths and a dead host lock owner; wait at most 3 s for its exit. Ambiguous ownership, a live host or a
+   receive SIGTERM only after verifying the same user, executable, isolated cwd/HOME/state/config
+   paths, a dead host lock owner and the launch identity in `openclaw/gateway.identity` (pid and Linux
+   `/proc/<pid>/stat` field 22 start time). Record that identity before publishing `gateway.pid`, and recheck
+   it immediately before signalling; the engine rewrites its process title, so command-line arguments are
+   not an ownership proof. Missing or mismatched launch identity is ambiguous, including older live gateways.
+   Wait at most 3 s for its exit. Ambiguous ownership, a live host or a
    shutdown timeout rejects with exported `EngineAlreadyRunningError` (`code: 'engine-already-running'`) and
    `failed/engine-already-running`, without modifying guards or state. On platforms without process identity
    verification, live pids are ambiguous. Dead pid guards are removed only under the acquired store lock.
