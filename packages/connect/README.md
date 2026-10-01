@@ -24,7 +24,7 @@ import type { Keystore } from '@byokit/secrets';
 declare const store: Keystore;
 const drive = connect('drive', {
   store,
-  person: 'person-42',
+  person: 'Umer',
   redirectUri: 'https://your-app.example/connect/callback',
   client: { id: 'your-google-client-id', secret: 'your-google-client-secret' },
 });
@@ -60,6 +60,31 @@ parameters. Options `scopes` override the preset/discovered scopes; security
 parameters (`state`, PKCE, response type, client and redirect) cannot be overridden
 through `extra`. A sign-in with explicitly incomplete granted scopes is not saved.
 
+## Check app details and inspect grant lifetime
+
+```ts
+const check = await drive.verifyClient(); // Uses options.client.
+// Or check newly entered details without changing the saved connection:
+const entered = await drive.verifyClient({ id: enteredClientId, secret: enteredClientSecret });
+const grant = await drive.grant(); // Trusted app code only; contains credentials.
+```
+
+`grant()` returns a snapshot or `null` and makes no provider call. Times are Unix
+milliseconds. `refreshTokenExpiresIn` preserves the provider's
+`refresh_token_expires_in` seconds; `refreshTokenExpiresAt` is its absolute deadline.
+Sign-in/refresh responses calculate the deadline when received, and omitted refresh
+lifetime fields retain the previous deadline. Expired refresh grants require
+sign-in without sending another refresh request.
+
+`verifyClient(client?)` uses the selected token endpoint with a deliberately
+nonexistent refresh grant, without reading or changing the person's grant. For
+Google, `invalid_client` yields `outcome: 'invalid'`; a 400 `invalid_grant` yields
+`'valid'`; network failures and all other replies yield `'inconclusive'`. Each
+outcome includes a plain `message`; failed provider replies may carry the same
+sanitized diagnostic `cause` as `ConnectError`. A secret is required. This checks
+client authentication only; it does not check consent-screen publishing, enabled
+APIs, redirect registration or scopes. Tests use injected fake endpoints only.
+
 ## Loopback on a computer
 
 ```ts
@@ -70,7 +95,7 @@ declare const store: Keystore;
 declare const yourApp: { openExternal(url: string): Promise<void> };
 
 const attempt = await connectLoopback('notion', {
-  store, person: 'person-42',
+  store, person: 'Umer',
   open: url => yourApp.openExternal(url),
 });
 await attempt.done;
@@ -91,7 +116,7 @@ import type { Keystore } from '@byokit/secrets';
 declare const store: Keystore;
 
 const notion = connect('notion', {
-  store, person: 'person-42', redirectUri: 'https://your-app.example/connect/callback',
+  store, person: 'Umer', redirectUri: 'https://your-app.example/connect/callback',
 });
 // Sign in once, then reconstruct this handle across app restarts.
 const mcp = await notion.mcp({
@@ -131,7 +156,10 @@ failure; an expired token is never returned. Tokens without `expires_in` remain
 valid until rejected, then refresh if possible. No background timer is needed.
 
 `ConnectError.code` is a typed app diagnostic and `message` is a plain sentence.
-OAuth errors never include provider bodies, callback codes or tokens. No errors or
+OAuth errors expose an optional typed `cause` with `error` and
+`error_description`, sanitized against supplied/returned credentials and URLs.
+The message remains a plain sentence. Treat provider descriptions as untrusted
+text; they are diagnostics for the host, not ready-to-render UI. No errors or
 tokens are logged. MCP results/errors are private application content and should
 be treated accordingly. `fetch`, `now`, request and flow timeouts are injectable.
 

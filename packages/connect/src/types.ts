@@ -51,3 +51,19 @@ export interface McpOptions {
   /** Register sampling/elicitation/request/notification handlers before connecting. */
   configure?: (client: import('@modelcontextprotocol/sdk/client/index.js').Client) => void;
 }
+
+/** Trusted app data only: never display or log credentials. Times are Unix milliseconds. */
+export interface Grant {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt?: number;
+  scope?: string;
+  /** The provider's refresh_token_expires_in value, in seconds. */
+  refreshTokenExpiresIn?: number;
+  /** Absolute deadline; unlike the duration, this does not restart on restore. */
+  refreshTokenExpiresAt?: number;
+}
+export type ClientVerification =
+  | { outcome: 'valid'; message: string }
+  | { outcome: 'invalid'; message: string; cause?: import('./errors.ts').ProviderErrorCause }
+  | { outcome: 'inconclusive'; message: string; cause?: import('./errors.ts').ProviderErrorCause };
