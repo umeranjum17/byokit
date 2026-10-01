@@ -4,9 +4,6 @@ Hosted tools and resources over streamable HTTP. The official MCP TypeScript SDK
 the protocol, including initialization, event streams and session termination. This kit
 adds device sign-in, authentication on every request and sessions bound to one person.
 It runs on Node 22.18 or later; it is a server kit, with no browser or phone entry.
-The initial manifest is held private at `0.1.0`; the release lane prepares its first
-publication, removes that hold and rolls the Unreleased notes. The install snippets
-below apply after that publication.
 
 ## Install snippets
 
