@@ -20,6 +20,10 @@
     "./eval": {
       "types": "./dist/eval.d.ts",
       "default": "./dist/eval.js"
+    },
+    "./claude-code": {
+      "types": "./dist/claude-code.d.ts",
+      "default": "./dist/claude-code.js"
     }
   },
   "bin": {

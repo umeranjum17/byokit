@@ -71,3 +71,27 @@ test('OpenAI config and account adapter bundle without runtime SDK, Node or ambi
   assert.equal(urgent.usage.input_tokens, 4);
   assert.equal(await sandbox.account.access(new AbortController().signal), 'host-token');
 });
+
+test('structured generation and its cache run without Node or native globals', async () => {
+  const bundle = await build({ stdin: { contents: `
+    import { generate, MemoryGenerationCache } from '../src/index.ts';
+    const cache = new MemoryGenerationCache();
+    let calls = 0;
+    const backend = { name: 'phone-model', model: 'chosen', leaves: false, generate: async () => {
+      calls++; return { data: { name: 'Umer' }, text: '' };
+    } };
+    const schema = { type: 'object', required: ['name'], properties: { name: { type: 'string' } } };
+    globalThis.result = (async () => {
+      await generate({ state: {} }, schema, { backends: [backend], cache });
+      const answer = await generate({ state: {} }, schema, { backends: [backend], cache });
+      return { answer, calls };
+    })();`, resolveDir: import.meta.dirname, sourcefile: 'phone-generation.ts' },
+    bundle: true, platform: 'browser', format: 'iife', conditions: ['react-native'], write: false, metafile: true, logLevel: 'silent' });
+  assert.deepEqual(Object.keys(bundle.metafile!.inputs).filter((f) => /node:|claude-code/.test(f)), []);
+  const sandbox: any = { setTimeout, clearTimeout, AbortController, TextEncoder };
+  runInNewContext(bundle.outputFiles[0].text, sandbox);
+  const { answer, calls } = await sandbox.result;
+  assert.equal(answer.data.name, 'Umer');
+  assert.equal(answer.source, 'cache');
+  assert.equal(calls, 1);
+});

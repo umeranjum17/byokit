@@ -9,6 +9,8 @@
   API key (billed per use) routes still require explicit opt-in.
 - Add generic recorded answers and evaluateDecisions for image evals through the kit backend seam;
   offline replay remains the default.
+- Add portable structured generation with local schema validation, complete-value results, model-separated caching, output budgets up to 16k tokens, and fixed failure messages.
+- Add the Node-only `claude-code` adapter for an app-named unmodified binary and separate sign-in directory, labelled subscription with no API-key fallback. Tools, MCP, hooks and session persistence are disabled; tests use an offline fake binary.
 
 ## 0.4.7 (2026-10-01)
 
