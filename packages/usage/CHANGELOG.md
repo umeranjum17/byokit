@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.6.1 (2026-10-01)
+
+- FIX: Local harness usage had no kit incremental source. Add an explicit-file,
+  bounded incremental JSONL source for fixture-qualified
+  Pi/OMP, Claude and Codex usage records, with normalized counts, event deduplication,
+  partial-line retention and rotation handling. Account, run, route and billing
+  attribution remain caller-owned; other harness stores and ccusage extras are unsupported.
+
 ## 0.6.0 (2026-10-01)
 
 - FIX: Claude subscription quota snapshots can now be read through an identity-free ephemeral host callback without credentials or a fabricated account UUID; readings never enter a cache or shared store, and retry state stays local to the source.
