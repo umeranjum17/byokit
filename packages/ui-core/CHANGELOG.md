@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.6.0 (2026-10-01)
+
+
+
 - API key (billed per use): framework-free `keyStep` and `keyView` entry-card states and plain billing/error words, without keeping a credential in view state.
 
 ## 0.5.0 (2026-10-01)
