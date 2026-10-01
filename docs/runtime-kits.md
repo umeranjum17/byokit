@@ -604,6 +604,25 @@ the engine. External retained sources are touched only when explicitly passed to
   The member agent holds at most one sign-in per provider, so without `spec.account` the provider names exactly one
   account; every further account is its own sealed agent (5.15).
   Absent, the request is unchanged and the engine uses its own selection.
+- API keys are opt-in, labelled **API key (billed per use)**, and every API route retains `offer: false`.
+  `addKey(member, { authChoice, apiKey })` uses typed `openclaw.setup.activate` with `kind: 'api-key'` only.
+  It returns `ok | invalid | not_included`, never engine lines, errors or credentials. Only routes whose pinned
+  manifests allow manual secrets for text inference expose `keyEntry`; every route carries `revision` and `checked`.
+- The engine has no strict per-run auth-profile pin. Key isolation is by agent: a member's normal agent never
+  receives a key from `addKey`. A reserved `byokit-key-<member>` agent has its own workspace and credential store;
+  the `byokit-key-` prefix is not a member id. Its key is `copyToAgents: false`. The plugin seals the local store
+  to exactly the selected key and a local auth order containing only that profile; no shared/global order is mutated.
+  The normal agent's local order lists only its OAuth sign-ins, excluding paid keys. The pin prunes empty
+  local orders on save; with no sign-ins the normal agent's store contains no key profile to try. The normal agent's model selection and auth pin are unchanged by activation on the key agent. If the normal
+  store already contains an API key from pass-through calls, adding a key is refused without deleting it.
+- `RunSpec.auth: 'apiKey'` explicitly routes to that member's key agent and its selected model. Key runs keep
+  separate session history (`agent:byokit-key-<member>:...`) and app tool gates still see the original member.
+  A missing, removed or unsealed key fails with a plain `signed-out` result before an engine run. Removal leaves
+  no eligible fallback profile. Key replacement and key runs are serialized per member. `steer` and `abort` take the same optional
+  `{ auth: 'apiKey' }` to address that separate history (host and device). A supplied model must
+  equal the selected key model; it cannot choose another provider. Ordinary runs never enter the key agent.
+  `addKey` invalidates the old key before checking a replacement; a failed replacement leaves the key option
+  unavailable. Key entry and its result are represented by the framework-free `ui-core/kits` key card view.
 - `classify(message)` (`src/classify.ts`) = Crewhouse `classifyText` mapped `rate_limit|overloaded → resting`,
   `signed_out → signed-out`, `not_included → plan`, `network → network`, `null → other`, with `until` carried.
 - `steer` → `sessions.steer { sessionKey, message }`; `abort` → `chat.abort { sessionKey }`.

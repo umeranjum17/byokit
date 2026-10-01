@@ -51,7 +51,7 @@ test('the documented type names compile from the `.` entry (5.2, 5.3)', () => {
   const view: SignInView = { state: 'waiting', via: 'code', code: 'C' };
   const approval: Approval = { id: 'a', source: 'gate', member, summary: 's', at: 0, expires: 0 };
   const decision: Decision = { allow: true };
-  const route: Route = { choice: 'c', provider: 'p', plugin: 'p', billing: 'subscription', via: 'code', prerequisite: null, offer: true, reason: 'r', source: 's' };
+  const route: Route = { choice: 'c', provider: 'p', plugin: 'p', billing: 'subscription', via: 'code', prerequisite: null, offer: true, reason: 'r', source: 's', revision: '2026.8.1', checked: '2026-09-30', label: 'Subscription', keyEntry: false, keyErrors: null };
   const transport: GatewayTransport = { start: async () => hello, request: async () => null, onEvent: () => () => {}, onClose: () => () => {}, stop: async () => {} };
   const call: CallOptions = { timeoutMs: 1 };
   // The generated pass-through names exist (O2 filled the tables, per 4.6).

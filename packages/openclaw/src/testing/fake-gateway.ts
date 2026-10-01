@@ -9,6 +9,7 @@ import { ENGINE_VERSION, PROTOCOL_VERSION } from '../constants.ts';
 import type { GatewayTransport, Hello } from '../types.ts';
 import type { KitOptions } from '../kit.ts';
 import { toolCalls } from './model-stub.ts';
+import { routes } from '../routes.ts';
 
 type Handler = (params: any, bridgeSock: string) => unknown;
 
@@ -122,6 +123,7 @@ export function fakeGateway(script?: FakeScript): {
   const failures = new Map<string, string[]>();
   const handlers = new Map<string, Handler>();
   const agents = new Map<string, { id: string; workspace?: string; providers: string[] }>();
+  const keys = new Map<string, { provider: string; key: string; sealed: boolean; model: string }>();
   const wizards = new Map<string, WizardSession>();
   const runs = new Map<string, Run>();
   const configBox = { hash: 'hash-1', config: {} as Record<string, unknown> };
@@ -243,7 +245,25 @@ export function fakeGateway(script?: FakeScript): {
     'models.authLogout': (p) => {
       const agent = agents.get(String(p?.agentId ?? 'main'));
       if (agent) agent.providers = agent.providers.filter((provider) => provider !== p.provider);
+      if (keys.get(String(p.agentId))?.provider === p.provider) keys.delete(String(p.agentId));
       return {};
+    },
+    'byokit.keys': (p) => {
+      const id = `byokit-key-${p.member}`;
+      if (p.action === 'prepare') { keys.delete(id); ensureAgent(id).providers = []; return { ok: true }; }
+      const key = keys.get(id);
+      if (!key) return { ok: false };
+      if (p.action === 'seal') { key.sealed = true; return { ok: true }; }
+      return { ok: key.sealed, ...(key.sealed ? { model: key.model } : {}) };
+    },
+    'openclaw.setup.activate': (p) => {
+      if (p.kind !== 'api-key') throw new Error('only the API-key setup path is simulated');
+      const route = routes().find((r) => r.choice === p.authChoice && r.keyEntry);
+      if (!route) return { ok: false, status: 'unavailable' };
+      const model = `${route.provider}/fake-key-model`;
+      keys.set(p.agentId, { provider: route.provider, key: p.apiKey, model, sealed: false });
+      signInAgent(p.agentId, route.provider);
+      return { ok: true, status: 'ok', modelRef: model };
     },
     'openclaw.setup.auth.start': (p) => {
       const sessionId = String(p.sessionId ?? `fake-${randomUUID()}`);
@@ -351,7 +371,8 @@ export function fakeGateway(script?: FakeScript): {
   for (const [method, handler] of Object.entries(script ?? {})) handlers.set(method, handler);
 
   const dispatch = async (method: string, params: unknown, bridgeSock: string): Promise<unknown> => {
-    calls.push({ method, params });
+    calls.push({ method, params: method === 'openclaw.setup.activate' && isPlainObject(params)
+      ? { ...params, ...(params.apiKey === undefined ? {} : { apiKey: '[redacted]' }) } : params });
     const queue = failures.get(method);
     if (queue?.length) throw new Error(queue.shift()!);
     const handler = handlers.get(method);

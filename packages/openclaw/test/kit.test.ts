@@ -197,3 +197,45 @@ test('prepare replaces a plugin left by an older kit', async () => {
       readFileSync(new URL('../plugin/index.js', import.meta.url), 'utf8'));
   } finally { rmSync(stateDir, { recursive: true, force: true }); }
 });
+
+test('API key is explicit, member-local, secret-free, and removed without fallback', async () => withKit(async (kit, fake) => {
+  const canary = 'CANARY-PAID-KEY-928374';
+  const views: unknown[] = [];
+  const off = kit.onEvent('*', (e) => views.push(e));
+  assert.equal(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: canary }), 'ok');
+  assert.deepEqual(await kit.providers('m1'), []);
+  assert.deepEqual(await kit.providers('m2'), []);
+  const activation = fake.calls.find((c) => c.method === 'openclaw.setup.activate')?.params as Record<string, unknown>;
+  assert.equal(activation.kind, 'api-key');
+  assert.equal(activation.agentId, 'byokit-key-m1');
+  assert.equal(activation.apiKey, '[redacted]');
+  const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat', auth: 'apiKey', message: 'Hello' });
+  assert.equal(end.ok, true);
+  const request = fake.calls.find((c) => c.method === 'agent')?.params as Record<string, unknown>;
+  assert.equal(request.agentId, 'byokit-key-m1');
+  assert.equal(request.sessionKey, 'agent:byokit-key-m1:chat');
+  assert.equal(request.model, 'fake-key-model');
+  const count = fake.calls.filter((c) => c.method === 'agent').length;
+  const other = await kit.run({ member: 'm2', sessionKey: 'agent:m2:chat', auth: 'apiKey', message: 'Hello' });
+  assert.deepEqual(other, { ok: false, kind: 'signed-out', message: 'Add an API key to use this option.' });
+  await kit.call('models.authLogout', { agentId: 'byokit-key-m1', provider: 'openai' });
+  assert.deepEqual(await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat', auth: 'apiKey', message: 'Hello' }), other);
+  assert.equal(fake.calls.filter((c) => c.method === 'agent').length, count);
+  fake.failNext('agent', '429 rate limit: Try again in 30 minutes');
+  const resting = await kit.run({ member: 'm1', sessionKey: 'agent:m1:normal', message: 'Hello' });
+  assert.ok(!resting.ok && 'kind' in resting && resting.kind === 'resting');
+  assert.equal((fake.calls.findLast((c) => c.method === 'agent')?.params as Record<string, unknown>).agentId, 'm1');
+  assert.equal(JSON.stringify([end, other, views, fake.calls]).includes(canary), false);
+  off();
+}));
+
+test('key entry refuses unavailable routes and hides even an engine error that echoes the secret', async () => withKit(async (kit, fake) => {
+  const key = 'CANARY-ERROR-KEY-12345';
+  assert.equal(await kit.addKey('m1', { authChoice: 'openai', apiKey: key }), 'not_included');
+  assert.equal(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: ' ' }), 'invalid');
+  fake.handle('openclaw.setup.activate', () => { throw new Error(key); });
+  const end = await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: key });
+  assert.equal(end, 'invalid');
+  assert.equal(JSON.stringify([end, fake.calls]).includes(key), false);
+  await assert.rejects(kit.ensureMember('byokit-key-m1'), /invalid member/);
+}));

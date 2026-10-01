@@ -243,3 +243,9 @@ with the device client made once (`useMemo(() => herdrDevice(link), [link])`).
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](../../NOTICE).
+
+`@byokit/ui-core/kits` also exports `keyStep(state, action)` and `keyView(state, words)` for an explicit
+**API key (billed per use)** entry card. States are `entry`, `checking`, `ok`, `invalid`, `not_included`;
+actions are `submit`, `edit`, and `result` with the kit's add-key outcome. Supply the OpenClaw kit's `words`
+function for the label and sentences. These views never contain the entered key; submit it directly to the host
+and clear the input afterwards.

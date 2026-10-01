@@ -28,6 +28,7 @@ export type {
   ToolSpec,
 } from './types.ts';
 export { OpenClawKit, type KitOptions, type RetainedLogin } from './kit.ts';
+export type { AddKeyResult } from './keys.ts';
 export { stateWords, toAccountView, words, type AccountView, type WordKey } from './words.ts';
 
 export { EngineAlreadyRunningError } from './engine-status.ts';

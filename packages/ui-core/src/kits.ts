@@ -4,3 +4,4 @@ export { RUN_IDLE, runStep, runStore, runView, type RunAction, type RunEnd, type
 export { approvalsStep, approvalsStore, approvalWords, type Approval, type ApprovalFrame, type ApprovalsAction, type ApprovalsSource, type FollowOptions } from './approvals.ts';
 export { HERDR_EMPTY, agentIn, blockedView, herdrStep, herdrStore, herdrTreeView, type AgentRow, type AgentStatus, type BlockedAgent, type HerdrAction, type HerdrAgent, type HerdrFrame, type HerdrSource, type HerdrState, type HerdrTree } from './herdr.ts';
 export type { Store } from './follow.ts';
+export { keyStep, keyView, type KeyAction, type KeyState, type KeyWords } from './key.ts';

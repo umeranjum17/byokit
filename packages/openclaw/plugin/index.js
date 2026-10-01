@@ -3,6 +3,7 @@
 // schemas and descriptions stay app data. No imports beyond node builtins: nothing here needs resolving in-gateway.
 import { connect } from 'node:net';
 import { readFileSync } from 'node:fs';
+import { registerKeys } from './keys.js';
 
 /** TypeBox's Kind is a global symbol, so these schemas are valid TypeBox without importing typebox. */
 const Kind = Symbol.for('TypeBox.Kind');
@@ -114,6 +115,7 @@ export default {
     jsonSchema: { type: 'object', additionalProperties: false, properties: {} },
   },
   register(api) {
+    if (api.registerGatewayMethod) registerKeys(api);
     for (const spec of table.tools) {
       api.registerTool({
         name: spec.name,

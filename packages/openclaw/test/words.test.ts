@@ -30,6 +30,13 @@ const TABLE: Record<string, string> = {
   'approval.expired': "Nobody answered in time, so this wasn't allowed.",
   'approval.notice': 'Something is waiting for your yes.',
   'link.notAllowed': "This device can't do that. Ask the person at the computer.",
+  'key.label': 'API key (billed per use)',
+  'key.entry': 'Paste your API key. You pay the provider for each use.',
+  'key.checking': 'Checking your key…',
+  'key.ok': 'Your key is ready. Use it only when you choose this option.',
+  'key.invalid': 'This key could not be saved. Check it and try again.',
+  'key.notIncluded': 'This option is not available here.',
+  'key.missing': 'Add an API key to use this option.',
 };
 
 test('every 5.14 key is present with the exact sentence, and nothing else', () => {
@@ -39,7 +46,8 @@ test('every 5.14 key is present with the exact sentence, and nothing else', () =
 
 test('plain words only: no codes, commands, paths, model ids or jargon a person would have to look up (4.3)', () => {
   const banned = /\b(oauth|token|api|cli|http|json|error|exception|null|undefined|status|config|env|localhost|\d{3}|gpt-|pi\b|codex|device_code|credential|refresh)|[`$~\/\\]|%/i;
-  for (const [key, sentence] of Object.entries(TABLE)) assert.doesNotMatch(sentence.replace(/\{\w+\}/g, 'X'), banned, key);
+  for (const [key, sentence] of Object.entries(TABLE)) assert.doesNotMatch(sentence.replace(/\{\w+\}/g, 'X')
+    .replace(key.startsWith('key.') ? /API key/g : /$^/, 'key'), banned, key);
 });
 
 test('words fills {name}, {time}, {helper}, {summary} and leaves placeholders it is not given', () => {

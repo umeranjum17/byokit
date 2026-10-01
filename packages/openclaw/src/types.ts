@@ -35,6 +35,8 @@ export interface RunSpec extends RunRef {
   // this run only. `provider` is the id `providers(member)` reports; one not signed in ends `signed-out` before any
   // call. Absent: the engine's own selection.
   model?: string;
+  /** Explicit paid key choice. Uses a separate member-owned agent and separate session history. */
+  auth?: 'apiKey';
   // The app tools (KitOptions.tools names) this run may call; any other app tool is refused at the gate before
   // ToolHost.gate. Engine builtins are unaffected. A name the kit does not register is refused before any request.
   // Absent: every app tool.
@@ -124,6 +126,11 @@ export type Route = {
   offer: boolean;
   reason: string;
   source: string;
+  revision: string;
+  checked: string;
+  label: string;
+  keyEntry: boolean;
+  keyErrors: { invalid: 'key.invalid'; not_included: 'key.notIncluded' } | null;
 };
 
 export interface GatewayTransport {

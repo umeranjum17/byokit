@@ -19,5 +19,12 @@
   "approval.ask": "{helper} wants to {summary}. Allow it?",
   "approval.expired": "Nobody answered in time, so this wasn't allowed.",
   "approval.notice": "Something is waiting for your yes.",
-  "link.notAllowed": "This device can't do that. Ask the person at the computer."
+  "link.notAllowed": "This device can't do that. Ask the person at the computer.",
+  "key.label": "API key (billed per use)",
+  "key.entry": "Paste your API key. You pay the provider for each use.",
+  "key.checking": "Checking your key…",
+  "key.ok": "Your key is ready. Use it only when you choose this option.",
+  "key.invalid": "This key could not be saved. Check it and try again.",
+  "key.notIncluded": "This option is not available here.",
+  "key.missing": "Add an API key to use this option."
 }
