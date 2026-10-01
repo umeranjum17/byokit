@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { AuthInteraction } from '@earendil-works/pi-ai';
-import { Accounts, PROVIDERS, offered, type AuthHost, type Member } from '../src/index.ts';
+import { Accounts, PROVIDERS, offered, ResponseError, type AuthHost, type Member } from '../src/index.ts';
 
 /** A scripted engine: `script(interaction, attempt)` plays one login; credentials live in a plain map. */
 function engine(script: (i: AuthInteraction, attempt: number) => Promise<void>) {
@@ -48,6 +48,11 @@ test('the catalogue offers every subscription by default and keeps API billing o
     assert.ok(p.billing === 'subscription' || p.billing === 'api', p.key);
     assert.ok(p.source.startsWith('https://'), p.key);
     for (const removed of ['terms', 'hidden', 'why']) assert.ok(!(removed in p));
+  }
+  for (const key of ['openai', 'typesafe']) {
+    assert.equal(PROVIDERS[key].billing, 'api');
+    assert.equal(PROVIDERS[key].auth, 'api-key');
+    assert.equal(PROVIDERS[key].offer, false);
   }
   assert.equal(PROVIDERS.chatgpt.models.strong, 'gpt-6-sol');
   assert.equal(PROVIDERS.anthropic.billing, 'api');
@@ -167,4 +172,72 @@ test('sign-in failure logs contain no provider secrets, URLs, causes or member d
     assert.equal(kit.view('private-member-canary', 'chatgpt')?.state, 'failed');
     assert.deepEqual(logs, [['Sign-in failed']]);
   } finally { kit.stop(); console.error = original; }
+});
+
+test('member key routes: sealed locally, consented, redacted, isolated, and handed to decide', async (t) => {
+  const logs = [t.mock.method(console, 'error', () => {}), t.mock.method(console, 'log', () => {}), t.mock.method(console, 'warn', () => {})];
+  const { fileStore: secretFile } = await import('../../secrets/src/file.ts');
+  const { scratchDir } = await import('../../test-support.ts');
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { jev } = await import('../../decide/src/jev.ts');
+  const { openai } = await import('../../decide/src/openai.ts');
+  const dir = scratchDir('member-keys');
+  const keyStore = (member: Member) => secretFile({ path: join(dir, `${member}.json`), passphrase: new Uint8Array(32).fill(7) });
+  const accounts = new Accounts({ offer: ['chatgpt', 'openai', 'typesafe', 'openrouter'], keyStore });
+  const observed: unknown[] = [];
+  accounts.onChange = (member, route) => observed.push([member, route]);
+  accounts.onSignedIn = (member, route) => observed.push([member, route]);
+  const questions = { match: { kind: 'yesno' as const, question: 'Does this design fit Umer?' } };
+  const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/member-keys-typescript.json', import.meta.url), 'utf8')) as { routes: { key: string; label: string }[] };
+  for (const { key: route, label } of fixture.routes) {
+    const secret = `fake-key-${route}-canary`;
+    await assert.rejects(accounts.saveKey('Umer', route, secret, { billedPerUse: false } as any), /billing per use/);
+    assert.equal((await accounts.status('Umer', route)).state, 'signed_out');
+    observed.push(await accounts.saveKey('Umer', route, secret, { billedPerUse: true }));
+    observed.push(await accounts.status('Umer', route), accounts.view('Umer', route));
+    assert.equal((await accounts.status('Umer', route)).state, 'ready');
+    assert.equal((await accounts.status('another-member', route)).state, 'signed_out');
+    assert.equal(accounts.ladder('Umer', [route]), undefined);
+    assert.equal(accounts.providers.find((p) => p.key === route)?.label, label);
+    assert.ok(!readFileSync(join(dir, 'Umer.json'), 'utf8').includes(secret));
+    assert.ok(!JSON.stringify(observed).includes(secret));
+    const restored = new Accounts({ offer: [route], keyStore });
+    const key = await restored.key('Umer', route);
+    let calls = 0;
+    const fakeFetch: typeof fetch = async (url, init) => {
+      calls++;
+      assert.equal(new Headers(init?.headers).get('authorization'), `Bearer ${secret}`);
+      assert.equal(String(url), route === 'openai' ? 'https://api.openai.com/v1/responses' : route === 'typesafe' ? 'https://api.typesafe.ai/v1/systemone' : 'https://openrouter.ai/api/v1/systemone');
+      return Response.json(route === 'openai'
+        ? { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify({ match: { probabilities: { true: 0.9, false: 0.1 }, pick: 'true' } }) }] }] }
+        : { answers: { match: { noul: 0.9 } } });
+    };
+    const backend = route === 'openai' ? openai({ key, model: 'fake-model', fetch: fakeFetch })
+      : jev({ key, via: route === 'typesafe' ? 'typesafe' : 'openrouter', fetch: fakeFetch });
+    const answer = await backend.ask({ name: 'Umer' }, questions, new AbortController().signal);
+    assert.equal(answer.match?.probabilities.true, 0.9);
+    assert.equal(calls, 1);
+    assert.equal((await accounts.failed('Umer', route, new ResponseError('Connect this account again.', 'signed_out')))?.kind, 'signed_out');
+    assert.equal((await accounts.status('Umer', route)).state, 'needs_again');
+    await accounts.saveKey('Umer', route, secret, { billedPerUse: true });
+    await accounts.logout('Umer', route);
+    await assert.rejects(restored.key('Umer', route), /isn't signed in/);
+  }
+  const leaking = new Accounts({ offer: ['openai'], keyStore: () => ({
+    get: async () => { throw new Error('fake-key-openai-canary'); },
+    set: async () => { throw new Error('fake-key-openai-canary'); },
+    delete: async () => { throw new Error('fake-key-openai-canary'); },
+  }) });
+  for (const action of [() => leaking.saveKey('Umer', 'openai', 'fake-key-openai-canary', { billedPerUse: true }),
+    () => leaking.key('Umer', 'openai'), () => leaking.status('Umer', 'openai'), () => leaking.logout('Umer', 'openai')]) {
+    await assert.rejects(action(), (error: Error) => {
+      assert.ok(!String(error.stack).includes('fake-key-openai-canary'));
+      assert.equal((error as Error & { cause?: unknown }).cause, undefined);
+      return true;
+    });
+  }
+  await assert.rejects(new Accounts().saveKey('Umer', 'openai', 'fake', { billedPerUse: true }), /not offered/);
+  await assert.rejects(new Accounts({ offer: ['openai'] }).saveKey('Umer', 'openai', 'fake', { billedPerUse: true }), /Saved keys/);
+  assert.ok(!JSON.stringify(logs.flatMap((log) => log.mock.calls.map((call) => call.arguments))).includes('canary'));
 });

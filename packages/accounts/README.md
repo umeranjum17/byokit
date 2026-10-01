@@ -619,3 +619,46 @@ const mock = await mockOpenAI({ email: 'umer@example.com', answers: [
   { match: (prompt) => prompt.includes('help'), text: 'I can help.' },
 ] });
 ```
+
+## Member API keys (billed per use)
+
+Offer `openai`, `typesafe` (Jev), or `openrouter` explicitly. Show each catalogue
+`label`: “API key (billed per use by OpenAI/TypeSafe/OpenRouter)”. Ask the member
+to agree to per-use billing before calling `saveKey`. These routes never enter
+`ladder`, even when a subscription is unavailable.
+
+```ts
+import { Accounts } from '@byokit/accounts';
+import { fileStore } from '@byokit/secrets';
+import { jev, openai } from '@byokit/decide';
+
+// The host supplies these values; never hardcode real keys in source.
+declare const dataFolder: string;
+declare const passphrase: Uint8Array;
+declare const enteredKey: string;
+declare const chosenModel: string;
+const accounts = new Accounts({
+  offer: ['openai', 'typesafe', 'openrouter'],
+  keyStore: (member) => fileStore({ path: `${dataFolder}/${member}.keys`, passphrase }),
+});
+// After Umer explicitly agrees to billing per use, pass the entered key:
+await accounts.saveKey('Umer', 'typesafe', enteredKey, { billedPerUse: true });
+const decisions = jev({ key: await accounts.key('Umer', 'typesafe') });
+// After saving the corresponding keys with the same consent:
+const routedDecisions = jev({ key: await accounts.key('Umer', 'openrouter'), via: 'openrouter' });
+const generalDecisions = openai({ key: await accounts.key('Umer', 'openai'), model: chosenModel });
+await accounts.logout('Umer', 'typesafe'); // deletes the saved key on this device
+```
+
+Use a fixed host-owned mapping from member ids to private paths; never use untrusted
+member text as a filesystem path. `keyStore(member)` must refer to the same store
+across calls and a separate namespace per member. On phones use secrets' `nativeStore`;
+in browsers use `webStore` with a separate database per member. There is no default
+key store or plaintext fallback. Keys stay in device storage and are handed only to
+the selected provider's request on the host; never serialize `key()` into views,
+snapshots, logs, or messages to another device. Status and connection results contain
+no key, and storage failures have fixed, redacted messages.
+
+With `keyStore` configured, the existing `openrouter` route uses saved member keys;
+without it, its existing explicit sign-in flow remains available. Saving a key marks
+it connected locally; the selected provider checks validity on the first request.
