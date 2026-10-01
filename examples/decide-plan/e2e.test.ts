@@ -34,6 +34,8 @@ test('plan decisions use real resolver floors, hand back uncertainty, and redact
     assert.equal(abstain.billing, 'Your Claude plan'); assert.equal(abstain.ask, 'Umer, does this need to happen today?');
     const failed = await (await post('thanks')).json();
     assert.equal(failed.outcome, 'unavailable'); assert.equal(failed.correct, false);
+    assert.equal(failed.confidence, null, 'no model estimate was received');
+    assert.equal(failed.confidenceSource, null, 'a resolver fallback is not self-reported confidence');
     const transcript = await (await fetch(`${app.url}/transcript`)).text();
     assert.ok(!transcript.includes(canary)); assert.ok(!transcript.includes('failed:'));
     const state = await (await fetch(`${app.url}/state`)).json();

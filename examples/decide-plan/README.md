@@ -47,6 +47,9 @@ label and confirm `missing-deadline` is a `below-floor` abstention with an actua
 probability distribution. `unavailable` means a transport, malformed response or
 other failure; it does not count as a correct abstention. Report median latency
 honestly, including any miss of the approximately two-second target.
+When no valid estimate was received, confidence and its source are null in the
+transcript and the screen says "No confidence estimate"; a resolver fallback zero
+is never labelled as the model's confidence.
 
 Capture the answer and the abstain with its human response on the live browser
 surface, plus a short recording. Keep full-resolution originals and captions

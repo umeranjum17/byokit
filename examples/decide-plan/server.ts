@@ -14,7 +14,7 @@ type AccountHost = Pick<Accounts, 'login' | 'view' | 'paste' | 'cancel' | 'statu
 export type Result = {
   commit: string; capturedAt: string; provider: Plan; model: string; modelSource: 'requested'; billing: string;
   caseId: string; title: string; text: string; question: (typeof cases)[number]['question'];
-  answer: Answer['answer']; answerLabel: string; confidence: number; confidenceSource: 'self-reported';
+  answer: Answer['answer']; answerLabel: string; confidence: number | null; confidenceSource: 'self-reported' | null;
   probabilities?: Record<string, number>; abstained: boolean; floor: number; latencyMs: number;
   rationale?: string; expected: Answer['answer']; correct: boolean; outcome: 'answer' | 'below-floor' | 'unavailable'; ask?: string;
 };
@@ -70,8 +70,8 @@ export async function serve(options: { port?: number; accounts?: AccountHost; co
         const row: Result = {
           commit, capturedAt: new Date().toISOString(), provider, model, modelSource: 'requested', billing: plans[provider].billing,
           caseId: item.id, title: item.title, text: item.text, question: item.question,
-          answer: decision.answer, answerLabel: label(item.question, decision.answer), confidence: decision.confidence,
-          confidenceSource: 'self-reported', probabilities: decision.probabilities, abstained: decision.abstained,
+          answer: decision.answer, answerLabel: label(item.question, decision.answer), confidence: decision.probabilities ? decision.confidence : null,
+          confidenceSource: decision.probabilities ? 'self-reported' : null, probabilities: decision.probabilities, abstained: decision.abstained,
           floor, latencyMs: decision.ms, rationale: decision.rationale, expected: item.expect,
           correct: outcome !== 'unavailable' && decision.answer === item.expect, outcome, ...(decision.abstained && { ask: item.ask }),
         };
