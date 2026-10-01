@@ -4,6 +4,11 @@ import { routeChoices } from '@byokit/ui-core/route';
 import { FUNNEL_ERROR, inspectServe, serve, tailscaleState, tailscaleStatus, unserve, type ServeIngress, type ServeRoot, type TailscaleOptions, type TailscaleState } from './tailscale.ts';
 
 export * from './tailscale.ts';
+export { phoneNetwork } from './phone-network.ts';
+export type { PhoneNetwork, PhoneNetworkModule, PhoneNetworkOptions } from './phone-network.ts';
+export { routeOf, probe } from './observe.ts';
+export type { NativeAddress, NativeAddressesModule, NativeAddressesOptions, RouteKind, PriorEvidence, ProbeState, ProbeObservation, ProbeOptions, Observation, ObserveOptions } from './observe.ts';
+import { nativeAddresses as readAddresses, observe as observeWith, type NativeAddressesOptions, type ObserveOptions } from './observe.ts';
 
 type Interfaces = NodeJS.Dict<NetworkInterfaceInfo[]>;
 
@@ -36,6 +41,58 @@ export function routes(interfaces: Interfaces = networkInterfaces(), tailnetIPs:
   }
   return out;
 }
+
+/** Direct listener scopes. LAN binds individual classified LAN addresses, never a wildcard. */
+export type ListenScopes = { loopback?: boolean; tailnet?: boolean; lan?: boolean };
+export type DirectRoutes = { hosts: string[]; urls: string[] };
+export type DirectRoutesOptions = {
+  port: number;
+  listen?: ListenScopes;
+  interfaces?: Interfaces;
+  tailnetIPs?: readonly string[];
+  /** Explicit listener override, including intentional wildcard binds. */
+  hosts?: readonly string[];
+  /** Dial URL path, e.g. '/link'. Defaults to '/'. */
+  path?: string;
+};
+
+/** Multiple direct listeners and dial URLs, LAN first then tailnet; loopback URLs only when nothing else can dial. */
+export function directRoutes(o: DirectRoutesOptions): DirectRoutes {
+  if (!Number.isInteger(o.port) || o.port < 1 || o.port > 65535) throw new Error('port must be 1-65535');
+  const path = o.path ?? '/';
+  if (!path.startsWith('/') || path.startsWith('//') || /[\s?#\\]/.test(path)) throw new Error('path must be an absolute URL path without query or fragment');
+  const found = routes(o.interfaces, o.tailnetIPs);
+  const listen = o.listen ?? { loopback: true, tailnet: true };
+  const hosts = [...new Set((o.hosts ?? [
+    ...(listen.loopback ? ['127.0.0.1'] : []),
+    ...(listen.tailnet ? found.tailscale : []),
+    ...(listen.lan ? found.lan : []),
+  ]).map((host) => host.toLowerCase()))];
+  for (const host of hosts) {
+    // IPv4 or a DNS name only; a listener is not a URL or a port.
+    if (!host || host !== host.trim() || !/^[a-zA-Z0-9.-]+$/.test(host) || host.startsWith('.') || host.endsWith('.') || host.includes('..')) throw new Error('hosts must be IPv4 addresses or DNS names');
+    const parsed = new URL(`ws://${host}:${o.port}`);
+    if (parsed.hostname !== host.toLowerCase()) throw new Error('hosts must use canonical addresses');
+  }
+  const addresses = [...new Set(hosts.includes('0.0.0.0') ? [...found.lan, ...found.tailscale, ...hosts.filter((h) => h !== '0.0.0.0')] : hosts)];
+  const loopback = (address: string) => address === 'localhost' || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(address);
+  const remote = addresses.filter((a) => !loopback(a));
+  const ordered = [...remote.filter((a) => !found.tailscale.includes(a)), ...remote.filter((a) => found.tailscale.includes(a))];
+  const dial = ordered.length ? ordered : addresses.filter(loopback);
+  // With a wildcard and no classified addresses, loopback is still available.
+  if (!dial.length && hosts.includes('0.0.0.0')) dial.push('127.0.0.1');
+  return { hosts, urls: dial.map((a) => `ws://${a}:${o.port}${path === '/' ? '' : path}`) };
+}
+
+const nodeAddresses = { addresses: async () => Object.entries(networkInterfaces()).flatMap(([name, entries]) =>
+  (entries ?? []).filter((e) => e.family === 'IPv4' && !e.internal && !virtualName.test(name)).map((e) => ({
+    address: e.address, interface: name, ...(e.cidr ? { prefixLength: Number(e.cidr.split('/')[1]) } : {}),
+  }))) };
+
+/** Node interface snapshot; React Native uses the same type with a host-supplied nativeModule. */
+export function nativeAddresses(o: NativeAddressesOptions = {}) { return readAddresses({ nativeModule: o.nativeModule === undefined ? nodeAddresses : o.nativeModule }); }
+/** Observe using Node interfaces by default, or an injected native module/snapshot. */
+export function observe(o: ObserveOptions) { return observeWith({ ...o, nativeModule: o.nativeModule === undefined ? nodeAddresses : o.nativeModule }); }
 
 /**
  * How the phone gets in:

@@ -1,3 +1,4 @@
+export * from './native.ts';
 import Zeroconf from 'react-native-zeroconf';
 import { browse as browseWith, scan as scanWith, type BrowseHandle, type BrowseOptions, type BrowseService } from './browse.ts';
 
@@ -14,3 +15,4 @@ export function browse(o: BrowseOptions): BrowseHandle {
 export function scan(o: BrowseOptions & { ms: number }): Promise<BrowseService[]> {
   return scanWith({ ...o, zeroconf: nativeBrowser });
 }
+

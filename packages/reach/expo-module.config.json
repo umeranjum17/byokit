@@ -1,0 +1,5 @@
+{
+  "platforms": ["android", "apple"],
+  "android": { "modules": ["io.github.umeranjum17.byokit.reach.ReachModule"] },
+  "apple": { "modules": ["ReachModule"] }
+}

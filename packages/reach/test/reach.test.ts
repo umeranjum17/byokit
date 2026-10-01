@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
-import { advertise, inspectServe, isPeer, needsSignin, reach, routes, serve, tailscaleName, tailscaleState, tailscaleStatus, unserve, type Bonjour, type BonjourRecord, type ServeIngress } from '../src/index.ts';
+import { directRoutes, advertise, inspectServe, isPeer, needsSignin, reach, routes, serve, tailscaleName, tailscaleState, tailscaleStatus, unserve, type Bonjour, type BonjourRecord, type ServeIngress } from '../src/index.ts';
 
 const dir = scratchDir('reach');
 const bin = join(dir, 'tailscale');
@@ -413,4 +413,30 @@ test('diagnostics expose validated key expiry and typed peers without throwing o
   }
   fake({ Peer: {} });
   assert.deepEqual((await tailscaleState(tailscale)).Peer, {});
+});
+
+
+test('directRoutes combines only enabled scopes, filters overlays, and orders LAN before tailnet dial URLs', () => {
+  const nic = (address: string, internal = false) => ({ address, internal, family: 'IPv4' as const, netmask: '255.255.255.0', mac: '', cidr: `${address}/24` });
+  const interfaces = { lo: [nic('127.0.0.1', true)], en0: [nic('192.168.1.20')], utun3: [nic('100.101.2.3')], wt0: [nic('100.90.1.2')], docker0: [nic('172.17.0.1')] };
+  const base = { interfaces, tailnetIPs: ['100.101.2.3'], port: 8792, path: '/link' };
+  assert.deepEqual(directRoutes(base), { hosts: ['127.0.0.1', '100.101.2.3'], urls: ['ws://100.101.2.3:8792/link'] });
+  assert.deepEqual(directRoutes({ ...base, listen: { loopback: true, tailnet: true, lan: true } }), {
+    hosts: ['127.0.0.1', '100.101.2.3', '192.168.1.20'], urls: ['ws://192.168.1.20:8792/link', 'ws://100.101.2.3:8792/link'],
+  });
+  assert.deepEqual(directRoutes({ ...base, listen: { lan: true } }), { hosts: ['192.168.1.20'], urls: ['ws://192.168.1.20:8792/link'] });
+  assert.deepEqual(directRoutes({ ...base, listen: {} }), { hosts: [], urls: [] });
+  assert.deepEqual(directRoutes({ ...base, tailnetIPs: [] }), { hosts: ['127.0.0.1'], urls: ['ws://127.0.0.1:8792/link'] });
+  assert.deepEqual(directRoutes({ port: 8792, interfaces: {}, listen: { tailnet: true } }), { hosts: [], urls: [] });
+  assert.deepEqual(directRoutes({ port: 8792, interfaces: {} }), { hosts: ['127.0.0.1'], urls: ['ws://127.0.0.1:8792'] });
+  assert.deepEqual(directRoutes({ ...base, hosts: ['192.168.1.20', '100.101.2.3', '192.168.1.20'] }), {
+    hosts: ['192.168.1.20', '100.101.2.3'], urls: ['ws://192.168.1.20:8792/link', 'ws://100.101.2.3:8792/link'],
+  });
+  assert.deepEqual(directRoutes({ ...base, hosts: ['0.0.0.0'] }).urls, ['ws://192.168.1.20:8792/link', 'ws://100.101.2.3:8792/link']);
+  assert.deepEqual(directRoutes({ ...base, hosts: ['localhost'] }).urls, ['ws://localhost:8792/link']);
+  assert.deepEqual(directRoutes({ ...base, hosts: ['127.umer.local', '192.168.1.20'] }).urls, ['ws://127.umer.local:8792/link', 'ws://192.168.1.20:8792/link'], 'a DNS label starting with 127 is not loopback');
+  assert.deepEqual(directRoutes({ ...base, hosts: ['0.0.0.0'], interfaces: {} }).urls, ['ws://127.0.0.1:8792/link']);
+  for (const port of [0, 65536, 1.5, NaN]) assert.throws(() => directRoutes({ ...base, port }), /port/);
+  for (const path of ['link', '//elsewhere', '/link?q=1', '/link#x']) assert.throws(() => directRoutes({ ...base, path }), /path/);
+  for (const host of ['ws://umer', 'umer:8792', '', '127.1', '192.168.1.999', ' umer', 'umer..local']) assert.throws(() => directRoutes({ ...base, hosts: [host] }));
 });
