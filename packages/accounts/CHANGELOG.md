@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.17.0 (2026-10-01)
+
+- Dependency update: pins @byokit/usage 0.6.1.
+
+- SECURITY: Restrict ChatGPT host access to ChatGPT subscription accounts before opening a credential runtime; a different provider id cannot select or expose its grant.
+- FIX: Managed CLI subscription rows with no supplied provider executable report not_included, so list and Auto remain available for other providers without touching the unavailable row's credentials or sign-in markers.
+- Add independent subscription accounts per member, fresh sign-in, identity replacement, account names and defaults.
+- Add a read-only nativePiAccount launch/session descriptor for independent app-owned Pi folders, qualified against native Pi 0.87.1. This does not share subscription grants, sign in, infer readiness or add Pi to managed Auto; found rows remain read-only and reconnect uses the person's normal provider-native UI outside the kit.
+
 - SECURITY: Add launchEnv to scrub inherited provider credentials, including subscription tokens and API key (billed per use) variables; isolate now prepares only the app folder and never mutates process.env. Apps must pass launchEnv().env when spawning a child.
 
 ## 0.16.0 (2026-10-01)
