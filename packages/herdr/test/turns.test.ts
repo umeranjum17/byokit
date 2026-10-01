@@ -26,6 +26,7 @@ async function harness() {
   let onPrompt: (prompt: string) => Promise<void> = async () => {};
   let afterPrompt: () => Promise<void> = async () => {};
   let disconnect: (() => void) | undefined;
+  let layoutDisconnect: (() => void) | undefined;
   let prompts = 0;
   let muteWorking = false;
   const transport: HerdrTransport = {
@@ -51,7 +52,8 @@ async function harness() {
         });
         return wrapped;
       }
-      return stop;
+      return Object.assign(() => stop(), { ready: stop.ready, onReconnect: stop.onReconnect,
+        onDisconnect(fn: () => void) { layoutDisconnect = fn; stop.onDisconnect(fn); } });
     },
     close: () => real.close(),
   };
@@ -61,6 +63,7 @@ async function harness() {
   return { kit, fake, cwd,
     onPrompt(fn: typeof onPrompt) { onPrompt = fn; }, afterPrompt(fn: typeof afterPrompt) { afterPrompt = fn; },
     disconnect() { assert.ok(disconnect); disconnect(); }, prompts: () => prompts,
+    layoutDisconnect() { assert.ok(layoutDisconnect); layoutDisconnect(); },
     muteWorking() { muteWorking = true; },
     async dispose() { await kit.stop(); await fake.stop(); },
   };
@@ -171,20 +174,21 @@ test('watch rejection, wrong directory and file limits reject before prompt deli
 });
 
 test('watch loss, cancellation, timeout, replacement and kit stop never emit an end or stop the agent', async () => {
-  for (const kind of ['disconnect', 'cancel', 'timeout', 'replace', 'stop'] as const) {
+  for (const kind of ['disconnect', 'layout-disconnect', 'cancel', 'timeout', 'replace', 'stop'] as const) {
     const h = await harness();
     const ends: AgentTurnEnd[] = []; h.kit.onTurnEnd((e) => ends.push(e));
     try {
       const controller = new AbortController();
       h.onPrompt(async () => {
         if (kind === 'disconnect') h.disconnect();
+        if (kind === 'layout-disconnect') h.layoutDisconnect();
         if (kind === 'cancel') controller.abort();
         if (kind === 'replace') h.fake.emit({ type: 'pane.agent_detected', pane_id: target.paneId });
         if (kind === 'stop') await h.kit.stop();
       });
-      const turn = h.kit.runTurn(target, { prompt: 'ask permission', cwd: h.cwd,
+      const turn = h.kit.runTurn(target, { prompt: kind === 'layout-disconnect' ? 'finish' : 'ask permission', cwd: h.cwd,
         timeoutMs: kind === 'timeout' ? 200 : 2000, signal: controller.signal });
-      const codes = { disconnect: 'turn-watch-lost', cancel: 'turn-cancelled', timeout: 'turn-timeout', replace: 'turn-unavailable', stop: 'turn-unavailable' };
+      const codes = { disconnect: 'turn-watch-lost', 'layout-disconnect': 'turn-watch-lost', cancel: 'turn-cancelled', timeout: 'turn-timeout', replace: 'turn-unavailable', stop: 'turn-unavailable' };
       await assert.rejects(turn, { code: codes[kind] });
       assert.deepEqual(ends, []);
       assert.ok(h.fake.world.agents.some((a) => a.pane_id === target.paneId), 'agent was not stopped');

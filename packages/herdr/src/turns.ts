@@ -87,11 +87,14 @@ export function createTurns(kit: HerdrKit) {
     if (o.signal?.aborted) cancelled();
     let stopWatch: (() => void) | undefined;
     let offEvent: (() => void) | undefined;
+    let offChange: (() => void) | undefined;
     try {
       active();
       root = await gate(realpath(o.cwd));
       if ([...roots].some((held) => contains(held, root!) || contains(root!, held))) throw fail('turn-busy');
       roots.add(root); ownsRoot = true;
+      if (!kit.snapshot().connected) throw fail('turn-watch-lost');
+      offChange = kit.onChange((tree) => { if (!tree.connected) abort('turn-watch-lost'); });
       let armed = false;
       let working = false;
       let ended = false;
@@ -102,7 +105,10 @@ export function createTurns(kit: HerdrKit) {
           if (e.agent_status !== 'idle') abort('turn-busy');
           return;
         }
-        if (ended) return;
+        if (ended) {
+          if (e.agent_status !== 'idle' && e.agent_status !== 'done') abort('turn-busy');
+          return;
+        }
         if (e.agent_status === 'working') working = true;
         else if (working && (e.agent_status === 'idle' || e.agent_status === 'done')) {
           ended = true; resolveEnd(e.agent_status);
@@ -151,7 +157,7 @@ export function createTurns(kit: HerdrKit) {
       throw fail('turn-failed');
     } finally {
       clearTimeout(timer); o.signal?.removeEventListener('abort', cancelled);
-      stopWatch?.(); offEvent?.(); pending.delete(stopped); panes.delete(target.paneId);
+      stopWatch?.(); offEvent?.(); offChange?.(); pending.delete(stopped); panes.delete(target.paneId);
       if (ownsRoot && root) {
         // Unlink only the kit's unique output path; never recursively delete a directory or follow a link.
         if (o.result && await realpath(root).catch(() => undefined) === root) {
