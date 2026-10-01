@@ -6,7 +6,7 @@ export const providers: Provider[] = ['codex', 'claude', 'copilot', 'grok', 'min
 export const nowMs = 1790838000000;
 export const fixtureCalls: CallRecord[] = providers.map((provider, i) => ({
   provider, account: 'umer-plan', payer: 'umer', model: provider === 'claude' ? 'claude-opus-5-5' : provider === 'codex' ? 'gpt-6-sol' : 'unlisted-model',
-  runId: `sample-${i}`, time: nowMs - 60_000, billing: 'subscription', state: 'completed',
+  runId: `sample-${i}`, time: nowMs - 60_000, billing: 'subscription', billingLabel: "Person's own plan", state: 'completed',
   tokens: { total: provider === 'codex' ? 4_600_000_000 : (i + 1) * 1200, provenance: 'partial' },
 }));
 export function demoView(provider: Provider) {
