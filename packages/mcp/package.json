@@ -1,0 +1,40 @@
+{
+  "name": "@byokit/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hosted streamable HTTP tools and resources with device sign-in and authenticated sessions.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umeranjum17/byokit.git",
+    "directory": "packages/mcp"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "prepack": "tsc -b"
+  },
+  "dependencies": {
+    "@byokit/link": "0.7.0",
+    "@byokit/secrets": "0.5.0",
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "zod": "3.25.76"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
