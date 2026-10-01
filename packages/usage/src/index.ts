@@ -8,6 +8,7 @@ import { codexHardLimit, codexTokenWindows, copilotWindows, grokWindows, minimax
 import { UsageError, type Reading, type ReadOptions, type Source, type Usage, type UsageOptions, type Poll } from './types.ts';
 import { codexIdentity, type Identity } from './identity.ts';
 import { claudeUsage as managedClaudeUsage, claudeCredential, managedClaudeFolder } from './claude.ts';
+import { ephemeralClaude } from './ephemeral.ts';
 export * from './types.ts';
 export type { Identity } from './identity.ts';
 /** Identity runs only the named binary, never opens a credential file. */
@@ -28,13 +29,14 @@ const providers = ['claude', 'codex', 'opencode', 'zai', 'copilot', 'grok', 'min
 const validText = (v: unknown): v is string => typeof v === 'string' && !v.includes('\0') && !/[\r\n]/.test(v) && v.length <= 16384;
 function validate(source: Source, stateDir?: string): void {
   if (!record(source) || !providers.includes(source.provider)) throw new UsageError();
+  if ('ephemeral' in source && (source.ephemeral !== true || source.provider !== 'claude' || typeof source.read !== 'function' || ['accountUuid', 'accountId', 'origin', 'folder', 'credentialsFile', 'access', 'key', 'bin', 'home', 'configFile', 'statuslineFile'].some((field) => field in source))) throw new UsageError();
   if ('folder' in source) {
     if (source.provider !== 'claude' || !validText(source.folder) || !isAbsolute(source.folder) || !stateDir || !managedClaudeFolder(source.folder, stateDir)) throw new UsageError();
     if (!record(source.headers) || !['anthropic-beta', 'User-Agent'].every((key) => validText(source.headers[key as keyof typeof source.headers]) && source.headers[key as keyof typeof source.headers].length <= 1024)) throw new UsageError();
   } else if ('credentialsFile' in source) {
     if (source.provider !== 'claude' || ![source.credentialsFile, ...[source.configFile, source.statuslineFile].filter((v) => v !== undefined)].every((v) => validText(v) && isAbsolute(v))) throw new UsageError();
   } else if ('read' in source) {
-    if (source.provider !== 'claude' || typeof source.read !== 'function' || !validText(source.accountUuid) || !source.accountUuid || source.connected !== undefined && typeof source.connected !== 'function') throw new UsageError();
+    if (source.provider !== 'claude' || typeof source.read !== 'function' || !('ephemeral' in source) && (!validText(source.accountUuid) || !source.accountUuid) || source.connected !== undefined && typeof source.connected !== 'function') throw new UsageError();
   } else if ('bin' in source) {
     if (source.provider !== 'codex' || !validText(source.bin) || !isAbsolute(source.bin) || !validText(source.home) || !isAbsolute(source.home)) throw new UsageError();
     if (source.env !== undefined && (!record(source.env) || Object.entries(source.env).some(([k, v]) => !k || k.includes('=') || !validText(k) || !validText(v)))) throw new UsageError();
@@ -67,6 +69,7 @@ export function usage(options: UsageOptions): Usage {
   const attempts = new Map<string, Poll>();
   const failures = new Map<string, number>();
   const now = (opts?: ReadOptions) => opts?.nowMs ?? (options.now ?? Date.now)();
+  const readEphemeral = ephemeralClaude(options);
   function connected(source: Source): boolean {
     validate(source, options.stateDir);
     if ('folder' in source) return claudeCredential(source.folder) !== undefined;
@@ -82,7 +85,7 @@ export function usage(options: UsageOptions): Usage {
       const stat = claudeCredential(source.folder);
       id = stat ? `${source.folder}\0${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}` : undefined;
     } else if ('credentialsFile' in source) id = claudeAuth(source)?.account;
-    else if ('read' in source) id = source.accountUuid;
+    else if ('read' in source) id = 'ephemeral' in source ? undefined : source.accountUuid;
     else if ('bin' in source) {
       const raw = readJson(join(source.home, 'auth.json'), 64 * 1024);
       const tokens = record(raw) && record(raw.tokens) ? raw.tokens : undefined;
@@ -110,6 +113,8 @@ export function usage(options: UsageOptions): Usage {
     }
   }
   function lastKnown(source: Source, opts?: ReadOptions): Reading | undefined {
+    validate(source, options.stateDir);
+    if ('ephemeral' in source) return undefined;
     if (!connected(source)) return undefined;
     const id = identity(source); const clock = now(opts);
     try {
@@ -124,6 +129,7 @@ export function usage(options: UsageOptions): Usage {
   }
   async function read(source: Source, opts?: ReadOptions): Promise<Reading> {
     validate(source, options.stateDir); const clock = now(opts);
+    if ('ephemeral' in source) return readEphemeral(source, clock, opts);
     const empty = (code: Reading['code']): Reading => ({ provider: source.provider, windows: [], code, poll: { at: clock, outcome: code ?? 'unavailable' } });
     if (!connected(source)) return empty('not-connected');
     const id = identity(source); const key = `${source.provider}\0${id.key}`;

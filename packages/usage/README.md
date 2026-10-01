@@ -38,6 +38,26 @@ Sources:
   host reader's optional HTTP origin for pacing. It has a ten-second deadline, with the signal
   aborted at expiry. The optional synchronous `connected()` hook controls whether
   last-good readings remain visible; exceptions count as disconnected.
+- `{ provider: 'claude', ephemeral: true, read, connected? }` supports a host-owned
+  opaque snapshot stream without an account UUID, email, folder or token. The same
+  `ClaudeReader` answer and ten-second cancellable deadline apply. For a statusline
+  body, return `{ raw: snapshot, at: snapshot.fetched_at }` when the host knows that
+  `fetched_at` is epoch milliseconds; otherwise omit `at` for unknown age. The kit
+  normalizes `rate_limits` and quota rows; it never opens a snapshot or credential
+  file, discovers credentials, copies tokens or makes a fallback request.
+  `connected()` should reflect the host's sign-in status; false or a thrown error
+  returns `not-connected`. An absent/invalid snapshot returns `incomplete`, while
+  timeout/cancellation returns `unavailable`; the host can report other safe codes.
+  `account()` and `lastKnown()` always return undefined. Successful readings are
+  never retained, so each subsequent read invokes the callback again. Only retry
+  metadata and concurrent operations are weakly held per source object in this
+  reader: reuse an immutable source for one stream, and replace it when the host
+  changes sign-in or stream. Failures never return earlier quota figures.
+  Rate limits honor Retry-After with a five-minute default; transient failures use
+  exponential backoff from one minute, capped at one hour. `backoff.delayMs` may
+  customize these delays with a one-minute minimum. Store and backoff get/set
+  hooks and account-based pacing are never called; the host owns any pacing in
+  its callback. No state is shared between source objects or reader instances.
 
 `read(source, { nowMs?, signal? })` returns `{ provider, windows, at?, limited?, poll?, code? }`.
 `at` is source observation time; it is absent when unavailable. `poll` contains
@@ -357,3 +377,8 @@ that the accounts chooser accepts directly. Preserve the original measurement ti
 `identity(codexSource)` shares the app-server transport, calls `account/read` with a 15-second deadline, never opens a credential file, and returns only `{signedIn,email?,plan?}`. Managed-folder HTTP usage carries only the app-passed headers plus Bearer authorization and JSON accept; it uses the same bounded HTTP transport.
 
 Managed-folder Claude usage uses the shared poll-health and normalized quota pipeline, including scoped hard blocks, unknown usage, last-good observation times, account retry policies and cancellable host origin pacing.
+
+The token and call ledgers accept host-supplied entries/results; they are not
+harness-log or ccusage readers. A bounded incremental log source (including file
+offsets, rotation and bounded work per update) remains outstanding. This snapshot
+source does not implement it or scan real logs.

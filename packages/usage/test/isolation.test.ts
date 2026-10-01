@@ -84,3 +84,22 @@ test('Claude managed-folder source never opens a default login, escapes its root
   assert.doesNotMatch(readFileSync(join(stateDir, 'plans-v2.json'), 'utf8'), new RegExp(CANARY));
   assert.ok(before.includes(CANARY), 'the request exercised a real managed canary credential');
 });
+
+
+test('isolation: ephemeral snapshot reads no credentials, ambient login or persistent state', () => {
+  const root = scratchDir('usage-ephemeral'); const d = decoy(join(root, 'decoy'));
+  const stateDir = join(root, 'state'); mkdirSync(stateDir);
+  const log = join(root, 'trace'); writeFileSync(log, '');
+  const module = new URL('../src/index.ts', import.meta.url).href;
+  const child = spawnSync(process.execPath, ['--import', traceFs, '--input-type=module', '-e', `
+    const { usage, roomOf } = await import(${JSON.stringify(module)});
+    const reader = usage({stateDir:${JSON.stringify(stateDir)},fetch:async()=>{throw new Error('unexpected HTTP');}});
+    const source = {provider:'claude',ephemeral:true,read:async()=>({raw:{rate_limits:${JSON.stringify(payloads.claude.raw)}},at:1788600000000})};
+    const result = await reader.read(source,{nowMs:1788600000000});
+    if(roomOf(result,1788600000000).left!==58)throw new Error('snapshot not usable');
+    if(reader.account(source)!==undefined||reader.lastKnown(source)!==undefined||!reader.connected(source))throw new Error('identity/cache boundary');
+  `], {encoding:'utf8',env:{...process.env,...d.env,TRACE_ROOTS:[...d.roots,stateDir].join(':'),TRACE_LOG:log}});
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(readFileSync(log, 'utf8'), '');
+  assert.deepEqual(d.changed(), []); assert.deepEqual(d.ran(), []);
+});

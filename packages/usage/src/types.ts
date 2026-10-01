@@ -7,6 +7,7 @@ export type Source =
   | { provider: 'codex'; access: string; accountId: string }
   | ({ provider: 'claude'; access: string; accountUuid?: string } & Identity)
   | ({ provider: 'claude'; accountUuid: string; read: ClaudeReader; origin?: string; connected?: () => boolean })
+  | EphemeralClaudeSource
   | { provider: 'claude'; credentialsFile: string; configFile?: string; statuslineFile?: string }
   | ({ provider: 'opencode' | 'zai'; key: string } & Identity)
   | ({ provider: 'copilot' | 'grok' | 'minimax' | 'kimi'; access: string } & Identity)
@@ -24,6 +25,8 @@ export type ReadOptions = { nowMs?: number; signal?: AbortSignal };
 export type SourceAnswer = { raw?: unknown; code?: Code; retryAfterMs?: number; limited?: boolean; at?: number };
 /** The app owns credential reads/refresh and sends its own requests through this seam. */
 export type ClaudeReader = (options: { nowMs: number; signal: AbortSignal }) => Promise<SourceAnswer>;
+/** Reuse one source object per host-owned snapshot stream; no identity or last-good cache. */
+export type EphemeralClaudeSource = { provider: 'claude'; ephemeral: true; read: ClaudeReader; connected?: () => boolean };
 export type StoredReading = { at?: number; windows: Window[]; limited?: boolean; poll?: Poll };
 export interface UsageStore {
   get(provider: Provider, account: string): StoredReading | undefined;
