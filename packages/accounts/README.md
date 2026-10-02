@@ -623,6 +623,8 @@ its directory return value but no longer changes global environment variables.
 Managed Pi accounts require stock published Pi 0.87.1 and an explicit subscription OAuth provider: `openai-codex`, `anthropic`, `github-copilot`, `xai`, `kimi-coding` or `meta`. Unsupported providers are refused; Claude subscription routes must be offered only where the provider's terms allow their use.
 
 ```ts
+import { cliAccounts } from '@byokit/accounts/cli';
+
 const plans = cliAccounts({
   stateDir: '/app/state/plans', bins: { pi: '/app/bin/pi' },
   env: { HOME: '/app/home', PATH: '/usr/bin:/bin', TMPDIR: '/app/tmp' },
