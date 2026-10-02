@@ -23,7 +23,10 @@ export type AuthHost = Pick<Models, 'login' | 'logout' | 'checkAuth' | 'getAuth'
 export type Member = string | number;
 /** What the person sees while signing in: the provider's own page to open (`via: 'browser'`), or a code to type there
  *  (`via: 'code'`), never the engine's own prompts. `why` names how a failed one failed, for apps that word it themselves. */
-export type SignIn = { id?: string; state: 'waiting' | 'done' | 'failed'; via?: 'browser' | 'code'; url?: string; code?: string; expiresAt?: number; error?: string; why?: Why };
+/** Explicit method selection; Claude defaults to paste. Enterprise domains apply only to Copilot.
+ *  OpenRouter authorization creates an API-billed key and requires the same consent as saveKey. */
+export type SignInOptions = { via?: 'browser' | 'code' | 'paste'; fresh?: boolean; enterpriseDomain?: string; billedPerUse?: true };
+export type SignIn = { id?: string; state: 'waiting' | 'done' | 'failed'; via?: 'browser' | 'code' | 'paste'; url?: string; code?: string; expiresAt?: number; error?: string; why?: Why };
 export type Status = { id: string; provider: string; account: string; name: string; state: 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included'; until?: number; words: string };
 type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text: string) => void; refuse?: (e: Error) => void; timedOut?: boolean; toCode?: boolean;
   oauthState?: string; done?: Promise<void>; shown?: () => void };

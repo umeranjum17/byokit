@@ -1,0 +1,1 @@
+- FIX: Expose explicit computer browser and paste sign-in options and Copilot Enterprise domain input; keep Claude paste as the default and non-subscription billing explicit.
