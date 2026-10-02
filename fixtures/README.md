@@ -24,6 +24,7 @@ a Messages backend to the frozen Kotlin runtime.
 | `conformance/sse.json` | Shared streamed ChatGPT answer → its text, or the error it ended with. |
 | `conformance/sse-typescript.json` | TypeScript-only completion requirement, authoritative output, and coded SSE limits. |
 | `conformance/incomplete-typescript.json` | TypeScript-only cut-off answers: typed error, partial output, and incomplete event for SSE and JSON. |
+| `conformance/infer-typescript.json` | Pinned official default native text-model asset and tokenizer/context expectations; not a physical acceptance claim. |
 | `conformance/dictation-typescript.json` | Stable live partials, final-only corrections, silence and cancellation. |
 | `conformance/anthropic-sse-typescript.json` | Recorded Messages SSE, usage, tools/thinking, truncation, refusal and protocol errors (TypeScript only). |
 | `conformance/usage-typescript.json` | TypeScript quota normalization and account Auto input contract: hard blocks, scope, age and poll failures. |

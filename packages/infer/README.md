@@ -36,8 +36,9 @@ export async function summarize(initLlama: InitLlama, store: InferModelStore, pa
 }
 ```
 
-`model()` is SmolLM2 360M Instruct, Q8_0 GGUF, 386,404,992 bytes, Apache-2.0, pinned to the publisher's revision and
-SHA-256. `models()` also lists Qwen3 0.6B (`offer: false` until qualified).
+`model()` is the official Qwen2.5 1.5B Instruct Q4_K_M candidate, 1,117,320,736 bytes, Apache-2.0, pinned to the
+publisher's revision and SHA-256. The kit stays private pending physical qualification. `models()` retains SmolLM2
+360M and Qwen3 0.6B with `offer: false`; it never switches models automatically.
 
 - **One call at a time.** A call while another runs rejects `busy`; cancel the old one with its `AbortSignal`, which
   stops the native decode and rejects with `signal.reason` once it has stopped, or a fixed-message `AbortError` when
