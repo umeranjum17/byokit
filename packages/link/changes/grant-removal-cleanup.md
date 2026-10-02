@@ -1,0 +1,1 @@
+- Add optional `onGrantRemoved` privacy cleanup at the canonical durable grant-removal, expiry and authority-change boundary, including offline grants. Access is invalidated before cleanup is awaited; socket drops do not trigger it, and cleanup failure never restores access.
