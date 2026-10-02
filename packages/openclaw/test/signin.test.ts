@@ -66,6 +66,179 @@ const get = (port: number, path: string): Promise<{ status: number; body: string
   req.end();
 });
 
+test('auth reload: a local paste wait or flushed/orphaned answer is reconfirmed for only the selected agent', async (t) => {
+  for (const wait of ['paste', 'flushed', 'orphaned', 'approval'] as const) await t.test(wait, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    let disconnect: (() => void) | undefined;
+    let stored = false;
+    let rejectAnswer: ((error: Error) => void) | undefined;
+    let terminal: SignInView | undefined;
+    const fake = scripted({
+      'models.authStatus': (params) => {
+        assert.equal(params.agentId, 'selected');
+        return { providers: stored ? [{ provider: 'openai', profiles: [
+          { profileId: 'openai:selected', type: 'oauth', status: 'ok', expiry: { at: Date.now() + 999_999 } },
+        ] }] : [] };
+      },
+      'openclaw.setup.auth.start': () => ({ done: false }),
+      'wizard.next': (params, options) => {
+        if (!params.answer) return { step: wait === 'approval' ? DEVICE_STEP
+          : { id: 'login', type: wait === 'paste' ? 'text' : 'note', externalUrl: 'https://example.test/signin' } };
+        assert.equal(options.timeoutMs, wait === 'approval' ? null : 120_000);
+        return new Promise((_resolve, reject) => {
+          rejectAnswer = reject;
+          // Model the pinned client: numeric requests time out and close flush rejects, not an immortal RPC.
+          const timer = options.timeoutMs === null ? undefined
+            : setTimeout(() => reject(new Error('request timed out')), options.timeoutMs);
+          options.signal.addEventListener('abort', () => { clearTimeout(timer); reject(new Error('aborted')); }, { once: true });
+        });
+      },
+      'wizard.cancel': () => ({}),
+    });
+    const via = wait === 'approval' ? 'code' : 'browser';
+    const handle = signIn(ctx(fake, { onDisconnect: (fn) => { disconnect = fn; return () => { disconnect = undefined; }; } }),
+      'selected', { authChoice: wait === 'approval' ? 'openai-device-code' : 'openai', via },
+      (view) => { if (view.state !== 'waiting') terminal = view; });
+    await turn();
+    stored = true; // the engine commits credentials, then SIGUSR1 destroys its in-memory wizard
+    if (wait === 'flushed') rejectAnswer?.(new Error('gateway closed (1012): service restart'));
+    disconnect?.();
+    await turn();
+    // A 186s observation does not imply an immortal RPC: paste waits have their own 15 minute clock.
+    t.mock.timers.tick(186_000);
+    await turn();
+    try {
+      assert.deepEqual(terminal, { state: 'done', via });
+      assert.deepEqual(await handle.done, terminal);
+      assert.equal(disconnect, undefined, 'the restart listener is released');
+    } finally { handle.cancel(); await handle.done; }
+  });
+});
+
+test('auth reload: restart, unrelated/old accounts, pending credentials, errors and cancellation never imply done', async (t) => {
+  const ready = { provider: 'openai', profiles: [
+    { profileId: 'openai:selected', type: 'oauth', status: 'ok', expiry: { at: Date.now() + 999_999 } },
+  ] };
+  const cases = ['missing', 'pending', 'other-provider', 'unchanged', 'unavailable', 'read-error', 'read-stalled',
+    'cancel', 'abort', 'no-restart', 'wizard-error', 'unknown-before', 'api-key', 'expired', 'refreshed-existing', 'device-expiry', 'legacy-before', 'unknown-profiles-before'] as const;
+  for (const scenario of cases) await t.test(scenario, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+    let disconnect: (() => void) | undefined;
+    let reloaded = false;
+    let reads = 0;
+    const controller = new AbortController();
+    const fake = scripted({
+      'models.authStatus': (params) => {
+        assert.equal(params.agentId, 'selected', 'no fallback to main or another member');
+        reads++;
+        if (!reloaded) return scenario === 'unknown-before' ? {}
+          : scenario === 'legacy-before' ? { providers: ['openai'] }
+          : scenario === 'unknown-profiles-before' ? { providers: [{ provider: 'openai', status: 'ok' }] }
+          : { providers: scenario === 'unchanged' ? [ready]
+          : scenario === 'refreshed-existing' ? [{ ...ready, profiles: [{ ...ready.profiles[0], status: 'expired',
+            expiry: { at: Date.now() - 1 } }] }] : [] };
+        if (scenario === 'read-error') throw new Error('unavailable');
+        if (scenario === 'read-stalled') return new Promise(() => {});
+        if (scenario === 'unavailable') return { unavailable: {}, providers: [ready] };
+        const row = scenario === 'other-provider' ? { ...ready, provider: 'other' }
+          : scenario === 'pending' || scenario === 'device-expiry' ? { ...ready, profiles: [{ ...ready.profiles[0], status: 'pending' }] }
+          : scenario === 'api-key' ? { ...ready, profiles: [{ ...ready.profiles[0], type: 'api_key', status: 'static' }] }
+          : scenario === 'expired' ? { ...ready, profiles: [{ ...ready.profiles[0], expiry: { at: Date.now() - 1 } }] }
+          : ready;
+        return { providers: scenario === 'missing' ? [] : [row] };
+      },
+      'openclaw.setup.auth.start': () => ({ done: false }),
+      'wizard.next': (params) => scenario === 'wizard-error' ? { done: true, status: 'error', error: 'login denied' }
+        : scenario === 'device-expiry' ? params.answer ? new Promise(() => {})
+          : { step: { ...DEVICE_STEP, deviceCode: { code: 'TEST', expires_in: 1 } } }
+        : { step: { id: 'manual', type: 'text' } },
+      'wizard.cancel': () => ({}),
+    });
+    const views: SignInView[] = [];
+    const handle = signIn(ctx(fake, { onDisconnect: (fn) => { disconnect = fn; return () => { disconnect = undefined; }; } }),
+      'selected', { authChoice: scenario === 'device-expiry' ? 'openai-device-code' : 'openai', signal: controller.signal },
+      (v) => views.push(v));
+    await turn();
+    reloaded = true;
+    if (scenario !== 'no-restart' && scenario !== 'wizard-error') disconnect?.();
+    if (scenario === 'cancel' || scenario === 'no-restart') handle.cancel();
+    if (scenario === 'abort') controller.abort();
+    await turn();
+    t.mock.timers.tick(60_000);
+    await turn();
+    const end = await handle.done;
+    assert.equal(end.state, 'failed');
+    if (scenario === 'device-expiry') assert.equal(end.why, 'expired');
+    assert.equal(views.filter((v) => v.state === 'done').length, 0);
+    assert.equal(disconnect, undefined);
+    if (scenario === 'no-restart') assert.equal(reads, 1, 'no background polling without a disconnect');
+    assert.equal(fake.calls.filter((c) => c.method === 'wizard.cancel').length, 1);
+  });
+});
+
+test('auth reload: the kit facade reconfirms through the replacement transport, never the dead socket', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  let stored = false;
+  const gateway = fakeGateway({
+    'openclaw.setup.auth.start': () => ({ done: false }),
+    'wizard.next': () => ({ step: { id: 'manual', type: 'text' } }),
+    'models.authStatus': (params) => {
+      assert.equal(params.agentId, 'selected');
+      return { providers: stored ? [{ provider: 'openai', profiles: [
+        { profileId: 'openai:selected', type: 'oauth', status: 'ok', expiry: { at: Date.now() + 999_999 } },
+      ] }] : [] };
+    },
+  });
+  const stateDir = scratchDir('signin-reconnect');
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: gateway.factory, callbackPort: 0 });
+  try {
+    await kit.start();
+    const handle = kit.signIn('selected', { authChoice: 'openai' }, () => {});
+    await turn();
+    stored = true;
+    gateway.drop('service restart');
+    await turn();
+    // With no child in this fixture the host reconnects; production's existing closed() supervision owns it.
+    await kit.start();
+    t.mock.timers.tick(1_000);
+    await turn();
+    assert.deepEqual(await handle.done, { state: 'done', via: 'browser' });
+    assert.equal(kit.state.phase, 'ready');
+    assert.equal(gateway.calls.filter((c) => c.method === 'openclaw.setup.auth.start').length, 1);
+    assert.equal(gateway.calls.filter((c) => c.method === 'models.authStatus').length, 2);
+  } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a flushed RPC or cancellation still settles exactly once when reconnect cleanup throws synchronously', async (t) => {
+  for (const scenario of ['flushed', 'cancel'] as const) await t.test(scenario, async () => {
+    const fake = scripted({
+      'openclaw.setup.auth.start': () => ({ done: false }),
+      'wizard.next': (_params, options) => {
+        if (scenario === 'flushed') throw new Error('gateway closed (1012): service restart');
+        return new Promise((_resolve, reject) => {
+          options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+        });
+      },
+    });
+    const request: GatewayTransport['request'] = (method, params, options) => {
+      // The kit facade throws synchronously from request() after closed() has cleared its live transport.
+      if (method === 'wizard.cancel') throw new Error('gateway not ready');
+      return fake.request(method, params, options);
+    };
+    const terminals: SignInView[] = [];
+    const handle = signIn(ctx(fake, { request }), 'selected', { authChoice: 'openai-device-code', via: 'code' },
+      (v) => { if (v.state !== 'waiting') terminals.push(v); });
+    await turn();
+    if (scenario === 'cancel') handle.cancel();
+    await turn();
+    assert.equal(terminals.length, 1, 'cleanup failure must not strand or duplicate the terminal view');
+    assert.equal((await handle.done).why, scenario === 'cancel' ? 'declined' : 'failed');
+    handle.cancel();
+    await turn();
+    assert.equal(terminals.length, 1);
+  });
+});
+
 test('sign-in: the device code is pulled and shown, and the card finishes when the engine does', async () => {
   const fake = scripted({
     'openclaw.setup.auth.start': () => ({ sessionId: 'byokit-fake-1', done: false, status: 'running' }),
