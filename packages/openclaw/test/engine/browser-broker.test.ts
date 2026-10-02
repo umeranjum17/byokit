@@ -13,7 +13,7 @@ import { randomInt, createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { chromium } from 'playwright';
 import { WebSocket } from 'ws';
-import { launchBroker, type Broker, type ViewerSession } from '../../src/browser/broker.ts';
+import { BrowserSandboxUnavailable, launchBroker, type Broker, type ViewerSession } from '../../src/browser/broker.ts';
 
 const require = createRequire(import.meta.url);
 const run = promisify(execFile);
@@ -179,6 +179,17 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
   try {
     await until(() => exists(`/tmp/.X11-unix/X${display}`));
     assert.ok(display > 0); assert.equal(await listening(x.pid!), 0);
+    // Restricted negative: user namespaces disabled for this one launch (hosted Ubuntu's default); never unsandboxed.
+    let sandboxNegative = 'bwrap absent: restricted negative covered by the fake fixture only';
+    if (await exists('/usr/bin/bwrap')) {
+      const restricted = join(dir, 'chromium-no-userns');
+      await writeFile(restricted, `#!/bin/sh\nexec /usr/bin/bwrap --dev-bind / / --unshare-user --disable-userns -- '${wrapper.replaceAll("'", "'\\''")}' "$@"\n`);
+      await chmod(restricted, 0o700);
+      const refused = await launchBroker({ executablePath: restricted, profileDir: join(dir, 'restricted-profile'), member: 'fixture', onExit() {} }).catch(e => e);
+      assert.ok(refused instanceof BrowserSandboxUnavailable, 'a launch without usable sandbox is typed sandbox-unavailable');
+      sandboxNegative = 'restricted launch typed sandbox-unavailable';
+    }
+    stage = 'launch';
     broker = await launchBroker({ executablePath: wrapper, profileDir, member: 'fixture', onExit() {} });
     const owned = await children(process.pid);
     const mains = [];
@@ -198,6 +209,11 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
     assert.equal(await exists(join(profileDir, 'DevToolsActivePort')), false);
     const cmd = await readFile(`/proc/${mains[0]}/cmdline`, 'utf8');
     assert.ok(cmd.includes('--remote-debugging-pipe')); assert.ok(cmd.includes('BackForwardCache'));
+    assert.equal(cmd.includes('--no-sandbox'), false);
+    const mainNs = await readlink(`/proc/${mains[0]}/ns/user`);
+    const childNs = await Promise.all(chromePids.slice(1).map(pid => readlink(`/proc/${pid}/ns/user`).catch(() => mainNs)));
+    assert.ok(childNs.some(ns => ns !== mainNs), 'sandboxed Chromium children run in their own user namespace');
+    t.diagnostic(`sandbox: native launch sandboxed (child user namespace); ${sandboxNegative}`);
     const endpoint = broker.endpoint().cdpUrl;
     assert.equal(new URL(endpoint).hostname, '127.0.0.1');
     assert.equal((await (await fetch(discovery(endpoint, 'version'))).json()).webSocketDebuggerUrl, endpoint);

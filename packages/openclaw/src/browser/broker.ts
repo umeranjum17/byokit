@@ -1,5 +1,6 @@
 // Internal W1/W2 seam. The pipe is the only Chromium debugging transport; agents never own it.
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -63,6 +64,11 @@ const equal = (a: string, b: string) => {
   return aa.length === bb.length && timingSafeEqual(aa, bb);
 };
 const failure = () => new Error('byokit: browser command failed');
+/** Chromium refused to start without its sandbox (e.g. unprivileged user namespaces disabled). The broker never runs it unsandboxed. */
+export class BrowserSandboxUnavailable extends Error {
+  readonly reason = 'sandbox-unavailable';
+  constructor() { super('byokit: browser sandbox unavailable'); }
+}
 const origin = (url: string) => { try { return new URL(url).origin; } catch { return 'null'; } };
 const exactOrigin = (value: string) => origin(value) !== 'null' && origin(value) === value;
 const secureOrigin = (value: string) => {
@@ -150,8 +156,13 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
     '--disable-component-update', '--disable-sync', '--no-first-run', '--no-default-browser-check', 'about:blank'], {
     // No inherited HOME, login, proxy, DISPLAY or debugging port. Chromium's profile is app-owned.
     env: { HOME: o.profileDir, TMPDIR: privateTemp },
-    stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe', 'ignore', 'ignore', 'ignore', 'ignore', 'ignore'], // never inherit the caller's fd9 job lock
+    stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe', 'ignore', 'ignore', 'ignore', 'ignore', 'ignore'], // never inherit the caller's fd9 job lock
   });
+  // Startup stderr stays in memory only to classify a sandbox refusal; it is never logged, returned or kept.
+  let startup = '';
+  const stderr = chrome.stderr!;
+  const collect = (b: Buffer) => { if (startup.length < 16_384) startup += b.toString(); };
+  stderr.on('data', collect);
   const writer = chrome.stdio[3] as Writable, reader = chrome.stdio[4] as Readable;
   const token = randomBytes(16).toString('hex');
   // Chromium's canonical browser path: the pinned engine strips /devtools/browser/<id> to find /json/* discovery.
@@ -502,7 +513,14 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
     lastAgent = (result.targetInfos as Target[]).find(t => t.type === 'page')?.targetId;
     await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', () => resolve()); });
     port = (server.address() as { port: number }).port;
-  } catch { await close(); throw failure(); }
+  } catch {
+    await close();
+    if (!stderr.closed) await Promise.race([once(stderr, 'close'), new Promise(resolve => setTimeout(resolve, 1000))]);
+    const sandbox = startup.includes('No usable sandbox');
+    startup = '';
+    throw sandbox ? new BrowserSandboxUnavailable() : failure();
+  }
+  stderr.off('data', collect); startup = ''; stderr.resume(); // keep draining, keep nothing
 
   return {
     bindLease(l) {

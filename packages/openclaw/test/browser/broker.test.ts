@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { once } from 'node:events';
 import { get } from 'node:http';
 import { WebSocket } from 'ws';
-import { launchBroker } from '../../src/browser/broker.ts';
+import { BrowserSandboxUnavailable, launchBroker } from '../../src/browser/broker.ts';
 
 // This executable is a synthetic peer on Chromium's inherited fd3/fd4, not an injectable production transport.
 const peer = `#!${process.execPath}
@@ -228,5 +228,21 @@ test('missing explicit Chromium executable fails promptly without awaiting a non
   const dir = await mkdtemp(join(tmpdir(), 'broker-missing-'));
   try {
     await assert.rejects(launchBroker({ executablePath: join(dir, 'missing'), profileDir: join(dir, 'p'), member: 'fixture', onExit() {} }), /browser command failed/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('a sandbox refusal at launch is typed; any other early exit stays a generic failure', { timeout: 5000 }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'broker-sandbox-'));
+  try {
+    const launch = async (name: string, stderr: string, code: number) => {
+      const executablePath = join(dir, name);
+      await writeFile(executablePath, `#!${process.execPath}\nprocess.stderr.write(${JSON.stringify(stderr)}); process.exitCode = ${code};\n`); await chmod(executablePath, 0o700);
+      return launchBroker({ executablePath, profileDir: join(dir, `${name}-profile`), member: 'fixture', onExit() {} });
+    };
+    const refused = await launch('restricted', '[1:1:FATAL:zygote_host_impl_linux.cc(129)] No usable sandbox! synthetic-private-canary\n', 134).catch(e => e);
+    assert.ok(refused instanceof BrowserSandboxUnavailable && refused.reason === 'sandbox-unavailable');
+    assert.equal(refused.message.includes('canary'), false); // stderr never reaches the error
+    const other = await launch('crashed', 'something else\n', 1).catch(e => e);
+    assert.ok(!(other instanceof BrowserSandboxUnavailable) && /browser command failed/.test(other.message));
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
