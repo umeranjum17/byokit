@@ -60,16 +60,16 @@ export function generateRoutes(): Route[] {
     const variant = aliases[p.id] && aliases[p.id] !== p.id && !['openai-codex', 'amazon-bedrock', 'google', 'kimi-coding', 'moonshotai', 'azure-openai-responses'].includes(p.id) ? p.id : undefined;
     if (p.auth.apiKey) {
       if (p.id === 'amazon-bedrock') {
-        add(p.id, p.name, 'key', 'api', 'bearer-token', undefined, { platforms: nodeHost });
-        for (const method of ['aws-profile', 'credential-chain']) add(p.id, p.name, 'cloud', 'api', method, method, { platforms: nodeHost, label: 'Cloud account (billed per use by Amazon Web Services)' });
-        add(p.id, p.name, 'endpoint', 'unknown', 'skip-auth', 'skip-auth', { billingFrom: 'host', platforms: nodeHost, label: 'Your own server (billing you choose)' });
+        add(p.id, p.name, 'key', 'api', 'bearer-token', undefined, { platforms: node });
+        for (const method of ['aws-profile', 'credential-chain']) add(p.id, p.name, 'cloud', 'api', method, method, { platforms: node, label: 'Cloud account (billed per use by Amazon Web Services)' });
+        add(p.id, p.name, 'endpoint', 'unknown', 'skip-auth', 'skip-auth', { billingFrom: 'host', platforms: node, label: 'Your own server (billing you choose)' });
       } else {
         if (!envMap[p.id] && p.id !== 'github-copilot' && p.id !== 'anthropic') throw new Error(`Missing key metadata for ${p.id}`);
         const billing = planKeys.has(p.id) ? 'subscription' : p.id === 'radius' ? 'unknown' : 'api';
         add(p.id, p.name, planKeys.has(p.id) ? 'plan_key' : 'key', billing, envMap[p.id] ?? (p.id === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'COPILOT_GITHUB_TOKEN'), variant, {
           ...(p.id === 'github-copilot' ? { billing: 'subscription', offer: 'default', label: `Uses your ${p.name} plan` } : {}),
           ...(['anthropic', 'openai', 'openrouter'].includes(p.id) ? { platforms: all } : {}),
-          ...(['google-vertex', 'azure-openai-responses', 'cloudflare-ai-gateway', 'cloudflare-workers-ai'].includes(p.id) ? { platforms: nodeHost } : {}),
+          ...(['google-vertex', 'azure-openai-responses', 'cloudflare-ai-gateway', 'cloudflare-workers-ai'].includes(p.id) ? { platforms: node } : {}),
         });
       }
     }
@@ -93,7 +93,7 @@ export function generateRoutes(): Route[] {
       add(p.id, 'Claude', 'setup_token', 'subscription', 'ANTHROPIC_OAUTH_TOKEN');
       add(p.id, p.name, 'key', 'unknown', 'ANTHROPIC_AUTH_TOKEN', 'bearer');
     }
-    if (p.id === 'google-vertex') for (const method of ['adc', 'service-account']) add(p.id, p.name, 'cloud', 'api', method, method, { platforms: nodeHost, label: 'Cloud account (billed per use by Google)' });
+    if (p.id === 'google-vertex') for (const method of ['adc', 'service-account']) add(p.id, p.name, 'cloud', 'api', method, method, { platforms: node, label: 'Cloud account (billed per use by Google)' });
     if (p.id === 'cloudflare-ai-gateway') add(p.id, p.name, 'cloud', 'api', 'workers-binding', 'workers-binding', { platforms: { node: 'host', browser: 'no', rn: 'no' }, label: 'Cloud account (billed per use by Cloudflare)' });
   }
   add('custom', 'Your own server', 'endpoint', 'unknown', 'createProvider', undefined, { billingFrom: 'host', label: 'Your own server (billing you choose)' });

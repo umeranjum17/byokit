@@ -235,7 +235,7 @@
     "billingFrom": "source",
     "offer": "explicit",
     "platforms": {
-      "node": "host",
+      "node": "yes",
       "browser": "no",
       "rn": "no"
     },
@@ -261,7 +261,7 @@
     "billingFrom": "source",
     "offer": "explicit",
     "platforms": {
-      "node": "host",
+      "node": "yes",
       "browser": "no",
       "rn": "no"
     },
@@ -287,7 +287,7 @@
     "billingFrom": "host",
     "offer": "explicit",
     "platforms": {
-      "node": "host",
+      "node": "yes",
       "browser": "no",
       "rn": "no"
     },
@@ -313,7 +313,7 @@
     "billingFrom": "source",
     "offer": "explicit",
     "platforms": {
-      "node": "host",
+      "node": "yes",
       "browser": "no",
       "rn": "no"
     },
@@ -339,7 +339,7 @@
     "billingFrom": "source",
     "offer": "explicit",
     "platforms": {
-      "node": "host",
+      "node": "yes",
       "browser": "no",
       "rn": "no"
     },
@@ -439,7 +439,7 @@
     "billingFrom": "source",
     "offer": "explicit",
     "platforms": {
-      "node": "host",
+      "node": "yes",
       "browser": "no",
       "rn": "no"
     },
@@ -465,7 +465,7 @@
     "billingFrom": "source",
     "offer": "explicit",
     "platforms": {
-      "node": "host",
+      "node": "yes",
       "browser": "no",
       "rn": "no"
     },
@@ -659,7 +659,7 @@
     "billingFrom": "source",
     "offer": "explicit",
     "platforms": {
-      "node": "host",
+      "node": "yes",
       "browser": "no",
       "rn": "no"
     },
@@ -683,7 +683,7 @@
     "billingFrom": "source",
     "offer": "explicit",
     "platforms": {
-      "node": "host",
+      "node": "yes",
       "browser": "no",
       "rn": "no"
     },
@@ -707,7 +707,7 @@
     "billingFrom": "source",
     "offer": "explicit",
     "platforms": {
-      "node": "host",
+      "node": "yes",
       "browser": "no",
       "rn": "no"
     },

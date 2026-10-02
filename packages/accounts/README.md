@@ -822,3 +822,57 @@ Node/Electron use the pinned adapters directly. Browser/RN exports remain free o
 without an app-supplied same-device `endpointDriver`, the route is `needs_host`. Loopback additionally requires
 explicit `endpointHost: true`; its readiness is checked **before** opening any key backend. A driver must keep
 credentials on this device; this seam does not authorize forwarding them to a server or borrowing a default login.
+
+## Explicit cloud accounts (Node only)
+
+Cloud routes are discovered alongside plans, but always chosen explicitly and billed per use. `addCloud` (also
+`add(member, provider, options)`) saves configuration without a request or SDK credential check. Supply the member's
+`keyStore` for API/bearer keys; there is no plaintext fallback. `list`, `status` and defaults never probe AWS/ADC files
+or invoke a Workers binding. A ready cloud row means **configured**, not live authorization.
+
+```ts
+import { Accounts, type Model } from '@byokit/accounts';
+declare const model: Model<'bedrock-converse-stream'>; // the app's selected pinned Pi model
+const accounts = new Accounts(); // use the member's app-owned store for durable accounts
+const signal = new AbortController().signal;
+const { id } = await accounts.addCloud(1, 'aws-bedrock', {
+  route: 'aws-bedrock:cloud:aws-profile', via: 'cloud', profile: 'work',
+  home: '/person-selected/aws-home', region: 'us-east-1',
+});
+const stream = await accounts.cloudStream(1, id, model, {
+  messages: [{ role: 'user', content: 'Hello', timestamp: Date.now() }],
+}, { signal, maxTokens: 128 });
+for await (const event of stream) { /* show typed Pi events */ }
+const answer = await stream.result(); // or accounts.cloudComplete(...), returning Pi's AssistantMessage
+```
+
+| Provider/method | Explicit settings |
+| --- | --- |
+| Bedrock profile / SDK chain | `profile` + selected absolute `home`, or selected absolute `home`; both require `region` |
+| Bedrock bearer token | `via:'key'`, `key`, `region` |
+| Vertex ADC | `project`, `location`, and a picked absolute `keyFile` or selected absolute `home` |
+| Vertex service account | `project`, `location`, picked absolute `keyFile` |
+| Vertex API key | `via:'key'`, `key` (placeholder keys are refused, never converted to ADC) |
+| Azure API key | `via:'key'`, `key`, `baseUrl` |
+| Cloudflare API key | `via:'key'`, `key`, `accountId`, plus `gatewayId` for AI Gateway |
+| Cloudflare Workers AI binding | `via:'cloud'`, `binding` name, `gatewayId`, explicit `https://workers-binding.ai/ai-gateway/gateways/<gateway>/<provider>` base URL; app supplies `cloudBinding(member, name)` |
+| Bedrock skip-auth endpoint | `via:'endpoint'`, explicit `baseUrl`, `region` and `billing`; no key, bearer token or profile |
+
+`route` is the exact ID from `routes()`. Paths/profiles/regions and binding names are non-secret account metadata;
+keys remain exclusively in `keyStore`. The binding object is never persisted; its factory runs only for an explicit
+request. The binding transport uses the pinned `createAiBindingFetch`, without an HTTP-token fallback.
+
+AWS and Vertex SDK requests use an isolated Node child per request: no inherited provider env, proxy credentials,
+`NODE_OPTIONS` or default HOME. Only the selected home/path is available; the app's `process.env` is unchanged. The SDK
+chain opts into that selected home's configuration and native role resolution, not the app's environment keys.
+Streams use pinned Pi adapters and native typed tuning/callback options; authentication, environment, auth headers and
+account endpoints are sealed to the selection. Cancellation stops the child; public errors/events redact the selected
+key. Custom fetch works with Azure/Cloudflare; SDK routes use their native transport.
+
+For skip-auth, stock Pi signs the device-internal loopback hop with placeholder credentials; the kit's per-request
+forwarder checks that placeholder signature and strips it **before egress**. The selected endpoint receives no AWS
+signature. Limits: HTTP/1.1 only, no proxy/custom CA, and no endpoint `Authorization` header. Caller headers are not
+unchanged: Pi drops reserved `authorization`, `host`, `x-amz-*`; the forwarder drops signing and hop-by-hop headers.
+Native parameters, tools, events, usage, hooks and retry settings still use the stock adapter. No live endpoint or
+vendor qualification is claimed. Browser/RN cloud operations return `unsupported_platform` before credential access;
+plans never fall back to a cloud/API account.

@@ -3,10 +3,12 @@
 // The engine does the signing in (Pi's own flows on a computer, portableEngine on phones and in browsers); the app only
 // shows the provider's page to open or the code to type. No Node import here: see index.ts for the computer's side.
 import type { Keystore } from '@byokit/secrets';
-import type { AuthPrompt, CredentialStore, Models } from '@earendil-works/pi-ai';
+import type { Api, ApiStreamOptions, AssistantMessage, AssistantMessageEventStream, AuthPrompt, CredentialStore, Model, Models, Context } from '@earendil-works/pi-ai';
+import { cloudSelection, CloudAccountError, type CloudOptions, type CloudStream } from './cloud.ts';
+import type { AiBinding } from '@earendil-works/pi-ai/api/cloudflare-ai-binding';
 import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfile, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
-import { offered, provider, route, type Provider, type Readiness } from './catalogue.ts';
+import { offered, provider, route, type Provider, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
 import { claims, PORTABLE, portableEngine } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
@@ -34,9 +36,9 @@ type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text
 /** Listens on this computer for the provider's page coming back: each request's path in, the page to answer with out. */
 export type Loopback = (port: number, handle: (path: string) => Promise<{ status: number; html: string }>) => Promise<{ close(): void }>;
 /** What differs by platform: the engine that signs in, which providers it can, and (on a computer) a loopback listener. */
-export type Platform = { engine: (credentials: CredentialStore, authBase?: string) => AuthHost; signsIn: (pi: string) => boolean; loopback?: Loopback; endpoint?: EndpointDriver };
+export type Platform = { kind?: 'node' | 'browser' | 'rn'; engine: (credentials: CredentialStore, authBase?: string) => AuthHost; signsIn: (pi: string) => boolean; loopback?: Loopback; endpoint?: EndpointDriver; cloudStream?: CloudStream };
 /** Phones and browsers: ChatGPT by device code, no listener. */
-export const portable: Platform = { engine: (c, base) => portableEngine(c, { base }), signsIn: (pi) => pi === CLAUDE_PLAN_ID || PORTABLE.includes(pi) };
+export const portable: Platform = { kind: 'browser', engine: (c, base) => portableEngine(c, { base }), signsIn: (pi) => pi === CLAUDE_PLAN_ID || PORTABLE.includes(pi) };
 
 export type ClaudePlanAsk = AnthropicAsk & { provider: 'claude' };
 
@@ -53,6 +55,8 @@ export type AccountsOptions<M extends Member = Member> = {
   endpointDriver?: EndpointDriver;
   /** The host driver can reach loopback on this device (never inferred from billing). */
   endpointHost?: boolean;
+  /** Explicit app-owned Workers AI binding by the selected non-secret name; never called at save/list/default time. */
+  cloudBinding?: (member: M, name: string) => AiBinding | undefined;
   /** The app's name, for the page the provider's sign-in sends the browser back to. */
   app?: string;
   /** Longest a sign-in may wait: longer than any provider's code lives. */
@@ -140,12 +144,20 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   private publicKey(key: string) { return this.providers.find((p) => p.pi === key)?.key ?? key; }
   private index(member: M) { return this.store(member).index(); }
   private async endpointRecord(member: M, id: string) { return (await this.index(member)).accounts?.[id]?.endpoint; }
+  private cloudHost(): RouteHost { return { platform: this.platform.kind ?? (this.platform.cloudStream ? 'node' : 'browser'), hostSide: !!this.opts.cloudBinding }; }
 
   async list(member: M): Promise<Account[]> {
     const index = await this.index(member);
     const rows: Account[] = [];
     for (const c of await this.store(member).list()) {
       const id = this.publicKey(c.providerId);
+      const cloud = index.accounts?.[id]?.cloud;
+      if (cloud) {
+        const r = route(cloud.route, this.cloudHost());
+        const status = await this.cloudStatus(member, id);
+        rows.push({ id, provider: cloud.provider, route: cloud.route, name: index.names[id] ?? r.name, label: cloud.billing === r.billing ? r.label : `Your own server (${cloud.billing} billing)`, billing: cloud.billing, state: status.state, addedAt: index.addedAt[id] ?? 0 });
+        continue;
+      }
       const p = this.providers.find((p) => p.key === this.providerKey(id));
       if (!p) continue;
       const status = await this.accountStatus(member, id);
@@ -263,7 +275,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       await this.resolveKey(member, this.providerKey(id));
     }
   }
-  async add(member: M, key: string, options: Omit<SignInOptions, 'via'> & { via?: Via; key?: string } = {}): Promise<{ id: string; signIn?: SignIn }> {
+  async add(member: M, key: string, options: (Omit<SignInOptions, 'via'> & { via?: Via; key?: string }) | CloudOptions = {}): Promise<{ id: string; signIn?: SignIn }> {
+    if ('route' in options) return this.addCloud(member, key, options);
     const p = this.offer(key);
     if (p.auth === 'api-key' || options.key || options.via === 'key' || options.via === 'session') throw new Error('This sign-in method is not available here.');
     if (key !== p.key) throw new Error('Choose a provider to add an account.');
@@ -281,6 +294,55 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const signIn = await this.login(member, id, { ...options, via: options.via as SignInOptions['via'], fresh: true });
     return { id, ...(signIn ? { signIn } : {}) };
   }
+  /** Explicit Node-only cloud account. Saving never resolves SDK credentials, reads paths or sends a request. */
+  async addCloud(member: M, provider: string, options: CloudOptions): Promise<{ id: string }> {
+    if (this.cloudHost().platform !== 'node') throw new CloudAccountError('unsupported_platform');
+    if (!this.platform.cloudStream) throw new CloudAccountError('needs_host');
+    const cloud = cloudSelection(provider, options, this.cloudHost());
+    await this.store(member).index(() => {});
+    const id = `${provider}.${globalThis.crypto.randomUUID()}`;
+    if (await this.store(member).read(id)) throw new Error('Try adding this account again.');
+    const metadata: AccountMetadata = { route: cloud.route, billing: cloud.billing, cloud };
+    if (options.via === 'key') await this.saveAccountKey(member, id, options.key!, metadata);
+    else await this.store(member).index((index, data) => {
+      data[id] = { type: 'api_key' };
+      (index.accounts ??= {})[id] = metadata;
+      index.addedAt[id] = Date.now();
+    });
+    this.onChange?.(member, id);
+    return { id };
+  }
+
+  private async cloudStatus(member: M, id: string): Promise<Status> {
+    const a = (await this.index(member)).accounts?.[id]?.cloud;
+    if (!a) throw new Error('No such cloud account.');
+    const r = route(a.route, this.cloudHost());
+    // Configuration readiness is not a live credential/permissions check. No profile, ADC or SDK probing here.
+    const state = !this.platform.cloudStream || r.readiness !== 'ready' ? 'not_included' : r.via === 'key' && !(await this.keys(member, (store) => store.get(`accounts.${id}`))) ? 'signed_out' : 'ready';
+    return { id, provider: a.provider, account: id, name: r.name, state, words: state === 'ready' ? 'Cloud account configured; credentials checked when you ask.' : state === 'signed_out' ? 'Connect this cloud account again.' : r.why ?? 'Cloud account needs its host adapter.' };
+  }
+
+  /** Full pinned Pi API stream for one explicitly selected cloud account; never a billing/provider fallback. */
+  async cloudStream<A extends Api>(member: M, id: string, model: Model<A>, context: Context, options?: ApiStreamOptions<A>): Promise<AssistantMessageEventStream> {
+    if (!this.platform.cloudStream || this.cloudHost().platform !== 'node') throw new CloudAccountError('unsupported_platform');
+    return this.serial(`${member}:${id}`, async () => {
+      const a = (await this.index(member)).accounts?.[id]?.cloud;
+      if (!a || model.provider !== a.upstream) throw new CloudAccountError('invalid_selection');
+      const r = route(a.route, { platform: 'node', hostSide: !!this.opts.cloudBinding });
+      if (r.readiness !== 'ready') throw new CloudAccountError(r.readiness);
+      const key = r.via === 'key' ? await this.keys(member, (store) => store.get(`accounts.${id}`)) : undefined;
+      if (r.via === 'key' && !key) throw new Error('Connect this cloud account again.');
+      let binding: AiBinding | undefined;
+      try { if (a.binding) binding = this.opts.cloudBinding?.(member, a.binding); }
+      catch { throw new CloudAccountError('needs_host'); }
+      if (a.binding && !binding) throw new CloudAccountError('needs_host');
+      return this.platform.cloudStream!(a, key ?? undefined, model, context, options, binding);
+    });
+  }
+  async cloudComplete<A extends Api>(member: M, id: string, model: Model<A>, context: Context, options?: ApiStreamOptions<A>): Promise<AssistantMessage> {
+    return (await this.cloudStream(member, id, model, context, options)).result();
+  }
+
   private identity(c: Credential | undefined): string | undefined {
     if (c?.type !== 'oauth') return undefined;
     if (typeof c.accountId === 'string' && c.accountId) return c.accountId;
@@ -522,6 +584,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** Signed in, from the engine's own side-effect-free check. */
   async signedIn(member: M, key: string) {
+    if ((await this.index(member)).accounts?.[key]?.cloud) return (await this.cloudStatus(member, key)).state === 'ready';
     key = this.additions.has(`${member}:${key}`) ? key : await this.resolveKey(member, key);
     const config = await this.endpointRecord(member, key);
     if (config) {
@@ -715,6 +778,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   private async accountStatus(member: M, key: string): Promise<Status> {
     if (await this.endpointRecord(member, key)) return this.endpointStatus(member, key);
+    if ((await this.index(member)).accounts?.[key]?.cloud) return this.cloudStatus(member, key);
     const { name } = this.offer(key);
     const id = `${member}:${key}`;
     const s = (state: Status['state'], w: WordKey, until?: number): Status => ({ id: key, provider: this.providerKey(key), account: key, name, state, until, words: say(w, { name, until: until ? clock(until) : '' }) });
@@ -1005,6 +1069,20 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const initial = this.accountKey(member, exact ? key : this.preferred.get(`${member}:${key}`) ?? key);
     const initialId = `${member}:${initial}`;
     this.generations.set(initialId, (this.generations.get(initialId) ?? 0) + 1);
+    if ((await this.index(member)).accounts?.[key]?.cloud) {
+      await this.serial(`${member}:${key}`, async () => {
+        const a = (await this.index(member)).accounts?.[key]?.cloud;
+        if (!a) return;
+        if (route(a.route).via === 'key') await this.keys(member, (store) => store.delete(`accounts.${key}`));
+        await this.store(member).index((index, data) => {
+          delete data[key]; delete index.accounts?.[key];
+          for (const map of [index.names, index.emails, index.plans, index.addedAt]) delete map[key];
+          if (index.defaults.account === key) delete index.defaults.account;
+        });
+      });
+      this.onChange?.(member, key);
+      return;
+    }
     key = exact || this.additions.has(`${member}:${key}`) ? this.accountKey(member, key) : await this.resolveKey(member, key);
     const p = this.offer(key);
     const id = `${member}:${key}`;
