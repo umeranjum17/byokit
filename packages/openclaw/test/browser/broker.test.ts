@@ -93,13 +93,19 @@ async function client(url: string) {
     return result;
   } };
 }
+// The pinned engine's discovery: strip Chromium's /devtools/browser/<id>, keep the query, append /json/<path>.
+function discovery(endpoint: string, path: string) {
+  const u = new URL(endpoint.replace(/^ws/, 'http'));
+  u.pathname = `${u.pathname.replace(/\/devtools\/browser\/[A-Za-z0-9._-]+$/, '')}/json/${path}`;
+  return u.href;
+}
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), 'broker-'));
   const executablePath = join(dir, 'chromium');
   await writeFile(executablePath, peer); await chmod(executablePath, 0o700);
   const broker = await launchBroker({ executablePath, profileDir: join(dir, 'profile'), member: 'fixture', onExit() {} });
   const endpoint = broker.endpoint().cdpUrl;
-  const http = endpoint.replace('ws:', 'http:').replace('/devtools/browser', '/json');
+  const http = endpoint.replace('ws:', 'http:').replace(/\/devtools\/browser\/[^?]+/, '/json');
   return { broker, endpoint, http, dir, async close() { await broker.close(); await rm(dir, { recursive: true, force: true }); } };
 }
 const lease = { epoch: 1, nonce: '0123456789abcdefghijklmnopqrstuv', origin: 'http://127.0.0.1:1', knownIdps: [] };
@@ -116,6 +122,11 @@ test('pipe broker: authenticated forwarding, all-client fence, private targets, 
     });
     assert.equal(foreign, 401);
     assert.equal((await fetch(`${http.origin}/json/list?token=wrong`)).status, 401);
+    assert.match(f.endpoint, /^ws:\/\/127\.0\.0\.1:\d+\/devtools\/browser\/[A-Za-z0-9._-]+\?token=[0-9a-f]+$/);
+    assert.equal((await (await fetch(discovery(f.endpoint, 'version'))).json()).webSocketDebuggerUrl, f.endpoint);
+    assert.equal((await fetch(discovery(f.endpoint, 'list'))).status, 200);
+    assert.equal((await fetch(discovery(f.endpoint.replace(/\/devtools\/browser\/[^?]+/, '/devtools/browser'), 'list'))).status, 404); // the old bare path breaks engine discovery
+    await assert.rejects(client(f.endpoint.replace(/\/devtools\/browser\/[^?]+/, '/devtools/browser'))); // only the canonical browser path upgrades
     const agent = await client(f.endpoint), sibling = await client(f.endpoint);
     const attached = await agent.send('Target.attachToTarget', { targetId: 'agent', flatten: true });
     const sid = attached.result!.sessionId as string;

@@ -42,6 +42,12 @@ async function until(check: () => boolean | Promise<boolean>, ms = 5000) {
     await new Promise(resolve => setTimeout(resolve, 10));
   }
 }
+// The pinned engine's discovery: strip Chromium's /devtools/browser/<id>, keep the query, append /json/<path>.
+function discovery(endpoint: string, path: string) {
+  const u = new URL(endpoint.replace(/^ws/, 'http'));
+  u.pathname = `${u.pathname.replace(/\/devtools\/browser\/[A-Za-z0-9._-]+$/, '')}/json/${path}`;
+  return u.href;
+}
 async function raw(url: string) {
   const ws = new WebSocket(url), frames: string[] = [], waiting = new Map<number, (value: any) => void>();
   let seq = 0;
@@ -194,6 +200,10 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
     assert.ok(cmd.includes('--remote-debugging-pipe')); assert.ok(cmd.includes('BackForwardCache'));
     const endpoint = broker.endpoint().cdpUrl;
     assert.equal(new URL(endpoint).hostname, '127.0.0.1');
+    assert.equal((await (await fetch(discovery(endpoint, 'version'))).json()).webSocketDebuggerUrl, endpoint);
+    const listed = await (await fetch(discovery(endpoint, 'list'))).json() as { id: string; webSocketDebuggerUrl: string }[];
+    assert.ok(listed.length > 0 && listed.every(t => new URL(t.webSocketDebuggerUrl).searchParams.get('token') === new URL(endpoint).searchParams.get('token')));
+    assert.equal((await fetch(discovery(endpoint.replace(/\/devtools\/browser\/[^?]+/, '/devtools/browser'), 'list'))).status, 404); // the old bare path breaks engine discovery
     const browser = await chromium.connectOverCDP(endpoint);
     const page = browser.contexts()[0]!.pages()[0]!;
     await page.goto(`${siteOrigin}/task`);

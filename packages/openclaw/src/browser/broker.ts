@@ -154,6 +154,8 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
   });
   const writer = chrome.stdio[3] as Writable, reader = chrome.stdio[4] as Readable;
   const token = randomBytes(16).toString('hex');
+  // Chromium's canonical browser path: the pinned engine strips /devtools/browser/<id> to find /json/* discovery.
+  const browserPath = `/devtools/browser/${randomBytes(16).toString('hex')}`;
   const pending = new Map<number, Pending>();
   const clients = new Set<Client>();
   const owners = new Map<string, Client>();
@@ -381,7 +383,7 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
         const v = await send('Browser.getVersion', {}, undefined, true);
         if (fenced) throw failure();
         json({ Browser: v.product, 'Protocol-Version': v.protocolVersion, 'User-Agent': v.userAgent,
-          webSocketDebuggerUrl: `ws://127.0.0.1:${port}/devtools/browser?token=${token}` }); return;
+          webSocketDebuggerUrl: `ws://127.0.0.1:${port}${browserPath}?token=${token}` }); return;
       }
       if (!match) { res.writeHead(404); res.end(); return; }
       const action = match[1], id = match[2];
@@ -408,7 +410,7 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     const page = url.pathname.match(/^\/devtools\/page\/([^/]+)$/)?.[1];
-    if (!authorized(req, url) || (!page && url.pathname !== '/devtools/browser') || (page && held.has(page))) {
+    if (!authorized(req, url) || (!page && url.pathname !== browserPath) || (page && held.has(page))) {
       socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n'); return;
     }
     if (poisoned || fenced && page) { socket.end('HTTP/1.1 409 Conflict\r\nConnection: close\r\n\r\n'); return; }
@@ -527,7 +529,7 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
       try { for (const current of origins) await send('Storage.clearDataForOrigin', { origin: current, storageTypes: 'all' }, sessionId); }
       finally { await send('Target.detachFromTarget', { sessionId }); }
     },
-    endpoint: () => ({ cdpUrl: `ws://127.0.0.1:${port}/devtools/browser?token=${token}` }),
+    endpoint: () => ({ cdpUrl: `ws://127.0.0.1:${port}${browserPath}?token=${token}` }),
     async fence(on) {
       if (!on) {
         if (poisoned || closed || held.size || openings.size || fenceJob || closingPrivate) throw failure();
