@@ -2797,7 +2797,7 @@ desklink, build and iOS-target checks (its share UI and watch need a paired home
 - **D5 Gradle** (`./gradlew assembleRelease :byokit-share:testDebugUnitTest`): the class set
   `node_modules/@desklink/react-native/android/build/**/kotlin-classes/**/DesklinkModule*.class` is non-empty, and
   `javap -c -p` over it finds zero matches of
-  `lukmccall/pika/(IsIntrospectableKt\.isIntrospectable|IntrospectionOfKt\.introspectionOf)|should be replaced by the compiler plugin|reified type parameter`;
+  `lukmccall/pika/(IsIntrospectableKt\.isIntrospectable|IntrospectionOfKt\.introspectionOf|TypeDescriptorOfKt\.throwNonReifiedTypeDescriptorError)|should be replaced by the compiler plugin|reified type parameter`;
   `node_modules/expo/android/build/generated/expo/src/main/java/expo/modules/ExpoModulesPackageList.kt` contains `io.github.umeranjum17.byokit.share` and not `expo.modules.shareintent`;
   post-Gradle `cmp` of every packed file of the five upstreams. The `javap` check stays [UNVERIFIED-RUNTIME] until a
   **negative control** (snippet removed → count above 0) passes; until then the D6 Crewhouse launch logcat is the gate.
