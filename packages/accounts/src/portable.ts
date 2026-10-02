@@ -1,7 +1,7 @@
 // @byokit/accounts on phones (React Native, Expo) and in browsers (a PWA, Electron's renderer): the same Accounts, with
 // ChatGPT by device code (portableEngine) and the phone's or browser's own storage. No Node module is imported.
 export { Accounts, planOf, portable, type AccountsOptions, type ClaudePlanAsk, type AnthropicAccountAsk, type AuthHost, type Loopback, type Member, type Platform, type SignIn, type Status } from './accounts.ts';
-export { PROVIDERS, offered, provider, type Billing, type MultiAccountTerms, type Provider } from './catalogue.ts';
+export { PROVIDERS, offered, provider, routes, route, routeReadiness, type Billing, type MultiAccountTerms, type Provider, type Route, type RouteView, type RouteVia, type RouteHost, type Support, type Readiness } from './catalogue.ts';
 export { PORTABLE, claims, credentialOf, devicePoll, deviceStart, portableEngine, type EngineOptions, type Poll } from './engine.ts';
 export { REST_MS, classify, classifyFailure, type Failure, type Kind } from './limits.ts';
 export { IncompleteError, ResponseError, isFunctionCall, limitResponse, respond, sseReader, type Ask, type ResponseFunctionCall, type ResponseInputItem, type ResponseOutputItem, type ResponseOutputMessage, type ResponseReasoning, type ResponseResult, type ResponseUsage, type ResponseStreamEvent, type ResponseText, type ResponseTextFormat, type ResponseTool, type ResponseToolChoice } from './responses.ts';

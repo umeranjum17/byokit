@@ -141,6 +141,9 @@
     },
     "billing": "subscription",
     "source": "https://chat.qwen.ai",
+    "offer": false,
+    "readiness": "no_upstream_flow",
+    "routes": ["qwen:browser"],
     "multiAccount": {
       "terms": "grey",
       "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
@@ -157,6 +160,9 @@
     },
     "billing": "subscription",
     "source": "https://www.minimax.io",
+    "offer": false,
+    "readiness": "no_upstream_flow",
+    "routes": ["minimax:key", "minimax:plan_key"],
     "multiAccount": {
       "terms": "grey",
       "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
