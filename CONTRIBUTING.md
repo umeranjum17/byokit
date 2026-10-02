@@ -68,7 +68,9 @@ SDK tars, dependency pins and existing qualification receipts are unchanged.
   Tests use an offline fake binary.
   `@byokit/usage` reads only the sign-in folder the app passes and spawns only the Codex binary the app passes
   by absolute path, with an environment built from nothing plus what the app passes; its tests use fakes only. `@byokit/overlay` and
-  `@byokit/statusbar` and `@byokit/push` run only their own native code inside the app or its notification extension. `@byokit/cloud` ([docs/cloud-kit.md](docs/cloud-kit.md)) spawns only the
+  `@byokit/statusbar` and `@byokit/push` run only their own native code inside the app or its notification extension.
+  `@byokit/share` runs only its own native code, copies shared content into the app's cache only under the sender's
+  grant, and its plugin edits only the generated `settings.gradle`, `build.gradle` and pbxproj. `@byokit/cloud` ([docs/cloud-kit.md](docs/cloud-kit.md)) spawns only the
   `ssh` binary the app passes by absolute path and the `ssh-keyscan` beside it, with the key path the app passes and a
   kit-owned config, and holds only the provider keys the app's store gives it and the scoped keys it mints for that
   app. Its tests use a loopback fake and a fake `ssh`. `@byokit/secrets` uses native OS keyring APIs or spawns
