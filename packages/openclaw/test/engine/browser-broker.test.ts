@@ -25,6 +25,16 @@ const available = await exists(executable);
 const mustRun = !!process.env.CI || process.env.BYOKIT_BROWSER_REQUIRED === '1';
 const marker = 'synthetic_broker_canary_7Q3e';
 
+// Independent fixture decoder: Chromium emits baseline/progressive SOF. Do not reuse production sizing.
+function encodedDimensions(jpeg: Uint8Array) {
+  const bytes = Buffer.from(jpeg);
+  for (let i = 2; i + 8 < bytes.length; i++) {
+    if (bytes[i] === 0xff && [0xc0, 0xc1, 0xc2].includes(bytes[i + 1]!)) {
+      return { w: bytes.readUInt16BE(i + 7), h: bytes.readUInt16BE(i + 5) };
+    }
+  }
+  throw new Error('fixture JPEG has no encoded dimensions');
+}
 async function until(check: () => boolean | Promise<boolean>, ms = 5000) {
   const deadline = Date.now() + ms;
   while (!await check()) {
@@ -190,8 +200,21 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
     const positive = await root.send('Runtime.evaluate', { expression: JSON.stringify(marker) }, sid);
     assert.equal(positive.result.result.value, marker);
     const view = broker.attachViewer({});
-    const seen = await view.frames[Symbol.asyncIterator]().next();
+    const liveFrames = view.frames[Symbol.asyncIterator]();
+    const seen = await liveFrames.next();
     assert.ok(!seen.done && seen.value.jpeg.byteLength > 100);
+    assert.deepEqual(encodedDimensions(seen.value.jpeg), { w: seen.value.w, h: seen.value.h });
+    const thumb = broker.attachViewer({ maxWidth: 320 });
+    const small = await thumb.frames[Symbol.asyncIterator]().next();
+    assert.ok(!small.done && small.value.w <= 320);
+    assert.deepEqual(encodedDimensions(small.value.jpeg), { w: small.value.w, h: small.value.h });
+    thumb.close();
+    await page.evaluate(() => { document.body.style.backgroundColor = 'rgb(18, 50, 92)'; });
+    let stillLive = await liveFrames.next();
+    while (!stillLive.done && Buffer.from(stillLive.value.jpeg).equals(Buffer.from(seen.value.jpeg))) stillLive = await liveFrames.next();
+    assert.ok(!stillLive.done); assert.equal(stillLive.value.w, seen.value.w);
+    assert.deepEqual(encodedDimensions(stillLive.value.jpeg), { w: stillLive.value.w, h: stillLive.value.h });
+    assert.throws(() => broker!.attachViewer({ maxWidth: 0 }));
     const baseline = root.frames.length;
     const received = new Promise<void>(resolve => {
       const listener = (data: WebSocket.RawData) => {
@@ -204,7 +227,7 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
     const started = Date.now(); await broker.fence(true);
     assert.ok(Date.now() - started >= 100); assert.ok((await flight).error);
     await until(() => root.ws.readyState === WebSocket.CLOSED && sibling.ws.readyState === WebSocket.CLOSED);
-    assert.equal((await view.frames[Symbol.asyncIterator]().next()).done, true);
+    assert.equal((await liveFrames.next()).done, true);
     const lease = { epoch: 1, nonce: '0123456789abcdefghijklmnopqrstuv', origin: siteOrigin, knownIdps: [] };
     broker.bindLease(lease);
     const privateId = await broker.openPrivate(`${siteOrigin}/login`);
@@ -217,14 +240,18 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
     assert.ok((await denied.send('Byokit.claimTakeover', { epoch: 0, nonce: lease.nonce })).error);
     assert.ok((await denied.send('Byokit.claimTakeover', { epoch: 1, nonce: 'wrong' })).error);
     const agentEnd = denied.frames.length;
-    const control = broker.attachViewer({ lease });
-    await control.frames[Symbol.asyncIterator]().next();
+    const control = broker.attachViewer({ lease, maxWidth: 320 });
+    const controlled = await control.frames[Symbol.asyncIterator]().next();
+    assert.ok(!controlled.done && controlled.value.w <= 320);
+    assert.deepEqual(encodedDimensions(controlled.value.jpeg), { w: controlled.value.w, h: controlled.value.h });
+    const sx = controlled.value.w / seen.value.w, sy = controlled.value.h / seen.value.h;
+    const controlPoint = (x: number, y: number) => click(control, x * sx, y * sy);
     assert.throws(() => broker!.attachViewer({ lease }));
     assert.throws(() => broker!.attachViewer({}));
-    await click(control, 100, 35); control.input({ kind: 'text', text: `${marker}@fixture.test` });
-    await click(control, 100, 95); control.input({ kind: 'text', text: marker });
-    await click(control, 100, 155); control.input({ kind: 'text', text: marker });
-    await click(control, 100, 215);
+    await controlPoint(100, 35); control.input({ kind: 'text', text: `${marker}@fixture.test` });
+    await controlPoint(100, 95); control.input({ kind: 'text', text: marker });
+    await controlPoint(100, 155); control.input({ kind: 'text', text: marker });
+    await controlPoint(100, 215);
     await until(() => posts.length === 1);
     assert.ok(posts[0]!.includes(marker), 'real form input positive control');
     // Reattach the same holder through the authenticated claim protocol. Navigation history is in
@@ -288,7 +315,7 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
     await until(async () => !(await Promise.all(chromePids.map(live))).some(Boolean));
     assert.equal(await secretHits(profileDir), 0, 'no credential canary persisted in owned profile');
     assert.equal(await exists(join(dir, 'downloads', 'fixture-download.txt')), false);
-    t.diagnostic('private canary hits: agent frames=0, profile=0; positive controls: CDP, streamed JPEG, submitted fixture form; Chromium TCP listeners=0');
+    t.diagnostic('private canary hits: agent frames=0, profile=0; positive controls: CDP, independently decoded JPEG<=320, simultaneous full live + thumbnail, scaled private input, submitted fixture form; Chromium TCP listeners=0');
   } finally {
     t.diagnostic(`fixture cleanup stage: ${stage}`);
     await broker?.close();
