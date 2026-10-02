@@ -166,7 +166,7 @@ registerRootComponent(App);
       const list = readFileSync(join(app, 'node_modules/expo/android/build/generated/expo/src/main/java/expo/modules/ExpoModulesPackageList.kt'), 'utf8');
       assert.match(list, /io\.github\.umeranjum17\.byokit\.share/); assert.doesNotMatch(list, /expo\.modules\.shareintent/);
       checkStock();
-      const pika = /lukmccall\/pika\/(IsIntrospectableKt\.isIntrospectable|IntrospectionOfKt\.introspectionOf)|should be replaced by the compiler plugin|reified type parameter/;
+      const pika = /lukmccall\/pika\/(IsIntrospectableKt\.isIntrospectable|IntrospectionOfKt\.introspectionOf|TypeDescriptorOfKt\.throwNonReifiedTypeDescriptorError)|should be replaced by the compiler plugin|reified type parameter/;
       const qualified = desklinkBytecode(); writeFileSync(join(scratch, 'desklink-qualified.javap'), qualified); assert.doesNotMatch(qualified, pika);
       const path = join(app, 'android/build.gradle');
       const control = build.replace(/\/\/ @byokit\/share desklink:[\s\S]*?\n}\n/, '');
