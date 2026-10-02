@@ -40,7 +40,8 @@ export async function summarize(initLlama: InitLlama, store: InferModelStore, pa
 SHA-256. `models()` also lists Qwen3 0.6B (`offer: false` until qualified).
 
 - **One call at a time.** A call while another runs rejects `busy`; cancel the old one with its `AbortSignal`, which
-  stops the native decode and rejects with `signal.reason` once it has stopped. `release()` stops and frees the context.
+  stops the native decode and rejects with `signal.reason` once it has stopped, or a fixed-message `AbortError` when
+  the runtime has no reason (stock React Native). No global polyfill is needed. `release()` stops and frees the context.
 - **Bounds.** 2,048-token context, 256 output tokens, 12,000 input characters, four threads, CPU only by default;
   `limits` narrows them. Input that does not fit rejects `too-large`.
 - **Truthful states.** `unsupported` (no binding, wrong ABI, too little memory), `not-installed`, `installing`,

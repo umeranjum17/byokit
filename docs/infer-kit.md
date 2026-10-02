@@ -19,7 +19,7 @@ support check. `@byokit/dictation` is speech, not text. This kit is that missing
 
 | # | Decision | Why |
 |---|---|---|
-| I1 | Package `@byokit/infer`, first version **0.1.0**, `private: true` until §6 passes. Name pending owner confirmation before first publish (kit-conventions §1.2). | One plain word for the capability (run a model here). `generate`/`decide` are already function names. |
+| I1 | Package `@byokit/infer`, first version **0.1.0**, `private: true` until §6 passes. Name accepted by Root for first publication (kit-conventions §1.2). | One plain word for the capability (run a model here). `generate`/`decide` are already function names. |
 | I2 | Native binding: stock published **`llama.rn@0.12.9`** (npm, MIT, 2026-08-04, gitHead `2a20c13e6665cc7278f68c6b2b5819899d0e84fd`, llama.cpp build `10256`/`6c8dcaa`), an **exact optional peer**. The kit types a structural subset and the host injects `initLlama`, as dictation does with whisper.rn. | Same engine family as the shipped dictation kit; one GGUF path for Android and iOS; prebuilt Android JNI libs and iOS XCFramework pinned by SHA-256 in its own `install/native-artifacts.json`. Latest stable, not the `0.13.0-rc.*` `latest` tag. No fork or patch. |
 | I3 | First model: **SmolLM2-360M-Instruct Q8_0 GGUF** (§3). Qwen3-0.6B Q8_0 is catalogued with `offer: false` as the fallback if SmolLM2 cannot keep technical detail. | Smallest candidate with an official GGUF, Apache-2.0, card lists summarisation. Gemma 3 270M has no official GGUF and a separate licence; not a first choice. |
 | I4 | One `LocalModel` per model: at most one native context; calls never queue (`busy`). | A pane summary is only useful for the card on screen; queued stale work wastes battery. |
@@ -66,7 +66,9 @@ monorepo does **not** install it (offline CI); the lab app does.
 `LocalModel` API: `new LocalModel({ model, store, initLlama?, device?, limits?, onState?, log? })` (no I/O);
 `state`; `check()`; `install({ signal, onProgress })`; `remove()`; `complete({ system?, prompt, maxOutputTokens?,
 jsonSchema?, signal })`; `release()`. Errors: `unsupported`, `not-installed`, `invalid`, `integrity`, `no-space`,
-`network`, `busy`, `too-large`, `incomplete`, `failed`; aborts reject with `signal.reason`.
+`network`, `busy`, `too-large`, `incomplete`, `failed`; aborts reject with `signal.reason` when provided, otherwise an
+`Error` named `AbortError` with a fixed cancellation message. Guards use `aborted` and listeners only: stock React Native
+AbortSignal has neither `throwIfAborted()` nor `reason`; no global polyfill or upstream patch is required.
 
 `summarizePane(local, lines, { signal, maxLines = 80, maxChars = 6000 })` →
 `{ ok: true, lines, model, ms, inputLines } | { ok: false, code: 'not-enough-output' | 'incomplete' | 'invalid-output' }`.
@@ -101,7 +103,8 @@ measurement logs outside the pooled worktree before cleanup.
   llama.rn's postinstall, which fetches its SHA-256-pinned prebuilt libraries from its v0.12.9 GitHub release.
   Confirm the APK contains `lib/arm64-v8a/librnllama*.so` (`e2e-infer.sh` refuses without it).
 - **WP2 — Real-binding contract.** A device-run script (no CI network) that runs the kit's offline assertions against
-  the real `initLlama`: one context, abort → `interrupted` and `signal.reason`, `release()` mid-decode, JSON schema
+  the real `initLlama`: one context, abort → `interrupted` and the supplied reason (or `AbortError` when unavailable),
+  `release()` mid-decode, JSON schema
   honoured, `tokenize` count vs `tokens_evaluated` (set `TEMPLATE_TOKENS` from it), `stopped_limit` on a tiny budget.
 - **WP3 — Android qualification on test phone a4b93ea2** under the discovered keeper lock (never bypassed, never
   shared). Own lab app only; never open, read or screenshot personal apps, change accounts or uninstall anything.
@@ -131,7 +134,7 @@ Source (CI, offline) — done in the foundation unless marked:
 - [x] Catalogue pins revision, URL, bytes, SHA-256, licence; validated at import.
 - [x] Install downloads only `model.url`; size + SHA-256 checked; mismatch removed (`integrity`); `no-space`,
       `network`, abort distinct; re-hash before first load.
-- [x] One context; second call `busy`; abort stops native decode and rejects with `signal.reason`, including an
+- [x] One context; second call `busy`; abort stops native decode and rejects with the supplied reason (or `AbortError`), including an
       abort during tokenize or before llama.rn's decode starts; `release()` stops (also while loading), waits and
       frees; `remove()` releases then deletes; no failure path leaves `installing` or `loading` behind.
 - [x] Input over characters or context → `too-large`; cut-off → `stop: 'limit'`, never a summary.

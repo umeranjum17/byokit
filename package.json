@@ -26,6 +26,7 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/ws": "^8.18.1",
+    "abort-controller": "3.0.0",
     "esbuild": "0.28.2",
     "json-schema-to-typescript": "16.0.0",
     "jsqr": "1.4.0",
