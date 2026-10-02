@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, readdirSync, copyFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, readdirSync, copyFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -13,7 +13,10 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2);
 const outIndex = args.indexOf('--out');
-const scratch = outIndex >= 0 ? resolve(args[outIndex + 1]!) : mkdtempSync(join(tmpdir(), 'bks-'));
+const requested = outIndex >= 0 ? resolve(args[outIndex + 1]!) : mkdtempSync(join(tmpdir(), 'bks-'));
+mkdirSync(requested, { recursive: true });
+// Canonical, so paths Node resolves inside it compare equal (macOS: /tmp is /private/tmp).
+const scratch = realpathSync(requested);
 const app = join(scratch, 'app');
 const home = join(scratch, 'home');
 mkdirSync(app, { recursive: true }); mkdirSync(home, { recursive: true });
