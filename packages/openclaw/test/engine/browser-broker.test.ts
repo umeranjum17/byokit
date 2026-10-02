@@ -123,7 +123,7 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
   });
   x.on('error', () => {});
   t.after(async () => { if (x.pid && x.exitCode === null && x.signalCode === null) { x.kill('SIGTERM'); await once(x, 'exit'); } });
-  let broker: Broker | undefined, chromePids: number[] = [];
+  let broker: Broker | undefined, chromePids: number[] = [], stage = 'setup';
   const posts: string[] = []; let downloads = 0, instrumented = 0;
   const idp = createServer((req, res) => {
     res.setHeader('cache-control', 'no-store');
@@ -213,6 +213,7 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
     }
     assert.ok((await denied.send('Byokit.claimTakeover', { epoch: 0, nonce: lease.nonce })).error);
     assert.ok((await denied.send('Byokit.claimTakeover', { epoch: 1, nonce: 'wrong' })).error);
+    const agentEnd = denied.frames.length;
     const control = broker.attachViewer({ lease });
     await control.frames[Symbol.asyncIterator]().next();
     assert.throws(() => broker!.attachViewer({ lease }));
@@ -223,38 +224,57 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
     await click(control, 100, 215);
     await until(() => posts.length === 1);
     assert.ok(posts[0]!.includes(marker), 'real form input positive control');
-    await click(control, 100, 35); // authenticated /ready download link, browser-wide deny
+    // Reattach the same holder through the authenticated claim protocol. Navigation history is in
+    // the closed controller set: it proves the redirect committed, unlike receipt of the form POST.
+    control.close();
+    assert.ok((await denied.send('Byokit.claimTakeover', lease)).result);
+    let privateSid = (await denied.send('Target.attachToTarget', { targetId: privateId, flatten: true })).result.sessionId;
+    for (const method of ['Runtime.evaluate', 'DOM.getDocument', 'Network.getAllCookies', 'Page.captureScreenshot']) {
+      assert.ok((await denied.send(method, {}, privateSid)).error, `controller closed set: ${method}`);
+    }
+    assert.ok((await denied.send('Page.reload', { scriptToEvaluateOnLoad: 'globalThis.fixtureBypass=true' }, privateSid)).error);
+    await until(async () => {
+      const h = (await denied.send('Page.getNavigationHistory', {}, privateSid)).result;
+      return h.entries[h.currentIndex].url === `${siteOrigin}/ready`;
+    });
+    const point = async (x: number, y: number) => {
+      for (const type of ['mousePressed', 'mouseReleased']) assert.ok((await denied.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 }, privateSid)).result);
+    };
+    await point(100, 35); // authenticated /ready download link, browser-wide deny
     await until(() => downloads > 0);
     await until(() => broker!.privateState()?.origin === siteOrigin && !broker!.privateState()?.offOrigin);
-    await click(control, 100, 115); // held popup on distinct exact loopback origin
+    await point(100, 115); // held popup on distinct exact loopback origin
     await until(() => broker!.privateState()?.origin === idpOrigin);
     assert.equal(broker.privateState()!.offOrigin, true);
-    await new Promise(resolve => setTimeout(resolve, 100));
-    await click(control, 100, 35); control.input({ kind: 'text', text: 'blocked-before-confirmation' });
+    const popup = (await denied.send('Byokit.claimTakeover', lease)).result.targetId;
+    privateSid = (await denied.send('Target.attachToTarget', { targetId: popup, flatten: true })).result.sessionId;
+    assert.ok((await denied.send('Input.insertText', { text: 'blocked-before-confirmation' }, privateSid)).error);
     assert.equal(broker.confirmOrigin(lease, siteOrigin), false);
     assert.equal(broker.confirmOrigin(lease, idpOrigin), true);
-    await click(control, 100, 35); control.input({ kind: 'text', text: 'confirmed-fixture' });
-    await click(control, 100, 95); await until(() => posts.length === 2);
+    await point(100, 35);
+    assert.ok((await denied.send('Input.insertText', { text: 'confirmed-fixture' }, privateSid)).result);
+    await point(100, 95); await until(() => posts.length === 2);
     assert.equal(posts[1], 'value=confirmed-fixture');
     assert.equal(instrumented, 0, 'instrumentation planted on agent tab did not see private input');
     assert.equal(root.frames.slice(baseline).filter(text => text.includes(marker) || text.includes(Buffer.from(marker).toString('base64'))).length, 0);
-    assert.equal(denied.frames.filter(text => text.includes(marker) || text.includes(privateId)).length, 0);
+    assert.equal(denied.frames.slice(0, agentEnd).filter(text => text.includes(marker) || text.includes(privateId)).length, 0);
     assert.equal(await broker.probe(`${siteOrigin}/ready`, async p => p.status === 200 && await p.exists('.signedin'), 5000), 'ok');
     chromePids = [...new Set([...chromePids, ...await children(mains[0]!)])];
     for (const pid of chromePids) assert.equal(await listening(pid), 0, 'no debugging TCP listener during held state');
-    broker.bindLease(null);
+    stage = 'drop-lease'; broker.bindLease(null);
     assert.throws(() => broker!.attachViewer({ lease }));
     await assert.rejects(broker.fence(false));
-    const closing = broker.closePrivate();
+    stage = 'close-private'; const closing = broker.closePrivate();
     assert.throws(() => broker!.bindLease({ ...lease, epoch: 2 }));
     await closing;
     assert.equal(broker.privateState(), undefined);
-    await broker.fence(false); await broker.navigateAgent('reload');
-    const fresh = await chromium.connectOverCDP(endpoint);
+    stage = 'unfence'; await broker.fence(false);
+    stage = 'navigate-agent'; await broker.navigateAgent('reload');
+    stage = 'reattach'; const fresh = await chromium.connectOverCDP(endpoint);
     const pages = fresh.contexts()[0]!.pages();
     assert.equal(pages.length, 1); assert.ok(pages[0]!.url().endsWith('/task'));
     const cookies = await fresh.contexts()[0]!.cookies(); assert.ok(cookies.some(c => c.name === 'fixture_auth'));
-    await broker.clearSite([siteOrigin]);
+    stage = 'clear-site'; await broker.clearSite([siteOrigin]);
     assert.equal((await fresh.contexts()[0]!.cookies()).some(c => c.name === 'fixture_auth'), false);
     await fresh.close(); await browser.close().catch(() => {});
     await broker.close(); broker = undefined;
@@ -263,6 +283,7 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
     assert.equal(await exists(join(dir, 'fixture-download.txt')), false);
     t.diagnostic('private canary hits: agent frames=0, profile=0; positive controls: CDP, streamed JPEG, submitted fixture form; Chromium TCP listeners=0');
   } finally {
+    t.diagnostic(`fixture cleanup stage: ${stage}`);
     await broker?.close();
     if (chromePids.length) {
       await until(async () => !(await Promise.all(chromePids.map(live))).some(Boolean));

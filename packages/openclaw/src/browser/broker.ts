@@ -87,6 +87,18 @@ const controlMethods = new Set(['Target.attachToTarget', 'Target.detachFromTarge
   'Page.startScreencast', 'Page.stopScreencast', 'Page.screencastFrameAck', 'Page.getNavigationHistory',
   'Page.navigateToHistoryEntry', 'Page.reload', 'Input.dispatchMouseEvent', 'Input.dispatchKeyEvent', 'Input.insertText']);
 function validControl(method: string, p: Params): boolean {
+  // A method allowlist alone is insufficient: Page.reload can carry a scriptToEvaluateOnLoad.
+  if (method === 'Page.reload') return Object.keys(p).every(k => k === 'ignoreCache') && (p.ignoreCache === undefined || typeof p.ignoreCache === 'boolean');
+  if (['Page.enable', 'Page.stopScreencast', 'Page.getNavigationHistory'].includes(method)) return Object.keys(p).length === 0;
+  if (method === 'Page.navigateToHistoryEntry') return Object.keys(p).every(k => k === 'entryId') && Number.isSafeInteger(p.entryId);
+  if (method === 'Page.screencastFrameAck') return Object.keys(p).every(k => k === 'sessionId') && Number.isSafeInteger(p.sessionId) && p.sessionId >= 0;
+  if (method === 'Page.startScreencast') return Object.keys(p).every(k => ['format', 'quality', 'maxWidth', 'maxHeight', 'everyNthFrame'].includes(k))
+    && (p.format === undefined || p.format === 'jpeg')
+    && (p.quality === undefined || Number.isInteger(p.quality) && p.quality >= 0 && p.quality <= 100)
+    && ['maxWidth', 'maxHeight'].every(k => p[k] === undefined || Number.isInteger(p[k]) && p[k] >= 1 && p[k] <= 2048)
+    && (p.everyNthFrame === undefined || Number.isInteger(p.everyNthFrame) && p.everyNthFrame >= 1 && p.everyNthFrame <= 100);
+  if (method === 'Target.attachToTarget') return Object.keys(p).every(k => ['targetId', 'flatten'].includes(k)) && typeof p.targetId === 'string';
+  if (method === 'Target.detachFromTarget') return Object.keys(p).every(k => k === 'sessionId') && typeof p.sessionId === 'string';
   if (method === 'Input.insertText') return typeof p.text === 'string' && p.text.length <= 65536 && Object.keys(p).every(k => k === 'text');
   if (method === 'Input.dispatchMouseEvent') return ['mouseMoved', 'mousePressed', 'mouseReleased', 'mouseWheel'].includes(p.type)
     && Number.isFinite(p.x) && Number.isFinite(p.y) && Math.abs(p.x) <= 100000 && Math.abs(p.y) <= 100000
@@ -120,7 +132,8 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
   const owners = new Map<string, Client>();
   const sessionTargets = new Map<string, string>();
   const targets = new Map<string, Target>();
-  const held = new Set<string>(), hidden = new Set<string>();
+  const held = new Set<string>(), hidden = new Set<string>(), hostOnly = new Set<string>();
+  const privateRoots = new Map<string, string>();
   const openings = new Set<Promise<string>>();
   const destroyed = new Map<string, Set<() => void>>();
   const listeners = new Set<(m: Message) => void>();
@@ -213,16 +226,20 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
     const info = m.params?.targetInfo as Target | undefined;
     if (info) {
       targets.set(info.targetId, info);
-      if (info.openerId && held.has(info.openerId) && !held.has(info.targetId)) {
+      if (info.openerId && hidden.has(info.openerId) && !hidden.has(info.targetId)) {
         held.add(info.targetId); hidden.add(info.targetId); privateOrigins.set(info.targetId, 'null');
-        if (info.type === 'page') activePrivate = info.targetId;
+        privateRoots.set(info.targetId, privateRoots.get(info.openerId) ?? info.openerId);
+        if (hostOnly.has(info.openerId)) hostOnly.add(info.targetId);
+        else if (info.type === 'page') activePrivate = info.targetId;
+        // A late child of a closed private target is still private. Never forward it after release.
+        if (!fenced) abortPipe();
         void trackPrivate(info.targetId).then(publishPrivate, () => { poisoned = true; fenced = true; });
       }
     }
     if (m.method === 'Target.targetDestroyed') {
       const id = m.params?.targetId as string;
       targets.delete(id); held.delete(id); privateOrigins.delete(id);
-      if (activePrivate === id) activePrivate = [...held].find(t => targets.get(t)?.type === 'page');
+      if (activePrivate === id) activePrivate = [...held].find(t => !hostOnly.has(t) && targets.get(t)?.type === 'page');
       publishPrivate();
       for (const notify of destroyed.get(id) ?? []) notify();
       destroyed.delete(id);
@@ -256,7 +273,7 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
     // No raw nested target channel: inspect the envelope before learning any child session.
     if (!c.control && (hidden.has(target) || (fenced && (!structural.has(m.method ?? '')
       || ![...c.sessions].some(sid => sessionTargets.get(sid) === target))))) return;
-    if (c.control && (controller !== c || !held.has(target) || !['Page.screencastFrame', ...structural].includes(m.method ?? ''))) return;
+    if (c.control && (controller !== c || !held.has(target) || hostOnly.has(target) || !['Page.screencastFrame', ...structural].includes(m.method ?? ''))) return;
     if (m.method === 'Target.attachedToTarget') own(c, m.params!.sessionId, info?.targetId);
     if (m.method === 'Target.detachedFromTarget') {
       const sid = m.params!.sessionId;
@@ -299,7 +316,7 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
     if (poisoned || fenced && !c.control) return reply({ error: heldError });
     if (c.control) {
       const target = m.params?.targetId ?? sessionTargets.get(m.sessionId ?? c.base);
-      if (!binding || controller !== c || !controlMethods.has(m.method ?? '') || !held.has(target)
+      if (!binding || controller !== c || !controlMethods.has(m.method ?? '') || !held.has(target) || hostOnly.has(target)
         || !validControl(m.method!, m.params ?? {})
         || (m.method!.startsWith('Input.') || ['Page.reload', 'Page.navigateToHistoryEntry'].includes(m.method!)) && stateOf(target)?.offOrigin
         || m.sessionId && owners.get(m.sessionId) !== c) return reply({ error: refusedError });
@@ -412,12 +429,13 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
     void closingPrivate.then(() => { closingPrivate = undefined; }, () => { closingPrivate = undefined; poisoned = true; fenced = true; });
     return closingPrivate;
   }
-  function openPrivate(url: string): Promise<string> {
+  function openPrivate(url: string, hostOnlyTab = false): Promise<string> {
     if (!fenced || !drained || poisoned || closingPrivate) return Promise.reject(failure());
     const work = (async () => {
       // Register about:blank before any site can run, navigate or open a popup.
       const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
-      held.add(targetId); hidden.add(targetId); privateOrigins.set(targetId, 'null'); activePrivate = targetId;
+      held.add(targetId); hidden.add(targetId); privateOrigins.set(targetId, 'null'); privateRoots.set(targetId, targetId);
+      if (hostOnlyTab) hostOnly.add(targetId); else activePrivate = targetId;
       const sessionId = await trackPrivate(targetId);
       await send('Page.navigate', { url }, sessionId);
       return targetId as string;
@@ -473,7 +491,11 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
     privateState: () => stateOf(activePrivate),
     async clearSite(origins) {
       if (fenced || held.size || poisoned || !origins.every(exactOrigin)) throw failure();
-      for (const current of origins) await send('Storage.clearDataForOrigin', { origin: current, storageTypes: 'all' });
+      if (!lastAgent) throw failure();
+      // Storage.clearDataForOrigin is a page-domain command in the pinned Chromium, not a root command.
+      const { sessionId } = await send('Target.attachToTarget', { targetId: lastAgent, flatten: true });
+      try { for (const current of origins) await send('Storage.clearDataForOrigin', { origin: current, storageTypes: 'all' }, sessionId); }
+      finally { await send('Target.detachFromTarget', { sessionId }); }
     },
     endpoint: () => ({ cdpUrl: `ws://127.0.0.1:${port}/devtools/browser?token=${token}` }),
     async fence(on) {
@@ -521,7 +543,7 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
       };
       listeners.add(observe);
       // Retain the opening promise even when the verifier deadline wins: cleanup must see its target.
-      const opening = openPrivate('about:blank');
+      const opening = openPrivate('about:blank', true);
       const work = (async () => {
         const targetId = await opening;
         if (!active) return 'timeout' as const;
@@ -548,9 +570,11 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
       } catch { return 'fail'; } finally {
         active = false; loaded(); clearTimeout(timer); listeners.delete(observe);
         const targetId = await opening;
-        if (held.has(targetId)) {
-          const gone = waitDestroyed(targetId);
-          await Promise.all([send('Target.closeTarget', { targetId }), gone]);
+        while ([...held].some(id => privateRoots.get(id) === targetId)) {
+          await Promise.all([...held].filter(id => privateRoots.get(id) === targetId).map(id => {
+            const gone = waitDestroyed(id);
+            return Promise.all([send('Target.closeTarget', { targetId: id }), gone]);
+          }));
         }
       }
     },
