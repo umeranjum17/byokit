@@ -7,7 +7,7 @@ import type { Keystore } from '@byokit/secrets';
 const canary = 'B2-exact-secret-canary-987654321';
 function secrets(): Keystore {
   const data = new Map<string, string>();
-  return { get: async (id) => data.get(id) ?? null, set: async (id, value) => { data.set(id, value); }, delete: async (id) => { data.delete(id); } };
+  return { get: async (id) => data.get(id) ?? null, set: async (id, value) => { data.set(id, value); }, delete: async (id) => data.delete(id) };
 }
 
 test('shared key seam persists only a marker and non-secret route metadata; updates retain metadata', async () => {

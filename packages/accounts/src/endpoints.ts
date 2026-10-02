@@ -37,7 +37,7 @@ export function endpointConfig(input: EndpointConfig): EndpointConfig {
   if (!['local', 'api', 'subscription', 'unknown'].includes(input.billing)) throw new Error('Choose this endpoint’s billing explicitly.');
   if (!['openai', 'anthropic'].includes(input.compat)) throw new Error('Choose OpenAI or Anthropic compatibility.');
   // Copy only public model fields; never persist caller-supplied headers/auth or another account's destination.
-  if (input.models && (!Array.isArray(input.models) || input.models.some((m) => !m || typeof m.id !== 'string' || !m.id.trim() || typeof m.name !== 'string' || typeof m.reasoning !== 'boolean' || !Array.isArray(m.input) || m.input.some((i) => !['text', 'image'].includes(i)) || !m.cost || !Number.isFinite(m.contextWindow) || m.contextWindow <= 0 || !Number.isFinite(m.maxTokens) || m.maxTokens <= 0))) throw new Error('Give this endpoint valid Pi model definitions.');
+  if (input.models && (!Array.isArray(input.models) || input.models.some((m) => !m || typeof m.id !== 'string' || !m.id.trim() || typeof m.name !== 'string' || typeof m.reasoning !== 'boolean' || !Array.isArray(m.input) || m.input.some((i: string) => !['text', 'image'].includes(i)) || !m.cost || !Number.isFinite(m.contextWindow) || m.contextWindow <= 0 || !Number.isFinite(m.maxTokens) || m.maxTokens <= 0))) throw new Error('Give this endpoint valid Pi model definitions.');
   const models = input.models?.map((m) => ({ id: m.id, name: m.name, reasoning: m.reasoning, input: [...m.input], cost: { ...m.cost },
     contextWindow: m.contextWindow, maxTokens: m.maxTokens, ...(m.compat ? { compat: { ...m.compat } } : {}),
     ...(m.thinkingLevelMap ? { thinkingLevelMap: { ...m.thinkingLevelMap } } : {}),

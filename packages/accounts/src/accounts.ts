@@ -483,7 +483,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
           index.addedAt[id] ??= Date.now();
         });
       } catch {
-        await this.keys(member, (store) => previous === null ? store.delete(`accounts.${id}`) : store.set(`accounts.${id}`, previous));
+        await this.keys(member, async (store) => { if (previous === null) await store.delete(`accounts.${id}`); else await store.set(`accounts.${id}`, previous); });
         throw new Error('This account could not be saved. Try again.');
       }
     });
