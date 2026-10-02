@@ -59,6 +59,7 @@ export function secureOrigin(origin: string): boolean {
   return u.protocol === 'https:' || u.hostname === 'localhost' || u.hostname === '[::1]' || /^127\.(\d{1,3}\.){2}\d{1,3}$/.test(u.hostname);
 }
 
+export type BrokerBinding = Readonly<{ broker: HostBroker; generation: number; endpoint: Readonly<{ cdpUrl: string }> }>;
 export interface BrowserHostController extends BrowserHost {
   raise(input: RaiseSignIn): Promise<NeedSignIn>;
   revokeGrant(grant: string): Promise<void>;
@@ -67,6 +68,7 @@ export interface BrowserHostController extends BrowserHost {
   beforeRun(member: Member, sessionKey: string): Promise<boolean>;
   // Internal: caller supplies an owned broker; publish its engine endpoint only after resolution.
   attachBroker(member: Member, broker: HostBroker, previous?: HostBroker): Promise<void>;
+  brokerBinding(member: Member): BrokerBinding | undefined;
   close(): Promise<void>;
 }
 export async function createBrowserHost(services: BrowserHostServices): Promise<BrowserHostController> {
@@ -93,7 +95,8 @@ class Host implements BrowserHostController {
   private data: SignInData;
   private committed: SignInData;
   private readonly brokers: Map<Member, HostBroker>;
-  private readonly attaching = new Set<Member>;
+  private readonly attaching = new Set<Member>();
+  private readonly bindingVersions = new Map<Member, number>();
   private readonly recovery = new Map<Member, NonNullable<BrowserState['recovery']>>();
   private readonly exhausted = new Set<Member>();
   private queue: Promise<unknown> = Promise.resolve();
@@ -120,6 +123,7 @@ class Host implements BrowserHostController {
     if (recovery && (!Number.isInteger(recovery.attempts) || recovery.attempts < 0 || recovery.attempts > 3
       || recovery.backoffMs.some(n => !Number.isSafeInteger(n) || n < 0 || n > 60_000))) throw new Error('invalid browser recovery');
     this.brokers = new Map(services.brokers);
+    for (const member of this.brokers.keys()) this.bindingVersions.set(member, 1);
     this.data = services.store.read();
     this.committed = structuredClone(this.data);
   }
@@ -132,6 +136,12 @@ class Host implements BrowserHostController {
   private currentBroker(member: Member, broker: HostBroker): void {
     if (this.stopped || this.failed || this.unavailable.has(member) || this.brokers.get(member) !== broker) throw new SignInRefused('stale');
   }
+  brokerBinding(member: Member): BrokerBinding | undefined {
+    const broker = this.brokers.get(member);
+    if (!broker || this.stopped || this.failed || this.unavailable.has(member) || this.attaching.has(member)) return undefined;
+    try { return Object.freeze({ broker, generation: this.bindingVersions.get(member) ?? 0, endpoint: Object.freeze({ ...broker.endpoint() }) }); }
+    catch { return undefined; }
+  }
   attachBroker(member: Member, next: HostBroker, previous?: HostBroker): Promise<void> {
     if (!/^[a-z][a-z0-9-]{0,31}$/.test(member) || (this.s.options.members !== 'all' && !this.s.options.members.includes(member))
       || this.stopped || this.failed) return Promise.reject(new SignInRefused('unsupported'));
@@ -140,6 +150,7 @@ class Host implements BrowserHostController {
     if (old !== previous) return Promise.reject(new SignInRefused('stale'));
     if (old === next) return Promise.resolve();
     this.attaching.add(member); this.unavailable.add(member); this.thumbs.delete(member);
+    this.bindingVersions.set(member, (this.bindingVersions.get(member) ?? 0) + 1);
     this.recovery.delete(member);
     this.epochs.set(member, (this.epochs.get(member) ?? 0) + 1);
     const requests = this.data.requests.filter(r => r.member === member);
@@ -163,7 +174,7 @@ class Host implements BrowserHostController {
           } else if (r.state === 'waiting' || r.state === 'parked') r.gen++;
         }
         this.commit();
-        await next.fence(this.data.requests.some(r => r.member === member && open(r)));
+        // Leave the replacement fenced. W3 publishes this binding, awaits config/policy ack, then releases.
         if (this.stopped || this.failed || this.brokers.get(member) !== old) throw new SignInRefused('stale');
         this.brokers.set(member, next); this.unavailable.delete(member); this.exhausted.delete(member);
         for (const r of requests) { this.closing.delete(r.id); this.ping(r); }
@@ -478,6 +489,8 @@ class Host implements BrowserHostController {
   browserGone(member: Member, expected = this.brokers.get(member)): Promise<void> {
     // An old endpoint's delayed onExit must not tear down its replacement.
     if (!expected || this.brokers.get(member) !== expected || this.attaching.has(member)) return Promise.resolve();
+    this.unavailable.add(member); this.thumbs.delete(member);
+    this.bindingVersions.set(member, (this.bindingVersions.get(member) ?? 0) + 1);
     this.streams.forEach(s => { if (s.member === member) s.close('browser-gone'); });
     this.epochs.set(member, (this.epochs.get(member) ?? 0) + 1);
     return this.serial(async () => {
@@ -519,10 +532,11 @@ class Host implements BrowserHostController {
         } finally { expired = true; clearTimeout(timer); }
         if (!broker) continue;
         if (!current()) { await broker.close(); return; }
-        // Waiting requests remain fenced before the replacement can be used. Never redispatch a resume.
-        if (this.data.requests.some(r => r.member === member && open(r))) await broker.fence(true);
+        // Every recovered endpoint stays fenced until its canonical binding/config/policy ack. Never redispatch.
+        await broker.fence(true);
         if (!current()) { await broker.close(); return; }
         this.brokers.set(member, broker); this.unavailable.delete(member); this.recovery.delete(member);
+        this.bindingVersions.set(member, (this.bindingVersions.get(member) ?? 0) + 1);
         this.s.ping?.(member, 'state'); return;
       } catch { /* bounded retries; details may contain endpoint credentials, never surface them */ }
     }
