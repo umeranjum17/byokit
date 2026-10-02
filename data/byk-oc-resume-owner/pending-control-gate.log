@@ -1,0 +1,18 @@
+2026-10-02T10:16:28Z pid=570180 ppid=2423940 phase=queue queue-start deadline=1800s
+2026-10-02T10:46:23Z pid=570180 ppid=2423940 phase=acquired lock-acquired
+2026-10-02T10:46:23Z pid=570180 ppid=2423940 phase=owned-cancel execution-start mode=cancel out=/home/umer/.bkt/r1ctl.X9wcqt deadline=360s
+2026-10-02T10:48:35Z pid=570180 ppid=2423940 phase=owned-cancel execution-exit=0
+2026-10-02T10:48:35Z pid=570180 ppid=2423940 phase=owned-repeat execution-start mode=repeat out=/home/umer/.bkt/r1ctl.pzvhbR deadline=360s
+2026-10-02T10:50:53Z pid=570180 ppid=2423940 phase=owned-repeat execution-exit=0
+2026-10-02T10:50:53Z pid=570180 ppid=2423940 phase=owned-outside execution-start mode=outside out=/home/umer/.bkt/r1ctl.gXe76p deadline=360s
+2026-10-02T10:52:42Z pid=570180 ppid=2423940 phase=owned-outside execution-exit=0
+2026-10-02T10:52:42Z pid=570180 ppid=2423940 phase=stock-normal execution-start mode=normal out=/home/umer/.bkt/r1ctl.aJDPM0 deadline=360s
+2026-10-02T10:54:42Z pid=570180 ppid=2423940 phase=stock-normal execution-exit=0
+2026-10-02T10:54:42Z pid=570180 ppid=2423940 phase=stock-late execution-start mode=late out=/home/umer/.bkt/r1ctl.0ErU97 deadline=360s
+2026-10-02T10:56:35Z pid=570180 ppid=2423940 phase=stock-late execution-exit=0
+2026-10-02T10:56:35Z pid=570180 ppid=2423940 phase=stock-repeat execution-start mode=repeat out=/home/umer/.bkt/r1ctl.Q2pVjv deadline=360s
+2026-10-02T10:58:54Z pid=570180 ppid=2423940 phase=stock-repeat execution-exit=0
+2026-10-02T10:58:54Z pid=570180 ppid=2423940 phase=malformed-late execution-start mode=late out=/home/umer/.bkt/r1ctl.6LFC7G deadline=360s
+2026-10-02T11:00:43Z pid=570180 ppid=2423940 phase=malformed-late execution-exit=0
+2026-10-02T11:00:43Z pid=570180 ppid=2423940 phase=complete all-pending-controls-pass
+2026-10-02T11:00:43Z pid=570180 ppid=2423940 phase=complete shell-exit=0

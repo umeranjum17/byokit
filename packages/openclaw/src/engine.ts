@@ -9,12 +9,12 @@ import { AuthStore } from './auth-store.ts';
 import { EngineAlreadyRunningError, pidAlive } from './engine-status.ts';
 import { EnginePatchError, atomic, prepareEngineSet, processStartTime, readPatchSet, verifyEngineSet, type PatchSet } from './engine-patches.ts';
 import { ENGINE_VERSION } from './constants.ts';
-import { reconcileConfig } from './config.ts';
+import { reconcileConfig, appRecoveryPrefixes } from './config.ts';
 import { writePlugin, resolveBridge } from './bridge.ts';
 import type { KitOptions } from './kit.ts';
 import type { KitState, ToolSpec } from './types.ts';
 
-export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'installPolicy' | 'log' | 'bridge' | 'authSeal'> & {
+export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'appOwnedSessions' | 'installPolicy' | 'log' | 'bridge' | 'authSeal'> & {
   pluginId: string; tools: ToolSpec[]; gateBuiltins?: boolean; spawnEngine: boolean;
   onState(s: KitState): void; onExit(code: number | null): void;
 };
@@ -68,7 +68,9 @@ export class Engine {
   private token = '';
   private readonly o: EngineOptions;
   private readonly paramPrefix: string;
+  private readonly appOwnedSessionPrefixes: string[];
   constructor(o: EngineOptions) {
+    this.appOwnedSessionPrefixes = appRecoveryPrefixes(o.appOwnedSessions);
     this.o = o;
     const bridge = resolveBridge(o.bridge);
     this.root = join(o.stateDir, 'openclaw');
@@ -171,6 +173,7 @@ export class Engine {
       TMPDIR: join(this.root, 'tmp'), OPENCLAW_NO_RESPAWN: '1', OPENCLAW_SKIP_CHANNELS: '1', OPENCLAW_DISABLE_BONJOUR: '1',
       OPENCLAW_EXEC_SHELL_SNAPSHOT: '0', OPENCLAW_LOAD_SHELL_ENV: '0', OPENCLAW_GATEWAY_TOKEN: this.token,
       BYOKIT_BRIDGE_SOCK: this.bridgeSock,
+      BYOKIT_APP_OWNED_SESSION_PREFIXES: JSON.stringify(this.appOwnedSessionPrefixes),
     } };
   }
   doctor(timeoutMs: number): { status: number | null } {

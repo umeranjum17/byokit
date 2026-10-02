@@ -286,6 +286,28 @@ Entries:
 | `serve(o)` (`./link`) | Binds the link host per reach and returns its URLs |
 | `fakeGateway`, `openclawContract`, `startModelStub`, `useModelStub` (`./testing`) | In-memory Gateway, the contract suite and the scripted model for tests |
 
+## App-owned task recovery
+
+If your app requeues interrupted tasks itself, declare their namespaces **before starting the kit**:
+
+```ts
+import { OpenClawKit } from '@byokit/openclaw';
+
+const kit = new OpenClawKit({
+  stateDir: './openclaw-state',
+  appOwnedSessions: { keyPrefixes: ['agent:m1:crewhouse:'] },
+  // tools and host as usual
+});
+```
+
+Matching task sessions are excluded from the bundled engine's automatic restart continuation; your app
+continues the same session key with `kit.run`. Prefixes must start with `agent:<member>:` and must not cover
+that member's `main` key. The kit also covers a public member's isolated API-key session rewrite. Omitted/empty
+keeps stock recovery, including its existing retry accounting; no histories or recovery markers are deleted,
+no tool gate is bypassed, and cron behavior is unchanged. Changing ownership requires an engine restart.
+This option does not decide whether an interrupted external action is safe to retry; your app still owns
+that decision. It needs the published kit's bundled engine patch, not a separately installed stock CLI.
+
 ## Phones and browsers
 
 The host side serves member-checked ops over `@byokit/link`; the phone or browser uses the portable client:
