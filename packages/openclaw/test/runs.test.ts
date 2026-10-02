@@ -66,6 +66,23 @@ test('a run streams its events in order and ends ok', async () => {
   assert.ok(typeof call.idempotencyKey === 'string' && call.idempotencyKey.length > 0);
 });
 
+test('caller action keys pass through unchanged; absent keys stay fresh UUIDs; invalid keys fail before requests', async () => {
+  const h = harness();
+  const spec = { member: 'm1', sessionKey: 'agent:m1:retry', message: 'same action' };
+  for (const idempotencyKey of ['task:7:attempt:2:action:one', 'task:7:attempt:2:action:one', ' raw key '])
+    await h.runs.run({ ...spec, idempotencyKey });
+  await h.runs.run(spec);
+  await h.runs.run(spec);
+  const keys = h.fake.calls.filter((c) => c.method === 'agent').map((c) => (c.params as { idempotencyKey: string }).idempotencyKey);
+  assert.deepEqual(keys.slice(0, 3), ['task:7:attempt:2:action:one', 'task:7:attempt:2:action:one', ' raw key ']);
+  assert.match(keys[3], /^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i);
+  assert.notEqual(keys[3], keys[4]);
+  const invalid = harness();
+  for (const idempotencyKey of ['', null, 1, {}])
+    await assert.rejects(invalid.runs.run({ ...spec, idempotencyKey: idempotencyKey as string }), /non-empty string/);
+  assert.deepEqual(invalid.fake.calls, []);
+});
+
 test("a member cannot run in another member's session, refused before any request", async () => {
   const h = harness();
   await assert.rejects(h.runs.run({ member: 'm1', sessionKey: 'agent:m2:other:1', message: 'hello' }), /m2/);
@@ -229,6 +246,37 @@ function scripted(o: { text?: string; final?: unknown; wait?: unknown; auth?: un
   return { runs, calls };
 }
 const finalWith = (agentMeta: unknown) => ({ runId: 'r1', status: 'ok', summary: 'completed', result: { payloads: [], meta: { agentMeta } } });
+
+test('an in-flight cache replay waits without redispatching; capped JSON fails honestly with no fabricated usage', async () => {
+  const requests: unknown[] = [];
+  const text = JSON.stringify({ report: 'x'.repeat(6000) });
+  const request: GatewayTransport['request'] = async (method, params) => {
+    if (method === 'agent') {
+      requests.push(params);
+      return { runId: 'stable', status: 'in_flight' };
+    }
+    assert.equal(method, 'agent.wait');
+    assert.equal((params as { runId: string }).runId, 'stable');
+    return { status: 'ok', terminalReply: { disposition: 'visible', text: text.slice(0, 4095) + '…' } };
+  };
+  const runs = createRuns({ request, onEvent: () => () => {}, ensure: async () => ({ agentId: 'm1' }),
+    bridge: { register: () => () => {} }, tools: new Set() });
+  const end = await runs.run({ member: 'm1', sessionKey: 'agent:m1:retry', message: 'report', idempotencyKey: 'stable',
+    schema: { type: 'object', properties: { report: { type: 'string' } }, required: ['report'] } });
+  assert.deepEqual(end, { ok: false, kind: 'output', message: 'The answer did not match the requested format.' });
+  assert.equal(requests.length, 1);
+  const plain = await runs.run({ member: 'm1', sessionKey: 'agent:m1:retry', message: 'report', idempotencyKey: 'stable' });
+  assert.deepEqual(plain, { ok: true, text: text.slice(0, 4095) + '…' });
+  assert.equal(requests.length, 2, 'one agent request per caller action; never a hidden final retrieval');
+});
+
+test('in-flight alone never reports completion when the bounded wait cannot observe an end', async () => {
+  const s = scripted({ final: { runId: 'r1', status: 'in_flight' }, wait: { status: 'timeout' } });
+  const end = await s.runs.run({ member: 'm1', sessionKey: 'agent:m1:unknown', message: 'same action', idempotencyKey: 'r1' });
+  assert.ok(!end.ok && 'kind' in end && end.kind === 'other');
+  assert.equal('usage' in end, false);
+  assert.equal(s.calls.filter((c) => c === 'agent').length, 1);
+});
 
 test('usage is the engine\'s run total, renamed and copied field by field; none reported is none', async () => {
   const spec = { member: 'm1', sessionKey: 'agent:m1:u', message: 'hi' };

@@ -107,6 +107,10 @@ export function createRuns(ctx: {
     // Member boundary first: a member never speaks in another member's session, refused before any request.
     if (!spec.sessionKey.startsWith(`agent:${spec.member}:`))
       throw new Error(`refused: "${spec.sessionKey}" is not a session of member "${spec.member}"`);
+    // Same validation as the pin's NonEmptyString; preserve the caller's bytes (including whitespace).
+    if (spec.idempotencyKey !== undefined && (typeof spec.idempotencyKey !== 'string' || !spec.idempotencyKey.length))
+      throw new Error('refused: idempotencyKey must be a non-empty string');
+    const idempotencyKey = spec.idempotencyKey ?? randomUUID();
     const output = preparedOutput ?? (spec.schema === undefined ? undefined : outputSchema(spec.schema));
     const system = [spec.system, output?.prompt].filter(Boolean).join('\n\n');
     const picked = spec.model === undefined ? undefined : account(spec.model);
@@ -171,7 +175,7 @@ export function createRuns(ctx: {
         agentId,
         sessionKey,
         message: spec.message,
-        idempotencyKey: randomUUID(),
+        idempotencyKey,
         ...(picked ?? {}),
         ...(system ? { extraSystemPrompt: system } : {}),
         ...(spec.images ? { attachments: spec.images.map((image) => ({ mimeType: image.mimeType, content: image.data })) } : {}),
@@ -184,6 +188,8 @@ export function createRuns(ctx: {
         status?: string; stopReason?: string; terminalReply?: { disposition?: string; text?: string }; error?: unknown; message?: unknown;
       };
       if (result.status === 'ok') {
+        // A cached `in_flight` replay has no final subscription. Keep the existing wait/stream fallback:
+        // re-sending `agent` to fetch its final could dispatch again if the bounded cache was evicted.
         const done = await Promise.race([final.catch(() => undefined), delay(FINAL_GRACE_MS, undefined, { ref: false })]);
         ended = true; // no later stream event may supersede the final callback
         const frame = isRecord(done) && isRecord(done.result) ? done.result : {};

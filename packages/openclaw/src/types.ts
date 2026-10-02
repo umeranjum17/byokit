@@ -30,6 +30,9 @@ export interface ToolHost {
 
 export interface RunSpec<S extends OutputSchema | undefined = OutputSchema | undefined> extends RunRef {
   message: string;
+  /** Stable per-dispatch action key; omit for a fresh UUID. Gateway-wide across agents/sessions for `agent`.
+   * Reuse only for the same input/attempt. In-memory bounded cache, not exactly-once across engine restarts. */
+  idempotencyKey?: string;
   schema?: S; // JSON Schema subset: locally validated; unsupported keywords refused before a run
   system?: string;
   images?: { data: string; mimeType: string }[];
