@@ -1,9 +1,10 @@
 // Internal W1/W2 seam. The pipe is the only Chromium debugging transport; agents never own it.
 import { spawn } from 'node:child_process';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { createServer, type IncomingMessage } from 'node:http';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -135,17 +136,20 @@ function validControl(method: string, p: Params): boolean {
 }
 
 export async function launchBroker(o: BrokerOptions): Promise<Broker> {
+  if (!isAbsolute(o.executablePath) || o.executablePath.includes('\0')) throw failure();
   await mkdir(join(o.profileDir, 'Default'), { recursive: true, mode: 0o700 });
   await chmod(o.profileDir, 0o700);
   await writeFile(join(o.profileDir, 'Default', 'Preferences'), JSON.stringify({
     credentials_enable_service: false, profile: { password_manager_enabled: false },
     autofill: { profile_enabled: false, credit_card_enabled: false },
   }), { mode: 0o600 });
+  // Chromium's singleton socket lives under TMPDIR: an arbitrary app profile path can exceed AF_UNIX's limit.
+  const privateTemp = await mkdtemp(join(tmpdir(), 'bk-'));
   const chrome = spawn(o.executablePath, ['--headless=new', `--user-data-dir=${o.profileDir}`,
     '--remote-debugging-pipe', '--disable-features=BackForwardCache', '--disable-background-networking',
     '--disable-component-update', '--disable-sync', '--no-first-run', '--no-default-browser-check', 'about:blank'], {
     // No inherited HOME, login, proxy, DISPLAY or debugging port. Chromium's profile is app-owned.
-    env: { HOME: o.profileDir, TMPDIR: o.profileDir },
+    env: { HOME: o.profileDir, TMPDIR: privateTemp },
     stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe', 'ignore', 'ignore', 'ignore', 'ignore', 'ignore'], // never inherit the caller's fd9 job lock
   });
   const writer = chrome.stdio[3] as Writable, reader = chrome.stdio[4] as Readable;
@@ -167,7 +171,7 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
   let binding: LeaseBinding | null = null, highestEpoch = 0, activePrivate: string | undefined;
   const confirmed = new Set<string>(), privateOrigins = new Map<string, string>();
   const mainFrames = new Map<string, string>(), navigationEpoch = new Map<string, number>();
-  type Viewer = { target?: string; sid?: string; scaleX: number; scaleY: number; control: boolean; closed: boolean; close(): void; frames: ReturnType<typeof latest<LiveFrame>>; states: ReturnType<typeof latest<NonNullable<PrivateState>>> };
+  type Viewer = { target?: string; sid?: string; scaleX: number; scaleY: number; hasFrame: boolean; control: boolean; closed: boolean; close(): void; frames: ReturnType<typeof latest<LiveFrame>>; states: ReturnType<typeof latest<NonNullable<PrivateState>>> };
   const viewers = new Set<Viewer>();
   let controller: Client | Viewer | undefined;
   function matches(l: { epoch: number; nonce: string }) {
@@ -475,7 +479,7 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
     sockets.close(); server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));
     // A failed spawn has no PID and emits close/error, never exit. Do not await a nonexistent process.
-    if (chrome.pid === undefined) { closed = true; abortPipe(); return; }
+    if (chrome.pid === undefined) { closed = true; abortPipe(); await rm(privateTemp, { recursive: true, force: true }); return; }
     // Closing our pipe-only child never acts on another browser or a shared profile.
     if (chrome.exitCode === null && chrome.signalCode === null) chrome.kill('SIGTERM');
     await new Promise<void>(resolve => {
@@ -484,6 +488,7 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
       chrome.once('exit', () => { clearTimeout(timer); resolve(); });
     });
     closed = true; abortPipe();
+    await rm(privateTemp, { recursive: true, force: true });
   }
 
   try {
@@ -606,13 +611,14 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
       }
     },
     attachViewer(o) {
-      const maxWidth = o.maxWidth ?? 1280;
-      if (!Number.isInteger(maxWidth) || maxWidth < 1 || maxWidth > 1280) throw failure();
+      const requestedWidth = o.maxWidth ?? 1280;
+      if (!Number.isFinite(requestedWidth) || requestedWidth < 1) throw failure();
+      const maxWidth = Math.min(Math.floor(requestedWidth), 1280);
       const control = !!o.lease;
       if (poisoned || closed || control && (!fenced || !drained || !activePrivate || !matches(o.lease!) || controller)
         || !control && (fenced || !lastAgent)) throw failure();
       let seq = 0;
-      const v: Viewer = { control, scaleX: 1, scaleY: 1, closed: false, frames: latest<LiveFrame>(), states: latest<NonNullable<PrivateState>>(), close() {
+      const v: Viewer = { control, scaleX: 1, scaleY: 1, hasFrame: false, closed: false, frames: latest<LiveFrame>(), states: latest<NonNullable<PrivateState>>(), close() {
         if (v.closed) return;
         v.closed = true; viewers.delete(v); listeners.delete(frame); listeners.delete(change); v.frames.end(); v.states.end();
         if (controller === v) controller = undefined;
@@ -623,13 +629,13 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
       const allowed = () => !v.closed && !poisoned && (control ? controller === v && !!binding && matches(o.lease!) : !fenced);
       const target = () => control ? activePrivate : lastAgent;
       const frame = (m: Message) => {
-        if (!allowed() || m.sessionId !== v.sid || m.method !== 'Page.screencastFrame') return;
+        if (!allowed() || control && v.target !== activePrivate || m.sessionId !== v.sid || m.method !== 'Page.screencastFrame') return;
         // Frames are private memory only, ack even when the consumer is slow.
         void send('Page.screencastFrameAck', { sessionId: m.params!.sessionId }, v.sid).catch(() => v.close());
         const jpeg = new Uint8Array(Buffer.from(m.params!.data, 'base64'));
         const size = jpegSize(jpeg);
         if (!size || size.w > maxWidth || size.h > 960) return v.close();
-        v.scaleX = m.params!.metadata.deviceWidth / size.w; v.scaleY = m.params!.metadata.deviceHeight / size.h;
+        v.scaleX = m.params!.metadata.deviceWidth / size.w; v.scaleY = m.params!.metadata.deviceHeight / size.h; v.hasFrame = true;
         v.frames.push({ seq: ++seq, ...size, at: Date.now(), jpeg });
       };
       listeners.add(frame);
@@ -640,7 +646,7 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
         if (v.sid) await send('Target.detachFromTarget', { sessionId: v.sid });
         const { sessionId } = await send('Target.attachToTarget', { targetId: id, flatten: true });
         if (!allowed()) { await send('Target.detachFromTarget', { sessionId }); return; }
-        v.target = id; v.sid = sessionId; sessionTargets.set(sessionId, id);
+        v.target = id; v.sid = sessionId; v.hasFrame = false; sessionTargets.set(sessionId, id);
         await send('Page.enable', {}, sessionId);
         await send('Page.startScreencast', { format: 'jpeg', quality: 70, maxWidth, maxHeight: 960 }, sessionId);
         const state = stateOf(id); if (control && state) v.states.push(state);
@@ -652,7 +658,7 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
       listeners.add(change);
       const closeViewer = () => { listeners.delete(change); v.close(); };
       return { frames: v.frames, states: v.states, close: closeViewer, input(i) {
-        if (!control || !allowed() || !v.target || !held.has(v.target) || stateOf(v.target)?.offOrigin || !v.sid) return;
+        if (!control || !allowed() || !v.hasFrame || v.target !== activePrivate || !v.target || !held.has(v.target) || stateOf(v.target)?.offOrigin || !v.sid) return;
         let method: string, params: Params;
         if (i.kind === 'text') { method = 'Input.insertText'; params = { text: i.text }; }
         else if (i.kind === 'key') { method = 'Input.dispatchKeyEvent'; params = { type: i.type === 'down' ? 'keyDown' : i.type === 'up' ? 'keyUp' : '', key: i.key, code: i.code, modifiers: i.modifiers }; }

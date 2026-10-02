@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { once } from 'node:events';
-import { access, readFile, readdir, readlink, mkdtemp, rm, writeFile, chmod } from 'node:fs/promises';
+import { access, readFile, readdir, readlink, mkdtemp, rm, writeFile, chmod, stat } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
@@ -105,7 +105,8 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'broker-real-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const profileDir = join(dir, 'p');
+  const profileDir = join(dir, 'deep-profile-'.repeat(10), 'profile');
+  let privateTemp: string | undefined;
   let path = executable;
   if (!available) {
     // CI can fetch only the official artifact for the package-lock pin, into this test's own directory.
@@ -180,6 +181,12 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
       if (cmd.includes(`--user-data-dir=${profileDir}`) && !cmd.includes('--type=')) mains.push(pid);
     }
     assert.equal(mains.length, 1, 'one owned Chromium main');
+    const ownEnv = Object.fromEntries((await readFile(`/proc/${mains[0]}/environ`, 'utf8')).split('\0').filter(Boolean).map(s => { const at = s.indexOf('='); return [s.slice(0, at), s.slice(at + 1)]; }));
+    privateTemp = ownEnv.TMPDIR;
+    assert.equal(ownEnv.HOME, profileDir); assert.ok(profileDir.length > 108);
+    assert.ok(privateTemp && privateTemp !== profileDir && privateTemp.startsWith(`${tmpdir()}/bk-`));
+    assert.equal((await stat(privateTemp)).mode & 0o777, 0o700);
+    assert.equal((await readlink(`/proc/${mains[0]}/fd/9`).catch(() => '')).includes('heavy-jobs.lock'), false);
     chromePids = [mains[0]!, ...await children(mains[0]!)];
     for (const pid of chromePids) assert.equal(await listening(pid), 0, 'Chromium exposes no TCP listener');
     assert.equal(await exists(join(profileDir, 'DevToolsActivePort')), false);
@@ -311,11 +318,13 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
     await broker.clearSite([siteOrigin]);
     assert.equal((await fresh.contexts()[0]!.cookies()).some(c => c.name === 'fixture_auth'), false);
     await fresh.close(); await browser.close().catch(() => {});
+    assert.equal(await secretHits(privateTemp!), 0, 'no credential canary in owned private temp before cleanup');
     await broker.close(); broker = undefined;
+    assert.equal(await exists(privateTemp!), false, 'only the broker-owned private temp is removed');
     await until(async () => !(await Promise.all(chromePids.map(live))).some(Boolean));
     assert.equal(await secretHits(profileDir), 0, 'no credential canary persisted in owned profile');
     assert.equal(await exists(join(dir, 'downloads', 'fixture-download.txt')), false);
-    t.diagnostic('private canary hits: agent frames=0, profile=0; positive controls: CDP, independently decoded JPEG<=320, simultaneous full live + thumbnail, scaled private input, submitted fixture form; Chromium TCP listeners=0');
+    t.diagnostic('private canary hits: agent frames=0, profile=0, private temp=0/cleaned; long profile>108 and actual owned short temp=0700; positive controls: CDP, independently decoded JPEG<=320, simultaneous full live + thumbnail, scaled private input, submitted fixture form; Chromium TCP listeners=0');
   } finally {
     t.diagnostic(`fixture cleanup stage: ${stage}`);
     await broker?.close();
