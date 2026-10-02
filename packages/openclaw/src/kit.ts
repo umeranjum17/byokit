@@ -16,7 +16,7 @@ import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLo
 import { createRuns } from './runs.ts';
 import { outputSchema } from './output.ts';
 import { createKeys, type AddKeyResult } from './keys.ts';
-import { routes as routeTable } from './routes.ts';
+import { routes as routeTable, type RouteView } from './routes.ts';
 import { providers as engineProviders, signIn as startSignIn, signOut as engineSignOut, type SignInCtx } from './signin.ts';
 import { reconcileConfig, memoryLimited as configMemoryLimited } from './config.ts';
 import type {
@@ -620,7 +620,7 @@ export class OpenClawKit {
       ensure: (member) => this.ensureMember(member), callbackPort: this.o.callbackPort ?? 1455 };
   }
 
-  routes(): Route[] {
+  routes(): RouteView[] {
     return routeTable();
   }
 
