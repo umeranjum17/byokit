@@ -9,10 +9,12 @@ export type FakeLlama = {
 
 /**
  * llama.rn stand-in. `reply` answers each completion; a reply that never resolves models a long decode, which
- * `stopCompletion()` interrupts the way the native side does (resolving with `interrupted: true`).
+ * `stopCompletion()` interrupts the way the native side does (resolving with `interrupted: true`). Like llama.rn, a
+ * stop that arrives before a decode has started is lost; with `onToken`, a first token follows on the next tick.
+ * `tokenizeGate` holds `tokenize()` until it resolves.
  */
 export function fakeLlama(o: { reply?: (p: LlamaRnCompletionParams) => string | Partial<LlamaRnCompletionResult> | Promise<string | Partial<LlamaRnCompletionResult>>;
-  fail?: 'init' | 'completion'; tokensPerChar?: number } = {}): FakeLlama {
+  fail?: 'init' | 'completion'; tokensPerChar?: number; tokenizeGate?: Promise<void> } = {}): FakeLlama {
   const contexts: FakeLlama['contexts'] = [];
   const initLlama: InitLlama = async (params) => {
     if (o.fail === 'init') throw new Error('fake init failure');
@@ -21,17 +23,20 @@ export function fakeLlama(o: { reply?: (p: LlamaRnCompletionParams) => string | 
     let interrupt: (() => void) | undefined;
     const ctx: LlamaRnContext = {
       gpu: false, model: { desc: 'fake', size: 0, nParams: 0 },
-      tokenize: async (text) => ({ tokens: Array.from({ length: Math.ceil(text.length * (o.tokensPerChar ?? 0.25)) }, (_, i) => i) }),
-      completion: async (p) => {
+      tokenize: async (text) => (await o.tokenizeGate, { tokens: Array.from({ length: Math.ceil(text.length * (o.tokensPerChar ?? 0.25)) }, (_, i) => i) }),
+      completion: async (p, onToken) => {
         if (record.released) throw new Error('released context');
         record.completions.push(p);
         if (o.fail === 'completion') throw new Error('fake completion failure');
         const base: LlamaRnCompletionResult = { text: '', content: '', tokens_predicted: 1, tokens_evaluated: 1, truncated: false,
           stopped_eos: true, stopped_word: '', stopped_limit: 0, context_full: false, interrupted: false };
+        // llama.rn formats the chat natively before decoding; a stop in this gap is lost, as on the phone.
+        await new Promise(r => setTimeout(r, 0));
         const stopped = new Promise<LlamaRnCompletionResult>(resolve => {
           interrupt = () => resolve({ ...base, stopped_eos: false, interrupted: true });
         });
         const answered = Promise.resolve(o.reply ? o.reply(p) : '{}').then(r => typeof r === 'string' ? { ...base, text: r, content: r } : { ...base, ...r });
+        if (onToken) setTimeout(() => onToken({ token: '' }), 0);
         try { return await Promise.race([answered, stopped]); } finally { interrupt = undefined; }
       },
       stopCompletion: async () => { record.stops++; interrupt?.(); },

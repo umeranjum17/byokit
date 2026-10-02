@@ -17,7 +17,8 @@ export type LlamaRnContext = {
   gpu: boolean;
   model: { desc: string; size: number; nParams: number };
   tokenize(text: string): Promise<{ tokens: number[] }>;
-  completion(params: LlamaRnCompletionParams): Promise<LlamaRnCompletionResult>;
+  /** With `onToken`, llama.rn decodes token by token and calls it for each one. */
+  completion(params: LlamaRnCompletionParams, onToken?: (data: { token: string }) => void): Promise<LlamaRnCompletionResult>;
   stopCompletion(): Promise<void>;
   release(): Promise<void>;
 };
@@ -42,6 +43,9 @@ export const DEFAULT_LIMITS: InferLimits = {
 /** Room for the chat template's own tokens around system and prompt. */
 const TEMPLATE_TOKENS = 64;
 const ANDROID_ABIS = ['arm64-v8a', 'x86_64'];
+
+/** Untrusted text cannot spell the chat template's control tokens (`<|im_start|>`, `<think>`), which llama.rn parses. */
+export const neutralize = (s: string): string => s.replace(/<(?=\||\/?think>)/g, '‹');
 
 export const modelName = (m: InferModel): string => `${m.id}@${m.revision}`;
 
@@ -105,7 +109,7 @@ export class LocalModel {
       if (unsupported) { this.#set(unsupported); throw new InferError('unsupported', 'This device cannot run the model.'); }
       const { store } = this.#o, m = this.model;
       const have = await store.size(m) ?? 0;
-      if (have === m.bytes && await this.#hashMatches()) { this.#set({ phase: 'installed' }); return; }
+      if (have === m.bytes && await this.#hashMatches()) { this.#set({ phase: this.#ctx ? 'ready' : 'installed' }); return; }
       if (store.freeBytes && await store.freeBytes() + Math.min(have, m.bytes) < m.bytes) {
         this.#set({ phase: 'failed', why: 'storage' });
         throw new InferError('no-space', 'Not enough free space for the model.', { detail: { bytes: m.bytes } });
@@ -121,13 +125,20 @@ export class LocalModel {
         this.#set({ phase: 'failed', why: 'network' });
         throw new InferError('network', 'The model download failed.', { cause });
       }
-      o.signal?.throwIfAborted();
-      if (await store.size(m) !== m.bytes || !await this.#hashMatches()) {
-        await store.remove(m);
+      let matches;
+      try {
+        matches = await store.size(m) === m.bytes && await this.#hashMatches();
+        if (!matches) await store.remove(m);
+      } catch (cause) {
+        this.#set({ phase: 'failed', why: 'storage' });
+        throw new InferError('failed', 'The downloaded model could not be checked.', { cause });
+      }
+      if (!matches) {
         this.#set({ phase: 'failed', why: 'integrity' });
         throw new InferError('integrity', 'The downloaded file did not match the pinned size and SHA-256.');
       }
       this.#set({ phase: 'installed' });
+      o.signal?.throwIfAborted();
     });
   }
 
@@ -156,20 +167,24 @@ export class LocalModel {
       const system = req.system ?? '';
       if (system.length + req.prompt.length > this.limits.maxInputChars) throw new InferError('too-large', 'The input is longer than the limit.');
       const ctx = await this.#load();
-      signal?.throwIfAborted();
-      const inputTokens = (await ctx.tokenize(`${system}\n${req.prompt}`)).tokens.length + TEMPLATE_TOKENS;
+      const prompt = neutralize(req.prompt);
+      const inputTokens = (await ctx.tokenize(`${system}\n${prompt}`)).tokens.length + TEMPLATE_TOKENS;
       if (inputTokens + maxOutputTokens > this.limits.contextTokens) {
         throw new InferError('too-large', 'The input does not fit the context.', { detail: { inputTokens } });
       }
-      const messages: LlamaRnMessage[] = [...(system ? [{ role: 'system' as const, content: system }] : []), { role: 'user', content: req.prompt }];
+      const messages: LlamaRnMessage[] = [...(system ? [{ role: 'system' as const, content: system }] : []), { role: 'user', content: prompt }];
       const stop = () => { void ctx.stopCompletion().catch(() => {}); };
+      // llama.rn clears a stop that lands before its native decode starts, so every token re-asserts it.
+      const onToken = () => { if (signal?.aborted || this.#releasing) stop(); };
       signal?.addEventListener('abort', stop, { once: true });
       this.#stop = stop;
-      this.#set({ phase: 'busy' });
       const started = Date.now();
       try {
+        signal?.throwIfAborted();
+        if (this.#releasing) throw new InferError('failed', 'The model was released.');
+        this.#set({ phase: 'busy' });
         const r = await ctx.completion({ messages, jinja: true, enable_thinking: false, n_predict: maxOutputTokens, temperature: 0, seed: 0,
-          ...(req.jsonSchema && { response_format: { type: 'json_schema' as const, json_schema: { strict: true as const, schema: req.jsonSchema } } }) });
+          ...(req.jsonSchema && { response_format: { type: 'json_schema' as const, json_schema: { strict: true as const, schema: req.jsonSchema } } }) }, onToken);
         signal?.throwIfAborted();
         if (this.#releasing) throw new InferError('failed', 'The model was released while generating.');
         this.#set({ phase: 'ready' });
@@ -180,7 +195,7 @@ export class LocalModel {
         };
       } catch (cause) {
         if (signal?.aborted) { this.#set({ phase: 'ready' }); throw signal.reason; }
-        if (cause instanceof InferError) throw cause;
+        if (cause instanceof InferError) { this.#set({ phase: 'ready' }); throw cause; }
         this.#set({ phase: 'failed', why: 'model' });
         this.#o.log?.('infer: native completion failed');
         throw new InferError('failed', 'The native completion failed.', { cause });
@@ -191,7 +206,8 @@ export class LocalModel {
     });
   }
 
-  /** Stops any generation, waits for it, and frees the native context. Safe to call repeatedly. */
+  /** Stops any generation, waits for it, and frees the native context. Safe to call repeatedly. A running install is not
+   * stopped: abort it with its own signal. */
   async release(): Promise<void> {
     this.#releasing = true;
     try {
@@ -214,11 +230,19 @@ export class LocalModel {
     const { store, initLlama } = this.#o, m = this.model;
     if (await store.size(m) !== m.bytes) { this.#set({ phase: 'not-installed' }); throw new InferError('not-installed', 'The model is not downloaded.'); }
     this.#set({ phase: 'loading' });
-    if (this.limits.verifyOnLoad && !await this.#hashMatches()) {
-      await store.remove(m);
+    let matches = true;
+    try {
+      if (this.limits.verifyOnLoad) matches = await this.#hashMatches();
+      if (!matches) await store.remove(m);
+    } catch (cause) {
+      this.#set({ phase: 'failed', why: 'storage' });
+      throw new InferError('failed', 'The stored model could not be checked.', { cause });
+    }
+    if (!matches) {
       this.#set({ phase: 'failed', why: 'integrity' });
       throw new InferError('integrity', 'The stored model no longer matches its SHA-256 and was removed.');
     }
+    if (this.#releasing) { this.#set({ phase: 'installed' }); throw new InferError('failed', 'The model was released.'); }
     try {
       this.#ctx = await initLlama!({ model: store.path(m), n_ctx: this.limits.contextTokens, n_threads: this.limits.threads,
         n_gpu_layers: 0, use_mlock: false, use_mmap: true });

@@ -8,31 +8,48 @@ export type PaneSummary =
 export type PaneSummaryOptions = { signal?: AbortSignal; maxLines?: number; maxChars?: number };
 
 // ponytail: pattern redaction is best-effort; it narrows what the model sees, it is not a secret scanner.
+// Every pattern is linear on hostile input; lines are capped before any of them runs.
 const SECRETS = [
   /\b(?:sk|pk|rk)-[A-Za-z0-9_-]{16,}/g, /\bgh[pousr]_[A-Za-z0-9]{20,}/g, /\bgithub_pat_[A-Za-z0-9_]{20,}/g, /\bAKIA[0-9A-Z]{16}\b/g,
-  /\bxox[abprs]-[A-Za-z0-9-]{10,}/g, /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
-  /\b[A-Fa-f0-9]{40,}\b/g, /(?=[A-Za-z0-9+_-]*\d)(?=[A-Za-z0-9+_-]*[A-Za-z])[A-Za-z0-9+_-]{32,}={0,2}/g,
+  /\bxox[abprs]-[A-Za-z0-9-]{10,}/g,
 ];
-const KEYED = /\b(password|passwd|secret|token|api[_-]?key|authorization)(\s*[:=]\s*)((?:bearer|basic)\s+)?("[^"]*"|'[^']*'|\S+)/gi;
+const KEYED = /\b([A-Za-z0-9_.-]*(?:password|passwd|secret|token|api[_-]?key|authorization|credential)[A-Za-z0-9_.-]*)(\s*[:=]\s*|\s+(?=\S*\d))((?:bearer|basic)\s+)?("[^"]*"|'[^']*'|\S+)/gi;
+const FLAG = /(--?[A-Za-z0-9_-]*(?:password|passwd|secret|token|api-?key)[A-Za-z0-9_-]*[ =])(\S+)/gi;
+const USERINFO = /(\/\/[^\s:@/]+:)[^\s@/]+@/g;
+/** Long runs that look like keys or hashes: mixed letters and digits, or 40+ hex; path segments stay. */
+const RUN = /[A-Za-z0-9+/_=-]{32,}/g;
+const secretRun = (r: string) => /^[A-Fa-f0-9]{40,}$/.test(r)
+  || /\d/.test(r) && /[A-Za-z]/.test(r) && r.split('/').some(seg => seg.length >= 24);
 
 /** Drops escape sequences and control characters a terminal would interpret. */
 export const plainText = (s: string): string => s
-  .replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g, '')
-  .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
-  .replace(/\x1b[@-_]/g, '')
+  .replace(/\x1b\][^\x07\x1b]{0,4096}(?:\x07|\x1b\\)?/g, '')
+  .replace(/\x1b\[[0-?]{0,64}[ -/]{0,16}[@-~]?/g, '')
+  .replace(/\x1b[@-_]?/g, '')
   .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '');
 
-export const redact = (s: string): string =>
-  SECRETS.reduce((t, re) => t.replace(re, '[redacted]'), s.replace(KEYED, '$1$2$3[redacted]').replace(/\b(bearer\s+)\S+/gi, '$1[redacted]'));
+export const redact = (s: string): string => SECRETS
+  .reduce((t, re) => t.replace(re, '[redacted]'), s)
+  .replace(USERINFO, '$1[redacted]@')
+  .replace(KEYED, '$1$2$3[redacted]')
+  .replace(FLAG, '$1[redacted]')
+  .replace(/\b(bearer\s+)\S+/gi, '$1[redacted]')
+  .replace(RUN, r => secretRun(r) ? '[redacted]' : r);
 
 /**
- * The pane text the model may see: plain, redacted, chrome repeated on screen collapsed to its last appearance,
- * then the newest `maxLines` lines within `maxChars`.
+ * The pane text the model may see: only the newest lines, each capped; plain, redacted, private-key blocks dropped,
+ * chrome repeated on screen collapsed to its last appearance, angle brackets made inert (no tag or chat token can
+ * be formed), then the newest `maxLines` lines within `maxChars`.
  */
 export function paneText(lines: readonly string[], o: { maxLines?: number; maxChars?: number } = {}): string[] {
   const maxLines = o.maxLines ?? 80, maxChars = o.maxChars ?? 6_000;
-  const clean = lines.map(l => redact(plainText(String(l))).replace(/\s+$/, '')).filter(l => l.trim());
+  let inKey = false;
+  const clean = lines.slice(-maxLines * 4).flatMap(raw => {
+    const l = plainText(String(raw).slice(0, 2_000));
+    if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(l)) inKey = true;
+    if (inKey) { inKey = !/-----END [A-Z ]*PRIVATE KEY-----/.test(l); return ['[redacted]']; }
+    return [redact(l).slice(0, 500).replace(/</g, '‹').replace(/>/g, '›').replace(/\s+$/, '')];
+  }).filter(l => l.trim());
   const last = new Map(clean.map((l, i) => [l.trim(), i]));
   const kept = clean.filter((l, i) => last.get(l.trim()) === i).slice(-maxLines);
   let chars = 0, from = kept.length;
@@ -62,7 +79,7 @@ export async function summarizePane(local: LocalModel, lines: readonly string[],
   if (text.join('').replace(/\s/g, '').length < 40) return { ok: false, code: 'not-enough-output' };
   let done;
   try {
-    done = await local.complete({ system: SYSTEM, prompt: `<pane>\n${text.join('\n').replaceAll('</pane>', '')}\n</pane>`,
+    done = await local.complete({ system: SYSTEM, prompt: `<pane>\n${text.join('\n')}\n</pane>`,
       jsonSchema: SCHEMA, maxOutputTokens: Math.min(200, local.limits.maxOutputTokens), signal: o.signal });
   } catch (e) {
     if (e instanceof InferError && e.code === 'too-large') return paneTooLarge(local, text, o);
