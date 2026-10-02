@@ -1,0 +1,3 @@
+FIX: Discover every pinned agent kind and use its actual account-folder and resume support for sign-in tabs and managed moves. Kinds without a folder override remain one sign-in per computer user, tab only. New move support is fixture-tested, not native-qualified.
+
+SECURITY: Readiness no longer probes default CLI logins. Pass `agentStatus(kinds, { folders: { [kind]: appManagedFolder }, env? })` to select an app-owned account; absent or invalid folders return unknown without running a CLI. Status commands receive a clean env with HOME/XDG/platform directories confined to that folder. Direct `runStatusCommand` calls without an explicit HOME return no answer. Injected status runners now receive the resolved executable path and explicit env (not an inherited default login).

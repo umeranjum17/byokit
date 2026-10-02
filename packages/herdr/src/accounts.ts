@@ -1,9 +1,11 @@
 // Account-specific CLI panes (D11/6.6). No credentials are read or copied. Moves follow
 // the decided start-then-close order; only fake transports exercise this in tests.
 import { randomBytes } from 'node:crypto';
+import { isAbsolute } from 'node:path';
 import type { Call } from './agents.ts';
 import type { AgentRef, Move, MoveResult, MoveToAccount, MoveToAccountResult, OpenSignInTab, StartAgent } from './types.ts';
 import { words } from './words.ts';
+import { accountKind } from './kinds.ts';
 
 type Raw = Record<string, any>;
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -53,8 +55,16 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
   }
 
   async function openSignInTab(o: OpenSignInTab): Promise<AgentRef> {
-    const { workspaceId, label, ...start } = o;
+    const { workspaceId, label, folder, ...start } = o;
     try {
+      if (folder !== undefined) {
+        const variable = accountKind(start.kind)?.folderVar;
+        if (!variable || !folder || /[\r\n\0]/.test(folder)) throw new Error('unsupported folder');
+        const launch = start.env;
+        start.env = launch && typeof launch.env === 'object' && Array.isArray(launch.unset)
+          ? { env: { ...launch.env, [variable]: folder }, unset: launch.unset }
+          : { ...launch as Record<string, string> | undefined, [variable]: folder };
+      }
       return await ctx.startAgent({ ...start, place: { tab: 'new', workspaceId,
         ...(label === undefined ? {} : { label }) } });
     } catch {
@@ -77,16 +87,18 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
         || session.value.length === 0) return failed('too_early');
       if (!['idle', 'done'].includes(agent.agent_status)) return failed('busy');
       const kind = agent.agent;
-      if (!['claude', 'codex'].includes(o.provider) || kind !== o.provider
-        || (request !== undefined && request.kind !== kind)
-        || session.agent !== kind || session.kind !== 'id') return failed('unsupported');
-      const args = request?.args ?? (kind === 'claude' && session.kind === 'id' ? ['--resume', session.value]
-        : kind === 'codex' && session.kind === 'id' ? ['resume', session.value] : undefined);
+      const metadata = accountKind(o.provider);
+      if (!metadata?.folderVar || !metadata.resume || kind !== metadata.kind
+        || (request !== undefined && accountKind(request.kind)?.kind !== kind)
+        || session.agent !== kind || !metadata.sessionKinds.includes(session.kind)) return failed('unsupported');
+      if (/[\x00-\x1f\x7f]/.test(session.value) || session.value.length > (session.kind === 'path' ? 4096 : 512)
+        || (session.kind === 'path' && !isAbsolute(session.value))) return failed('unsupported');
+      const args = request?.args ?? metadata.resumeArgs?.map((arg) => arg.replace('{session}', () => session.value));
       if (args === undefined || !Array.isArray(args) || args.length === 0 || args.some((a) => typeof a !== 'string' || /[\r\n\0]/.test(a))) return failed('unsupported');
       if (!o.folder || /[\r\n\0]/.test(o.folder)) return failed('env_mismatch');
       const timeout = o.timeoutMs ?? 60_000;
       if (!Number.isFinite(timeout) || timeout <= 0) return failed('start_failed');
-      const variable = o.provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
+      const variable = metadata.folderVar;
       let paneId: string;
       let replacement: Raw;
       try {
@@ -159,9 +171,9 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
   }
 
   async function move(o: Move): Promise<MoveResult> {
-    const variable = o.kind === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
+    const variable = accountKind(o.kind)?.folderVar;
     const result = await perform({ paneId: o.paneId }, {
-      provider: o.kind === 'claude' ? 'claude' : 'codex', folder: o.set[variable] ?? '',
+      provider: o.kind, folder: variable === undefined ? '' : o.set[variable] ?? '',
       env: o.set, timeoutMs: o.timeoutMs,
     }, o);
     return result.ok ? { ok: true, paneId: result.session } : result;

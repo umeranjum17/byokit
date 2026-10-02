@@ -63,11 +63,15 @@ export type AgentReadiness = {
   installHint: string; signInHint?: string;
 };
 export type AgentStatusRunner = (command: string, args: string[],
-  o?: { stdin?: string; timeoutMs?: number }) => Promise<{ stdout: string } | undefined>;
+  o?: { stdin?: string; timeoutMs?: number; env?: Record<string, string> }) => Promise<{ stdout: string } | undefined>;
 export type AgentStatusOptions = {
   path?: string[]; aliases?: Record<string, string[]>;
   readFile?: (file: string) => string | undefined;
   run?: AgentStatusRunner; timeoutMs?: number;
+  /** Explicit app-managed account folders. Absent selection never probes a default login. */
+  folders?: Record<string, string>;
+  /** Clean, host-passed env only; HOME and XDG directories are confined to the selected folder. */
+  env?: Record<string, string>;
 };
 // `startAgent` lifecycle: `installing` fires before the start when the kind needs an install
 // (auto-install launcher/shim or nothing on PATH — apps show "Installing …" instead of a blank
@@ -88,9 +92,9 @@ export type StartAgent = {
   onEvent?: (e: AgentStartEvent) => void;   // per-call lifecycle: installing/ready/launchFailed
   installProbe?: AgentInstallProbe;          // install detection overrides (tests use fakes)
 };
-export type OpenSignInTab = Omit<StartAgent, 'place' | 'worktree'> & { workspaceId: string; label?: string };
+export type OpenSignInTab = Omit<StartAgent, 'place' | 'worktree'> & { workspaceId: string; label?: string; folder?: string };
 export type MoveToAccount = {
-  provider: 'claude' | 'codex'; folder: string; env?: Record<string, string>;
+  provider: string; folder: string; env?: Record<string, string>;
   direction?: 'right' | 'down'; timeoutMs?: number;
 };
 export type MoveToAccountResult = { ok: true; session: string } | {
