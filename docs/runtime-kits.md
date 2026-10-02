@@ -1715,7 +1715,7 @@ signed in to {site}. Continue the task.", `signin.private` "Private while someon
 `browser.blocked.detached` "{name}'s browser isn't connected.", `browser.blocked.unsafe` "An agent here can run
 commands or read files, so the browser stays off.", `browser.blocked.gateOff` "Browser handoff needs the tool gate
 on.", `browser.blocked.unprotected` "Signing in for {name} isn't available yet.", `live.reconnecting`
-"Reconnecting…".
+"Reconnecting…". Action labels: `signin.cancel` "Cancel sign-in", `signin.reopen` "Continue signing in", `signin.retry` "Try signing in again", `signin.confirmOrigin` "Continue on {origin}", `live.label` "Browser live view". Browser-specific expiry/cancellation use `browser.signin.expired` and `browser.signin.cancelled`; the existing provider sign-in words remain unchanged.
 
 **Limits.** No platform-authenticator passkeys or hardware keys (→ `entered-unverified`); session-only cookies do
 not survive a browser restart; the profile at rest is protected by the precondition, not file modes;
