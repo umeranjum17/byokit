@@ -245,7 +245,13 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
     let end: number;
     while ((end = buffer.indexOf('\0')) !== -1) {
       const raw = buffer.slice(0, end); buffer = buffer.slice(end + 1);
-      try { route(JSON.parse(raw)); } catch { abortPipe(); }
+      try {
+        const message = JSON.parse(raw) as Message;
+        // Replies resume async forwarding. Give that continuation its turn before the next event,
+        // even when Chromium puts both in one pipe read (Playwright installs context listeners on reply).
+        if (message.id === undefined) queueMicrotask(() => { try { route(message); } catch { abortPipe(); } });
+        else route(message);
+      } catch { abortPipe(); }
     }
   });
   function own(c: Client, sid: string, target?: string) {
