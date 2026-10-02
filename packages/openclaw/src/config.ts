@@ -67,7 +67,12 @@ export function reconcileConfig(saved: object | undefined, o: {
     c.plugins.entries.browser = { enabled: true };
     c.plugins.entries[o.pluginId].hooks.allowConversationAccess = true;
     c.tools ??= {};
-    c.tools.alsoAllow = [...new Set([...(c.tools.alsoAllow ?? []), 'browser', 'request_sign_in', ...o.browser.tools])];
+    const browserTools = [...new Set([...(c.tools.alsoAllow ?? []), 'browser', 'request_sign_in', ...o.browser.tools])];
+    // The stock schema rejects allow + alsoAllow in one scope; an explicit closed allow must absorb additions.
+    if (Array.isArray(c.tools.allow)) {
+      c.tools.allow = [...new Set([...c.tools.allow, ...browserTools])];
+      delete c.tools.alsoAllow;
+    } else c.tools.alsoAllow = browserTools;
   }
   c.security ??= {};
   c.security.installPolicy = { enabled: true, exec: {
@@ -104,6 +109,16 @@ export function browserToolPolicySafe(config: unknown, tools: readonly string[])
     return true;
   };
   return visit(config);
+}
+
+// The pinned config.get redacts the entire token-bearing CDP URL. Only an applied, stable host-owned
+// config snapshot can substitute its exact endpoint; an arbitrary masked/changed URL never counts as an ack.
+export function browserProfileAcknowledged(profile: unknown, owned: unknown, endpoint: string,
+  snapshot: { configRevisionHash?: unknown; appliedConfigHash?: unknown }, stableFile: boolean): boolean {
+  if (!object(profile) || !object(owned) || profile.attachOnly !== true || owned.attachOnly !== true
+    || owned.cdpUrl !== endpoint || !stableFile || typeof snapshot.configRevisionHash !== 'string'
+    || !snapshot.configRevisionHash || snapshot.configRevisionHash !== snapshot.appliedConfigHash) return false;
+  return profile.cdpUrl === endpoint || profile.cdpUrl === '__OPENCLAW_REDACTED__';
 }
 
 export function memoryLimited(config: object, member: Member): boolean {

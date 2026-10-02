@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { browserToolPolicySafe, reconcileConfig } from '../src/config.ts';
+import { browserToolPolicySafe, browserProfileAcknowledged, reconcileConfig } from '../src/config.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import { scratchDir } from '../../test-support.ts';
@@ -32,8 +32,26 @@ test('browser config replaces unsafe caller profiles and pins a dead default, at
   assert.deepEqual(Object.keys(config.browser.profiles).sort(), ['byokit-ada', 'byokit-none']);
   assert.equal(config.browser.profiles['byokit-ada'].attachOnly, true);
   assert.equal(config.browser.tabCleanup.enabled, false);
+  assert.equal(config.tools.alsoAllow, undefined, 'published schema forbids allow plus alsoAllow');
+  assert.ok(config.tools.allow.includes('browser') && config.tools.allow.includes('request_sign_in'));
   assert.equal(config.plugins.entries.byokit.hooks.allowConversationAccess, true);
   assert.equal(browserToolPolicySafe(config, ['crew_x']), true);
+});
+
+test('stock CDP redaction is acknowledged only against stable exact owned and applied configuration', () => {
+  const endpoint = 'ws://127.0.0.1:1234/devtools/browser?token=synthetic';
+  const owned = { cdpUrl: endpoint, attachOnly: true };
+  const masked = { cdpUrl: '__OPENCLAW_REDACTED__', attachOnly: true };
+  const applied = { configRevisionHash: 'revision', appliedConfigHash: 'revision' };
+  assert.notEqual(masked.cdpUrl, endpoint, 'original strict URL comparison rejected the stock sentinel');
+  assert.equal(browserProfileAcknowledged(masked, owned, endpoint, applied, true), true);
+  for (const [profile, local, revision, stable] of [
+    [masked, owned, applied, false], [masked, owned, {}, true],
+    [masked, owned, { ...applied, appliedConfigHash: 'other' }, true],
+    [masked, { ...owned, cdpUrl: endpoint + '-other' }, applied, true],
+    [{ ...masked, cdpUrl: 'arbitrary-mask' }, owned, applied, true],
+    [{ ...masked, attachOnly: false }, owned, applied, true],
+  ] as const) assert.equal(browserProfileAcknowledged(profile, local, endpoint, revision, stable), false);
 });
 
 test('kit refuses gate-off, reserved tools, unsafe non-browser members, raw policy mutation and unknown effective tools', async () => {
@@ -48,10 +66,14 @@ test('kit refuses gate-off, reserved tools, unsafe non-browser members, raw poli
     config: { tools: { allow: ['browser', 'request_sign_in'] } }, browser: { executablePath: '/fixture/chromium', members: [] } });
   fake.handle('config.get', () => ({ hash: 'fixture', config: JSON.parse(readFileSync(join(stateDir, 'openclaw', 'openclaw.json'), 'utf8')) }));
   fake.handle('agents.list', () => ({ agents: [{ id: 'main' }, { id: 'other' }, { id: 'byokit-key-ada' }] }));
+  fake.handle('sessions.create', params => ({ key: (params as { key: string }).key }));
   fake.handle('tools.effective', params => ({ agentId: (params as { agentId: string }).agentId, groups: [{ tools: [{ id: 'browser' }] }] }));
   try {
     await kit.start();
     assert.equal(kit.browser?.state('ada').why, 'no-browser');
+    assert.deepEqual(fake.calls.filter(c => c.method === 'sessions.create').map(c => c.params),
+      ['main', 'other', 'byokit-key-ada'].map(agentId => ({ agentId, key: `agent:${agentId}:byokit-browser-policy`, label: 'Browser tool policy' })),
+      'every audit session is inert: no message/task or model submission');
     for (const method of ['config.patch', 'config.apply', 'config.set', 'agents.update', 'plugins.setEnabled'])
       await assert.rejects(kit.call(method as never, {} as never), /guarded patchConfig/);
     fake.handle('tools.effective', params => ({ agentId: (params as { agentId: string }).agentId,

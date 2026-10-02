@@ -1603,7 +1603,9 @@ network-free. Any other tool, including an unknown or custom one, sets `blocked:
 in the kit; a group deny is not assumed to cover it, and a separate-OS-user sandbox is not accepted as a claim. While
 the feature is on, the pre-gate also denies `exec`, `process`, `code_execution`, `bash`, `terminal`, `read`,
 `write`, `edit`, `apply_patch` and `gateway` for every agent. `gateBuiltins: false` with `browser` is refused at
-construction (`gate-off`). The trusted host (app code with typed pass-through) is outside this boundary.
+construction (`gate-off`). The pinned `tools.effective` route needs an existing session: the kit creates one
+inert audit session per roster agent (no task/message or model submission) before reading its inventory.
+The trusted host (app code with typed pass-through) is outside this boundary.
 
 **Browser and broker** (`src/browser/broker.ts`, O19). Per member: Chromium from `executablePath` with
 `--remote-debugging-pipe` (no TCP DevTools port), profile `<stateDir>/browser/<member>/profile` (0700), env built
@@ -1625,10 +1627,16 @@ session ownership.
 - **Release order.** Close every held target, await `targetDestroyed`, lift the fence, then navigate the agent's
   tab (`checkUrl` on `verified`, else reload, which also resyncs Playwright).
 
-**Kit wiring** (O21). `reconcileConfig` adds `plugins.allow += 'browser'`, `tools.alsoAllow += 'browser'` and
+**Kit wiring** (O21). `reconcileConfig` adds `plugins.allow += 'browser'`, `tools.alsoAllow += 'browser'`
+(or merges these additions into an explicit closed `tools.allow`, removing `alsoAllow`: the stock schema refuses
+both in one scope) and
 `browser: { enabled, defaultProfile: 'byokit-none', evaluateEnabled: false, tabCleanup: { enabled: false },
 ssrfPolicy, profiles: { 'byokit-<member>': { cdpUrl, attachOnly: true } } }` (`byokit-none` is dead, so an
-unrewritten call fails closed). The bridge plugin runs a kit pre-gate before the app's `gate`: rewrite every
+unrewritten call fails closed). Before unfencing, the exact broker/generation is re-read and the profile is
+acknowledged. Stock `config.get` masks token-bearing CDP URLs with `__OPENCLAW_REDACTED__`; this counts only
+against an unchanged host-owned config file with the exact endpoint and attach-only profile, and equal
+nonempty `configRevisionHash`/`appliedConfigHash` (the pinned Gateway's applied-source revision projections).
+Unknown masks, unapplied revisions or changed files/bindings fail closed. The bridge plugin runs a kit pre-gate before the app's `gate`: rewrite every
 `browser` call's `profile` to `byokit-<member>`, `target` to `host`, drop `node` (nested `request`/`actions` too);
 deny `profiles`, `importprofile`, `start`, `stop`, `doctor` and `act:evaluate`; while the member has an open
 request deny `browser` and `request_sign_in` in every session of that member with `signin.gate`. Kit tool

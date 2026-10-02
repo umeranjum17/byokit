@@ -6,13 +6,15 @@ import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, closeSync, openSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync, rmSync, closeSync, openSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
 import { chromium } from 'playwright';
 import { OpenClawKit } from '../../src/kit.ts';
+import type { BrowserHostController } from '../../src/browser/host.ts';
 import { gatewayTransport } from '../../src/transport.ts';
 import { startModelStub } from '../../src/testing/model-stub.ts';
-import { scratchDir, trackChild } from '../../../test-support.ts';
+import { trackChild } from '../../../test-support.ts';
 
 const entry = process.env.BYOKIT_BROWSER_STOCK_ENTRY;
 const executable = process.env.BYOKIT_TEST_CHROMIUM ?? chromium.executablePath();
@@ -28,16 +30,19 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
   timeout: 180_000,
 }, async t => {
   assert.ok(entry && existsSync(entry), 'explicit stock entry required; no install or discovery in the test');
+  assert.ok(existsSync(executable), 'explicit fixture Chromium required; no browser download in the test');
   const stock = dirname(entry);
   assert.equal(JSON.parse(readFileSync(join(stock, 'package.json'), 'utf8')).version, '2026.8.1');
   assert.equal(JSON.parse(readFileSync(join(stock, 'dist/build-info.json'), 'utf8')).commit, 'ea806575e6450e4d1efdfc72c19f04be982a1b9b');
   const before = hash(entry);
-  const stateDir = scratchDir('k');
+  const stateDir = mkdtempSync(join(tmpdir(), 'k-'));
   const wrapper = join(stateDir, 'chromium-fixture');
   writeFileSync(wrapper, `#!/bin/sh\nexec '${executable.replaceAll("'", "'\\''")}' '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost' "$@" 2>>'${join(stateDir, 'chromium.stderr')}'\n`, { mode: 0o700 });
   const model = await startModelStub();
   let child: ChildProcess | undefined;
-  const requests: unknown[] = [], outputs: unknown[] = [], toolEvents: unknown[] = [];
+  const requests: unknown[] = [], outputs: unknown[] = [], toolEvents: unknown[] = [], diagnostics: unknown[] = [];
+  const observationOnly = !!process.env.BYOKIT_BROWSER_POLICY_OBSERVE;
+  const counterfactual = process.env.BYOKIT_BROWSER_POLICY_OBSERVE === 'counterfactual';
   const site = createServer((req, res) => {
     res.setHeader('cache-control', 'no-store'); res.setHeader('content-type', 'text/html');
     res.end(req.url === '/login' ? '<form><input type="password"><button>Sign in</button></form>'
@@ -63,15 +68,54 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
       } finally { closeSync(fd); }
       child.on('error', () => {});
       const transport = gatewayTransport(ctx);
-      return { ...transport, request: async (method, params, options) => {
+      return { ...transport, start: () => Promise.race([transport.start(), once(child!, 'exit').then(([code]) => {
+        throw new Error(`owned stock fixture exited during startup (${code})`);
+      })]), request: async (method, params, options) => {
         if (method === 'agent') requests.push(params);
-        return transport.request(method, params, options);
+        const reply = await transport.request(method, params, options);
+        if (method === 'tools.effective') {
+          const result = reply as Record<string, any>;
+          diagnostics.push({ method, params, keys: Object.keys(result), agentId: result.agentId, profile: result.profile,
+            groups: result.groups?.map((group: any) => ({ id: group.id, tools: group.tools?.map((tool: any) => ({
+              keys: Object.keys(tool), id: tool.id, source: tool.source, enabled: tool.enabled, disabled: tool.disabled, deniedBySession: tool.deniedBySession,
+            })) })) });
+        }
+        if (method === 'config.get') {
+          const result = reply as Record<string, any>, c = result.config;
+          const local = JSON.parse(readFileSync(join(stateDir, 'openclaw/openclaw.json'), 'utf8'));
+          diagnostics.push({ method, keys: Object.keys(result), appliedRevisionMatches: typeof result.configRevisionHash === 'string'
+            && !!result.configRevisionHash && result.configRevisionHash === result.appliedConfigHash,
+            tools: c?.tools, defaultsTools: c?.agents?.defaults?.tools,
+            agentTools: Object.entries(c?.agents?.entries ?? {}).map(([id, value]: [string, any]) => ({ id, tools: value.tools })),
+            profiles: Object.entries(c?.browser?.profiles ?? {}).map(([id, profile]: [string, any]) => ({ id,
+              keys: Object.keys(profile), attachOnly: profile.attachOnly,
+              matchesOwnedFile: profile.cdpUrl === local.browser?.profiles?.[id]?.cdpUrl,
+              endpointDigest: typeof profile.cdpUrl === 'string' ? createHash('sha256').update(profile.cdpUrl).digest('hex') : null,
+            })) });
+        }
+        return reply;
       } };
     },
   });
   try {
     await kit.start();
     assert.equal(kit.hello?.server.version, '2026.8.1');
+    if (observationOnly) {
+      const host = (kit as unknown as { browserHost?: BrowserHostController }).browserHost;
+      const local = JSON.parse(readFileSync(join(stateDir, 'openclaw/openclaw.json'), 'utf8'));
+      diagnostics.push({ bindingObservation: ['ada', 'bea'].map(member => {
+        const binding = host?.brokerBinding(member);
+        return { member, state: kit.browser?.state(member), hostState: host?.state(member), generation: binding?.generation,
+          endpointMatchesOwnedFile: binding?.endpoint.cdpUrl === local.browser?.profiles?.[`byokit-${member}`]?.cdpUrl };
+      }) });
+      assert.equal(model.calls.length, 0);
+      if (counterfactual) for (const member of ['ada', 'bea']) {
+        assert.equal(kit.browser?.state(member).why, 'handoff-unprotected', 'stock masked profile is acknowledged without widening tools');
+        assert.equal(host?.brokerBinding(member)?.generation, 1, 'same actual host generation');
+      }
+      t.diagnostic('CAUSAL OBSERVATION ONLY: zero model submissions; not a positive W7 qualification');
+      return;
+    }
     const run = async (member: string, input: object, session = member) => {
       const end = await kit.run({ member, sessionKey: `agent:${member}:fixture:${session}`, idempotencyKey: `fixture:${member}:${session}:${requests.length}`,
         message: `[tool browser ${JSON.stringify(input)}]` }, e => { if (e.type === 'tool') toolEvents.push(e); });
@@ -118,7 +162,9 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     assert.equal(hash(entry), before, 'stock executable untouched');
     const receipt = { engine: '2026.8.1', upstreamCommit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b', stockEntry: before,
       shippedPlugin: hash(new URL('../../plugin/index.js', import.meta.url).pathname), requests, outputs, toolEvents,
-      providerRequests: model.calls.length, protectedHandoffQualified: false,
+      providerRequests: model.calls.length, protectedHandoffQualified: false, observationOnly, counterfactual, diagnostics,
+      candidateSources: Object.fromEntries(['kit.ts', 'config.ts', 'browser/host.ts', 'browser/broker.ts'].map(path =>
+        [path, hash(new URL(`../../src/${path}`, import.meta.url).pathname)])),
       limits: ['no protected production handoff', 'no recovery-turn refusal qualification', 'no private secret/profile scan in this kit test; broker test owns that matrix'] };
     if (process.env.BYOKIT_BROWSER_RECEIPT) writeFileSync(process.env.BYOKIT_BROWSER_RECEIPT, JSON.stringify(receipt, null, 2));
     const logs = process.env.BYOKIT_BROWSER_RECEIPT ? `${process.env.BYOKIT_BROWSER_RECEIPT}.stock.log` : undefined;

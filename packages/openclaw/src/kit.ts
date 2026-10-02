@@ -18,7 +18,7 @@ import { outputSchema } from './output.ts';
 import { createKeys, type AddKeyResult } from './keys.ts';
 import { routes as routeTable, type RouteView } from './routes.ts';
 import { providers as engineProviders, signIn as startSignIn, signOut as engineSignOut, type SignInCtx } from './signin.ts';
-import { reconcileConfig, browserToolPolicySafe, memoryLimited as configMemoryLimited } from './config.ts';
+import { reconcileConfig, browserToolPolicySafe, browserProfileAcknowledged, memoryLimited as configMemoryLimited } from './config.ts';
 import type { BrowserHost, BrowserOptions, BrowserState } from './browser.ts';
 import { createBrowserHost, type BrowserHostController, type HostBroker } from './browser/host.ts';
 import { fileSignInStore } from './browser/store.ts';
@@ -498,6 +498,7 @@ export class OpenClawKit {
   private readonly brokers = new Map<Member, HostBroker>();
   private browserSafe = false;
   private readonly browserAttaching = new Map<Member, Promise<void>>();
+  private readonly browserPolicySessions = new Set<string>();
   private readonly browserProfiles: Record<string, { cdpUrl: string; attachOnly: true }> = {};
 
   private browserConfig() { return { profiles: this.browserProfiles, tools: this.toolNames() }; }
@@ -505,8 +506,8 @@ export class OpenClawKit {
     let owned: HostBroker | undefined;
     const broker = await launchBroker({ executablePath: this.o.browser!.executablePath,
       profileDir: join(this.o.stateDir, 'browser', member, 'profile'), member,
-      onExit: () => { if (!this.stopping && owned && this.brokers.get(member) === owned)
-        void this.browserHost?.browserGone(member, owned).catch(() => {}); } });
+      onExit: () => { if (!this.stopping && owned && this.browserHost?.brokerBinding(member)?.broker === owned)
+        void this.browserHost.browserGone(member, owned).catch(() => {}); } });
     owned = broker;
     try { await broker.fence(true); return broker; }
     catch (error) { await broker.close(); throw error; }
@@ -551,13 +552,20 @@ export class OpenClawKit {
     };
   }
   private async publishBrowserProfile(member: Member): Promise<void> {
-    const broker = this.brokers.get(member);
-    if (!broker || this.browserHost?.state(member).phase === 'recovering') return;
-    const name = `byokit-${member}`, endpoint = broker.endpoint().cdpUrl;
-    if (this.browserProfiles[name]?.cdpUrl === endpoint) return;
-    this.browserProfiles[name] = { cdpUrl: endpoint, attachOnly: true };
-    try { await this.patchConfig({}); await this.checkBrowserTools(); }
-    catch { this.browserSafe = false; await broker.fence(true); throw new Error('browser endpoint unavailable'); }
+    const binding = this.browserHost?.brokerBinding(member);
+    if (!binding) return;
+    const { broker, generation, endpoint } = binding;
+    const name = `byokit-${member}`;
+    if (this.browserProfiles[name]?.cdpUrl === endpoint.cdpUrl) return;
+    this.brokers.set(member, broker);
+    await broker.fence(true);
+    this.browserProfiles[name] = { ...endpoint, attachOnly: true };
+    try {
+      await this.patchConfig({});
+      const current = this.browserHost?.brokerBinding(member);
+      if (current?.broker !== broker || current.generation !== generation) throw new Error('browser binding changed');
+      await this.checkBrowserTools(); // acknowledges the exact profile and rechecks policy/no-open request before unfencing
+    } catch { this.browserSafe = false; await broker.fence(true); throw new Error('browser endpoint unavailable'); }
   }
   private browserMember(member: Member): boolean {
     return MEMBER_ID.test(member) && !member.startsWith(KEY_PREFIX) && !!this.o.browser
@@ -571,21 +579,41 @@ export class OpenClawKit {
     if (!this.o.browser) return true;
     this.browserSafe = false;
     try {
-      const { config: c } = await this.request()('config.get') as { config?: object };
+      const configPath = join(this.engine.root, 'openclaw.json');
+      const disk = readFileSync(configPath, 'utf8');
+      const snapshot = await this.request()('config.get') as { config?: object; configRevisionHash?: unknown; appliedConfigHash?: unknown };
+      const c = snapshot.config;
+      const owned = JSON.parse(disk) as { browser?: { profiles?: Record<string, unknown> } };
       if (!browserToolPolicySafe(c, this.toolNames())) return false;
       const roster = await this.request()('agents.list') as { agents: { id: string }[] };
       if (!Array.isArray(roster.agents) || !roster.agents.length) return false;
       const safe = new Set(['browser', 'request_sign_in', ...this.toolNames()]);
       for (const { id } of roster.agents) {
         if (!MEMBER_ID.test(id)) return false;
-        const policy = await this.request()('tools.effective', { agentId: id, sessionKey: `agent:${id}:byokit-browser-policy` }) as
+        const sessionKey = `agent:${id}:byokit-browser-policy`;
+        if (!this.browserPolicySessions.has(sessionKey)) {
+          // The published tools.effective route requires an existing session. No message/task or model submission.
+          await this.request()('sessions.create', { agentId: id, key: sessionKey, label: 'Browser tool policy' });
+          this.browserPolicySessions.add(sessionKey);
+        }
+        const policy = await this.request()('tools.effective', { agentId: id, sessionKey }) as
           { agentId: string; groups: { tools: { id: string }[] }[] };
         if (policy.agentId !== id || !Array.isArray(policy.groups)
           || policy.groups.some(group => !Array.isArray(group.tools) || group.tools.some(tool => !safe.has(tool.id)))) return false;
       }
+      const stable = disk === readFileSync(configPath, 'utf8');
+      for (const [member, broker] of this.brokers) {
+        const binding = this.browserHost?.brokerBinding(member);
+        const profile = (c as { browser?: { profiles?: Record<string, { cdpUrl?: string; attachOnly?: boolean }> } }).browser?.profiles?.[`byokit-${member}`];
+        if (!binding || binding.broker !== broker || !browserProfileAcknowledged(profile,
+          owned.browser?.profiles?.[`byokit-${member}`], binding.endpoint.cdpUrl, snapshot, stable)) return false;
+        if (!this.browserHost?.signIns(member).some(r => ['waiting', 'held', 'checking'].includes(r.state))) {
+          await broker.fence(false);
+          const current = this.browserHost?.brokerBinding(member);
+          if (current?.broker !== broker || current.generation !== binding.generation) return false;
+        }
+      }
       this.browserSafe = true;
-      for (const [member, broker] of this.brokers) if (!this.browserHost?.signIns(member)
-        .some(r => ['waiting', 'held', 'checking'].includes(r.state))) await broker.fence(false);
       return true;
     } catch { return false; }
     finally { if (!this.browserSafe) for (const broker of this.brokers.values()) await broker.fence(true); }
@@ -729,6 +757,7 @@ export class OpenClawKit {
     this.off.splice(0).forEach((fn) => fn());
     const transport = this.transport;
     this.transport = undefined; this.greeting = undefined; this.members = undefined;
+    this.browserPolicySessions.clear();
     this.bridge.stop();
     await transport?.stop();
   }
