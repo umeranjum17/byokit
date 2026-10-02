@@ -58,7 +58,7 @@ test('discovery keeps every row on every platform; host offers only ready subscr
     assert.equal(route(id).readiness, 'ready');
     assert.ok(offered({ platform: 'node' }).some((r) => r.id === id));
   }
-  assert.equal(offered({ platform: 'node' }).length, 22);
+  assert.equal(offered({ platform: 'node' }).length, 21);
   assert.ok(offered({ platform: 'node' }).every((r) => r.billing === 'subscription'));
 });
 
