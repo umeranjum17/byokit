@@ -62,7 +62,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D16 | Crewhouse adopts first with behavior parity; muxr adopts later in a separate muxr change after the Herdr kit is published and muxr's byokit cutover allows it. Neither adoption is part of the byokit PRs. |
 | D17 | Accounts (5.15). A member can hold several accounts, several per provider, subscription or API key. Each further account is its own engine agent `<member>--<6 hex>` sealed to exactly one sign-in, because the pin has no strict per-run auth-profile pin and rotates profiles of one provider within an agent. The member agent is the first account of each provider it is signed in to (its own existing sign-ins keep working, no migration; sign-ins read through another member's agent stop applying) and never holds an API key. Each run uses one account and one model, chosen, the default, or Auto (most room left, decided once at run start); a run never switches accounts, and a session stays on the account whose agent holds it until `move`. The engine's own per-person accounts, pooled proxies and per-request or mid-run rotation are not used. The kit adds the plugin id of every `offer: true` route to `plugins.allow` (5.6), so offered sign-ins work without app config. |
 | D18 | Account routes ([2.1](#21-account-routes-d18)). Every sign-in method a kit's pinned upstream supports is one data row in one shared vocabulary owned by `fixtures/conformance/account-routes-typescript.json`; each kit restates the shapes structurally (D3). Discovery lists every row, unavailable ones with a plain reason. Subscription rows are offered by default; every other billing is used only when the app or person names it. Billing is pinned upstream metadata or explicit host input, never inferred from an address. Credential import, pooling proxies, per-request or mid-run rotation, tokens leaving the device and signing in as another tool's existing login never become routes. |
-| D19 | Bundled engine patches (5.16). The kit may change its pinned engine install only through `engine/patches.json`: exact unique-anchor edits with stock and patched sha256 per file, applied at `prepare()`, each inert unless the kit sets its env variable, never while any process runs that engine, rolled back in place. No fork, republished tarball or source build. Two patches are planned: engine-started usage (Skill Workshop review facts in a kit-owned ledger) and app-owned session opt-out from restart recovery. Coverage is claimed only for the Gateway kinds 5.16 names; the worker bundle and every other detached kind are uncovered. |
+| D19 | Bundled engine patches (5.16). The kit may change its pinned engine install only through `engine/patches.json`: exact unique-anchor edits with stock and patched sha256 per file, each inert unless the kit sets its env variable. A patched engine is a new immutable, fully verified set tree beside `engineDir`; no engine file any process may load is ever written in place, and rollback launches another set. No fork, republished tarball or source build. Two patches are planned: engine-started usage (Skill Workshop review facts in a kit-owned ledger) and app-owned session opt-out from restart recovery. Coverage is claimed only for the Gateway kinds 5.16 names; the worker bundle and every other detached kind are uncovered. |
 
 ### 2.1 Account routes (D18)
 
@@ -483,12 +483,14 @@ export const PROTOCOL_VERSION = 4;
 
 Extracted from Crewhouse `gateway.ts` with these exact behaviors:
 
-1. **prepare()**: create `openclaw/home`, `openclaw/state`, `openclaw/tmp`, `logs`. If `engineDir/node_modules/openclaw/openclaw.mjs`
-   is missing: copy the kit's `engine/package.json` and `engine/package-lock.json` into `engineDir`, run
-   `npm ci --ignore-scripts --no-audit --no-fund --prefix <engineDir>` with env `{ PATH, HOME: openclaw/install-home,
-   npm_config_cache: openclaw/npm-cache, OPENCLAW_DISABLE_BUNDLED_PLUGIN_POSTINSTALL: '1' }`, timeout 300 s; state
-   `installing`; failure → `failed/install`. Then verify `engineDir/node_modules/openclaw/package.json` version equals
-   `ENGINE_VERSION`, else `needs-update/version` (never silently run another version). Token file `openclaw/token`
+1. **prepare()**: create `openclaw/home`, `openclaw/state`, `openclaw/tmp`, `logs`. Adopt the wanted engine set
+   (5.16), building it when absent: the stock set copies the kit's `engine/package.json` and `engine/package-lock.json`
+   into a temporary set directory and runs `npm ci --ignore-scripts --no-audit --no-fund --prefix <tmp>` with env
+   `{ PATH, HOME: openclaw/install-home, npm_config_cache: openclaw/npm-cache, OPENCLAW_DISABLE_BUNDLED_PLUGIN_POSTINSTALL:
+   '1' }`, timeout 300 s; state `installing`; failure → `failed/install`. Then verify the set's
+   `node_modules/openclaw/package.json` version equals `ENGINE_VERSION`, else `needs-update/version` (never silently
+   run another version). The entry is `<set>/node_modules/openclaw/openclaw.mjs`; `engineDir/node_modules` (an older
+   kit's install) is never read, written or deleted. Token file `openclaw/token`
    (32 random bytes hex, 0600, created once). Port file `openclaw/port` (free loopback port chosen once; refuse 18789
    → `failed/port`). Write the bridge plugin (5.9) and reconcile config (5.6).
 2. **start()**: before preparing or restoring credentials, inspect `openclaw/gateway.pid`. A live orphan may
@@ -515,7 +517,7 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
    socket and delete it. Only the instance's child pid guard and acquired credential lock/state may be
    cleaned; failed-start cleanup and stop without ownership never acquire a lock to seal or delete state.
    State `stopped`.
-5. `doctorContext()` returns the entry and isolated env for an offline doctor run (migration).
+5. `doctorContext()` returns the adopted set's entry and isolated env for an offline doctor run (migration).
 
 ### 5.5 Isolated engine env
 
@@ -908,8 +910,8 @@ The pin is `ENGINE_VERSION` + `engine/package-lock.json` + exact client/protocol
 byokit: bump all four, re-run `npm run gen:openclaw`, review `report.json` and the method/event diff (listed in the
 PR), re-verify `routes.json` choice ids, run `npm run test:engine` green, bump the kit's minor version, CHANGELOG
 lists added/removed methods. Consumers upgrade the kit, never the engine directly. An installed engine whose version
-differs from `ENGINE_VERSION` is `needs-update`; `prepare()` then reinstalls into `engineDir` (delete
-`engineDir/node_modules` and `npm ci`), never touching `openclaw/state`.
+differs from `ENGINE_VERSION` is `needs-update`; `prepare()` then builds and adopts the set for the current pin
+(5.16), never touching `openclaw/state`, an existing set or `engineDir/node_modules`.
 A pin bump also re-derives `engine/patches.json` from the new stock bytes (anchors may move and hashed file names
 change; a stale set fails `before` and blocks release), re-checks that the Gateway-covered kinds of 5.16 still hold
 (the review stays out of `sessions.usage`, recovery and flush stay in it), and re-runs the O15–O17 engine tests.
@@ -1422,38 +1424,45 @@ plus one reviewed edit. A fork, a republished tarball or a source build is never
 - Each patched function does nothing unless the kit sets its own env variable at spawn (5.5); with the variable
   unset the engine behaves as stock. A patch adds no RPC, config key or schema to the engine.
 
-**Reconcile** (in `prepare()`, every call, after the install step of 5.4 and before the version check):
+**Engine sets.** A patched engine is never made by editing files in place: stock OpenClaw rewrites its process
+title (`/proc/<pid>/cmdline` is `openclaw-gateway`, `test/engine/boot.test.ts`) and a running Gateway holds no file or
+mapping in its engine tree, so no process can be tied to an engine directory without reading its environment, which
+holds the Gateway token. Instead, no kit path writes a tree any process may load, and no process is identified,
+signalled or waited for.
 
-1. For every file in the wanted set or in the existing marker `engineDir/.byokit-patches` (`{ id, files }`):
-   hash = wanted `after` → keep; hash = the other known state (`before`, or an `after` of a file the new set drops)
-   → apply forward, or reverse (swap `find`/`replace`, then verify `before`) in place; any other hash or a missing
-   file is drift.
-2. Drift deletes the marker and reinstalls through the existing `npm ci` path (the marker is also deleted before
-   that path removes `node_modules`), then applies the set to stock bytes. A marker mismatch alone never reinstalls.
-3. Each file is written to a unique temp name, `fsync`ed and renamed. The marker is deleted before the first file
-   write and written last, so a crash leaves no marker beside mixed known states and the next `prepare()`
-   reconciles.
+- **Where.** `<engineDir>.sets/<h>-<setId>/`, a sibling of `engineDir` (inside it, Node's import walk-up would fall
+  back into `engineDir/node_modules`, which older kits delete and reinstall); `h` = first 16 hex of sha256 over the
+  lock's `integrity` string. The sets directory and each set must not be symlinks. Credential archive walks skip it
+  as they skip `engineDir`.
+- **Build** (only when no verifying set exists): in `<sets>/.tmp-<pid>-<startTime>-<random>` on the same device. The
+  stock set (`files: []`) is installed by 5.4's `npm ci`; every other set is copied from a verified stock set (never
+  from `engineDir/node_modules`) with `cpSync(…, { recursive: true, verbatimSymlinks: true, mode: COPYFILE_FICLONE })`,
+  no hardlinks. Verify version and commit and every `before`, apply the edits, verify every `after`, then write the
+  manifest `.byokit-set.json` (`{ v: 1, id, integrity, entries }`, every entry's path, type, mode, size, sha256 or
+  symlink target, sorted), set files 0444 and directories 0555, `fsync` every file and directory, rename the
+  temporary directory onto the final name and `fsync` the sets directory. A rename that loses to another kit
+  (`ENOTEMPTY`/`EEXIST`, `EPERM` on Windows) removes only its own temporary directory and adopts the winner after
+  verification; any other error fails, never copy-over or remove-and-retry. A kit removes its own temporary directory
+  on failure; another kit's is removed only when its `<pid>-<startTime>` is provably dead on Linux, and left
+  untouched on any doubt or without `/proc`.
+- **Adopt.** Every `prepare()` (so every start and restart, 5.4) runs **full manifest verification** of the set it
+  is about to use, including a set this state directory adopted before: the tree holds exactly the manifest's
+  entries with equal type, mode, size, hash and link target, plus the patch set's `after` hashes. Checking only
+  patched files never counts as drift detection. The adopted set's name and manifest sha256 are kept in
+  `<root>/engine-set` (atomic write). O15 measures full verification on the real tree; if that cost is unacceptable,
+  the contract returns to firstmate for a different honest rule, never a silent weaker check.
+- **Immutable.** After the rename no kit path, updater or `doctor --fix` run writes a final set, and none is ever
+  deleted (`ponytail:` about 0.9 GB per set per `engineDir`, older pins' sets strand; collection needs per-launch
+  leases, add when disk matters). A set failing verification is left byte for byte: the kit adopts a verifying
+  `<name>.<random>` sibling or builds one, once per `prepare()`.
+- **Failure.** No spawn on an unverified set: state `failed`, `why: 'engine-patch'`, with the set and cause
+  (`write`: a set or temporary directory cannot be created; `drift-after-build`: a freshly built set fails
+  verification) in the error. `KitState.patchSet` (5.2) is the adopted set's `id` (`null` before the first adoption).
 
-**No mutation while anyone runs it.** `engineDir` is a public option that kits and tests share, and the Gateway loads
-chunks lazily, so a live Gateway can read a file late. Using only the kit's existing mechanisms (`wx` create as in
-`putOnce`, `/proc/<pid>/stat` start time as in `processStartTime`):
-
-1. Take `engineDir/.byokit-patch.lock` with `flag: 'wx'`, holding `{ pid, startTime }`. A lock whose pid is dead or
-   whose start time differs is removed and taken once more; a live one fails.
-2. Under the lock, files already in the wanted state need no mutation.
-3. Otherwise, any live process whose argv contains the realpath of `engineDir/node_modules/openclaw/openclaw.mjs`
-   (scan `/proc/*/cmdline`; every kit version launches that entry) blocks every mutation, including reverse-apply
-   and drift reinstall. Without `/proc`, only the kit's private default `<stateDir>/openclaw/engine` may be mutated.
-4. The lock is held through the mutation, the marker write and this kit's own Gateway spawn until its pid exists.
-
-A blocked or failed reconcile never spawns on mixed bytes: state `failed`, `why: 'engine-patch'`, with the file and
-cause (`busy`, `lock`, `drift-after-reinstall`, `write`) in the error. The other owner keeps running on its bytes.
-`KitState.patchSet` (5.2) carries the marker's set id after `prepare()` (`null` = no marker, provenance unknown).
-
-**Rollback contract (one rule):** a kit carrying a changed or empty set reconciles in place from any known state, no
-reinstall and no network; only drift reinstalls (which may need the registry: `npm ci` has no offline mode); a kit
-from before this section leaves patched files in place, inert because it never sets the env variables, and its
-`patchSet` reads unknown; all mutation obeys the rule above. Ledger history (below) is never deleted by any of it.
+**Rollback contract (one rule):** rollback is adopting another set. Copying from a verified stock set needs no
+network; only building the stock set runs `npm ci` (registry unless cached). A kit from before this section runs
+`engineDir/node_modules`, which this kit never touches, so it runs stock bytes. Ledger history (below) is never
+deleted.
 
 **Coverage.** Only the Gateway process (`openclaw.mjs` and the chunks it loads) is patched. The worker bundle
 `dist/worker/worker.mjs` has its own copies of the review and recovery code and is **uncovered**: no guarantee of this
@@ -2485,12 +2494,22 @@ its fixture; `@byokit/ui-core` `AccountsSource` (for `fits`) · version: opencla
 
 **O15 — bundled engine patch packaging** · Sol · deps: O11 · version: openclaw next minor
 - Files: `engine/patches.json` (empty set), `engine/OPENCLAW-LICENSE`, the derive/check script, `src/engine.ts`
-  (reconcile, marker, lock, spawn hold), `src/types.ts` (`why: 'engine-patch'`, `patchSet`), `test/engine-unit.test.ts`,
+  (set build, manifest verification, adoption), `src/auth-store.ts` (archive walk skips the sets directory),
+  `src/types.ts` (`why: 'engine-patch'`, `patchSet`), `test/engine-unit.test.ts`, `test/engine/sets.test.ts`,
   `scripts/pack-smoke.ts`, README/NOTICE lines, `changes/bundled-engine-patches.md`.
-- Behavior: 5.16 patch set, reconcile, no-mutation and rollback rules.
-- Acceptance (fake `node_modules/openclaw`, no engine): forward, idempotent, reverse to an empty set, drift
-  reinstalls once, unknown bytes after reinstall fail `engine-patch`, a crash between files reconciles, a live lock
-  and a live process running the entry (another owner's) each block every mutation and leave its bytes unchanged.
+- Behavior: 5.16 patch set, engine sets and rollback rules.
+- Unit (fake trees, labelled unit, not qualification): manifest mismatch for an extra, missing, changed, re-moded
+  and re-linked entry; lost-rename codes; own temporary cleanup; pointer write; a symlinked sets directory refused.
+- Engine job (real processes; no namespace, `/proc` or process mock): (1) a stock Gateway launched the old way from
+  `X/node_modules` (title rewritten, unmarked) and a new-kit Gateway from set A of `X` run while a second kit prepares
+  `X` with another set and with the empty set: full-tree sha256 of `X/node_modules` and of A are unchanged and both
+  Gateways answer health; (2) patched-file-only drift and (3) unpatched-file-only drift, each separately on one state
+  directory across repeated `prepare()` of an already adopted set: the second `prepare()` detects it, leaves A byte
+  for byte and adopts a fresh sibling, while A's Gateway keeps answering; (4) a real `doctor --fix` from a set leaves
+  its manifest unchanged and reaches `ready`; (5) switching sets keeps health and plugin listing (a stale plugin
+  index rebuild warning is expected); (6) with a verified stock set present, building a patched set makes no
+  registry request; (7) two kits racing one set leave one final set, both launch it, no temporary directory remains;
+  (8) the measured full-verification time on the real tree is printed and recorded in the PR.
   Packed install: the packed tarball installed into a clean directory runs a real `prepare()` from registry deps and
   reports the expected `patchSet`; `--check` re-derives the set byte for byte.
 
