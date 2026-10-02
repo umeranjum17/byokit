@@ -142,6 +142,7 @@ export class HerdrKit {
     this.accountPanes = createAccountPanes({ call: this.callAny, startAgent: (o) => this.startAgent(o) });
     this.agents = createAgents({ call: this.callAny, snapshot: () => this.snapshot(),
       reread: (paneId) => this.reread(paneId),
+      launchEnv: () => o.mode === 'own' ? this.supervisor.env() : undefined,
       emitStart: (e) => { for (const fn of [...this.startListeners]) try { fn(e); } catch { /* a listener never breaks a start */ } } });
     this.blockedList = new Blocked({ call: this.callAny });
     this.turns = createTurns(this);

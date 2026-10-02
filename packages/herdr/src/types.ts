@@ -70,10 +70,10 @@ export type AgentStatusOptions = {
   run?: AgentStatusRunner; timeoutMs?: number;
 };
 // `startAgent` lifecycle: `installing` fires before the start when the kind needs an install
-// (auto-install launcher/shim or nothing on PATH — apps show "Installing …" instead of a blank
+// (legacy auto-install launcher/shim — Muse missing is a typed refusal, not an install or blank
 // start), `ready` carries the fresh ref, and `launchFailed` carries a typed reason plus plain
 // words. Subscribable per call (`StartAgent.onEvent`, no polling) or app-wide (`onStartAgent`).
-export type AgentLaunchFailureReason = 'placement-failed' | 'pane-busy' | 'install-failed' | 'start-rejected';
+export type AgentLaunchFailureReason = 'placement-failed' | 'pane-busy' | 'install-failed' | 'start-rejected' | 'not-installed';
 export type AgentStartEvent =
   | { phase: 'installing'; kind: string; message: string }
   | { phase: 'ready'; kind: string; ref: AgentRef }

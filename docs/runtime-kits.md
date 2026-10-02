@@ -1608,6 +1608,19 @@ no new link/device operation; apps forward the result through their authorized j
   When the start fails, the pane the kit created is rolled back with `pane.close` (a caller-owned `pane`
   placement is never closed). Returns `{ paneId, name }`. Exact param spellings come from the generated
   types; where muxr and the schema disagree, the schema wins and H5 records it in `report.json`.
+- Muse private readiness (additive Node helpers in `src/muse.ts`): `museReadiness(env?)` probes only
+  the explicitly supplied effective PATH, returning unknown/missing/launcher-only/installed and always
+  `signedIn: 'unknown'`. `installMuse({ home, path, installDir?, signal?, timeoutMs? })` is explicit
+  installation authorization: unmodified official `https://dev.meta.ai/install.sh`, private staged
+  HOME/XDG/temp, explicit Bash and clean tool PATH, no profiles/login/inherited overrides. Only Linux/macOS
+  x64/arm64; refuse escaping/symlink/system/default-home targets. Bound HTTPS redirects/downloads/processes,
+  cancel the owned process group, preserve existing installs, and promote only a launcher plus executable
+  selected native release. Return a typed prerequisite/failure or receipt (paths, launch env, version and
+  hashes), not account/catalog qualification. A working existing install is reused without updates.
+  `startAgent` rejects known-missing Muse with `agent_not_installed` and `launchFailed: not-installed`
+  before placement/RPC; effective explicit launch env wins, otherwise own-mode new panes use the owned
+  supervisor env. Unknown existing/adopted pane environments stay unknown. No auto-install promise for an
+  absent Muse CLI; no invented folder/resume capability. Exact typed RPC pass-through stays unchanged.
 - `prompt`: refuse unless the agent is promptable (`launch_pending !== true`, status in idle/working/blocked/done)
   → `PublicLinkError`-compatible error code `agent-not-ready`. The tree is re-read once (`agent.get`) before a
   refusal, since `launch_pending` rides reads only; `interactive_ready` is not gated (v0.9.1 sets it only for agents
@@ -1770,6 +1783,7 @@ sorted, deterministic; a test regenerates and compares.
 | `agent.unknown` | Running. |
 | `agent.signIn` | Sign in inside {agent}: follow its own steps on the screen. |
 | `agent.notReady` | This helper isn't ready yet. Try again in a moment. |
+| `agent.notInstalled` | Install this helper in the app first, then try again. |
 | `approval.stale` | That question already changed. Look again before answering. |
 | `close.wouldWiden` | Closing this would close more than you picked. Close the bigger one instead. |
 | `link.notAllowed` | This device can't do that. Ask the person at the computer. |

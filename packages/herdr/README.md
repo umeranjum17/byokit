@@ -242,15 +242,17 @@ Helpers cover the common paths (start an agent, deliver a prompt with a receipt,
 
 `kit.agentStatus(kinds)` reports, per kind, whether the agent's CLI is installed and whether
 it is signed in — the onboarding agents-and-pickers check. It needs no Herdr connection: it
-probes the local machine. Install detection reuses `installedAgentKinds` over the host PATH plus
+probes the explicit path or, for own-mode kits, the managed launch PATH. Adopt-mode inventory
+uses the local machine; it is not evidence of an existing pane's environment. That inventory uses the host PATH plus
 the extra install dirs a service PATH omits (`extraPathDirs`: `~/.local/bin`, the mise shims,
 `~/.npm-global/bin`, Homebrew and the system dirs — the set muxr probed before this kit did).
 Sign-in comes only from each CLI's own documented non-secret status command, with a 10 s timeout;
 a kind whose CLI has none, or whose command gives no answer, reads `unknown`. Credential files
 are never opened, read or statted — only the signed-in boolean is kept. Install detection tells a
 real runnable binary apart from an auto-install launcher: a mise-style shim on PATH, or nothing
-on PATH at all, reads `installState: 'installs-on-first-start'` with `installed: false` — Herdr
-fetches the agent on first start — instead of a missing-install error. That covers `pi`, which
+on PATH at all, retains the legacy `installState: 'installs-on-first-start'` with `installed: false`.
+**Muse is different:** no executable, an auto-install shim, or an official launcher without its selected native release,
+reads `installState: 'missing'`. Stock Herdr does not install an absent Muse command. That covers `pi`, which
 Herdr installs via mise: a missing or shimmed `pi` reads `installed: false` with `installs on
 first start`, while a real `pi` binary reads `installed: true`.
 
@@ -287,12 +289,68 @@ sniff's file-head reader (tests use fakes); `{ run }` injects the command runner
 `{ timeoutMs }` bounds each probe. `signInHint` rides kinds the kit knows how to check whenever they
 are not signed in; `installHint` always rides along.
 
+## Explicit private Muse installation
+
+`installMuse` is an additive Node helper. Calling it authorizes the official published installer,
+not sign-in or a model request. Show the source (`MUSE_INSTALL_URL`), destination and affected
+files before offering that action. No hidden download happens on import or `startAgent`.
+
+```ts
+import { installMuse, museReadiness } from '@byokit/herdr';
+
+const installed = await installMuse({
+  home: '/app-owned/private/muse',
+  path: ['/usr/bin', '/bin'], // clean host-selected tools; no inherited environment
+  // installDir: '/app-owned/private/muse/tools', signal, timeoutMs: 180_000
+});
+if (installed.ok) {
+  const { env, version } = installed.receipt;
+  console.log(museReadiness(env), version); // installation only, signedIn stays unknown
+  // Existing env-replacement/rollback guards still apply. Use this complete environment
+  // rather than shell rc files, including for an existing pane you explicitly prepare.
+  await kit.startAgent({ kind: 'muse', cwd: '/app-owned/project',
+    place: { tab: 'new', workspaceId: 'project' }, env: { env, unset: [] } });
+} else {
+  console.log(installed.code, installed.message); // e.g. protected_download, cancelled
+}
+```
+
+Only absolute app-managed private homes/targets are allowed. The destination must be inside
+that home; symlink/escape/default-home/system targets are refused. Bash/curl are required on
+the explicit tool PATH. The unmodified official HTTPS installer runs in a fresh staging
+HOME/XDG/temp, with `MUSE_INSTALL_DIR`, `MUSE_NO_MODIFY_PATH=1`, `MUSE_LOGIN=0`, no inherited
+URL/auth/profile overrides and a bounded curl policy. No credentials are copied or read from
+the caller's existing home. HTTPS-only redirects (at most three), per-download 60 s/512 MiB,
+a total deadline (default 180 s, maximum 300 s) and owned-process-group cancellation are enforced.
+No shell profile or persistent PATH is modified.
+
+Success requires both the executable launcher and selected executable `muse-bin-<version>`;
+the receipt records the native release version, SHA-256 hashes, actual paths and launch env.
+A working installation is reused without updates. A failed/cancelled new install leaves no
+partial target; an existing incomplete target is preserved/refused (choose a fresh directory).
+The returned environment disables automatic updates and login. Hosts own these private paths
+and must avoid concurrent writers; filesystem validation is not an OS sandbox for publisher code.
+Linux/macOS x64/arm64 are supported; Windows returns `unsupported_platform`.
+
+Known-missing Muse refuses with `agent_not_installed` / `launchFailed.reason: 'not-installed'`
+**before placement/start**. Preflight uses the explicit per-call environment, otherwise the
+kit-owned launch environment for a new pane. Controller-global inventory/probe overrides
+never prove readiness on a known private launch PATH. An unobserved existing/adopted pane
+environment remains unknown (`museReadiness()`), not installed. Exact typed RPC pass-through
+is unchanged; direct stock `agent.start` has upstream behavior.
+
+Installation adds no folder/resume/native-move capability: Muse remains tab-only metadata.
+It does not prove sign-in, account catalog or model readiness. The official public model name
+is `muse-spark-1.3-contributor`; the installed account's own catalog still requires separate
+owner qualification. No provider/model fallback is performed. Previously inspected published
+kit versions 0.3.0 and 0.5.0 lack this helper/fix; this source change is not a published-version claim.
+
 ## Agent start lifecycle
 
 `startAgent` keeps its typed shape and rejection, and additionally reports the launch as events
 so an app shows `Installing…` instead of a blank start: `installing` (with the progress words)
 before a start that needs an install, `ready` with the fresh ref, and `launchFailed` with a typed
-`reason` (`placement-failed` | `pane-busy` | `install-failed` | `start-rejected`) plus plain words.
+`reason` (`placement-failed` | `pane-busy` | `install-failed` | `start-rejected` | `not-installed`) plus plain words.
 Subscribe per call with `onEvent`, or app-wide with `kit.onStartAgent` — no polling either way.
 
 ```ts

@@ -23,6 +23,7 @@ const TABLE: readonly (readonly [WordKey, string])[] = [
   ['agent.notReady', "This helper isn't ready yet. Try again in a moment."],
   ['agent.installing', 'Installing {agent}…'],
   ['agent.installFailed', "Installing {agent} didn't finish. Try again in a moment."],
+  ['agent.notInstalled', 'Install this helper in the app first, then try again.'],
   ['agent.launchFailed', "That helper couldn't start. Try again in a moment."],
   ['approval.stale', 'That question already changed. Look again before answering.'],
   ['close.wouldWiden', 'Closing this would close more than you picked. Close the bigger one instead.'],
