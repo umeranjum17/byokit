@@ -4,6 +4,8 @@
 
 ## 0.7.0 (2026-10-02)
 
+- Includes the Muse installation, managed-kind discovery and isolated readiness FIX/SECURITY changes recorded in the unpublished 0.6.0 preparation below; none add native login qualification.
+
 FIX: Re-read source quiescence, conversation, terminal and published sequence immediately before closing on every account move; roll back replacements on change and verify surviving conversations after uncertain cleanup. Published Herdr has no atomic conditional close.
 FIX: Add explicit confirmed, bounded `whenBusy: { busy: 'wait', confirmed, waitMs }` account handoff: move when this step finishes, never interrupt. Preserve default busy refusal, refuse missing sequence/stale identity, stop on blocked approvals, and return typed `interrupt_unsupported` without keys or lifecycle calls. Native working-step qualification remains separate from offline protocol fixtures.
 
