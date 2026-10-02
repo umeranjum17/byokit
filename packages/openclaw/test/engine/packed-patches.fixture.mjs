@@ -93,6 +93,7 @@ try {
   await prepare(kit, 'production-cold-registry-install');
   const stock = pointer('s');
   const emptyDir = join(base + '.sets', engineSetName(emptySpec));
+  if (process.argv[2]) await command(process.execPath, [process.argv[2], join(emptyDir, 'node_modules/openclaw'), '--check']);
   assert.equal(JSON.parse(readFileSync(join(stock, '.byokit-patches'), 'utf8')).id, stockSpec.id);
   assert.equal(kit.state.patchSet, stockSpec.id);
   await prepare(kit, 'production-repeat-full-tree');
@@ -150,6 +151,10 @@ try {
   assert.equal(snapshot(base), baseBefore); assert.equal(snapshot(dirA), aBefore);
   await b.stop(); select(emptySpec);
   await prepare(b, 'rollback-stock-selection'); await b.start(); await health(b);
+  const plugins = await b.call('plugins.list', {});
+  const bridge = plugins.plugins.find(plugin => plugin.id === 'byokit');
+  assert.ok(bridge && bridge.installed && bridge.enabled && bridge.state === 'enabled', 'bridge remains listed after set switch');
+  console.log(JSON.stringify({ pluginsAfterSwitch: { id: bridge.id, installed: bridge.installed, enabled: bridge.enabled, state: bridge.state } }));
   assert.equal(pointer('b'), emptyDir); assert.equal(snapshot(base), baseBefore); assert.equal(snapshot(dirA), aBefore);
   // Real doctor --fix; state may be repaired, but its final engine tree must not change.
   const doctorContext = a.doctorContext();

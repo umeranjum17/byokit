@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { OpenClawKit } from '../../src/kit.ts';
 import { gatewayTransport } from '../../src/transport.ts';
 import { scratchDir } from '../../../test-support.ts';
@@ -71,7 +71,7 @@ test('R2: accepted disconnect retries one run; cached inputs are not compared an
   try {
     await kit.start();
     // Source-bound expiry/pressure proof: avoid a five-minute sleep or flooding 1,001 model runs.
-    const dist = join(process.env.BYOKIT_R2_ENGINE_DIR ?? join(stateDir, 'openclaw', 'engine'), 'node_modules/openclaw/dist');
+    const dist = join(dirname(kit.doctorContext().entry), 'dist');
     const source = (name: string) => {
       const text = readFileSync(join(dist, name), 'utf8');
       sourceHashes[name] = createHash('sha256').update(text).digest('hex');
