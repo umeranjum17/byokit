@@ -100,7 +100,9 @@ export function livePanel(root: HTMLElement, say: Say, on: {
     },
     async frame(f: { w: number; h: number; jpeg: Uint8Array }) {
       if (!panel.showFrames || !ctx) return;
-      const image = await createImageBitmap(new Blob([f.jpeg as BlobPart], { type: 'image/jpeg' }));
+      // A frame that doesn't decode is skipped; the next one replaces it.
+      const image = await createImageBitmap(new Blob([f.jpeg as BlobPart], { type: 'image/jpeg' })).catch(() => null);
+      if (!image) return;
       size = { w: f.w, h: f.h };
       if (canvas.width !== f.w || canvas.height !== f.h) { canvas.width = f.w; canvas.height = f.h; }
       ctx.drawImage(image, 0, 0);

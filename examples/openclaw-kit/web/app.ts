@@ -264,7 +264,7 @@ function followSignIns(mine: number) {
 function drawSignIns(list: SignInRequest[]) {
   signIns = list;
   if (lease && !list.some((r) => r.id === lease!.requestId && r.state === 'held')) endLive();
-  const sheets = list.map((r) => signInSheetView(r, { name: 'Your helper', holder: r.id === lease?.requestId }));
+  const sheets = list.map((r) => signInSheetView(r, { name: 'Helper', holder: r.id === lease?.requestId }));
   $('signins-box').hidden = !sheets.some((s) => s.needsYou);
   $('signins').replaceChildren(...sheets.filter((s) => s.needsYou).map((s) => signInCard(s, say, (a, typed) => void act(s.id, a, typed))));
   $('chips').replaceChildren(...sheets.map((s) => signInChip(s, say)).filter((c) => c !== null));
