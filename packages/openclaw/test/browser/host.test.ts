@@ -482,6 +482,65 @@ test('endpoint generation is stable across private lease epochs, recovery adopts
   } finally { await host.close(); await old.close(); await replacement.close(); }
 });
 
+test('host requests the actual pushed typed 320px viewer hint and forwards live width without fabricating a frame', async () => {
+  const fixture = await fakeBrowserHost(); const broker = fixture.fixture.broker('ada'); const widths: (number | undefined)[] = [];
+  const host = await dynamicHost(new Map([['ada', { ...broker, attachViewer(o) { widths.push(o.maxWidth); return broker.attachViewer(o); } }]]));
+  try {
+    assert.equal((await host.thumbnail({ kind: 'browser', member: 'ada' }, { grant: 'view' })).state, 'ok');
+    const stream = host.live({ kind: 'browser', member: 'ada' }, { grant: 'view', maxWidth: 256 }, { state() {}, frame() {} });
+    await turn(); stream.close(); assert.deepEqual(widths, [320, 256]);
+  } finally { await host.close(); await fixture.close(); }
+  const over = await fakeBrowserHost(); const source = over.fixture.broker('ada');
+  const oversized = await dynamicHost(new Map([['ada', { ...source, attachViewer(o) {
+    assert.equal(o.maxWidth, 320); const viewer = source.attachViewer(o);
+    return { ...viewer, frames: { async *[Symbol.asyncIterator]() { for await (const frame of viewer.frames) yield { ...frame, w: 1280 }; } } };
+  } }]]));
+  try { assert.equal((await oversized.thumbnail({ kind: 'browser', member: 'ada' }, { grant: 'view' })).state, 'unsupported'); }
+  finally { await oversized.close(); await over.close(); }
+});
+
+test('failed viewer attachment remains typed off/failed and does not extend a controller claim window', async () => {
+  const host = await fakeBrowserHost({ options: { claimMs: 10 } });
+  try {
+    const { lease } = await held(host); const broker = host.fixture.broker('ada');
+    broker.attachViewer = () => { throw new Error('synthetic endpoint failure'); };
+    const states: LiveViewState[] = [];
+    host.live({ kind: 'browser', member: 'ada' }, { grant: 'control', lease }, { state: s => states.push(s), frame() {} });
+    assert.equal(states.at(-1)?.phase, 'failed'); await host.fixture.advance(11);
+    assert.equal(host.signIns()[0].state, 'waiting');
+    await host.cancel(host.signIns()[0].id, host.signIns()[0].gen, { grant: 'control' });
+    assert.equal((await host.thumbnail({ kind: 'browser', member: 'ada' }, { grant: 'view' })).state, 'off');
+  } finally { await host.close(); }
+});
+
+test('state-ping publication reads the accepted canonical binding synchronously, still fenced', async () => {
+  const fixture = await fakeBrowserHost(); const snapshots: unknown[] = [];
+  let host: Awaited<ReturnType<typeof createBrowserHost>> | undefined;
+  host = await createBrowserHost({ brokers: new Map(), store: memorySignInStore(), options: { executablePath: '/synthetic/chromium', members: 'all' },
+    authorize: () => true, park: async () => {}, resume: async () => assert.fail('no production dispatch'), siteOf: origin => new URL(origin).hostname,
+    ping: (member, kind) => { if (kind === 'state') snapshots.push(host?.brokerBinding(member)); } });
+  try {
+    const broker = fixture.fixture.broker('ada'); await host.attachBroker('ada', broker);
+    assert.equal(snapshots.length, 1); assert.equal((snapshots[0] as { broker: HostBroker }).broker, broker);
+    assert.equal(fixture.fixture.fenced('ada'), true);
+  } finally { await host.close(); await fixture.close(); }
+});
+
+test('a state-ping reentrant replacement retains its own pending-close reservation', async () => {
+  const first = await fakeBrowserHost(); const second = await fakeBrowserHost(); const third = await fakeBrowserHost();
+  const wait = deferred(); const firstBroker = first.fixture.broker('ada'); first.fixture.closePrivate('ada', () => wait.promise);
+  let host: Awaited<ReturnType<typeof createBrowserHost>> | undefined; let reentered: Promise<void> | undefined;
+  host = await createBrowserHost({ brokers: new Map(), store: memorySignInStore(), options: { executablePath: '/synthetic/chromium', members: 'all' },
+    authorize: () => true, park: async () => {}, resume: async () => assert.fail('no production dispatch'), siteOf: origin => new URL(origin).hostname,
+    ping: (member, kind) => { if (kind === 'state' && host?.brokerBinding(member)?.broker === firstBroker && !reentered) reentered = host.attachBroker(member, second.fixture.broker(member), firstBroker); } });
+  try {
+    await host.attachBroker('ada', firstBroker); await turn();
+    assert.equal(host.brokerBinding('ada'), undefined);
+    await assert.rejects(host.attachBroker('ada', third.fixture.broker('ada'), firstBroker), refused('held-by-other'));
+    wait.resolve(); await reentered; assert.equal(host.brokerBinding('ada')?.broker, second.fixture.broker('ada'));
+  } finally { wait.resolve(); await host.close(); await first.close(); await second.close(); await third.close(); }
+});
+
 test('fixture authorization and pings pass through actual grant ids without remapping', async () => {
   const pings: { member: string; kind: string }[] = [];
   const host = await fakeBrowserHost({ authorize: (grant, member, control) => member === 'ada' && (grant === 'random-grant-a' || grant === 'random-grant-b' || (!control && grant === 'random-view')),
