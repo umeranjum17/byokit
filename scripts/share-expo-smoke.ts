@@ -2,7 +2,7 @@
 // --android-only / --ios-only select prebuild; --build adds release/JVM/bytecode checks.
 // --out <owned scratch> preserves all receipts (including original failures).
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, readdirSync, copyFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -28,15 +28,11 @@ let command = 0;
 function run(bin: string, argv: string[], cwd = app, timeout = 15 * 60_000): string {
   const log = join(scratch, `${String(++command).padStart(2, '0')}-command`);
   writeFileSync(`${log}.json`, JSON.stringify({ bin, argv, cwd, timeout, maxBuffer: 8 * 1024 * 1024 }, null, 2));
-  try {
-    const stdout = execFileSync(bin, argv, { cwd, env, encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
-    writeFileSync(`${log}.stdout`, stdout); writeFileSync(`${log}.exit`, '0\n'); return stdout;
-  } catch (e) {
-    const error = e as Error & { stdout?: string; stderr?: string; status?: number; signal?: string };
-    writeFileSync(`${log}.stdout`, error.stdout ?? ''); writeFileSync(`${log}.stderr`, error.stderr ?? error.message);
-    writeFileSync(`${log}.exit`, JSON.stringify({ status: error.status, signal: error.signal, message: error.message }));
-    throw new Error(`qualification failed; original receipt ${log}`, { cause: e });
-  }
+  const result = spawnSync(bin, argv, { cwd, env, encoding: 'utf8', timeout, maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+  writeFileSync(`${log}.stdout`, result.stdout ?? ''); writeFileSync(`${log}.stderr`, result.stderr ?? '');
+  writeFileSync(`${log}.exit`, JSON.stringify({ status: result.status, signal: result.signal, error: result.error?.message }));
+  if (result.status !== 0 || result.error) throw new Error(`qualification failed; original receipt ${log}`, { cause: result.error });
+  return result.stdout;
 }
 const pins: Record<string, string> = {
   expo: '57.0.25', 'react-native': '0.86.3', react: '19.2.3',
