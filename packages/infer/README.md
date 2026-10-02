@@ -19,32 +19,21 @@ native module. It needs React Native's New Architecture and a development build 
 
 ## Use
 
+Your app imports `initLlama` from `llama.rn` and supplies a store over its own file system. The full adapter over
+`@dr.pogodin/react-native-fs` (download with progress and cancel, native SHA-256, free space) is in
+[examples/expo/InferDemo.tsx](../../examples/expo/InferDemo.tsx), typechecked against the real packages.
+
 ```ts
-import { initLlama } from 'llama.rn';
-import * as RNFS from '@dr.pogodin/react-native-fs';
-import { LocalModel, model, summarizePane, stateWords, type InferModelStore } from '@byokit/infer';
+import { LocalModel, model, summarizePane, stateWords, type InferModelStore, type InitLlama } from '@byokit/infer';
 
-const dir = `${RNFS.DocumentDirectoryPath}/models`;
-const store: InferModelStore = {
-  path: m => `${dir}/${m.id}.gguf`,
-  size: async m => (await RNFS.exists(store.path(m))) ? Number((await RNFS.stat(store.path(m))).size) : undefined,
-  download: async (m, o) => {
-    await RNFS.mkdir(dir);
-    const job = RNFS.downloadFile({ fromUrl: m.url, toFile: store.path(m), progressInterval: 500,
-      progress: p => o.onProgress?.(p.bytesWritten, p.contentLength) });
-    o.signal?.addEventListener('abort', () => RNFS.stopDownload(job.jobId), { once: true });
-    const r = await job.promise;
-    if (r.statusCode !== 200) throw new Error(`download ${r.statusCode}`);
-  },
-  sha256: m => RNFS.hash(store.path(m), 'sha256'),
-  remove: async m => { if (await RNFS.exists(store.path(m))) await RNFS.unlink(store.path(m)); },
-  freeBytes: async () => (await RNFS.getFSInfo()).freeSpace,
-};
-
-const local = new LocalModel({ model: model(), store, initLlama, device: { platform: 'android' }, onState: s => show(stateWords(s)) });
-await local.install({ onProgress: (got, total) => {} });      // only network use: the pinned model file
-const summary = await summarizePane(local, paneLines, { signal }); // { ok: true, lines } | { ok: false, code }
-await local.release();                                          // when the app goes to the background
+export async function summarize(initLlama: InitLlama, store: InferModelStore, paneLines: string[], signal: AbortSignal,
+  show: (text: string) => void) {
+  const local = new LocalModel({ model: model(), store, initLlama, device: { platform: 'android' }, onState: s => show(stateWords(s)) });
+  await local.install({ onProgress: (got, total) => show(`${got} / ${total}`) }); // only network use: the pinned model file
+  const summary = await summarizePane(local, paneLines, { signal });               // { ok: true, lines } | { ok: false, code }
+  await local.release();                                                            // also when the app goes to the background
+  return summary;
+}
 ```
 
 `model()` is SmolLM2 360M Instruct, Q8_0 GGUF, 386,404,992 bytes, Apache-2.0, pinned to the publisher's revision and
