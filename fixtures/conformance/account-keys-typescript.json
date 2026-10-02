@@ -1,5 +1,7 @@
 {
   "scope": "B2 wrapped key tuples at @earendil-works/pi-ai@0.87.1; account lifecycle closure, not vendor live proof",
+  "selection": { "autoAndFallback": "subscription-only", "savedDefaultApi": "explicit, ready, non-custom accounts only", "customEndpointDefault": "non-subscription refused" },
+  "auth": { "selectedKeyOwnsHeaders": true, "clientOverride": "auth_override refusal; explicit native adapter remains available", "cloudflareGateway": "cf-aig-authorization only", "anthropicBearer": "authorization only" },
   "tuples": [
     {
       "tuple": "alibaba|plan_key|subscription",

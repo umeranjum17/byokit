@@ -1,17 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Accounts, recordStore, routes, route, chooseAccount, resolveSelection, KeyRouteError, type AccountMetadata, type Api, type Model, type Context } from '../src/index.ts';
+import { Accounts, recordStore, routes, route, chooseAccount, resolveSelection, KeyRouteError, computer, portable, type AccountMetadata, type Api, type Model, type Context } from '../src/index.ts';
 import { Accounts as Portable } from '../src/portable.ts';
 import type { Record as CredentialRecord } from '../src/stores.ts';
 import type { Keystore } from '@byokit/secrets';
+import streamFixture from '../../../fixtures/conformance/pi-streams.json' with { type: 'json' };
 
 const canary = 'B2-exact-secret-canary-987654321';
 function secrets(): Keystore {
   const data = new Map<string, string>();
   return { get: async (id) => data.get(id) ?? null, set: async (id, value) => { data.set(id, value); }, delete: async (id) => data.delete(id) };
 }
-function harness() {
+function harness(Kit: typeof Accounts | typeof Portable = Accounts) {
   let data: CredentialRecord = {};
   const store = recordStore(async () => structuredClone(data), async (next) => { data = structuredClone(next); });
   const keys = new Map<string, Keystore>();
@@ -21,7 +22,7 @@ function harness() {
     return keys.get(id)!;
   };
   const opts = { store: () => store, keyStore };
-  return { a: new Accounts(opts), opts, store, keyStore, data: () => data };
+  return { a: new Kit(opts), opts, store, keyStore, data: () => data };
 }
 const model = <T extends Api>(provider: string, api: T): Model<T> => ({ id: 'fixture-model', name: 'Fixture', provider, api,
   baseUrl: 'https://fixture.invalid/v1', reasoning: false, input: ['text'], cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 128 });
@@ -116,15 +117,20 @@ test('Auto chooses a plan key, never an API/free/local/unknown key; Default cann
   assert.ok(result.ok && result.account.id === api.id, 'an explicitly saved API default stays selected; no billing switch');
   assert.ok(!resolveSelection([{ ...api, state: 'signed_out' }], { account: api.id }, { account: 'default' }, room, Date.now()).ok, 'Default cannot fall back to an API key');
   assert.ok(resolveSelection(rows, {}, { account: api.id }, room, Date.now()).ok, 'explicit account still allowed');
-  for (const billing of ['api', 'free', 'local', 'unknown'] as const) assert.equal(chooseAccount([{ ...api, billing }], room, Date.now()), undefined);
+  for (const billing of ['api', 'free', 'local', 'unknown'] as const) {
+    assert.equal(chooseAccount([{ ...api, billing }], room, Date.now()), undefined);
+    assert.ok(!resolveSelection([{ ...api, billing, provider: 'custom' }], { account: api.id }, { account: 'default' }, room, Date.now()).ok, `custom/endpoint ${billing} default refused`);
+    if (billing !== 'api') assert.ok(!resolveSelection([{ ...api, billing }], { account: api.id }, { account: 'default' }, room, Date.now()).ok, `${billing} is not an explicit saved API default`);
+  }
+  assert.ok(!resolveSelection([api], {}, { account: 'default' }, room, Date.now()).ok, 'no automatic API discovery/fallback without an explicit saved default');
 });
 
-test('both pinned compatibility families stream selected account only, with usage, callbacks and typed pass-through', async () => {
-  for (const [routeId, api, events, named] of [
+test('both pinned compatibility families stream on Node and portable, selected account only, with usage, callbacks and typed pass-through', async () => {
+  for (const Kit of [Accounts, Portable]) for (const [routeId, api, events, named] of [
     ['groq:key', 'openai-completions', openaiEvents, false],
     ['kimi-code:plan_key', 'anthropic-messages', anthropicEvents, true],
   ] as const) {
-    const h = harness();
+    const h = harness(Kit);
     const first = await h.a.add('member', routeId, { key: 'not-selected' });
     const selected = await h.a.add('member', routeId, { key: canary });
     let sends = 0;
@@ -150,6 +156,92 @@ test('both pinned compatibility families stream selected account only, with usag
     assert.equal(await h.a.key('member', first.id), 'not-selected', 'no rotation or replacement');
     await assert.rejects(h.a.respondKey('other-member', { account: selected.id, model: model(route(routeId).upstream.id, api), context }), /signed in yet/);
   }
+});
+
+test('saved key auth cannot be shadowed by model or options headers, but non-auth headers pass through', async () => {
+  for (const Kit of [Accounts, Portable]) for (const [id, api, events, named] of [['groq:key', 'openai-completions', openaiEvents, false], ['kimi-code:plan_key', 'anthropic-messages', anthropicEvents, true]] as const) {
+    const h = harness(Kit);
+    const added = await h.a.add('member', id, { key: canary });
+    const shadow = { AUTHORIZATION: 'Bearer not-selected', 'X-Api-Key': 'not-selected', 'Api-Key': 'not-selected', 'X-Goog-Api-Key': 'not-selected' };
+    let selected = false; let nonAuth = false; let shadowed = false;
+    await h.a.respondKey('member', { account: added.id, model: { ...model(route(id).upstream.id, api), headers: shadow }, context,
+      options: { headers: { ...shadow, 'x-app': 'explicit' }, fetch: async (_input, init) => {
+        const headers = new Headers(init?.headers);
+        selected = headers.get('authorization')?.includes(canary) === true || headers.get('x-api-key') === canary;
+        nonAuth = headers.get('x-app') === 'explicit';
+        headers.forEach((value) => { if (value.includes('not-selected')) shadowed = true; });
+        return sse([...events], named);
+      } } });
+    assert.equal(selected, true);
+    assert.equal(nonAuth, true);
+    assert.equal(shadowed, false);
+  }
+});
+
+test('prebuilt clients are explicitly refused before selected-account secrets; native typed factories retain them', async () => {
+  for (const [Kit, platform] of [[Accounts, computer], [Portable, portable]] as const) {
+    const h = harness(Kit);
+    const { id } = await h.a.add('member', 'kimi-code:plan_key', { key: canary });
+    let clients = 0; let sends = 0; let opens = 0;
+    const client = { beta: { messages: { create: () => { clients++; return { asResponse: async () => sse(anthropicEvents, true) }; } } } } as any;
+    const guarded = new Kit({ ...h.opts, keyStore: () => { opens++; throw new Error(canary); } });
+    await assert.rejects(guarded.respondKey('member', { account: id, model: model('kimi-coding', 'anthropic-messages'), context,
+      options: { client, fetch: async () => { sends++; return sse(anthropicEvents, true); } } }), { code: 'auth_override' });
+    assert.deepEqual([clients, sends, opens], [0, 0, 0]);
+    // Explicit native use owns its authentication: the stock option/hook API is not downgraded by the guard.
+    const runtime = await platform.keys!();
+    const native = runtime.createModels({ authContext: { env: async () => undefined, fileExists: async () => false } });
+    const chosen = model('native-fixture', 'anthropic-messages');
+    native.setProvider(runtime.createProvider({ id: chosen.provider, models: [chosen], api: await runtime.api(chosen.api),
+      auth: { apiKey: { name: 'native', resolve: async () => ({ auth: { apiKey: 'explicit-native-key' } }) } } }));
+    let payloads = 0; let responses = 0;
+    const answer = await native.complete(chosen, context, { client, temperature: 0.4,
+      onPayload: () => { payloads++; }, onResponse: () => { responses++; } });
+    assert.equal(answer.stopReason, 'stop');
+    assert.deepEqual([clients, payloads, responses], [1, 1, 1]);
+  }
+});
+
+test('Cloudflare gateway uses pinned header-only auth and explicit endpoint ids, not downstream keys', async () => {
+  const h = harness();
+  const { id } = await h.a.add('member', 'cloudflare:key:cloudflare-ai-gateway', { key: canary });
+  let scoped = false;
+  const answer = await h.a.respondKey('member', { account: id,
+    model: { ...model('cloudflare-ai-gateway', 'openai-completions'), baseUrl: 'https://fixture.invalid/{CLOUDFLARE_ACCOUNT_ID}/{CLOUDFLARE_GATEWAY_ID}/v1' }, context,
+    options: { env: { CLOUDFLARE_ACCOUNT_ID: 'account', CLOUDFLARE_GATEWAY_ID: 'gateway' }, headers: { 'CF-AIG-Authorization': 'Bearer not-selected' },
+      fetch: async (input, init) => {
+        assert.equal(String(input), 'https://fixture.invalid/account/gateway/v1/chat/completions');
+        const headers = new Headers(init?.headers);
+        scoped = headers.get('cf-aig-authorization') === `Bearer ${canary}` && !headers.has('authorization') && !headers.has('x-api-key');
+        return sse(openaiEvents);
+      } } });
+  assert.equal(answer.stopReason, 'stop');
+  assert.equal(scoped, true);
+});
+
+test('Google uses global fetch, not the Accounts default; explicit custom fetch keeps pinned refusal (Vertex too)', async () => {
+  const original = globalThis.fetch;
+  try {
+    for (const [Kit, id, api] of [[Accounts, 'google-ai-studio:key', 'google-generative-ai'], [Portable, 'google-ai-studio:key', 'google-generative-ai'], [Accounts, 'google-vertex:key', 'google-vertex']] as const) {
+      const h = harness(Kit);
+      let globals = 0; let defaults = 0; let explicit = 0;
+      globalThis.fetch = async () => {
+        globals++;
+        return new Response(streamFixture.families.google.events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
+      };
+      const a = new Kit({ ...h.opts, fetch: async () => { defaults++; throw new Error('default fetch must not be passed to Google'); } });
+      const added = await a.add('member', id, { key: canary });
+      const query = { account: added.id, model: model(route(id).upstream.id, api), context: streamFixture.context as Context };
+      const answer = await a.respondKey('member', query);
+      assert.equal(answer.stopReason, 'toolUse');
+      assert.deepEqual([answer.usage.input, answer.usage.output, answer.usage.totalTokens], [3, 2, 5]);
+      assert.equal(globals, 1);
+      assert.equal(defaults, 0);
+      await assert.rejects(a.respondKey('member', { ...query, options: { fetch: async () => { explicit++; throw new Error(canary); } } }), { code: 'request' });
+      assert.equal(explicit, 0, 'upstream refuses explicit custom fetch before transport');
+      assert.equal(globals, 1);
+    }
+  } finally { globalThis.fetch = original; }
 });
 
 test('bearer paste headers and error canaries never borrow API auth; escaping is redacted from public events', async () => {

@@ -3,14 +3,14 @@
 // The engine does the signing in (Pi's own flows on a computer, portableEngine on phones and in browsers); the app only
 // shows the provider's page to open or the code to type. No Node import here: see index.ts for the computer's side.
 import type { Keystore } from '@byokit/secrets';
-import type { Api, ApiStreamOptions, AssistantMessage, AssistantMessageEventStream, AuthPrompt, CredentialStore, Model, Models, Context, ProviderStreams } from '@earendil-works/pi-ai';
+import type { Api, ApiStreamOptions, AssistantMessage, AssistantMessageEventStream, AuthPrompt, CredentialStore, Model, Models, Context } from '@earendil-works/pi-ai';
 import { cloudSelection, CloudAccountError, type CloudOptions, type CloudStream } from './cloud.ts';
 import type { AiBinding } from '@earendil-works/pi-ai/api/cloudflare-ai-binding';
 import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfile, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
 import { offered, provider, route, routes, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
-import { checkKeyModel, keyRespond, KeyRouteError, type KeyAsk } from './key-routes.ts';
+import { checkKeyModel, keyRespond, KeyRouteError, type KeyAsk, type KeyRuntime } from './key-routes.ts';
 import { claims, PORTABLE, portableEngine } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
@@ -37,9 +37,9 @@ type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text
 /** Listens on this computer for the provider's page coming back: each request's path in, the page to answer with out. */
 export type Loopback = (port: number, handle: (path: string) => Promise<{ status: number; html: string }>) => Promise<{ close(): void }>;
 /** What differs by platform: the engine that signs in, which providers it can, and (on a computer) a loopback listener. */
-export type Platform = { kind?: 'node' | 'browser' | 'rn'; keyApi?: (api: string) => Promise<ProviderStreams>; engine: (credentials: CredentialStore, authBase?: string) => AuthHost; signsIn: (pi: string) => boolean; loopback?: Loopback; endpoint?: EndpointDriver; cloudStream?: CloudStream };
+export type Platform = { kind?: 'node' | 'browser' | 'rn'; keys?: () => Promise<KeyRuntime>; engine: (credentials: CredentialStore, authBase?: string) => AuthHost; signsIn: (pi: string) => boolean; loopback?: Loopback; endpoint?: EndpointDriver; cloudStream?: CloudStream };
 /** Phones and browsers: ChatGPT by device code, no listener. */
-export const portable: Platform = { kind: 'browser', engine: (c, base) => portableEngine(c, { base }), signsIn: (pi) => pi === CLAUDE_PLAN_ID || PORTABLE.includes(pi) };
+export const portable: Platform = { kind: 'browser', keys: () => import('./portable-keys.ts').then((m) => m.runtime), engine: (c, base) => portableEngine(c, { base }), signsIn: (pi) => pi === CLAUDE_PLAN_ID || PORTABLE.includes(pi) };
 
 export type ClaudePlanAsk = AnthropicAsk & { provider: 'claude' };
 
@@ -776,10 +776,13 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   async respondKey<T extends Api>(member: M, ask: KeyAsk<T>): Promise<AssistantMessage> {
     const p = this.keyRoute(ask.account);
     const r = route(p.key.includes(':') ? p.key : routes().find((r) => r.upstream.id === p.pi && r.via === 'key')?.id ?? 'missing');
-    checkKeyModel(r, ask.model, this.platform.kind ?? 'browser', !!this.platform.keyApi);
     if (ask.options?.signal?.aborted) throw new KeyRouteError('aborted');
+    if (ask.options && 'client' in ask.options && ask.options.client !== undefined) throw new KeyRouteError('auth_override');
+    if (!this.platform.keys) throw new KeyRouteError('needs_host');
+    const runtime = await this.platform.keys();
+    checkKeyModel(r, ask.model, this.platform.kind ?? 'browser', runtime.supported);
     const secret = await this.key(member, ask.account);
-    return keyRespond(r, secret, ask, this.opts.fetch, this.platform.keyApi);
+    return keyRespond(r, secret, ask, this.opts.fetch, runtime);
   }
 
   /** Bind this member's existing ChatGPT subscription login for consumers such as decide. Each request uses

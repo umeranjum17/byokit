@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../../../node_modules/@earendil-works/pi-ai/src/api/openai-prompt-cache.ts"],
+  "sourcesContent": ["export const OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH = 64;\n\nexport function clampOpenAIPromptCacheKey(key: string | undefined): string | undefined {\n\tif (key === undefined) return undefined;\n\tconst chars = Array.from(key);\n\tif (chars.length <= OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH) return key;\n\treturn chars.slice(0, OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH).join(\"\");\n}\n"],
+  "mappings": ";;;AAAO,IAAM,qCAAqC;AAE5C,SAAU,0BAA0B,KAA6C;AACtF,MAAI,QAAQ;AAAW,WAAO;AAC9B,QAAM,QAAQ,MAAM,KAAK,GAAG;AAC5B,MAAI,MAAM,UAAU;AAAoC,WAAO;AAC/D,SAAO,MAAM,MAAM,GAAG,kCAAkC,EAAE,KAAK,EAAE;AAAE;",
+  "names": []
+}

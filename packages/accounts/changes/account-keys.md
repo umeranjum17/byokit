@@ -1,2 +1,3 @@
-- SECURITY: Key-route accounts keep secrets only in the member's device-owned keyStore, with no plaintext or ambient credential fallback.
+- SECURITY: Key-route accounts keep secrets only in the member's device-owned keyStore, with no plaintext or ambient credential fallback. Selected-key helpers override credential headers and explicitly refuse opaque SDK clients before secrets; unmodified typed native Pi pass-through remains available for explicit client-owned authentication.
 - FIX: Key routes share account persistence and retain their pinned subscription or API key (billed per use) billing; non-subscription accounts are never an Auto or Default fallback.
+- FIX: Portable key routes lazily load a reproducible split artifact of unmodified pinned Pi adapters; Google uses global fetch while preserving the upstream custom-fetch refusal.

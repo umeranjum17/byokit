@@ -1,5 +1,5 @@
 {
-  "rule": "Choose once: subscription candidates only unless explicitly named; most room, unknown above exhausted, earliest reset then list order. Explanations contain only ids, codes and figures. Bound and paid refusals belong to the runtime kit, not this portable chooser.",
+  "rule": "Choose once: Auto and fallback use subscriptions only. Explicit ids and ready saved non-custom API defaults are explicit choices; custom/endpoint non-subscription defaults stay refused. Most room, unknown above exhausted, earliest reset then list order. Explanations contain only ids, codes and figures. Bound and paid refusals belong to the runtime kit, not this portable chooser.",
   "now": 1000000,
   "cases": [
     {
@@ -1059,7 +1059,7 @@
       }
     },
     {
-      "name": "API stored default still requires explicit selection",
+      "name": "ready saved non-custom API default is explicit choice",
       "accounts": [
         {
           "id": "a",
@@ -1077,9 +1077,20 @@
         "account": "default"
       },
       "expected": {
-        "ok": false,
-        "code": "none"
+        "ok": true,
+        "id": "a",
+        "why": "default",
+        "how": "default",
+        "model": "p/m"
       }
+    },
+    {
+      "name": "custom API stored default still requires explicit id selection",
+      "accounts": [{ "id": "a", "provider": "custom", "name": "A", "state": "ready", "billing": "api" }],
+      "rooms": {},
+      "defaults": { "account": "a" },
+      "selection": { "account": "default" },
+      "expected": { "ok": false, "code": "none" }
     },
     {
       "name": "default falls back Auto",

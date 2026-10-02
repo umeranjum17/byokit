@@ -54,7 +54,11 @@
   "dependencies": {
     "@byokit/usage": "0.7.0",
     "@earendil-works/pi-ai": "0.87.1",
-    "@byokit/secrets": "0.5.0"
+    "@byokit/secrets": "0.5.0",
+    "openai": "6.40.0",
+    "@anthropic-ai/sdk": "0.124.0",
+    "@google/genai": "2.21.0",
+    "partial-json": "0.1.7"
   },
   "publishConfig": {
     "access": "public"

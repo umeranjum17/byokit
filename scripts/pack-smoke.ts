@@ -112,6 +112,28 @@ function main(): void {
       ["install", "--no-audit", "--no-fund", ...tgzPaths, `typescript@${tsVersion.version}`, "@types/node@22", "ws@8.21.3"],
       appDir,
     );
+    // Portable loaders are lazy: importing the entry alone cannot prove artifact/dependency packaging.
+    // A sibling consumer with nested installs prevents accidental resolution from this app or the repo.
+    const strictAccounts = join(dir, "strict-accounts");
+    execFileSync("mkdir", ["-p", strictAccounts]);
+    const closure = new Set(["@byokit/accounts"]);
+    for (const name of closure) {
+      const manifest = JSON.parse(readFileSync(join(appDir, "node_modules", name, "package.json"), "utf8"));
+      for (const dep of Object.keys(manifest.dependencies ?? {})) if (tgzByName.has(dep)) closure.add(dep);
+    }
+    writeFileSync(join(strictAccounts, "package.json"), JSON.stringify({ name: "strict-accounts", private: true, type: "module" }));
+    try {
+      sh("npm", ["install", "--install-strategy=nested", "--no-audit", "--no-fund", ...[...closure].map((name) => tgzByName.get(name)!), `typescript@${tsVersion.version}`, "@types/node@22"], strictAccounts);
+      for (const [source, dest] of [["scripts/accounts-key-probe.mjs", "probe.mjs"], ["scripts/accounts-key-probe-check.ts", "probe-check.ts"], ["fixtures/conformance/pi-streams.json", "pi-streams.json"]]) {
+        writeFileSync(join(strictAccounts, dest), readFileSync(join(root, source)));
+      }
+      writeFileSync(join(strictAccounts, "run.mjs"), "import { verifyAccountsProbe } from './probe-check.ts';\nawait import('./probe.mjs');\nverifyAccountsProbe(await globalThis.__accountsKeyProbe);\nfor (const entry of ['core', 'cloudflare-stream', 'openai-completions', 'openai-responses', 'anthropic-messages', 'google-generative-ai', 'mistral-conversations', 'pi-messages', 'azure-openai-responses']) await import('./node_modules/@byokit/accounts/dist/pi/' + entry + '.js');\n");
+      sh("node", ["--require", join(root, "scripts/test-egress-guard.cjs"), "--conditions=browser", "run.mjs"], strictAccounts);
+      writeFileSync(join(strictAccounts, "consumer.ts"), "import { type KeyAsk, type AssistantMessage, type Model, type Context, Accounts, portable } from '@byokit/accounts';\nexport const ask = (accounts: Accounts, request: KeyAsk<'openai-completions'>): Promise<AssistantMessage> => accounts.respond('member', request);\nexport async function native(model: Model<'anthropic-messages'>, context: Context, client: NonNullable<KeyAsk<'anthropic-messages'>['options']>['client']): Promise<AssistantMessage> { const runtime = await portable.keys!(); const models = runtime.createModels({ authContext: { env: async () => undefined, fileExists: async () => false } }); return models.complete(model, context, { client }); }\n");
+      writeFileSync(join(strictAccounts, "tsconfig.json"), JSON.stringify({ compilerOptions: { module: "nodenext", moduleResolution: "nodenext", customConditions: ["browser"], target: "es2023", strict: true, noEmit: true, skipLibCheck: false, types: ["node"] }, files: ["consumer.ts"] }));
+      sh(join(strictAccounts, "node_modules/.bin/tsc"), ["-p", "tsconfig.json"], strictAccounts);
+      pass("@byokit/accounts [strict packed lazy portable keys]");
+    } catch (err) { fail("@byokit/accounts [strict packed lazy portable keys]", (err as Error).message); }
     // The writing engine must arrive from npm with the packed kit and answer through its default loader.
     writeFileSync(join(appDir, "write-engine.mjs"), `
 import assert from 'node:assert/strict';
