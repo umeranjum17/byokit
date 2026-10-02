@@ -62,6 +62,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D16 | Crewhouse adopts first with behavior parity; muxr adopts later in a separate muxr change after the Herdr kit is published and muxr's byokit cutover allows it. Neither adoption is part of the byokit PRs. |
 | D17 | Accounts (5.15). A member can hold several accounts, several per provider, subscription or API key. Each further account is its own engine agent `<member>--<6 hex>` sealed to exactly one sign-in, because the pin has no strict per-run auth-profile pin and rotates profiles of one provider within an agent. The member agent is the first account of each provider it is signed in to (its own existing sign-ins keep working, no migration; sign-ins read through another member's agent stop applying) and never holds an API key. Each run uses one account and one model, chosen, the default, or Auto (most room left, decided once at run start); a run never switches accounts, and a session stays on the account whose agent holds it until `move`. The engine's own per-person accounts, pooled proxies and per-request or mid-run rotation are not used. The kit adds the plugin id of every `offer: true` route to `plugins.allow` (5.6), so offered sign-ins work without app config. |
 | D18 | Account routes ([2.1](#21-account-routes-d18)). Every sign-in method a kit's pinned upstream supports is one data row in one shared vocabulary owned by `fixtures/conformance/account-routes-typescript.json`; each kit restates the shapes structurally (D3). Discovery lists every row, unavailable ones with a plain reason. Subscription rows are offered by default; every other billing is used only when the app or person names it. Billing is pinned upstream metadata or explicit host input, never inferred from an address. Credential import, pooling proxies, per-request or mid-run rotation, tokens leaving the device and signing in as another tool's existing login never become routes. |
+| D19 | Bundled engine patches (5.16). The kit may change its pinned engine install only through `engine/patches.json`: exact unique-anchor edits with stock and patched sha256 per file, applied at `prepare()`, each inert unless the kit sets its env variable, never while any process runs that engine, rolled back in place. No fork, republished tarball or source build. Two patches are planned: engine-started usage (Skill Workshop review facts in a kit-owned ledger) and app-owned session opt-out from restart recovery. Coverage is claimed only for the Gateway kinds 5.16 names; the worker bundle and every other detached kind are uncovered. |
 
 ### 2.1 Account routes (D18)
 
@@ -351,8 +352,9 @@ export type Approval = {
 export type Decision = { allow: boolean; reason?: string; answer?: unknown };   // answer: question.* only
 export type KitState = {
   phase: 'stopped' | 'installing' | 'starting' | 'repairing' | 'ready' | 'restarting' | 'failed' | 'needs-update' | 'locked';
-  why?: 'install' | 'handshake' | 'exited' | 'port' | 'version';
+  why?: 'install' | 'handshake' | 'exited' | 'port' | 'version' | 'engine-already-running' | 'engine-patch';
   retryAt?: number;
+  patchSet?: string | null;                                    // bundled engine patch set id after prepare (5.16)
 };
 export type Hello = { protocol: number; server: { version: string }; methods: string[]; events: string[] };
 export type Route = {
@@ -860,6 +862,9 @@ PR), re-verify `routes.json` choice ids, run `npm run test:engine` green, bump t
 lists added/removed methods. Consumers upgrade the kit, never the engine directly. An installed engine whose version
 differs from `ENGINE_VERSION` is `needs-update`; `prepare()` then reinstalls into `engineDir` (delete
 `engineDir/node_modules` and `npm ci`), never touching `openclaw/state`.
+A pin bump also re-derives `engine/patches.json` from the new stock bytes (anchors may move and hashed file names
+change; a stale set fails `before` and blocks release), re-checks that the Gateway-covered kinds of 5.16 still hold
+(the review stays out of `sessions.usage`, recovery and flush stay in it), and re-runs the O15–O17 engine tests.
 
 ### 5.13 Internal module seams (stub signatures for O1)
 
@@ -1341,6 +1346,172 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
 | `account.paid` | This conversation uses {name}, which is billed per use. Choose {name} to keep going. |
 | `account.signOutFirst` | To add a different {provider} account, sign out of {provider} in your browser first. |
 | `account.legacyMember` | This person needs a new profile before adding more accounts. |
+
+### 5.16 Bundled engine patches and engine-started usage (D19)
+
+The engine stays the npm tarball pinned by `engine/package-lock.json` (D4). The kit may change that install only
+through a published, content-addressed patch set, so every byte the Gateway runs traces to the lock's `integrity`
+plus one reviewed edit. A fork, a republished tarball or a source build is never used.
+
+**Patch set** (`engine/patches.json`, inside the published `engine/` directory):
+
+```json
+{ "v": 1, "id": "<16 hex>",
+  "upstream": { "name": "openclaw", "version": "2026.8.1",
+    "integrity": "<the lock's sha512 for openclaw>", "commit": "<dist/build-info.json commit>", "license": "MIT" },
+  "files": [ { "path": "dist/<file>.js", "before": "<sha256>", "after": "<sha256>",
+               "edits": [ { "find": "<text occurring exactly once>", "replace": "<text>" } ] } ] }
+```
+
+- `upstream.version` and `integrity` equal `ENGINE_VERSION` and the lock's `openclaw` entry; `before` is the stock
+  file's sha256, `after` the result of applying `edits` in order, each `find` occurring exactly once in the current
+  text. `id` is the first 16 hex of sha256 over `JSON.stringify` of `files` with object keys sorted recursively and
+  no whitespace. A checked-in script re-derives the file from stock bytes and anchors (`--check` in CI), so no hash
+  is hand-edited, and asserts that no other `dist` file defines a patched function except the uncovered worker
+  bundle named below. An empty `files` is a valid set.
+- The full OpenClaw MIT copyright and permission text ships as `engine/OPENCLAW-LICENSE` (the set republishes
+  upstream excerpts; the repo `NOTICE` is not in the tarball).
+- Each patched function does nothing unless the kit sets its own env variable at spawn (5.5); with the variable
+  unset the engine behaves as stock. A patch adds no RPC, config key or schema to the engine.
+
+**Reconcile** (in `prepare()`, every call, after the install step of 5.4 and before the version check):
+
+1. For every file in the wanted set or in the existing marker `engineDir/.byokit-patches` (`{ id, files }`):
+   hash = wanted `after` → keep; hash = the other known state (`before`, or an `after` of a file the new set drops)
+   → apply forward, or reverse (swap `find`/`replace`, then verify `before`) in place; any other hash or a missing
+   file is drift.
+2. Drift deletes the marker and reinstalls through the existing `npm ci` path (the marker is also deleted before
+   that path removes `node_modules`), then applies the set to stock bytes. A marker mismatch alone never reinstalls.
+3. Each file is written to a unique temp name, `fsync`ed and renamed. The marker is deleted before the first file
+   write and written last, so a crash leaves no marker beside mixed known states and the next `prepare()`
+   reconciles.
+
+**No mutation while anyone runs it.** `engineDir` is a public option that kits and tests share, and the Gateway loads
+chunks lazily, so a live Gateway can read a file late. Using only the kit's existing mechanisms (`wx` create as in
+`putOnce`, `/proc/<pid>/stat` start time as in `processStartTime`):
+
+1. Take `engineDir/.byokit-patch.lock` with `flag: 'wx'`, holding `{ pid, startTime }`. A lock whose pid is dead or
+   whose start time differs is removed and taken once more; a live one fails.
+2. Under the lock, files already in the wanted state need no mutation.
+3. Otherwise, any live process whose argv contains the realpath of `engineDir/node_modules/openclaw/openclaw.mjs`
+   (scan `/proc/*/cmdline`; every kit version launches that entry) blocks every mutation, including reverse-apply
+   and drift reinstall. Without `/proc`, only the kit's private default `<stateDir>/openclaw/engine` may be mutated.
+4. The lock is held through the mutation, the marker write and this kit's own Gateway spawn until its pid exists.
+
+A blocked or failed reconcile never spawns on mixed bytes: state `failed`, `why: 'engine-patch'`, with the file and
+cause (`busy`, `lock`, `drift-after-reinstall`, `write`) in the error. The other owner keeps running on its bytes.
+`KitState.patchSet` (5.2) carries the marker's set id after `prepare()` (`null` = no marker, provenance unknown).
+
+**Rollback contract (one rule):** a kit carrying a changed or empty set reconciles in place from any known state, no
+reinstall and no network; only drift reinstalls (which may need the registry: `npm ci` has no offline mode); a kit
+from before this section leaves patched files in place, inert because it never sets the env variables, and its
+`patchSet` reads unknown; all mutation obeys the rule above. Ledger history (below) is never deleted by any of it.
+
+**Coverage.** Only the Gateway process (`openclaw.mjs` and the chunks it loads) is patched. The worker bundle
+`dist/worker/worker.mjs` has its own copies of the review and recovery code and is **uncovered**: no guarantee of this
+section holds for work run in a worker environment. Engine-started usage covered by the kit is exactly:
+
+| Kind (Gateway) | Counted through |
+|---|---|
+| Your turns, restart-recovery resumes, pre-compaction memory flush | `sessions.usage` transcript totals (stock; these runs persist in the session transcript) |
+| Skill Workshop review (`kind: 'workshop-review'`) | the engine-started ledger below (its detached clone is never persisted and internal-effects keys are excluded from usage discovery) |
+
+Every other engine-started kind is **uncovered** and named so: skill collection review, history scan, slug generator,
+active-memory recall, out-of-turn compaction, one-shot helper completions, and all worker-bundle work. A new kind is
+covered only by a new patched seam and a widened `EngineStartedKind`, never by a side source.
+
+**Engine-started ledger (R4-1).** Env `BYOKIT_ENGINE_USAGE_LEDGER=<stateDir>/openclaw/usage` and
+`BYOKIT_ENGINE_BOOT=<bootId>` (the launch identity `<pid>-<startTime>` the kit already records in
+`gateway.identity`). The review site writes one JSON line per fact, `open(…, 'a', 0o600)` + one `write` + `fsync`,
+to `engine-started-<YYYY-MM>.jsonl` (UTC month of the fact's `at`); a write error is counted and swallowed (accounting
+never fails a review).
+
+```
+{ v: 1, phase: 'started' | 'ended', chargeId /* engine run id */, agentId, kind: 'workshop-review',
+  provider, model, authProfileId?, bootId, seq, at, startedAt, origin: { sessionKey, runId? },
+  outcome? /* ended: 'nothing' | 'proposed' | 'applied' | 'failed' */,
+  usage? /* ended, only when the engine reported it: input, output, cacheRead, cacheWrite, reasoningTokens, total */ }
+```
+
+- `started` precedes the run; usage is taken from the run result before the success assertion, so a failed run that
+  reported usage keeps it; success and failure paths are exclusive, so one `ended` per run. No prompt, output, tool
+  argument or credential is written.
+- `seq` counts every attempted write per `(bootId, month file)`, starting at 1, so a failed write leaves a hole in
+  that month's file. The engine keeps `{ [month]: { lastSeq, failed } }` and the in-flight run ids in process,
+  exposed to the kit's plugin.
+- The kit writes `usage/boots.jsonl` (0600, `fsync`): `{ bootId, startedAt }` before spawn (a failed write fails the
+  start, so no boot is unrecorded) and `{ bootId, stoppedAt, months: { [month]: { lastSeq, failed } } }` at clean
+  stop, read from the live counters. The kit never deletes ledger or boot files; growth is about 400 bytes per review
+  (about 7 MB a year per agent at 50 reviews a day). `ponytail:` no rotation; add one when a host shows the need.
+- Read path: the kit plugin registers `byokit.usage.engineStarted { agentId, startMs, endMs }` (`operator.read`),
+  returning facts, `unreadableLines`, the live boot's counters and in-flight starts. Browser and React Native reach it
+  through `device`; no client reads files.
+
+**Reading a window.** The reader opens only the UTC month files overlapping `[startMs, endMs]`, plus `boots.jsonl`
+(one record pair per Gateway start). Cost is proportional to the requested months, never to total history. Facts
+dedupe by `(chargeId, phase)`. A charge with `ended` is attributed by `ended.at` (the `ended` fact carries the full
+identity, so its `started` may lie in an unread month); one without is attributed by `startedAt`. States:
+`ended` + `usage` → `counted`; `ended` without usage → `reported-missing` (unknown, never zero); `started` alone →
+`pending` when its `bootId` is the live boot, else `interrupted` (unknown spend). Elapsed time never decides.
+
+`complete: true` is set only from bounded proven evidence, never defaulted and never from a later fact:
+
+1. every boot whose life overlaps the window has a start record, and is either the live boot or has a clean stop
+   record (a boot that ended in a crash makes every overlapping window incomplete, permanently);
+2. for every **read** month file and every such boot, the boot's counters for that month (stop record or live) show
+   `failed == 0`, and its facts in that file carry exactly `seq 1..lastSeq` (no hole, no extra);
+3. no read file has an unreadable line, and no charge in the window is `pending`, `interrupted` or
+   `reported-missing`; the live boot has no in-flight start, unless the window ends before that start;
+4. the window starts at or after `coverageSince` (the first boot record).
+
+A month the reader did not open is never claimed: continuity is checked per `(boot, month)`, and the one boot-wide
+fact used from unread months is the stop record (or live counters), which the kit writes from the counters, not by
+reading old files. A month absent from a boot's counters means that boot attempted no write there. Anything
+unproven yields `complete: false`.
+
+**Day total.** `transcripts (lane 19's sessions.usage term, fresh-or-unavailable rules unchanged) + Σ counted
+ended.usage.total for workshop-review`. Recovery resumes, memory flush and `RunEnd.usage` are never added from a side
+source (they are already in, or overlap, the transcript term). Time zones: `utc` or an IANA zone, applied the same way
+to both terms; `gateway` (host-local) is refused. A review crossing midnight lands on its `ended.at` day. Cost is
+`{ state: 'missing' }` for every engine-started charge (no USD estimate); billing comes from `Route.billing` of the
+route that created `authProfileId`, else `'unknown'` (D18: never inferred from the provider name).
+
+**Typed contract (additive; lane 19's `readAgentUsage`/`AgentUsageReading` partial transcript API stays unchanged).**
+Names are proposals that firstmate settles with lane 19 before O16 starts; a rename is a spec edit here, not in code.
+
+```ts
+export type EngineStartedKind = 'workshop-review';
+export type EngineStartedCharge = {
+  chargeId: string; member: Member; kind: EngineStartedKind;
+  state: 'counted' | 'reported-missing' | 'pending' | 'interrupted';
+  startedAt: number; endedAt?: number; outcome?: 'nothing' | 'proposed' | 'applied' | 'failed';
+  provider: string; model: string; billing: 'subscription' | 'api' | 'local' | 'unknown'; authProfileId?: string;
+  tokens?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; reasoningTokens?: number; total: number };
+  tokenSource: 'engine-reported'; cost: { state: 'missing' }; bootId: string; seq: number;
+  origin?: { sessionKey: string; runId?: string };
+};
+export type AgentDayUsage = {
+  member: Member; window: { startMs: number; endMs: number } & ({ mode: 'utc' } | { mode: 'time-zone'; timeZone: string });
+  transcripts: AgentUsageReading;
+  engineStarted: { state: 'available' | 'unavailable'; coverageSince?: number; charges: EngineStartedCharge[]; unreadableLines: number };
+  coverage: 'transcripts+workshop-review';     // the uncovered kinds above stay excluded
+  complete: boolean;                           // only by the four rules above
+  knownTotalTokens?: number;                   // only when both terms are available
+};
+export function readAgentDayUsage(client: { callDynamic(method: string, params?: unknown): Promise<unknown> },
+  member: Member, window: AgentDayUsage['window']): Promise<AgentDayUsage>;   // host kit or device client
+```
+
+Policy stays with the caller: `complete === false` means the policy outcome is unknown, never "under".
+
+**App-owned sessions (R1-1).** Env `BYOKIT_APP_OWNED_SESSION_PREFIXES` (JSON string array; malformed → `[]`, stock)
+from `KitOptions.appOwnedSessions?: { keyPrefixes: string[] }` (each `^agent:[a-z0-9-]+:`, never covering a member's
+`agent:<m>:main`; absent = stock). The first line of the engine's main-session restart-recovery candidate predicate
+returns false for such a key, so startup marking, dispatch, `not_required` and admission rollover skip it. The patch
+adds no attempt cap and changes no attempt or tombstone logic for other keys. After a crash an opted-out session reads
+`status: 'running'` with no recovery markers; the app derives "interrupted" from `running` with no live run in the
+current boot, never from `abortedLastRun`. Prefixes are re-applied at every start; changing them changes which old
+interrupted sessions recover. Gateway only (the worker bundle keeps stock recovery).
 
 ## 6. `@byokit/herdr`
 
@@ -2054,6 +2225,8 @@ Sol:            O3 (O1)           │ │                 H3 (H1,H2,H6)      │
 Flash last: O12 (O9,O11)                              H10 Flash (H7,H9)
 Sol after publish: O13 (crewhouse repo)               H11 later, muxr repo (not scheduled)
 Sol later: O14 (O11, accounts Auto + fixture, ui-core AccountsSource)
+Sol later: O15 (O11) ─┬─ O16 (lane 19 usage)
+                      └─ O17 (R1 lane)
 * needs a --herdr-lab brief
 ```
 
@@ -2261,6 +2434,42 @@ its fixture; `@byokit/ui-core` `AccountsSource` (for `fits`) · version: opencla
   offered route's plugin; `move` carries the transcript (user and tool rows) to the target agent; an API-key account
   never serves an `'auto'` run. ui-core `fits`: an at-most-one-line-per-member adapter builds `AccountsSource` from
   the device client.
+
+**O15 — bundled engine patch packaging** · Sol · deps: O11 · version: openclaw next minor
+- Files: `engine/patches.json` (empty set), `engine/OPENCLAW-LICENSE`, the derive/check script, `src/engine.ts`
+  (reconcile, marker, lock, spawn hold), `src/types.ts` (`why: 'engine-patch'`, `patchSet`), `test/engine-unit.test.ts`,
+  `scripts/pack-smoke.ts`, README/NOTICE lines, `changes/bundled-engine-patches.md`.
+- Behavior: 5.16 patch set, reconcile, no-mutation and rollback rules.
+- Acceptance (fake `node_modules/openclaw`, no engine): forward, idempotent, reverse to an empty set, drift
+  reinstalls once, unknown bytes after reinstall fail `engine-patch`, a crash between files reconciles, a live lock
+  and a live process running the entry (another owner's) each block every mutation and leave its bytes unchanged.
+  Packed install: the packed tarball installed into a clean directory runs a real `prepare()` from registry deps and
+  reports the expected `patchSet`; `--check` re-derives the set byte for byte.
+
+**O16 — engine-started usage (R4-1)** · Sol · deps: O15; lane 19's `usage.ts` merged or rebased onto
+- Files: R4-1 entry in `engine/patches.json`, ledger and boot env in `src/engine.ts`, boot records, the read method
+  in `plugin/index.js`, a typed reader module beside lane 19's `usage.ts` (lane 19 keeps its file and API),
+  `test/engine/usage-*.test.ts`, `changes/engine-started-usage.md`.
+- Acceptance (real kit, patched engine, scripted loopback provider, no account): (1) Skill Workshop review scheduled
+  by the engine (never dispatched by the test) lands one counted charge; the day total equals transcripts plus that
+  charge, a caller cap between the two trips only on the sum, and a second read is identical (no double count);
+  (2) memory flush: crossing the soft threshold, the flush's provider usage is in the day total through the
+  transcript term and the ledger is unchanged; (3) restart recovery: after a real crash the recovery turn's usage is in
+  the day total through the transcript term, and the total equals the provider-reported usage of the turns that ran;
+  (4) SIGKILL during a review reads `pending` before restart and `interrupted`, `complete: false` after;
+  (5) failed write: make the month file unwritable while one review runs and restore it for the next; assert `failed`
+  equals the number of fact writes the test observed failing (not a fixed count), a `seq` hole at each, the later
+  review's facts present, and `complete: false` for that window before and after a clean restart, never `true`;
+  (6) month windows: a read of one month opens only that month's files, and a boot whose counters show a failure only
+  in an unread month still allows `complete: true` for the read month when rules 1–4 hold; (7) cold cache reads
+  `unavailable`, never zero.
+
+**O17 — app-owned sessions (R1-1)** · Sol · deps: O15 · owner: the R1 lane
+- Files: R1-1 entry in `engine/patches.json`, `KitOptions.appOwnedSessions` and its env in `src/engine.ts`/`src/kit.ts`,
+  R1 regressions, `changes/app-owned-sessions.md`.
+- Acceptance: a real crash and restart leaves an opted-out session with no engine recovery turn and one app
+  continuation; non-opted sessions keep the measured stock recovery exactly (no cap asserted); cancellation and
+  tombstone fixtures stay with R1.
 
 **O13 — Crewhouse adoption** · Sol · deps: `@byokit/openclaw` published · repo: Crewhouse
 - Files: Crewhouse `package.json`, `src/openclaw/runtime.ts` (thin adapter), `src/openclaw/tools.ts` (schemas and
