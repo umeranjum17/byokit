@@ -297,7 +297,8 @@
       "method": "skip-auth",
       "revision": "@earendil-works/pi-ai@0.87.1",
       "flow": "present"
-    }
+    },
+    "adapterReadiness": "needs_host"
   },
   {
     "id": "aws-bedrock:key",
