@@ -37,7 +37,7 @@ const pick = (i: AuthInteraction) => i.prompt({ type: 'select', message: 'how', 
 const code = (i: AuthInteraction) => i.notify({ type: 'device_code', userCode: 'CREW-2026', verificationUri: 'https://example.test/device', expiresInSeconds: 900 });
 
 test('the catalogue offers every subscription by default and keeps API billing opt-in', async () => {
-  const subscriptions = ['chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta', 'qwen', 'minimax'];
+  const subscriptions = ['chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta'];
   assert.deepEqual(offered().map((p) => p.key), subscriptions);
   assert.deepEqual(new Kit(async () => {}).providers.map((p) => p.key), subscriptions);
   assert.deepEqual(offered(['openrouter']).map((p) => p.key), ['openrouter']);
