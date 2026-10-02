@@ -20,8 +20,8 @@ export function ShareDemo() {
         <Text style={s.text}>{f.fileName}</Text>
         <Text style={s.small}>{[f.mimeType, f.size != null && `${Math.ceil(f.size / 1024)} KB`, f.width && f.height && `${f.width}×${f.height}`].filter(Boolean).join(' · ')}</Text>
       </View>)}
-      <Pressable testID="share-clear" accessibilityRole="button" onPress={() => resetShareIntent()} style={s.button}><Text style={s.buttonText}>Done</Text></Pressable>
     </View>}
+    {(hasShareIntent || !!error) && <Pressable testID="share-clear" accessibilityRole="button" onPress={() => resetShareIntent()} style={s.button}><Text style={s.buttonText}>Done</Text></Pressable>}
   </ScrollView></SafeAreaView>;
 }
 
