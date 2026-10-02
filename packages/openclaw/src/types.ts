@@ -113,8 +113,9 @@ export type Decision = { allow: boolean; reason?: string; answer?: unknown }; //
 
 export type KitState = {
   phase: 'stopped' | 'installing' | 'starting' | 'repairing' | 'ready' | 'restarting' | 'failed' | 'needs-update' | 'locked';
-  why?: 'install' | 'handshake' | 'exited' | 'port' | 'version' | 'engine-already-running';
+  why?: 'install' | 'handshake' | 'exited' | 'port' | 'version' | 'engine-already-running' | 'engine-patch';
   retryAt?: number;
+  patchSet?: string | null; // verified bundled set; null = unknown provenance
 };
 
 export type Hello = { protocol: number; server: { version: string }; methods: string[]; events: string[] };
