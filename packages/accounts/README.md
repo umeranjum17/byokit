@@ -129,6 +129,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | `respond`, `ResponseError`, `IncompleteError`, `sseReader`, `limitResponse`, `isFunctionCall` | Ask ChatGPT's answers endpoint with a sign-in, with tools, pictures, thinking effort and an answer shape; the error with the words to show and the kind acted on |
 | `classifyFailure`, `classify`, `REST_MS` | An error's kind (limit, overload, plan without this use, lapsed sign-in, network) and default rest times |
 | `planOf`, `claims` | The ChatGPT plan and email behind a sign-in, from its own token |
+| `planLabel`, `claudeProfile` | A plan as a person says it ("ChatGPT Plus", "Claude Max"); the Claude plan and email from Claude's profile |
 | `deviceStart`, `devicePoll`, `credentialOf`, `portableEngine`, `PORTABLE` | The device-code flow, the sign-in built from a token answer, and the engine under `portable` |
 | `isolate`, `launchEnv`, `INHERITED`, `emptyAuthContext` (`/isolate`) | Prepare app folders; copy and scrub child environments; ambient discovery off |
 | `mockOpenAI`, `mockJwt`, `decoy`, `traceFs`, `CANARY` (`/testing`) | A stand-in OpenAI, and the decoy-HOME harness and fs tracer for isolation tests |
@@ -140,7 +141,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | | Computer (Node, Electron main) | Browser (PWA, Electron renderer) | Phone (React Native: iOS, Android) |
 |---|---|---|---|
 | ChatGPT (subscription) | Its own page, straight back to this computer (port 1455); a code when asked or stuck | Device code | Device code |
-| Claude Pro/Max (subscription) | Provider page, paste its code back | Same PKCE flow; token endpoint CORS required | Same PKCE flow; app supplies Web Crypto |
+| Claude Pro/Max (subscription) | Provider page, paste its code back | Same PKCE flow, its token and profile requests through the app's own server | Same PKCE flow; app supplies Web Crypto |
 | Anthropic (API key, billed per use) | App passes its own key, explicitly | Same fetch-only Messages provider | Same fetch-only Messages provider |
 | OpenRouter (API billing) | Its own page, back to this computer (Pi's flow), when an app offers it (never by default) | Not yet | Not yet |
 | Grok, Copilot, Kimi, Meta | Pi's flows | No | No |
@@ -185,7 +186,8 @@ true. A code takes over when asked ("Having trouble?"), when the page never come
 another sign-in.
 
 A 15-minute cap, nothing kept unless the engine can use it, and every failure is one plain sentence (`words.json`)
-with a `why` for apps that word it themselves. `plan(member)` tells a work ChatGPT from a personal one.
+with a `why` for apps that word it themselves. `plan(member)` tells a work ChatGPT from a personal one; `plan(member, 'claude')` names the Claude plan (read once per
+sign-in from Claude's profile, an empty plan when it doesn't say), and `planLabel(name, plan.plan)` says either as "ChatGPT Plus" or "Claude Max".
 
 ## Sign-out
 
@@ -492,9 +494,9 @@ Phones use `secureStore` with device-only accessibility. PWA `browserStore` uses
 scripts can read its credentials. Tokens are never collected by a BYOKit server or logged. The default is memory-only.
 
 React Native hosts pass `claudePlan: { crypto: webCrypto }` when global Web Crypto is unavailable;
-`ClaudePlanPlatformError` reports missing secure randomness/SHA-256. Browsers require the provider token endpoint's
-CORS support; a network/CORS failure stays on-device and does not trigger a proxy. Browser User-Agent restrictions
-can affect compatibility. Tests replay protocol-shaped captures offline; no live OAuth, CORS, or current inference
+`ClaudePlanPlatformError` reports missing secure randomness/SHA-256. Claude's token and profile endpoints don't answer
+other web pages, so a browser app passes a `fetch` that sends them through its own server, which passes each request on
+unchanged and keeps nothing (`examples/pwa/serve.ts`); the kit never picks a proxy by itself. Tests replay protocol-shaped captures offline; no live OAuth, CORS, or current inference
 compatibility is claimed. This implementation supplies the manual-flow headers and Claude Code identity prelude,
 without relying on Pi's provider or executing an installed Claude CLI.
 
