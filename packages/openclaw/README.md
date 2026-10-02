@@ -178,12 +178,14 @@ unknown cost, and tokens never establish subscription plan weights. No billing c
 ```ts
 import { readAgentDayUsage } from '@byokit/openclaw/day-usage'; // also exported by . and ./device
 
-const startMs = Date.parse('2026-10-02');
-const day = await readAgentDayUsage(kitOrDevice, 'umer', {
-  startMs, endMs: startMs + 86_400_000 - 1, mode: 'utc',
-});
-const budget = day.knownTotalTokens !== undefined && day.knownTotalTokens > 190 ? 'over'
-  : day.complete ? 'under' : 'unknown'; // policy is the caller's
+async function dayBudget(kitOrDevice: Parameters<typeof readAgentDayUsage>[0]) {
+  const startMs = Date.parse('2026-10-02');
+  const day = await readAgentDayUsage(kitOrDevice, 'umer', {
+    startMs, endMs: startMs + 86_400_000 - 1, mode: 'utc',
+  });
+  return day.knownTotalTokens !== undefined && day.knownTotalTokens > 190 ? 'over'
+    : day.complete ? 'under' : 'unknown'; // policy is the caller's
+}
 ```
 
 This additive reader leaves `readAgentUsage` unchanged. Coverage is **retained transcripts + Gateway Workshop
