@@ -205,5 +205,6 @@ test('the plan is named from the Claude profile, read once per sign-in; unknown,
 
   assert.equal(planLabel('Claude', 'max'), 'Claude Max');
   assert.equal(planLabel('ChatGPT', 'plus'), 'ChatGPT Plus');
+  assert.equal(planLabel('ChatGPT', 'prolite'), 'ChatGPT Pro Lite');
   assert.equal(planLabel('Claude', ''), 'Claude');
 });
