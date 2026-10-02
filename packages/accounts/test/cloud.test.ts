@@ -122,6 +122,25 @@ test('save/list/default/remove never probe SDK files, ambient credentials, bindi
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('landed endpoint metadata and its key survive adding and removing an explicit cloud account', async () => {
+  const { Accounts, memoryStore } = await import('../src/index.ts');
+  const store = memoryStore(), saved = new Map<string, string>();
+  const accounts = new Accounts({ store: () => store, keyStore: () => ({
+    get: async (id) => saved.get(id) ?? null, set: async (id, key) => { saved.set(id, key); },
+    delete: async (id) => saved.delete(id), list: async () => [],
+  }) });
+  const endpoint = await accounts.endpoint('member', { baseUrl: 'http://127.0.0.1:11434/v1', compat: 'openai', billing: 'local', key: CANARY });
+  const cloud = await accounts.addCloud('member', 'aws-bedrock', selections[0][1]);
+  await accounts.setDefaults('member', { account: endpoint.id });
+  assert.equal((await accounts.list('member')).length, 2);
+  assert.equal((await store.index()).accounts?.[endpoint.id].endpoint?.active, true);
+  await accounts.remove('member', cloud.id);
+  assert.equal((await accounts.list('member'))[0].id, endpoint.id);
+  assert.equal(saved.get(`accounts.${endpoint.id}`), CANARY);
+  assert.equal((await accounts.defaults('member')).account, endpoint.id);
+  assert.equal((await store.index()).accounts?.[endpoint.id].endpoint?.active, true);
+});
+
 test('native cloud key/binding streams keep the selected endpoint and redact public errors', async () => {
   const p = builtinProviders().find((p) => p.id === 'cloudflare-workers-ai')!;
   const m = { ...p.getModels()[0], api: 'openai-completions' as const };
