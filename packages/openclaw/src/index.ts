@@ -34,6 +34,8 @@ export type { AddKeyResult } from './keys.ts';
 export { stateWords, toAccountView, words, type AccountView, type WordKey } from './words.ts';
 
 export { EngineAlreadyRunningError } from './engine-status.ts';
+export { readAgentDayUsage } from './day-usage.ts';
+export type { AgentDayUsage, EngineStartedCharge, EngineStartedKind } from './day-usage.ts';
 export { readAgentUsage, agentUsageOf } from './usage.ts';
 export type { AgentUsageReading, LedgerUsageTotals, UsageCache, UsageWindow } from './usage.ts';
 export type {

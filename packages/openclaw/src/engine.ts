@@ -150,7 +150,7 @@ export class Engine {
     const pluginDir = join(this.root, 'plugin');
     mkdirSync(pluginDir, { recursive: true, mode: 0o700 });
     // The shipped plugin follows the kit on every prepare too: a state dir from an older kit must not keep its gate.
-    for (const f of ['package.json', 'index.js', 'keys.js']) {
+    for (const f of ['package.json', 'index.js', 'keys.js', 'usage.js']) {
       const source = join(kitDir, 'plugin', f);
       putChanged(join(pluginDir, f), readFileSync(source, 'utf8'));
     }
