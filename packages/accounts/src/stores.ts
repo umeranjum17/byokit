@@ -53,7 +53,7 @@ export function recordStore(load: () => Promise<Record>, save: (data: Record) =>
       const data = { ...await load() };
       const before = fn && options?.signal ? JSON.parse(JSON.stringify(data)) as Record : undefined;
       const stored = data['.accounts'] as AccountsIndex | undefined;
-      const index: AccountsIndex = stored ? { names: { ...stored.names }, emails: { ...stored.emails }, plans: { ...stored.plans }, addedAt: { ...stored.addedAt }, defaults: { ...stored.defaults }, ...(stored.endpoints ? { endpoints: structuredClone(stored.endpoints) } : {}) } : emptyIndex();
+      const index: AccountsIndex = stored ? { names: { ...stored.names }, emails: { ...stored.emails }, plans: { ...stored.plans }, addedAt: { ...stored.addedAt }, defaults: { ...stored.defaults }, ...(stored.endpoints ? { endpoints: JSON.parse(JSON.stringify(stored.endpoints)) } : {}) } : emptyIndex();
       if (options?.signal?.aborted) throw new Error('Login cancelled');
       if (fn) {
         fn(index, data);

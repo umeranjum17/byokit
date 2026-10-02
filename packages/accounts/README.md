@@ -121,7 +121,8 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 
 | Export | What it does |
 |---|---|
-| `Accounts` | Sign-in, status, sign-out, asking and limits for each member: `login`, `finished`, `status`, `plan`, `logout`, `respond`, `chatgpt`, `failed`, `ladder`, `keepFresh` |
+| `Accounts` | Sign-in, status, sign-out, asking and limits for each member: `login`, `finished`, `status`, `plan`, `logout`, `respond`, `chatgpt`, `failed`, `ladder`, `keepFresh`; explicit custom servers: `endpoint`, `endpointReadiness`, `endpointRuntime` |
+| `ENDPOINT_PRESETS`, `EndpointError`, `EndpointOptions`, `EndpointModel`, `EndpointDriver` | Local preset facts, typed readiness failures, public endpoint/model configuration and the same-device host driver seam |
 | `portable`, `computer`, `loopback` | The platform `Accounts` runs on: device code with `fetch` alone, or (Node entry only) Pi's flows and the loopback listener |
 | `memoryStore`, `fileStore`, `secureStore`, `browserStore`, `recordStore` | One store per person: in memory, a sealed 0600 file (Node entry only), Keychain/Keystore, IndexedDB, or your own load and save |
 | `offered`, `provider`, `PROVIDERS` | The catalogue: each provider's billing, models and source |
@@ -178,6 +179,52 @@ for (const p of offered(['chatgpt', 'openrouter'])) console.log(`${p.name}: ${bi
 ChatGPT: Uses your ChatGPT plan.
 OpenRouter: Charged per use to your OpenRouter account, not a plan.
 ```
+
+## Custom endpoints and local runtimes
+
+`endpoint(member, options)` stores one explicitly selected server for one member. `billing` is required:
+`local`, `api`, `subscription` or `unknown`. A loopback address never determines billing: a local proxy can still
+charge a remote API. Auto **and Default** refuse non-subscription rows, even when that row is the saved default;
+using its exact account id is explicit selection. `list()` carries the selected billing and its plain label.
+
+```ts
+import { Accounts, ENDPOINT_PRESETS, type EndpointModel } from '@byokit/accounts';
+
+const model: EndpointModel = {
+  id: 'your-installed-model', name: 'My model', reasoning: false, input: ['text'],
+  contextWindow: 8192, maxTokens: 1024,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, // host estimates, not billing evidence
+};
+const accounts = new Accounts(); // supply store(member) for durable metadata
+const { id } = await accounts.endpoint(1, { ...ENDPOINT_PRESETS.ollama, models: [model] });
+const runtime = await accounts.endpointRuntime(1, id);
+const selected = runtime.getModel(id, model.id)!;
+const answer = await runtime.completeSimple(selected, {
+  messages: [{ role: 'user', content: 'Hello', timestamp: Date.now() }],
+});
+```
+
+Presets are `ollama` (11434), `llama.cpp` (8080), `vllm` (8000), `lmstudio` (1234) and `sglang` (30000),
+using their OpenAI-compatible `/v1` URLs. They say `local` because of the preset fact, not the address;
+you can explicitly override both URL and billing. Custom `compat` is `openai` or `anthropic` (Pi's
+`openai-completions` / `anthropic-messages` adapters); use the server's SDK base URL for that protocol.
+
+Pass `key` only when explicitly selecting keyed authentication; it requires the member's owner-selected
+`keyStore(member)` from `@byokit/secrets`. There is no plaintext, environment or CLI-login fallback. Keys never
+enter the account index, list or status. Adding does not contact a server or discover models: pass its public
+Pi model definitions in `models` (an omitted list is empty), including compatibility/tuning fields as needed.
+
+`endpointRuntime` returns the complete typed Pi `Models` API (stream, complete, simple and deferred methods,
+model/auth access and refresh), containing only this endpoint's models. Use models returned by that runtime;
+foreign/cloned models are refused before auth. It never registers in `runtime(member)` or another member's
+runtime. `getAuth` is a host-only credential handoff, never a view/log/remote-device payload. `logout` deletes
+the saved key and deactivates the row; `remove` also removes its public metadata. Previously returned runtimes
+refuse further authentication after either operation. Readiness/configuration is not proof the server is running.
+
+Node/Electron use the pinned adapters directly. Browser/RN exports remain free of runtime Node/Pi imports:
+without an app-supplied same-device `endpointDriver`, the route is `needs_host`. Loopback additionally requires
+explicit `endpointHost: true`; its readiness is checked **before** opening any key backend. A driver must keep
+credentials on this device; this seam does not authorize forwarding them to a server or borrowing a default login.
 
 ## Sign-in
 

@@ -22,9 +22,11 @@ export const ENDPOINT_PRESETS: Readonly<Record<EndpointPreset, EndpointConfig>> 
   sglang: { name: 'SGLang', baseUrl: 'http://127.0.0.1:30000/v1', compat: 'openai', billing: 'local' },
 };
 export class EndpointError extends Error {
-  constructor(readonly readiness: Exclude<Readiness, 'ready'> | 'signed_out') {
+  readonly readiness: Exclude<Readiness, 'ready'> | 'signed_out';
+  constructor(readiness: Exclude<Readiness, 'ready'> | 'signed_out') {
     super(readiness === 'needs_host' ? 'This endpoint needs the app’s host side.' : 'This endpoint is not available.');
     this.name = 'EndpointError';
+    this.readiness = readiness;
   }
 }
 /** Billing is a required choice. URLs cannot hide credentials in userinfo, query or fragment. */
@@ -35,9 +37,12 @@ export function endpointConfig(input: EndpointConfig): EndpointConfig {
   if (!['local', 'api', 'subscription', 'unknown'].includes(input.billing)) throw new Error('Choose this endpoint’s billing explicitly.');
   if (!['openai', 'anthropic'].includes(input.compat)) throw new Error('Choose OpenAI or Anthropic compatibility.');
   // Copy only public model fields; never persist caller-supplied headers/auth or another account's destination.
+  if (input.models && (!Array.isArray(input.models) || input.models.some((m) => !m || typeof m.id !== 'string' || !m.id.trim() || typeof m.name !== 'string' || typeof m.reasoning !== 'boolean' || !Array.isArray(m.input) || m.input.some((i) => !['text', 'image'].includes(i)) || !m.cost || !Number.isFinite(m.contextWindow) || m.contextWindow <= 0 || !Number.isFinite(m.maxTokens) || m.maxTokens <= 0))) throw new Error('Give this endpoint valid Pi model definitions.');
   const models = input.models?.map((m) => ({ id: m.id, name: m.name, reasoning: m.reasoning, input: [...m.input], cost: { ...m.cost },
     contextWindow: m.contextWindow, maxTokens: m.maxTokens, ...(m.compat ? { compat: { ...m.compat } } : {}),
-    ...(m.thinkingLevelMap ? { thinkingLevelMap: { ...m.thinkingLevelMap } } : {}) }));
+    ...(m.thinkingLevelMap ? { thinkingLevelMap: { ...m.thinkingLevelMap } } : {}),
+    ...(m.inputLimits ? { inputLimits: m.inputLimits } : {}), ...(m.promptCache ? { promptCache: m.promptCache } : {}),
+    ...(m.samplingParams ? { samplingParams: { ...m.samplingParams } } : {}) }));
   return { baseUrl: url.href.replace(/\/$/, ''), compat: input.compat, billing: input.billing,
     ...(input.name ? { name: input.name } : {}), ...(models ? { models } : {}) };
 }

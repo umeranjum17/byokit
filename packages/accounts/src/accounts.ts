@@ -6,7 +6,8 @@ import type { Keystore } from '@byokit/secrets';
 import type { AuthPrompt, CredentialStore, Models } from '@earendil-works/pi-ai';
 import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfile, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
-import { offered, provider, type Provider } from './catalogue.ts';
+import { offered, provider, type Provider, type Readiness } from './catalogue.ts';
+import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
 import { claims, PORTABLE, portableEngine } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
@@ -30,7 +31,7 @@ type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text
 /** Listens on this computer for the provider's page coming back: each request's path in, the page to answer with out. */
 export type Loopback = (port: number, handle: (path: string) => Promise<{ status: number; html: string }>) => Promise<{ close(): void }>;
 /** What differs by platform: the engine that signs in, which providers it can, and (on a computer) a loopback listener. */
-export type Platform = { engine: (credentials: CredentialStore, authBase?: string) => AuthHost; signsIn: (pi: string) => boolean; loopback?: Loopback };
+export type Platform = { engine: (credentials: CredentialStore, authBase?: string) => AuthHost; signsIn: (pi: string) => boolean; loopback?: Loopback; endpoint?: EndpointDriver };
 /** Phones and browsers: ChatGPT by device code, no listener. */
 export const portable: Platform = { engine: (c, base) => portableEngine(c, { base }), signsIn: (pi) => pi === CLAUDE_PLAN_ID || PORTABLE.includes(pi) };
 
@@ -45,6 +46,10 @@ export type AccountsOptions<M extends Member = Member> = {
   store?: (member: M) => CredentialStore;
   /** Device-owned @byokit/secrets store per member. Required to save API keys; no plaintext fallback. */
   keyStore?: (member: M) => Keystore;
+  /** Same-device pinned Pi endpoint driver for browser/RN hosts; no remote credential forwarding. */
+  endpointDriver?: EndpointDriver;
+  /** The host driver can reach loopback on this device (never inferred from billing). */
+  endpointHost?: boolean;
   /** The app's name, for the page the provider's sign-in sends the browser back to. */
   app?: string;
   /** Longest a sign-in may wait: longer than any provider's code lives. */
@@ -147,7 +152,78 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         ...(index.emails[id] || info?.email ? { email: index.emails[id] || info?.email } : {}),
         ...(index.plans[id] || info?.plan ? { plan: index.plans[id] || info?.plan } : {}), addedAt: index.addedAt[id] ?? 0 });
     }
+    for (const [id, config] of Object.entries(index.endpoints ?? {})) {
+      const status = await this.endpointStatus(member, id);
+      rows.push({ id, provider: 'custom', route: config.billing === 'local' ? 'custom:local' : 'custom:endpoint',
+        name: index.names[id] ?? config.name ?? 'Your own server', label: endpointLabel(config.billing), billing: config.billing,
+        state: status.state, readiness: status.readiness, addedAt: index.addedAt[id] ?? 0 });
+    }
     return rows;
+  }
+
+  /** Add explicitly selected billing and public endpoint metadata; credentials only enter keyStore. No network at add time. */
+  async endpoint(member: M, options: EndpointOptions): Promise<{ id: string }> {
+    const config = endpointConfig(options);
+    this.requireEndpointHost(config);
+    if (options.key !== undefined && (typeof options.key !== 'string' || !options.key.trim())) throw new Error('Enter a key to connect this endpoint.');
+    const bytes = new Uint8Array(12);
+    if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
+    else for (let n = 0; n < bytes.length; n++) bytes[n] = Math.floor(Math.random() * 256);
+    const id = `endpoint.${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+    await this.store(member).index(() => {}); // Check the durable metadata seam before saving a secret.
+    if (options.key !== undefined) await this.keys(member, (store) => store.set(`accounts.${id}`, options.key!));
+    try {
+      await this.store(member).index((i) => {
+        (i.endpoints ??= {})[id] = { ...config, hasKey: options.key !== undefined, active: true };
+        i.addedAt[id] = Date.now();
+      });
+    } catch {
+      if (options.key !== undefined) await this.keys(member, (store) => store.delete(`accounts.${id}`));
+      throw new Error('This endpoint could not be saved.');
+    }
+    this.onChange?.(member, id);
+    return { id };
+  }
+
+  private requireEndpointHost(config: EndpointConfig) {
+    if (!(this.opts.endpointDriver ?? this.platform.endpoint) || (endpointNeedsHost(config.baseUrl) && !this.platform.loopback && !this.opts.endpointHost)) throw new EndpointError('needs_host');
+  }
+
+  /** Readiness is public metadata only, before opening any key backend. */
+  async endpointReadiness(member: M, id: string): Promise<Readiness> {
+    const config = (await this.index(member)).endpoints?.[id];
+    if (!config) throw new EndpointError('no_upstream_flow');
+    try { this.requireEndpointHost(config); return 'ready'; }
+    catch (e) { if (e instanceof EndpointError) return e.readiness as Readiness; throw e; }
+  }
+
+  private async endpointStatus(member: M, id: string): Promise<Status & { readiness: Readiness }> {
+    const index = await this.index(member);
+    const config = index.endpoints?.[id];
+    if (!config) throw new EndpointError('no_upstream_flow');
+    const readiness = await this.endpointReadiness(member, id);
+    const until = this.accountRestingUntil(member, id);
+    const state = readiness !== 'ready' ? 'not_included' : !config.active ? 'signed_out' : until ? 'resting' : this.without.has(`${member}:${id}`) ? 'not_included' : 'ready';
+    return { id, provider: 'custom', account: id, name: index.names[id] ?? config.name ?? 'Your own server', state, readiness, ...(until ? { until } : {}),
+      words: readiness !== 'ready' ? 'This endpoint needs the app’s host side.' : !config.active ? 'Endpoint signed out' : until ? 'Endpoint is resting' : endpointLabel(config.billing) };
+  }
+
+  /** Complete typed Pi Models pass-through, scoped to exactly this member and account, never registered in a default runtime. */
+  async endpointRuntime(member: M, id: string): Promise<Models> {
+    const config = (await this.index(member)).endpoints?.[id];
+    if (!config) throw new EndpointError('no_upstream_flow');
+    this.requireEndpointHost(config);
+    if (!config.active) throw new EndpointError('signed_out');
+    return (this.opts.endpointDriver ?? this.platform.endpoint)!(id, config, async () => {
+      // Previously returned runtimes also stop working after removal/sign-out. Readiness precedes secrets.
+      const current = (await this.index(member)).endpoints?.[id];
+      if (!current?.active) throw new EndpointError('signed_out');
+      this.requireEndpointHost(current);
+      if (!current.hasKey) return undefined;
+      const key = await this.keys(member, (store) => store.get(`accounts.${id}`));
+      if (!key) throw new EndpointError('signed_out');
+      return key;
+    });
   }
 
   async defaults(member: M): Promise<Defaults> { return (await this.index(member)).defaults; }
@@ -174,10 +250,12 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
   async remove(member: M, id: string): Promise<void> {
     id = this.accountKey(member, id);
+    const endpoint = !!(await this.index(member)).endpoints?.[id];
     try { await this.endAccount(member, id, true); }
     finally {
       await this.store(member).index((i) => {
         for (const map of [i.names, i.emails, i.plans, i.addedAt]) delete map[id];
+        if (endpoint) delete i.endpoints?.[id];
         if (i.defaults.account === id) delete i.defaults.account;
       });
       this.preferred.delete(`${member}:${this.providerKey(id)}`);
@@ -421,6 +499,12 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   /** Signed in, from the engine's own side-effect-free check. */
   async signedIn(member: M, key: string) {
     key = this.additions.has(`${member}:${key}`) ? key : await this.resolveKey(member, key);
+    if ((await this.index(member)).endpoints?.[key]) {
+      const status = await this.endpointStatus(member, key);
+      if (status.state !== 'ready') return false;
+      const config = (await this.index(member)).endpoints![key];
+      return !config.hasKey || !!(await this.keys(member, (store) => store.get(`accounts.${key}`)));
+    }
     return this.checked(member, key);
   }
 
@@ -600,12 +684,13 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
 
   /** Where one account stands, in one plain sentence every app shows the same way. */
-  async status(member: M, key: string): Promise<Status> {
+  async status(member: M, key: string): Promise<Status & { readiness?: Readiness }> {
     key = this.additions.has(`${member}:${key}`) ? key : await this.resolveKey(member, key);
     return this.accountStatus(member, key);
   }
 
   private async accountStatus(member: M, key: string): Promise<Status> {
+    if ((await this.index(member)).endpoints?.[key]) return this.endpointStatus(member, key);
     const { name } = this.offer(key);
     const id = `${member}:${key}`;
     const s = (state: Status['state'], w: WordKey, until?: number): Status => ({ id: key, provider: this.providerKey(key), account: key, name, state, until, words: say(w, { name, until: until ? clock(until) : '' }) });
@@ -810,6 +895,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   /** After the account turned a request away: true if its sign-in still refreshes; if not, it is signed out for good. */
   async recheck(member: M, key: string) {
     key = await this.resolveKey(member, key);
+    if ((await this.index(member)).endpoints?.[key]) { await this.logout(member, key); return false; }
     const p = this.offer(key);
     // A saved API key cannot refresh itself after an authentication refusal.
     const ok = p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)
@@ -823,6 +909,15 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   logout(member: M, key: string) { return this.endAccount(member, key); }
 
   private async endAccount(member: M, key: string, exact = false) {
+    const endpoint = key.startsWith('endpoint.') ? (await this.index(member)).endpoints?.[key] : undefined;
+    if (endpoint) {
+      await this.serial(`${member}:${key}`, async () => {
+        await this.store(member).index((i) => { if (i.endpoints?.[key]) i.endpoints[key].active = false; });
+        if (endpoint.hasKey) await this.keys(member, (store) => store.delete(`accounts.${key}`));
+      });
+      this.onChange?.(member, key);
+      return;
+    }
     // Invalidate synchronously before any storage read can yield to an in-flight refresh.
     const initial = this.accountKey(member, exact ? key : this.preferred.get(`${member}:${key}`) ?? key);
     const initialId = `${member}:${initial}`;

@@ -1059,7 +1059,7 @@
       }
     },
     {
-      "name": "API explicit default",
+      "name": "API stored default still requires explicit selection",
       "accounts": [
         {
           "id": "a",
@@ -1077,11 +1077,8 @@
         "account": "default"
       },
       "expected": {
-        "ok": true,
-        "id": "a",
-        "why": "default",
-        "how": "default",
-        "model": "p/m"
+        "ok": false,
+        "code": "none"
       }
     },
     {
