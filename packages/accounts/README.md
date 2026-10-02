@@ -142,10 +142,11 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | | Computer (Node, Electron main) | Browser (PWA, Electron renderer) | Phone (React Native: iOS, Android) |
 |---|---|---|---|
 | ChatGPT (subscription) | Its own page, straight back to this computer (port 1455); a code when asked or stuck | Device code | Device code |
-| Claude Pro/Max (subscription) | Provider page, paste its code back | Same PKCE flow, its token and profile requests through the app's own server | Same PKCE flow; app supplies Web Crypto |
+| Claude Pro/Max (subscription) | Paste by default; explicit browser callback on port 53692 | Same PKCE flow, its token and profile requests through the app's own server | Same PKCE flow; app supplies Web Crypto |
 | Anthropic (API key, billed per use) | App passes its own key, explicitly | Same fetch-only Messages provider | Same fetch-only Messages provider |
-| OpenRouter (API billing) | Its own page, back to this computer (Pi's flow), when an app offers it (never by default) | Not yet | Not yet |
-| Grok, Copilot, Kimi, Meta | Pi's flows | No | No |
+| OpenRouter (API billing) | Pi's browser callback or paste; explicit API selection and device-owned `keyStore` required | Not yet | Not yet |
+| Radius (billing set by gateway) | Pi's browser callback (1456) or device code; explicit-only | Not yet | Not yet |
+| Grok, Copilot, Kimi, Meta | Pi's device flows; Copilot accepts an Enterprise domain | No | No |
 | Where sign-ins are kept | `fileStore(path, safeStorage)`, sealing required | `browserStore(name)` (IndexedDB) | `secureStore(SecureStore, name)` (Keychain, Keystore) |
 
 Device code works everywhere: OpenAI's sign-in endpoints answer any web page. The page-straight-back sign-in needs a
@@ -161,7 +162,7 @@ are offered only when the app names them. An explicit `offer` list is not platfo
 The `Provider` shape no longer has `terms`, `hidden` or `why`, and `Terms` is no longer exported.
 Qwen and MiniMax have subscription catalogue rows; their paste and portal sign-in flows follow in later work packages.
 Each provider's own terms apply to how you use your plan.
-The planned route table, which lists every pi-ai provider and sign-in method with its readiness, follows the shared account-route vocabulary (D18 in [`docs/runtime-kits.md`](../../docs/runtime-kits.md#21-account-routes-d18)). Until it lands, the catalogue above is what ships.
+`routes()` lists every pinned pi-ai provider and sign-in method, including unavailable rows with typed readiness, using D18 in [`docs/runtime-kits.md`](../../docs/runtime-kits.md#21-account-routes-d18). `offered({ platform })` returns ready subscription routes only. Radius has `unknown` billing: it is visible in discovery but never offered or chosen automatically. Computer device fixtures do not qualify phone/browser device runtime.
 Anthropic Messages uses an app-passed API key (billed per use); authentication is separate from the Messages request.
 
 Native Claude CLI sign-in uses the managed-folder entry.
@@ -698,9 +699,40 @@ the selected provider's request on the host; never serialize `key()` into views,
 snapshots, logs, or messages to another device. Status and connection results contain
 no key, and storage failures have fixed, redacted messages.
 
-With `keyStore` configured, the existing `openrouter` route uses saved member keys;
-without it, its existing explicit sign-in flow remains available. Saving a key marks
-it connected locally; the selected provider checks validity on the first request.
+OpenRouter's browser/paste authorization also creates a permanent API-billed key, so it requires
+`keyStore` and explicit API selection (`billedPerUse: true`). The shared key persistence seam saves the
+secret only in `keyStore`; the ordinary credential store/index keeps non-secret membership/route metadata.
+Saving a key marks it connected locally; the selected provider checks validity on the first request.
+
+### Computer sign-in methods
+
+```ts
+import { Accounts } from '@byokit/accounts';
+import type { Keystore } from '@byokit/secrets';
+// This example has one member; the app supplies that member's private device-owned store.
+declare const memberKeys: Keystore;
+declare const returnedRedirectUrl: string;
+const accounts = new Accounts({
+  offer: ['claude', 'openrouter', 'radius', 'copilot'], keyStore: () => memberKeys,
+});
+// Claude's existing paste route remains the default on every supported platform.
+await accounts.login('Umer', 'claude');
+// Explicit computer callback, through the pinned adapter (fixed registered port 53692).
+await accounts.add('Umer', 'claude', { via: 'browser' });
+// Offer OpenRouter explicitly and configure keyStore. This chooses API billing, not a plan.
+const connected = await accounts.add('Umer', 'openrouter', { via: 'paste', billedPerUse: true });
+accounts.paste('Umer', connected.id, returnedRedirectUrl);
+// Offer Radius explicitly: its gateway sets billing; never inferred to be a subscription.
+await accounts.add('Umer', 'radius', { via: 'code' });
+await accounts.login('Umer', 'copilot', { enterpriseDomain: 'company.ghe.com' });
+```
+
+`SignInOptions` also accepts `fresh`; `login` and `add` share these options. Enterprise input is a
+hostname, without URL credentials, ports or paths. Omit it (or pass blank) for github.com. The
+pinned adapter owns polling, exchanges and Enterprise credential metadata. Missing host/platform
+support is reported before credential access; this unit adds no phone/browser device runtime.
+`runtime(member, id)` retains the engine's complete typed login/auth pass-through for app-owned
+interactions. Never expose credentials from that host-only handle in a UI or another device.
 
 ### Several accounts per member
 

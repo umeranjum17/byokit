@@ -83,10 +83,9 @@ export function generateRoutes(): Route[] {
         if (via === 'browser' && !/createServer|startCallbackServer/.test(text)) throw new Error(`Missing browser flow for ${p.id}`);
         const billing = p.auth.oauth.isSubscription ? 'subscription' : p.id === 'openrouter' ? 'api' : 'unknown';
         const portable = p.id === 'openai-codex' && via === 'code' || p.id === 'anthropic' && via === 'paste';
-        const pending = p.id === 'radius' || p.id === 'anthropic' && via === 'browser' || p.id === 'openrouter' && via === 'paste';
         add(p.id, p.id === 'openai-codex' ? 'ChatGPT' : p.id === 'anthropic' ? 'Claude' : p.name, via, billing,
           via === 'code' ? 'device' : via === 'browser' ? 'loopback' : 'paste', undefined,
-          { platforms: portable ? { node: 'yes', browser: 'host', rn: 'yes' } : pending ? nodeHost : node,
+          { platforms: portable ? { node: 'yes', browser: 'host', rn: 'yes' } : node,
             ...(p.id === 'openai-codex' && via === 'code' ? { platforms: all } : {}) });
       }
     }

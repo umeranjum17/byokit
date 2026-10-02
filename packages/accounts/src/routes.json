@@ -113,7 +113,7 @@
     "billingFrom": "source",
     "offer": "default",
     "platforms": {
-      "node": "host",
+      "node": "yes",
       "browser": "no",
       "rn": "no"
     },
@@ -1253,7 +1253,7 @@
     "billingFrom": "source",
     "offer": "explicit",
     "platforms": {
-      "node": "host",
+      "node": "yes",
       "browser": "no",
       "rn": "no"
     },
@@ -1301,7 +1301,7 @@
     "billingFrom": "source",
     "offer": "explicit",
     "platforms": {
-      "node": "host",
+      "node": "yes",
       "browser": "no",
       "rn": "no"
     },
@@ -1325,7 +1325,7 @@
     "billingFrom": "source",
     "offer": "explicit",
     "platforms": {
-      "node": "host",
+      "node": "yes",
       "browser": "no",
       "rn": "no"
     },

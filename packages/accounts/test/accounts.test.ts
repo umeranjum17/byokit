@@ -45,7 +45,7 @@ test('the catalogue offers every subscription by default and keeps API billing o
   const existing = ['chatgpt', 'grok', 'copilot', 'openrouter', 'minimax', 'claude'];
   assert.deepEqual(offered(existing).map((p) => p.key), existing, 'existing explicit account lists keep every provider');
   for (const p of Object.values(PROVIDERS)) {
-    assert.ok(p.billing === 'subscription' || p.billing === 'api', p.key);
+    assert.ok(p.billing === 'subscription' || p.billing === 'api' || p.billing === 'unknown', p.key);
     assert.ok(p.source.startsWith('https://'), p.key);
     for (const removed of ['terms', 'hidden', 'why']) assert.ok(!(removed in p));
   }
