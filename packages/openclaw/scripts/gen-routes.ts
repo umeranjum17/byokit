@@ -69,6 +69,10 @@ export function generateRoutes(snapshot: PinSnapshot): Route[] {
         : id === 'setup-token' ? { auth: 'token' as const } : {}),
       prerequisite: via === 'cli' ? 'Claude Code in the isolated HOME' : null,
       offer: offerPolicy === 'default' && Object.keys(needs).length === 0, offerPolicy,
+      ...(id === 'anthropic-cli' ? { legacy: { provider: 'claude-cli', via: 'browser' as const } }
+        : id === 'setup-token' ? { legacy: { provider: 'anthropic', via: 'browser' as const } }
+        : id === 'minimax-global-oauth' || id === 'minimax-cn-oauth'
+          ? { legacy: { provider: 'minimax', via: 'code' as const } } : {}),
       reason: alias ? 'Compatibility alias the Gateway does not offer; use xai-oauth.'
         : billing === 'api' ? `${choice.groupLabel ?? choice.provider}: ${via === 'cloud' ? 'Cloud credentials' : keyEntry ? 'API key' : 'OAuth'} (billed per use).`
         : billing === 'subscription' ? `${choice.choiceLabel}: subscription sign-in.`

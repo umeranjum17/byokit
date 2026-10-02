@@ -132,6 +132,7 @@ export type Route = {
   company?: string;
   aliases?: string[];
   offerPolicy?: 'default' | 'explicit';
+  legacy?: { provider: string; via: 'browser' | 'code' }; // retained explicit sign-in selectors
   billingFrom?: 'source' | 'host';
   group?: 'models' | 'services';
   platforms?: { node: 'yes' | 'host' | 'no'; browser: 'yes' | 'host' | 'no'; rn: 'yes' | 'host' | 'no' };

@@ -40,7 +40,11 @@ export function routes(facts: RouteFacts = {}): RouteView[] {
   });
 }
 
-/** The route an app should use: only an offered route counts; API billing is never picked as a fallback. */
+/** Retain explicit legacy selectors alongside corrected discovery metadata. A native CLI selector still
+ * reaches engine detection (which checks its own login); it does not make an unavailable route default.
+ * API billing is never picked as a fallback. */
 export function routeFor(provider: string, via: 'browser' | 'code'): Route | undefined {
-  return table.find((route) => route.offer && route.provider === provider && route.via === via);
+  return table.find(route => route.billing === 'subscription' && route.offerPolicy === 'default'
+    && ((route.offer && route.provider === provider && route.via === via)
+      || (route.legacy?.provider === provider && route.legacy.via === via)));
 }

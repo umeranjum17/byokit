@@ -104,6 +104,10 @@ test('legacy pairing choices and device-code methods are unchanged', () => {
   assert.equal(routeFor('xai', 'code')?.choice, 'xai-oauth');
   assert.equal(routeFor('github-copilot', 'code')?.choice, 'github-copilot');
   assert.equal(routeFor('minimax-portal', 'code')?.choice, 'minimax-global-oauth');
+  assert.equal(routeFor('minimax', 'code')?.choice, 'minimax-global-oauth');
+  assert.equal(routeFor('claude-cli', 'browser')?.choice, 'anthropic-cli');
+  assert.equal(routeFor('claude-cli', 'browser')?.offer, false, 'explicit native selector is not a readiness/default claim');
+  assert.equal(routeFor('anthropic', 'browser')?.choice, 'setup-token');
   const byChoice = new Map(routes().map(route => [route.choice, route]));
   for (const choice of ['openai-device-code', 'xai-oauth', 'github-copilot', 'github-copilot-enterprise', 'minimax-global-oauth', 'minimax-cn-oauth', 'xai-device-code']) {
     assert.equal(byChoice.get(choice)?.via, 'code');

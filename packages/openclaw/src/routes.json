@@ -130,6 +130,10 @@
     "prerequisite": "Claude Code in the isolated HOME",
     "offer": false,
     "offerPolicy": "default",
+    "legacy": {
+      "provider": "claude-cli",
+      "via": "browser"
+    },
     "reason": "Anthropic Claude CLI: subscription sign-in.",
     "source": "extensions/anthropic/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
@@ -171,6 +175,10 @@
     "prerequisite": null,
     "offer": true,
     "offerPolicy": "default",
+    "legacy": {
+      "provider": "anthropic",
+      "via": "browser"
+    },
     "reason": "Anthropic setup-token: subscription sign-in.",
     "source": "extensions/anthropic/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
@@ -1743,6 +1751,10 @@
     "prerequisite": null,
     "offer": true,
     "offerPolicy": "default",
+    "legacy": {
+      "provider": "minimax",
+      "via": "code"
+    },
     "reason": "MiniMax OAuth (Global): subscription sign-in.",
     "source": "extensions/minimax/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
@@ -1820,6 +1832,10 @@
     "prerequisite": null,
     "offer": true,
     "offerPolicy": "default",
+    "legacy": {
+      "provider": "minimax",
+      "via": "code"
+    },
     "reason": "MiniMax OAuth (CN): subscription sign-in.",
     "source": "extensions/minimax/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",

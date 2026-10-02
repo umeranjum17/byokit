@@ -170,7 +170,7 @@ export function openclawLink(
           ...(signedIn ? { signedIn } : {}) };
       }
       case 'oc.routes':
-        return kit.routes().filter((route) => route.offer);
+        return kit.routes(); // Discovery is not authorization or default eligibility.
       case 'oc.signin.start': {
         if (typeof args.provider !== 'string' || (args.via !== 'browser' && args.via !== 'code'))
           throw new Error('oc.signin.start needs { provider, via: browser|code }');
