@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { setImmediate as turn } from 'node:timers/promises';
 import { browserHostContract, fakeBrowserHost, memorySignInStore, type FakeBrowserHost } from '../../src/testing/browser.ts';
-import { createBrowserHost, HandoffUnprotected, SignInRefused } from '../../src/browser/host.ts';
+import { createBrowserHost, HandoffUnprotected, SignInRefused, type HostBroker, type BrowserHostServices } from '../../src/browser/host.ts';
 import { emptySignIns, fileSignInStore, type SignInStore } from '../../src/browser/store.ts';
 import type { LiveViewState } from '../../src/browser.ts';
 import { verifySignIn } from '../../src/browser/verify.ts';
@@ -321,6 +321,224 @@ test('member names colliding with Object.prototype are ordinary isolated members
   const host = await fakeBrowserHost({ members: ['constructor'] });
   try { assert.equal((await raise(host, 'constructor')).firstTime, true); }
   finally { await host.close(); }
+});
+
+function taggedBroker(broker: HostBroker, seq: number): HostBroker {
+  return { ...broker, attachViewer(o) {
+    const viewer = broker.attachViewer(o);
+    return { ...viewer, frames: { async *[Symbol.asyncIterator]() {
+      for await (const frame of viewer.frames) yield { ...frame, seq };
+    } } };
+  } };
+}
+function dynamicHost(brokers: Map<string, HostBroker>, restart?: BrowserHostServices['restart']) {
+  return createBrowserHost({ brokers, store: memorySignInStore(), options: { executablePath: '/synthetic/chromium', members: 'all', recovery: { attempts: 1, backoffMs: [0] } },
+    authorize: () => true, park: async () => {}, resume: async () => assert.fail('production cannot dispatch'), siteOf: origin => new URL(origin).hostname, restart });
+}
+
+test('later owned member attachment updates the canonical state/thumb/live registry, never enables handoff', async () => {
+  const late = await fakeBrowserHost({ members: ['bob'] }); const brokers = new Map<string, HostBroker>();
+  const host = await dynamicHost(brokers); const next = taggedBroker(late.fixture.broker('bob'), 901);
+  try {
+    brokers.set('bob', next); assert.equal(host.state('bob').phase, 'off');
+    await host.attachBroker('bob', next);
+    assert.equal(host.state('bob').why, 'handoff-unprotected');
+    const thumb = await host.thumbnail({ kind: 'browser', member: 'bob' }, { grant: 'view' });
+    assert.equal(thumb.state, 'ok'); if (thumb.state === 'ok') assert.equal(thumb.frame.seq, 901);
+    const frames: number[] = [];
+    const stream = host.live({ kind: 'browser', member: 'bob' }, { grant: 'view' }, { state() {}, frame: f => frames.push(f.seq) });
+    await turn(); assert.deepEqual(frames, [901]); stream.close();
+    await assert.rejects(host.raise({ member: 'bob', sessionKey: 's', checkUrl: 'http://127.0.0.1:2820', reasons: ['agent-asked'] }), HandoffUnprotected);
+  } finally { await host.close(); await late.close(); }
+});
+
+test('owned replacement invalidates synchronously and awaits private destruction before settlement/publication', async () => {
+  const host = await fakeBrowserHost({ options: { members: 'all' } }); const replacement = await fakeBrowserHost();
+  try {
+    const { r, lease } = await held(host); const old = host.fixture.broker('ada'); const wait = deferred();
+    const states: LiveViewState[] = [];
+    const stream = host.live({ kind: 'browser', member: 'ada' }, { grant: 'control', lease }, { state: s => states.push(s), frame() {} });
+    await turn(); host.fixture.closePrivate('ada', () => wait.promise);
+    const attach = host.attachBroker('ada', replacement.fixture.broker('ada'), old);
+    assert.equal(states.at(-1)?.phase, 'ended'); assert.throws(() => stream.input({ kind: 'key', type: 'down', key: 'x' }), refused('stale'));
+    assert.throws(() => host.confirmOrigin(lease, r.origin), refused('stale'));
+    await assert.rejects(host.takeover(r.id, r.gen, { grant: 'other', confirmSite: r.site }), refused('held-by-other'));
+    await turn(); assert.equal(host.fixture.privateOpen('ada'), true); assert.equal(host.signIns()[0].state, 'held'); assert.equal(host.signIns()[0].gen, r.gen);
+    assert.equal(host.state('ada').why, 'engine-detached');
+    wait.resolve(); await attach;
+    assert.equal(host.fixture.privateOpen('ada'), false); assert.equal(host.signIns()[0].settled?.reason, 'browser-gone');
+    assert.equal(host.fixture.dispatches.length, 0);
+  } finally { await host.close(); await replacement.close(); }
+});
+
+test('failed old private close refuses replacement, fresh generation, and candidate endpoint publication', async () => {
+  const host = await fakeBrowserHost(); const replacement = await fakeBrowserHost(); let candidateClosed = false;
+  try {
+    const { r } = await held(host); const next = replacement.fixture.broker('ada');
+    host.fixture.closePrivate('ada', async () => { throw new Error('synthetic failure'); });
+    await assert.rejects(host.attachBroker('ada', { ...next, close: async () => { candidateClosed = true; await next.close(); } }, host.fixture.broker('ada')), refused('unsupported'));
+    assert.equal(candidateClosed, true); assert.equal(host.signIns()[0].gen, r.gen); assert.equal(host.signIns()[0].settled?.reason, 'browser-gone');
+    assert.equal(host.fixture.privateOpen('ada'), true); assert.equal(host.fixture.fenced('ada'), true);
+    assert.equal(host.state('ada').why, 'recovery-exhausted');
+    assert.equal((await host.thumbnail({ kind: 'browser', member: 'ada' }, { grant: 'view' })).state, 'off');
+  } finally { await host.close(); await replacement.close(); }
+});
+
+for (const state of ['waiting', 'parked'] as const) test(`replacement preserves durable ${state}, bumps generation only after close, keeps incoming endpoint fenced for config ack`, async () => {
+  const store = memorySignInStore(); const host = await fakeBrowserHost({ store }); const replacement = await fakeBrowserHost();
+  try {
+    const r = await raise(host); if (state === 'parked') await host.notNow(r.id, r.gen, { grant: 'control' });
+    await host.attachBroker('ada', replacement.fixture.broker('ada'), host.fixture.broker('ada'));
+    const next = host.signIns()[0]; assert.equal(next.state, state); assert.equal(next.gen, r.gen + 1);
+    assert.equal(store.read().requests[0].gen, next.gen); assert.equal(replacement.fixture.fenced('ada'), true);
+    assert.equal(host.fixture.dispatches.length, 0);
+  } finally { await host.close(); await replacement.close(); }
+});
+
+test('exact-previous and delayed old-exit identity guards refuse stale broker replacement', async () => {
+  const oldFixture = await fakeBrowserHost(); const newFixture = await fakeBrowserHost(); const staleFixture = await fakeBrowserHost();
+  const old = oldFixture.fixture.broker('ada'); const next = taggedBroker(newFixture.fixture.broker('ada'), 902);
+  const host = await dynamicHost(new Map([['ada', old]]));
+  try {
+    await assert.rejects(host.attachBroker('ada', next), refused('stale'));
+    await host.attachBroker('ada', next, old);
+    await assert.rejects(host.attachBroker('ada', staleFixture.fixture.broker('ada'), old), refused('stale'));
+    await host.browserGone('ada', old);
+    assert.equal(host.state('ada').why, 'handoff-unprotected');
+    const thumb = await host.thumbnail({ kind: 'browser', member: 'ada' }, { grant: 'view' });
+    assert.equal(thumb.state, 'ok'); if (thumb.state === 'ok') assert.equal(thumb.frame.seq, 902);
+  } finally { await host.close(); await oldFixture.close(); await newFixture.close(); await staleFixture.close(); }
+});
+
+test('an outstanding recovery callback cannot overwrite a later accepted owned attachment', async () => {
+  const oldFixture = await fakeBrowserHost(); const chosen = await fakeBrowserHost(); const stale = await fakeBrowserHost();
+  const old = oldFixture.fixture.broker('ada'); const start = deferred(); const release = deferred(); let staleClosed = false;
+  const late = stale.fixture.broker('ada');
+  const host = await dynamicHost(new Map([['ada', old]]), async () => { start.resolve(); await release.promise; return { ...late, close: async () => { staleClosed = true; await late.close(); } }; });
+  try {
+    const recovering = host.browserGone('ada', old); await start.promise;
+    await host.attachBroker('ada', taggedBroker(chosen.fixture.broker('ada'), 903), old);
+    release.resolve(); await recovering;
+    assert.equal(staleClosed, true); assert.equal(host.state('ada').why, 'handoff-unprotected');
+    const thumb = await host.thumbnail({ kind: 'browser', member: 'ada' }, { grant: 'view' });
+    assert.equal(thumb.state, 'ok'); if (thumb.state === 'ok') assert.equal(thumb.frame.seq, 903);
+  } finally { release.resolve(); await host.close(); await oldFixture.close(); await chosen.close(); await stale.close(); }
+});
+
+test('replacement races verification without dispatching the old request', async () => {
+  const host = await fakeBrowserHost(); const replacement = await fakeBrowserHost();
+  try {
+    const { lease } = await held(host); const wait = deferred(); host.fixture.probe('ada', async () => { await wait.promise; return 'ok'; });
+    const done = host.done(lease); await turn();
+    const attach = host.attachBroker('ada', replacement.fixture.broker('ada'), host.fixture.broker('ada'));
+    wait.resolve(); await assert.rejects(done, refused('stale')); await attach;
+    assert.equal(host.signIns()[0].settled?.reason, 'browser-gone'); assert.equal(host.fixture.dispatches.length, 0);
+  } finally { await host.close(); await replacement.close(); }
+});
+
+test('replacement races private-tab creation without returning a stale controller', async () => {
+  const host = await fakeBrowserHost(); const replacement = await fakeBrowserHost();
+  try {
+    const r = await raise(host); const old = host.fixture.broker('ada'); const original = old.openPrivate; const wait = deferred();
+    old.openPrivate = async url => { await wait.promise; return original(url); };
+    const takeover = host.takeover(r.id, r.gen, { grant: 'control', confirmSite: r.site }); await turn();
+    const attach = host.attachBroker('ada', replacement.fixture.broker('ada'), old);
+    wait.resolve(); await assert.rejects(takeover, refused('stale')); await attach;
+    assert.equal(host.signIns()[0].state, 'waiting'); assert.equal(host.signIns()[0].gen, r.gen + 1);
+    assert.equal(host.fixture.privateOpen('ada'), false); assert.equal(replacement.fixture.fenced('ada'), true);
+  } finally { await host.close(); await replacement.close(); }
+});
+
+test('read-only owned binding snapshots hide pending replacements and reject stale config acknowledgements', async () => {
+  const oldFixture = await fakeBrowserHost(); const replacement = await fakeBrowserHost(); const old = oldFixture.fixture.broker('ada');
+  const host = await dynamicHost(new Map([['ada', old]]));
+  try {
+    const before = host.brokerBinding('ada')!; assert.equal(before.broker, old); assert.equal(Object.isFrozen(before), true); assert.equal(Object.isFrozen(before.endpoint), true);
+    const wait = deferred(); oldFixture.fixture.closePrivate('ada', () => wait.promise);
+    const next = replacement.fixture.broker('ada'); const attaching = host.attachBroker('ada', next, old);
+    assert.equal(host.brokerBinding('ada'), undefined); wait.resolve(); await attaching;
+    const after = host.brokerBinding('ada')!; assert.equal(after.broker, next); assert.ok(after.generation > before.generation);
+    // Same URL is not identity proof; a late config ack must compare both owned broker and generation.
+    assert.equal(after.endpoint.cdpUrl, before.endpoint.cdpUrl);
+    const staleAck = before.broker === after.broker && before.generation === after.generation;
+    assert.equal(staleAck, false); assert.equal(replacement.fixture.fenced('ada'), true);
+  } finally { await host.close(); await oldFixture.close(); await replacement.close(); }
+});
+
+test('endpoint generation is stable across private lease epochs, recovery adopts only a fenced canonical binding', async () => {
+  const fixture = await fakeBrowserHost();
+  try {
+    const before = fixture.brokerBinding('ada')!; const { lease } = await held(fixture);
+    assert.equal(fixture.brokerBinding('ada')!.generation, before.generation);
+    await fixture.cancel(lease.requestId, lease.gen, { grant: 'control' });
+    assert.equal(fixture.brokerBinding('ada')!.generation, before.generation);
+  } finally { await fixture.close(); }
+  const old = await fakeBrowserHost(); const replacement = await fakeBrowserHost();
+  const host = await dynamicHost(new Map([['ada', old.fixture.broker('ada')]]), async () => replacement.fixture.broker('ada'));
+  try {
+    const before = host.brokerBinding('ada')!; await host.browserGone('ada', before.broker);
+    const after = host.brokerBinding('ada')!; assert.equal(after.broker, replacement.fixture.broker('ada')); assert.ok(after.generation > before.generation);
+    assert.equal(replacement.fixture.fenced('ada'), true);
+  } finally { await host.close(); await old.close(); await replacement.close(); }
+});
+
+test('host requests the actual pushed typed 320px viewer hint and forwards live width without fabricating a frame', async () => {
+  const fixture = await fakeBrowserHost(); const broker = fixture.fixture.broker('ada'); const widths: (number | undefined)[] = [];
+  const host = await dynamicHost(new Map([['ada', { ...broker, attachViewer(o) { widths.push(o.maxWidth); return broker.attachViewer(o); } }]]));
+  try {
+    assert.equal((await host.thumbnail({ kind: 'browser', member: 'ada' }, { grant: 'view' })).state, 'ok');
+    const stream = host.live({ kind: 'browser', member: 'ada' }, { grant: 'view', maxWidth: 256 }, { state() {}, frame() {} });
+    await turn(); stream.close(); assert.deepEqual(widths, [320, 256]);
+  } finally { await host.close(); await fixture.close(); }
+  const over = await fakeBrowserHost(); const source = over.fixture.broker('ada');
+  const oversized = await dynamicHost(new Map([['ada', { ...source, attachViewer(o) {
+    assert.equal(o.maxWidth, 320); const viewer = source.attachViewer(o);
+    return { ...viewer, frames: { async *[Symbol.asyncIterator]() { for await (const frame of viewer.frames) yield { ...frame, w: 1280 }; } } };
+  } }]]));
+  try { assert.equal((await oversized.thumbnail({ kind: 'browser', member: 'ada' }, { grant: 'view' })).state, 'unsupported'); }
+  finally { await oversized.close(); await over.close(); }
+});
+
+test('failed viewer attachment remains typed off/failed and does not extend a controller claim window', async () => {
+  const host = await fakeBrowserHost({ options: { claimMs: 10 } });
+  try {
+    const { lease } = await held(host); const broker = host.fixture.broker('ada');
+    broker.attachViewer = () => { throw new Error('synthetic endpoint failure'); };
+    const states: LiveViewState[] = [];
+    host.live({ kind: 'browser', member: 'ada' }, { grant: 'control', lease }, { state: s => states.push(s), frame() {} });
+    assert.equal(states.at(-1)?.phase, 'failed'); await host.fixture.advance(11);
+    assert.equal(host.signIns()[0].state, 'waiting');
+    await host.cancel(host.signIns()[0].id, host.signIns()[0].gen, { grant: 'control' });
+    assert.equal((await host.thumbnail({ kind: 'browser', member: 'ada' }, { grant: 'view' })).state, 'off');
+  } finally { await host.close(); }
+});
+
+test('state-ping publication reads the accepted canonical binding synchronously, still fenced', async () => {
+  const fixture = await fakeBrowserHost(); const snapshots: unknown[] = [];
+  let host: Awaited<ReturnType<typeof createBrowserHost>> | undefined;
+  host = await createBrowserHost({ brokers: new Map(), store: memorySignInStore(), options: { executablePath: '/synthetic/chromium', members: 'all' },
+    authorize: () => true, park: async () => {}, resume: async () => assert.fail('no production dispatch'), siteOf: origin => new URL(origin).hostname,
+    ping: (member, kind) => { if (kind === 'state') snapshots.push(host?.brokerBinding(member)); } });
+  try {
+    const broker = fixture.fixture.broker('ada'); await host.attachBroker('ada', broker);
+    assert.equal(snapshots.length, 1); assert.equal((snapshots[0] as { broker: HostBroker }).broker, broker);
+    assert.equal(fixture.fixture.fenced('ada'), true);
+  } finally { await host.close(); await fixture.close(); }
+});
+
+test('a state-ping reentrant replacement retains its own pending-close reservation', async () => {
+  const first = await fakeBrowserHost(); const second = await fakeBrowserHost(); const third = await fakeBrowserHost();
+  const wait = deferred(); const firstBroker = first.fixture.broker('ada'); first.fixture.closePrivate('ada', () => wait.promise);
+  let host: Awaited<ReturnType<typeof createBrowserHost>> | undefined; let reentered: Promise<void> | undefined;
+  host = await createBrowserHost({ brokers: new Map(), store: memorySignInStore(), options: { executablePath: '/synthetic/chromium', members: 'all' },
+    authorize: () => true, park: async () => {}, resume: async () => assert.fail('no production dispatch'), siteOf: origin => new URL(origin).hostname,
+    ping: (member, kind) => { if (kind === 'state' && host?.brokerBinding(member)?.broker === firstBroker && !reentered) reentered = host.attachBroker(member, second.fixture.broker(member), firstBroker); } });
+  try {
+    await host.attachBroker('ada', firstBroker); await turn();
+    assert.equal(host.brokerBinding('ada'), undefined);
+    await assert.rejects(host.attachBroker('ada', third.fixture.broker('ada'), firstBroker), refused('held-by-other'));
+    wait.resolve(); await reentered; assert.equal(host.brokerBinding('ada')?.broker, second.fixture.broker('ada'));
+  } finally { wait.resolve(); await host.close(); await first.close(); await second.close(); await third.close(); }
 });
 
 test('fixture authorization and pings pass through actual grant ids without remapping', async () => {
