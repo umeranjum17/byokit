@@ -1,0 +1,1 @@
+- Allow the internal browser host to attach newly created owned-member browsers and replace exact owned endpoints with stale-identity guards, private-target cleanup barriers and preserved durable state. Production sign-in handoff remains blocked pending qualification.
