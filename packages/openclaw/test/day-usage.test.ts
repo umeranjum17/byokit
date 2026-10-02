@@ -58,6 +58,15 @@ test('wrong source identity and conflicting duplicates are unavailable', () => {
     { ...raw, facts: [{ ...fact(), kind: 'memory-flush' }] }, { ...raw, facts: [fact(), { ...fact(), model: 'other' }] }])
     assert.equal(engineStartedOf(changed, 'm1', window).state, 'unavailable');
 });
+test('failed month holes survive later good reviews and a clean restart', () => {
+  const rows = jsonl({ bootId: 'boot-1', startedAt: startMs },
+    { bootId: 'boot-1', stoppedAt: startMs + 1000, months: { '2026-10': { lastSeq: 3, failed: 2 } } },
+    { bootId: 'boot-2', startedAt: startMs + 1001 });
+  const read = (path: string) => path.endsWith('boots.jsonl') ? rows : jsonl(fact('ended', 3));
+  const raw = readEngineStarted('/owned/usage', { bootId: 'boot-2', months: {}, inFlight: {} }, params, read);
+  assert.equal(raw.state, 'available'); assert.equal(raw.complete, false);
+  assert.equal(engineStartedOf(raw, 'm1', window).complete, false);
+});
 test('unread-month failure counters do not poison a bounded month', () => {
   const raw = fixture(jsonl(fact()), { '2026-09': { lastSeq: 5, failed: 4 }, '2026-10': { lastSeq: 1, failed: 0 } }).raw;
   assert.equal(raw.complete, true);

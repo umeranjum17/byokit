@@ -27,7 +27,7 @@ function byokitUsageFact(fact) {
 \t} catch { counter.failed++; }
 }
 `;
-const edits: PatchFile['edits'] = [
+export const workshopEdits: PatchFile['edits'] = [
   { find: 'import { n as getRuntimeConfig } from "./io.runtime-CNGn9TXj.js";\n',
     replace: 'import { n as getRuntimeConfig } from "./io.runtime-CNGn9TXj.js";\nimport { openSync as byokitOpen, writeSync as byokitWrite, fsyncSync as byokitFsync, closeSync as byokitClose } from "node:fs";\nimport { join as byokitJoin } from "node:path";\n' },
   { find: 'async function runSkillExperienceReviewInner(candidate, deps) {\n', replace: helper + 'async function runSkillExperienceReviewInner(candidate, deps) {\n' },
@@ -37,6 +37,7 @@ const edits: PatchFile['edits'] = [
   { find: '\t} catch (error) {\n\t\trecordSkillExperienceReviewOutcome(workspaceDir, {\n', replace: '\t} catch (error) {\n\t\tbyokitUsageFact({ ...byokitFact, phase: "ended", at: Date.now(), outcome: "failed", ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\t\trecordSkillExperienceReviewOutcome(workspaceDir, {\n' },
   { find: '\t} finally {\n\t\tclearAgentRunContext(runId);\n\t}\n\trecordSkillExperienceReviewOutcome(workspaceDir, {\n', replace: '\t} finally {\n\t\tclearAgentRunContext(runId);\n\t}\n\tbyokitUsageFact({ ...byokitFact, phase: "ended", at: Date.now(), outcome, ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\trecordSkillExperienceReviewOutcome(workspaceDir, {\n' },
 ];
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
 const path = fileURLToPath(new URL('../engine/patches.json', import.meta.url));
 const set = JSON.parse(readFileSync(path, 'utf8')) as PatchSet;
 const stock = process.argv[2];
@@ -44,7 +45,7 @@ if (!stock || stock.startsWith('--')) throw new Error('Pass stock package direct
 assert.equal(JSON.parse(readFileSync(join(stock, 'package.json'), 'utf8')).version, set.upstream.version);
 assert.equal(JSON.parse(readFileSync(join(stock, 'dist/build-info.json'), 'utf8')).commit, set.upstream.commit);
 assert.equal(readFileSync(join(stock, 'LICENSE'), 'utf8'), readFileSync(new URL('../engine/OPENCLAW-LICENSE', import.meta.url), 'utf8'));
-const file: PatchFile = { path: 'dist/experience-review-default-6DPIIJds.js', before: '', after: '', edits };
+const file: PatchFile = { path: 'dist/experience-review-default-6DPIIJds.js', before: '', after: '', edits: workshopEdits };
 const text = readFileSync(join(stock, file.path), 'utf8');
 file.before = sha256(text); file.after = sha256(editText(text, file));
 const files = [...set.files.filter(f => f.path !== file.path), file].sort((a, b) => a.path.localeCompare(b.path));
@@ -52,3 +53,4 @@ const result = JSON.stringify({ ...set, id: patchId(files), files }, null, 2) + 
 if (process.argv.includes('--check')) assert.equal(readFileSync(path, 'utf8'), result);
 else writeFileSync(path, result);
 console.log(`Workshop seam ${patchId(files)}: stock ${file.before}, patched ${file.after}`);
+}
