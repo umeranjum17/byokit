@@ -7,6 +7,21 @@ The React Native entry supplies the published share API with additive `errorCode
 `shareSupported = false`. The RN entry imports `expo-share-intent` and `expo-linking`.
 Import through this kit: direct upstream imports bypass its guards.
 
+```ts
+import { isValidShareUrl, type ShareIntentState } from '@byokit/share';
+// In a React Native screen: `const share = useShareIntent();` (upstream's result plus errorCode, skipped, skipReasons).
+
+function shareSummary(share: ShareIntentState): string {
+  if (share.error) return share.error;                   // plain words from the kit, never a URI
+  if (!share.hasShareIntent) return 'Nothing shared yet.';
+  const files = share.shareIntent.files ?? [];
+  const left = share.errorCode === 'partial' ? ` (${share.skipped} left out)` : '';
+  return files.length ? `${files.length} files${left}` : share.shareIntent.text ?? '';
+}
+
+isValidShareUrl('myapp://dataUrl=myappShareKey#text', 'myapp'); // true: only the share extension's own link reaches native code
+```
+
 ```json
 ["@byokit/share", {
   "shareIntent": { "androidIntentFilters": ["text/*", "image/*"], "androidMultiIntentFilters": ["image/*"] },
