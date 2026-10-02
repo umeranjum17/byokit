@@ -174,7 +174,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
@@ -226,7 +226,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
       # Release bundling resolves the linked kit exports and their dependencies from the repo root.
       - run: npm ci --no-audit --no-fund
       - run: npm run build
@@ -271,7 +271,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
       - run: npm ci --no-audit --no-fund
       - run: node scripts/share-expo-smoke.ts --android-only --build --out /tmp/bks-android
       - run: npm ci --no-audit --no-fund
@@ -328,7 +328,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
       - run: npm ci --no-audit --no-fund
       - name: Packed plugin on Expo 55
         run: node scripts/statusbar-expo-smoke.ts
@@ -363,7 +363,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
       - run: npm ci --no-audit --no-fund
         working-directory: examples/expo
       - run: CI=1 npx expo prebuild -p android --no-install && (cd android && ./gradlew assembleDebug :byokit-push:testDebugUnitTest)
