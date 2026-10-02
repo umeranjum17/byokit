@@ -117,7 +117,8 @@ jobs:
       # Hosted Ubuntu restricts unprivileged user namespaces, which Chromium's sandbox needs; this runner is ephemeral.
       - run: if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
       - run: npm run test:engine
-      # Packed kit only; dependencies from the registry, real old/new Gateways, no accounts/models.
+      # Exact candidate internal runtime closure; external registry pins, real old/new Gateways, no accounts/models.
+      # Source qualification, not proof that public consumers adopted these candidate package versions.
       - run: |
           scratch=$(mktemp -d /tmp/oc.XXXX)
           trap 'rm -rf "$scratch"' EXIT

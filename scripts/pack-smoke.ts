@@ -55,7 +55,9 @@ function sh(cmd: string, args: string[], cwd: string): string {
 
 interface PackEntry {
   name: string;
+  version: string;
   filename: string;
+  files: { path: string }[];
 }
 
 // Include export-subpath and browser-condition failures, not just workspace
@@ -475,8 +477,9 @@ console.log('packed-realtime-child-ok');
   }
 }
 
-// Deliberate separate qualification: only the packed OpenClaw kit is local; every dependency is registry
-// supplied. No all-workspace tarball substitutions or a fake Gateway may stand in for this receipt.
+// Candidate-pack closure qualification, not public-consumer adoption: the current OpenClaw source and its
+// internal runtime dependency closure are exact local tarballs; external dependencies stay registry supplied.
+// No unrelated/private kits or a fake Gateway may stand in for this receipt.
 function realOpenClawPack(): void {
   const dir = mkdtempSync(join(tmpdir(), 'ocp-'));
   pendingTmp.add(dir);
@@ -488,11 +491,26 @@ function realOpenClawPack(): void {
   };
   try {
     mkdirSync(env.HOME, { mode: 0o700 });
-    const [packed] = JSON.parse(run('npm', ['pack', './packages/openclaw', '--pack-destination', dir, '--json'], root)) as PackEntry[];
-    if (!packed) throw new Error('OpenClaw kit was not packed');
+    const closure = new Set(['@byokit/openclaw']);
+    for (const name of closure) {
+      const manifest = JSON.parse(readFileSync(join(root, 'packages', name.slice('@byokit/'.length), 'package.json'), 'utf8'));
+      if (manifest.private) throw new Error(`private kit in OpenClaw runtime closure: ${name}`);
+      for (const dep of Object.keys(manifest.dependencies ?? {})) if (dep.startsWith('@byokit/')) closure.add(dep);
+    }
+    const packed = JSON.parse(run('npm', ['pack', ...[...closure].map(name => `./packages/${name.slice('@byokit/'.length)}`), '--pack-destination', dir, '--json'], root)) as PackEntry[];
+    if (packed.length !== closure.size) throw new Error('OpenClaw runtime closure was not packed');
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'openclaw-engine-pack', private: true, type: 'module' }));
-    run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', join(dir, packed.filename)], dir);
-    console.log(JSON.stringify({ packedKit: packed.filename, sha256: sha256(readFileSync(join(dir, packed.filename))), consumerDir: dir, dependencySource: 'registry only' }));
+    run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...packed.map(entry => join(dir, entry.filename))], dir);
+    for (const entry of packed) {
+      const installed = join(dir, 'node_modules', entry.name);
+      if (JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8')).version !== entry.version) throw new Error(`wrong installed version: ${entry.name}`);
+      if (existsSync(join(installed, 'node_modules', '@byokit'))) throw new Error(`nested @byokit under ${entry.name}: a pin the tarballs do not satisfy`);
+      for (const file of entry.files) {
+        const bytes = execFileSync('tar', ['-xOf', join(dir, entry.filename), `package/${file.path}`]);
+        if (sha256(readFileSync(join(installed, file.path))) !== sha256(bytes)) throw new Error(`installed tar bytes differ: ${entry.name}/${file.path}`);
+      }
+    }
+    console.log(JSON.stringify({ candidatePacks: packed.map(entry => ({ name: entry.name, version: entry.version, filename: entry.filename, sha256: sha256(readFileSync(join(dir, entry.filename))) })), consumerDir: dir, dependencySource: 'exact candidate internal runtime closure; external registry pins unchanged', publicConsumerAdoption: false }));
     writeFileSync(join(dir, 'qualify.mjs'), readFileSync(join(root, 'packages/openclaw/test/engine/packed-patches.fixture.mjs')));
     console.log(run(process.execPath, ['qualify.mjs', join(root, 'packages/openclaw/scripts/engine-patches.ts')], dir, 850_000));
     if (process.argv.includes('--keep-openclaw-fixture')) {
