@@ -2,6 +2,7 @@ import { dirname, join } from 'node:path';
 import type { KitOptions } from './kit.ts';
 import type { Member } from './types.ts';
 import { routes } from './routes.ts';
+import { MEMBER_ID, KEY_PREFIX, keyAgentId } from './members.ts';
 
 type Obj = Record<string, any>;
 const object = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -67,6 +68,17 @@ export function reconcileConfig(saved: object | undefined, o: {
     },
   } };
   return c;
+}
+
+/** Caller-owned task namespaces, including the engine key-agent rewrite; never an entire member. */
+export function appRecoveryPrefixes(prefixes: readonly string[] = []): string[] {
+  const invalid = () => new Error('invalid appOwnedSessionPrefixes: use agent:<member>:<namespace>: prefixes');
+  if (!Array.isArray(prefixes)) throw invalid();
+  return [...new Set(prefixes.flatMap(prefix => {
+    const match = typeof prefix === 'string' && /^agent:([^:]+):((?:[a-z0-9_-]+:)+)$/.exec(prefix);
+    if (!match || !MEMBER_ID.test(match[1]!) || match[1]!.startsWith(KEY_PREFIX)) throw invalid();
+    return [prefix, `agent:${keyAgentId(match[1]!)}:${match[2]}`];
+  }))];
 }
 
 export function memoryLimited(config: object, member: Member): boolean {

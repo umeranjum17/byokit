@@ -58,6 +58,7 @@ export type KitOptions = {
   gateBuiltins?: boolean; // default true: every tool call, engine builtins included, goes through host.gate (no host:
   // every call is blocked); false gates only the app's tools and lets builtins run ungated
   config?: object; // app OpenClaw config, deep-merged UNDER the invariants (5.6)
+  appOwnedSessionPrefixes?: readonly string[]; // caller-owned task namespaces, e.g. ['agent:m1:crewhouse:']; default stock recovery
   installPolicy?: { trustedSkills: string; ownRoots: string[] }; // trusted-skills JSON path, own content roots
   callbackPort?: number; // default 1455
   approvalTimeoutMs?: number; // default 180_000

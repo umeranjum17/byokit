@@ -412,6 +412,7 @@ export type KitOptions = {
   gateBuiltins?: boolean;                // default true: engine builtins go through host.gate too (no host: blocked);
                                          // false gates only `tools` and lets builtins run ungated
   config?: object;                       // app OpenClaw config, deep-merged UNDER the invariants (5.6)
+  appOwnedSessionPrefixes?: readonly string[]; // caller-owned task prefixes, default stock recovery (5.6.1)
   installPolicy?: { trustedSkills: string; ownRoots: string[] };   // trusted-skills JSON path, own content roots
   callbackPort?: number;                 // default 1455
   approvalTimeoutMs?: number;            // default 180_000
@@ -577,6 +578,25 @@ writing only if bytes change (0600):
 Crewhouse's product choices (tool profile and deny list, `skills.allowBundled`, workshop, `agents.defaults.sandbox`,
 `codex: { enabled: false }`, `memory-core` dreaming off) move into Crewhouse's `config` option unchanged.
 `memoryLimited(member)` = the member's (else top-level) `memory.search.provider === 'none'`.
+
+#### 5.6.1 App-owned restart recovery (R1)
+
+`KitOptions.appOwnedSessionPrefixes?: readonly string[]` declares caller-owned task namespaces before the
+Gateway starts, e.g. `['agent:m1:crewhouse:']`. Omitted/empty retains stock recovery. Prefixes must contain a
+valid public member id and at least one lower-case `[a-z0-9_-]+:` namespace segment; neither an entire agent
+nor the default main session can be opted out accidentally. Invalid options fail before preparing files.
+The kit also maps each prefix to its app-managed API-key agent (`byokit-key-<member>`), because keyed runs
+rewrite the engine session key (5.15). Prefix arrays are copied; the host cannot mutate recovery ownership
+under a live engine.
+
+The minimal Gateway environment passes the validated JSON list as `BYOKIT_APP_SESSION_PREFIXES` (including
+`[]`, never inherited from the person's shell or app `config.env`). One repo-pinned bundled patch checks those
+prefixes in `isMainRestartRecoveryCandidate`, shared by startup interruption marking and dispatch admission.
+No synthetic recovery turn is started for matching keys; histories, files, session ids, cancellation,
+run/tool gates and stock retry/tombstone accounting remain intact. A foreground app continuation on the same
+key is still admitted normally. Removing the option requires an engine restart and restores stock eligibility;
+no hidden recovery marker is cleared or history reset. This is not a new task scheduler or a global recovery
+disable. Engine installation/patch provenance belongs exclusively to the shared S1 manifest/applier seam.
 
 ### 5.7 Sign-in, routes and retained-login migration
 
@@ -923,7 +943,7 @@ change; a stale set fails `before` and blocks release), re-checks that the Gatew
 
 ```ts
 // engine.ts (O3)
-export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'installPolicy' | 'log' | 'bridge'>
+export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'appOwnedSessionPrefixes' | 'installPolicy' | 'log' | 'bridge'>
   & { pluginId: string; tools: ToolSpec[]; spawnEngine: boolean; onState(s: KitState): void; onExit(code: number | null): void };
 export class Engine {
   constructor(o: EngineOptions); readonly root: string; readonly bridgeSock: string;

@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { rmSync, statSync, readFileSync, writeFileSync } from 'node:fs';
+import { rmSync, statSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { Engine } from '../src/engine.ts';
 import { routes } from '../src/routes.ts';
-import { reconcileConfig, memoryLimited } from '../src/config.ts';
+import { reconcileConfig, memoryLimited, appRecoveryPrefixes } from '../src/config.ts';
 
 const opts = (root: string) => ({ root, stateDir: root, port: 12345, pluginId: 'byokit', pluginDir: join(root, 'plugin'), policyPath: join(root, 'policy.mjs') });
 test('plugin allowlist merges caller ids, the bridge and only offered route plugins', () => {
@@ -68,6 +68,27 @@ test('fresh and adversarial config force isolation and no paid memory fallback',
   assert.equal(local.memory.search.provider, 'ollama');
   const remote = reconcileConfig({ memory: { search: { provider: 'ollama', remote: { baseUrl: 'https://example.com', apiKey: 'secret' } } } }, opts(root)) as any;
   assert.equal(remote.memory.search.provider, 'none');
+});
+
+test('app-owned recovery prefixes are bounded namespaces, copied and mapped for API-key members', () => {
+  assert.deepEqual(appRecoveryPrefixes(), []);
+  const prefixes = ['agent:m1:crewhouse:', 'agent:m1:crewhouse:'];
+  assert.deepEqual(appRecoveryPrefixes(prefixes), ['agent:m1:crewhouse:', 'agent:byokit-key-m1:crewhouse:']);
+  const dir = scratchDir('recovery-prefixes');
+  try {
+    const opts = { stateDir: dir, pluginId: 'byokit', tools: [], spawnEngine: false, onState() {}, onExit() {} };
+    const stock = new Engine(opts);
+    assert.equal(stock.doctorContext().env.BYOKIT_APP_SESSION_PREFIXES, '[]');
+    const app = new Engine({ ...opts, appOwnedSessionPrefixes: prefixes });
+    prefixes.push('agent:m2:other:');
+    assert.deepEqual(JSON.parse(app.doctorContext().env.BYOKIT_APP_SESSION_PREFIXES!),
+      ['agent:m1:crewhouse:', 'agent:byokit-key-m1:crewhouse:']);
+    for (const bad of [null, 'agent:m1:task:', [null], [1], [''], ['agent:'], ['agent:m1:'], ['agent:m1:main'],
+      ['agent:M1:task:'], ['agent:byokit-key-m1:task:'], ['agent:m1:task'], ['agent:m1::'], ['agent:m1:task:*:']]) {
+      assert.throws(() => new Engine({ ...opts, appOwnedSessionPrefixes: bad as any }), /invalid appOwnedSessionPrefixes/);
+    }
+    assert.equal(existsSync(join(dir, 'openclaw')), false, 'option validation creates no engine files');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('prepare writes only changed config and isolates its environment', async () => {

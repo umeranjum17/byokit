@@ -30,7 +30,9 @@ if (process.argv[2] === 'worker') {
   };
   let entered!: () => void;
   const toolEntered = new Promise<void>(resolve => { entered = resolve; });
+  const appOwned = process.env.R1_APP_OWNED === '1';
   const kit = new OpenClawKit({ stateDir, engineDir, tools: [tool],
+    ...(appOwned ? { appOwnedSessionPrefixes: ['agent:m1:crewhouse:'] } : {}),
     config: {
       models: { providers: { 'byokit-stub': { baseUrl: url, apiKey: 'byokit-stub', api: 'openai-completions', models: [
         { id: 'test', name: 'Test', input: ['text'], contextWindow: 32000, maxTokens: 2048, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
@@ -205,7 +207,17 @@ if (process.argv[2] === 'worker') {
       const recovering = row.provider.filter((c: any) => c.recovery).length;
       if (mode === 'normal') assert.equal(recovering, 0);
       if (mode === 'excluded') { assert.equal(recovering, 0); assert.equal(entry.status, 'done'); }
-      if (mode === 'late') {
+      if (['late', 'early'].includes(mode) && process.env.R1_APP_OWNED === '1') {
+        assert.equal(recovering, 0, 'matching app-owned keys never start a synthetic recovery turn');
+        assert.equal(row.provider.length, 3, 'one interrupted request + one two-request app continuation');
+        assert.equal(entry.status, 'done');
+        assert.ok(events.some(e => e.type === 'end' && e.result.ok && e.result.text === 'app task done'));
+        assert.equal(JSON.stringify(row.transcripts).includes('unknown run'), false);
+        assert.equal(JSON.stringify(row.transcripts).includes('main_session_restart_recovery'), false);
+        const initial = events.find(e => e.type === 'snapshot-before-restart')?.transcripts.find((t: any) => t.entries);
+        assert.equal(JSON.parse(initial.entries[0].entry_json).sessionId, entry.sessionId, 'continuation preserves session identity');
+      }
+      if (mode === 'late' && process.env.R1_APP_OWNED !== '1') {
         assert.equal(recovering, 2);
         assert.equal(row.provider.length, 5);
         assert.ok(JSON.stringify(row.transcripts).includes('unknown run'));

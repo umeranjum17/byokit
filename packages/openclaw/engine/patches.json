@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "id": "4f53cda18c2baa0c",
+  "id": "f562c656bec9abf0",
   "upstream": {
     "name": "openclaw",
     "version": "2026.8.1",
@@ -8,5 +8,17 @@
     "commit": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
     "license": "MIT"
   },
-  "files": []
+  "files": [
+    {
+      "path": "dist/main-session-recovery-state-BWIrIyi_.js",
+      "before": "418a957496786dd7ed28df4a7a02e31e9567020e1be5804545e785baf965f225",
+      "after": "cf1100e33a072c67344857083a9fea22ec622ea2fe2a9b6a101dec91082dc206",
+      "edits": [
+        {
+          "find": "function isMainRestartRecoveryCandidate(entry, sessionKey) {",
+          "replace": "// BYOKit: caller-owned task namespaces never acquire automatic restart recovery ownership.\nconst byokitAppOwnedSessionPrefixes = JSON.parse(process.env.BYOKIT_APP_SESSION_PREFIXES ?? \"[]\");\nif (!Array.isArray(byokitAppOwnedSessionPrefixes) || byokitAppOwnedSessionPrefixes.some((prefix) => typeof prefix !== \"string\" || !/^agent:[a-z][a-z0-9-]*:(?:[a-z0-9_-]+:)+$/.test(prefix))) throw new Error(\"invalid BYOKIT_APP_SESSION_PREFIXES\");\nfunction isMainRestartRecoveryCandidate(entry, sessionKey) {\n\tif (byokitAppOwnedSessionPrefixes.some((prefix) => sessionKey.startsWith(prefix))) return false;"
+        }
+      ]
+    }
+  ]
 }
