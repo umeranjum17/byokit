@@ -113,7 +113,9 @@ export function resolveSelection<A extends AccountLike>(accounts: readonly A[], 
   room: (a: A, demand: readonly string[]) => Room, nowMs: number, models?: Models<A>): AccountPick<A> {
   const demand = [...new Set([...(sel.model ? [sel.model] : []), ...(sel.needs ?? [])])];
   const defaultAccount = accounts.find((a) => a.id === defaults.account);
-  const named = sel.account === 'default' ? defaultAccount?.state === 'ready' && defaultAccount.billing === 'subscription' ? defaultAccount.id : undefined : sel.account === 'auto' ? undefined : sel.account;
+  // A saved ready non-custom API default is explicit choice, never API fallback. Custom endpoints retain B4's refusal.
+  const named = sel.account === 'default' ? defaultAccount?.state === 'ready' &&
+    (defaultAccount.billing === 'subscription' || defaultAccount.billing === 'api' && defaultAccount.provider !== 'custom') ? defaultAccount.id : undefined : sel.account === 'auto' ? undefined : sel.account;
   const provider = defaultAccount?.provider ?? accounts[0]?.provider;
   const rows = consider(accounts, (a) => room(a, demand), nowMs, demand, models, provider, named);
   const considered = rows.map((c) => c.row);

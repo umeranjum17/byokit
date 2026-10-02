@@ -52,7 +52,7 @@ export function generateRoutes(): Route[] {
       id: `${provider}:${via}${variant ? `:${variant}` : ''}`, provider, name, company,
       label: billing === 'subscription' ? `Uses your ${name} plan` : billing === 'api' ? `API key (billed per use by ${company})` : billing === 'local' ? 'Runs on this computer' : `Billing set by ${company}`,
       aliases: upstreamId === provider ? [] : [upstreamId], via, billing, billingFrom: 'source',
-      offer: billing === 'subscription' ? 'default' : 'explicit', platforms: host,
+      offer: billing === 'subscription' ? 'default' : 'explicit', platforms: via === 'key' || via === 'plan_key' ? all : host,
       upstream: { surface: 'accounts', id: upstreamId, method, revision, flow: 'present' }, ...extra,
     });
   };
@@ -67,7 +67,7 @@ export function generateRoutes(): Route[] {
         if (!envMap[p.id] && p.id !== 'github-copilot' && p.id !== 'anthropic') throw new Error(`Missing key metadata for ${p.id}`);
         const billing = planKeys.has(p.id) ? 'subscription' : p.id === 'radius' ? 'unknown' : 'api';
         add(p.id, p.name, planKeys.has(p.id) ? 'plan_key' : 'key', billing, envMap[p.id] ?? (p.id === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'COPILOT_GITHUB_TOKEN'), variant, {
-          ...(p.id === 'github-copilot' ? { billing: 'subscription', offer: 'default', label: `Uses your ${p.name} plan` } : {}),
+          ...(p.id === 'github-copilot' ? { billing: 'subscription', offer: 'default', label: `Paste your Copilot token (uses your ${p.name} plan)` } : {}),
           ...(['anthropic', 'openai', 'openrouter'].includes(p.id) ? { platforms: all } : {}),
           ...(['google-vertex', 'azure-openai-responses', 'cloudflare-ai-gateway', 'cloudflare-workers-ai'].includes(p.id) ? { platforms: node } : {}),
         });
@@ -91,7 +91,8 @@ export function generateRoutes(): Route[] {
     }
     if (p.id === 'anthropic') {
       add(p.id, 'Claude', 'setup_token', 'subscription', 'ANTHROPIC_OAUTH_TOKEN');
-      add(p.id, p.name, 'key', 'unknown', 'ANTHROPIC_AUTH_TOKEN', 'bearer');
+      add(p.id, p.name, 'key', 'unknown', 'ANTHROPIC_AUTH_TOKEN', 'bearer', { label: 'Paste your Anthropic bearer token (billing set by Anthropic)' });
+      add(p.id, 'Claude', 'plan_key', 'subscription', 'ANTHROPIC_OAUTH_TOKEN', 'oauth-token', { label: 'Paste your Claude token (uses your Claude plan)' });
     }
     if (p.id === 'google-vertex') for (const method of ['adc', 'service-account']) add(p.id, p.name, 'cloud', 'api', method, method, { platforms: node, label: 'Cloud account (billed per use by Google)' });
     if (p.id === 'cloudflare-ai-gateway') add(p.id, p.name, 'cloud', 'api', 'workers-binding', 'workers-binding', { platforms: { node: 'host', browser: 'no', rn: 'no' }, label: 'Cloud account (billed per use by Cloudflare)' });

@@ -22,6 +22,7 @@ export const loopback: Loopback = (port, handle) => new Promise((resolve, reject
 /** A computer: every provider Pi signs in to, and the loopback listener. */
 export const computer: Platform = {
   kind: 'node',
+  keys: () => import('./node-keys.ts').then((m) => m.runtime),
   engine: (credentials: CredentialStore) => builtinModels({ credentials, authContext: emptyAuthContext }) as unknown as AuthHost,
   signsIn: () => true,
   loopback,

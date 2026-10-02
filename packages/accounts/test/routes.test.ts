@@ -7,14 +7,14 @@ import { offered, provider, route, routes, routeReadiness, type Route, type Rout
 
 const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/account-routes-typescript.json', import.meta.url), 'utf8'));
 
-test('checked-in route snapshot covers the installed pin: 41 providers, 53 tuples, every method', () => {
+test('checked-in route snapshot covers the installed pin: 41 providers, 54 tuples, every method and explicit plan-token paste', () => {
   const generated = generateRoutes();
   assert.equal(readFileSync(new URL('../src/routes.json', import.meta.url), 'utf8'), JSON.stringify(generated, null, 2) + '\n');
   const pinned = builtinProviders();
   assert.equal(pinned.length, 41);
   assert.deepEqual([...new Set(generated.filter((r) => r.upstream.flow === 'present' && r.upstream.id !== 'custom').map((r) => r.upstream.id))].sort(), pinned.map((p) => p.id).sort());
-  assert.equal(new Set(generated.filter((r) => r.upstream.flow === 'present').map((r) => `${r.provider}|${r.via}|${r.billing}`)).size, 53);
-  assert.equal(generated.length, 65, 'regional/method variants and two unavailable legacy rows');
+  assert.equal(new Set(generated.filter((r) => r.upstream.flow === 'present').map((r) => `${r.provider}|${r.via}|${r.billing}`)).size, 54);
+  assert.equal(generated.length, 66, 'regional/method variants and two unavailable legacy rows');
   for (const r of generated) {
     assert.ok(fixture.vocabulary.via.includes(r.via), r.id);
     assert.ok(fixture.vocabulary.billing.includes(r.billing), r.id);
@@ -38,7 +38,7 @@ test('discovery keeps every row on every platform; host offers only ready subscr
   for (const platform of ['node', 'browser', 'rn'] as const) {
     const host = { platform };
     const listed = routes(host);
-    assert.equal(listed.length, 65);
+    assert.equal(listed.length, 66);
     assert.deepEqual(offered(host), listed.filter((r) => r.readiness === 'ready' && r.billing === 'subscription'));
     assert.ok(!offered(host).some((r) => r.provider === 'minimax' || r.provider === 'qwen'));
     for (const r of listed) if (r.readiness !== 'ready') assert.ok(r.why);
@@ -50,11 +50,16 @@ test('discovery keeps every row on every platform; host offers only ready subscr
   assert.equal(route('aws-bedrock:cloud:aws-profile').readiness, 'ready', 'the isolated Node account adapter is callable');
   assert.ok(!offered({ platform: 'node' }).some((r) => r.id === 'aws-bedrock:cloud:aws-profile'), 'cloud remains explicitly selected');
   assert.equal(route('custom:endpoint', { platform: 'browser' }).readiness, 'needs_host');
-  for (const id of ['kimi-code:plan_key', 'anthropic:setup_token', 'github-copilot:key', 'custom:endpoint']) {
+  for (const id of ['anthropic:setup_token', 'custom:endpoint']) {
     assert.equal(route(id).readiness, 'needs_host', `${id}: its account adapter is not yet callable`);
     assert.ok(!offered({ platform: 'node' }).some((r) => r.id === id));
   }
-  assert.deepEqual(offered({ platform: 'node' }).map((r) => r.id), ['anthropic:browser', 'anthropic:paste', 'github-copilot:code', 'kimi-code:code', 'meta:code', 'openai:browser', 'openai:code', 'openai:paste', 'xai:code']);
+  for (const id of ['anthropic:browser', 'openai:browser', 'kimi-code:plan_key', 'github-copilot:key', 'anthropic:plan_key:oauth-token']) {
+    assert.equal(route(id).readiness, 'ready');
+    assert.ok(offered({ platform: 'node' }).some((r) => r.id === id));
+  }
+  assert.equal(offered({ platform: 'node' }).length, 21);
+  assert.ok(offered({ platform: 'node' }).every((r) => r.billing === 'subscription'));
 });
 
 test('readiness order follows D18 fixtures without credential or environment reads', () => {

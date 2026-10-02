@@ -19,14 +19,30 @@ async function until(what: string, fn: () => boolean | Promise<boolean>, ms = 50
 }
 
 test('portable entry bundles for a browser and can be imported', async () => {
-  const result = await build({ entryPoints: [new URL('../src/portable.ts', import.meta.url).pathname], bundle: true, platform: 'browser', format: 'esm', write: false });
+  const result = await build({ entryPoints: [new URL('../src/portable.ts', import.meta.url).pathname], bundle: true, platform: 'browser', format: 'esm', write: false, metafile: true });
+  assert.ok(!Object.keys(result.metafile.inputs).some((path) => path.includes('node_modules/@earendil-works/pi-ai/')), 'all portable Pi runtime code is kit-owned artifact');
+  // Key routes are opted into through @byokit/accounts/keys; the main graph carries no adapter or vendor SDK.
+  assert.deepEqual(Object.keys(result.metafile.inputs).filter((path) => /\/src\/(pi\/|portable-keys)|node_modules\/(openai|@anthropic-ai|@google|@mistralai)\//.test(path)), []);
+  const keyed = await build({ entryPoints: [new URL('../src/keys.ts', import.meta.url).pathname], bundle: true, platform: 'browser', format: 'esm', write: false, metafile: true });
+  assert.ok(Object.keys(keyed.metafile.inputs).some((path) => path.endsWith('src/portable-keys.ts')), 'the keys entry carries the runtime');
+  assert.ok(!Object.keys(keyed.metafile.inputs).some((path) => path.startsWith('node:') || path.includes('node_modules/@earendil-works/pi-ai/')));
+  assert.doesNotMatch(result.outputFiles[0].text, /\bimport\s*\(\s*[^'"`]/, 'no non-literal dynamic imports');
   const portable = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString('base64')}`);
-  assert.equal(portable.routes({ platform: 'rn' }).length, 65);
+  assert.equal(portable.routes({ platform: 'rn' }).length, 66);
   assert.equal(portable.route('openai:code', { platform: 'rn' }).readiness, 'ready');
   assert.ok(portable.offered({ platform: 'rn' }).every((r: { billing: string; readiness: string }) => r.billing === 'subscription' && r.readiness === 'ready'));
   const store = portable.memoryStore();
   await store.modify('openai-codex', async () => ({ type: 'oauth', access: 'token', refresh: 'refresh', expires: Date.now() + 60_000 }));
   assert.equal((await store.read('openai-codex')).access, 'token');
+});
+
+test('portable key auth never constructs default discovery context (unresolved require is fatal in Metro)', () => {
+  const source = readFileSync(new URL('../src/key-routes.ts', import.meta.url), 'utf8');
+  assert.equal([...source.matchAll(/runtime\.createModels\(/g)].length, 1);
+  assert.match(source, /runtime\.createModels\(\{ authContext \}\)/);
+  assert.match(source, /const authContext = \{ env: async \(\) => undefined, fileExists: async \(\) => false \}/);
+  // createProvider has no authContext constructor parameter at this pin; it uses the Models-supplied context.
+  assert.doesNotMatch(readFileSync(new URL('../src/portable-keys.ts', import.meta.url), 'utf8'), /\bcreate(?:Models|Provider)\s*\(/);
 });
 
 test('the shared fixtures: device-code start and poll, token responses', () => {

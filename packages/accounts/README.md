@@ -162,7 +162,7 @@ are offered only when the app names them. An explicit `offer` list is not platfo
 The `Provider` shape no longer has `terms`, `hidden` or `why`, and `Terms` is no longer exported.
 Qwen and MiniMax have subscription catalogue rows; their paste and portal sign-in flows follow in later work packages.
 Each provider's own terms apply to how you use your plan.
-`routes()` lists every pinned pi-ai provider and sign-in method, including unavailable rows with typed readiness, using D18 in [`docs/runtime-kits.md`](../../docs/runtime-kits.md#21-account-routes-d18). `offered({ platform })` returns ready subscription routes only. Radius has `unknown` billing: it is visible in discovery but never offered or chosen automatically. Computer device fixtures do not qualify phone/browser device runtime.
+`routes()` lists every pinned pi-ai provider and sign-in method, including unavailable rows with typed readiness, using D18 in [`docs/runtime-kits.md`](../../docs/runtime-kits.md#21-account-routes-d18). `offered({ platform })` returns ready subscription routes, including plan keys. The legacy `providers`/`offered()` calls keep their provider IDs; Qwen and MiniMax's unavailable plan flows are not defaults. Radius has `unknown` billing: it is visible in discovery but never offered or chosen automatically. Computer device fixtures do not qualify phone/browser device runtime.
 Anthropic Messages uses an app-passed API key (billed per use); authentication is separate from the Messages request.
 
 Native Claude CLI sign-in uses the managed-folder entry.
@@ -176,10 +176,65 @@ for (const p of offered(['chatgpt', 'openrouter'])) console.log(`${p.name}: ${bi
 ```
 
 ```text
-[ 'chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta', 'qwen', 'minimax' ]
+[ 'chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta' ]
 ChatGPT: Uses your ChatGPT plan.
 OpenRouter: Charged per use to your OpenRouter account, not a plan.
 ```
+
+## Key routes
+
+Every `key` and `plan_key` route uses the same `add`, `saveKey`, `list`, `status`, `logout` and `remove` path.
+Name the route ID to select its exact method/region; `add(member, provider, { via: 'key' | 'plan_key', key })`
+also selects the first matching named provider route. Keys go only to the member's supplied `@byokit/secrets`
+`keyStore`. The credential record holds a non-secret marker; `.accounts.accounts` holds route/billing metadata.
+No environment, other program's login, default CLI account or credential file is consulted.
+
+See the [typed key-route example](#typed-key-route-example) below.
+
+On a computer `computer` already answers key routes. In browsers and React Native the main entry stays free of
+the adapters and vendor SDKs, so opt in with the separate entry: `import { withKeys } from '@byokit/accounts/keys'`
+then `new Accounts(options, withKeys(portable))`. Adding, saving, listing and signing out keys need no entry;
+without it, answering a key route fails with `KeyRouteError.code === 'needs_keys'` before any secret is read.
+The adapters still load lazily on the first key request.
+
+`respondKey` (or the `respond` overload above) accepts the full typed pinned Pi `Model`, `Context` and
+`ModelsApiStreamOptions`, returning its `AssistantMessage` with usage and tool/thinking content.
+`onText` receives text deltas; `onEvent` receives sanitized Pi stream events. The model's provider must match
+the selected route's upstream ID. App-supplied model/endpoint metadata is required; nothing guesses a model.
+The selected member/account never changes during the request. Saved auth overrides `apiKey` and these
+credential headers (case-insensitive, in both model and options): `authorization`, `x-api-key`, `api-key`,
+`x-goog-api-key`, `cf-aig-authorization`. Non-auth headers, hooks, model metadata and typed sampling/tool
+options pass through; the guard disables header-auth transforms, retries and provider/model fallbacks.
+Cloudflare Gateway uses its pinned `cf-aig-authorization`-only auth; pasted Anthropic bearer uses only
+`authorization`, never an API key header.
+
+An explicit prebuilt SDK `client` is refused with `KeyRouteError.code === 'auth_override'` **before** opening
+saved-account secrets: its opaque authentication cannot be verified as this account. It is not silently
+ignored or relabelled. For explicit native/client-owned authentication, `keys()` from `@byokit/accounts/keys`
+(also `computer.keys()` on Node) exposes the unmodified typed Pi factories and adapters, including complete `Models`
+stream/complete/simple/deferred operations and stock options/hooks. Supply an explicit app-owned auth
+context (required on Metro), register your own provider and own that authentication/billing; do not
+attribute native/client-owned requests to a saved account. The selected-key helper is not a restriction
+on the native Pi API or a mobile-readiness downgrade. Errors expose only bounded words
+and a `KeyRouteError.code`; they never echo vendor bodies or key-store failures.
+
+Plan keys keep subscription billing and are eligible for Auto; API/free/local/unknown billing is never an
+Auto or Default **fallback**. A deliberately saved API default remains an explicit selection. `saveKey` retains
+its `billedPerUse: true` requirement for API routes; a plan key needs no per-use consent. Token-paste variants
+are separately labelled: the Claude plan token and Copilot plan token do not change into API keys.
+Generic Anthropic bearer tokens keep unknown billing; the kit does not infer a plan from an arbitrary token.
+
+Fetch-compatible adapters run on Node, browsers and React Native; browser CORS still belongs to the host.
+Azure, Vertex and Cloudflare routes are Node-only at the pin and reject on portable platforms before keys
+are read. Azure/Cloudflare endpoint/config values are explicit model/options inputs (cloud metadata helpers
+are separate). Google uses the platform’s global `fetch`: the kit does not inject `AccountsOptions.fetch`
+(including Expo’s streaming fetch) for Google or Node Vertex. Explicit `ask.options.fetch` still has the
+pinned adapter’s refusal when it differs from `globalThis.fetch`. Google streaming on a phone depends on
+that host’s global fetch; mock/Metro qualification is not a device-streaming claim.
+Bedrock key storage works on Node, but inference reports `needs_host` before credentials: the pinned adapter
+reads ambient AWS profile state even with a bearer token, so only an isolated cloud-host adapter may use it.
+An absent plan flow reports `no_upstream_flow`, never a fabricated successful login. These are source/mock
+qualification claims, not live vendor sign-in claims.
 
 ## Sign-in
 
@@ -876,3 +931,36 @@ unchanged: Pi drops reserved `authorization`, `host`, `x-amz-*`; the forwarder d
 Native parameters, tools, events, usage, hooks and retry settings still use the stock adapter. No live endpoint or
 vendor qualification is claimed. Browser/RN cloud operations return `unsupported_platform` before credential access;
 plans never fall back to a cloud/API account.
+
+### Portable adapter artifact
+
+Portable key loaders lazily use `src/pi/` (published as `dist/pi/`), a deterministic split bundle of the
+**unmodified** published Pi pin, not another inference engine. Node keeps using the published Pi modules.
+After installing the exact pins, regenerate with `node scripts/gen-accounts-pi.ts`; a pin change also requires
+verified registry provenance. Esbuild’s standard dynamic-import lowering is the sole transform; the four
+SDK dependencies remain external at Pi’s exact pins. Exact MCP SDK and `undici-types` dependencies close
+Google’s published declaration imports, including strict nested consumers; neither adds an inference path.
+`PROVENANCE.json`, source-content maps, published-type re-exports and [NOTICE](NOTICE) travel with the
+artifact. Build and prepack copy it into `dist/pi/`.
+
+Portable requests always give Pi Models an explicit empty auth context. Never replace that with default
+auth discovery: the lowered unresolved require is fatal if reached under Metro. `createProvider` has no
+constructor auth-context option at this pin; Models supplies its context for auth operations. Tests check
+byte reproduction and source hashes, valid seven-adapter success/tool/usage/error/abort parity, actual
+cold Metro execution and lazy keys in a strict nested packed install. None requires vendor credentials.
+
+### Typed key-route example
+
+```ts
+import { Accounts, type Model } from '@byokit/accounts';
+import type { Keystore } from '@byokit/secrets';
+
+export async function askWithKey(keyStore: (member: number) => Keystore,
+  model: Model<'openai-completions'>, key: string) {
+  const accounts = new Accounts({ keyStore });
+  const { id } = await accounts.add(1, 'groq:key', { via: 'key', key }); // API key (billed per use), explicitly selected
+  return accounts.respond(1, { account: id, model, context: {
+    messages: [{ role: 'user', content: 'Hello', timestamp: Date.now() }],
+  }, options: { temperature: 0.2 } });
+}
+```

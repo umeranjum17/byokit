@@ -29,6 +29,18 @@
       "types": "./dist/isolate.d.ts",
       "default": "./dist/isolate.js"
     },
+    "./keys": {
+      "react-native": {
+        "types": "./dist/keys.d.ts",
+        "default": "./dist/keys.js"
+      },
+      "browser": {
+        "types": "./dist/keys.d.ts",
+        "default": "./dist/keys.js"
+      },
+      "types": "./dist/node-keys.d.ts",
+      "default": "./dist/node-keys.js"
+    },
     "./cli": {
       "types": "./dist/cli.d.ts",
       "default": "./dist/cli.js"
@@ -54,7 +66,13 @@
   "dependencies": {
     "@byokit/usage": "0.7.0",
     "@earendil-works/pi-ai": "0.87.1",
-    "@byokit/secrets": "0.5.0"
+    "@byokit/secrets": "0.5.0",
+    "openai": "6.40.0",
+    "@anthropic-ai/sdk": "0.124.0",
+    "@google/genai": "2.21.0",
+    "partial-json": "0.1.7",
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "undici-types": "7.16.0"
   },
   "publishConfig": {
     "access": "public"
