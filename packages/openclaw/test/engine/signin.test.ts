@@ -163,7 +163,7 @@ test('routes.json and bundled/external pin metadata agree in both directions (5.
     }
     if (route.needs?.plugin) {
       assert.ok(pinSnapshot.manifests.some(manifest => manifest.id === route.plugin
-        && 'providerAuthChoices' in manifest && manifest.providerAuthChoices.some(choice => choice.choiceId === route.choice)),
+        && 'providerAuthChoices' in manifest && (manifest.providerAuthChoices ?? []).some(choice => choice.choiceId === route.choice)),
       `${route.choice} must exist in the external pin manifest snapshot`);
       assert.equal(route.needs.plugin, route.plugin);
       continue;
@@ -172,8 +172,9 @@ test('routes.json and bundled/external pin metadata agree in both directions (5.
       `${route.choice} is not an auth choice of the pinned tarball (${route.source})`);
   }
   assert.equal(routes().length, 96, 'full discovery includes unavailable choices, not just bundled ones');
-  const catalog = JSON.parse(readFileSync(join(engineDir, 'node_modules/openclaw/scripts/lib/official-external-provider-catalog.json'), 'utf8'))
-    as { entries: { openclaw: { plugin: { id: string }; providers: { authChoices?: { choiceId: string }[] }[] } }[] };
+  const catalog = JSON.parse(readFileSync(join(engineDir, 'node_modules/openclaw/scripts/lib/official-external-provider-catalog.json'), 'utf8')) as {
+    entries: { openclaw: { plugin: { id: string }; providers: { authChoices?: { choiceId: string }[] }[] } }[];
+  };
   for (const { openclaw } of catalog.entries) for (const provider of openclaw.providers) {
     for (const choice of provider.authChoices ?? []) {
       assert.equal(routes().find(route => route.choice === choice.choiceId)?.plugin, openclaw.plugin.id, choice.choiceId);
