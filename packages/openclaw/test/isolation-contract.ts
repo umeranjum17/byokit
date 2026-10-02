@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
-import { mkdirSync, writeFileSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { scratchDir } from '../../test-support.ts';
+import { removeScratch, scratchDir } from '../../test-support.ts';
 import { connect } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../src/engine.ts';
@@ -76,6 +76,6 @@ export async function isolationContract(install?: (dir: string) => string): Prom
     await engine.stop();
     if (original === undefined) delete process.env.HOME; else process.env.HOME = original;
     if (originalKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = originalKey;
-    rmSync(dir, { recursive: true, force: true });
+    removeScratch(dir);
   }
 }

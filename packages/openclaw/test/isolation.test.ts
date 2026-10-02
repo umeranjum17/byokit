@@ -1,8 +1,9 @@
 import { test } from 'node:test';
-import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { cpSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isolationContract } from './isolation-contract.ts';
+import { prepareEngineSet, readPatchSet } from '../src/engine-patches.ts';
 
 // Run the real Engine supervisor's isolation contract in npm test without installing or calling a provider.
 // The engine job runs these same assertions against the actual pinned engine.
@@ -32,5 +33,9 @@ const config = JSON.parse(readFileSync(process.env.OPENCLAW_CONFIG_PATH, 'utf8')
 if (process.argv[2] !== 'gateway' || config.gateway.bind !== 'loopback') process.exit(1);
 createServer(socket => socket.end()).listen(config.gateway.port, '127.0.0.1');
 `);
+    mkdirSync(join(entryDir, 'dist'), { recursive: true });
+    writeFileSync(join(entryDir, 'dist/build-info.json'), JSON.stringify({ version: '2026.8.1', commit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b' }));
+    const patch = readPatchSet(join(shipped, 'patches.json'), '2026.8.1', JSON.parse(readFileSync(join(shipped, 'package-lock.json'), 'utf8')).packages['node_modules/openclaw'].integrity);
+    prepareEngineSet(engineDir, patch, tmp => cpSync(engineDir, tmp, { recursive: true }), () => true);
     return engineDir;
   }));
