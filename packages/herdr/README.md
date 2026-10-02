@@ -207,7 +207,12 @@ Failures return a plain `message`. By default, working or blocked conversations 
 
 Both move APIs optionally accept:
 ```ts
-whenBusy: { busy: 'wait', confirmed: { session: conversationId, terminalId }, waitMs: 300_000 }
+import type { BusyHandoff } from '@byokit/herdr';
+const whenBusy: BusyHandoff = {
+  busy: 'wait',
+  confirmed: { session: 'published-conversation-id', terminalId: 'published-terminal-id' },
+  waitMs: 300_000,
+}; // Pass whenBusy to either move API after the person confirms these current values.
 ```
 Label this **Move when this step finishes**. Confirmation must match the current published session and terminal;
 wait requires a published sequence and finite positive `waitMs` ≤ 300000. Working sources wait for idle/done/blocked
