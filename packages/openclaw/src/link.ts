@@ -115,8 +115,11 @@ export function openclawLink(
   };
   const leases = new Map<string, { grant: string; lease: TakeoverLease }>();
   const memberSource = (value: unknown, member: Member): LiveSource => {
-    if (!isRecord(value) || value.member !== member || value.kind !== 'browser') throw refused();
-    return { kind: 'browser', member }; // never claims full-computer capture
+    if (!isRecord(value) || value.member !== member) throw refused();
+    if (value.kind === 'browser') return { kind: 'browser', member };
+    if (value.kind === 'desktop' && ['host', 'node', 'environment'].includes(value.source as string))
+      return { kind: 'desktop', member, source: value.source as 'host' | 'node' | 'environment' };
+    throw refused();
   };
   const control = (): void => {
     if (typeof (kit.browser as BrowserHost & { revokeGrant?: unknown } | undefined)?.revokeGrant !== 'function') throw refused();
@@ -157,7 +160,10 @@ export function openclawLink(
 
   const viewers = new Map<string, Set<() => void>>();
   const revoked = new Set<string>();
+  const revocations = new Map<string, Promise<void>>();
   const revoke = (grant: string): Promise<void> => {
+    const pending = revocations.get(grant);
+    if (pending) return pending;
     revoked.add(grant);
     clearTimeout(expiry.get(grant)); expiry.delete(grant);
     for (const [id, held] of leases) if (held.grant === grant) leases.delete(id);
@@ -165,7 +171,13 @@ export function openclawLink(
     viewers.delete(grant);
     boxes.delete(grant);
     seen.delete(grant);
-    return (kit.browser as BrowserHost & { revokeGrant?: (grant: string) => Promise<void> } | undefined)?.revokeGrant?.(grant) ?? Promise.resolve();
+    let cleanup: Promise<void>;
+    try {
+      cleanup = (kit.browser as BrowserHost & { revokeGrant?: (grant: string) => Promise<void> } | undefined)?.revokeGrant?.(grant) ?? Promise.resolve();
+    } catch { cleanup = Promise.reject(refused()); }
+    const result = cleanup.catch(() => { throw refused(); });
+    revocations.set(grant, result);
+    return result;
   };
 
   const pushSignIn = async (member: Member): Promise<void> => {
@@ -262,7 +274,9 @@ export function openclawLink(
       }
       if (action === 'signins') return host.signIns(member);
       if (action === 'thumb') {
-        const result = await host.thumbnail(memberSource(args.source, member), { grant: grant.id });
+        const source = memberSource(args.source, member);
+        if (source.kind === 'desktop') return { state: 'unsupported' };
+        const result = await host.thumbnail(source, { grant: grant.id });
         return result.state === 'ok' ? { state: 'ok', frame: { ...result.frame, jpeg: b64urlEncode(result.frame.jpeg) } } : result;
       }
       control();
@@ -422,12 +436,18 @@ export function openclawLink(
       const args = isRecord(req.args) ? req.args : {};
       const source = memberSource(args.source, member);
       if (args.mode !== 'observe' && args.mode !== 'control') throw refused();
+      if (source.kind === 'desktop') {
+        if (args.mode !== 'observe' || args.lease !== undefined) throw refused();
+        await s.write(`${JSON.stringify({ state: { source, mode: 'observe', phase: 'failed', why: 'unsupported' } })}\n`);
+        s.end(); return;
+      }
       const lease = args.mode === 'control' ? (grant.role === 'control' ? ownedLease(args.lease, member, grant) : undefined) : undefined;
       if (args.mode === 'control' && !lease) throw refused();
       if (args.mode === 'observe' && args.lease !== undefined) throw refused();
       if (args.maxWidth !== undefined && (!Number.isSafeInteger(args.maxWidth) || (args.maxWidth as number) < 1 || (args.maxWidth as number) > 4096)) throw refused();
       let ended = false;
       let busy = false;
+      let acceptingFrames = false;
       let nextState: unknown;
       let nextFrame: unknown;
       let viewer: ReturnType<BrowserHost['live']> | undefined;
@@ -440,6 +460,9 @@ export function openclawLink(
             const value = nextState ?? nextFrame;
             if (nextState !== undefined) nextState = undefined; else nextFrame = undefined;
             await s.write(`${JSON.stringify(value)}\n`);
+            if (isRecord(value) && isRecord(value.state) && ['ended', 'failed'].includes(value.state.phase as string)) {
+              close(); s.end();
+            }
           }
         } catch { close(); } finally { busy = false; }
       };
@@ -474,8 +497,8 @@ export function openclawLink(
       try {
         viewer = browser().live(source, { grant: grant.id, ...(lease ? { lease } : {}),
           ...(typeof args.maxWidth === 'number' ? { maxWidth: args.maxWidth } : {}) }, {
-          state: state => { if (!ended) { nextState = { state }; nextFrame = undefined; void flush(); } },
-          frame: frame => { if (!ended) { nextFrame = { frame: { ...frame, jpeg: b64urlEncode(frame.jpeg) } }; void flush(); } },
+          state: state => { if (!ended) { acceptingFrames = state.phase === 'live'; nextState = { state }; nextFrame = undefined; void flush(); } },
+          frame: frame => { if (!ended && acceptingFrames) { nextFrame = { frame: { ...frame, jpeg: b64urlEncode(frame.jpeg) } }; void flush(); } },
         });
         if (ended) viewer.close();
       } catch { close(); s.end(words('link.notAllowed')); }

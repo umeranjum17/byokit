@@ -180,7 +180,7 @@ export type SignInNotice = { source: 'signin'; id: string; gen: number; member: 
 
 /** A sealed hint, never an authorization or a lease. Re-fetch signIns() before taking any action. */
 export function openSignInNotice(data: Record<string, unknown>, seed: Uint8Array): SignInNotice | null {
-  if (data.v !== 1 || typeof data.sealed !== 'string' || seed.length !== 32) return null;
+  if (data.v !== 1 || typeof data.sealed !== 'string' || !(seed instanceof Uint8Array) || seed.length !== 32) return null;
   const bundle = b64urlDecode(data.sealed);
   const bytes = bundle && openBoxFromSeed(bundle, seed);
   if (!bytes) return null;
@@ -286,7 +286,11 @@ export function browserDevice(link: DeviceLink): BrowserDevice {
               const v: unknown = JSON.parse(text.slice(0, at)); text = text.slice(at + 1);
               if (!isRecord(v)) throw new Error();
               if ('frame' in v) frame = decodeBrowserFrame(v.frame);
-              else if (isRecord(v.state)) { state = v.state as LiveViewState; if (state.phase !== 'live') frame = undefined; }
+              else if (isRecord(v.state)) {
+                state = v.state as LiveViewState;
+                if (state.phase !== 'live') frame = undefined;
+                if (state.phase === 'ended' || state.phase === 'failed') { ended = true; inputs.length = 0; inputBytes = 0; }
+              }
               else throw new Error();
             }
             wake();

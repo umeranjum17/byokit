@@ -7,7 +7,7 @@ import { stateWords, toAccountView, words, type WordKey } from '../src/words.ts'
 import type { KitState, SignInView } from '../src/types.ts';
 import wordsJson from '../src/words.json' with { type: 'json' };
 
-// 5.14's table, verbatim — the data file and this copy must stay identical.
+// 5.14 and 5.17's tables, verbatim — the data file and this copy must stay identical.
 const TABLE: Record<string, string> = {
   'engine.installing': 'Getting things ready on this computer. The first time takes a few minutes.',
   'engine.starting': 'Starting up…',
@@ -27,6 +27,48 @@ const TABLE: Record<string, string> = {
   'signin.busy': 'Another sign-in is already in progress. Finish or cancel it, then try again.',
   'signin.cancelled': 'Sign-in cancelled. You can start again whenever you are ready.',
   'signin.expired': 'The sign-in took too long. Start it again.',
+  'signin.title': 'Sign in to {site}',
+  'signin.takeover': 'Take over to sign in',
+  'signin.notNow': 'Not now',
+  'signin.cancel': 'Cancel sign-in',
+  'signin.reopen': 'Continue signing in',
+  'signin.retry': 'Try signing in again',
+  'signin.confirmOrigin': 'Continue on {origin}',
+  'signin.done': 'Done signing in',
+  'signin.confirmSite': 'First time {name} signs in to {site}. Type the site name to continue.',
+  'signin.offOrigin': "You're now on {origin}, not {site}. Continue only if you expected this.",
+  'signin.agentNote': '{name} says: “{note}”',
+  'signin.waiting': '{name} needs you to sign in to {site}.',
+  'signin.parked': 'Sign-in to {site} is waiting for you.',
+  'signin.checking': 'Sign-in details entered',
+  'signin.verified': 'Signed in to {site}',
+  'signin.stillSignedOut': '{site} still shows a sign-in page. Try again?',
+  'browser.signin.expired': 'The sign-in request for {site} timed out.',
+  'browser.signin.cancelled': 'Sign-in to {site} was cancelled.',
+  'browser.signin.notice': 'A browser sign-in is waiting for you.',
+  'signin.originMismatch': "You finished on a different site than {site}, so {name} won't continue.",
+  'signin.browserGone': "{name}'s browser closed during sign-in.",
+  'signin.superseded': 'A newer request replaced this one.',
+  'signin.runReplaced': 'This task moved on, so the sign-in request was closed.',
+  'signin.resumeFailed': "Signed in, but {name} couldn't continue. Try again.",
+  'signin.resumeUnknown': "Signed in, but we can't tell whether {name} continued. Check the task before retrying.",
+  'signin.noVerifier': "Sign-in details entered for {site}. {name} can't confirm you're signed in.",
+  'signin.insecureRemote': "{site} isn't secure, so taking over to sign in is off.",
+  'signin.gate': 'Waiting for the person to sign in to {site}.',
+  'signin.resume': 'The person signed in to {site}. Continue the task.',
+  'signin.private': 'Private while someone signs in',
+  'browser.recovering': "Reconnecting to {name}'s browser…",
+  'browser.blocked.noBrowser': 'No browser is set up for {name}.',
+  'browser.blocked.exhausted': "{name}'s browser stopped and could not be restarted.",
+  'browser.blocked.detached': "{name}'s browser isn't connected.",
+  'browser.blocked.unsafe': 'An agent here can run commands or read files, so the browser stays off.',
+  'browser.blocked.gateOff': 'Browser handoff needs the tool gate on.',
+  'browser.blocked.unprotected': "Signing in for {name} isn't available yet.",
+  'live.reconnecting': 'Reconnecting…',
+  'live.browser': 'Browser live view',
+  'live.label': 'Browser live view',
+  'live.ended': 'Browser live view ended.',
+  'live.failed': "Browser live view couldn't connect.",
   'approval.ask': '{helper} wants to {summary}. Allow it?',
   'approval.expired': "Nobody answered in time, so this wasn't allowed.",
   'approval.notice': 'Something is waiting for your yes.',
@@ -40,7 +82,7 @@ const TABLE: Record<string, string> = {
   'key.missing': 'Add an API key to use this option.',
 };
 
-test('every 5.14 key is present with the exact sentence, and nothing else', () => {
+test('every 5.14/5.17 key is present with the exact sentence, and nothing else', () => {
   assert.deepEqual(Object.keys(wordsJson).sort(), Object.keys(TABLE).sort());
   for (const [key, sentence] of Object.entries(TABLE)) assert.equal(words(key as WordKey), sentence, key);
 });
