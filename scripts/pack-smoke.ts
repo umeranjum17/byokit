@@ -2,7 +2,8 @@
 // scratch app outside the monorepo, and prove the packed shape imports,
 // typechecks and runs. Run: npm run smoke:pack. Exits 1 on any failure.
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { processStartTime, sha256 } from '../packages/openclaw/src/engine-patches.ts';
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,12 +14,34 @@ const root = join(here, "..");
 // An aborted smoke run (SIGINT/SIGTERM) must not leave the scratch app behind:
 // the finally in main covers success and failure, this covers abort.
 const pendingTmp = new Set<string>();
+function discardTmp(dir: string): void {
+  for (const name of ['s', 'o', 'a', 'b', 'r1', 'r2']) {
+    const root = join(dir, name, 'openclaw');
+    if (!existsSync(join(root, 'gateway.pid'))) continue;
+    {
+    const identity = JSON.parse(readFileSync(join(root, 'gateway.identity'), 'utf8')) as { pid: number; startTime: string };
+    if (String(identity.pid) !== readFileSync(join(root, 'gateway.pid'), 'utf8')) throw new Error('ambiguous owned packed gateway');
+    try {
+      if (processStartTime(identity.pid) !== identity.startTime) throw new Error('packed gateway pid was reused');
+      process.kill(identity.pid, 'SIGTERM');
+      spawnSync(process.execPath, ['-e', 'setTimeout(() => {}, 2000)']);
+      if (processStartTime(identity.pid) === identity.startTime) process.kill(identity.pid, 'SIGKILL');
+    } catch (error) { if (!['ENOENT', 'ESRCH'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error; }
+    }
+  }
+  const walk = (path: string) => {
+    if (!lstatSync(path).isDirectory()) return;
+    chmodSync(path, 0o700);
+    for (const name of readdirSync(path)) walk(join(path, name));
+  };
+  walk(dir); rmSync(dir, { recursive: true, force: true });
+}
 process.on("exit", () => {
-  for (const dir of pendingTmp) rmSync(dir, { recursive: true, force: true });
+  for (const dir of pendingTmp) discardTmp(dir);
 });
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
-    for (const dir of [...pendingTmp]) rmSync(dir, { recursive: true, force: true });
+    for (const dir of [...pendingTmp]) discardTmp(dir);
     process.removeAllListeners(signal);
     process.kill(process.pid, signal);
   });
@@ -399,8 +422,38 @@ console.log('packed-realtime-child-ok');
   }
 }
 
+// Deliberate separate qualification: only the packed OpenClaw kit is local; every dependency is registry
+// supplied. No all-workspace tarball substitutions or a fake Gateway may stand in for this receipt.
+function realOpenClawPack(): void {
+  const dir = mkdtempSync(join(tmpdir(), 'ocp-'));
+  pendingTmp.add(dir);
+  const env = { ...process.env, HOME: join(dir, 'home'), npm_config_cache: join(dir, 'cache') };
+  const run = (command: string, args: string[], cwd: string, timeout = 600_000) => {
+    const result = spawnSync(command, args, { cwd, env: command === 'npm' ? { ...env, NODE_OPTIONS: '' } : env, encoding: 'utf8', timeout, maxBuffer: 4 * 1024 * 1024 });
+    if (result.status !== 0) throw new Error(`${command} ${args.join(' ')}: ${result.error ?? ''}\n${result.stdout}\n${result.stderr}`);
+    return result.stdout;
+  };
+  try {
+    mkdirSync(env.HOME, { mode: 0o700 });
+    const [packed] = JSON.parse(run('npm', ['pack', './packages/openclaw', '--pack-destination', dir, '--json'], root)) as PackEntry[];
+    if (!packed) throw new Error('OpenClaw kit was not packed');
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'openclaw-engine-pack', private: true, type: 'module' }));
+    run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', join(dir, packed.filename)], dir);
+    console.log(JSON.stringify({ packedKit: packed.filename, sha256: sha256(readFileSync(join(dir, packed.filename))), consumerDir: dir, dependencySource: 'registry only' }));
+    writeFileSync(join(dir, 'qualify.mjs'), readFileSync(join(root, 'packages/openclaw/test/engine/packed-patches.fixture.mjs')));
+    console.log(run(process.execPath, ['qualify.mjs'], dir, 850_000));
+    if (process.argv.includes('--keep-openclaw-fixture')) {
+      pendingTmp.delete(dir);
+      console.log(JSON.stringify({ retainedOwnedFixture: dir, processes: 'stopped; immutable sets retained for read-only derivation' }));
+      return;
+    }
+  } finally { if (pendingTmp.delete(dir)) discardTmp(dir); }
+}
 try {
-  if (process.argv[1] === fileURLToPath(import.meta.url)) main();
+  if (process.argv[1] === fileURLToPath(import.meta.url)) {
+    if (process.argv.includes('--openclaw-engine')) realOpenClawPack();
+    else main();
+  }
 } catch (e) {
   console.error(`smoke:pack: ${(e as Error).message}`);
   process.exit(1);
