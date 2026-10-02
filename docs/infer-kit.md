@@ -90,18 +90,32 @@ Native heavy jobs use their own short scratch `HOME`/`TMPDIR`, hold `state/heavy
 bounded wait and execution, clean up only their own children, and keep raw failures, model/licence/hash receipts and
 measurement logs outside the pooled worktree before cleanup.
 
-- **WP1 — Lab app wiring (Android).** In `examples/expo`: add `llama.rn@0.12.9` and `@dr.pogodin/react-native-fs@2.40.3`
-  (exact), the README's store adapter, and `InferDemo.tsx`: download with progress → summarise three fixed demo panes
-  (test run, build failure, idle shell) → cancel by flipping → release on background. Demo text only. Prebuild +
-  `assembleRelease` in CI's Android job without a device; confirm the APK contains `librnllama*.so` for arm64-v8a.
+- **WP1 — Lab app wiring (Android).** *Source done:* `examples/expo` pins `llama.rn@0.12.9`,
+  `@dr.pogodin/react-native-fs@2.40.3` and `@byokit/infer`; `InferDemo.tsx` (opened by `EXPO_PUBLIC_INFER_DEMO=1`)
+  uses the README's store adapter and shows the typed phase, download progress, stop download, remove,
+  three fixed demo panes (a test run with one hanging test, a Kotlin build failure, an idle shell), summary lines with
+  timing, cancel, and flip-to-cancel. Going to the background releases the context. Typecheck and Metro Android
+  bundle pass locally; no native build has been run. **Still to do on a device-capable runner:**
+  `CI=1 npx expo prebuild -p android --no-install`, then `assembleRelease` with `EXPO_PUBLIC_INFER_DEMO=1` (CI's
+  overlay/share Android jobs already compile the new native modules). The first `npm ci` in `examples/expo` runs
+  llama.rn's postinstall, which fetches its SHA-256-pinned prebuilt libraries from its v0.12.9 GitHub release.
+  Confirm the APK contains `lib/arm64-v8a/librnllama*.so` (`e2e-infer.sh` refuses without it).
 - **WP2 — Real-binding contract.** A device-run script (no CI network) that runs the kit's offline assertions against
   the real `initLlama`: one context, abort → `interrupted` and `signal.reason`, `release()` mid-decode, JSON schema
   honoured, `tokenize` count vs `tokens_evaluated` (set `TEMPLATE_TOKENS` from it), `stopped_limit` on a tiny budget.
 - **WP3 — Android qualification on test phone a4b93ea2** under the discovered keeper lock (never bypassed, never
   shared). Own lab app only; never open, read or screenshot personal apps, change accounts or uninstall anything.
-  Record: model install time and bytes; cold (first load + first summary) and warm latency over ≥10 runs; peak RSS
-  (`dumpsys meminfo` of the lab app); battery delta over a fixed 30-summary run with screen state, brightness,
-  temperature and charge noted; APK size delta. Screenshots of the demo only. Tune `minMemoryBytes` from the data.
+  Run, holding the keeper lock and `state/heavy-jobs.lock` for the build:
+  `OUT=<receipts dir outside the worktree> RUNS=10 examples/expo/e2e-infer.sh a4b93ea2` (`KEEP_MODEL=1` reuses
+  a downloaded model; `SKIP_BUILD=1` reuses a verified APK). It writes `receipts.txt` and the screenshots listed below:
+  - receipts: device, OS and ABI; APK SHA-256 and size; download and verify seconds; cold time (fresh process:
+    load + hash + first summary) and `RUNS` warm times; PSS/RSS after cold, after warm and after backgrounding;
+    battery level, temperature and charger before and after.
+  - screenshots: `01-start` … `08-resumed`.
+
+  Add by hand: screen brightness and state, charging off, ambient conditions; a longer fixed battery run
+  (e.g. 30 summaries) if the level delta is 0; an airplane-mode rerun with `KEEP_MODEL=1` to show summaries need no
+  network. Tune `minMemoryBytes` from the data.
 - **WP4 — Summary quality.** Score the three demo panes plus ≥20 recorded synthetic panes (no personal data) for
   invented completion, missed failure and noise; if SmolLM2 fails, re-run with Qwen3 and propose flipping `offer`.
 - **WP5 — iOS.** Same lab app on a physical iPhone once Root/main grants the Mac and Xcode 26.2 is installed; same
@@ -125,7 +139,8 @@ Source (CI, offline) — done in the foundation unless marked:
       key-like runs), chrome collapsed, no tag or chat control token can be formed, system prompt says
       data-not-instructions, linear on hostile input; `enough: false` → `not-enough-output`.
 - [x] decide `generate()` with `privacy: 'stays-here'` uses the backend; cut-off → `incomplete`.
-- [ ] WP1 lab app builds in CI with the real binding (Android), and the iOS prebuild.
+- [x] WP1 source: lab screen, exact pins, store adapter, device driver script; typecheck and Metro bundle pass.
+- [ ] WP1 lab app builds with the real binding (Android `assembleRelease`, APK has arm64 `librnllama`), and the iOS prebuild.
 - [ ] WP2 real-binding contract passes on a4b93ea2.
 
 Device qualification (not provable by fixtures, typechecks or emulators):
