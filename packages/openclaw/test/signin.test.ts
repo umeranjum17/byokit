@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { setImmediate as turn, setTimeout as delay } from 'node:timers/promises';
 import { providers, signIn, signOut, type SignInCtx } from '../src/signin.ts';
 import { OpenClawKit } from '../src/kit.ts';
+import { openclawLink } from '../src/link.ts';
 import { scratchDir } from '../../test-support.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import { words } from '../src/words.ts';
@@ -648,6 +649,156 @@ test('Claude Code login missing or unknown refuses activation and asks for the n
     assert.match(result.error!, /login stays in Claude Code/);
     assert.deepEqual(fake.methods(), ['openclaw.setup.detect']);
   }
+});
+
+test('sensitive setup-token wizard consumes an early or waiting paste once, without visible echoes', async (t) => {
+  for (const early of [true, false]) await t.test(early ? 'early paste' : 'waiting paste', async () => {
+    const token = 'synthetic-sensitive-canary';
+    let pulls = 0;
+    const fake = scripted({
+      'openclaw.setup.auth.start': (params) => {
+        assert.equal(params.agentId, 'selected');
+        assert.equal(params.authChoice, 'setup-token');
+        return { done: false };
+      },
+      'wizard.next': (params) => {
+        if (params.answer) {
+          assert.deepEqual(params.answer, { stepId: 'secret', value: token });
+          return { step: { id: 'notice', type: 'note', externalUrl: `https://example.test/${token}` }, error: token };
+        }
+        if (++pulls === 1) return { step: { id: 'secret', type: 'text', sensitive: true,
+          externalUrl: `https://example.test/${token}`, deviceCode: { code: token } } };
+        return { done: true };
+      },
+      'wizard.cancel': () => ({}),
+    });
+    // The help note is acknowledged separately, never with a retained token.
+    const request: GatewayTransport['request'] = (method, params: any, options) => {
+      if (method === 'wizard.next' && params.answer?.stepId === 'notice') {
+        assert.deepEqual(params.answer, { stepId: 'notice' });
+        return Promise.resolve({ done: true });
+      }
+      return fake.request(method, params, options);
+    };
+    const views: SignInView[] = [];
+    const handle = signIn(ctx(fake, { request }), 'selected', { authChoice: 'setup-token' }, (v) => views.push(v));
+    if (!early) await turn();
+    handle.paste(token);
+    assert.deepEqual(await handle.done, { state: 'done', via: 'browser' });
+    assert.equal(fake.calls.filter((c) => c.params?.answer?.value === token).length, 1);
+    assert.ok(views.some((v) => v.prompt === 'Sign-in token'));
+    assert.ok(!JSON.stringify(views).includes(token));
+  });
+});
+
+test('sensitive wizard failures never echo secrets from returned or thrown errors', async (t) => {
+  for (const scenario of ['terminal', 'throw', 'later-throw', 'start-throw'] as const) await t.test(scenario, async () => {
+    const token = 'synthetic-error-canary';
+    const fake = scripted({
+      'openclaw.setup.auth.start': () => {
+        if (scenario === 'start-throw') throw new Error(token);
+        return { done: false };
+      },
+      'wizard.next': (params) => {
+        if (!params.answer) return { step: { id: 'secret', type: 'text', sensitive: true } };
+        if (scenario === 'throw' || params.answer.stepId === 'notice') throw new Error(token);
+        if (scenario === 'later-throw') return { step: { id: 'notice', type: 'action', externalUrl: token }, error: token };
+        return { done: true, status: 'error', error: token };
+      },
+      'wizard.cancel': () => { throw new Error(token); },
+    });
+    const views: SignInView[] = [];
+    const handle = signIn(ctx(fake), 'selected', { authChoice: 'setup-token' }, (v) => views.push(v));
+    handle.paste(token);
+    const end = await handle.done;
+    assert.equal(end.why, 'failed');
+    assert.equal(end.error, 'Sign-in failed. Try again.');
+    assert.ok(!JSON.stringify({ views, end }).includes(token));
+    assert.equal(fake.calls.filter((c) => c.method === 'wizard.cancel').length, 1);
+  });
+});
+
+test('sensitive text on any typed auth choice preserves cancellation, timeout and one-use ordering', async (t) => {
+  for (const scenario of ['cancel', 'abort', 'timeout', 'second-text'] as const) await t.test(scenario, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const token = 'synthetic-order-canary';
+    const controller = new AbortController();
+    const fake = scripted({
+      'openclaw.setup.auth.start': () => ({ done: false }),
+      'wizard.next': (params) => params.answer
+        ? { step: { id: 'second', type: 'text', sensitive: true } }
+        : { step: { id: 'first', type: 'text', sensitive: true } },
+      'wizard.cancel': () => ({}),
+    });
+    const views: SignInView[] = [];
+    const handle = signIn(ctx(fake), 'selected', { authChoice: 'custom-provider-choice', signal: controller.signal }, (v) => views.push(v));
+    await turn();
+    if (scenario === 'second-text') { handle.paste(token); await turn(); }
+    if (scenario === 'cancel' || scenario === 'second-text') handle.cancel();
+    else if (scenario === 'abort') controller.abort();
+    else t.mock.timers.tick(15 * 60_000);
+    const end = await handle.done;
+    assert.equal(end.why, scenario === 'timeout' ? 'expired' : 'declined');
+    assert.equal(fake.calls.filter((c) => c.params?.answer).length, scenario === 'second-text' ? 1 : 0);
+    assert.equal(fake.calls.filter((c) => c.method === 'wizard.cancel').length, 1);
+    assert.equal(fake.calls.at(-1)?.params.sessionId, fake.calls[0]?.params.sessionId);
+    assert.ok(!JSON.stringify({ views, end }).includes(token));
+  });
+});
+
+test('sensitive sign-in through the kit and link isolates members and keeps results, notices and logs clean', async () => {
+  const stateDir = scratchDir('sensitive-signin');
+  const tokens = { ana: 'synthetic-ana-canary', bea: 'synthetic-bea-canary' };
+  const sessions = new Map<string, string>();
+  const received: { member: string; value: string }[] = [];
+  const gateway = fakeGateway({
+    'models.authStatus': (params) => ({ providers: received.some((r) => r.member === params.agentId && r.member === 'ana') ? ['anthropic'] : [] }),
+    'openclaw.setup.auth.start': (params) => {
+      sessions.set(String(params.sessionId), String(params.agentId));
+      return { done: false };
+    },
+    'wizard.next': (params: any) => {
+      const member = sessions.get(params.sessionId)!;
+      if (!params.answer) return { step: { id: 'token', type: 'text', sensitive: true } };
+      received.push({ member, value: params.answer.value });
+      return member === 'ana' ? { done: true } : { done: true, status: 'error', error: params.answer.value };
+    },
+    'wizard.cancel': () => ({}),
+  });
+  const logs: string[] = [];
+  const notices: unknown[] = [];
+  const events: unknown[] = [];
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: gateway.factory, log: (line) => logs.push(line) });
+  const views: SignInView[] = [];
+  kit.onEvent('*', (event) => events.push(event));
+  try {
+    const unavailable = kit.signIn('ana', { authChoice: 'setup-token' }, (v) => views.push(v));
+    unavailable.paste(tokens.ana);
+    assert.equal((await unavailable.done).state, 'failed');
+    assert.equal(gateway.calls.length, 0, 'readiness failure never sends credentials');
+    await kit.start();
+    const api = openclawLink(kit, { memberOf: (grant) => grant.name,
+      relay: { notify: async (notice: unknown) => { notices.push(notice); return { sent: 1 }; } } as Parameters<typeof openclawLink>[1]['relay'] });
+    const grant = (member: string) => ({ id: member, name: member, key: '', role: 'control' as const, created: 0 });
+    const results: unknown[] = [];
+    for (const member of ['ana', 'bea'] as const) {
+      results.push(await api.handle!({ op: 'oc.signin.start', args: { provider: 'anthropic', via: 'browser' } }, grant(member)));
+    }
+    await turn();
+    for (const member of ['bea', 'ana'] as const) {
+      results.push(await api.handle!({ op: 'oc.signin.paste', args: { provider: 'anthropic', text: tokens[member] } }, grant(member)));
+    }
+    await turn();
+    for (const member of ['ana', 'bea'] as const) {
+      const result = await api.handle!({ op: 'oc.signin.view', args: { provider: 'anthropic' } }, grant(member));
+      results.push(result);
+      assert.equal((result as { view: SignInView }).view.state, member === 'ana' ? 'done' : 'failed');
+    }
+    assert.deepEqual(received, [{ member: 'bea', value: tokens.bea }, { member: 'ana', value: tokens.ana }]);
+    assert.equal(sessions.size, 2);
+    for (const token of Object.values(tokens)) assert.ok(!JSON.stringify({ views, results, logs, notices, events }).includes(token));
+    assert.deepEqual(notices, [], 'sign-in never creates an approval push');
+  } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
 test('explicit Anthropic key entry is API billed and never echoed in views or errors', async () => {

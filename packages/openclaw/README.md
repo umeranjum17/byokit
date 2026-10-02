@@ -89,6 +89,13 @@ supplies no lifetime, it owns the deadline. Ordinary wizard requests keep their 
 `done` returns a typed `SignInView`: `why: 'expired'` for an expired code, `why: 'declined'` for cancellation,
 with a plain sentence in `error`. `SignInOptions` is exported from the host entry.
 
+For a subscription setup-token or any sensitive wizard text step, pass the token once through the same
+`signIn.paste(token)` channel and clear the input afterwards. The kit displays only a fixed entry label;
+subsequent wizard errors, links and codes are withheld, and failures use a fixed message rather than
+engine text that could echo the token. It is sent only as this member's wizard answer, never in views,
+results or kit logs. Ordinary browser paste and typed `kit.call('wizard.next', …)` pass-through are unchanged.
+API key (billed per use) entry still requires explicit selection; there is no subscription-to-key fallback.
+
 To choose which of a member's accounts a run uses, pass `model: 'provider/model'` in the run spec (for example
 `'openai/gpt-5.1'`, where `provider` is an id `kit.providers(member)` lists). That provider is the one called and billed for this run only, with no fallback to another
 provider or model. If the member isn't signed in to it, the run ends `{ ok: false, kind: 'signed-out' }` and the

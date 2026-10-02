@@ -33,7 +33,7 @@ const pullOptions = (signal: AbortSignal) => ({ timeoutMs: PULL_MS, signal });
 
 /**
  * Drive the engine's provider-owned login. `on` sees every view the person watches; `done` resolves once, and
- * `paste` hands a returned browser address to a waiting wizard text step. Every exit short of done cancels this
+ * `paste` hands a returned browser address or sign-in token to a waiting wizard text step. Every exit short of done cancels this
  * session and its callback listener only.
  */
 export function signIn(
@@ -89,10 +89,15 @@ export function signIn(
   let settle!: (view: SignInView) => void;
   let pasteIn: ((text: string) => void) | undefined;
   let returned: string | undefined;
+  // Once a secret step is seen, no later gateway prose, link or code is safe to display.
+  let sensitive = o.authChoice === 'setup-token' || o.authChoice === 'apiKey';
+  const secretFailure = () => o.authChoice === 'apiKey' ? 'API key activation failed' : 'Sign-in failed. Try again.';
 
   const done = new Promise<SignInView>((resolve) => { settle = resolve; });
   const say = (v: Omit<SignInView, 'state' | 'via'>): void => {
-    if (!over && !recovering && !signal.aborted) on({ state: 'waiting', via, ...v });
+    if (!over && !recovering && !signal.aborted) on({ state: 'waiting', via, ...(sensitive
+      ? { ...(v.prompt ? { prompt: v.prompt } : {}), ...(v.error ? { error: secretFailure() } : {}) }
+      : v) });
   };
   const closeCallback = async (): Promise<void> => {
     const held = server;
@@ -109,6 +114,7 @@ export function signIn(
     returned = undefined;
     pasteIn = undefined;
     await closeCallback();
+    if (sensitive && view.state === 'failed' && view.why === 'failed') view = { ...view, error: secretFailure() };
     on(view);
     settle(view);
   };
@@ -227,6 +233,7 @@ export function signIn(
     const answer = (step: Step, value?: string): Promise<Pull> => ctx.request('wizard.next',
       { sessionId, answer: { stepId: step.id, ...(value === undefined ? {} : { value }) } }, options()) as Promise<Pull>;
     const waitForPaste = (): Promise<string | undefined> => new Promise((resolve) => {
+      if (signal.aborted) { resolve(undefined); return; }
       if (returned !== undefined) { const text = returned; returned = undefined; resolve(text); return; }
       let timer: NodeJS.Timeout | undefined;
       let settled = false;
@@ -255,7 +262,8 @@ export function signIn(
       }
       const current = step;
       step = undefined;
-      if (current.deviceCode) {
+      if (current.type === 'text' && current.sensitive) sensitive = true;
+      if (current.deviceCode && current.type !== 'text') {
         stopApproval();
         approval = true;
         sawDeviceCode = true;
@@ -274,7 +282,8 @@ export function signIn(
         continue;
       }
       if (current.type !== 'progress') stopApproval();
-      if (current.type === 'text' && !current.sensitive) {
+      if (current.type === 'text') {
+        if (current.sensitive) say({ prompt: 'Sign-in token' });
         const value = await waitForPaste();
         if (value === undefined) return signal.aborted ? cancelled() : expired();
         const next = await answer(current, value);
