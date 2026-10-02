@@ -1,12 +1,6 @@
 [
   {
     "readme": "packages/accounts/README.md",
-    "block": 2,
-    "snapshot": "b210634b0e6b86b7f2e2a3896da85a1e05f56239b9c71994fa5587fc5087f195",
-    "reason": "Desktop example requires Electron declarations supplied by the host app, unavailable in the Node workspace."
-  },
-  {
-    "readme": "packages/accounts/README.md",
     "block": 3,
     "snapshot": "d7bf473caac14200592afc06ba01f6fed59d14e09bed934f58e27f90a9493d73",
     "reason": "Phone example requires Expo fetch resolution supplied by the host bundler; SecureStore declarations are now available in the Node workspace."
