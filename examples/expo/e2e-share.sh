@@ -9,11 +9,15 @@ serial=${1:?usage: $0 <emulator-serial>}
 out=${OUT:-share-captures}
 app=io.github.umeranjum17.byokit.example
 apk=android/app/build/outputs/apk/release/app-release.apk
-a() { adb -s "$serial" "$@"; }
+a() { adb -s "$serial" "$@" 9>&-; }
 mkdir -p "$out"
 
 [ -d android ] || CI=1 npx expo prebuild --platform android --no-install
-(cd android && EXPO_PUBLIC_SHARE_DEMO=1 NODE_ENV=production ./gradlew assembleRelease --rerun-tasks -q)
+# Reuse only an APK whose source and hash the caller already verified.
+if [ "${SKIP_BUILD:-0}" != 1 ]; then
+  (cd android && EXPO_PUBLIC_SHARE_DEMO=1 NODE_ENV=production ./gradlew assembleRelease --rerun-tasks -q)
+fi
+[ -f "$apk" ]
 
 screen() { a shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1; a exec-out cat /sdcard/ui.xml; }
 words() { screen | grep -oE "text=(\"[^\"]*\"|'[^']*')" | sed "s/^text=.//; s/.\$//" | paste -sd'|'; }
@@ -39,7 +43,7 @@ start
 expect 'Share text, a link or files to this app from any other app.'
 shot 01-ready
 
-share -t text/plain --es android.intent.extra.TEXT 'hello from another app'   # warm: the app is open
+share -t text/plain --es android.intent.extra.TEXT "'hello from another app'"   # warm: the app is open
 expect 'hello from another app'
 shot 02-warm-text
 tap share-clear
@@ -47,7 +51,7 @@ expect 'Share text, a link or files to this app from any other app.'
 shot 03-cleared
 
 a shell am force-stop $app                                                   # cold: the share starts the app
-share -t text/plain --es android.intent.extra.TEXT 'read https://example.com/x later'
+share -t text/plain --es android.intent.extra.TEXT "'read https://example.com/x later'"
 expect 'Link: https://example.com/x'
 shot 04-cold-link
 tap share-clear
