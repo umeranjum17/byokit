@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BYOKit pinned OpenClaw patch set v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "id", "upstream", "files"],
+  "properties": {
+    "v": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-f0-9]{16}$" },
+    "upstream": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "version", "integrity", "commit", "license"],
+      "properties": {
+        "name": { "const": "openclaw" },
+        "version": { "type": "string" },
+        "integrity": { "type": "string", "pattern": "^sha512-" },
+        "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+        "license": { "const": "MIT" }
+      }
+    },
+    "files": { "type": "array", "items": { "$ref": "#/$defs/file" } }
+  },
+  "$defs": {
+    "file": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "before", "after", "edits"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^dist/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_.-]+\\.m?js$" },
+        "before": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "after": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "edits": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "additionalProperties": false, "required": ["find", "replace"],
+            "properties": { "find": { "type": "string", "minLength": 1 }, "replace": { "type": "string", "minLength": 1 } }
+          }
+        }
+      }
+    }
+  }
+}

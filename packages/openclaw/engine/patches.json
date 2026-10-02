@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "id": "4f53cda18c2baa0c",
+  "upstream": {
+    "name": "openclaw",
+    "version": "2026.8.1",
+    "integrity": "sha512-bSaFeaDFnQH/bU1vgKMac6eHkHHPHG0C/uwduXGI3eIS3lyiYSwmDU5ehhBUUhlPeV85tL5/KVwmoH48nX1tWw==",
+    "commit": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+    "license": "MIT"
+  },
+  "files": []
+}

@@ -4,7 +4,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { OpenClawKit } from '../../src/kit.ts';
 import { Engine } from '../../src/engine.ts';
 import { scratchDir } from '../../../test-support.ts';
@@ -196,7 +196,7 @@ test('API-key activation seals a sibling store; normal selection and stores rema
     assert.deepEqual(after.config.auth?.order, before.config.auth?.order, 'global order never changes');
     const { execFileSync } = await import('node:child_process');
     const { pathToFileURL } = await import('node:url');
-    const sdk = pathToFileURL(join(engineDir, 'node_modules/openclaw/dist/plugin-sdk/provider-auth.js')).href;
+    const sdk = pathToFileURL(join(dirname(kit.doctorContext().entry), 'dist/plugin-sdk/provider-auth.js')).href;
     // A read-only transaction on each exact agent store; report metadata only, never credential values.
     const code = `const {updateAuthProfileStoreWithLock}=await import(${JSON.stringify(sdk)});
       const result={};for(const id of ['m1','m2','byokit-key-m1']) {

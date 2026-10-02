@@ -195,7 +195,7 @@ export class AuthStore {
     removeMarker(this.restoring);
   }
   async archives(): Promise<void> {
-    const ignored = new Set([resolve(this.o.engineDir), ...['npm-cache', 'install-home', 'tmp', 'plugin', 'workspaces'].map((d) => resolve(this.o.root, d))]);
+    const ignored = new Set([resolve(this.o.engineDir), resolve(`${this.o.engineDir}.sets`), ...['npm-cache', 'install-home', 'tmp', 'plugin', 'workspaces'].map((d) => resolve(this.o.root, d))]);
     const walk = async (dir: string): Promise<void> => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const path = join(dir, entry.name);

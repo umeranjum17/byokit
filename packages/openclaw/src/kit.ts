@@ -513,9 +513,15 @@ export class OpenClawKit {
     slot.bridge = this.bridge;
   }
 
-  private setState(s: KitState): void { this.current = s; this.o.onState?.(s); }
+  private setState(s: KitState): void {
+    this.current = { ...s, ...(this.engine.patchSet !== undefined ? { patchSet: this.engine.patchSet } : {}) };
+    this.o.onState?.(this.current);
+  }
   get state(): KitState { return this.current; }
-  prepare(): Promise<void> { return this.engine.prepare(); }
+  async prepare(): Promise<void> {
+    await this.engine.prepare();
+    if (this.engine.patchSet !== undefined) this.setState(this.current);
+  }
 
   start(): Promise<void> {
     if (this.current.phase === 'ready') return Promise.resolve();
@@ -555,12 +561,14 @@ export class OpenClawKit {
       await this.approvalsCtl.resync();
     } catch (error) {
       const needsUpdate = this.current.phase === 'needs-update';
+      const patchFailure = this.current.why === 'engine-patch';
       if (transport && this.transport === transport) await this.disconnect();
       await this.engine.stop();
       if (error instanceof Error && 'code' in error && error.code === 'engine-already-running') {
         this.setState({ phase: 'failed', why: 'engine-already-running' });
         throw error;
       }
+      if (patchFailure) { this.setState({ phase: 'failed', why: 'engine-patch' }); throw error; }
       if (needsUpdate) this.setState({ phase: 'needs-update', why: 'version' });
       if (!needsUpdate && !this.stopping) this.setState({ phase: 'failed', why: 'handshake' });
       throw error;

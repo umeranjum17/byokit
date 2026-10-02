@@ -25,6 +25,25 @@ under your `stateDir` (a few minutes, needs the network once), and later starts 
 phone page that pairs, signs in with ChatGPT, runs and answers approvals, see
 [`examples/openclaw-kit`](../../examples/openclaw-kit).
 
+## Bundled engine provenance
+
+`engine/patches.json` declares the exact upstream tarball integrity, commit, unique edits and before/after file
+hashes. The current set is empty: this packaging seam does not change restart recovery or usage accounting.
+The full upstream MIT notice ships in [engine/OPENCLAW-LICENSE](engine/OPENCLAW-LICENSE).
+
+Each `prepare()` verifies the **entire** selected engine tree, including unpatched files. The kit installs stock
+into a private temporary tree, clones verified stock for a changed set, then publishes read-only sibling trees
+under `<engineDir>.sets/`. It never patches, reinstalls or deletes the base `<engineDir>/node_modules` or any
+published set, even when a shared Gateway is running. `doctorContext().entry` points at the selected set after
+prepare; `<stateDir>/openclaw/engine-set` records that selection. `kit.state.patchSet` is its content-addressed
+patch id (`null` after a provenance failure); a refusal is `why: 'engine-patch'` with a typed error code.
+
+Rollback selects a verified stock or older set; known sets and offline clones require no registry access.
+Drift leaves the old bytes untouched and builds a replacement sibling; rebuilding stock may need the registry.
+Pre-change kits still run the untouched base install. No garbage collection: each retained set can occupy about
+889 MB on this pin (reflinks may reduce physical storage). Whole-tree verification also adds preparation I/O;
+read-only modes protect against accidental writes, not a malicious host app that owns the files.
+
 ## Quickstart
 
 Start the engine, add a member, sign them in with a subscription, run a message (typechecked; running it installs
@@ -403,6 +422,6 @@ frozen (docs/runtime-kits.md §5).
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](../../NOTICE).
+Apache-2.0. See [LICENSE](LICENSE); the bundled engine's MIT text is [engine/OPENCLAW-LICENSE](engine/OPENCLAW-LICENSE).
 
 Claude: `anthropic-cli` uses your own unmodified Claude Code login on this machine (provider `claude-cli`, plugin `anthropic`; subscription billing), with login kept in Claude Code under the kit’s isolated `HOME=<stateDir>/openclaw/home` and `CLAUDE_CONFIG_DIR=<stateDir>/openclaw/home/.claude`; sign in there with `claude auth login`, then call `signIn`. Activation live-tests the route; native sign-out is through Claude Code. `apiKey` is explicit API billing (“API key (billed per use)”, `offer: false`): `signIn` asks for the key through `paste`, then engine activation verifies it. The kit never imports Claude credentials or implements direct Claude.ai OAuth; [Anthropic’s terms](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use) apply.
