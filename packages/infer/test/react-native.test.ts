@@ -13,7 +13,7 @@ test('the main entry bundles for React Native with nothing from Node and never t
         const bytes = new Uint8Array([71, 71, 85, 70]);
         const m = { ...model(), bytes: 4, sha256: 'b21c6d3dcc5c08ba2b0b8ac9e2b0a26fd4c7f6e5d7e0c86b0d1c7c0e44a8a2b0' };
         const store = { path: () => '/m.gguf', size: async () => 4, download: async () => {}, sha256: async () => m.sha256, remove: async () => {} };
-        const local = new LocalModel({ model: m, store, initLlama: fakeLlama({ reply: () => JSON.stringify({ enough: true, lines: ['Tests are running.'] }) }).initLlama });
+        const local = new LocalModel({ model: m, store, initLlama: fakeLlama({ reply: () => JSON.stringify({ enough: true, lines: ['The accounts package is being tested.', 'The tests are running.', 'Twelve tests are done so far.'] }) }).initLlama });
         globalThis.result = summarizePane(local, ['$ npm test', 'running 42 tests in packages/accounts, 12 done so far']);`,
       resolveDir: import.meta.dirname, sourcefile: 'phone.ts',
     },
@@ -23,6 +23,6 @@ test('the main entry bundles for React Native with nothing from Node and never t
   const sandbox: any = { setTimeout, clearTimeout, AbortController, JSON, Object, Math, Date, Promise, Array, Map, String, Number, TextEncoder };
   runInNewContext(bundle.outputFiles[0].text, sandbox);
   const r = await sandbox.result;
-  assert.deepEqual({ ok: r.ok, lines: [...r.lines] }, { ok: true, lines: ['Tests are running.'] });
+  assert.deepEqual({ ok: r.ok, lines: [...r.lines] }, { ok: true, lines: ['The accounts package is being tested.', 'The tests are running.', 'Twelve tests are done so far.'] });
   assert.doesNotMatch(bundle.outputFiles[0].text, /\bfetch\(|XMLHttpRequest|WebSocket/);
 });
