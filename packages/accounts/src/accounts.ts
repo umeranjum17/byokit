@@ -438,7 +438,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    *  account; `planLabel` says it ("ChatGPT Plus"). Null when not signed in. Claude's comes from its profile, read once
    *  per sign-in with the stored access, never refreshing it; an empty plan when Claude doesn't say or the access is due. */
   async plan(member: M, provider = 'chatgpt') {
-    const key = await this.resolveKey(member, provider);
+    // Claude's label names the account respond() asks with: the primary one.
+    const key = provider === 'claude' ? 'claude' : await this.resolveKey(member, provider);
     const c = await (await this.runtime(member, key)).readCredential(this.offer(key).pi).catch(() => undefined);
     if (c?.type !== 'oauth') return null;
     if (provider !== 'claude') return planOf(c.access);
