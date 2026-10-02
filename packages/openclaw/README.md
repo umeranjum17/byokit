@@ -60,10 +60,14 @@ For a host run that may be retried after a lost connection, mint and persist an 
 that key and the same run inputs:
 
 ```ts
-const actionKey = `task:${taskId}:attempt:${attempt}:${crypto.randomUUID()}`;
-// Persist actionKey with this dispatch before calling; a new action/attempt gets a new nonce.
-const spec = { member: 'umer', sessionKey: `agent:umer:task:${taskId}`, message, idempotencyKey: actionKey };
-const end = await kit.run(spec); // reconnect retry: kit.run(spec), not a newly minted actionKey
+import type { OpenClawKit } from '@byokit/openclaw';
+
+async function dispatch(kit: OpenClawKit, taskId: string, attempt: number, message: string) {
+  const actionKey = `task:${taskId}:attempt:${attempt}:${crypto.randomUUID()}`;
+  // Persist actionKey with this dispatch before calling; a new action/attempt gets a new nonce.
+  const spec = { member: 'umer', sessionKey: `agent:umer:task:${taskId}`, message, idempotencyKey: actionKey };
+  return kit.run(spec); // reconnect retry: kit.run(spec), not another dispatch()/new actionKey
+}
 ```
 
 Omitting `idempotencyKey` preserves a fresh UUID per call. Supplied keys are non-empty strings passed unchanged.
