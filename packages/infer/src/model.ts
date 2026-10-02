@@ -108,11 +108,16 @@ export class LocalModel {
       const unsupported = this.#unsupported();
       if (unsupported) { this.#set(unsupported); throw new InferError('unsupported', 'This device cannot run the model.'); }
       const { store } = this.#o, m = this.model;
-      const have = await store.size(m) ?? 0;
-      if (have === m.bytes && await this.#hashMatches()) { this.#set({ phase: this.#ctx ? 'ready' : 'installed' }); return; }
-      if (store.freeBytes && await store.freeBytes() + Math.min(have, m.bytes) < m.bytes) {
+      try {
+        const have = await store.size(m) ?? 0;
+        if (have === m.bytes && await this.#hashMatches()) { this.#set({ phase: this.#ctx ? 'ready' : 'installed' }); return; }
+        if (store.freeBytes && await store.freeBytes() + Math.min(have, m.bytes) < m.bytes) {
+          throw new InferError('no-space', 'Not enough free space for the model.', { detail: { bytes: m.bytes } });
+        }
+      } catch (cause) {
         this.#set({ phase: 'failed', why: 'storage' });
-        throw new InferError('no-space', 'Not enough free space for the model.', { detail: { bytes: m.bytes } });
+        if (o.signal?.aborted) throw o.signal.reason;
+        throw cause instanceof InferError ? cause : new InferError('failed', 'The model storage could not be checked.', { cause });
       }
       this.#set({ phase: 'installing', received: 0, total: m.bytes });
       try {

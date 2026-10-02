@@ -1,0 +1,1 @@
+- FIX: Model-install storage checks now report a typed failure and truthful failed state when size, free-space or an existing-file hash cannot be read, instead of leaving the app looking not-installed with no usable error.
