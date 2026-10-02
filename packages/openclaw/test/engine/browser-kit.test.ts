@@ -47,7 +47,8 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
   const step = <T>(stage: string, work: () => Promise<T>, ms?: number) => boundedAwait(stage, work, emit, ms);
   emit({ kind: 'fixture-start', stockEntry: before, stateDir, protectedHandoffQualified: false });
   const model = await startModelStub([], { onCall: call => {
-    captureCapabilities(); emit({ kind: 'provider-call', call, brokerCapabilityHistory: [...capabilities.values()] });
+    const brokerBindings = captureCapabilities();
+    emit({ kind: 'provider-call', call, brokerBindings, brokerCapabilityHistory: [...capabilities.values()] });
   } });
   let child: ChildProcess | undefined;
   const requests: unknown[] = [], outputs: unknown[] = [], toolEvents: unknown[] = [], diagnostics: unknown[] = [], thumbnails: unknown[] = [], runtimeRefusals: unknown[] = [];
@@ -121,7 +122,8 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     },
   });
   const capabilities = new Map<string, { member: string; generation: number; tokenDigest: string; endpointDigest: string }>();
-  function captureCapabilities(): void {
+  function captureCapabilities() {
+    const current: { member: string; generation: number; tokenDigest: string; endpointDigest: string }[] = [];
     const host = (kit as unknown as { browserHost?: BrowserHostController }).browserHost;
     for (const member of ['ada', 'bea']) {
       const binding = host?.brokerBinding(member);
@@ -133,16 +135,18 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
       const id = new URL(binding.endpoint.cdpUrl).pathname.split('/').at(-1);
       if (id && /^[a-f0-9]{32}$/i.test(id)) { privateCapabilities.add(id); brokerControlCapabilities.add(id); }
       const tokenDigest = createHash('sha256').update(token).digest('hex');
-      capabilities.set(`${member}:${binding.generation}:${tokenDigest}`, { member, generation: binding.generation,
-        tokenDigest, endpointDigest: createHash('sha256').update(binding.endpoint.cdpUrl).digest('hex') });
+      const identity = { member, generation: binding.generation, tokenDigest,
+        endpointDigest: createHash('sha256').update(binding.endpoint.cdpUrl).digest('hex') };
+      capabilities.set(`${member}:${binding.generation}:${tokenDigest}`, identity); current.push(identity);
     }
+    return current;
   }
   const offCapabilities = kit.onEvent('byokit.browser', () => captureCapabilities());
   let snapshot = 0;
   const retain = (stage: string) => {
-    captureCapabilities();
+    const brokerBindings = captureCapabilities();
     const captures = sqliteTranscripts(join(stateDir, 'openclaw'), `${journal}.snapshots/${++snapshot}`);
-    emit({ kind: 'durable-transcripts', stage, brokerCapabilityHistory: [...capabilities.values()], captures });
+    emit({ kind: 'durable-transcripts', stage, brokerBindings, brokerCapabilityHistory: [...capabilities.values()], captures });
     return captures;
   };
   try {
