@@ -1,1 +1,0 @@
-- FIX: Host runs can reuse a caller-stable per-dispatch `idempotencyKey` after a lost connection instead of starting a second engine run. Omission keeps fresh UUIDs. Document the pinned engine's gateway-wide, bounded, in-memory cache and honest in-flight replay limits; this is not exactly-once across engine restarts.
