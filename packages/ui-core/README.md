@@ -114,6 +114,7 @@ export function useChatGptSheet() {
 | `runStore(oc)`, `runView(state, { words, name })` | One run: the reply streaming in, the tool at work, how it ended in the kit's words |
 | `approvalsStore(oc)`, `approvalWords(a, words, helper)` | The approvals waiting for a yes, live, each gone when answered or expired |
 | `herdrStore(hd)`, `herdrTreeView(tree)`, `blockedView(state)` | Herdr's agents by where they run, and the ones waiting for an answer, live |
+| `signInsStore(oc)`, `signInSheetView(request, { name, holder })`, `livePanelView(state)` | The browser sign-in sheet (sentence, buttons, chat chip) and live panel for the OpenClaw kit's handoff |
 | `useRun`, `useApprovals`, `useHerdrTree`, `useBlocked` | React hooks over those stores |
 | Types | `Phase`, `SignInView`, `AccountView`, `UseSignIn`, `Route`, `RouteChoice`, `RouteCode`, `PairPhase`, `Role`, `DeviceKind`, `LinkStatus`; `RouteKind` from `@byokit/ui-core/route` |
 
@@ -225,6 +226,10 @@ Runtime kits' state, from `@byokit/ui-core/kits` (no React), typed to fit `@byok
 - Herdr: `herdrStore(hd)` keeps the tree and the agents waiting for an answer live from one stream;
   `herdrTreeView(tree)` groups the agents by where they run, with the status the kit's `agentWords` takes;
   `blockedView(state)` names each waiting agent.
+- Browser sign-in (`@byokit/openclaw` spec 5.17): `signInsStore(oc)` keeps the requests live from sign-in pings;
+  `signInSheetView(request, { name, holder })` gives the sentence (a kit word key and its values), the buttons and the
+  chat chip, which reads "entered" until a verified sign-in; `livePanelView(state)` says when to draw frames, take
+  input, show "Reconnecting…", or ask to confirm an address the person didn't expect. Watching asks the helper nothing.
 - Each store is `{ get, subscribe }`: draw from `get()` in any UI; the first `subscribe` starts following, the last
   unsubscribe stops. `runStep`, `approvalsStep` and `herdrStep` are the reducers underneath.
 
