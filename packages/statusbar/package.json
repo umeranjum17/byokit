@@ -50,7 +50,7 @@
     }
   },
   "devDependencies": {
-    "expo-modules-core": "57.0.19"
+    "expo-modules-core": "57.0.20"
   },
   "publishConfig": {
     "access": "public"

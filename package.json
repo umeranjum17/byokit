@@ -24,14 +24,14 @@
     "gen:openclaw": "node packages/openclaw/scripts/gen-methods.ts"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
+    "@types/node": "^26.6.3",
     "@types/ws": "^8.18.1",
     "esbuild": "0.28.2",
     "json-schema-to-typescript": "16.0.0",
     "jsqr": "1.4.0",
     "playwright": "^1.63.0",
     "tweetnacl": "1.0.3",
-    "typescript": "^5.9.0",
+    "typescript": "^7.0.2",
     "ws": "^8.21.3"
   }
 }
