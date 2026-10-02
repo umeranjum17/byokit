@@ -189,19 +189,7 @@ also selects the first matching named provider route. Keys go only to the member
 `keyStore`. The credential record holds a non-secret marker; `.accounts.accounts` holds route/billing metadata.
 No environment, other program's login, default CLI account or credential file is consulted.
 
-```ts
-import { Accounts, type Model } from '@byokit/accounts';
-import type { Keystore } from '@byokit/secrets';
-
-export async function askWithKey(keyStore: (member: number) => Keystore,
-  model: Model<'openai-completions'>, key: string) {
-  const accounts = new Accounts({ keyStore });
-  const { id } = await accounts.add(1, 'groq:key', { via: 'key', key }); // API key (billed per use), explicitly selected
-  return accounts.respond(1, { account: id, model, context: {
-    messages: [{ role: 'user', content: 'Hello', timestamp: Date.now() }],
-  }, options: { temperature: 0.2 } });
-}
-```
+See the [typed key-route example](#typed-key-route-example) below.
 
 `respondKey` (or the `respond` overload above) accepts the full typed pinned Pi `Model`, `Context` and
 `ModelsApiStreamOptions`, returning its `AssistantMessage` with usage and tool/thinking content.
@@ -921,3 +909,19 @@ unchanged: Pi drops reserved `authorization`, `host`, `x-amz-*`; the forwarder d
 Native parameters, tools, events, usage, hooks and retry settings still use the stock adapter. No live endpoint or
 vendor qualification is claimed. Browser/RN cloud operations return `unsupported_platform` before credential access;
 plans never fall back to a cloud/API account.
+
+### Typed key-route example
+
+```ts
+import { Accounts, type Model } from '@byokit/accounts';
+import type { Keystore } from '@byokit/secrets';
+
+export async function askWithKey(keyStore: (member: number) => Keystore,
+  model: Model<'openai-completions'>, key: string) {
+  const accounts = new Accounts({ keyStore });
+  const { id } = await accounts.add(1, 'groq:key', { via: 'key', key }); // API key (billed per use), explicitly selected
+  return accounts.respond(1, { account: id, model, context: {
+    messages: [{ role: 'user', content: 'Hello', timestamp: Date.now() }],
+  }, options: { temperature: 0.2 } });
+}
+```
