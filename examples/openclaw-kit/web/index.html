@@ -50,6 +50,16 @@
   .reply:empty { display: none; }
   .row { display: flex; gap: .5rem; }
   .row button { flex: 1; }
+  .signin { border-color: var(--accent); margin-bottom: .75rem; }
+  .signin-title { font-weight: 700; font-size: 1.15rem; }
+  .origin { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9rem; overflow-wrap: anywhere; color: var(--soft); }
+  blockquote { margin: .5rem 0; padding-left: .75rem; border-left: 3px solid var(--line); color: var(--soft); }
+  .signin .choices { grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr)); }
+  .signin .choices .primary { margin-top: 0; }
+  .chip { display: inline-block; margin-top: .5rem; padding: .25rem .6rem; border-radius: 999px; background: var(--reply); font-size: .9rem; }
+  .chip.verified { background: var(--accent); color: var(--on-accent); }
+  .live { display: block; width: 100%; aspect-ratio: 16 / 10; background: var(--reply); border-radius: 10px; touch-action: none; }
+  .live.dim { opacity: .35; }
   [hidden] { display: none !important; }
   @media (prefers-reduced-motion: no-preference) { button { transition: background-color .15s, border-color .15s; } }
 </style>
@@ -93,6 +103,16 @@
       <ul id="approvals" aria-live="polite"></ul>
     </section>
 
+    <section id="signins-box" hidden aria-labelledby="signins-heading">
+      <h2 id="signins-heading">Sign in for your helper</h2>
+      <ul id="signins" aria-live="polite"></ul>
+    </section>
+
+    <section id="live-box" hidden aria-labelledby="live-heading">
+      <h2 id="live-heading">Your helper's browser</h2>
+      <div id="live" class="card"></div>
+    </section>
+
     <section id="talk" hidden aria-labelledby="talk-heading">
       <h2 id="talk-heading">Talk to it</h2>
       <div class="card">
@@ -106,6 +126,7 @@
         </form>
         <p id="tool" class="status" role="status"></p>
         <div id="reply" class="reply" aria-live="polite"></div>
+        <div id="chips"></div>
         <p id="run-said" class="error" role="alert"></p>
       </div>
       <button id="signout" class="quiet" style="margin-top:1rem">Sign out of ChatGPT</button>
