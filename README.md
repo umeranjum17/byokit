@@ -57,6 +57,7 @@ latest first, so neither goes stale.
 | `@byokit/cloud` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
 | `@byokit/share` | build from source (private pending qualification) | in qualification | — |
 | `@byokit/statusbar` | `npm install @byokit/statusbar` (from its first release; until then build from source) | ready to publish | [statusbar-v releases](https://github.com/umeranjum17/byokit/releases?q=statusbar-v) |
+| `@byokit/signaling` | not on npm (private until release) | bridge WebSocket signaling | [all releases](https://github.com/umeranjum17/byokit/releases) |
 | `@byokit/push` | not on npm (private) — build from source | native pre-display sealed notices | [all releases](https://github.com/umeranjum17/byokit/releases) |
 | `@byokit/dictation` | `npm install @byokit/dictation` (from its first release; until then build from source) | ready to publish | [dictation-v releases](https://github.com/umeranjum17/byokit/releases?q=dictation-v) |
 | `@byokit/usage` | `npm install @byokit/usage` | 0.1.0 | [all releases](https://github.com/umeranjum17/byokit/releases) |
@@ -129,6 +130,7 @@ to ask. Each agent keeps its own subscription sign-in; the kit never sees a cred
 |---|---|---|
 | [`@byokit/accounts`](packages/accounts) | Sign in with the AI plan you already pay for, into your app's own store; limits, refresh, plain words. Node, Electron, browsers and PWAs, React Native on iOS and Android | [![npm](https://img.shields.io/npm/v/@byokit/accounts?style=flat&label=)](https://www.npmjs.com/package/@byokit/accounts) |
 | [`@byokit/ui-core`](packages/ui-core) | Headless sign-in and pairing state for any UI (React, React Native, or none): phases, QR, consent, link words, route labels | [![npm](https://img.shields.io/npm/v/@byokit/ui-core?style=flat&label=)](https://www.npmjs.com/package/@byokit/ui-core) |
+| [`@byokit/signaling`](packages/signaling) | Portable bridge WebSocket requests, typed session events and fresh authorization sockets | ready for first release |
 | [`@byokit/seal`](packages/seal) | Portable NaCl-compatible box and secretbox for data at rest, plus Ed25519 signatures | [![npm](https://img.shields.io/npm/v/@byokit/seal?style=flat&label=)](https://www.npmjs.com/package/@byokit/seal) |
 | [`@byokit/connect`](packages/connect) | Per-person third-party sign-in with PKCE, refresh and typed remote MCP; host-supplied keystore and redirects | ready to publish |
 | [`@byokit/secrets`](packages/secrets) | One secret per name: OS keyring, sealed file, phone SecureStore, encrypted web storage or CI override ([spec](docs/capability-kits.md)) | ready for first release |

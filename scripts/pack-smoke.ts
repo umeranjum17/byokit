@@ -109,7 +109,7 @@ function main(): void {
     const tgzPaths = entries.map((e) => join(tgzDir, e.filename));
     sh(
       "npm",
-      ["install", "--no-audit", "--no-fund", ...tgzPaths, `typescript@${tsVersion.version}`, "@types/node@22"],
+      ["install", "--no-audit", "--no-fund", ...tgzPaths, `typescript@${tsVersion.version}`, "@types/node@22", "ws@8.21.3"],
       appDir,
     );
     // The writing engine must arrive from npm with the packed kit and answer through its default loader.
@@ -128,6 +128,37 @@ assert.equal(check.length, 'Umer shipped the first version today.'.length);
     } catch (err) {
       fail("@byokit/write [npm engine]", (err as Error).message);
     }
+    // The portable bridge adapter must work through the installed export, not a workspace source alias.
+    writeFileSync(join(appDir, "signaling.mjs"), `
+import assert from 'node:assert/strict';
+import { WebSocketServer } from 'ws';
+import { authorizeBridge } from '@byokit/signaling';
+const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+await new Promise(resolve => server.once('listening', resolve));
+let connections = 0;
+server.on('connection', socket => {
+  connections++;
+  socket.on('message', raw => {
+    const { id, method, params } = JSON.parse(String(raw));
+    socket.send(JSON.stringify({ id, result: { method, params } }));
+  });
+});
+const authorize = authorizeBridge('ws://127.0.0.1:' + server.address().port, { permissions: ['view'] });
+try {
+  const first = await authorize();
+  assert.deepEqual(await first.signaling.request('hello', { protocol: 3 }), { method: 'hello', params: { protocol: 3 } });
+  const second = await authorize();
+  await assert.rejects(first.signaling.request('hello'), { code: 'closed' });
+  await second.signaling.request('capabilities');
+  assert.equal(connections, 2);
+} finally {
+  authorize.close();
+  for (const socket of server.clients) socket.terminate();
+  await new Promise(resolve => server.close(resolve));
+}
+`);
+    try { sh("node", ["signaling.mjs"], appDir); pass("@byokit/signaling [mock bridge]"); }
+    catch (err) { fail("@byokit/signaling [mock bridge]", (err as Error).message); }
     // Hosted MCP must run with the packed exports and its SDK dependency, outside the workspace.
     writeFileSync(join(appDir, "mcp.mjs"), `
 import assert from 'node:assert/strict';

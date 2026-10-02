@@ -1,0 +1,34 @@
+{
+  "name": "@byokit/signaling",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WebRTC session signaling over a bridge WebSocket: correlated requests, typed session events and a fresh socket per authorization. No dependencies; Node 22+, browsers and React Native.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umeranjum17/byokit.git",
+    "directory": "packages/signaling"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "prepack": "tsc -b"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
