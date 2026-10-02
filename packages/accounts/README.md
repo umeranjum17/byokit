@@ -932,8 +932,10 @@ Portable key loaders lazily use `src/pi/` (published as `dist/pi/`), a determini
 **unmodified** published Pi pin, not another inference engine. Node keeps using the published Pi modules.
 After installing the exact pins, regenerate with `node scripts/gen-accounts-pi.ts`; a pin change also requires
 verified registry provenance. Esbuild’s standard dynamic-import lowering is the sole transform; the four
-SDK dependencies remain external at Pi’s exact pins. `PROVENANCE.json`, source-content maps, published-type
-re-exports and [NOTICE](NOTICE) travel with the artifact. Build and prepack copy it into `dist/pi/`.
+SDK dependencies remain external at Pi’s exact pins. Exact MCP SDK and `undici-types` dependencies close
+Google’s published declaration imports, including strict nested consumers; neither adds an inference path.
+`PROVENANCE.json`, source-content maps, published-type re-exports and [NOTICE](NOTICE) travel with the
+artifact. Build and prepack copy it into `dist/pi/`.
 
 Portable requests always give Pi Models an explicit empty auth context. Never replace that with default
 auth discovery: the lowered unresolved require is fatal if reached under Metro. `createProvider` has no

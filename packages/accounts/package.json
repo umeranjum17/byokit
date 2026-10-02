@@ -58,7 +58,9 @@
     "openai": "6.40.0",
     "@anthropic-ai/sdk": "0.124.0",
     "@google/genai": "2.21.0",
-    "partial-json": "0.1.7"
+    "partial-json": "0.1.7",
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "undici-types": "7.16.0"
   },
   "publishConfig": {
     "access": "public"
