@@ -58,6 +58,6 @@
     "access": "public"
   },
   "dependencies": {
-    "@byokit/seal": "0.2.0"
+    "@byokit/seal": "0.3.0"
   }
 }
