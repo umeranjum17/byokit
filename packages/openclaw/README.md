@@ -291,6 +291,8 @@ Entries:
 If your app requeues interrupted tasks itself, declare their namespaces **before starting the kit**:
 
 ```ts
+import { OpenClawKit } from '@byokit/openclaw';
+
 const kit = new OpenClawKit({
   stateDir: './openclaw-state',
   appOwnedSessions: { keyPrefixes: ['agent:m1:crewhouse:'] },
