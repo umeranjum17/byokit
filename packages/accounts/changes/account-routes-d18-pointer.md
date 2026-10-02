@@ -1,0 +1,1 @@
+- The README points to the shared account-route vocabulary (D18) for the planned route table; the shipped catalogue is unchanged.
