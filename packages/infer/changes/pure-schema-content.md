@@ -1,1 +1,1 @@
-- FIX: Structured native generation requests use stock llama.rn's pure-content mode so schema grammar produces direct JSON rather than assistant headers/code fences. Strict summary validation is unchanged; wrapped, malformed and cut-off output still cannot become a summary.
+- FIX: Pane summaries accept only the expected leading assistant header and whole enclosing JSON markdown fence before strict JSON/body/line validation. Insufficient output stays insufficient; trailing garbage and malformed output are rejected. The failed pure-content native option is not used.

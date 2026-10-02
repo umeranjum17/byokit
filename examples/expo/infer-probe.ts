@@ -8,7 +8,19 @@ export function completionProbe(init: InitLlama, record: (entry: Record<string, 
     ctx.completion = async (options, onToken) => {
       await record({ kind: 'request', options });
       const started = Date.now();
-      const result = await completion(options, onToken);
+      let result: LlamaRnCompletionResult;
+      try { result = await completion(options, onToken); }
+      catch (cause) {
+        const error = cause && typeof cause === 'object' ? cause as Record<string, unknown> : {};
+        const bounded = (value: unknown, max: number) => typeof value === 'string' ? value.slice(0, max) : undefined;
+        // Fixed synthetic lab only; before LocalModel replaces this with its safe public InferError.
+        try { await record({ kind: 'rejection', elapsedMs: Date.now() - started, name: bounded(error.name, 128),
+          message: bounded(error.message ?? cause, 4096), stack: bounded(error.stack, 8192), code: bounded(error.code, 128),
+          truncated: [[error.name, 128], [error.message ?? cause, 4096], [error.stack, 8192], [error.code, 128]]
+            .some(([value, max]) => typeof value === 'string' && value.length > Number(max)) }); }
+        catch { /* The observer must never replace the original native rejection. */ }
+        throw cause;
+      }
       const native = result as LlamaRnCompletionResult & { timings?: unknown; chat_format?: number };
       await record({ kind: 'result', elapsedMs: Date.now() - started, text: native.text, content: native.content,
         adapterText: native.content || native.text, tokens_evaluated: native.tokens_evaluated, tokens_predicted: native.tokens_predicted,
