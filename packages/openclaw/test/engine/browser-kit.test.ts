@@ -15,6 +15,7 @@ import type { BrowserHostController } from '../../src/browser/host.ts';
 import { gatewayTransport } from '../../src/transport.ts';
 import { startModelStub } from '../../src/testing/model-stub.ts';
 import { trackChild } from '../../../test-support.ts';
+import { scanCapabilities } from './privacy-evidence.ts';
 
 const entry = process.env.BYOKIT_BROWSER_STOCK_ENTRY;
 const executable = process.env.BYOKIT_TEST_CHROMIUM ?? chromium.executablePath();
@@ -41,6 +42,8 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
   const model = await startModelStub();
   let child: ChildProcess | undefined;
   const requests: unknown[] = [], outputs: unknown[] = [], toolEvents: unknown[] = [], diagnostics: unknown[] = [], thumbnails: unknown[] = [], runtimeRefusals: unknown[] = [];
+  const privacyChecks: { scope: string; checked: number; matches: string[] }[] = [];
+  const privateCapabilities = new Set<string>();
   const observationOnly = !!process.env.BYOKIT_BROWSER_POLICY_OBSERVE;
   const counterfactual = process.env.BYOKIT_BROWSER_POLICY_OBSERVE === 'counterfactual';
   const site = createServer((req, res) => {
@@ -105,6 +108,9 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
       if (!binding) continue;
       const token = new URL(binding.endpoint.cdpUrl).searchParams.get('token');
       if (!token) throw new Error('owned broker binding has no token');
+      privateCapabilities.add(token); privateCapabilities.add(binding.endpoint.cdpUrl);
+      const id = new URL(binding.endpoint.cdpUrl).pathname.split('/').at(-1);
+      if (id && /^[a-f0-9]{32}$/i.test(id)) privateCapabilities.add(id);
       const tokenDigest = createHash('sha256').update(token).digest('hex');
       capabilities.set(`${member}:${binding.generation}:${tokenDigest}`, { member, generation: binding.generation,
         tokenDigest, endpointDigest: createHash('sha256').update(binding.endpoint.cdpUrl).digest('hex') });
@@ -192,6 +198,16 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     } finally { await decoder.close(); live.close(); }
     assert.equal(model.calls.length, count, 'concurrent live view and thumbnail make no model/tool submission');
     await assert.rejects(kit.patchConfig({ agents: { entries: { bea: { tools: { allow: ['exec'] } } } } }), /browser tool policy refused/);
+    // A positive tool-result control prevents a vacuous pass from missing/empty provider evidence.
+    for (const member of ['ada', 'bea']) assert.ok(model.calls.some(call => call.body.messages?.some((message: any) =>
+      message.role === 'tool' && JSON.stringify(message.content).includes(`${origin}/${member}`))),
+      `full provider body retains ${member}'s public tool-result URL`);
+    for (const [scope, value] of [['full-provider-bodies', model.calls], ['display-events-only', toolEvents],
+      ['final-output-only', outputs]] as const) {
+      const check = { scope, ...scanCapabilities(value, privateCapabilities) };
+      privacyChecks.push(check);
+      assert.equal(check.matches.length, 0, `${scope}: raw capability digest matches; see private receipt`);
+    }
     t.diagnostic(`stock=${before}; fixture positive model requests=${count}; live frames=${frames}; handoff-unprotected; distinct pinned profiles=2`);
   } finally {
     // Retain actual loopback provider bodies and authoritative broker-token digests before owned cleanup.
@@ -217,7 +233,7 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     const receipt = { engine: '2026.8.1', upstreamCommit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b', stockEntry: before,
       shippedPlugin: hash(new URL('../../plugin/index.js', import.meta.url).pathname), requests, outputs, toolEvents,
       providerRequests: model.calls.length, modelCalls: model.calls, brokerTokenDigests: brokerTokens,
-      brokerCapabilityHistory: [...capabilities.values()],
+      brokerCapabilityHistory: [...capabilities.values()], privacyChecks,
       protectedHandoffQualified: false, observationOnly, counterfactual, diagnostics, thumbnails, runtimeRefusals,
       candidateSources: Object.fromEntries(['kit.ts', 'config.ts', 'browser/host.ts', 'browser/broker.ts'].map(path =>
         [path, hash(new URL(`../../src/${path}`, import.meta.url).pathname)])),

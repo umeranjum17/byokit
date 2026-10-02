@@ -8,27 +8,30 @@ import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Bridge, writePlugin } from '../src/bridge.ts';
 import type { GateResult, RunRef } from '../src/types.ts';
+import { browserSessionMayRun } from '../src/config.ts';
+import type { NeedSignIn, ResumeState } from '../src/browser.ts';
 
 const shipped = fileURLToPath(new URL('../plugin/index.js', import.meta.url));
 const tools = [{ name: 'crew_x', description: 'An app tool.', parameters: { type: 'object' } }];
 
 type Hook = (event: { toolName: string; params?: Record<string, unknown> }, ctx: { sessionKey?: string }) => Promise<unknown>;
+type Middleware = (event: { result: any }, ctx?: { sessionKey?: string; runId?: string }) => Promise<{ result: any }>;
 
 async function withPlugin(
-  o: { gateBuiltins: boolean; browser?: boolean; capabilities?: string[]; modelAllowed?: boolean; gate: (tool: string, info: { builtin: boolean }) => GateResult },
+  o: { gateBuiltins: boolean; browser?: boolean; capabilities?: string[]; modelAllowed?: boolean; admission?: (key: string, runId?: string) => boolean; gate: (tool: string, info: { builtin: boolean }) => GateResult },
   fn: (hook: Hook, seen: { gated: [string, { builtin: boolean }][]; called: string[];
-    middleware?: (event: { result: any }) => Promise<{ result: any }>; persist?: (event: { message: any }) => { message: any } }) => Promise<void>,
+    middleware?: Middleware; persist?: (event: { message: any }) => { message: any } }) => Promise<void>,
 ): Promise<void> {
   const dir = scratchDir('plugin');
   const seen: { gated: [string, { builtin: boolean }][]; called: string[];
-    middleware?: (event: { result: any }) => Promise<{ result: any }>; persist?: (event: { message: any }) => { message: any } }
+    middleware?: Middleware; persist?: (event: { message: any }) => { message: any } }
     = { gated: [], called: [] };
   copyFileSync(shipped, join(dir, 'index.js'));
   copyFileSync(new URL('../plugin/keys.js', import.meta.url), join(dir, 'keys.js'));
   writePlugin(dir, { id: 'byokit', tools, paramPrefix: '__byokit', gateBuiltins: o.gateBuiltins, browser: o.browser });
   const bridge = new Bridge({
     path: join(dir, 'bridge.sock'),
-    ...(o.browser ? { browserCapabilities: () => o.capabilities ?? [], beforeAgentRun: async () => o.modelAllowed !== false } : {}),
+    ...(o.browser ? { browserCapabilities: () => o.capabilities ?? [], beforeAgentRun: async (key, runId) => o.admission ? o.admission(key, runId) : o.modelAllowed !== false } : {}),
     tools: new Set(tools.map((t) => t.name)),
     host: {
       gate: async (_run: RunRef, tool: string, _input: Record<string, unknown>, info: { builtin: boolean }) => {
@@ -52,7 +55,7 @@ async function withPlugin(
     let hook: Hook | undefined;
     plugin.register({ registerTool: () => {}, registerAgentToolResultMiddleware: (fn: typeof seen.middleware, options: unknown) => {
       assert.deepEqual(options, { runtimes: ['openclaw', 'codex'] });
-      seen.middleware = event => (fn as any)(event, { sessionKey: 'agent:m1:x', runId: 'source-fixture' });
+      seen.middleware = (event, ctx = { sessionKey: 'agent:m1:x', runId: 'source-fixture' }) => (fn as any)(event, ctx);
     }, on: (name: string, fn: any) => {
       if (name === 'before_tool_call') hook = fn;
       if (name === 'tool_result_persist') seen.persist = fn;
@@ -100,6 +103,49 @@ test('an invalid capability snapshot terminates rather than falling back to the 
     assert.equal(result.terminate, true);
     assert.ok(!JSON.stringify(result).includes('SYNTHETIC_RAW_RESULT'));
   }));
+
+test('source matrix: held/parked and recovered records stop private outputs while unrelated sessions remain usable', async () => {
+  const key = 'agent:m1:x';
+  let policyReady = true;
+  let row = { sessionKey: key, state: 'waiting' } as NeedSignIn;
+  const options = { gateBuiltins: true, browser: true, capabilities: ['GENERATION_ONE_SYNTHETIC_TOKEN'],
+    admission: (session: string) => policyReady && browserSessionMayRun([row], session),
+    gate: (): GateResult => ({ allow: true }) };
+  await withPlugin(options, async (_hook, seen) => {
+    assert.ok(seen.middleware);
+    const secret = { content: [{ type: 'text', text: 'PRIVATE_COOKIE PRIVATE_PAGE PRIVATE_PROFILE PRIVATE_TARGET PRIVATE_LEASE' }],
+      details: { privateCookie: 'PRIVATE_COOKIE' } };
+    for (const state of ['waiting', 'held', 'checking', 'parked'] as const) {
+      row = { sessionKey: key, state } as NeedSignIn;
+      const stopped: any = (await seen.middleware({ result: secret })).result;
+      assert.equal(stopped.terminate, true, state);
+      assert.ok(!JSON.stringify(stopped).includes('PRIVATE_'), state);
+      const publicResult = (await seen.middleware({ result: { content: [{ type: 'text', text: 'PUBLIC_UNRELATED_SESSION' }] } },
+        { sessionKey: 'agent:other:fixture', runId: 'unrelated' })).result;
+      assert.ok(publicResult.content[0].text.includes('PUBLIC_UNRELATED_SESSION'));
+      assert.notEqual(publicResult.terminate, true);
+    }
+    for (const state of ['pending', 'accepted', 'submitted', 'indeterminate', 'failed'] as ResumeState['state'][]) {
+      // Restored state representation only: this is NOT a process restart or resume dispatch observation.
+      row = { sessionKey: key, state: 'settled', settled: { resume: { state } } } as NeedSignIn;
+      for (const runId of [undefined, 'foreign', 'previous-engine-request']) {
+        const stopped: any = (await seen.middleware({ result: secret }, { sessionKey: key, runId })).result;
+        assert.equal(stopped.terminate, true, `recovered ${state}/${runId}`);
+        assert.ok(!JSON.stringify(stopped).includes('PRIVATE_'));
+      }
+    }
+    row = { sessionKey: key, state: 'settled' } as NeedSignIn;
+    policyReady = false;
+    assert.equal((await seen.middleware({ result: secret })).result.terminate, true, 'recovering/unacknowledged policy');
+    policyReady = true;
+    options.capabilities.push('GENERATION_TWO_SYNTHETIC_TOKEN');
+    const afterRotation = (await seen.middleware({ result: { content: [{ type: 'text',
+      text: 'GENERATION_ONE_SYNTHETIC_TOKEN GENERATION_TWO_SYNTHETIC_TOKEN PUBLIC_ROTATED_RESULT' }] } })).result;
+    assert.ok(!JSON.stringify(afterRotation).includes('SYNTHETIC_TOKEN'));
+    assert.ok(afterRotation.content[0].text.includes('PUBLIC_ROTATED_RESULT'));
+    assert.notEqual(afterRotation.terminate, true);
+  });
+});
 
 test('a builtin tool the app never registered is gated and blocked by host.gate', async () =>
   withPlugin({ gateBuiltins: true, gate: () => ({ allow: false, reason: 'no fetching' }) }, async (hook, seen) => {

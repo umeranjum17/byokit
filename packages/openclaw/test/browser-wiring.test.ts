@@ -8,8 +8,22 @@ import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import { Bridge } from '../src/bridge.ts';
 import type { NeedSignIn, ResumeState } from '../src/browser.ts';
 import { scratchDir } from '../../test-support.ts';
+import { scanCapabilities } from './engine/privacy-evidence.ts';
 
 const safe = { tools: { allow: ['browser', 'request_sign_in', 'crew_x'] } };
+test('privacy byte scanner needs real evidence and catches nested/current/prior generation capabilities', () => {
+  const capabilities = new Set(['SYNTHETIC_OLD_TOKEN', 'SYNTHETIC_NEW_TOKEN']);
+  assert.deepEqual(scanCapabilities({ messages: [{ role: 'tool', content: 'PUBLIC_CONTROL' }] }, capabilities),
+    { checked: 2, matches: [] });
+  const negative = scanCapabilities({ messages: [{ content: { nested: 'SYNTHETIC_OLD_TOKEN SYNTHETIC_NEW_TOKEN' } }] }, capabilities);
+  assert.equal(negative.matches.length, 2);
+  assert.ok(negative.matches.every(value => /^[a-f0-9]{64}$/.test(value)), 'diagnostics retain digests, never raw capabilities');
+  assert.equal(scanCapabilities({ SYNTHETIC_OLD_TOKEN: 'value' }, capabilities).matches.length, 1);
+  assert.throws(() => scanCapabilities(undefined, capabilities), /evidence unavailable/);
+  assert.throws(() => scanCapabilities({}, new Set()), /evidence unavailable/);
+  assert.throws(() => scanCapabilities({}, new Set([''])), /evidence unavailable/);
+});
+
 test('all-agent precondition is closed across defaults, account agents, delegates, providers and unknown tools', () => {
   assert.equal(browserToolPolicySafe(safe, ['crew_x']), true);
   for (const config of [{}, { tools: { deny: ['group:fs', 'group:runtime'] } },
