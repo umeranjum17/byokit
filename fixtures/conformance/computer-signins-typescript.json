@@ -11,6 +11,7 @@
   },
   "token": { "access_token": "access-secret-canary", "refresh_token": "refresh-secret-canary", "expires_in": 3600 },
   "apiKey": "api-key-secret-canary",
+  "setupToken": "setup-token-secret-canary",
   "devices": [
     { "key": "kimi", "provider": "kimi-coding", "start": "https://auth.kimi.com/api/oauth/device_authorization", "poll": "https://auth.kimi.com/api/oauth/token", "clientId": "17e5f671-d194-4dfb-9706-5516cb48c098" },
     { "key": "meta", "provider": "meta", "start": "https://auth.meta.com/oidc/device/authorization/", "poll": "https://auth.meta.com/oidc/device/token/", "clientId": "1031625952748946" }

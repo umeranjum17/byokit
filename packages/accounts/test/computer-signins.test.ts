@@ -1,4 +1,4 @@
-import { test, type TestContext } from 'node:test';
+import { test, after, mock, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import http, { type Server } from 'node:http';
 import { syncBuiltinESMExports } from 'node:module';
@@ -11,7 +11,7 @@ import { Accounts as Portable } from '../src/portable.ts';
 
 const realFetch = globalThis.fetch;
 const flush = async () => { for (let n = 0; n < 8; n++) await setImmediate(); };
-const canaries = /device-secret-canary|access-secret-canary|refresh-secret-canary|api-key-secret-canary/;
+const canaries = /device-secret-canary|access-secret-canary|refresh-secret-canary|api-key-secret-canary|setup-token-secret-canary/;
 function keys() {
   const values = new Map<string, string>();
   const store: Keystore = {
@@ -30,20 +30,31 @@ function offline(t: TestContext, respond: (url: string, init?: RequestInit) => R
 
 /** Only the fixture listener changes: SDK source and registered redirect URI stay intact. Never bind
  *  its fixed product ports, even when another app owns them. Each listener uses an OS-assigned port. */
-function callbacks(t: TestContext) {
-  const create = http.createServer;
+// Anthropic caches the imported factory. Keep one factory for this isolated test process and
+// switch only the current fixture context, rather than leaving an SDK cache with a stale mock.
+let callbackContext: { listeners: Map<number, Server>; busyPort?: number };
+const create = http.createServer;
+const mockedCreate = mock.method(http, 'createServer', (...args: any[]) => {
+  const context = callbackContext;
+  assert.ok(context, 'a callback fixture must own every listener');
+  const server = create(...args);
+  const listen = server.listen.bind(server);
+  server.listen = ((port: number, host: string, done: () => void) => {
+    context.listeners.set(port, server);
+    if (port === context.busyPort) {
+      queueMicrotask(() => server.emit('error', Object.assign(new Error('fixture port unavailable'), { code: 'EADDRINUSE' })));
+      return server;
+    }
+    return listen(0, '127.0.0.1', done);
+  }) as typeof server.listen;
+  return server;
+});
+syncBuiltinESMExports();
+after(() => { mockedCreate.mock.restore(); syncBuiltinESMExports(); });
+function callbacks(t: TestContext, busyPort?: number) {
   const listeners = new Map<number, Server>();
-  const mocked = t.mock.method(http, 'createServer', (...args: any[]) => {
-    const server = create(...args);
-    const listen = server.listen.bind(server);
-    server.listen = ((port: number, host: string, done: () => void) => {
-      listeners.set(port, server);
-      return listen(0, '127.0.0.1', done);
-    }) as typeof server.listen;
-    return server;
-  });
-  syncBuiltinESMExports();
-  t.after(() => { for (const server of listeners.values()) server.close(); mocked.mock.restore(); syncBuiltinESMExports(); });
+  callbackContext = { listeners, busyPort };
+  t.after(() => { for (const server of listeners.values()) server.close(); });
   return {
     async back(registeredPort: number, path: string) {
       const server = listeners.get(registeredPort);
@@ -63,6 +74,10 @@ for (const device of fixture.devices) {
     offline(t, (url, init) => {
       const body = new URLSearchParams(String(init?.body));
       if (url === device.start) { assert.equal(body.get('client_id'), device.clientId); return Response.json(fixture.device); }
+      if (url === device.poll && body.get('grant_type') === 'refresh_token') {
+        assert.equal(body.get('refresh_token'), fixture.token.refresh_token);
+        return Response.json({ ...fixture.token, refresh_token: `${fixture.token.refresh_token}-2` });
+      }
       if (url === device.poll) {
         assert.equal(body.get('grant_type'), 'urn:ietf:params:oauth:grant-type:device_code');
         assert.equal(body.get('device_code'), fixture.device.device_code);
@@ -76,11 +91,10 @@ for (const device of fixture.devices) {
         mint++;
         return Response.json({ api_key: fixture.apiKey });
       }
-      if (url === 'https://auth.kimi.com/api/oauth/token' && body.get('grant_type') === 'refresh_token') return Response.json(fixture.token);
       throw new Error(`Unexpected fixture request: ${url}`);
     });
     const store = memoryStore();
-    const a = new Accounts({ offer: [device.key], store: () => store });
+    const a = new Accounts({ offer: [device.key], store: (member) => member === 1 ? store : memoryStore() });
     t.after(() => a.stop());
     const shown = await a.login(1, device.key);
     assert.equal(shown?.via, 'code');
@@ -102,9 +116,12 @@ for (const device of fixture.devices) {
     }
     assert.doesNotMatch(JSON.stringify([await a.list(1), await a.status(1, device.key), await store.index()]), canaries);
     // Pi's typed pass-through refresh uses the same stored credential, no second runtime.
-    if (device.key === 'meta') {
-      await (await a.runtime(1)).getAuth(device.provider, { minOAuthValidityMs: 2 * 86_400_000 });
-      assert.equal(mint, 2);
+    t.mock.timers.tick(device.key === 'meta' ? 86_400_001 : 3_600_001);
+    await (await a.runtime(1)).getAuth(device.provider);
+    if (device.key === 'meta') assert.equal(mint, 2);
+    else {
+      const refreshed = await store.read(device.provider);
+      assert.equal(refreshed?.type === 'oauth' && refreshed.refresh, `${fixture.token.refresh_token}-2`);
     }
     await a.logout(1, device.key);
     assert.equal(await store.read(device.provider), undefined);
@@ -165,6 +182,49 @@ test('Claude explicit computer browser route: pinned callback/state/PKCE, plan n
   assert.equal(route('anthropic:browser').readiness, 'ready');
 });
 
+test('Claude browser bind failure is busy, never displaces a listener or starts a different flow', async (t) => {
+  const callback = callbacks(t, 53692);
+  offline(t, () => { throw new Error('No provider exchange before callback readiness'); });
+  const store = memoryStore();
+  const a = new Accounts({ offer: ['claude'], store: () => store });
+  t.after(() => a.stop());
+  const shown = await a.login(1, 'claude', { via: 'browser' });
+  assert.equal(shown?.state, 'failed');
+  assert.equal(shown?.why, 'busy');
+  assert.equal(callback.listeners.get(53692)?.listening, false);
+  assert.deepEqual(await store.list(), []);
+});
+
+test('Claude browser cancellation forwards abort to the pending paste prompt and closes the pinned listener', async (t) => {
+  const callback = callbacks(t);
+  offline(t, () => { throw new Error('Cancelled sign-in must not exchange a token'); });
+  const store = memoryStore();
+  const a = new Accounts({ offer: ['claude'], store: () => store });
+  t.after(() => a.stop());
+  await a.login(1, 'claude', { via: 'browser' });
+  const finished = a.finished(1, 'claude');
+  a.cancel(1, 'claude');
+  await finished;
+  await flush();
+  assert.equal(callback.listeners.get(53692)?.listening, false);
+  assert.deepEqual(await store.list(), []);
+});
+
+test('setup-token sensitive persistence fixture uses only the shared secret seam, not a runtime sign-in claim', async () => {
+  const secret = keys();
+  const store = memoryStore();
+  class SecretStep extends Accounts {
+    save() { return this.saveAccountKey(1, 'claude.setup-token', fixture.setupToken, { route: 'anthropic:setup_token', billing: 'subscription' }); }
+  }
+  const a = new SecretStep({ offer: ['claude'], store: () => store, keyStore: () => secret.store });
+  await a.save();
+  assert.equal(secret.values.get('accounts.claude.setup-token'), fixture.setupToken);
+  assert.deepEqual(await store.read('claude.setup-token'), { type: 'api_key' });
+  assert.doesNotMatch(JSON.stringify([await a.list(1), await a.status(1, 'claude.setup-token'), await store.index()]), canaries);
+  // The fixture qualifies a sensitive storage step only; the route's driver remains separately owned.
+  assert.equal(await a.signedIn(1, 'claude.setup-token'), false);
+});
+
 for (const via of ['browser', 'paste'] as const) {
   test(`OpenRouter ${via}: pinned PKCE exchange saves only in keyStore, API-billed row stays explicit`, async (t) => {
     const callback = callbacks(t);
@@ -181,7 +241,7 @@ for (const via of ['browser', 'paste'] as const) {
     const a = new Accounts({ offer: ['openrouter'], store: () => store, keyStore: () => secret.store });
     t.after(() => a.stop());
     const { id, signIn } = await a.add(1, 'openrouter', { via, billedPerUse: true });
-    assert.equal(signIn?.via, via);
+    assert.equal(signIn?.via, 'browser', 'paste still opens a provider page; public view stays compatible');
     const callbackUrl = new URL(new URL(signIn!.url!).searchParams.get('callback_url')!);
     if (via === 'paste') a.paste(1, id, `${callbackUrl}?code=good`);
     else assert.equal((await callback.back(0, `${callbackUrl.pathname}?code=good`)).status, 200);
@@ -191,11 +251,41 @@ for (const via of ['browser', 'paste'] as const) {
     assert.equal(secret.values.get(`accounts.${id}`), fixture.apiKey);
     const rows = await a.list(1);
     assert.equal(rows[0].billing, 'api');
-    assert.equal(chooseAccount(rows, () => ({ left: 'unknown' })).ok, false);
+    assert.equal(chooseAccount(rows, () => ({ left: 'unknown' }), Date.now()), undefined);
     assert.doesNotMatch(JSON.stringify([rows, await store.index(), await store.read(id), a.view(1, id)]), canaries);
     await a.remove(1, id);
     assert.deepEqual([...secret.values], []);
     assert.deepEqual(await a.list(1), []);
+  });
+}
+
+for (const reconnect of [false, true]) {
+  test(`OpenRouter cancellation during secure persistence ${reconnect ? 'preserves the prior key' : 'leaves no key or account'}`, async (t) => {
+    callbacks(t);
+    offline(t, (url) => { assert.equal(url, fixture.openrouter.token); return Response.json({ key: fixture.apiKey }); });
+    const secret = keys();
+    const previous = 'prior-api-key-secret-canary';
+    if (reconnect) secret.values.set('accounts.openrouter', previous);
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const saving = new Promise<void>((resolve) => { entered = resolve; });
+    const original = secret.store.set;
+    secret.store.set = async (name, value) => { await original(name, value); if (value === fixture.apiKey) { entered(); await gate; } };
+    const store = memoryStore();
+    const a = new Accounts({ offer: ['openrouter'], store: () => store, keyStore: () => secret.store });
+    t.after(() => { release(); a.stop(); });
+    const id = reconnect ? 'openrouter' : (await a.add(1, 'openrouter', { via: 'paste', billedPerUse: true })).id;
+    if (reconnect) await a.login(1, id, { via: 'paste', billedPerUse: true });
+    const finished = a.finished(1, id);
+    a.paste(1, id, 'good');
+    await saving;
+    a.cancel(1, id);
+    release();
+    await finished;
+    assert.equal(secret.values.get(`accounts.${id}`), reconnect ? previous : undefined);
+    assert.deepEqual(await store.list(), []);
+    assert.doesNotMatch(JSON.stringify(await store.index()), canaries);
   });
 }
 
@@ -226,7 +316,7 @@ for (const via of ['browser', 'code'] as const) {
     assert.equal(a.view(1, 'radius')?.state, 'done');
     const rows = await a.list(1);
     assert.equal(rows[0].billing, 'unknown');
-    assert.equal(chooseAccount(rows, () => ({ left: 'unknown' })).ok, false);
+    assert.equal(chooseAccount(rows, () => ({ left: 'unknown' }), Date.now()), undefined);
     assert.doesNotMatch(JSON.stringify([rows, await store.index(), await a.status(1, 'radius')]), canaries);
     assert.equal(billingWords(provider('radius')), 'Billing set by Radius');
     assert.ok(!new Accounts().providers.some((p) => p.key === 'radius'));

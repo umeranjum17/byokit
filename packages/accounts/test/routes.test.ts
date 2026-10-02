@@ -48,11 +48,11 @@ test('discovery keeps every row on every platform; host offers only ready subscr
   assert.equal(route('anthropic:paste', { platform: 'browser', hostSide: true }).readiness, 'ready');
   assert.equal(route('aws-bedrock:cloud:aws-profile', { platform: 'rn' }).readiness, 'unsupported_platform');
   assert.equal(route('custom:endpoint', { platform: 'browser' }).readiness, 'needs_host');
-  for (const id of ['kimi-code:plan_key', 'anthropic:browser', 'anthropic:setup_token', 'github-copilot:key', 'radius:code', 'aws-bedrock:cloud:aws-profile', 'custom:endpoint']) {
+  for (const id of ['kimi-code:plan_key', 'anthropic:setup_token', 'github-copilot:key', 'aws-bedrock:cloud:aws-profile', 'custom:endpoint']) {
     assert.equal(route(id).readiness, 'needs_host', `${id}: its account adapter is not yet callable`);
     assert.ok(!offered({ platform: 'node' }).some((r) => r.id === id));
   }
-  assert.deepEqual(offered({ platform: 'node' }).map((r) => r.id), ['anthropic:paste', 'github-copilot:code', 'kimi-code:code', 'meta:code', 'openai:browser', 'openai:code', 'openai:paste', 'xai:code']);
+  assert.deepEqual(offered({ platform: 'node' }).map((r) => r.id), ['anthropic:browser', 'anthropic:paste', 'github-copilot:code', 'kimi-code:code', 'meta:code', 'openai:browser', 'openai:code', 'openai:paste', 'xai:code']);
 });
 
 test('readiness order follows D18 fixtures without credential or environment reads', () => {
