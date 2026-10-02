@@ -106,7 +106,7 @@ function checkIos(require: NodeRequire) {
 
 try {
   writeFileSync(join(scratch, 'candidate.json'), JSON.stringify({ sha: run('git', ['rev-parse', 'HEAD'], root), pins }, null, 2));
-  const [packed] = JSON.parse(run('npm', ['pack', './packages/share', '--pack-destination', scratch, '--json'], root));
+  const [packed] = Object.values(JSON.parse(run('npm', ['pack', './packages/share', '--pack-destination', scratch, '--json'], root))) as { filename: string; integrity: string }[];
   const tarball = join(scratch, packed.filename);
   writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'byokit-share-qualification', version: '1.0.0', private: true, main: 'index.js', dependencies: pins }, null, 2));
   run('npm', ['install', '--save-exact', '--no-audit', '--no-fund', tarball]);
@@ -118,7 +118,7 @@ try {
   for (const [name, version] of Object.entries(pins)) assert.equal(require(`${name}/package.json`).version, version, name);
   for (const name of stock) {
     const directory = join(scratch, 'stock', name); mkdirSync(directory, { recursive: true });
-    const [metadata] = JSON.parse(run('npm', ['pack', `${name}@${pins[name]}`, '--json'], directory));
+    const [metadata] = Object.values(JSON.parse(run('npm', ['pack', `${name}@${pins[name]}`, '--json'], directory))) as { filename: string; integrity: string; files: { path: string }[] }[];
     const bytes = readFileSync(join(directory, metadata.filename));
     assert.equal('sha512-' + createHash('sha512').update(bytes).digest('base64'), metadata.integrity);
     assert.equal(lock[`node_modules/${name}`].integrity, metadata.integrity);
