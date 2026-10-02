@@ -63,6 +63,8 @@ const SYSTEM = [
   'Report only what the output shows: the task, the progress you can see, and a blocker or next step the output states.',
   'Never say something finished, passed or failed unless the output shows it. No percentages, ids or guesses.',
   'If the output does not show what is happening, answer {"enough": false, "lines": []}.',
+  'When the pane shows an identifiable task and its status, set "enough": true and report 3 or 4 short factual sentences in "lines". Use enough:false with an empty array only when no task/status is evident. Never pair enough:false with proposed lines.',
+  'Each array entry must be one single line without a newline. Do not claim native code ran unless the pane states that it ran.',
 ].join('\n');
 
 const SCHEMA = {
@@ -92,9 +94,13 @@ export async function summarizePane(local: LocalModel, lines: readonly string[],
   const fence = /^```json\r?\n([\s\S]*)\r?\n```$/.exec(body);
   try { parsed = JSON.parse(fence ? fence[1] : body); } catch { return { ok: false, code: 'invalid-output' }; }
   const p = parsed as { enough?: unknown; lines?: unknown };
-  if (p?.enough === false) return { ok: false, code: 'not-enough-output' };
-  const out = Array.isArray(p?.lines) ? p.lines.map(l => typeof l === 'string' ? redact(plainText(l)).trim() : '') : [];
-  if (p?.enough !== true || out.length < 1 || out.length > 4 || out.some(l => !l || l.length > 120)) return { ok: false, code: 'invalid-output' };
+  if (!p || typeof p !== 'object' || Array.isArray(p) || Object.keys(p).length !== 2 || typeof p.enough !== 'boolean'
+    || !Array.isArray(p.lines) || p.lines.some(l => typeof l !== 'string' || l.length > 100 || /[\r\n]/.test(l))) {
+    return { ok: false, code: 'invalid-output' };
+  }
+  if (p.enough === false) return { ok: false, code: p.lines.length === 0 ? 'not-enough-output' : 'invalid-output' };
+  const out = p.lines.map(l => redact(plainText(l)).trim());
+  if (out.length < 3 || out.length > 4 || out.some(l => !l || l.length > 100)) return { ok: false, code: 'invalid-output' };
   return { ok: true, lines: out, model: done.model, ms: done.ms, inputLines: text.length };
 }
 
