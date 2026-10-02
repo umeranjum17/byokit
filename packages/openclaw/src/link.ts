@@ -35,9 +35,16 @@ const KIT_VERSION = (JSON.parse(readFileSync(new URL('../package.json', import.m
 const THINKING = new Set(['off', 'low', 'medium', 'high']);
 
 const refused = () => new PublicLinkError(words('link.notAllowed'));
+const BROWSER_REFUSALS = new Set(['stale', 'not-found', 'held-by-other', 'lease-expired', 'not-control',
+  'not-lease-holder', 'confirm-site', 'already-open', 'insecure-remote', 'unsupported']);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const browserTag = (event: string): boolean => event === 'byokit.browser';
+const browserEvent = (event: string, payload: unknown): payload is { member: Member; kind: 'state' | 'signin' } =>
+  event === 'byokit.browser' && isRecord(payload) && typeof payload.member === 'string'
+    && (payload.kind === 'state' || payload.kind === 'signin');
 
 const memberKey = (member: Member, sessionKey: string): boolean =>
   sessionKey.startsWith(`agent:${member}:`);
@@ -178,7 +185,7 @@ export function openclawLink(
   };
   if (o.relay) kit.onEvent('*', (payload, event) => {
     const p = isRecord(payload) ? payload : {};
-    if (event === 'byokit.browser' && p.kind === 'signin' && typeof p.member === 'string')
+    if (browserEvent(event, p) && p.kind === 'signin')
       void pushSignIn(p.member).catch(() => {});
   });
 
@@ -402,7 +409,13 @@ export function openclawLink(
         const value = await handle({ op: req.op, args: req.args }, grant);
         await s.write(`${JSON.stringify({ value })}\n`);
         s.end();
-      } catch { s.end(words('link.notAllowed')); }
+      } catch (error) {
+        const why = error instanceof Error && 'why' in error ? error.why : undefined;
+        if (typeof why === 'string' && BROWSER_REFUSALS.has(why)) {
+          await s.write(`${JSON.stringify({ refused: why })}\n`).catch(() => {});
+          s.end();
+        } else s.end(words('link.notAllowed'));
+      }
       return;
     }
     if (req.op === 'oc.browser.live') {
@@ -496,6 +509,11 @@ export function openclawLink(
     if (req.op === 'oc.events') {
       const offEvent = kit.onEvent('*', (payload, event) => {
         const record = payload as Record<string, unknown> | undefined;
+        if (browserTag(event)) {
+          if (browserEvent(event, record) && record.member === member)
+            void s.write(`${JSON.stringify({ event: 'byokit.browser', payload: { member, kind: record.kind } })}\n`).catch(() => {});
+          return;
+        }
         const agent = record?.agentId;
         const key = record?.sessionKey;
         if (agent !== member && !(typeof key === 'string' && memberKey(member, key))) return;
