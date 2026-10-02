@@ -1,0 +1,2 @@
+- SECURITY: Key-route accounts keep secrets only in the member's device-owned keyStore, with no plaintext or ambient credential fallback.
+- FIX: Key routes share account persistence and retain their pinned subscription or API key (billed per use) billing; non-subscription accounts are never an Auto or Default fallback.
