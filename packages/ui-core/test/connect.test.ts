@@ -97,6 +97,7 @@ test('every readiness has its own plain words, and every word passes the plain-w
 
 test('billing words are honest per billing, and a server or local row says so whatever its billing', () => {
   const words = (r: Partial<ConnectRoute>) => rows(connectView([{ ...synthetic[1], name: 'Acme Pro', company: 'Acme', ...r }]))[0].billingWords;
+  assert.equal(rows(connectView([{ ...synthetic[1], billing: 'api', company: 'A$&B' }]))[0].billingWords, 'Charged per use to your A$&B account');
   assert.equal(words({ billing: 'subscription', via: 'code' }), 'Uses your Acme Pro plan');
   assert.equal(words({ billing: 'api', via: 'key' }), 'Charged per use to your Acme account');
   assert.equal(words({ billing: 'unknown', via: 'cli' }), 'Billing set by Acme');

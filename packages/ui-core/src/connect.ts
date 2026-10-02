@@ -14,7 +14,8 @@ export type Readiness = 'ready' | 'needs_binary' | 'needs_plugin' | 'needs_host'
  *  `@byokit/openclaw` route views fit as they are. Only these fields are read, so nothing else (a credential
  *  included) can reach the view. */
 export type ConnectRoute = {
-  id: string; provider: string; name?: string; company?: string;
+  /** openclaw's is optional; a row without one is keyed `<provider>:<via>`. */
+  id?: string; provider: string; name?: string; company?: string;
   via: Via; billing: Billing;
   /** accounts: `'default' | 'explicit'`; openclaw: `offerPolicy` plus its legacy ready-only boolean `offer`. */
   offer?: 'default' | 'explicit' | boolean; offerPolicy?: 'default' | 'explicit';
@@ -53,10 +54,11 @@ const ORDER: ConnectGroupId[] = ['plans', 'perUse', 'local', 'server', 'cloud', 
 const SIGNIN: readonly Via[] = ['browser', 'code', 'paste', 'session', 'cli'];
 const KEY: readonly Via[] = ['key', 'plan_key', 'setup_token'];
 
-const fill = (s: string, r: { name: string; company: string }) => s.replace('{name}', r.name).replace('{company}', r.company);
+const fill = (s: string, r: { name: string; company: string }) => s.replace(/\{(name|company)\}/g, (_, k: 'name' | 'company') => r[k]);
 
-/** Billing decides first: only a subscription row named default is a plan, so an API, free or unknown row never
- *  lands in Plans whatever its `offer` says; nor does a cloud, local or server row, which is always explicit. */
+/** Cloud, server and local methods are always explicit and go to their own groups; then billing decides: only a
+ *  subscription row named default is a plan, so an API, free or unknown row never lands in Plans whatever its
+ *  `offer` says. */
 function groupOf(r: ConnectRoute): ConnectGroupId {
   if (r.group === 'services') return 'services';
   if (r.via === 'cloud') return 'cloud';
@@ -70,12 +72,12 @@ function groupOf(r: ConnectRoute): ConnectGroupId {
 }
 
 function rowOf(r: ConnectRoute, w: ConnectWords): ConnectRow {
-  const name = r.name || r.provider, company = r.company || name;
+  const name = r.name || r.provider, company = r.company || name, id = r.id ?? `${r.provider}:${r.via}`;
   const group = groupOf(r);
   const ready = r.readiness === 'ready';
   const billing = r.via === 'endpoint' ? w['billing.server'] : r.via === 'local' ? w['billing.local'] : w[`billing.${r.billing}`];
   return {
-    key: `${r.upstream?.surface ?? ''}/${r.id}`, id: r.id, provider: r.provider,
+    key: `${r.upstream?.surface ?? ''}/${id}`, id, provider: r.provider,
     ...(r.upstream ? { surface: r.upstream.surface } : {}),
     name, company, via: r.via, billing: r.billing, group,
     offered: group === 'plans' && ready, ready, readiness: r.readiness,
