@@ -13,7 +13,7 @@ const listening = (port: number) => new Promise<boolean>(resolve => {
 });
 
 // Shared by npm test's offline child and test:engine's pinned engine.
-export async function isolationContract(install?: (dir: string) => string): Promise<void> {
+export async function isolationContract(install?: (dir: string) => string | Promise<string>): Promise<void> {
   const dir = scratchDir('engine-isolation');
   const decoy = join(dir, 'decoy');
   for (const name of ['.pi', '.openclaw', '.codex', '.claude', '.config/herdr']) {
@@ -27,7 +27,7 @@ export async function isolationContract(install?: (dir: string) => string): Prom
   process.env.OPENAI_API_KEY = 'should-not-be-inherited';
   const states: string[] = [];
   // Node rejects npm's ci arguments if an offline fixture ever needs repair; never invoke real npm.
-  const engine = new Engine({ stateDir: join(dir, 'own'), ...(install ? { engineDir: install(dir), npmPath: process.execPath } : {}), pluginId: 'byokit', tools: [], spawnEngine: true,
+  const engine = new Engine({ stateDir: join(dir, 'own'), ...(install ? { engineDir: await install(dir), npmPath: process.execPath } : {}), pluginId: 'byokit', tools: [], spawnEngine: true,
     onState: s => states.push(`${s.phase}/${s.why ?? ''}`), onExit() {} });
   try {
     const ctx = await engine.start();

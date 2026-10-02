@@ -16,7 +16,7 @@ import { once } from 'node:events';
 import { EnginePatchError, editText, patchId, prepareEngineSet, readPatchSet, sha256, verifyEngineSet, type PatchSet } from '../src/engine-patches.ts';
 
 // Unit-only byte fixtures, not real-engine qualification. Production has no semantic patch entries.
-test('immutable sets validate all bytes, clone offline, roll back by selection and preserve drift', (t) => {
+test('immutable sets validate all bytes, clone offline, roll back by selection and preserve drift', async (t) => {
   const dir = scratchDir('patches');
   const base = join(dir, 'base');
   const shipped = shippedSet();
@@ -31,19 +31,19 @@ test('immutable sets validate all bytes, clone offline, roll back by selection a
   };
   const matches = () => true;
   try {
-    const stock = prepareEngineSet(base, shipped, install, matches);
-    const patched = prepareEngineSet(base, set, install, matches);
+    const stock = await prepareEngineSet(base, shipped, install, matches);
+    const patched = await prepareEngineSet(base, set, install, matches);
     assert.equal(installs, 1, 'patched set clones verified stock without installing');
     assert.equal(existsSync(base), false, 'base is never read or written');
     assert.equal(fs.readlinkSync(join(patched, 'relative-link')), 'unpatched');
     const before = readFileSync(join(patched, '.byokit-tree'));
-    assert.equal(prepareEngineSet(base, set, install, matches), patched);
+    assert.equal(await prepareEngineSet(base, set, install, matches), patched);
     assert.deepEqual(readFileSync(join(patched, '.byokit-tree')), before);
-    assert.equal(prepareEngineSet(base, shipped, install, matches), stock, 'rollback selects original stock offline');
+    assert.equal(await prepareEngineSet(base, shipped, install, matches), stock, 'rollback selects original stock offline');
     for (const path of [join(patched, 'node_modules/openclaw', file.path), join(patched, 'unpatched')]) {
       fs.chmodSync(path, 0o644); writeFileSync(path, 'drift'); fs.chmodSync(path, 0o444);
       assert.throws(() => verifyEngineSet(patched, set, matches), /engine-patch: drift/);
-      const next = prepareEngineSet(base, set, install, matches);
+      const next = await prepareEngineSet(base, set, install, matches);
       assert.notEqual(next, patched); assert.equal(installs, 1);
       assert.equal(readFileSync(path, 'utf8'), 'drift', 'drifted final is never repaired or deleted');
     }
@@ -51,13 +51,13 @@ test('immutable sets validate all bytes, clone offline, roll back by selection a
     writeFileSync(malformed, JSON.stringify({ ...set, id: '0000000000000000' }));
     assert.throws(() => readPatchSet(malformed, shipped.upstream.version, shipped.upstream.integrity), /engine-patch: spec/);
     const outside = { ...file, path: '../escape.js' };
-    assert.throws(() => prepareEngineSet(base, { ...set, id: patchId([outside]), files: [outside] }, install, matches), /engine-patch: spec/);
+    await assert.rejects(prepareEngineSet(base, { ...set, id: patchId([outside]), files: [outside] }, install, matches), /engine-patch: spec/);
     assert.throws(() => editText('lab = 1; lab = 1', file), /engine-patch: spec/);
     const originalRename = fs.renameSync;
     t.mock.method(fs, 'renameSync', (...args: Parameters<typeof fs.renameSync>) => { if (String(args[0]).includes('.tmp-')) throw new Error('unit disk fault'); return originalRename(...args); });
     syncBuiltinESMExports();
     const other = { ...file, after: sha256('const lab = 3;\n'), edits: [{ find: 'lab = 1', replace: 'lab = 3' }] };
-    assert.throws(() => prepareEngineSet(base, { ...set, id: patchId([other]), files: [other] }, install, matches), /engine-patch: write/);
+    await assert.rejects(prepareEngineSet(base, { ...set, id: patchId([other]), files: [other] }, install, matches), /engine-patch: write/);
     assert.ok(fs.readdirSync(base + '.sets').every(p => !p.startsWith('.tmp-')), 'own failed temp cleaned');
   } finally { t.mock.restoreAll(); syncBuiltinESMExports(); removeScratch(dir); }
 });
@@ -84,7 +84,7 @@ function seedInstall(engineDir: string) {
 function shippedSet(): PatchSet {
   return readPatchSet(join(shippedEngine, 'patches.json'), '2026.8.1', JSON.parse(readFileSync(join(shippedEngine, 'package-lock.json'), 'utf8')).packages['node_modules/openclaw'].integrity);
 }
-function seedSet(engineDir: string): string {
+function seedSet(engineDir: string): Promise<string> {
   return prepareEngineSet(engineDir, shippedSet(), tmp => fs.cpSync(engineDir, tmp, { recursive: true }), () => true);
 }
 
@@ -132,7 +132,7 @@ appendFileSync(${JSON.stringify(calls)}, '1');
       assert.ok(otherLibc, 'shipped lock includes a libc-incompatible optional package');
       rmSync(join(engineDir, otherLibc[0]), { recursive: true, force: true });
     }
-    seedSet(engineDir);
+    await seedSet(engineDir);
     await engine.prepare();
     assert.equal(existsSync(calls), false, 'verified stock set is reused, including absent incompatible optional packages');
 
@@ -170,7 +170,7 @@ const marker = ${JSON.stringify(join(engineDir, 'marker'))};
 if (process.argv[2] === 'doctor') { appendFileSync(${JSON.stringify(join(engineDir, 'doctors'))}, '1'); process.exit(0); }
 if (!existsSync(marker)) { writeFileSync(marker, '1'); process.exit(78); }
 process.exit(78);`);
-  seedSet(engineDir);
+  await seedSet(engineDir);
   const unrelated = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
   const states: string[] = [];
   const engine = new Engine({ stateDir: dir, engineDir, pluginId: 'byokit', tools: [], spawnEngine: true, onState: s => states.push(s.phase), onExit() {} });
@@ -445,7 +445,7 @@ const engine = new Engine({ stateDir: ${JSON.stringify(dir)}, engineDir: ${JSON.
 await engine.start();
 setInterval(() => {}, 1000);
 `);
-  seedSet(engineDir);
+  await seedSet(engineDir);
   mkdirSync(join(root, 'state'), { recursive: true });
   writeFileSync(join(root, 'state', 'auth.json'), 'saved-login');
   const host = spawn(process.execPath, [hostFile], { stdio: ['ignore', 'ignore', 'pipe'] });

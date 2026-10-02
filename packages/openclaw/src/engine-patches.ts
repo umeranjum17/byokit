@@ -1,6 +1,7 @@
 // Internal artifact seam. Published patch semantics live only in engine/patches.json.
 import { createHash, randomUUID } from 'node:crypto';
-import { chmodSync, closeSync, constants, cpSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmod, cp, open, readdir, rm } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 export type PatchFile = { path: string; before: string; after: string; edits: { find: string; replace: string }[] };
 export type PatchSet = { v: 1; id: string; upstream: { name: string; version: string; integrity: string; commit: string; license: string }; files: PatchFile[] };
@@ -72,7 +73,7 @@ export function processStartTime(pid: number): string {
 const noLink = (path: string) => { if (lstatSync(path, { throwIfNoEntry: false })?.isSymbolicLink()) throw new EnginePatchError('spec', path); };
 const inside = (root: string, path: string) => { const rel = relative(root, path); return rel !== '..' && !rel.startsWith(`..${sep}`) && !rel.startsWith(sep); };
 type TreeEntry = { path: string; kind: 'file' | 'dir' | 'link'; mode: number; size: number; hash: string };
-function tree(dir: string, freeze = false): TreeEntry[] {
+function tree(dir: string): TreeEntry[] {
   const result: TreeEntry[] = [];
   const root = realpathSync(dir);
   const walk = (path: string, rel: string) => {
@@ -88,17 +89,12 @@ function tree(dir: string, freeze = false): TreeEntry[] {
         if (!rel && ['.byokit-tree', '.byokit-patches'].includes(name)) continue;
         walk(join(path, name), rel ? `${rel}/${name}` : name);
       }
-      if (freeze) { chmodSync(path, 0o555); syncDir(path); }
-      result.push({ path: rel, kind: 'dir', mode: freeze ? 0o555 : info.mode & 0o777, size: 0, hash: '' });
+      result.push({ path: rel, kind: 'dir', mode: info.mode & 0o777, size: 0, hash: '' });
       return;
     }
     if (!info.isFile()) throw new EnginePatchError('spec', rel);
     const hash = sha256(readFileSync(path));
-    if (freeze) {
-      chmodSync(path, 0o444);
-      const fd = openSync(path, 'r'); try { fsyncSync(fd); } finally { closeSync(fd); }
-    }
-    result.push({ path: rel, kind: 'file', mode: freeze ? 0o444 : info.mode & 0o777, size: info.size, hash });
+    result.push({ path: rel, kind: 'file', mode: info.mode & 0o777, size: info.size, hash });
   };
   walk(dir, '');
   return result.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
@@ -128,17 +124,27 @@ export function verifyEngineSet(dir: string, set: PatchSet, installMatches: (dir
   } catch (error) { if (error instanceof EnginePatchError && error.cause === 'spec') throw error; throw new EnginePatchError('drift', dir); }
 }
 // chmod/remove only this invocation's unlaunched private temp, never a final set or the base install.
-function removeTemp(dir: string): void {
+async function removeTemp(dir: string): Promise<void> {
   if (!existsSync(dir)) return;
-  const walk = (path: string) => {
+  const walk = async (path: string) => {
     if (!lstatSync(path).isDirectory()) return;
-    chmodSync(path, 0o700);
-    for (const name of readdirSync(path)) walk(join(path, name));
+    await chmod(path, 0o700);
+    for (const name of await readdir(path)) await walk(join(path, name));
   };
-  walk(dir); rmSync(dir, { recursive: true, force: true });
+  await walk(dir); await rm(dir, { recursive: true, force: true });
+}
+async function freeze(dir: string): Promise<void> {
+  const entries = tree(dir);
+  // Bound descriptors/I/O while yielding the host event loop. Every regular file and directory is fsynced.
+  const paths = [...entries.filter(e => e.kind === 'file'), ...entries.filter(e => e.kind === 'dir').reverse()];
+  for (let i = 0; i < paths.length; i += 16) await Promise.all(paths.slice(i, i + 16).map(async entry => {
+    const path = join(dir, entry.path);
+    await chmod(path, entry.kind === 'dir' ? 0o555 : 0o444);
+    const fd = await open(path, 'r'); try { await fd.sync(); } finally { await fd.close(); }
+  }));
 }
 export function engineSetName(set: PatchSet): string { return `${sha256(set.upstream.integrity).slice(0, 16)}-${set.id}`; }
-export function prepareEngineSet(engineDir: string, set: PatchSet, install: (dir: string) => void, installMatches: (dir: string) => boolean): string {
+export async function prepareEngineSet(engineDir: string, set: PatchSet, install: (dir: string) => void | Promise<void>, installMatches: (dir: string) => boolean): Promise<string> {
   validateFiles(set.id, set.files);
   const sets = `${engineDir}.sets`;
   noLink(sets); mkdirSync(sets, { recursive: true, mode: 0o700 });
@@ -149,23 +155,23 @@ export function prepareEngineSet(engineDir: string, set: PatchSet, install: (dir
     catch (error) { if (!(error instanceof EnginePatchError) || error.cause !== 'drift') throw error; }
   }
   const stock: PatchSet = { ...set, id: patchId([]), files: [] };
-  const stockDir = set.files.length ? prepareEngineSet(engineDir, stock, install, installMatches) : undefined;
+  const stockDir = set.files.length ? await prepareEngineSet(engineDir, stock, install, installMatches) : undefined;
   const tmp = join(sets, `.tmp-${process.pid}-${process.platform === 'linux' ? processStartTime(process.pid) : 'unknown'}-${randomUUID()}`);
   const final = join(sets, existsSync(join(sets, name)) ? `${name}.${randomUUID()}` : name);
   try {
     if (stockDir) {
       // ponytail: reflink or plain copy, never hardlinks; no GC without per-launch leases (~889 MB/set).
-      cpSync(stockDir, tmp, { recursive: true, verbatimSymlinks: true, mode: constants.COPYFILE_FICLONE });
+      await cp(stockDir, tmp, { recursive: true, verbatimSymlinks: true, mode: constants.COPYFILE_FICLONE });
       // The copy is private and unlaunched. Make only it writable, and drop inherited provenance.
-      const writable = (path: string) => {
+      const writable = async (path: string) => {
         const info = lstatSync(path);
         if (info.isSymbolicLink()) return;
-        chmodSync(path, info.isDirectory() ? 0o700 : 0o600);
-        if (info.isDirectory()) for (const name of readdirSync(path)) writable(join(path, name));
+        await chmod(path, info.isDirectory() ? 0o700 : 0o600);
+        if (info.isDirectory()) for (const name of await readdir(path)) await writable(join(path, name));
       };
-      writable(tmp);
+      await writable(tmp);
       rmSync(join(tmp, '.byokit-tree')); rmSync(join(tmp, '.byokit-patches'));
-    } else { mkdirSync(tmp, { mode: 0o700 }); install(tmp); }
+    } else { mkdirSync(tmp, { mode: 0o700 }); await install(tmp); }
     if (!installMatches(tmp)) throw new EnginePatchError('drift-after-build', tmp);
     const root = join(tmp, 'node_modules/openclaw');
     for (const file of set.files) {
@@ -178,16 +184,18 @@ export function prepareEngineSet(engineDir: string, set: PatchSet, install: (dir
       atomic(path, after);
     }
     metadata(tmp, set);
-    const bytes = JSON.stringify(tree(tmp, true));
+    await freeze(tmp);
+    const bytes = JSON.stringify(tree(tmp));
     // Root alone is writable while publishing metadata, then made read-only too.
-    chmodSync(tmp, 0o700);
+    await chmod(tmp, 0o700);
     atomic(join(tmp, '.byokit-tree'), bytes);
     atomic(join(tmp, '.byokit-patches'), JSON.stringify({ id: set.id, files: set.files, tree: sha256(bytes) }));
     for (const file of ['.byokit-tree', '.byokit-patches']) {
-      const path = join(tmp, file); chmodSync(path, 0o444);
-      const fd = openSync(path, 'r'); try { fsyncSync(fd); } finally { closeSync(fd); }
+      const path = join(tmp, file); await chmod(path, 0o444);
+      const fd = await open(path, 'r'); try { await fd.sync(); } finally { await fd.close(); }
     }
-    chmodSync(tmp, 0o555); syncDir(tmp);
+    await chmod(tmp, 0o555);
+    const directory = await open(tmp, 'r'); try { await directory.sync(); } finally { await directory.close(); }
     try { verifyEngineSet(tmp, set, installMatches); }
     catch (error) { if (error instanceof EnginePatchError && error.cause === 'drift') throw new EnginePatchError('drift-after-build', error.file); throw error; }
     try { renameSync(tmp, final); syncDir(sets); }
@@ -201,5 +209,5 @@ export function prepareEngineSet(engineDir: string, set: PatchSet, install: (dir
     if (error instanceof EnginePatchError) { if (error.cause === 'drift') throw new EnginePatchError('drift-after-build', error.file); throw error; }
     throw new EnginePatchError('write', tmp);
   }
-  finally { removeTemp(tmp); }
+  finally { await removeTemp(tmp); }
 }

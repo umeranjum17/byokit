@@ -8,7 +8,7 @@ import { prepareEngineSet, readPatchSet } from '../src/engine-patches.ts';
 // Run the real Engine supervisor's isolation contract in npm test without installing or calling a provider.
 // The engine job runs these same assertions against the actual pinned engine.
 test('engine isolation: offline child receives only the app-owned environment and listens on loopback',
-  { timeout: 30_000 }, () => isolationContract((dir) => {
+  { timeout: 30_000 }, () => isolationContract(async (dir) => {
     const engineDir = join(dir, 'fake-engine');
     const entryDir = join(engineDir, 'node_modules', 'openclaw');
     // Match the supervisor's install validation without installing any dependencies.
@@ -36,6 +36,6 @@ createServer(socket => socket.end()).listen(config.gateway.port, '127.0.0.1');
     mkdirSync(join(entryDir, 'dist'), { recursive: true });
     writeFileSync(join(entryDir, 'dist/build-info.json'), JSON.stringify({ version: '2026.8.1', commit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b' }));
     const patch = readPatchSet(join(shipped, 'patches.json'), '2026.8.1', JSON.parse(readFileSync(join(shipped, 'package-lock.json'), 'utf8')).packages['node_modules/openclaw'].integrity);
-    prepareEngineSet(engineDir, patch, tmp => cpSync(engineDir, tmp, { recursive: true }), () => true);
+    await prepareEngineSet(engineDir, patch, tmp => cpSync(engineDir, tmp, { recursive: true }), () => true);
     return engineDir;
   }));

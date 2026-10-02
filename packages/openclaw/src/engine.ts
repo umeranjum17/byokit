@@ -112,16 +112,26 @@ export class Engine {
     if (this.o.spawnEngine) {
       const lock = JSON.parse(readFileSync(join(kitDir, 'engine/package-lock.json'), 'utf8')) as { packages: Record<string, { integrity: string }> };
       const patches = readPatchSet(join(kitDir, 'engine/patches.json'), ENGINE_VERSION, lock.packages['node_modules/openclaw']!.integrity);
-      const install = (dir: string) => {
+      const install = async (dir: string) => {
         this.state('installing');
         for (const f of ['package.json', 'package-lock.json']) copyFileSync(join(kitDir, 'engine', f), join(dir, f));
-        const result = spawnSync(this.o.npmPath ?? 'npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', dir], {
-          env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: join(this.root, 'install-home'), npm_config_cache: join(this.root, 'npm-cache'), OPENCLAW_DISABLE_BUNDLED_PLUGIN_POSTINSTALL: '1' },
-          timeout: 300_000, stdio: 'pipe', encoding: 'utf8', maxBuffer: 1024 * 1024,
+        await new Promise<void>((resolve, reject) => {
+          const child = spawn(this.o.npmPath ?? 'npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', dir], {
+            env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: join(this.root, 'install-home'), npm_config_cache: join(this.root, 'npm-cache'), OPENCLAW_DISABLE_BUNDLED_PLUGIN_POSTINSTALL: '1' },
+            stdio: ['ignore', 'ignore', 'pipe'],
+          });
+          let stderr = '', expired = false;
+          child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-500); });
+          const timer = setTimeout(() => { expired = true; child.kill('SIGKILL'); }, 300_000);
+          child.once('error', error => { clearTimeout(timer); reject(error); });
+          child.once('exit', code => {
+            clearTimeout(timer);
+            if (code === 0 && !expired) resolve();
+            else { this.state('failed', 'install'); reject(new Error(`engine install: ${expired ? 'timeout' : stderr}`)); }
+          });
         });
-        if (result.status !== 0) { this.state('failed', 'install'); throw new Error(`engine install: ${result.error ?? result.stderr?.slice(-500)}`); }
       };
-      this.setDir = prepareEngineSet(this.dir, patches, install, installMatches);
+      this.setDir = await prepareEngineSet(this.dir, patches, install, installMatches);
       this.wantedSet = patches;
       atomic(join(this.root, 'engine-set'), this.setDir);
       this.patchSet = patches.id;
