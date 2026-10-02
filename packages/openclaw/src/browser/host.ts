@@ -430,6 +430,9 @@ class Host implements BrowserHostController {
   private async recover(member: Member): Promise<void> {
     if (this.stopped || this.failed || this.recovery.has(member)) return;
     const attempts = this.s.restart ? this.s.options.recovery?.attempts ?? 3 : 0;
+    // Close the old kit-owned endpoint before replacing its map entry; otherwise its server is orphaned.
+    try { await this.brokers.get(member)?.close(); }
+    catch { this.exhausted.add(member); this.s.ping?.(member, 'state'); return; }
     for (let attempt = 1; attempt <= attempts && !this.stopped; attempt++) {
       const delay = this.s.options.recovery?.backoffMs[attempt - 1] ?? [1_000, 5_000, 15_000][attempt - 1];
       this.recovery.set(member, { attempt, of: attempts, nextAt: this.now() + delay }); this.s.ping?.(member, 'state');

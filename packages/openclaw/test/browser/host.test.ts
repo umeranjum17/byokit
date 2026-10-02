@@ -305,6 +305,18 @@ test('broker recovery is capped at three attempts without model submission or un
   finally { await host.close(); await fixture.close(); }
 });
 
+test('recovery closes the old owned endpoint before replacing it', async () => {
+  const fixture = await fakeBrowserHost(); const replacement = await fakeBrowserHost();
+  const broker = fixture.fixture.broker('ada'); let closed = false;
+  const old = { ...broker, close: async () => { closed = true; await broker.close(); } };
+  const host = await createBrowserHost({ brokers: new Map([['ada', old]]), store: memorySignInStore(),
+    options: { executablePath: '/synthetic/chromium', members: ['ada'], recovery: { attempts: 1, backoffMs: [0] } },
+    authorize: () => true, park: async () => {}, resume: async () => assert.fail('no recovery dispatch'), siteOf: () => '127.0.0.1',
+    restart: async () => { assert.equal(closed, true); return replacement.fixture.broker('ada'); } });
+  try { await host.browserGone('ada'); assert.equal(closed, true); assert.equal(host.state('ada').why, 'handoff-unprotected'); }
+  finally { await host.close(); await fixture.close(); await replacement.close(); }
+});
+
 test('member names colliding with Object.prototype are ordinary isolated members', async () => {
   const host = await fakeBrowserHost({ members: ['constructor'] });
   try { assert.equal((await raise(host, 'constructor')).firstTime, true); }
