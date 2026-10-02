@@ -18,7 +18,7 @@ import { outputSchema } from './output.ts';
 import { createKeys, type AddKeyResult } from './keys.ts';
 import { routes as routeTable, type RouteView } from './routes.ts';
 import { providers as engineProviders, signIn as startSignIn, signOut as engineSignOut, type SignInCtx } from './signin.ts';
-import { reconcileConfig, browserToolPolicySafe, browserProfileAcknowledged, memoryLimited as configMemoryLimited } from './config.ts';
+import { reconcileConfig, browserToolPolicySafe, browserProfileAcknowledged, browserSessionMayRun, memoryLimited as configMemoryLimited } from './config.ts';
 import type { BrowserHost, BrowserOptions, BrowserState } from './browser.ts';
 import { createBrowserHost, type BrowserHostController, type HostBroker } from './browser/host.ts';
 import { fileSignInStore } from './browser/store.ts';
@@ -677,11 +677,10 @@ export class OpenClawKit {
       },
     } : o.host;
     this.bridge = new Bridge({ path: this.engine.bridgeSock, host, tools: new Set([...this.toolNames(), ...(o.browser ? ['request_sign_in'] : [])]),
-      ...(o.browser ? { beforeAgentRun: async (key: string) => {
+      ...(o.browser ? { beforeAgentRun: async (key: string, runId?: string) => {
         // No action-id submission proof or redispatch claim. Open and unproven resumes are always refused.
         if (!await this.checkBrowserTools() || !this.browserHost) return false;
-        return !this.browserHost.signIns().some(r => r.sessionKey === key && (r.state !== 'settled'
-          || (r.settled?.resume && r.settled.resume.state !== 'failed')));
+        return browserSessionMayRun(this.browserHost.signIns(), key, this.bridge.isRegisteredRun(key, runId));
       } } : {}),
       permitted: o.permitted ?? (() => true), approvalTimeoutMs: o.approvalTimeoutMs ?? 180_000,
       onAsk: (a) => this.approvalsCtl.add(a), onAskGone: (id) => this.approvalsCtl.remove(id) });
@@ -887,7 +886,7 @@ export class OpenClawKit {
         };
       },
       ensure: (member) => this.ensureMember(member),
-      bridge: { register: (run, tools) => this.bridge.register(run, tools && this.o.browser ? [...tools, 'request_sign_in'] : tools) },
+      bridge: { register: (run, tools, runId) => this.bridge.register(run, tools && this.o.browser ? [...tools, 'request_sign_in'] : tools, runId) },
       tools: new Set(this.toolNames()),
     });
   }

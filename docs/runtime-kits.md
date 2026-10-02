@@ -1652,6 +1652,9 @@ raise is refused `already-open` and the detector is suppressed. Raise, under a p
 fence, abort the bound session's run, emit `byokit.browser`, push a sealed notice `{id, gen, member, site}`. Zero
 model calls in the bound session while open; the member's other sessions run with `browser` blocked. A new run on a
 parked `sessionKey` settles it `cancelled (run-replaced)`; a run on a `waiting|held|checking` session is refused.
+The engine gate also refuses unproved resumes. A definite `failed` resume alone does not authorize recovery:
+only a fresh kit registration matching the exact session and engine run id may start a replacement run;
+missing, foreign and released run ids remain refused. This is not the submitted-resume seam or W7 qualification.
 - `takeover` needs a control grant, `waiting`, and on `firstTime` `confirmSite === site` (typed or picked from a
   list with decoys); non-https non-loopback origins are refused `insecure-remote`. It opens the private tab at
   `checkUrl` and mints a lease (claim 60 s, grace 30 s; lapse closes the private tab, back to `waiting`, `gen+1`,

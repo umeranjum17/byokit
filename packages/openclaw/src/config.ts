@@ -1,6 +1,7 @@
 import { dirname, join } from 'node:path';
 import type { KitOptions } from './kit.ts';
 import type { Member } from './types.ts';
+import type { NeedSignIn } from './browser.ts';
 import { routes } from './routes.ts';
 
 type Obj = Record<string, any>;
@@ -119,6 +120,12 @@ export function browserProfileAcknowledged(profile: unknown, owned: unknown, end
     || owned.cdpUrl !== endpoint || !stableFile || typeof snapshot.configRevisionHash !== 'string'
     || !snapshot.configRevisionHash || snapshot.configRevisionHash !== snapshot.appliedConfigHash) return false;
   return profile.cdpUrl === endpoint || profile.cdpUrl === '__OPENCLAW_REDACTED__';
+}
+
+// A failed resume is not permission for engine recovery. Only a fresh exact kit run may replace it.
+export function browserSessionMayRun(requests: readonly NeedSignIn[], key: string, registeredRun = false): boolean {
+  return !requests.some(r => r.sessionKey === key && (r.state !== 'settled'
+    || (r.settled?.resume && (r.settled.resume.state !== 'failed' || !registeredRun))));
 }
 
 export function memoryLimited(config: object, member: Member): boolean {

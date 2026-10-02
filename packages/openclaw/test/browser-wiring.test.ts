@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { browserToolPolicySafe, browserProfileAcknowledged, reconcileConfig } from '../src/config.ts';
+import { browserToolPolicySafe, browserProfileAcknowledged, browserSessionMayRun, reconcileConfig } from '../src/config.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
+import { Bridge } from '../src/bridge.ts';
+import type { NeedSignIn, ResumeState } from '../src/browser.ts';
 import { scratchDir } from '../../test-support.ts';
 
 const safe = { tools: { allow: ['browser', 'request_sign_in', 'crew_x'] } };
@@ -52,6 +54,51 @@ test('stock CDP redaction is acknowledged only against stable exact owned and ap
     [{ ...masked, cdpUrl: 'arbitrary-mask' }, owned, applied, true],
     [{ ...masked, attachOnly: false }, owned, applied, true],
   ] as const) assert.equal(browserProfileAcknowledged(profile, local, endpoint, revision, stable), false);
+});
+
+test('parked/recovery guards require a fresh exact registered run after a definite failed resume', t => {
+  const key = 'agent:ada:fixture:guard';
+  const root = scratchDir(); t.after(() => rmSync(root, { recursive: true, force: true }));
+  const bridge = new Bridge({ path: join(root, 'unused.sock'), tools: new Set(), permitted: () => true,
+    approvalTimeoutMs: 1000, onAsk: () => {}, onAskGone: () => {} });
+  const row = (state: NeedSignIn['state'], resume?: ResumeState['state']) => ({ sessionKey: key, state,
+    settled: resume ? { resume: { state: resume } } : undefined }) as NeedSignIn;
+  for (const state of ['waiting', 'held', 'checking', 'parked'] as const)
+    for (const registered of [false, true]) assert.equal(browserSessionMayRun([row(state)], key, registered), false);
+  for (const state of ['pending', 'accepted', 'submitted', 'indeterminate'] as const)
+    for (const registered of [false, true]) assert.equal(browserSessionMayRun([row('settled', state)], key, registered), false);
+  const failed = [row('settled', 'failed')];
+  assert.equal(browserSessionMayRun(failed, key, bridge.isRegisteredRun(key, 'fresh')), false);
+  const release = bridge.register({ member: 'ada', sessionKey: key }, undefined, 'fresh');
+  assert.equal(browserSessionMayRun(failed, key, bridge.isRegisteredRun(key)), false);
+  assert.equal(browserSessionMayRun(failed, key, bridge.isRegisteredRun(key, 'other')), false);
+  assert.equal(browserSessionMayRun(failed, key, bridge.isRegisteredRun(key, 'fresh')), true);
+  assert.equal(bridge.isRegisteredRun('agent:bea:fixture:guard', 'fresh'), false);
+  release(); assert.equal(browserSessionMayRun(failed, key, bridge.isRegisteredRun(key, 'fresh')), false);
+  bridge.register({ member: 'ada', sessionKey: key }, undefined, 'old-engine');
+  bridge.stop(); assert.equal(bridge.isRegisteredRun(key, 'old-engine'), false);
+  assert.equal(browserSessionMayRun([row('parked')], 'agent:bea:fixture:guard'), true);
+  assert.equal(browserSessionMayRun([row('settled')], key), true);
+});
+
+test('kit run facade forwards the exact request id and revokes it after completion', async t => {
+  const root = scratchDir(); t.after(() => rmSync(root, { recursive: true, force: true }));
+  const kit = new OpenClawKit({ stateDir: root, spawnEngine: false });
+  const slot = kit as any;
+  const key = 'agent:ada:fixture:registered', id = 'fixture-exact-request';
+  slot.ensureMember = async () => ({ agentId: 'ada' });
+  slot.request = () => async (method: string, params: any) => {
+    if (method === 'agent') {
+      assert.equal(params.idempotencyKey, id);
+      assert.equal(slot.bridge.isRegisteredRun(params.sessionKey, id), true);
+      assert.equal(slot.bridge.isRegisteredRun(params.sessionKey, 'foreign-request'), false);
+      return { runId: id };
+    }
+    assert.equal(method, 'agent.wait'); return { status: 'ok' };
+  };
+  const result = await slot.runs().run({ member: 'ada', sessionKey: key, message: 'source fixture', idempotencyKey: id });
+  assert.equal(result.ok, true);
+  assert.equal(slot.bridge.isRegisteredRun(key, id), false);
 });
 
 test('kit refuses gate-off, reserved tools, unsafe non-browser members, raw policy mutation and unknown effective tools', async () => {

@@ -94,7 +94,7 @@ export class Bridge {
   private readonly runs = new Map<string, RunRef>();
   // Every live registration per session key, each with its run's subset of the app's tools (RunSpec.tools; none: all
   // of them). Runs sharing a key share the narrowest: a tool must be in every live subset.
-  private readonly live = new Map<string, { tools?: ReadonlySet<string> }[]>();
+  private readonly live = new Map<string, { tools?: ReadonlySet<string>; runId?: string }[]>();
   private readonly permits = new Map<string, Permit>();
   private readonly tickets: Ticket[] = [];
   private armed: { keyPrefix: string; tool: string; input?: (i: Record<string, unknown>) => boolean; until: number } | undefined;
@@ -145,15 +145,21 @@ export class Bridge {
       this.onAskGone(id);
     }
     this.parked.clear();
+    for (const key of this.live.keys()) this.unregister(key);
     this.server?.close();
     this.server = undefined;
     void rm(this.path, { force: true }).catch(() => {});
   }
 
-  /** Register one run; the returned release ends only this registration (the key stays while another run holds it). */
-  register(run: RunRef, tools?: readonly string[]): () => void {
+  isRegisteredRun(key: string, runId?: string): boolean {
+    return !this.stopped && typeof runId === 'string' && !!runId
+      && (this.live.get(key) ?? []).some(entry => entry.runId === runId);
+  }
+
+  /** Register one run; release revokes only this exact registration, even when sessions overlap. */
+  register(run: RunRef, tools?: readonly string[], runId?: string): () => void {
     this.runs.set(run.sessionKey, run);
-    const entry = tools ? { tools: new Set(tools) } : {};
+    const entry = { ...(tools ? { tools: new Set(tools) } : {}), runId };
     const list = this.live.get(run.sessionKey);
     if (list) list.push(entry);
     else this.live.set(run.sessionKey, [entry]);

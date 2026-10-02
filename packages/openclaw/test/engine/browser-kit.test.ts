@@ -71,7 +71,7 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
       return { ...transport, start: () => Promise.race([transport.start(), once(child!, 'exit').then(([code]) => {
         throw new Error(`owned stock fixture exited during startup (${code})`);
       })]), request: async (method, params, options) => {
-        if (method === 'agent') requests.push(params);
+        if (method === 'agent') { captureCapabilities(); requests.push(params); }
         const reply = await transport.request(method, params, options);
         if (method === 'tools.effective') {
           const result = reply as Record<string, any>;
@@ -97,8 +97,23 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
       } };
     },
   });
+  const capabilities = new Map<string, { member: string; generation: number; tokenDigest: string; endpointDigest: string }>();
+  function captureCapabilities(): void {
+    const host = (kit as unknown as { browserHost?: BrowserHostController }).browserHost;
+    for (const member of ['ada', 'bea']) {
+      const binding = host?.brokerBinding(member);
+      if (!binding) continue;
+      const token = new URL(binding.endpoint.cdpUrl).searchParams.get('token');
+      if (!token) throw new Error('owned broker binding has no token');
+      const tokenDigest = createHash('sha256').update(token).digest('hex');
+      capabilities.set(`${member}:${binding.generation}:${tokenDigest}`, { member, generation: binding.generation,
+        tokenDigest, endpointDigest: createHash('sha256').update(binding.endpoint.cdpUrl).digest('hex') });
+    }
+  }
+  const offCapabilities = kit.onEvent('byokit.browser', () => captureCapabilities());
   try {
-    await kit.start();
+    await kit.start(); captureCapabilities();
+    assert.equal(capabilities.size, 2, 'record both authoritative initial broker capabilities before model submission');
     assert.equal(kit.hello?.server.version, '2026.8.1');
     if (observationOnly) {
       const host = (kit as unknown as { browserHost?: BrowserHostController }).browserHost;
@@ -183,12 +198,14 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     // Event/output clipping is not evidence that the provider request was safe.
     let brokerTokens: Record<string, string> = {};
     try {
+      captureCapabilities();
       const pinned = JSON.parse(readFileSync(join(stateDir, 'openclaw/openclaw.json'), 'utf8'));
       brokerTokens = Object.fromEntries(Object.entries(pinned.browser.profiles).flatMap(([id, profile]: [string, any]) => {
         const token = new URL(profile.cdpUrl).searchParams.get('token');
         return token ? [[id, createHash('sha256').update(token).digest('hex')]] : [];
       }));
     } catch { diagnostics.push({ proofCaptureFailure: 'owned broker-token snapshot unavailable' }); }
+    offCapabilities();
     await kit.stop();
     if (child?.pid && child.exitCode === null && child.signalCode === null) {
       const exited = once(child, 'exit'); child.kill('SIGTERM');
@@ -200,6 +217,7 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     const receipt = { engine: '2026.8.1', upstreamCommit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b', stockEntry: before,
       shippedPlugin: hash(new URL('../../plugin/index.js', import.meta.url).pathname), requests, outputs, toolEvents,
       providerRequests: model.calls.length, modelCalls: model.calls, brokerTokenDigests: brokerTokens,
+      brokerCapabilityHistory: [...capabilities.values()],
       protectedHandoffQualified: false, observationOnly, counterfactual, diagnostics, thumbnails, runtimeRefusals,
       candidateSources: Object.fromEntries(['kit.ts', 'config.ts', 'browser/host.ts', 'browser/broker.ts'].map(path =>
         [path, hash(new URL(`../../src/${path}`, import.meta.url).pathname)])),
