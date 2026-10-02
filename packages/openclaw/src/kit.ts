@@ -482,6 +482,7 @@ export class OpenClawKit {
   private readonly approvalsCtl: Approvals;
   private listeners = new Set<(e: { event: string; payload?: unknown }) => void>();
   private off: (() => void)[] = [];
+  private signInDisconnects = new Set<() => void>();
   private starting?: Promise<void>;
   private stopping = false;
   private failures = 0;
@@ -577,6 +578,7 @@ export class OpenClawKit {
   private closed(_why: string): void {
     const engineFailed = _why === 'engine exited' && this.current.phase === 'failed' && this.current.why === 'exited';
     if (this.stopping || (this.current.phase !== 'ready' && !engineFailed)) return;
+    for (const fn of this.signInDisconnects) fn();
     void this.disconnect();
     if (this.o.spawnEngine === false) { this.setState({ phase: 'failed', why: 'handshake' }); return; }
     const retryAt = Date.now() + Math.min(30_000, 1000 * 2 ** this.failures++);
@@ -617,7 +619,8 @@ export class OpenClawKit {
   // sign-in (5.7): every body here is the module's, with this kit's transport, members and ports.
   private signInCtx(): SignInCtx {
     return { request: (method, params, o) => this.request()(method, params, o),
-      ensure: (member) => this.ensureMember(member), callbackPort: this.o.callbackPort ?? 1455 };
+      ensure: (member) => this.ensureMember(member), callbackPort: this.o.callbackPort ?? 1455,
+      onDisconnect: (fn) => { this.signInDisconnects.add(fn); return () => { this.signInDisconnects.delete(fn); }; } };
   }
 
   routes(): RouteView[] {

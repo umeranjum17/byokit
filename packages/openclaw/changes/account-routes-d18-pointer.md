@@ -1,1 +1,0 @@
-- The README points to the shared account-route vocabulary (D18); `routes()` still returns today's table.

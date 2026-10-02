@@ -586,7 +586,16 @@ A non-sensitive `text` step → wait for `paste` (15 min) then answer
 Every exit short of done calls `wizard.cancel { sessionId }` for **its own** session. For `via: 'browser'` with
 `authChoice` `openai`, the kit holds `127.0.0.1:<callbackPort>` for the sign-in's life: any request pastes
 `http://<host><url>` into the wizard and answers a plain page (words key `signin.returned`); if the port is taken
-the view fails with `why: 'busy'`. Mapping to `SignInView.why`: setup-admission-busy error → `busy`; person cancel →
+the view fails with `why: 'busy'`. For ChatGPT browser/device sign-in, a gateway disconnect interrupts both local paste waits and in-flight wizard
+requests. The kit's existing supervised reconnect remains the transport owner. Within 60 s of the disconnect,
+read `models.authStatus { agentId, refresh: true }` on the live connection (20 s per read, 1 s retry). Only a
+usable, unexpired OAuth profile for the selected agent/provider with an id absent from a known pre-start
+readback can complete sign-in. Refreshing a pre-existing profile (including an expired one) is not proof of this
+login; re-login to the same profile id must complete normally or fail closed after restart. Unknown readback,
+pre-existing credentials, another provider, missing/pending
+credentials, cancellation and expiry never count as success; timeout/error fails and releases only this session.
+No credential files or tokens are read. Normal wizard completion and API billing labels are unchanged.
+Mapping to `SignInView.why`: setup-admission-busy error → `busy`; person cancel →
 `declined`; 200 turns or 15 min → `expired`; else `failed`. Errors are cut to 200 chars.
 
 **signedIn / providers**: `models.authStatus { agentId }` (20 s); a provider entry is a string or `{ provider }`.
