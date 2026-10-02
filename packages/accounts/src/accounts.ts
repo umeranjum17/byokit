@@ -6,7 +6,7 @@ import type { Keystore } from '@byokit/secrets';
 import type { AuthPrompt, CredentialStore, Models } from '@earendil-works/pi-ai';
 import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfile, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
-import { offered, provider, type Provider, type Readiness } from './catalogue.ts';
+import { offered, provider, route, type Provider, type Readiness } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
 import { claims, PORTABLE, portableEngine } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
@@ -263,10 +263,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       await this.resolveKey(member, this.providerKey(id));
     }
   }
-  async add(member: M, key: string, options: { via?: Via; key?: string } = {}): Promise<{ id: string; signIn?: SignIn }> {
+  async add(member: M, key: string, options: Omit<SignInOptions, 'via'> & { via?: Via; key?: string } = {}): Promise<{ id: string; signIn?: SignIn }> {
     const p = this.offer(key);
     if (p.auth === 'api-key' || options.key || options.via === 'key' || options.via === 'session') throw new Error('This sign-in method is not available here.');
     if (key !== p.key) throw new Error('Choose a provider to add an account.');
+    this.signInReady(p, { ...options, via: options.via as SignInOptions['via'] });
     await this.store(member).index(() => {}); // Validate the storage seam before starting a flow.
     const bytes = new Uint8Array(4);
     let id: string;
@@ -277,7 +278,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       id = `${key}.${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
     } while (this.additions.has(`${member}:${id}`) || await this.store(member).read(id));
     this.additions.set(`${member}:${id}`, memoryStore());
-    const signIn = await this.login(member, id, { via: options.via === 'code' ? 'code' : 'browser', fresh: true });
+    const signIn = await this.login(member, id, { ...options, via: options.via as SignInOptions['via'], fresh: true });
     return { id, ...(signIn ? { signIn } : {}) };
   }
   private identity(c: Credential | undefined): string | undefined {
@@ -301,7 +302,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       const identity = this.identity(c);
       const entries = Object.entries(data).filter(([id]) => !id.startsWith('.') && this.providerKey(this.publicKey(id)) === p.key);
       const match = identity && entries.find(([, old]) => this.identity(old as Credential) === identity);
-      canonical = match ? this.publicKey(match[0]) : entries.length ? key : p.key;
+      canonical = match ? this.publicKey(match[0]) : entries.length || p.key === 'openrouter' ? key : p.key;
       data[this.storageKey(canonical)] = c;
       index.addedAt[canonical] ??= Date.now();
       const info = c.type === 'oauth' ? planOf(c.access) : undefined;
@@ -461,7 +462,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   private keyRoute(key: string) {
     const p = this.offer(key);
-    if (p.auth !== 'api-key' && key !== 'openrouter') throw new Error('This account uses a subscription sign-in.');
+    if (p.auth !== 'api-key' && p.key !== 'openrouter') throw new Error('This account uses a subscription sign-in.');
     return p;
   }
 
@@ -531,7 +532,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   private async checked(member: M, key: string) {
     const p = this.offer(key);
-    const ok = p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)
+    const ok = p.auth === 'api-key' || (p.key === 'openrouter' && this.opts.keyStore)
       ? !!(await this.keys(member, (store) => store.get(`accounts.${key}`)))
       : !!(await (await this.runtime(member, key)).checkAuth(p.pi).catch(() => undefined));
     this.ready.set(`${member}:${key}`, ok);
@@ -728,9 +729,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    *  in time, or when a browser sign-in could not return at all. `fresh` asks the page which account again. A flow that
    *  stalls times out; nothing is kept unless the engine then sees a working sign-in; every failure ends in one plain
    *  sentence. Returns as soon as there is a page to open or a code to show (or it is over); the rest carries on by itself. */
-  async login(member: M, key: string, body: { via?: 'code' | 'browser'; fresh?: boolean } = {}): Promise<SignIn | null> {
+  async login(member: M, key: string, body: SignInOptions = {}): Promise<SignIn | null> {
     const p = this.offer(key);
-    if (p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)) throw new Error('Connect an API key after agreeing to billing per use.');
+    this.signInReady(p, body);
     key = this.additions.has(`${member}:${key}`) ? key : await this.resolveKey(member, key);
     const id = `${member}:${key}`;
     const pending = this.signingOut.get(id);
@@ -761,12 +762,44 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     flow.refuse?.(new Error('switching to a code'));
   }
 
-  private async signIn(member: M, key: string, body: { via?: 'code' | 'browser'; fresh?: boolean }, flow: Flow) {
+  /** Check the selected route before opening any member store or starting a provider request. */
+  private signInReady(p: Provider, body: SignInOptions) {
+    if (p.auth === 'api-key') throw new Error('Connect an API key after agreeing to billing per use.');
+    if (p.readiness && p.readiness !== 'ready') throw Object.assign(new Error('This sign-in method is not available here.'), { readiness: p.readiness });
+    if (body.enterpriseDomain !== undefined) {
+      if (p.pi !== 'github-copilot') throw new Error('Enterprise domains apply only to GitHub Copilot.');
+      const domain = body.enterpriseDomain.trim();
+      if (domain && (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(domain) || !domain.includes('.') || domain.includes('..')))
+        throw new Error('Enter a GitHub Enterprise domain, without a path or credentials.');
+    }
+    if (p.key === 'claude' && body.via === 'code') throw new Error('Claude uses a browser or a pasted code, not a device code.');
+    if (p.key === 'radius' && body.via === 'paste') throw new Error('Radius has no paste sign-in flow.');
+    if (p.key === 'openrouter') {
+      if (body.via === 'code') throw new Error('OpenRouter uses a browser or a pasted code, not a device code.');
+      if (body.billedPerUse !== true) throw new Error('Agree to billing per use before connecting this key.');
+      if (!this.opts.keyStore) throw Object.assign(new Error('OpenRouter sign-in needs a device-owned key store.'), { readiness: 'needs_host' });
+    }
+    const selected = p.key === 'claude' && body.via === 'browser' ? 'anthropic:browser'
+      : p.key === 'radius' ? `radius:${body.via ?? 'browser'}`
+      : p.key === 'openrouter' ? `openrouter:${body.via ?? 'browser'}` : undefined;
+    if (selected) {
+      const r = route(selected, { platform: this.platform.loopback ? 'node' : 'rn' });
+      if (r.readiness !== 'ready') throw Object.assign(new Error(r.why), { readiness: r.readiness });
+    }
+  }
+
+  private async signIn(member: M, key: string, body: SignInOptions, flow: Flow) {
     const p = this.offer(key);
     const id = `${member}:${key}`;
     const rt = await this.runtime(member, key);
+    // Browser Claude stores into the same plan namespace, never the API-key namespace. OpenRouter's
+    // permanent key stays in transient memory until the shared device-owned keyStore seam accepts it.
+    const temporary = p.key === 'openrouter' ? memoryStore() : undefined;
+    const driver = temporary ? this.platform.engine(temporary)
+      : p.key === 'claude' && body.via === 'browser' ? this.platform.engine(viewStore(rt.credentialStore, 'anthropic', p.pi)) : rt;
+    const pi = p.key === 'claude' && body.via === 'browser' ? 'anthropic' : p.pi;
     let codeOffered = false;
-    const attempt = (via?: 'code' | 'browser') => rt.login(p.pi, 'oauth', {
+    const attempt = (via?: SignInOptions['via']) => driver.login(pi, 'oauth', {
       signal: flow.abort.signal,
       prompt: (q: AuthPrompt): Promise<string> => {
         if (q.type === 'select') {
@@ -774,7 +807,10 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
           codeOffered = !!device;
           return Promise.resolve((via === 'code' && device ? device : q.options.find((o) => o !== device) ?? q.options[0]).id);
         }
-        if (q.type === 'text') return Promise.resolve(''); // GitHub Enterprise domain: never, for a household
+        if (q.type === 'text') {
+          if (p.pi === 'github-copilot') return Promise.resolve(body.enterpriseDomain?.trim() ?? '');
+          throw new Error('This sign-in needs an app-supplied prompt handler.');
+        }
         // "Paste the redirect address": the kit's own listener (or the person) hands the engine the address the browser landed on.
         return new Promise((resolve, reject) => {
           Object.assign(flow, { paste: resolve, refuse: reject });
@@ -785,7 +821,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         if (e.type === 'auth_url') {
           const url = new URL(e.url);
           if (body.fresh && p.fresh) url.searchParams.set(p.fresh.param, p.fresh.value); // "Use my personal account": ask which account, again
-          Object.assign(flow, { via: 'browser', url: url.toString(), code: undefined, oauthState: url.searchParams.get('state') ?? undefined });
+          Object.assign(flow, { via: body.via === 'paste' || (p.key === 'claude' && body.via !== 'browser') ? 'paste' : 'browser', url: url.toString(), code: undefined, oauthState: url.searchParams.get('state') ?? undefined });
         }
         if (e.type === 'device_code') Object.assign(flow, { via: 'code', code: e.userCode, url: e.verificationUri, expiresAt: e.expiresInSeconds ? Date.now() + e.expiresInSeconds * 1000 : undefined });
         if (flow.url) flow.shown?.();
@@ -814,8 +850,23 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         await attempt('code');
       }
       if (flow.generation !== (this.generations.get(id) ?? 0) || flow.state !== 'waiting') return;
-      if (!(await rt.checkAuth(p.pi).catch(() => undefined))) { await rt.logout(p.pi).catch(() => {}); throw new Error('no usable credential'); }
+      if (!(await driver.checkAuth(pi).catch(() => undefined))) { await driver.logout(pi).catch(() => {}); throw new Error('no usable credential'); }
       if (flow.generation !== (this.generations.get(id) ?? 0) || flow.state !== 'waiting') return;
+      if (temporary) {
+        const credential = await temporary.read(pi);
+        if (credential?.type !== 'oauth' || !credential.access) throw new Error('no usable credential');
+        await this.serial(id, async () => {
+          if (flow.abort.signal.aborted || flow.generation !== (this.generations.get(id) ?? 0)) throw new Error('Login cancelled');
+          await this.keys(member, (store) => store.set(`accounts.${key}`, credential.access));
+          if (flow.abort.signal.aborted || flow.generation !== (this.generations.get(id) ?? 0)) {
+            await this.keys(member, (store) => store.delete(`accounts.${key}`));
+            throw new Error('Login cancelled');
+          }
+        });
+        // A non-secret marker keeps list/index membership; the key never enters the credential store.
+        const target = this.additions.get(id) ?? rt.credentialStore;
+        await target.modify(p.pi, async () => ({ type: 'api_key', key: '' }), { signal: flow.abort.signal });
+      }
       const canonical = await this.commitAddition(member, key, flow);
       flow.state = 'done';
       this.ready.set(`${member}:${canonical}`, true);
@@ -882,7 +933,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   private async refreshed(member: M, key: string, minOAuthValidityMs: number) {
     const p = this.offer(key);
-    if (p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)) return this.signedIn(member, key);
+    if (p.auth === 'api-key' || (p.key === 'openrouter' && this.opts.keyStore)) return this.signedIn(member, key);
     const pi = p.pi;
     key = this.accountKey(member, key);
     return (await this.runtime(member, key)).getAuth(pi, { minOAuthValidityMs }).then(Boolean, async (e: Error) => {
@@ -919,7 +970,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     if (await this.endpointRecord(member, key)) { await this.logout(member, key); return false; }
     const p = this.offer(key);
     // A saved API key cannot refresh itself after an authentication refusal.
-    const ok = p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)
+    const ok = p.auth === 'api-key' || (p.key === 'openrouter' && this.opts.keyStore)
       ? false : await this.refreshed(member, key, 365 * 86_400_000);
     if (!ok) { await this.logout(member, key).catch(() => {}); this.forgetAccount(member, key); }
     return ok;
@@ -954,8 +1005,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     this.claudePlans.delete(id);
     this.cancelFlow(member, key);
     const work = (async () => {
-      if (p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)) {
+      if (p.auth === 'api-key' || (p.key === 'openrouter' && this.opts.keyStore)) {
         await this.serial(id, () => this.keys(member, (store) => store.delete(`accounts.${key}`)));
+        await this.store(member).delete(this.storageKey(key));
         this.ready.set(id, false);
         this.onChange?.(member, key);
         return;

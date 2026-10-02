@@ -30,7 +30,8 @@ const PLAN_NAMES: Record<string, string> = { prolite: 'Pro Lite' };
 export const planLabel = (name: string, plan = '') => plan ? `${name} ${PLAN_NAMES[plan] ?? plan[0].toUpperCase() + plan.slice(1).replace(/_/g, ' ')}` : name;
 
 /** What the person pays, in one plain sentence to show next to the provider. */
-export const billingWords = (p: Provider) => say(`billing.${p.billing}`, { name: p.name, company: p.company });
+export const billingWords = (p: Provider) => p.billing === 'subscription' || p.billing === 'api'
+  ? say(`billing.${p.billing}`, { name: p.name, company: p.company }) : p.label ?? `Billing set by ${p.company}`;
 
 /** A failed sign-in in one plain sentence with one next step. */
 export const signInError = (name: string, error: string) => say(`signIn.${failure(error)}`, { name });

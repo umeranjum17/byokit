@@ -51,9 +51,15 @@ export function route(id: string, host: RouteHost = { platform: 'node' }): Route
 export type MultiAccountTerms = { terms: 'allowed' | 'grey' | 'partner' | 'forbidden'; why: string; source: string };
 /** `callbackPort`: where the provider sends the browser back after its own sign-in page, fixed for the client Pi signs in as.
  *  `revoke`: where signing out ends the sign-in on the provider's side too, for the client `clientId`. */
-export type Provider = { key: string; pi: string; name: string; company: string; models: { strong: string; fast?: string }; fresh?: { param: string; value: string }; callbackPort?: number; clientId?: string; revoke?: string; billing: 'subscription' | 'api'; auth?: 'api-key' | 'oauth'; label?: string; offer?: boolean; readiness?: Readiness; routes?: string[]; source: string; multiAccount: MultiAccountTerms };
+export type Provider = { key: string; pi: string; name: string; company: string; models: { strong: string; fast?: string }; fresh?: { param: string; value: string }; callbackPort?: number; clientId?: string; revoke?: string; billing: Billing; auth?: 'api-key' | 'oauth'; label?: string; offer?: boolean; readiness?: Readiness; routes?: string[]; source: string; multiAccount: MultiAccountTerms };
 
 export const PROVIDERS: Record<string, Provider> = Object.fromEntries(Object.entries(CATALOGUE).map(([key, p]) => [key, { key, ...p } as Provider]));
+// This gateway's billing is not subscription-qualified at the pin. Never add it to the default offer.
+PROVIDERS.radius = {
+  key: 'radius', pi: 'radius', name: 'Radius', company: 'Radius', models: { strong: 'balanced', fast: 'cheap' },
+  billing: 'unknown', auth: 'oauth', offer: false, label: 'Billing set by Radius', routes: ['radius:browser', 'radius:code'],
+  source: 'https://radius.pi.dev', multiAccount: { terms: 'grey', why: 'Billing and account terms are set by the gateway.', source: 'https://radius.pi.dev' },
+};
 
 export function provider(key: string) {
   const p = PROVIDERS[key];
