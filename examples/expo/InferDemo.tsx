@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AppState, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { initLlama } from 'llama.rn';
 import * as RNFS from '@dr.pogodin/react-native-fs';
+import { completionProbe } from './infer-probe.ts';
 import { InferError, LocalModel, errorWords, model, stateWords, summarizePane, words, type InferModelStore, type InferState,
   type PaneSummary } from '@byokit/infer';
 
@@ -13,6 +14,19 @@ const PROBE = process.env.EXPO_PUBLIC_INFER_PROBE === '1';
 let onReceipt: (label: string) => void = () => {};
 const receipt = (label: string) => { if (PROBE) { console.info(`infer-probe ${label}`); onReceipt(label); } };
 const DIR = `${RNFS.DocumentDirectoryPath}/models`;
+let onCompletionReceipt: (text: string) => void = () => {};
+let completionEntries: string[] = [];
+async function captureCompletion(entry: Record<string, unknown>) {
+  // Fixed synthetic panes only. Two bounded records in this lab's private files, mirrored to its diagnostic log.
+  const json = JSON.stringify(entry);
+  const bounded = JSON.stringify({ kind: entry.kind, chars: json.length, truncated: json.length > 16384, json: json.slice(0, 16384) });
+  completionEntries = entry.kind === 'request' ? [bounded] : [...completionEntries.slice(-1), bounded];
+  onCompletionReceipt(completionEntries.join('\n'));
+  const chunks = Math.ceil(bounded.length / 512);
+  for (let i = 0; i < chunks; i++) console.info(`infer-completion ${entry.kind} ${i + 1}/${chunks} ${bounded.slice(i * 512, (i + 1) * 512)}`);
+  try { await RNFS.writeFile(`${RNFS.DocumentDirectoryPath}/infer-completion-receipt.txt`, completionEntries.join('\n'), 'utf8'); }
+  catch { receipt('completion.capture-file-failed'); }
+}
 const store: InferModelStore = {
   path: m => `${DIR}/${m.id}.gguf`,
   size: async m => {
@@ -65,7 +79,7 @@ const PANES: { id: string; label: string; lines: string[] }[] = [
 ];
 
 let onState: (s: InferState) => void = () => {};
-const local = new LocalModel({ model: model(), store, initLlama, onState: s => { receipt(`state.${s.phase}`); onState(s); }, device: { platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'other' } });
+const local = new LocalModel({ model: model(), store, initLlama: PROBE ? completionProbe(initLlama, captureCompletion) : initLlama, onState: s => { receipt(`state.${s.phase}`); onState(s); }, device: { platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'other' } });
 
 export function InferDemo() {
   const [state, setState] = useState<InferState>(local.state);
@@ -74,6 +88,7 @@ export function InferDemo() {
   const [said, setSaid] = useState('');
   const [timing, setTiming] = useState('');
   const [receipts, setReceipts] = useState<string[]>([]);
+  const [completionText, setCompletionText] = useState('');
   const install = useRef<AbortController | null>(null);
   const run = useRef<AbortController | null>(null);
   const last = useRef<Promise<unknown>>(Promise.resolve());
@@ -81,10 +96,11 @@ export function InferDemo() {
   useEffect(() => {
     onState = setState;
     onReceipt = label => setReceipts(previous => [...previous.slice(-11), label]);
+    onCompletionReceipt = setCompletionText;
     void local.check().catch(fail);
     // Backgrounded: stop work and free the native context; nothing runs in the background.
     const sub = AppState.addEventListener('change', s => { if (s !== 'active') { run.current?.abort(new Error('background')); void local.release().catch(fail); } });
-    return () => { onState = () => {}; onReceipt = () => {}; sub.remove(); };
+    return () => { onState = () => {}; onReceipt = () => {}; onCompletionReceipt = () => {}; sub.remove(); };
   }, []);
 
   const fail = (e: unknown) => {
@@ -155,6 +171,7 @@ export function InferDemo() {
       {installed ? button('infer-summarize', 'Summarise', () => void summarize(pane)) : null}
       {state.phase === 'busy' ? button('infer-cancel', 'Cancel', () => run.current?.abort(new Error('cancelled'))) : null}
     </View>
+    {PROBE && !!completionText && <Text testID="infer-completion-receipt" style={s.small}>{completionText}</Text>}
     <View style={s.pane}>{PANES.find(p => p.id === pane)!.lines.map((l, i) => <Text key={i} style={s.mono}>{l}</Text>)}</View>
   </ScrollView></SafeAreaView>;
 }
