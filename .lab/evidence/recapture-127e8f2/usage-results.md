@@ -38,3 +38,7 @@ Android: release APK built with `EXPO_PUBLIC_USAGE_DEMO=1` on a task-started rea
 - [Android UI checks](usage-ui-checks.txt): in all nine fixed tabs, today, 30 days, people and models show the same per-plan total, and no model ids or internal plan names appear. Only the labelled before reproduction shows "OpenAI Codex", "Rate limited 0% left", "0 tokens" and "Pi 4.6B".
 - [Web snapshots](web-tabs.txt): each fixed tab shows its total exactly four times.
 - [Kit words grep](usage-words-grep.txt): no raw model ids in the 262 values of all 12 words.json files, and no internal plan names in the usage words.
+
+## Rebase onto main `f6ccbe06` (PR #248 audit exception)
+
+The branch was rebased again with no conflicts. The new product head is `497cf328`. Compared with captured source `8ee49274`, nothing under `packages/`, `examples/` or `fixtures/` changed. The only differences are main's audit-exception files: `.github/workflows/ci.yml`, `CONTRIBUTING.md`, `scripts/audit*.ts` and `tsconfig.json`. See [head-equivalence.txt](head-equivalence.txt). The captures above still show this head's screens, so they were not retaken and their captions still name `8ee49274`. [Gates on the new head](usage-rebased-f6ccbe06-gates.txt): build and check pass, the README check finds 0 new failures, both audits pass, and 60 tests pass with 1 skipped.
