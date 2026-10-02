@@ -1,5 +1,5 @@
 // Gateway-only accounting. Reads requested UTC months, never transcript content or credentials.
-import { readFileSync } from 'node:fs';
+import { readFileSync, openSync, writeSync, fsyncSync, closeSync } from 'node:fs';
 import { join } from 'node:path';
 const object = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const count = v => Number.isSafeInteger(v) && v >= 0;
@@ -26,13 +26,15 @@ export function readEngineStarted(dir, live, params, read = readFileSync) {
   };
   const boots = new Map();
   for (const row of lines(join(dir, 'boots.jsonl'), false)) {
-    if (typeof row.bootId !== 'string' || (row.startedAt === undefined && row.stoppedAt === undefined) ||
-      (row.startedAt !== undefined && !count(row.startedAt)) || (row.stoppedAt !== undefined && (!count(row.stoppedAt) || !object(row.months)))) {
+    if (typeof row.bootId !== 'string' || (row.startedAt === undefined && row.stoppedAt === undefined && row.spawned !== false) ||
+      (row.startedAt !== undefined && !count(row.startedAt)) || (row.stoppedAt !== undefined && (!count(row.stoppedAt) || !object(row.months))) ||
+      (row.spawned === false && !count(row.failedAt))) {
       result.unreadableLines++; continue;
     }
     const boot = boots.get(row.bootId) ?? {};
     if (row.startedAt !== undefined) { if (boot.startedAt !== undefined && boot.startedAt !== row.startedAt) result.unreadableLines++; boot.startedAt = row.startedAt; }
     if (row.stoppedAt !== undefined) { if (boot.stoppedAt !== undefined) result.unreadableLines++; boot.stoppedAt = row.stoppedAt; boot.months = row.months; }
+    if (row.spawned === false) { boot.stoppedAt = row.failedAt; boot.months = {}; }
     boots.set(row.bootId, boot);
   }
   const starts = [...boots.values()].map(b => b.startedAt).filter(count).sort((a, b) => a - b);
@@ -90,6 +92,24 @@ export function readEngineStarted(dir, live, params, read = readFileSync) {
   return result;
 }
 export function registerUsage(api) {
+  const dir = process.env.BYOKIT_ENGINE_USAGE_LEDGER, bootId = process.env.BYOKIT_ENGINE_BOOT;
+  if (dir && bootId) {
+    const live = globalThis[USAGE_SYMBOL] ??= { bootId, months: {}, inFlight: {} };
+    let clean = false;
+    api.on('gateway_stop', () => { clean = true; });
+    // Snapshot at process exit: no async review can append after these counters. SIGKILL cannot forge a clean stop.
+    process.once('exit', code => {
+      if (!clean || code !== 0 || Object.keys(live.inFlight).length) return;
+      let fd;
+      try {
+        fd = openSync(join(dir, 'boots.jsonl'), 'a', 0o600);
+        const line = Buffer.from(JSON.stringify({ bootId, stoppedAt: Date.now(), months: live.months }) + '\n');
+        if (writeSync(fd, line) !== line.length) return;
+        fsyncSync(fd);
+      } catch { /* No stop proof: permanently incomplete, never fail a review or shutdown. */ }
+      finally { if (fd !== undefined) closeSync(fd); }
+    });
+  }
   api.registerGatewayMethod('byokit.usage.engineStarted', ({ params, respond }) => {
     try { respond(true, readEngineStarted(process.env.BYOKIT_ENGINE_USAGE_LEDGER, globalThis[USAGE_SYMBOL], params)); }
     catch { respond(false, undefined, { code: 'INVALID_REQUEST', message: 'Invalid usage window' }); }

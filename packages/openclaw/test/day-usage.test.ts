@@ -46,6 +46,12 @@ test('crashed boot and missing usage remain unknown; elapsed time does not inter
   assert.equal(engineStartedOf(missing, 'm1', window).charges[0].state, 'reported-missing');
   assert.equal(engineStartedOf(missing, 'm1', window).complete, false);
 });
+test('orphan boot remains permanently incomplete; definite no-process terminal is clean', () => {
+  const starts = jsonl({ bootId: 'boot-orphan', startedAt: startMs - 1000 }, { bootId: 'boot-1', startedAt: startMs });
+  assert.equal(fixture(jsonl(fact()), { '2026-10': { lastSeq: 1, failed: 0 } }, starts).raw.complete, false);
+  const failed = starts + jsonl({ bootId: 'boot-orphan', failedAt: startMs + 10, spawned: false });
+  assert.equal(fixture(jsonl(fact()), { '2026-10': { lastSeq: 1, failed: 0 } }, failed).raw.complete, true);
+});
 test('wrong source identity and conflicting duplicates are unavailable', () => {
   const raw = fixture().raw;
   for (const changed of [{ ...raw, agentId: 'm2' }, { ...raw, startMs: startMs + 1 },
