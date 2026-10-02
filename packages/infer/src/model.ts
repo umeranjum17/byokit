@@ -7,7 +7,6 @@ export type LlamaRnContextParams = {
 export type LlamaRnMessage = { role: 'system' | 'user'; content: string };
 export type LlamaRnCompletionParams = {
   messages: LlamaRnMessage[]; jinja: true; enable_thinking: false; n_predict: number; temperature: 0; seed: number;
-  force_pure_content?: true;
   response_format?: { type: 'json_schema'; json_schema: { strict: true; schema: object } };
 };
 export type LlamaRnCompletionResult = {
@@ -196,8 +195,7 @@ export class LocalModel {
         if (this.#releasing) throw new InferError('failed', 'The model was released.');
         this.#set({ phase: 'busy' });
         const r = await ctx.completion({ messages, jinja: true, enable_thinking: false, n_predict: maxOutputTokens, temperature: 0, seed: 0,
-          ...(req.jsonSchema && { force_pure_content: true as const,
-            response_format: { type: 'json_schema' as const, json_schema: { strict: true as const, schema: req.jsonSchema } } }) }, onToken);
+          ...(req.jsonSchema && { response_format: { type: 'json_schema' as const, json_schema: { strict: true as const, schema: req.jsonSchema } } }) }, onToken);
         throwIfAborted(signal);
         if (this.#releasing) throw new InferError('failed', 'The model was released while generating.');
         this.#set({ phase: 'ready' });

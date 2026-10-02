@@ -87,7 +87,10 @@ export async function summarizePane(local: LocalModel, lines: readonly string[],
   }
   if (done.stop === 'limit') return { ok: false, code: 'incomplete' };
   let parsed: unknown;
-  try { parsed = JSON.parse(done.text); } catch { return { ok: false, code: 'invalid-output' }; }
+  // Stock Jinja can return the assistant header / fenced JSON instead of filtered content. No substring fishing.
+  const body = done.text.trim().replace(/^<\|im_start\|>assistant\r?\n/, '').trim();
+  const fence = /^```json\r?\n([\s\S]*)\r?\n```$/.exec(body);
+  try { parsed = JSON.parse(fence ? fence[1] : body); } catch { return { ok: false, code: 'invalid-output' }; }
   const p = parsed as { enough?: unknown; lines?: unknown };
   if (p?.enough === false) return { ok: false, code: 'not-enough-output' };
   const out = Array.isArray(p?.lines) ? p.lines.map(l => typeof l === 'string' ? redact(plainText(l)).trim() : '') : [];

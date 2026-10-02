@@ -6,10 +6,11 @@ import { AppState, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Te
 import { initLlama } from 'llama.rn';
 import * as RNFS from '@dr.pogodin/react-native-fs';
 import { completionProbe } from './infer-probe.ts';
+import { REALISTIC_PANE } from './infer-pane-fixture.ts';
 import { InferError, LocalModel, errorWords, model, stateWords, summarizePane, words, type InferModelStore, type InferState,
   type PaneSummary } from '@byokit/infer';
 
-// Fixed-label diagnostics for the own-lab counterfactual only; never pane text or raw native exception messages.
+// Fixed-label diagnostics. Separately gated completion receipts below are fixed-synthetic own-lab only.
 const PROBE = process.env.EXPO_PUBLIC_INFER_PROBE === '1';
 let onReceipt: (label: string) => void = () => {};
 const receipt = (label: string) => { if (PROBE) { console.info(`infer-probe ${label}`); onReceipt(label); } };
@@ -17,7 +18,7 @@ const DIR = `${RNFS.DocumentDirectoryPath}/models`;
 let onCompletionReceipt: (text: string) => void = () => {};
 let completionEntries: string[] = [];
 async function captureCompletion(entry: Record<string, unknown>) {
-  // Fixed synthetic panes only. Two bounded records in this lab's private files, mirrored to its diagnostic log.
+  // Fixed synthetic panes only. Request plus result/rejection, bounded in private files and the lab diagnostic log.
   const json = JSON.stringify(entry);
   const bounded = JSON.stringify({ kind: entry.kind, chars: json.length, truncated: json.length > 16384, json: json.slice(0, 16384) });
   completionEntries = entry.kind === 'request' ? [bounded] : [...completionEntries.slice(-1), bounded];
@@ -58,6 +59,7 @@ const store: InferModelStore = {
 
 /** Umer's demo panes: what a Herdr agent card shows mid-task. Fixed text, never a real terminal. */
 const PANES: { id: string; label: string; lines: string[] }[] = [
+  ...(PROBE ? [{ id: 'realistic', label: 'local summary work', lines: REALISTIC_PANE }] : []),
   { id: 'tests', label: 'byokit tests', lines: [
     '❯ npm test', '> byokit-monorepo@ test', '> sh scripts/test.sh',
     '✔ install downloads only the pinned URL, verifies size and hash (2.8ms)',
