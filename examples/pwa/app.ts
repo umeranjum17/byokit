@@ -73,19 +73,33 @@ function card(key: 'chatgpt' | 'claude') {
     if (!pasted.value.trim()) return pasted.focus();
     try { accounts.paste(ME, key, pasted.value); pasted.value = ''; } catch { note(say('signIn.failed', { name })); }
   };
+  // One question at a time per card: Ask waits while an answer is coming, Stop ends it, and only the newest question's
+  // answer may write here, so an older answer's late pieces, final text or failure never overwrite a newer one.
+  let asking: AbortController | undefined;
+  const settle = (mine?: AbortController) => {
+    if (mine && mine !== asking) return;
+    asking?.abort(); asking = undefined;
+    q<HTMLButtonElement>('ask').disabled = false; show('stop', false);
+  };
   q('ask').onclick = async () => {
     const out = q('answer');
     const input = q<HTMLTextAreaElement>('question').value.trim();
-    if (!input) return;
+    if (!input || asking) return;
+    const mine = asking = new AbortController();
+    const signal = mine.signal;
+    q<HTMLButtonElement>('ask').disabled = true; show('stop', true);
     out.textContent = ''; show('answer', true);
-    const onText = (d: string) => { out.textContent += d; };
+    const onText = (d: string) => { if (mine === asking) out.textContent += d; };
     try {
-      out.textContent = key === 'claude'
-        ? await accounts.respond(ME, { provider: 'claude', model: PROVIDERS.claude.models.strong, max_tokens: 1024, system: 'Answer in a few short sentences.', messages: [{ role: 'user', content: input }], onText })
-        : await accounts.respond(ME, { instructions: 'Answer in a few short sentences.', input, onText });
-    } catch (e: any) { out.textContent = e.message; }
+      const text = key === 'claude'
+        ? await accounts.respond(ME, { provider: 'claude', model: PROVIDERS.claude.models.strong, max_tokens: 1024, system: 'Answer in a few short sentences.', messages: [{ role: 'user', content: input }], onText, signal })
+        : await accounts.respond(ME, { instructions: 'Answer in a few short sentences.', input, onText, signal });
+      if (mine === asking) out.textContent = text;
+    } catch (e: any) { if (mine === asking) out.textContent = e.message; }
+    settle(mine);
   };
-  q('signout').onclick = async () => { await accounts.logout(ME, key); note(''); show('answer', false); draw(); };
+  q('stop').onclick = () => settle();
+  q('signout').onclick = async () => { settle(); await accounts.logout(ME, key); note(''); show('answer', false); draw(); };
   return draw;
 }
 

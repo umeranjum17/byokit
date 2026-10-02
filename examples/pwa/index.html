@@ -21,6 +21,7 @@
   .primary, .secondary { font: inherit; display: block; box-sizing: border-box; width: 100%; margin: .6em 0 0; padding: .75em; border-radius: 12px; text-align: center; text-decoration: none; cursor: pointer; }
   .primary { background: var(--primary); color: var(--on-primary); border: 0; font-weight: 600; }
   .secondary { background: none; color: var(--ink); border: 1px solid var(--line); }
+  .primary:disabled { opacity: .5; cursor: default; }
   .quiet { font: inherit; font-size: .9em; background: none; border: 0; color: var(--soft); padding: .4em 0; margin-top: .4em; cursor: pointer; text-decoration: underline; }
   .code { font-size: 2em; font-weight: 700; letter-spacing: .1em; margin: .2em 0; }
   input, textarea { font: inherit; box-sizing: border-box; width: 100%; padding: .65em .8em; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--ink); margin-top: .6em; }
@@ -51,6 +52,7 @@
     <div data-ready hidden>
       <textarea data-question rows="2"></textarea>
       <button class="primary" data-ask>Ask</button>
+      <button class="secondary" data-stop hidden>Stop</button>
       <p class="answer" data-answer hidden></p>
       <button class="quiet" data-signout>Sign out</button>
     </div>
