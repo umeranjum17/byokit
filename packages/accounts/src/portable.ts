@@ -5,6 +5,8 @@ export type { Api, ApiStreamOptions, AssistantMessage, AssistantMessageEvent, Co
 export type { AiBinding } from '@earendil-works/pi-ai/api/cloudflare-ai-binding';
 export { CloudAccountError, cloudSelection, cloudCredential, type CloudAccount, type CloudOptions, type CloudStream } from './cloud.ts';
 export { Accounts, planOf, portable, type AccountsOptions, type ClaudePlanAsk, type AnthropicAccountAsk, type AuthHost, type Loopback, type Member, type Platform, type SignInOptions, type SignIn, type Status } from './accounts.ts';
+export { KeyRouteError, type KeyAsk } from './key-routes.ts';
+export type { Api, Model, Context, AssistantMessage, AssistantMessageEvent, ModelsApiStreamOptions } from '@earendil-works/pi-ai';
 export { PROVIDERS, offered, provider, routes, route, routeReadiness, type Billing, type MultiAccountTerms, type Provider, type Route, type RouteView, type RouteVia, type RouteHost, type Support, type Readiness } from './catalogue.ts';
 export { PORTABLE, claims, credentialOf, devicePoll, deviceStart, portableEngine, type EngineOptions, type Poll } from './engine.ts';
 export { REST_MS, classify, classifyFailure, type Failure, type Kind } from './limits.ts';

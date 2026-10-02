@@ -3,13 +3,14 @@
 // The engine does the signing in (Pi's own flows on a computer, portableEngine on phones and in browsers); the app only
 // shows the provider's page to open or the code to type. No Node import here: see index.ts for the computer's side.
 import type { Keystore } from '@byokit/secrets';
-import type { Api, ApiStreamOptions, AssistantMessage, AssistantMessageEventStream, AuthPrompt, CredentialStore, Model, Models, Context } from '@earendil-works/pi-ai';
+import type { Api, ApiStreamOptions, AssistantMessage, AssistantMessageEventStream, AuthPrompt, CredentialStore, Model, Models, Context, ProviderStreams } from '@earendil-works/pi-ai';
 import { cloudSelection, CloudAccountError, type CloudOptions, type CloudStream } from './cloud.ts';
 import type { AiBinding } from '@earendil-works/pi-ai/api/cloudflare-ai-binding';
 import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfile, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
-import { offered, provider, route, type Provider, type Readiness, type RouteHost } from './catalogue.ts';
+import { offered, provider, route, routes, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
+import { checkKeyModel, keyRespond, KeyRouteError, type KeyAsk } from './key-routes.ts';
 import { claims, PORTABLE, portableEngine } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
@@ -36,7 +37,7 @@ type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text
 /** Listens on this computer for the provider's page coming back: each request's path in, the page to answer with out. */
 export type Loopback = (port: number, handle: (path: string) => Promise<{ status: number; html: string }>) => Promise<{ close(): void }>;
 /** What differs by platform: the engine that signs in, which providers it can, and (on a computer) a loopback listener. */
-export type Platform = { kind?: 'node' | 'browser' | 'rn'; engine: (credentials: CredentialStore, authBase?: string) => AuthHost; signsIn: (pi: string) => boolean; loopback?: Loopback; endpoint?: EndpointDriver; cloudStream?: CloudStream };
+export type Platform = { kind?: 'node' | 'browser' | 'rn'; keyApi?: (api: string) => Promise<ProviderStreams>; engine: (credentials: CredentialStore, authBase?: string) => AuthHost; signsIn: (pi: string) => boolean; loopback?: Loopback; endpoint?: EndpointDriver; cloudStream?: CloudStream };
 /** Phones and browsers: ChatGPT by device code, no listener. */
 export const portable: Platform = { kind: 'browser', engine: (c, base) => portableEngine(c, { base }), signsIn: (pi) => pi === CLAUDE_PLAN_ID || PORTABLE.includes(pi) };
 
@@ -132,7 +133,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   private accountKey(member: M, key: string) { return this.aliases.get(`${member}:${key}`) ?? key; }
   private stateKey(member: M, key: string) { return this.accountKey(member, this.preferred.get(`${member}:${key}`) ?? key); }
   private providerKey(key: string) { return key.split('.')[0]; }
-  private storageKey(key: string) { return key.includes('.') ? key : this.offer(key).pi; }
+  private storageKey(key: string) { return key.includes('.') || key.includes(':') ? key : this.offer(key).pi; }
   private async resolveKey(member: M, key: string) {
     if (key.includes('.')) return this.accountKey(member, key);
     const index = await this.index(member);
@@ -158,13 +159,14 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         rows.push({ id, provider: cloud.provider, route: cloud.route, name: index.names[id] ?? r.name, label: cloud.billing === r.billing ? r.label : `Your own server (${cloud.billing} billing)`, billing: cloud.billing, state: status.state, addedAt: index.addedAt[id] ?? 0 });
         continue;
       }
-      const p = this.providers.find((p) => p.key === this.providerKey(id));
+      const p = id.includes(':') ? this.offer(id) : this.providers.find((p) => p.key === this.providerKey(id));
       if (!p) continue;
+      const metadata = index.accounts?.[id];
       const status = await this.accountStatus(member, id);
       const token = await this.store(member).read(c.providerId);
       const info = token?.type === 'oauth' ? planOf(token.access) : undefined;
-      rows.push({ id, provider: p.key, route: index.accounts?.[id]?.route ?? p.pi, name: index.names[id] ?? p.name, label: p.label ?? p.name,
-        billing: p.billing, state: status.state, ...(status.until ? { until: status.until } : {}),
+      rows.push({ id, provider: metadata?.route.includes(':') ? route(metadata.route).provider : p.key, route: metadata?.route ?? p.pi, name: index.names[id] ?? p.name, label: p.label ?? p.name,
+        billing: metadata?.billing ?? p.billing, state: status.state, ...(status.until ? { until: status.until } : {}),
         ...(index.emails[id] || info?.email ? { email: index.emails[id] || info?.email } : {}),
         ...(index.plans[id] || info?.plan ? { plan: index.plans[id] || info?.plan } : {}), addedAt: index.addedAt[id] ?? 0 });
     }
@@ -263,12 +265,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
   async remove(member: M, id: string): Promise<void> {
     id = this.accountKey(member, id);
-    const endpoint = !!(await this.endpointRecord(member, id));
     try { await this.endAccount(member, id, true); }
     finally {
       await this.store(member).index((i) => {
         for (const map of [i.names, i.emails, i.plans, i.addedAt]) delete map[id];
-        if (endpoint || this.providerKey(id) === 'openrouter') delete i.accounts?.[id];
+        if (i.accounts) delete i.accounts[id];
         if (i.defaults.account === id) delete i.defaults.account;
       });
       this.preferred.delete(`${member}:${this.providerKey(id)}`);
@@ -277,8 +278,17 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
   async add(member: M, key: string, options: (Omit<SignInOptions, 'via'> & { via?: Via; key?: string }) | CloudOptions = {}): Promise<{ id: string; signIn?: SignIn }> {
     if ('route' in options) return this.addCloud(member, key, options);
+    if (key.includes(':') || options.via === 'key' || options.via === 'plan_key' || options.key !== undefined) {
+      const r = key.includes(':') ? route(key) : routes().find((r) => (r.provider === key || r.aliases?.includes(key)) && r.via === (options.via ?? 'key'));
+      if (!r || !['key', 'plan_key'].includes(r.via)) throw new Error('Choose a key route to add an account.');
+      this.keyRoute(r.id); // Platform/flow before any credentials or storage.
+      if (options.key === undefined) throw new Error('Enter a key to connect this account.');
+      const id = `${r.id}.${globalThis.crypto?.randomUUID?.() ?? Math.random().toString(16).slice(2)}`;
+      await this.saveKey(member, id, options.key, { billedPerUse: true });
+      return { id, signIn: { id, state: 'done' } };
+    }
     const p = this.offer(key);
-    if (p.auth === 'api-key' || options.key || options.via === 'key' || options.via === 'session') throw new Error('This sign-in method is not available here.');
+    if (p.auth === 'api-key' || options.via === 'session') throw new Error('This sign-in method is not available here.');
     if (key !== p.key) throw new Error('Choose a provider to add an account.');
     this.signInReady(p, { ...options, via: options.via as SignInOptions['via'] });
     await this.store(member).index(() => {}); // Validate the storage seam before starting a flow.
@@ -516,15 +526,32 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     return r;
   }
 
-  private offer(key: string) {
+  /** Route discovery is independent of legacy provider offers; naming a route is explicit selection. */
+  routes(): RouteView[] { return routes({ platform: this.platform.kind ?? 'browser' }); }
+
+  private offer(key: string): Provider {
+    if (key.includes(':')) {
+      const r = route(this.providerKey(key));
+      if (!['key', 'plan_key'].includes(r.via)) throw new Error('This route needs its own sign-in adapter.');
+      return { key: r.id, pi: r.upstream.id, name: r.name, company: r.company, label: r.label, billing: r.billing,
+        auth: 'api-key', models: { strong: '' }, routes: [r.id],
+        source: r.upstream.revision, multiAccount: { terms: 'grey', why: 'Each account belongs to its member.', source: r.upstream.revision } };
+    }
     const p = provider(this.providerKey(key));
     if (!this.providers.includes(p)) throw Object.assign(new Error('AI account not offered here'), { status: 404 });
     return p;
   }
 
+  private isKey(p: Provider) {
+    return p.auth === 'api-key' || p.billing === 'api' && !!this.opts.keyStore && routes().some((r) => r.upstream.id === p.pi && r.via === 'key');
+  }
+
   private keyRoute(key: string) {
     const p = this.offer(key);
-    if (p.auth !== 'api-key' && p.key !== 'openrouter') throw new Error('This account uses a subscription sign-in.');
+    const r = p.key.includes(':') ? route(p.key) : routes().find((r) => r.upstream.id === p.pi && r.via === 'key');
+    if (p.auth !== 'api-key' && !(p.billing === 'api' && r)) throw new Error('This account uses a subscription sign-in.');
+    if (r?.upstream.flow === 'absent') throw new KeyRouteError('no_upstream_flow');
+    if (r?.platforms[this.platform.kind ?? 'browser'] === 'no') throw new KeyRouteError('unsupported_platform');
     return p;
   }
 
@@ -558,24 +585,26 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
 
   /** Explicit consent to per-use billing. Saves only in this member's device-owned secrets store. */
-  async saveKey(member: M, key: string, secret: string, consent: { billedPerUse: true }): Promise<SignIn> {
-    this.keyRoute(key);
-    if (consent?.billedPerUse !== true) throw new Error('Agree to billing per use before connecting this key.');
-    if (typeof secret !== 'string' || !secret.trim()) throw new Error('Enter a key to connect this account.');
-    return this.serial(`${member}:${key}`, async () => {
-      await this.keys(member, (store) => store.set(`accounts.${key}`, secret));
-      this.ready.set(`${member}:${key}`, true);
-      this.lapsed.delete(`${member}:${key}`);
-      this.without.delete(`${member}:${key}`);
-      this.rests.delete(`${member}:${key}`);
-      this.onSignedIn?.(member, key);
-      this.onChange?.(member, key);
-      return { state: 'done' };
-    });
+  async saveKey(member: M, key: string, secret: string, consent?: { billedPerUse: true }): Promise<SignIn> {
+    const p = this.keyRoute(key);
+    if (p.billing === 'api' && consent?.billedPerUse !== true) throw new Error('Agree to billing per use before connecting this key.');
+    key = this.accountKey(member, key);
+    const r = p.key.includes(':') ? route(p.key) : routes().find((r) => r.upstream.id === p.pi && r.via === 'key');
+    const generation = this.generations.get(`${member}:${key}`) ?? 0;
+    await this.saveAccountKey(member, key, secret, { route: r?.id ?? p.key, billing: p.billing });
+    if (generation !== (this.generations.get(`${member}:${key}`) ?? 0)) return { state: 'failed' };
+    this.ready.set(`${member}:${key}`, true);
+    this.lapsed.delete(`${member}:${key}`);
+    this.without.delete(`${member}:${key}`);
+    this.rests.delete(`${member}:${key}`);
+    this.onSignedIn?.(member, key);
+    this.onChange?.(member, key);
+    return { state: 'done' };
   }
 
   /** Host-only credential handoff to jev({key}) or openai({key}); never include the result in a view or log. */
   async key(member: M, key: string): Promise<string> {
+    key = await this.resolveKey(member, key);
     const p = this.keyRoute(key);
     const value = await this.keys(member, (store) => store.get(`accounts.${key}`));
     if (!value) throw new ResponseError(say('status.signedOut', { name: p.name }), 'signed_out');
@@ -597,7 +626,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   private async checked(member: M, key: string) {
     const p = this.offer(key);
-    const ok = p.auth === 'api-key' || (p.key === 'openrouter' && this.opts.keyStore)
+    if (this.isKey(p)) this.keyRoute(key);
+    const ok = this.isKey(p)
       ? !!(await this.keys(member, (store) => store.get(`accounts.${key}`)))
       : !!(await (await this.runtime(member, key)).checkAuth(p.pi).catch(() => undefined));
     this.ready.set(`${member}:${key}`, ok);
@@ -683,6 +713,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    *  ResponseError with the words to show. Without `tools` the answer is the plain text, as before: pass `input` as
    *  words or as turns (messages with `input_image`, then the `function_call` with its `function_call_output`). With
    *  `tools` it is the text with every output item, and `onEvent` sees each tool call as it lands. */
+  async respond<T extends Api>(member: M, ask: KeyAsk<T>): Promise<AssistantMessage>;
   async respond(member: M, ask: ClaudePlanAsk & { result: true }): Promise<AnthropicResult>;
   async respond(member: M, ask: ClaudePlanAsk & { tools: AnthropicTool[] }): Promise<AnthropicResult>;
   async respond(member: M, ask: ClaudePlanAsk & { tools?: undefined; result?: false }): Promise<string>;
@@ -695,7 +726,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   async respond(member: M, ask: Ask & { tools?: undefined; result?: false }): Promise<string>;
   async respond(member: M, ask: Ask & { tools: ResponseTool[] }): Promise<ResponseResult>;
   async respond(member: M, ask: Ask): Promise<string | ResponseResult>;
-  async respond(member: M, query: Ask | AnthropicAccountAsk | ClaudePlanAsk): Promise<string | ResponseResult> {
+  async respond(member: M, query: Ask | AnthropicAccountAsk | ClaudePlanAsk | KeyAsk): Promise<string | ResponseResult | AssistantMessage> {
+    if ('account' in query && 'context' in query) return this.respondKey(member, query as KeyAsk);
     const ask = query as Ask;
     if ('provider' in query && query.provider === 'claude') {
       this.offer('claude');
@@ -738,6 +770,16 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       }
       throw e;
     }
+  }
+
+  /** Full typed pinned Models request, bound to one selected member/account for the whole response. */
+  async respondKey<T extends Api>(member: M, ask: KeyAsk<T>): Promise<AssistantMessage> {
+    const p = this.keyRoute(ask.account);
+    const r = route(p.key.includes(':') ? p.key : routes().find((r) => r.upstream.id === p.pi && r.via === 'key')?.id ?? 'missing');
+    checkKeyModel(r, ask.model, this.platform.kind ?? 'browser', !!this.platform.keyApi);
+    if (ask.options?.signal?.aborted) throw new KeyRouteError('aborted');
+    const secret = await this.key(member, ask.account);
+    return keyRespond(r, secret, ask, this.opts.fetch, this.platform.keyApi);
   }
 
   /** Bind this member's existing ChatGPT subscription login for consumers such as decide. Each request uses
@@ -797,6 +839,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    *  sentence. Returns as soon as there is a page to open or a code to show (or it is over); the rest carries on by itself. */
   async login(member: M, key: string, body: SignInOptions = {}): Promise<SignIn | null> {
     const p = this.offer(key);
+    if (this.isKey(p) && p.key !== 'openrouter') throw new Error(p.billing === 'api' ? 'Connect an API key after agreeing to billing per use.' : 'Connect this account through its key route.');
     this.signInReady(p, body);
     key = this.additions.has(`${member}:${key}`) ? key : await this.resolveKey(member, key);
     const id = `${member}:${key}`;
@@ -1004,7 +1047,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   private async refreshed(member: M, key: string, minOAuthValidityMs: number) {
     const p = this.offer(key);
-    if (p.auth === 'api-key' || (p.key === 'openrouter' && this.opts.keyStore)) return this.signedIn(member, key);
+    if (this.isKey(p)) return this.signedIn(member, key);
     const pi = p.pi;
     key = this.accountKey(member, key);
     return (await this.runtime(member, key)).getAuth(pi, { minOAuthValidityMs }).then(Boolean, async (e: Error) => {
@@ -1028,7 +1071,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       const keys = new Set([...this.ready].filter(([id, ready]) => ready && id.startsWith(`${m}:`)).map(([id]) => this.accountKey(m, id.slice(String(m).length + 1))));
       for (const row of await this.store(m).list().catch(() => [])) keys.add(this.publicKey(row.providerId));
       for (const key of keys) {
-        if (!this.providers.some((p) => p.key === this.providerKey(key)) || this.ready.get(`${m}:${key}`) === false) continue;
+        if ((!key.includes(':') && !this.providers.some((p) => p.key === this.providerKey(key))) || this.ready.get(`${m}:${key}`) === false) continue;
         const ok = await this.refreshed(m, key, 60 * 60_000);
         if (!ok) { this.forgetAccount(m, key); this.onExpired?.(m, key); }
       }
@@ -1041,7 +1084,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     if (await this.endpointRecord(member, key)) { await this.logout(member, key); return false; }
     const p = this.offer(key);
     // A saved API key cannot refresh itself after an authentication refusal.
-    const ok = p.auth === 'api-key' || (p.key === 'openrouter' && this.opts.keyStore)
+    const ok = this.isKey(p)
       ? false : await this.refreshed(member, key, 365 * 86_400_000);
     if (!ok) { await this.logout(member, key).catch(() => {}); this.forgetAccount(member, key); }
     return ok;
@@ -1090,9 +1133,12 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     this.claudePlans.delete(id);
     this.cancelFlow(member, key);
     const work = (async () => {
-      if (p.auth === 'api-key' || (p.key === 'openrouter' && this.opts.keyStore)) {
-        await this.serial(id, () => this.keys(member, (store) => store.delete(`accounts.${key}`)));
-        await this.store(member).delete(this.storageKey(key));
+      if (this.isKey(p)) {
+        this.keyRoute(key);
+        await this.serial(id, async () => {
+          await this.keys(member, (store) => store.delete(`accounts.${key}`));
+          await this.store(member).delete(this.storageKey(key)).catch(() => { throw new Error('This account could not be removed. Try again.'); });
+        });
         this.ready.set(id, false);
         this.onChange?.(member, key);
         return;

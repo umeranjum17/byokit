@@ -21,7 +21,7 @@ async function until(what: string, fn: () => boolean | Promise<boolean>, ms = 50
 test('portable entry bundles for a browser and can be imported', async () => {
   const result = await build({ entryPoints: [new URL('../src/portable.ts', import.meta.url).pathname], bundle: true, platform: 'browser', format: 'esm', write: false });
   const portable = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString('base64')}`);
-  assert.equal(portable.routes({ platform: 'rn' }).length, 65);
+  assert.equal(portable.routes({ platform: 'rn' }).length, 66);
   assert.equal(portable.route('openai:code', { platform: 'rn' }).readiness, 'ready');
   assert.ok(portable.offered({ platform: 'rn' }).every((r: { billing: string; readiness: string }) => r.billing === 'subscription' && r.readiness === 'ready'));
   const store = portable.memoryStore();

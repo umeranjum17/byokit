@@ -22,6 +22,10 @@ export const loopback: Loopback = (port, handle) => new Promise((resolve, reject
 /** A computer: every provider Pi signs in to, and the loopback listener. */
 export const computer: Platform = {
   kind: 'node',
+  keyApi: async (api) => {
+    if (api !== 'google-vertex') throw new Error('This model adapter needs an isolated app-owned host.');
+    return import('@earendil-works/pi-ai/api/google-vertex');
+  },
   engine: (credentials: CredentialStore) => builtinModels({ credentials, authContext: emptyAuthContext }) as unknown as AuthHost,
   signsIn: () => true,
   loopback,

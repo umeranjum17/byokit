@@ -162,7 +162,7 @@ are offered only when the app names them. An explicit `offer` list is not platfo
 The `Provider` shape no longer has `terms`, `hidden` or `why`, and `Terms` is no longer exported.
 Qwen and MiniMax have subscription catalogue rows; their paste and portal sign-in flows follow in later work packages.
 Each provider's own terms apply to how you use your plan.
-`routes()` lists every pinned pi-ai provider and sign-in method, including unavailable rows with typed readiness, using D18 in [`docs/runtime-kits.md`](../../docs/runtime-kits.md#21-account-routes-d18). `offered({ platform })` returns ready subscription routes only. Radius has `unknown` billing: it is visible in discovery but never offered or chosen automatically. Computer device fixtures do not qualify phone/browser device runtime.
+`routes()` lists every pinned pi-ai provider and sign-in method, including unavailable rows with typed readiness, using D18 in [`docs/runtime-kits.md`](../../docs/runtime-kits.md#21-account-routes-d18). `offered({ platform })` returns ready subscription routes, including plan keys. The legacy `providers`/`offered()` calls keep their provider IDs; Qwen and MiniMax's unavailable plan flows are not defaults. Radius has `unknown` billing: it is visible in discovery but never offered or chosen automatically. Computer device fixtures do not qualify phone/browser device runtime.
 Anthropic Messages uses an app-passed API key (billed per use); authentication is separate from the Messages request.
 
 Native Claude CLI sign-in uses the managed-folder entry.
@@ -176,10 +176,55 @@ for (const p of offered(['chatgpt', 'openrouter'])) console.log(`${p.name}: ${bi
 ```
 
 ```text
-[ 'chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta', 'qwen', 'minimax' ]
+[ 'chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta' ]
 ChatGPT: Uses your ChatGPT plan.
 OpenRouter: Charged per use to your OpenRouter account, not a plan.
 ```
+
+## Key routes
+
+Every `key` and `plan_key` route uses the same `add`, `saveKey`, `list`, `status`, `logout` and `remove` path.
+Name the route ID to select its exact method/region; `add(member, provider, { via: 'key' | 'plan_key', key })`
+also selects the first matching named provider route. Keys go only to the member's supplied `@byokit/secrets`
+`keyStore`. The credential record holds a non-secret marker; `.accounts.accounts` holds route/billing metadata.
+No environment, other program's login, default CLI account or credential file is consulted.
+
+```ts
+import { Accounts, type Model } from '@byokit/accounts';
+import type { Keystore } from '@byokit/secrets';
+
+export async function askWithKey(keyStore: (member: number) => Keystore,
+  model: Model<'openai-completions'>, key: string) {
+  const accounts = new Accounts({ keyStore });
+  const { id } = await accounts.add(1, 'groq:key', { via: 'key', key }); // API key (billed per use), explicitly selected
+  return accounts.respond(1, { account: id, model, context: {
+    messages: [{ role: 'user', content: 'Hello', timestamp: Date.now() }],
+  }, options: { temperature: 0.2 } });
+}
+```
+
+`respondKey` (or the `respond` overload above) accepts the full typed pinned Pi `Model`, `Context` and
+`ModelsApiStreamOptions`, returning its `AssistantMessage` with usage and tool/thinking content.
+`onText` receives text deltas; `onEvent` receives sanitized Pi stream events. The model's provider must match
+the selected route's upstream ID. App-supplied model/endpoint metadata is required; nothing guesses a model.
+The selected member/account never changes during the request. Saved auth overrides a request's `apiKey`;
+header-auth transforms, retries and provider/model fallbacks are disabled. Errors expose only bounded words
+and a `KeyRouteError.code`; they never echo vendor bodies or key-store failures.
+
+Plan keys keep subscription billing and are eligible for Auto; API/free/local/unknown billing is never an
+Auto or Default **fallback**. A deliberately saved API default remains an explicit selection. `saveKey` retains
+its `billedPerUse: true` requirement for API routes; a plan key needs no per-use consent. Token-paste variants
+are separately labelled: the Claude plan token and Copilot plan token do not change into API keys.
+Generic Anthropic bearer tokens keep unknown billing; the kit does not infer a plan from an arbitrary token.
+
+Fetch-compatible adapters run on Node, browsers and React Native; browser CORS still belongs to the host.
+Azure, Vertex and Cloudflare routes are Node-only at the pin and reject on portable platforms before keys
+are read. Azure/Cloudflare endpoint/config values are explicit model/options inputs (cloud metadata helpers
+are separate). The pinned Google adapters do not accept custom fetch; their native fetch still works.
+Bedrock key storage works on Node, but inference reports `needs_host` before credentials: the pinned adapter
+reads ambient AWS profile state even with a bearer token, so only an isolated cloud-host adapter may use it.
+An absent plan flow reports `no_upstream_flow`, never a fabricated successful login. These are source/mock
+qualification claims, not live vendor sign-in claims.
 
 ## Sign-in
 
