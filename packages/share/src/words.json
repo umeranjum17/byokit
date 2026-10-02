@@ -1,0 +1,6 @@
+{
+  "share.unreadable": "That file couldn't be opened here. Share it again from the app it came from.",
+  "share.partial": "Some of the shared files couldn't be opened, so they were left out.",
+  "share.failed": "That share couldn't be opened here. Try sharing it again.",
+  "share.invalid_link": "That link didn't come from this app's share sheet, so it was ignored."
+}

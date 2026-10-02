@@ -1,0 +1,39 @@
+{
+  "name": "@byokit/share",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Guarded shared text and files, with generated-project native integration.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": { "type": "git", "url": "git+https://github.com/umeranjum17/byokit.git", "directory": "packages/share" },
+  "engines": { "node": ">=22.18" },
+  "exports": {
+    ".": { "react-native": { "types": "./dist/rn.d.ts", "default": "./dist/rn.js" }, "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./app.plugin.js": "./app.plugin.js",
+    "./package.json": "./package.json"
+  },
+  "files": ["dist", "android", "!android/build", "expo-module.config.json", "app.plugin.js", "README.md", "LICENSE", "CHANGELOG.md"],
+  "scripts": { "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs" },
+  "peerDependencies": {
+    "expo-share-intent": "8.0.1",
+    "@bacons/apple-targets": "5.0.0",
+    "@desklink/react-native": "0.3.0",
+    "expo": "57.0.25",
+    "expo-modules-core": "57.0.19",
+    "expo-linking": "57.0.11",
+    "react": "19.2.3",
+    "react-native": "0.86.3"
+  },
+  "peerDependenciesMeta": {
+    "expo-share-intent": { "optional": true },
+    "@bacons/apple-targets": { "optional": true },
+    "@desklink/react-native": { "optional": true },
+    "expo": { "optional": true },
+    "expo-modules-core": { "optional": true },
+    "expo-linking": { "optional": true },
+    "react": { "optional": true },
+    "react-native": { "optional": true }
+  },
+  "devDependencies": { "expo-share-intent": "8.0.1", "expo-linking": "57.0.11", "expo-modules-core": "57.0.19", "@types/react": "19.2.14" },
+  "publishConfig": { "access": "public" }
+}
