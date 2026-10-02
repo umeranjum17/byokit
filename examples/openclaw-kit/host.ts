@@ -60,7 +60,8 @@ const options: KitOptions = {
     said = now;
   },
 };
-if (fake) Object.assign(options, { spawnEngine: false, transport: (await fakeSignIn()).factory });
+const gateway = fake ? await fakeSignIn() : undefined;
+if (gateway) Object.assign(options, { spawnEngine: false, transport: gateway.factory });
 const kit: OpenClawKit & { browser?: FakeBrowserHost } = new OpenClawKit(options);
 
 // The fake's ChatGPT sign-in, held a few seconds on its code so a person (or the e2e test) can read it.
@@ -116,11 +117,13 @@ const ask = (question: string) => new Promise<string>((resolve) => {
 
 // SYNTHETIC FIXTURE, fake mode only: the kit's offline browser fake (no Chromium, no profile, no real site) stands in
 // for the helper's browser, with one sign-in request already waiting on a loopback address. It shows the sign-in
-// card, takeover and live panel end to end; it is not browser protection.
+// card, takeover and live panel end to end; it is not browser protection. Its sign-in pings go out on the fake
+// Gateway's event stream, as the kit's own will.
 if (fake) {
   const { fakeBrowserHost } = await import('@byokit/openclaw/testing');
   kit.browser = await fakeBrowserHost({ members: [MEMBER],
-    authorize: (grant, member, control) => member === MEMBER && grantFile.load().some((g) => g.id === grant && (!control || g.role === 'control')) });
+    authorize: (grant, member, control) => member === MEMBER && grantFile.load().some((g) => g.id === grant && (!control || g.role === 'control')),
+    ping: (member, kind) => gateway?.emit('byokit.browser', { member, kind }) });
   await kit.browser.raise({ member: MEMBER, sessionKey: 'agent:me:phone', checkUrl: 'http://127.0.0.1:2820/account',
     reasons: ['password-field'], hints: ['password'] });
   kit.browser.fixture.authenticated(MEMBER, true); // the synthetic site reports signed in once Done is pressed

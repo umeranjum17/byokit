@@ -260,8 +260,6 @@ function followSignIns(mine: number) {
   const list = signInsStore({ signIns: () => oc.browser.signIns(), events: () => oc.events() });
   const stop = list.subscribe((l) => { if (mine === paired) drawSignIns(l); else stop(); });
 }
-// ponytail: also relisted after this page's own actions, until the kit's sign-in pings reach oc.events.
-const relist = async () => drawSignIns(await oc.browser.signIns());
 
 function drawSignIns(list: SignInRequest[]) {
   signIns = list;
@@ -283,14 +281,13 @@ async function act(id: string, a: SignInAction, typed?: string) {
     else if (a === 'reopen') await oc.browser.reopen(r.id, r.gen);
     else if (a === 'retry') await oc.browser.retry(r.id, r.gen);
   } catch (err) { $('run-said').textContent = said(err); }
-  await relist().catch(() => {});
 }
 
 function startLive(l: TakeoverLease) {
   $('live-box').hidden = false;
   const v = oc.browser.live({ kind: 'browser', member: MEMBER }, { lease: l, maxWidth: 1280 });
   viewer = v;
-  // Pointer moves are not sent: the stream takes one input at a time and closes on a second.
+  // Pointer moves are not sent: taps, keys and paste are enough to sign in, and moves would fill the bounded input queue.
   const panel = livePanel($('live'), say, {
     input: (i) => { if (i.kind !== 'pointer' || i.type !== 'move') v.input(i); },
     confirmOrigin: (origin) => { void oc.browser.confirmOrigin(l, origin).catch((e) => { $('run-said').textContent = said(e); }); },
