@@ -77,6 +77,11 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
   assert.match(text, /^http:\/\/127\.0\.0\.1:\d+\/pair#byokit-link:1:/);
 
   const profile = scratchDir('chrome');
+  // Safe launch shapes only: no path, pairing fragment, environment value or raw Chrome stderr.
+  note(`browser candidate ${['chromium', 'google-chrome', 'google-chrome-stable', 'chromium-browser'].includes(chrome!) ? chrome : 'override'}`);
+  note(`path lengths HOME=${process.env.HOME?.length ?? 0} TMPDIR=${process.env.TMPDIR?.length ?? 0} profile=${profile.length}`);
+  note(`environment presence DISPLAY=${!!process.env.DISPLAY} DBUS=${!!process.env.DBUS_SESSION_BUS_ADDRESS} XDG_RUNTIME=${!!process.env.XDG_RUNTIME_DIR}`);
+  const stderrKinds = new Set<string>();
   note('browser launch');
   const browser = trackChild(spawn(chrome!, ['--headless=new', '--no-sandbox', '--disable-gpu', `--user-data-dir=${profile}`, '--no-first-run',
     '--disable-background-networking', '--disable-component-update', '--disable-sync', '--no-default-browser-check', text], { stdio: ['ignore', 'ignore', 'pipe'], detached: true }));
@@ -88,6 +93,16 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
   browser.stderr!.on('data', (d: Buffer) => {
     if (!stderrBytes) note('browser stderr received (content redacted)');
     stderrBytes += d.length; // Chrome can echo the pairing fragment in its process name; never retain its text.
+    const text = d.toString('utf8'); // ephemeral; persist only fixed, non-sensitive error categories
+    for (const [kind, pattern] of [
+      ['singleton-socket', /Socket path too long|File name too long|Failed to create a ProcessSingleton/],
+      ['profile-in-use', /profile appears to be in use/],
+      ['snap-launch', /requires the chromium snap|snap-confine|cannot create user data directory/],
+      ['sandbox', /No usable sandbox|Failed to move to new namespace/],
+      ['shared-library', /error while loading shared libraries/],
+      ['process-crash', /Trace\/breakpoint trap|Segmentation fault/],
+      ['devtools', /DevTools listening/],
+    ] as const) if (pattern.test(text)) stderrKinds.add(kind);
   });
   try {
     let timer: any;
@@ -103,7 +118,7 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
     assert.equal(r.shortHost, b64url(host.keys.publicKey));
     assert.deepEqual(host.devices().map((d) => [d.name, d.online]), [['Browser tab', true], ['Umer’s browser', true]]);
   } catch (e) {
-    console.error(`browser diagnostics (observed arrival times):\n${trace.join('\n')}\nstderr bytes: ${stderrBytes} (content redacted)`);
+    console.error(`browser diagnostics (observed arrival times):\n${trace.join('\n')}\nstderr bytes: ${stderrBytes} (content redacted)\nstderr categories: ${[...stderrKinds].join(',') || 'unclassified'}`);
     throw e;
   } finally {
     try { process.kill(-browser.pid!, 'SIGKILL'); } catch {} // the whole group: Chrome's helpers outlive the main process
