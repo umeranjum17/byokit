@@ -273,7 +273,7 @@ test('a dead asker unparks its ask instead of leaving a permit for nobody', asyn
     assert.equal(bridge.resolveAsk(seen.asked[0].id, { allow: true }), false);
   }));
 
-test('closing the call socket aborts the host call instead of leaving the command running', async () => {
+test('closing the call socket or stopping the bridge aborts the host call', async () => {
   let aborted = false;
   const hanging: ToolHost = {
     gate: async () => ({ allow: true }),
@@ -294,7 +294,9 @@ test('closing the call socket aborts the host call instead of leaving the comman
         );
       }),
   };
-  await withBridge({ host: hanging }, async (bridge, sockPath) => {
+  for (const stopBridge of [false, true]) {
+    aborted = false;
+    await withBridge({ host: hanging }, async (bridge, sockPath) => {
     bridge.register({ sessionKey: 'agent:m1:x', member: 'm1' });
     const gate = await askBridge(sockPath, { kind: 'gate', key: 'agent:m1:x', tool: 'note', input: { text: 'hi' } });
     assert.equal(gate.allow, true);
@@ -308,11 +310,13 @@ test('closing the call socket aborts the host call instead of leaving the comman
     // The bridge has handed the call to the host, which hangs until its signal aborts.
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.equal(aborted, false);
-    // The run aborts: the plugin destroys its socket, so the host must see the abort.
-    socket.destroy();
+    // Both plugin cancellation and bridge shutdown must reach the host's abort signal.
+    if (stopBridge) bridge.stop(); else socket.destroy();
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.equal(aborted, true);
-  });
+    if (stopBridge) await bridge.start();
+    });
+  }
 });
 
 test('stopping with a parked ask ends it gone', async () => {
@@ -359,6 +363,22 @@ test('a garbage frame denies without touching the host', async () =>
   withBridge({}, async (_bridge, sockPath) => {
     assert.deepEqual(await askBridge(sockPath, 'this is not json'), { allow: false, reason: 'not a gate request' });
     assert.deepEqual(await askBridge(sockPath, { kind: 'dance' }), { allow: false, reason: 'not a gate request' });
+  }));
+
+test('reconnect preserves tool narrowing but revokes old submission authority', async () =>
+  withBridge({}, async (bridge, sockPath) => {
+    const key = 'agent:m1:reconnect';
+    const release = bridge.register({ sessionKey: key, member: 'm1' }, ['note'], 'old-engine-request');
+    assert.equal(bridge.isRegisteredRun(key, 'old-engine-request'), true);
+    bridge.stop();
+    const interruptedStart = bridge.start(); bridge.stop(); await interruptedStart;
+    await assert.rejects(askBridge(sockPath, { kind: 'gate', key, tool: 'note', input: {} }), /ENOENT|ECONNREFUSED/);
+    await bridge.start();
+    assert.equal(bridge.isRegisteredRun(key, 'old-engine-request'), false);
+    assert.deepEqual(await askBridge(sockPath, { kind: 'gate', key, tool: 'other', input: {} }),
+      { allow: false, reason: 'this tool is not available in this run' });
+    assert.equal((await askBridge(sockPath, { kind: 'gate', key, tool: 'note', input: {} })).allow, true);
+    release();
   }));
 
 test('runs sharing a session key share the narrowest tool subset, and each release ends only its own run', async () =>

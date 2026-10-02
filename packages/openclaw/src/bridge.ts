@@ -91,6 +91,8 @@ export class Bridge {
   private readonly onAskGone: (id: string) => void;
   private readonly beforeAgentRun?: (key: string, runId?: string) => Promise<boolean>;
   private server?: Server;
+  private closing: Promise<void> = Promise.resolve();
+  private readonly sockets = new Set<Socket>();
   private readonly runs = new Map<string, RunRef>();
   // Every live registration per session key, each with its run's subset of the app's tools (RunSpec.tools; none: all
   // of them). Runs sharing a key share the narrowest: a tool must be in every live subset.
@@ -121,16 +123,23 @@ export class Bridge {
     this.beforeAgentRun = o.beforeAgentRun;
   }
 
-  start(): Promise<void> {
-    if (this.server) return Promise.resolve();
+  async start(): Promise<void> {
+    if (this.server) return;
     this.stopped = false;
-    // A stale socket file from a crashed run is not a listener; a live one survives unlinking.
+    await this.closing;
+    if (this.stopped || this.server) return;
+    // Old listener teardown must finish before it can unlink a newly rebound Unix socket.
     rmSync(this.path, { force: true });
-    this.server = createServer((socket) => this.serve(socket));
-    return new Promise((resolve, reject) => {
-      this.server!.once('error', reject);
-      this.server!.listen(this.path, () => {
-        this.server!.removeListener('error', reject);
+    const server = createServer(socket => {
+      this.sockets.add(socket);
+      socket.once('close', () => this.sockets.delete(socket));
+      this.serve(socket);
+    });
+    this.server = server;
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(this.path, () => {
+        server.removeListener('error', reject);
         resolve();
       });
     });
@@ -145,10 +154,14 @@ export class Bridge {
       this.onAskGone(id);
     }
     this.parked.clear();
-    for (const key of this.live.keys()) this.unregister(key);
-    this.server?.close();
+    // Tool subsets survive reconnect (B3); submission authority does not survive a lost engine transport.
+    for (const entries of this.live.values()) for (const entry of entries) entry.runId = undefined;
+    // Preserve already-ended refusal replies; abort outstanding calls through their close signal (N7).
+    for (const socket of this.sockets) if (!socket.writableEnded) socket.destroy();
+    const server = this.server;
     this.server = undefined;
-    void rm(this.path, { force: true }).catch(() => {});
+    if (server) this.closing = new Promise<void>(resolve => server.close(() => resolve()))
+      .then(() => rm(this.path, { force: true }).catch(() => {}));
   }
 
   isRegisteredRun(key: string, runId?: string): boolean {

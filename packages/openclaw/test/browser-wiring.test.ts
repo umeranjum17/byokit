@@ -56,7 +56,7 @@ test('stock CDP redaction is acknowledged only against stable exact owned and ap
   ] as const) assert.equal(browserProfileAcknowledged(profile, local, endpoint, revision, stable), false);
 });
 
-test('parked/recovery guards require a fresh exact registered run after a definite failed resume', t => {
+test('parked/recovery guards require a fresh exact registered run after a definite failed resume', async t => {
   const key = 'agent:ada:fixture:guard';
   const root = scratchDir(); t.after(() => rmSync(root, { recursive: true, force: true }));
   const bridge = new Bridge({ path: join(root, 'unused.sock'), tools: new Set(), permitted: () => true,
@@ -77,6 +77,8 @@ test('parked/recovery guards require a fresh exact registered run after a defini
   release(); assert.equal(browserSessionMayRun(failed, key, bridge.isRegisteredRun(key, 'fresh')), false);
   bridge.register({ member: 'ada', sessionKey: key }, undefined, 'old-engine');
   bridge.stop(); assert.equal(bridge.isRegisteredRun(key, 'old-engine'), false);
+  await bridge.start(); assert.equal(bridge.isRegisteredRun(key, 'old-engine'), false);
+  bridge.stop();
   assert.equal(browserSessionMayRun([row('parked')], 'agent:bea:fixture:guard'), true);
   assert.equal(browserSessionMayRun([row('settled')], key), true);
 });
