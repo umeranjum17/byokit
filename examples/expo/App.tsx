@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 import { UsageDemo } from './UsageDemo.tsx';
 import { ScreenDemo } from './ScreenDemo.tsx';
 import { ShareDemo } from './ShareDemo.tsx';
+import { InferDemo } from './InferDemo.tsx';
 import { Linking, PermissionsAndroid, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { CryptoDigestAlgorithm, digest, getRandomValues } from 'expo-crypto';
@@ -320,6 +321,7 @@ function Chip() {
 export default function App() {
   if (process.env.EXPO_PUBLIC_USAGE_DEMO === '1') return <UsageDemo />;
   if (process.env.EXPO_PUBLIC_SHARE_DEMO === '1') return <ShareDemo />;
+  if (process.env.EXPO_PUBLIC_INFER_DEMO === '1') return <InferDemo />;
   return process.env.EXPO_PUBLIC_SCREEN_DEMO === '1' ? <ScreenDemo /> : <KitDemo />;
 }
 
