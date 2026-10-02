@@ -1,1 +1,0 @@
-- The README points to the shared account-route vocabulary (D18); pinned discovery metadata does not imply additional implemented authentication flows.
