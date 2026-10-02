@@ -56,6 +56,32 @@ console.log(end);
 await kit.stop();
 ```
 
+For a host run that may be retried after a lost connection, mint and persist an action key **once**, then reuse
+that key and the same run inputs:
+
+```ts
+import type { OpenClawKit } from '@byokit/openclaw';
+
+async function dispatch(kit: OpenClawKit, taskId: string, attempt: number, message: string) {
+  const actionKey = `task:${taskId}:attempt:${attempt}:${crypto.randomUUID()}`;
+  // Persist actionKey with this dispatch before calling; a new action/attempt gets a new nonce.
+  const spec = { member: 'umer', sessionKey: `agent:umer:task:${taskId}`, message, idempotencyKey: actionKey };
+  return kit.run(spec); // reconnect retry: kit.run(spec), not another dispatch()/new actionKey
+}
+```
+
+Omitting `idempotencyKey` preserves a fresh UUID per call. Supplied keys are non-empty strings passed unchanged.
+**Not exactly-once:** engine 2026.8.1 caches `agent` keys gateway-wide, across agents and sessions, without comparing
+inputs. A collision silently returns the first run's result/error; a task id alone is not a safe key. Reconnects
+retain the in-memory cache; engine process restarts lose it. Inactive entries expire after five minutes (60-second
+cleanup tick), or earlier under the 1,000-entry cache limit; active and pending accepted runs are exempt.
+An in-flight replay waits on the original run but cannot replay old events or subscribe to its final response:
+text may be a capped 4096-character terminal snapshot, usage stays absent, and capped JSON may fail schema
+validation. A completed cached replay can return full text/usage. The helper never sends another `agent` request
+just to read a final result: on cache eviction that would start another run. Apps still own durable task/effect
+recovery. Typed `kit.call('agent', ...)` remains exact upstream pass-through. Details and real-engine proof are
+in [the run contract](../../docs/runtime-kits.md#58-runs-members-and-streams).
+
 Device approval can take longer than two minutes. The kit waits through the engine's advertised code lifetime
 (`expiresInMinutes` on the pin, or `expires_in` seconds when supplied), including progress pulls. If the engine
 supplies no lifetime, it owns the deadline. Ordinary wizard requests keep their 120-second timeout.
@@ -93,6 +119,32 @@ ends ok carries `usage` (the engine's token total for the run, and `costUsd` whe
 `planWindow` (the subscription's quota windows as the engine last read them), each only when the engine reports it.
 `openclawDevice(link).run(message, o)` takes the same options over the link, and `state()` adds the kit and engine
 versions and the providers the device's member is signed in to.
+
+### Observed per-agent ledger usage (not complete engine spend)
+
+```ts
+import { readAgentUsage } from '@byokit/openclaw/usage'; // portable; kit or device client
+import type { OpenClawKit } from '@byokit/openclaw';
+
+async function showUsage(kit: OpenClawKit) {
+  const reading = await readAgentUsage(kit, 'umer', { startDate: '2026-10-02', endDate: '2026-10-02' });
+  // Caller decides whether partial coverage is acceptable; never turn unavailable totals into zero.
+  if (reading.state === 'available') console.log(reading.totals);
+}
+```
+
+`agentUsageOf(raw, member, window)` also normalizes an existing explicitly agent-scoped UTC response. Full raw
+RPC data is retained; existing typed `call` pass-through is unchanged. Windows are inclusive UTC calendar days.
+`receivedAt`, result-assembly `updatedAt` and `cache.refreshedAt` are separate: receiving cached data does not
+refresh it. The engine response cache lasts 30 seconds; pending/stale/unknown data leaves `totals` absent.
+An absent agent row is unavailable, not proof of zero usage. Reset/deletion/retention can reduce counters.
+
+**Coverage is always `retained-transcripts-only`.** Stock 2026.8.1's detached Skill Workshop reviews are omitted
+from its ledger; restart resumes and memory flushes count only when their usage is persisted (real-trigger
+qualification remains separate). This reader cannot enforce a complete all-turn budget. The app owns budget,
+share and unavailable/partial-data policy. Do not add run results to these totals: they already overlap. Engine
+cost fields are price counters, not a bill or subscription quota; zero cost with `missingCostEntries > 0` is
+unknown cost, and tokens never establish subscription plan weights. No billing conversion is performed.
 
 For a validated JSON answer, pass a literal `schema`. The result's `data` is inferred from that schema:
 
