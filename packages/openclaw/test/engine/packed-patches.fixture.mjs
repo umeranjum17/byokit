@@ -93,8 +93,10 @@ try {
   await prepare(kit, 'production-cold-registry-install');
   const stock = pointer('s');
   const emptyDir = join(base + '.sets', engineSetName(emptySpec));
-  if (process.argv[2]) await command(process.execPath, [process.argv[2], join(emptyDir, 'node_modules/openclaw'), '--check']);
-  if (process.argv[3]) await command(process.execPath, [process.argv[3], join(emptyDir, 'node_modules/openclaw'), '--check']);
+  for (const generator of process.argv.slice(2)) {
+    const checked = await command(process.execPath, [generator, join(emptyDir, 'node_modules/openclaw'), '--check']);
+    assert.equal(checked.status, 0, checked.stderr); console.log(checked.stdout);
+  }
   assert.equal(JSON.parse(readFileSync(join(stock, '.byokit-patches'), 'utf8')).id, stockSpec.id);
   assert.equal(kit.state.patchSet, stockSpec.id);
   await prepare(kit, 'production-repeat-full-tree');
