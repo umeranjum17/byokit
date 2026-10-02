@@ -21,8 +21,8 @@
     "expo": ">=57.0.0",
     "expo-modules-core": ">=3.0.0",
     "expo-linking": ">=57.0.1",
-    "react": "*",
-    "react-native": "*"
+    "react": ">=19.0.0",
+    "react-native": ">=0.86.0"
   },
   "peerDependenciesMeta": {
     "expo-share-intent": { "optional": true },

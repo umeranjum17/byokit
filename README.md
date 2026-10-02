@@ -55,6 +55,7 @@ latest first, so neither goes stale.
 | `@byokit/record` | `npm install @byokit/record` (from its first release; until then build from source) | ready to publish | [record-v releases](https://github.com/umeranjum17/byokit/releases?q=record-v) |
 | `@byokit/overlay` | `npm install @byokit/overlay` (from its first release; until then build from source) | ready to publish | [overlay-v releases](https://github.com/umeranjum17/byokit/releases?q=overlay-v) |
 | `@byokit/cloud` | not on npm (private) — build from source: `npm ci && npm run build` | in development | [all releases](https://github.com/umeranjum17/byokit/releases) |
+| `@byokit/share` | build from source (private pending qualification) | in qualification | — |
 | `@byokit/statusbar` | `npm install @byokit/statusbar` (from its first release; until then build from source) | ready to publish | [statusbar-v releases](https://github.com/umeranjum17/byokit/releases?q=statusbar-v) |
 | `@byokit/push` | not on npm (private) — build from source | native pre-display sealed notices | [all releases](https://github.com/umeranjum17/byokit/releases) |
 | `@byokit/dictation` | `npm install @byokit/dictation` (from its first release; until then build from source) | ready to publish | [dictation-v releases](https://github.com/umeranjum17/byokit/releases?q=dictation-v) |
@@ -141,6 +142,7 @@ to ask. Each agent keeps its own subscription sign-in; the kit never sees a cred
 | [`@byokit/record`](packages/record) | Record a screen or a desktop and make a video, through any recorder implementing the open recorder protocol v1 the kit defines ([spec](docs/capability-kits.md)) | ready |
 | [`@byokit/overlay`](packages/overlay) | A floating bubble over other apps on Android (Expo module): a panel that opens on tap, per-app visibility rules, a tap log with no text and an optional focused-field reader; iOS reports unsupported ([spec](docs/capability-kits.md)) | ready (Android) |
 | [`@byokit/cloud`](packages/cloud) | The person's own always-on cloud computer for an app's host process: typed setup, install, cost and words, with the Boat adapter `boat()` ([spec](docs/cloud-kit.md)) | in development |
+| [`@byokit/share`](packages/share) | Guarded shared text/files and generated-project native integration | in qualification |
 | [`@byokit/statusbar`](packages/statusbar) | One ongoing job as a status-bar chip on Android 16 (Expo module): a counts-only lock-screen copy, up to three actions that need the phone unlocked, and a dismissal that sticks; iOS and older Android report unsupported ([spec](docs/capability-kits.md#12-byokitstatusbar)) | ready (Android) |
 | [`@byokit/push`](packages/push) | Opens sealed push title/body before iOS and Android display, with app-provisioned device keys ([spec](docs/capability-kits.md#13-byokitpush)) | private |
 | [`@byokit/dictation`](packages/dictation) | Live partials/finals and recording transcription through injected local recognition or your own subscription ([spec](docs/dictation-kit.md)) | ready to publish |
@@ -243,7 +245,9 @@ engine package, and `@byokit/record` spawns a protocol-v1 recorder that the app 
 absolute path, or the bundled Linux X11 recorder, with an environment built from nothing; `@byokit/usage` reads only the sign-in folder the app passes
 and spawns only the Codex binary the app passes by absolute path, with an environment built from nothing plus what
 the app passes; `@byokit/overlay`, `@byokit/statusbar` and `@byokit/push` run only their own
-native code inside the app ([spec](docs/capability-kits.md)). `@byokit/cloud` spawns only the `ssh` binary the app passes by absolute path
+native code inside the app ([spec](docs/capability-kits.md)). `@byokit/share` runs only its own native code,
+copies shared content into the app's cache only under the sender's grant, and its plugin edits only the generated
+`settings.gradle`, `build.gradle` and pbxproj. `@byokit/cloud` spawns only the `ssh` binary the app passes by absolute path
 and the `ssh-keyscan` beside it, with the key path the app passes and a kit-owned config, and holds only the provider
 keys the app's store gives it and the scoped keys it mints for that app ([spec](docs/cloud-kit.md)).
 `@byokit/secrets` spawns only the OS keyring CLIs by absolute path, with an environment built from nothing
