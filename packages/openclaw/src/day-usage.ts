@@ -56,6 +56,7 @@ export function engineStartedOf(raw: unknown, member: Member, window: AgentDayUs
   const charges: EngineStartedCharge[] = [];
   for (const id of ids) {
     const ended = phases.get(`${id}\0ended`), started = phases.get(`${id}\0started`);
+    if (ended && started && ['agentId', 'bootId', 'kind', 'provider', 'model', 'authProfileId', 'startedAt'].some(k => started[k] !== ended[k])) return unavailable;
     const fact = ended ?? started!;
     const at = ended ? fact.at as number : fact.startedAt as number;
     if (at < window.startMs || at > window.endMs) continue;

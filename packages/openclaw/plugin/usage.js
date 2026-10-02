@@ -73,6 +73,11 @@ export function readEngineStarted(dir, live, params, read = readFileSync) {
     }
     cursor.setUTCMonth(cursor.getUTCMonth() + 1);
   }
+  for (const fact of seen.values()) {
+    const start = fact.phase === 'ended' ? seen.get(`${fact.chargeId}\0started`) : undefined;
+    if (start && ['agentId', 'bootId', 'kind', 'provider', 'model', 'authProfileId', 'startedAt'].some(k => start[k] !== fact[k]))
+      result.unreadableLines++;
+  }
   for (const [id, boot] of boots) {
     if (!count(boot.startedAt) || (boot.stoppedAt !== undefined && boot.stoppedAt < boot.startedAt)) { complete = false; continue; }
     if (boot.startedAt > endMs || (boot.stoppedAt !== undefined && boot.stoppedAt < startMs)) continue;

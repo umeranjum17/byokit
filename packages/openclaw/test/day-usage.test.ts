@@ -55,7 +55,8 @@ test('orphan boot remains permanently incomplete; definite no-process terminal i
 test('wrong source identity and conflicting duplicates are unavailable', () => {
   const raw = fixture().raw;
   for (const changed of [{ ...raw, agentId: 'm2' }, { ...raw, startMs: startMs + 1 },
-    { ...raw, facts: [{ ...fact(), kind: 'memory-flush' }] }, { ...raw, facts: [fact(), { ...fact(), model: 'other' }] }])
+    { ...raw, facts: [{ ...fact(), kind: 'memory-flush' }] }, { ...raw, facts: [fact(), { ...fact(), model: 'other' }] },
+    { ...raw, facts: [fact('started'), { ...fact('ended', 2), model: 'other' }] }])
     assert.equal(engineStartedOf(changed, 'm1', window).state, 'unavailable');
 });
 test('failed month holes survive later good reviews and a clean restart', () => {
