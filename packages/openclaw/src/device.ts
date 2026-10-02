@@ -2,6 +2,7 @@
 // (test/portable.test.ts guards it). Only type imports from @byokit/link; the seal crypto bundles cleanly.
 import { boxKeyPairFromSeed } from '@byokit/seal';
 import type { DeviceLink, LinkStream } from '@byokit/link';
+import type { RouteView } from './routes.ts';
 import { toAccountView, type AccountView } from './words.ts';
 import { b64urlEncode, openNotice } from './notices.ts';
 import type {
@@ -170,7 +171,7 @@ function liveStream(open: () => Promise<LinkStream>): AsyncIterable<unknown> {
 
 export function openclawDevice(link: DeviceLink): {
   state(): Promise<DeviceState>;
-  routes(): Promise<Route[]>;
+  routes(): Promise<RouteView[]>;
   signIn: {
     start(p: string, via: 'browser' | 'code'): Promise<SignInView>;
     view(p: string): Promise<AccountView>;
@@ -191,7 +192,7 @@ export function openclawDevice(link: DeviceLink): {
 } {
   return {
     state: () => link.request('oc.state') as Promise<DeviceState>,
-    routes: () => link.request('oc.routes') as Promise<Route[]>,
+    routes: () => link.request('oc.routes') as Promise<RouteView[]>,
     signIn: {
       start: (p, via) => link.request('oc.signin.start', { provider: p, via }) as Promise<SignInView>,
       view: async (p) => {

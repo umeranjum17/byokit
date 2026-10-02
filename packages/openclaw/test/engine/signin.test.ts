@@ -1,4 +1,4 @@
-// The pinned engine's own wizard, for real (5.7, O6): every choice id in routes.json exists in the tarball, and the
+// The pinned engine's own wizard, for real (5.7, O6): choices match bundled or external pin metadata, and the
 // drive speaks the contract the gateway actually serves — steps only from wizard.next, one setup admission at a time.
 import { test, before, after, mock } from 'node:test';
 import childProcess from 'node:child_process';
@@ -14,6 +14,7 @@ import { gatewayTransport } from '../../src/transport.ts';
 import { providers, signIn, type SignInCtx } from '../../src/signin.ts';
 import { words } from '../../src/words.ts';
 import { routes } from '../../src/routes.ts';
+import pinSnapshot from '../fixtures/routes-pin.json' with { type: 'json' };
 import { scratchDir } from '../../../test-support.ts';
 import type { GatewayTransport, SignInView } from '../../src/types.ts';
 import { mockOpenAI } from '../../../accounts/src/testing/index.ts';
@@ -153,13 +154,32 @@ async function withGateway<T>(plugins: string[], fn: (ctx: SignInCtx, request: G
   }
 }
 
-test('routes.json and the pinned tarball agree in both directions, plugins included (5.7, 5.12)', { timeout: 120_000 }, () => {
+test('routes.json and bundled/external pin metadata agree in both directions (5.7, 5.12, B6)', { timeout: 120_000 }, () => {
   const { choices, staticChoices } = pinnedChoices();
   for (const route of routes()) {
+    if (!route.choice) {
+      assert.equal(route.readiness, 'no_upstream_flow', route.provider);
+      continue;
+    }
+    if (route.needs?.plugin) {
+      assert.ok(pinSnapshot.manifests.some(manifest => manifest.id === route.plugin
+        && 'providerAuthChoices' in manifest && (manifest.providerAuthChoices ?? []).some(choice => choice.choiceId === route.choice)),
+      `${route.choice} must exist in the external pin manifest snapshot`);
+      assert.equal(route.needs.plugin, route.plugin);
+      continue;
+    }
     assert.ok(choices.has(route.choice) || staticChoices.includes(`"${route.choice}"`),
       `${route.choice} is not an auth choice of the pinned tarball (${route.source})`);
   }
-  assert.ok(routes().length >= 30, 'the table is the pin\'s whole inventory, not just the offered routes');
+  assert.equal(routes().length, 96, 'full discovery includes unavailable choices, not just bundled ones');
+  const catalog = JSON.parse(readFileSync(join(engineDir, 'node_modules/openclaw/scripts/lib/official-external-provider-catalog.json'), 'utf8')) as {
+    entries: { openclaw: { plugin: { id: string }; providers: { authChoices?: { choiceId: string }[] }[] } }[];
+  };
+  for (const { openclaw } of catalog.entries) for (const provider of openclaw.providers) {
+    for (const choice of provider.authChoices ?? []) {
+      assert.equal(routes().find(route => route.choice === choice.choiceId)?.plugin, openclaw.plugin.id, choice.choiceId);
+    }
+  }
   // The other direction, and the owning plugin of every choice: nothing pinned is unrouted, and no route names the
   // wrong plugin (the allowlist needs the owning id, 5.6).
   for (const [choice, plugin] of choices) {

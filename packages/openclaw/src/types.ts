@@ -120,13 +120,27 @@ export type Route = {
   choice: string;
   provider: string;
   plugin: string; // the bundled openclaw.plugin.json id that owns the choice; '' for a core static choice
-  billing: 'subscription' | 'api' | 'local';
+  billing: 'subscription' | 'api' | 'local' | 'free' | 'unknown';
   auth?: 'cli' | 'api_key' | 'token';
   terms?: 'allowed' | 'grey';
   termsUrl?: string;
-  via: 'browser' | 'code';
+  via: 'browser' | 'code' | 'paste' | 'key' | 'setup_token' | 'cli' | 'plan_key' | 'cloud' | 'local' | 'endpoint';
   prerequisite: string | null;
-  offer: boolean;
+  offer: boolean; // compatibility: true only for a ready default subscription route
+  id?: string;
+  name?: string;
+  company?: string;
+  aliases?: string[];
+  offerPolicy?: 'default' | 'explicit';
+  legacy?: { provider: string; via: 'browser' | 'code' }; // retained explicit sign-in selectors
+  billingFrom?: 'source' | 'host';
+  group?: 'models' | 'services';
+  platforms?: { node: 'yes' | 'host' | 'no'; browser: 'yes' | 'host' | 'no'; rn: 'yes' | 'host' | 'no' };
+  needs?: { binary?: string; plugin?: string; client?: string };
+  install?: { npmSpec?: string; clawhubSpec?: string; minHostVersion?: string };
+  upstream?: { surface: 'openclaw'; id: string; method?: string; revision: string; flow: 'present' | 'absent' };
+  readiness?: 'ready' | 'needs_binary' | 'needs_plugin' | 'needs_host' | 'needs_client' | 'unsupported_platform' | 'no_upstream_flow';
+  why?: string;
   reason: string;
   source: string;
   revision: string;
