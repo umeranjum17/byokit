@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.6.1 (2026-10-02)
+
+- Dependency update: pins @byokit/accounts 0.18.0.
+- FIX: (from @byokit/accounts 0.18.0) The README no longer claims browsers can reach Claude's token endpoint directly; a web page sends it through the app's own server.
+- FIX: (from @byokit/accounts 0.18.0) Discover every pinned provider and sign-in method with billing and platform readiness; qwen and MiniMax leave the default offer until their flows exist. Legacy provider IDs and explicit offer lists stay compatible.
+
 ## 0.6.0 (2026-10-01)
 
 - Dependency update: pins @byokit/accounts 0.17.0.

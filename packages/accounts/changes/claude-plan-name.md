@@ -1,2 +1,0 @@
-- Name the Claude plan: `plan(member, 'claude')` reads it once per sign-in from Claude's profile with the stored access, never refreshing it (an empty plan, never a failure, when it doesn't say); `planLabel` says "ChatGPT Plus" or "Claude Max". The PWA and Expo examples sign in to Claude by its page and pasted code, show a connected card naming the plan, and stream an answer.
-- FIX: The README no longer claims browsers can reach Claude's token endpoint directly; a web page sends it through the app's own server.

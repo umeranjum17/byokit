@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.18.0 (2026-10-02)
+
+- Dependency update: pins @byokit/usage 0.7.0.
+
+- The README points to the shared account-route vocabulary (D18); pinned discovery metadata does not imply additional implemented authentication flows.
+- Name the Claude plan: `plan(member, 'claude')` reads it once per sign-in from Claude's profile with the stored access, never refreshing it (an empty plan, never a failure, when it doesn't say); `planLabel` says "ChatGPT Plus" or "Claude Max". The PWA and Expo examples sign in to Claude by its page and pasted code, show a connected card naming the plan, and stream an answer.
+- FIX: The README no longer claims browsers can reach Claude's token endpoint directly; a web page sends it through the app's own server.
+FIX: Discover every pinned provider and sign-in method with billing and platform readiness; qwen and MiniMax leave the default offer until their flows exist. Legacy provider IDs and explicit offer lists stay compatible.
+
 ## 0.17.0 (2026-10-01)
 
 - Dependency update: pins @byokit/usage 0.6.1.

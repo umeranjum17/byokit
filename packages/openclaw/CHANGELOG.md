@@ -2,9 +2,14 @@
 
 ## Unreleased
 
-## 0.5.1 (2026-10-02)
+## 0.6.0 (2026-10-02)
 
-- The README points to the shared account-route vocabulary (D18); `routes()` still returns today's table.
+- Portable `readAgentUsage` / `agentUsageOf` expose explicit-agent UTC retained-transcript totals with raw responses, cache freshness and missing-price counters preserved. Coverage stays partial: stock-engine detached Workshop reviews are absent, and unavailable data never becomes zero; complete internal-turn accounting is not claimed.
+- FIX: Host runs can reuse a caller-stable per-dispatch `idempotencyKey` after a lost connection instead of starting a second engine run. Omission keeps fresh UUIDs. Document the pinned engine's gateway-wide, bounded, in-memory cache and honest in-flight replay limits; this is not exactly-once across engine restarts.
+
+FIX: Generate complete pinned route discovery: 91 auth choices and five cloud/CLI providers, including external plugin dependencies, plan-key entry, service grouping and corrected provider/billing labels. `routes()` computes readiness without reading credentials or installing plugins; legacy boolean `offer` is ready default subscriptions only, with `offerPolicy` retaining eligibility. Missing plugins, binaries, client registrations and choiceless wizard flows remain visible, not falsely usable. Explicit API/local/endpoint routes never become default billing; endpoint billing requires host input. Full discovery also reaches the existing phone/web link without hiding unavailable rows. Existing choice IDs, legacy explicit browser/code selectors, native Claude activation guards and ChatGPT pairing are retained; corrected manifest provider IDs and semantic `via` values replace inaccurate discovery labels. Listing an API or unavailable route never authorizes a sign-in or makes it a default.
+
+- The README points to the shared account-route vocabulary (D18); pinned route discovery is not proof of additional implemented authentication flows.
 - FIX: ChatGPT sign-in now interrupts abandoned wizard/paste waits on gateway disconnect and reconfirms a new, usable OAuth profile for the selected member through the reconnected engine. Recovery is bounded and fails closed for unknown, missing, pre-existing or unrelated credentials, cancellation and expiry. A synchronous cleanup error during reconnect no longer suppresses the terminal sign-in view.
 
 ## 0.5.0 (2026-10-01)

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.7.0 (2026-10-02)
+
+- FIX: Subscription usage views now derive today, activity and people from one account-scoped call snapshot, preserve unknown token counts and distinguish quota polling failures from exhaustion; plan and model labels use plain names.
+
 ## 0.6.1 (2026-10-01)
 
 - FIX: Local harness usage had no kit incremental source. Add an explicit-file,

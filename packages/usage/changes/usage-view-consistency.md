@@ -1,1 +1,0 @@
-- FIX: Subscription usage views now derive today, activity and people from one account-scoped call snapshot, preserve unknown token counts and distinguish quota polling failures from exhaustion; plan and model labels use plain names.
