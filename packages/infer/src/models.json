@@ -1,5 +1,10 @@
 [
-  {"id":"smollm2-360m-instruct-q8_0", "label":"SmolLM2 360M (386 MB)", "offer":true,
+  {"id":"qwen2.5-1.5b-instruct-q4_k_m", "label":"Qwen2.5 1.5B (1.12 GB)", "offer":true,
+   "repo":"Qwen/Qwen2.5-1.5B-Instruct-GGUF", "revision":"91cad51170dc346986eccefdc2dd33a9da36ead9", "file":"qwen2.5-1.5b-instruct-q4_k_m.gguf",
+   "url":"https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/91cad51170dc346986eccefdc2dd33a9da36ead9/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+   "bytes":1117320736, "sha256":"6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e",
+   "licence":"Apache-2.0", "licenceUrl":"https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/blob/91cad51170dc346986eccefdc2dd33a9da36ead9/LICENSE", "contextMax":32768, "thinking":false},
+  {"id":"smollm2-360m-instruct-q8_0", "label":"SmolLM2 360M (386 MB)", "offer":false,
    "repo":"HuggingFaceTB/SmolLM2-360M-Instruct-GGUF", "revision":"593b5a2e04c8f3e4ee880263f93e0bd2901ad47f", "file":"smollm2-360m-instruct-q8_0.gguf",
    "url":"https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF/resolve/593b5a2e04c8f3e4ee880263f93e0bd2901ad47f/smollm2-360m-instruct-q8_0.gguf",
    "bytes":386404992, "sha256":"48ab3034d0dd401fbc721eb1df3217902fee7dab9078992d66431f09b7750201",

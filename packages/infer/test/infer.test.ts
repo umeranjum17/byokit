@@ -1,3 +1,4 @@
+import nativeFixture from '../../../fixtures/conformance/infer-typescript.json' with { type: 'json' };
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -22,13 +23,16 @@ function make(o: { reply?: NonNullable<Parameters<typeof fakeLlama>[0]>['reply']
 
 test('the catalogue pins exact official files: revision, size, SHA-256 and licence', () => {
   assert.deepEqual(MODELS.map(m => [m.id, m.bytes, m.sha256, m.licence, m.offer]), [
-    ['smollm2-360m-instruct-q8_0', 386404992, '48ab3034d0dd401fbc721eb1df3217902fee7dab9078992d66431f09b7750201', 'Apache-2.0', true],
+    ['qwen2.5-1.5b-instruct-q4_k_m', 1117320736, '6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e', 'Apache-2.0', true],
+    ['smollm2-360m-instruct-q8_0', 386404992, '48ab3034d0dd401fbc721eb1df3217902fee7dab9078992d66431f09b7750201', 'Apache-2.0', false],
     ['qwen3-0.6b-q8_0', 639446688, '9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031', 'Apache-2.0', false],
   ]);
   for (const m of MODELS) assert.equal(m.url, `https://huggingface.co/${m.repo}/resolve/${m.revision}/${m.file}`);
-  assert.equal(model().id, 'smollm2-360m-instruct-q8_0');
+  for (const key of ['id', 'repo', 'revision', 'file', 'bytes', 'sha256', 'licence', 'contextMax'] as const)
+    assert.equal(model()[key], nativeFixture.nativeModel[key]);
+  assert.equal(model().id, 'qwen2.5-1.5b-instruct-q4_k_m');
   models()[0].bytes = 1;
-  assert.equal(MODELS[0].bytes, 386404992, 'copies, never the catalogue');
+  assert.equal(MODELS[0].bytes, 1117320736, 'copies, never the catalogue');
   assert.throws(() => model('nope'), (e: InferError) => e.code === 'invalid');
 });
 

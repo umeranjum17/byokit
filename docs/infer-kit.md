@@ -21,19 +21,26 @@ support check. `@byokit/dictation` is speech, not text. This kit is that missing
 |---|---|---|
 | I1 | Package `@byokit/infer`, first version **0.1.0**, `private: true` until §6 passes. Name accepted by Root for first publication (kit-conventions §1.2). | One plain word for the capability (run a model here). `generate`/`decide` are already function names. |
 | I2 | Native binding: stock published **`llama.rn@0.12.9`** (npm, MIT, 2026-08-04, gitHead `2a20c13e6665cc7278f68c6b2b5819899d0e84fd`, llama.cpp build `10256`/`6c8dcaa`), an **exact optional peer**. The kit types a structural subset and the host injects `initLlama`, as dictation does with whisper.rn. | Same engine family as the shipped dictation kit; one GGUF path for Android and iOS; prebuilt Android JNI libs and iOS XCFramework pinned by SHA-256 in its own `install/native-artifacts.json`. Latest stable, not the `0.13.0-rc.*` `latest` tag. No fork or patch. |
-| I3 | First model: **SmolLM2-360M-Instruct Q8_0 GGUF** (§3). Qwen3-0.6B Q8_0 is catalogued with `offer: false` as the fallback if SmolLM2 cannot keep technical detail. | Smallest candidate with an official GGUF, Apache-2.0, card lists summarisation. Gemma 3 270M has no official GGUF and a separate licence; not a first choice. |
+| I3 | Default candidate: **Qwen2.5-1.5B-Instruct Q4_K_M GGUF** (§3), authorized by Main313 after realistic Smol360M output was still `enough:false`. Smol360M and Qwen3-0.6B stay catalogued with `offer: false`; no automatic model switch/fallback. | Official Apache-2.0 instruct model with structured-output support. The kit stays private pending its accepted physical summary; source pinning is not qualification. |
 | I4 | One `LocalModel` per model: at most one native context; calls never queue (`busy`). | A pane summary is only useful for the card on screen; queued stale work wastes battery. |
 | I5 | Greedy decoding (`temperature: 0`, `seed: 0`), CPU only (`n_gpu_layers: 0`), `n_ctx` 2048, ≤256 output tokens, 4 threads, `use_mmap`, no `mlock`. Thinking off through the template (`enable_thinking: false`). | Repeatable output, predictable memory; GPU offload is device-specific (Android OpenCL is Adreno-only) and is a later measured opt-in. |
 | I6 | Summaries are grammar-constrained JSON `{enough, lines[≤4]}` (llama.rn `response_format: json_schema`) and validated again in JS. Only a leading literal `<\|im_start\|>assistant` header and a whole enclosing markdown `json` fence may be removed before JSON parsing; trailing garbage, other tags and malformed bodies remain invalid. No `force_pure_content`: its one packaged-native confirmation rejected before a result. | The model cannot ramble or emit a partial structure that looks complete; `enough: false` is the honest "not enough output" path. |
-| I7 | Storage is the host's (`InferModelStore`, e.g. over `@dr.pogodin/react-native-fs@2.40.3`: `downloadFile`, native `hash(path, 'sha256')`, `getFSInfo`). The kit checks free space, size and SHA-256, and removes a mismatching file. | Hashing a 386 MB file must be native; storage location is an app choice. |
+| I7 | Storage is the host's (`InferModelStore`, e.g. over `@dr.pogodin/react-native-fs@2.40.3`: `downloadFile`, native `hash(path, 'sha256')`, `getFSInfo`). The kit checks free space, size and SHA-256, and removes a mismatching file. | Hashing a 1.12 GB default file must be native; storage location is an app choice. |
 | I8 | No dependency on `@byokit/decide`: `generationBackend()` returns a structurally identical `GenerationBackend`, pinned by `test/backend.test.ts`. | decide pulls `openai`/accounts; a phone that only summarises does not need them. |
 
 ## 3. Model and binding facts (verified 2026-10-02; builders must not re-derive)
 
 Verified from the publisher's Hugging Face API (`?blobs=true`) and `HEAD` of the `resolve` URL at the pinned
-revision (`x-repo-commit`, `x-linked-size`, `x-linked-etag`). No weights were downloaded.
+revision (`x-repo-commit`, `x-linked-size`, `x-linked-etag`). Original candidates were metadata-only; the stronger candidate's first16MiB was inspected as GGUF metadata before its authorized full device download/hash.
 
-| | SmolLM2-360M-Instruct (first) | Qwen3-0.6B (fallback, `offer: false`) |
+**Default candidate: Qwen2.5-1.5B-Instruct Q4_K_M** (Main313 conditional step triggered by Smol's actual1000-prompt-token realistic run still returning enough:false):
+- Official repo `Qwen/Qwen2.5-1.5B-Instruct-GGUF`, revision `91cad51170dc346986eccefdc2dd33a9da36ead9`, file `qwen2.5-1.5b-instruct-q4_k_m.gguf`.
+- **1,117,320,736 bytes**, SHA-256 `6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e`; publisher API LFS and pinned resolve HEAD agree. Apache-2.0 LICENSE at that revision.
+- Header inspection: GGUFv3, qwen2 architecture, Q4_K_M/file_type15, 28 layers, 12Q/2KV heads, context32768, GPT2/Qwen2 BPE vocabulary151936, BOS151643/EOS151645, embedded ChatML Jinja template without thinking. Base official config at `989aa7980e4cf806f80c7fef2b1adb7bc71aa306` agrees; tokenizer config's131072 advisory does not override trained/GGUF32768.
+- Stock0.12.9 source has qwen2 loader/tokenizer/quant support. Runtime qualification remains required; native2048 context/4CPUthreads/≤256output and original prompt/schema stay unchanged. `fixtures/conformance/infer-typescript.json` pins the native-asset expectations.
+- No accepted stronger-model native summary yet; full install bytes/SHA and one on-screen confirmation must still be recorded.
+
+| | SmolLM2-360M-Instruct (former default, `offer: false`) | Qwen3-0.6B (`offer: false`) |
 |---|---|---|
 | repo | `HuggingFaceTB/SmolLM2-360M-Instruct-GGUF` | `Qwen/Qwen3-0.6B-GGUF` |
 | revision | `593b5a2e04c8f3e4ee880263f93e0bd2901ad47f` | `23749fefcc72300e3a2ad315e1317431b06b590a` |
@@ -120,7 +127,7 @@ measurement logs outside the pooled worktree before cleanup.
   (e.g. 30 summaries) if the level delta is 0; an airplane-mode rerun with `KEEP_MODEL=1` to show summaries need no
   network. Tune `minMemoryBytes` from the data.
 - **WP4 — Summary quality.** Score the three demo panes plus ≥20 recorded synthetic panes (no personal data) for
-  invented completion, missed failure and noise; if SmolLM2 fails, re-run with Qwen3 and propose flipping `offer`.
+  invented completion, missed failure and noise. Main313 permits only the recorded realistic Smol run then, on enough:false/badJSON, one Qwen2.5-1.5B confirmation; native exception is STOP, not an automatic model change.
 - **WP5 — iOS.** Same lab app on a physical iPhone once Root/main grants the Mac and Xcode 26.2 is installed; same
   measurements as WP3. Simulator results are labelled Simulator and never stand in for the phone.
 - **WP6 — Release prep.** Owner confirms the name; flip `private`; add `infer` to CI pack smoke; New/Fixed/Improved/
