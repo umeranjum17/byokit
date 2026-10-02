@@ -575,7 +575,7 @@ for runtime integration; the chooser consumes host-validated state and never ado
 
 ## Managed CLI accounts (Node only)
 
-`@byokit/accounts/cli` exports `cliAccounts`, `CliAccountError`, `CliProvider`, `CliAccount`, `CliOptions` and `SignInCommand`. Accounts use subscription billing. The portable entries and the `Accounts` class retain their existing sign-in flows.
+`@byokit/accounts/cli` exports `cliAccounts`, `CliAccountError`, `CliProvider`, `PiProvider`, `CliAccount`, `CliOptions` and `SignInCommand`. Accounts use subscription billing. The portable entries and the `Accounts` class retain their existing sign-in flows.
 
 `CliAccount` extends the portable chooser's `AccountLike`. Pass normalized usage through `@byokit/usage`'s `roomOf(reading, nowMs)` when selecting an account, preserving millisecond reset times and the original measurement time.
 
@@ -598,7 +598,7 @@ const { set, unset } = accounts.launchEnv(account.id);
 
 `stateDir` must be an absolute app-owned directory with an existing parent. The kit creates it at 0700 and creates private `<provider>/<hex>` account folders below it. `bins` are absolute paths; PATH is never used to find the CLI. Status and login use an environment built from nothing plus the app's `env`, after removing provider credential overrides and adding the managed-folder variable. Pass proxy or temporary-directory settings explicitly if needed. `launchEnv` returns the folder variable in `set` and the provider overrides in `unset`; hosts must apply both so a stray API key (billed per use) cannot override the chosen subscription.
 
-`add` returns a `signing` account and the native login command. `status` stays `signing` until the completion marker exists, including after a host restart, and does not run a second native client during pending sign-in. The shell uses a private per-folder lock and marks completion only after successful login. Stop the app's sign-in tab before `cancel` or `remove`; the kit does not supervise that tab. `signInAgain` reuses a pending command or starts a new completion cycle; if an account operation is already in flight it throws `prepare-failed`, so await that operation before retrying. Native CLIs own their refresh transactions; the kit neither copies credentials nor refreshes grants. A crashed sign-in shell can leave its lock; the host should stop that process and remove only that managed lock before retrying.
+`add` returns a `signing` account and the native login command. For Claude/Codex, `status` stays `signing` until the completion marker exists, including after a host restart, and does not run a second native client during pending sign-in. Pi uses an auth-check probe instead (below). The shell uses a private per-folder lock and marks completion only after successful login. Stop the app's sign-in tab before `cancel` or `remove`; the kit does not supervise that tab. `signInAgain` reuses a pending command or starts a new completion cycle; if an account operation is already in flight it throws `prepare-failed`, so await that operation before retrying. Native CLIs own their refresh transactions; the kit neither copies credentials nor refreshes grants. A crashed sign-in shell can leave its lock; the host should stop that process and remove only that managed lock before retrying.
 
 `list` probes managed folders concurrently; `status`, `rename`, `remove` and `cancel` serialize operations per account. Only signed-in state (`ready` or `signed_out`), email and plan come from native status output; no credential file is opened and raw CLI errors and output are discarded. `rename` accepts a trimmed name of 1–64 characters. `cancel` removes only folders added by this instance; for existing accounts it ends the pending completion cycle without deleting the account. `remove` deletes only a validated managed folder. `historyFrom` creates a history symlink inside that folder; it never creates or writes the target, even when it is missing. A throwing `prepare` rolls back the new folder.
 
@@ -608,7 +608,7 @@ If the host does not supply a provider executable, its managed rows remain visib
 
 The existing `accounts-v1.json` `{version:1,accounts:[{id,provider,name,folder,found}]}` and `auto-terms-v1.json` `{acknowledged:true}` encodings remain unchanged, with 0600 files and atomic replacement. The kit preserves but excludes `found-*` and `found:true` rows, which belong to the host's default-login adapter. Legacy managed rows without kit completion sidecars retain their native signed-in status; new or re-signing rows require the completion marker. Symlinked account folders and records outside the provider/hex layout are refused.
 
-`usageSource(id)` returns a Codex Source for `@byokit/usage`; Claude returns `undefined`, and its usage Source is `{provider:'claude', folder:set.CLAUDE_CONFIG_DIR, headers}` in a usage reader whose `stateDir` is the same managed root. `kinds` serves only the matching native agent (`claude` or `codex`); Pi is excluded until its folder mapping is verified. `resumeArgs` accepts an `id` conversation reference for these kinds. `termsAcknowledged` and `acknowledgeTerms` keep the host's existing terms bit; they do not gate sign-in. `suggestName` uses the first part of an email, falling back to the provider's name.
+`usageSource(id)` returns a Codex Source for `@byokit/usage`; Claude returns `undefined`, and its usage Source is `{provider:'claude', folder:set.CLAUDE_CONFIG_DIR, headers}` in a usage reader whose `stateDir` is the same managed root. `kinds` serves only the matching native agent (`claude`, `codex` or `pi`). `resumeArgs` accepts an `id` conversation reference for these kinds and also a `path` for Pi; `launchArgs(id)` supplies Pi's selected `--provider` and is empty for Claude/Codex. `termsAcknowledged` and `acknowledgeTerms` keep the host's existing terms bit; they do not gate sign-in. `suggestName` uses the first part of an email, falling back to the provider's name.
 
 `launchEnv({ base?, account?, set?, unset? })` copies `base` (default: `process.env`), removes
 provider namespaces derived from the catalogue and inherited API keys, then applies account settings
@@ -620,7 +620,29 @@ its directory return value but no longer changes global environment variables.
 
 ### Native Pi and found-row boundaries
 
-The managed roster/sign-in API supports Claude and Codex only. `nativePiAccount` supplies a **read-only launch descriptor** for a separately owned Pi folder, qualified against native Pi 0.87.1. It neither reads a grant nor claims sign-in state or identity:
+Managed Pi accounts require stock published Pi 0.87.1 and an explicit subscription OAuth provider: `openai-codex`, `anthropic`, `github-copilot`, `xai`, `kimi-coding` or `meta`. Unsupported providers are refused; Claude subscription routes must be offered only where the provider's terms allow their use.
+
+```ts
+const plans = cliAccounts({
+  stateDir: '/app/state/plans', bins: { pi: '/app/bin/pi' },
+  env: { HOME: '/app/home', PATH: '/usr/bin:/bin', TMPDIR: '/app/tmp' },
+});
+const { account, signIn } = await plans.add('pi', { piProvider: 'openai-codex' });
+// Run signIn.shell in the app's sign-in tab (or argv with env).
+// Display signIn.instruction: the person types /login openai-codex in Pi's TUI.
+// NEVER pass /login as an initial message: Pi would send it to the model.
+const current = await plans.status(account.id);
+const launch = plans.launchEnv(account.id); // PI_CODING_AGENT_DIR; unset other CLI/session folders
+const providerArgs = plans.launchArgs(account.id); // ['--provider', 'openai-codex']
+```
+
+Pi login argv is just `[bin]`; closing its TUI does not create a completion marker. `status` runs only the selected managed folder's `auth check --provider <id> --json --no-refresh`, never `--credentials`. Only `ready` + `authType: oauth` qualifies as subscription-ready and clears pending. `not_ready` stays `signing` while pending, otherwise `signed_out`; an API key returns `signed_out` with `why: api_key`. Invalid, malformed, timed-out or oversized output returns `signed_out` with `why: unknown`. Output is capped at 64 KB and raw errors/credentials are discarded. **No-refresh does not check OAuth expiry**: stored expired OAuth can appear ready; native Pi owns refresh on use, so readiness is not a promise that the next request succeeds.
+
+The kit never opens/seeds/copies Pi's `auth.json`, `settings.json` or `models.json`; Pi itself reads only its selected folder. Pi rows persist separately in `pi-accounts-v1.json`, so older Claude/Codex kit writes cannot delete them. Their named identity is `id`, `name`, `piProvider` and the folder, not an inferred email or plan. Email/plan and usage are unknown, and no email dedupe is attempted. Auto considers only confirmed `ready` rows; it never guesses a default identity, pools accounts, rotates them, or falls back to API billing.
+
+Settings and sessions stay in the selected folder. Pi `--session <id>` resolves inside that folder; cross-account resume needs an explicit session path, or host-owned shared sessions via `historyFrom.pi`. Session `id`/`path` references are preserved unchanged.
+
+`nativePiAccount` remains a **read-only launch descriptor** for a separately owned Pi folder. It neither reads a grant nor claims sign-in state or identity:
 
 ```ts
 import { nativePiAccount } from '@byokit/accounts/cli';
@@ -637,9 +659,9 @@ const argv = pi.resumeArgs({ kind: 'path', value: sessionPath });
 // The host spawns pi.bin with argv and childEnv; native Pi owns its grants and session.
 ```
 
-Pi uses its own `auth.json` in `PI_CODING_AGENT_DIR`; a Claude managed folder alone does **not** select the same account in Pi. Do not advertise `kinds('claude')` as including Pi, pass a Claude grant to Pi, or fall back to the person's default Pi folder. Pi roster/sign-in/Auto adoption still needs a separately defined native status/identity-to-row contract. Proof uses fixture identities and actual native RPC resume, not live sign-in or paid responses.
+Pi uses its own `auth.json` in `PI_CODING_AGENT_DIR`; a Claude managed folder alone does **not** select the same account in Pi. Do not advertise `kinds('claude')` as including Pi, pass a Claude grant to Pi, or fall back to the person's default Pi folder. This contract has offline fixture coverage; it does not claim live login or native working-pane handoff qualification.
 
-Found rows are read-only host records, not managed accounts. `signInAgain`, `launchEnv`, and other managed operations reject them. To sign in again to a found login, the person uses that provider's normal native account UI themselves, outside this kit; the host may explain that workflow but must not execute a default-folder sign-in command or mark completion from a managed sidecar. Alternatively, offer **Connect an account** to create a separate app-owned login. The existing found row remains unchanged. This does not authorize a consumer to remove its existing Pi or account-move affordances; an adoption whose UI requires unsupported capabilities stays unlanded until its owner supplies a compatible contract or explicit product disposition.
+Found rows remain read-only host records. `signInAgain('found-*')` and managed launch operations still reject them with `unknown-account`. For an explicitly selected found row, call `adopt(foundId, { piProvider? })` (required on first Pi adoption). It reads only roster metadata, creates a **new empty managed folder**, and returns `{ account, signIn }`. Nothing reads, writes or copies the source/default login; the original row stays unchanged. The host maps the found selection to the returned managed `account.id` and may collapse the old row using `account.adoptedFrom`. Concurrent/repeated adoption reuses that managed identity and its sign-in cycle; unknown/non-found ids are refused. Stop the sign-in tab before cancellation: `cancel(newId)` removes the new row/folder in the creating instance, while after restart it only clears pending and retains the named identity. No implicit adoption happens through status or Auto.
 
 ## Scripted sign-in stand-in
 
