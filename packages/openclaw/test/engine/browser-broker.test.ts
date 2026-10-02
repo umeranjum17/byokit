@@ -79,6 +79,7 @@ async function listening(pid: number) {
 async function secretHits(dir: string): Promise<number> {
   let hits = 0;
   const forms = [marker, encodeURIComponent(marker), Buffer.from(marker).toString('base64')].map(s => Buffer.from(s));
+  forms.push(Buffer.from(marker, 'utf16le'));
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) hits += await secretHits(path);
@@ -146,6 +147,7 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
       }); return;
     }
     res.setHeader('content-type', 'text/html');
+    if (req.url === '/anonymous-with-iframe') { res.writeHead(401); res.end('<iframe src="/ready"></iframe>'); return; }
     if (req.url === '/ready') {
       if (!req.headers.cookie?.includes('fixture_auth=1')) { res.writeHead(401); res.end('anonymous'); return; }
       res.end(`<div class="signedin">Signed in fixture</div><a href="/download" style="position:absolute;left:20px;top:20px;width:200px;height:40px">Download</a><button onclick="window.open('${idpOrigin}/idp')" style="position:absolute;left:20px;top:100px;width:200px;height:40px">Popup</button>`); return;
@@ -183,6 +185,7 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
     const id = broker.agentTab()!;
     const sid = (await root.send('Target.attachToTarget', { targetId: id, flatten: true })).result.sessionId;
     await root.send('Network.enable', {}, sid); await root.send('Runtime.enable', {}, sid);
+    assert.ok((await root.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: join(dir, 'downloads') })).result);
     await root.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
     const positive = await root.send('Runtime.evaluate', { expression: JSON.stringify(marker) }, sid);
     assert.equal(positive.result.result.value, marker);
@@ -259,6 +262,7 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
     assert.equal(root.frames.slice(baseline).filter(text => text.includes(marker) || text.includes(Buffer.from(marker).toString('base64'))).length, 0);
     assert.equal(denied.frames.slice(0, agentEnd).filter(text => text.includes(marker) || text.includes(privateId)).length, 0);
     assert.equal(await broker.probe(`${siteOrigin}/ready`, async p => p.status === 200 && await p.exists('.signedin'), 5000), 'ok');
+    assert.equal(await broker.probe(`${siteOrigin}/anonymous-with-iframe`, async p => p.status === 200, 5000), 'fail');
     chromePids = [...new Set([...chromePids, ...await children(mains[0]!)])];
     for (const pid of chromePids) assert.equal(await listening(pid), 0, 'no debugging TCP listener during held state');
     stage = 'drop-lease'; broker.bindLease(null);
@@ -274,13 +278,16 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
     const pages = fresh.contexts()[0]!.pages();
     assert.equal(pages.length, 1); assert.ok(pages[0]!.url().endsWith('/task'));
     const cookies = await fresh.contexts()[0]!.cookies(); assert.ok(cookies.some(c => c.name === 'fixture_auth'));
-    stage = 'clear-site'; await broker.clearSite([siteOrigin]);
+    stage = 'clear-site';
+    const scopeControl = await raw(endpoint);
+    assert.ok((await scopeControl.send('Storage.clearDataForOrigin', { origin: siteOrigin, storageTypes: 'all' })).error, 'original root-domain failure reproduced on actual pinned Chromium');
+    await broker.clearSite([siteOrigin]);
     assert.equal((await fresh.contexts()[0]!.cookies()).some(c => c.name === 'fixture_auth'), false);
     await fresh.close(); await browser.close().catch(() => {});
     await broker.close(); broker = undefined;
     await until(async () => !(await Promise.all(chromePids.map(live))).some(Boolean));
     assert.equal(await secretHits(profileDir), 0, 'no credential canary persisted in owned profile');
-    assert.equal(await exists(join(dir, 'fixture-download.txt')), false);
+    assert.equal(await exists(join(dir, 'downloads', 'fixture-download.txt')), false);
     t.diagnostic('private canary hits: agent frames=0, profile=0; positive controls: CDP, streamed JPEG, submitted fixture form; Chromium TCP listeners=0');
   } finally {
     t.diagnostic(`fixture cleanup stage: ${stage}`);
