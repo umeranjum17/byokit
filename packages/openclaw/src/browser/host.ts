@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import type { BrowserHost, BrowserOptions, BrowserState, LiveFrame, LiveInput, LiveSource, LiveViewState, NeedSignIn,
   SignInReason, SignInMethodHint, SignInRefusedWhy, TakeoverLease, ThumbnailResult } from '../browser.ts';
 import type { Member } from '../types.ts';
-import { checkUrl, validOrigin, type SignInData, type SignInStore } from './store.ts';
+import { BrowserStoreError, checkUrl, validOrigin, type SignInData, type SignInStore } from './store.ts';
 import { validateVerifiers, verifySignIn, type Probe } from './verify.ts';
 import { dispatchResume, newResume, recoverResume, type ResumeDispatch } from './resume.ts';
 
@@ -46,6 +46,8 @@ export type BrowserHostServices = {
   // No capability flag enables production handoff here: W7/O17 remains kit-owned and unqualified.
   ping?: (member: Member, kind: 'state' | 'signin') => void;
   now?: () => number;
+  // Launch only another kit-owned broker; no engine/model dispatch during recovery.
+  restart?: (member: Member, attempt: number) => Promise<HostBroker | undefined>;
 };
 type LeaseRef = Pick<TakeoverLease, 'requestId' | 'epoch' | 'nonce'>;
 type Lease = { value: TakeoverLease; grant: string; target: string; attached: boolean; deadline: number; timer?: ReturnType<typeof setTimeout> };
@@ -62,6 +64,7 @@ export interface BrowserHostController extends BrowserHost {
   revokeGrant(grant: string): Promise<void>;
   sweep(): Promise<void>;
   browserGone(member: Member): Promise<void>;
+  beforeRun(member: Member, sessionKey: string): Promise<boolean>;
   close(): Promise<void>;
 }
 export async function createBrowserHost(services: BrowserHostServices): Promise<BrowserHostController> {
@@ -86,6 +89,10 @@ class Host implements BrowserHostController {
   private readonly s: BrowserHostServices;
   private readonly fixture: boolean;
   private data: SignInData;
+  private committed: SignInData;
+  private readonly brokers: Map<Member, HostBroker>;
+  private readonly recovery = new Map<Member, NonNullable<BrowserState['recovery']>>();
+  private readonly exhausted = new Set<Member>();
   private queue: Promise<unknown> = Promise.resolve();
   private readonly leases = new Map<string, Lease>();
   private readonly epochs = new Map<Member, number>();
@@ -106,28 +113,37 @@ class Host implements BrowserHostController {
       const value = services.options[n];
       if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0 || value > 2_147_483_647)) throw new Error('invalid browser timeout');
     }
+    const recovery = services.options.recovery;
+    if (recovery && (!Number.isInteger(recovery.attempts) || recovery.attempts < 0 || recovery.attempts > 3
+      || recovery.backoffMs.some(n => !Number.isSafeInteger(n) || n < 0 || n > 60_000))) throw new Error('invalid browser recovery');
+    this.brokers = new Map(services.brokers);
     this.data = services.store.read();
+    this.committed = structuredClone(this.data);
   }
   private now() { return this.s.now?.() ?? Date.now(); }
   private broker(member: Member): HostBroker {
-    const broker = this.s.brokers.get(member);
+    const broker = this.brokers.get(member);
     if (!broker || this.unavailable.has(member)) throw new SignInRefused('unsupported');
     return broker;
   }
   private serial<T>(fn: () => Promise<T>): Promise<T> {
-    const result = this.queue.then(() => {
+    const result = this.queue.then(async () => {
       if (this.failed || this.stopped) throw new SignInRefused('unsupported');
-      return fn();
+      try { return await fn(); }
+      catch (e) {
+        if (e instanceof SignInRefused || e instanceof BrowserStoreError || e instanceof HandoffUnprotected) throw e;
+        throw new Error('browser action unavailable');
+      }
     });
     this.queue = result.catch(() => {});
     return result;
   }
   private commit() {
-    try { this.s.store.write(this.data); }
-    catch { this.failed = true; this.streams.forEach(s => s.close('browser-gone')); throw new Error('browser state unavailable'); }
+    try { this.s.store.write(this.data); this.committed = structuredClone(this.data); }
+    catch { this.data = structuredClone(this.committed); this.failed = true; this.streams.forEach(s => s.close('browser-gone')); throw new Error('browser state unavailable'); }
     this.arm();
   }
-  private ping(r: NeedSignIn) { this.s.ping?.(r.member, 'signin'); }
+  private ping(r: NeedSignIn) { try { this.s.ping?.(r.member, 'signin'); } catch { /* invalidation is advisory */ } }
   private arm() {
     clearTimeout(this.ttl);
     const expires = this.data.requests.filter(r => r.state === 'waiting' || r.state === 'held').map(r => r.expires);
@@ -147,7 +163,10 @@ class Host implements BrowserHostController {
     this.commit();
   }
   state(member: Member): BrowserState {
-    if (!this.s.brokers.has(member)) return { member, phase: 'off', why: 'no-browser' };
+    if (!this.brokers.has(member)) return { member, phase: 'off', why: 'no-browser' };
+    const recovery = this.recovery.get(member);
+    if (recovery) return { member, phase: 'recovering', recovery: { ...recovery } };
+    if (this.exhausted.has(member)) return { member, phase: 'blocked', why: 'recovery-exhausted' };
     if (this.failed || this.stopped || this.unavailable.has(member)) return { member, phase: 'blocked', why: 'engine-detached' };
     if (this.data.requests.some(r => r.member === member && open(r))) return { member, phase: 'fenced' };
     return this.fixture ? { member, phase: 'ready' } : { member, phase: 'blocked', why: 'handoff-unprotected' };
@@ -160,11 +179,18 @@ class Host implements BrowserHostController {
     return r;
   }
   private access(grant: string, member: Member, control: boolean) {
-    if (this.revoked.has(grant) || !this.s.authorize(grant, member, control)) throw new SignInRefused(control ? 'not-control' : 'not-found');
+    let allowed = false;
+    try { allowed = !this.revoked.has(grant) && this.s.authorize(grant, member, control); } catch { /* fail closed */ }
+    if (!allowed) throw new SignInRefused(control ? 'not-control' : 'not-found');
   }
   private held(r: NeedSignIn, grant: string) {
     this.access(grant, r.member, true);
-    if (r.state === 'held' && this.leases.get(r.id)?.grant !== grant) throw new SignInRefused('not-lease-holder');
+    if (r.state === 'held') {
+      const l = this.leases.get(r.id);
+      if (l?.grant !== grant) throw new SignInRefused('not-lease-holder');
+      this.lease(l.value);
+    }
+    if (['waiting', 'held'].includes(r.state) && this.now() >= r.expires) throw new SignInRefused('lease-expired');
   }
   private lease(ref: LeaseRef): { r: NeedSignIn; l: Lease } {
     if (this.failed || this.stopped) throw new SignInRefused('stale');
@@ -173,13 +199,13 @@ class Host implements BrowserHostController {
     if (!l || l.value.epoch !== ref.epoch || l.value.nonce !== ref.nonce || l.value.gen !== r.gen
       || this.epochs.get(r.member) !== ref.epoch || !['held', 'checking'].includes(r.state)) throw new SignInRefused('stale');
     this.access(l.grant, r.member, true);
-    if (this.now() >= Math.min(l.value.expires, l.deadline, r.expires)) throw new SignInRefused('lease-expired');
+    if (r.state !== 'checking' && this.now() >= Math.min(l.value.expires, l.deadline, r.expires)) throw new SignInRefused('lease-expired');
     return { r, l };
   }
   private drop(r: NeedSignIn) {
     const l = this.leases.get(r.id);
     clearTimeout(l?.timer);
-    this.s.brokers.get(r.member)?.bindLease(null);
+    this.brokers.get(r.member)?.bindLease(null);
     this.leases.delete(r.id);
     this.epochs.set(r.member, (this.epochs.get(r.member) ?? 0) + 1);
     for (const s of this.streams) if (s.member === r.member) s.close('superseded');
@@ -201,11 +227,10 @@ class Host implements BrowserHostController {
     if (!target) throw new SignInRefused('unsupported');
     const origin = validOrigin(await broker.originOf(target));
     const url = checkUrl(input.checkUrl);
-    if (this.fixture && !secureOrigin(origin)) throw new SignInRefused('insecure-remote');
     const site = this.s.siteOf(origin);
     if (!site || /[\s/<>]/.test(site)) throw new SignInRefused('unsupported');
     const r: NeedSignIn = { id: mint(), gen: 1, ...(prev ? { prev } : {}), member: input.member, sessionKey: input.sessionKey,
-      origin, site, secure: secureOrigin(origin), firstTime: !this.data.verified[input.member]?.includes(site),
+      origin, site, secure: secureOrigin(origin), firstTime: !(Object.hasOwn(this.data.verified, input.member) && this.data.verified[input.member].includes(site)),
       reasons: [...new Set(input.reasons)], hints: [...new Set(input.hints ?? [])],
       choices: [...(secureOrigin(origin) ? [{ kind: 'takeover' as const }] : []), { kind: 'not-now' }, { kind: 'cancel' }],
       state: 'waiting', at: this.now(), expires: this.now() + (this.s.options.requestTtlMs ?? 1_800_000) };
@@ -221,6 +246,7 @@ class Host implements BrowserHostController {
   }
   takeover(id: string, gen: number, by: { grant: string; confirmSite?: string }): Promise<TakeoverLease> {
     if (!this.fixture) return Promise.reject(new HandoffUnprotected());
+    if (this.closing.has(id)) return Promise.reject(new SignInRefused('held-by-other'));
     return this.serial(async () => {
       const r = this.request(id, gen);
       this.access(by.grant, r.member, true);
@@ -258,7 +284,9 @@ class Host implements BrowserHostController {
     if (r.state !== 'held') throw new SignInRefused('stale');
     const exact = validOrigin(origin);
     if (!secureOrigin(exact)) throw new SignInRefused('insecure-remote');
-    if (!this.broker(r.member).confirmOrigin({ epoch: ref.epoch, nonce: ref.nonce }, exact)) throw new SignInRefused('stale');
+    let confirmed = false;
+    try { confirmed = this.broker(r.member).confirmOrigin({ epoch: ref.epoch, nonce: ref.nonce }, exact); } catch { /* fail closed */ }
+    if (!confirmed) throw new SignInRefused('stale');
     if (!this.data.host[r.id].confirmed.includes(exact)) this.data.host[r.id].confirmed.push(exact);
     this.commit();
   }
@@ -267,7 +295,7 @@ class Host implements BrowserHostController {
       const { r, l } = this.lease(ref);
       if (r.state !== 'held') throw new SignInRefused('stale');
       const broker = this.broker(r.member);
-      r.state = 'checking';
+      r.state = 'checking'; clearTimeout(l.timer);
       for (const s of this.streams) if (s.member === r.member) s.close('superseded');
       this.commit(); this.ping(r);
       const privateState = broker.privateState();
@@ -281,6 +309,7 @@ class Host implements BrowserHostController {
       this.lease(ref);
       await this.settle(r, result.state, 'reason' in result ? result.reason : undefined);
       if (r.settled?.state === 'verified') {
+        if (this.stopped || this.failed) throw new SignInRefused('unsupported');
         r.settled.resume = newResume(r);
         this.commit(); // action key/session/attempt durable BEFORE calling the gateway
         r.settled.resume.state = await dispatchResume(r, this.s.resume);
@@ -293,10 +322,10 @@ class Host implements BrowserHostController {
     if (r.state === 'settled') throw new SignInRefused('stale');
     const broker = this.broker(r.member);
     this.drop(r);
-    await broker.closePrivate(); // never lift before held targets (including probes/popups) are destroyed
+    await this.closePrivate(r); // never lift before held targets (including probes/popups) are destroyed
     r.state = 'settled'; r.settled = { state, ...(reason ? { reason } : {}), at: this.now() };
     if (state === 'verified') {
-      const sites = this.data.verified[r.member] ??= [];
+      const sites = Object.hasOwn(this.data.verified, r.member) ? this.data.verified[r.member] : (this.data.verified[r.member] = []);
       if (!sites.includes(r.site)) sites.push(r.site);
     }
     this.commit();
@@ -316,7 +345,7 @@ class Host implements BrowserHostController {
       const r = this.request(id, gen); this.held(r, by.grant);
       if (!['waiting', 'held'].includes(r.state)) throw new SignInRefused('stale');
       this.drop(r); const broker = this.broker(r.member);
-      await broker.closePrivate();
+      await this.closePrivate(r);
       r.state = 'parked'; this.data.host[r.id].confirmed = []; this.commit();
       await broker.fence(false); await broker.navigateAgent('reload'); this.ping(r);
       return structuredClone(r);
@@ -346,12 +375,22 @@ class Host implements BrowserHostController {
       for (const r of this.data.requests) {
         if (['waiting', 'held'].includes(r.state) && this.now() >= r.expires) { await this.settle(r, 'expired'); continue; }
         const l = this.leases.get(r.id);
-        if (l && this.now() >= Math.min(l.deadline, l.value.expires)) await this.lapse(r);
+        if (l && r.state === 'held' && this.now() >= Math.min(l.deadline, l.value.expires)) await this.lapse(r);
       }
     });
   }
+  private async closePrivate(r: NeedSignIn): Promise<void> {
+    this.closing.add(r.id);
+    try { await this.broker(r.member).closePrivate(); this.closing.delete(r.id); }
+    catch {
+      r.state = 'settled'; r.settled = { state: 'failed', reason: 'browser-gone', at: this.now() };
+      this.unavailable.add(r.member); this.commit(); this.ping(r);
+      void this.recover(r.member);
+      throw new SignInRefused('unsupported');
+    }
+  }
   private async lapse(r: NeedSignIn) {
-    this.drop(r); await this.broker(r.member).closePrivate();
+    this.drop(r); await this.closePrivate(r);
     r.state = 'waiting'; r.gen++; this.data.host[r.id].confirmed = [];
     this.commit(); this.ping(r); // fence stays on
   }
@@ -374,7 +413,7 @@ class Host implements BrowserHostController {
           this.unavailable.add(r.member); this.commit(); this.ping(r);
         }
       }
-    });
+    }).then(async () => { for (const member of new Set(requests.map(r => r.member))) if (this.unavailable.has(member)) await this.recover(member); });
   }
   browserGone(member: Member): Promise<void> {
     this.streams.forEach(s => { if (s.member === member) s.close('browser-gone'); });
@@ -386,6 +425,43 @@ class Host implements BrowserHostController {
         else if (r.state === 'waiting' || r.state === 'parked') r.gen++;
       }
       this.unavailable.add(member); this.commit(); this.s.ping?.(member, 'state');
+    }).then(() => this.recover(member));
+  }
+  private async recover(member: Member): Promise<void> {
+    if (this.stopped || this.failed || this.recovery.has(member)) return;
+    const attempts = this.s.restart ? this.s.options.recovery?.attempts ?? 3 : 0;
+    for (let attempt = 1; attempt <= attempts && !this.stopped; attempt++) {
+      const delay = this.s.options.recovery?.backoffMs[attempt - 1] ?? [1_000, 5_000, 15_000][attempt - 1];
+      this.recovery.set(member, { attempt, of: attempts, nextAt: this.now() + delay }); this.s.ping?.(member, 'state');
+      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+      if (this.stopped) break;
+      try {
+        let expired = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const launch = this.s.restart!(member, attempt).then(broker => {
+          if (expired || this.stopped) { void broker?.close().catch(() => {}); return undefined; }
+          return broker;
+        });
+        let broker: HostBroker | undefined;
+        try {
+          broker = await Promise.race([launch, new Promise<undefined>(resolve => { timer = setTimeout(() => resolve(undefined), 30_000); })]);
+        } finally { expired = true; clearTimeout(timer); }
+        if (!broker) continue;
+        if (this.stopped) { await broker.close(); break; }
+        // Waiting requests remain fenced before the replacement can be used. Never redispatch a resume.
+        if (this.data.requests.some(r => r.member === member && open(r))) await broker.fence(true);
+        this.brokers.set(member, broker); this.unavailable.delete(member); this.recovery.delete(member);
+        this.s.ping?.(member, 'state'); return;
+      } catch { /* bounded retries; details may contain endpoint credentials, never surface them */ }
+    }
+    this.recovery.delete(member); this.exhausted.add(member); this.s.ping?.(member, 'state');
+  }
+  beforeRun(member: Member, sessionKey: string): Promise<boolean> {
+    return this.serial(async () => {
+      const r = this.data.requests.find(r => r.member === member && r.sessionKey === sessionKey && r.state !== 'settled');
+      if (!r) return true;
+      if (r.state !== 'parked') return false;
+      await this.settle(r, 'cancelled', 'run-replaced'); return true;
     });
   }
   thumbnail(source: LiveSource, by: { grant: string }): Promise<ThumbnailResult> {
@@ -418,10 +494,11 @@ class Host implements BrowserHostController {
     let viewer: ReturnType<HostBroker['attachViewer']> | undefined;
     let l: Lease | undefined;
     let r: NeedSignIn | undefined;
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
     const emit = (s: Partial<LiveViewState> & Pick<LiveViewState, 'phase'>) => on.state({ source, mode, ...s });
     const stream: Stream = { member: source.member, grant: o.grant, control: !!o.lease, close: why => {
-      if (closed) return; closed = true; viewer?.close(); this.streams.delete(stream);
-      if (l && r && this.leases.get(r.id) === l && r.state === 'held') {
+      if (closed) return; closed = true; clearInterval(heartbeat); viewer?.close(); this.streams.delete(stream);
+      if (!this.stopped && !this.failed && l && r && this.leases.get(r.id) === l && r.state === 'held') {
         l.attached = false; l.deadline = this.now() + l.value.graceMs; this.leaseTimer(r, l);
       }
       emit({ phase: 'ended', ...(why ? { why } : {}) });
@@ -433,11 +510,20 @@ class Host implements BrowserHostController {
       const bound = this.lease(o.lease); r = bound.r; l = bound.l;
       if (r.member !== source.member || l.grant !== o.grant) throw new SignInRefused('not-lease-holder');
       if (r.state !== 'held' || l.attached) throw new SignInRefused('held-by-other');
-      l.attached = true;
+      l.attached = true; l.deadline = l.value.expires; this.leaseTimer(r, l);
     } else if (this.data.requests.some(r => r.member === source.member && open(r))) { emit({ phase: 'private' }); return inert; }
     const broker = this.broker(source.member);
     viewer = broker.attachViewer({ ...(l ? { lease: { epoch: l.value.epoch, nonce: l.value.nonce } } : {}) });
     this.streams.add(stream); emit({ phase: 'connecting' });
+    if (l && r) heartbeat = setInterval(() => {
+      try {
+        this.lease(l!.value);
+        if (r!.state !== 'held') { stream.close('superseded'); return; }
+        l!.value.expires = this.now() + (this.s.options.leaseTtlMs ?? 600_000);
+        l!.deadline = l!.value.expires; this.leaseTimer(r!, l!);
+      } catch { stream.close('expired'); }
+    }, Math.max(1, Math.min(30_000, (this.s.options.leaseTtlMs ?? 600_000) / 3)));
+    heartbeat?.unref?.();
     // Origins and the atomic input pause come from the broker, not frame contents or device input.
     if (l && r) void (async () => {
       try {
@@ -463,7 +549,7 @@ class Host implements BrowserHostController {
             if (this.data.requests.some(r => r.member === source.member && open(r))) { stream.close('superseded'); break; }
             emit({ phase: 'live' });
           }
-          on.frame(frame);
+          if (!closed) on.frame(frame);
         }
         stream.close();
       } catch { stream.close('browser-gone'); }
@@ -485,7 +571,7 @@ class Host implements BrowserHostController {
       const origins = [...new Set(requests.flatMap(r => [r.origin, ...this.data.host[r.id].confirmed]))];
       if (!origins.length) throw new SignInRefused('unsupported');
       await this.broker(member).clearSite(origins);
-      this.data.verified[member] = (this.data.verified[member] ?? []).filter(s => site !== 'all' && s !== site);
+      this.data.verified[member] = (Object.hasOwn(this.data.verified, member) ? this.data.verified[member] : []).filter(s => s !== site);
       this.commit(); this.s.ping?.(member, 'state');
     });
   }
@@ -499,6 +585,6 @@ class Host implements BrowserHostController {
     this.streams.forEach(s => s.close('browser-gone'));
     this.epochs.forEach((n, member) => this.epochs.set(member, n + 1));
     await this.queue;
-    for (const broker of this.s.brokers.values()) await broker.close();
+    for (const broker of this.brokers.values()) await broker.close();
   }
 }

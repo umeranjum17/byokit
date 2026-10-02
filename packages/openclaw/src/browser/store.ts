@@ -50,22 +50,27 @@ export function validateSignIns(value: unknown): SignInData {
         || typeof r.sessionKey !== 'string' || !r.sessionKey || typeof r.origin !== 'string' || typeof r.site !== 'string'
         || typeof r.secure !== 'boolean' || typeof r.firstTime !== 'boolean' || !integer(r.at) || !integer(r.expires)
         || !strings(r.reasons) || !strings(r.hints) || !Array.isArray(r.choices)
-        || !['waiting', 'held', 'checking', 'parked', 'settled'].includes(String(r.state))) throw 0;
+        || !['waiting', 'held', 'checking', 'parked', 'settled'].includes(String(r.state))
+        || Object.keys(r).some(k => !['id', 'gen', 'prev', 'member', 'sessionKey', 'origin', 'site', 'secure', 'firstTime', 'reasons', 'agentNote', 'hints', 'choices', 'state', 'settled', 'at', 'expires'].includes(k))
+        || r.reasons.some(x => !['redirected-to-login', 'password-field', 'http-401', 'agent-asked', 'session-expired'].includes(x))
+        || r.hints.some(x => !['password', 'google', 'microsoft', 'apple', 'sso', 'passkey', 'code', 'other'].includes(x))
+        || r.choices.some(x => !object(x) || Object.keys(x).length !== 1 || !['takeover', 'not-now', 'cancel'].includes(String(x.kind)))) throw 0;
       validOrigin(r.origin);
       if (r.state === 'settled') {
         if (!object(r.settled) || !['verified', 'entered-unverified', 'cancelled', 'expired', 'failed'].includes(String(r.settled.state))
-          || !integer(r.settled.at)) throw 0;
+          || !integer(r.settled.at) || Object.keys(r.settled).some(k => !['state', 'reason', 'at', 'resume'].includes(k))) throw 0;
         const resume = r.settled.resume;
         if (resume !== undefined && (!object(resume) || r.settled.state !== 'verified' || !integer(resume.attempt) || resume.attempt < 1
           || typeof resume.key !== 'string' || !resume.key.startsWith(`signin:${r.id}:resume:${resume.attempt}:`)
-          || !['pending', 'accepted', 'submitted', 'indeterminate', 'failed'].includes(String(resume.state)))) throw 0;
+          || !['pending', 'accepted', 'submitted', 'indeterminate', 'failed'].includes(String(resume.state))
+          || Object.keys(resume).some(k => !['key', 'attempt', 'state'].includes(k)))) throw 0;
       } else {
         if (r.settled !== undefined || active.has(r.member)) throw 0;
         active.add(r.member);
       }
       ids.add(r.id);
       const h = value.host[r.id];
-      if (!object(h) || typeof h.checkUrl !== 'string' || !strings(h.confirmed)) throw 0;
+      if (!object(h) || typeof h.checkUrl !== 'string' || !strings(h.confirmed) || Object.keys(h).some(k => !['checkUrl', 'confirmed'].includes(k))) throw 0;
       checkUrl(h.checkUrl);
       h.confirmed.forEach(validOrigin);
     }
