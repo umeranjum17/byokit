@@ -1626,8 +1626,11 @@ construction (`gate-off`). The trusted host (app code with typed pass-through) i
 
 **Browser and broker** (`src/browser/broker.ts`, O19). Per member: Chromium from `executablePath` with
 `--remote-debugging-pipe` (no TCP DevTools port), profile `<stateDir>/browser/<member>/profile` (0700), env built
-from nothing, password manager and autofill prefs off, back-forward cache off. The broker is the pipe's only
-client and serves `ws://127.0.0.1:<port>/devtools/browser?token=<t>`, `/json/{version,list,new,activate,close}`
+from nothing, password manager and autofill prefs off, back-forward cache off. Chromium's sandbox stays on: a launch refused
+for no usable sandbox (e.g. unprivileged user namespaces disabled) throws `BrowserSandboxUnavailable`
+(`reason: 'sandbox-unavailable'`), never retries unsandboxed, and keeps no stderr. The broker is the pipe's only
+client and serves `ws://127.0.0.1:<port>/devtools/browser/<opaque-id>?token=<t>` (also `/json/version`'s
+`webSocketDebuggerUrl`; per-page URLs keep the token), `/json/{version,list,new,activate,close}`
 and `/devtools/page/<id>`; it refuses an `Origin` header or foreign `Host`, blocks `Browser.close`, rotates the
 token per start, and multiplexes one `Target.attachToBrowserTarget` per client with per-client id remapping and
 session ownership.
@@ -1641,6 +1644,7 @@ session ownership.
   back/forward/reload, only on held targets; `Runtime.evaluate` refused. Input pauses whenever the held main frame
   is on an origin not **exactly** (scheme, host, port) the bound origin, a `knownIdps` origin or one confirmed for
   this lease.
+- **Internal host seam.** `bindLease`, `confirmOrigin`, `privateState` and `ViewerSession.states` bind control to exact origins; `attachViewer({ lease?, maxWidth? })` uses per-viewer capture bounds and encoded JPEG dimensions; `clearSite` clears explicit exact origins only, never claims a whole-profile wipe.
 - **Release order.** Close every held target, await `targetDestroyed`, lift the fence, then navigate the agent's
   tab (`checkUrl` on `verified`, else reload, which also resyncs Playwright).
 
