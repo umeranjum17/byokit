@@ -1,6 +1,6 @@
 // The device side (7.2): portable — browsers, React Native, Node; no node:* or Node-only imports may reach here
 // (test/portable.test.ts guards it). Only type imports from @byokit/link; the seal crypto bundles cleanly.
-import type { BrowserDevice, BrowserState, NeedSignIn, TakeoverLease, LiveSource, LiveFrame, LiveViewState, ThumbnailResult } from './browser.ts';
+import type { BrowserDevice, BrowserState, NeedSignIn, TakeoverLease, LiveSource, LiveFrame, LiveViewState, ThumbnailResult, SignInRefusedWhy } from './browser.ts';
 import { openBoxFromSeed, boxKeyPairFromSeed } from '@byokit/seal';
 import type { DeviceLink, LinkStream } from '@byokit/link';
 import type { RouteView } from './routes.ts';
@@ -29,7 +29,8 @@ export type { Approval, Decision, KitState, PlanWindow, Route, RunEnd, RunEvent,
 /** One `oc.events` frame: a member's Gateway event, typed by name, or an approval add/resolve (7.2). */
 export type OpenClawLinkEvent =
   | { [E in GatewayEventName]: { event: E; payload: GatewayEventPayload<E> } }[GatewayEventName]
-  | { event: 'approval'; change: 'added' | 'resolved'; approval: Approval };
+  | { event: 'approval'; change: 'added' | 'resolved'; approval: Approval }
+  | { event: 'byokit.browser'; payload: { member: string; kind: 'state' | 'signin' } };
 
 /** One `oc.sessions` row: `sessions.list` filtered to the member's `agent:<member>:` keys. */
 export type SessionRow = { sessionKey: string; [k: string]: unknown };
@@ -69,6 +70,11 @@ export class LinkRefused extends Error {
     super(message);
     this.name = 'LinkRefused';
   }
+}
+
+export class BrowserRefused extends LinkRefused {
+  readonly why: SignInRefusedWhy;
+  constructor(why: SignInRefusedWhy) { super(`Sign-in refused: ${why}`); this.why = why; }
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -202,6 +208,8 @@ export function browserDevice(link: DeviceLink): BrowserDevice {
     const it = liveStream(() => link.stream(`oc.browser.${op}`, args))[Symbol.asyncIterator]();
     try {
       const reply = await it.next();
+      if (!reply.done && isRecord(reply.value) && typeof reply.value.refused === 'string')
+        throw new BrowserRefused(reply.value.refused as SignInRefusedWhy);
       if (reply.done || !isRecord(reply.value) || !('value' in reply.value)) throw new LinkRefused('Browser request ended');
       return reply.value.value as T;
     } finally { await it.return?.(); }
@@ -226,6 +234,8 @@ export function browserDevice(link: DeviceLink): BrowserDevice {
       let closed = false;
       let ended = false;
       let inputBusy = false;
+      let inputBytes = 0;
+      const inputs: string[] = [];
       let text = '';
       let frame: LiveFrame | undefined;
       let state: LiveViewState | undefined = { source, mode: o?.lease ? 'control' : 'observe', phase: 'connecting' };
@@ -238,15 +248,29 @@ export function browserDevice(link: DeviceLink): BrowserDevice {
       const close = (): void => {
         closed = ended = true;
         frame = undefined; state = undefined; text = '';
-        stream?.end(); wake();
+        inputs.length = 0; inputBytes = 0;
+        stream?.end('closed'); wake();
       };
       const finish = (error?: string): void => {
         if (closed || ended) return;
         ended = true; frame = undefined; text = '';
+        inputs.length = 0; inputBytes = 0;
         state = { source, mode: o?.lease ? 'control' : 'observe',
           phase: error === 'unreachable' ? 'reconnecting' : error ? 'failed' : 'ended',
           ...(error === 'removed' ? { why: 'revoked' as const } : {}) };
         wake();
+      };
+      const flushInput = async (): Promise<void> => {
+        if (inputBusy || !stream || closed || ended) return;
+        inputBusy = true;
+        try {
+          while (inputs.length && !closed && !ended) {
+            const value = inputs.shift()!;
+            await stream.write(value);
+            if (!closed && !ended) inputBytes -= new TextEncoder().encode(value).byteLength;
+          }
+        } catch { finish('failed'); stream.end('failed'); }
+        finally { inputBusy = false; }
       };
       const decoder = new TextDecoder();
       void link.stream('oc.browser.live', { source, mode: o?.lease ? 'control' : 'observe', ...o }).then(s => {
@@ -288,12 +312,14 @@ export function browserDevice(link: DeviceLink): BrowserDevice {
         states: channel(() => { const s = state; state = undefined; return s; }, stateWaiters),
         frames: channel(() => { const f = frame; frame = undefined; return f; }, frameWaiters),
         input: i => {
-          // Never retain secret input for reconnection, or queue unbounded keystrokes behind a stalled peer.
-          if (closed || ended || !o?.lease || !stream || inputBusy) { close(); return; }
+          // Ordered, bounded memory-only input while online. Never replay secret input after a drop.
+          if (closed || ended || !o?.lease) return;
+          if (!stream) { finish('failed'); return; }
           const value = `${JSON.stringify(i)}\n`;
-          if (value.length > 65536) { close(); return; }
-          inputBusy = true;
-          void stream.write(value).then(() => { inputBusy = false; }, () => { finish('failed'); stream?.end('failed'); });
+          const bytes = new TextEncoder().encode(value).byteLength;
+          if (inputBytes + bytes > 65536) { finish('failed'); stream.end('failed'); return; }
+          inputs.push(value); inputBytes += bytes;
+          void flushInput();
         },
         close,
       };
