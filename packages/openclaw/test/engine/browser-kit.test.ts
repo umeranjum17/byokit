@@ -40,7 +40,7 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
   writeFileSync(wrapper, `#!/bin/sh\nexec '${executable.replaceAll("'", "'\\''")}' '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost' "$@" 2>>'${join(stateDir, 'chromium.stderr')}'\n`, { mode: 0o700 });
   const model = await startModelStub();
   let child: ChildProcess | undefined;
-  const requests: unknown[] = [], outputs: unknown[] = [], toolEvents: unknown[] = [], diagnostics: unknown[] = [], thumbnails: unknown[] = [];
+  const requests: unknown[] = [], outputs: unknown[] = [], toolEvents: unknown[] = [], diagnostics: unknown[] = [], thumbnails: unknown[] = [], runtimeRefusals: unknown[] = [];
   const observationOnly = !!process.env.BYOKIT_BROWSER_POLICY_OBSERVE;
   const counterfactual = process.env.BYOKIT_BROWSER_POLICY_OBSERVE === 'counterfactual';
   const site = createServer((req, res) => {
@@ -143,7 +143,15 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     }
     for (const input of [{ action: 'profiles' }, { action: 'act', request: { kind: 'evaluate', fn: 'document.cookie' } }]) {
       const end = await run('ada', input, `denied${requests.length}`);
-      assert.ok(JSON.stringify(end).includes('browser action refused'), JSON.stringify(end));
+      const text = JSON.stringify(end);
+      if (input.action === 'profiles') {
+        assert.ok(text.includes('browser action refused'), text);
+        runtimeRefusals.push({ action: 'profiles', actor: 'shipped before-tool-call guard' });
+      } else {
+        // evaluateEnabled:false removes evaluate from the stock schema before our hook runs.
+        assert.ok(text.includes('Validation failed for tool') && text.includes('request.kind: must be equal to one of the allowed values'), text);
+        runtimeRefusals.push({ action: 'evaluate', actor: 'stock disabled-evaluation schema' });
+      }
     }
     const handoff = await kit.run({ member: 'ada', sessionKey: 'agent:ada:fixture:signin', message: '[tool request_sign_in {"note":"fixture"}]' });
     outputs.push(handoff); assert.ok(JSON.stringify(handoff).includes('browser sign-in handoff unavailable'), JSON.stringify(handoff));
@@ -181,7 +189,7 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     assert.equal(hash(entry), before, 'stock executable untouched');
     const receipt = { engine: '2026.8.1', upstreamCommit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b', stockEntry: before,
       shippedPlugin: hash(new URL('../../plugin/index.js', import.meta.url).pathname), requests, outputs, toolEvents,
-      providerRequests: model.calls.length, protectedHandoffQualified: false, observationOnly, counterfactual, diagnostics, thumbnails,
+      providerRequests: model.calls.length, protectedHandoffQualified: false, observationOnly, counterfactual, diagnostics, thumbnails, runtimeRefusals,
       candidateSources: Object.fromEntries(['kit.ts', 'config.ts', 'browser/host.ts', 'browser/broker.ts'].map(path =>
         [path, hash(new URL(`../../src/${path}`, import.meta.url).pathname)])),
       limits: ['no protected production handoff', 'no recovery-turn refusal qualification', 'no private secret/profile scan in this kit test; broker test owns that matrix'] };
