@@ -114,7 +114,7 @@ test('accounting start is fsynced before spawn; failed boot writes prevent spawn
     });
     t.mock.method(fs, 'fsyncSync', (...args: Parameters<typeof fs.fsyncSync>) => {
       originalSync(...args);
-      if (existsSync(boots) && fs.statSync(boots).isFile() && fs.statSync(args[0]).ino === fs.statSync(boots).ino) syncs++;
+      if (existsSync(boots) && fs.statSync(boots).isFile() && fs.fstatSync(args[0]).ino === fs.statSync(boots).ino) syncs++;
     });
     syncBuiltinESMExports();
     await assert.rejects(engine.start(), /Usage boot record could not be made durable/); assert.equal(spawns, 0);
