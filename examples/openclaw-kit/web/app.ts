@@ -4,6 +4,9 @@
 import { DeviceLink, browserDeviceStore, normalizeCode, pairWithCode, pairWithOffer, type DeviceGrant, type KeptDevice } from '@byokit/link';
 import { openclawDevice, words, type AccountView, type Approval, type RunEnd } from '@byokit/openclaw/device';
 import { phaseOf } from '@byokit/ui-core';
+import { livePanelView, signInSheetView, signInsStore, type SignInAction, type SignInRequest } from '@byokit/ui-core/kits';
+import type { TakeoverLease } from '@byokit/openclaw/device';
+import { livePanel, signInCard, signInChip, type Say } from './browser.ts';
 import { consentWords, linkWords, pairingView, type PairPhase } from '@byokit/ui-core/link';
 
 type Device = ReturnType<typeof openclawDevice>;
@@ -93,6 +96,7 @@ function connect(grant: DeviceGrant) {
   $('link').textContent = linkWords(link.status, grant.hostName);
   oc = openclawDevice(link);
   void followApprovals(mine);
+  followSignIns(mine);
 }
 
 // The engine's own sentence, then (once it is ready) whether this plan is signed in. One ask at a time, asked again
@@ -240,6 +244,62 @@ function drawApprovals(list: Approval[]) {
     item.dataset.id = a.id;
     return item;
   }));
+}
+
+// ---- Signing in for the helper ----
+
+// The helper's own browser asks the person to sign in to a site: the card says where, Take over opens its private
+// tab here, live, and what the person types goes only to that tab. The helper never sees it.
+const say: Say = (key, vars) => words(key as Parameters<typeof words>[0], vars);
+const MEMBER = 'me';
+let lease: TakeoverLease | undefined;
+let signIns: SignInRequest[] = [];
+let viewer: ReturnType<Device['browser']['live']> | undefined;
+
+function followSignIns(mine: number) {
+  const list = signInsStore({ signIns: () => oc.browser.signIns(), events: () => oc.events() });
+  const stop = list.subscribe((l) => { if (mine === paired) drawSignIns(l); else stop(); });
+}
+
+function drawSignIns(list: SignInRequest[]) {
+  signIns = list;
+  if (lease && !list.some((r) => r.id === lease!.requestId && r.state === 'held')) endLive();
+  const sheets = list.map((r) => signInSheetView(r, { name: 'Helper', holder: r.id === lease?.requestId }));
+  $('signins-box').hidden = !sheets.some((s) => s.needsYou);
+  $('signins').replaceChildren(...sheets.filter((s) => s.needsYou).map((s) => signInCard(s, say, (a, typed) => void act(s.id, a, typed))));
+  $('chips').replaceChildren(...sheets.map((s) => signInChip(s, say)).filter((c) => c !== null));
+}
+
+async function act(id: string, a: SignInAction, typed?: string) {
+  const r = signIns.find((x) => x.id === id);
+  if (!r) return;
+  try {
+    if (a === 'takeover') { const l = await oc.browser.takeover(r.id, r.gen, typed ? { confirmSite: typed } : {}); lease = l; startLive(l); }
+    else if (a === 'done' && lease) { const l = lease; endLive(); await oc.browser.done(l); }
+    else if (a === 'notNow') { endLive(); await oc.browser.notNow(r.id, r.gen); }
+    else if (a === 'cancel') { endLive(); await oc.browser.cancel(r.id, r.gen); }
+    else if (a === 'reopen') await oc.browser.reopen(r.id, r.gen);
+    else if (a === 'retry') await oc.browser.retry(r.id, r.gen);
+  } catch (err) { $('run-said').textContent = said(err); }
+}
+
+function startLive(l: TakeoverLease) {
+  $('live-box').hidden = false;
+  const v = oc.browser.live({ kind: 'browser', member: MEMBER }, { lease: l, maxWidth: 1280 });
+  viewer = v;
+  // Pointer moves are not sent: taps, keys and paste are enough to sign in, and moves would fill the bounded input queue.
+  const panel = livePanel($('live'), say, {
+    input: (i) => { if (i.kind !== 'pointer' || i.type !== 'move') v.input(i); },
+    confirmOrigin: (origin) => { void oc.browser.confirmOrigin(l, origin).catch((e) => { $('run-said').textContent = said(e); }); },
+  });
+  void (async () => { for await (const s of v.states) panel.state(livePanelView(s)); })();
+  void (async () => { for await (const f of v.frames) await panel.frame(f); })();
+}
+function endLive() {
+  lease = undefined;
+  viewer?.close();
+  viewer = undefined;
+  $('live-box').hidden = true;
 }
 
 $('forget').onclick = async () => {
