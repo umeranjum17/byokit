@@ -258,7 +258,9 @@ await relay.notify({
 Expo puts `data` under the APNs payload's `body` key on iOS, so an extension reads the notice at
 `userInfo["body"]["data"]` (`@byokit/seal`'s Swift opener does). A data-only message runs the app's background
 notification task; Android may delay it (Doze) and never delivers it to a force-stopped app, so it is not guaranteed.
-Without `includeContent`, a data-only message carries only the id and the app fetches the details over the link. The
+Without `includeContent`, a data-only message carries only the id, the generic title and any action token, and the app
+fetches the details over the link. The app registers the task (`Notifications.registerTaskAsync`) and should show a
+notification for each high-priority data message, or Android may lower the priority of later ones. The
 content-free preset drops all three options. Web Push is unchanged: the service worker shows what it opens.
 
 With `actions`, each device's notification carries its own one-use `action` token. Pressing a button posts

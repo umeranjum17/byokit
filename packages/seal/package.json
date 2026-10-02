@@ -20,6 +20,7 @@
   },
   "files": [
     "dist",
+    "ios/Sources",
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
