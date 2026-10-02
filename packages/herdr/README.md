@@ -296,7 +296,7 @@ not sign-in or a model request. Show the source (`MUSE_INSTALL_URL`), destinatio
 files before offering that action. No hidden download happens on import or `startAgent`.
 
 ```ts
-import { installMuse, museReadiness } from '@byokit/herdr';
+import { HerdrKit, installMuse, museReadiness } from '@byokit/herdr';
 
 const installed = await installMuse({
   home: '/app-owned/private/muse',
@@ -306,6 +306,9 @@ const installed = await installMuse({
 if (installed.ok) {
   const { env, version } = installed.receipt;
   console.log(museReadiness(env), version); // installation only, signedIn stays unknown
+  const kit = new HerdrKit({ mode: 'adopt', bin: '/app-owned/tools/herdr',
+    socketPath: '/app-owned/herdr.sock' }); // the app's already running stock Herdr
+  await kit.start();
   // Existing env-replacement/rollback guards still apply. Use this complete environment
   // rather than shell rc files, including for an existing pane you explicitly prepare.
   await kit.startAgent({ kind: 'muse', cwd: '/app-owned/project',
