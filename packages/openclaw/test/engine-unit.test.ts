@@ -112,7 +112,10 @@ test('accounting start is fsynced before spawn; failed boot writes prevent spawn
       assert.equal(options.env.BYOKIT_ENGINE_USAGE_LEDGER, join(engine.root, 'usage'));
       throw new Error('unit definite pre-pid failure');
     });
-    t.mock.method(fs, 'fsyncSync', (...args: Parameters<typeof fs.fsyncSync>) => { syncs++; return originalSync(...args); });
+    t.mock.method(fs, 'fsyncSync', (...args: Parameters<typeof fs.fsyncSync>) => {
+      originalSync(...args);
+      if (existsSync(boots) && fs.statSync(boots).isFile() && fs.statSync(args[0]).ino === fs.statSync(boots).ino) syncs++;
+    });
     syncBuiltinESMExports();
     await assert.rejects(engine.start(), /Usage boot record could not be made durable/); assert.equal(spawns, 0);
     rmSync(boots, { recursive: true });
