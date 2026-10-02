@@ -2,6 +2,7 @@
 // host-side link adapter in `./link`; the fake Herdr and contract suite arrive with H6 in `./testing`.
 
 export { HERDR_VERSION, HERDR_PROTOCOL } from './constants.ts';
+export { accountKinds, accountKind, type AccountKind } from './kinds.ts';
 export { HerdrKit } from './kit.ts';
 export { agentWords, stateWords, words, WORDS, type WordKey } from './words.ts';
 export { agentProbePath, extraPathDirs, runStatusCommand, agentInstallState, isAutoInstallShim, resolveAgentBinary, classifyStartFailure } from './agents.ts';

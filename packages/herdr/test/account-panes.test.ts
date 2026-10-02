@@ -76,6 +76,34 @@ function harness(t: TestContext) {
   return { kit, ready, move, calls, state, agents, panes };
 }
 
+test('B9: new managed kind uses pinned folder and resume args under the existing move transaction', async (t) => {
+  for (const callerArgs of [false, true]) {
+    const h = harness(t); await h.ready;
+    h.agents.set('old', { agent: 'kimi', agent_status: 'idle', cwd: '/repo',
+      agent_session: { source: 'fixture-only', agent: 'kimi', kind: 'id', value: 'kimi-conversation' } });
+    const result = callerArgs
+      ? await h.kit.move({ paneId: 'old', kind: 'kimi', args: ['--session', 'kimi-conversation'],
+          set: { KIMI_CODE_HOME: '/managed/kimi' }, unset: ['API_KEY'], timeoutMs: 250 })
+      : await h.kit.moveToAccount({ paneId: 'old' }, { provider: 'kimi', folder: '/managed/kimi', timeoutMs: 250 });
+    assert.equal(result.ok, true, 'fake transport qualification only');
+    assert.deepEqual(h.calls.find((c) => c.method === 'pane.split')?.params.env, { KIMI_CODE_HOME: '/managed/kimi' });
+    assert.deepEqual(h.calls.find((c) => c.method === 'agent.start')?.params.args, ['--session', 'kimi-conversation']);
+    assert.equal(h.agents.has('old'), false);
+  }
+});
+
+test('B9: no-folder kinds stay tab-only even when upstream has a resume planner', async (t) => {
+  for (const kind of ['maki', 'letta', 'opencode', 'gemini']) {
+    const h = harness(t); await h.ready;
+    h.agents.set('old', { agent: kind, agent_status: 'idle',
+      agent_session: { source: 'fixture-only', agent: kind, kind: 'id', value: 'conversation' } });
+    const result = await h.kit.move({ paneId: 'old', kind, args: ['--resume', 'conversation'], set: { HOME: '/guessed' } });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.code, 'unsupported');
+    assert.ok(!h.calls.some((c) => c.method === 'pane.split'));
+  }
+});
+
 test('WP11: start and wait precede source close; a resumed new generation is followed', async (t) => {
   const h = harness(t); h.state.generation = 'new-generation';
   await h.ready;

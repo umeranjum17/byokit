@@ -1,0 +1,503 @@
+[
+  {
+    "kind": "agy",
+    "aliases": [
+      "antigravity",
+      "antigravity-cli"
+    ],
+    "folderVar": "ANTIGRAVITY_CLI_CONFIG_DIR",
+    "resume": true,
+    "sessionKinds": [
+      "id"
+    ],
+    "resumeArgs": [
+      "--conversation",
+      "{session}"
+    ],
+    "loginLabel": "Sign in to this account on this computer",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "amp",
+    "aliases": [
+      "amp-local"
+    ],
+    "resume": false,
+    "sessionKinds": [],
+    "loginLabel": "One sign-in per computer user",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "claude",
+    "aliases": [
+      "claude-code"
+    ],
+    "folderVar": "CLAUDE_CONFIG_DIR",
+    "resume": true,
+    "sessionKinds": [
+      "id"
+    ],
+    "resumeArgs": [
+      "--resume",
+      "{session}"
+    ],
+    "loginLabel": "Sign in to this account on this computer",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "cline",
+    "aliases": [
+      ".cline"
+    ],
+    "resume": false,
+    "sessionKinds": [],
+    "loginLabel": "One sign-in per computer user",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "codex",
+    "aliases": [],
+    "folderVar": "CODEX_HOME",
+    "resume": true,
+    "sessionKinds": [
+      "id"
+    ],
+    "resumeArgs": [
+      "resume",
+      "{session}"
+    ],
+    "loginLabel": "Sign in to this account on this computer",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "copilot",
+    "aliases": [
+      "github-copilot",
+      "ghcs"
+    ],
+    "folderVar": "COPILOT_HOME",
+    "resume": true,
+    "sessionKinds": [
+      "id"
+    ],
+    "resumeArgs": [
+      "--resume={session}"
+    ],
+    "loginLabel": "Sign in to this account on this computer",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "cursor",
+    "aliases": [
+      "cursor-agent"
+    ],
+    "folderVar": "CURSOR_CONFIG_DIR",
+    "resume": true,
+    "sessionKinds": [
+      "id"
+    ],
+    "resumeArgs": [
+      "--resume",
+      "{session}"
+    ],
+    "loginLabel": "Sign in to this account on this computer",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "devin",
+    "aliases": [
+      "devin-cli",
+      "devin cli"
+    ],
+    "resume": true,
+    "sessionKinds": [
+      "id"
+    ],
+    "resumeArgs": [
+      "--resume",
+      "{session}"
+    ],
+    "loginLabel": "One sign-in per computer user",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "droid",
+    "aliases": [],
+    "resume": true,
+    "sessionKinds": [
+      "id"
+    ],
+    "resumeArgs": [
+      "--resume",
+      "{session}"
+    ],
+    "loginLabel": "One sign-in per computer user",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "gemini",
+    "aliases": [],
+    "resume": false,
+    "sessionKinds": [],
+    "loginLabel": "One sign-in per computer user",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "grok",
+    "aliases": [
+      "grok-build"
+    ],
+    "folderVar": "GROK_HOME",
+    "resume": true,
+    "sessionKinds": [
+      "id"
+    ],
+    "resumeArgs": [
+      "--resume",
+      "{session}"
+    ],
+    "loginLabel": "Sign in to this account on this computer",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "hermes",
+    "aliases": [
+      "hermes-agent"
+    ],
+    "folderVar": "HERMES_HOME",
+    "resume": true,
+    "sessionKinds": [
+      "id"
+    ],
+    "resumeArgs": [
+      "--resume",
+      "{session}"
+    ],
+    "loginLabel": "Sign in to this account on this computer",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "kilo",
+    "aliases": [
+      "kilo-code",
+      "kilo code"
+    ],
+    "resume": true,
+    "sessionKinds": [
+      "id"
+    ],
+    "resumeArgs": [
+      "--session",
+      "{session}"
+    ],
+    "loginLabel": "One sign-in per computer user",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "kimi",
+    "aliases": [
+      "kimi-code",
+      "kimi code"
+    ],
+    "folderVar": "KIMI_CODE_HOME",
+    "resume": true,
+    "sessionKinds": [
+      "id"
+    ],
+    "resumeArgs": [
+      "--session",
+      "{session}"
+    ],
+    "loginLabel": "Sign in to this account on this computer",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "kiro",
+    "aliases": [
+      "kiro-cli"
+    ],
+    "resume": false,
+    "sessionKinds": [],
+    "loginLabel": "One sign-in per computer user",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "letta",
+    "aliases": [
+      "letta-code",
+      "letta code"
+    ],
+    "resume": true,
+    "sessionKinds": [
+      "id"
+    ],
+    "loginLabel": "One sign-in per computer user",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "maki",
+    "aliases": [],
+    "resume": false,
+    "sessionKinds": [],
+    "loginLabel": "One sign-in per computer user",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "mastracode",
+    "aliases": [
+      "mastra-code",
+      "mastra code"
+    ],
+    "resume": true,
+    "sessionKinds": [
+      "id"
+    ],
+    "resumeArgs": [
+      "--thread",
+      "{session}"
+    ],
+    "loginLabel": "One sign-in per computer user",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "muse",
+    "aliases": [
+      "muse-code",
+      "muse-cli"
+    ],
+    "aliasPattern": "^muse-bin-[0-9]",
+    "resume": false,
+    "sessionKinds": [],
+    "loginLabel": "One sign-in per computer user",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "omp",
+    "aliases": [],
+    "folderVar": "PI_CODING_AGENT_DIR",
+    "resume": true,
+    "sessionKinds": [
+      "id",
+      "path"
+    ],
+    "resumeArgs": [
+      "--resume={session}"
+    ],
+    "loginLabel": "Sign in to this account on this computer",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "opencode",
+    "aliases": [
+      "opencode2",
+      "open-code"
+    ],
+    "resume": true,
+    "sessionKinds": [
+      "id"
+    ],
+    "resumeArgs": [
+      "--session",
+      "{session}"
+    ],
+    "loginLabel": "One sign-in per computer user",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "pi",
+    "aliases": [],
+    "folderVar": "PI_CODING_AGENT_DIR",
+    "resume": true,
+    "sessionKinds": [
+      "id",
+      "path"
+    ],
+    "resumeArgs": [
+      "--session",
+      "{session}"
+    ],
+    "loginLabel": "Sign in to this account on this computer",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "qodercli",
+    "aliases": [
+      "qoderclicn",
+      "qoder",
+      "qodercn"
+    ],
+    "folderVar": "QODER_CONFIG_DIR",
+    "resume": true,
+    "sessionKinds": [
+      "id"
+    ],
+    "resumeArgs": [
+      "--resume",
+      "{session}"
+    ],
+    "loginLabel": "Sign in to this account on this computer",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  },
+  {
+    "kind": "qwen",
+    "aliases": [
+      "qwen-code",
+      "qwen code"
+    ],
+    "folderVar": "QWEN_HOME",
+    "resume": true,
+    "sessionKinds": [
+      "id"
+    ],
+    "resumeArgs": [
+      "--resume",
+      "{session}"
+    ],
+    "loginLabel": "Sign in to this account on this computer",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "0.9.1",
+      "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+      "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
+    }
+  }
+]

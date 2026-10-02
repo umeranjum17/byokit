@@ -5,12 +5,13 @@
 import { spawn } from 'node:child_process';
 import { accessSync, constants as fsConstants, openSync, readSync, closeSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, isAbsolute, join } from 'node:path';
 import type { HerdrKit } from './kit.ts';
 import type { AgentCliSignIn, AgentInstallProbe, AgentInstallState, AgentLaunchFailureReason,
   AgentReadiness, AgentStartEvent, AgentStatusOptions,
   AgentStatusRunner, AgentRef, AgentStatus, HerdrSnapshot, PromptReceipt, StartAgent } from './types.ts';
 import { words } from './words.ts';
+import { accountKind } from './kinds.ts';
 import { prepareLaunchEnv, type LaunchEnvironment } from './launch-env.ts';
 
 export type Call = (method: string, params: Record<string, unknown>, timeoutMs?: number) => Promise<unknown>;
@@ -255,9 +256,18 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       // the only case that reads installed).
       if (install.state !== 'installed') return { kind, installed: false, installState: install.state, signedIn: 'unknown', installHint };
       const statusProbe = STATUS_PROBES[kind];
-      if (statusProbe === undefined) return { kind, installed: true, installState: 'installed', signedIn: 'unknown', installHint };
+      const variable = accountKind(kind)?.folderVar;
+      const folder = o?.folders?.[kind];
+      if (statusProbe === undefined || variable === undefined || !folder || !isAbsolute(folder) || /[\r\n\0]/.test(folder)) return { kind, installed: true, installState: 'installed', signedIn: 'unknown', installHint };
       let answer: { stdout: string } | undefined;
-      try { answer = await run(statusProbe.command, statusProbe.args, { ...(statusProbe.stdin === undefined ? {} : { stdin: statusProbe.stdin }), timeoutMs }); }
+      // A folder override alone is not isolation: the CLI can fall back to HOME,
+      // XDG or platform stores. Supply a clean env and confine every home to this account.
+      const env = { ...o?.env, PATH: path.join(delimiter), HOME: folder, USERPROFILE: folder,
+        XDG_CONFIG_HOME: join(folder, '.config'), XDG_STATE_HOME: join(folder, '.local', 'state'),
+        XDG_DATA_HOME: join(folder, '.local', 'share'), XDG_CACHE_HOME: join(folder, '.cache'),
+        APPDATA: join(folder, 'AppData', 'Roaming'), LOCALAPPDATA: join(folder, 'AppData', 'Local'),
+        [variable]: folder };
+      try { answer = await run(install.path!, statusProbe.args, { ...(statusProbe.stdin === undefined ? {} : { stdin: statusProbe.stdin }), timeoutMs, env }); }
       catch { answer = undefined; }
       const signedIn: AgentCliSignIn = answer === undefined ? 'unknown' : statusProbe.parse(answer.stdout);
       return { kind, installed: true, installState: 'installed', signedIn, installHint,
@@ -378,7 +388,7 @@ const STATUS_PROBES: Record<string, StatusProbe> = {
     let status: unknown;
     try { status = JSON.parse(stdout); } catch { return 'unknown'; }
     if (!isRecord(status)) return 'unknown';
-    return status.loggedIn === true ? 'yes' : 'no';
+    return status.loggedIn === true ? 'yes' : status.loggedIn === false ? 'no' : 'unknown';
   } },
   // Codex exposes sign-in only over its app-server protocol, so the probe pipes a pipelined
   // `initialize` + `account/read` round (same method muxr's planIdentity uses) and reads the
@@ -390,7 +400,9 @@ const STATUS_PROBES: Record<string, StatusProbe> = {
         let message: unknown;
         try { message = JSON.parse(line); } catch { continue; }
         if (isRecord(message) && message.id === 2) {
-          return isRecord(message.result) && isRecord(message.result.account) ? 'yes' : 'no';
+          if (!isRecord(message.result)) return 'unknown';
+          return isRecord(message.result.account) ? 'yes'
+            : message.result.account === null || !Object.hasOwn(message.result, 'account') ? 'no' : 'unknown';
         }
       }
       return 'unknown';
@@ -400,9 +412,12 @@ const STATUS_PROBES: Record<string, StatusProbe> = {
 // Default runner: one bounded spawn per probe, stdin piped when the protocol needs it (codex).
 // Failures (missing binary, timeout, non-empty stderr, empty stdout) read as no answer — never throw.
 export async function runStatusCommand(command: string, args: string[],
-  o?: { stdin?: string; timeoutMs?: number }): Promise<{ stdout: string } | undefined> {
+  o?: { stdin?: string; timeoutMs?: number; env?: Record<string, string> }): Promise<{ stdout: string } | undefined> {
+  // Public direct calls without an explicit isolated HOME are not allowed to read a login.
+  if (!o?.env?.HOME || !isAbsolute(o.env.HOME) || /[\r\n\0]/.test(o.env.HOME)) return undefined;
   return new Promise((resolve) => {
     let done = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const finish = (value: { stdout: string } | undefined): void => {
       if (done) return;
       done = true;
@@ -411,10 +426,10 @@ export async function runStatusCommand(command: string, args: string[],
     };
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(command, args, { stdio: ['pipe', 'pipe', 'ignore'], timeout: o?.timeoutMs ?? STATUS_TIMEOUT_MS });
+      child = spawn(command, args, { env: o.env, stdio: ['pipe', 'pipe', 'ignore'], timeout: o.timeoutMs ?? STATUS_TIMEOUT_MS });
     } catch { finish(undefined); return; }
     let out = '';
-    const timer = setTimeout(() => { child.kill('SIGKILL'); finish(undefined); }, (o?.timeoutMs ?? STATUS_TIMEOUT_MS) + 500);
+    timer = setTimeout(() => { child.kill('SIGKILL'); finish(undefined); }, (o?.timeoutMs ?? STATUS_TIMEOUT_MS) + 500);
     child.on('error', () => finish(undefined));
     const stdout = child.stdout;
     const stdin = child.stdin;
