@@ -1653,6 +1653,11 @@ parked `sessionKey` settles it `cancelled (run-replaced)`; a run on a `waiting|h
   | entered-unverified | cancelled | expired | failed`. Every outcome except `verified` leaves the app's task
   needs-you; a sign-in never completes a task. Kit restart: `held|checking` → `failed (browser-gone)`;
   `waiting|parked` survive with `gen+1`.
+- Internal `revokeGrant(grant): Promise<void>` invalidates grant/lease and detaches streams synchronously;
+  it holds the fence and refuses new leases until `closePrivate` finishes, then publishes `waiting/gen+1`.
+  Close failure stays fail-closed. Host control uses broker `bindLease`, `confirmOrigin` and `privateState`;
+  site-specific forgetting uses exact recorded origins through `clearSite`. Forgetting `all` is unsupported
+  until across-restart coverage of all stored origins or a whole-profile reset is proven.
 
 **Verification.** `verified` needs a positive host-only `SiteVerifier` for the exact bound origin, run in a new
 host-only tab: its same-origin `url` loads, every present condition (`status`, `selector`, host `check`) holds and
