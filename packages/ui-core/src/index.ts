@@ -5,3 +5,5 @@ export { stepsText, stepsView, type StepInput, type StepRow, type StepState } fr
 export { consentWords, linkWords, pairingView, qrMatrix, qrText, type DeviceKind, type LinkStatus, type PairPhase, type Role } from './link.ts';
 export * from './kits.ts';
 export { useApprovals, useBlocked, useHerdrTree, useRun } from './useKits.ts';
+export { connectStep, connectView, signInFor, type ConnectAction, type ConnectDoes, type ConnectGroup, type ConnectGroupId, type ConnectRoute, type ConnectRow, type ConnectStep, type ConnectView, type ConnectWords, type UseConnectSignIn } from './connect.ts';
+export { useConnect, type UseConnect } from './useConnect.ts';
