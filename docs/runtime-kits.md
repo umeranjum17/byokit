@@ -310,6 +310,7 @@ export interface ToolHost {
 }
 export interface RunSpec<S extends OutputSchema | undefined = OutputSchema | undefined> extends RunRef {
   message: string; system?: string;
+  idempotencyKey?: string;                                    // stable per-dispatch action key; cache bounds in 5.8
   schema?: S;                                                 // validated JSON output (5.8.1)
   images?: { data: string; mimeType: string }[];
   thinking?: 'off' | 'low' | 'medium' | 'high';
@@ -661,7 +662,7 @@ the engine. External retained sources are touched only when explicitly passed to
   are not forwarded. Pin facts: the kit's `tool-events` cap makes the connection that sent `agent` a tool-event
   recipient, and that copy is never stripped by verbose level; `args` has its strings redacted, `result` text
   content is capped at 8000 characters by the engine. Request `agent { agentId, sessionKey, message,
-  extraSystemPrompt, idempotencyKey: uuid, attachments?, thinking?, provider?, model? }` with `expectFinal`: the
+  extraSystemPrompt, idempotencyKey: spec.idempotencyKey ?? uuid, attachments?, thinking?, provider?, model? }` with `expectFinal`: the
   interim `status: 'accepted'` frame names the run (its `runId` is taken as it lands), then `agent.wait { runId,
   timeoutMs: 3_600_000 }` (client timeout 3_610_000) decides the end as before. `status === 'ok'` → final text event
   and `{ ok: true, text, usage?, planWindow? }`. Silent/empty terminal dispositions produce empty text. Otherwise
@@ -682,6 +683,33 @@ the engine. External retained sources are touched only when explicitly passed to
   non-ok receipt on a lifecycle-flagged run also ends `{ ok: false, aborted: true }`;
   else `{ ok: false, ...classify(message) }`.
   Always unsubscribe and unregister.
+- Host `RunSpec.idempotencyKey` is optional; absent means a new UUID, preserving legacy behavior. A supplied key
+  must be a non-empty string (the pin's `NonEmptyString`); the kit does not trim or rewrite it. The app mints and
+  persists one globally unique nonce **per dispatch action**, for example `task:<id>:attempt:<n>:<uuid>`, then
+  retries that action with identical session, member, message, model, system, images, tools and schema. A task id
+  alone must not collapse distinct attempts/actions. The engine uses the key as `runId`.
+  In 2026.8.1 the cache key is `agent:<idempotencyKey>` across the gateway, **not per agent/session/connection**;
+  `chat.send` has a separate method namespace. Inputs are not compared: a valid differing-input collision returns
+  the first run's cached answer/error, even for another agent. Preflight/schema failures may happen before lookup
+  and are not a durable cached execution. Never reuse keys between members or actions.
+  Cached accepted runs replay one `in_flight` response, not a new accepted/final subscription. The helper waits
+  on that run and uses the existing stream/terminal fallback: previously emitted events are not replayed, the
+  terminal snapshot is capped at 4096 characters, and usage is absent without a final frame. Truncated JSON may
+  fail schema validation. Completed cache replays carry the full final payload/usage if the engine has it.
+  The helper deliberately does **not** issue another `agent` request to retrieve a final: it is not a read-only
+  lookup and could dispatch anew on a cache miss. Complete in-flight reattachment would require an engine
+  read-only final-result API or a final-response subscription; the pin exposes neither through `agent.wait`.
+  No exactly-once claim is made.
+  Cache entries survive transport reconnects, not process restarts: the gateway owns an in-memory Map. Its
+  maintenance tick (60 s) drops inactive entries older than 300,000 ms and trims oldest inactive entries above
+  1,000 entries (active runs and future-expiring pending accepted reservations are exempt). Thus five minutes is
+  not a guaranteed retry window under pressure. Cached success/failure replays the prior payload/error without
+  comparing new input; do not retry after expiry/eviction/restart assuming dedupe. App task ownership and durable
+  effect/recovery bookkeeping remain the app's. Pin sources: `principal-CA42B2iA.js` (`resolveAgentDedupeKeys`,
+  `replayAgentTurnIfCached`), `server-maintenance-NppRBWD2.js`, `server-constants-DKuFNbQH.js`; acceptance:
+  `test/engine/idempotency.test.ts` (real engine + scripted provider, accepted → close → reconnect → same-key
+  retry; one run/provider dispatch, honest missing usage, cross-agent collision, different nonce, cached error,
+  restart).
 - Offered subscription and direct API-key accounts use the same explicit per-run model selection;
   a selected subscription never silently falls back to an API key (billed per use).
 - `spec.model` (`provider/model`) picks the account a run is called and billed on. It is refused before any request
