@@ -243,6 +243,8 @@ The kit writes only under the `stateDir` the app passes. It spawns the engine wi
 (never `process.env`), reads no environment variables except `PATH` to find `npm`, and never bills an API behind the
 person's back (memory search is never a paid provider).
 
+Route data follows the shared account-route vocabulary (D18 in [`docs/runtime-kits.md`](../../docs/runtime-kits.md#21-account-routes-d18)): subscription routes are offered by default, and every other billing is used only when named. The full table of the pinned engine's auth choices is planned work; `routes()` returns today's table.
+
 ## Credential sealing and threat model
 
 The pinned engine has no supported hook for sealing OAuth profile writes. Its `auth-profiles` loader stores

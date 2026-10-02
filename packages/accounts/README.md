@@ -160,6 +160,7 @@ are offered only when the app names them. An explicit `offer` list is not platfo
 The `Provider` shape no longer has `terms`, `hidden` or `why`, and `Terms` is no longer exported.
 Qwen and MiniMax have subscription catalogue rows; their paste and portal sign-in flows follow in later work packages.
 Each provider's own terms apply to how you use your plan.
+The planned route table, which lists every pi-ai provider and sign-in method with its readiness, follows the shared account-route vocabulary (D18 in [`docs/runtime-kits.md`](../../docs/runtime-kits.md#21-account-routes-d18)). Until it lands, the catalogue above is what ships.
 Anthropic Messages uses an app-passed API key (billed per use); authentication is separate from the Messages request.
 
 Native Claude CLI sign-in uses the managed-folder entry.
