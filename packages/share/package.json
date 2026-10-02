@@ -18,11 +18,11 @@
     "expo-share-intent": "8.0.1",
     "@bacons/apple-targets": "5.0.0",
     "@desklink/react-native": "0.3.0",
-    "expo": "57.0.25",
-    "expo-modules-core": "57.0.19",
-    "expo-linking": "57.0.11",
-    "react": "19.2.3",
-    "react-native": "0.86.3"
+    "expo": ">=57.0.0",
+    "expo-modules-core": ">=3.0.0",
+    "expo-linking": ">=57.0.1",
+    "react": "*",
+    "react-native": "*"
   },
   "peerDependenciesMeta": {
     "expo-share-intent": { "optional": true },
