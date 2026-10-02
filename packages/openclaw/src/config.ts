@@ -71,13 +71,16 @@ export function reconcileConfig(saved: object | undefined, o: {
 }
 
 /** Caller-owned task namespaces, including the engine key-agent rewrite; never an entire member. */
-export function appRecoveryPrefixes(prefixes: readonly string[] = []): string[] {
-  const invalid = () => new Error('invalid appOwnedSessionPrefixes: use agent:<member>:<namespace>: prefixes');
+export function appRecoveryPrefixes(ownership?: KitOptions['appOwnedSessions']): string[] {
+  if (ownership === undefined) return [];
+  const invalid = () => new Error('invalid appOwnedSessions.keyPrefixes: use agent:<member>:<task-prefix>, never the main session');
+  const prefixes = ownership?.keyPrefixes;
   if (!Array.isArray(prefixes)) throw invalid();
   return [...new Set(prefixes.flatMap(prefix => {
-    const match = typeof prefix === 'string' && /^agent:([^:]+):((?:[a-z0-9_-]+:)+)$/.exec(prefix);
-    if (!match || !MEMBER_ID.test(match[1]!) || match[1]!.startsWith(KEY_PREFIX)) throw invalid();
-    return [prefix, `agent:${keyAgentId(match[1]!)}:${match[2]}`];
+    const match = typeof prefix === 'string' && /^agent:([a-z0-9-]+):(.*)$/.exec(prefix);
+    if (!match || `agent:${match[1]}:main`.startsWith(prefix)) throw invalid();
+    return MEMBER_ID.test(match[1]!) && !match[1]!.startsWith(KEY_PREFIX)
+      ? [prefix, `agent:${keyAgentId(match[1]!)}:${match[2]}`] : [prefix];
   }))];
 }
 

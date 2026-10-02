@@ -1,6 +1,6 @@
 # R1 real-engine recovery ownership reproduction
 
-Status: **REPRODUCED; no production fix or engine patch implemented. Root Opus foundation decision required.**
+Status: **REPRODUCED; accepted R1 prefix opt-out implemented through S1's immutable-set seam. Owned early/late real-engine acceptance passes. Remaining controls/gates are pending; no consumer or publication acceptance claimed.**
 
 ## Candidate and isolation
 
@@ -86,4 +86,18 @@ The first repeat probe failed its incorrect unconditional `no fourth recovery re
 
 Workspace `npm run build` and `npm run check` passed. First source-only check failed on stale workspace dist exports; required build resolved it. Full `npm test` with repo-local TMPDIR was **Root-stopped, exit143, not passed**: fake CLI was inside repo type=module (`require` undefined), and egress AF_UNIX socket path exceeded its limit (`listen EINVAL`). Root retained exact process/stop receipts under `root-stopped-gate`. A motivated focused rerun with authorized short external TMPDIR exercised those failing CLI/egress tests plus every OpenClaw unit test: **283 passed, 0 failed, 0 skipped**, real Pi bytes unchanged. No unrelated full-suite rerun or policy/source repair.
 
-No product fix fragment is appropriate for this proof-only change. Stock defaults and engine source remain untouched.
+The preceding sections describe the preserved stock baseline. Subsequent conditional implementation is below; no stock installed CLI was changed.
+
+## Conditional implementation and current fixed-candidate evidence
+
+Root accepted the scoped ownership opt-out and commissioned S1. This lane integrated S1 contract `2d9f63e66c93e287624898a78692c80d9fdb47fc` and immutable applier `11a4738153fe55c3cb227353cd826803bf967f89`; local cherry-picks are `305c9e22` and `87809833`. The existing sign-in inventory assertion was retained when resolving the applier test conflict; no unrelated route expansion was invented.
+
+Binding 5.16 names are used: `KitOptions.appOwnedSessions?: { keyPrefixes: string[] }` and isolated `BYOKIT_APP_OWNED_SESSION_PREFIXES`. Prefixes begin `agent:<id>:` and cannot cover that agent's main key. Public member prefixes are expanded to their isolated API-key agent keys; future sign-in namespaces are ordinary prefixes too. Invalid public options fail before preparation; malformed raw engine env falls back to stock empty prefixes. Prefix arrays are copied. Only the shared candidate predicate is changed: no cap, cron scheduler, tool filter, marker deletion, session rotation or new installer.
+
+Manifest ID `9be16913c7858ec9`; one file, unchanged stock SHA `418a957496786dd7ed28df4a7a02e31e9567020e1be5804545e785baf965f225`, patched SHA `f1afea642c78d7979ed40ce43c102c41f790c5dbedaec0e6e7eb8d6f47bc0032`. The S1 generator `--check` passed. Source typed-option tests passed with the binding names.
+
+Real owned early/late execution (`aligned-proof.log`, full receipt copied to Root): both **3 provider requests per key** = initial interrupted request + **one** app continuation with tool/result provider requests. Both return `{ok:true,text:'app task done'}`, session status done and unchanged sessionId. Both have **0 engine recovery requests, 0 synthetic recovery exchanges and 0 unknown-run denials**. Every ready receipt identifies adopted patchSet `9be16913c7858ec9` and the immutable engine entry under `engine.sets/1f1aec5d54639b25-9be16913c7858ec9/`. The original `engine/node_modules` stock bytes remain untouched. This is public-kit caller acceptance, **not actual Crewhouse scheduler acceptance**.
+
+The first opt-out attempt had a 180s harness readiness deadline during initial immutable-set preparation (npm itself exited0); it never reached a Gateway or policy acceptance. Exact failed proof/install log is retained. A setup-aware bounded 900s readiness allowed the real aligned proof to complete. No private mutable engine or alternate installer was used.
+
+Subsequent fixed-candidate owned cancellation/repeated crashes/nonmatching-prefix, default stock recovery/repeated crashes, and malformed-env controls were queued under fd9, but the gate shell was terminated with **exit143 before any control log/path was generated**. No probe process survived. Those controls and post-integration delivery gates remain pending; the earlier Root-stopped full suite is still **not passed**. Source is preserved locally; no push/PR/publication has occurred.

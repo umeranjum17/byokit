@@ -1,0 +1,2 @@
+{"mode":"late","key":"agent:m1:crewhouse:bot:late","requests":3,"recoveryRequests":0,"outcomes":[{"type":"end","result":{"ok":true,"text":"app task done","usage":{"input":22,"output":14,"total":36,"costUsd":0}},"at":1790934473367,"child":235843}],"status":"done","unknownRun":false}
+{"mode":"early","key":"agent:m1:crewhouse:bot:early","requests":3,"recoveryRequests":0,"outcomes":[{"type":"end","result":{"ok":true,"text":"app task done","usage":{"input":22,"output":14,"total":36,"costUsd":0}},"at":1790934506815,"child":330717}],"status":"done","unknownRun":false}

@@ -73,19 +73,26 @@ test('fresh and adversarial config force isolation and no paid memory fallback',
 test('app-owned recovery prefixes are bounded namespaces, copied and mapped for API-key members', () => {
   assert.deepEqual(appRecoveryPrefixes(), []);
   const prefixes = ['agent:m1:crewhouse:', 'agent:m1:crewhouse:'];
-  assert.deepEqual(appRecoveryPrefixes(prefixes), ['agent:m1:crewhouse:', 'agent:byokit-key-m1:crewhouse:']);
+  assert.deepEqual(appRecoveryPrefixes({ keyPrefixes: prefixes }), ['agent:m1:crewhouse:', 'agent:byokit-key-m1:crewhouse:']);
   const dir = scratchDir('recovery-prefixes');
   try {
     const opts = { stateDir: dir, pluginId: 'byokit', tools: [], spawnEngine: false, onState() {}, onExit() {} };
     const stock = new Engine(opts);
-    assert.equal(stock.doctorContext().env.BYOKIT_APP_SESSION_PREFIXES, '[]');
-    const app = new Engine({ ...opts, appOwnedSessionPrefixes: prefixes });
+    assert.equal(stock.doctorContext().env.BYOKIT_APP_OWNED_SESSION_PREFIXES, '[]');
+    const app = new Engine({ ...opts, appOwnedSessions: { keyPrefixes: prefixes } });
     prefixes.push('agent:m2:other:');
-    assert.deepEqual(JSON.parse(app.doctorContext().env.BYOKIT_APP_SESSION_PREFIXES!),
+    assert.deepEqual(JSON.parse(app.doctorContext().env.BYOKIT_APP_OWNED_SESSION_PREFIXES!),
       ['agent:m1:crewhouse:', 'agent:byokit-key-m1:crewhouse:']);
-    for (const bad of [null, 'agent:m1:task:', [null], [1], [''], ['agent:'], ['agent:m1:'], ['agent:m1:main'],
-      ['agent:M1:task:'], ['agent:byokit-key-m1:task:'], ['agent:m1:task'], ['agent:m1::'], ['agent:m1:task:*:']]) {
-      assert.throws(() => new Engine({ ...opts, appOwnedSessionPrefixes: bad as any }), /invalid appOwnedSessionPrefixes/);
+    assert.deepEqual(appRecoveryPrefixes({ keyPrefixes: ['agent:m1:task-'] }), ['agent:m1:task-', 'agent:byokit-key-m1:task-']);
+    assert.deepEqual(appRecoveryPrefixes({ keyPrefixes: ['agent:m1:signin-request:'] }),
+      ['agent:m1:signin-request:', 'agent:byokit-key-m1:signin-request:']);
+    assert.deepEqual(appRecoveryPrefixes({ keyPrefixes: ['agent:123:task-'] }), ['agent:123:task-']);
+    assert.deepEqual(appRecoveryPrefixes({ keyPrefixes: ['agent:byokit-key-m1:task-'] }), ['agent:byokit-key-m1:task-']);
+    for (const bad of [null, {}, [], { keyPrefixes: null }, { keyPrefixes: 'agent:m1:task:' }]) {
+      assert.throws(() => new Engine({ ...opts, appOwnedSessions: bad as any }), /invalid appOwnedSessions/);
+    }
+    for (const bad of [[null], [1], [''], ['agent:'], ['agent:m1:'], ['agent:m1:main'], ['agent:m1:ma'], ['agent:M1:task:']]) {
+      assert.throws(() => new Engine({ ...opts, appOwnedSessions: { keyPrefixes: bad as any } }), /invalid appOwnedSessions/);
     }
     assert.equal(existsSync(join(dir, 'openclaw')), false, 'option validation creates no engine files');
   } finally { rmSync(dir, { recursive: true, force: true }); }

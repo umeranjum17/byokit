@@ -1,1 +1,0 @@
-FIX: Let apps declare `appOwnedSessionPrefixes` before Gateway startup so caller-requeued task sessions do not also receive an engine-started recovery turn. Preserve session history, policy gates, API-key session mapping and stock recovery for other namespaces.

@@ -26,13 +26,14 @@ if (process.argv[2] === 'worker') {
   Engine.prototype.doctorContext = function () {
     const c = context.call(this);
     c.env.NODE_OPTIONS = `--require ${join(repo, 'scripts/test-egress-guard.cjs')}`;
+    if (process.env.R1_RECOVERY_ENV !== undefined) c.env.BYOKIT_APP_OWNED_SESSION_PREFIXES = process.env.R1_RECOVERY_ENV;
     return c;
   };
   let entered!: () => void;
   const toolEntered = new Promise<void>(resolve => { entered = resolve; });
   const appOwned = process.env.R1_APP_OWNED === '1';
-  const kit = new OpenClawKit({ stateDir, engineDir, tools: [tool],
-    ...(appOwned ? { appOwnedSessionPrefixes: ['agent:m1:crewhouse:'] } : {}),
+  const kit = new OpenClawKit({ stateDir, engineDir, tools: [tool], onState: state => send({ type: 'state', state, at: Date.now() }),
+    ...(appOwned ? { appOwnedSessions: { keyPrefixes: ['agent:m1:crewhouse:'] } } : {}),
     config: {
       models: { providers: { 'byokit-stub': { baseUrl: url, apiKey: 'byokit-stub', api: 'openai-completions', models: [
         { id: 'test', name: 'Test', input: ['text'], contextWindow: 32000, maxTokens: 2048, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
@@ -49,7 +50,8 @@ if (process.argv[2] === 'worker') {
   try {
     await kit.start();
     assert.equal(kit.state.phase, 'ready');
-    send({ type: 'ready', pid: Number(readFileSync(join(stateDir, 'openclaw/gateway.pid'), 'utf8')), at: Date.now() });
+    send({ type: 'ready', pid: Number(readFileSync(join(stateDir, 'openclaw/gateway.pid'), 'utf8')),
+      patchSet: kit.state.patchSet, entry: kit.doctorContext().entry, at: Date.now() });
     if (action === 'observe') await delay(14000);
     else {
       if (action === 'late') await delay(11000);
@@ -120,13 +122,13 @@ if (process.argv[2] === 'worker') {
       writeFileSync(join(out, `${scenarioKey.split(':').at(-1)}-events.json`), JSON.stringify(events, null, 2));
       if (m.type === 'ready') gateways.set(m.pid, stateDir);
     });
-    child.stdout?.on('data', (s) => events.push({ type: 'stdout', text: String(s) }));
-    child.stderr?.on('data', (s) => events.push({ type: 'stderr', text: String(s) }));
+    child.stdout?.on('data', (s) => { events.push({ type: 'stdout', text: String(s) }); writeFileSync(join(out, 'worker-events.json'), JSON.stringify(events, null, 2)); });
+    child.stderr?.on('data', (s) => { events.push({ type: 'stderr', text: String(s) }); writeFileSync(join(out, 'worker-events.json'), JSON.stringify(events, null, 2)); });
     child.on('exit', (code, signal) => { children.delete(child); events.push({ type: 'exit', code, signal, child: child.pid }); });
     return child;
   }
   async function wait(events: any[], type: string, child: ChildProcess) {
-    for (let i = 0; i < 1800; i++) {
+    for (let i = 0; i < 9000; i++) {
       const event = events.find(e => e.type === type && e.child === child.pid);
       if (event) return event;
       if (child.exitCode !== null || child.signalCode !== null) throw new Error(`worker exited before ${type}: ${JSON.stringify(events.slice(-5))}`);
@@ -161,7 +163,7 @@ if (process.argv[2] === 'worker') {
   try {
     for (const mode of process.argv.slice(2).length ? process.argv.slice(2) : ['late', 'early', 'normal', 'excluded', 'cancel', 'repeat']) {
       const stateDir = join(out, mode);
-      const key = mode === 'excluded' ? 'agent:m1:cron:r1' : `agent:m1:crewhouse:bot:${mode}`;
+      const key = mode === 'excluded' ? 'agent:m1:cron:r1' : mode === 'outside' ? 'agent:m1:other:outside' : `agent:m1:crewhouse:bot:${mode}`;
       scenarioKey = key;
       const events: any[] = [];
       const start = stub.calls.length;
@@ -177,16 +179,21 @@ if (process.argv[2] === 'worker') {
         await delay(500);
       }
       events.push({ type: 'snapshot-before-restart', transcripts: transcripts(join(stateDir, 'openclaw/state')) });
+      const owned = process.env.R1_APP_OWNED === '1' && process.env.R1_RECOVERY_ENV === undefined;
       if (mode === 'repeat') {
         for (let attempt = 1; attempt <= 3; attempt++) {
           const before = calls.length;
-          const recovery = launch(stateDir, key, 'observe', events);
+          const recovery = launch(stateDir, key, owned ? 'interrupt' : 'observe', events);
           const recovered = await wait(events, 'ready', recovery);
-          for (let i = 0; calls.length === before && i < 900; i++) await delay(100);
-          assert.ok(calls.length > before && calls.at(-1).recovery, 'real recovery provider request reached');
+          if (owned) await wait(events, 'tool', recovery);
+          else {
+            for (let i = 0; calls.length === before && i < 900; i++) await delay(100);
+            assert.ok(calls.length > before && calls.at(-1).recovery, 'real recovery provider request reached');
+          }
           const snapshot = transcripts(join(stateDir, 'openclaw/state')) as any[];
           const entry = JSON.parse(snapshot.find(s => s.entries)?.entries[0].entry_json);
-          assert.equal(entry.mainRestartRecovery.chargedAttempts, attempt, 'attempt charged durably before crash');
+          if (owned) assert.equal(entry.mainRestartRecovery, undefined, 'app-owned repeated crashes never charge engine recovery');
+          else assert.equal(entry.mainRestartRecovery.chargedAttempts, attempt, 'attempt charged durably before crash');
           events.push({ type: 'recovery-crash', attempt, entry, at: Date.now() });
           recovery.kill('SIGKILL');
           killOwned(recovered.pid, stateDir);
@@ -194,7 +201,8 @@ if (process.argv[2] === 'worker') {
           await delay(500);
         }
       }
-      const next = launch(stateDir, key, mode === 'late' ? 'late' : ['normal', 'cancel', 'repeat'].includes(mode) ? 'observe' : 'complete', events);
+      const observe = ['normal', 'cancel'].includes(mode) || (mode === 'repeat' && !owned);
+      const next = launch(stateDir, key, ['late', 'outside'].includes(mode) ? 'late' : observe ? 'observe' : 'complete', events);
       const nextReady = await wait(events, 'ready', next);
       const ended = once(next, 'exit');
       await Promise.race([ended, delay(90000).then(() => { throw new Error('restart worker deadline'); })]);
@@ -207,7 +215,7 @@ if (process.argv[2] === 'worker') {
       const recovering = row.provider.filter((c: any) => c.recovery).length;
       if (mode === 'normal') assert.equal(recovering, 0);
       if (mode === 'excluded') { assert.equal(recovering, 0); assert.equal(entry.status, 'done'); }
-      if (['late', 'early'].includes(mode) && process.env.R1_APP_OWNED === '1') {
+      if (['late', 'early'].includes(mode) && owned) {
         assert.equal(recovering, 0, 'matching app-owned keys never start a synthetic recovery turn');
         assert.equal(row.provider.length, 3, 'one interrupted request + one two-request app continuation');
         assert.equal(entry.status, 'done');
@@ -217,7 +225,7 @@ if (process.argv[2] === 'worker') {
         const initial = events.find(e => e.type === 'snapshot-before-restart')?.transcripts.find((t: any) => t.entries);
         assert.equal(JSON.parse(initial.entries[0].entry_json).sessionId, entry.sessionId, 'continuation preserves session identity');
       }
-      if (mode === 'late' && process.env.R1_APP_OWNED !== '1') {
+      if ((mode === 'late' && !owned) || mode === 'outside') {
         assert.equal(recovering, 2);
         assert.equal(row.provider.length, 5);
         assert.ok(JSON.stringify(row.transcripts).includes('unknown run'));
@@ -228,7 +236,16 @@ if (process.argv[2] === 'worker') {
         assert.equal(recovering, 0, 'explicit cancellation must not auto-resume');
         assert.ok(events.some(e => e.type === 'end' && e.result.aborted === true));
       }
-      if (mode === 'repeat') {
+      if (mode === 'repeat' && owned) {
+        assert.equal(recovering, 0);
+        assert.equal(row.provider.length, 6, 'initial + three requeued interrupted attempts + final two-request continuation');
+        assert.equal(entry.status, 'done');
+        assert.equal(entry.mainRestartRecovery, undefined);
+        assert.equal(JSON.stringify(row.transcripts).includes('unknown run'), false);
+        assert.equal(JSON.stringify(row.transcripts).includes('main_session_restart_recovery'), false);
+        assert.ok(events.some(e => e.type === 'end' && e.result.ok));
+      }
+      if (mode === 'repeat' && !owned) {
         // Stock counts consecutive pre-start dispatch failures, not successfully started/crashed turns.
         // docs claim three durable charged attempts, but this actual started-turn path resets the retry count.
         assert.equal(recovering, 4, 'four real started recovery requests across crashes');

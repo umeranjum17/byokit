@@ -293,14 +293,14 @@ If your app requeues interrupted tasks itself, declare their namespaces **before
 ```ts
 const kit = new OpenClawKit({
   stateDir: './openclaw-state',
-  appOwnedSessionPrefixes: ['agent:m1:crewhouse:'],
+  appOwnedSessions: { keyPrefixes: ['agent:m1:crewhouse:'] },
   // tools and host as usual
 });
 ```
 
 Matching task sessions are excluded from the bundled engine's automatic restart continuation; your app
-continues the same session key with `kit.run`. Prefixes include a public member and at least one namespace
-segment ending in `:`. The kit also covers that member's isolated API-key session rewrite. Omitted/empty
+continues the same session key with `kit.run`. Prefixes must start with `agent:<member>:` and must not cover
+that member's `main` key. The kit also covers a public member's isolated API-key session rewrite. Omitted/empty
 keeps stock recovery, including its existing retry accounting; no histories or recovery markers are deleted,
 no tool gate is bypassed, and cron behavior is unchanged. Changing ownership requires an engine restart.
 This option does not decide whether an interrupted external action is safe to retry; your app still owns
