@@ -62,5 +62,6 @@
   "cli.invalidName": "Give the account a name up to 64 characters.",
   "cli.kindMismatch": "That agent cannot use this account.",
   "cli.prepareFailed": "Could not prepare the account. Try again.",
-  "cli.badOption": "The app supplied invalid account options."
+  "cli.badOption": "The app supplied invalid account options.",
+  "cli.piLogin": "In the window that opens, type {command} and finish signing in."
 }
