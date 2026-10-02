@@ -26,6 +26,31 @@ The [realtime Android consumer](examples/realtime-android/README.md) checks lazy
 microphone privacy through the native WebRTC bridge against a local stand-in peer.
 CI runs it alongside dictation on an emulator; its script refuses physical phones.
 
+## Dependency audit exception
+
+SECURITY (2026-10-02, repository CI policy only): temporarily except exactly
+[GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv).
+There is no patched `node-forge` release; Expo CLI/certificate helpers resolve the
+vulnerable RSA signature verifier in both repository and Expo example locks.
+[Upstream issue](https://github.com/digitalbazaar/forge/issues/1149) and
+[proposed upstream fix](https://github.com/digitalbazaar/forge/pull/1152) track the repair.
+**This exception does not fix the vulnerability or make Expo tooling safe.**
+
+Run `node scripts/audit.ts` at the root and `node ../../scripts/audit.ts` from
+`examples/expo`, as CI does. The wrapper still runs `npm audit --audit-level=high --json`:
+it removes only this advisory's contribution through the reported dependency paths.
+Every other high/critical advisory—including a new one in node-forge—still fails;
+moderate warnings remain visible. Invalid, missing, cyclic, inconsistent or unavailable
+reports and registry/command errors fail closed. Raw `npm audit` still reports the
+unfixed vulnerability. No package-wide allowlist, framework downgrade or fork is used.
+
+Tracking item: **byk-audit-exception-remove**. Recheck the advisory and compatible
+node-forge/Expo releases when checkpoint CI resumes and before the next release.
+As soon as a fixed compatible release exists, update the affected locks, demonstrate
+that raw root and Expo audits no longer contain this advisory, then remove this
+exception and its policy text. This is not a fix shipped in release13; its public
+SDK tars, dependency pins and existing qualification receipts are unchanged.
+
 ## Rules
 
 - **Isolation first.** byokit never reads or writes a person's `~/.pi`, `~/.codex`, `~/.claude` or cloud credential files,

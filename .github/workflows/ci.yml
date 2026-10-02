@@ -285,8 +285,8 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
-      - run: npm audit --audit-level=high
-      - run: npm audit --audit-level=high
+      - run: node scripts/audit.ts
+      - run: node ../../scripts/audit.ts
         working-directory: examples/expo
 
   push-android:
