@@ -4,6 +4,8 @@
 
 The accepted foundation is `c1b7ba08`, based on `origin/main` `16f4c5a654dabc5fe11af5404bf0a902fc182ecf`.
 A fresh fetch at implementation start found no intervening main commits or shipped adapter to drop.
+Before delivery, main advanced to `991bdd33a997650e627fdd3505c82f5a87a0327e` (an independent accounts feature);
+this lane rebased cleanly onto it, preserving both source commits and the original incremental history receipt.
 The public registry still returns E404 for `@byokit/signaling`; published link/reach export maps do not expose
 this adapter. The routed quickstart gap and the published receiver's `Signaling` contract remain applicable.
 
