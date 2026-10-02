@@ -34,6 +34,9 @@ const TABLE: readonly (readonly [WordKey, string])[] = [
   ["move.env_mismatch", "The new pane did not receive that sign-in. Try again."],
   ["move.close_failed", "The move could not be confirmed. Check the remaining panes before trying again."],
   ["move.start_failed", "The new account could not take over. Try again."],
+  ['move.blocked', 'This conversation is waiting for your answer. Answer it, then move it.'],
+  ['move.changed', 'This conversation changed while moving, so it was not moved. Check your panes, then try again.'],
+  ['move.interrupt_unsupported', 'Stopping a step is not available for this agent. Move it when the step finishes.'],
   ['turn.failed', 'This turn could not be confirmed. Check the helper before trying again.'],
 ];
 

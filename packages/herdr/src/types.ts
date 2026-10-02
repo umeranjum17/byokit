@@ -93,17 +93,22 @@ export type StartAgent = {
   installProbe?: AgentInstallProbe;          // install detection overrides (tests use fakes)
 };
 export type OpenSignInTab = Omit<StartAgent, 'place' | 'worktree'> & { workspaceId: string; label?: string; folder?: string };
+export type BusyHandoff =
+  | { busy?: 'refuse' }
+  | { busy: 'wait'; confirmed: { session: string; terminalId: string }; waitMs: number }
+  | { busy: 'interrupt'; confirmed: { session: string; terminalId: string; seq: number } };
 export type MoveToAccount = {
   provider: string; folder: string; env?: Record<string, string>;
-  direction?: 'right' | 'down'; timeoutMs?: number;
+  direction?: 'right' | 'down'; timeoutMs?: number; whenBusy?: BusyHandoff;
 };
 export type MoveToAccountResult = { ok: true; session: string } | {
-  ok: false; code: 'too_early' | 'busy' | 'unsupported' | 'env_mismatch' | 'close_failed' | 'start_failed';
+  ok: false; code: 'too_early' | 'busy' | 'unsupported' | 'env_mismatch' | 'close_failed' | 'start_failed'
+    | 'blocked' | 'changed' | 'interrupt_unsupported';
   message: string; live?: string;
 };
 export type Move = {
   paneId: string; kind: string; args: string[]; set: Record<string, string>; unset?: string[];
-  onStaged?(newPaneId: string): void; onReplaced?(newPaneId: string): void; timeoutMs?: number;
+  onStaged?(newPaneId: string): void; onReplaced?(newPaneId: string): void; timeoutMs?: number; whenBusy?: BusyHandoff;
 };
 export type MoveResult = { ok: true; paneId: string } | Extract<MoveToAccountResult, { ok: false }>;
 export type PromptReceipt = { paneId: string; terminalId: string; revision: number; status: AgentStatus;

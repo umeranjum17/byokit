@@ -12,6 +12,6 @@ export type {
   AgentCliSignIn, AgentInstallProbe, AgentInstallState, AgentLaunchFailureReason, AgentReadiness, AgentStartEvent, AgentStatusOptions, AgentStatusRunner,
   AgentRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,
   HerdrMethods, HerdrParams, HerdrProtocolRange, HerdrResult, HerdrSnapshot, HerdrState, HerdrSubscription, HerdrSubscribeStop, HerdrTransport,
-  Move, MoveToAccount, MoveToAccountResult, MoveResult, OpenSignInTab, PromptReceipt, StartAgent, TerminalSession,
+  BusyHandoff, Move, MoveToAccount, MoveToAccountResult, MoveResult, OpenSignInTab, PromptReceipt, StartAgent, TerminalSession,
   AgentTurnEnd, AgentTurnOptions, AgentTurnFiles, AgentTurnResult, AgentTurnResultPolicy,
 } from './types.ts';

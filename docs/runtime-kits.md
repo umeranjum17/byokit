@@ -1827,17 +1827,22 @@ export type StartAgent = {
   args?: string[]; env?: Record<string, string> | { env: Record<string, string>; unset: string[] }; timeoutMs?: number;   // default 60_000
 };
 export type OpenSignInTab = Omit<StartAgent, 'place' | 'worktree'> & { workspaceId: string; label?: string };
+export type BusyHandoff =
+  | { busy?: 'refuse' }
+  | { busy: 'wait'; confirmed: { session: string; terminalId: string }; waitMs: number }
+  | { busy: 'interrupt'; confirmed: { session: string; terminalId: string; seq: number } };
 export type MoveToAccount = {
-  provider: 'claude' | 'codex'; folder: string; env?: Record<string, string>;
-  direction?: 'right' | 'down'; timeoutMs?: number;
+  provider: string; folder: string; env?: Record<string, string>;
+  direction?: 'right' | 'down'; timeoutMs?: number; whenBusy?: BusyHandoff;
 };
 export type MoveToAccountResult = { ok: true; session: string } | {
-  ok: false; code: 'too_early' | 'busy' | 'unsupported' | 'env_mismatch' | 'close_failed' | 'start_failed';
+  ok: false; code: 'too_early' | 'busy' | 'unsupported' | 'env_mismatch' | 'close_failed' | 'start_failed'
+    | 'blocked' | 'changed' | 'interrupt_unsupported';
   message: string; live?: string;
 };
 export type Move = {
   paneId: string; kind: string; args: string[]; set: Record<string, string>; unset?: string[];
-  onStaged?(newPaneId: string): void; onReplaced?(newPaneId: string): void; timeoutMs?: number;
+  onStaged?(newPaneId: string): void; onReplaced?(newPaneId: string): void; timeoutMs?: number; whenBusy?: BusyHandoff;
 };
 export type MoveResult = { ok: true; paneId: string } | Extract<MoveToAccountResult, { ok: false }>;
 export type PromptReceipt = { paneId: string; terminalId: string; revision: number; status: AgentStatus;
@@ -2050,11 +2055,23 @@ fail closed. Created panes roll back on preparation failure; caller-owned panes 
 removed after preparation, including failure. Runtime errors on this path are replaced with generic words.
 `openSignInTab` accepts the same result. No credential values enter commands, argv or kit logs.
 
-`moveToAccount(target, { provider, folder, env?, direction?, timeoutMs? })` accepts Claude accounts for Claude
-and Codex accounts for Codex. Resume arguments are `--resume <id>` or `resume <id>`. Pi ignores these account
-folder variables and is refused until its own store is mapped.
-The kit rereads the source agent: absent/launch-pending conversation → `too_early`, working/blocked or concurrent
-move → `busy`, unsupported agent/session kind → `unsupported`. The source account is never inspected.
+`moveToAccount(target, { provider, folder, env?, direction?, timeoutMs?, whenBusy? })` accepts mapped
+managed kinds, including Claude (`CLAUDE_CONFIG_DIR`, `--resume <id>`), Codex (`CODEX_HOME`, `resume <id>`)
+and Pi (`PI_CODING_AGENT_DIR`, `--session <id|absolute path>`). Hosts own cross-account history sharing.
+Absent/launch-pending conversation → `too_early`; default working/blocked or concurrent move → `busy`;
+unsupported agent/session kind → `unsupported`. The source account is never inspected.
+
+Both move APIs accept `whenBusy: { busy: 'wait', confirmed: { session, terminalId }, waitMs }`.
+Confirmation must match the current published conversation and terminal exactly, and the source must publish
+`state_change_seq`. `waitMs` must be finite, positive and at most 300000. Otherwise refuse (`changed` for
+stale confirmation, `unsupported` for unavailable evidence/bounds). For working sources, call published
+`agent.wait` until idle/done/blocked, then re-read identity and sequence. Timeout → `busy`, approval →
+`blocked`, changed identity → `changed`; no replacement is started in these cases. Snapshot immediately
+before split. Sequence may advance while the step finishes; it must remain unchanged during replacement staging.
+`busy: 'refuse'` preserves the default. `busy: 'interrupt'` with confirmed session/terminal/seq is a typed
+`interrupt_unsupported` refusal, never a keypress or lifecycle operation; blocked panes are never keyed.
+UI: **Move when this step finishes**. The person may stop the step themselves in the pane; the kit never
+claims to interrupt it. Real working-step handoff and native Pi move remain unqualified by offline fixtures.
 
 The move order is **start then close**:
 1. Split a new shell with the target account's environment (`CLAUDE_CONFIG_DIR` or `CODEX_HOME` overrides host env).
@@ -2063,7 +2080,14 @@ The move order is **start then close**:
    `env_mismatch`, and leaves the original untouched. Only the folder variable is echoed, never credentials.
 3. Resume in the new pane and wait for a ready agent publishing a conversation. Start/wait failure closes the
    new pane and returns `start_failed` with the original pane as `live`; never close the source first.
-4. Close the original pane only after the new session is ready. A close error can be a lost acknowledgment
+4. Immediately before source close, re-read the source. It must still be idle/done with the same conversation
+   (agent/kind/value), terminal and published `state_change_seq` as the pre-split snapshot. All moves use this
+   guard, including idle moves; without sequence, idle moves compare status/identity/terminal only. On change
+   or unavailable read, close the replacement and return `changed`. After cleanup, `live` names only a freshly
+   verified surviving conversation; unknown cleanup must not promise the original is open. Never say
+   “Nothing was closed”: replacement cleanup itself closes a pane. This observation is not atomic, adds no
+   security guarantee, and cannot prevent changes between the final read and close on published Herdr 0.9.1.
+   Close the original pane only after this guard passes. A close error can be a lost acknowledgment
    after deletion. Return `close_failed`, and close the replacement only when fresh `agent.get` reads verify
    both original and replacement identities (kind, conversation, and terminal/name when published). If the source
    is absent, changed or unreachable, preserve the replacement. Re-read after rollback, including lost cleanup
@@ -2072,7 +2096,7 @@ The move order is **start then close**:
    server transaction; the pinned protocol has no conditional close to prevent an independent later mutation.
 5. Return the new pane id as `session` (Herdr kit sessions are addressed by pane id, including a new generation).
 
-`move({ paneId, kind, args, set, unset?, onStaged?, onReplaced?, timeoutMs? })` uses the same transaction and
+`move({ paneId, kind, args, set, unset?, onStaged?, onReplaced?, timeoutMs?, whenBusy? })` uses the same transaction and
 per-source lock, with caller-supplied resume arguments. It returns `{ ok: true, paneId }`; the existing
 `moveToAccount` helper keeps `{ ok: true, session }` as `MoveToAccountResult`. The source must publish a
 conversation for the same agent kind. `set` includes that kind's managed account folder variable; it carries
@@ -2173,6 +2197,9 @@ sorted, deterministic; a test regenerates and compares.
 | `move.env_mismatch` | The new pane did not receive that sign-in. Try again. |
 | `move.close_failed` | The move could not be confirmed. Check the remaining panes before trying again. |
 | `move.start_failed` | The new account could not take over. Try again. |
+| `move.blocked` | This conversation is waiting for your answer. Answer it, then move it. |
+| `move.changed` | This conversation changed while moving, so it was not moved. Check your panes, then try again. |
+| `move.interrupt_unsupported` | Stopping a step is not available for this agent. Move it when the step finishes. |
 | `turn.failed` | This turn could not be confirmed. Check the helper before trying again. |
 
 ## 7. Connection adapters
