@@ -98,9 +98,13 @@ versions and the providers the device's member is signed in to.
 
 ```ts
 import { readAgentUsage } from '@byokit/openclaw/usage'; // portable; kit or device client
-const reading = await readAgentUsage(kit, 'umer', { startDate: '2026-10-02', endDate: '2026-10-02' });
-// Caller decides whether partial coverage is acceptable; never turn unavailable totals into zero.
-if (reading.state === 'available') console.log(reading.totals);
+import type { OpenClawKit } from '@byokit/openclaw';
+
+async function showUsage(kit: OpenClawKit) {
+  const reading = await readAgentUsage(kit, 'umer', { startDate: '2026-10-02', endDate: '2026-10-02' });
+  // Caller decides whether partial coverage is acceptable; never turn unavailable totals into zero.
+  if (reading.state === 'available') console.log(reading.totals);
+}
 ```
 
 `agentUsageOf(raw, member, window)` also normalizes an existing explicitly agent-scoped UTC response. Full raw
