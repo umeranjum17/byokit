@@ -40,7 +40,7 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
   writeFileSync(wrapper, `#!/bin/sh\nexec '${executable.replaceAll("'", "'\\''")}' '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost' "$@" 2>>'${join(stateDir, 'chromium.stderr')}'\n`, { mode: 0o700 });
   const model = await startModelStub();
   let child: ChildProcess | undefined;
-  const requests: unknown[] = [], outputs: unknown[] = [], toolEvents: unknown[] = [], diagnostics: unknown[] = [];
+  const requests: unknown[] = [], outputs: unknown[] = [], toolEvents: unknown[] = [], diagnostics: unknown[] = [], thumbnails: unknown[] = [];
   const observationOnly = !!process.env.BYOKIT_BROWSER_POLICY_OBSERVE;
   const counterfactual = process.env.BYOKIT_BROWSER_POLICY_OBSERVE === 'counterfactual';
   const site = createServer((req, res) => {
@@ -117,9 +117,15 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
       return;
     }
     const run = async (member: string, input: object, session = member) => {
+      const start = toolEvents.length;
       const end = await kit.run({ member, sessionKey: `agent:${member}:fixture:${session}`, idempotencyKey: `fixture:${member}:${session}:${requests.length}`,
         message: `[tool browser ${JSON.stringify(input)}]` }, e => { if (e.type === 'tool') toolEvents.push(e); });
-      outputs.push(end); assert.ok(end.ok, JSON.stringify(end)); return end;
+      outputs.push(end); assert.ok(end.ok, JSON.stringify(end));
+      if ((input as { action?: string }).action === 'open') {
+        const completed = toolEvents.slice(start).filter((event: any) => event.phase === 'end') as { error?: boolean }[];
+        assert.ok(completed.length && completed.every(event => !event.error), 'normal model completion does not prove successful browser navigation');
+      }
+      return end;
     };
     for (const member of ['ada', 'bea']) {
       assert.equal(kit.browser?.state(member).why, 'handoff-unprotected');
@@ -147,8 +153,21 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     const live = kit.browser!.live({ kind: 'browser', member: 'ada' }, { grant: 'fixture-view' }, {
       state: () => {}, frame: frame => { assert.ok(frame.jpeg.byteLength); frames++; },
     });
-    await until(() => frames > 0); live.close();
-    assert.equal(model.calls.length, count, 'viewing makes no model/tool submission');
+    await until(() => frames > 0);
+    const thumb = await kit.browser!.thumbnail({ kind: 'browser', member: 'ada' }, { grant: 'fixture-view' });
+    assert.ok(thumb.state === 'ok', JSON.stringify(thumb));
+    const decoder = await chromium.connectOverCDP(config.browser.profiles['byokit-ada'].cdpUrl);
+    try {
+      const page = decoder.contexts()[0]!.pages().find(p => p.url().endsWith('/ada'))!;
+      const decoded = await page.evaluate(async bytes => {
+        const image = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }));
+        const size = { w: image.width, h: image.height }; image.close(); return size;
+      }, Array.from(thumb.frame.jpeg));
+      assert.ok(decoded.w <= 320 && decoded.w > 0, JSON.stringify(decoded));
+      assert.equal(decoded.w, thumb.frame.w); assert.equal(decoded.h, thumb.frame.h);
+      thumbnails.push({ decoded, reported: { w: thumb.frame.w, h: thumb.frame.h }, concurrentLiveFrames: frames });
+    } finally { await decoder.close(); live.close(); }
+    assert.equal(model.calls.length, count, 'concurrent live view and thumbnail make no model/tool submission');
     await assert.rejects(kit.patchConfig({ agents: { entries: { bea: { tools: { allow: ['exec'] } } } } }), /browser tool policy refused/);
     t.diagnostic(`stock=${before}; fixture positive model requests=${count}; live frames=${frames}; handoff-unprotected; distinct pinned profiles=2`);
   } finally {
@@ -162,7 +181,7 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     assert.equal(hash(entry), before, 'stock executable untouched');
     const receipt = { engine: '2026.8.1', upstreamCommit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b', stockEntry: before,
       shippedPlugin: hash(new URL('../../plugin/index.js', import.meta.url).pathname), requests, outputs, toolEvents,
-      providerRequests: model.calls.length, protectedHandoffQualified: false, observationOnly, counterfactual, diagnostics,
+      providerRequests: model.calls.length, protectedHandoffQualified: false, observationOnly, counterfactual, diagnostics, thumbnails,
       candidateSources: Object.fromEntries(['kit.ts', 'config.ts', 'browser/host.ts', 'browser/broker.ts'].map(path =>
         [path, hash(new URL(`../../src/${path}`, import.meta.url).pathname)])),
       limits: ['no protected production handoff', 'no recovery-turn refusal qualification', 'no private secret/profile scan in this kit test; broker test owns that matrix'] };

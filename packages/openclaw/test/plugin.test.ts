@@ -95,6 +95,8 @@ test('browser guard pins hostile and omitted profiles, nested targets and accoun
       { sessionKey: 'agent:byokit-key-m1:x' }) as { params: Record<string, any> };
       assert.equal(result.params.profile, 'byokit-m1'); assert.equal(result.params.target, 'host');
       assert.equal(result.params.node, undefined);
+      assert.equal(Object.hasOwn(result.params, 'node'), true, 'stock shallow merge must overwrite the original node');
+      assert.equal(({ node: 'foreign', ...result.params }).node, undefined, 'stock before-tool-call merge clears hostile routing');
       assert.equal(result.params.request.profile, 'byokit-m1'); assert.equal(result.params.request.node, undefined);
       assert.equal(result.params.actions[0].target, 'host');
     }

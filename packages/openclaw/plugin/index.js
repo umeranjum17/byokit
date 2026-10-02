@@ -24,7 +24,8 @@ function browserParams(params, member) {
   if (browserActions.has(String(params.action).toLowerCase()) || browserActions.has(String(params.kind).toLowerCase()))
     throw new Error('browser action refused');
   const out = { ...params };
-  delete out.node;
+  // Stock merges hook params over the original: omission would retain a hostile node selection.
+  out.node = undefined;
   out.profile = `byokit-${member}`;
   out.target = 'host';
   if (out.request !== undefined) out.request = browserParams(out.request, member);
