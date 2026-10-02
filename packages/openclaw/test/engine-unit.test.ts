@@ -143,26 +143,35 @@ appendFileSync(${JSON.stringify(calls)}, '1');
     await engine.prepare();
     assert.equal(existsSync(calls), false, 'verified stock set is reused, including absent incompatible optional packages');
 
-    let expectedCalls = '';
+    const stockSet: PatchSet = { ...shippedSet(), id: patchId([]), files: [] };
+    const stock = await prepareEngineSet(engineDir, stockSet, () => { throw new Error('verified stock must be reused offline'); }, () => true);
+    const stockTree = readFileSync(join(stock, '.byokit-tree'));
     for (const path of ['package.json', 'package-lock.json', 'node_modules/@agentclientprotocol/sdk/package.json', 'node_modules/openclaw/dist/build-info.json', '.byokit-patches']) {
       const old = readFileSync(join(engine.root, 'engine-set'), 'utf8');
       const damaged = join(old, path);
       fs.chmodSync(damaged, 0o644); writeFileSync(damaged, '{broken'); fs.chmodSync(damaged, 0o444);
-      await engine.prepare(); expectedCalls += '1';
-      assert.equal(readFileSync(calls, 'utf8'), expectedCalls, 'drift builds one new stock set');
-      assert.notEqual(readFileSync(join(engine.root, 'engine-set'), 'utf8'), old);
+      await engine.prepare();
+      assert.equal(existsSync(calls), false, 'patched drift clones verified stock offline, never invokes npm');
+      const next = readFileSync(join(engine.root, 'engine-set'), 'utf8');
+      assert.notEqual(next, old);
+      verifyEngineSet(next, shippedSet(), () => true);
+      verifyEngineSet(stock, stockSet, () => true);
+      assert.deepEqual(readFileSync(join(stock, '.byokit-tree')), stockTree, 'stock cache remains byte-valid and unchanged');
       assert.equal(readFileSync(damaged, 'utf8'), '{broken', 'old final bytes preserved');
-      await engine.prepare(); assert.equal(readFileSync(calls, 'utf8'), expectedCalls);
+      await engine.prepare(); assert.equal(existsSync(calls), false);
     }
     const kit = new OpenClawKit({ stateDir: join(dir, 'other-state'), engineDir, npmPath, transport: fakeGateway().factory });
     await kit.prepare(); assert.equal(kit.state.patchSet, shippedSet().id);
     const old = readFileSync(join(engine.root, 'engine-set'), 'utf8');
     const damaged = join(old, '.byokit-patches');
     fs.chmodSync(damaged, 0o644); writeFileSync(damaged, '{broken'); fs.chmodSync(damaged, 0o444);
+    // Only a damaged stock cache requires npm; all prior damage was to the patched/adopted set.
+    const stockMarker = join(stock, '.byokit-patches');
+    fs.chmodSync(stockMarker, 0o644); writeFileSync(stockMarker, '{broken'); fs.chmodSync(stockMarker, 0o444);
     writeFileSync(npmPath, readFileSync(npmPath, 'utf8').replace('ea806575e6450e4d1efdfc72c19f04be982a1b9b', '0000000000000000000000000000000000000000'), { mode: 0o700 });
     await assert.rejects(kit.prepare(), (e: unknown) => e instanceof EnginePatchError && e.cause === 'drift-after-build');
     assert.equal(kit.state.why, 'engine-patch'); assert.equal(kit.state.patchSet, null);
-    assert.equal(readFileSync(calls, 'utf8'), expectedCalls + '1');
+    assert.equal(readFileSync(calls, 'utf8'), '1', 'invalid stock cache invokes npm exactly once');
   } finally { removeScratch(dir); }
 });
 

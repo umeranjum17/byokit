@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 
 const repo = resolve(fileURLToPath(new URL('../../../..', import.meta.url)));
 const out = resolve(process.env.R1_OUT ?? join(repo, '.tmp/r1/probe'));
-const engineDir = join(repo, 'packages/openclaw/engine');
+const engineDir = resolve(process.env.R1_ENGINE_DIR ?? join(repo, '.tmp/r1/engine')); // never install into the published engine/ payload
 const tool = { name: 'note', description: 'task-owned test note', parameters: { type: 'object', properties: { phase: { type: 'string' } } } };
 const send = (data: unknown) => process.send?.(data);
 
