@@ -270,5 +270,10 @@ export function openclawDevice(link: DeviceLink): {
 export { openNotice } from './notices.ts';
 export { readAgentUsage, agentUsageOf } from './usage.ts';
 export type { AgentUsageReading, LedgerUsageTotals, UsageCache, UsageWindow } from './usage.ts';
+export type {
+  LiveSource, BrowserState, SignInMethodHint, SignInReason, SignInChoice, SettledState, SettledReason,
+  ResumeState, NeedSignIn, TakeoverLease, LiveViewState, LiveFrame, LiveInput, ThumbnailResult,
+  SignInRefusedWhy, BrowserOptions, SiteVerifier, BrowserHost, BrowserDevice
+} from './browser.ts';
 // The kit's sentences, so a phone or browser shows the same words the computer does (5.14).
 export { stateWords, toAccountView, words, type AccountView, type WordKey } from './words.ts';

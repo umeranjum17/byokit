@@ -63,6 +63,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D17 | Accounts (5.15). A member can hold several accounts, several per provider, subscription or API key. Each further account is its own engine agent `<member>--<6 hex>` sealed to exactly one sign-in, because the pin has no strict per-run auth-profile pin and rotates profiles of one provider within an agent. The member agent is the first account of each provider it is signed in to (its own existing sign-ins keep working, no migration; sign-ins read through another member's agent stop applying) and never holds an API key. Each run uses one account and one model, chosen, the default, or Auto (most room left, decided once at run start); a run never switches accounts, and a session stays on the account whose agent holds it until `move`. The engine's own per-person accounts, pooled proxies and per-request or mid-run rotation are not used. The kit adds the plugin id of every `offer: true` route to `plugins.allow` (5.6), so offered sign-ins work without app config. |
 | D18 | Account routes ([2.1](#21-account-routes-d18)). Every sign-in method a kit's pinned upstream supports is one data row in one shared vocabulary owned by `fixtures/conformance/account-routes-typescript.json`; each kit restates the shapes structurally (D3). Discovery lists every row, unavailable ones with a plain reason. Subscription rows are offered by default; every other billing is used only when the app or person names it. Billing is pinned upstream metadata or explicit host input, never inferred from an address. Credential import, pooling proxies, per-request or mid-run rotation, tokens leaving the device and signing in as another tool's existing login never become routes. |
 | D19 | Bundled engine patches (5.16). The kit may change its pinned engine install only through `engine/patches.json`: exact unique-anchor edits with stock and patched sha256 per file, each inert unless the kit sets its env variable. A patched engine is a new immutable, fully verified set tree beside `engineDir`; no engine file any process may load is ever written in place, and rollback launches another set. No fork, republished tarball or source build. Two patches are planned: engine-started usage (Skill Workshop review facts in a kit-owned ledger) and app-owned session opt-out from restart recovery. Coverage is claimed only for the Gateway kinds 5.16 names; the worker bundle and every other detached kind are uncovered. |
+| D20 | Browser sign-in handoff and live view ([5.17](#517-browser-sign-in-handoff-and-live-view-d20)). Each member gets a kit-owned pipe-only Chromium behind a kit CDP broker that the stock engine attaches to as an `attachOnly` profile (no engine patch). The person signs in by taking over a private tab no agent client can see; it is closed before the fence lifts. A request settles once; only a positive host-only site verification is `verified`, and only `verified` resumes, at most once, with no automatic redispatch when the outcome is unknown. Handoff stays refused until parked sessions are protected (O17 or the proven `before_agent_run` seam), and while any agent sharing the engine has a tool outside the closed safe set. Live view is the same broker's screencast over a link stream. |
 
 ### 2.1 Account routes (D18)
 
@@ -282,6 +283,8 @@ packages/openclaw/
   src/accounts.ts  src/pick.ts  src/locks.ts       # 5.15
   src/words.json  src/words.ts
   src/link.ts  src/device.ts  src/notices.ts
+  src/browser.ts  src/browser/broker.ts  src/browser/host.ts  src/browser/store.ts  src/browser/verify.ts
+  src/browser/resume.ts  src/testing/browser.ts      # 5.17 (browser.ts: portable types)
   src/testing/index.ts  src/testing/fake-gateway.ts  src/testing/contract.ts  src/testing/model-stub.ts
   test/*.test.ts
 ```
@@ -1570,6 +1573,155 @@ adds no attempt cap and changes no attempt or tombstone logic for other keys. Af
 current boot, never from `abortedLastRun`. Prefixes are re-applied at every start; changing them changes which old
 interrupted sessions recover. Gateway only (the worker bundle keeps stock recovery).
 
+### 5.17 Browser sign-in handoff and live view (D20)
+
+When a member's agent reaches a signed-out site, the person signs in **on the real site in the agent's browser
+session**, and the password never passes through the model, a tool, chat, logs, traces or persisted state. Apps
+render the sheet, takeover and live view from typed state. Normative types: `src/browser.ts` (exported type-only
+from `.` and `./device`); a shape change there is a spec change. No engine patch: the engine attaches to a
+kit-owned browser as a documented `attachOnly` remote CDP profile.
+
+**Engine facts this rests on (2026.8.1).** The engine-managed Chrome serves unauthenticated loopback CDP and
+`browser status` hands its port to the model, so the engine-managed and implicit profiles (`openclaw`, `user`,
+`chrome`) are never used. `before_tool_call` sees agent tool calls but not the operator `browser.request`,
+in-process callers or collectors, so the fence lives at the CDP chokepoint too. Remote `cdpUrl` profiles call
+`/json/list`, `/json/new` and per-tab sockets and copy the URL query into each tab's `wsUrl`; operator `/tabs`
+returns it unredacted, so the broker token is not a security boundary. One global `defaultProfile`; `target` may
+route to a node; the idle tab sweeper closes tabs after 120 min.
+
+**Enable gate.** `KitOptions.browser` (off by default) runs the browser and live view. **Handoff** (raising
+`NeedSignIn`, parking a session) is refused with `BrowserState.why: 'handoff-unprotected'` until parked sessions
+cannot receive an unwanted model submission: either O17 has landed and every key the kit parks matches
+`appOwnedSessions.keyPrefixes`, or O25 proves the kit's `before_agent_run` refusal (below). Labelling a restart
+`indeterminate` does not stop an engine recovery turn.
+
+**Precondition (all agents).** Every agent the engine can run (members, account agents, subagents/delegates,
+plugin agents; browser member or not) shares the engine's OS user, config, token and profiles. At start and on
+every member/tool change the kit checks each agent's effective tool policy against a closed safe set: `browser`,
+`request_sign_in`, the app's bridge tools (`KitOptions.tools`) and engine tools the kit lists as file-, exec- and
+network-free. Any other tool, including an unknown or custom one, sets `blocked: 'unsafe-tools'` for every browser
+in the kit; a group deny is not assumed to cover it, and a separate-OS-user sandbox is not accepted as a claim. While
+the feature is on, the pre-gate also denies `exec`, `process`, `code_execution`, `bash`, `terminal`, `read`,
+`write`, `edit`, `apply_patch` and `gateway` for every agent. `gateBuiltins: false` with `browser` is refused at
+construction (`gate-off`). The trusted host (app code with typed pass-through) is outside this boundary.
+
+**Browser and broker** (`src/browser/broker.ts`, O19). Per member: Chromium from `executablePath` with
+`--remote-debugging-pipe` (no TCP DevTools port), profile `<stateDir>/browser/<member>/profile` (0700), env built
+from nothing, password manager and autofill prefs off, back-forward cache off. The broker is the pipe's only
+client and serves `ws://127.0.0.1:<port>/devtools/browser?token=<t>`, `/json/{version,list,new,activate,close}`
+and `/devtools/page/<id>`; it refuses an `Origin` header or foreign `Host`, blocks `Browser.close`, rotates the
+token per start, and multiplexes one `Target.attachToBrowserTarget` per client with per-client id remapping and
+session ownership.
+- **Private targets.** At takeover the broker creates the sign-in tab itself; popups opened by a held target are
+  held too. Held targets are invisible to every non-viewer client (filtered from `Target.*` events, `/json/list`
+  and auto-attach; attach refused).
+- **Fence** (any request `waiting`, `held` or `checking`): on raise, waits out in-flight agent commands (≤ 5 s),
+  then rejects every agent command; agent clients get only structural events for their own tabs; downloads denied
+  browser-wide.
+- **Controller.** `Byokit.claimTakeover {epoch, nonce}`; one controller; only `Input.*`, screencast and
+  back/forward/reload, only on held targets; `Runtime.evaluate` refused. Input pauses whenever the held main frame
+  is on an origin not **exactly** (scheme, host, port) the bound origin, a `knownIdps` origin or one confirmed for
+  this lease.
+- **Release order.** Close every held target, await `targetDestroyed`, lift the fence, then navigate the agent's
+  tab (`checkUrl` on `verified`, else reload, which also resyncs Playwright).
+
+**Kit wiring** (O21). `reconcileConfig` adds `plugins.allow += 'browser'`, `tools.alsoAllow += 'browser'` and
+`browser: { enabled, defaultProfile: 'byokit-none', evaluateEnabled: false, tabCleanup: { enabled: false },
+ssrfPolicy, profiles: { 'byokit-<member>': { cdpUrl, attachOnly: true } } }` (`byokit-none` is dead, so an
+unrewritten call fails closed). The bridge plugin runs a kit pre-gate before the app's `gate`: rewrite every
+`browser` call's `profile` to `byokit-<member>`, `target` to `host`, drop `node` (nested `request`/`actions` too);
+deny `profiles`, `importprofile`, `start`, `stop`, `doctor` and `act:evaluate`; while the member has an open
+request deny `browser` and `request_sign_in` in every session of that member with `signin.gate`. Kit tool
+`request_sign_in({ note?, targetId? })`: the origin always comes from the broker's view of the tab (`targetId` if
+it is the member's own tab, else the tab the member's engine client last commanded); `note` ≤ 140 chars, shown
+only as quoted agent words. `./link` refuses `oc.call` for `browser.request`, `terminal.*` and `tools.invoke`
+while `browser` is on, whatever `passThrough` says. Bridge socket paths limit `stateDir` to about 82 characters.
+
+**Requests** (`src/browser/host.ts`, O20). One open request per member (`waiting|held|checking|parked`); another
+raise is refused `already-open` and the detector is suppressed. Raise, under a per-member mutex: persist the record,
+fence, abort the bound session's run, emit `byokit.browser`, push a sealed notice `{id, gen, member, site}`. Zero
+model calls in the bound session while open; the member's other sessions run with `browser` blocked. A new run on a
+parked `sessionKey` settles it `cancelled (run-replaced)`; a run on a `waiting|held|checking` session is refused.
+- `takeover` needs a control grant, `waiting`, and on `firstTime` `confirmSite === site` (typed or picked from a
+  list with decoys); non-https non-loopback origins are refused `insecure-remote`. It opens the private tab at
+  `checkUrl` and mints a lease (claim 60 s, grace 30 s; lapse closes the private tab, back to `waiting`, `gen+1`,
+  fence held).
+- `done` → `checking` (controller closed, fence held, ≤ `checkMs` 30 s) → settled. `notNow` (→ `parked`, nothing
+  polls) and `cancel` are lease-holder only while `held`; every path closes private tabs before the fence lifts.
+  `reopen` re-runs raise; `retry` mints a new request with `prev`; TTL expiry of `waiting|held` → `expired`.
+- **Settle once**, persisted in `<stateDir>/browser/signins.json` (0600, atomic rename; no secret ever): `verified
+  | entered-unverified | cancelled | expired | failed`. Every outcome except `verified` leaves the app's task
+  needs-you; a sign-in never completes a task. Kit restart: `held|checking` → `failed (browser-gone)`;
+  `waiting|parked` survive with `gen+1`.
+
+**Verification.** `verified` needs a positive host-only `SiteVerifier` for the exact bound origin, run in a new
+host-only tab: its same-origin `url` loads, every present condition (`status`, `selector`, host `check`) holds and
+the final URL stays on the origin. No verifier → `entered-unverified (no-verifier)`; login-looking or failed →
+`still-signed-out`; timeout → `check-timeout`; final private-tab origin outside the bound/confirmed set →
+`failed (origin-mismatch)`. A login-free page or a clean 200 is never proof. The result is a boolean and a reason
+code; no page text, cookie, header or value leaves it. Only `verified` adds the site to the member's verified set.
+
+**Resume** (only `verified`; at most once; never claimed exactly-once). Persist `ResumeState { key, attempt,
+state: 'pending' }` with the intended `sessionKey` before dispatch, `key = signin:<id>:resume:<attempt>:<uuid>`;
+`kit.run({ ..., idempotencyKey: key })` (5.8). Accepted → `accepted`; a definite refusal before acceptance →
+`failed`. A transport-unknown outcome, or a restart with `pending|accepted`, → `indeterminate`: needs-you, and
+**no automatic redispatch**, even with the same engine process alive (the 5.8 cache is in-memory and evictable,
+and `sessions.list` activity cannot identify an action). The person may start a new attempt explicitly.
+- **Seam** (unbuilt; O21 behind O25's proof): the bridge plugin registers `before_agent_run` (gate, fail-closed on
+  timeout; emitted by the embedded and CLI runners only, so not on Codex/Copilot harnesses). While a resume is open
+  on `sessionKey` it allows a run only when `ctx.runId === key` after the host durably records `submitted`, and
+  blocks every other run on that session (including restart-recovery turns) and any run without `ctx.runId`. Only
+  with that proof may a missing `submitted` marker trigger one automatic redispatch at `attempt + 1`.
+
+**Origins.** The origin and site come from the host, never the model or the app. `knownIdps` are exact origins
+(default `https://accounts.google.com`, `https://login.microsoftonline.com`, `https://login.live.com`,
+`https://appleid.apple.com`, `https://github.com`); no registrable-domain, wildcard or tenant trust. The shown
+origin states the address bar; it is never presented as proof of legitimacy.
+
+**Live view** (O22). Each viewer is its own broker client with its own screencast, delivered on link stream
+`oc.browser.live` with paced writes (slow viewers drop frames). Frames never reach disk, logs, transcripts, relay
+jobs, telemetry or the agent. `oc.browser.thumb`: ≤ 320 px wide, ≤ 1 per 5 s. While a request is open every viewer
+but the lease holder gets `private`. States `connecting → live → reconnecting → live | ended | failed`; the control
+stream is the lease keepalive; watching makes no model or tool call. `kind: 'desktop'` is the engine's
+`desktop.observe` pass-through, labelled as a whole screen, never offering takeover.
+
+**Recovery.** Pipe close or Chromium exit → `recovering`, ≤ 3 attempts (1, 5, 15 s), else
+`blocked: 'recovery-exhausted'` with plain words in the agent's tool result; open requests follow the restart rules.
+`engine-detached` comes from the kit's own `browser.request GET /` probe failing while the broker is up.
+
+**Link ops.** View: `oc.browser.state`, `oc.browser.signins`, `oc.browser.thumb`, stream `oc.browser.live
+{ mode: 'observe' }`. Control: `oc.browser.{takeover, confirmorigin, done, notnow, reopen, retry, cancel, forget}`,
+stream `oc.browser.live { mode: 'control', lease }`. All member-checked via `memberOf(grant)`; while `held`,
+`done`, `notnow`, `cancel` and `confirmorigin` need the lease bound to that grant; revoking a grant closes its streams
+and lapses its leases. Device: `BrowserDevice`.
+
+**Words** (O22, `words.json`): `signin.title` "Sign in to {site}", `signin.takeover` "Take over to sign in",
+`signin.notNow` "Not now", `signin.done` "Done signing in", `signin.confirmSite` "First time {name} signs in to
+{site}. Type the site name to continue.", `signin.offOrigin` "You're now on {origin}, not {site}. Continue only if
+you expected this.", `signin.agentNote` "{name} says: “{note}”", `signin.waiting` "{name} needs you to sign in to
+{site}.", `signin.parked` "Sign-in to {site} is waiting for you.", `signin.checking` "Sign-in details entered",
+`signin.verified` "Signed in to {site}", `signin.noVerifier` "Sign-in details entered for {site}. {name} can't
+confirm you're signed in.", `signin.stillSignedOut` "{site} still shows a sign-in page. Try again?",
+`signin.expired` "The sign-in request for {site} timed out.", `signin.cancelled` "Sign-in to {site} was
+cancelled.", `signin.originMismatch` "You finished on a different site than {site}, so {name} won't continue.",
+`signin.insecureRemote` "{site} isn't secure, so taking over to sign in is off.", `signin.browserGone` "{name}'s
+browser closed during sign-in.", `signin.superseded` "A newer request replaced this one.", `signin.runReplaced`
+"This task moved on, so the sign-in request was closed.", `signin.resumeFailed` "Signed in, but {name} couldn't
+continue. Try again.", `signin.resumeUnknown` "Signed in, but we can't tell whether {name} continued. Check the
+task before retrying.", `signin.gate` "Waiting for the person to sign in to {site}.", `signin.resume` "The person
+signed in to {site}. Continue the task.", `signin.private` "Private while someone signs in",
+`browser.recovering` "Reconnecting to {name}'s browser…", `browser.blocked.noBrowser` "No browser is set up for
+{name}.", `browser.blocked.exhausted` "{name}'s browser stopped and could not be restarted.",
+`browser.blocked.detached` "{name}'s browser isn't connected.", `browser.blocked.unsafe` "An agent here can run
+commands or read files, so the browser stays off.", `browser.blocked.gateOff` "Browser handoff needs the tool gate
+on.", `browser.blocked.unprotected` "Signing in for {name} isn't available yet.", `live.reconnecting`
+"Reconnecting…".
+
+**Limits.** No platform-authenticator passkeys or hardware keys (→ `entered-unverified`); session-only cookies do
+not survive a browser restart; the profile at rest is protected by the precondition, not file modes;
+`Target.attachToBrowserTarget` is experimental, so O25 is the pin-bump gate for this feature; frames show the
+email and password length to the lease holder.
+
 ## 6. `@byokit/herdr`
 
 ### 6.1 Files
@@ -2298,6 +2450,10 @@ Sol after publish: O13 (crewhouse repo)               H11 later, muxr repo (not 
 Sol later: O14 (O11, accounts Auto + fixture, ui-core AccountsSource)
 Sol later: O15 (O11) ─┬─ O16 (lane 19 usage)
                       └─ O17 (R1 lane)
+Browser (5.17): O18 ─┬─ O19 ─┐
+                     ├─ O20 ─┴─ O21 ─┐
+                     ├─ O22 (O20) ───┴─ O25 → with O17, the handoff enable gate
+                     └─ O23 ─ O24 (Opus frontend)
 * needs a --herdr-lab brief
 ```
 
@@ -2551,6 +2707,61 @@ its fixture; `@byokit/ui-core` `AccountsSource` (for `fits`) · version: opencla
 - Acceptance: a real crash and restart leaves an opted-out session with no engine recovery turn and one app
   continuation; non-opted sessions keep the measured stock recovery exactly (no cap asserted); cancellation and
   tombstone fixtures stay with R1.
+
+**O18 — browser handoff types (5.17)** · Opus · deps: none
+- Files: `src/browser.ts` (types only), type re-exports in `src/index.ts` and `src/device.ts`,
+  `changes/browser-handoff-types.md`, this section. Landed with the spec.
+
+**O19 — browser broker** · Sol · deps: O18
+- Files: `src/browser/broker.ts`, `test/browser/broker.test.ts` (fake pipe peer, offline),
+  `test/engine/browser-broker.test.ts` (real Chromium from an explicit path, loopback fixture site; skipped without
+  one locally, required in the engine CI job), `changes/browser-broker.md`.
+- Acceptance: no TCP listener in Chromium's process tree; token, `Origin` and `Host` refusals; Playwright
+  `connectOverCDP` through the broker while a second client screencasts; held targets absent from every agent-side
+  event, `/json/list` and attach; a token holder's earlier init script, binding and Fetch interception produce zero
+  hits of a fake secret typed in the private tab; history and popups gone after release; downloads refused while
+  fenced; in-flight agent command at fence waited out and the agent tab usable after release; stale epoch/nonce and
+  second controller refused; exact-origin input pause (wrong scheme, look-alike, sibling host, alternate tenant).
+
+**O20 — browser host** · Sol · deps: O18 (O19's interface; may start on a fake broker)
+- Files: `src/browser/{host,store,verify,resume}.ts`, `test/browser/host.test.ts`, `changes/browser-host.md`.
+- Acceptance: settle exactly once under concurrent done/cancel/expiry; lease lapse rules; verifier rules
+  (anonymous 200 page → `entered-unverified`, only the positive fixture verifies); resume key persisted before
+  dispatch; crash before dispatch, after accept before marker and after marker, each with unrelated activity on
+  another session, ends `indeterminate` with no second dispatch; restart rules per state; recovery bounded at 3.
+
+**O21 — browser kit wiring** · Sol · deps: O20
+- Files: `src/kit.ts`, `src/config.ts`, `src/types.ts` (`KitOptions.browser`, `kit.browser`), `plugin/index.js`
+  (pre-gate, `request_sign_in`, `before_agent_run` seam off until O25 proves it), `test/browser-kit.test.ts`,
+  `changes/browser-kit.md`.
+- Acceptance: all-agent precondition (a non-browser member, account agent or delegate with `exec`, a file tool or
+  an unknown tool blocks every browser); `gate-off`; enable gate (`handoff-unprotected` without O17 coverage or the
+  proven seam); profile rewrite with two members (`profile` absent, `user`, `openclaw`, `node` all pinned or
+  refused); run refusal and `run-replaced`.
+
+**O22 — browser link, device and words** · Flash · deps: O20 types
+- Files: `src/link.ts`, `src/device.ts`, `src/words.json`, `test/browser-link.test.ts`, `changes/browser-link.md`.
+- Acceptance: view/control roles; lease-bound actions; revoke closes streams; `oc.call` refusals; portable and
+  React Native import checks; reconnect states with zero model calls (stub request count).
+
+**O23 — browser fakes** · Flash · deps: O18
+- Files: `src/testing/browser.ts` (`fakeBrowserHost`, `fakeBrowserDevice`), `src/testing/index.ts`, contract suite.
+- Acceptance: the suite passes on the fake now and on the real host once O20 lands.
+
+**O24 — browser UI** · Opus frontend · deps: O18, O23
+- Files: `packages/ui-core` view models (`signInSheetView`, `liveViewStore`), `examples/openclaw-kit` sheet, live
+  panel and chip, their tests and changes fragments.
+- Acceptance: every `NeedSignIn` state and word renders; no secret-bearing value in view-model state; reconnect
+  makes no model call.
+
+**O25 — browser proof** · Sol · deps: O21, O22
+- Files: `test/engine/browser-*.test.ts`, the CI browser job.
+- Acceptance: the end-to-end path (real engine, model stub, loopback login site, private-tab takeover, fixture
+  verifier, one resume with the persisted key); a fake password, OTP and email (plain, URL-encoded, base64) have
+  zero hits in stateDir, `signins.json`, the Chromium profile, link/relay captures, push payloads, kit logs and
+  agent-bound broker frames (with a positive control); restart in every state; Chromium crash recovery and engine
+  reattach; the `before_agent_run` seam (`ctx.runId === idempotencyKey`, recovery turn blocked, missing `runId`
+  blocked). Its result decides the enable gate together with O17.
 
 **O13 — Crewhouse adoption** · Sol · deps: `@byokit/openclaw` published · repo: Crewhouse
 - Files: Crewhouse `package.json`, `src/openclaw/runtime.ts` (thin adapter), `src/openclaw/tools.ts` (schemas and
