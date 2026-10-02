@@ -371,6 +371,26 @@ export interface GatewayTransport {
 }
 ```
 
+### 5.2.1 Retained-session usage (portable `./usage`, also exported from `.` and `./device`)
+
+`readAgentUsage(client, member, { startDate, endDate }, options?)` reads `sessions.usage` with explicit
+agent ownership, inclusive UTC calendar dates and instance grouping. `client.call` may be the host or device
+client's existing typed pass-through; options are `CallOptions`. `agentUsageOf(raw, member, window, receivedAt?)`
+normalizes a previously read response without I/O. Both return `AgentUsageReading`: raw response retained,
+received/assembly/refresh timestamps distinguished, `coverage: 'retained-transcripts-only'`, optional observed
+`LedgerUsageTotals`, cache metadata, and `state: 'available' | 'unavailable'`. Missing/malformed counters, an
+unconfirmed agent/window, absent cache freshness or pending/stale files leave totals unavailable, never zero.
+RPC errors reject normally; no fabricated fallback response. Helpers do not cache or accumulate run results.
+
+**This is not complete engine usage:** stock 2026.8.1's engine-started Workshop review uses detached persistence
+and does not enter the session/day ledger (R4 real-engine gap fixture). Restart resumes and memory flushes are
+included only to the extent their usage is actually persisted; real-trigger acceptance for those paths remains
+unqualified. Resets/deletions/retention may reduce observed totals, so do not treat readings as monotonic. Cost
+fields are engine price/billing counters, not a bill or subscription quota: preserve `missingCostEntries` and
+`missingCostByModel`, and never infer billed dollars or plan weights from tokens or zero costs. The caller owns
+budget/share policy and must explicitly handle partial/unavailable/stale coverage. Full existing `call` typing
+and all usage RPCs remain available; no new engine API or patch build seam is created by this helper.
+
 ### 5.3 `OpenClawKit` (`src/kit.ts`, exported from `.`)
 
 ```ts

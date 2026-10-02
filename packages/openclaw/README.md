@@ -120,6 +120,32 @@ ends ok carries `usage` (the engine's token total for the run, and `costUsd` whe
 `openclawDevice(link).run(message, o)` takes the same options over the link, and `state()` adds the kit and engine
 versions and the providers the device's member is signed in to.
 
+### Observed per-agent ledger usage (not complete engine spend)
+
+```ts
+import { readAgentUsage } from '@byokit/openclaw/usage'; // portable; kit or device client
+import type { OpenClawKit } from '@byokit/openclaw';
+
+async function showUsage(kit: OpenClawKit) {
+  const reading = await readAgentUsage(kit, 'umer', { startDate: '2026-10-02', endDate: '2026-10-02' });
+  // Caller decides whether partial coverage is acceptable; never turn unavailable totals into zero.
+  if (reading.state === 'available') console.log(reading.totals);
+}
+```
+
+`agentUsageOf(raw, member, window)` also normalizes an existing explicitly agent-scoped UTC response. Full raw
+RPC data is retained; existing typed `call` pass-through is unchanged. Windows are inclusive UTC calendar days.
+`receivedAt`, result-assembly `updatedAt` and `cache.refreshedAt` are separate: receiving cached data does not
+refresh it. The engine response cache lasts 30 seconds; pending/stale/unknown data leaves `totals` absent.
+An absent agent row is unavailable, not proof of zero usage. Reset/deletion/retention can reduce counters.
+
+**Coverage is always `retained-transcripts-only`.** Stock 2026.8.1's detached Skill Workshop reviews are omitted
+from its ledger; restart resumes and memory flushes count only when their usage is persisted (real-trigger
+qualification remains separate). This reader cannot enforce a complete all-turn budget. The app owns budget,
+share and unavailable/partial-data policy. Do not add run results to these totals: they already overlap. Engine
+cost fields are price counters, not a bill or subscription quota; zero cost with `missingCostEntries > 0` is
+unknown cost, and tokens never establish subscription plan weights. No billing conversion is performed.
+
 For a validated JSON answer, pass a literal `schema`. The result's `data` is inferred from that schema:
 
 ```ts
