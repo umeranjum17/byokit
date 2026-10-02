@@ -1,0 +1,2 @@
+- SECURITY: Explicit Muse installation uses private staged HOME/XDG/temp paths, a clean environment, bounded HTTPS downloads and owned-process cancellation; it never imports personal credentials, edits shell profiles, or starts automatic login or updates.
+- FIX: Missing Muse on the effective private launch PATH now reports not installed and refuses before pane placement or start instead of showing a fake installation and waiting for the startup timeout. The explicit official installer returns verified local release paths for launch; account/catalog readiness remains unknown.

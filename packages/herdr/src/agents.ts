@@ -3,7 +3,7 @@
 // disagree the schema wins. `pane.split` takes `target_pane_id` (muxr agrees), and `agent.start`
 // has no `env` param — a start's env belongs to the placement create/split call (src/generated/methods.ts).
 import { spawn } from 'node:child_process';
-import { accessSync, constants as fsConstants, openSync, readSync, closeSync } from 'node:fs';
+import { accessSync, constants as fsConstants, openSync, readSync, closeSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, isAbsolute, join } from 'node:path';
 import type { HerdrKit } from './kit.ts';
@@ -13,6 +13,7 @@ import type { AgentCliSignIn, AgentInstallProbe, AgentInstallState, AgentLaunchF
 import { words } from './words.ts';
 import { accountKind } from './kinds.ts';
 import { prepareLaunchEnv, type LaunchEnvironment } from './launch-env.ts';
+import { museNative, MUSE_INSTALL_URL } from './muse.ts';
 
 export type Call = (method: string, params: Record<string, unknown>, timeoutMs?: number) => Promise<unknown>;
 
@@ -56,7 +57,7 @@ function rootPaneOf(result: unknown): string | undefined {
   return isObj(pane) && typeof pane.pane_id === 'string' ? pane.pane_id : undefined;
 }
 
-export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; reread(paneId: string): Promise<void>; emitStart?(e: AgentStartEvent): void }): Pick<HerdrKit,
+export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; reread(paneId: string): Promise<void>; emitStart?(e: AgentStartEvent): void; launchEnv?(): Record<string, string> | undefined }): Pick<HerdrKit,
   'startAgent' | 'prompt' | 'sendKeys' | 'wait' | 'read' | 'agentKinds' | 'installedAgentKinds' | 'agentStatus'> {
   const call = ctx.call;
   const emitStart = (e: AgentStartEvent): void => {
@@ -71,21 +72,38 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       try { o.onEvent?.(e); } catch { /* a listener never breaks a start */ }
       emitStart(e);
     };
-    // Install pre-check: a shim or nothing on PATH means Herdr installs on first start, so the
-    // app hears `installing` before the long start instead of watching a blank pane.
     let installExpected = false;
-    try {
-      installExpected = agentInstallState(o.kind, o.installProbe).state === 'installs-on-first-start';
-    } catch { installExpected = false; }
-    if (installExpected) emit({ phase: 'installing', kind: o.kind, message: words('agent.installing', { agent: o.kind }) });
     let stage: 'placement' | 'start' = 'placement';
     try {
+      if (o.kind === 'muse') {
+        const replacement = o.env && typeof o.env.env === 'object' && Array.isArray(o.env.unset)
+          ? o.env as LaunchEnvironment : undefined;
+        const existingPane = 'pane' in o.place && o.worktree === undefined;
+        // An ordinary env overlay cannot replace an existing shell's environment.
+        if (existingPane && !replacement && Object.keys(o.env ?? {}).length > 0) {
+          throw fail('env_mismatch', 'This pane needs to be opened again to use that sign-in.');
+        }
+        const effective = replacement?.env ?? (existingPane ? undefined
+          : { ...ctx.launchEnv?.(), ...o.env as Record<string, string> | undefined });
+        // No controller/global extras and no probe override when the effective PATH is known.
+        // Existing unobserved panes remain unknown; the exact RPC pass-through remains available.
+        const path = effective?.PATH?.split(delimiter).filter(isAbsolute);
+        const probe = path === undefined ? (existingPane ? undefined : o.installProbe) : { path };
+        if (probe && agentInstallState('muse', probe).state === 'missing') {
+          throw fail('agent_not_installed', words('agent.notInstalled'));
+        }
+      } else {
+        try { installExpected = agentInstallState(o.kind, o.installProbe).state === 'installs-on-first-start'; }
+        catch { installExpected = false; }
+      }
+      if (installExpected) emit({ phase: 'installing', kind: o.kind, message: words('agent.installing', { agent: o.kind }) });
       const ref = await startAgentInner(o, () => { stage = 'start'; });
       emit({ phase: 'ready', kind: o.kind, ref });
       return ref;
     } catch (error) {
       const reason = classifyStartFailure(error, { installExpected, stage });
       emit({ phase: 'launchFailed', kind: o.kind, reason, message: launchFailureWords(reason, o.kind) });
+      if (codeOf(error) === 'agent_not_installed') throw error;
       if (o.env && typeof o.env.env === 'object') throw fail(codeOf(error) === 'env_mismatch' ? 'env_mismatch' : 'start_failed', words('agent.notReady'));
       throw error;
     }
@@ -242,7 +260,7 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
   }
 
   async function agentStatus(kinds: readonly string[], o?: AgentStatusOptions): Promise<AgentReadiness[]> {
-    const path = o?.path ?? agentProbePath();
+    const path = o?.path ?? ctx.launchEnv?.()?.PATH?.split(delimiter) ?? agentProbePath();
     const run = o?.run ?? runStatusCommand;
     const timeoutMs = o?.timeoutMs ?? STATUS_TIMEOUT_MS;
     const probe = { path, ...(o?.aliases === undefined ? {} : { aliases: o.aliases }),
@@ -250,10 +268,10 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
     return Promise.all(kinds.map(async (kind): Promise<AgentReadiness> => {
       const install = agentInstallState(kind, probe);
       const binary = o?.aliases?.[kind]?.[0] ?? kind;
-      const installHint = kind === 'pi' ? PI_INSTALL_HINT : `Install the ${binary} command, then check again.`;
-      // A shim or nothing on PATH means Herdr installs on first start: not installed, with the
-      // readiness words instead of a missing-install error (pi included — a real pi binary is
-      // the only case that reads installed).
+      const installHint = kind === 'muse' ? `Install Muse explicitly from ${MUSE_INSTALL_URL} into the private launch environment.`
+        : kind === 'pi' ? PI_INSTALL_HINT : `Install the ${binary} command, then check again.`;
+      // Muse missing/launcher-only stays missing; legacy kinds retain their shim readiness.
+      // Install state never proves account or catalog readiness.
       if (install.state !== 'installed') return { kind, installed: false, installState: install.state, signedIn: 'unknown', installHint };
       const statusProbe = STATUS_PROBES[kind];
       const variable = accountKind(kind)?.folderVar;
@@ -316,14 +334,22 @@ export function isAutoInstallShim(file: string,
   return head !== undefined && head.startsWith('#!') && head.includes('mise');
 }
 
-// Per-kind install readiness sharing the B5 probe path: `installed` for a real runnable binary,
-// `installs-on-first-start` for an auto-install launcher/shim or nothing on PATH (Herdr fetches
-// the agent on first start). `missing` stays for callers that probe kinds Herdr never installs.
+// Muse has no absent-CLI auto-installer in stock Herdr. Its official launcher needs the
+// selected native release too. Other kinds retain their legacy shim classification.
 export function agentInstallState(kind: string,
   o?: AgentInstallProbe): { kind: string; state: AgentInstallState; path?: string } {
   const path = o?.path ?? agentProbePath();
   const found = resolveAgentBinary(kind, { path, ...(o?.aliases === undefined ? {} : { aliases: o.aliases }) });
-  if (found.path === undefined) return { kind, state: 'installs-on-first-start' };
+  if (found.path === undefined) return { kind, state: kind === 'muse' ? 'missing' : 'installs-on-first-start' };
+  if (kind === 'muse') {
+    try { if (!statSync(found.path).isFile()) return { kind, state: 'missing', path: found.path }; }
+    catch { return { kind, state: 'missing', path: found.path }; }
+    const head = (o?.readFile ?? readHead)(found.path);
+    if (head?.startsWith('#!') && (head.includes('mise') || (head.includes('MUSE_CHANNEL') && !museNative(found.path)))) {
+      return { kind, state: 'missing', path: found.path };
+    }
+    return { kind, state: 'installed', path: found.path };
+  }
   const shim = isAutoInstallShim(found.path, o?.readFile);
   return shim ? { kind, state: 'installs-on-first-start', path: found.path }
     : { kind, state: 'installed', path: found.path };
@@ -335,6 +361,7 @@ export function agentInstallState(kind: string,
 export function classifyStartFailure(error: unknown,
   o?: { installExpected?: boolean; stage?: 'placement' | 'start' }): AgentLaunchFailureReason {
   const code = codeOf(error);
+  if (code === 'agent_not_installed') return 'not-installed';
   if (code !== undefined && START_RETRYABLE.has(code)) return 'pane-busy';
   if (o?.stage === 'placement') return 'placement-failed';
   if (o?.installExpected === true) return 'install-failed';
@@ -342,6 +369,7 @@ export function classifyStartFailure(error: unknown,
 }
 
 function launchFailureWords(reason: AgentLaunchFailureReason, kind: string): string {
+  if (reason === 'not-installed') return words('agent.notInstalled');
   if (reason === 'pane-busy') return words('agent.notReady');
   if (reason === 'install-failed') return words('agent.installFailed', { agent: kind });
   return words('agent.launchFailed');
