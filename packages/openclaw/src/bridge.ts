@@ -51,7 +51,7 @@ export function writePlugin(
     id: o.id,
     name: 'BYOKit bridge',
     activation: { onStartup: true },
-    contracts: { tools: o.tools.map((t) => t.name) },
+    contracts: { tools: o.tools.map((t) => t.name), ...(o.browser ? { agentToolResultMiddleware: ['openclaw', 'codex'] } : {}) },
     configSchema: { type: 'object', additionalProperties: false },
   };
   const table = {
@@ -90,6 +90,7 @@ export class Bridge {
   private readonly onAsk: (a: Approval) => void;
   private readonly onAskGone: (id: string) => void;
   private readonly beforeAgentRun?: (key: string, runId?: string) => Promise<boolean>;
+  private readonly browserCapabilities?: () => readonly string[];
   private server?: Server;
   private closing: Promise<void> = Promise.resolve();
   private readonly sockets = new Set<Socket>();
@@ -112,6 +113,7 @@ export class Bridge {
     onAsk(a: Approval): void;
     onAskGone(id: string): void;
     beforeAgentRun?: (key: string, runId?: string) => Promise<boolean>;
+    browserCapabilities?: () => readonly string[];
   }) {
     this.path = o.path;
     this.host = o.host;
@@ -121,6 +123,7 @@ export class Bridge {
     this.onAsk = o.onAsk;
     this.onAskGone = o.onAskGone;
     this.beforeAgentRun = o.beforeAgentRun;
+    this.browserCapabilities = o.browserCapabilities;
   }
 
   async start(): Promise<void> {
@@ -275,6 +278,12 @@ export class Bridge {
       return this.deny(socket, 'not a gate request');
     }
     if (!isRecord(message) || typeof message.kind !== 'string') return this.deny(socket, 'not a gate request');
+    if (message.kind === 'browser-capabilities') {
+      if (!this.browserCapabilities || this.stopped) return this.deny(socket, 'browser unavailable');
+      try { this.reply(socket, { capabilities: this.browserCapabilities() }); }
+      catch { this.deny(socket, 'browser unavailable'); }
+      return;
+    }
     if (message.kind === 'before-agent-run') {
       if (typeof message.key !== 'string' || !message.key || !this.beforeAgentRun) return this.deny(socket, 'run unavailable');
       void this.beforeAgentRun(message.key, typeof message.runId === 'string' ? message.runId : undefined)

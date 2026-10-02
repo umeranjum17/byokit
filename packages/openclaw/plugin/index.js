@@ -15,6 +15,15 @@ const TOOLS = new Map(table.tools.map((t) => [t.name, t]));
 // Absent (a table from before the flag) reads as true: fail closed.
 const GATE_BUILTINS = table.gateBuiltins !== false;
 const BROWSER = table.browser === true;
+let browserCapabilities = [];
+function scrubBrowserCapabilities(value) {
+  let serialized = JSON.stringify(value).replace(/\b(?:wss?|https?):\/\/[^\s"'<>\\]+/g, url => {
+    try { return new URL(url).pathname.startsWith('/devtools/') ? '[browser transport omitted]' : url; }
+    catch { return url; }
+  });
+  for (const capability of browserCapabilities) serialized = serialized.replaceAll(capability, '[browser capability omitted]');
+  return JSON.parse(serialized);
+}
 const unsafe = new Set(['exec', 'process', 'code_execution', 'bash', 'terminal', 'read', 'write', 'edit', 'apply_patch', 'gateway']);
 const browserActions = new Set(['profiles', 'importprofile', 'start', 'stop', 'doctor', 'evaluate']);
 
@@ -137,6 +146,24 @@ export default {
   },
   register(api) {
     if (api.registerGatewayMethod) registerKeys(api);
+    if (BROWSER) {
+      if (typeof api.registerAgentToolResultMiddleware !== 'function') throw new Error('browser result protection unavailable');
+      api.registerAgentToolResultMiddleware(async (event, ctx) => {
+        const stopped = { result: { content: [{ type: 'text', text: 'Browser session unavailable.' }],
+          details: { status: 'error' }, terminate: true } };
+        try {
+          const admission = await bridgeRequest({ kind: 'before-agent-run', key: ctx.sessionKey, runId: ctx.runId });
+          if (admission.allow !== true) return stopped;
+          const reply = await bridgeRequest({ kind: 'browser-capabilities' });
+          if (!Array.isArray(reply.capabilities) || reply.capabilities.some(value => typeof value !== 'string' || !value)) return stopped;
+          browserCapabilities = [...reply.capabilities].sort((a, b) => b.length - a.length);
+          return { result: scrubBrowserCapabilities(event.result) };
+        } catch { return stopped; }
+      }, { runtimes: ['openclaw', 'codex'] });
+      // Transcript-only safety net; live provider protection comes from the awaited middleware above.
+      api.on('tool_result_persist', event => ({ message: scrubBrowserCapabilities(event.message) }));
+      api.on('before_message_write', event => ({ message: scrubBrowserCapabilities(event.message) }));
+    }
     for (const spec of table.tools) {
       api.registerTool({
         name: spec.name,

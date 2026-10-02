@@ -15,16 +15,20 @@ const tools = [{ name: 'crew_x', description: 'An app tool.', parameters: { type
 type Hook = (event: { toolName: string; params?: Record<string, unknown> }, ctx: { sessionKey?: string }) => Promise<unknown>;
 
 async function withPlugin(
-  o: { gateBuiltins: boolean; browser?: boolean; gate: (tool: string, info: { builtin: boolean }) => GateResult },
-  fn: (hook: Hook, seen: { gated: [string, { builtin: boolean }][]; called: string[] }) => Promise<void>,
+  o: { gateBuiltins: boolean; browser?: boolean; capabilities?: string[]; modelAllowed?: boolean; gate: (tool: string, info: { builtin: boolean }) => GateResult },
+  fn: (hook: Hook, seen: { gated: [string, { builtin: boolean }][]; called: string[];
+    middleware?: (event: { result: any }) => Promise<{ result: any }>; persist?: (event: { message: any }) => { message: any } }) => Promise<void>,
 ): Promise<void> {
   const dir = scratchDir('plugin');
-  const seen = { gated: [] as [string, { builtin: boolean }][], called: [] as string[] };
+  const seen: { gated: [string, { builtin: boolean }][]; called: string[];
+    middleware?: (event: { result: any }) => Promise<{ result: any }>; persist?: (event: { message: any }) => { message: any } }
+    = { gated: [], called: [] };
   copyFileSync(shipped, join(dir, 'index.js'));
   copyFileSync(new URL('../plugin/keys.js', import.meta.url), join(dir, 'keys.js'));
   writePlugin(dir, { id: 'byokit', tools, paramPrefix: '__byokit', gateBuiltins: o.gateBuiltins, browser: o.browser });
   const bridge = new Bridge({
     path: join(dir, 'bridge.sock'),
+    ...(o.browser ? { browserCapabilities: () => o.capabilities ?? [], beforeAgentRun: async () => o.modelAllowed !== false } : {}),
     tools: new Set(tools.map((t) => t.name)),
     host: {
       gate: async (_run: RunRef, tool: string, _input: Record<string, unknown>, info: { builtin: boolean }) => {
@@ -46,7 +50,13 @@ async function withPlugin(
   try {
     const plugin = (await import(pathToFileURL(join(dir, 'index.js')).href)).default;
     let hook: Hook | undefined;
-    plugin.register({ registerTool: () => {}, on: (name: string, fn: Hook) => { if (name === 'before_tool_call') hook = fn; } });
+    plugin.register({ registerTool: () => {}, registerAgentToolResultMiddleware: (fn: typeof seen.middleware, options: unknown) => {
+      assert.deepEqual(options, { runtimes: ['openclaw', 'codex'] });
+      seen.middleware = event => (fn as any)(event, { sessionKey: 'agent:m1:x', runId: 'source-fixture' });
+    }, on: (name: string, fn: any) => {
+      if (name === 'before_tool_call') hook = fn;
+      if (name === 'tool_result_persist') seen.persist = fn;
+    } });
     assert.ok(hook, 'the plugin registered no before_tool_call hook');
     await fn(hook, seen);
   } finally {
@@ -56,6 +66,40 @@ async function withPlugin(
     rmSync(dir, { recursive: true, force: true });
   }
 }
+
+test('awaited result middleware removes raw browser capabilities from live content and transcript metadata', async () => {
+  const token = 'SYNTHETIC_CDP_TOKEN_FIXTURE';
+  const endpoint = `ws://127.0.0.1:1/devtools/browser/fixture?token=${token}`;
+  await withPlugin({ gateBuiltins: true, browser: true, capabilities: [endpoint, token], gate: () => ({ allow: true }) }, async (_hook, seen) => {
+    assert.ok(seen.middleware); assert.ok(seen.persist);
+    const original = { content: [{ type: 'text', text: JSON.stringify({ wsUrl: endpoint, rawToken: token, title: 'Fixture public page' }) },
+      { type: 'image', mimeType: 'image/png', data: 'SYNTHETIC_IMAGE_BYTES' }], details: { nested: { endpoint, rawToken: token } } };
+    const { result } = await seen.middleware({ result: original });
+    assert.ok(!JSON.stringify(result).includes(token)); assert.ok(!JSON.stringify(result).includes(endpoint));
+    assert.ok(result.content[0].text.includes('Fixture public page'));
+    assert.deepEqual(result.content[1], original.content[1]);
+    assert.ok(original.content[0].text?.includes(token), 'does not mutate the input result');
+    assert.ok(!JSON.stringify(seen.persist({ message: { role: 'toolResult', ...original } }).message).includes(token));
+    const stale = await seen.middleware({ result: { content: [{ type: 'text', text: 'ws://127.0.0.1:1/devtools/page/old?token=old-generation' }] } });
+    assert.ok(!stale.result.content[0].text.includes('/devtools/'));
+  });
+});
+
+test('a parked admission terminates the tool loop without forwarding private output', async () =>
+  withPlugin({ gateBuiltins: true, browser: true, modelAllowed: false, gate: () => ({ allow: true }) }, async (_hook, seen) => {
+    assert.ok(seen.middleware);
+    const { result } = await seen.middleware({ result: { content: [{ type: 'text', text: 'SYNTHETIC_PRIVATE_COOKIE' }] } });
+    assert.equal(result.terminate, true);
+    assert.ok(!JSON.stringify(result).includes('SYNTHETIC_PRIVATE_COOKIE'));
+  }));
+
+test('an invalid capability snapshot terminates rather than falling back to the raw result', async () =>
+  withPlugin({ gateBuiltins: true, browser: true, capabilities: [''], gate: () => ({ allow: true }) }, async (_hook, seen) => {
+    assert.ok(seen.middleware);
+    const { result } = await seen.middleware({ result: { content: [{ type: 'text', text: 'SYNTHETIC_RAW_RESULT' }] } });
+    assert.equal(result.terminate, true);
+    assert.ok(!JSON.stringify(result).includes('SYNTHETIC_RAW_RESULT'));
+  }));
 
 test('a builtin tool the app never registered is gated and blocked by host.gate', async () =>
   withPlugin({ gateBuiltins: true, gate: () => ({ allow: false, reason: 'no fetching' }) }, async (hook, seen) => {

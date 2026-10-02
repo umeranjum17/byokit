@@ -500,6 +500,7 @@ export class OpenClawKit {
   private readonly browserAttaching = new Map<Member, Promise<void>>();
   private readonly browserPolicySessions = new Set<string>();
   private readonly browserProfiles: Record<string, { cdpUrl: string; attachOnly: true }> = {};
+  private readonly browserCapabilities = new Set<string>();
 
   private browserConfig() { return { profiles: this.browserProfiles, tools: this.toolNames() }; }
   private async launchBrowser(member: Member): Promise<HostBroker> {
@@ -509,7 +510,16 @@ export class OpenClawKit {
       onExit: () => { if (!this.stopping && owned && this.browserHost?.brokerBinding(member)?.broker === owned)
         void this.browserHost.browserGone(member, owned).catch(() => {}); } });
     owned = broker;
-    try { await broker.fence(true); return broker; }
+    try {
+      const endpoint = broker.endpoint().cdpUrl, url = new URL(endpoint);
+      this.browserCapabilities.add(endpoint);
+      const token = url.searchParams.get('token');
+      if (!token) throw new Error('browser capability unavailable');
+      this.browserCapabilities.add(token);
+      const id = url.pathname.split('/').at(-1);
+      if (id && /^[a-f0-9]{32}$/i.test(id)) this.browserCapabilities.add(id);
+      await broker.fence(true); return broker;
+    }
     catch (error) { await broker.close(); throw error; }
   }
   private async prepareBrowsers(): Promise<void> {
@@ -677,7 +687,8 @@ export class OpenClawKit {
       },
     } : o.host;
     this.bridge = new Bridge({ path: this.engine.bridgeSock, host, tools: new Set([...this.toolNames(), ...(o.browser ? ['request_sign_in'] : [])]),
-      ...(o.browser ? { beforeAgentRun: async (key: string, runId?: string) => {
+      ...(o.browser ? { browserCapabilities: () => [...this.browserCapabilities],
+        beforeAgentRun: async (key: string, runId?: string) => {
         // No action-id submission proof or redispatch claim. Open and unproven resumes are always refused.
         if (!await this.checkBrowserTools() || !this.browserHost) return false;
         return browserSessionMayRun(this.browserHost.signIns(), key, this.bridge.isRegisteredRun(key, runId));

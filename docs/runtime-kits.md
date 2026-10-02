@@ -1647,6 +1647,15 @@ it is the member's own tab, else the tab the member's engine client last command
 only as quoted agent words. `./link` refuses `oc.call` for `browser.request`, `terminal.*` and `tools.invoke`
 while `browser` is on, whatever `passThrough` says. Bridge socket paths limit `stateDir` to about 82 characters.
 
+**Model-visible capabilities** (O24/W7). The installed bridge declares
+`contracts.agentToolResultMiddleware: ["openclaw", "codex"]` and registers the pinned runtime-neutral,
+awaited result middleware for all tools. Before handing content/details back to the model it rechecks the
+bound session's admission, strips owned current/prior-generation broker capabilities and transport URLs,
+and terminates on refusal or bridge failure. Image bytes and public content are preserved. Synchronous
+transcript hooks provide a persistence-only safety net, not a substitute for live middleware. This source
+implementation does not qualify actual provider bodies, replayed histories, private-cookie isolation or
+parked/recovery no-submission behavior; production handoff stays closed until the combined matrix passes.
+
 **Requests** (`src/browser/host.ts`, O20). One open request per member (`waiting|held|checking|parked`); another
 raise is refused `already-open` and the detector is suppressed. Raise, under a per-member mutex: persist the record,
 fence, abort the bound session's run, emit `byokit.browser`, push a sealed notice `{id, gen, member, site}`. Zero
