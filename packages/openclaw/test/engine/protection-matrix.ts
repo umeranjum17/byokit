@@ -1,35 +1,22 @@
 // Opt-in actual matrix preparation. Importing this file executes no engine/browser/model work.
 import assert from 'node:assert/strict';
-import { lstatSync, readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import type { OpenClawKit } from '../../src/kit.ts';
 import type { Bridge } from '../../src/bridge.ts';
 import { fixtureBrowserHost, type BrowserHostController, type HostBroker } from '../../src/browser/host.ts';
 import { fileSignInStore } from '../../src/browser/store.ts';
 import type { ModelStub } from '../../src/testing/model-stub.ts';
 import type { ResumeState } from '../../src/browser.ts';
-import { scanCapabilities } from './privacy-evidence.ts';
+import { scanCapabilities, sqliteTranscripts, boundedAwait } from './privacy-evidence.ts';
 
 type OwnedKit = { browserHost: BrowserHostController; brokers: Map<string, HostBroker>; bridge: Bridge };
 export type MatrixReceipt = { stages: { stage: string; providerBefore: number; providerAfter: number }[];
-  transcripts: { stage: string; path: string; bytes: string }[]; resumeDispatches: unknown[] };
-
-// Authoritative bytes only inside the fixture root; never follow links to the owner's files.
-export function transcriptBytes(root: string): { path: string; bytes: string }[] {
-  const result: { path: string; bytes: string }[] = [];
-  for (const name of readdirSync(root)) {
-    const path = join(root, name), stat = lstatSync(path);
-    if (stat.isSymbolicLink()) continue;
-    if (stat.isDirectory()) result.push(...transcriptBytes(path));
-    else if (stat.isFile() && name.endsWith('.jsonl')) result.push({ path, bytes: readFileSync(path, 'utf8') });
-  }
-  return result;
-}
+  transcripts: { stage: string; captures: ReturnType<typeof sqliteTranscripts> }[]; resumeDispatches: unknown[] };
 
 export async function protectionMatrix(o: { kit: OpenClawKit; stateDir: string; origin: string; model: ModelStub;
   capabilities: Set<string>; receipt: MatrixReceipt; agentRequests(): number;
   restart(beforeStart?: () => void): Promise<void>; captureCapabilities(): void; privateVisited(): boolean;
-  cookieObserved(member: 'ada' | 'bea'): boolean }): Promise<void> {
+  cookieObserved(member: 'ada' | 'bea'): boolean;
+  retain(stage: string): ReturnType<typeof sqliteTranscripts>; emit(event: unknown): void }): Promise<void> {
   const { kit, stateDir, origin, model, capabilities, receipt } = o;
   const owned = kit as unknown as OwnedKit;
   const store = fileSignInStore(stateDir), grant = 'OWNED_MATRIX_CONTROL';
@@ -47,20 +34,21 @@ export async function protectionMatrix(o: { kit: OpenClawKit; stateDir: string; 
     o.captureCapabilities();
   }
   function retain(stage: string) {
-    const files = transcriptBytes(join(stateDir, 'openclaw'));
-    assert.ok(files.length, 'no durable transcripts: byte qualification unavailable');
-    for (const file of files) receipt.transcripts.push({ stage, ...file });
+    const files = o.retain(stage);
+    assert.ok(files.length && files.some(file => file.events.length), 'no durable transcripts: byte qualification unavailable');
+    receipt.transcripts.push({ stage, captures: files });
     assert.equal(scanCapabilities(files, capabilities).matches.length, 0, `${stage}: durable transcript capability digest match`);
     assert.equal(scanCapabilities(model.calls, capabilities).matches.length, 0, `${stage}: full provider capability digest match`);
   }
   async function refused(stage: string, runId = `matrix-refusal-${++serial}`) {
     const before = model.calls.length, requests = o.agentRequests();
     // Keep local registration out of recovery negatives; before_agent_run must refuse in the actual engine.
-    await kit.run({ member: 'ada', sessionKey: key, idempotencyKey: runId, register: false,
-      message: `Source-free recovery probe ${stage}` }).catch(() => undefined);
+    await boundedAwait(`matrix-refusal:${stage}`, () => kit.run({ member: 'ada', sessionKey: key, idempotencyKey: runId, register: false,
+      message: `Source-free recovery probe ${stage}` }).catch(() => undefined), o.emit);
     assert.ok(o.agentRequests() > requests, `${stage}: must reach the owned gateway, not just a local refusal`);
     assert.equal(model.calls.length, before, `${stage}: no provider submission`);
-    receipt.stages.push({ stage, providerBefore: before, providerAfter: model.calls.length });
+    const outcome = { stage, providerBefore: before, providerAfter: model.calls.length };
+    receipt.stages.push(outcome); o.emit({ kind: 'matrix-outcome', ...outcome });
     retain(stage);
   }
   async function unrelated(stage: string) {

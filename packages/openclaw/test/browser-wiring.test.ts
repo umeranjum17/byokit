@@ -8,22 +8,53 @@ import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import { Bridge } from '../src/bridge.ts';
 import type { NeedSignIn, ResumeState } from '../src/browser.ts';
 import { scratchDir } from '../../test-support.ts';
-import { scanCapabilities } from './engine/privacy-evidence.ts';
-import { transcriptBytes } from './engine/protection-matrix.ts';
+import { scanCapabilities, sqliteTranscripts, boundedAwait, emitEvidence } from './engine/privacy-evidence.ts';
+import { DatabaseSync } from 'node:sqlite';
+import { startModelStub } from '../src/testing/model-stub.ts';
 
 const safe = { tools: { allow: ['browser', 'request_sign_in', 'crew_x'] } };
-test('durable evidence keeps exact owned jsonl bytes and never follows links', () => {
-  const root = scratchDir('transcript-bytes');
+test('SQLite transcript evidence includes WAL, preserves originals and ignores links', () => {
+  const root = scratchDir('sqlite-transcripts'), source = join(root, 'source'); mkdirSync(source);
+  const path = join(source, 'openclaw-agent.sqlite'), db = new DatabaseSync(path);
   try {
-    mkdirSync(join(root, 'sessions'));
-    const path = join(root, 'sessions', 'fixture.jsonl'), bytes = '{"text":"PUBLIC_CONTROL"}\n';
-    writeFileSync(path, bytes); writeFileSync(join(root, 'ignored.log'), 'ignored');
-    symlinkSync(join(root, 'sessions'), join(root, 'linked-directory'));
-    symlinkSync(path, join(root, 'linked.jsonl'));
-    assert.deepEqual(transcriptBytes(root), [{ path, bytes }]);
-    assert.throws(() => transcriptBytes(join(root, 'missing')), /ENOENT/);
+    db.exec("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE transcript_events(body TEXT); INSERT INTO transcript_events VALUES ('PUBLIC_WAL_CONTROL')");
+    const original = ['', '-wal', '-shm'].map(suffix => readFileSync(path + suffix));
+    symlinkSync(source, join(source, 'linked-directory'));
+    symlinkSync(path, join(source, 'linked.sqlite'));
+    const capture = sqliteTranscripts(source, join(root, 'snapshots'));
+    assert.equal(capture.length, 1); assert.equal(capture[0].events[0].body, 'PUBLIC_WAL_CONTROL');
+    assert.equal(capture[0].files.length, 3);
+    for (const [index, suffix] of ['', '-wal', '-shm'].entries()) {
+      assert.deepEqual(readFileSync(path + suffix), original[index]);
+      assert.deepEqual(readFileSync(capture[0].snapshot + suffix), original[index]);
+    }
+    assert.throws(() => sqliteTranscripts(join(source, 'linked-directory'), join(root, 'rejected')), /symlink/);
+  } finally { db.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('stage evidence is durable before a stuck await and timeout remains an error', async () => {
+  const root = scratchDir('bounded-stage'), path = join(root, 'events.jsonl');
+  const emit = (event: unknown) => emitEvidence(path, event);
+  try {
+    await assert.rejects(boundedAwait('stuck-fixture', () => {
+      assert.equal(JSON.parse(readFileSync(path, 'utf8').trim()).phase, 'start');
+      return new Promise<never>(() => {});
+    }, emit, 10), /fixture await timed out: stuck-fixture/);
+    assert.deepEqual(readFileSync(path, 'utf8').trim().split('\n').map(line => JSON.parse(line).phase), ['start', 'error']);
+    assert.equal(await boundedAwait('positive', async () => 42, emit, 100), 42);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+test('source stub journals the complete provider body before responding', async () => {
+  const root = scratchDir('provider-journal'), path = join(root, 'calls.jsonl');
+  const body = { model: 'test', messages: [{ role: 'user', content: 'PUBLIC_CONTROL_' + 'x'.repeat(8000) }] };
+  const stub = await startModelStub([], { onCall: call => emitEvidence(path, call) });
+  try {
+    const response = await fetch(stub.url + '/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')).body, body);
+    await response.text();
+  } finally { await stub.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
 test('privacy byte scanner needs real evidence and catches nested/current/prior generation capabilities', () => {
   const capabilities = new Set(['SYNTHETIC_OLD_TOKEN', 'SYNTHETIC_NEW_TOKEN']);
   assert.deepEqual(scanCapabilities({ messages: [{ role: 'tool', content: 'PUBLIC_CONTROL' }] }, capabilities),

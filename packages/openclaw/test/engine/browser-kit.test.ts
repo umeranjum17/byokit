@@ -15,8 +15,8 @@ import type { BrowserHostController } from '../../src/browser/host.ts';
 import { gatewayTransport } from '../../src/transport.ts';
 import { startModelStub } from '../../src/testing/model-stub.ts';
 import { trackChild } from '../../../test-support.ts';
-import { scanCapabilities } from './privacy-evidence.ts';
-import { protectionMatrix, transcriptBytes, type MatrixReceipt } from './protection-matrix.ts';
+import { scanCapabilities, emitEvidence, boundedAwait, sqliteTranscripts } from './privacy-evidence.ts';
+import { protectionMatrix, type MatrixReceipt } from './protection-matrix.ts';
 
 const entry = process.env.BYOKIT_BROWSER_STOCK_ENTRY;
 const executable = process.env.BYOKIT_TEST_CHROMIUM ?? chromium.executablePath();
@@ -41,7 +41,14 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
   const stateDir = mkdtempSync(join(tmpdir(), 'k-'));
   const wrapper = join(stateDir, 'chromium-fixture');
   writeFileSync(wrapper, `#!/bin/sh\nexec '${executable.replaceAll("'", "'\\''")}' '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost' "$@" 2>>'${join(stateDir, 'chromium.stderr')}'\n`, { mode: 0o700 });
-  const model = await startModelStub();
+  assert.ok(!matrixEnabled || process.env.BYOKIT_BROWSER_RECEIPT, 'matrix requires an external owned receipt path');
+  const journal = `${process.env.BYOKIT_BROWSER_RECEIPT ?? join(stateDir, 'receipt')}.incremental.jsonl`;
+  const emit = (event: unknown) => emitEvidence(journal, event);
+  const step = <T>(stage: string, work: () => Promise<T>, ms?: number) => boundedAwait(stage, work, emit, ms);
+  emit({ kind: 'fixture-start', stockEntry: before, stateDir, protectedHandoffQualified: false });
+  const model = await startModelStub([], { onCall: call => {
+    captureCapabilities(); emit({ kind: 'provider-call', call, brokerCapabilityHistory: [...capabilities.values()] });
+  } });
   let child: ChildProcess | undefined;
   const requests: unknown[] = [], outputs: unknown[] = [], toolEvents: unknown[] = [], diagnostics: unknown[] = [], thumbnails: unknown[] = [], runtimeRefusals: unknown[] = [];
   const privacyChecks: { scope: string; checked: number; matches: string[] }[] = [];
@@ -131,8 +138,15 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     }
   }
   const offCapabilities = kit.onEvent('byokit.browser', () => captureCapabilities());
+  let snapshot = 0;
+  const retain = (stage: string) => {
+    captureCapabilities();
+    const captures = sqliteTranscripts(join(stateDir, 'openclaw'), `${journal}.snapshots/${++snapshot}`);
+    emit({ kind: 'durable-transcripts', stage, brokerCapabilityHistory: [...capabilities.values()], captures });
+    return captures;
+  };
   try {
-    await kit.start(); captureCapabilities();
+    await step('launch-kit', () => kit.start(), 90_000); captureCapabilities();
     assert.equal(capabilities.size, 2, 'record both authoritative initial broker capabilities before model submission');
     assert.equal(kit.hello?.server.version, '2026.8.1');
     if (observationOnly) {
@@ -193,23 +207,30 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     assert.equal(kit.browser!.signIns().length, 0, 'no production request or parked session without protection');
     const count = model.calls.length;
     let frames = 0;
+    emit({ stage: 'live-open', phase: 'start', at: Date.now() });
     const live = kit.browser!.live({ kind: 'browser', member: 'ada' }, { grant: 'fixture-view' }, {
       state: () => {}, frame: frame => { assert.ok(frame.jpeg.byteLength); frames++; },
     });
-    await until(() => frames > 0);
-    const thumb = await kit.browser!.thumbnail({ kind: 'browser', member: 'ada' }, { grant: 'fixture-view' });
+    emit({ stage: 'live-open', phase: 'end', at: Date.now() });
+    await step('live-first-frame', () => until(() => frames > 0));
+    retain('post-live-first-frame');
+    const thumb = await step('thumbnail', () => kit.browser!.thumbnail({ kind: 'browser', member: 'ada' }, { grant: 'fixture-view' }));
     assert.ok(thumb.state === 'ok', JSON.stringify(thumb));
-    const decoder = await chromium.connectOverCDP(config.browser.profiles['byokit-ada'].cdpUrl);
+    const decoder = await step('decoder-connect', () => chromium.connectOverCDP(config.browser.profiles['byokit-ada'].cdpUrl));
     try {
       const page = decoder.contexts()[0]!.pages().find(p => p.url().endsWith('/ada'))!;
-      const decoded = await page.evaluate(async bytes => {
+      const decoded = await step('thumbnail-decode', () => page.evaluate(async bytes => {
         const image = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }));
         const size = { w: image.width, h: image.height }; image.close(); return size;
-      }, Array.from(thumb.frame.jpeg));
+      }, Array.from(thumb.frame.jpeg)));
       assert.ok(decoded.w <= 320 && decoded.w > 0, JSON.stringify(decoded));
       assert.equal(decoded.w, thumb.frame.w); assert.equal(decoded.h, thumb.frame.h);
       thumbnails.push({ decoded, reported: { w: thumb.frame.w, h: thumb.frame.h }, concurrentLiveFrames: frames });
-    } finally { await decoder.close(); live.close(); }
+    } finally {
+      await step('decoder-close', () => decoder.close());
+      emit({ stage: 'live-close', phase: 'start', at: Date.now() }); live.close();
+      emit({ stage: 'live-close', phase: 'end', at: Date.now() });
+    }
     assert.equal(model.calls.length, count, 'concurrent live view and thumbnail make no model/tool submission');
     await assert.rejects(kit.patchConfig({ agents: { entries: { bea: { tools: { allow: ['exec'] } } } } }), /browser tool policy refused/);
     // A positive tool-result control prevents a vacuous pass from missing/empty provider evidence.
@@ -224,16 +245,16 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     }
     if (process.env.BYOKIT_BROWSER_PROTECTION_MATRIX === '1') {
       const restart = async (beforeStart?: () => void) => {
-        await kit.stop();
+        await step('restart-kit-stop', () => kit.stop());
         if (child?.pid && child.exitCode === null && child.signalCode === null) {
           const exited = once(child, 'exit'); child.kill('SIGTERM');
           const timer = setTimeout(() => child!.kill('SIGKILL'), 5000);
           await exited; clearTimeout(timer);
         }
-        beforeStart?.(); await kit.start();
+        beforeStart?.(); await step('restart-kit-start', () => kit.start(), 90_000);
       };
       await protectionMatrix({ kit, stateDir, origin, model, capabilities: privateCapabilities, receipt: matrix,
-        agentRequests: () => requests.length, restart, captureCapabilities,
+        agentRequests: () => requests.length, restart, captureCapabilities, retain, emit,
         privateVisited: () => siteRequests.some(request => request.url === '/private'),
         cookieObserved: member => siteRequests.some(request => request.url === `/${member}`
           && request.cookie.includes('matrix_private=PRIVATE_MATRIX_COOKIE')) });
@@ -252,25 +273,28 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
       }));
     } catch { diagnostics.push({ proofCaptureFailure: 'owned broker-token snapshot unavailable' }); }
     offCapabilities();
-    await kit.stop();
-    if (process.env.BYOKIT_BROWSER_PROTECTION_MATRIX === '1') {
-      // Preserve failure-path durable bytes too; cleanup must never destroy the only counterexample.
-      try { matrix.transcripts.push(...transcriptBytes(join(stateDir, 'openclaw')).map(file => ({ stage: 'final-cleanup', ...file }))); }
-      catch { diagnostics.push({ proofCaptureFailure: 'durable transcript capture unavailable' }); }
-    }
+    emit({ kind: 'pre-cleanup-receipt', requests, outputs, toolEvents, modelCalls: model.calls,
+      matrix, diagnostics, brokerCapabilityHistory: [...capabilities.values()], protectedHandoffQualified: false });
+    let cleanupFailure: unknown;
+    try { matrix.transcripts.push({ stage: 'pre-cleanup', captures: retain('pre-cleanup') }); }
+    catch (error) { emit({ kind: 'capture-failure', error: String(error) }); cleanupFailure = error; }
+    try { await step('cleanup-kit-stop', () => kit.stop()); }
+    catch (error) { cleanupFailure ??= error; }
     if (child?.pid && child.exitCode === null && child.signalCode === null) {
       const exited = once(child, 'exit'); child.kill('SIGTERM');
       const timer = setTimeout(() => child!.kill('SIGKILL'), 5000);
-      await exited; clearTimeout(timer);
+      try { await step('cleanup-child-exit', () => exited); } finally { clearTimeout(timer); }
     }
-    site.closeAllConnections(); await new Promise<void>(resolve => site.close(() => resolve())); await model.close();
+    site.closeAllConnections();
+    await step('cleanup-site-close', () => new Promise<void>(resolve => site.close(() => resolve())));
+    await step('cleanup-model-close', () => model.close());
     assert.equal(hash(entry), before, 'stock executable untouched');
     const receipt = { engine: '2026.8.1', upstreamCommit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b', stockEntry: before,
       shippedPlugin: hash(new URL('../../plugin/index.js', import.meta.url).pathname), requests, outputs, toolEvents,
       providerRequests: model.calls.length, modelCalls: model.calls, brokerTokenDigests: brokerTokens,
       brokerCapabilityHistory: [...capabilities.values()], privacyChecks,
       protectedHandoffQualified: false, observationOnly, counterfactual, diagnostics, thumbnails, runtimeRefusals,
-      matrix, siteRequests,
+      matrix, siteRequests, cleanupFailure: cleanupFailure ? String(cleanupFailure) : undefined,
       candidateSources: Object.fromEntries(['kit.ts', 'config.ts', 'browser/host.ts', 'browser/broker.ts'].map(path =>
         [path, hash(new URL(`../../src/${path}`, import.meta.url).pathname)])),
       limits: ['no protected production handoff', 'no recovery-turn refusal qualification', 'no private secret/profile scan in this kit test; broker test owns that matrix'] };
@@ -278,6 +302,9 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     const logs = process.env.BYOKIT_BROWSER_RECEIPT ? `${process.env.BYOKIT_BROWSER_RECEIPT}.stock.log` : undefined;
     if (logs && existsSync(join(stateDir, 'stock-engine.log'))) writeFileSync(logs, readFileSync(join(stateDir, 'stock-engine.log')));
     if (logs && existsSync(join(stateDir, 'chromium.stderr'))) writeFileSync(`${logs}.chromium`, readFileSync(join(stateDir, 'chromium.stderr')));
+    if (cleanupFailure) throw cleanupFailure; // Keep owned state; capture/teardown failure cannot become a pass.
+    emit({ stage: 'cleanup-state-remove', phase: 'start', at: Date.now() });
     rmSync(stateDir, { recursive: true, force: true });
+    emit({ stage: 'cleanup-state-remove', phase: 'end', at: Date.now() });
   }
 });
