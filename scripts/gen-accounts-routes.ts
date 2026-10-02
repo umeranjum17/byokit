@@ -62,7 +62,7 @@ export function generateRoutes(): Route[] {
       if (p.id === 'amazon-bedrock') {
         add(p.id, p.name, 'key', 'api', 'bearer-token', undefined, { platforms: node });
         for (const method of ['aws-profile', 'credential-chain']) add(p.id, p.name, 'cloud', 'api', method, method, { platforms: node, label: 'Cloud account (billed per use by Amazon Web Services)' });
-        add(p.id, p.name, 'endpoint', 'unknown', 'skip-auth', 'skip-auth', { billingFrom: 'host', platforms: node, adapterReadiness: 'needs_host', label: 'Your own server (billing you choose)' });
+        add(p.id, p.name, 'endpoint', 'unknown', 'skip-auth', 'skip-auth', { billingFrom: 'host', platforms: node, label: 'Your own server (billing you choose)' });
       } else {
         if (!envMap[p.id] && p.id !== 'github-copilot' && p.id !== 'anthropic') throw new Error(`Missing key metadata for ${p.id}`);
         const billing = planKeys.has(p.id) ? 'subscription' : p.id === 'radius' ? 'unknown' : 'api';

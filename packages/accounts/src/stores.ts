@@ -4,12 +4,14 @@
 import type { Defaults } from './multi.ts';
 import type { Billing } from './catalogue.ts';
 import type { EndpointRecord } from './endpoints.ts';
+import type { CloudAccount } from './cloud.ts';
 import type { Credential, CredentialStore, OAuthCredential } from '@earendil-works/pi-ai';
 
 /** Non-secret per-account route configuration. Secret values belong only in keyStore, never here. */
 export type AccountMetadata = {
   route: string; billing: Billing; baseUrl?: string; compat?: 'openai' | 'anthropic'; region?: string;
   profile?: string; keyFile?: string; accountId?: string; gatewayId?: string; endpoint?: EndpointRecord;
+  cloud?: CloudAccount;
 };
 export type AccountsIndex = { accounts?: { [id: string]: AccountMetadata }; names: { [id: string]: string }; emails: { [id: string]: string }; plans: { [id: string]: string }; addedAt: { [id: string]: number }; defaults: Defaults };
 export const emptyIndex = (): AccountsIndex => ({ names: {}, emails: {}, plans: {}, addedAt: {}, defaults: {} });

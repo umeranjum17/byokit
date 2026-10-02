@@ -47,8 +47,10 @@ test('discovery keeps every row on every platform; host offers only ready subscr
   assert.equal(route('anthropic:paste', { platform: 'browser' }).readiness, 'needs_host');
   assert.equal(route('anthropic:paste', { platform: 'browser', hostSide: true }).readiness, 'ready');
   assert.equal(route('aws-bedrock:cloud:aws-profile', { platform: 'rn' }).readiness, 'unsupported_platform');
+  assert.equal(route('aws-bedrock:cloud:aws-profile').readiness, 'ready', 'the isolated Node account adapter is callable');
+  assert.ok(!offered({ platform: 'node' }).some((r) => r.id === 'aws-bedrock:cloud:aws-profile'), 'cloud remains explicitly selected');
   assert.equal(route('custom:endpoint', { platform: 'browser' }).readiness, 'needs_host');
-  for (const id of ['kimi-code:plan_key', 'anthropic:setup_token', 'github-copilot:key', 'aws-bedrock:cloud:aws-profile', 'custom:endpoint']) {
+  for (const id of ['kimi-code:plan_key', 'anthropic:setup_token', 'github-copilot:key', 'custom:endpoint']) {
     assert.equal(route(id).readiness, 'needs_host', `${id}: its account adapter is not yet callable`);
     assert.ok(!offered({ platform: 'node' }).some((r) => r.id === id));
   }

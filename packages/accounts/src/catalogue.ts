@@ -10,8 +10,6 @@ export type Readiness = 'ready' | 'needs_binary' | 'needs_plugin' | 'needs_host'
 export type Route = {
   id: string; provider: string; name: string; company: string; label: string; aliases?: string[];
   via: RouteVia; billing: Billing; billingFrom: 'source' | 'host'; offer: 'default' | 'explicit';
-  /** Kit adapter limitation, distinct from the pinned upstream's method inventory. */
-  adapterReadiness?: Exclude<Readiness, 'ready'>;
   platforms: { node: Support; browser: Support; rn: Support };
   needs?: { binary?: string; plugin?: string; client?: string };
   upstream: { surface: 'accounts' | 'openclaw' | 'herdr'; id: string; method?: string; revision: string; flow: 'present' | 'absent' };
@@ -27,7 +25,6 @@ export function routeReadiness(r: Route, host: RouteHost): RouteView {
   let readiness: Readiness = 'ready';
   if (r.upstream.flow === 'absent') readiness = 'no_upstream_flow';
   else if (r.platforms[host.platform] === 'no') readiness = 'unsupported_platform';
-  else if (r.adapterReadiness) readiness = r.adapterReadiness;
   else if (r.platforms[host.platform] === 'host' && !host.hostSide) readiness = 'needs_host';
   else if (r.needs?.binary && !host.binaries?.includes(r.needs.binary)) readiness = 'needs_binary';
   else if (r.needs?.plugin && !host.plugins?.includes(r.needs.plugin)) readiness = 'needs_plugin';

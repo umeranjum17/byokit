@@ -1,4 +1,5 @@
-import type { ApiKeyCredential } from '@earendil-works/pi-ai';
+import type { Api, ApiKeyCredential, ApiStreamOptions, AssistantMessageEventStream, Model, Context } from '@earendil-works/pi-ai';
+import type { AiBinding } from '@earendil-works/pi-ai/api/cloudflare-ai-binding';
 import { route, type Billing, type Readiness, type RouteHost } from './catalogue.ts';
 
 /** Explicit selection only. home is the person's selected SDK/ADC home, never inferred from this process. */
@@ -6,14 +7,15 @@ export type CloudOptions = {
   via: 'cloud' | 'key' | 'endpoint'; route: string; key?: string;
   profile?: string; home?: string; keyFile?: string; region?: string;
   project?: string; location?: string; baseUrl?: string;
-  accountId?: string; gatewayId?: string; billing?: Billing;
+  accountId?: string; gatewayId?: string; binding?: string; billing?: Billing;
 };
 /** Non-secret account metadata. API/bearer keys are held exclusively in keyStore. */
 export type CloudAccount = {
   route: string; provider: string; upstream: string; method: string; billing: Billing;
   profile?: string; home?: string; keyFile?: string; region?: string;
-  project?: string; location?: string; baseUrl?: string; accountId?: string; gatewayId?: string;
+  project?: string; location?: string; baseUrl?: string; accountId?: string; gatewayId?: string; binding?: string;
 };
+export type CloudStream = <A extends Api>(account: CloudAccount, key: string | undefined, model: Model<A>, context: Context, options?: ApiStreamOptions<A>, binding?: AiBinding) => AssistantMessageEventStream;
 export class CloudAccountError extends Error {
   readonly code: Readiness | 'invalid_selection';
   constructor(code: Readiness | 'invalid_selection') {
@@ -31,7 +33,7 @@ export function cloudSelection(provider: string, o: CloudOptions, host: RouteHos
   const r = route(o.route, host);
   if (host.platform !== 'node') throw new CloudAccountError('unsupported_platform');
   if (r.readiness !== 'ready') throw new CloudAccountError(r.readiness);
-  if (r.provider !== provider || r.via !== o.via || !providers.has(r.upstream.id) || r.upstream.method === 'workers-binding') throw new CloudAccountError('invalid_selection');
+  if (r.provider !== provider || r.via !== o.via || !providers.has(r.upstream.id)) throw new CloudAccountError('invalid_selection');
   const a: CloudAccount = { route: r.id, provider, upstream: r.upstream.id, method: r.upstream.method!, billing: r.billing };
   const copy = (name: keyof Omit<CloudAccount, 'route' | 'provider' | 'upstream' | 'method' | 'billing'>, required = false, absolute = false) => {
     const v = o[name];
@@ -45,6 +47,7 @@ export function cloudSelection(provider: string, o: CloudOptions, host: RouteHos
     if (r.upstream.method === 'aws-profile') { copy('profile', true); copy('home', true, true); }
     else if (r.upstream.method === 'credential-chain') copy('home', true, true);
     else if (r.upstream.method === 'skip-auth') {
+      if (['key', 'bearerToken', 'profile', 'home', 'keyFile'].some((name) => name in o)) throw new CloudAccountError('invalid_selection');
       copy('baseUrl', true);
       if (!['api', 'subscription', 'local', 'free', 'unknown'].includes(o.billing ?? '')) throw new CloudAccountError('invalid_selection');
       a.billing = o.billing!;
@@ -58,17 +61,22 @@ export function cloudSelection(provider: string, o: CloudOptions, host: RouteHos
     } else throw new CloudAccountError('invalid_selection');
   } else if (r.upstream.id === 'azure-openai-responses') copy('baseUrl', true);
   else if (r.upstream.id.startsWith('cloudflare-')) {
-    copy('accountId', true);
-    if (r.upstream.id === 'cloudflare-ai-gateway') copy('gatewayId', true);
+    if (r.upstream.method === 'workers-binding') { copy('binding', true); copy('gatewayId', true); copy('baseUrl', true); }
+    else {
+      copy('accountId', true);
+      if (r.upstream.id === 'cloudflare-ai-gateway') copy('gatewayId', true);
+    }
     for (const id of [a.accountId, a.gatewayId]) if (id && !/^[A-Za-z0-9_-]+$/.test(id)) throw new CloudAccountError('invalid_selection');
   }
   if (a.baseUrl) {
     try {
       const u = new URL(a.baseUrl);
       if (!['http:', 'https:'].includes(u.protocol) || u.username || u.password || u.search || u.hash) throw new Error();
+      if (a.method === 'workers-binding' && (u.origin !== 'https://workers-binding.ai' || !u.pathname.startsWith(`/ai-gateway/gateways/${a.gatewayId}/`))) throw new Error();
     } catch { throw new CloudAccountError('invalid_selection'); }
   }
   if (o.via === 'key' ? !value(o.key) : o.key !== undefined) throw new CloudAccountError('invalid_selection');
+  if (a.upstream === 'google-vertex' && o.via === 'key' && (/^<[^>]+>$/.test(o.key!.trim()) || o.key!.trim() === 'gcp-vertex-credentials')) throw new CloudAccountError('invalid_selection');
   return a;
 }
 
