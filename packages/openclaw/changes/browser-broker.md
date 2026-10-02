@@ -1,0 +1,1 @@
+FEAT: Add the internal pipe-only browser broker with fenced private targets, lease-bound live sessions and exact-origin site-data clearing. Sign-in handoff remains unprotected until parked-session protection is qualified.

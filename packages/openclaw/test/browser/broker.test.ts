@@ -40,7 +40,8 @@ function handle(m){
   const info=targets.get(target);info.url=p.url;
   event('Page.frameStartedLoading',{frameId:target},target);
   event('Page.frameNavigated',{frame:{id:target,url:p.url}},target);
-  event('Network.responseReceived',{type:'Document',response:{status:200}},target);
+  event('Network.responseReceived',{type:'Document',frameId:target,response:{status:p.url.includes('401-iframe')?401:200}},target);
+  if(p.url.includes('401-iframe'))event('Network.responseReceived',{type:'Document',frameId:target+'child',response:{status:200}},target);
   event('Page.loadEventFired',{},target);
   event('Target.targetInfoChanged',{targetInfo:info});
   if(p.url.includes('popup')){
@@ -56,6 +57,10 @@ function handle(m){
   return setTimeout(()=>reply({data:Buffer.from('synthetic-private-canary').toString('base64')}),100);
  case 'Runtime.evaluate':return reply({result:{type:'string',value:'synthetic-private-canary'}});
  case 'Network.getAllCookies':return reply({cookies:[{name:'fixture',value:'synthetic-private-canary'}]});
+ case 'Storage.clearDataForOrigin':
+  if(!m.sessionId || sessions.get(m.sessionId)==='browser')return emit({id:m.id,error:{code:-32601,message:'page domain required'}});
+  if(p.origin!=='http://127.0.0.1:1' || p.storageTypes!=='all')return emit({id:m.id,error:{code:-32602,message:'exact fixture origin required'}});
+  return reply({});
  case 'Page.getFrameTree':return reply({frameTree:{frame:{id:target,url:targets.get(target).url}}});
  case 'DOM.getDocument':return reply({root:{nodeId:1}});
  case 'DOM.querySelector':return reply({nodeId:p.selector==='.signedin'?2:0});
@@ -126,6 +131,8 @@ test('pipe broker: authenticated forwarding, all-client fence, private targets, 
     await accepted; // fixture confirms Chromium accepted it before fence; a WebSocket write alone is not receipt
     const started = Date.now(); await f.broker.fence(true);
     assert.ok(Date.now() - started >= 80); assert.ok((await screenshot).error);
+    if (agent.ws.readyState !== WebSocket.CLOSED) await once(agent.ws, 'close');
+    if (sibling.ws.readyState !== WebSocket.CLOSED) await once(sibling.ws, 'close');
     assert.equal(agent.ws.readyState, WebSocket.CLOSED);
     assert.equal(sibling.ws.readyState, WebSocket.CLOSED);
     f.broker.bindLease(lease);
@@ -167,14 +174,23 @@ test('pipe broker: authenticated forwarding, all-client fence, private targets, 
     const back = await client(f.endpoint);
     const discovered = await back.send('Target.getTargets');
     assert.deepEqual(discovered.result!.targetInfos.map((t: { targetId: string }) => t.targetId), ['agent']);
-    await f.broker.clearSite([lease.origin]);
+    assert.ok((await back.send('Storage.clearDataForOrigin', { origin: lease.origin, storageTypes: 'all' })).error); // original root-domain failure positive control
+    await f.broker.clearSite([lease.origin]); // only succeeds with an owned page session + exact requested origin
     await assert.rejects(f.broker.clearSite(['https://site.test/path']));
     const prefs = JSON.parse(await readFile(join(f.dir, 'profile/Default/Preferences'), 'utf8'));
     assert.equal(prefs.credentials_enable_service, false); assert.equal(prefs.autofill.profile_enabled, false);
     await f.broker.fence(true);
     assert.throws(() => f.broker.bindLease(lease)); // epochs never reused
     f.broker.bindLease({ ...lease, epoch: 2 }); await f.broker.openPrivate('http://127.0.0.1:1/login');
+    const holder = await client(f.endpoint);
+    const claimed = (await holder.send('Byokit.claimTakeover', { ...lease, epoch: 2 })).result!;
+    const privateSid = (await holder.send('Target.attachToTarget', { targetId: claimed.targetId, flatten: true })).result!.sessionId;
+    assert.ok((await holder.send('Runtime.evaluate', {}, privateSid)).error);
+    assert.ok((await holder.send('Page.reload', { scriptToEvaluateOnLoad: 'globalThis.fixtureBypass=true' }, privateSid)).error);
+    assert.ok((await holder.send('Input.insertText', { text: 'fixture', command: 'evaluate' }, privateSid)).error);
+    assert.ok((await holder.send('Page.startScreencast', { format: 'jpeg', maxWidth: 1000000 }, privateSid)).error);
     assert.equal(await f.broker.probe('http://127.0.0.1:1/verify', async p => p.status === 200 && await p.exists('.signedin'), 1000), 'ok');
+    assert.equal(await f.broker.probe('http://127.0.0.1:1/verify-401-iframe', async p => p.status === 200, 1000), 'fail'); // iframe 200 cannot verify an anonymous main document
     f.broker.bindLease(null); await f.broker.closePrivate(); await f.broker.fence(false);
   } finally { await f.close(); }
 });
@@ -194,4 +210,11 @@ test('unknown in-flight command fails closed within the five-second barrier', { 
     await assert.rejects(f.broker.fence(false));
     await assert.rejects(f.broker.openPrivate('http://127.0.0.1:1/login'));
   } finally { await f.close(); }
+});
+
+test('missing explicit Chromium executable fails promptly without awaiting a nonexistent process', { timeout: 2000 }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'broker-missing-'));
+  try {
+    await assert.rejects(launchBroker({ executablePath: join(dir, 'missing'), profileDir: join(dir, 'p'), member: 'fixture', onExit() {} }), /browser command failed/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });

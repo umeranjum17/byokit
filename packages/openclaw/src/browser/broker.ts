@@ -451,6 +451,8 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
     for (const v of viewers) v.close();
     sockets.close(); server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));
+    // A failed spawn has no PID and emits close/error, never exit. Do not await a nonexistent process.
+    if (chrome.pid === undefined) { closed = true; abortPipe(); return; }
     // Closing our pipe-only child never acts on another browser or a shared profile.
     if (chrome.exitCode === null && chrome.signalCode === null) chrome.kill('SIGTERM');
     await new Promise<void>(resolve => {
@@ -538,7 +540,9 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
       const load = new Promise<void>(resolve => { loaded = resolve; });
       const observe = (m: Message) => {
         if (m.sessionId !== sid) return;
-        if (m.method === 'Network.responseReceived' && m.params?.type === 'Document') status = m.params.response.status;
+        const target = sessionTargets.get(sid ?? '');
+        if (m.method === 'Network.responseReceived' && m.params?.type === 'Document'
+          && m.params.frameId === mainFrames.get(target ?? '')) status = m.params.response.status;
         if (m.method === 'Page.loadEventFired') loaded();
       };
       listeners.add(observe);
