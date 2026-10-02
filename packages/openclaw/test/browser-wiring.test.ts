@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readFileSync, rmSync } from 'node:fs';
+import { readFileSync, rmSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { browserToolPolicySafe, browserProfileAcknowledged, browserSessionMayRun, reconcileConfig } from '../src/config.ts';
 import { OpenClawKit } from '../src/kit.ts';
@@ -9,8 +9,21 @@ import { Bridge } from '../src/bridge.ts';
 import type { NeedSignIn, ResumeState } from '../src/browser.ts';
 import { scratchDir } from '../../test-support.ts';
 import { scanCapabilities } from './engine/privacy-evidence.ts';
+import { transcriptBytes } from './engine/protection-matrix.ts';
 
 const safe = { tools: { allow: ['browser', 'request_sign_in', 'crew_x'] } };
+test('durable evidence keeps exact owned jsonl bytes and never follows links', () => {
+  const root = scratchDir('transcript-bytes');
+  try {
+    mkdirSync(join(root, 'sessions'));
+    const path = join(root, 'sessions', 'fixture.jsonl'), bytes = '{"text":"PUBLIC_CONTROL"}\n';
+    writeFileSync(path, bytes); writeFileSync(join(root, 'ignored.log'), 'ignored');
+    symlinkSync(join(root, 'sessions'), join(root, 'linked-directory'));
+    symlinkSync(path, join(root, 'linked.jsonl'));
+    assert.deepEqual(transcriptBytes(root), [{ path, bytes }]);
+    assert.throws(() => transcriptBytes(join(root, 'missing')), /ENOENT/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 test('privacy byte scanner needs real evidence and catches nested/current/prior generation capabilities', () => {
   const capabilities = new Set(['SYNTHETIC_OLD_TOKEN', 'SYNTHETIC_NEW_TOKEN']);
   assert.deepEqual(scanCapabilities({ messages: [{ role: 'tool', content: 'PUBLIC_CONTROL' }] }, capabilities),

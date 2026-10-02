@@ -16,10 +16,12 @@ import { gatewayTransport } from '../../src/transport.ts';
 import { startModelStub } from '../../src/testing/model-stub.ts';
 import { trackChild } from '../../../test-support.ts';
 import { scanCapabilities } from './privacy-evidence.ts';
+import { protectionMatrix, transcriptBytes, type MatrixReceipt } from './protection-matrix.ts';
 
 const entry = process.env.BYOKIT_BROWSER_STOCK_ENTRY;
 const executable = process.env.BYOKIT_TEST_CHROMIUM ?? chromium.executablePath();
 const required = process.env.BYOKIT_BROWSER_REQUIRED === '1';
+const matrixEnabled = process.env.BYOKIT_BROWSER_PROTECTION_MATRIX === '1';
 const hash = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
 const until = async (condition: () => boolean, ms = 10_000) => {
   const end = Date.now() + ms;
@@ -28,7 +30,7 @@ const until = async (condition: () => boolean, ms = 10_000) => {
 
 test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsafe actions, live view is model-free and handoff stays unprotected', {
   skip: (!entry || !existsSync(executable)) && !required ? 'requires explicit published stock entry and fixture Chromium' : false,
-  timeout: 180_000,
+  timeout: process.env.BYOKIT_BROWSER_PROTECTION_MATRIX === '1' ? 480_000 : 180_000,
 }, async t => {
   assert.ok(entry && existsSync(entry), 'explicit stock entry required; no install or discovery in the test');
   assert.ok(existsSync(executable), 'explicit fixture Chromium required; no browser download in the test');
@@ -44,24 +46,35 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
   const requests: unknown[] = [], outputs: unknown[] = [], toolEvents: unknown[] = [], diagnostics: unknown[] = [], thumbnails: unknown[] = [], runtimeRefusals: unknown[] = [];
   const privacyChecks: { scope: string; checked: number; matches: string[] }[] = [];
   const privateCapabilities = new Set<string>();
+  const brokerControlCapabilities = new Set<string>();
   const observationOnly = !!process.env.BYOKIT_BROWSER_POLICY_OBSERVE;
   const counterfactual = process.env.BYOKIT_BROWSER_POLICY_OBSERVE === 'counterfactual';
+  const matrix: MatrixReceipt = { stages: [], transcripts: [], resumeDispatches: [] };
+  const siteRequests: { url: string; cookie: string }[] = [];
   const site = createServer((req, res) => {
+    siteRequests.push({ url: req.url ?? '', cookie: req.headers.cookie ?? '' });
+    if (req.url === '/private') {
+      res.setHeader('set-cookie', 'matrix_private=PRIVATE_MATRIX_COOKIE; HttpOnly; SameSite=Lax; Path=/');
+      res.end('<title>PRIVATE_MATRIX_PAGE</title><form><input type="password"></form>'); return;
+    }
     res.setHeader('cache-control', 'no-store'); res.setHeader('content-type', 'text/html');
     res.end(req.url === '/login' ? '<form><input type="password"><button>Sign in</button></form>'
       : `<title>Fixture ${req.url}</title><h1>Fixture ${req.url}</h1>`);
   });
   await new Promise<void>(resolve => site.listen(0, '127.0.0.1', resolve));
   const origin = `http://127.0.0.1:${(site.address() as { port: number }).port}`;
-  const kit = new OpenClawKit({ stateDir, spawnEngine: false, browser: { executablePath: wrapper, members: ['ada', 'bea'] },
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false,
+    tools: matrixEnabled ? [{ name: 'matrix_echo', description: 'Owned synthetic capability scrub control.', parameters: { type: 'object' } }] : undefined,
+    browser: { executablePath: wrapper, members: ['ada', 'bea'] },
     config: {
-      tools: { allow: ['browser', 'request_sign_in'] },
+      tools: { allow: ['browser', 'request_sign_in', ...(matrixEnabled ? ['matrix_echo'] : [])] },
       agents: { entries: { ada: {}, bea: {} }, defaults: { model: { primary: 'byokit-stub/test' } } },
       models: { providers: { 'byokit-stub': { baseUrl: model.url, apiKey: 'synthetic-stub', api: 'openai-completions',
         models: [{ id: 'test', name: 'Synthetic fixture', input: ['text'], contextWindow: 32000, maxTokens: 2048,
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } } },
     },
-    host: { gate: async () => ({ allow: true }), call: async () => 'unused' },
+    host: { gate: async () => ({ allow: true }), call: async (_run, tool) => tool === 'matrix_echo'
+      ? JSON.stringify({ public: 'PUBLIC_CAPABILITY_CONTROL', nested: [...brokerControlCapabilities] }) : 'unused' },
     transport: ctx => {
       const fd = openSync(join(stateDir, 'stock-engine.log'), 'a', 0o600);
       try {
@@ -109,8 +122,9 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
       const token = new URL(binding.endpoint.cdpUrl).searchParams.get('token');
       if (!token) throw new Error('owned broker binding has no token');
       privateCapabilities.add(token); privateCapabilities.add(binding.endpoint.cdpUrl);
+      brokerControlCapabilities.add(token); brokerControlCapabilities.add(binding.endpoint.cdpUrl);
       const id = new URL(binding.endpoint.cdpUrl).pathname.split('/').at(-1);
-      if (id && /^[a-f0-9]{32}$/i.test(id)) privateCapabilities.add(id);
+      if (id && /^[a-f0-9]{32}$/i.test(id)) { privateCapabilities.add(id); brokerControlCapabilities.add(id); }
       const tokenDigest = createHash('sha256').update(token).digest('hex');
       capabilities.set(`${member}:${binding.generation}:${tokenDigest}`, { member, generation: binding.generation,
         tokenDigest, endpointDigest: createHash('sha256').update(binding.endpoint.cdpUrl).digest('hex') });
@@ -208,6 +222,22 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
       privacyChecks.push(check);
       assert.equal(check.matches.length, 0, `${scope}: raw capability digest matches; see private receipt`);
     }
+    if (process.env.BYOKIT_BROWSER_PROTECTION_MATRIX === '1') {
+      const restart = async (beforeStart?: () => void) => {
+        await kit.stop();
+        if (child?.pid && child.exitCode === null && child.signalCode === null) {
+          const exited = once(child, 'exit'); child.kill('SIGTERM');
+          const timer = setTimeout(() => child!.kill('SIGKILL'), 5000);
+          await exited; clearTimeout(timer);
+        }
+        beforeStart?.(); await kit.start();
+      };
+      await protectionMatrix({ kit, stateDir, origin, model, capabilities: privateCapabilities, receipt: matrix,
+        agentRequests: () => requests.length, restart, captureCapabilities,
+        privateVisited: () => siteRequests.some(request => request.url === '/private'),
+        cookieObserved: member => siteRequests.some(request => request.url === `/${member}`
+          && request.cookie.includes('matrix_private=PRIVATE_MATRIX_COOKIE')) });
+    }
     t.diagnostic(`stock=${before}; fixture positive model requests=${count}; live frames=${frames}; handoff-unprotected; distinct pinned profiles=2`);
   } finally {
     // Retain actual loopback provider bodies and authoritative broker-token digests before owned cleanup.
@@ -223,6 +253,11 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     } catch { diagnostics.push({ proofCaptureFailure: 'owned broker-token snapshot unavailable' }); }
     offCapabilities();
     await kit.stop();
+    if (process.env.BYOKIT_BROWSER_PROTECTION_MATRIX === '1') {
+      // Preserve failure-path durable bytes too; cleanup must never destroy the only counterexample.
+      try { matrix.transcripts.push(...transcriptBytes(join(stateDir, 'openclaw')).map(file => ({ stage: 'final-cleanup', ...file }))); }
+      catch { diagnostics.push({ proofCaptureFailure: 'durable transcript capture unavailable' }); }
+    }
     if (child?.pid && child.exitCode === null && child.signalCode === null) {
       const exited = once(child, 'exit'); child.kill('SIGTERM');
       const timer = setTimeout(() => child!.kill('SIGKILL'), 5000);
@@ -235,6 +270,7 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
       providerRequests: model.calls.length, modelCalls: model.calls, brokerTokenDigests: brokerTokens,
       brokerCapabilityHistory: [...capabilities.values()], privacyChecks,
       protectedHandoffQualified: false, observationOnly, counterfactual, diagnostics, thumbnails, runtimeRefusals,
+      matrix, siteRequests,
       candidateSources: Object.fromEntries(['kit.ts', 'config.ts', 'browser/host.ts', 'browser/broker.ts'].map(path =>
         [path, hash(new URL(`../../src/${path}`, import.meta.url).pathname)])),
       limits: ['no protected production handoff', 'no recovery-turn refusal qualification', 'no private secret/profile scan in this kit test; broker test owns that matrix'] };
