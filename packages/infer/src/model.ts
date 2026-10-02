@@ -49,6 +49,11 @@ export const neutralize = (s: string): string => s.replace(/<(?=\||\/?think>)/g,
 
 export const modelName = (m: InferModel): string => `${m.id}@${m.revision}`;
 
+// Stock React Native signals have aborted/listeners, but neither throwIfAborted nor reason.
+const abortReason = (signal: AbortSignal): unknown => signal.reason !== undefined ? signal.reason
+  : Object.assign(new Error('The on-device operation was cancelled.'), { name: 'AbortError' });
+export function throwIfAborted(signal?: AbortSignal): void { if (signal?.aborted) throw abortReason(signal); }
+
 export function checkModel(m: InferModel): InferModel {
   const int = (n: unknown) => typeof n === 'number' && Number.isSafeInteger(n) && n > 0;
   if (!m || typeof m.id !== 'string' || !/^[a-z0-9][a-z0-9._-]*$/.test(m.id) || !/^[a-f0-9]{40}$/.test(m.revision)
@@ -104,21 +109,22 @@ export class LocalModel {
   /** Downloads `model.url` only, then checks size and SHA-256; a mismatching file is removed. Resumes a partial file. */
   install(o: { signal?: AbortSignal; onProgress?: (received: number, total: number) => void } = {}): Promise<void> {
     return this.#exclusive(async () => {
-      o.signal?.throwIfAborted();
+      throwIfAborted(o.signal);
       const unsupported = this.#unsupported();
       if (unsupported) { this.#set(unsupported); throw new InferError('unsupported', 'This device cannot run the model.'); }
       const { store } = this.#o, m = this.model;
       try {
         const have = await store.size(m) ?? 0;
-        if (have === m.bytes && await this.#hashMatches()) { this.#set({ phase: this.#ctx ? 'ready' : 'installed' }); return; }
+        if (have === m.bytes && await this.#hashMatches()) { throwIfAborted(o.signal); this.#set({ phase: this.#ctx ? 'ready' : 'installed' }); return; }
         if (store.freeBytes && await store.freeBytes() + Math.min(have, m.bytes) < m.bytes) {
           throw new InferError('no-space', 'Not enough free space for the model.', { detail: { bytes: m.bytes } });
         }
       } catch (cause) {
+        if (o.signal?.aborted) throw abortReason(o.signal);
         this.#set({ phase: 'failed', why: 'storage' });
-        if (o.signal?.aborted) throw o.signal.reason;
         throw cause instanceof InferError ? cause : new InferError('failed', 'The model storage could not be checked.', { cause });
       }
+      throwIfAborted(o.signal);
       this.#set({ phase: 'installing', received: 0, total: m.bytes });
       try {
         await store.download(m, { signal: o.signal, resume: true, onProgress: (received, total) => {
@@ -126,7 +132,7 @@ export class LocalModel {
           o.onProgress?.(received, total);
         } });
       } catch (cause) {
-        if (o.signal?.aborted) { this.#set({ phase: 'not-installed' }); throw o.signal.reason; }
+        if (o.signal?.aborted) { this.#set({ phase: 'not-installed' }); throw abortReason(o.signal); }
         this.#set({ phase: 'failed', why: 'network' });
         throw new InferError('network', 'The model download failed.', { cause });
       }
@@ -143,7 +149,7 @@ export class LocalModel {
         throw new InferError('integrity', 'The downloaded file did not match the pinned size and SHA-256.');
       }
       this.#set({ phase: 'installed' });
-      o.signal?.throwIfAborted();
+      throwIfAborted(o.signal);
     });
   }
 
@@ -157,7 +163,7 @@ export class LocalModel {
     });
   }
 
-  /** One generation on this phone. Aborting stops the native decode and rejects with `signal.reason` once it has stopped. */
+  /** Aborting stops native decode, then rejects with the supplied reason (or AbortError on runtimes without reasons). */
   complete(req: CompleteRequest): Promise<Completion> {
     if (!req || typeof req.prompt !== 'string' || (req.system !== undefined && typeof req.system !== 'string')) {
       throw new TypeError('complete() needs a string prompt.');
@@ -168,7 +174,7 @@ export class LocalModel {
     }
     return this.#exclusive(async () => {
       const { signal } = req;
-      signal?.throwIfAborted();
+      throwIfAborted(signal);
       const system = req.system ?? '';
       if (system.length + req.prompt.length > this.limits.maxInputChars) throw new InferError('too-large', 'The input is longer than the limit.');
       const ctx = await this.#load();
@@ -185,12 +191,12 @@ export class LocalModel {
       this.#stop = stop;
       const started = Date.now();
       try {
-        signal?.throwIfAborted();
+        throwIfAborted(signal);
         if (this.#releasing) throw new InferError('failed', 'The model was released.');
         this.#set({ phase: 'busy' });
         const r = await ctx.completion({ messages, jinja: true, enable_thinking: false, n_predict: maxOutputTokens, temperature: 0, seed: 0,
           ...(req.jsonSchema && { response_format: { type: 'json_schema' as const, json_schema: { strict: true as const, schema: req.jsonSchema } } }) }, onToken);
-        signal?.throwIfAborted();
+        throwIfAborted(signal);
         if (this.#releasing) throw new InferError('failed', 'The model was released while generating.');
         this.#set({ phase: 'ready' });
         return {
@@ -199,7 +205,7 @@ export class LocalModel {
           inputTokens: r.tokens_evaluated, outputTokens: r.tokens_predicted, ms: Date.now() - started, model: modelName(this.model),
         };
       } catch (cause) {
-        if (signal?.aborted) { this.#set({ phase: 'ready' }); throw signal.reason; }
+        if (signal?.aborted) { this.#set({ phase: 'ready' }); throw abortReason(signal); }
         if (cause instanceof InferError) { this.#set({ phase: 'ready' }); throw cause; }
         this.#set({ phase: 'failed', why: 'model' });
         this.#o.log?.('infer: native completion failed');

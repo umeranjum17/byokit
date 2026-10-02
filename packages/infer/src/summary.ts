@@ -72,7 +72,7 @@ const SCHEMA = {
 
 /**
  * A fully local 3–4 line summary of a pane. Expected outcomes come back as `ok: false`; an unusable model throws
- * `InferError` and an abort rejects with `signal.reason`. A cut-off or malformed answer is never shown as a summary.
+ * `InferError`; an abort rejects with its supplied reason, or AbortError when unavailable. Cut-off/malformed output is never a summary.
  */
 export async function summarizePane(local: LocalModel, lines: readonly string[], o: PaneSummaryOptions = {}): Promise<PaneSummary> {
   const text = paneText(lines, o);

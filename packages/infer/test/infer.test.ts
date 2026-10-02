@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { AbortController as RNAbortController } from 'abort-controller';
 import { LocalModel, InferError, MODELS, model, models, summarizePane, paneText, redact, stateWords, errorWords, words, WORDS,
   type InferDevice, type InferLimits, type InferModel, type InferState } from '../src/index.ts';
 import { fakeLlama, memoryModelStore } from '../src/testing.ts';
@@ -96,6 +97,73 @@ test('one call at a time: a second call is busy; abort stops the native decode a
   await assert.rejects(running, /flipped away/);
   assert.equal(llama.contexts[0].stops, 1);
   assert.equal(local.state.phase, 'ready');
+});
+
+test('stock React Native and modern signals support install, pre-abort, request cancellation and native stop/release', async () => {
+  for (const controller of [() => new AbortController(), () => new RNAbortController() as unknown as AbortController]) {
+    const reason = new Error('synthetic cancellation');
+    const cancelled = (signal: AbortSignal) => (e: unknown) => signal.reason !== undefined ? e === signal.reason
+      : e instanceof Error && e.name === 'AbortError' && e.message === 'The on-device operation was cancelled.';
+    const active = controller();
+    const good = make();
+    await good.local.install({ signal: active.signal });
+    assert.equal((await good.local.complete({ prompt: 'hello', signal: active.signal })).stop, 'eos');
+    await good.local.release();
+
+    const early = controller(); early.abort(reason);
+    const untouched = make();
+    await assert.rejects(untouched.local.install({ signal: early.signal }), cancelled(early.signal));
+    await assert.rejects(untouched.local.complete({ prompt: 'x', signal: early.signal }), cancelled(early.signal));
+    assert.equal(untouched.mem.downloads.length, 0);
+    assert.equal(untouched.llama.contexts.length, 0);
+
+    // Abort while storage preflight is awaited: never start a download after it returns.
+    const preflight = make(), preflightCtl = controller();
+    let checked!: () => void, open!: () => void;
+    const entered = new Promise<void>(r => { checked = r; });
+    const gate = new Promise<void>(r => { open = r; });
+    preflight.mem.store.size = async () => { checked(); await gate; return undefined; };
+    const checking = preflight.local.install({ signal: preflightCtl.signal });
+    await entered; preflightCtl.abort(reason); open();
+    await assert.rejects(checking, cancelled(preflightCtl.signal));
+    assert.equal(preflight.mem.downloads.length, 0);
+    assert.equal(preflight.local.state.phase, 'not-installed');
+
+    const downloading = make(), downloadCtl = controller();
+    let requested!: () => void;
+    const request = new Promise<void>(r => { requested = r; });
+    downloading.mem.store.download = async (_m, o) => new Promise((_resolve, reject) => {
+      o.signal!.addEventListener('abort', () => reject(new Error('synthetic store interruption')), { once: true });
+      requested();
+    });
+    const install = downloading.local.install({ signal: downloadCtl.signal });
+    await request; assert.equal(downloading.local.state.phase, 'installing'); downloadCtl.abort(reason);
+    await assert.rejects(install, cancelled(downloadCtl.signal));
+    assert.equal(downloading.local.state.phase, 'not-installed');
+
+    const native = make({ reply: () => new Promise(() => {}) }), nativeCtl = controller();
+    await native.local.install({ signal: nativeCtl.signal });
+    const running = native.local.complete({ prompt: 'long', signal: nativeCtl.signal });
+    while (!native.llama.contexts[0]?.completions.length) await new Promise(r => setTimeout(r, 0));
+    await assert.rejects(native.local.complete({ prompt: 'other' }), (e: InferError) => e.code === 'busy');
+    nativeCtl.abort(reason);
+    await assert.rejects(running, cancelled(nativeCtl.signal));
+    assert.ok(native.llama.contexts[0].stops >= 1);
+    assert.equal(native.local.state.phase, 'ready');
+    const nextCtl = controller();
+    const releasing = native.local.complete({ prompt: 'another', signal: nextCtl.signal });
+    while (native.llama.contexts[0].completions.length < 2) await new Promise(r => setTimeout(r, 0));
+    await native.local.release();
+    await assert.rejects(releasing, (e: InferError) => e.code === 'failed');
+    assert.equal(native.llama.contexts.length, 1);
+    assert.equal(native.llama.contexts[0].released, true);
+    assert.equal(native.local.state.phase, 'installed');
+  }
+  const stock = new RNAbortController();
+  assert.equal('throwIfAborted' in stock.signal, false);
+  assert.equal('reason' in stock.signal, false);
+  const nullReason = new AbortController(); nullReason.abort(null);
+  await assert.rejects(make().local.install({ signal: nullReason.signal }), e => e === null);
 });
 
 test('release stops a running call, frees the context, and the next call loads a fresh one', async () => {

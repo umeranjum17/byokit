@@ -24,6 +24,7 @@ const store: InferModelStore = {
   download: async (m, o) => {
     receipt('store.mkdir.begin');
     await RNFS.mkdir(DIR);
+    if (o.signal?.aborted) throw new Error('Download cancelled before the request.');
     receipt('download.request');
     const job = RNFS.downloadFile({ fromUrl: m.url, toFile: store.path(m), progressInterval: 500, progressDivider: 1,
       begin: () => receipt('download.response'),
@@ -96,7 +97,8 @@ export function InferDemo() {
     setSaid('');
     install.current = new AbortController();
     try { receipt('install.request'); await local.install({ signal: install.current.signal }); receipt('install.done'); }
-    catch (e) { fail(e); } finally { install.current = null; }
+    catch (e) { if (install.current.signal.aborted) receipt('install.aborted'); else fail(e); }
+    finally { install.current = null; }
   };
 
   const summarize = async (id: string) => {

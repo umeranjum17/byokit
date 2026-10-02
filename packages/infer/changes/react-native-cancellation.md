@@ -1,0 +1,1 @@
+- FIX: Install and generation cancellation work with stock React Native AbortSignal without a global polyfill. A supplied cancellation reason is preserved; runtimes without reasons reject with a fixed-message AbortError, and cancelled storage checks never start a model download.

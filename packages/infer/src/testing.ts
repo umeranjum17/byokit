@@ -1,5 +1,5 @@
 import type { InferModel, InferModelStore } from './types.ts';
-import type { InitLlama, LlamaRnCompletionParams, LlamaRnCompletionResult, LlamaRnContext, LlamaRnContextParams } from './model.ts';
+import { throwIfAborted, type InitLlama, type LlamaRnCompletionParams, type LlamaRnCompletionResult, type LlamaRnContext, type LlamaRnContextParams } from './model.ts';
 
 export type FakeLlama = {
   initLlama: InitLlama;
@@ -55,7 +55,7 @@ export function memoryModelStore(files: Record<string, Uint8Array> = {}, o: { fr
     path: (m: InferModel) => `/models/${m.id}.gguf`,
     size: async (m) => saved.get(m.id)?.byteLength,
     download: async (m, d) => {
-      d.signal?.throwIfAborted();
+      throwIfAborted(d.signal);
       downloads.push(m.url);
       if (o.failDownload) throw new Error('fake network failure');
       const bytes = files[m.url] ?? new Uint8Array();
