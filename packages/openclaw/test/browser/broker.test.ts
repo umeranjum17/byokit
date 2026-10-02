@@ -68,7 +68,7 @@ function handle(m){
   const info=targets.get(target);info.title=p.text;event('Target.targetInfoChanged',{targetInfo:info});return reply({});}
  case 'Page.startScreencast':{
   reply({});setTimeout(()=>emit({method:'Page.screencastFrame',sessionId:m.sessionId,params:{sessionId:1,
-   data:Buffer.from('synthetic-private-canary').toString('base64'),metadata:{deviceWidth:320,deviceHeight:240}}}),20);return;}
+   data:Buffer.concat([Buffer.from([255,216,255,192,0,8,8,0,240,1,64,3]),Buffer.from('synthetic-private-canary')]).toString('base64'),metadata:{deviceWidth:320,deviceHeight:240}}}),20);return;}
  default:return reply({});
  }
 }
@@ -148,9 +148,10 @@ test('pipe broker: authenticated forwarding, all-client fence, private targets, 
     assert.ok((await blocked.send('Byokit.claimTakeover', { epoch: 1, nonce: 'wrong' })).error);
     const control = f.broker.attachViewer({ lease });
     const frame = await control.frames[Symbol.asyncIterator]().next();
-    assert.ok(!frame.done); assert.equal(Buffer.from(frame.value!.jpeg).toString(), 'synthetic-private-canary'); // dropped-frame positive control
+    assert.ok(!frame.done); assert.ok(Buffer.from(frame.value!.jpeg).includes(Buffer.from('synthetic-private-canary'))); assert.equal(frame.value!.w, 320); assert.equal(frame.value!.h, 240); // dropped-frame positive control
     assert.throws(() => f.broker.attachViewer({ lease }));
     assert.throws(() => f.broker.attachViewer({}));
+    assert.throws(() => f.broker.attachViewer({ lease, maxWidth: 0 }));
     const state = f.broker.privateState()!;
     assert.equal(state.origin, 'http://127.0.0.1:2'); assert.equal(state.offOrigin, true);
     control.input({ kind: 'text', text: 'synthetic-private-canary' }); // paused, not delivered

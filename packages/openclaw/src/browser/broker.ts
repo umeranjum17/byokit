@@ -30,7 +30,7 @@ export type Broker = {
   openPrivate(url: string): Promise<string>;
   closePrivate(): Promise<void>;
   probe(url: string, verify: (p: Probe) => Promise<boolean>, timeoutMs: number): Promise<'ok' | 'fail' | 'timeout'>;
-  attachViewer(o: { lease?: { epoch: number; nonce: string } }): ViewerSession;
+  attachViewer(o: { lease?: { epoch: number; nonce: string }; maxWidth?: number }): ViewerSession;
   navigateAgent(url: string | 'reload'): Promise<void>;
   close(): Promise<void>;
 };
@@ -83,6 +83,28 @@ function latest<T>() {
     },
   };
 }
+// JPEG segment lengths include their own two-byte length field. Read the encoded SOF,
+// not CDP's unscaled viewport metadata (thumbnails deliberately differ from that viewport).
+function jpegSize(bytes: Uint8Array): { w: number; h: number } | undefined {
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return;
+  let at = 2;
+  while (at + 3 < bytes.length) {
+    if (bytes[at++] !== 0xff) return;
+    while (bytes[at] === 0xff) at++;
+    const marker = bytes[at++];
+    if (marker === 0xda || marker === 0xd9) return;
+    if (marker === 0x01 || marker >= 0xd0 && marker <= 0xd7) continue;
+    const length = (bytes[at]! << 8) | bytes[at + 1]!;
+    if (length < 2 || at + length > bytes.length) return;
+    if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+      if (length < 8) return;
+      const h = (bytes[at + 3]! << 8) | bytes[at + 4]!, w = (bytes[at + 5]! << 8) | bytes[at + 6]!;
+      return w > 0 && h > 0 ? { w, h } : undefined;
+    }
+    at += length;
+  }
+  return;
+}
 const controlMethods = new Set(['Target.attachToTarget', 'Target.detachFromTarget', 'Page.enable',
   'Page.startScreencast', 'Page.stopScreencast', 'Page.screencastFrameAck', 'Page.getNavigationHistory',
   'Page.navigateToHistoryEntry', 'Page.reload', 'Input.dispatchMouseEvent', 'Input.dispatchKeyEvent', 'Input.insertText']);
@@ -123,7 +145,8 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
     '--remote-debugging-pipe', '--disable-features=BackForwardCache', '--disable-background-networking',
     '--disable-component-update', '--disable-sync', '--no-first-run', '--no-default-browser-check', 'about:blank'], {
     // No inherited HOME, login, proxy, DISPLAY or debugging port. Chromium's profile is app-owned.
-    env: { HOME: o.profileDir, TMPDIR: o.profileDir }, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'],
+    env: { HOME: o.profileDir, TMPDIR: o.profileDir },
+    stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe', 'ignore', 'ignore', 'ignore', 'ignore', 'ignore'], // never inherit the caller's fd9 job lock
   });
   const writer = chrome.stdio[3] as Writable, reader = chrome.stdio[4] as Readable;
   const token = randomBytes(16).toString('hex');
@@ -144,7 +167,7 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
   let binding: LeaseBinding | null = null, highestEpoch = 0, activePrivate: string | undefined;
   const confirmed = new Set<string>(), privateOrigins = new Map<string, string>();
   const mainFrames = new Map<string, string>(), navigationEpoch = new Map<string, number>();
-  type Viewer = { target?: string; sid?: string; control: boolean; closed: boolean; close(): void; frames: ReturnType<typeof latest<LiveFrame>>; states: ReturnType<typeof latest<NonNullable<PrivateState>>> };
+  type Viewer = { target?: string; sid?: string; scaleX: number; scaleY: number; control: boolean; closed: boolean; close(): void; frames: ReturnType<typeof latest<LiveFrame>>; states: ReturnType<typeof latest<NonNullable<PrivateState>>> };
   const viewers = new Set<Viewer>();
   let controller: Client | Viewer | undefined;
   function matches(l: { epoch: number; nonce: string }) {
@@ -583,11 +606,13 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
       }
     },
     attachViewer(o) {
+      const maxWidth = o.maxWidth ?? 1280;
+      if (!Number.isInteger(maxWidth) || maxWidth < 1 || maxWidth > 1280) throw failure();
       const control = !!o.lease;
       if (poisoned || closed || control && (!fenced || !drained || !activePrivate || !matches(o.lease!) || controller)
         || !control && (fenced || !lastAgent)) throw failure();
       let seq = 0;
-      const v: Viewer = { control, closed: false, frames: latest<LiveFrame>(), states: latest<NonNullable<PrivateState>>(), close() {
+      const v: Viewer = { control, scaleX: 1, scaleY: 1, closed: false, frames: latest<LiveFrame>(), states: latest<NonNullable<PrivateState>>(), close() {
         if (v.closed) return;
         v.closed = true; viewers.delete(v); listeners.delete(frame); listeners.delete(change); v.frames.end(); v.states.end();
         if (controller === v) controller = undefined;
@@ -601,8 +626,11 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
         if (!allowed() || m.sessionId !== v.sid || m.method !== 'Page.screencastFrame') return;
         // Frames are private memory only, ack even when the consumer is slow.
         void send('Page.screencastFrameAck', { sessionId: m.params!.sessionId }, v.sid).catch(() => v.close());
-        v.frames.push({ seq: ++seq, w: m.params!.metadata.deviceWidth, h: m.params!.metadata.deviceHeight,
-          at: Date.now(), jpeg: new Uint8Array(Buffer.from(m.params!.data, 'base64')) });
+        const jpeg = new Uint8Array(Buffer.from(m.params!.data, 'base64'));
+        const size = jpegSize(jpeg);
+        if (!size || size.w > maxWidth || size.h > 960) return v.close();
+        v.scaleX = m.params!.metadata.deviceWidth / size.w; v.scaleY = m.params!.metadata.deviceHeight / size.h;
+        v.frames.push({ seq: ++seq, ...size, at: Date.now(), jpeg });
       };
       listeners.add(frame);
       const attach = async () => {
@@ -614,7 +642,7 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
         if (!allowed()) { await send('Target.detachFromTarget', { sessionId }); return; }
         v.target = id; v.sid = sessionId; sessionTargets.set(sessionId, id);
         await send('Page.enable', {}, sessionId);
-        await send('Page.startScreencast', { format: 'jpeg', quality: 70, maxWidth: 1280, maxHeight: 960 }, sessionId);
+        await send('Page.startScreencast', { format: 'jpeg', quality: 70, maxWidth, maxHeight: 960 }, sessionId);
         const state = stateOf(id); if (control && state) v.states.push(state);
       };
       const ready = attach().catch(() => v.close());
@@ -630,7 +658,7 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
         else if (i.kind === 'key') { method = 'Input.dispatchKeyEvent'; params = { type: i.type === 'down' ? 'keyDown' : i.type === 'up' ? 'keyUp' : '', key: i.key, code: i.code, modifiers: i.modifiers }; }
         else if (i.kind === 'pointer') {
           method = 'Input.dispatchMouseEvent'; params = { type: ({ move: 'mouseMoved', down: 'mousePressed', up: 'mouseReleased', wheel: 'mouseWheel' } as const)[i.type],
-            x: i.x, y: i.y, button: i.button, ...(i.type === 'down' || i.type === 'up' ? { clickCount: 1 } : {}),
+            x: i.x * v.scaleX, y: i.y * v.scaleY, button: i.button, ...(i.type === 'down' || i.type === 'up' ? { clickCount: 1 } : {}),
             ...(i.type === 'wheel' ? { deltaX: i.dx ?? 0, deltaY: i.dy ?? 0 } : {}) };
         } else if (i.kind === 'nav') {
           if (i.action === 'reload') { method = 'Page.reload'; params = {}; }
