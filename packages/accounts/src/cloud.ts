@@ -15,9 +15,11 @@ export type CloudAccount = {
   project?: string; location?: string; baseUrl?: string; accountId?: string; gatewayId?: string;
 };
 export class CloudAccountError extends Error {
-  constructor(readonly code: Readiness | 'invalid_selection') {
+  readonly code: Readiness | 'invalid_selection';
+  constructor(code: Readiness | 'invalid_selection') {
     super(code === 'unsupported_platform' ? 'Cloud accounts need a Node host.' : code === 'invalid_selection' ? 'Choose the required cloud account settings.' : 'This cloud route is not ready.');
     this.name = 'CloudAccountError';
+    this.code = code;
   }
 }
 const providers = new Set(['amazon-bedrock', 'google-vertex', 'azure-openai-responses', 'cloudflare-ai-gateway', 'cloudflare-workers-ai']);
@@ -71,7 +73,7 @@ export function cloudSelection(provider: string, o: CloudOptions, host: RouteHos
 }
 
 /** Exact pinned credential shape for host adapters. Never stores or returns the secret. */
-export function cloudCredential(a: CloudAccount): ApiKeyCredential {
+export function cloudCredential(a: CloudAccount): ApiKeyCredential & { byokitCloud: CloudAccount } {
   const env: Record<string, string> = {};
   if (a.profile) env.AWS_PROFILE = a.profile;
   if (a.region) env.AWS_REGION = a.region;
