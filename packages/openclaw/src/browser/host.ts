@@ -16,7 +16,7 @@ export type HostBroker = {
   openPrivate(url: string): Promise<string>;
   closePrivate(): Promise<void>;
   probe(url: string, verify: (p: Probe) => Promise<boolean>, timeoutMs: number): Promise<'ok' | 'fail' | 'timeout'>;
-  attachViewer(o: { lease?: { epoch: number; nonce: string } }): { frames: AsyncIterable<LiveFrame>; states: AsyncIterable<{ origin: string; secure: boolean; offOrigin: boolean }>; input(i: LiveInput): void; close(): void };
+  attachViewer(o: { lease?: { epoch: number; nonce: string }; maxWidth?: number }): { frames: AsyncIterable<LiveFrame>; states: AsyncIterable<{ origin: string; secure: boolean; offOrigin: boolean }>; input(i: LiveInput): void; close(): void };
   bindLease(l: { epoch: number; nonce: string; origin: string; knownIdps: string[] } | null): void;
   confirmOrigin(l: { epoch: number; nonce: string }, origin: string): boolean;
   privateState(): { origin: string; secure: boolean; offOrigin: boolean } | undefined;
@@ -95,7 +95,7 @@ class Host implements BrowserHostController {
   private data: SignInData;
   private committed: SignInData;
   private readonly brokers: Map<Member, HostBroker>;
-  private readonly attaching = new Set<Member>();
+  private readonly attaching = new Map<Member, HostBroker>();
   private readonly bindingVersions = new Map<Member, number>();
   private readonly recovery = new Map<Member, NonNullable<BrowserState['recovery']>>();
   private readonly exhausted = new Set<Member>();
@@ -149,7 +149,7 @@ class Host implements BrowserHostController {
     const old = this.brokers.get(member);
     if (old !== previous) return Promise.reject(new SignInRefused('stale'));
     if (old === next) return Promise.resolve();
-    this.attaching.add(member); this.unavailable.add(member); this.thumbs.delete(member);
+    this.attaching.set(member, next); this.unavailable.add(member); this.thumbs.delete(member);
     this.bindingVersions.set(member, (this.bindingVersions.get(member) ?? 0) + 1);
     this.recovery.delete(member);
     this.epochs.set(member, (this.epochs.get(member) ?? 0) + 1);
@@ -177,6 +177,7 @@ class Host implements BrowserHostController {
         // Leave the replacement fenced. W3 publishes this binding, awaits config/policy ack, then releases.
         if (this.stopped || this.failed || this.brokers.get(member) !== old) throw new SignInRefused('stale');
         this.brokers.set(member, next); this.unavailable.delete(member); this.exhausted.delete(member);
+        this.attaching.delete(member); // state-ping listeners must see the accepted canonical binding
         for (const r of requests) { this.closing.delete(r.id); this.ping(r); }
         try { this.s.ping?.(member, 'state'); } catch { /* advisory */ }
       } catch {
@@ -188,7 +189,7 @@ class Host implements BrowserHostController {
         throw new SignInRefused('unsupported');
       }
     }).catch(async e => { try { await next.close(); } catch { /* never expose endpoint details */ } throw e; })
-      .finally(() => { this.attaching.delete(member); });
+      .finally(() => { if (this.attaching.get(member) === next) this.attaching.delete(member); });
   }
   private serial<T>(fn: () => Promise<T>): Promise<T> {
     const result = this.queue.then(async () => {
@@ -561,9 +562,10 @@ class Host implements BrowserHostController {
   }
   private async captureThumbnail(member: Member): Promise<ThumbnailResult> {
     const broker = this.broker(member);
-    const viewer = broker.attachViewer({});
+    let viewer: ReturnType<HostBroker['attachViewer']> | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
+      viewer = broker.attachViewer({ maxWidth: 320 });
       const result = await Promise.race([viewer.frames[Symbol.asyncIterator]().next(), new Promise<undefined>(resolve => { timer = setTimeout(() => resolve(undefined), 2_000); })]);
       // Privacy and endpoint identity are rechecked after awaiting a frame.
       this.currentBroker(member, broker);
@@ -573,7 +575,7 @@ class Host implements BrowserHostController {
       this.thumbs.set(member, { at: this.now(), frame });
       return { state: 'ok', frame: structuredClone(frame) };
     } catch { return { state: 'off' }; }
-    finally { clearTimeout(timer); viewer.close(); }
+    finally { clearTimeout(timer); viewer?.close(); }
   }
   live(source: LiveSource, o: { grant: string; lease?: TakeoverLease; maxWidth?: number }, on: { state(s: LiveViewState): void; frame(f: LiveFrame): void }) {
     this.access(o.grant, source.member, !!o.lease);
@@ -582,6 +584,7 @@ class Host implements BrowserHostController {
     let viewer: ReturnType<HostBroker['attachViewer']> | undefined;
     let l: Lease | undefined;
     let r: NeedSignIn | undefined;
+    let attachDeadline: number | undefined;
     let heartbeat: ReturnType<typeof setInterval> | undefined;
     const emit = (s: Partial<LiveViewState> & Pick<LiveViewState, 'phase'>) => on.state({ source, mode, ...s });
     const stream: Stream = { member: source.member, grant: o.grant, control: !!o.lease, close: why => {
@@ -598,10 +601,17 @@ class Host implements BrowserHostController {
       const bound = this.lease(o.lease); r = bound.r; l = bound.l;
       if (r.member !== source.member || l.grant !== o.grant) throw new SignInRefused('not-lease-holder');
       if (r.state !== 'held' || l.attached) throw new SignInRefused('held-by-other');
+      attachDeadline = l.deadline;
       l.attached = true; l.deadline = l.value.expires; this.leaseTimer(r, l);
     } else if (this.data.requests.some(r => r.member === source.member && open(r))) { emit({ phase: 'private' }); return inert; }
     const broker = this.broker(source.member);
-    viewer = broker.attachViewer({ ...(l ? { lease: { epoch: l.value.epoch, nonce: l.value.nonce } } : {}) });
+    try {
+      viewer = broker.attachViewer({ ...(l ? { lease: { epoch: l.value.epoch, nonce: l.value.nonce } } : {}),
+        ...(o.maxWidth !== undefined ? { maxWidth: o.maxWidth } : {}) });
+    } catch {
+      if (l && r) { l.attached = false; l.deadline = attachDeadline!; this.leaseTimer(r, l); }
+      emit({ phase: 'failed', why: 'browser-gone' }); return inert;
+    }
     this.streams.add(stream); emit({ phase: 'connecting' });
     if (l && r) heartbeat = setInterval(() => {
       try {
