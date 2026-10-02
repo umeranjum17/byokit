@@ -1641,6 +1641,7 @@ session ownership.
   back/forward/reload, only on held targets; `Runtime.evaluate` refused. Input pauses whenever the held main frame
   is on an origin not **exactly** (scheme, host, port) the bound origin, a `knownIdps` origin or one confirmed for
   this lease.
+- **Internal host seam.** `bindLease`, `confirmOrigin`, `privateState` and `ViewerSession.states` bind control to exact origins; `clearSite` clears explicit exact origins only, never claims a whole-profile wipe.
 - **Release order.** Close every held target, await `targetDestroyed`, lift the fence, then navigate the agent's
   tab (`checkUrl` on `verified`, else reload, which also resyncs Playwright).
 
