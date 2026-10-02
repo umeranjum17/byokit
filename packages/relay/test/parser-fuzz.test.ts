@@ -19,6 +19,9 @@ test('seed 0x3c03: push envelope parsers reject malformed fields and unsafe dest
     const web = { web: { endpoint, keys: { p256dh: `key-${i}`, auth: `auth-${i}` } } };
     assert.deepEqual(parseSubscription(web), web);
     assert.deepEqual(parseSubscription({ expo: `ExpoPushToken[token_${i}]` }), { expo: `ExpoPushToken[token_${i}]` });
+    const platform = (['ios', 'android'] as const)[next(2)];
+    assert.deepEqual(parseSubscription({ expo: `ExpoPushToken[token_${i}]`, platform }), { expo: `ExpoPushToken[token_${i}]`, platform });
+    assert.equal(parseSubscription({ expo: `ExpoPushToken[token_${i}]`, platform: [null, '', 'web', 'IOS', 1][next(5)] }), undefined);
     const badEndpoints = [`http://fcm.googleapis.com/${i}`, `https://fcm.googleapis.com.evil.example/${i}`,
       `https://fcm.googleapis.com@127.0.0.1/${i}`, `https://user:secret@fcm.googleapis.com/${i}`,
       `https://fcm.googleapis.com:8443/${i}`, `https://127.0.0.1/${i}`, `file:///tmp/${i}`];
@@ -30,11 +33,13 @@ test('seed 0x3c03: push envelope parsers reject malformed fields and unsafe dest
     for (const field of ['p256dh', 'auth'] as const) {
       assert.equal(parseSubscription({ web: { endpoint, keys: { ...web.web.keys, [field]: '\u0000' } } }), undefined);
     }
-    const notification = { id: `event-${i}`, title: `Ready ${i}`, to: [`device-${i}`], actions: ['open'], ttl: next(28 * 86_400 + 1) };
+    const notification = { id: `event-${i}`, title: `Ready ${i}`, to: [`device-${i}`], actions: ['open'], ttl: next(28 * 86_400 + 1),
+      mutableContent: next(2) === 1, categoryId: `cat.${i}`, dataOnly: next(2) === 1 };
     assert.deepEqual(parseNotification(notification), notification);
     for (const patch of [{ id: '../event' }, { title: 'x'.repeat(121 + next(20)) }, { body: '\u0000' },
       { data: [] }, { data: { text: 'x'.repeat(2049) } }, { to: [null] }, { actions: Array(5).fill('open') },
-      { ttl: -1 - next(100) }, { ttl: 28 * 86_400 + 1 }, { urgency: 'urgent' }]) {
+      { ttl: -1 - next(100) }, { ttl: 28 * 86_400 + 1 }, { urgency: 'urgent' },
+      { mutableContent: 1 }, { dataOnly: 'true' }, { categoryId: '' }, { categoryId: 'a b' }, { categoryId: 7 }]) {
       assert.equal(parseNotification({ ...notification, ...patch }), undefined, `case ${i}: ${JSON.stringify(patch).slice(0, 80)}`);
     }
     // Arbitrary JSON inputs: parsers must be total and accepted outputs must parse identically.
