@@ -36,3 +36,8 @@ export { stateWords, toAccountView, words, type AccountView, type WordKey } from
 export { EngineAlreadyRunningError } from './engine-status.ts';
 export { readAgentUsage, agentUsageOf } from './usage.ts';
 export type { AgentUsageReading, LedgerUsageTotals, UsageCache, UsageWindow } from './usage.ts';
+export type {
+  LiveSource, BrowserState, SignInMethodHint, SignInReason, SignInChoice, SettledState, SettledReason,
+  ResumeState, NeedSignIn, TakeoverLease, LiveViewState, LiveFrame, LiveInput, ThumbnailResult,
+  SignInRefusedWhy, BrowserOptions, SiteVerifier, BrowserHost, BrowserDevice
+} from './browser.ts';
