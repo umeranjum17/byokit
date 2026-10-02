@@ -179,6 +179,16 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     await assert.rejects(kit.patchConfig({ agents: { entries: { bea: { tools: { allow: ['exec'] } } } } }), /browser tool policy refused/);
     t.diagnostic(`stock=${before}; fixture positive model requests=${count}; live frames=${frames}; handoff-unprotected; distinct pinned profiles=2`);
   } finally {
+    // Retain actual loopback provider bodies and authoritative broker-token digests before owned cleanup.
+    // Event/output clipping is not evidence that the provider request was safe.
+    let brokerTokens: Record<string, string> = {};
+    try {
+      const pinned = JSON.parse(readFileSync(join(stateDir, 'openclaw/openclaw.json'), 'utf8'));
+      brokerTokens = Object.fromEntries(Object.entries(pinned.browser.profiles).flatMap(([id, profile]: [string, any]) => {
+        const token = new URL(profile.cdpUrl).searchParams.get('token');
+        return token ? [[id, createHash('sha256').update(token).digest('hex')]] : [];
+      }));
+    } catch { diagnostics.push({ proofCaptureFailure: 'owned broker-token snapshot unavailable' }); }
     await kit.stop();
     if (child?.pid && child.exitCode === null && child.signalCode === null) {
       const exited = once(child, 'exit'); child.kill('SIGTERM');
@@ -189,11 +199,12 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     assert.equal(hash(entry), before, 'stock executable untouched');
     const receipt = { engine: '2026.8.1', upstreamCommit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b', stockEntry: before,
       shippedPlugin: hash(new URL('../../plugin/index.js', import.meta.url).pathname), requests, outputs, toolEvents,
-      providerRequests: model.calls.length, protectedHandoffQualified: false, observationOnly, counterfactual, diagnostics, thumbnails, runtimeRefusals,
+      providerRequests: model.calls.length, modelCalls: model.calls, brokerTokenDigests: brokerTokens,
+      protectedHandoffQualified: false, observationOnly, counterfactual, diagnostics, thumbnails, runtimeRefusals,
       candidateSources: Object.fromEntries(['kit.ts', 'config.ts', 'browser/host.ts', 'browser/broker.ts'].map(path =>
         [path, hash(new URL(`../../src/${path}`, import.meta.url).pathname)])),
       limits: ['no protected production handoff', 'no recovery-turn refusal qualification', 'no private secret/profile scan in this kit test; broker test owns that matrix'] };
-    if (process.env.BYOKIT_BROWSER_RECEIPT) writeFileSync(process.env.BYOKIT_BROWSER_RECEIPT, JSON.stringify(receipt, null, 2));
+    if (process.env.BYOKIT_BROWSER_RECEIPT) writeFileSync(process.env.BYOKIT_BROWSER_RECEIPT, JSON.stringify(receipt, null, 2), { mode: 0o600 });
     const logs = process.env.BYOKIT_BROWSER_RECEIPT ? `${process.env.BYOKIT_BROWSER_RECEIPT}.stock.log` : undefined;
     if (logs && existsSync(join(stateDir, 'stock-engine.log'))) writeFileSync(logs, readFileSync(join(stateDir, 'stock-engine.log')));
     if (logs && existsSync(join(stateDir, 'chromium.stderr'))) writeFileSync(`${logs}.chromium`, readFileSync(join(stateDir, 'chromium.stderr')));
