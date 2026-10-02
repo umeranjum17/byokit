@@ -2,10 +2,16 @@
 // storage is only "load the record, save the record"; this file keeps every one of them serialized the same way, so a
 // refresh and a sign-out never interleave. No Node import here: phones and browsers use it too (see node-stores.ts).
 import type { Defaults } from './multi.ts';
+import type { Billing } from './catalogue.ts';
 import type { EndpointRecord } from './endpoints.ts';
 import type { Credential, CredentialStore, OAuthCredential } from '@earendil-works/pi-ai';
 
-export type AccountsIndex = { names: { [id: string]: string }; emails: { [id: string]: string }; plans: { [id: string]: string }; addedAt: { [id: string]: number }; defaults: Defaults; endpoints?: { [id: string]: EndpointRecord } };
+/** Non-secret per-account route configuration. Secret values belong only in keyStore, never here. */
+export type AccountMetadata = {
+  route: string; billing: Billing; baseUrl?: string; compat?: 'openai' | 'anthropic'; region?: string;
+  profile?: string; keyFile?: string; accountId?: string; gatewayId?: string; endpoint?: EndpointRecord;
+};
+export type AccountsIndex = { accounts?: { [id: string]: AccountMetadata }; names: { [id: string]: string }; emails: { [id: string]: string }; plans: { [id: string]: string }; addedAt: { [id: string]: number }; defaults: Defaults };
 export const emptyIndex = (): AccountsIndex => ({ names: {}, emails: {}, plans: {}, addedAt: {}, defaults: {} });
 export type Record = { [providerId: string]: Credential | AccountsIndex };
 export type IndexStore = { index(fn?: (index: AccountsIndex, data: Record) => void, options?: { signal?: AbortSignal }): Promise<AccountsIndex> };
@@ -53,7 +59,7 @@ export function recordStore(load: () => Promise<Record>, save: (data: Record) =>
       const data = { ...await load() };
       const before = fn && options?.signal ? JSON.parse(JSON.stringify(data)) as Record : undefined;
       const stored = data['.accounts'] as AccountsIndex | undefined;
-      const index: AccountsIndex = stored ? { names: { ...stored.names }, emails: { ...stored.emails }, plans: { ...stored.plans }, addedAt: { ...stored.addedAt }, defaults: { ...stored.defaults }, ...(stored.endpoints ? { endpoints: JSON.parse(JSON.stringify(stored.endpoints)) } : {}) } : emptyIndex();
+      const index: AccountsIndex = stored ? { names: { ...stored.names }, emails: { ...stored.emails }, plans: { ...stored.plans }, addedAt: { ...stored.addedAt }, defaults: { ...stored.defaults }, ...(stored.accounts ? { accounts: JSON.parse(JSON.stringify(stored.accounts)) } : {}) } : emptyIndex();
       if (options?.signal?.aborted) throw new Error('Login cancelled');
       if (fn) {
         fn(index, data);

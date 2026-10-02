@@ -6,7 +6,7 @@ export { PROVIDERS, offered, provider, routes, route, routeReadiness, type Billi
 export { PORTABLE, claims, credentialOf, devicePoll, deviceStart, portableEngine, type EngineOptions, type Poll } from './engine.ts';
 export { REST_MS, classify, classifyFailure, type Failure, type Kind } from './limits.ts';
 export { IncompleteError, ResponseError, isFunctionCall, limitResponse, respond, sseReader, type Ask, type ResponseFunctionCall, type ResponseInputItem, type ResponseOutputItem, type ResponseOutputMessage, type ResponseReasoning, type ResponseResult, type ResponseUsage, type ResponseStreamEvent, type ResponseText, type ResponseTextFormat, type ResponseTool, type ResponseToolChoice } from './responses.ts';
-export { viewStore, type EndingStore, type AccountStore, type AccountsIndex, type IndexStore, browserStore, keystoreStore, memoryStore, recordStore, secureStore, RefreshRequiredError, type RefreshStore, type SecureStoreLike } from './stores.ts';
+export { viewStore, type EndingStore, type AccountStore, type AccountsIndex, type AccountMetadata, type IndexStore, browserStore, keystoreStore, memoryStore, recordStore, secureStore, RefreshRequiredError, type RefreshStore, type SecureStoreLike } from './stores.ts';
 export { WORDS, billingWords, callbackPage, clock, failure, planLabel, say, signInError, type WordKey, type Why } from './words.ts';
 
 export { chatgptPlan, UnsupportedAccountError, type ChatGPTPlanAccount, type ChatGPTRespondAccount, type ChatGPTPlanSession } from './chatgpt-plan.ts';

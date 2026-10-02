@@ -12,7 +12,7 @@ import { claims, PORTABLE, portableEngine } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
 import type { ChatGPTRespondAccount } from './chatgpt-plan.ts';
-import { emptyIndex, viewStore, memoryStore, refreshCredential, type EndingStore, type RefreshStore } from './stores.ts';
+import { emptyIndex, viewStore, memoryStore, refreshCredential, type AccountMetadata, type EndingStore, type RefreshStore } from './stores.ts';
 import type { Account, Defaults, Via } from './multi.ts';
 import type { Credential } from '@earendil-works/pi-ai';
 import { callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';
@@ -136,6 +136,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
   private publicKey(key: string) { return this.providers.find((p) => p.pi === key)?.key ?? key; }
   private index(member: M) { return this.store(member).index(); }
+  private async endpointRecord(member: M, id: string) { return (await this.index(member)).accounts?.[id]?.endpoint; }
 
   async list(member: M): Promise<Account[]> {
     const index = await this.index(member);
@@ -152,7 +153,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         ...(index.emails[id] || info?.email ? { email: index.emails[id] || info?.email } : {}),
         ...(index.plans[id] || info?.plan ? { plan: index.plans[id] || info?.plan } : {}), addedAt: index.addedAt[id] ?? 0 });
     }
-    for (const [id, config] of Object.entries(index.endpoints ?? {})) {
+    for (const [id, metadata] of Object.entries(index.accounts ?? {})) {
+      const config = metadata.endpoint;
+      if (!config) continue;
       const status = await this.endpointStatus(member, id);
       rows.push({ id, provider: 'custom', route: config.billing === 'local' ? 'custom:local' : 'custom:endpoint',
         name: index.names[id] ?? config.name ?? 'Your own server', label: endpointLabel(config.billing), billing: config.billing,
@@ -170,17 +173,12 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
     else for (let n = 0; n < bytes.length; n++) bytes[n] = Math.floor(Math.random() * 256);
     const id = `endpoint.${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+    const metadata: AccountMetadata = { route: config.billing === 'local' ? 'custom:local' : 'custom:endpoint',
+      billing: config.billing, baseUrl: config.baseUrl, compat: config.compat,
+      endpoint: { ...config, hasKey: options.key !== undefined, active: true } };
     await this.store(member).index(() => {}); // Check the durable metadata seam before saving a secret.
-    if (options.key !== undefined) await this.keys(member, (store) => store.set(`accounts.${id}`, options.key!));
-    try {
-      await this.store(member).index((i) => {
-        (i.endpoints ??= {})[id] = { ...config, hasKey: options.key !== undefined, active: true };
-        i.addedAt[id] = Date.now();
-      });
-    } catch {
-      if (options.key !== undefined) await this.keys(member, (store) => store.delete(`accounts.${id}`));
-      throw new Error('This endpoint could not be saved.');
-    }
+    if (options.key !== undefined) await this.saveAccountKey(member, id, options.key, metadata);
+    else await this.store(member).index((i) => { (i.accounts ??= {})[id] = metadata; i.addedAt[id] = Date.now(); });
     this.onChange?.(member, id);
     return { id };
   }
@@ -191,7 +189,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** Readiness is public metadata only, before opening any key backend. */
   async endpointReadiness(member: M, id: string): Promise<Readiness> {
-    const config = (await this.index(member)).endpoints?.[id];
+    const config = await this.endpointRecord(member, id);
     if (!config) throw new EndpointError('no_upstream_flow');
     try { this.requireEndpointHost(config); return 'ready'; }
     catch (e) { if (e instanceof EndpointError) return e.readiness as Readiness; throw e; }
@@ -199,7 +197,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   private async endpointStatus(member: M, id: string): Promise<Status & { readiness: Readiness }> {
     const index = await this.index(member);
-    const config = index.endpoints?.[id];
+    const config = index.accounts?.[id]?.endpoint;
     if (!config) throw new EndpointError('no_upstream_flow');
     const readiness = await this.endpointReadiness(member, id);
     const until = this.accountRestingUntil(member, id);
@@ -210,13 +208,13 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** Complete typed Pi Models pass-through, scoped to exactly this member and account, never registered in a default runtime. */
   async endpointRuntime(member: M, id: string): Promise<Models> {
-    const config = (await this.index(member)).endpoints?.[id];
+    const config = await this.endpointRecord(member, id);
     if (!config) throw new EndpointError('no_upstream_flow');
     this.requireEndpointHost(config);
     if (!config.active) throw new EndpointError('signed_out');
     return (this.opts.endpointDriver ?? this.platform.endpoint)!(id, config, async () => {
       // Previously returned runtimes also stop working after removal/sign-out. Readiness precedes secrets.
-      const current = (await this.index(member)).endpoints?.[id];
+      const current = await this.endpointRecord(member, id);
       if (!current?.active) throw new EndpointError('signed_out');
       this.requireEndpointHost(current);
       if (!current.hasKey) return undefined;
@@ -250,12 +248,12 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
   async remove(member: M, id: string): Promise<void> {
     id = this.accountKey(member, id);
-    const endpoint = !!(await this.index(member)).endpoints?.[id];
+    const endpoint = !!(await this.endpointRecord(member, id));
     try { await this.endAccount(member, id, true); }
     finally {
       await this.store(member).index((i) => {
         for (const map of [i.names, i.emails, i.plans, i.addedAt]) delete map[id];
-        if (endpoint) delete i.endpoints?.[id];
+        if (endpoint) delete i.accounts?.[id];
         if (i.defaults.account === id) delete i.defaults.account;
       });
       this.preferred.delete(`${member}:${this.providerKey(id)}`);
@@ -464,11 +462,31 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     return p;
   }
 
-  private async keys<T>(member: M, action: (store: Keystore) => Promise<T>): Promise<T> {
+  /** Shared key-store seam for key, cloud and endpoint account adapters; sanitized failures only. */
+  protected async keys<T>(member: M, action: (store: Keystore) => Promise<T>): Promise<T> {
     try {
       if (!this.opts.keyStore) throw new Error();
       return await action(this.opts.keyStore(member));
     } catch { throw new Error('Saved keys could not be opened or changed. Try again after unlocking this device.'); }
+  }
+
+  /** Shared persistence for adapters that have already validated route/platform/billing. No secret enters the index. */
+  protected async saveAccountKey(member: M, id: string, secret: string, metadata: AccountMetadata): Promise<void> {
+    if (typeof secret !== 'string' || !secret.trim()) throw new Error('Enter a key to connect this account.');
+    await this.serial(`${member}:${id}`, async () => {
+      const previous = await this.keys(member, (store) => store.get(`accounts.${id}`));
+      await this.keys(member, (store) => store.set(`accounts.${id}`, secret));
+      try {
+        await this.store(member).index((index, data) => {
+          data[id] = { type: 'api_key' }; // A marker, never the secret.
+          (index.accounts ??= {})[id] = { ...metadata };
+          index.addedAt[id] ??= Date.now();
+        });
+      } catch {
+        await this.keys(member, (store) => previous === null ? store.delete(`accounts.${id}`) : store.set(`accounts.${id}`, previous));
+        throw new Error('This account could not be saved. Try again.');
+      }
+    });
   }
 
   /** Explicit consent to per-use billing. Saves only in this member's device-owned secrets store. */
@@ -499,10 +517,10 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   /** Signed in, from the engine's own side-effect-free check. */
   async signedIn(member: M, key: string) {
     key = this.additions.has(`${member}:${key}`) ? key : await this.resolveKey(member, key);
-    if ((await this.index(member)).endpoints?.[key]) {
+    const config = await this.endpointRecord(member, key);
+    if (config) {
       const status = await this.endpointStatus(member, key);
       if (status.state !== 'ready') return false;
-      const config = (await this.index(member)).endpoints![key];
       return !config.hasKey || !!(await this.keys(member, (store) => store.get(`accounts.${key}`)));
     }
     return this.checked(member, key);
@@ -690,7 +708,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
 
   private async accountStatus(member: M, key: string): Promise<Status> {
-    if ((await this.index(member)).endpoints?.[key]) return this.endpointStatus(member, key);
+    if (await this.endpointRecord(member, key)) return this.endpointStatus(member, key);
     const { name } = this.offer(key);
     const id = `${member}:${key}`;
     const s = (state: Status['state'], w: WordKey, until?: number): Status => ({ id: key, provider: this.providerKey(key), account: key, name, state, until, words: say(w, { name, until: until ? clock(until) : '' }) });
@@ -895,7 +913,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   /** After the account turned a request away: true if its sign-in still refreshes; if not, it is signed out for good. */
   async recheck(member: M, key: string) {
     key = await this.resolveKey(member, key);
-    if ((await this.index(member)).endpoints?.[key]) { await this.logout(member, key); return false; }
+    if (await this.endpointRecord(member, key)) { await this.logout(member, key); return false; }
     const p = this.offer(key);
     // A saved API key cannot refresh itself after an authentication refusal.
     const ok = p.auth === 'api-key' || (key === 'openrouter' && this.opts.keyStore)
@@ -909,10 +927,14 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   logout(member: M, key: string) { return this.endAccount(member, key); }
 
   private async endAccount(member: M, key: string, exact = false) {
-    const endpoint = key.startsWith('endpoint.') ? (await this.index(member)).endpoints?.[key] : undefined;
+    const endpoint = key.startsWith('endpoint.') ? await this.endpointRecord(member, key) : undefined;
     if (endpoint) {
       await this.serial(`${member}:${key}`, async () => {
-        await this.store(member).index((i) => { if (i.endpoints?.[key]) i.endpoints[key].active = false; });
+        await this.store(member).index((i, data) => {
+          const config = i.accounts?.[key]?.endpoint;
+          if (config) config.active = false;
+          delete data[key];
+        });
         if (endpoint.hasKey) await this.keys(member, (store) => store.delete(`accounts.${key}`));
       });
       this.onChange?.(member, key);
