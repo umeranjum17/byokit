@@ -1,0 +1,1 @@
+- FIX: The browser example now saves the sample usage page and its script with the offline shell, removes old shell caches on activation, and returns an explicit offline fallback for uncached pages and files. Sign-in and model calls still require the network.
