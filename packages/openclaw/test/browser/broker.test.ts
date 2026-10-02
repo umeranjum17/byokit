@@ -6,15 +6,26 @@ import { tmpdir } from 'node:os';
 import { once } from 'node:events';
 import { get } from 'node:http';
 import { WebSocket } from 'ws';
+import { chromium } from 'playwright';
 import { BrowserSandboxUnavailable, launchBroker } from '../../src/browser/broker.ts';
 
 // This executable is a synthetic peer on Chromium's inherited fd3/fd4, not an injectable production transport.
 const peer = `#!${process.execPath}
 import fs from 'node:fs';
+import vm from 'node:vm';
+const protocolMode = 'raw';
+let tree, objectSeq = 0;
+const objects = new Map();
+// Fake bitmap checks argument marshaling; this source test does not claim JPEG decoding.
+const context = vm.createContext({Blob, Uint8Array, createImageBitmap: async blob => {
+ const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
+ if(bytes.join(',') !== '255,216,255,217')throw new Error('marshaled bytes changed');
+ return {width:320,height:179,close(){}};
+}});
 const input = fs.createReadStream('', {fd:3}), output = fs.createWriteStream('', {fd:4});
-const targets = new Map([['agent', {targetId:'agent',type:'page',url:'http://127.0.0.1:1/task',title:'Task'}]]);
+const targets = new Map([['agent', {targetId:'agent',type:'page',url:'http://127.0.0.1:1/task',title:'Task',browserContextId:'context'}]]);
 const sessions = new Map(); let seq=0, buffer='';
-const emit = m => output.write(JSON.stringify(m)+'\\0');
+const emit = (...messages) => output.write(messages.map(m => JSON.stringify(m)+'\\0').join(''));
 const event = (method,params,target) => {
   emit({method,params});
   for(const [sid,t] of sessions) if(t === 'browser' || t === target) emit({method,params,sessionId:sid});
@@ -27,9 +38,13 @@ function handle(m){
  const p=m.params??{}, target=p.targetId??sessions.get(m.sessionId);
  const reply=result=>emit({id:m.id,result});
  switch(m.method){
- case 'Browser.getVersion':return reply({product:'fixture',protocolVersion:'1.3',userAgent:'fixture'});
+ case 'Browser.getVersion':return reply({product:'HeadlessChrome/153.0.8010.12',protocolVersion:'1.3',userAgent:'HeadlessChrome'});
  case 'Target.getTargets':return reply({targetInfos:[...targets.values()]});
- case 'Target.getTargetInfo':return reply({targetInfo:targets.get(target)});
+ case 'Target.getTargetInfo':return reply({targetInfo:target==='browser'?{targetId:'browser',type:'browser',url:''}:targets.get(target)});
+ case 'Target.setAutoAttach':{
+  if(protocolMode==='raw' || target!=='browser')return reply({});
+  const sessionId='s'+(++seq);sessions.set(sessionId,'agent');
+  emit({method:'Target.attachedToTarget',params:{sessionId,targetInfo:targets.get('agent'),waitingForDebugger:true},sessionId:m.sessionId});return reply({});}
  case 'Target.attachToBrowserTarget':{const sessionId='s'+(++seq);sessions.set(sessionId,'browser');return reply({sessionId});}
  case 'Target.attachToTarget':{const sessionId='s'+(++seq);sessions.set(sessionId,target);return reply({sessionId});}
  case 'Target.detachFromTarget':sessions.delete(p.sessionId);return reply({});
@@ -55,13 +70,33 @@ function handle(m){
   emit({method:'Page.lifecycleEvent',params:{name:'fixture-capture-started'},sessionId:m.sessionId});
   if(p.fixtureHang)return;
   return setTimeout(()=>reply({data:Buffer.from('synthetic-private-canary').toString('base64')}),100);
- case 'Runtime.evaluate':return reply({result:{type:'string',value:'synthetic-private-canary'}});
+ case 'Runtime.enable':{
+  if(protocolMode==='raw')return reply({});
+  const created={method:'Runtime.executionContextCreated',params:{context:{id:1,origin:'http://127.0.0.1:1',name:'',auxData:{isDefault:true,frameId:'agent'}}},sessionId:m.sessionId};
+  if(protocolMode==='coalesced')emit(tree,created,{id:m.id,result:{}});
+  else {emit(tree);setTimeout(()=>emit(created,{id:m.id,result:{}}),20);}
+  return;}
+ case 'Runtime.evaluate':{
+  if(p.fixtureOrder){
+   const e=name=>({method:'Page.lifecycleEvent',params:{name},sessionId:m.sessionId});
+   const response=p.fixtureOrder==='error'?{id:m.id,error:{code:-1,message:'fixture'}}:{id:m.id,result:{}};
+   emit(e('before'),response,e('after'));return;
+  }
+  if(protocolMode==='raw')return reply({result:{type:'string',value:'synthetic-private-canary'}});
+  const objectId='obj'+(++objectSeq);objects.set(objectId,vm.runInContext(p.expression,context));return reply({result:{type:'object',objectId}});}
+ case 'Runtime.callFunctionOn':{
+  const fn=vm.runInContext('('+p.functionDeclaration+')',context);
+  const args=p.arguments.map(a=>a.objectId?objects.get(a.objectId):a.value);
+  Promise.resolve(fn.apply(objects.get(p.objectId),args)).then(value=>reply({result:{type:'object',value}}));return;}
+ case 'Page.addScriptToEvaluateOnNewDocument':return reply({identifier:'fixture'});
  case 'Network.getAllCookies':return reply({cookies:[{name:'fixture',value:'synthetic-private-canary'}]});
  case 'Storage.clearDataForOrigin':
   if(!m.sessionId || sessions.get(m.sessionId)==='browser')return emit({id:m.id,error:{code:-32601,message:'page domain required'}});
   if(p.origin!=='http://127.0.0.1:1' || p.storageTypes!=='all')return emit({id:m.id,error:{code:-32602,message:'exact fixture origin required'}});
   return reply({});
- case 'Page.getFrameTree':return reply({frameTree:{frame:{id:target,url:targets.get(target).url}}});
+ case 'Page.getFrameTree':{
+  const result={frameTree:{frame:{id:target,url:targets.get(target).url,name:'',loaderId:'fixture'}}};
+  if(protocolMode==='raw')return reply(result);tree={id:m.id,result};return;}
  case 'DOM.getDocument':return reply({root:{nodeId:1}});
  case 'DOM.querySelector':return reply({nodeId:p.selector==='.signedin'?2:0});
  case 'Input.insertText':{
@@ -99,16 +134,63 @@ function discovery(endpoint: string, path: string) {
   u.pathname = `${u.pathname.replace(/\/devtools\/browser\/[A-Za-z0-9._-]+$/, '')}/json/${path}`;
   return u.href;
 }
-async function fixture() {
+async function fixture(protocolMode: 'raw' | 'split' | 'coalesced' = 'raw') {
   const dir = await mkdtemp(join(tmpdir(), 'broker-'));
   const executablePath = join(dir, 'chromium');
-  await writeFile(executablePath, peer); await chmod(executablePath, 0o700);
+  await writeFile(executablePath, peer.replace("const protocolMode = 'raw';", `const protocolMode = '${protocolMode}';`)); await chmod(executablePath, 0o700);
   const broker = await launchBroker({ executablePath, profileDir: join(dir, 'profile'), member: 'fixture', onExit() {} });
   const endpoint = broker.endpoint().cdpUrl;
   const http = endpoint.replace('ws:', 'http:').replace(/\/devtools\/browser\/[^?]+/, '/json');
   return { broker, endpoint, http, dir, async close() { await broker.close(); await rm(dir, { recursive: true, force: true }); } };
 }
 const lease = { epoch: 1, nonce: '0123456789abcdefghijklmnopqrstuv', origin: 'http://127.0.0.1:1', knownIdps: [] };
+
+test('pipe broker preserves before/reply/after order in one native read, including errors', { timeout: 5000 }, async () => {
+  const f = await fixture();
+  try {
+    const agent = await client(f.endpoint);
+    const sid = (await agent.send('Target.attachToTarget', { targetId: 'agent', flatten: true })).result!.sessionId as string;
+    for (const fixtureOrder of ['success', 'error']) {
+      const from = agent.frames.length;
+      const after = new Promise<void>(resolve => {
+        const listener = (data: WebSocket.RawData) => {
+          if (JSON.parse(data.toString()).params?.name === 'after') { agent.ws.off('message', listener); resolve(); }
+        };
+        agent.ws.on('message', listener);
+      });
+      const result = await agent.send('Runtime.evaluate', { fixtureOrder }, sid);
+      await after;
+      assert.equal(!!result.error, fixtureOrder === 'error');
+      assert.deepEqual(agent.frames.slice(from).map(raw => {
+        const m = JSON.parse(raw); return m.id === undefined ? m.params.name : 'reply';
+      }), ['before', 'reply', 'after']);
+    }
+    agent.ws.terminate();
+  } finally { await f.close(); }
+});
+
+test('pinned Playwright receives its main context after the frame tree reply, split or coalesced', { timeout: 10_000 }, async () => {
+  for (const mode of ['split', 'coalesced'] as const) {
+    const f = await fixture(mode);
+    let browser: Awaited<ReturnType<typeof chromium.connectOverCDP>> | undefined;
+    try {
+      browser = await chromium.connectOverCDP(f.endpoint, { timeout: 3000 });
+      const page = browser.contexts()[0]!.pages().find(p => p.url().endsWith('/task'))!;
+      assert.ok(page, `${mode}: connected page initialization is not context readiness`);
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const decoded = await Promise.race([
+          page.evaluate(async bytes => {
+            const image = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: 'image/jpeg' }));
+            const size = { w: image.width, h: image.height }; image.close(); return size;
+          }, [255, 216, 255, 217]),
+          new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error(`${mode}: evaluation never dispatched`)), 1000); }),
+        ]);
+        assert.deepEqual(decoded, { w: 320, h: 179 }); // fake bitmap; real pinned context/utility/marshal path
+      } finally { clearTimeout(timer); }
+    } finally { await browser?.close(); await f.close(); }
+  }
+});
 
 // One meaningful fixture journey covers the shared production boundary and all client classes.
 test('pipe broker: authenticated forwarding, all-client fence, private targets, lease input, release barrier', { timeout: 20_000 }, async () => {
