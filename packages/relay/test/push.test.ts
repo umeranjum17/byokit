@@ -101,6 +101,43 @@ test('notifications omit body and data by default and forward them only by expli
   assert.equal(world.sent.at(-1)!.body[0].body, input.body);
 });
 
+test('platform delivery options reach Expo: iOS mutable content and category, Android data-only with no visible alert', async () => {
+  const world = pushWorld();
+  const r = await startRelay({ push: { fetch: world.fetch } });
+  const p = await paired(r);
+  await p.client.subscribe('ios', { expo: 'ExponentPushToken[ios]', platform: 'ios' });
+  await p.client.subscribe('android', { expo: 'ExponentPushToken[android]', platform: 'android' });
+  await p.client.subscribe('older', { expo: 'ExponentPushToken[older]' }); // an app that predates `platform`
+  await p.client.subscribe('browser', webSub('https://fcm.googleapis.com/w'));
+  assert.deepEqual(r.saved()!.push.map((s) => 'expo' in s && s.platform), ['ios', 'android', undefined, false]);
+  await assert.rejects(p.client.subscribe('other', { expo: 'ExponentPushToken[x]', platform: 'web' } as any), /bad subscription/);
+  const sealed = { v: 1, sealed: 'b64url-ciphertext' };
+  const n = { id: 'ask-1', title: 'An agent needs you', data: sealed, urgency: 'high' as const, ttl: 600, mutableContent: true, categoryId: 'agent.ask', dataOnly: true };
+  assert.deepEqual(await p.client.notify(n, { includeContent: true }), { sent: 4 });
+  const expo = world.sent.find((s) => s.url.startsWith('https://exp.host/'))!.body;
+  const common = { collapseId: 'ask-1', ttl: 600, priority: 'high' };
+  assert.deepEqual(expo, [
+    { to: 'ExponentPushToken[ios]', title: n.title, sound: 'default', mutableContent: true, categoryId: 'agent.ask', ...common, data: { id: 'ask-1', title: n.title, data: sealed } },
+    { to: 'ExponentPushToken[android]', ...common, data: { id: 'ask-1', title: n.title, data: sealed } },
+    { to: 'ExponentPushToken[older]', title: n.title, sound: 'default', mutableContent: true, categoryId: 'agent.ask', ...common, data: { id: 'ask-1', title: n.title, data: sealed } },
+  ]);
+  const web = world.sent.filter((s) => s.url === 'https://fcm.googleapis.com/w');
+  assert.equal(web.length, 1, 'Web Push is unchanged: the service worker shows what it opens');
+
+  // Counterfactual: the same notification without the options is the visible alert it always was; false is sent as false.
+  await p.client.notify({ id: 'plain', title: 'An agent needs you', to: ['ios', 'android'] });
+  assert.deepEqual(world.sent.at(-1)!.body.map((m: any) => [m.to, m.title, 'mutableContent' in m, 'categoryId' in m]),
+    [['ExponentPushToken[ios]', n.title, false, false], ['ExponentPushToken[android]', n.title, false, false]]);
+  await p.client.notify({ id: 'off', title: 'An agent needs you', to: ['ios', 'android'], mutableContent: false, dataOnly: false });
+  assert.deepEqual(world.sent.at(-1)!.body.map((m: any) => [m.title, m.mutableContent]), [[n.title, false], [n.title, false]]);
+  // Data-only without opted-in content carries only the id: never the sealed notice, never a title or body to show.
+  await p.client.notify({ ...n, id: 'bare', to: ['android'] });
+  assert.deepEqual(world.sent.at(-1)!.body, [{ to: 'ExponentPushToken[android]', ...common, collapseId: 'bare', data: { id: 'bare', title: n.title } }]);
+  for (const bad of [{ mutableContent: 'yes' }, { dataOnly: 1 }, { categoryId: '' }, { categoryId: '../x' }, { categoryId: 'x'.repeat(65) }]) {
+    await assert.rejects(p.client.notify({ id: 'bad', title: 't', ...bad } as any), /bad notification/, JSON.stringify(bad));
+  }
+});
+
 test("revoking a device removes its subscriptions; revoking the host removes all of the host's", async () => {
   const world = pushWorld();
   const r = await startRelay({ push: { fetch: world.fetch } });
@@ -370,12 +407,13 @@ test('server content-free preset strips content and actions, hashes ids and reta
   const p = await paired(r);
   await p.client.subscribe('phone', { expo: 'ExponentPushToken[phone]' });
   await p.client.subscribe('other', { expo: 'ExponentPushToken[other]' });
-  const n = { id: 'private-event', title: 'Private title', body: 'private body', data: { private: true }, actions: ['secret'], to: ['phone'] };
+  const n = { id: 'private-event', title: 'Private title', body: 'private body', data: { private: true }, actions: ['secret'], to: ['phone'], mutableContent: true, categoryId: 'secret', dataOnly: true };
   assert.deepEqual(await p.client.notify(n, { includeContent: true }), { sent: 1 });
   const msg = world.sent[0]!.body[0];
   assert.equal(msg.title, 'News is ready');
   assert.match(msg.collapseId, /^n[A-Za-z0-9_-]{43}$/);
   assert.deepEqual(msg.data, { id: msg.collapseId, title: 'News is ready' });
+  assert.equal('mutableContent' in msg || 'categoryId' in msg, false, 'nothing to open or answer, so the fixed title shows as sent');
   assert.doesNotMatch(JSON.stringify(world.sent), /private|secret|other|Private/);
   assert.deepEqual(await p.client.notify(n, { includeContent: true }), { sent: 0, duplicate: true });
   assert.equal(world.sent.length, 1);
