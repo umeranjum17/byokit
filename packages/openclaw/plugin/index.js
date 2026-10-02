@@ -14,6 +14,26 @@ const PERMIT_PARAM = table.permitParam;
 const TOOLS = new Map(table.tools.map((t) => [t.name, t]));
 // Absent (a table from before the flag) reads as true: fail closed.
 const GATE_BUILTINS = table.gateBuiltins !== false;
+const BROWSER = table.browser === true;
+const unsafe = new Set(['exec', 'process', 'code_execution', 'bash', 'terminal', 'read', 'write', 'edit', 'apply_patch', 'gateway']);
+const browserActions = new Set(['profiles', 'importprofile', 'start', 'stop', 'doctor', 'evaluate']);
+
+// Run before the app gate; never trust a caller's profile, target or nested routing.
+function browserParams(params, member) {
+  if (!params || typeof params !== 'object' || Array.isArray(params)) throw new Error('browser action refused');
+  if (browserActions.has(String(params.action).toLowerCase()) || browserActions.has(String(params.kind).toLowerCase()))
+    throw new Error('browser action refused');
+  const out = { ...params };
+  delete out.node;
+  out.profile = `byokit-${member}`;
+  out.target = 'host';
+  if (out.request !== undefined) out.request = browserParams(out.request, member);
+  if (out.actions !== undefined) {
+    if (!Array.isArray(out.actions)) throw new Error('browser action refused');
+    out.actions = out.actions.map(action => browserParams(action, member));
+  }
+  return out;
+}
 
 /** Minimal JSON Schema -> TypeBox-marked schema converter; output is both valid TypeBox and valid JSON Schema. */
 function toTypeBox(schema) {
@@ -151,16 +171,40 @@ export default {
         },
       });
     }
+    if (BROWSER) api.on('before_agent_run', async (_event, ctx) => {
+      // A kit-owned refusal seam, NOT an enable flag or an automatic-redispatch qualification.
+      const key = ctx?.sessionKey;
+      if (typeof key !== 'string' || !key) return { outcome: 'block', reason: 'run unavailable', message: 'run unavailable' };
+      try {
+        const reply = await bridgeRequest({ kind: 'before-agent-run', key, runId: ctx?.runId },
+          { timeoutMs: 10_000, signal: ctx?.abortSignal });
+        if (reply?.allow === true) return undefined;
+      } catch { /* missing host or timeout refuses before submission */ }
+      return { outcome: 'block', reason: 'run unavailable', message: 'run unavailable' };
+    });
     api.on('before_tool_call', async (event, ctx) => {
       // Engine builtins (web_fetch, memory, ...) are gated too unless the app opted out; they run in-engine and
       // never call back, so an allow passes them through unchanged.
       const builtin = !TOOLS.has(event.toolName);
-      if (builtin && !GATE_BUILTINS) return undefined;
+      if (builtin && !GATE_BUILTINS && !BROWSER) return undefined;
       const key = ctx?.sessionKey;
       if (typeof key !== 'string' || !key) return { block: true, blockReason: "can't check this action right now" };
+      let params = event.params ?? {};
+      if (BROWSER) {
+        if (unsafe.has(event.toolName) || (builtin && event.toolName !== 'browser'))
+          return { block: true, blockReason: 'browser tool policy refused' };
+        if (event.toolName === 'browser') {
+          // Account agents retain their member identity. A delegate has its own agent id, never the parent's browser.
+          const agent = ctx?.agentId ?? /^agent:([^:]+):/.exec(key)?.[1];
+          const member = typeof agent === 'string' ? agent.replace(/^byokit-key-/, '') : '';
+          if (!/^[a-z][a-z0-9-]{0,31}$/.test(member)) return { block: true, blockReason: 'browser member unavailable' };
+          try { params = browserParams(params, member); }
+          catch { return { block: true, blockReason: 'browser action refused' }; }
+        }
+      }
       let decision;
       try {
-        decision = await gate(key, event.toolName, event.params ?? {}, ctx?.abortSignal);
+        decision = await gate(key, event.toolName, params, ctx?.abortSignal);
       } catch (error) {
         return { block: true, blockReason: error instanceof Error ? error.message : "can't check this action right now" };
       }
@@ -170,12 +214,12 @@ export default {
           blockReason: typeof decision.reason === 'string' ? decision.reason : "can't check this action right now",
         };
       }
-      if (builtin) return undefined;
+      if (builtin) return BROWSER && event.toolName === 'browser' ? { params } : undefined;
       // The bridge mints a permit for permitted tools and admits the rest ticket-side; either way the run key
       // rides along and execute sends back only what the gate gave it (N1).
       return {
         params: {
-          ...(event.params ?? {}),
+          ...params,
           [RUN_PARAM]: key,
           ...(typeof decision.permit === 'string' ? { [PERMIT_PARAM]: decision.permit } : {}),
         },

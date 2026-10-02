@@ -27,6 +27,7 @@ const safeMemory = (memory: unknown): void => {
 export function reconcileConfig(saved: object | undefined, o: {
   root: string; stateDir: string; port: number; pluginId: string; pluginDir: string; policyPath: string;
   app?: object; installPolicy?: KitOptions['installPolicy'];
+  browser?: { profiles: Record<string, { cdpUrl: string; attachOnly: true }>; tools: string[] };
 }): object {
   const c: Obj = merge(merge({}, object(saved) ? saved : {}), object(o.app) ? o.app : {});
   merge(c, {
@@ -57,6 +58,17 @@ export function reconcileConfig(saved: object | undefined, o: {
     ...routes().filter(route => route.offer && route.plugin).map(route => route.plugin)])];
   c.plugins.entries ??= {};
   c.plugins.entries[o.pluginId] = merge(c.plugins.entries[o.pluginId] ?? {}, { hooks: { timeouts: { before_tool_call: 200_000 } } });
+  if (o.browser) {
+    // Replace, never merge caller-controlled profiles/targets. The dead default fails closed without our hook.
+    c.browser = { enabled: true, defaultProfile: 'byokit-none', evaluateEnabled: false,
+      tabCleanup: { enabled: false }, ssrfPolicy: { dangerouslyAllowPrivateNetwork: true },
+      profiles: { 'byokit-none': { cdpUrl: 'http://127.0.0.1:1', attachOnly: true }, ...o.browser.profiles } };
+    c.plugins.allow = [...new Set([...c.plugins.allow, 'browser'])];
+    c.plugins.entries.browser = { enabled: true };
+    c.plugins.entries[o.pluginId].hooks.allowConversationAccess = true;
+    c.tools ??= {};
+    c.tools.alsoAllow = [...new Set([...(c.tools.alsoAllow ?? []), 'browser', 'request_sign_in', ...o.browser.tools])];
+  }
   c.security ??= {};
   c.security.installPolicy = { enabled: true, exec: {
     source: 'exec', command: process.execPath, args: [o.policyPath],
@@ -67,6 +79,31 @@ export function reconcileConfig(saved: object | undefined, o: {
     },
   } };
   return c;
+}
+
+/** A closed explicit global allow is required, not a group deny or an OS sandbox claim. Every nested
+ * agent, delegate and provider policy must stay inside it. The runtime also checks tools.effective. */
+export function browserToolPolicySafe(config: unknown, tools: readonly string[]): boolean {
+  const safe = new Set(['browser', 'request_sign_in', ...tools]);
+  const allowed = (value: unknown) => Array.isArray(value) && value.every(t => typeof t === 'string' && safe.has(t));
+  if (!object(config) || !object(config.tools) || !allowed(config.tools.allow) || !config.tools.allow.length) return false;
+  const visit = (value: unknown): boolean => {
+    if (Array.isArray(value)) return value.every(visit);
+    if (!object(value)) return true;
+    for (const [key, child] of Object.entries(value)) {
+      if (key === 'tools') {
+        if (!object(child)) return false;
+        if (child.profile !== undefined || (child.allow !== undefined && !allowed(child.allow))
+          || (child.alsoAllow !== undefined && !allowed(child.alsoAllow))) return false;
+      }
+      if (!visit(child)) return false;
+    }
+    // byProvider entries are tool policies too, not named `tools`.
+    if (object(value.byProvider) && Object.values(value.byProvider).some(p => !object(p) || p.profile !== undefined
+      || (p.allow !== undefined && !allowed(p.allow)) || (p.alsoAllow !== undefined && !allowed(p.alsoAllow)))) return false;
+    return true;
+  };
+  return visit(config);
 }
 
 export function memoryLimited(config: object, member: Member): boolean {

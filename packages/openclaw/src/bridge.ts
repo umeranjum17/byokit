@@ -42,7 +42,7 @@ export function resolveBridge(o?: { socketName?: string; paramPrefix?: string })
  */
 export function writePlugin(
   dir: string,
-  o: { id: string; tools: ToolSpec[]; paramPrefix: string; gateBuiltins: boolean },
+  o: { id: string; tools: ToolSpec[]; paramPrefix: string; gateBuiltins: boolean; browser?: boolean },
 ): void {
   resolveBridge({ paramPrefix: o.paramPrefix });
   const runParam = `${o.paramPrefix}_run`;
@@ -60,6 +60,7 @@ export function writePlugin(
     permitParam,
     // true: engine builtins (web_fetch, memory, ...) are gated too, not only the app's tools.
     gateBuiltins: o.gateBuiltins,
+    ...(o.browser ? { browser: true } : {}),
     tools: o.tools.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters })),
   };
   for (const [file, data] of [['openclaw.plugin.json', manifest], ['tools.json', table]] as const) {
@@ -88,6 +89,7 @@ export class Bridge {
   private readonly approvalTimeoutMs: number;
   private readonly onAsk: (a: Approval) => void;
   private readonly onAskGone: (id: string) => void;
+  private readonly beforeAgentRun?: (key: string, runId?: string) => Promise<boolean>;
   private server?: Server;
   private readonly runs = new Map<string, RunRef>();
   // Every live registration per session key, each with its run's subset of the app's tools (RunSpec.tools; none: all
@@ -107,6 +109,7 @@ export class Bridge {
     approvalTimeoutMs: number;
     onAsk(a: Approval): void;
     onAskGone(id: string): void;
+    beforeAgentRun?: (key: string, runId?: string) => Promise<boolean>;
   }) {
     this.path = o.path;
     this.host = o.host;
@@ -115,6 +118,7 @@ export class Bridge {
     this.approvalTimeoutMs = Math.min(o.approvalTimeoutMs, MAX_APPROVAL_TIMEOUT_MS);
     this.onAsk = o.onAsk;
     this.onAskGone = o.onAskGone;
+    this.beforeAgentRun = o.beforeAgentRun;
   }
 
   start(): Promise<void> {
@@ -252,6 +256,12 @@ export class Bridge {
       return this.deny(socket, 'not a gate request');
     }
     if (!isRecord(message) || typeof message.kind !== 'string') return this.deny(socket, 'not a gate request');
+    if (message.kind === 'before-agent-run') {
+      if (typeof message.key !== 'string' || !message.key || !this.beforeAgentRun) return this.deny(socket, 'run unavailable');
+      void this.beforeAgentRun(message.key, typeof message.runId === 'string' ? message.runId : undefined)
+        .then(allow => this.reply(socket, { allow }), () => this.deny(socket, 'run unavailable'));
+      return;
+    }
     if (message.kind === 'gate') return void this.gate(socket, message);
     if (message.kind === 'call') return void this.call(socket, message);
     return this.deny(socket, 'not a gate request');

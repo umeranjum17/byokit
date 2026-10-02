@@ -15,14 +15,14 @@ const tools = [{ name: 'crew_x', description: 'An app tool.', parameters: { type
 type Hook = (event: { toolName: string; params?: Record<string, unknown> }, ctx: { sessionKey?: string }) => Promise<unknown>;
 
 async function withPlugin(
-  o: { gateBuiltins: boolean; gate: (tool: string, info: { builtin: boolean }) => GateResult },
+  o: { gateBuiltins: boolean; browser?: boolean; gate: (tool: string, info: { builtin: boolean }) => GateResult },
   fn: (hook: Hook, seen: { gated: [string, { builtin: boolean }][]; called: string[] }) => Promise<void>,
 ): Promise<void> {
   const dir = scratchDir('plugin');
   const seen = { gated: [] as [string, { builtin: boolean }][], called: [] as string[] };
   copyFileSync(shipped, join(dir, 'index.js'));
   copyFileSync(new URL('../plugin/keys.js', import.meta.url), join(dir, 'keys.js'));
-  writePlugin(dir, { id: 'byokit', tools, paramPrefix: '__byokit', gateBuiltins: o.gateBuiltins });
+  writePlugin(dir, { id: 'byokit', tools, paramPrefix: '__byokit', gateBuiltins: o.gateBuiltins, browser: o.browser });
   const bridge = new Bridge({
     path: join(dir, 'bridge.sock'),
     tools: new Set(tools.map((t) => t.name)),
@@ -40,6 +40,7 @@ async function withPlugin(
   });
   await bridge.start();
   bridge.register({ sessionKey: 'agent:m1:x', member: 'm1' });
+  bridge.register({ sessionKey: 'agent:byokit-key-m1:x', member: 'm1' });
   const previous = process.env.BYOKIT_BRIDGE_SOCK;
   process.env.BYOKIT_BRIDGE_SOCK = join(dir, 'bridge.sock');
   try {
@@ -84,6 +85,26 @@ test('an app tool still gets its run key and permit, marked not builtin', async 
     assert.equal(decision.params.__byokit_run, 'agent:m1:x');
     assert.equal(typeof decision.params.__byokit_permit, 'string');
     assert.deepEqual(seen.gated, [['crew_x', { builtin: false }]]);
+  }));
+
+test('browser guard pins hostile and omitted profiles, nested targets and account-agent routing before app gate', async () =>
+  withPlugin({ gateBuiltins: true, browser: true, gate: () => ({ allow: true }) }, async (hook, seen) => {
+    for (const profile of [undefined, 'user', 'openclaw', 'chrome', 'byokit-other']) {
+      const result = await hook({ toolName: 'browser', params: { action: 'act', profile, node: 'foreign', target: 'node',
+        request: { kind: 'click', profile: 'byokit-other', node: 'foreign' }, actions: [{ kind: 'click', target: 'node' }] } },
+      { sessionKey: 'agent:byokit-key-m1:x' }) as { params: Record<string, any> };
+      assert.equal(result.params.profile, 'byokit-m1'); assert.equal(result.params.target, 'host');
+      assert.equal(result.params.node, undefined);
+      assert.equal(result.params.request.profile, 'byokit-m1'); assert.equal(result.params.request.node, undefined);
+      assert.equal(result.params.actions[0].target, 'host');
+    }
+    for (const tool of ['exec', 'process', 'code_execution', 'bash', 'terminal', 'read', 'write', 'edit', 'apply_patch', 'gateway', 'unknown_tool'])
+      assert.equal((await hook({ toolName: tool }, { sessionKey: 'agent:m1:x' }) as { block: boolean }).block, true);
+    for (const params of [{ action: 'profiles' }, { action: 'importprofile' }, { action: 'start' }, { action: 'stop' },
+      { action: 'doctor' }, { action: 'act', request: { kind: 'evaluate', fn: 'document.cookie' } },
+      { action: 'act', actions: [{ kind: 'evaluate' }] }])
+      assert.equal((await hook({ toolName: 'browser', params }, { sessionKey: 'agent:m1:x' }) as { block: boolean }).block, true);
+    assert.equal(seen.gated.length, 5, 'unsafe inputs never reach app approval');
   }));
 
 test('gateBuiltins false lets builtins run ungated and still gates the app tools', async () =>

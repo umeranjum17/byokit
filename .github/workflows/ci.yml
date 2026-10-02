@@ -111,6 +111,38 @@ jobs:
           mkdir "$scratch/home" "$scratch/t"
           HOME="$scratch/home" TMPDIR="$scratch/t" npm run smoke:pack -- --openclaw-engine
 
+  # Stock published Gateway + kit-owned pipe Chromium. No accounts, personal browser, engine patch or real site.
+  openclaw-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - name: Install only the published stock lock (no kit patch application)
+        run: |
+          mkdir -p "$RUNNER_TEMP/stock" "$RUNNER_TEMP/browser-home"
+          cp packages/openclaw/engine/package{,-lock}.json "$RUNNER_TEMP/stock/"
+          HOME="$RUNNER_TEMP/browser-home" npm ci --prefix "$RUNNER_TEMP/stock" --ignore-scripts --no-audit --no-fund
+      - name: Scoped offline browser/engine qualification
+        env:
+          BYOKIT_BROWSER_REQUIRED: '1'
+        run: |
+          export BYOKIT_BROWSER_STOCK_ENTRY="$RUNNER_TEMP/stock/node_modules/openclaw/openclaw.mjs"
+          export BYOKIT_BROWSER_RECEIPT="$RUNNER_TEMP/browser-receipt.json"
+          npm run test:browser-engine
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stock-browser-qualification
+          path: ${{ runner.temp }}/browser-receipt.json*
+          if-no-files-found: warn
+
   # @byokit/write against its exactly pinned npm engine, in process and through the engine bin.
   write-engine:
     runs-on: ubuntu-latest
