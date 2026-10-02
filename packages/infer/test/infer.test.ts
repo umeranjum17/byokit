@@ -161,6 +161,22 @@ test('install and load never leave a stale installing or loading state', async (
   assert.deepEqual(loader.state, { phase: 'failed', why: 'storage' });
 });
 
+test('install preflight storage failures are typed, visible and leave the operation retryable', async () => {
+  for (const method of ['size', 'freeBytes', 'sha256'] as const) {
+    const { local, mem, states } = make({ freeBytes: 1e9 });
+    if (method === 'sha256') mem.saved.set(TINY.id, BYTES);
+    const original = mem.store[method];
+    mem.store[method] = async () => { throw new Error('synthetic private native message'); };
+    await assert.rejects(local.install(), (e: InferError) => e instanceof InferError && e.code === 'failed'
+      && !e.message.includes('private') && !!errorWords(e));
+    assert.deepEqual(local.state, { phase: 'failed', why: 'storage' }, method);
+    assert.deepEqual(states.map(s => s.phase), ['failed'], method);
+    Object.assign(mem.store, { [method]: original });
+    await local.install();
+    assert.equal(local.state.phase, 'installed', method);
+  }
+});
+
 test('bounds: input over the character or context limit is too-large; a cut-off answer is marked limit', async () => {
   const { local } = make({ reply: () => ({ text: '{"enough":tr', content: '{"enough":tr', stopped_limit: 1, stopped_eos: false }) });
   await local.install();

@@ -8,24 +8,37 @@ import * as RNFS from '@dr.pogodin/react-native-fs';
 import { InferError, LocalModel, errorWords, model, stateWords, summarizePane, words, type InferModelStore, type InferState,
   type PaneSummary } from '@byokit/infer';
 
+// Fixed-label diagnostics for the own-lab counterfactual only; never pane text or raw native exception messages.
+const PROBE = process.env.EXPO_PUBLIC_INFER_PROBE === '1';
+let onReceipt: (label: string) => void = () => {};
+const receipt = (label: string) => { if (PROBE) { console.info(`infer-probe ${label}`); onReceipt(label); } };
 const DIR = `${RNFS.DocumentDirectoryPath}/models`;
 const store: InferModelStore = {
   path: m => `${DIR}/${m.id}.gguf`,
-  size: async m => (await RNFS.exists(store.path(m))) ? Number((await RNFS.stat(store.path(m))).size) : undefined,
+  size: async m => {
+    receipt('store.size.begin');
+    const size = (await RNFS.exists(store.path(m))) ? Number((await RNFS.stat(store.path(m))).size) : undefined;
+    receipt('store.size.done');
+    return size;
+  },
   download: async (m, o) => {
+    receipt('store.mkdir.begin');
     await RNFS.mkdir(DIR);
+    receipt('download.request');
     const job = RNFS.downloadFile({ fromUrl: m.url, toFile: store.path(m), progressInterval: 500, progressDivider: 1,
-      progress: p => o.onProgress?.(p.bytesWritten, p.contentLength) });
+      begin: () => receipt('download.response'),
+      progress: p => { receipt('download.progress'); o.onProgress?.(p.bytesWritten, p.contentLength); } });
     const stop = () => RNFS.stopDownload(job.jobId);
     o.signal?.addEventListener('abort', stop, { once: true });
     try {
       const r = await job.promise;
+      receipt(`download.status.${r.statusCode}`);
       if (r.statusCode !== 200) throw new Error(`download ${r.statusCode}`);
     } finally { o.signal?.removeEventListener('abort', stop); }
   },
-  sha256: m => RNFS.hash(store.path(m), 'sha256'),
+  sha256: async m => { receipt('store.hash.begin'); const hash = await RNFS.hash(store.path(m), 'sha256'); receipt('store.hash.done'); return hash; },
   remove: async m => { if (await RNFS.exists(store.path(m))) await RNFS.unlink(store.path(m)); },
-  freeBytes: async () => (await RNFS.getFSInfo()).freeSpace,
+  freeBytes: async () => { receipt('store.space.begin'); const bytes = (await RNFS.getFSInfo()).freeSpace; receipt('store.space.done'); return bytes; },
 };
 
 /** Umer's demo panes: what a Herdr agent card shows mid-task. Fixed text, never a real terminal. */
@@ -51,7 +64,7 @@ const PANES: { id: string; label: string; lines: string[] }[] = [
 ];
 
 let onState: (s: InferState) => void = () => {};
-const local = new LocalModel({ model: model(), store, initLlama, onState: s => onState(s), device: { platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'other' } });
+const local = new LocalModel({ model: model(), store, initLlama, onState: s => { receipt(`state.${s.phase}`); onState(s); }, device: { platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'other' } });
 
 export function InferDemo() {
   const [state, setState] = useState<InferState>(local.state);
@@ -59,24 +72,31 @@ export function InferDemo() {
   const [summary, setSummary] = useState<PaneSummary | null>(null);
   const [said, setSaid] = useState('');
   const [timing, setTiming] = useState('');
+  const [receipts, setReceipts] = useState<string[]>([]);
   const install = useRef<AbortController | null>(null);
   const run = useRef<AbortController | null>(null);
   const last = useRef<Promise<unknown>>(Promise.resolve());
 
   useEffect(() => {
     onState = setState;
-    void local.check().catch(() => {});
+    onReceipt = label => setReceipts(previous => [...previous.slice(-11), label]);
+    void local.check().catch(fail);
     // Backgrounded: stop work and free the native context; nothing runs in the background.
-    const sub = AppState.addEventListener('change', s => { if (s !== 'active') { run.current?.abort(new Error('background')); void local.release(); } });
-    return () => { onState = () => {}; sub.remove(); };
+    const sub = AppState.addEventListener('change', s => { if (s !== 'active') { run.current?.abort(new Error('background')); void local.release().catch(fail); } });
+    return () => { onState = () => {}; onReceipt = () => {}; sub.remove(); };
   }, []);
 
-  const fail = (e: unknown) => setSaid(e instanceof InferError ? errorWords(e) : '');
+  const fail = (e: unknown) => {
+    receipt(`exception.${e instanceof InferError ? e.code : e instanceof Error ? 'untyped-error' : 'untyped-value'}`);
+    setSaid(e instanceof InferError ? errorWords(e) : words('infer.failed'));
+  };
 
   const download = async () => {
+    receipt('download.handler');
     setSaid('');
     install.current = new AbortController();
-    try { await local.install({ signal: install.current.signal }); } catch (e) { fail(e); } finally { install.current = null; }
+    try { receipt('install.request'); await local.install({ signal: install.current.signal }); receipt('install.done'); }
+    catch (e) { fail(e); } finally { install.current = null; }
   };
 
   const summarize = async (id: string) => {
@@ -104,13 +124,15 @@ export function InferDemo() {
   const flip = (id: string) => { setPane(id); if (state.phase === 'ready' || state.phase === 'installed' || state.phase === 'busy') void summarize(id); };
   const installed = ['installed', 'loading', 'ready', 'busy'].includes(state.phase);
   const button = (id: string, label: string, onPress: () => void) =>
-    <Pressable key={id} testID={id} accessibilityRole="button" onPress={onPress} style={s.button}><Text style={s.buttonText}>{label}</Text></Pressable>;
+    <Pressable key={id} testID={id} accessibilityRole="button" onPressIn={() => receipt(`press-in.${id}`)}
+      onPress={() => { receipt(`press.${id}`); onPress(); }} style={s.button}><Text style={s.buttonText}>{label}</Text></Pressable>;
 
   return <SafeAreaView style={s.safe}><ScrollView contentContainerStyle={s.screen}>
     <Text style={s.small}>Umer’s panes</Text><Text style={s.title}>On-device summary</Text>
     <Text style={s.small}>{`${model().label} · ${model().licence} · stays on this phone`}</Text>
     <Text testID="infer-phase" style={s.small}>{state.phase}</Text>
     <Text testID="infer-state" style={s.note}>{stateWords(state) || 'Summarising on this phone…'}</Text>
+    {PROBE && <Text testID="infer-probe" style={s.small}>{receipts.join(' → ')}</Text>}
     {!!said && <Text testID="infer-error" accessibilityRole="alert" style={s.note}>{said}</Text>}
     <View style={s.row}>
       {state.phase === 'not-installed' || state.phase === 'failed' ? button('infer-download', 'Download model', download) : null}
