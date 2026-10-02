@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, readFileSync, writeFileSync, renameSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, existsSync } from 'node:fs';
 import { processStartTime } from '../../src/engine-patches.ts';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -134,7 +134,7 @@ test('O16 real Workshop, cold cache, failed writes, crash interruption and bound
     if (process.env.BYOKIT_O16_EVIDENCE_DIR) {
       mkdirSync(process.env.BYOKIT_O16_EVIDENCE_DIR, { recursive: true });
       writeFileSync(join(process.env.BYOKIT_O16_EVIDENCE_DIR, 'workshop.json'), JSON.stringify({ stateDir, source: 'real kit; immutable patched openclaw 2026.8.1',
-        foreground, reviews, cold, first, second, receipts, boots: readFileSync(join(stateDir, 'openclaw/usage/boots.jsonl'), 'utf8') }, null, 2) + '\n');
+        foreground, reviews, cold, first, second, receipts, boots: existsSync(join(stateDir, 'openclaw/usage/boots.jsonl')) ? readFileSync(join(stateDir, 'openclaw/usage/boots.jsonl'), 'utf8') : undefined }, null, 2) + '\n');
     }
   }
 });
@@ -238,6 +238,6 @@ test('O16 real crash recovery resumes are counted through retained transcripts o
   } finally {
     release?.(); await kit.stop(); await new Promise<void>(resolve => server.close(() => resolve()));
     if (process.env.BYOKIT_O16_EVIDENCE_DIR) writeFileSync(join(process.env.BYOKIT_O16_EVIDENCE_DIR, 'recovery.json'),
-      JSON.stringify({ stateDir, calls, originalIdentity, originalRun, reading, boots: readFileSync(join(stateDir, 'openclaw/usage/boots.jsonl'), 'utf8') }, null, 2) + '\n');
+      JSON.stringify({ stateDir, calls, originalIdentity, originalRun, reading, boots: existsSync(join(stateDir, 'openclaw/usage/boots.jsonl')) ? readFileSync(join(stateDir, 'openclaw/usage/boots.jsonl'), 'utf8') : undefined }, null, 2) + '\n');
   }
 });
