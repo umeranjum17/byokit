@@ -40,12 +40,17 @@ export type BrowserFixture = {
   readonly dispatches: { member: string; sessionKey: string; idempotencyKey: string; message: string }[];
   readonly parked: { member: string; sessionKey: string }[];
   readonly calls: string[];
+  broker(member: string): HostBroker;
   inputCount(member: string): number;
   privateOpen(member: string): boolean;
   fenced(member: string): boolean;
 };
 export type FakeBrowserHost = BrowserHostController & { readonly fixture: BrowserFixture };
-export type FakeBrowserHostOptions = { members?: string[]; options?: Partial<BrowserOptions>; store?: SignInStore };
+export type FakeBrowserHostOptions = {
+  members?: string[]; options?: Partial<BrowserOptions>; store?: SignInStore;
+  authorize?: (grant: string, member: string, control: boolean) => boolean;
+  ping?: (member: string, kind: 'state' | 'signin') => void;
+};
 
 export async function fakeBrowserHost(o: FakeBrowserHostOptions = {}): Promise<FakeBrowserHost> {
   const members = o.members ?? ['ada'];
@@ -106,7 +111,8 @@ export async function fakeBrowserHost(o: FakeBrowserHostOptions = {}): Promise<F
   const defaultVerifier: SiteVerifier = { origin: 'http://127.0.0.1:2820', url: 'http://127.0.0.1:2820/account', status: 200, selector: '#signed-in' };
   const host = await fixtureBrowserHost({ brokers, store: o.store ?? memorySignInStore(),
     options: { executablePath: '/synthetic/chromium', members, verifiers: [defaultVerifier], ...o.options },
-    authorize: (grant, member, control) => members.includes(member) && (grant === 'control' || grant === 'other' || (!control && grant === 'view')),
+    authorize: o.authorize ?? ((grant, member, control) => members.includes(member) && (grant === 'control' || grant === 'other' || (!control && grant === 'view'))),
+    ping: o.ping,
     park: async (member, sessionKey) => { parked.push({ member, sessionKey }); },
     resume: async input => { dispatches.push(input); if (outcome === 'throw') throw new Error('synthetic transport drop'); return outcome; },
     siteOf: origin => new URL(origin).hostname,
@@ -126,6 +132,7 @@ export async function fakeBrowserHost(o: FakeBrowserHostOptions = {}): Promise<F
     closePrivate(member, fn) { get(member).closer = fn; },
     probe(member, fn) { get(member).prober = fn; },
     dispatches, parked, calls,
+    broker: member => { const broker = brokers.get(member); if (!broker) throw new Error('unknown fixture member'); return broker; },
     inputCount: member => get(member).inputs,
     privateOpen: member => !!get(member).privateOrigin,
     fenced: member => get(member).fenced,
