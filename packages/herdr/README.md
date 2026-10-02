@@ -190,15 +190,36 @@ const moved = await kit.moveToAccount({ paneId: 'w1:p2' }, {
 if (moved.ok) console.log(moved.session); // new pane to follow
 ```
 
-A move accepts Claude for Claude folders and Codex for Codex folders. Pi ignores these folder variables and is refused. It verifies the new shell's effective
+A move accepts mapped managed kinds, including Claude (`CLAUDE_CONFIG_DIR`), Codex (`CODEX_HOME`) and Pi
+(`PI_CODING_AGENT_DIR`, `--session <id|absolute path>`). Hosts own cross-account history sharing.
+It verifies the new shell's effective
 account folder, resumes the conversation there, waits for a ready session, then closes the old pane. A failed
 start preserves the original. A failed source close rolls back the new pane only after fresh reads verify
 both conversations' identities. A lost close acknowledgment can mean the original already closed: the kit
 preserves the replacement when the source is absent, replaced or unreachable and returns `close_failed`.
 After uncertain source close or cleanup, `live` names a freshly verified surviving conversation; it is omitted
 when neither conversation can be verified. Check the remaining panes before retrying. Independent changes
-can still happen after verification; the server has no conditional close transaction. Failures return a plain `message`. Wait until a conversation is idle or done before
-moving it. `StartAgent.env` applies to newly created placements; existing shells cannot receive a new env.
+can still happen after verification; the server has no conditional close transaction. Immediately before close,
+the source must still be idle/done with the same conversation, terminal and published `state_change_seq` as
+before splitting. Otherwise the replacement is closed and `changed` returned; `live` is freshly verified.
+This guard applies to idle moves too. It is a bounded observation, not atomic or a new security guarantee.
+Failures return a plain `message`. By default, working or blocked conversations return `busy`.
+
+Both move APIs optionally accept:
+```ts
+import type { BusyHandoff } from '@byokit/herdr';
+const whenBusy: BusyHandoff = {
+  busy: 'wait',
+  confirmed: { session: 'published-conversation-id', terminalId: 'published-terminal-id' },
+  waitMs: 300_000,
+}; // Pass whenBusy to either move API after the person confirms these current values.
+```
+Label this **Move when this step finishes**. Confirmation must match the current published session and terminal;
+wait requires a published sequence and finite positive `waitMs` ≤ 300000. Working sources wait for idle/done/blocked
+and are re-read before staging. Timeout returns `busy`, approval returns `blocked`, stale identity returns `changed`,
+and missing sequence or invalid bounds returns `unsupported`. The person may stop the step themselves in the pane.
+`busy: 'interrupt'` (confirmed session/terminal/seq) returns `interrupt_unsupported`, never keys or lifecycle calls.
+Offline fixtures do not qualify real working-step handoff or native Pi moves. `StartAgent.env` applies to newly created placements; existing shells cannot receive a new env.
 Tokens stay on the device and are never logged. Each provider's own terms apply to how you use your plan.
 
 For managed-folder stores that supply resume arguments and credential shedding, use `move`:

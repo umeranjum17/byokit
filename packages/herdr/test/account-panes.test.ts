@@ -9,12 +9,13 @@ type Raw = Record<string, any>;
 function harness(t: TestContext) {
   const calls: { method: string; params: Raw }[] = [];
   const agents = new Map<string, Raw>([['old', { agent: 'claude', agent_status: 'idle',
-    terminal_id: 'original-terminal', name: 'original',
+    terminal_id: 'original-terminal', state_change_seq: 1, name: 'original',
     cwd: '/repo', agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'conversation' } }]]);
   const panes = new Map<string, Raw>([['old', {}]]);
   const state = { failStart: false, failClose: new Set<string>(), answer: undefined as string | undefined,
     echoReads: 0, promptEcho: false, waitReady: true, generation: 'conversation', marker: '',
     splitGate: undefined as Promise<void> | undefined, readFails: false, interactive: true, publish: true, variable: '', unsetPresent: false,
+    waitSource: undefined as (() => void) | undefined, beforeSourceRead: undefined as (() => void) | undefined,
     unreachable: new Set<string>(), beforeClose: undefined as ((id: string) => void) | undefined, afterClose: undefined as ((id: string) => void) | undefined };
   let next = 0;
   const transport: HerdrTransport = {
@@ -23,6 +24,7 @@ function harness(t: TestContext) {
       if (method === 'ping') return { protocol: HERDR_PROTOCOL };
       if (method === 'session.snapshot') return { snapshot: { workspaces: [], tabs: [], panes: [], agents: [] } };
       if (method === 'agent.get') {
+        if (params.target === 'old') state.beforeSourceRead?.();
         if (state.unreachable.has(String(params.target))) throw new Error('fixture transport unavailable');
         const agent = agents.get(String(params.target));
         if (!agent) throw new Error('missing agent');
@@ -56,6 +58,7 @@ function harness(t: TestContext) {
           interactive_ready: state.interactive, agent_session: state.publish ? { source: 'herdr', agent: kind, kind: kind === 'pi' ? 'path' : 'id', value: state.generation } : undefined });
         return {};
       }
+      if (method === 'agent.wait' && params.target === 'old') { state.waitSource?.(); return {}; }
       if (method === 'pane.close') {
         state.beforeClose?.(String(params.pane_id));
         if (state.failClose.has(String(params.pane_id))) throw new Error('secret-canary');
@@ -366,5 +369,107 @@ test('move close ACK fixture: verify the original before discarding a ready surv
       assert.ok(!JSON.stringify(result).includes('fixture source close'));
       console.log(`public adopt close-ACK fixture ${api}/${fault}: ${JSON.stringify(result)}`);
     }
+  }
+});
+
+test('R3: wait bounds fail closed before staging or waiting', async (t) => {
+  for (const waitMs of [0, -1, NaN, Infinity, 300001]) {
+    const h = harness(t); await h.ready;
+    h.agents.get('old')!.agent_status = 'working';
+    const result = await h.kit.moveToAccount({ paneId: 'old' }, { provider: 'claude', folder: '/new/claude',
+      whenBusy: { busy: 'wait', confirmed: { session: 'conversation', terminalId: 'original-terminal' }, waitMs } });
+    if (result.ok) assert.fail('invalid bound cannot move');
+    assert.equal(result.code, 'unsupported');
+    assert.ok(!h.calls.some((c) => ['agent.wait', 'pane.split', 'pane.close'].includes(c.method)));
+  }
+});
+
+// R3: published-protocol fixtures, not native working-step qualification.
+const confirmed = { session: 'conversation', terminalId: 'original-terminal' };
+test('R3: explicit wait, refusal and stale confirmation never interrupt the source', async (t) => {
+  for (const api of ['move', 'moveToAccount'] as const) {
+    for (const scenario of ['success', 'timeout', 'blocked', 'initial-blocked', 'stale-session', 'stale-terminal',
+      'changed-session', 'changed-terminal', 'missing-seq', 'lost-seq', 'invalid-bound', 'interrupt', 'stale-seq', 'still-working', 'default']) {
+      const h = harness(t); await h.ready;
+      const source = h.agents.get('old')!;
+      source.agent_status = scenario === 'initial-blocked' ? 'blocked' : 'working';
+      if (scenario === 'missing-seq') delete source.state_change_seq;
+      h.state.waitSource = () => {
+        if (scenario === 'timeout') throw new Error('fixture wait timeout');
+        source.agent_status = scenario === 'blocked' ? 'blocked' : scenario === 'still-working' ? 'working' : 'idle';
+        source.state_change_seq = 2;
+        if (scenario === 'lost-seq') delete source.state_change_seq;
+        if (scenario === 'changed-session') source.agent_session.value = 'other';
+        if (scenario === 'changed-terminal') source.terminal_id = 'other';
+      };
+      const whenBusy = scenario === 'default' ? undefined : ['interrupt', 'stale-seq'].includes(scenario)
+        ? { busy: 'interrupt' as const, confirmed: { ...confirmed, seq: scenario === 'stale-seq' ? 0 : 1 } }
+        : { busy: 'wait' as const, confirmed: { ...confirmed,
+            ...(scenario === 'stale-session' ? { session: 'stale' } : {}),
+            ...(scenario === 'stale-terminal' ? { terminalId: 'stale' } : {}) },
+          waitMs: scenario === 'invalid-bound' ? 300001 : 100 };
+      const result = api === 'move'
+        ? await h.kit.move({ paneId: 'old', kind: 'claude', args: ['--resume', 'conversation'],
+            set: { CLAUDE_CONFIG_DIR: '/new/claude' }, whenBusy, timeoutMs: 250 })
+        : await h.kit.moveToAccount({ paneId: 'old' }, { provider: 'claude', folder: '/new/claude', whenBusy, timeoutMs: 250 });
+      if (scenario === 'success') {
+        assert.equal(result.ok, true);
+        const wait = h.calls.find((c) => c.method === 'agent.wait' && c.params.target === 'old')!;
+        assert.deepEqual(wait.params, { target: 'old', until: ['idle', 'done', 'blocked'], timeout_ms: 100 });
+        assert.ok(!h.panes.has('old'));
+      } else {
+        assert.equal(result.ok, false, scenario);
+        if (result.ok) assert.fail('must refuse');
+        const expected = ['default', 'timeout', 'still-working'].includes(scenario) ? 'busy'
+          : ['blocked', 'initial-blocked'].includes(scenario) ? 'blocked'
+          : ['missing-seq', 'lost-seq', 'invalid-bound'].includes(scenario) ? 'unsupported'
+          : scenario === 'interrupt' ? 'interrupt_unsupported' : 'changed';
+        assert.equal(result.code, expected, scenario);
+        assert.ok(h.panes.has('old'));
+        assert.ok(!h.calls.some((c) => ['pane.split', 'pane.close', 'agent.start'].includes(c.method)));
+      }
+      assert.ok(!h.calls.some((c) => /send_keys|send_input|stop|delete/.test(c.method)));
+    }
+  }
+});
+
+test('R3: source quiescence is checked immediately before close, even on idle moves', async (t) => {
+  for (const change of ['working', 'blocked', 'seq', 'terminal', 'session', 'unreachable']) {
+    const h = harness(t); await h.ready;
+    h.state.beforeSourceRead = () => {
+      if (!h.agents.has('new1')) return;
+      const source = h.agents.get('old')!;
+      if (['working', 'blocked'].includes(change)) source.agent_status = change;
+      if (change === 'seq') source.state_change_seq++;
+      if (change === 'terminal') source.terminal_id = 'changed';
+      if (change === 'session') source.agent_session.value = 'changed';
+      if (change === 'unreachable') h.state.unreachable.add('old');
+    };
+    const result = await h.move();
+    if (result.ok) assert.fail('changed source cannot close');
+    assert.equal(result.code, 'changed');
+    assert.equal(result.live, ['working', 'blocked', 'seq'].includes(change) ? 'old' : undefined);
+    assert.deepEqual(h.calls.filter((c) => c.method === 'pane.close').map((c) => c.params.pane_id), ['new1']);
+    assert.ok(h.panes.has('old'));
+    assert.ok(!h.panes.has('new1'));
+    assert.ok(!result.message.includes('Nothing was closed'));
+  }
+});
+
+test('R3: changed rollback lost ACK reports only freshly verified survivors', async (t) => {
+  for (const fault of ['lost', 'unknown', 'refused']) {
+    const h = harness(t); await h.ready;
+    h.state.beforeSourceRead = () => { if (h.agents.has('new1')) h.agents.get('old')!.agent_status = 'working'; };
+    if (fault === 'refused') h.state.failClose.add('new1');
+    h.state.afterClose = (id) => {
+      if (id !== 'new1') return;
+      if (fault === 'unknown') h.state.unreachable.add('old');
+      throw new Error('fixture cleanup lost ACK');
+    };
+    const result = await h.move();
+    if (result.ok) assert.fail('changed source cannot succeed');
+    assert.equal(result.code, 'changed');
+    assert.equal(result.live, fault === 'unknown' ? undefined : fault === 'refused' ? 'new1' : 'old');
+    assert.ok(!result.message.includes('stays open') || result.live === 'old');
   }
 });

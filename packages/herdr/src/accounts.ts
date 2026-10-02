@@ -82,10 +82,41 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
       let agent: Raw;
       try { agent = (await call('agent.get', { target: target.paneId }) as Raw)?.agent; }
       catch { return failed('too_early'); }
-      const session = agent?.agent_session;
+      const handoff = o.whenBusy;
+      const optedIn = handoff?.busy === 'wait' || handoff?.busy === 'interrupt';
+      let session = agent?.agent_session;
       if (!agent || agent.launch_pending === true || !session || typeof session.value !== 'string'
         || session.value.length === 0) return failed('too_early');
-      if (!['idle', 'done'].includes(agent.agent_status)) return failed('busy');
+      if (agent.agent_status === 'blocked') return failed(optedIn ? 'blocked' : 'busy');
+      if (!['idle', 'done'].includes(agent.agent_status) && !(optedIn && agent.agent_status === 'working')) return failed('busy');
+      if (optedIn) {
+        if (!handoff.confirmed || handoff.confirmed.session !== session.value
+          || handoff.confirmed.terminalId !== agent.terminal_id) return failed('changed');
+        if (typeof agent.terminal_id !== 'string' || agent.terminal_id.length === 0) return failed('unsupported');
+        if (handoff.busy === 'interrupt') {
+          if (handoff.confirmed.seq !== agent.state_change_seq) return failed('changed');
+          return failed('interrupt_unsupported');
+        }
+        if (!Number.isFinite(handoff.waitMs) || handoff.waitMs <= 0 || handoff.waitMs > 300_000
+          || !Number.isSafeInteger(agent.state_change_seq) || agent.state_change_seq < 0) return failed('unsupported');
+        if (agent.agent_status === 'working') {
+          try {
+            await call('agent.wait', { target: target.paneId, until: ['idle', 'done', 'blocked'],
+              timeout_ms: handoff.waitMs }, handoff.waitMs + 5000);
+          } catch { return failed('busy'); }
+          let current: Raw;
+          try { current = (await call('agent.get', { target: target.paneId }) as Raw)?.agent; }
+          catch { return failed('changed', null); }
+          if (!current || current.launch_pending === true || current.agent !== agent.agent
+            || current.terminal_id !== agent.terminal_id || current.agent_session?.agent !== session.agent
+            || current.agent_session?.kind !== session.kind || current.agent_session?.value !== session.value) return failed('changed', null);
+          if (current.agent_status === 'blocked') return failed('blocked');
+          if (!['idle', 'done'].includes(current.agent_status)) return failed('busy');
+          if (!Number.isSafeInteger(current.state_change_seq) || current.state_change_seq < 0) return failed('unsupported');
+          agent = current;
+          session = current.agent_session;
+        }
+      }
       const kind = agent.agent;
       const metadata = accountKind(o.provider);
       if (!metadata?.folderVar || !metadata.resume || kind !== metadata.kind
@@ -139,22 +170,36 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
         const cleaned = await close(paneId);
         return failed('start_failed', cleaned ? target.paneId : paneId);
       }
+      // Compare identity, not revision: status changes can legitimately bump revision.
+      const survives = async (id: string, expected: Raw): Promise<boolean> => {
+        try {
+          const current = (await call('agent.get', { target: id }, timeout) as Raw)?.agent;
+          return !!current && current.agent === expected.agent && current.launch_pending !== true
+            && ['idle', 'working', 'blocked', 'done'].includes(current.agent_status)
+            && current.agent_session?.agent === expected.agent_session?.agent
+            && current.agent_session?.kind === expected.agent_session?.kind
+            && current.agent_session?.value === expected.agent_session?.value
+            && (expected.terminal_id === undefined || current.terminal_id === expected.terminal_id)
+            && (expected.name === undefined || current.name === expected.name);
+        } catch { return false; } // unavailable is not proof of survival
+      };
+      let current: Raw;
+      try { current = (await call('agent.get', { target: target.paneId }, timeout) as Raw)?.agent; }
+      catch { current = {}; }
+      if (!current || current.launch_pending === true || !['idle', 'done'].includes(current.agent_status)
+        || current.agent_status !== agent.agent_status || current.agent !== agent.agent || current.terminal_id !== agent.terminal_id
+        || current.agent_session?.agent !== session.agent || current.agent_session?.kind !== session.kind
+        || current.agent_session?.value !== session.value
+        || (agent.state_change_seq !== undefined && current.state_change_seq !== agent.state_change_seq)) {
+        await close(paneId);
+        const live = await survives(paneId, replacement) ? paneId
+          : await survives(target.paneId, agent) ? target.paneId : null;
+        return failed('changed', live);
+      }
+      // Published Herdr has no conditional close: the final observation is not atomic.
       if (!await close(target.paneId)) {
         // A lost ACK can mean the close already applied. Never destroy the ready
         // replacement unless a fresh read proves the original conversation survived.
-        // Compare identity, not revision: status changes can legitimately bump revision.
-        const survives = async (id: string, expected: Raw): Promise<boolean> => {
-          try {
-            const current = (await call('agent.get', { target: id }, timeout) as Raw)?.agent;
-            return !!current && current.agent === expected.agent && current.launch_pending !== true
-              && ['idle', 'working', 'blocked', 'done'].includes(current.agent_status)
-              && current.agent_session?.agent === expected.agent_session?.agent
-              && current.agent_session?.kind === expected.agent_session?.kind
-              && current.agent_session?.value === expected.agent_session?.value
-              && (expected.terminal_id === undefined || current.terminal_id === expected.terminal_id)
-              && (expected.name === undefined || current.name === expected.name);
-          } catch { return false; } // unavailable is not proof of survival
-        };
         const replacementAlive = await survives(paneId, replacement);
         const sourceAlive = await survives(target.paneId, agent);
         if (sourceAlive && replacementAlive) await close(paneId);
@@ -174,7 +219,7 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
     const variable = accountKind(o.kind)?.folderVar;
     const result = await perform({ paneId: o.paneId }, {
       provider: o.kind, folder: variable === undefined ? '' : o.set[variable] ?? '',
-      env: o.set, timeoutMs: o.timeoutMs,
+      env: o.set, timeoutMs: o.timeoutMs, whenBusy: o.whenBusy,
     }, o);
     return result.ok ? { ok: true, paneId: result.session } : result;
   }
