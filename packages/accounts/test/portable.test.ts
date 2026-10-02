@@ -21,6 +21,11 @@ async function until(what: string, fn: () => boolean | Promise<boolean>, ms = 50
 test('portable entry bundles for a browser and can be imported', async () => {
   const result = await build({ entryPoints: [new URL('../src/portable.ts', import.meta.url).pathname], bundle: true, platform: 'browser', format: 'esm', write: false, metafile: true });
   assert.ok(!Object.keys(result.metafile.inputs).some((path) => path.includes('node_modules/@earendil-works/pi-ai/')), 'all portable Pi runtime code is kit-owned artifact');
+  // Key routes are opted into through @byokit/accounts/keys; the main graph carries no adapter or vendor SDK.
+  assert.deepEqual(Object.keys(result.metafile.inputs).filter((path) => /\/src\/(pi\/|portable-keys)|node_modules\/(openai|@anthropic-ai|@google|@mistralai)\//.test(path)), []);
+  const keyed = await build({ entryPoints: [new URL('../src/keys.ts', import.meta.url).pathname], bundle: true, platform: 'browser', format: 'esm', write: false, metafile: true });
+  assert.ok(Object.keys(keyed.metafile.inputs).some((path) => path.endsWith('src/portable-keys.ts')), 'the keys entry carries the runtime');
+  assert.ok(!Object.keys(keyed.metafile.inputs).some((path) => path.startsWith('node:') || path.includes('node_modules/@earendil-works/pi-ai/')));
   assert.doesNotMatch(result.outputFiles[0].text, /\bimport\s*\(\s*[^'"`]/, 'no non-literal dynamic imports');
   const portable = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString('base64')}`);
   assert.equal(portable.routes({ platform: 'rn' }).length, 66);

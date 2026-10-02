@@ -1,5 +1,6 @@
 // Shared cold-Metro and strict packed-consumer probe. Only web globals; vendors are synthetic SSE fixtures.
 import { Accounts, recordStore, route, KeyRouteError, portable } from '@byokit/accounts';
+import { keys, withKeys } from '@byokit/accounts/keys';
 import fixture from './pi-streams.json' with { type: 'json' };
 const canary = 'B2-packed-cold-canary-987654321';
 const model = (provider, api) => ({ id: 'fixture-model', name: 'Fixture', provider, api, baseUrl: 'https://fixture.invalid/v1',
@@ -10,10 +11,10 @@ function sse(api) {
     { headers: { 'content-type': 'text/event-stream' } });
 }
 function harness() {
-  let data = {}; const keys = new Map();
+  let data = {}; const saved = new Map();
   const store = recordStore(async () => structuredClone(data), async (next) => { data = structuredClone(next); });
-  return new Accounts({ store: () => store, keyStore: () => ({ get: async (id) => keys.get(id) ?? null,
-    set: async (id, value) => { keys.set(id, value); }, delete: async (id) => keys.delete(id) }) });
+  return new Accounts({ store: () => store, keyStore: () => ({ get: async (id) => saved.get(id) ?? null,
+    set: async (id, value) => { saved.set(id, value); }, delete: async (id) => saved.delete(id) }) }, withKeys(portable));
 }
 async function run() {
   const out = {};
@@ -42,7 +43,7 @@ async function run() {
     out.abort = 'unexpected success';
   } catch (e) { out.abort = e instanceof KeyRouteError ? e.code : 'wrong error type'; }
   let reads = 0;
-  const isolated = new Accounts({ keyStore: () => { reads++; throw new Error(canary); } });
+  const isolated = new Accounts({ keyStore: () => { reads++; throw new Error(canary); } }, withKeys(portable));
   try { await isolated.respond('m', { account: 'groq:key', model: model('groq', 'bedrock-converse-stream'), context: fixture.context }); out.bedrock = 'unexpected success'; }
   catch (e) { out.bedrock = e instanceof KeyRouteError ? e.code : 'wrong error type'; }
   out.reads = reads;
@@ -50,7 +51,7 @@ async function run() {
   catch (e) { out.opaque = e instanceof KeyRouteError ? e.code : 'wrong error type'; }
   out.opaqueReads = reads;
   // Explicit native/client-owned flow remains stock and typed by its factories; never label it saved-account auth.
-  const runtime = await portable.keys();
+  const runtime = await keys();
   const native = runtime.createModels({ authContext: { env: async () => undefined, fileExists: async () => false } });
   const chosen = { ...model('native-fixture', 'anthropic-messages'), name: 'Native fixture', headers: { 'x-native-app': 'explicit' } };
   native.setProvider(runtime.createProvider({ id: chosen.provider, models: [chosen], api: await runtime.api(chosen.api),

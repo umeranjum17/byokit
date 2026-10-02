@@ -191,6 +191,12 @@ No environment, other program's login, default CLI account or credential file is
 
 See the [typed key-route example](#typed-key-route-example) below.
 
+On a computer `computer` already answers key routes. In browsers and React Native the main entry stays free of
+the adapters and vendor SDKs, so opt in with the separate entry: `import { withKeys } from '@byokit/accounts/keys'`
+then `new Accounts(options, withKeys(portable))`. Adding, saving, listing and signing out keys need no entry;
+without it, answering a key route fails with `KeyRouteError.code === 'needs_keys'` before any secret is read.
+The adapters still load lazily on the first key request.
+
 `respondKey` (or the `respond` overload above) accepts the full typed pinned Pi `Model`, `Context` and
 `ModelsApiStreamOptions`, returning its `AssistantMessage` with usage and tool/thinking content.
 `onText` receives text deltas; `onEvent` receives sanitized Pi stream events. The model's provider must match
@@ -204,8 +210,8 @@ Cloudflare Gateway uses its pinned `cf-aig-authorization`-only auth; pasted Anth
 
 An explicit prebuilt SDK `client` is refused with `KeyRouteError.code === 'auth_override'` **before** opening
 saved-account secrets: its opaque authentication cannot be verified as this account. It is not silently
-ignored or relabelled. For explicit native/client-owned authentication, `computer.keys()` (Node) and
-`portable.keys()` expose the unmodified typed Pi factories and adapters, including complete `Models`
+ignored or relabelled. For explicit native/client-owned authentication, `keys()` from `@byokit/accounts/keys`
+(also `computer.keys()` on Node) exposes the unmodified typed Pi factories and adapters, including complete `Models`
 stream/complete/simple/deferred operations and stock options/hooks. Supply an explicit app-owned auth
 context (required on Metro), register your own provider and own that authentication/billing; do not
 attribute native/client-owned requests to a saved account. The selected-key helper is not a restriction

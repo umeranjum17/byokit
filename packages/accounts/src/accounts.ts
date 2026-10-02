@@ -38,8 +38,9 @@ type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text
 export type Loopback = (port: number, handle: (path: string) => Promise<{ status: number; html: string }>) => Promise<{ close(): void }>;
 /** What differs by platform: the engine that signs in, which providers it can, and (on a computer) a loopback listener. */
 export type Platform = { kind?: 'node' | 'browser' | 'rn'; keys?: () => Promise<KeyRuntime>; engine: (credentials: CredentialStore, authBase?: string) => AuthHost; signsIn: (pi: string) => boolean; loopback?: Loopback; endpoint?: EndpointDriver; cloudStream?: CloudStream };
-/** Phones and browsers: ChatGPT by device code, no listener. */
-export const portable: Platform = { kind: 'browser', keys: () => import('./portable-keys.ts').then((m) => m.runtime), engine: (c, base) => portableEngine(c, { base }), signsIn: (pi) => pi === CLAUDE_PLAN_ID || PORTABLE.includes(pi) };
+/** Phones and browsers: ChatGPT by device code, no listener. Key routes answer once `withKeys` from
+ *  `@byokit/accounts/keys` adds their runtime, which this entry never imports. */
+export const portable: Platform = { kind: 'browser', engine: (c, base) => portableEngine(c, { base }), signsIn: (pi) => pi === CLAUDE_PLAN_ID || PORTABLE.includes(pi) };
 
 export type ClaudePlanAsk = AnthropicAsk & { provider: 'claude' };
 
@@ -778,7 +779,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const r = route(p.key.includes(':') ? p.key : routes().find((r) => r.upstream.id === p.pi && r.via === 'key')?.id ?? 'missing');
     if (ask.options?.signal?.aborted) throw new KeyRouteError('aborted');
     if (ask.options && 'client' in ask.options && ask.options.client !== undefined) throw new KeyRouteError('auth_override');
-    if (!this.platform.keys) throw new KeyRouteError('needs_host');
+    if (!this.platform.keys) throw new KeyRouteError('needs_keys');
     const runtime = await this.platform.keys();
     checkKeyModel(r, ask.model, this.platform.kind ?? 'browser', runtime.supported);
     const secret = await this.key(member, ask.account);

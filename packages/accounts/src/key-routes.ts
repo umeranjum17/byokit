@@ -9,9 +9,10 @@ export type KeyAsk<T extends Api = Api> = {
   onText?: (delta: string) => void; onEvent?: (event: AssistantMessageEvent) => void;
 };
 export class KeyRouteError extends Error {
-  readonly code: 'unsupported_platform' | 'needs_host' | 'no_upstream_flow' | 'provider' | 'request' | 'aborted' | 'auth_override';
+  readonly code: 'unsupported_platform' | 'needs_host' | 'needs_keys' | 'no_upstream_flow' | 'provider' | 'request' | 'aborted' | 'auth_override';
   constructor(code: KeyRouteError['code']) {
     super({ unsupported_platform: 'This model adapter is not available on this platform.', needs_host: 'This model adapter needs an isolated app-owned host.',
+      needs_keys: 'Key routes need the @byokit/accounts/keys entry: withKeys(platform).',
       no_upstream_flow: 'This sign-in method is not in the pinned upstream.', provider: 'Choose a model from this account’s provider.',
       request: 'This account could not answer. Try again.', aborted: 'The request was cancelled.',
       auth_override: 'A prebuilt client owns its own sign-in. Use the native adapter explicitly.' }[code]);

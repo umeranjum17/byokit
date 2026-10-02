@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Accounts, recordStore, routes, route, chooseAccount, resolveSelection, KeyRouteError, computer, portable, type AccountMetadata, type Api, type Model, type Context } from '../src/index.ts';
 import { Accounts as Portable } from '../src/portable.ts';
+import { keys, withKeys } from '../src/keys.ts';
 import type { Record as CredentialRecord } from '../src/stores.ts';
 import type { Keystore } from '@byokit/secrets';
 import streamFixture from '../../../fixtures/conformance/pi-streams.json' with { type: 'json' };
@@ -22,7 +23,7 @@ function harness(Kit: typeof Accounts | typeof Portable = Accounts) {
     return keys.get(id)!;
   };
   const opts = { store: () => store, keyStore };
-  return { a: new Kit(opts), opts, store, keyStore, data: () => data };
+  return { a: Kit === Portable ? new Portable(opts, withKeys(portable)) : new Kit(opts), opts, store, keyStore, data: () => data };
 }
 const model = <T extends Api>(provider: string, api: T): Model<T> => ({ id: 'fixture-model', name: 'Fixture', provider, api,
   baseUrl: 'https://fixture.invalid/v1', reasoning: false, input: ['text'], cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 128 });
@@ -179,12 +180,12 @@ test('saved key auth cannot be shadowed by model or options headers, but non-aut
 });
 
 test('prebuilt clients are explicitly refused before selected-account secrets; native typed factories retain them', async () => {
-  for (const [Kit, platform] of [[Accounts, computer], [Portable, portable]] as const) {
+  for (const [Kit, platform] of [[Accounts, computer], [Portable, withKeys(portable)]] as const) {
     const h = harness(Kit);
     const { id } = await h.a.add('member', 'kimi-code:plan_key', { key: canary });
     let clients = 0; let sends = 0; let opens = 0;
     const client = { beta: { messages: { create: () => { clients++; return { asResponse: async () => sse(anthropicEvents, true) }; } } } } as any;
-    const guarded = new Kit({ ...h.opts, keyStore: () => { opens++; throw new Error(canary); } });
+    const guarded = new Kit({ ...h.opts, keyStore: () => { opens++; throw new Error(canary); } }, platform);
     await assert.rejects(guarded.respondKey('member', { account: id, model: model('kimi-coding', 'anthropic-messages'), context,
       options: { client, fetch: async () => { sends++; return sse(anthropicEvents, true); } } }), { code: 'auth_override' });
     assert.deepEqual([clients, sends, opens], [0, 0, 0]);
@@ -229,7 +230,7 @@ test('Google uses global fetch, not the Accounts default; explicit custom fetch 
         globals++;
         return new Response(streamFixture.families.google.events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } });
       };
-      const a = new Kit({ ...h.opts, fetch: async () => { defaults++; throw new Error('default fetch must not be passed to Google'); } });
+      const a = new Kit({ ...h.opts, fetch: async () => { defaults++; throw new Error('default fetch must not be passed to Google'); } }, Kit === Portable ? withKeys(portable) : computer);
       const added = await a.add('member', id, { key: canary });
       const query = { account: added.id, model: model(route(id).upstream.id, api), context: streamFixture.context as Context };
       const answer = await a.respondKey('member', query);
@@ -291,7 +292,7 @@ test('request errors are bounded and never retried; cancellation, wrong provider
   abort.abort();
   await assert.rejects(h.a.respondKey('member', { account: id, model: model('groq', 'openai-completions'), context, options: { signal: abort.signal } }));
   let reads = 0;
-  const a = new Portable({ keyStore: () => { reads++; throw new Error(canary); } });
+  const a = new Portable({ keyStore: () => { reads++; throw new Error(canary); } }, withKeys(portable));
   for (const id of ['aws-bedrock:key', 'google-vertex:key', 'azure:key', 'cloudflare:key:cloudflare-workers-ai']) {
     await assert.rejects(a.add('member', id, { key: canary }), { code: 'unsupported_platform' });
   }
@@ -312,4 +313,21 @@ test('no plaintext fallback or key-store error leakage; failed metadata commit r
   const a = new Accounts({ keyStore: () => keys, store: () => store });
   await assert.rejects(a.saveKey('member', 'groq:key', canary, { billedPerUse: true }), (e: Error) => !e.message.includes(canary));
   assert.equal(await keys.get('accounts.groq:key'), 'old-secret');
+});
+
+test('the main portable entry has no key runtime: key requests need @byokit/accounts/keys, refused before secrets', async () => {
+  assert.equal(portable.keys, undefined);
+  let reads = 0;
+  const bare = new Portable({ keyStore: () => { reads++; throw new Error(canary); } });
+  await assert.rejects(bare.respondKey('member', { account: 'groq:key', model: model('groq', 'openai-completions'), context }), { code: 'needs_keys' });
+  assert.equal(reads, 0);
+  // Storage and discovery need no runtime; only answering does.
+  const h = harness();
+  const plain = new Portable(h.opts);
+  const { id } = await plain.add('member', 'groq:key', { key: canary });
+  assert.ok((await plain.list('member')).some((a) => a.id === id));
+  const withRuntime = withKeys(portable);
+  assert.equal(withRuntime.engine, portable.engine);
+  assert.equal(withRuntime.keys, keys);
+  assert.deepEqual((await keys()).supported, (await computer.keys!()).supported.filter((api) => api !== 'google-vertex'));
 });
