@@ -28,7 +28,8 @@ phone page that pairs, signs in with ChatGPT, runs and answers approvals, see
 ## Bundled engine provenance
 
 `engine/patches.json` declares the exact upstream tarball integrity, commit, unique edits and before/after file
-hashes. The current set is empty: this packaging seam does not change restart recovery or usage accounting.
+hashes. The Gateway Workshop review patch writes content-free, durable usage facts only when the kit sets its
+accounting environment. The separately bundled worker and all other detached kinds remain uncovered.
 The full upstream MIT notice ships in [engine/OPENCLAW-LICENSE](engine/OPENCLAW-LICENSE).
 
 Each `prepare()` verifies the **entire** selected engine tree, including unpatched files. The kit installs stock
@@ -166,11 +167,48 @@ refresh it. The engine response cache lasts 30 seconds; pending/stale/unknown da
 An absent agent row is unavailable, not proof of zero usage. Reset/deletion/retention can reduce counters.
 
 **Coverage is always `retained-transcripts-only`.** Stock 2026.8.1's detached Skill Workshop reviews are omitted
-from its ledger; restart resumes and memory flushes count only when their usage is persisted (real-trigger
-qualification remains separate). This reader cannot enforce a complete all-turn budget. The app owns budget,
+from its ledger; actual crash-recovery resumes and threshold memory flushes are counted through persisted
+transcripts, never through a second side total. This reader cannot enforce a complete all-turn budget. The app owns budget,
 share and unavailable/partial-data policy. Do not add run results to these totals: they already overlap. Engine
 cost fields are price counters, not a bill or subscription quota; zero cost with `missingCostEntries > 0` is
 unknown cost, and tokens never establish subscription plan weights. No billing conversion is performed.
+
+### Day readings including Gateway Workshop reviews
+
+```ts
+import { readAgentDayUsage } from '@byokit/openclaw/day-usage'; // also exported by . and ./device
+
+const startMs = Date.parse('2026-10-02');
+const day = await readAgentDayUsage(kitOrDevice, 'umer', {
+  startMs, endMs: startMs + 86_400_000 - 1, mode: 'utc',
+});
+const budget = day.knownTotalTokens !== undefined && day.knownTotalTokens > 190 ? 'over'
+  : day.complete ? 'under' : 'unknown'; // policy is the caller's
+```
+
+This additive reader leaves `readAgentUsage` unchanged. Coverage is **retained transcripts + Gateway Workshop
+reviews**, not all engine spend. Reviews crossing midnight land on their ended day. UTC and IANA
+`{ mode: 'time-zone', timeZone: 'America/New_York' }` apply to both terms; Gateway-local zones are refused.
+The engine transcript RPC reports calendar days: use complete inclusive days in that zone. A partial-day window
+leaves the transcript term unavailable rather than inventing a millisecond total.
+
+Review facts carry only run/session/agent/model/profile ids, times, outcomes and reported tokens. Their cost is
+always `missing`; billing stays `unknown` without verified selected-route identity, never inferred from a provider.
+Missing usage is `reported-missing`, a live start is `pending`, and an old boot's start is `interrupted`; none means
+zero. Facts deduplicate by charge and phase. `knownTotalTokens` is the sum of reported counters only and is absent
+when either source is unavailable. `complete: false` is a budget-policy unknown, not permission to proceed.
+
+The append-only `openclaw/usage/` ledger survives session reset, engine replacement and restart. Start records are
+fsynced before spawning, using an accounting UUID separate from unchanged pid/start-time ownership. Month attempt
+counters and failures survive clean stop; holes, missing counters, corrupt lines and overlapping crash boots keep
+windows incomplete permanently. Reads open only requested UTC months plus boot records. No rotation yet.
+Device reads use the operator-read plugin RPC, never host files; the link adapter restricts it to the granted member.
+As with the existing transcript reader, the app must explicitly allow member-scoped `sessions.usage` pass-through.
+
+Uncovered: worker-bundle work, skill collection review, history scans, slug generation, active-memory recall,
+out-of-turn compaction and one-shot helper completions. Do not add `RunEnd.usage`, memory flush or recovery totals
+again: they already overlap retained transcripts. Offline scripted-provider tests verify seven Gateway accounting
+cases; they do not establish live subscription quota, provider bills or universal coverage.
 
 For a validated JSON answer, pass a literal `schema`. The result's `data` is inferred from that schema:
 

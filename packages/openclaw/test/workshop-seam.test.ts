@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { workshopEdits } from '../scripts/workshop-patch.ts';
 const helper = workshopEdits[1]!.replace.replace(workshopEdits[1]!.find, '');
-function fixture(env: Record<string, string> = { BYOKIT_ENGINE_USAGE_LEDGER: '/owned', BYOKIT_ENGINE_BOOT: 'launch-uuid' }) {
+function fixture(env: Record<string, string | undefined> = { BYOKIT_ENGINE_USAGE_LEDGER: '/owned', BYOKIT_ENGINE_BOOT: 'launch-uuid' }) {
   const global: Record<symbol, any> = {};
   const lines: { path: string; fact: any }[] = [];
   let fail = false, syncs = 0, closed = 0;

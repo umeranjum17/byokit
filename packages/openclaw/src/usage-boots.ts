@@ -10,5 +10,5 @@ export function appendUsageBoot(dir: string, record: { bootId: string } &
     if (writeSync(fd, line) !== line.length) throw new Error();
     fsyncSync(fd);
   } catch { throw new Error('Usage boot record could not be made durable'); }
-  finally { if (fd !== undefined) closeSync(fd); }
+  finally { if (fd !== undefined) { try { closeSync(fd); } catch { throw new Error('Usage boot record could not be made durable'); } } }
 }

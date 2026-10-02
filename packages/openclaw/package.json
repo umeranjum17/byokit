@@ -33,6 +33,10 @@
       "types": "./dist/usage.d.ts",
       "default": "./dist/usage.js"
     },
+    "./day-usage": {
+      "types": "./dist/day-usage.d.ts",
+      "default": "./dist/day-usage.js"
+    },
     "./link": {
       "types": "./dist/link.d.ts",
       "default": "./dist/link.js"

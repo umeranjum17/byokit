@@ -80,3 +80,28 @@ test('cold transcript cache stays unavailable, never zero; timezone is forwarded
   await readAgentDayUsage(client, 'm1', { ...window, mode: 'time-zone', timeZone: 'America/New_York' });
   assert.equal(requests[2].mode, 'specific'); assert.equal(requests[2].timeZone, 'America/New_York');
 });
+test('read failures remain typed unavailable without leaking error contents', async () => {
+  const fail = async () => { throw new Error('PRIVATE_SECRET_CANARY'); };
+  const reading = await readAgentDayUsage({ call: fail, callDynamic: fail }, 'm1', window);
+  assert.equal(reading.transcripts.state, 'unavailable'); assert.equal(reading.engineStarted.state, 'unavailable');
+  assert.equal(reading.knownTotalTokens, undefined); assert.equal(reading.complete, false);
+  assert.equal(JSON.stringify(reading).includes('PRIVATE_SECRET_CANARY'), false);
+});
+test('IANA DST calendar day labels and totals use the same zone; partial days stay unavailable', async () => {
+  const zoneWindow = { startMs: Date.parse('2026-11-01T04:00:00Z'), endMs: Date.parse('2026-11-02T04:59:59.999Z'),
+    mode: 'time-zone' as const, timeZone: 'America/New_York' };
+  const totals = { input: 11, output: 7, cacheRead: 0, cacheWrite: 0, totalTokens: 18, totalCost: 0,
+    inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0, missingCostEntries: 1 };
+  const client = { call: async (_method: string, params: any) => {
+    assert.equal(params.startDate, '2026-11-01'); assert.equal(params.endDate, '2026-11-01');
+    assert.equal(params.mode, 'specific'); assert.equal(params.timeZone, 'America/New_York');
+    return { startDate: params.startDate, endDate: params.endDate, cacheStatus: { status: 'fresh', cachedFiles: 1, pendingFiles: 0, staleFiles: 0 },
+      aggregates: { byAgent: [{ agentId: 'm1', totals }] } };
+  }, callDynamic: async (_method: string, params: any) => ({ ...params, state: 'available', coverageSince: zoneWindow.startMs,
+    complete: true, unreadableLines: 0, facts: [] }) };
+  const reading = await readAgentDayUsage(client, 'm1', zoneWindow);
+  assert.equal(reading.complete, true); assert.equal(reading.knownTotalTokens, 18);
+  assert.deepEqual(reading.transcripts.window, { startDate: '2026-11-01', endDate: '2026-11-01', mode: 'time-zone', timeZone: 'America/New_York' });
+  const partial = await readAgentDayUsage(client, 'm1', { ...zoneWindow, startMs: zoneWindow.startMs + 1 });
+  assert.equal(partial.transcripts.state, 'unavailable'); assert.equal(partial.knownTotalTokens, undefined);
+});

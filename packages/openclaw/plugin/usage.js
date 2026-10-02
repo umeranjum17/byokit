@@ -88,6 +88,9 @@ export function readEngineStarted(dir, live, params, read = readFileSync) {
   }
   for (const fact of Object.values(live.inFlight)) if (!object(fact) || !count(fact.startedAt) || fact.startedAt <= endMs) complete = false;
   result.facts = [...seen.values()].filter(f => f.agentId === agentId);
+  result.live = { bootId: live.bootId, months: Object.fromEntries(months.filter(m => object(live.months[m])).map(m =>
+    [m, { lastSeq: live.months[m].lastSeq, failed: live.months[m].failed }])),
+    inFlight: Object.fromEntries(Object.entries(live.inFlight).filter(([, f]) => object(f) && count(f.startedAt)).map(([id, f]) => [id, { startedAt: f.startedAt }])) };
   result.complete = complete && result.unreadableLines === 0;
   return result;
 }
@@ -107,7 +110,7 @@ export function registerUsage(api) {
         if (writeSync(fd, line) !== line.length) return;
         fsyncSync(fd);
       } catch { /* No stop proof: permanently incomplete, never fail a review or shutdown. */ }
-      finally { if (fd !== undefined) closeSync(fd); }
+      finally { if (fd !== undefined) { try { closeSync(fd); } catch { /* no further writes at exit */ } } }
     });
   }
   api.registerGatewayMethod('byokit.usage.engineStarted', ({ params, respond }) => {

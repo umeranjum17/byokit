@@ -1,5 +1,6 @@
 // Portable additive day reader. No host files, pricing guesses or side totals for persisted turns.
 import { agentUsageOf, type AgentUsageReading } from './usage.ts';
+import type { SessionsUsageParams } from '@openclaw/gateway-protocol';
 import type { Member } from './types.ts';
 export type EngineStartedKind = 'workshop-review';
 export type EngineStartedCharge = {
@@ -81,13 +82,13 @@ export function engineStartedOf(raw: unknown, member: Member, window: AgentDayUs
 }
 /** Read the transcript and Workshop terms independently. A failed term never becomes zero. */
 export async function readAgentDayUsage(client: { callDynamic(method: string, params?: unknown): Promise<unknown>;
-  call(method: 'sessions.usage', params: any): Promise<unknown> }, member: Member, window: AgentDayUsage['window']): Promise<AgentDayUsage> {
+  call(method: 'sessions.usage', params: SessionsUsageParams): Promise<unknown> }, member: Member, window: AgentDayUsage['window']): Promise<AgentDayUsage> {
   if (!/^[a-z][a-z0-9-]{0,31}$/.test(member)) throw new Error('Invalid member');
   const day = dates(window);
   const [transcriptRaw, ledgerRaw] = await Promise.all([
     client.call('sessions.usage', { agentId: member, ...day, mode: window.mode === 'utc' ? 'utc' : 'specific',
-      ...(window.mode === 'time-zone' ? { timeZone: window.timeZone } : {}), groupBy: 'instance', limit: 1 }),
-    client.callDynamic('byokit.usage.engineStarted', { agentId: member, startMs: window.startMs, endMs: window.endMs }),
+      ...(window.mode === 'time-zone' ? { timeZone: window.timeZone } : {}), groupBy: 'instance', limit: 1 }).catch(() => undefined),
+    client.callDynamic('byokit.usage.engineStarted', { agentId: member, startMs: window.startMs, endMs: window.endMs }).catch(() => undefined),
   ]);
   const transcripts: AgentDayUsage['transcripts'] = { ...agentUsageOf(transcriptRaw, member, day), window: { ...day,
     ...(window.mode === 'utc' ? { mode: 'utc' as const } : { mode: 'time-zone' as const, timeZone: window.timeZone }) } };
