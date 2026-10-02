@@ -1,0 +1,1 @@
+ADD: Portable `readAgentUsage` / `agentUsageOf` expose explicit-agent UTC retained-transcript totals with raw responses, cache freshness and missing-price counters preserved. Coverage stays partial: stock-engine detached Workshop reviews are absent, and unavailable data never becomes zero; complete internal-turn accounting is not claimed.

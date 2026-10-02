@@ -267,5 +267,7 @@ export function openclawDevice(link: DeviceLink): {
 
 // Portable, re-exported by ./device (7.3).
 export { openNotice } from './notices.ts';
+export { readAgentUsage, agentUsageOf } from './usage.ts';
+export type { AgentUsageReading, LedgerUsageTotals, UsageCache, UsageWindow } from './usage.ts';
 // The kit's sentences, so a phone or browser shows the same words the computer does (5.14).
 export { stateWords, toAccountView, words, type AccountView, type WordKey } from './words.ts';

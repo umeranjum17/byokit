@@ -29,6 +29,10 @@
       "types": "./dist/device.d.ts",
       "default": "./dist/device.js"
     },
+    "./usage": {
+      "types": "./dist/usage.d.ts",
+      "default": "./dist/usage.js"
+    },
     "./link": {
       "types": "./dist/link.d.ts",
       "default": "./dist/link.js"
