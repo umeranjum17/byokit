@@ -1,1 +1,3 @@
 FEAT: Add the internal pipe-only browser broker with fenced private targets, lease-bound live sessions and exact-origin site-data clearing. Sign-in handoff remains unprotected until parked-session protection is qualified.
+FIX: Launch each broker's Chromium with its own short mode-0700 temp directory under the caller's temp directory, removed on close, instead of using the profile path as TMPDIR; deep app profile paths overflowed Chromium's singleton socket path and aborted startup.
+FIX: A controlling viewer ignores frames from a previous target and drops input until the current private target has delivered its first image, so popup switches cannot map input with stale coordinates.
