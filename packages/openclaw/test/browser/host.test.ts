@@ -384,13 +384,13 @@ test('failed old private close refuses replacement, fresh generation, and candid
   } finally { await host.close(); await replacement.close(); }
 });
 
-for (const state of ['waiting', 'parked'] as const) test(`replacement preserves durable ${state}, bumps generation only after close, restores correct fence`, async () => {
+for (const state of ['waiting', 'parked'] as const) test(`replacement preserves durable ${state}, bumps generation only after close, keeps incoming endpoint fenced for config ack`, async () => {
   const store = memorySignInStore(); const host = await fakeBrowserHost({ store }); const replacement = await fakeBrowserHost();
   try {
     const r = await raise(host); if (state === 'parked') await host.notNow(r.id, r.gen, { grant: 'control' });
     await host.attachBroker('ada', replacement.fixture.broker('ada'), host.fixture.broker('ada'));
     const next = host.signIns()[0]; assert.equal(next.state, state); assert.equal(next.gen, r.gen + 1);
-    assert.equal(store.read().requests[0].gen, next.gen); assert.equal(replacement.fixture.fenced('ada'), state === 'waiting');
+    assert.equal(store.read().requests[0].gen, next.gen); assert.equal(replacement.fixture.fenced('ada'), true);
     assert.equal(host.fixture.dispatches.length, 0);
   } finally { await host.close(); await replacement.close(); }
 });
@@ -447,6 +447,39 @@ test('replacement races private-tab creation without returning a stale controlle
     assert.equal(host.signIns()[0].state, 'waiting'); assert.equal(host.signIns()[0].gen, r.gen + 1);
     assert.equal(host.fixture.privateOpen('ada'), false); assert.equal(replacement.fixture.fenced('ada'), true);
   } finally { await host.close(); await replacement.close(); }
+});
+
+test('read-only owned binding snapshots hide pending replacements and reject stale config acknowledgements', async () => {
+  const oldFixture = await fakeBrowserHost(); const replacement = await fakeBrowserHost(); const old = oldFixture.fixture.broker('ada');
+  const host = await dynamicHost(new Map([['ada', old]]));
+  try {
+    const before = host.brokerBinding('ada')!; assert.equal(before.broker, old); assert.equal(Object.isFrozen(before), true); assert.equal(Object.isFrozen(before.endpoint), true);
+    const wait = deferred(); oldFixture.fixture.closePrivate('ada', () => wait.promise);
+    const next = replacement.fixture.broker('ada'); const attaching = host.attachBroker('ada', next, old);
+    assert.equal(host.brokerBinding('ada'), undefined); wait.resolve(); await attaching;
+    const after = host.brokerBinding('ada')!; assert.equal(after.broker, next); assert.ok(after.generation > before.generation);
+    // Same URL is not identity proof; a late config ack must compare both owned broker and generation.
+    assert.equal(after.endpoint.cdpUrl, before.endpoint.cdpUrl);
+    const staleAck = before.broker === after.broker && before.generation === after.generation;
+    assert.equal(staleAck, false); assert.equal(replacement.fixture.fenced('ada'), true);
+  } finally { await host.close(); await oldFixture.close(); await replacement.close(); }
+});
+
+test('endpoint generation is stable across private lease epochs, recovery adopts only a fenced canonical binding', async () => {
+  const fixture = await fakeBrowserHost();
+  try {
+    const before = fixture.brokerBinding('ada')!; const { lease } = await held(fixture);
+    assert.equal(fixture.brokerBinding('ada')!.generation, before.generation);
+    await fixture.cancel(lease.requestId, lease.gen, { grant: 'control' });
+    assert.equal(fixture.brokerBinding('ada')!.generation, before.generation);
+  } finally { await fixture.close(); }
+  const old = await fakeBrowserHost(); const replacement = await fakeBrowserHost();
+  const host = await dynamicHost(new Map([['ada', old.fixture.broker('ada')]]), async () => replacement.fixture.broker('ada'));
+  try {
+    const before = host.brokerBinding('ada')!; await host.browserGone('ada', before.broker);
+    const after = host.brokerBinding('ada')!; assert.equal(after.broker, replacement.fixture.broker('ada')); assert.ok(after.generation > before.generation);
+    assert.equal(replacement.fixture.fenced('ada'), true);
+  } finally { await host.close(); await old.close(); await replacement.close(); }
 });
 
 test('fixture authorization and pings pass through actual grant ids without remapping', async () => {
