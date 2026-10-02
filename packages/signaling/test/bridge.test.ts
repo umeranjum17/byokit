@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { authorizeBridge, bridgeSignaling, SignalingError, toSessionEvent, type SessionEvent } from '../src/index.ts';
+import { authorizeBridge, bridgeSignaling, SignalingError, toSessionEvent, type SessionEvent, type WebSocketLike } from '../src/index.ts';
 
 type Frame = { id?: unknown; method?: string; params?: Record<string, unknown> };
 
@@ -57,12 +57,13 @@ test('a refusal rejects with the bridge code; unmatched and malformed frames are
     s.send('not json');
     s.send(JSON.stringify({ error: { code: 'malformed', message: 'not JSON' } }));
     s.send(JSON.stringify({ id: 999, result: 'stray' }));
+    s.send(JSON.stringify({ id: f.id })); // Not a response; must not consume this request.
     echo(f, s);
   });
   const signaling = bridgeSignaling(bridge.url);
   await assert.rejects(signaling.request('refuse'), (e: unknown) =>
     e instanceof SignalingError && e.name === 'SignalingError' && e.code === 'consent-timeout' && e.message === 'not approved');
-  assert.deepEqual(await signaling.request('ok'), { method: 'ok', params: undefined });
+  assert.deepEqual(await signaling.request('ok'), { method: 'ok' });
   signaling.close();
   await bridge.close();
 });
@@ -77,6 +78,7 @@ test('events are unwrapped into session events; unsubscribe stops delivery', asy
   bridge.broadcast({ event: 'session.candidate', params: { sessionId: 's', candidate: 'candidate:1', sdpMid: '0', sdpMLineIndex: 0 } });
   bridge.broadcast({ event: 'session.state', params: { sessionId: 's', capture: 'streaming', transport: 'connected', firstFrame: true } });
   bridge.broadcast({ event: 'session.cursor', params: { sessionId: 's', x: 4, y: 3, visible: true, timestamp_us: 9 } });
+  bridge.broadcast({ event: 'session.restoreToken', params: { sessionId: 's', token: 'mock-only' } });
   bridge.broadcast({ event: 'session.keyframeRequest', params: { sessionId: 's' } });
   bridge.broadcast({ event: 'session.revoked', params: { sessionId: 's', reason: 'lease ended', code: 'lease' } });
   await signaling.request('hello');
@@ -88,6 +90,7 @@ test('events are unwrapped into session events; unsubscribe stops delivery', asy
     { kind: 'candidate', candidate: { candidate: 'candidate:1', sdpMid: '0', sdpMLineIndex: 0 }, sessionId: 's' },
     { kind: 'state', capture: 'streaming', transport: 'connected', firstFrame: true, sessionId: 's' },
     { kind: 'cursor', sessionId: 's', x: 4, y: 3, visible: true, timestamp_us: 9 },
+    { kind: 'restoreToken', token: 'mock-only', sessionId: 's' },
     { kind: 'revoked', reason: 'lease ended', code: 'lease', sessionId: 's' },
   ]);
   signaling.close();
@@ -99,6 +102,8 @@ test('malformed event params are dropped', () => {
   assert.equal(toSessionEvent('session.candidate', { candidate: 5 }), null);
   assert.equal(toSessionEvent('session.cursor', { x: 1, y: 2, timestamp_us: 3 }), null);
   assert.equal(toSessionEvent('session.state', 'nope'), null);
+  assert.equal(toSessionEvent('session.state', { capture: {}, transport: 'connected', firstFrame: true }), null);
+  assert.equal(toSessionEvent('session.restoreToken', { token: 5 }), null);
   assert.deepEqual(toSessionEvent('session.candidate', { candidate: 'c' }), { kind: 'candidate', candidate: { candidate: 'c', sdpMid: null, sdpMLineIndex: null } });
 });
 
@@ -169,7 +174,91 @@ test('authorizeBridge opens a fresh socket on every call, including after a disc
   assert.equal(bridge.sockets.length, 3, 'three authorizations, three sockets');
   authorize.close();
   await assert.rejects(third.signaling.request('hello'), { code: 'closed' });
+  const fourth = await authorize();
+  await fourth.signaling.request('hello');
+  assert.equal(bridge.sockets.length, 4, 'authorization after explicit close also opens a fresh socket');
+  authorize.close();
   await bridge.close();
+});
+
+// Controllable standard-WebSocket surface for races that a loopback server cannot schedule reliably.
+class Socket implements WebSocketLike {
+  static instances: Socket[] = [];
+  readyState = 0;
+  onopen: WebSocketLike['onopen'] = null;
+  onmessage: WebSocketLike['onmessage'] = null;
+  onerror: WebSocketLike['onerror'] = null;
+  onclose: WebSocketLike['onclose'] = null;
+  sent: string[] = [];
+  closes = 0;
+  constructor(_url: string) { Socket.instances.push(this); }
+  send(data: string) { this.sent.push(data); }
+  close() { this.readyState = 3; this.closes++; }
+  open() { this.readyState = 1; this.onopen?.({}); }
+}
+
+test('close before open rejects every waiter and removes callbacks; late callbacks cannot revive the socket', async () => {
+  const signaling = bridgeSignaling('ws://fixture/desktop', { WebSocket: Socket });
+  const socket = Socket.instances.at(-1)!;
+  const lateOpen = socket.onopen!;
+  const a = signaling.request('a');
+  const b = signaling.request('b');
+  signaling.close();
+  lateOpen({});
+  await assert.rejects(a, { code: 'closed' });
+  await assert.rejects(b, { code: 'closed' });
+  await assert.rejects(signaling.request('c'), { code: 'closed' });
+  assert.equal(socket.closes, 1);
+  assert.deepEqual([socket.onopen, socket.onmessage, socket.onerror, socket.onclose], [null, null, null, null]);
+  assert.deepEqual(socket.sent, []);
+});
+
+test('error terminates an open socket, rejects all pending ids, cleans listeners and ignores queued stale events', async () => {
+  const authorize = authorizeBridge('ws://fixture/desktop', {}, { WebSocket: Socket });
+  const first = await authorize();
+  const socket = Socket.instances.at(-1)!;
+  socket.open();
+  const seen: SessionEvent[] = [];
+  first.signaling.subscribe(e => seen.push(e));
+  const a = first.signaling.request('a');
+  const b = first.signaling.request('b');
+  await Promise.resolve();
+  const lateMessage = socket.onmessage!;
+  const lateClose = socket.onclose!;
+  socket.onerror?.({});
+  await assert.rejects(a, { code: 'transport' });
+  await assert.rejects(b, { code: 'transport' });
+  lateClose({});
+  assert.equal(socket.closes, 1);
+  assert.deepEqual([socket.onopen, socket.onmessage, socket.onerror, socket.onclose], [null, null, null, null]);
+  const next = await authorize();
+  const fresh = Socket.instances.at(-1)!;
+  fresh.open();
+  const nextSeen: SessionEvent[] = [];
+  next.signaling.subscribe(e => nextSeen.push(e));
+  lateMessage({ data: JSON.stringify({ event: 'session.revoked', params: { reason: 'old' } }) });
+  assert.equal(seen.length, 1);
+  assert.deepEqual(nextSeen, []);
+  authorize.close();
+});
+
+test('send failure rejects its request without consuming another pending id', async () => {
+  const signaling = bridgeSignaling('ws://fixture/desktop', { WebSocket: Socket });
+  const socket = Socket.instances.at(-1)!;
+  socket.open();
+  const first = signaling.request('first');
+  await Promise.resolve();
+  socket.send = () => { throw new Error('send failed'); };
+  await assert.rejects(signaling.request('second'), { code: 'transport' });
+  socket.onmessage?.({ data: JSON.stringify({ id: 1, result: { nested: [1, null, { extra: true }] } }) });
+  assert.deepEqual(await first, { nested: [1, null, { extra: true }] });
+  signaling.close();
+});
+
+test('construction failure is transport without leaking the token from a native error', () => {
+  class Refused extends Socket { constructor(url: string) { super(url); throw new Error(url); } }
+  assert.throws(() => bridgeSignaling('ws://fixture?token=secret', { WebSocket: Refused }),
+    (e: unknown) => e instanceof SignalingError && e.code === 'transport' && !e.message.includes('secret') && e.cause === undefined);
 });
 
 test('a call without a URL or WebSocket is a programming mistake', () => {

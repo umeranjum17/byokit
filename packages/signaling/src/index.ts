@@ -47,13 +47,16 @@ export class SignalingError extends Error {
   }
 }
 
+// Platform event types differ. Method variance accepts native handlers without a dependency on DOM types.
+type SocketListener<E> = { handle(event: E): void }['handle'];
+
 /** The subset of the standard WebSocket this uses; browsers, React Native and Node 22+ all provide it. */
 export interface WebSocketLike {
   readonly readyState: number;
-  onopen: ((event: unknown) => void) | null;
-  onmessage: ((event: { data: unknown }) => void) | null;
-  onerror: ((event: unknown) => void) | null;
-  onclose: ((event: unknown) => void) | null;
+  onopen: SocketListener<unknown> | null;
+  onmessage: SocketListener<{ data: unknown }> | null;
+  onerror: SocketListener<unknown> | null;
+  onclose: SocketListener<unknown> | null;
   send(data: string): void;
   close(): void;
 }
@@ -89,8 +92,8 @@ export function toSessionEvent(event: unknown, params: unknown): SessionEvent | 
       return { kind: 'candidate', candidate: { candidate: params.candidate, sdpMid, sdpMLineIndex }, ...id };
     }
     case 'session.state':
-      return { kind: 'state', capture: String(params.capture ?? ''), transport: String(params.transport ?? ''),
-        firstFrame: params.firstFrame === true, ...id };
+      if (typeof params.capture !== 'string' || typeof params.transport !== 'string' || typeof params.firstFrame !== 'boolean') return null;
+      return { kind: 'state', capture: params.capture, transport: params.transport, firstFrame: params.firstFrame, ...id };
     case 'session.cursor': {
       const { x, y, timestamp_us } = params;
       if (sessionId === undefined || typeof x !== 'number' || typeof y !== 'number' || typeof timestamp_us !== 'number') return null;
@@ -123,7 +126,9 @@ export function bridgeSignaling(url: string, options: BridgeSignalingOptions = {
   let opened = false;
   let openWaiters: { resolve: () => void; reject: (error: SignalingError) => void }[] = [];
 
-  const socket = new Socket(url);
+  let socket: WebSocketLike;
+  try { socket = new Socket(url); }
+  catch { throw new SignalingError('transport', `cannot reach the bridge at ${where}`); }
 
   const emit = (event: SessionEvent) => {
     for (const handler of [...handlers]) handler(event);
@@ -136,6 +141,9 @@ export function bridgeSignaling(url: string, options: BridgeSignalingOptions = {
     openWaiters = [];
     for (const waiter of pending.values()) waiter.reject(error);
     pending.clear();
+    if (socket.readyState <= OPEN) {
+      try { socket.close(); } catch { /* Rejections and listener cleanup still apply if transport shutdown fails. */ }
+    }
   };
   const lost = () => {
     if (ended !== null) return;
@@ -143,11 +151,13 @@ export function bridgeSignaling(url: string, options: BridgeSignalingOptions = {
     end(new SignalingError('transport', wasOpen ? `the bridge at ${where} closed` : `cannot reach the bridge at ${where}`));
     // The bridge releases the session of a socket that closed, so tell the session client it is gone and let its
     // reopen policy authorize again on a fresh socket.
-    if (wasOpen) emit({ kind: 'revoked', reason: 'the bridge connection closed', code: 'transport' });
-    handlers.clear();
+    try {
+      if (wasOpen) emit({ kind: 'revoked', reason: 'the bridge connection closed', code: 'transport' });
+    } finally { handlers.clear(); }
   };
 
   socket.onopen = () => {
+    if (ended !== null) return;
     opened = true;
     for (const waiter of openWaiters) waiter.resolve();
     openWaiters = [];
@@ -165,7 +175,7 @@ export function bridgeSignaling(url: string, options: BridgeSignalingOptions = {
     if (!isObject(frame)) return;
     if (frame.id !== undefined) {
       const waiter = typeof frame.id === 'number' ? pending.get(frame.id) : undefined;
-      if (waiter === undefined) return;
+      if (waiter === undefined || (!isObject(frame.error) && !Object.hasOwn(frame, 'result'))) return;
       pending.delete(frame.id as number);
       if (isObject(frame.error)) {
         const code = str(frame.error.code) ?? 'engine';
@@ -207,7 +217,6 @@ export function bridgeSignaling(url: string, options: BridgeSignalingOptions = {
       if (ended !== null) return;
       end(new SignalingError('closed', 'the signaling was closed'));
       handlers.clear();
-      if (socket.readyState <= OPEN) socket.close();
     },
   };
 }

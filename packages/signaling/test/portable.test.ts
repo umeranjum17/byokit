@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
+import type { BridgeSignalingOptions } from '../src/index.ts';
+
+// Compile-time proof: a native DOM/Node WebSocket is injectable without a cast.
+const nativeOptions: BridgeSignalingOptions = { WebSocket };
+void nativeOptions;
 
 test('the entry bundles for browsers and React Native without Node imports', async () => {
   const result = await build({
