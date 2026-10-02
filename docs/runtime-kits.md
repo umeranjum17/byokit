@@ -1627,7 +1627,8 @@ construction (`gate-off`). The trusted host (app code with typed pass-through) i
 **Browser and broker** (`src/browser/broker.ts`, O19). Per member: Chromium from `executablePath` with
 `--remote-debugging-pipe` (no TCP DevTools port), profile `<stateDir>/browser/<member>/profile` (0700), env built
 from nothing, password manager and autofill prefs off, back-forward cache off. The broker is the pipe's only
-client and serves `ws://127.0.0.1:<port>/devtools/browser?token=<t>`, `/json/{version,list,new,activate,close}`
+client and serves `ws://127.0.0.1:<port>/devtools/browser/<opaque-id>?token=<t>` (also `/json/version`'s
+`webSocketDebuggerUrl`; per-page URLs keep the token), `/json/{version,list,new,activate,close}`
 and `/devtools/page/<id>`; it refuses an `Origin` header or foreign `Host`, blocks `Browser.close`, rotates the
 token per start, and multiplexes one `Target.attachToBrowserTarget` per client with per-client id remapping and
 session ownership.
