@@ -29,6 +29,7 @@ a Messages backend to the frozen Kotlin runtime.
 | `conformance/plain-words.json` | The pattern no sentence in `words.json` may match. |
 | `conformance/auto-pick-typescript.json` | TypeScript portable Auto/default/explicit selection, demand, age, explanations and deterministic ranking; shared with runtime kits. |
 | `conformance/identity-reauth-typescript.json` | TypeScript identity ownership and re-authentication boundaries; engine-owned adoption, chooser consumes validated records. |
+| `conformance/account-routes-typescript.json` | TypeScript-only D18 account routes: vocabulary, default iff subscription, explicit billing (never from an address), readiness before credentials, complete discovery, excluded mechanisms. Checked by `packages/ui-core/test/account-routes.test.ts`. |
 | `conformance/link-frames-typescript.json` | TypeScript link transport rejects missing kinds, unknown kinds and truncated stream ids. |
 
 Each fixture file states its rule in `rule`; `now` (epoch ms) is the fixed clock for time-dependent cases.

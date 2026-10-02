@@ -55,12 +55,82 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D9 | Members. OpenClaw: a member is an app-chosen id matching `/^[a-z](?!.*--)[a-z0-9-]{0,23}$/` (no `--`, at most 24 characters, so every account agent id `<member>--<6 hex>` stays within 32), never `main`, `openclaw`, `crestodian` or starting `byokit-`; an agent that already exists under the older `/^[a-z][a-z0-9-]{0,31}$/` rule and is no member's account agent keeps working with its member agent only (D17), and no new member is created under the old rule. The id is used verbatim as the OpenClaw `agentId` of the member agent; every session key must start `agent:<member>:`, `agent:<member>--<6 hex>:` for an account agent in the member's index (5.15), or (key lane) exactly `agent:byokit-key-<member>:`; sign-ins are per agent (OpenClaw per-agent auth). Herdr: no member concept upstream; a link grant carries `meta.scope = { workspaces: 'all' \| string[] }`. |
 | D10 | Approvals. OpenClaw: (a) the kit's fail-closed tool bridge (Crewhouse's plugin hook → unix socket → app `gate()`), extended with a parked `ask` result; (b) OpenClaw's native `exec.approval.*`, `plugin.approval.*`, `question.*` surfaced through the same `Approval` shape. Herdr: an agent in `blocked` state is an approval; the answer is keys sent to that exact pane occupant (revision-checked). |
 | D11 | Sign-in. OpenClaw: the kit drives OpenClaw's own `openclaw.setup.auth.start` + `wizard.next` loop and holds the ChatGPT callback port during a browser sign-in; credentials are owned by the engine; an optional host-injected seal sees bytes only to protect the isolated store at rest. Native Claude login is completed in Claude Code in the isolated HOME, then detected and activated by the engine. Explicit API-key entry passes a secret only to typed `setup.activate`, never to kit storage, logs or return values (5.15). Herdr: each agent CLI's own login, done by the person inside an account-specific pane (terminal stream); `openSignInTab` opens that CLI in a new tab with the host's explicit account environment. The kit never runs a login command, copies credentials between homes, or reads a CLI's credential files. |
-| D12 | Route policy is data: all subscription routes, including native Claude Code (`anthropic-cli`, provider `claude-cli`) and `setup-token`, are offered by default with plain sign-in. API-billed routes are app opt-in only. Proxy routes, compatibility aliases, local runtimes and `copilot-proxy` remain off. Native login stays in Claude Code in the isolated HOME; the kit asks engine `setup.detect` and `setup.activate`. No consent screen or terms gate is added. |
+| D12 | Route policy is data: all subscription routes, including native Claude Code (`anthropic-cli`: manifest provider `anthropic`, CLI backend `claude-cli`) and `setup-token`, and plan keys, are offered by default with plain sign-in. API-billed routes are app opt-in only. Proxy routes, compatibility aliases, local runtimes and `copilot-proxy` are listed in discovery and used only when named (D18); the 2026.8.1 table shipped today still marks them off until WP B6 regenerates it. Native login stays in Claude Code in the isolated HOME; the kit asks engine `setup.detect` and `setup.activate`. No consent screen or terms gate is added. |
 | D13 | Library code reads no environment variables except `PATH`, and only to locate `npm` for the engine install when `npmPath` is not given. Every spawned process gets an explicit env; `process.env` is never inherited. The Herdr binary path is always an explicit option. |
 | D14 | `npm test` stays network-free. Tests needing the real engine (network `npm ci` of the pin, loopback only afterwards) run under `npm run test:engine` in a separate CI job `openclaw-engine`. Real-Herdr contract runs happen only in an isolated lab under a `--herdr-lab` brief, never in CI and never against a person's Herdr. |
 | D15 | Retained-login migration source for OpenClaw is a Pi `auth.json`-shaped record (`{ [provider]: credential }`): a file path (Crewhouse's legacy engine) or an in-memory record (an app moving from `@byokit/accounts`' `fileStore`/`secureStore`). Retire only after the Gateway itself reports the member signed in to every provider in the source. |
 | D16 | Crewhouse adopts first with behavior parity; muxr adopts later in a separate muxr change after the Herdr kit is published and muxr's byokit cutover allows it. Neither adoption is part of the byokit PRs. |
 | D17 | Accounts (5.15). A member can hold several accounts, several per provider, subscription or API key. Each further account is its own engine agent `<member>--<6 hex>` sealed to exactly one sign-in, because the pin has no strict per-run auth-profile pin and rotates profiles of one provider within an agent. The member agent is the first account of each provider it is signed in to (its own existing sign-ins keep working, no migration; sign-ins read through another member's agent stop applying) and never holds an API key. Each run uses one account and one model, chosen, the default, or Auto (most room left, decided once at run start); a run never switches accounts, and a session stays on the account whose agent holds it until `move`. The engine's own per-person accounts, pooled proxies and per-request or mid-run rotation are not used. The kit adds the plugin id of every `offer: true` route to `plugins.allow` (5.6), so offered sign-ins work without app config. |
+| D18 | Account routes ([2.1](#21-account-routes-d18)). Every sign-in method a kit's pinned upstream supports is one data row in one shared vocabulary owned by `fixtures/conformance/account-routes-typescript.json`; each kit restates the shapes structurally (D3). Discovery lists every row, unavailable ones with a plain reason. Subscription rows are offered by default; every other billing is used only when the app or person names it. Billing is pinned upstream metadata or explicit host input, never inferred from an address. Credential import, pooling proxies, per-request or mid-run rotation, tokens leaving the device and signing in as another tool's existing login never become routes. |
+
+### 2.1 Account routes (D18)
+
+One vocabulary covers every account mechanism on every surface: `@byokit/accounts` (the pinned pi-ai providers,
+auth modules and `createProvider`), `@byokit/openclaw` (the pinned engine's auth choices, bundled and external
+plugins, and providers configured without a choice) and `@byokit/herdr` (the pinned agent kinds). Each kit restates
+these shapes; `packages/ui-core/test/account-routes.test.ts` checks the fixture and that today's shapes fit.
+
+```ts
+type Billing = 'subscription' | 'api' | 'local' | 'free' | 'unknown';
+type Via = 'browser' | 'code' | 'paste' | 'key' | 'session'                       // today's accounts Via
+  | 'setup_token' | 'cli' | 'plan_key' | 'cloud' | 'local' | 'endpoint';
+type Support = 'yes' | 'host' | 'no';     // host: needs the app's host side (forwarder, engine or link)
+type Readiness = 'ready' | 'needs_binary' | 'needs_plugin' | 'needs_host' | 'needs_client'
+  | 'unsupported_platform' | 'no_upstream_flow';
+type Route = {
+  id: string;                              // '<provider>:<via>[:<variant>]'
+  provider: string; name: string; company: string; label: string; aliases?: string[];
+  via: Via; billing: Billing; billingFrom: 'source' | 'host'; offer: 'default' | 'explicit';
+  platforms: { node: Support; browser: Support; rn: Support };
+  needs?: { binary?: string; plugin?: string; client?: string };
+  folderVar?: string; move?: boolean;      // herdr kinds
+  upstream: { surface: 'accounts' | 'openclaw' | 'herdr'; id: string; method?: string; revision: string; flow: 'present' | 'absent' };
+};
+type RouteView = Route & { readiness: Readiness; why?: string };   // computed, never stored
+```
+
+| Upstream mechanism | `via` |
+|---|---|
+| OAuth with a loopback callback | `browser` |
+| OAuth where the person pastes the code or URL back | `paste` |
+| Device code (RFC 8628) | `code` |
+| Setup or environment token | `setup_token` for a plan, `key` for API billing |
+| The agent CLI's own login | `cli` |
+| API key | `key` |
+| Key bound to a plan | `plan_key` (billing `subscription`) |
+| Cloud credentials: a profile, ADC, a service-account file the person picks, Entra | `cloud` |
+| Local runtime preset | `local` |
+| Any OpenAI- or Anthropic-compatible base URL | `endpoint` |
+
+Excluded, never routes: credential import (another tool's files, keychain entries or CLI logins), pooling proxies,
+per-request or mid-run rotation, tokens leaving the device, and signing in as another tool's existing login.
+
+1. **Data.** Each surface generates its table from its pin; no provider is special-cased in code. The `id` names
+   the provider and `via`. `upstream` names the pinned source; `flow: 'absent'` lists a row the pin cannot sign in.
+2. **Billing is fixed.** `billingFrom: 'source'` is pinned metadata; `'host'` is what the person or app chose when
+   adding it. Endpoint rows are always `host`. An address never decides billing: a loopback proxy can charge a remote
+   API. `unknown` is valid and explicit.
+3. **Offer.** `default` exactly when billing is `subscription`, plan keys included; `api`, `local`, `free` and
+   `unknown` rows are explicit. Auto and Default keep refusing anything that is not a subscription (`multi.ts`).
+4. **Labels.** API rows say billed per use and by whom; no other row does. The one README terms line stays; there
+   is no consent screen, terms gate or legal assurance.
+5. **Discovery and readiness.** `routes()` returns every row with its readiness; `offered()` is default and ready.
+   Readiness is computed from the route and host facts only, before any credential is read, in this order:
+   `no_upstream_flow`, `unsupported_platform`, `needs_host`, `needs_binary`, `needs_plugin`, `needs_client`,
+   `ready`. `needs_binary` generalizes the CLI `not_included` result, which stays. A missing client registration or
+   endpoint is an availability fact, not an approval gate.
+6. **Never in a route:** secrets, stored readiness, live qualification, a fallback. An account signed in on a route
+   carries that route's billing; a run uses only the selected account; a plan sign-in never becomes API-billed.
+7. **Complete pass-through.** accounts: `routes()` and `add(member, provider, { via, … })` with typed inputs per
+   method (key, base URL, region, profile, key file, chosen billing). openclaw: `call`/`callDynamic` (D6) and the
+   full table. herdr: `cli(argv)` (D7) and the kind table.
+8. **Preserved.** Multi-account identity replacement, defaults and the provider guard; the native Pi launch
+   descriptor stays separate from managed sign-in and readiness; Herdr native-session, resume, queue and
+   confirmed-move qualification stay main-owned, and a folder or readiness never declares a move proven (6.6); the
+   phone ChatGPT path is unchanged.
+9. **One method, one route.** A custom endpoint never stands in for a missing OAuth, device-code or cloud method;
+   each upstream method keeps its own row and work package (11.4). Catalogues from other open agent projects enter
+   only as exact release snapshots read by a generator, never as runtime dependencies.
 
 ## 3. Sources and path drift
 
@@ -493,6 +563,16 @@ API key (billed per use); native `anthropic-cli` uses Claude Code in the isolate
 the choice; `via` is `code` for `appGuidedAuth: 'device-code'`, otherwise `browser`. Some offered routes
 need a manual paste: the 2026.8.1 Gateway does not guide every pinned choice. The engine job
 checks inventory and starts the routes the pin supports through its setup wizard.
+
+**Target (D18, WPs B6 to B8).** The table grows to every auth choice in the pinned manifests (91 at 2026.8.1 with
+the core `custom-api-key`). That includes the 55 choices whose plugins are not in the tarball (row `needs.plugin`,
+installed only on an explicit call, B7), plus rows for the 5 providers configured without a choice (cloud or CLI).
+Corrections to today's table: `minimax-global-oauth` and `minimax-cn-oauth` belong to manifest provider
+`minimax-portal`; `anthropic-cli` to provider `anthropic` (`claude-cli` is its CLI backend); `opencode-go` is a plan
+key (subscription); `microsoft-foundry-entra` is Entra cloud credentials, not an API key;
+`alibaba-model-studio-api-key` comes from a video-generation plugin; `copilot-proxy` billing is unverified
+(`unknown`). A sensitive wizard text step (`setup-token`) is answered from the paste channel without echo (B8).
+Until those packages merge, the table above is what ships.
 
 **signIn(member, { authChoice, via, signal? }, on)** — provider-owned wizard drive:
 `ensureMember`; `openclaw.setup.auth.start { sessionId: 'byokit-' + uuid, agentId, authChoice }` (60 s); pull steps
@@ -1616,6 +1696,15 @@ failure before the source closes leaves it live; failed cleanup can leave anothe
 Herdr lifecycle is exercised by the acceptance tests: fake/contract ports cover ordering, rollback, new generation,
 env mismatch (including prefix/echo cases), unsupported/too-early/busy and explicit sign-in-tab env.
 
+**Kinds (D18, WP B9).** `kinds.json` is generated from the pinned Herdr source (agent enum and aliases, account-folder
+environment table, resume table): 24 kinds at v0.9.1, 12 with an account-folder variable. `openSignInTab` sets the
+kind's folder variable when the host passes a folder. `moveToAccount` and `move` extend only to kinds with both a
+folder variable and resume support, under the transaction above and the main-owned native-session and confirmed-move
+guards; a folder, a passing readiness check or a fixture never declares a native move proven. Kinds without a folder
+variable are tab only, labelled one sign-in per computer user, and the kit never reads the person's default CLI
+credentials for them. Readiness probes run only with the managed folder's explicit env (D13) and otherwise report
+unknown. Today's `agentStatus` probe spawns without an explicit env, contrary to D13; B9 corrects it.
+
 ### 6.7 Generation (`scripts/gen-types.ts`, H2)
 
 Input `schema/herdr-api-0.9.1.json`. Request methods are the `const` values of the request schema's `method`
@@ -2265,6 +2354,38 @@ its fixture; `@byokit/ui-core` `AccountsSource` (for `fits`) · version: opencla
 
 **H11 — muxr adoption** · Sol · later, separate · repo: muxr
 - Not scheduled by this foundation. Preconditions in section 10 step 5. Recorded so nobody starts it early.
+
+### 11.4 Account routes lane (D18)
+
+Builders: **F0** Opus 5.5 medium (this spec and fixture); **B**, **C** and **X** Sol 6.1 medium (backend, no
+frontend code); **U** Opus 5.5 medium (connect view and examples). Each is one direct PR, keeps versions unchanged
+and adds changelog fragments. Every in-policy upstream mechanism at the pins (365 tuples: 147 from the wrapped
+upstreams, 218 from other open agent projects' catalogues) has a home: 24 are covered today, and each of the other
+341 is owned by exactly one package below. The private inventory holds the row list.
+
+| WP | Scope | Owned files | Deps |
+|---|---|---|---|
+| F0 | D18, this lane, the fixture and its structural test | `docs/runtime-kits.md`, `fixtures/README.md`, `fixtures/conformance/account-routes-typescript.json`, `packages/ui-core/test/account-routes.test.ts`, README pointers | — |
+| B1 | accounts route table generated from the pinned pi-ai; `qwen` and `minimax` leave the default offer until their flows exist | `scripts/gen-accounts-routes.ts`, `packages/accounts/src/{routes.json,catalogue.ts,portable.ts}` | F0 |
+| B2 | one key and plan-key path replacing the per-provider special cases; environment tokens become explicit paste rows | `packages/accounts/src/accounts.ts` | B1 |
+| B3 | cloud credentials, Node only | `packages/accounts/src/accounts.ts`, `routes.json` | B1 |
+| B4 | custom endpoints and local presets over `createProvider`; billing from the person's choice | `packages/accounts/src/accounts.ts` | B1 |
+| B5 | remaining pinned sign-in flows (loopback, paste, device) and missing device fixtures | `packages/accounts/src/*`, tests | B1 |
+| B6 | openclaw table from every pinned manifest, corrections above | `packages/openclaw/{scripts/gen-routes.ts,src/routes.json,src/routes.ts}` | F0 |
+| B7 | explicit install of external provider plugins at the versions the pin names | `packages/openclaw/src/{engine.ts,plugins.ts}` | B6 |
+| B8 | sensitive wizard steps | `packages/openclaw/src/signin.ts` | B6 |
+| B9 | herdr kind table, folder per kind, managed-folder readiness | `packages/herdr/src/{kinds.json,accounts.ts,agents.ts}` | F0 |
+| B10 | portable device-code engine for every device route; missing client ids are `needs_client` | `packages/accounts/src/device.ts`, a device-code fixture | B1, B5 |
+| X3 | usage reads a credentials file only inside a managed folder | `packages/usage/src/providers.ts` | — |
+| C1 | named catalogue import: key, plan-key, local, endpoint and cloud rows from exact release snapshots | `scripts/gen-parity-routes.ts`, `packages/accounts/src/routes.json` | B2, B3, B4 |
+| C2 | further device-code flows | `packages/accounts/src/flows/*` | B5, B10 |
+| C3 | further OAuth browser and paste flows | `packages/accounts/src/flows/*` | B5 |
+| C4 | further setup-token, environment-token and free-tier rows | `packages/accounts/src/{accounts.ts,routes.json}` | B2 |
+| C5 | non-model service rows: data, adapters, auth tests | `packages/accounts/src/routes.json`, tests | B2, B4 |
+| U1 | ui-core connect view grouping every route (plans, pay per use, on this computer, your own server, cloud, services) | `packages/ui-core/src/connect.ts`, words | F0, B1, B6, B9 |
+| U2 | examples list every route; no hardcoded provider | `examples/*` | U1 |
+
+Acceptance for every package: its fixture rows, mocks and fakes in `npm test`; no live vendor sign-in is required.
 
 ## 12. Known facts builders must not re-derive
 
