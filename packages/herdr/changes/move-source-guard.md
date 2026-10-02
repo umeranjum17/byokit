@@ -1,1 +1,0 @@
-FIX: Re-read source quiescence, conversation, terminal and published sequence immediately before closing on every account move; roll back replacements on change and verify surviving conversations after uncertain cleanup. Published Herdr has no atomic conditional close.
