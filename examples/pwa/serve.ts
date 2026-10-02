@@ -10,7 +10,7 @@ const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
 const TYPES: Record<string, string> = { html: 'text/html', js: 'text/javascript', webmanifest: 'application/manifest+json', png: 'image/png', ico: 'image/x-icon', svg: 'image/svg+xml' };
 
 export async function serve(port = 0, authBase?: string) {
-  const bundle = await build({ entryPoints: [here('app.ts'), here('pair.ts')], outdir: 'out', bundle: true, platform: 'browser', format: 'esm', write: false, logLevel: 'silent',
+  const bundle = await build({ entryPoints: [here('app.ts'), here('pair.ts'), here('usage.ts')], outdir: 'out', bundle: true, platform: 'browser', format: 'esm', write: false, logLevel: 'silent',
     define: { __BYOKIT_AUTH_BASE__: JSON.stringify(authBase) ?? 'undefined' } });
   const apps = new Map(bundle.outputFiles.map((f) => [f.path.split('/').pop()!, f.text]));
   const server = createServer((req, res) => {

@@ -1,0 +1,16 @@
+Captured source: 8ee492744bd678803d002f8fd5427d4ba1de8e39 (on main 127e8f2d)
+New product head: 497cf3283a32654757390ce0827ea82d4c69bc8f (on main f6ccbe06, PR #248 audit exception)
+
+git diff --stat 8ee49274 HEAD~1 -- . ':!.lab'
+ .github/workflows/ci.yml |  4 +--
+ CONTRIBUTING.md          | 25 +++++++++++++++
+ scripts/audit.test.ts    | 81 ++++++++++++++++++++++++++++++++++++++++++++++
+ scripts/audit.ts         | 83 ++++++++++++++++++++++++++++++++++++++++++++++++
+ tsconfig.json            |  2 +-
+ 5 files changed, 192 insertions(+), 3 deletions(-)
+
+Product paths rendered in the captures (packages/ examples/ fixtures/):
+identical (no diff)
+
+Main-side diff 127e8f2d..f6ccbe06 matches the delta above:
+ 5 files changed, 192 insertions(+), 3 deletions(-)

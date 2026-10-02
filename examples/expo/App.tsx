@@ -4,6 +4,7 @@
 // at the stand-in OpenAI and a link host on this computer (see e2e-android.sh):
 //   EXPO_PUBLIC_OPENAI_BASE=http://10.0.2.2:21455 npx expo run:android   (after `npm run mock` in this folder)
 import { useEffect, useRef, useState } from 'react';
+import { UsageDemo } from './UsageDemo.tsx';
 import { ScreenDemo } from './ScreenDemo.tsx';
 import { Linking, PermissionsAndroid, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
@@ -247,6 +248,7 @@ function Chip() {
 }
 
 export default function App() {
+  if (process.env.EXPO_PUBLIC_USAGE_DEMO === '1') return <UsageDemo />;
   return process.env.EXPO_PUBLIC_SCREEN_DEMO === '1' ? <ScreenDemo /> : <KitDemo />;
 }
 
