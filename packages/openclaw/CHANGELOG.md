@@ -2,9 +2,7 @@
 
 ## Unreleased
 
-## 0.5.1 (2026-10-02)
-
-- The README points to the shared account-route vocabulary (D18); `routes()` still returns today's table.
+- The README points to the shared account-route vocabulary (D18); pinned route discovery is not proof of additional implemented authentication flows.
 - FIX: ChatGPT sign-in now interrupts abandoned wizard/paste waits on gateway disconnect and reconfirms a new, usable OAuth profile for the selected member through the reconnected engine. Recovery is bounded and fails closed for unknown, missing, pre-existing or unrelated credentials, cancellation and expiry. A synchronous cleanup error during reconnect no longer suppresses the terminal sign-in view.
 
 ## 0.5.0 (2026-10-01)
