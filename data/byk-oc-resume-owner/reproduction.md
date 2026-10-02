@@ -100,4 +100,18 @@ Real owned early/late execution (`aligned-proof.log`, full receipt copied to Roo
 
 The first opt-out attempt had a 180s harness readiness deadline during initial immutable-set preparation (npm itself exited0); it never reached a Gateway or policy acceptance. Exact failed proof/install log is retained. A setup-aware bounded 900s readiness allowed the real aligned proof to complete. No private mutable engine or alternate installer was used.
 
-Subsequent fixed-candidate owned cancellation/repeated crashes/nonmatching-prefix, default stock recovery/repeated crashes, and malformed-env controls were queued under fd9, but the gate shell was terminated with **exit143 before any control log/path was generated**. No probe process survived. Those controls and post-integration delivery gates remain pending; the earlier Root-stopped full suite is still **not passed**. Source is preserved locally; no push/PR/publication has occurred.
+The first subsequent control gate ended **exit143 before any case log/path was generated**. Root confirms it did not stop that gate; signal sender/parent cause was not captured and remains unknown. Do not attribute it to Root or an engine crash. The corrected gate recorded queue/PID/PPID/acquisition and per-case boundaries: **1795 seconds queued**, then all seven controls exited0 with separate 360s deadlines; shell exit0. Exact receipt: `pending-control-gate.log`.
+
+| Fixed-candidate control | Requests | Engine requests | Result |
+|---|---:|---:|---|
+| owned cancellation | 1 | 0 | aborted true, status killed, no unknown denial |
+| owned repeated interrupted app attempts | 6 | 0 | initial + three interrupted app requests + final two-request continuation; done, no synthetic/unknown denial |
+| opted kit, nonmatching `agent:m1:other:outside` | 5 | 2 | stock synthetic recovery and unknown denial retained; app then done |
+| stock normal completed restart | 2 | 0 | done, no extra turn |
+| stock delayed app resume | 5 | 2 | original double-continuation/unknown denial retained |
+| stock started recovery crashed three times | 5 | 4 | chargedAttempts=startedAttempt=4, running, no tombstone; stock accounting unchanged |
+| malformed raw ownership env | 5 | 2 | falls back to stock recovery and unknown denial |
+
+Source build and check passed post-integration. Unit qualification exposed four S1 fake-install failures because its empty-manifest fixtures seeded no pinned module bytes for the first production semantic entry. A licensed exact 24KB stock byte fixture, checked against `before`, repaired three: **12/13 pass**. The remaining unit test expects fresh npm installation after damaging a patched set, but the now-nonempty manifest correctly retains a verified stock set and rebuilds the patched set offline; `npm-calls` is absent, producing ENOENT at the old assertion. This is a fixture expectation/stock-cache setup issue, not a demonstrated product policy failure. It recurred in the same immutable-install case, so escalation follows the worker's two-obstacle rule; no applier/installer rewrite or further speculative test mutation.
+
+The motivated full offline delivery gate stops at that remaining unit failure; it has not run to completion. The earlier Root-stopped full suite remains **not passed**. Actual consumer `crewd`, packed-kit qualification and final delivery gates are still unclaimed. Source and all raw failures are retained; no push/PR/publication has occurred.

@@ -160,6 +160,19 @@ if (process.argv[2] === 'worker') {
     }
     return result;
   }
+  let cleaning: Promise<void> | undefined;
+  const cleanup = (): Promise<void> => cleaning ??= (async () => {
+    for (const child of children) child.kill('SIGKILL');
+    // A worker can fail before ready; its recorded, identity-verified gateway is still ours to clean up.
+    for (const dir of states) {
+      try { killOwned(Number(readFileSync(join(dir, 'openclaw/gateway.pid'), 'utf8')), dir); }
+      catch (error) { if (!['ENOENT', 'ESRCH'].includes((error as NodeJS.ErrnoException).code ?? '')) console.error('cleanup verification failed', error); }
+    }
+    await Promise.all([...children].map(child => once(child, 'exit')));
+    await stub.close();
+  })();
+  process.once('SIGTERM', () => { void cleanup().finally(() => process.exit(143)); });
+  process.once('SIGINT', () => { void cleanup().finally(() => process.exit(130)); });
   try {
     for (const mode of process.argv.slice(2).length ? process.argv.slice(2) : ['late', 'early', 'normal', 'excluded', 'cancel', 'repeat']) {
       const stateDir = join(out, mode);
@@ -257,14 +270,5 @@ if (process.argv[2] === 'worker') {
         outcomes: events.filter(e => e.type === 'end'), status: entry.status, recovery: entry.mainRestartRecovery,
         unknownRun: JSON.stringify(row.transcripts).includes('unknown run') }));
     }
-  } finally {
-    for (const child of children) child.kill('SIGKILL');
-    // A worker can fail before ready; its recorded, identity-verified gateway is still ours to clean up.
-    for (const dir of states) {
-      try { killOwned(Number(readFileSync(join(dir, 'openclaw/gateway.pid'), 'utf8')), dir); }
-      catch (error) { if (!['ENOENT', 'ESRCH'].includes((error as NodeJS.ErrnoException).code ?? '')) console.error('cleanup verification failed', error); }
-    }
-    await Promise.all([...children].map(child => once(child, 'exit')));
-    await stub.close();
-  }
+  } finally { await cleanup(); }
 }

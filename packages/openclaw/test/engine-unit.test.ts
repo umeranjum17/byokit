@@ -3,7 +3,7 @@ import { strict as assert } from 'node:assert';
 import fs, { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, symlinkSync, lstatSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { createServer } from 'node:net';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { removeScratch, scratchDir } from '../../test-support.ts';
 import { spawn } from 'node:child_process';
@@ -15,7 +15,7 @@ import { hostKeySeal } from '../../secrets/src/index.ts';
 import { once } from 'node:events';
 import { EnginePatchError, editText, patchId, prepareEngineSet, readPatchSet, sha256, verifyEngineSet, type PatchSet } from '../src/engine-patches.ts';
 
-// Unit-only byte fixtures, not real-engine qualification. Production has no semantic patch entries.
+// Unit-only byte fixtures, not real-engine qualification; production entries are seeded as exact stock bytes.
 test('immutable sets validate all bytes, clone offline, roll back by selection and preserve drift', async (t) => {
   const dir = scratchDir('patches');
   const base = join(dir, 'base');
@@ -79,6 +79,13 @@ function seedInstall(engineDir: string) {
   writeFileSync(join(engineDir, 'node_modules/openclaw/openclaw.mjs'), '');
   mkdirSync(join(engineDir, 'node_modules/openclaw/dist'), { recursive: true });
   writeFileSync(join(engineDir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.8.1', commit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b' }));
+  for (const file of shippedSet().files) {
+    const bytes = readFileSync(fileURLToPath(new URL(`./fixtures/stock/${file.path}.txt`, import.meta.url)));
+    assert.equal(sha256(bytes), file.before, `stock byte fixture drift: ${file.path}`);
+    const target = join(engineDir, 'node_modules/openclaw', file.path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, bytes);
+  }
 }
 
 function shippedSet(): PatchSet {
