@@ -80,7 +80,7 @@ test('complete: not installed, then one context, greedy, thinking off, grammar f
   assert.deepEqual(llama.contexts[0].params, { model: '/models/tiny.gguf', n_ctx: 2048, n_threads: 4, n_gpu_layers: 0, use_mlock: false, use_mmap: true });
   const [first] = llama.contexts[0].completions;
   assert.deepEqual({ ...first, messages: undefined }, { messages: undefined, jinja: true, enable_thinking: false, n_predict: 10, temperature: 0, seed: 0,
-    response_format: { type: 'json_schema', json_schema: { strict: true, schema: { type: 'object' } } } });
+    force_pure_content: true, response_format: { type: 'json_schema', json_schema: { strict: true, schema: { type: 'object' } } } });
   assert.deepEqual(first.messages, [{ role: 'system', content: 's' }, { role: 'user', content: 'hi' }]);
   assert.throws(() => local.complete({ prompt: 'x', maxOutputTokens: 9999 }), RangeError);
 });
@@ -321,6 +321,24 @@ test('summarizePane: data not instructions, 1-4 checked lines, never a cut-off o
     await m.local.install();
     assert.deepEqual(await summarizePane(m.local, PANE), { ok: false, code }, String(code));
   }
+});
+
+test('schema requests force stock pure content, while wrapped native output still fails strict summary parsing', async () => {
+  // Exact synthetic phone receipt: stock Jinja grammar emitted an assistant header and JSON fence; content was absent.
+  const wrapped = '<|im_start|>assistant\n\n```json\n{\n  "enough": false,\n  "lines": []\n}\n```';
+  let emulatePureContent = false;
+  const { local, llama } = make({ reply: p => ({
+    text: emulatePureContent && p.force_pure_content ? '{"enough":true,"lines":["Tests have one failure.","The release test hangs."]}' : wrapped,
+    content: '', stopped_eos: true, stopped_limit: 0,
+  }) });
+  await local.install();
+  assert.deepEqual(await summarizePane(local, PANE), { ok: false, code: 'invalid-output' }, 'never strip wrappers to invent a summary');
+  emulatePureContent = true;
+  const summary = await summarizePane(local, PANE);
+  assert.deepEqual(summary.ok && summary.lines, ['Tests have one failure.', 'The release test hangs.']);
+  assert.equal(llama.contexts[0].completions[1].force_pure_content, true);
+  await local.complete({ prompt: 'Plain generation without a schema.' });
+  assert.equal(llama.contexts[0].completions[2].force_pure_content, undefined, 'plain generation unchanged');
 });
 
 test('words: every state and error has a plain sentence', () => {

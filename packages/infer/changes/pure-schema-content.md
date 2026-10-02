@@ -1,0 +1,1 @@
+- FIX: Structured native generation requests use stock llama.rn's pure-content mode so schema grammar produces direct JSON rather than assistant headers/code fences. Strict summary validation is unchanged; wrapped, malformed and cut-off output still cannot become a summary.
