@@ -11,20 +11,32 @@ every kit test uses a fake. The store is one JSON file, written atomically and f
 
 ## The boundary, stated honestly
 
-One line in `flush` is the irreversible boundary: the `queued` → `sending` claim is **fsync-durable before
-the sender is invoked**. Everything follows from that:
+The irreversible boundary is the **invocation of the sender** — the real send — not any earlier durable
+mark. Each send is two serialized steps:
 
-- A cancel the kit accepts (`ok: true`) means the sender is **never invoked** for that message. Not "probably not" —
-  the claim step cannot pick a message that a completed cancel has already moved out of `queued`.
-- A cancel that loses returns `{ ok: false, code: 'too-late' }` — never a false success, and never an invented
-  "we stopped it" after the irreversible act.
+1. the **claim**: `queued` → `sending`, fsync-durable (so a crash can never lose the fact that a send was
+   attempted);
+2. the **arm step**: one critical section that re-checks the entry at the claimed revision and then invokes
+   `sender.send` — nothing can interleave between that last check and the invocation.
+
+Everything follows from that:
+
+- A cancel the kit accepts (`ok: true`) means the sender is **never invoked** for that message. Not
+  "probably not": the winning window runs from `queued` all the way to the arm step — a cancel accepted
+  after the claim is durable but before the invocation still wins, and the arm step skips the send.
+- A cancel that loses returns `{ ok: false, code: 'too-late' }`: the sender was already invoked (or the
+  message settled). Never a false success, never a fabricated boundary.
+- A message left `sending` by an interrupted process has an **unknown** outcome: cancel answers
+  `{ ok: false, code: 'unknown' }` (the kit cannot know whether it went), reopening never redispatches it
+  (no invented exactly-once), and `resolve` records what the app itself learned from the transport.
 - Every mutation carries the entry revision the caller observed. An older revision rejects with
-  `stale-revision` (with the current revision in `detail.current`), so a screen can never act on a message it
-  is no longer showing.
-- A process that dies mid-send leaves the entry `sending` on disk. That means **the outcome is unknown**, and
-  the kit treats it as unknown: reopening never redispatches it (no invented exactly-once), and `resolve`
-  records what the app itself learned from the transport. `sent` means "the sender resolved", nothing more;
-  the kit never claims delivery.
+  `stale-revision` (with the current revision in `detail.current`), so a screen can never act on a message
+  it is no longer showing. A cancel request that merely *arrives* is not *accepted*: only the
+  revision-checked acceptance stops the send.
+- `sent` means "the sender resolved", nothing more; the kit never claims delivery.
+
+Because the sender is invoked inside a serialized step, a `send` that does slow synchronous work before
+returning its promise holds up other queue operations for that time.
 
 ## Use it
 
@@ -63,8 +75,8 @@ A queue without a `sender` parks: enqueue and cancel work, `flush` rejects `unav
 | `Outbox.open({ stateDir, sender?, now?, log? })` | Open or create the store. A malformed store rejects `invalid`; it is never reset. |
 | `enqueue({ kind, payload }, { signal? })` | Queue a message. `payload` must be JSON; it is stored as its JSON round-trip and the kit never reads it. Returns the entry (`revision: 1`). |
 | `get(id)` / `list()` | Snapshots of the last persisted state, in enqueue order. |
-| `cancel(id, { revision })` | `{ ok: true, entry }` while queued — the sender will never see it; `{ ok: false, code: 'too-late', entry }` past the boundary; rejects `stale-revision` for an older revision, `not-found` for a missing id. |
-| `flush({ signal? })` | Send every queued message in order, one claim at a time. Sender rejections are recorded as `failed` and never retried by the kit. `signal` stops further claims; an in-flight send still records its outcome before the call rejects. |
+| `cancel(id, { revision })` | `{ ok: true, entry }` while queued **or claimed-not-yet-invoked** — the sender will never see it; `{ ok: false, code: 'too-late' }` once the sender was invoked or the message settled; `{ ok: false, code: 'unknown' }` for a send interrupted by an earlier process; rejects `stale-revision` for an older revision, `not-found` for a missing id. |
+| `flush({ signal? })` | Send every queued message in order, one claim at a time, through the two serialized steps above. Sender rejections are recorded as `failed` and never retried by the kit. `signal` stops further claims; an in-flight send still records its outcome before the call rejects. |
 | `resolve(id, { revision, outcome, receipt?, failure? })` | Record what the app learned about an interrupted (`sending`) message: `sent` or `failed`. Only `sending` entries accept it. |
 | `close()` | Stop accepting work. A send already handed to the sender still records its outcome. |
 | `OutboxError` with `code` | `invalid` (bad stored data or non-JSON payload), `io` (the store could not be saved), `not-found`, `stale-revision`, `unavailable` (no sender, or closed). |

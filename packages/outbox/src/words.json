@@ -7,7 +7,7 @@
   "outbox.sending": "Sending…",
   "outbox.sent": "Sent.",
   "outbox.staleRevision": "That message changed. Look again before acting on it.",
-  "outbox.tooLate": "That message is already on its way and cannot be taken back.",
+  "outbox.tooLate": "That message was already handed to the sender and cannot be taken back.",
   "outbox.unavailable": "Sending is not set up for this list.",
   "outbox.unknown": "That message was being sent when the app stopped. Check whether it arrived before sending it again."
 }

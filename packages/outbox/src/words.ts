@@ -14,9 +14,9 @@ export function errorWords(error: OutboxError): string {
     : error.code === 'stale-revision' ? 'outbox.staleRevision' : `outbox.${error.code}`);
 }
 
-/** The sentence for a cancel that was taken, or that lost the race to the send. */
+/** The sentence for a cancel that was taken, that lost the race to the send, or whose send is unknown. */
 export function cancelWords(result: CancelResult): string {
-  return words(result.ok ? 'outbox.cancelled' : 'outbox.tooLate');
+  return words(result.ok ? 'outbox.cancelled' : result.code === 'unknown' ? 'outbox.unknown' : 'outbox.tooLate');
 }
 
 /** The sentence for where one message stands; '' when there is nothing to say. */
