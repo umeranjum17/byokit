@@ -367,10 +367,10 @@ test('exact final native false-with-four-lines receipt remains invalid; requeste
   const branches = [
     { type: 'object', additionalProperties: false, required: ['enough', 'lines'], properties: {
       enough: { const: true }, lines: { type: 'array', minItems: 3, maxItems: 4,
-        items: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[^\\r\\n]*$' } },
+        items: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[^"\\\\\\r\\n]{1,100}$' } },
     } },
     { type: 'object', additionalProperties: false, required: ['enough', 'lines'], properties: {
-      enough: { const: false }, lines: { type: 'array', maxItems: 0 },
+      enough: { const: false }, lines: { const: [] },
     } },
   ];
   assert.deepEqual(schema, { oneOf: branches });
@@ -378,8 +378,8 @@ test('exact final native false-with-four-lines receipt remains invalid; requeste
   assert.equal(captured.enough, false);
   assert.equal(captured.lines.length, 4);
   assert.ok(!branches.some(branch => captured.enough === branch.properties.enough.const
-    && captured.lines.length >= (branch.properties.lines.minItems ?? 0)
-    && captured.lines.length <= branch.properties.lines.maxItems));
+    && ('const' in branch.properties.lines ? captured.lines.length === 0
+      : captured.lines.length >= branch.properties.lines.minItems && captured.lines.length <= branch.properties.lines.maxItems)));
   await local.release();
 });
 

@@ -64,17 +64,18 @@ const SYSTEM = [
   'Never say something finished, passed or failed unless the output shows it. No percentages, ids or guesses.',
   'If the output does not show what is happening, answer {"enough": false, "lines": []}.',
   'When the pane shows an identifiable task and its status, set "enough": true and report 3 or 4 short factual sentences in "lines". Use enough:false with an empty array only when no task/status is evident. Never pair enough:false with proposed lines.',
-  'Each array entry must be one single line without a newline. Do not claim native code ran unless the pane states that it ran.',
+  'Each array entry must be one single line without a newline, double quotes or backslashes. Do not claim native code ran unless the pane states that it ran.',
 ].join('\n');
 
 const SCHEMA = {
   oneOf: [
     { type: 'object', additionalProperties: false, required: ['enough', 'lines'], properties: {
       enough: { const: true }, lines: { type: 'array', minItems: 3, maxItems: 4,
-        items: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[^\\r\\n]*$' } },
+        items: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[^"\\\\\\r\\n]{1,100}$' } },
     } },
     { type: 'object', additionalProperties: false, required: ['enough', 'lines'], properties: {
-      enough: { const: false }, lines: { type: 'array', maxItems: 0 },
+      // Stock converter ignores maxItems without items; a literal empty array cannot admit proposed lines.
+      enough: { const: false }, lines: { const: [] },
     } },
   ],
 };
