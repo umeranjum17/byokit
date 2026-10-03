@@ -1,4 +1,5 @@
 import nativeFixture from '../../../fixtures/conformance/infer-typescript.json' with { type: 'json' };
+import finalNativeResult from './fixtures/final-explicit-result.json' with { type: 'json' };
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -355,6 +356,31 @@ test('summary tolerates only the expected whole assistant/JSON envelope, never i
     assert.deepEqual(await summarizePane(local, PANE), { ok: false, code: 'invalid-output' }, invalid);
   }
   assert.ok(llama.contexts[0].completions.every(p => !('force_pure_content' in p)));
+});
+
+test('exact final native false-with-four-lines receipt remains invalid; requested grammar forbids that contradiction', async () => {
+  const { local, llama } = make({ reply: () => ({ text: finalNativeResult.text, content: '',
+    stopped_eos: finalNativeResult.stopped_eos, stopped_limit: Number(finalNativeResult.stopped_limit) }) });
+  await local.install();
+  assert.deepEqual(await summarizePane(local, PANE), { ok: false, code: 'invalid-output' });
+  const schema = llama.contexts[0].completions[0].response_format!.json_schema.schema;
+  const branches = [
+    { type: 'object', additionalProperties: false, required: ['enough', 'lines'], properties: {
+      enough: { const: true }, lines: { type: 'array', minItems: 3, maxItems: 4,
+        items: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[^\\r\\n]*$' } },
+    } },
+    { type: 'object', additionalProperties: false, required: ['enough', 'lines'], properties: {
+      enough: { const: false }, lines: { type: 'array', maxItems: 0 },
+    } },
+  ];
+  assert.deepEqual(schema, { oneOf: branches });
+  const captured = JSON.parse(finalNativeResult.text.trim().replace(/^<\|im_start\|>assistant\n/, '').trim());
+  assert.equal(captured.enough, false);
+  assert.equal(captured.lines.length, 4);
+  assert.ok(!branches.some(branch => captured.enough === branch.properties.enough.const
+    && captured.lines.length >= (branch.properties.lines.minItems ?? 0)
+    && captured.lines.length <= branch.properties.lines.maxItems));
+  await local.release();
 });
 
 test('words: every state and error has a plain sentence', () => {

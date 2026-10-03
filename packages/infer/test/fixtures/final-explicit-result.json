@@ -1,0 +1,26 @@
+{
+  "kind": "result",
+  "elapsedMs": 13781,
+  "text": "<|im_start|>assistant\n{\"enough\": false, \"lines\": [\"Task: fix cancellation and release for local Android text generation.\", \"Progress: A running native decode must stop before the kit releases its context.\", \"Blocker: The failure is isolated to release during the native formatting gap.\", \"Next step: Run the single release regression.\"]}\n\n  \t\t\t\t\t ",
+  "adapterText": "<|im_start|>assistant\n{\"enough\": false, \"lines\": [\"Task: fix cancellation and release for local Android text generation.\", \"Progress: A running native decode must stop before the kit releases its context.\", \"Blocker: The failure is isolated to release during the native formatting gap.\", \"Next step: Run the single release regression.\"]}\n\n  \t\t\t\t\t ",
+  "tokens_evaluated": 1004,
+  "tokens_predicted": 75,
+  "truncated": false,
+  "stopped_eos": true,
+  "stopped_word": false,
+  "stopped_limit": false,
+  "context_full": false,
+  "interrupted": false,
+  "timings": {
+    "cache_n": 1080,
+    "prompt_n": 1004,
+    "prompt_ms": 10709.493,
+    "prompt_per_token_ms": 10.666825697211156,
+    "prompt_per_second": 93.74860229144367,
+    "predicted_n": 75,
+    "predicted_ms": 3002.662,
+    "predicted_per_token_ms": 40.03549333333333,
+    "predicted_per_second": 24.977836333226985
+  },
+  "chat_format": 2
+}
