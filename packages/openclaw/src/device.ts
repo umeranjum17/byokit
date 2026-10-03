@@ -352,6 +352,7 @@ export function openclawDevice(link: DeviceLink): {
   registerNotices(seed: Uint8Array): Promise<void>; // derives the box key with @byokit/seal
   openNotice(data: Record<string, unknown>, seed: Uint8Array): Approval | null;
   call<M extends GatewayMethod>(method: M, params: GatewayParams<M>): Promise<GatewayResult<M>>;
+  callDynamic(method: string, params?: unknown): Promise<unknown>;
 } {
   return {
     browser: browserDevice(link),
@@ -425,6 +426,7 @@ export function openclawDevice(link: DeviceLink): {
       await link.request('oc.notices.register', { boxPublicKey: b64urlEncode(boxKeyPairFromSeed(seed).publicKey) });
     },
     openNotice,
+    callDynamic: (method, params) => link.request('oc.call', { method, params }),
     call: <M extends GatewayMethod>(method: M, params: GatewayParams<M>) =>
       link.request('oc.call', { method, params }) as Promise<GatewayResult<M>>,
   };
@@ -433,6 +435,8 @@ export function openclawDevice(link: DeviceLink): {
 // Portable, re-exported by ./device (7.3).
 export { openNotice } from './notices.ts';
 export { readAgentUsage, agentUsageOf } from './usage.ts';
+export { readAgentDayUsage } from './day-usage.ts';
+export type { AgentDayUsage, EngineStartedCharge, EngineStartedKind } from './day-usage.ts';
 export type { AgentUsageReading, LedgerUsageTotals, UsageCache, UsageWindow } from './usage.ts';
 export type {
   LiveSource, BrowserState, SignInMethodHint, SignInReason, SignInChoice, SettledState, SettledReason,

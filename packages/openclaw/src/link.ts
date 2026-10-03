@@ -408,6 +408,10 @@ export function openclawLink(
       case 'oc.call': {
         if (typeof args.method !== 'string') throw new Error('oc.call needs { method, params }');
         if (kit.browser && (args.method === 'browser.request' || args.method.startsWith('terminal.') || args.method === 'tools.invoke')) throw refused();
+        if (args.method === 'byokit.usage.engineStarted') {
+          if (!isRecord(args.params) || args.params.agentId !== member) throw refused();
+          return await kit.callDynamic(args.method, args.params);
+        }
         if (!passThrough(args.method, grant)) throw refused();
         return await (kit.call as (method: string, params: unknown) => Promise<unknown>)(args.method, args.params);
       }

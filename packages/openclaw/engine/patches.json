@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "id": "9be16913c7858ec9",
+  "id": "171ce088cd516dcf",
   "upstream": {
     "name": "openclaw",
     "version": "2026.8.1",
@@ -9,6 +9,41 @@
     "license": "MIT"
   },
   "files": [
+    {
+      "path": "dist/experience-review-default-6DPIIJds.js",
+      "before": "30f43da07b2520dd785df42ba417737a0f2cc0286922fe2189f06ecbafc1ab9c",
+      "after": "e9448c45a2d7f5e8ab7f1996269a4291d2453aac7641ea82cb82cc238e93cb43",
+      "edits": [
+        {
+          "find": "import { n as getRuntimeConfig } from \"./io.runtime-CNGn9TXj.js\";\n",
+          "replace": "import { n as getRuntimeConfig } from \"./io.runtime-CNGn9TXj.js\";\nimport { openSync as byokitOpen, writeSync as byokitWrite, fsyncSync as byokitFsync, closeSync as byokitClose } from \"node:fs\";\nimport { join as byokitJoin } from \"node:path\";\n"
+        },
+        {
+          "find": "async function runSkillExperienceReviewInner(candidate, deps) {\n",
+          "replace": "/** BYOKit R4-1: content-free durable Gateway Workshop facts, inert without kit env. */\nfunction byokitUsageFact(fact) {\n\tconst dir = process.env.BYOKIT_ENGINE_USAGE_LEDGER;\n\tconst bootId = process.env.BYOKIT_ENGINE_BOOT;\n\tif (!dir || !bootId) return;\n\tconst key = Symbol.for(\"byokit.engine-usage.v1\");\n\tconst live = globalThis[key] ??= { bootId, months: {}, inFlight: {} };\n\tconst month = new Date(fact.at).toISOString().slice(0, 7);\n\tconst counter = live.months[month] ??= { lastSeq: 0, failed: 0 };\n\tconst seq = ++counter.lastSeq;\n\tif (fact.phase === \"started\") live.inFlight[fact.chargeId] = { startedAt: fact.startedAt };\n\telse delete live.inFlight[fact.chargeId];\n\ttry {\n\t\tconst fd = byokitOpen(byokitJoin(dir, \"engine-started-\" + month + \".jsonl\"), \"a\", 0o600);\n\t\ttry {\n\t\t\tconst line = Buffer.from(JSON.stringify({ v: 1, ...fact, bootId, seq }) + \"\\n\");\n\t\t\tif (byokitWrite(fd, line) !== line.length) throw new Error(\"short accounting write\");\n\t\t\tbyokitFsync(fd);\n\t\t} finally { byokitClose(fd); }\n\t} catch { counter.failed++; }\n}\nasync function runSkillExperienceReviewInner(candidate, deps) {\n"
+        },
+        {
+          "find": "\tlet outcome;\n\tlet proposalId;\n\tlet usage;\n",
+          "replace": "\tlet outcome;\n\tlet proposalId;\n\tlet usage;\n\tlet byokitRunUsage;\n\tconst byokitFact = { chargeId: runId, agentId: foregroundPromptContext.agentId, kind: \"workshop-review\", provider: modelProviderId, model: modelId, ...candidate.ctx.authProfileId ? { authProfileId: candidate.ctx.authProfileId } : {}, startedAt: attemptedAtMs, origin: { sessionKey: foregroundSessionKey, ...candidate.ctx.runId ? { runId: candidate.ctx.runId } : {} } };\n"
+        },
+        {
+          "find": "\ttry {\n\t\tlet embeddedResult;\n",
+          "replace": "\tbyokitUsageFact({ ...byokitFact, phase: \"started\", at: attemptedAtMs });\n\ttry {\n\t\tlet embeddedResult;\n"
+        },
+        {
+          "find": "\t\t} finally {\n\t\t\tpreparedRunAdmission.close();\n\t\t}\n\t\tassertSkillReviewRunSucceeded(embeddedResult);\n",
+          "replace": "\t\t} finally {\n\t\t\tpreparedRunAdmission.close();\n\t\t}\n\t\tbyokitRunUsage = embeddedResult?.meta?.agentMeta?.usage;\n\t\tassertSkillReviewRunSucceeded(embeddedResult);\n"
+        },
+        {
+          "find": "\t} catch (error) {\n\t\trecordSkillExperienceReviewOutcome(workspaceDir, {\n",
+          "replace": "\t} catch (error) {\n\t\tbyokitUsageFact({ ...byokitFact, phase: \"ended\", at: Date.now(), outcome: \"failed\", ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\t\trecordSkillExperienceReviewOutcome(workspaceDir, {\n"
+        },
+        {
+          "find": "\t} finally {\n\t\tclearAgentRunContext(runId);\n\t}\n\trecordSkillExperienceReviewOutcome(workspaceDir, {\n",
+          "replace": "\t} finally {\n\t\tclearAgentRunContext(runId);\n\t}\n\tbyokitUsageFact({ ...byokitFact, phase: \"ended\", at: Date.now(), outcome, ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\trecordSkillExperienceReviewOutcome(workspaceDir, {\n"
+        }
+      ]
+    },
     {
       "path": "dist/main-session-recovery-state-BWIrIyi_.js",
       "before": "418a957496786dd7ed28df4a7a02e31e9567020e1be5804545e785baf965f225",

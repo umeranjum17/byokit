@@ -28,6 +28,7 @@ async function withPlugin(
     = { gated: [], called: [] };
   copyFileSync(shipped, join(dir, 'index.js'));
   copyFileSync(new URL('../plugin/keys.js', import.meta.url), join(dir, 'keys.js'));
+  copyFileSync(new URL('../plugin/usage.js', import.meta.url), join(dir, 'usage.js'));
   writePlugin(dir, { id: 'byokit', tools, paramPrefix: '__byokit', gateBuiltins: o.gateBuiltins, browser: o.browser });
   const bridge = new Bridge({
     path: join(dir, 'bridge.sock'),
@@ -53,13 +54,16 @@ async function withPlugin(
   try {
     const plugin = (await import(pathToFileURL(join(dir, 'index.js')).href)).default;
     let hook: Hook | undefined;
-    plugin.register({ registerTool: () => {}, registerAgentToolResultMiddleware: (fn: typeof seen.middleware, options: unknown) => {
+    const methods: string[] = [];
+    plugin.register({ registerGatewayMethod: (name: string) => methods.push(name), registerTool: () => {}, registerAgentToolResultMiddleware: (fn: typeof seen.middleware, options: unknown) => {
       assert.deepEqual(options, { runtimes: ['openclaw', 'codex'] });
       seen.middleware = (event, ctx = { sessionKey: 'agent:m1:x', runId: 'source-fixture' }) => (fn as any)(event, ctx);
     }, on: (name: string, fn: any) => {
       if (name === 'before_tool_call') hook = fn;
       if (name === 'tool_result_persist') seen.persist = fn;
     } });
+    assert.ok(methods.includes('byokit.usage.engineStarted'), 'Workshop accounting remains registered alongside browser protection');
+    assert.ok(methods.includes('byokit.keys'), 'key registration remains available');
     assert.ok(hook, 'the plugin registered no before_tool_call hook');
     await fn(hook, seen);
   } finally {

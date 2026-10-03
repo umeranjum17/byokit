@@ -6,7 +6,7 @@ import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { removeScratch, scratchDir } from '../../test-support.ts';
-import { spawn } from 'node:child_process';
+import childProcess, { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../src/engine.ts';
 import { OpenClawKit } from '../src/kit.ts';
@@ -94,6 +94,37 @@ function shippedSet(): PatchSet {
 function seedSet(engineDir: string): Promise<string> {
   return prepareEngineSet(engineDir, shippedSet(), tmp => fs.cpSync(engineDir, tmp, { recursive: true }), () => true);
 }
+
+test('accounting start is fsynced before spawn; failed boot writes prevent spawn and pre-pid failure has durable zero-attempt proof', async t => {
+  const dir = scratchDir('boot-order'), engineDir = join(dir, 'engine');
+  seedInstall(engineDir); await seedSet(engineDir);
+  const engine = new Engine({ stateDir: dir, engineDir, pluginId: 'byokit', tools: [], spawnEngine: true, onState() {}, onExit() {} });
+  let spawns = 0, syncs = 0;
+  const originalSync = fs.fsyncSync;
+  try {
+    await engine.prepare();
+    const boots = join(engine.root, 'usage/boots.jsonl'); mkdirSync(boots);
+    t.mock.method(childProcess, 'spawn', (_exe: string, _args: string[], options: any) => {
+      spawns++;
+      assert.ok(syncs > 0, 'boot record was fsynced before the spawn call');
+      const rows = readFileSync(boots, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+      assert.equal(rows.at(-1).bootId, options.env.BYOKIT_ENGINE_BOOT);
+      assert.equal(options.env.BYOKIT_ENGINE_USAGE_LEDGER, join(engine.root, 'usage'));
+      throw new Error('unit definite pre-pid failure');
+    });
+    t.mock.method(fs, 'fsyncSync', (...args: Parameters<typeof fs.fsyncSync>) => {
+      originalSync(...args);
+      if (existsSync(boots) && fs.statSync(boots).isFile() && fs.fstatSync(args[0]).ino === fs.statSync(boots).ino) syncs++;
+    });
+    syncBuiltinESMExports();
+    await assert.rejects(engine.start(), /Usage boot record could not be made durable/); assert.equal(spawns, 0);
+    rmSync(boots, { recursive: true });
+    await assert.rejects(engine.start(), /unit definite pre-pid failure/); assert.equal(spawns, 1);
+    const rows = readFileSync(boots, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    assert.equal(rows.length, 2); assert.equal(rows[1].bootId, rows[0].bootId); assert.equal(rows[1].spawned, false);
+    assert.ok(rows[1].failedAt >= rows[0].startedAt); assert.ok(syncs >= 2);
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports(); await engine.stop(); removeScratch(dir); }
+});
 
 test('prepare verifies whole immutable installs and rebuilds drift without changing old trees', async () => {
   const dir = scratchDir('prepare');
