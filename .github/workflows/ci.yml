@@ -174,7 +174,7 @@ jobs:
         working-directory: examples/expo
       - run: npm run typecheck
         working-directory: examples/expo
-      - run: sh scripts/test.sh examples/expo/pairing.test.ts
+      - run: sh scripts/test.sh examples/expo/pairing.test.ts examples/expo/infer-probe.test.ts examples/expo/infer-binding.test.ts
       - run: node examples/expo/cold-accounts.ts
       - run: npx expo export --platform android --platform ios --output-dir dist
         working-directory: examples/expo
@@ -291,7 +291,7 @@ jobs:
       - run: node scripts/share-expo-smoke.ts --android-only --build --out /tmp/bks-android
       - run: npm ci --no-audit --no-fund
         working-directory: examples/expo
-      - run: CI=1 npx expo prebuild -p android --no-install && (cd android && ./gradlew assembleDebug :byokit-share:testDebugUnitTest --no-daemon)
+      - run: CI=1 npx expo prebuild -p android --no-install && (cd android && ./gradlew assembleDebug :byokit-share:testDebugUnitTest --no-daemon --stacktrace)
         working-directory: examples/expo
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
@@ -304,6 +304,13 @@ jobs:
             /tmp/bks-android/result.json
             /tmp/bks-android/failure.txt
             /tmp/bks-android/app/node_modules/@byokit/share/android/build/test-results/
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: failure()
+        with:
+          name: share-android-app-build-reports
+          path: |
+            examples/expo/android/build/reports/
+            examples/expo/android/app/build/reports/
 
   share-ios-prebuild:
     runs-on: macos-latest

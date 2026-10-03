@@ -1,0 +1,1 @@
+- FIX: Encode insufficient summary lines as a literal empty array and string bounds in the pattern itself. Stock schema-to-grammar conversion ignores array bounds without `items` and string length keywords alongside `pattern`; real b10256 grammar counterfactuals now reject the exact native false-with-four-lines sample, without changing its meaning or coercing its flag.
