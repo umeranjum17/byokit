@@ -1,0 +1,13 @@
+{
+  "outbox.cancelled": "That message was taken back and will not be sent.",
+  "outbox.failed": "That message did not send. Check it and try again.",
+  "outbox.invalid": "That message cannot be saved.",
+  "outbox.io": "The message list could not be saved. Try again in a moment.",
+  "outbox.notFound": "That message is no longer in the list.",
+  "outbox.sending": "Sending…",
+  "outbox.sent": "Sent.",
+  "outbox.staleRevision": "That message changed. Look again before acting on it.",
+  "outbox.tooLate": "That message is already on its way and cannot be taken back.",
+  "outbox.unavailable": "Sending is not set up for this list.",
+  "outbox.unknown": "That message was being sent when the app stopped. Check whether it arrived before sending it again."
+}
