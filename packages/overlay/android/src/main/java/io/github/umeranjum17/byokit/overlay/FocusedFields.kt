@@ -177,7 +177,8 @@ object FocusedFields {
       try {
         if (!raw.refresh()) return null
         if (protected(wrapped)) { denied = true; return null }
-        field = find(wrapped)
+        // An already selected editor must not query global provider focus again and jump to its old sibling.
+        field = if (raw.isEditable) wrapped else find(wrapped)
         val fresh = (field as? NodeWrap)?.node ?: return null
         if (!fresh.refresh()) return null
         if (protected(field)) { denied = true; return null }
@@ -193,7 +194,8 @@ object FocusedFields {
       for (type in listOf(AccessibilityNodeInfo.FOCUS_INPUT, AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)) {
         var foundFocus = false
         for (root in roots) {
-          val raw = root.findFocus(type) ?: continue
+          val raw = (NodeWrap(root, service).findFocus(type == AccessibilityNodeInfo.FOCUS_INPUT) as? NodeWrap)?.node
+            ?: continue
           foundFocus = true
           resolve(raw)?.let { return it }
           if (denied) return null
@@ -421,18 +423,19 @@ internal class NodeWrap(
   override val password: Boolean get() = node.isPassword
   @Suppress("DEPRECATION")
   override fun findFocus(input: Boolean): FieldNode? {
+    // A provider lookup can keep returning the previous editable virtual node after DOM focus changed.
+    // Resolve exact descendant focus flags from the whole root before trusting that lookup's subtree.
+    focusedDescendant(node, input)?.let { return NodeWrap(it, owner) }
     val focused = node.findFocus(if (input) AccessibilityNodeInfo.FOCUS_INPUT else AccessibilityNodeInfo.FOCUS_ACCESSIBILITY)
-    // WebView's provider can return the focused native container even when a virtual editor has input focus.
-    // Walk child snapshots by their EXACT focus flag; calling findFocus again on each virtual child can jump
-    // back to the native container. Never substitute an unfocused editable node.
-    val nested = if (focused == null || (!focused.isEditable && !focused.isPassword)) {
-      focusedDescendant(focused ?: node, input)
+      ?: return null
+    // Some providers expose virtual children only through the returned native container.
+    val nested = if (focused !== node && !focused.isEditable && !focused.isPassword) {
+      focusedDescendant(focused, input)
     } else null
     if (nested != null) {
-      if (focused !== node) focused?.recycle()
+      focused.recycle()
       return NodeWrap(nested, owner)
     }
-    if (focused == null) return null
     // A distinct snapshot of the same node may carry newer password/focus flags; keep that snapshot.
     if (focused === node) return this
     return NodeWrap(focused, owner)
