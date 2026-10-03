@@ -87,9 +87,49 @@ test('a cancel accepted while queued wins: flush never invokes the sender for it
   const entry = await outbox.enqueue({ kind: 'email-reply', payload: { body: 'take me back' } });
   const result = await outbox.cancel(entry.id, { revision: entry.revision });
   assert.equal(result.ok, true);
+  const again = await outbox.cancel(entry.id, { revision: result.entry.revision });
+  assert.equal(again.ok, true); // already taken back: still true that it will not be sent
+  assert.equal(again.entry.revision, result.entry.revision); // idempotent: no further change
   const drained = await outbox.flush();
   assert.deepEqual(drained, { sent: [], failed: [] });
   assert.equal(calls.length, 0);
+  assert.equal(outbox.get(entry.id)!.state, 'cancelled');
+  await outbox.close();
+});
+
+test('cancellation received during the async claim persistence, before invocation, wins', async () => {
+  const dir = scratchDir('outbox');
+  const { sender, calls } = fakeSender();
+  const outbox = await open(dir, sender);
+  const entry = await outbox.enqueue({ kind: 'email-reply', payload: { body: 'window' } });
+  // Registered while the claim step is in flight: the serialization runs claim -> cancel -> arm, so the
+  // cancel is processed after the claim is durable but before the sender is invoked.
+  const flushing = outbox.flush();
+  const cancelling = outbox.cancel(entry.id, { revision: 2 }); // the revision the durable claim produces
+  const [result, drained] = await Promise.all([cancelling, flushing]);
+  assert.equal(result.ok, true); // accepted before the real send
+  assert.equal(calls.length, 0); // the sender was never invoked
+  assert.equal(outbox.get(entry.id)!.state, 'cancelled');
+  assert.equal(outbox.get(entry.id)!.revision, 3);
+  assert.deepEqual(drained, { sent: [], failed: [] });
+  await outbox.close();
+});
+
+test('a cancel request that arrives in the window with a stale revision is not accepted', async () => {
+  const dir = scratchDir('outbox');
+  const { sender, calls } = fakeSender();
+  const outbox = await open(dir, sender);
+  const entry = await outbox.enqueue({ kind: 'note', payload: 1 });
+  // Both registered while the claim is in flight: the serialization runs claim -> stale -> retry -> arm.
+  const flushing = outbox.flush();
+  const stale = outbox.cancel(entry.id, { revision: 1 }); // the pre-claim view the caller held
+  const retry = outbox.cancel(entry.id, { revision: 2 }); // what a caller that re-read sends
+  await assert.rejects(stale, code('stale-revision')); // the request arrived; it was not accepted
+  const accepted = await retry;
+  assert.equal(accepted.ok, true); // the fresh view is accepted inside the window
+  const drained = await flushing;
+  assert.equal(calls.length, 0);
+  assert.deepEqual(drained, { sent: [], failed: [] });
   assert.equal(outbox.get(entry.id)!.state, 'cancelled');
   await outbox.close();
 });
@@ -185,6 +225,10 @@ test('an interrupted send reopens as sending with an unknown outcome: never redi
   const { sender: freshSender, calls: freshCalls } = fakeSender();
   const reopened = await open(dir, freshSender);
   assert.equal(reopened.get(entry.id)!.state, 'sending'); // unknown, not "queued" again
+  // This instance never claimed it: whether the abandoned send was invoked is unknowable, so a cancel
+  // refuses with the unknown answer rather than too-late or a false win.
+  const refused = await reopened.cancel(entry.id, { revision: 2 });
+  assert.deepEqual(refused, { ok: false, code: 'unknown', entry: reopened.get(entry.id) });
   const drained = await reopened.flush();
   assert.deepEqual(drained, { sent: [], failed: [] }); // no invented redelivery
   assert.equal(freshCalls.length, 0);
@@ -327,6 +371,7 @@ test('words: plain sentences only, every code and result has one, slots stay vis
   const dir = scratchDir('outbox');
   const entry: OutboxEntry = { id: 'x', kind: 'k', payload: 1, state: 'queued', revision: 1, seq: 1, createdAt: 0, updatedAt: 0 };
   assert.equal(cancelWords({ ok: false, code: 'too-late', entry }), WORDS['outbox.tooLate']);
+  assert.equal(cancelWords({ ok: false, code: 'unknown', entry }), WORDS['outbox.unknown']);
   assert.equal(cancelWords({ ok: true, entry }), WORDS['outbox.cancelled']);
   assert.equal(stateWords('queued'), '');
   assert.equal(stateWords('sent'), WORDS['outbox.sent']);

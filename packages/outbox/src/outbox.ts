@@ -1,6 +1,7 @@
 // @byokit/outbox: a durable queue for outbound messages the app may still take back. Every mutation is
-// revision-checked and fsync-persisted before the one irreversible act — handing the message to the sender —
-// so a cancel that is accepted can never be followed by a send, and a cancel that arrives too late says so.
+// revision-checked and fsync-persisted; cancellation wins until the real send — the invocation of the
+// sender — because the last pre-send check and the invocation are one serialized critical section, and a
+// cancel that loses past that point says so instead of claiming otherwise.
 import { randomUUID } from 'node:crypto';
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join } from 'node:path';
@@ -57,12 +58,21 @@ export type OutboxOptions = {
   log?: (line: string) => void;
 };
 
-/** Cancel of a message still queued wins; past the boundary it loses and says so honestly. */
-export type CancelResult = { ok: true; entry: OutboxEntry } | { ok: false; code: 'too-late'; entry: OutboxEntry };
+/** Cancel of a message the sender has not been invoked for wins; past the invocation it loses and says so.
+ * `too-late` means the sender was invoked (or the message settled); `unknown` means an interrupted send whose
+ * outcome the kit cannot know — take it to `resolve`, never to another cancel. */
+export type CancelResult = { ok: true; entry: OutboxEntry } | { ok: false; code: 'too-late' | 'unknown'; entry: OutboxEntry };
 /** What one drain produced. Entries carry their own final state. */
 export type FlushResult = { sent: OutboxEntry[]; failed: OutboxEntry[] };
 
 type Stored = { v: 1; nextSeq: number; entries: OutboxEntry[] };
+/** A settled sender outcome, carried out of the arm step so the chain never awaits user code. */
+type ArmedOutcome = { ok: true; receipt: unknown } | { ok: false; failure: string };
+
+const failureOf = (cause: unknown): string => {
+  const text = cause instanceof Error ? cause.message : String(cause);
+  return text.length > 4096 ? text.slice(0, 4096) : text;
+};
 
 const storePath = (stateDir: string) => join(stateDir, 'outbox', 'entries.json');
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -131,6 +141,9 @@ export class Outbox {
   #now: () => number;
   #log?: (line: string) => void;
   #closed = false;
+  /** Dispatch state of entries this instance claimed: 'claimed' = claimed but the sender not yet invoked,
+   * 'invoked' = the sender was called. Entries left 'sending' by an earlier life are absent: unknown. */
+  #claims = new Map<string, 'claimed' | 'invoked'>();
   #chain: Promise<unknown> = Promise.resolve();
 
   private constructor(options: Required<Pick<OutboxOptions, 'stateDir'>> & Pick<OutboxOptions, 'sender' | 'now' | 'log'>) {
@@ -208,31 +221,46 @@ export class Outbox {
 
   /**
    * Take a message back. `revision` must be the entry's current revision; an older one rejects
-   * `stale-revision` so a screen never cancels what it is no longer showing. While the message is still
-   * queued the cancel wins: the sender is never invoked for it. Past the boundary (claim recorded) it
-   * loses and returns `too-late` — never a false success.
+   * `stale-revision` so a screen never cancels what it is no longer showing. The cancel wins until the
+   * real send — the invocation of the sender — not until the durable claim: a cancel accepted while the
+   * message is still queued, or after the claim but before the sender is invoked, means the sender is
+   * **never invoked** for it. Once the sender has been invoked (or the message settled) the cancel loses
+   * and returns `too-late`; a message left `sending` by an interrupted process returns `unknown` (the kit
+   * cannot know whether it went) — never a false success and never a fabricated boundary.
    */
   async cancel(id: string, o: { revision: number }): Promise<CancelResult> {
     this.#live('cancel');
     if (typeof id !== 'string' || !ID.test(id)) throw new TypeError('cancel: id must be a message id');
     if (!integer(o?.revision)) throw new TypeError('cancel: revision must be an integer');
     return this.#run(() => {
-      const current = this.#entries.get(id);
-      if (current === undefined) throw new OutboxError('not-found', 'no message with that id');
+      const current = this.#required(id);
       if (o.revision !== current.revision) {
         throw new OutboxError('stale-revision', 'the message changed since that revision', { detail: { current: current.revision } });
       }
-      if (current.state !== 'queued') return { ok: false as const, code: 'too-late' as const, entry: { ...current } };
-      const entry = this.#set(current, { state: 'cancelled' as const });
-      return { ok: true as const, entry: { ...entry } };
+      // The winning window: still queued, or claimed by this process but the sender not yet invoked.
+      if (current.state === 'queued' || (current.state === 'sending' && this.#claims.get(id) === 'claimed')) {
+        const entry = this.#set(current, { state: 'cancelled' as const });
+        return { ok: true as const, entry: { ...entry } };
+      }
+      if (current.state === 'sending') {
+        // Invoked by this process: the send truly started. No claim here: an interrupted earlier life — unknown.
+        return { ok: false as const, code: this.#claims.get(id) === 'invoked' ? 'too-late' as const : 'unknown' as const, entry: { ...current } };
+      }
+      if (current.state === 'cancelled') return { ok: true as const, entry: { ...current } }; // already taken back; still true that it will not be sent
+      return { ok: false as const, code: 'too-late' as const, entry: { ...current } };
     });
   }
 
   /**
-   * Send every queued message, in enqueue order, one at a time. For each: the claim (`queued` → `sending`)
-   * is fsync-durable before the sender is invoked, the outcome is persisted after the sender settles, and a
-   * sender that rejects is recorded `failed` (never retried here). `signal` stops further claims; an
-   * in-flight send still records its outcome first. Returns once no message is queued.
+   * Send every queued message, in enqueue order, one claim at a time. Each send is two serialized steps:
+   * the claim (`queued` → `sending`, fsync-durable), then the arm step, which re-checks the entry at the
+   * claimed revision and invokes the sender **in the same critical section** — nothing can interleave
+   * between that last check and the invocation. A cancel processed before the arm step wins even though
+   * the claim is already durable; after it, the sender has truly been invoked. The outcome is persisted
+   * when the sender settles; a sender that rejects is recorded `failed` (never retried here). `signal`
+   * stops further claims; an in-flight send still records its outcome first. Returns once no message is
+   * queued. Because the sender is invoked inside a serialized step, a `send` that does slow synchronous
+   * work before returning its promise holds up other queue operations for that time.
    */
   async flush(o: { signal?: AbortSignal } = {}): Promise<FlushResult> {
     this.#live('flush');
@@ -245,22 +273,37 @@ export class Outbox {
         this.#live('flush');
         const next = [...this.#entries.values()].filter((entry) => entry.state === 'queued').sort((a, b) => a.seq - b.seq)[0];
         if (next === undefined) return undefined;
-        // The irreversible boundary: this claim is durable before the sender is invoked, so a cancel
-        // accepted before it could not have lost, and one after it cannot pretend it won.
         const entry = this.#set(next, { state: 'sending' as const });
+        this.#claims.set(entry.id, 'claimed');
         return { ...entry };
       });
       if (claimed === undefined) break;
-      let outcome: OutboxEntry;
-      try {
-        const receipt = await this.#sender.send({ id: claimed.id, kind: claimed.kind, payload: claimed.payload, seq: claimed.seq });
-        outcome = await this.#record(claimed, 'sent', receipt);
-        sent.push(outcome);
-      } catch (cause) {
-        const failure = cause instanceof Error ? cause.message : String(cause);
-        outcome = await this.#record(claimed, 'failed', failure.length > 4096 ? failure.slice(0, 4096) : failure);
-        failed.push(outcome);
-      }
+      // The arm step: the last revision-checked look and the invocation itself are one critical section,
+      // so the irreversible boundary is the real send, not the durable claim.
+      const armed = await this.#run(() => {
+        const current = this.#entries.get(claimed.id);
+        if (current === undefined || current.state !== 'sending' || current.revision !== claimed.revision) {
+          this.#claims.delete(claimed.id); // a cancel (or resolve) won the window: the sender is never invoked.
+          return undefined;
+        }
+        const job = { id: claimed.id, kind: claimed.kind, payload: claimed.payload, seq: claimed.seq };
+        let settled: Promise<ArmedOutcome>;
+        try {
+          const receipt = this.#sender!.send(job); // the real send: this call is the boundary
+          settled = Promise.resolve(receipt).then(
+            (receipt) => ({ ok: true as const, receipt }),
+            (cause: unknown) => ({ ok: false as const, failure: failureOf(cause) }));
+        } catch (cause) {
+          settled = Promise.resolve({ ok: false as const, failure: failureOf(cause) });
+        }
+        this.#claims.set(claimed.id, 'invoked');
+        return { settled }; // boxed: the chain advances without awaiting the sender
+      });
+      if (armed === undefined) continue; // cancelled in the window before invocation
+      const outcome = await armed.settled;
+      const recorded = await this.#record(claimed, outcome);
+      this.#claims.delete(claimed.id);
+      if (recorded.state === 'failed') failed.push(recorded); else sent.push(recorded);
       o.signal?.throwIfAborted();
     }
     return { sent, failed };
@@ -316,24 +359,24 @@ export class Outbox {
     return entry;
   }
 
-  #record(claimed: OutboxEntry, state: 'sent' | 'failed', detail: unknown): Promise<OutboxEntry> {
+  #record(claimed: OutboxEntry, outcome: ArmedOutcome): Promise<OutboxEntry> {
     return this.#run(() => {
       const current = this.#entries.get(claimed.id);
       if (current === undefined || current.state !== 'sending' || current.revision !== claimed.revision) {
         // Resolved by someone else while the send was in flight: their record stands.
         return current === undefined ? claimed : { ...current };
       }
-      if (state === 'sent') {
+      if (outcome.ok) {
         let receipt: unknown;
         try {
-          receipt = detail === undefined ? undefined : storable(detail, 'receipt');
+          receipt = outcome.receipt === undefined ? undefined : storable(outcome.receipt, 'receipt');
         } catch {
           this.#log?.('outbox: dropped a receipt that is not JSON');
           receipt = undefined;
         }
         return { ...this.#set(current, { state: 'sent', sentAt: this.#now(), ...(receipt === undefined ? {} : { receipt }) }) };
       }
-      return { ...this.#set(current, { state: 'failed', ...(typeof detail === 'string' ? { failure: detail } : {}) }) };
+      return { ...this.#set(current, { state: 'failed', failure: outcome.failure }) };
     });
   }
 
