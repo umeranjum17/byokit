@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
+import { WebSocketServer } from 'ws';
+import { gatewayTransport } from '../src/transport.ts';
+import { PROTOCOL_VERSION } from '../src/index.ts';
 import { readFileSync, rmSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { browserToolPolicySafe, browserProfileAcknowledged, browserSessionMayRun, reconcileConfig } from '../src/config.ts';
@@ -33,23 +36,50 @@ test('fixture pipe evidence retains raw chunks and owned identities before failu
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('native fixture negatives dispatch and wait without facade cancellation; local admission remains separate', async () => {
+test('native fixture negatives dispatch and wait through actual facade/transport; local admission remains separate', { timeout: 5000 }, async () => {
   const key = 'agent:ada:fixture:protected';
   const host = await fakeBrowserHost({ members: ['ada'], authorize: () => true });
-  const kit = new OpenClawKit({ stateDir: '/unused-source-fixture', spawnEngine: false,
+  const stateDir = scratchDir('native-facade');
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: gatewayTransport,
+    config: { tools: { allow: ['browser', 'request_sign_in'] } },
     browser: { executablePath: '/unused-source-fixture', members: [] } });
-  const slot = kit as any;
-  slot.browserHost = host; slot.checkBrowserTools = async () => true;
-  const calls: { method: string; params: unknown }[] = [];
-  let facadeRuns = 0;
-  slot.runs = () => ({ run: async () => { facadeRuns++; return { ok: true }; } });
-  slot.callDynamic = async (method: string, params: unknown) => {
-    calls.push({ method, params }); return method === 'agent' ? { runId: 'actual-source-run' } : { status: 'ok', terminalReply: { text: 'blocked' } };
-  };
+  await kit.prepare();
+  const calls: { method: string; params: any }[] = [];
+  // Mock only the underlying engine's wire peer. The kit facade, method guard and published transport are REAL.
+  const server = new WebSocketServer({ host: '127.0.0.1', port: Number(readFileSync(join(stateDir, 'openclaw/port'), 'utf8')) });
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  server.on('connection', socket => {
+    socket.send(JSON.stringify({ type: 'event', event: 'connect.challenge', payload: { nonce: 'owned-source-challenge', ts: Date.now() } }));
+    socket.on('message', raw => {
+      const request = JSON.parse(String(raw));
+      const reply = (payload: unknown) => socket.send(JSON.stringify({ type: 'res', id: request.id, ok: true, payload }));
+      if (request.method === 'connect') return reply({ type: 'hello-ok', protocol: PROTOCOL_VERSION, server: { version: '2026.8.1' },
+        features: { methods: ['agent', 'agent.wait'], events: ['agent'] }, policy: { tickIntervalMs: 30_000 } });
+      if (request.method === 'config.get') return reply({ config: JSON.parse(readFileSync(join(stateDir, 'openclaw/openclaw.json'), 'utf8')),
+        configRevisionHash: 'source-revision', appliedConfigHash: 'source-revision' });
+      if (request.method === 'agents.list') return reply({ agents: [{ id: 'ada' }] });
+      if (request.method === 'tools.effective') return reply({ agentId: 'ada', groups: [{ tools: [{ id: 'browser' }] }] });
+      if (request.method === 'agent') {
+        calls.push({ method: request.method, params: request.params });
+        reply({ runId: 'actual-source-run', status: 'accepted' });
+        return queueMicrotask(() => reply({ runId: 'actual-source-run', status: 'ok', result: { payloads: [{ text: 'source control' }] } }));
+      }
+      if (request.method === 'agent.wait') {
+        calls.push({ method: request.method, params: request.params });
+        return reply({ status: 'ok', terminalReply: { text: 'blocked' } });
+      }
+      reply({});
+    });
+  });
   try {
+    await kit.start();
+    const slot = kit as any;
+    await slot.browserHost.close(); slot.browserHost = host;
     const row = await host.raise({ member: 'ada', sessionKey: key, checkUrl: 'http://127.0.0.1:2820/private', reasons: ['agent-asked'] });
+    await assert.rejects(kit.callDynamic('agent', {}), /use typed call for generated method: agent/);
+    await assert.rejects(kit.callDynamic('agent.wait', {}), /use typed call for generated method: agent.wait/);
     assert.equal((await kit.run({ member: 'ada', sessionKey: key, register: false, message: 'local control' })).ok, false);
-    assert.equal(facadeRuns, 0); assert.equal(calls.length, 0);
+    assert.equal(calls.length, 0);
     await host.notNow(row.id, row.gen, { grant: 'source-control' });
     const parked = JSON.stringify(host.signIns());
     const events: unknown[] = [];
@@ -59,12 +89,17 @@ test('native fixture negatives dispatch and wait without facade cancellation; lo
       { method: 'agent.wait', params: { runId: 'actual-source-run', timeoutMs: 20_000 } },
     ]);
     assert.deepEqual(outcome, { status: 'ok', terminalReply: { text: 'blocked' } });
-    assert.equal(JSON.stringify(host.signIns()), parked); assert.equal(facadeRuns, 0);
+    assert.equal(JSON.stringify(host.signIns()), parked);
     // A genuine fresh facade run still owns the documented parked replacement, unlike a native attack probe.
     await kit.run({ member: 'ada', sessionKey: key, register: false, message: 'local replacement control' });
     assert.equal(host.signIns()[0].state, 'settled'); assert.equal(host.signIns()[0].settled?.state, 'cancelled');
-    assert.equal(facadeRuns, 1);
-  } finally { await host.close(); }
+    assert.equal(calls.filter(call => call.method === 'agent').length, 2);
+  } finally {
+    await kit.stop(); await host.close();
+    for (const socket of server.clients) socket.terminate();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    rmSync(stateDir, { recursive: true, force: true });
+  }
 });
 
 const safe = { tools: { allow: ['browser', 'request_sign_in', 'crew_x'] } };

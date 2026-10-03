@@ -13,14 +13,14 @@ export type MatrixReceipt = { stages: { stage: string; providerBefore: number; p
   transcripts: { stage: string; captures: ReturnType<typeof sqliteTranscripts> }[]; resumeDispatches: unknown[] };
 
 // Isolated fixture attack control only: bypass local facade admission to challenge native engine admission.
-export async function nativeNegativeProbe(kit: Pick<OpenClawKit, 'callDynamic'>, key: string, runId: string, stage: string,
+export async function nativeNegativeProbe(kit: Pick<OpenClawKit, 'call'>, key: string, runId: string, stage: string,
   emit: (event: unknown) => void): Promise<unknown> {
   return boundedAwait(`matrix-refusal:${stage}`, async () => {
-    const accepted = await kit.callDynamic('agent', { agentId: 'ada', sessionKey: key, idempotencyKey: runId,
+    const accepted = await kit.call('agent', { agentId: 'ada', sessionKey: key, idempotencyKey: runId,
       message: `Source-free recovery probe ${stage}` }, { timeoutMs: 20_000 }) as { runId?: string };
     assert.ok(typeof accepted?.runId === 'string' && accepted.runId, 'native probe requires an actual accepted run id');
     emit({ kind: 'native-negative-accepted', stage, accepted });
-    const outcome = await kit.callDynamic('agent.wait', { runId: accepted.runId, timeoutMs: 20_000 }, { timeoutMs: 20_000 });
+    const outcome = await kit.call('agent.wait', { runId: accepted.runId, timeoutMs: 20_000 }, { timeoutMs: 20_000 });
     emit({ kind: 'native-negative-settled', stage, outcome });
     return outcome;
   }, emit);
