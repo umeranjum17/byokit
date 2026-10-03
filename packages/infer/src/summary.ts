@@ -68,8 +68,15 @@ const SYSTEM = [
 ].join('\n');
 
 const SCHEMA = {
-  type: 'object', additionalProperties: false, required: ['enough', 'lines'],
-  properties: { enough: { type: 'boolean' }, lines: { type: 'array', maxItems: 4, items: { type: 'string', maxLength: 100 } } },
+  oneOf: [
+    { type: 'object', additionalProperties: false, required: ['enough', 'lines'], properties: {
+      enough: { const: true }, lines: { type: 'array', minItems: 3, maxItems: 4,
+        items: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[^\\r\\n]*$' } },
+    } },
+    { type: 'object', additionalProperties: false, required: ['enough', 'lines'], properties: {
+      enough: { const: false }, lines: { type: 'array', maxItems: 0 },
+    } },
+  ],
 };
 
 /**
