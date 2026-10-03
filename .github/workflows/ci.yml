@@ -174,7 +174,7 @@ jobs:
         working-directory: examples/expo
       - run: npm run typecheck
         working-directory: examples/expo
-      - run: sh scripts/test.sh examples/expo/pairing.test.ts
+      - run: sh scripts/test.sh examples/expo/pairing.test.ts examples/expo/infer-probe.test.ts examples/expo/infer-binding.test.ts
       - run: node examples/expo/cold-accounts.ts
       - run: npx expo export --platform android --platform ios --output-dir dist
         working-directory: examples/expo
