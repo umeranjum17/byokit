@@ -512,7 +512,7 @@ function realOpenClawPack(): void {
     }
     console.log(JSON.stringify({ candidatePacks: packed.map(entry => ({ name: entry.name, version: entry.version, filename: entry.filename, sha256: sha256(readFileSync(join(dir, entry.filename))) })), consumerDir: dir, dependencySource: 'exact candidate internal runtime closure; external registry pins unchanged', publicConsumerAdoption: false }));
     writeFileSync(join(dir, 'qualify.mjs'), readFileSync(join(root, 'packages/openclaw/test/engine/packed-patches.fixture.mjs')));
-    console.log(run(process.execPath, ['qualify.mjs', join(root, 'packages/openclaw/scripts/engine-patches.ts')], dir, 850_000));
+    console.log(run(process.execPath, ['qualify.mjs', join(root, 'packages/openclaw/scripts/engine-patches.ts'), join(root, 'packages/openclaw/scripts/workshop-patch.ts')], dir, 850_000));
     if (process.argv.includes('--keep-openclaw-fixture')) {
       pendingTmp.delete(dir);
       console.log(JSON.stringify({ retainedOwnedFixture: dir, processes: 'stopped; immutable sets retained for read-only derivation' }));

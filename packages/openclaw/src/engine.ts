@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { randomBytes, generateKeyPairSync } from 'node:crypto';
+import { randomBytes, generateKeyPairSync, randomUUID } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, copyFileSync, rmSync, realpathSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join, dirname } from 'node:path';
@@ -9,6 +9,7 @@ import { AuthStore } from './auth-store.ts';
 import { EngineAlreadyRunningError, pidAlive } from './engine-status.ts';
 import { EnginePatchError, atomic, prepareEngineSet, processStartTime, readPatchSet, verifyEngineSet, type PatchSet } from './engine-patches.ts';
 import { ENGINE_VERSION } from './constants.ts';
+import { appendUsageBoot } from './usage-boots.ts';
 import { reconcileConfig, appRecoveryPrefixes } from './config.ts';
 import { writePlugin, resolveBridge } from './bridge.ts';
 import type { KitOptions } from './kit.ts';
@@ -108,7 +109,7 @@ export class Engine {
   private async prepareOnce(): Promise<void> {
     if (!this.o.authSeal && existsSync(join(this.root, 'auth-store.sealed'))) throw new Error('authSeal required for sealed credential store');
     await this.recoverOrphan();
-    for (const d of [this.root, ...(!this.o.authSeal ? [join(this.root, 'home'), join(this.root, 'state')] : []), join(this.root, 'tmp'), join(this.root, 'install-home'), join(this.root, 'npm-cache'), join(this.o.stateDir, 'logs')]) mkdirSync(d, { recursive: true, mode: 0o700 });
+    for (const d of [this.root, ...(!this.o.authSeal ? [join(this.root, 'home'), join(this.root, 'state')] : []), join(this.root, 'tmp'), join(this.root, 'usage'), join(this.root, 'install-home'), join(this.root, 'npm-cache'), join(this.o.stateDir, 'logs')]) mkdirSync(d, { recursive: true, mode: 0o700 });
     try { await this.authStore.prepare(); this.credentialsLocked = false; }
     catch (error) { if (this.locked(error)) return; throw error; }
     if (this.o.spawnEngine) {
@@ -150,7 +151,7 @@ export class Engine {
     const pluginDir = join(this.root, 'plugin');
     mkdirSync(pluginDir, { recursive: true, mode: 0o700 });
     // The shipped plugin follows the kit on every prepare too: a state dir from an older kit must not keep its gate.
-    for (const f of ['package.json', 'index.js', 'keys.js']) {
+    for (const f of ['package.json', 'index.js', 'keys.js', 'usage.js']) {
       const source = join(kitDir, 'plugin', f);
       putChanged(join(pluginDir, f), readFileSync(source, 'utf8'));
     }
@@ -263,17 +264,27 @@ export class Engine {
     this.state('starting');
     const { entry, env } = this.doctorContext();
     const fd = openSync(join(this.o.stateDir, 'logs', 'openclaw.log'), 'a', 0o600);
-    try { this.child = spawn(process.execPath, [entry, 'gateway', '--port', String(this.port)], { cwd: env.HOME, env, detached: true, stdio: ['ignore', fd, fd] }); }
-    finally { closeSync(fd); }
+    const usageDir = join(this.root, 'usage'), bootId = randomUUID();
+    try {
+      const accounted = this.wantedSet!.files.some(file => file.path === 'dist/experience-review-default-6DPIIJds.js');
+      if (accounted) {
+        appendUsageBoot(usageDir, { bootId, startedAt: Date.now() });
+        env.BYOKIT_ENGINE_USAGE_LEDGER = usageDir; env.BYOKIT_ENGINE_BOOT = bootId;
+      }
+      try { this.child = spawn(process.execPath, [entry, 'gateway', '--port', String(this.port)], { cwd: env.HOME, env, detached: true, stdio: ['ignore', fd, fd] }); }
+      catch (error) { if (env.BYOKIT_ENGINE_BOOT) appendUsageBoot(usageDir, { bootId, failedAt: Date.now(), spawned: false }); throw error; }
+    } finally { closeSync(fd); }
     const child = this.child;
     child.on('error', () => {
+      // Only absence of a pid proves no engine could have attempted a ledger write.
+      if (!child.pid && env.BYOKIT_ENGINE_BOOT) { try { appendUsageBoot(usageDir, { bootId, failedAt: Date.now(), spawned: false }); } catch { /* unclosed boot remains incomplete */ } }
       if (this.child !== child || this.stopping) return;
       this.child = undefined;
       void this.authStore.stop().then(() => { this.state('failed', 'exited'); this.o.onExit(null); }, () => this.state('failed', 'exited'));
     });
     if (!child.pid) { this.state('failed', 'exited'); throw new Error('engine spawn failed'); }
     if (process.platform === 'linux') {
-      writeFileSync(join(this.root, 'gateway.identity'), JSON.stringify({ pid: child.pid, startTime: processStartTime(child.pid) }), { mode: 0o600 });
+      writeFileSync(join(this.root, 'gateway.identity'), JSON.stringify({ pid: child.pid, startTime: processStartTime(child.pid), ...(env.BYOKIT_ENGINE_BOOT ? { bootId } : {}) }), { mode: 0o600 });
     }
     writeFileSync(join(this.root, 'gateway.pid'), String(child.pid), { mode: 0o600 });
     child.once('exit', (code) => {

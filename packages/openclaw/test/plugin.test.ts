@@ -22,6 +22,7 @@ async function withPlugin(
   const seen = { gated: [] as [string, { builtin: boolean }][], called: [] as string[] };
   copyFileSync(shipped, join(dir, 'index.js'));
   copyFileSync(new URL('../plugin/keys.js', import.meta.url), join(dir, 'keys.js'));
+  copyFileSync(new URL('../plugin/usage.js', import.meta.url), join(dir, 'usage.js'));
   writePlugin(dir, { id: 'byokit', tools, paramPrefix: '__byokit', gateBuiltins: o.gateBuiltins });
   const bridge = new Bridge({
     path: join(dir, 'bridge.sock'),

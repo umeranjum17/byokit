@@ -1500,8 +1500,9 @@ active-memory recall, out-of-turn compaction, one-shot helper completions, and a
 covered only by a new patched seam and a widened `EngineStartedKind`, never by a side source.
 
 **Engine-started ledger (R4-1).** Env `BYOKIT_ENGINE_USAGE_LEDGER=<stateDir>/openclaw/usage` and
-`BYOKIT_ENGINE_BOOT=<bootId>` (the launch identity `<pid>-<startTime>` the kit already records in
-`gateway.identity`). The review site writes one JSON line per fact, `open(…, 'a', 0o600)` + one `write` + `fsync`,
+`BYOKIT_ENGINE_BOOT=<bootId>`: a random UUID accounting identity minted before spawn, recorded first in
+`boots.jsonl`, and added to `gateway.identity` beside the existing `pid` and `startTime`. Those fields alone still
+own process liveness; `bootId` never does. The review site writes one JSON line per fact, `open(…, 'a', 0o600)` + one `write` + `fsync`,
 to `engine-started-<YYYY-MM>.jsonl` (UTC month of the fact's `at`); a write error is counted and swallowed (accounting
 never fails a review).
 
@@ -1519,7 +1520,9 @@ never fails a review).
   that month's file. The engine keeps `{ [month]: { lastSeq, failed } }` and the in-flight run ids in process,
   exposed to the kit's plugin.
 - The kit writes `usage/boots.jsonl` (0600, `fsync`): `{ bootId, startedAt }` before spawn (a failed write fails the
-  start, so no boot is unrecorded) and `{ bootId, stoppedAt, months: { [month]: { lastSeq, failed } } }` at clean
+  start, so no boot is unrecorded). A definite spawn failure before a pid exists appends
+  `{ bootId, failedAt, spawned: false }` (fsync); that boot attempted no write. An unclosed start without this
+  proof remains a crashed boot. The kit writes `{ bootId, stoppedAt, months: { [month]: { lastSeq, failed } } }` at clean
   stop, read from the live counters. The kit never deletes ledger or boot files; growth is about 400 bytes per review
   (about 7 MB a year per agent at 50 reviews a day). `ponytail:` no rotation; add one when a host shows the need.
 - Read path: the kit plugin registers `byokit.usage.engineStarted { agentId, startMs, endMs }` (`operator.read`),
@@ -1556,7 +1559,10 @@ to both terms; `gateway` (host-local) is refused. A review crossing midnight lan
 route that created `authProfileId`, else `'unknown'` (D18: never inferred from the provider name).
 
 **Typed contract (additive; lane 19's `readAgentUsage`/`AgentUsageReading` partial transcript API stays unchanged).**
-Names are proposals that firstmate settles with lane 19 before O16 starts; a rename is a spec edit here, not in code.
+`AgentDayUsage` and `readAgentDayUsage` are the accepted additive names; the original partial API is unchanged.
+The transcript term in this reader carries the requested UTC/IANA window (not a misleading UTC label).
+The pinned transcript RPC resolves calendar days: a partial-day millisecond window leaves that term unavailable,
+never a falsely precise day total.
 
 ```ts
 export type EngineStartedKind = 'workshop-review';
@@ -1571,7 +1577,8 @@ export type EngineStartedCharge = {
 };
 export type AgentDayUsage = {
   member: Member; window: { startMs: number; endMs: number } & ({ mode: 'utc' } | { mode: 'time-zone'; timeZone: string });
-  transcripts: AgentUsageReading;
+  transcripts: Omit<AgentUsageReading, 'window'> & { window: UsageWindow &
+    ({ mode: 'utc' } | { mode: 'time-zone'; timeZone: string }) };
   engineStarted: { state: 'available' | 'unavailable'; coverageSince?: number; charges: EngineStartedCharge[]; unreadableLines: number };
   coverage: 'transcripts+workshop-review';     // the uncovered kinds above stay excluded
   complete: boolean;                           // only by the four rules above

@@ -68,7 +68,13 @@ export async function isolationContract(install?: (dir: string) => string | Prom
     assert.ok(!log.includes('should-not-be-inherited'));
     if (install) {
       const child = JSON.parse(readFileSync(join(engine.root, 'home', 'child.json'), 'utf8'));
-      assert.deepEqual(child.env, env, 'the child actually received the isolated environment');
+      const identity = JSON.parse(readFileSync(join(engine.root, 'gateway.identity'), 'utf8'));
+      const expected: Record<string, string | undefined> = { ...env, ...(identity.bootId ? { BYOKIT_ENGINE_BOOT: identity.bootId,
+        BYOKIT_ENGINE_USAGE_LEDGER: join(engine.root, 'usage') } : {}) };
+      if (identity.bootId) assert.match(identity.bootId, /^[0-9a-f-]{36}$/);
+      assert.equal(child.env.OPENCLAW_GATEWAY_TOKEN === expected.OPENCLAW_GATEWAY_TOKEN, true, 'token matches without entering failure traces');
+      assert.deepEqual({ ...child.env, OPENCLAW_GATEWAY_TOKEN: '<redacted>' }, { ...expected, OPENCLAW_GATEWAY_TOKEN: '<redacted>' },
+        'the child actually received only the isolated environment and accounting identity');
       assert.equal(child.cwd, env.HOME);
     }
     for (const name of ['.pi', '.openclaw', '.codex', '.claude', '.config/herdr']) assert.equal(readFileSync(join(decoy, name, 'canary'), 'utf8'), name);
