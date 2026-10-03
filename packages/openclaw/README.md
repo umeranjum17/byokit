@@ -286,6 +286,14 @@ Entries:
 | `serve(o)` (`./link`) | Binds the link host per reach and returns its URLs |
 | `fakeGateway`, `openclawContract`, `startModelStub`, `useModelStub` (`./testing`) | In-memory Gateway, the contract suite and the scripted model for tests |
 
+## Owned browser (unqualified handoff)
+
+`browser: { executablePath, members }` opts into isolated member Chromium profiles. It requires a closed
+explicit tool allowlist and keeps `request_sign_in` refused: protected production handoff is not qualified.
+Public live view/thumbnail APIs are model-free; source tests alone do not prove private/restart protection.
+The opt-in physical fixture retains raw JPEG/control inputs before decoding, pipe chunk order, complete
+synthetic provider bodies and authoritative SQLite transcripts, including failures.
+
 ## App-owned task recovery
 
 If your app requeues interrupted tasks itself, declare their namespaces **before starting the kit**:

@@ -10,7 +10,6 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { OpenClawKit, stateWords, type KitOptions, type ToolHost } from '@byokit/openclaw';
-import type { FakeBrowserHost } from '@byokit/openclaw/testing';
 import { openclawLink, serve } from '@byokit/openclaw/link';
 import { Host, type Grant, type GrantStore } from '@byokit/link';
 import { hostKeyFile } from '@byokit/link/node';
@@ -62,7 +61,7 @@ const options: KitOptions = {
 };
 const gateway = fake ? await fakeSignIn() : undefined;
 if (gateway) Object.assign(options, { spawnEngine: false, transport: gateway.factory });
-const kit: OpenClawKit & { browser?: FakeBrowserHost } = new OpenClawKit(options);
+const kit = new OpenClawKit(options);
 
 // The fake's ChatGPT sign-in, held a few seconds on its code so a person (or the e2e test) can read it.
 async function fakeSignIn() {
@@ -121,14 +120,15 @@ const ask = (question: string) => new Promise<string>((resolve) => {
 // Gateway's event stream, as the kit's own will.
 if (fake) {
   const { fakeBrowserHost } = await import('@byokit/openclaw/testing');
-  kit.browser = await fakeBrowserHost({ members: [MEMBER],
+  const browser = await fakeBrowserHost({ members: [MEMBER],
     authorize: (grant, member, control) => member === MEMBER && grantFile.load().some((g) => g.id === grant && (!control || g.role === 'control')),
     ping: (member, kind) => gateway?.emit('byokit.browser', { member, kind }) });
-  await kit.browser.raise({ member: MEMBER, sessionKey: 'agent:me:phone', checkUrl: 'http://127.0.0.1:2820/account',
+  kit.browser = browser;
+  await browser.raise({ member: MEMBER, sessionKey: 'agent:me:phone', checkUrl: 'http://127.0.0.1:2820/account',
     reasons: ['password-field'], hints: ['password'] });
-  kit.browser.fixture.authenticated(MEMBER, true); // the synthetic site reports signed in once Done is pressed
+  browser.fixture.authenticated(MEMBER, true); // the synthetic site reports signed in once Done is pressed
   const jpeg = new Uint8Array(readFileSync(new URL('fixture-signin.jpg', import.meta.url)));
-  setInterval(() => kit.browser?.fixture.frame(MEMBER, { seq: Date.now(), at: Date.now(), w: 640, h: 400, jpeg }), 500).unref();
+  setInterval(() => browser.fixture.frame(MEMBER, { seq: Date.now(), at: Date.now(), w: 640, h: 400, jpeg }), 500).unref();
 }
 
 const host = await Host.open({

@@ -1622,7 +1622,9 @@ network-free. Any other tool, including an unknown or custom one, sets `blocked:
 in the kit; a group deny is not assumed to cover it, and a separate-OS-user sandbox is not accepted as a claim. While
 the feature is on, the pre-gate also denies `exec`, `process`, `code_execution`, `bash`, `terminal`, `read`,
 `write`, `edit`, `apply_patch` and `gateway` for every agent. `gateBuiltins: false` with `browser` is refused at
-construction (`gate-off`). The trusted host (app code with typed pass-through) is outside this boundary.
+construction (`gate-off`). The pinned `tools.effective` route needs an existing session: the kit creates one
+inert audit session per roster agent (no task/message or model submission) before reading its inventory.
+The trusted host (app code with typed pass-through) is outside this boundary.
 
 **Browser and broker** (`src/browser/broker.ts`, O19). Per member: Chromium from `executablePath` with
 `--remote-debugging-pipe` (no TCP DevTools port), profile `<stateDir>/browser/<member>/profile` (0700), env built
@@ -1648,10 +1650,16 @@ session ownership.
 - **Release order.** Close every held target, await `targetDestroyed`, lift the fence, then navigate the agent's
   tab (`checkUrl` on `verified`, else reload, which also resyncs Playwright).
 
-**Kit wiring** (O21). `reconcileConfig` adds `plugins.allow += 'browser'`, `tools.alsoAllow += 'browser'` and
+**Kit wiring** (O21). `reconcileConfig` adds `plugins.allow += 'browser'`, `tools.alsoAllow += 'browser'`
+(or merges these additions into an explicit closed `tools.allow`, removing `alsoAllow`: the stock schema refuses
+both in one scope) and
 `browser: { enabled, defaultProfile: 'byokit-none', evaluateEnabled: false, tabCleanup: { enabled: false },
 ssrfPolicy, profiles: { 'byokit-<member>': { cdpUrl, attachOnly: true } } }` (`byokit-none` is dead, so an
-unrewritten call fails closed). The bridge plugin runs a kit pre-gate before the app's `gate`: rewrite every
+unrewritten call fails closed). Before unfencing, the exact broker/generation is re-read and the profile is
+acknowledged. Stock `config.get` masks token-bearing CDP URLs with `__OPENCLAW_REDACTED__`; this counts only
+against an unchanged host-owned config file with the exact endpoint and attach-only profile, and equal
+nonempty `configRevisionHash`/`appliedConfigHash` (the pinned Gateway's applied-source revision projections).
+Unknown masks, unapplied revisions or changed files/bindings fail closed. The bridge plugin runs a kit pre-gate before the app's `gate`: rewrite every
 `browser` call's `profile` to `byokit-<member>`, `target` to `host`, drop `node` (nested `request`/`actions` too);
 deny `profiles`, `importprofile`, `start`, `stop`, `doctor` and `act:evaluate`; while the member has an open
 request deny `browser` and `request_sign_in` in every session of that member with `signin.gate`. Kit tool
@@ -1660,11 +1668,23 @@ it is the member's own tab, else the tab the member's engine client last command
 only as quoted agent words. `./link` refuses `oc.call` for `browser.request`, `terminal.*` and `tools.invoke`
 while `browser` is on, whatever `passThrough` says. Bridge socket paths limit `stateDir` to about 82 characters.
 
+**Model-visible capabilities** (O24/W7). The installed bridge declares
+`contracts.agentToolResultMiddleware: ["openclaw", "codex"]` and registers the pinned runtime-neutral,
+awaited result middleware for all tools. Before handing content/details back to the model it rechecks the
+bound session's admission, strips owned current/prior-generation broker capabilities and transport URLs,
+and terminates on refusal or bridge failure. Image bytes and public content are preserved. Synchronous
+transcript hooks provide a persistence-only safety net, not a substitute for live middleware. This source
+implementation does not qualify actual provider bodies, replayed histories, private-cookie isolation or
+parked/recovery no-submission behavior; production handoff stays closed until the combined matrix passes.
+
 **Requests** (`src/browser/host.ts`, O20). One open request per member (`waiting|held|checking|parked`); another
 raise is refused `already-open` and the detector is suppressed. Raise, under a per-member mutex: persist the record,
 fence, abort the bound session's run, emit `byokit.browser`, push a sealed notice `{id, gen, member, site}`. Zero
 model calls in the bound session while open; the member's other sessions run with `browser` blocked. A new run on a
 parked `sessionKey` settles it `cancelled (run-replaced)`; a run on a `waiting|held|checking` session is refused.
+The engine gate also refuses unproved resumes. A definite `failed` resume alone does not authorize recovery:
+only a fresh kit registration matching the exact session and engine run id may start a replacement run;
+missing, foreign and released run ids remain refused. This is not the submitted-resume seam or W7 qualification.
 - `takeover` needs a control grant, `waiting`, and on `firstTime` `confirmSite === site` (typed or picked from a
   list with decoys); non-https non-loopback origins are refused `insecure-remote`. It opens the private tab at
   `checkUrl` and mints a lease (claim 60 s, grace 30 s; lapse closes the private tab, back to `waiting`, `gen+1`,

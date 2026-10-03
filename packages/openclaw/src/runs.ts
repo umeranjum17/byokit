@@ -118,7 +118,7 @@ export function createRuns(ctx: {
       if (!ctx.tools.has(tool)) throw new Error(`refused: "${tool}" is not one of this kit's tools`);
     const agentId = keyAgent ?? (await ctx.ensure(spec.member)).agentId;
     const sessionKey = keyAgent ? `agent:${keyAgent}:${spec.sessionKey.slice(`agent:${spec.member}:`.length)}` : spec.sessionKey;
-    const release = spec.register !== false ? ctx.bridge.register({ sessionKey, member: spec.member }, spec.tools) : undefined;
+    const release = spec.register !== false ? ctx.bridge.register({ sessionKey, member: spec.member }, spec.tools, idempotencyKey) : undefined;
     let last: string | undefined;
     let runId = ''; // gateway events for other runs carry a real runId and never match the empty one
     let ended = false;
