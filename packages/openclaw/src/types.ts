@@ -1,5 +1,6 @@
 // Public types for the OpenClaw runtime kit (docs/runtime-kits.md 5.2). Types only; behavior lives in the modules.
 import type { OutputSchema } from './output.ts';
+import type { GatewayEventName, GatewayEventPayload } from './generated/events.ts';
 export type { OutputSchema, SchemaOutput } from './output.ts';
 
 export type Member = string; // /^[a-z][a-z0-9-]{0,31}$/, = OpenClaw agentId (D9)
@@ -166,6 +167,12 @@ export interface GatewayTransport {
 }
 
 export type CallOptions = { timeoutMs?: number | null; signal?: AbortSignal };
+
+/** Kit-owned invalidation only: no origin, URL, input value or lease secret. */
+export type BrowserPing = { member: Member; kind: 'state' | 'signin' };
+export type KitEventName = GatewayEventName | 'byokit.browser';
+export type KitEventPayload<E extends KitEventName> = E extends 'byokit.browser' ? BrowserPing
+  : GatewayEventPayload<Extract<E, GatewayEventName>>;
 
 // Pass-through typing (4.6): re-exports of the generated method/event tables (O2 fills the tables, these names are
 // frozen by 5.3).
