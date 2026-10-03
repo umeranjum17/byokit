@@ -40,8 +40,10 @@ Run `node scripts/audit.ts` at the root and `node ../../scripts/audit.ts` from
 `examples/expo`, as CI does. The wrapper still runs `npm audit --audit-level=high --json`:
 it removes only this advisory's contribution through the reported dependency paths.
 Every other high/critical advisory—including a new one in node-forge—still fails;
-moderate warnings remain visible. Invalid, missing, cyclic, inconsistent or unavailable
-reports and registry/command errors fail closed. Raw `npm audit` still reports the
+moderate warnings remain visible. Dependency cycles are valid npm output: every
+reachable advisory is counted and each node's severity must be explained. Invalid,
+missing, rootless cyclic, inconsistent or unavailable reports and registry/command
+errors fail closed. Raw `npm audit` still reports the
 unfixed vulnerability. No package-wide allowlist, framework downgrade or fork is used.
 
 Tracking item: **byk-audit-exception-remove**. Recheck the advisory and compatible
@@ -50,6 +52,20 @@ As soon as a fixed compatible release exists, update the affected locks, demonst
 that raw root and Expo audits no longer contain this advisory, then remove this
 exception and its policy text. This is not a fix shipped in release13; its public
 SDK tars, dependency pins and existing qualification receipts are unchanged.
+
+SECURITY (2026-10-03, repository CI policy only): also temporarily except exactly
+[GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm), npm
+`braces`, advisory affected range `<=3.0.3`. The accepted-risk rationale is build-tool
+DoS via developer-config glob patterns, no user input, and no patched release.
+This is the captain's risk acceptance, **not newly proved complete input safety**;
+the retained raw audit and earlier unresolved proof evidence remain unchanged.
+The exception fails at **2026-11-02 00:00:00 UTC**, with no silent renewal.
+The wrapper retrieves this exact advisory from GitHub's authoritative advisory API;
+any non-null `first_patched_version` closes the exception immediately. Retrieval
+errors or malformed metadata fail closed. Remove this entry promptly when patched,
+and no later than the deadline. Other advisories (including another in braces)
+remain subject to the existing high/critical gate. Raw npm audit still reports this
+unfixed vulnerability; no dependency override or product artifact fix is implied.
 
 ## Rules
 
