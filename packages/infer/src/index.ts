@@ -6,7 +6,7 @@ export { LocalModel, DEFAULT_LIMITS, modelName, type LocalModelOptions, type Ini
   type LlamaRnCompletionParams, type LlamaRnCompletionResult, type LlamaRnMessage } from './model.ts';
 export { generationBackend, type InferGenerationBackend } from './backend.ts';
 export { summarizePane, paneText, plainText, redact, type PaneSummary, type PaneSummaryOptions } from './summary.ts';
-export { WORDS, words, stateWords, errorWords, type WordKey } from './words.ts';
+export { WORDS, words, stateWords, errorWords, summaryWords, type WordKey } from './words.ts';
 
 /** Pinned models, verified against the publisher's file metadata. `offer: false` entries are not yet qualified on a phone. */
 export const MODELS: readonly InferModel[] = (catalogue as InferModel[]).map(checkModel);

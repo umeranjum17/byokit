@@ -5,9 +5,9 @@ import { useEffect, useRef, useState } from 'react';
 import { AppState, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { initLlama } from 'llama.rn';
 import * as RNFS from '@dr.pogodin/react-native-fs';
-import { completionProbe } from './infer-probe.ts';
+import { completionProbe, completionReceiptText } from './infer-probe.ts';
 import { REALISTIC_PANE } from './infer-pane-fixture.ts';
-import { InferError, LocalModel, errorWords, model, stateWords, summarizePane, words, type InferModelStore, type InferState,
+import { InferError, LocalModel, errorWords, model, stateWords, summaryWords, summarizePane, words, type InferModelStore, type InferState,
   type PaneSummary } from '@byokit/infer';
 
 // Fixed-label diagnostics. Separately gated completion receipts below are fixed-synthetic own-lab only.
@@ -91,6 +91,7 @@ export function InferDemo() {
   const [timing, setTiming] = useState('');
   const [receipts, setReceipts] = useState<string[]>([]);
   const [completionText, setCompletionText] = useState('');
+  const debugCompletionText = completionReceiptText(PROBE, __DEV__, completionText);
   const install = useRef<AbortController | null>(null);
   const run = useRef<AbortController | null>(null);
   const last = useRef<Promise<unknown>>(Promise.resolve());
@@ -163,7 +164,7 @@ export function InferDemo() {
       onPress={() => flip(p.id)} style={[s.tab, p.id === pane && s.selected]}><Text style={[s.tabText, p.id === pane && s.selectedText]}>{p.label}</Text></Pressable>)}</View>
     <View testID="infer-card" style={s.card}>
       {summary?.ok ? summary.lines.map((l, i) => <Text key={i} testID={`infer-line-${i}`} style={s.text}>{l}</Text>)
-        : summary ? <Text testID="infer-none" style={s.small}>{words(summary.code === 'not-enough-output' ? 'infer.notEnough' : summary.code === 'incomplete' ? 'infer.incomplete' : 'infer.failed')}</Text>
+        : summary ? <Text testID="infer-none" style={s.small}>{summaryWords(summary.code)}</Text>
         : state.phase === 'busy' ? <Text style={s.small}>Summarising…</Text>
         : <Text style={s.small}>{installed ? 'Pick a pane, or summarise this one.' : 'Download the model first.'}</Text>}
       {summary?.ok && <Text style={s.small}>{words('infer.summaryLabel', { time: new Date().toLocaleTimeString() })}</Text>}
@@ -173,7 +174,7 @@ export function InferDemo() {
       {installed ? button('infer-summarize', 'Summarise', () => void summarize(pane)) : null}
       {state.phase === 'busy' ? button('infer-cancel', 'Cancel', () => run.current?.abort(new Error('cancelled'))) : null}
     </View>
-    {PROBE && !!completionText && <Text testID="infer-completion-receipt" style={s.small}>{completionText}</Text>}
+    {!!debugCompletionText && <Text testID="infer-completion-receipt" style={s.small}>{debugCompletionText}</Text>}
     <View style={s.pane}>{PANES.find(p => p.id === pane)!.lines.map((l, i) => <Text key={i} style={s.mono}>{l}</Text>)}</View>
   </ScrollView></SafeAreaView>;
 }
