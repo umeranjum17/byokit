@@ -12,6 +12,20 @@ type OwnedKit = { browserHost: BrowserHostController; brokers: Map<string, HostB
 export type MatrixReceipt = { stages: { stage: string; providerBefore: number; providerAfter: number }[];
   transcripts: { stage: string; captures: ReturnType<typeof sqliteTranscripts> }[]; resumeDispatches: unknown[] };
 
+// Isolated fixture attack control only: bypass local facade admission to challenge native engine admission.
+export async function nativeNegativeProbe(kit: Pick<OpenClawKit, 'callDynamic'>, key: string, runId: string, stage: string,
+  emit: (event: unknown) => void): Promise<unknown> {
+  return boundedAwait(`matrix-refusal:${stage}`, async () => {
+    const accepted = await kit.callDynamic('agent', { agentId: 'ada', sessionKey: key, idempotencyKey: runId,
+      message: `Source-free recovery probe ${stage}` }, { timeoutMs: 20_000 }) as { runId?: string };
+    assert.ok(typeof accepted?.runId === 'string' && accepted.runId, 'native probe requires an actual accepted run id');
+    emit({ kind: 'native-negative-accepted', stage, accepted });
+    const outcome = await kit.callDynamic('agent.wait', { runId: accepted.runId, timeoutMs: 20_000 }, { timeoutMs: 20_000 });
+    emit({ kind: 'native-negative-settled', stage, outcome });
+    return outcome;
+  }, emit);
+}
+
 export async function protectionMatrix(o: { kit: OpenClawKit; stateDir: string; origin: string; model: ModelStub;
   capabilities: Set<string>; receipt: MatrixReceipt; agentRequests(): number;
   restart(beforeStart?: () => void): Promise<void>; captureCapabilities(): void; privateVisited(): boolean;
@@ -42,12 +56,13 @@ export async function protectionMatrix(o: { kit: OpenClawKit; stateDir: string; 
   }
   async function refused(stage: string, runId = `matrix-refusal-${++serial}`) {
     const before = model.calls.length, requests = o.agentRequests();
-    // Keep local registration out of recovery negatives; before_agent_run must refuse in the actual engine.
-    await boundedAwait(`matrix-refusal:${stage}`, () => kit.run({ member: 'ada', sessionKey: key, idempotencyKey: runId, register: false,
-      message: `Source-free recovery probe ${stage}` }).catch(() => undefined), o.emit);
+    // Never use kit.run here: it refuses waiting locally and cancels parked rows as a replacement.
+    const rowBefore = JSON.stringify(owned.browserHost.signIns());
+    const nativeOutcome = await nativeNegativeProbe(kit, key, runId, stage, o.emit);
+    assert.equal(JSON.stringify(owned.browserHost.signIns()), rowBefore, `${stage}: native negative must not replace a parked request`);
     assert.ok(o.agentRequests() > requests, `${stage}: must reach the owned gateway, not just a local refusal`);
     assert.equal(model.calls.length, before, `${stage}: no provider submission`);
-    const outcome = { stage, providerBefore: before, providerAfter: model.calls.length };
+    const outcome = { stage, providerBefore: before, providerAfter: model.calls.length, nativeOutcome };
     receipt.stages.push(outcome); o.emit({ kind: 'matrix-outcome', ...outcome });
     retain(stage);
   }

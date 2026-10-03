@@ -12,6 +12,8 @@ import { scratchDir } from '../../test-support.ts';
 import { scanCapabilities, sqliteTranscripts, boundedAwait, emitEvidence, retainImage } from './engine/privacy-evidence.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { startModelStub } from '../src/testing/model-stub.ts';
+import { fakeBrowserHost } from '../src/testing/browser.ts';
+import { nativeNegativeProbe } from './engine/protection-matrix.ts';
 
 test('fixture pipe evidence retains raw chunks and owned identities before failure', () => {
   const root = scratchDir('pipe-evidence'), path = join(root, 'pipe.jsonl');
@@ -29,6 +31,40 @@ test('fixture pipe evidence retains raw chunks and owned identities before failu
     assert.equal(bytes.toString(), 'reply\0event\0');
     assert.deepEqual(rows.map(row => row.sequence), rows.map((_row, index) => index + 1));
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('native fixture negatives dispatch and wait without facade cancellation; local admission remains separate', async () => {
+  const key = 'agent:ada:fixture:protected';
+  const host = await fakeBrowserHost({ members: ['ada'], authorize: () => true });
+  const kit = new OpenClawKit({ stateDir: '/unused-source-fixture', spawnEngine: false,
+    browser: { executablePath: '/unused-source-fixture', members: [] } });
+  const slot = kit as any;
+  slot.browserHost = host; slot.checkBrowserTools = async () => true;
+  const calls: { method: string; params: unknown }[] = [];
+  let facadeRuns = 0;
+  slot.runs = () => ({ run: async () => { facadeRuns++; return { ok: true }; } });
+  slot.callDynamic = async (method: string, params: unknown) => {
+    calls.push({ method, params }); return method === 'agent' ? { runId: 'actual-source-run' } : { status: 'ok', terminalReply: { text: 'blocked' } };
+  };
+  try {
+    const row = await host.raise({ member: 'ada', sessionKey: key, checkUrl: 'http://127.0.0.1:2820/private', reasons: ['agent-asked'] });
+    assert.equal((await kit.run({ member: 'ada', sessionKey: key, register: false, message: 'local control' })).ok, false);
+    assert.equal(facadeRuns, 0); assert.equal(calls.length, 0);
+    await host.notNow(row.id, row.gen, { grant: 'source-control' });
+    const parked = JSON.stringify(host.signIns());
+    const events: unknown[] = [];
+    const outcome = await nativeNegativeProbe(kit, key, 'native-negative', 'parked', event => events.push(event));
+    assert.deepEqual(calls, [
+      { method: 'agent', params: { agentId: 'ada', sessionKey: key, idempotencyKey: 'native-negative', message: 'Source-free recovery probe parked' } },
+      { method: 'agent.wait', params: { runId: 'actual-source-run', timeoutMs: 20_000 } },
+    ]);
+    assert.deepEqual(outcome, { status: 'ok', terminalReply: { text: 'blocked' } });
+    assert.equal(JSON.stringify(host.signIns()), parked); assert.equal(facadeRuns, 0);
+    // A genuine fresh facade run still owns the documented parked replacement, unlike a native attack probe.
+    await kit.run({ member: 'ada', sessionKey: key, register: false, message: 'local replacement control' });
+    assert.equal(host.signIns()[0].state, 'settled'); assert.equal(host.signIns()[0].settled?.state, 'cancelled');
+    assert.equal(facadeRuns, 1);
+  } finally { await host.close(); }
 });
 
 const safe = { tools: { allow: ['browser', 'request_sign_in', 'crew_x'] } };
