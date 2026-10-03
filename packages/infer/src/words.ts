@@ -1,5 +1,6 @@
 import WORDS from './words.json' with { type: 'json' };
 import type { InferError, InferState } from './types.ts';
+import type { PaneSummary } from './summary.ts';
 export type WordKey = keyof typeof WORDS;
 export { WORDS };
 export const words = (key: WordKey, vars: Record<string, string> = {}): string =>
@@ -20,3 +21,5 @@ const ERROR: Record<InferError['code'], WordKey> = {
   incomplete: 'infer.incomplete', failed: 'infer.failed',
 };
 export const errorWords = (e: InferError): string => words(ERROR[e.code]);
+export const summaryWords = (code: Extract<PaneSummary, { ok: false }>['code']): string =>
+  words(code === 'not-enough-output' ? 'infer.notEnough' : code === 'incomplete' ? 'infer.incomplete' : 'infer.unusable');

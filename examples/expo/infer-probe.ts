@@ -1,6 +1,9 @@
 import type { InitLlama, LlamaRnCompletionResult } from '@byokit/infer';
 
 /** Own-lab only: the caller gates this observer and supplies fixed synthetic panes, never personal input. */
+/** On-screen raw receipts require both explicit lab opt-in and a development build. */
+export const completionReceiptText = (probe: boolean, development: boolean, text: string): string => probe && development ? text : '';
+
 export function completionProbe(init: InitLlama, record: (entry: Record<string, unknown>) => Promise<void>): InitLlama {
   return async params => {
     const ctx = await init(params);

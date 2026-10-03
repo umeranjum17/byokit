@@ -1,12 +1,29 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { REALISTIC_PANE } from './infer-pane-fixture.ts';
-import { LocalModel, InferError, paneText, model } from '../../packages/infer/src/index.ts';
+import { LocalModel, InferError, paneText, model, summaryWords, errorWords, words } from '../../packages/infer/src/index.ts';
 import { memoryModelStore } from '../../packages/infer/src/testing.ts';
 import { fakeLlama } from '../../packages/infer/src/testing.ts';
-import { completionProbe } from './infer-probe.ts';
+import { completionProbe, completionReceiptText } from './infer-probe.ts';
 import type { LlamaRnCompletionParams } from '../../packages/infer/src/model.ts';
+
+test('validation refusal and runtime failure have distinct truthful copy; raw receipts never enter product UI', () => {
+  assert.equal(summaryWords('invalid-output'), 'The summary was not usable. Try again.');
+  assert.equal(summaryWords('incomplete'), words('infer.incomplete'));
+  assert.equal(summaryWords('not-enough-output'), words('infer.notEnough'));
+  assert.equal(errorWords(new InferError('failed', 'synthetic runtime rejection')), 'The on-device model stopped working. Try again in a moment.');
+  const raw = '{"kind":"request","options":{"messages":[{"content":"fixed synthetic pane"}]}}';
+  assert.equal(completionReceiptText(true, false, raw), '', 'even probe opt-in cannot show raw JSON in a product build');
+  assert.equal(completionReceiptText(false, false, raw), '');
+  assert.equal(completionReceiptText(false, true, raw), '', 'development without lab opt-in also hides raw JSON');
+  assert.equal(completionReceiptText(true, true, raw), raw);
+  const view = readFileSync(new URL('./InferDemo.tsx', import.meta.url), 'utf8');
+  assert.ok(view.includes('summaryWords(summary.code)'));
+  assert.ok(view.includes('completionReceiptText(PROBE, __DEV__, completionText)'));
+  assert.ok(view.includes('{!!debugCompletionText && <Text testID="infer-completion-receipt" style={s.small}>{debugCompletionText}</Text>}'));
+});
 
 test('fixed realistic pane fits unchanged line/character preparation limits without dropping lines', () => {
   assert.ok(REALISTIC_PANE.length <= 80);

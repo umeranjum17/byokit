@@ -13,6 +13,7 @@
   "infer.network": "The model couldn't be downloaded. Check the connection and try again.",
   "infer.tooLarge": "There's too much text to summarize at once.",
   "infer.incomplete": "The summary was cut off, so it isn't shown.",
+  "infer.unusable": "The summary was not usable. Try again.",
   "infer.notEnough": "Not enough recent output to summarize.",
   "infer.summaryLabel": "On-device summary · updated {time}"
 }
