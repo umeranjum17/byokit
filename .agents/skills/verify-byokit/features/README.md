@@ -27,7 +27,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 ## Not provable here (declare honestly, do not fake)
 
 - **Browser/PWA surface** (`examples/pwa`): needs Chromium via Playwright; drive only when the environment provides it (`npm run test:browser`).
-- **React Native / Expo** (`examples/expo`): needs an emulator/device and store tooling; host runs are declared unavailable.
+- **React Native / Expo** (`examples/expo`): runtime proof needs a configured emulator/device; see `CONTRIBUTING.md` for the existing bundle and emulator checks. Declare runtime proof unavailable when that prerequisite is unmet.
 - **Android mirror** (`android/`): needs `JAVA_HOME`/`ANDROID_HOME`; `android/test.sh` covers it where configured.
 - **Real providers** (ChatGPT, Claude, …): no credentials, no egress, per repo test contract (`scripts/test-egress-guard.cjs`).
 

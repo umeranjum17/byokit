@@ -4,7 +4,7 @@ A brand-new consumer app outside the monorepo installs the packed `@byokit/*` ta
 
 ## Sub-features
 
-- `pack-shape`: every publishable workspace packs without extraneous files.
+- `pack-shape`: every workspace packs with required metadata and without source, tests or build-info files.
 - `pack-install`: a scratch app outside the monorepo installs the tarballs.
 - `pack-run`: the installed packages import and run.
 
@@ -23,5 +23,5 @@ Preconditions: baseline (features/README.md); the heavy lock held for the whole 
 ## Gotchas
 
 - Heavy: full pack + install + typecheck of every package. Do not run concurrently with other builds/tests in this home.
-- The script kills only packed-gateway processes it can prove it owns (`gateway.pid`/`gateway.identity`); never kill by process name to "help" it.
-- If a previous run was SIGKILLed, a leftover scratch dir under the system tmp may hold a stale pid file that no live process answers — the script tolerates a dead pid; a live one from another run is a stop condition.
+- On SIGINT/SIGTERM, the script kills only packed-gateway processes in its own run directory whose `gateway.pid`/`gateway.identity` match the live process; never kill by process name to "help" it.
+- SIGKILL bypasses cleanup. The script does not scan or recover scratch directories from previous runs; do not claim those leftovers were cleaned by a later run.
