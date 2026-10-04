@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- SECURITY: answerer now uses the shared state-as-data guard and a delimited JSON data block, so untrusted
+  on-screen text is separated from decision instructions. Apps using answerer should update; malformed model output still abstains.
+- FIX: every answerer answer, including abstentions and failures, labels confidenceSource as self-reported.
+- FIX: answerer retries HTTP 429 with the shared bounded backoff and Retry-After policy, respects aborts,
+  and throws RateLimitError when its retry budget is exhausted; callback error details never enter decision reasons.
+- Add typed answerer text options, including text.format JSON schemas, passed to the ask callback for accounts.respond.
+
 ## 0.6.1 (2026-10-02)
 
 - Dependency update: pins @byokit/accounts 0.18.0.
