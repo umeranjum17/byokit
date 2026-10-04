@@ -109,7 +109,10 @@ function speechRanges(pcm: Int16Array, s: ResolvedWhisperSettings): [number, num
  * own hangover and padding settings. Without one the unchanged energy gate above runs,
  * so an app that ships no detector keeps exactly today's behavior. */
 async function segmentRanges(pcm: Int16Array, s: ResolvedWhisperSettings, session?: VadSession): Promise<[number, number][]> {
-  if (!session) { const ranges = speechRanges(pcm, s); return Promise.resolve(ranges); }
+  if (!session || !s.vad.enabled) {
+    try { return speechRanges(pcm, s); }
+    finally { await session?.release?.(); }
+  }
   const vad = createVad({ session, silenceMs: s.vad.silenceMs, paddingMs: s.vad.paddingMs });
   try {
     await vad.push(pcm); await vad.flush();
@@ -137,10 +140,13 @@ export function whisperDecodeOptions(s: ResolvedWhisperSettings, o: DictateOptio
 /** Shared segmentation, gain, energy VAD, prompting and timestamp offsets. */
 export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperSettings, o: DictateOptions,
   run: (pcm: Int16Array, options: WhisperRnDecodeOptions) => Promise<WhisperRnResult>, session?: VadSession): Promise<Omit<DictateTranscript, 'engine'>> {
-  checkAbort(o.signal);
-  if (o.timestamps === 'word') throw new DictateError('unsupported'); // RN returns segments, not word offsets.
-  const pcm = await whisperPcm(input, s.gain);
-  checkAbort(o.signal);
+  let pcm: Int16Array;
+  try {
+    checkAbort(o.signal);
+    if (o.timestamps === 'word') throw new DictateError('unsupported'); // RN returns segments, not word offsets.
+    pcm = await whisperPcm(input, s.gain);
+    checkAbort(o.signal);
+  } catch (error) { await session?.release?.(); throw error; }
   const segments: DictateSegment[] = [];
   let text = '', language: string | undefined;
   const chunkSamples = (s.chunkMs || 30_000) * 16;
@@ -197,24 +203,22 @@ export function whisperRnEngine(o: { model: string | number; multilingual?: bool
   };
   const transcribe = (input: DictateInput, options: DictateOptions, preview = false) => enqueue(async () => {
     const session = o.vad && settings.vad.enabled ? await o.vad() : undefined;
-    try {
-      return await transcribeWhisper(input,
-        preview ? { ...settings, initialPrompt: '', vocabulary: [] } : settings,
-        preview ? { ...options, prompt: undefined, keywords: undefined } : options, async (pcm, decode) => {
-        const native = await acquire();
-        checkAbort(options.signal);
-        // Encode LE explicitly; do not pass a WAV header or rely on host endianness.
-        const buffer = new ArrayBuffer(pcm.length * 2), view = new DataView(buffer);
-        for (let i = 0; i < pcm.length; i++) view.setInt16(i * 2, pcm[i], true);
-        const job = native.transcribeData(buffer, decode);
-        const abort = () => { void job.stop().catch(() => {}); };
-        options.signal?.addEventListener('abort', abort, { once: true });
-        if (options.signal?.aborted) abort();
-        try { return await job.promise; }
-        catch (cause) { checkAbort(options.signal); throw new DictateError('bad-model', { cause }); }
-        finally { options.signal?.removeEventListener('abort', abort); }
-      }, session);
-    } finally { await session?.release?.(); }
+    return await transcribeWhisper(input,
+      preview ? { ...settings, initialPrompt: '', vocabulary: [] } : settings,
+      preview ? { ...options, prompt: undefined, keywords: undefined } : options, async (pcm, decode) => {
+      const native = await acquire();
+      checkAbort(options.signal);
+      // Encode LE explicitly; do not pass a WAV header or rely on host endianness.
+      const buffer = new ArrayBuffer(pcm.length * 2), view = new DataView(buffer);
+      for (let i = 0; i < pcm.length; i++) view.setInt16(i * 2, pcm[i], true);
+      const job = native.transcribeData(buffer, decode);
+      const abort = () => { void job.stop().catch(() => {}); };
+      options.signal?.addEventListener('abort', abort, { once: true });
+      if (options.signal?.aborted) abort();
+      try { return await job.promise; }
+      catch (cause) { checkAbort(options.signal); throw new DictateError('bad-model', { cause }); }
+      finally { options.signal?.removeEventListener('abort', abort); }
+    }, session);
   });
   return {
     info: { id: 'whisper', model: String(o.model), onDevice: true, streaming: 'reread', account: 'none' },
