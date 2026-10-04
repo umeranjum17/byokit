@@ -3,9 +3,22 @@
 Status: **first ChatGPT run failed acceptance; corrected question awaiting a fresh live run**.
 No live Claude result is claimed.
 
-Current main baseline: `7a692353b13ed41c2522e20ffe21407c06b76c5d`.
+Current main baseline: `2a0a99ab` (decided 0.6.1, rank questions, hardened answerer prompt).
+Current unsigned candidate: `4afcc235baafbd525f1c12e59a82eb94aaea224b`.
 First evidence baseline: `40ecf7e9c121ec9a8fc18fc4103453541b8172b7`.
 First captured candidate: `5af2c8a93183b866d76838d57632e64e3b5cb734`.
+
+## Re-verified on current main, still unsigned
+
+Main widened the typed question union with `rank` and hardened the answerer prompt while this
+example was parked. On the merged head the example was corrected and re-proved without a
+signed-in session: `npm ci`, `npm run build` and `npm run check` pass, and
+`sh scripts/test.sh 'packages/decide/test/*.test.ts' 'examples/decide-plan/*.test.ts'` passes
+63 decide tests plus the example end-to-end test. The real example process on
+`http://127.0.0.1:41987` passes 13 real HTTP checks with both plans `signed_out` and zero model
+calls, and a real browser renders both unsigned plans with every message button disabled.
+Evidence and captions: `.lab/evidence/decide-plan/merged-20261004/`. This is code and
+unsigned-surface evidence only; it is not live acceptance.
 
 On 2026-10-01, a real ChatGPT plan answered the 12-message browser set using requested
 model `gpt-6-luna`. Eleven answers were correct; the median was **2686 ms**. The
