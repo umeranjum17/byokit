@@ -1,0 +1,2 @@
+- New `@byokit/audio`: shared on-device audio detection with one streaming speech detector (pinned Silero VAD v5.1, MIT, content-addressed) that runs on Node/desktop, React Native and the browser through an app-supplied inference session. No network, no keys, no microphone.
+- `@byokit/audio/node` runs the pinned graph on published `onnxruntime-node`, CPU only, one thread by default, from the model bytes or path the app passes. Bytes that are not the pinned graph are rejected before any inference.

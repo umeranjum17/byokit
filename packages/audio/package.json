@@ -1,0 +1,50 @@
+{
+  "name": "@byokit/audio",
+  "version": "0.1.0",
+  "description": "Shared on-device audio detection: streaming speech detection with one pinned neural graph, in Node, React Native and the browser. No network, no keys.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umeranjum17/byokit.git",
+    "directory": "packages/audio"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    }
+  },
+  "files": [
+    "dist",
+    "fixtures/vad",
+    "scripts",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "prepack": "tsc -b"
+  },
+  "peerDependencies": {
+    "onnxruntime-node": "1.24.3"
+  },
+  "peerDependenciesMeta": {
+    "onnxruntime-node": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "onnxruntime-node": "1.24.3"
+  }
+}

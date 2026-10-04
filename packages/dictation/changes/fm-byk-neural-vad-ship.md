@@ -1,0 +1,2 @@
+- `whisperRnEngine` takes an optional `vad` session factory. When the app supplies one, offline segmentation runs the shared pinned neural detector from `@byokit/audio` instead of the energy gate, and the live turn gate takes its per-frame speech decisions from the same detector, so a loud keyboard or fan no longer opens a turn. Without the factory every path behaves exactly as before, including the unchanged 0.0025 energy threshold.
+- The live turn gate disposes the detector on both finish and cancel. One session per stream, because a session carries recurrent state.

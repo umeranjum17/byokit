@@ -1,4 +1,4 @@
-import { DictateError, type DictateEngine, type DictateOptions, type DictateInput, type DictateTranscript, type DictateSegment, type DictationState, type DictationEvent, type DictationHandle, type AudioMic, type AudioMicStream } from './types.ts';
+import { DictateError, type DictateEngine, type DictateOptions, type DictateInput, type DictateTranscript, type DictateSegment, type DictateDetector, type DictationState, type DictationEvent, type DictationHandle, type AudioMic, type AudioMicStream } from './types.ts';
 import { applyWordReplacements, settleWords, wav, rms } from './text.ts';
 
 export class Dictation {
@@ -45,6 +45,7 @@ export class Dictation {
     const segments = new Map<string, DictateSegment>();
     const prior = new Map<string, string>();
     let cancelled = false, stopped = false, stream: AudioMicStream | undefined;
+    let detector: DictateDetector | undefined;
     let native: ReturnType<NonNullable<DictateEngine['start']>> | undefined;
     let failure: unknown, finished: Promise<DictateTranscript> | undefined;
     let chunks: Int16Array[] = [], samples = 0, readAt = 0, speechAt = 0, silence = 0, offset = 0, id = 0;
@@ -80,6 +81,10 @@ export class Dictation {
       if (!availability.ok) throw new DictateError(availability.code);
       if (cancelled || stopped) return;
       if (this.engine.start) { native = this.engine.start(options, receive); return; }
+      if (this.engine.capture?.detect) {
+        try { detector = await this.engine.capture.detect(); }
+        catch (cause) { throw new DictateError('bad-model', { cause }); }
+      }
       stream = await this.audio!.open({ rate: 16000, purpose: 'dictation', signal: controller.signal });
       if (cancelled || stopped) { await stream.stop(); return; }
     })();
@@ -93,7 +98,9 @@ export class Dictation {
         emit({ type: 'level', rms: level });
         chunks.push(frame.data.slice()); samples += frame.data.length; usage.audioMs += frame.data.length / 16;
         const gate = Math.max(speechThreshold, peakLevel * (this.engine.capture?.relativeThreshold ?? 0));
-        if (rawLevel >= gate && rawLevel > 0) {
+        // A shipped detector decides speech per frame; the level gate stays for apps without one.
+        const spoken = detector ? (await detector.push(frame.data)).some(f => f.speech) : rawLevel >= gate && rawLevel > 0;
+        if (spoken) {
           if (!speechAt) emit({ type: 'turn', phase: 'start' });
           speechAt = samples; silence = 0;
         } else silence += frame.data.length;
@@ -107,7 +114,7 @@ export class Dictation {
         else if (!wholeFinal && !speechAt && silence >= silenceSamples) { offset += samples / 16; chunks = []; samples = silence = 0; }
       }
     }).catch(async e => { failure = e; stopped = true; await stream?.stop(); });
-    const cleanup = async () => { await stream?.stop(); o.signal?.removeEventListener('abort', abort); this.stateTo('idle'); };
+    const cleanup = async () => { await stream?.stop(); await detector?.release(); o.signal?.removeEventListener('abort', abort); this.stateTo('idle'); };
     const cancel = () => {
       if (cancelled || this.state.phase === 'idle') return;
       cancelled = stopped = true; controller.abort(); native?.cancel();
