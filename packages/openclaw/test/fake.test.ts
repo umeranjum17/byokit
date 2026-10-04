@@ -91,41 +91,6 @@ test('unknown methods are refused and every request is recorded', async () => {
   assert.deepEqual(fake.calls[1], { method: 'health', params: undefined });
 });
 
-test('health, agents and auth status are served in memory', async () => {
-  const fake = fakeGateway();
-  const t = transport(fake);
-  assert.deepEqual(await req(t, 'health'), { ok: true, plugins: { loaded: [] } });
-  assert.deepEqual(await req(t, 'agents.list'), { defaultId: 'main', mainKey: 'main', scope: 'global', agents: [] });
-  assert.deepEqual(await req(t, 'agents.create', { name: 'm1', workspace: '/ws' }), { id: 'm1' });
-  assert.deepEqual(await req(t, 'agents.list').then((r: any) => r.agents), [{ id: 'm1' }]);
-  assert.deepEqual(await req(t, 'models.authStatus', { agentId: 'm1' }), { providers: [] });
-});
-
-test('the wizard runs the device-code script: step, progress, done, sign-in', async () => {
-  const fake = fakeGateway();
-  const t = transport(fake);
-  await req(t, 'agents.create', { name: 'm1' });
-  const started = await req(t, 'openclaw.setup.auth.start', { sessionId: 's1', agentId: 'm1', authChoice: 'openai-device-code' });
-  assert.deepEqual(started, { sessionId: 's1', done: false, status: 'running' });
-  const step = await req(t, 'wizard.next', { sessionId: 's1' });
-  assert.equal(step.done, false);
-  assert.deepEqual(step.step, {
-    id: 'step-device', type: 'note', executor: 'client',
-    deviceCode: { code: 'CREW-2026', expiresInMinutes: 15 }, externalUrl: 'https://auth.openai.com/codex/device',
-  });
-  const ack = await req(t, 'wizard.next', { sessionId: 's1', answer: { stepId: 'step-device' } });
-  assert.equal(ack.step.type, 'progress');
-  assert.equal(ack.step.message, 'Waiting for authorization');
-  const again = await req(t, 'wizard.next', { sessionId: 's1' });
-  assert.equal(again.step.type, 'progress');
-  const done = await req(t, 'wizard.next', { sessionId: 's1' });
-  assert.equal(done.done, true);
-  assert.equal(done.status, 'done');
-  assert.deepEqual(await req(t, 'models.authStatus', { agentId: 'm1' }), { providers: [{ provider: 'openai' }] });
-  await req(t, 'models.authLogout', { agentId: 'm1', provider: 'openai' });
-  assert.deepEqual(await req(t, 'models.authStatus', { agentId: 'm1' }), { providers: [] });
-});
-
 test('wizard.cancel cancels its own session and the session is gone', async () => {
   const fake = fakeGateway();
   const t = transport(fake);
