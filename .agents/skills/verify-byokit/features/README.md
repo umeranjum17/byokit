@@ -7,15 +7,15 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - Worktree root of a byokit checkout on the branch under test.
 - `npm run build` exited 0 (see SKILL.md Launch; deps via `npm ci` in a fresh worktree).
 - Doctor (SKILL.md) prints the version and resolves `@byokit/accounts` inside `packages/*/dist`.
-- Scratch consumers in `scratch/`, evidence in `.verify-artifacts/<feature>/`; both are per-run and the latter survives cleanup.
+- Scratch consumers in the exclusive `$scratch_dir` created by SKILL.md Drive, evidence in an exclusive run directory under `.verify-artifacts/<feature>/`; the latter survives cleanup.
 - Loopback stand-ins only (`mockOpenAI()`); never a real provider, account or credential.
 
 ## Driving conventions
 
 - Start every recipe from the baseline; write the scratch consumer fresh from the feature file.
 - Import public entries only; treat every command in a feature file as literal.
-- Run each drive as `node scratch/<file>.mjs 2>&1 | tee .verify-artifacts/<feature>/drive.txt` and record the exit code.
-- A drive that cannot show its output (or whose tee target is missing after cleanup) is not a proof.
+- Set `feature`, `entry` and `drive` as the recipe specifies, then use SKILL.md Evidence’s Bash capture block to record the invoked command and actual exit code.
+- A drive that cannot show its output (or whose evidence file is missing after cleanup) is not a proof.
 - Report an unreachable surface (browser, React Native, Android, real provider) as unavailable with the attempted entry and the unmet precondition; never as verified through a different path.
 
 ## Available on this host
