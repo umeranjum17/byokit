@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createVad, VAD_MODEL, VAD_RATE, VAD_THRESHOLD } from '../dist/index.js';
+import { createVad, SILERO_VAD_5_1, VAD_RATE, VAD_THRESHOLD } from '../dist/index.js';
 import { sileroSession } from '../dist/node.js';
 import { transcribeWhisper, whisperSettings } from '../../dictation/dist/whisper.js';
 import corpus from '../fixtures/vad/corpus.json' with { type: 'json' };
@@ -149,7 +149,7 @@ const summary = key => {
   };
 };
 console.log(JSON.stringify({
-  model: { ...VAD_MODEL, threshold: VAD_THRESHOLD, energyThreshold, sessionInitMs: round(sessionInitMs, 2), firstFrameMs: round(firstFrameMs, 3) },
+  model: { ...SILERO_VAD_5_1, threshold: VAD_THRESHOLD, energyThreshold, sessionInitMs: round(sessionInitMs, 2), firstFrameMs: round(firstFrameMs, 3) },
   corpus: { clips: corpus.clips.length, audioSeconds: round(audioSeconds, 3), speechSeconds: round(corpus.totals.speechMs / 1000, 3),
     nuisanceSeconds: round(corpus.totals.nuisanceMs / 1000, 3), nonSilentNuisanceSeconds: round(corpus.totals.nuisanceAudioMs / 1000, 3), binMs: corpus.scoring.binMs },
   summary: { energy: summary('energy'), silero: summary('neural') },

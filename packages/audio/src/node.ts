@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { AudioError, type VadSession } from './types.ts';
-import { checkVadModel, VAD_MODEL, type VadModel } from './model.ts';
+import { checkVadModel } from './model.ts';
 import { VAD_CONTEXT, VAD_RATE, VAD_STATE, VAD_WINDOW } from './vad.ts';
 
 /** The parts of `onnxruntime-node` this adapter uses, so a host can hand its own
@@ -17,8 +17,6 @@ export type OnnxRuntime = {
 };
 
 export type SileroOptions = {
-  /** The graph this app shipped. Defaults to the pinned measured winner. */
-  model?: VadModel;
   /** One thread: this runs beside a recognizer and a UI thread on the same core budget. */
   threads?: number;
 };
@@ -32,7 +30,7 @@ export async function sileroSession(
   runtime: OnnxRuntime,
   options: SileroOptions = {},
 ): Promise<VadSession & { initMs: number }> {
-  const model = options.model ?? VAD_MODEL, threads = options.threads ?? 1;
+  const threads = options.threads ?? 1;
   if (!Number.isSafeInteger(threads) || threads < 1 || threads > 8) throw new AudioError('unsupported');
   let bytes: Uint8Array, path: string | undefined;
   if (typeof source === 'string') {
@@ -40,7 +38,7 @@ export async function sileroSession(
     try { bytes = new Uint8Array(await readFile(source)); }
     catch (cause) { throw new AudioError('bad-model', { cause }); }
   } else bytes = source instanceof Uint8Array ? source : new Uint8Array(source);
-  checkVadModel(model, { bytes: bytes.byteLength, sha256: createHash('sha256').update(bytes).digest('hex') });
+  checkVadModel({ bytes: bytes.byteLength, sha256: createHash('sha256').update(bytes).digest('hex') });
   const started = performance.now();
   const { Tensor, InferenceSession } = runtime;
   // onnxruntime-node needs a path; bytes the app already holds are written next to

@@ -44,7 +44,7 @@ the stream without disposing, which is how a host reuses one warm session.
 
 ## The pinned model
 
-`VAD_MODEL` is Silero VAD v5.1, pinned by content: `sha256 2623a295…`, 2 327 524 bytes,
+`SILERO_VAD_5_1` is the pinned graph, verified by content: `sha256 2623a295…`, 2 327 524 bytes,
 published tag `v5.1` of `snakers4/silero-vad` under plain MIT, which upstream states covers
 the pretrained VAD without restriction. The kit never downloads it — bytes that are not the
 pinned graph are rejected before any inference runs, because a wrong graph segments
