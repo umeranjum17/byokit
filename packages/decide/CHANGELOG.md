@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add an opt-in paired-host Jev backend over @byokit/link: the host holds the API key (billed per use), while phones receive probabilities and usage with typed pairing, connectivity and missing-key errors.
 - SECURITY: answerer now uses the shared state-as-data guard and a delimited JSON data block, so untrusted
   on-screen text is separated from decision instructions. Apps using answerer should update; malformed model output still abstains.
 - FIX: every answerer answer, including abstentions and failures, labels confidenceSource as self-reported.
