@@ -99,7 +99,7 @@ From `constraint-driven-development`, applies to this skill and every change ver
 - No skipped tests without a reason in the commit message.
 - No secrets in source.
 - Deliberate test deletion (a test diet) is allowed only when BOTH hold: the commit message names the test-diet task, and the removed journey remains covered by an existing integration/e2e test. A deletion failing either condition is rejected. This is the only Floor rule that may permit a deletion: skips, stripped assertions, suppression comments, secrets and the security/crypto/data-loss guards are never loosened for any change.
-- This skill's proof bar is never weakened to make a change pass: a declared-unavailable surface stays unavailable until it is really driven.
+- This Floor and this skill's proof bar are never weakened to make a change pass: a declared-unavailable surface stays unavailable until it is really driven.
 
 ## Helpers
 

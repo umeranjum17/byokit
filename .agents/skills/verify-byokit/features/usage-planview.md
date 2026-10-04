@@ -19,7 +19,7 @@ Preconditions: baseline (features/README.md).
 - **Write the consumer.** `"$scratch_dir/verify-usage-planview.mjs"` importing `demoView` from `../examples/usage-demo.ts` (type stripping runs `.ts` directly) and printing `JSON.stringify` of `demoView('codex')` and `demoView('claude')`.
 - **Run and capture.** `feature=usage-planview; entry=@byokit/usage/view; drive=(node "$scratch_dir/verify-usage-planview.mjs")`, then run SKILL.md Evidence’s capture block. Exit code `0`.
 - **Rate-limited honesty shows.** The codex view contains `room.left: "unknown"` and `quotaText` beginning with "The plan asked us to wait for a reading." — the selector refuses to invent a number.
-- **Plan label shows.** The claude view's `label` names the plan; activity derives from the fixture calls.
+- **Plan label and activity show.** The claude view has `label: "Claude plan"` and `activity.calls: 1` with `activity.tokens: 2400`, from the fixture call.
 
 ## Gotchas
 
