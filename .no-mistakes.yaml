@@ -12,3 +12,12 @@ test:
     Include the feature's error or missing case; declare surfaces unavailable on
     this host (browser, React Native, Android, real providers) instead of
     substituting a different path.
+    A user-visible change is proved by the skill's own capture, never by hand:
+    run `node .agents/skills/verify-byokit/capture/review-evidence.ts --base
+    origin/main --slug <slug>` (features/pwa-review-evidence.md), and name the
+    files it wrote under .verify-artifacts/review/<slug>/ — every changed screen
+    before and after, in every theme (dark and light) and form factor (phone and
+    desktop width) the app has, plus one motion recording per changed interaction,
+    from the real running app. Where the capture cannot reach one of those,
+    extend the capture in this change or file a follow-up naming the exact gap; a
+    skip is only allowed with its reason in manifest.json.
