@@ -341,9 +341,13 @@ token-bearing values: an app cannot read one key through it and write it back un
 narrow pair over the config file the engine loads at boot:
 
 ```ts
-const mode = kit.getConfigKey('skills.workshop.autonomous.mode'); // value, or undefined
-kit.setConfigKey('skills.workshop.autonomous.mode', 'off');       // returns the value it replaced
-kit.setConfigKey('skills.workshop.autonomous.mode', undefined);  // remove it again
+import { OpenClawKit } from '@byokit/openclaw';
+
+const kit = new OpenClawKit({ stateDir: './openclaw-state' });
+
+kit.getConfigKey('skills.workshop.autonomous.mode');            // value, or undefined
+kit.setConfigKey('skills.workshop.autonomous.mode', 'off');      // returns the value it replaced
+kit.setConfigKey('skills.workshop.autonomous.mode', undefined); // remove it again
 ```
 
 One dotted path of `[A-Za-z0-9_-]` segments; prototype-reaching segments are refused. Only that key changes (every
