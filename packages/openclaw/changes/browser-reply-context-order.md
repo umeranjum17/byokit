@@ -1,1 +1,0 @@
-- FIX: Preserve browser reply and event order when messages arrive together, so page evaluation can receive its initial context instead of waiting indefinitely.

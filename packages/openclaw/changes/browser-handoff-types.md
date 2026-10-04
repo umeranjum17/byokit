@@ -1,1 +1,0 @@
-- FEAT: Portable types for the browser sign-in handoff and live view (`NeedSignIn`, `BrowserState`, `LiveViewState`, `BrowserHost`, `BrowserDevice` and friends) from `.` and `./device`, per spec 5.17. Types only: no runtime ships yet, and handoff stays refused until parked sessions are protected.
