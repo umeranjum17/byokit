@@ -3,10 +3,14 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, statSync, symlinkSync, utimesSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
-import { usage, fingerprint, fileUsageStore, memoryBackoffPolicy, retryAfterMs, backoffDelayMs, roomOf, tokenLedger, callLedger, normalizeTokens, priceCall, memoryTokenLedgerStore, TokenLedgerError, UsageError, claudeWindows, codexWindows, goWindows, zaiWindows, WORDS, usageWords, type Source, type Window } from '../src/index.ts';
+import { usage, fingerprint, fileUsageStore, memoryUsageStore, memoryBackoffPolicy, retryAfterMs, backoffDelayMs, roomOf, tokenLedger, callLedger, normalizeTokens, priceCall, memoryTokenLedgerStore, TokenLedgerError, UsageError, claudeWindows, codexWindows, goWindows, zaiWindows, WORDS, usageWords, type Source, type Window } from '../src/index.ts';
 import { fakeCodex, fakeFetch, usageContract } from '../src/testing/index.ts';
 import payloads from './usage-payloads.json' with { type: 'json' };
+import edge from '../../../fixtures/conformance/usage-typescript.json' with { type: 'json' };
 import plain from '../../../fixtures/conformance/plain-words.json' with { type: 'json' };
+import { anthropic } from '../../accounts/src/anthropic.ts';
+import { decide, MemoryCache } from '../../decide/src/index.ts';
+import type { RunEnd } from '../../openclaw/src/types.ts';
 
 const nowMs = 1788600000000;
 for (const provider of ['claude', 'codex', 'opencode', 'zai', 'copilot', 'grok', 'minimax', 'gemini', 'kimi'] as const) {
@@ -163,7 +167,7 @@ test('Claude explicit files, snapshot freshness, expiry, renewal and account iso
   credentials('secret-one', nowMs + 100_000);
   writeFileSync(configFile, JSON.stringify({ oauthAccount: { accountUuid: payloads.claude.identity } }));
   assert.equal(reader.account(source), payloads.claude.fingerprint);
-  writeFileSync(statuslineFile, JSON.stringify({ rate_limits: payloads.claude.raw, accessToken: 'secret-snapshot', unrelated: 'private-path' }));
+  writeFileSync(statuslineFile, JSON.stringify({ rate_limits: payloads.claude.raw, fetched_at: nowMs, accessToken: 'secret-snapshot', unrelated: 'private-path' }));
   utimesSync(statuslineFile, nowMs / 1000, nowMs / 1000);
   const first = await reader.read(source, { nowMs });
   assert.deepEqual(first.windows, payloads.claude.windows);
@@ -220,7 +224,7 @@ test('Claude source hook and public store/backoff policy preserve per-account la
   };
   const source: Source = { provider: 'claude', accountUuid: 'hook-account', read: async ({ nowMs: clock, signal }) => {
     assert.equal(signal.aborted, false); assert.ok(clock >= nowMs); calls++;
-    return calls === 1 ? { raw: { ...payloads.claude.raw, token: 'never-store', path: 'private-path' } } : { code: 'rate-limited', retryAfterMs: 120_000 };
+    return calls === 1 ? { raw: { ...payloads.claude.raw, token: 'never-store', path: 'private-path' }, at: clock } : { code: 'rate-limited', retryAfterMs: 120_000 };
   } };
   const reader = usage(options);
   const first = await reader.read(source, { nowMs });
@@ -229,7 +233,7 @@ test('Claude source hook and public store/backoff policy preserve per-account la
   const failed = await reader.read(source, { nowMs: nowMs + 60_000 });
   assert.equal(failed.code, 'rate-limited'); assert.equal(failed.at, first.at);
   const restart = usage(options);
-  assert.deepEqual(restart.lastKnown(source, { nowMs: nowMs + 61_000 }), first);
+  assert.deepEqual(restart.lastKnown(source, { nowMs: nowMs + 61_000 }), failed);
   assert.equal((await restart.read(source, { nowMs: nowMs + 659_999 })).code, 'rate-limited');
   assert.equal(calls, 2);
   const other: Source = { ...source, accountUuid: 'another-account', read: async () => ({ raw: payloads.claude.raw }) };
@@ -239,11 +243,11 @@ test('Claude source hook and public store/backoff policy preserve per-account la
 
 test('roomOf uses the tightest window, ms resets, span mapping and 24h freshness', () => {
   const reading = { provider: 'codex' as const, at: nowMs, windows: payloads.codex.windows as Window[] };
-  assert.deepEqual(roomOf(reading, nowMs), { left: 10, span: 'week', resetsAt: 1788616800000, at: nowMs });
-  assert.deepEqual(roomOf(reading, nowMs + 86_400_001), { left: 'unknown', at: nowMs });
-  assert.deepEqual(roomOf({ ...reading, windows: [] }, nowMs), { left: 'unknown', at: nowMs });
+  assert.deepEqual(roomOf(reading, nowMs), { left: 10, span: 'week', resetsAt: 1788616800000, at: nowMs, ageMs: 0, freshness: 'fresh' });
+  assert.deepEqual(roomOf(reading, nowMs + 86_400_001), { left: 'unknown', at: nowMs, ageMs: 86_400_001, freshness: 'stale' });
+  assert.deepEqual(roomOf({ ...reading, windows: [] }, nowMs), { left: 'unknown', at: nowMs, ageMs: 0, freshness: 'fresh' });
   for (const [kind, span] of [['session','session'],['weekly','week'],['monthly','month'],['rolling','tightest'],['custom','tightest']] as const) {
-    assert.deepEqual(roomOf({ ...reading, windows: [{ provider: 'codex', kind, usedPercent: 20 }] }, nowMs), { left: 80, span, at: nowMs });
+    assert.deepEqual(roomOf({ ...reading, windows: [{ provider: 'codex', kind, usedPercent: 20 }] }, nowMs), { left: 80, span, at: nowMs, ageMs: 0, freshness: 'fresh' });
   }
 });
 
@@ -330,6 +334,85 @@ test('runtime call ledger: normalized provider counts, honest unknowns, app pric
 });
 
 
+test('host results aggregate per run with lane attribution, member limits and no extra calls', async () => {
+  const store = memoryTokenLedgerStore();
+  const ledger = callLedger({ store });
+  const base = { provider: 'anthropic', account: 'host-account', model: 'model-one', runId: 'run-one', time: nowMs,
+    lane: 'host', route: 'anthropic-cli', limits: payloads.claude.windows as Window[] };
+  let requests = 0;
+  const account = anthropic({ key: 'fixture-key', fetch: async () => {
+    requests++;
+    return Response.json({ id: 'message-one', type: 'message', role: 'assistant', model: 'model-one',
+      content: [{ type: 'text', text: 'never-store-answer' }], stop_reason: 'end_turn', stop_sequence: null,
+      usage: payloads.runtime[1].raw.usage });
+  } });
+  const direct = await account.respond({ model: 'model-one', max_tokens: 100,
+    messages: [{ role: 'user', content: 'never-store-prompt' }], result: true });
+  // The host explicitly opted into this API-key call before making it.
+  const billed = ledger.record('alice', { ...base, route: 'anthropic', billing: 'api', usage: direct });
+  assert.equal(billed.billingLabel, "Person's API bill");
+  const end: RunEnd = { ...payloads.hostRuns.openclaw, ok: true };
+  assert.ok(end.ok);
+  const subscription = ledger.record('alice', { ...base, time: nowMs + 1, usage: end, usageFormat: 'openclaw' });
+  assert.equal(subscription.billing, 'subscription');
+  assert.equal(subscription.billingLabel, "Person's own plan");
+  assert.deepEqual(subscription.tokens, payloads.runtime[1].tokens);
+  assert.equal(subscription.cost, undefined); // Engine price guesses never enter the ledger.
+  let decisions = 0;
+  const cache = new MemoryCache();
+  const backend = { name: 'fixture', leaves: false, async ask() {
+    decisions++;
+    return { check: { probabilities: { true: 1, false: 0 }, usage: payloads.hostRuns.decide, raw: { secret: 'never-store-secret' } } };
+  } };
+  const questions = { check: { kind: 'yesno' as const, question: 'Ready?' } };
+  const options = { privacy: 'stays-here' as const, backends: [backend], cache };
+  const answer = (await decide('fixture-state', questions, options)).check;
+  ledger.record('alice', { ...base, provider: 'fixture', route: 'decision', model: 'model-two', time: nowMs + 2, usage: answer });
+  const cached = (await decide('fixture-state', questions, options)).check;
+  assert.equal(cached.source, 'cache'); // Host records actual calls only, not cached answers.
+  ledger.record('bob', { ...base, usage: direct });
+  ledger.record('alice', { ...base, runId: 'run-two', time: nowMs + 3, usage: { input: 1, output: 2, cachedInput: 0 } });
+  // A call outside the requested range cannot contribute to the run.
+  ledger.record('alice', { ...base, time: nowMs - 1, usage: direct });
+  const restarted = callLedger({ store });
+  const run = restarted.queryRun('alice', 'run-one', nowMs, nowMs + 3);
+  assert.equal(run.runId, 'run-one');
+  assert.equal(run.calls.length, 3);
+  assert.deepEqual(run.tokens, payloads.hostRuns.tokens);
+  assert.equal(run.tokens.cachedInput, undefined); // Decide did not report cache counts.
+  assert.deepEqual(run.calls.map((call) => [call.lane, call.route, call.model]),
+    [['host', 'anthropic', 'model-one'], ['host', 'anthropic-cli', 'model-one'], ['host', 'decision', 'model-two']]);
+  assert.deepEqual(run.calls[0].limits, payloads.claude.windows);
+  assert.deepEqual(restarted.runs('alice', nowMs, nowMs + 4).map((run) => [run.runId, run.tokens.total]), [['run-one', 290], ['run-two', 3]]);
+  assert.equal(restarted.queryRun('bob', 'run-one', nowMs, nowMs + 3).tokens.total, 120);
+  const allowance = tokenLedger({ store, cap: () => 500 }).query('alice', nowMs, nowMs + 4);
+  assert.equal(allowance.tokens, 293);
+  assert.equal(allowance.week.tokens, 413); // Prior attempt counts in the seven-day allowance.
+  assert.equal(allowance.week.remaining, 87);
+  assert.doesNotMatch(JSON.stringify(run), /never-store|fixture-key|costUsd|raw/);
+  run.calls[0].tokens.input = 999;
+  run.calls[0].limits![0].usedPercent = 99;
+  assert.equal(restarted.queryRun('alice', 'run-one', nowMs, nowMs + 3).tokens.input, 240);
+  assert.deepEqual(restarted.queryRun('alice', 'run-one', nowMs, nowMs + 3).calls[0].limits, payloads.claude.windows);
+  assert.deepEqual(restarted.queryRun('alice', 'missing', nowMs, nowMs + 4).tokens,
+    { input: 0, output: 0, cachedInput: 0, cacheWrite: 0, total: 0, provenance: 'reported' });
+  ledger.record('alice', { ...base, time: nowMs + 4, state: 'failed' });
+  assert.equal(restarted.queryRun('alice', 'run-one', nowMs, nowMs + 5).tokens.total, undefined);
+  assert.equal(tokenLedger({ store, cap: 500 }).query('alice', nowMs, nowMs + 5).week.remaining, undefined);
+  assert.deepEqual(normalizeTokens('anthropic', {}, 'openclaw'), { provenance: 'unknown' });
+  assert.deepEqual(normalizeTokens('anthropic', { usage: { output: 7 } }, 'openclaw'),
+    { output: 7, cachedInput: 0, cacheWrite: 0, provenance: 'partial' });
+  assert.deepEqual(normalizeTokens('anthropic', { input: 10, output: 5, cacheRead: 2, total: 15 }, 'openclaw'), { provenance: 'unknown' });
+  assert.throws(() => ledger.record('alice', { ...base, lane: 'host\nsecret' }), TokenLedgerError);
+  assert.throws(() => ledger.record('alice', { ...base, route: '' }), TokenLedgerError);
+  assert.throws(() => ledger.record('alice', { ...base, usageFormat: 'other' as 'openclaw' }), TokenLedgerError);
+  assert.throws(() => restarted.queryRun('alice', '', nowMs, nowMs + 5), TokenLedgerError);
+  assert.throws(() => restarted.runs('alice', nowMs + 5, nowMs), TokenLedgerError);
+  assert.throws(() => restarted.queryRun('alice', 'run-one', nowMs + 5, nowMs), TokenLedgerError);
+  assert.equal(requests, 1);
+  assert.equal(decisions, 1);
+});
+
 test('public Claude replacement helpers share disk last-good and account backoff across readers', async () => {
   const dir = scratchDir('usage-public-helpers');
   const credentialsFile = join(dir, 'credentials.json');
@@ -344,20 +427,23 @@ test('public Claude replacement helpers share disk last-good and account backoff
   const good = await reader.read(source, { nowMs });
   const account = fingerprint(payloads.salt)('claude', 'account-one');
   assert.equal(reader.account(source), account);
-  assert.deepEqual(fileUsageStore(stateDir).get('claude', account), { at: nowMs, windows: good.windows });
+  assert.deepEqual(fileUsageStore(stateDir).get('claude', account), { at: nowMs, windows: good.windows, poll: good.poll });
   assert.equal((await reader.read(source, { nowMs: nowMs + 60_000 })).code, 'rate-limited');
   assert.equal(backoff.get('claude', account), nowMs + 660_000);
   backoff.set('claude', account, nowMs + 120_000);
   const restarted = usage({ ...options, store: fileUsageStore(stateDir) });
-  assert.deepEqual(restarted.lastKnown(source, { nowMs: nowMs + 120_000 }), good);
-  assert.deepEqual(await restarted.read(source, { nowMs: nowMs + 120_000 }), { ...good, code: 'rate-limited' });
+  const cached = restarted.lastKnown(source, { nowMs: nowMs + 120_000 })!;
+  assert.equal(cached.at, good.at);
+  assert.deepEqual(cached.windows, good.windows);
+  assert.equal(cached.poll?.outcome, 'rate-limited');
+  assert.deepEqual(await restarted.read(source, { nowMs: nowMs + 120_000 }), cached);
   assert.equal(http.calls.length, 2);
   assert.equal((await restarted.read(source, { nowMs: nowMs + 660_000 })).code, undefined);
   assert.equal(http.calls.length, 3);
   assert.doesNotMatch(readFileSync(join(stateDir, 'plans-v2.json'), 'utf8'), /fixture-secret|account-one|accessToken/);
   assert.equal(statSync(join(stateDir, 'plans-v2.json')).mode & 0o777, 0o600);
   assert.throws(() => fileUsageStore('relative'), UsageError);
-  store.put('claude', 'fixture-secret', { at: nowMs, windows: good.windows });
+  store.put('claude', 'fixture-secret', { at: nowMs, windows: good.windows, poll: good.poll });
   assert.equal(store.get('claude', 'fixture-secret'), undefined);
   assert.equal(retryAfterMs('600', nowMs), 600_000);
   assert.equal(retryAfterMs(new Date(nowMs + 600_000).toUTCString(), nowMs), 600_000);
@@ -366,4 +452,262 @@ test('public Claude replacement helpers share disk last-good and account backoff
   assert.equal(backoffDelayMs(undefined), 300_000);
   assert.equal(backoffDelayMs(NaN), 300_000);
   assert.equal(backoffDelayMs(600_000), 600_000);
+});
+
+test('shared Auto inputs: hard blocks, reset clocks, scoped precedence and reading age', async () => {
+  for (const fixture of edge.codex) {
+    const source: Source = { provider: 'codex', accountId: 'edge-account', access: 'synthetic-token' };
+    const stateDir = scratchDir('usage-hard');
+    const reader = usage({ stateDir, fetch: fakeFetch([{ body: fixture.raw }]).fetch });
+    const reading = await reader.read(source, { nowMs: edge.now });
+    const room = roomOf(reading, edge.now);
+    assert.equal(room.left, fixture.left);
+    if ('reset' in fixture) assert.equal(reading.windows[0]?.resetsAt, fixture.reset);
+    if (('limit_reached' in fixture.raw.rate_limit && fixture.raw.rate_limit.limit_reached)) {
+      assert.equal(room.limited, true);
+      assert.equal(roomOf(usage({ stateDir }).lastKnown(source, { nowMs: edge.now + 86_400_001 })!, edge.now + 86_400_001).left, 0);
+      assert.equal(roomOf(reading, edge.now + 86_400_001).left, 0);
+      assert.equal(roomOf(reader.lastKnown(source, { nowMs: edge.now + 86_400_001 })!, edge.now + 86_400_001).left, 0);
+      if (!('primary_window' in fixture.raw.rate_limit)) assert.deepEqual(reading.windows, []);
+      else assert.equal(reading.windows[0]?.usedPercent, 20);
+    }
+  }
+  assert.deepEqual(goWindows({ rolling: { status: 'rate-limited' } }), [{ provider: 'opencode', kind: 'rolling', minutes: 300, limited: true }]);
+  const windows = claudeWindows(edge.claude);
+  assert.equal(windows.length, 4);
+  assert.equal(windows[3]?.usedPercent, undefined);
+  const scoped = roomOf({ provider: 'claude', at: edge.now, windows }, edge.now);
+  assert.equal(scoped.left, 0);
+  assert.deepEqual(scoped.scope, { model: 'synthetic-model', surface: 'subagent' });
+  assert.equal(roomOf({ provider: 'claude', at: edge.now, windows: windows.filter((w) => w.usedPercent !== 100) }, edge.now).left, 'unknown');
+  assert.deepEqual(claudeWindows({ limits: [{ kind: 'weekly_all' }], seven_day: { utilization: 0 } }), [{ provider: 'claude', kind: 'weekly' }]);
+  for (const fixture of edge.age) {
+    const reading = { provider: 'claude' as const, windows: [{ provider: 'claude' as const, kind: 'session' as const, usedPercent: 20 }], ...('at' in fixture ? { at: fixture.at } : {}) };
+    const room = roomOf(reading, edge.now);
+    assert.equal(room.left, fixture.left); assert.equal(room.freshness, fixture.freshness);
+  }
+});
+
+test('poll outcomes retain source age, separate refresh failure, durable retry and account pacing', async () => {
+  const saved = new Map<string, import('../src/index.ts').StoredReading>();
+  const retry = new Map<string, import('../src/index.ts').BackoffState>(); const contexts: unknown[] = []; let clock = edge.now;
+  let calls = 0;
+  const source: Source = { provider: 'claude', accountUuid: 'synthetic-account', origin: 'https://quota.example', read: async () => {
+    calls++;
+    if (calls === 1) return { raw: edge.claude, at: edge.now - 120_000 };
+    return { code: edge.failures[(calls - 2) % edge.failures.length] as import('../src/index.ts').Code, retryAfterMs: 180_000 };
+  } };
+  const origins: string[] = [];
+  const options: import('../src/index.ts').UsageOptions = {
+    store: { get: (_, id) => saved.get(id), put: (_, id, r) => { saved.set(id, r); } },
+    backoff: { get: (_, id) => retry.get(id), set: (_, id, _until, state) => { if (state) retry.set(id, state); else retry.delete(id); }, delayMs: (_, context) => { contexts.push(context); return 60_000; } },
+    pace: async ({ origin, signal }) => { assert.equal(signal.aborted, false); origins.push(origin); },
+  };
+  const reader = usage(options);
+  const first = await reader.read(source, { nowMs: clock });
+  const failed = await reader.read(source, { nowMs: clock += 60_000 });
+  assert.equal(failed.code, 'rate-limited'); assert.equal(failed.at, first.at);
+  assert.equal(roomOf(failed, clock).left, 0); // real exhaustion, separate from the poll 429
+  assert.equal(failed.poll?.at, clock); assert.equal(failed.poll?.retryAt, clock + 180_000);
+  assert.equal(reader.lastKnown(source, { nowMs: clock })?.poll?.outcome, 'rate-limited');
+  const restart = usage(options);
+  await restart.read(source, { nowMs: clock + 179_999 }); assert.equal(calls, 2);
+  const refreshed = await restart.read(source, { nowMs: clock += 180_000 });
+  assert.equal(refreshed.code, 'refresh-failed');
+  assert.equal(usage(options).lastKnown(source, { nowMs: clock })?.poll?.outcome, 'refresh-failed');
+  assert.equal(restart.lastKnown(source, { nowMs: clock })?.poll?.outcome, 'refresh-failed'); assert.equal(refreshed.at, first.at);
+  assert.equal(roomOf({ ...refreshed, windows: [{ provider: 'claude', kind: 'session', usedPercent: 20 }] }, clock).left, 80);
+  const other: Source = { ...source, accountUuid: 'other', origin: 'https://another.example', read: async () => ({ raw: payloads.claude.raw, at: undefined }) };
+  const undated = await restart.read(other, { nowMs: clock });
+  assert.equal(undated.at, undefined); assert.equal(roomOf(undated, clock).freshness, 'unknown');
+  assert.deepEqual(origins, ['https://quota.example', 'https://quota.example', 'https://quota.example', 'https://another.example']);
+  assert.deepEqual(contexts, [{ outcome: 'rate-limited', failures: 1 }, { outcome: 'refresh-failed', failures: 1 }]);
+  // File mtime changes do not make an undated or future quota measurement fresh.
+  const dir = scratchDir('usage-observation');
+  const credentialsFile = join(dir, 'credentials.json');
+  const statuslineFile = join(dir, 'statusline.json');
+  writeFileSync(credentialsFile, JSON.stringify({ claudeAiOauth: { accessToken: 'synthetic', accountUuid: 'snapshot' } }));
+  for (const fetched_at of [undefined, clock + 1]) {
+    writeFileSync(statuslineFile, JSON.stringify({ rate_limits: payloads.claude.raw, fetched_at }));
+    utimesSync(statuslineFile, clock / 1000, clock / 1000);
+    const snapshot = await usage({ fetch: async () => { throw new Error('endpoint must not stamp cached figures'); } }).read({ provider: 'claude', credentialsFile, statuslineFile }, { nowMs: clock });
+    assert.equal(roomOf(snapshot, clock).freshness, fetched_at === undefined ? 'unknown' : 'future');
+    assert.equal(roomOf(snapshot, clock).left, 'unknown');
+  }
+  let failures = 0;
+  const transient = usage({ fetch: async () => { failures++; return new Response('{}', { status: 503 }); } });
+  const failing: Source = { provider: 'codex', access: 'synthetic', accountId: 'transient' };
+  assert.equal((await transient.read(failing, { nowMs: clock })).poll?.retryAt, clock + 60_000);
+  assert.equal((await transient.read(failing, { nowMs: clock + 60_000 })).poll?.retryAt, clock + 180_000);
+  await transient.read(failing, { nowMs: clock + 179_999 }); assert.equal(failures, 2);
+  const abort = new AbortController(); let sent = 0;
+  const paced = usage({ pace: async ({ signal }) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(new Error('private')), { once: true })), fetch: async () => { sent++; return new Response('{}'); } });
+  const pending = paced.read({ provider: 'codex', accountId: 'paced', access: 'synthetic' }, { nowMs: clock, signal: abort.signal });
+  abort.abort();
+  assert.equal((await pending).code, 'unavailable'); assert.equal(sent, 0);
+});
+
+test('managed Claude source shares pacing, scoped hard blocks and last-good poll health', async () => {
+  const root = scratchDir('claude-managed-poll'); const folder = join(root, 'claude', 'abcdef'); mkdirSync(folder, { recursive: true });
+  writeFileSync(join(folder, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'synthetic-managed-token', expiresAt: nowMs + 900_000 } }));
+  const source: Source = { provider: 'claude', folder, headers: { 'anthropic-beta': 'passed', 'User-Agent': 'passed' } };
+  const http = fakeFetch([{ body: { limits: [{ kind: 'weekly_scoped', limit_reached: true, scope: { model: 'synthetic-model', surface: 'subagent' } }] } }, { status: 503 }]);
+  const paced: unknown[] = [];
+  const reader = usage({ stateDir: root, fetch: http.fetch, pace: async (request) => {
+    paced.push({ provider: request.provider, account: request.account, origin: request.origin });
+    assert.equal(request.signal.aborted, false);
+  } });
+  const good = await reader.read(source, { nowMs });
+  assert.equal(good.windows[0].usedPercent, undefined);
+  assert.equal(roomOf(good, nowMs).left, 0);
+  assert.deepEqual(roomOf(good, nowMs).scope, { model: 'synthetic-model', surface: 'subagent' });
+  assert.deepEqual(good.poll, { at: nowMs, outcome: 'ok' });
+  const failed = await reader.read(source, { nowMs: nowMs + 60_000 });
+  assert.equal(failed.at, good.at); assert.deepEqual(failed.windows, good.windows);
+  assert.deepEqual(failed.poll, { at: nowMs + 60_000, outcome: 'unavailable', retryAt: nowMs + 120_000 });
+  assert.deepEqual(usage({ stateDir: root }).lastKnown(source, { nowMs: nowMs + 61_000 }), failed);
+  assert.equal(paced.length, 2); assert.deepEqual(paced[0], { provider: 'claude', account: reader.account(source), origin: 'https://api.anthropic.com' });
+  const controller = new AbortController(); controller.abort();
+  const cancelled = await usage({ fetch: http.fetch, stateDir: root, store: memoryUsageStore() }).read(source, { nowMs, signal: controller.signal });
+  assert.equal(cancelled.code, 'unavailable'); assert.equal(http.calls.length, 2);
+  assert.doesNotMatch(JSON.stringify({ good, failed, cancelled, paced }) + readFileSync(join(root, 'plans-v2.json'), 'utf8'), /synthetic-managed-token/);
+});
+
+test('shared Codex identity client returns only approved identity fields, with the passed environment', async () => {
+  const { identity } = await import('../src/index.ts');
+  const root = scratchDir('codex-identity'); const home = join(root, 'home'); mkdirSync(home);
+  const fake = fakeCodex({ dir: join(root, 'bin'), raw: { account: { type: 'chatgpt', email: 'alice@example.test', planType: 'plus', access_token: 'secret-token' } } });
+  const source = { provider: 'codex' as const, bin: fake.bin, home, env: { HOME: home, ONLY_PASSED: 'yes' } };
+  assert.deepEqual(await identity(source), { signedIn: true, email: 'alice@example.test', plan: 'plus' });
+  const invocation = fake.invocations()[0];
+  assert.deepEqual(invocation.env, { ...source.env, CODEX_HOME: home });
+  assert.deepEqual(invocation.requests.map((r) => (r as { method: string }).method), ['initialize', 'account/read']);
+  fake.script({ raw: { account: null, access_token: 'secret-token' } });
+  assert.deepEqual(await identity(source), { signedIn: false });
+  fake.script({ flood: true }); assert.deepEqual(await identity(source), { signedIn: false });
+  await assert.rejects(identity({ ...source, bin: 'codex' }), UsageError);
+});
+
+test('managed Claude usage is read-only, bounded and carries app-passed headers without exposing credentials', async () => {
+  const root = scratchDir('claude-managed'); const folder = join(root, 'claude', 'abcdef'); mkdirSync(folder, { recursive: true });
+  const credential = join(folder, '.credentials.json');
+  const token = 'synthetic-secret-token';
+  writeFileSync(credential, JSON.stringify({ claudeAiOauth: { accessToken: token, refreshToken: 'synthetic-refresh', expiresAt: nowMs + 300_000 } }), { mode: 0o600 });
+  const before = readFileSync(credential, 'utf8'); const metadata = statSync(credential);
+  const source: Source = { provider: 'claude', folder, headers: { 'anthropic-beta': 'app-beta', 'User-Agent': 'app-agent' } };
+  const http = fakeFetch([{ body: { ...payloads.claude.raw, access_token: token } }, { status: 429 }, { text: token }, { status: 401 }, { text: 'x'.repeat(65537) }]);
+  const reader = usage({ stateDir: root, fetch: http.fetch });
+  assert.ok(reader.connected(source)); const identity = reader.account(source);
+  const [good, duplicate] = await Promise.all([reader.read(source, { nowMs }), reader.read(source, { nowMs })]);
+  assert.deepEqual(good.windows, payloads.claude.windows); assert.deepEqual(good, duplicate); assert.equal(http.calls.length, 1);
+  assert.equal(http.calls[0].url, 'https://api.anthropic.com/api/oauth/usage');
+  assert.deepEqual(http.calls[0].init?.headers, { accept: 'application/json', authorization: `Bearer ${token}`, 'anthropic-beta': 'app-beta', 'User-Agent': 'app-agent' });
+  assert.equal(http.calls[0].init?.redirect, 'error');
+  assert.deepEqual(await reader.read(source, { nowMs: nowMs + 59_999 }), good);
+  assert.deepEqual(usage({ stateDir: root }).lastKnown(source, { nowMs: nowMs + 60_000 }), good);
+  assert.equal((await reader.read(source, { nowMs: nowMs + 60_000 })).code, 'rate-limited');
+  assert.equal((await reader.read(source, { nowMs: nowMs + 61_000 })).code, 'rate-limited'); assert.equal(http.calls.length, 2);
+  for (const code of ['incomplete', 'auth', 'incomplete']) {
+    const result = await usage({ stateDir: root, store: memoryUsageStore(), fetch: http.fetch }).read(source, { nowMs: nowMs + 60_000 });
+    assert.equal(result.code, code); assert.doesNotMatch(JSON.stringify(result), /synthetic-secret-token|synthetic-refresh/);
+  }
+  assert.equal(readFileSync(credential, 'utf8'), before); assert.equal(statSync(credential).mtimeMs, metadata.mtimeMs);
+  assert.doesNotMatch(readFileSync(join(root, 'plans-v2.json'), 'utf8'), /synthetic-secret-token|synthetic-refresh|access_token/);
+  writeFileSync(credential, JSON.stringify({ claudeAiOauth: { accessToken: token, expiresAt: nowMs - 1 } }));
+  assert.notEqual(reader.account(source), identity, 'credential metadata change invalidates cached account readings without loading tokens');
+  const expired = await usage({ stateDir: root, fetch: http.fetch }).read(source, { nowMs });
+  assert.equal(expired.code, 'expired'); assert.deepEqual(expired.windows, []); assert.equal(http.calls.length, 5);
+  unlinkSync(credential); assert.equal(reader.connected(source), false);
+  assert.equal((await reader.read(source, { nowMs })).code, 'not-connected');
+});
+
+
+test('ephemeral Claude snapshot is identity-free, uncached and source-local with honest failures', async () => {
+  let sharedCalls = 0;
+  const shared = (): never => { sharedCalls++; throw new Error('shared identity state accessed'); };
+  const reader = usage({ store: { get: shared, put: shared }, backoff: { get: shared, set: shared }, pace: async () => shared(), fetch: async () => { shared(); return new Response(); } });
+  let calls = 0; let signedIn = true;
+  const snapshot = { rate_limits: payloads.claude.raw, fetched_at: nowMs, accessToken: 'must-not-escape', folder: 'must-not-escape' };
+  const source: Source = { provider: 'claude', ephemeral: true, connected: () => signedIn, read: async () => {
+    calls++;
+    return calls === 1 ? { raw: snapshot, at: snapshot.fetched_at } : { code: 'rate-limited', retryAfterMs: 600_000 };
+  } };
+  assert.equal(reader.account(source), undefined);
+  assert.equal(reader.lastKnown(source), undefined);
+  const fresh = await reader.read(source, { nowMs });
+  assert.deepEqual(fresh.windows, payloads.claude.windows);
+  assert.equal(roomOf(fresh, nowMs).left, 58);
+  assert.equal(roomOf(fresh, nowMs).freshness, 'fresh');
+  assert.doesNotMatch(JSON.stringify(fresh), /must-not-escape|accessToken|folder/);
+  // Even a successful read is not cached; the next call observes the source again.
+  const failed = await reader.read(source, { nowMs: nowMs + 1 });
+  assert.equal(failed.code, 'rate-limited');
+  assert.deepEqual(failed.windows, []);
+  assert.equal(failed.at, undefined);
+  assert.equal(failed.poll?.retryAt, nowMs + 600_001);
+  assert.equal((await reader.read(source, { nowMs: nowMs + 2 })).code, 'rate-limited');
+  assert.equal(calls, 2);
+  const other: Source = { provider: 'claude', ephemeral: true, read: async () => ({ raw: snapshot }) };
+  assert.equal((await reader.read(other, { nowMs })).code, undefined);
+  assert.equal(roomOf(await reader.read(other, { nowMs }), nowMs).freshness, 'unknown');
+  assert.equal((await usage({}).read(source, { nowMs })).code, 'rate-limited');
+  signedIn = false;
+  assert.equal((await reader.read(source, { nowMs })).code, 'not-connected');
+  assert.equal(reader.connected(source), false);
+  assert.equal(reader.lastKnown(source), undefined);
+  assert.equal(calls, 3);
+  for (const answer of [{}, { raw: 'invalid' }, { code: 'not-connected' as const }, { code: 'auth' as const }, { code: 'expired' as const }]) {
+    const result = await reader.read({ provider: 'claude', ephemeral: true, read: async () => answer }, { nowMs });
+    assert.equal(result.code, 'code' in answer ? answer.code : 'incomplete');
+    assert.equal(roomOf(result, nowMs).left, 'unknown');
+  }
+  const hard = await reader.read({ provider: 'claude', ephemeral: true, read: async () => ({ limited: true, at: nowMs }) }, { nowMs });
+  assert.equal(roomOf(hard, nowMs).left, 0);
+  await assert.rejects(reader.read({ ...other, accountUuid: 'invented' } as Source), UsageError);
+  assert.equal(sharedCalls, 0);
+});
+
+test('ephemeral Claude concurrent reads share only their operation and respect deadline/cancellation', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let signal: AbortSignal | undefined; let calls = 0;
+  const source: Source = { provider: 'claude', ephemeral: true, read: async (opts) => {
+    signal = opts.signal; calls++;
+    return new Promise(() => {});
+  } };
+  const reader = usage({});
+  const a = reader.read(source, { nowMs }); const b = reader.read(source, { nowMs });
+  t.mock.timers.tick(10_000);
+  assert.equal((await a).code, 'unavailable'); assert.deepEqual(await a, await b);
+  assert.equal(signal?.aborted, true); assert.equal(calls, 1);
+  assert.equal((await reader.read(source, { nowMs: nowMs + 1 })).poll?.retryAt, nowMs + 60_000);
+  const controller = new AbortController(); controller.abort();
+  assert.equal((await reader.read({ ...source }, { nowMs, signal: controller.signal })).code, 'unavailable');
+  assert.equal(calls, 1);
+});
+
+test('plan view keeps every activity section account-scoped and poll failure distinct from exhaustion', async () => {
+  const { planView, planLabel, modelLabel } = await import('../src/view.ts');
+  const fixture = (await import('../../../fixtures/conformance/usage-view-typescript.json', { with: { type: 'json' } })).default;
+  const ledger = callLedger();
+  const call = ledger.record('umer', { provider: fixture.provider, account: fixture.account, model: fixture.model,
+    runId: 'one', time: fixture.now, billing: 'subscription', usage: { total: fixture.tokens } });
+  const other = { ...call, account: 'other', tokens: { total: 9, provenance: 'partial' as const } };
+  const failed: import('../src/types.ts').Reading = { provider: 'codex', windows: [], code: 'rate-limited' };
+  const view = planView({ provider: 'codex', account: fixture.account, calls: [call, other], nowMs: fixture.now,
+    quota: { account: fixture.account, reading: failed } });
+  assert.equal(view.label, fixture.planLabel); assert.equal(view.room.left, 'unknown');
+  assert.equal(view.today.tokens, fixture.tokens); assert.equal(view.activity.tokens, fixture.tokens);
+  assert.equal(view.people[0]?.tokens, fixture.tokens); assert.equal(view.models[0]?.label, fixture.modelLabel);
+  assert.equal(view.activity.text, '1 recorded call in 30 days');
+  const unknown = planView({ provider: 'codex', account: fixture.account, calls: [call, { ...call, tokens: { provenance: 'unknown' } }], nowMs: fixture.now });
+  assert.equal(unknown.today.tokens, undefined); assert.equal(unknown.today.knownTokens, fixture.tokens);
+  assert.equal(unknown.people[0]?.unknownCalls, 1);
+  assert.throws(() => planView({ provider: 'codex', account: fixture.account, calls: [], nowMs: fixture.now, quota: { account: 'other', reading: failed } }));
+  assert.equal(modelLabel('claude-opus-5-5'), 'Claude Opus 5.5');
+  assert.equal(modelLabel('private-binary-name'), 'AI model');
+  assert.equal(planLabel('claude'), 'Claude plan');
+  assert.equal(planView({ provider: 'codex', account: fixture.account, calls: [], nowMs: fixture.now,
+    quota: { account: fixture.account, reading: { ...failed, limited: true } } }).room.left, 0);
+  const { build } = await import('esbuild');
+  await build({ entryPoints: ['packages/usage/src/view.ts'], bundle: true, platform: 'browser', write: false, logLevel: 'silent' });
 });

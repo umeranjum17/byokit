@@ -6,6 +6,8 @@ import { hostId, keyPair, pairWithCode } from '@byokit/link';
 import { CLOSE, LIMITS, RelayClient, findHost } from '../src/index.ts';
 import { closed, device, hostClient, paired, sleep, startHost, startRelay, until } from './helpers.ts';
 import { linkUrl } from '../src/device.ts';
+import { Handshake, firstFrame } from '../../link/src/channel.ts';
+import { codeKey, parseCode } from '../../link/src/pairing.ts';
 
 test('linkUrl builds device addresses from host ids and findHost reuses the same address', async () => {
   const id = hostId(keyPair().publicKey);
@@ -149,7 +151,7 @@ test('typed pairing through the relay: a short code finds the host, and the rela
   await r.relay.admit(host.keys.publicKey);
   const h = hostClient(host, r.ws);
   const { code: short } = await h.client.code();
-  const { code: typed } = host.code({ role: 'view' });
+  const { code: typed } = host.shortCode({ role: 'view' });
   const url = await findHost(r.http, short.toLowerCase());
   assert.equal(url, `${r.ws}/link/v1/${host.id}`);
   const grant = await pairWithCode(url, typed, { name: 'Tablet', onWords: () => {} });
@@ -161,6 +163,42 @@ test('typed pairing through the relay: a short code finds the host, and the rela
   let status = 0;
   for (let i = 0; i < LIMITS.code + 1 && status !== 429; i++) status = (await fetch(`${r.http}/relay/v1/codes/${short}`)).status;
   assert.equal(status, 429);
+});
+
+test('malicious relay lookup cannot substitute a machine key, even knowing the pairing secret', async () => {
+  const r = await startRelay();
+  const host = await startHost();
+  const { code } = host.shortCode({ role: 'control' });
+  const impostor = await startHost();
+  // An attacker who photographed the full code can answer XXpsk0 with its own static key.
+  // Route real sockets through the relay, but respond with an unapproved Noise responder.
+  let sentIdentity = false;
+  impostor.relay = (ws) => {
+    const attempts = new Map<string, Handshake>();
+    ws.addEventListener('message', (e) => {
+      const m = JSON.parse(String(e.data));
+      if (m.end !== undefined) return;
+      if (attempts.has(m.c)) { sentIdentity = true; return; }
+      const hs = new Handshake('code', false, impostor.keys, { psk: codeKey(parseCode(code)!.secret) });
+      hs.read(firstFrame(m.f).body);
+      attempts.set(m.c, hs);
+      ws.send(JSON.stringify({ c: m.c, f: hs.write() }));
+    });
+  };
+  await r.relay.admit(impostor.keys.publicKey);
+  const attacker = hostClient(impostor, r.ws);
+  await until(() => attacker.client.status === 'online');
+  const url = await findHost(r.http, 'ABCDEF', { fetch: async (input) => {
+    assert.ok(!String(input).includes(code), 'lookup never receives the pairing secret');
+    return Response.json({ host: impostor.id });
+  } });
+  let shown = false;
+  await assert.rejects(pairWithCode(url, code, { name: 'Umer’s phone', onWords: () => { shown = true; } }),
+    (e: any) => e.code === 'wrong-host');
+  assert.equal(shown, false, 'no words from the substituted key');
+  assert.equal(sentIdentity, false, 'no device key/name sent to the impostor');
+  assert.deepEqual(impostor.devices(), []);
+  assert.deepEqual(host.devices(), []);
 });
 
 test('owner routes are not subject to an extra blanket HTTP limit', async () => {

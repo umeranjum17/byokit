@@ -29,7 +29,7 @@ const RUNNER = [
   "writeFileSync(keyPath, 'fake-private-key\\n');",
   'const monthly = {',
   "  size: 'vm', perMonthCap: 6, asleepPerHour: 6, currency: 'EUR',",
-  "  basis: 'incl. IPv4, excl. VAT', source: 'http://sandbox.test/prices',",
+  "  basis: 'incl. IPv4, excl. VAT', source: 'http://boat.test/prices',",
   '  checked: new Date().toISOString().slice(0, 10),',
   '};',
   'let benchNo = 0;',

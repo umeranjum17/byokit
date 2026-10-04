@@ -6,6 +6,8 @@ import type { CredentialStore } from '@earendil-works/pi-ai';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { Accounts as Portable, type AccountsOptions, type AuthHost, type Loopback, type Member, type Platform } from './accounts.ts';
 import { emptyAuthContext } from './isolate.ts';
+import { endpointDriver } from './node-endpoints.ts';
+import { cloudStream } from './cloud-node.ts';
 
 /** Listen on 127.0.0.1 only; no keep-alive, so a browser never lands on a listener from an earlier try. */
 export const loopback: Loopback = (port, handle) => new Promise((resolve, reject) => {
@@ -19,9 +21,13 @@ export const loopback: Loopback = (port, handle) => new Promise((resolve, reject
 
 /** A computer: every provider Pi signs in to, and the loopback listener. */
 export const computer: Platform = {
+  kind: 'node',
+  keys: () => import('./node-keys.ts').then((m) => m.runtime),
   engine: (credentials: CredentialStore) => builtinModels({ credentials, authContext: emptyAuthContext }) as unknown as AuthHost,
   signsIn: () => true,
   loopback,
+  endpoint: endpointDriver,
+  cloudStream,
 };
 
 export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> extends Portable<R, M> {
@@ -29,5 +35,5 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 }
 
 export * from './portable.ts';
-export { INHERITED, emptyAuthContext, isolate } from './isolate.ts';
+export { INHERITED, emptyAuthContext, isolate, launchEnv, type LaunchEnv, type LaunchEnvOptions } from './isolate.ts';
 export { fileStore, type SafeStorageLike } from './node-stores.ts';

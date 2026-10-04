@@ -1,0 +1,8 @@
+{
+  "rule": "Member API keys require an explicitly offered route, consent to billing per use and a device-owned secrets store. Connected keys never enter the subscription fallback ladder. Outcomes and storage errors expose no key; logout deletes the local key.",
+  "routes": [
+    { "key": "openai", "label": "API key (billed per use by OpenAI)" },
+    { "key": "typesafe", "label": "API key (billed per use by TypeSafe)" },
+    { "key": "openrouter", "label": "API key (billed per use by OpenRouter)" }
+  ]
+}

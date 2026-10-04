@@ -2,6 +2,7 @@
 // The key is the host's: the app reads it from its own environment or config and hands it here. The kit never reads
 // an environment variable, never ships a key and never puts it anywhere but the one request header.
 import type { Backend, Question, Raw } from './index.ts';
+import { UnsupportedImagesError } from './images.ts';
 import { parseUsage, retryFetch, type RetryOptions } from './http.ts';
 
 const BASE = { typesafe: 'https://api.typesafe.ai', openrouter: 'https://openrouter.ai/api' };
@@ -17,7 +18,8 @@ export function jev(opts: {
   return {
     name: 'jev',
     leaves: true,
-    async ask(state, questions, signal) {
+    async ask(state, questions, signal, images = []) {
+      if (images.length) throw new UnsupportedImagesError('jev');
       const body = JSON.stringify({ model: 'jev-latest', state, questions: Object.fromEntries(Object.entries(questions).map(([k, q]) => [k, wire(q)])) });
       const res = await request(`${BASE[via]}/v1/systemone`, {
         method: 'POST', signal,
@@ -41,6 +43,8 @@ export function jev(opts: {
 }
 
 function wire(q: Question) {
+  // Jev has no native ranking primitive. Its Choice distribution supplies the ordering and scores.
+  if (q.kind === 'rank') return { type: 'choice', instructions: q.instructions ?? 'Which candidate fits the state best?', criteria: q.candidates };
   if (q.kind === 'choice') return { type: 'choice', instructions: q.instructions ?? 'Which option fits the state?', criteria: q.options };
   if (q.kind === 'yesno') return { type: 'noul', instructions: q.question, ...(q.yes && q.no && { criteria: { true: q.yes, false: q.no } }) };
   return { type: 'score', instructions: q.instructions ?? 'Where does the state fall on this scale?', criteria: q.levels };
@@ -49,6 +53,12 @@ function wire(q: Question) {
 /** Jev's answer as a Raw; anything off-shape is undefined, which the floors treat as an abstain. */
 export function raw(q: Question, a: any): Raw | undefined {
   if (!a || typeof a !== 'object') return undefined;
+  if (q.kind === 'rank') {
+    if (!a.probabilities || typeof a.probabilities !== 'object' || typeof a.confidence !== 'number' ||
+        typeof a.choice !== 'string' || !Object.hasOwn(q.candidates, a.choice)) return undefined;
+    return { probabilities: a.probabilities, confidence: a.confidence,
+      ranking: Object.keys(q.candidates).sort((x, y) => a.probabilities[y] - a.probabilities[x]), scores: a.probabilities };
+  }
   if (q.kind === 'yesno') return typeof a.noul === 'number' ? { probabilities: { true: a.noul, false: 1 - a.noul } } : undefined;
   if (typeof a.probabilities !== 'object' || typeof a.confidence !== 'number') return undefined;
   if (q.kind === 'choice') return typeof a.choice === 'string' ? { probabilities: a.probabilities, confidence: a.confidence, pick: a.choice } : undefined;

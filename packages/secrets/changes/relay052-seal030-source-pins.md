@@ -1,0 +1,1 @@
+- Unreleased source dependency metadata: pin @byokit/seal 0.3.0; this package's existing version is not republished. Previously published consumer metadata remains unchanged.

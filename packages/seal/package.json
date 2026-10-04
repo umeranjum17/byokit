@@ -1,6 +1,6 @@
 {
   "name": "@byokit/seal",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Portable NaCl-compatible box, secretbox and signatures.",
   "license": "Apache-2.0",
   "type": "module",
@@ -20,6 +20,7 @@
   },
   "files": [
     "dist",
+    "ios/Sources",
     "README.md",
     "LICENSE",
     "CHANGELOG.md",

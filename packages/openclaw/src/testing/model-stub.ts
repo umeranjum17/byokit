@@ -58,7 +58,7 @@ const words = (m: any) =>
  * One loopback HTTP server that speaks the script. `script` queues plain replies consumed one per completion
  * request before the message-embedded grammar applies.
  */
-export type ModelStubOptions = { idPattern?: RegExp; routingMarker?: string };
+export type ModelStubOptions = { idPattern?: RegExp; routingMarker?: string; onCall?: (call: StubCall) => void };
 
 export function startModelStub(script: string[] = [], o: ModelStubOptions = {}): Promise<ModelStub> {
   const calls: StubCall[] = [];
@@ -70,7 +70,8 @@ export function startModelStub(script: string[] = [], o: ModelStubOptions = {}):
     for await (const chunk of req) chunks.push(chunk);
     let body: any;
     try { body = JSON.parse(Buffer.concat(chunks).toString()); } catch { res.writeHead(400).end(); return; }
-    calls.push({ authorization: String(req.headers.authorization ?? ''), path: req.url ?? '', body });
+    const call = { authorization: String(req.headers.authorization ?? ''), path: req.url ?? '', body };
+    calls.push(call); o.onCall?.(call); // Fixture evidence is persisted before any response/hold awaits.
     if (req.url === '/api/embed' || req.url === '/api/embeddings') {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({

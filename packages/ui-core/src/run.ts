@@ -9,7 +9,7 @@ export type RunEvent = { type: 'text'; text: string } | { type: 'tool'; name: st
 export type RunEnd =
   | { ok: true; text: string }
   | { ok: false; aborted: true }
-  | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other'; until?: number; message: string };
+  | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other' | 'output'; until?: number; message: string };
 /** One frame of the run stream: an event, then one `end`. */
 export type RunFrame = RunEvent | { type: 'end'; end: RunEnd };
 
@@ -49,7 +49,7 @@ export function runStep(s: RunState, a: RunAction): RunState {
 }
 
 /** The kit's sentences a failed run needs (`@byokit/openclaw/device`'s `words` fits). */
-export type RunWords = (key: 'member.signedOut' | 'member.resting' | 'member.plan' | 'member.network',
+export type RunWords = (key: 'member.signedOut' | 'member.resting' | 'member.plan' | 'member.network' | 'member.output',
   vars: { name: string; time: string }) => string;
 export type RunWordsOptions = {
   words: RunWords;
@@ -59,7 +59,7 @@ export type RunWordsOptions = {
   time?: (ms: number) => string;
 };
 
-const KEY = { 'signed-out': 'member.signedOut', resting: 'member.resting', plan: 'member.plan', network: 'member.network' } as const;
+const KEY = { 'signed-out': 'member.signedOut', resting: 'member.resting', plan: 'member.plan', network: 'member.network', output: 'member.output' } as const;
 const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
 /** What to draw: the reply, the tool at work (if any), and the sentence for how it ended ('' when there is none). */

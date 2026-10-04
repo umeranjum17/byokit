@@ -3,7 +3,7 @@
 // its requests survive a reconnect: each carries a key, so a retried tap runs once. Uses only the platform's
 // WebSocket, so the same code runs in browsers, React Native and Node.
 import { Handshake, b64, b64url, keyPair, keyPairFrom, random, unb64url, type KeyPair, type Mode } from './channel.ts';
-import { cleanName, codeKey, normalizeCode, parseOffer } from './pairing.ts';
+import { cleanName, codeKey, parseCode, parseOffer, shortKey } from './pairing.ts';
 import type { Role } from './host.ts';
 import { Streams, type LinkStream } from './stream.ts';
 
@@ -67,7 +67,7 @@ type Open = { ready: any; hostKey: Uint8Array; send: (m: unknown) => void; data:
 type Hello = { t: 'auth'; session: string; ack: number; fresh: boolean } | { t: 'pair'; ticket: string; name: string } | { t: 'code'; name: string };
 
 /** One socket: the handshake, the first request (`auth` or `pair`), and the host's `ready`. */
-async function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Uint8Array }, hello: Hello, o: Dial & { onWords?: (w: string) => void },
+async function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Uint8Array; commitment?: string }, hello: Hello, o: Dial & { onWords?: (w: string) => void },
   on: { message: (m: any) => void; close: (e: LinkError) => void } = { message: () => {}, close: () => {} }): Promise<Open> {
   let target = url;
   try { if (o.resolve) target = await o.resolve(url); } catch { throw new LinkError('unreachable'); }
@@ -102,6 +102,7 @@ async function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Ui
       try {
         if (!ch) {
           try { if (typeof ev.data !== 'string') throw new Error('binary'); hs.read(ev.data); } catch { return fail(new LinkError('wrong-host')); } // only the right host can answer
+          if (host.commitment && shortKey(hs.remoteKey) !== host.commitment) return fail(new LinkError('wrong-host'));
           if (hello.t === 'code') ws.send(hs.write({ name: hello.name }));
           ch = hs.channel();
           if (hello.t !== 'code') send(hello);
@@ -166,11 +167,13 @@ export async function pairWithOffer(scanned: string, o: PairOptions): Promise<De
   throw last;
 }
 
-/** A typed code in, a grant out. `url` is where the host is (a page served by the host knows its own address). */
+/** A typed code in, a grant out. `Host.shortCode` also pins the machine key before sharing the device identity.
+ *  `url` is an untrusted address, e.g. from relay `findHost`; only the full code authenticates the host. */
 export async function pairWithCode(url: string, typed: string, o: PairOptions): Promise<DeviceGrant> {
-  if (!normalizeCode(typed)) throw new LinkError('wrong-code');
+  const code = parseCode(typed);
+  if (!code) throw new LinkError('wrong-code');
   const me = o.key ?? keyPair();
-  const l = await dial(url, me, { psk: codeKey(typed) }, { t: 'code', name: o.name }, o);
+  const l = await dial(url, me, { psk: codeKey(code.secret), commitment: code.commitment }, { t: 'code', name: o.name }, o);
   const hostKey = b64url(l.hostKey);
   l.close();
   return granted(me, hostKey, url, [url], l.ready);

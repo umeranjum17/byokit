@@ -7,6 +7,7 @@ import { realtimeEngine, toolBridge, delegationHandler } from '../src/node.ts';
 import { appBridge } from '../src/tools.ts';
 import { realtimeClient, realtimeAuthCheck, parseRealtimeClientFrame, parseRealtimeHostFrame, realtimePcm16ByteLength, providers, type AudioPorts, type RealtimeHostFrame, type RealtimeClientFrame, type RealtimeStream } from '../src/index.ts';
 import { webRtcPeer } from '../src/webrtc.ts';
+import { reactNativeWebRtcPeer } from '../src/rn-webrtc.ts';
 import { Accounts, memoryStore } from '../../accounts/src/portable.ts';
 import { mockOpenAI } from '../../accounts/src/testing/index.ts';
 import { build } from 'esbuild';
@@ -329,6 +330,149 @@ test('WebRTC: injected media ordering, one peer, bounded signaling and stop clea
   assert.deepEqual(events.slice(0, 3), ['acquire', 'route', 'media']); assert.equal(peers, 1); assert.equal(offer, 'v=0\r\n');
   assert.equal(handle.sendData('a'.repeat(32769)), false); assert.equal(handle.sendData('a'.repeat(32768)), true); assert.equal(handle.sendData('a'.repeat(32768)), true); assert.equal(handle.sendData('a'), false);
   await assert.rejects(handle.acceptAnswer('x')); await handle.acceptAnswer('v=0\r\n'); handle.setMuted(true); assert.equal(track.enabled, false); handle.stop(); handle.stop(); assert.equal(stoppedTracks, 1); assert.equal(events.filter(event => event === 'release').length, 1);
+});
+function encodingControl() {
+  let parameters = { encodings: [{ active: false }] };
+  return {
+    getParameters: () => structuredClone(parameters),
+    async setParameters(value: typeof parameters) { parameters = structuredClone(value); },
+  };
+}
+test('lazy browser and RN WebRTC negotiate inactive senders, attach/release repeatedly and close attached', async t => {
+  const NativeController = AbortController;
+  t.mock.method(globalThis, 'AbortController', function () {
+    const controller = new NativeController();
+    Object.defineProperty(controller.signal, 'throwIfAborted', { value: undefined });
+    return controller;
+  });
+  for (const factory of [webRtcPeer, reactNativeWebRtcPeer]) {
+    const events: string[] = [], sent: RealtimeClientFrame[] = [], tracks: MediaStreamTrack[] = [];
+    let deliver!: (frame: RealtimeHostFrame) => void, offers = 0, descriptions = 0;
+    const replacements: (MediaStreamTrack | null)[] = [];
+    const active: boolean[] = [];
+    const control = encodingControl();
+    const sender = { ...control, track: null as MediaStreamTrack | null,
+      async setParameters(value: ReturnType<typeof control.getParameters>) {
+        active.push(value.encodings[0].active);
+        if (value.encodings[0].active) assert.ok(this.track, 'Sending starts only after a track is attached');
+        await control.setParameters(value);
+      },
+      async replaceTrack(track: MediaStreamTrack | null) {
+        if (!track) assert.equal(this.getParameters().encodings[0].active, false);
+        replacements.push(track); this.track = track;
+      } };
+    const peer: any = { connectionState: 'connecting', iceGatheringState: 'complete', localDescription: { sdp: 'v=0\r\n' },
+      createDataChannel: () => ({ readyState: 'connecting', bufferedAmount: 0, send() {}, close() {} }),
+      addTrack() { assert.fail('Lazy capture must negotiate without addTrack'); },
+      addTransceiver(kind: string, options: object) { assert.equal(kind, 'audio'); assert.deepEqual(options, { direction: 'sendrecv', sendEncodings: [{ active: false }] }); assert.equal(sender.track, null); events.push('transceiver'); return { sender }; },
+      createOffer: async () => { assert.equal(sender.getParameters().encodings[0].active, false); offers++; return { type: 'offer', sdp: 'v=0\r\n' }; },
+      setLocalDescription: async () => { descriptions++; }, setRemoteDescription: async () => { assert.equal(sender.getParameters().encodings[0].active, false); }, close() { events.push('peer-close'); } };
+    const client = realtimeClient({ capture: 'lazy', audio: audioPorts(events), onStatus() {}, onTurn() {},
+      open: async () => ({ onFrame(fn) { deliver = fn; }, onClose() {}, start() {}, close() {}, send(frame) { sent.push(frame); return true; } }),
+      webrtc: options => factory({ ...options, platform: { createPeer: () => peer, getUserMedia: async () => {
+        events.push('media'); const track = { kind: 'audio', enabled: true, stop() { events.push('track-stop'); } } as unknown as MediaStreamTrack;
+        tracks.push(track); return { getAudioTracks: () => [track], getTracks: () => [track] } as unknown as MediaStream;
+      } } }),
+    });
+    t.after(() => client.stop());
+    await waitFor(() => !!deliver); deliver({ type: 'realtime.webrtc.start', dataChannelLabel: 'events' });
+    await waitFor(() => sent.some(frame => frame.type === 'realtime.webrtc.offer'));
+    assert.deepEqual(events, ['route', 'transceiver']); assert.equal(sender.track, null);
+    deliver({ type: 'realtime.webrtc.answer', sdp: 'v=0\r\n' });
+    for (let cycle = 0; cycle < 2; cycle++) {
+      client.setMuted(true);
+      await Promise.all([client.attachMic(), client.attachMic()]);
+      assert.equal(tracks.length, cycle + 1); assert.equal(sender.track, tracks[cycle]); assert.equal(tracks[cycle].enabled, false);
+      client.setMuted(false); assert.equal(tracks[cycle].enabled, true);
+      await Promise.all([client.releaseMic(), client.releaseMic()]);
+      assert.equal(sender.track, null);
+      assert.equal(sender.getParameters().encodings[0].active, false);
+      assert.equal(events.filter(value => value === 'release').length, cycle + 1);
+      assert.equal(events.filter(value => value === 'track-stop').length, cycle + 1);
+    }
+    await client.attachMic(); client.stop();
+    await waitFor(() => events.includes('unroute'));
+    assert.equal(events.filter(value => value === 'acquire').length, 3);
+    assert.equal(events.filter(value => value === 'release').length, 3);
+    assert.equal(events.filter(value => value === 'track-stop').length, 3);
+    assert.deepEqual(replacements, [tracks[0], null, tracks[1], null, tracks[2]]);
+    assert.deepEqual(active, [false, true, false, true, false, true]);
+    assert.equal(offers, 1); assert.equal(descriptions, 1);
+    assert.equal(sent.filter(frame => frame.type === 'realtime.webrtc.offer').length, 1);
+    await assert.rejects(client.attachMic(), /unavailable/);
+  }
+});
+test('lazy microphone cancellation and failures release pending capture and permit another attach', async () => {
+  for (const pending of ['acquire', 'media', 'replace'] as const) {
+    for (const close of [false, true]) {
+      const events: string[] = []; let resume!: () => void;
+      const audio = audioPorts(events);
+      if (pending === 'acquire') audio.microphone.acquire = async () => { events.push('acquire'); await new Promise<void>(resolve => { resume = resolve; }); };
+      const track = { enabled: true, stop() { events.push('track-stop'); } } as unknown as MediaStreamTrack;
+      const sender = { ...encodingControl(), async replaceTrack(input: MediaStreamTrack | null) { if (input && pending === 'replace') await new Promise<void>(resolve => { resume = resolve; }); } };
+      const peer = { iceGatheringState: 'complete', localDescription: { sdp: 'v=0\r\n' },
+        createDataChannel: () => ({ readyState: 'connecting', bufferedAmount: 0, send() {}, close() {} }), addTransceiver: () => ({ sender }),
+        createOffer: async () => ({ type: 'offer', sdp: 'v=0\r\n' }), setLocalDescription: async () => {}, close() {} } as unknown as RTCPeerConnection;
+      const handle = await webRtcPeer({ capture: 'lazy', label: 'events', audio, platform: { createPeer: () => peer,
+        getUserMedia: async () => { events.push('media'); if (pending === 'media') await new Promise<void>(resolve => { resume = resolve; }); return { getAudioTracks: () => [track], getTracks: () => [track] } as unknown as MediaStream; } },
+        onOffer() {}, onData() {}, onRemoteAudio() {}, onConnectionState() {}, onInterruption() {}, onError(error) { throw error; } });
+      const attaching = handle.attachMic(); await waitFor(() => !!resume);
+      if (close) handle.stop();
+      const releasing = handle.releaseMic(); resume(); await attaching; await releasing;
+      assert.equal(events.filter(value => value === 'release').length, 1);
+      assert.equal(events.filter(value => value === 'track-stop').length, pending === 'acquire' ? 0 : 1);
+      handle.stop();
+    }
+  }
+  const events: string[] = []; let fail = true;
+  const track = { enabled: true, stop() { events.push('track-stop'); } } as unknown as MediaStreamTrack;
+  const peer = { iceGatheringState: 'complete', localDescription: { sdp: 'v=0\r\n' },
+    createDataChannel: () => ({ readyState: 'connecting', bufferedAmount: 0, send() {}, close() {} }),
+    addTransceiver: () => ({ sender: { ...encodingControl(), async replaceTrack(input: MediaStreamTrack | null) { if (fail && input) throw new Error('Capture failed'); } } }),
+    createOffer: async () => ({ type: 'offer', sdp: 'v=0\r\n' }), setLocalDescription: async () => {}, close() {} } as unknown as RTCPeerConnection;
+  const handle = await webRtcPeer({ capture: 'lazy', label: 'events', audio: audioPorts(events), platform: { createPeer: () => peer,
+    getUserMedia: async () => ({ getAudioTracks: () => [track], getTracks: () => [track] }) as unknown as MediaStream },
+    onOffer() {}, onData() {}, onRemoteAudio() {}, onConnectionState() {}, onInterruption() {}, onError(error) { throw error; } });
+  await assert.rejects(handle.attachMic(), /Capture failed/);
+  assert.equal(events.filter(value => value === 'release').length, 1);
+  fail = false; await handle.attachMic(); await handle.releaseMic(); handle.stop();
+  assert.equal(events.filter(value => value === 'release').length, 2);
+});
+test('lazy encoding control rejects silent native failures and closes if recording cannot be disabled', async () => {
+  for (const failure of ['setup', 'attach', 'release'] as const) {
+    const events: string[] = [];
+    let active = failure === 'setup', reject = false;
+    const track = { enabled: true, stop() { events.push('track-stop'); } } as unknown as MediaStreamTrack;
+    const sender = { getParameters: () => ({ encodings: [{ active }] }),
+      async setParameters(parameters: { encodings: { active: boolean }[] }) {
+        if (failure !== 'setup' && !reject) active = parameters.encodings[0].active;
+      }, async replaceTrack() {} };
+    const peer = { iceGatheringState: 'complete', localDescription: { sdp: 'v=0\r\n' },
+      createDataChannel: () => ({ readyState: 'connecting', bufferedAmount: 0, send() {}, close() {} }),
+      addTransceiver: () => ({ sender }), createOffer: async () => ({ type: 'offer', sdp: 'v=0\r\n' }),
+      setLocalDescription: async () => {}, close() { events.push('peer-close'); } } as unknown as RTCPeerConnection;
+    const create = () => webRtcPeer({ capture: 'lazy', label: 'events', audio: audioPorts(events),
+      platform: { createPeer: () => peer, getUserMedia: async () => ({ getAudioTracks: () => [track], getTracks: () => [track] }) as unknown as MediaStream },
+      onOffer() {}, onData() {}, onRemoteAudio() {}, onConnectionState() {}, onInterruption() {}, onError() {} });
+    if (failure === 'setup') {
+      await assert.rejects(create(), /capture control failed/);
+      assert.ok(!events.includes('acquire'));
+    } else {
+      const handle = await create();
+      if (failure === 'attach') {
+        reject = true; await assert.rejects(handle.attachMic(), /capture control failed/);
+        assert.equal(active, false); assert.ok(!events.includes('peer-close'));
+        reject = false; await handle.attachMic();
+      } else await handle.attachMic();
+      if (failure === 'release') {
+        reject = true; await assert.rejects(handle.releaseMic(), /capture control failed/);
+        assert.ok(events.includes('peer-close'), 'Close the device if encoding suppression is rejected');
+      } else await handle.releaseMic();
+      handle.stop();
+      assert.equal(events.filter(value => value === 'release').length, failure === 'attach' ? 2 : 1);
+    }
+    assert.equal(events.filter(value => value === 'peer-close').length, 1);
+  }
 });
 test('RN-shaped WebRTC starts without throwIfAborted, handles empty playback and flushes a muted report after clear', async t => {
   const NativeController = AbortController;

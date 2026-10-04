@@ -3,14 +3,17 @@
 // disagree the schema wins. `pane.split` takes `target_pane_id` (muxr agrees), and `agent.start`
 // has no `env` param — a start's env belongs to the placement create/split call (src/generated/methods.ts).
 import { spawn } from 'node:child_process';
-import { accessSync, constants as fsConstants, openSync, readSync, closeSync } from 'node:fs';
+import { accessSync, constants as fsConstants, openSync, readSync, closeSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { delimiter, isAbsolute, join } from 'node:path';
 import type { HerdrKit } from './kit.ts';
 import type { AgentCliSignIn, AgentInstallProbe, AgentInstallState, AgentLaunchFailureReason,
   AgentReadiness, AgentStartEvent, AgentStatusOptions,
   AgentStatusRunner, AgentRef, AgentStatus, HerdrSnapshot, PromptReceipt, StartAgent } from './types.ts';
 import { words } from './words.ts';
+import { accountKind } from './kinds.ts';
+import { prepareLaunchEnv, type LaunchEnvironment } from './launch-env.ts';
+import { museNative, MUSE_INSTALL_URL } from './muse.ts';
 
 export type Call = (method: string, params: Record<string, unknown>, timeoutMs?: number) => Promise<unknown>;
 
@@ -54,7 +57,7 @@ function rootPaneOf(result: unknown): string | undefined {
   return isObj(pane) && typeof pane.pane_id === 'string' ? pane.pane_id : undefined;
 }
 
-export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; reread(paneId: string): Promise<void>; emitStart?(e: AgentStartEvent): void }): Pick<HerdrKit,
+export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; reread(paneId: string): Promise<void>; emitStart?(e: AgentStartEvent): void; launchEnv?(): Record<string, string> | undefined }): Pick<HerdrKit,
   'startAgent' | 'prompt' | 'sendKeys' | 'wait' | 'read' | 'agentKinds' | 'installedAgentKinds' | 'agentStatus'> {
   const call = ctx.call;
   const emitStart = (e: AgentStartEvent): void => {
@@ -69,31 +72,51 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       try { o.onEvent?.(e); } catch { /* a listener never breaks a start */ }
       emitStart(e);
     };
-    // Install pre-check: a shim or nothing on PATH means Herdr installs on first start, so the
-    // app hears `installing` before the long start instead of watching a blank pane.
     let installExpected = false;
-    try {
-      installExpected = agentInstallState(o.kind, o.installProbe).state === 'installs-on-first-start';
-    } catch { installExpected = false; }
-    if (installExpected) emit({ phase: 'installing', kind: o.kind, message: words('agent.installing', { agent: o.kind }) });
     let stage: 'placement' | 'start' = 'placement';
     try {
+      if (o.kind === 'muse') {
+        const replacement = o.env && typeof o.env.env === 'object' && Array.isArray(o.env.unset)
+          ? o.env as LaunchEnvironment : undefined;
+        const existingPane = 'pane' in o.place && o.worktree === undefined;
+        // An ordinary env overlay cannot replace an existing shell's environment.
+        if (existingPane && !replacement && Object.keys(o.env ?? {}).length > 0) {
+          throw fail('env_mismatch', 'This pane needs to be opened again to use that sign-in.');
+        }
+        const effective = replacement?.env ?? (existingPane ? undefined
+          : { ...ctx.launchEnv?.(), ...o.env as Record<string, string> | undefined });
+        // No controller/global extras and no probe override when the effective PATH is known.
+        // Existing unobserved panes remain unknown; the exact RPC pass-through remains available.
+        const path = effective?.PATH?.split(delimiter).filter(isAbsolute);
+        const probe = path === undefined ? (existingPane ? undefined : o.installProbe) : { path };
+        if (probe && agentInstallState('muse', probe).state === 'missing') {
+          throw fail('agent_not_installed', words('agent.notInstalled'));
+        }
+      } else {
+        try { installExpected = agentInstallState(o.kind, o.installProbe).state === 'installs-on-first-start'; }
+        catch { installExpected = false; }
+      }
+      if (installExpected) emit({ phase: 'installing', kind: o.kind, message: words('agent.installing', { agent: o.kind }) });
       const ref = await startAgentInner(o, () => { stage = 'start'; });
       emit({ phase: 'ready', kind: o.kind, ref });
       return ref;
     } catch (error) {
       const reason = classifyStartFailure(error, { installExpected, stage });
       emit({ phase: 'launchFailed', kind: o.kind, reason, message: launchFailureWords(reason, o.kind) });
+      if (codeOf(error) === 'agent_not_installed') throw error;
+      if (o.env && typeof o.env.env === 'object') throw fail(codeOf(error) === 'env_mismatch' ? 'env_mismatch' : 'start_failed', words('agent.notReady'));
       throw error;
     }
   }
 
   async function startAgentInner(o: StartAgent, onStartPhase?: () => void): Promise<AgentRef> {
-    if ('pane' in o.place && Object.keys(o.env ?? {}).length > 0) {
+    const launch = o.env && typeof o.env.env === 'object' && Array.isArray(o.env.unset)
+      ? o.env as LaunchEnvironment : undefined;
+    if (!launch && 'pane' in o.place && Object.keys(o.env ?? {}).length > 0) {
       throw fail('env_mismatch', 'This pane needs to be opened again to use that sign-in.');
     }
     const timeout = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    const env = o.env === undefined ? {} : { env: o.env };
+    const env = o.env === undefined || launch ? {} : { env: o.env };
     let paneId: string | undefined;
     let created = false;
     if (o.worktree !== undefined) {
@@ -126,6 +149,13 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       paneId = o.place.pane;
     }
     if (paneId === undefined) throw new Error('herdr: the placement answered no pane id');
+    if (launch) {
+      try { await prepareLaunchEnv(call, paneId, launch, timeout); }
+      catch (error) {
+        if (created) { try { await call('pane.close', { pane_id: paneId }); } catch { /* best effort */ } }
+        throw error;
+      }
+    }
     onStartPhase?.();
     const name = agentName(o);
     const params = { pane_id: paneId, kind: o.kind, name,
@@ -143,6 +173,7 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
         if (created) {
           try { await call('pane.close', { pane_id: paneId }); } catch { /* rollback is best-effort */ }
         }
+        if (launch) throw fail('start_failed', words('agent.notReady'));
         throw error;
       }
     }
@@ -189,7 +220,12 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       || a.pane_id !== target.paneId) {
       throw new Error('Herdr did not queue the prompt.');
     }
-    return { paneId: a.pane_id, terminalId: a.terminal_id, revision: a.revision, status: a.agent_status as AgentStatus };
+    const session = a.agent_session;
+    const agentSession = isObj(session) && typeof session.source === 'string'
+      && typeof session.agent === 'string' && typeof session.kind === 'string' && typeof session.value === 'string'
+      ? { source: session.source, agent: session.agent, kind: session.kind, value: session.value } : undefined;
+    return { paneId: a.pane_id, terminalId: a.terminal_id, revision: a.revision, status: a.agent_status as AgentStatus,
+      ...(agentSession === undefined ? {} : { agentSession }) };
   }
 
   async function wait(target: AgentRef, o: { until?: AgentStatus[]; timeoutMs: number }): Promise<AgentStatus> {
@@ -224,7 +260,7 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
   }
 
   async function agentStatus(kinds: readonly string[], o?: AgentStatusOptions): Promise<AgentReadiness[]> {
-    const path = o?.path ?? agentProbePath();
+    const path = o?.path ?? ctx.launchEnv?.()?.PATH?.split(delimiter) ?? agentProbePath();
     const run = o?.run ?? runStatusCommand;
     const timeoutMs = o?.timeoutMs ?? STATUS_TIMEOUT_MS;
     const probe = { path, ...(o?.aliases === undefined ? {} : { aliases: o.aliases }),
@@ -232,15 +268,24 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
     return Promise.all(kinds.map(async (kind): Promise<AgentReadiness> => {
       const install = agentInstallState(kind, probe);
       const binary = o?.aliases?.[kind]?.[0] ?? kind;
-      const installHint = kind === 'pi' ? PI_INSTALL_HINT : `Install the ${binary} command, then check again.`;
-      // A shim or nothing on PATH means Herdr installs on first start: not installed, with the
-      // readiness words instead of a missing-install error (pi included — a real pi binary is
-      // the only case that reads installed).
+      const installHint = kind === 'muse' ? `Install Muse explicitly from ${MUSE_INSTALL_URL} into the private launch environment.`
+        : kind === 'pi' ? PI_INSTALL_HINT : `Install the ${binary} command, then check again.`;
+      // Muse missing/launcher-only stays missing; legacy kinds retain their shim readiness.
+      // Install state never proves account or catalog readiness.
       if (install.state !== 'installed') return { kind, installed: false, installState: install.state, signedIn: 'unknown', installHint };
       const statusProbe = STATUS_PROBES[kind];
-      if (statusProbe === undefined) return { kind, installed: true, installState: 'installed', signedIn: 'unknown', installHint };
+      const variable = accountKind(kind)?.folderVar;
+      const folder = o?.folders?.[kind];
+      if (statusProbe === undefined || variable === undefined || !folder || !isAbsolute(folder) || /[\r\n\0]/.test(folder)) return { kind, installed: true, installState: 'installed', signedIn: 'unknown', installHint };
       let answer: { stdout: string } | undefined;
-      try { answer = await run(statusProbe.command, statusProbe.args, { ...(statusProbe.stdin === undefined ? {} : { stdin: statusProbe.stdin }), timeoutMs }); }
+      // A folder override alone is not isolation: the CLI can fall back to HOME,
+      // XDG or platform stores. Supply a clean env and confine every home to this account.
+      const env = { ...o?.env, PATH: path.join(delimiter), HOME: folder, USERPROFILE: folder,
+        XDG_CONFIG_HOME: join(folder, '.config'), XDG_STATE_HOME: join(folder, '.local', 'state'),
+        XDG_DATA_HOME: join(folder, '.local', 'share'), XDG_CACHE_HOME: join(folder, '.cache'),
+        APPDATA: join(folder, 'AppData', 'Roaming'), LOCALAPPDATA: join(folder, 'AppData', 'Local'),
+        [variable]: folder };
+      try { answer = await run(install.path!, statusProbe.args, { ...(statusProbe.stdin === undefined ? {} : { stdin: statusProbe.stdin }), timeoutMs, env }); }
       catch { answer = undefined; }
       const signedIn: AgentCliSignIn = answer === undefined ? 'unknown' : statusProbe.parse(answer.stdout);
       return { kind, installed: true, installState: 'installed', signedIn, installHint,
@@ -289,14 +334,22 @@ export function isAutoInstallShim(file: string,
   return head !== undefined && head.startsWith('#!') && head.includes('mise');
 }
 
-// Per-kind install readiness sharing the B5 probe path: `installed` for a real runnable binary,
-// `installs-on-first-start` for an auto-install launcher/shim or nothing on PATH (Herdr fetches
-// the agent on first start). `missing` stays for callers that probe kinds Herdr never installs.
+// Muse has no absent-CLI auto-installer in stock Herdr. Its official launcher needs the
+// selected native release too. Other kinds retain their legacy shim classification.
 export function agentInstallState(kind: string,
   o?: AgentInstallProbe): { kind: string; state: AgentInstallState; path?: string } {
   const path = o?.path ?? agentProbePath();
   const found = resolveAgentBinary(kind, { path, ...(o?.aliases === undefined ? {} : { aliases: o.aliases }) });
-  if (found.path === undefined) return { kind, state: 'installs-on-first-start' };
+  if (found.path === undefined) return { kind, state: kind === 'muse' ? 'missing' : 'installs-on-first-start' };
+  if (kind === 'muse') {
+    try { if (!statSync(found.path).isFile()) return { kind, state: 'missing', path: found.path }; }
+    catch { return { kind, state: 'missing', path: found.path }; }
+    const head = (o?.readFile ?? readHead)(found.path);
+    if (head?.startsWith('#!') && (head.includes('mise') || (head.includes('MUSE_CHANNEL') && !museNative(found.path)))) {
+      return { kind, state: 'missing', path: found.path };
+    }
+    return { kind, state: 'installed', path: found.path };
+  }
   const shim = isAutoInstallShim(found.path, o?.readFile);
   return shim ? { kind, state: 'installs-on-first-start', path: found.path }
     : { kind, state: 'installed', path: found.path };
@@ -308,6 +361,7 @@ export function agentInstallState(kind: string,
 export function classifyStartFailure(error: unknown,
   o?: { installExpected?: boolean; stage?: 'placement' | 'start' }): AgentLaunchFailureReason {
   const code = codeOf(error);
+  if (code === 'agent_not_installed') return 'not-installed';
   if (code !== undefined && START_RETRYABLE.has(code)) return 'pane-busy';
   if (o?.stage === 'placement') return 'placement-failed';
   if (o?.installExpected === true) return 'install-failed';
@@ -315,6 +369,7 @@ export function classifyStartFailure(error: unknown,
 }
 
 function launchFailureWords(reason: AgentLaunchFailureReason, kind: string): string {
+  if (reason === 'not-installed') return words('agent.notInstalled');
   if (reason === 'pane-busy') return words('agent.notReady');
   if (reason === 'install-failed') return words('agent.installFailed', { agent: kind });
   return words('agent.launchFailed');
@@ -361,7 +416,7 @@ const STATUS_PROBES: Record<string, StatusProbe> = {
     let status: unknown;
     try { status = JSON.parse(stdout); } catch { return 'unknown'; }
     if (!isRecord(status)) return 'unknown';
-    return status.loggedIn === true ? 'yes' : 'no';
+    return status.loggedIn === true ? 'yes' : status.loggedIn === false ? 'no' : 'unknown';
   } },
   // Codex exposes sign-in only over its app-server protocol, so the probe pipes a pipelined
   // `initialize` + `account/read` round (same method muxr's planIdentity uses) and reads the
@@ -373,7 +428,9 @@ const STATUS_PROBES: Record<string, StatusProbe> = {
         let message: unknown;
         try { message = JSON.parse(line); } catch { continue; }
         if (isRecord(message) && message.id === 2) {
-          return isRecord(message.result) && isRecord(message.result.account) ? 'yes' : 'no';
+          if (!isRecord(message.result)) return 'unknown';
+          return isRecord(message.result.account) ? 'yes'
+            : message.result.account === null || !Object.hasOwn(message.result, 'account') ? 'no' : 'unknown';
         }
       }
       return 'unknown';
@@ -383,9 +440,12 @@ const STATUS_PROBES: Record<string, StatusProbe> = {
 // Default runner: one bounded spawn per probe, stdin piped when the protocol needs it (codex).
 // Failures (missing binary, timeout, non-empty stderr, empty stdout) read as no answer — never throw.
 export async function runStatusCommand(command: string, args: string[],
-  o?: { stdin?: string; timeoutMs?: number }): Promise<{ stdout: string } | undefined> {
+  o?: { stdin?: string; timeoutMs?: number; env?: Record<string, string> }): Promise<{ stdout: string } | undefined> {
+  // Public direct calls without an explicit isolated HOME are not allowed to read a login.
+  if (!o?.env?.HOME || !isAbsolute(o.env.HOME) || /[\r\n\0]/.test(o.env.HOME)) return undefined;
   return new Promise((resolve) => {
     let done = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const finish = (value: { stdout: string } | undefined): void => {
       if (done) return;
       done = true;
@@ -394,10 +454,10 @@ export async function runStatusCommand(command: string, args: string[],
     };
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(command, args, { stdio: ['pipe', 'pipe', 'ignore'], timeout: o?.timeoutMs ?? STATUS_TIMEOUT_MS });
+      child = spawn(command, args, { env: o.env, stdio: ['pipe', 'pipe', 'ignore'], timeout: o.timeoutMs ?? STATUS_TIMEOUT_MS });
     } catch { finish(undefined); return; }
     let out = '';
-    const timer = setTimeout(() => { child.kill('SIGKILL'); finish(undefined); }, (o?.timeoutMs ?? STATUS_TIMEOUT_MS) + 500);
+    timer = setTimeout(() => { child.kill('SIGKILL'); finish(undefined); }, (o?.timeoutMs ?? STATUS_TIMEOUT_MS) + 500);
     child.on('error', () => finish(undefined));
     const stdout = child.stdout;
     const stdin = child.stdin;

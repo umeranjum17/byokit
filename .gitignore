@@ -2,3 +2,5 @@ node_modules/
 dist/
 *.tsbuildinfo
 .lab/
+# Swift package build output (native seal parity).
+.build/

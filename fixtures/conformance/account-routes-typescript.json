@@ -1,0 +1,175 @@
+{
+  "rule": "D18 account routes: one vocabulary for every sign-in method on every kit surface. A route is data: its billing comes from pinned upstream metadata or explicit host input, never from a hostname. Subscription routes are offered by default; every other billing is listed but used only when named. Discovery lists every route, unavailable ones included, with a readiness computed from the route and the host only, before any credential is read. Routes never hold secrets, stored readiness, live qualification or a fallback. Excluded mechanisms never become routes.",
+  "vocabulary": {
+    "via": ["browser", "code", "paste", "key", "session", "setup_token", "cli", "plan_key", "cloud", "local", "endpoint"],
+    "billing": ["subscription", "api", "local", "free", "unknown"],
+    "billingFrom": ["source", "host"],
+    "offer": ["default", "explicit"],
+    "support": ["yes", "host", "no"],
+    "platform": ["node", "browser", "rn"],
+    "surface": ["accounts", "openclaw", "herdr"],
+    "flow": ["present", "absent"],
+    "readiness": ["ready", "needs_binary", "needs_plugin", "needs_host", "needs_client", "unsupported_platform", "no_upstream_flow"],
+    "excluded": ["credential_import", "pooling_proxy", "per_request_rotation", "token_off_device", "identity_borrowing"]
+  },
+  "routes": [
+    {
+      "id": "openai:code", "provider": "openai", "name": "ChatGPT", "company": "OpenAI", "label": "Uses your ChatGPT plan",
+      "via": "code", "billing": "subscription", "billingFrom": "source", "offer": "default",
+      "platforms": { "node": "yes", "browser": "yes", "rn": "yes" },
+      "upstream": { "surface": "accounts", "id": "openai-codex", "method": "device", "revision": "@earendil-works/pi-ai@0.87.1", "flow": "present" }
+    },
+    {
+      "id": "anthropic:paste", "provider": "anthropic", "name": "Claude", "company": "Anthropic", "label": "Uses your Claude plan",
+      "via": "paste", "billing": "subscription", "billingFrom": "source", "offer": "default",
+      "platforms": { "node": "yes", "browser": "host", "rn": "yes" },
+      "upstream": { "surface": "accounts", "id": "anthropic", "method": "paste", "revision": "@earendil-works/pi-ai@0.87.1", "flow": "present" }
+    },
+    {
+      "id": "anthropic:browser", "provider": "anthropic", "name": "Claude", "company": "Anthropic", "label": "Uses your Claude plan",
+      "via": "browser", "billing": "subscription", "billingFrom": "source", "offer": "default",
+      "platforms": { "node": "yes", "browser": "no", "rn": "no" },
+      "upstream": { "surface": "accounts", "id": "anthropic", "method": "loopback", "revision": "@earendil-works/pi-ai@0.87.1", "flow": "present" }
+    },
+    {
+      "id": "openrouter:key", "provider": "openrouter", "name": "OpenRouter", "company": "OpenRouter", "label": "API key (billed per use by OpenRouter)",
+      "via": "key", "billing": "api", "billingFrom": "source", "offer": "explicit",
+      "platforms": { "node": "yes", "browser": "yes", "rn": "yes" },
+      "upstream": { "surface": "accounts", "id": "openrouter", "method": "api_key", "revision": "@earendil-works/pi-ai@0.87.1", "flow": "present" }
+    },
+    {
+      "id": "zai:plan_key:global", "provider": "zai", "name": "Z.AI Coding Plan", "company": "Z.AI", "label": "Uses your Z.AI coding plan",
+      "via": "plan_key", "billing": "subscription", "billingFrom": "source", "offer": "default",
+      "platforms": { "node": "host", "browser": "host", "rn": "host" },
+      "needs": { "plugin": "zai" },
+      "upstream": { "surface": "openclaw", "id": "zai-coding-global", "revision": "openclaw@2026.8.1", "flow": "present" }
+    },
+    {
+      "id": "anthropic:setup_token", "provider": "anthropic", "name": "Claude", "company": "Anthropic", "label": "Uses your Claude plan",
+      "via": "setup_token", "billing": "subscription", "billingFrom": "source", "offer": "default",
+      "platforms": { "node": "host", "browser": "host", "rn": "host" },
+      "upstream": { "surface": "openclaw", "id": "setup-token", "revision": "openclaw@2026.8.1", "flow": "present" }
+    },
+    {
+      "id": "aws-bedrock:cloud:profile", "provider": "aws-bedrock", "name": "Amazon Bedrock", "company": "Amazon Web Services", "label": "Cloud account (billed per use by Amazon Web Services)",
+      "via": "cloud", "billing": "api", "billingFrom": "source", "offer": "explicit",
+      "platforms": { "node": "yes", "browser": "no", "rn": "no" },
+      "upstream": { "surface": "accounts", "id": "amazon-bedrock", "method": "profile", "revision": "@earendil-works/pi-ai@0.87.1", "flow": "present" }
+    },
+    {
+      "id": "ollama:local", "provider": "ollama", "name": "Ollama", "company": "Ollama", "label": "Runs on this computer",
+      "via": "local", "billing": "local", "billingFrom": "source", "offer": "explicit",
+      "platforms": { "node": "yes", "browser": "host", "rn": "host" },
+      "upstream": { "surface": "accounts", "id": "createProvider", "method": "ollama", "revision": "@earendil-works/pi-ai@0.87.1", "flow": "present" }
+    },
+    {
+      "id": "custom:endpoint", "provider": "custom", "name": "Your own server", "company": "You", "label": "Your own server (billing you choose)",
+      "via": "endpoint", "billing": "unknown", "billingFrom": "host", "offer": "explicit",
+      "platforms": { "node": "yes", "browser": "host", "rn": "host" },
+      "upstream": { "surface": "accounts", "id": "createProvider", "revision": "@earendil-works/pi-ai@0.87.1", "flow": "present" }
+    },
+    {
+      "id": "anthropic:cli:claude", "provider": "anthropic", "name": "Claude Code", "company": "Anthropic", "label": "Uses your Claude plan in Claude Code",
+      "via": "cli", "billing": "subscription", "billingFrom": "source", "offer": "default",
+      "platforms": { "node": "yes", "browser": "host", "rn": "host" },
+      "needs": { "binary": "claude" }, "folderVar": "CLAUDE_CONFIG_DIR", "move": true,
+      "upstream": { "surface": "herdr", "id": "claude", "revision": "herdr@0.9.1", "flow": "present" }
+    },
+    {
+      "id": "google:cli:gemini", "provider": "google", "name": "Gemini CLI", "company": "Google", "label": "Billing set by Google in Gemini CLI",
+      "via": "cli", "billing": "unknown", "billingFrom": "source", "offer": "explicit",
+      "platforms": { "node": "yes", "browser": "host", "rn": "host" },
+      "needs": { "binary": "gemini" }, "move": false,
+      "upstream": { "surface": "herdr", "id": "gemini", "revision": "herdr@0.9.1", "flow": "present" }
+    },
+    {
+      "id": "qwen:browser", "provider": "qwen", "name": "Qwen", "company": "Alibaba", "label": "Uses your Qwen plan",
+      "via": "browser", "billing": "subscription", "billingFrom": "source", "offer": "default",
+      "platforms": { "node": "yes", "browser": "no", "rn": "no" },
+      "upstream": { "surface": "accounts", "id": "qwen-portal", "revision": "@earendil-works/pi-ai@0.87.1", "flow": "absent" }
+    },
+    {
+      "id": "acme:code", "provider": "acme", "name": "Acme", "company": "Acme", "label": "Uses your Acme plan",
+      "via": "code", "billing": "subscription", "billingFrom": "source", "offer": "default",
+      "platforms": { "node": "yes", "browser": "host", "rn": "yes" },
+      "needs": { "client": "acme-device" },
+      "upstream": { "surface": "accounts", "id": "acme", "method": "device", "revision": "synthetic", "flow": "present" }
+    },
+    {
+      "id": "acme:key:extra", "provider": "acme", "name": "Acme", "company": "Acme", "label": "API key (billed per use by Acme)",
+      "via": "key", "billing": "api", "billingFrom": "source", "offer": "explicit",
+      "platforms": { "node": "host", "browser": "host", "rn": "host" },
+      "needs": { "plugin": "acme" },
+      "upstream": { "surface": "openclaw", "id": "acme-api-key", "revision": "synthetic", "flow": "present" }
+    },
+    {
+      "id": "acme:key:free", "provider": "acme", "name": "Acme free tier", "company": "Acme", "label": "Free tier from Acme",
+      "via": "key", "billing": "free", "billingFrom": "source", "offer": "explicit",
+      "platforms": { "node": "yes", "browser": "yes", "rn": "yes" },
+      "upstream": { "surface": "accounts", "id": "acme", "method": "free", "revision": "synthetic", "flow": "present" }
+    }
+  ],
+  "invalid": [
+    { "name": "API billed offered by default", "code": "default_not_subscription", "base": "openrouter:key", "set": { "offer": "default" } },
+    { "name": "free tier offered by default", "code": "default_not_subscription", "base": "acme:key:free", "set": { "offer": "default" } },
+    { "name": "unknown billing offered by default", "code": "default_not_subscription", "base": "google:cli:gemini", "set": { "offer": "default" } },
+    { "name": "local runtime offered by default", "code": "default_not_subscription", "base": "ollama:local", "set": { "offer": "default" } },
+    { "name": "subscription hidden behind opt-in", "code": "subscription_not_default", "base": "openai:code", "set": { "offer": "explicit" } },
+    { "name": "plan key hidden behind opt-in", "code": "subscription_not_default", "base": "zai:plan_key:global", "set": { "offer": "explicit" } },
+    { "name": "billing inferred from a loopback hostname", "code": "billing_inferred", "base": "custom:endpoint", "set": { "billing": "local", "billingFrom": "hostname" } },
+    { "name": "endpoint billing fixed in data", "code": "endpoint_billing_not_explicit", "base": "custom:endpoint", "set": { "billingFrom": "source" } },
+    { "name": "API label hides per-use billing", "code": "label_billing_mismatch", "base": "openrouter:key", "set": { "label": "Sign in with OpenRouter" } },
+    { "name": "plan label claims per-use billing", "code": "label_billing_mismatch", "base": "openai:code", "set": { "label": "API key (billed per use by OpenAI)" } },
+    { "name": "credential import as a route", "code": "excluded_mechanism", "base": "anthropic:paste", "set": { "id": "anthropic:credential_import", "via": "credential_import" } },
+    { "name": "pooling proxy as a route", "code": "excluded_mechanism", "base": "custom:endpoint", "set": { "id": "custom:pooling_proxy", "via": "pooling_proxy" } },
+    { "name": "per-request rotation as a route", "code": "excluded_mechanism", "base": "openrouter:key", "set": { "id": "openrouter:per_request_rotation", "via": "per_request_rotation" } },
+    { "name": "unknown via", "code": "unknown_via", "base": "openai:code", "set": { "id": "openai:magic", "via": "magic" } },
+    { "name": "unknown billing", "code": "unknown_billing", "base": "openai:code", "set": { "billing": "freemium" } },
+    { "name": "id disagrees with provider and via", "code": "id_mismatch", "base": "openai:code", "set": { "id": "openai:browser" } },
+    { "name": "platform missing", "code": "platforms_incomplete", "base": "openai:code", "set": { "platforms": { "node": "yes", "browser": "yes" } } },
+    { "name": "unknown platform support", "code": "platforms_incomplete", "base": "openai:code", "set": { "platforms": { "node": "yes", "browser": "maybe", "rn": "yes" } } },
+    { "name": "no upstream reference", "code": "upstream_missing", "base": "openai:code", "set": { "upstream": { "surface": "accounts", "id": "", "revision": "", "flow": "present" } } },
+    { "name": "readiness stored in data", "code": "readiness_in_route", "base": "openai:code", "set": { "readiness": "ready" } },
+    { "name": "live qualification stored in data", "code": "qualification_in_route", "base": "anthropic:cli:claude", "set": { "proven": true } },
+    { "name": "fallback to another route", "code": "fallback_route", "base": "openai:code", "set": { "fallback": "openrouter:key" } },
+    { "name": "move without an account folder", "code": "move_without_folder", "base": "google:cli:gemini", "set": { "move": true } },
+    { "name": "secret in route data", "code": "secret_in_route", "base": "openrouter:key", "set": { "key": "sk-canary" } },
+    { "name": "token in route data", "code": "secret_in_route", "base": "openai:code", "set": { "refresh": "canary" } }
+  ],
+  "readiness": [
+    { "name": "portable device code on a phone", "route": "openai:code", "host": { "platform": "rn" }, "expected": "ready" },
+    { "name": "loopback sign-in has no phone path", "route": "anthropic:browser", "host": { "platform": "rn" }, "expected": "unsupported_platform" },
+    { "name": "browser paste needs the app's host side (its forwarder)", "route": "anthropic:paste", "host": { "platform": "browser" }, "expected": "needs_host" },
+    { "name": "browser paste with the app's host side", "route": "anthropic:paste", "host": { "platform": "browser", "hostSide": true }, "expected": "ready" },
+    { "name": "missing CLI binary, before any credential", "route": "anthropic:cli:claude", "host": { "platform": "node" }, "expected": "needs_binary" },
+    { "name": "CLI binary present", "route": "anthropic:cli:claude", "host": { "platform": "node", "binaries": ["claude"] }, "expected": "ready" },
+    { "name": "external provider plugin not installed", "route": "acme:key:extra", "host": { "platform": "node", "hostSide": true }, "expected": "needs_plugin" },
+    { "name": "client registration the app does not hold", "route": "acme:code", "host": { "platform": "rn" }, "expected": "needs_client" },
+    { "name": "client registration supplied", "route": "acme:code", "host": { "platform": "rn", "clients": ["acme-device"] }, "expected": "ready" },
+    { "name": "no flow in the pinned upstream beats every host fact", "route": "qwen:browser", "host": { "platform": "node" }, "expected": "no_upstream_flow" },
+    { "name": "cloud credentials are Node only", "route": "aws-bedrock:cloud:profile", "host": { "platform": "browser", "hostSide": true }, "expected": "unsupported_platform" },
+    { "name": "host-only route on a host", "route": "zai:plan_key:global", "host": { "platform": "node", "hostSide": true, "plugins": ["zai"] }, "expected": "ready" }
+  ],
+  "discovery": [
+    {
+      "name": "a computer with nothing installed lists every route and offers only ready plans",
+      "host": { "platform": "node" },
+      "listed": "all",
+      "offered": ["openai:code", "anthropic:paste", "anthropic:browser"]
+    },
+    {
+      "name": "a phone lists every route and offers only its ready plans",
+      "host": { "platform": "rn", "clients": ["acme-device"] },
+      "listed": "all",
+      "offered": ["openai:code", "anthropic:paste", "acme:code"]
+    }
+  ],
+  "endpointBilling": [
+    { "name": "loopback with no choice is not assumed local", "input": { "baseUrl": "http://127.0.0.1:4000/v1" }, "expected": { "code": "billing_required" } },
+    { "name": "loopback proxy that charges a remote API", "input": { "baseUrl": "http://127.0.0.1:4000/v1", "billing": "api" }, "expected": { "billing": "api", "offer": "explicit", "auto": false } },
+    { "name": "local runtime the person marks local", "input": { "baseUrl": "http://localhost:11434/v1", "billing": "local" }, "expected": { "billing": "local", "offer": "explicit", "auto": false } },
+    { "name": "remote server the person marks local stays their choice", "input": { "baseUrl": "https://gpu.example.net/v1", "billing": "local" }, "expected": { "billing": "local", "offer": "explicit", "auto": false } },
+    { "name": "server the person declares a plan", "input": { "baseUrl": "https://plan.example.net/v1", "billing": "subscription" }, "expected": { "billing": "subscription", "offer": "default", "auto": true } },
+    { "name": "unrecognised billing choice", "input": { "baseUrl": "http://127.0.0.1:4000/v1", "billing": "freemium" }, "expected": { "code": "unknown_billing" } }
+  ]
+}

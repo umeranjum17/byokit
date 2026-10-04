@@ -10,7 +10,7 @@
 //   npm run -s release -- notes <pkg>@<version> [...]
 // Only node: built-ins, plus git, gh and npm via child processes.
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, matchesGlob } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -125,8 +125,26 @@ export function rollUnreleased(text: string, version: string, date: string): str
 // Cascade notes belong in the version being released, before Unreleased is
 // rolled. Keeping this shared by the dry-run and writer prevents empty releases.
 export function prepareChangelog(text: string, version: string | null, date: string, bullets: string[]): string {
-  const noted = text.replace("## Unreleased\n", `## Unreleased\n\n${bullets.join("\n")}\n`);
+  const noted = bullets.length === 0 ? text : text.replace("## Unreleased\n", `## Unreleased\n\n${bullets.join("\n")}\n`);
   return version === null ? noted : rollUnreleased(noted, version, date);
+}
+
+// Fragments use the same bullet syntax as Unreleased; retain their raw formatting.
+export function readFragments(packageDir: string): { paths: string[]; lines: string[] } {
+  const dir = join(packageDir, "changes");
+  if (!existsSync(dir)) return { paths: [], lines: [] };
+  const paths = readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith(".md"))
+    .map((e) => join(dir, e.name)).sort();
+  const lines = paths.map((path) => readFileSync(path, "utf8").trim());
+  for (let i = 0; i < lines.length; i++) {
+    const parsed = parseChangelog(`# Changelog\n\n## Unreleased\n\n${lines[i]}\n`);
+    if (/^## /m.test(lines[i]) || parsed.unreleased.length === 0 ||
+        parsed.unreleased.some((b) => b.text === "")) {
+      throw new Error(`invalid changelog fragment: ${paths[i]}`);
+    }
+  }
+  return { paths, lines };
 }
 
 // Source is compiled to dist; the remaining shipped paths follow the package's
@@ -283,6 +301,7 @@ export function extractNotes(text: string, version: string): ChangelogBullet[] {
 export interface LintInput {
   changelogs: Record<string, string | null>;
   files: Record<string, string[]>;
+  fragments?: Record<string, string[]>;
   srcChanged: string[];
   depsChanged: string[];
   versionChanged: string[];
@@ -337,7 +356,7 @@ export function lint(input: LintInput): string[] {
       if (version && !version.isPrivate && !parsed.versions.some((v) => v.version === version.after && v.bullets.length > 0)) {
         errors.push(`${dir}: bumped version ${version.after} needs a non-empty changelog section`);
       }
-    } else if (parsed.unreleased.length === 0) {
+    } else if (parsed.unreleased.length === 0 && (input.fragments?.[dir]?.length ?? 0) === 0) {
       errors.push(`${dir}: shipped files or dependencies changed without a ## Unreleased bullet`);
     }
   }
@@ -473,11 +492,13 @@ function cmdPrepare(rest: string[]): void {
     }
   }
   if (requested.size === 0) throw new Error("prepare needs at least one <pkg>=<kind>");
+  const fragments = new Map(pkgs.map((p) => [p.dir, readFragments(join(root, "packages", p.dir))]));
+  const withFragments = (dir: string): string => prepareChangelog(readChangelog(dir) as string, null, "", fragments.get(dir)?.lines ?? []);
   const texts = new Map<string, string>();
   for (const [pkg] of requested) {
     const text = readChangelog(pkg);
     if (text === null) throw new Error(`missing packages/${pkg}/CHANGELOG.md`);
-    if (parseChangelog(text).unreleased.length === 0) {
+    if (parseChangelog(withFragments(pkg)).unreleased.length === 0) {
       throw new Error(`${pkg}: ## Unreleased has no bullets`);
     }
     texts.set(pkg, text);
@@ -491,7 +512,7 @@ function cmdPrepare(rest: string[]): void {
     devDependencies: { ...p.devDependencies },
     unreleased: (() => {
       const t = readChangelog(p.dir);
-      return t === null ? [] : parseChangelog(t).unreleased;
+      return t === null ? [] : parseChangelog(withFragments(p.dir)).unreleased;
     })(),
   }));
   const plan = planCascade(cascadePkgs, requested, published);
@@ -504,8 +525,9 @@ function cmdPrepare(rest: string[]): void {
     for (const pin of plan.pins) console.log(`  ${pin.pkg}: @byokit/${pin.dep} ${pin.from} -> ${pin.to}`);
     console.log("changelog diffs:");
     for (const d of order) {
-      const preview = prepareChangelog(readChangelog(d) as string, plan.versions.get(d) as string, today, plan.bullets.get(d) ?? []);
+      const preview = prepareChangelog(withFragments(d), plan.versions.get(d) as string, today, plan.bullets.get(d) ?? []);
       console.log(`--- packages/${d}/CHANGELOG.md\n${preview}`);
+      for (const path of fragments.get(d)?.paths ?? []) console.log(`delete ${path.slice(root.length + 1)}`);
     }
     for (const [d, lines] of plan.bullets) {
       if (!plan.versions.has(d)) console.log(`--- packages/${d}/CHANGELOG.md (Unreleased only):\n${lines.join("\n")}`);
@@ -517,9 +539,10 @@ function cmdPrepare(rest: string[]): void {
     const pjPath = join(root, "packages", d, "package.json");
     const pjText = readFileSync(pjPath, "utf8");
     const old = (byDir.get(d) as WSPkg).version;
-    const rolled = prepareChangelog(readChangelog(d) as string, plan.versions.get(d) as string, today, plan.bullets.get(d) ?? []);
+    const rolled = prepareChangelog(withFragments(d), plan.versions.get(d) as string, today, plan.bullets.get(d) ?? []);
     writeFileSync(pjPath, pjText.replace(`"version": "${old}"`, `"version": "${plan.versions.get(d)}"`));
     writeFileSync(join(root, "packages", d, "CHANGELOG.md"), rolled);
+    for (const path of fragments.get(d)?.paths ?? []) rmSync(path);
   }
   for (const [d, lines] of plan.bullets) {
     if (plan.versions.has(d)) continue; // notes already rolled into the released section
@@ -582,7 +605,7 @@ function cmdPublish(rest: string[]): void {
   const npmOf = new Map<string, string[] | null>();
   for (const p of pkgs) npmOf.set(p.dir, npmVersions(p.name));
   const pending = pkgs.filter((p) => !(npmOf.get(p.dir) ?? [])?.includes(p.version));
-  const canonical = ["link", "seal", "secrets", "reach", "ui-core", "accounts", "realtime", "decide", "relay", "openclaw", "herdr", "write", "record", "overlay", "cloud", "statusbar", "usage", "push"];
+  const canonical = ["link", "seal", "secrets", "connect", "reach", "ui-core", "accounts", "realtime", "decide", "relay", "openclaw", "herdr", "write", "record", "overlay", "cloud", "statusbar", "usage", "push", "share", "signaling", "outbox"];
   const rank = (d: string): number => {
     const i = canonical.indexOf(d);
     return i < 0 ? canonical.length : i;
@@ -743,7 +766,8 @@ function cmdLint(rest: string[]): void {
     changelogs[p.dir] = readChangelog(p.dir);
     files[p.dir] = packageFiles(p.dir);
   }
-  const errors = lint({ changelogs, files, srcChanged, depsChanged: depsTouched, versionChanged, versions });
+  const fragments = Object.fromEntries(pkgs.map((p) => [p.dir, readFragments(join(root, "packages", p.dir)).lines]));
+  const errors = lint({ changelogs, files, fragments, srcChanged, depsChanged: depsTouched, versionChanged, versions });
   if (errors.length > 0) {
     for (const e of errors) console.error(`lint: ${e}`);
     throw new Error(`release lint failed with ${errors.length} error(s)`);

@@ -2,6 +2,8 @@
 // `agent_pane_unavailable` inside a bounded 5 s budget, rolls the pane it created back with
 // `pane.close` when `agent.start` fails, sends `focus: false` with the env on `worktree.create`,
 // and takes an optional `worktree.branch` — all against the kit fake, never a real Herdr.
+import { readFileSync, existsSync, statSync } from 'node:fs';
+import { launchEnv } from '../../accounts/src/isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { scratchDir } from '../../test-support.ts';
@@ -157,4 +159,62 @@ test('K7: worktree.create carries focus:false, the env and only a given branch/b
   } finally {
     await kit.stop();
   }
+});
+
+
+test('launch env reaches new, existing and sign-in shells with scrubbing and explicit unsets', async () => {
+  await withKit(async (kit, fake) => {
+    const base = { PATH: '/usr/bin:/bin', HOME: '/app/umer', LANG: 'C.UTF-8',
+      CLAUDE_CODE_OAUTH_TOKEN: 'fake-launch-token', OPENAI_API_KEY: 'fake-launch-token', REMOVE: 'yes' };
+    const launch = launchEnv({ base, set: { CODEX_HOME: '/app/umer/account', NAME: 'Umer' }, unset: ['REMOVE'] });
+    // Existing shell also has a credential absent from the host base: a clean result removes it.
+    fake.world.panes.find((p) => p.pane_id === 'w1:p1')!.env = { ...base, MINIMAX_TOKEN: 'fake-launch-token' };
+    for (const place of [{ pane: 'w1:p1' }, { workspace: 'new' as const }]) {
+      const ref = await kit.startAgent({ kind: 'pi', cwd: '/app', place, env: launch });
+      const env = fake.world.panes.find((p) => p.pane_id === ref.paneId)!.env!;
+      assert.ok(['CLAUDE_CODE_OAUTH_TOKEN', 'OPENAI_API_KEY', 'MINIMAX_TOKEN', 'REMOVE'].every((k) => !(k in env)));
+      assert.equal(env.NAME, 'Umer'); assert.equal(env.CODEX_HOME, '/app/umer/account');
+      assert.equal(env.PATH, base.PATH); assert.equal(env.HOME, base.HOME); assert.equal(env.LANG, base.LANG);
+    }
+    const ref = await kit.openSignInTab({ workspaceId: 'w1', kind: 'pi', cwd: '/app', env: launch });
+    assert.equal(fake.world.panes.find((p) => p.pane_id === ref.paneId)!.env!.NAME, 'Umer');
+    assert.ok(base.CLAUDE_CODE_OAUTH_TOKEN === 'fake-launch-token', 'input remains unchanged');
+  }, 'herdr-launch-env');
+});
+
+test('launch env preparation uses private files, sanitizes errors and rolls back only created panes', async () => {
+  await withKit(async (kit, fake) => {
+    const call = kit.call.bind(kit);
+    const commands: string[] = []; const files: string[] = [];
+    kit.call = async (method, params, timeout) => {
+      if (method === 'pane.send_text') {
+        const text = String((params as { text?: string }).text);
+        commands.push(text);
+        const file = /\. '([^']+)'/.exec(text)![1]!;
+        files.push(file);
+        assert.equal(statSync(file).mode & 0o777, 0o600);
+        assert.equal(statSync(file.slice(0, file.lastIndexOf('/'))).mode & 0o777, 0o700);
+        assert.ok(!text.includes('fake-launch-token'));
+        assert.equal(readFileSync(file, 'utf8').includes('fake-launch-token'), true);
+      }
+      return call(method, params, timeout);
+    };
+    const launch = launchEnv({ base: { PATH: '/usr/bin:/bin' }, set: { EXPLICIT_TOKEN: 'fake-launch-token' } });
+    const ref = await kit.startAgent({ kind: 'pi', cwd: '/app', place: { workspace: 'new' }, env: launch });
+    assert.ok(files.length === 1 && files.every((p) => !existsSync(p)), 'private files removed');
+    assert.ok(commands.every((text) => !text.includes('fake-launch-token')));
+    const before = fake.world.panes.length;
+    fake.agentStartFaults.push({ code: 'failed', message: 'fake-launch-token' });
+    await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/app', place: { workspace: 'new' }, env: launch }),
+      (e: Error) => !e.message.includes('fake-launch-token'));
+    assert.equal(fake.world.panes.length, before);
+    await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/app', place: { pane: ref.paneId }, env: launch, timeoutMs: 30 }),
+      (e: { code?: string }) => e.code === 'env_mismatch');
+    assert.ok(fake.world.panes.some((p) => p.pane_id === ref.paneId));
+    await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/app', place: { workspace: 'new' },
+      env: { env: {}, unset: ['bad;name'] }, timeoutMs: 30 }), (e: { code?: string }) => e.code === 'env_mismatch');
+    assert.equal(fake.world.panes.length, before, 'preparation failure closes only its created pane');
+    await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/app', place: { pane: 'w1:p1' }, env: launch, timeoutMs: NaN }),
+      (e: { code?: string }) => e.code === 'env_mismatch');
+  }, 'herdr-launch-env-failure');
 });

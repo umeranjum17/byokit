@@ -4,7 +4,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { OpenClawKit } from '../../src/kit.ts';
 import { Engine } from '../../src/engine.ts';
 import { scratchDir } from '../../../test-support.ts';
@@ -168,4 +168,96 @@ test('real tool calls cross the fail-closed gate; keyword memory stays free', { 
     for (const k of kits.splice(0)) await k.stop().catch(() => {});
     rmSync(stateDir, { recursive: true, force: true });
   }
+});
+
+test('API-key activation seals a sibling store; normal selection and stores remain unchanged', { timeout: 600_000 }, async () => {
+  const stateDir = scratchDir('key-engine');
+  const canary = 'CANARY-ENGINE-PAID-KEY-82823';
+  const logs: string[] = [];
+  const events: unknown[] = [];
+  const kit = new OpenClawKit({ stateDir, engineDir, log: (line) => logs.push(line),
+    config: { plugins: { allow: ['openai'] }, models: { providers: { openai: {
+      baseUrl: stub.url, api: 'openai-completions',
+      models: [{ id: 'gpt-5.6-sol', name: 'Test', api: 'openai-completions', reasoning: false, input: ['text'],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 2048 }],
+    } } } } });
+  try {
+    await kit.start();
+    await useModelStub(kit, stub);
+    await kit.ensureMember('m1');
+    await kit.ensureMember('m2');
+    const off = kit.onEvent('*', (e) => events.push(e));
+    const before = await kit.call('config.get', {}) as any;
+    const added = await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: canary });
+    assert.equal(added, 'ok', JSON.stringify({ added, logs: logs.slice(-10) }));
+    const after = await kit.call('config.get', {}) as any;
+    assert.deepEqual(after.config.agents.entries.m1, before.config.agents.entries.m1);
+    assert.deepEqual(after.config.agents.defaults.model, before.config.agents.defaults.model);
+    assert.deepEqual(after.config.auth?.order, before.config.auth?.order, 'global order never changes');
+    const { execFileSync } = await import('node:child_process');
+    const { pathToFileURL } = await import('node:url');
+    const sdk = pathToFileURL(join(dirname(kit.doctorContext().entry), 'dist/plugin-sdk/provider-auth.js')).href;
+    // A read-only transaction on each exact agent store; report metadata only, never credential values.
+    const code = `const {updateAuthProfileStoreWithLock}=await import(${JSON.stringify(sdk)});
+      const result={};for(const id of ['m1','m2','byokit-key-m1']) {
+        await updateAuthProfileStoreWithLock({agentDir:process.env.OPENCLAW_STATE_DIR+'/agents/'+id+'/agent',
+          updater(store){result[id]={order:store.order,profiles:Object.entries(store.profiles).map(([id,p])=>({id,type:p.type,provider:p.provider,copyToAgents:p.copyToAgents}))};return false;}});
+      }process.stdout.write(JSON.stringify(result));`;
+    const stores = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', code],
+      { env: kit.doctorContext().env, encoding: 'utf8' }));
+    assert.equal(stores.m1.profiles.length, 0);
+    assert.equal(stores.m2.profiles.length, 0);
+    assert.deepEqual(stores.m1.order?.openai ?? [], [], "no normal-agent order admits a key");
+    assert.equal(stores['byokit-key-m1'].profiles.length, 1);
+    const profile = stores['byokit-key-m1'].profiles[0];
+    assert.equal(profile.type, 'api_key');
+    assert.equal(profile.copyToAgents, false);
+    assert.deepEqual(stores['byokit-key-m1'].order.openai, [profile.id]);
+    // Config writes can restart a cold gateway. Poll its own local-store view, never an arbitrary delay.
+    const deadline = Date.now() + 60_000;
+    let ready = false;
+    let attempt = 0;
+    while (!ready && Date.now() < deadline) {
+      attempt++;
+      let reply: { ok: boolean; model?: string } | undefined;
+      try {
+        reply = await kit.callDynamic('byokit.keys', { member: 'm1', action: 'ready', diagnostics: Boolean(process.env.CI) }) as typeof reply;
+      } catch {
+        if (process.env.CI) console.log('key readiness', JSON.stringify({ attempt, phase: kit.state.phase, transportFailed: true, stores }));
+      }
+      if (reply) {
+        assert.equal(JSON.stringify(reply).includes(canary), false, 'readiness metadata never contains the key');
+        ready = reply.ok;
+        if (process.env.CI) console.log('key readiness', JSON.stringify({ attempt, phase: kit.state.phase, reply, stores }));
+      }
+      if (!ready) await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    assert.ok(ready, 'key profile must become visible in the gateway within 60 seconds');
+    const callsBefore = stub.calls.length;
+    const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:key', auth: 'apiKey', message: 'hello key' });
+    if (process.env.CI) console.log('key run', JSON.stringify({ phase: kit.state.phase, ok: end.ok }));
+    assert.ok(end.ok, JSON.stringify(end));
+    assert.ok(stub.calls.slice(callsBefore).length > 0);
+    assert.ok(stub.calls.slice(callsBefore).every((c) => c.authorization === `Bearer ${canary}`));
+    const other = await kit.run({ member: 'm2', sessionKey: 'agent:m2:key', auth: 'apiKey', message: 'hello' });
+    assert.ok(!other.ok && 'kind' in other && other.kind === 'signed-out');
+    // Logout is a typed pass-through; the test retries only the engine's explicit pre-execution refusal.
+    const logoutDeadline = Date.now() + 60_000;
+    for (;;) {
+      try { await kit.call('models.authLogout', { agentId: 'byokit-key-m1', provider: 'openai' }); break; }
+      catch (error) {
+        const retry = error as { code?: string; retryable?: boolean };
+        if (!(retry.code === 'UNAVAILABLE' && retry.retryable) || Date.now() >= logoutDeadline) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
+    const removedBefore = stub.calls.length;
+    const removed = await kit.run({ member: 'm1', sessionKey: 'agent:m1:key', auth: 'apiKey', message: 'hello' });
+    assert.ok(!removed.ok && 'kind' in removed && removed.kind === 'signed-out');
+    assert.equal(stub.calls.length, removedBefore, 'a removed key never reaches another account');
+    assert.equal(JSON.stringify([added, end, other, removed, logs, events]).includes(canary), false);
+    const engineLogs = readFileSync(join(stateDir, 'logs/openclaw-events.log'), 'utf8');
+    assert.equal(engineLogs.includes(canary), false);
+    off();
+  } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });

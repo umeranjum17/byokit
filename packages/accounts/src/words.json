@@ -20,6 +20,9 @@
   "terms.grey": "Uses your {name} plan. {company} may change this at any time.",
   "billing.subscription": "Uses your {name} plan.",
   "billing.api": "Charged per use to your {company} account, not a plan.",
+  "billing.local": "Runs on this computer.",
+  "billing.free": "Uses the free service from {company}.",
+  "billing.unknown": "Billing set by {company}.",
   "status.notIncluded": "Your {name} plan doesn't include this yet.",
   "callback.done": "You're signed in. You can go back to {app} now.",
   "callback.declined": "No problem. Nothing was changed. You can go back to {app}.",
@@ -57,5 +60,11 @@
   "pick.age": "Read {ago} ago",
   "pick.ageUnknown": "Reading time unknown",
   "ago.minutes": "{n} minutes",
-  "ago.hours": "{n} hours"
+  "ago.hours": "{n} hours",
+  "cli.unknownAccount": "Choose an account from the list.",
+  "cli.invalidName": "Give the account a name up to 64 characters.",
+  "cli.kindMismatch": "That agent cannot use this account.",
+  "cli.prepareFailed": "Could not prepare the account. Try again.",
+  "cli.badOption": "The app supplied invalid account options.",
+  "cli.piLogin": "In the window that opens, type {command} and finish signing in."
 }

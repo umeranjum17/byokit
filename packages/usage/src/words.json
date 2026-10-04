@@ -5,5 +5,15 @@
   "code.no-plan": "This {name} account has no plan with limits.",
   "code.rate-limited": "{name} asked us to wait. Showing the last reading.",
   "code.unavailable": "{name} didn't answer. Trying again shortly.",
-  "code.incomplete": "{name} answered in a way we can't read yet."
+  "code.incomplete": "{name} answered in a way we can't read yet.",
+  "code.refresh-failed": "This sign-in could not be renewed. Check it in its own app.",
+  "plan.name": "{name} plan",
+  "model.unknown": "AI model",
+  "room.unknown": "Room left unknown",
+  "room.left": "{left} left",
+  "quota.scope": "Room left covers your whole plan. Counts below cover recorded calls only.",
+  "quota.waiting": "The plan asked us to wait for a reading. This does not mean it is out of room. Counts below cover recorded calls only.",
+  "activity.recorded": "{n} recorded calls in 30 days",
+  "activity.empty": "No recorded calls in 30 days",
+  "activity.one": "1 recorded call in 30 days"
 }

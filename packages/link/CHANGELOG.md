@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.7.0 (2026-10-01)
+
+
+
+- SECURITY: `Host.shortCode()` adds a machine-key commitment to typed pairing; `pairWithCode()` verifies it before disclosing device identity or asking for approval. Legacy codes remain compatible; use the full new code when relay lookup is untrusted.
 - Add `check(urls, { timeoutMs, concurrency, WebSocket })`: a per-URL reachability probe returning a `LinkProblem`
   code plus its `LINK_WORDS` sentence, in input order. The host answers a new unauthenticated probe frame read-only
   (no ticket, code, grant or counter touched; the reply leaks nothing but reachability), so a checked offer still
@@ -12,6 +17,7 @@
 - Add opt-in `deviceMeta` in sealed ready replies, kept after pairing and refreshed on reconnect.
 - Add `secureDeviceStores` and `browserDeviceStores` collections with list, named load/save/remove and link adapters.
 - Document and test constrained delegated pairing through host-issued short-lived invitations.
+- Add `Host.shortCode(terms)` for small terminals, with the existing word comparison, explicit host approval, single-use window and five-attempt limit (minor release).
 
 ## 0.6.0 (2026-09-30)
 

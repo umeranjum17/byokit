@@ -6,37 +6,45 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import type { ResponseUsage } from '../responses.ts';
 
-export type MockOpenAIOptions = { port?: number; host?: string; plan?: string; email?: string; expiresIn?: number; log?: (line: string) => void };
+/** First matching script wins. Strings match a substring; regexes and predicates inspect the joined input text.
+ * Unmatched prompts retain the echo/tool behavior. Counts are supplied explicitly, never estimated. */
+export type MockOpenAIAnswer = { match: string | RegExp | ((prompt: string) => boolean); text: string; usage?: ResponseUsage };
+export type MockOpenAIOptions = { port?: number; host?: string; plan?: string; email?: string; expiresIn?: number;
+  answers?: readonly MockOpenAIAnswer[]; log?: (line: string) => void };
 
 /** An access token as OpenAI shapes it: the account, the plan and the email in its claims. */
-export const mockJwt = (plan = 'plus', email = 'sara@example.com', n = 0) => ['eyJhbGciOiJub25lIn0', Buffer.from(JSON.stringify({
-  'https://api.openai.com/auth': { chatgpt_account_id: 'acct-1', chatgpt_plan_type: plan }, 'https://api.openai.com/profile': { email }, n,
+export const mockJwt = (plan = 'plus', email = 'sara@example.com', n = 0, accountId = 'acct-1') => ['eyJhbGciOiJub25lIn0', Buffer.from(JSON.stringify({
+  'https://api.openai.com/auth': { chatgpt_account_id: accountId, chatgpt_plan_type: plan }, 'https://api.openai.com/profile': { email }, n,
   // As long as a real one, whose claims fill about 1.5 kB.
   scp: ['openid', 'profile', 'email', 'offline_access'], pad: 'x'.repeat(1200),
 })).toString('base64url'), 'sig'].join('.');
 
-export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', email = 'sara@example.com', expiresIn = 864_000, log }: MockOpenAIOptions = {}) {
+export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', email = 'sara@example.com', expiresIn = 864_000, answers = [], log }: MockOpenAIOptions = {}) {
   const codes = new Map<string, { device: string; approved?: boolean; denied?: boolean }>();
   let issued = 0, asked = 0;
   const state = {
     /** Refresh tokens OpenAI still honours; a refresh spends the old one (rotation), sign-out revokes one. */
     live: new Set<string>(),
     requests: [] as { path: string; body: string }[],
+    /** Scripts may be replaced between requests, without restarting the sign-in stand-in. */
+    answers: [...answers],
     /** Refuse every refresh, as when the person signed out elsewhere. */
     refuse: false,
     /** Seconds each issued token lives. */
     expiresIn,
+    accountId: 'acct-1', email, plan,
     /** Drop this many device-code polls on the floor, as a phone does to a backgrounded app. */
     dropPolls: 0,
     /** Answer the next question with this HTTP error instead (a limit, a lapsed sign-in), then answer normally. */
     fail: undefined as { status: number; body: string } | undefined,
   };
   const accessOf = new Map<string, string>(); // refresh token → the access token issued with it
-  const issue = () => {
+  const issue = (identity = { accountId: state.accountId, email: state.email, plan: state.plan }) => {
     const refresh = `rt_${++issued}`;
     state.live.add(refresh);
-    accessOf.set(refresh, mockJwt(plan, email, issued));
+    accessOf.set(refresh, mockJwt(identity.plan, identity.email, issued, identity.accountId));
     return { access_token: accessOf.get(refresh)!, refresh_token: refresh, expires_in: state.expiresIn, id_token: 'x' };
   };
   const approve = (userCode: string, deny = false) => {
@@ -83,11 +91,15 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
           return send(200, issue());
         }
         if (state.refuse || !state.live.delete(form.get('refresh_token') ?? '')) return send(401, { error: { code: 'refresh_token_reused', message: 'invalid_grant' } });
-        return send(200, issue());
+        {
+          const access = accessOf.get(form.get('refresh_token')!)!;
+          const claims = JSON.parse(Buffer.from(access.split('.')[1], 'base64url').toString());
+          return send(200, issue({ accountId: claims['https://api.openai.com/auth'].chatgpt_account_id, plan: claims['https://api.openai.com/auth'].chatgpt_plan_type, email: claims['https://api.openai.com/profile'].email }));
+        }
       case '/codex/responses': {
         const bearer = req.headers.authorization?.replace(/^Bearer /, '');
         if (state.fail) { const f = state.fail; state.fail = undefined; return send(f.status, f.body); }
-        if (![...state.live].some((r) => accessOf.get(r) === bearer) || req.headers['chatgpt-account-id'] !== 'acct-1')
+        if (![...state.live].some((r) => accessOf.get(r) === bearer) || req.headers['chatgpt-account-id'] !== (bearer && JSON.parse(Buffer.from(bearer.split('.')[1], 'base64url').toString())['https://api.openai.com/auth'].chatgpt_account_id))
           return send(401, { error: { message: 'Provided authentication token is expired. Please try signing in again.' } });
         const asked = json();
         const turns = Array.isArray(asked.input) ? asked.input : [];
@@ -99,12 +111,17 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
           for (const part of content) if (part?.type === 'input_text' && typeof part.text === 'string') said.push(part.text);
         }
         const words = said.join(' ');
+        let scripted: MockOpenAIAnswer | undefined;
+        try {
+          scripted = state.answers.find(({ match }) => typeof match === 'string' ? words.includes(match)
+            : typeof match === 'function' ? match(words) : new RegExp(match.source, match.flags).test(words));
+        } catch { return send(500, { error: { message: 'The stand-in could not match this prompt.' } }); }
         const schema = (asked.text as any)?.format?.type === 'json_schema';
-        const text = answered !== undefined ? `You did: ${answered}`
+        const text = scripted ? scripted.text : answered !== undefined ? `You did: ${answered}`
           : schema ? JSON.stringify({ echo: words ? `You said: ${words}` : 'You said nothing' })
           : `You said: ${words}`;
         const called = Array.isArray(asked.tools) ? asked.tools.filter((t: any) => t?.type === 'function') : [];
-        if (called.length > 0 && answered === undefined) {
+        if (!scripted && called.length > 0 && answered === undefined) {
           // A tool turn: the model calls the first function tool, streamed as argument deltas and one finished item,
           // then the completion with the output list. The app answers with a `function_call_output` turn next.
           const name = String(called[0].name ?? 'tool');
@@ -124,7 +141,9 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
           res.write(`event: response.output_text.delta\ndata: ${JSON.stringify({ type: 'response.output_text.delta', delta })}\n\n`);
           await new Promise((r) => setTimeout(r, 5));
         }
-        return res.end('event: response.completed\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\ndata: [DONE]\n\n');
+        return res.end(`event: response.completed\ndata: ${JSON.stringify({ type: 'response.completed', response: {
+          status: 'completed', ...(scripted?.usage && { usage: scripted.usage }),
+        } })}\n\ndata: [DONE]\n\n`);
       }
       case '/oauth/revoke':
         state.live.delete(json().token);

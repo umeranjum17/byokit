@@ -1,0 +1,1 @@
+- Resolve current virtual-editor focus from the whole window tree before accepting a stale editable provider lookup, so reads and captures do not select the previous WebView field; retain password protection and same-field insertion.

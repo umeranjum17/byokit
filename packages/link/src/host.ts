@@ -2,7 +2,7 @@
 // keeps one durable grant per device, answers their requests, and removes them. It never listens on anything itself:
 // the app hands it WebSockets (`accept`), or one relay socket that carries many devices (`relay`).
 import { Handshake, b64, b64url, firstFrame, hostId, messageBytes, random, unb64url, type Channel, type KeyPair } from './channel.ts';
-import { cleanName, codeKey, newCode, normalizeCode, offerText, type PairOffer } from './pairing.ts';
+import { bindCode, cleanName, codeKey, newCode, normalizeCode, offerText, type PairOffer } from './pairing.ts';
 import { PublicLinkError } from './device.ts';
 import { LINK_PROBE, LINK_PROBE_OK } from './check.ts';
 import { MAX_STREAMS, Streams, type LinkStream } from './stream.ts';
@@ -61,6 +61,9 @@ export type HostOptions = {
   canView?: (req: LinkRequest) => boolean;
   /** First authenticated socket up / last socket down per grant. Exceptions go to onError. */
   onConnection?: (grant: Grant, online: boolean) => void;
+  /** After durable removal, expiry or authority change; never a socket drop. Called even for offline grants.
+   *  Access/streams are already invalidated. Removal awaits returned privacy cleanup; failure never restores access. */
+  onGrantRemoved?: (grant: Grant, why: 'revoked' | 'expired' | 'changed') => void | Promise<void>;
   /** Opt-in app data sent inside sealed ready, on pairing and reconnect. Never implicitly exposes Grant.meta. */
   deviceMeta?: (grant: Grant) => unknown;
   onError?: (error: unknown) => void;
@@ -202,6 +205,7 @@ export class Host {
       if (persist) await this.save(updated);
       const previous = this.grants;
       this.grants = updated;
+      const cleanup: Promise<void>[] = [];
       for (const old of previous) {
         const current = updated.find((g) => g.id === old.id);
         if (current && !this.ended(current) && current.key === old.key && current.role === old.role) {
@@ -218,7 +222,13 @@ export class Host {
           s.streams.closeAll('unreachable');
           try { conn.close(1001, 'grant changed'); } catch {}
         }
+        // Invoke synchronously after invalidation; await only after every affected grant has lost access.
+        try {
+          cleanup.push(Promise.resolve(this.opts.onGrantRemoved?.({ ...old },
+            !current ? (why === 'ended' ? 'expired' : 'revoked') : this.ended(current) ? 'expired' : 'changed')));
+        } catch (error) { cleanup.push(Promise.reject(error)); }
       }
+      await Promise.all(cleanup);
       return updated;
     });
   }
@@ -261,6 +271,13 @@ export class Host {
     this.codes.set(normalizeCode(code)!, p);
     this.tries = 0;
     return { code, expires: p.expires };
+  }
+
+  /** A 57-character typed offer that pins this machine's key. Use the whole code with `pairWithCode`;
+   *  addresses come separately (e.g. relay `findHost`). Same approval, single use and expiry as `code`. */
+  shortCode(o: GrantTerms): { code: string; expires: number } {
+    const { code, expires } = this.code(o);
+    return { code: bindCode(code, this.keys.publicKey), expires };
   }
 
   /** Withdraws every open QR and code. */

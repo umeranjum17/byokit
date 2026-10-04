@@ -1,3 +1,11 @@
+import type { Ask, ResponseResult } from './responses.ts';
+
+/** A member-bound Accounts ChatGPT subscription handle. Credentials stay inside Accounts. */
+export type ChatGPTRespondAccount = {
+  readonly billing: 'subscription';
+  respond(ask: Ask & { result: true }): Promise<ResponseResult>;
+};
+
 /** A host-owned, validated Sign in with ChatGPT token-sharing session. The host completes the official
  * OAuth flow (including ID-token verification), stores it per person, and refreshes it before returning it.
  * This adapter never discovers credentials, starts a login, or substitutes a Codex credential. */
@@ -24,7 +32,7 @@ export function chatgptPlan(o: {
       const session = await o.session(signal);
       if (!session || !Array.isArray(session.scopes) || !session.scopes.includes('chatgpt.tokens.use.direct') ||
           !session.scopes.includes('resource.invoke') || typeof session.accessToken !== 'string' || !session.accessToken.trim()) {
-        throw new UnsupportedAccountError('ChatGPT plan usage needs a consented token-sharing session.');
+        throw new UnsupportedAccountError('This needs a ChatGPT sign-in that allows plan use.');
       }
       return session.accessToken;
     },

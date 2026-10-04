@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { rmSync, statSync, readFileSync, writeFileSync } from 'node:fs';
+import { rmSync, statSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { Engine } from '../src/engine.ts';
-import { reconcileConfig, memoryLimited } from '../src/config.ts';
 import { routes } from '../src/routes.ts';
+import { reconcileConfig, memoryLimited, appRecoveryPrefixes } from '../src/config.ts';
 
 const opts = (root: string) => ({ root, stateDir: root, port: 12345, pluginId: 'byokit', pluginDir: join(root, 'plugin'), policyPath: join(root, 'policy.mjs') });
 test('plugin allowlist merges caller ids, the bridge and only offered route plugins', () => {
@@ -44,6 +44,13 @@ test('fresh and adversarial config force isolation and no paid memory fallback',
   assert.equal(c.memory.search.fallback, 'none');
   assert.equal(c.agents.defaults.models['openai/*'].agentRuntime.id, 'openclaw');
   assert.equal(c.security.installPolicy.enabled, true);
+  const providerPlugins = [...new Set(routes().filter((route) => route.offer).map((route) => route.plugin))];
+  assert.deepEqual(c.plugins.allow, ['byokit', ...providerPlugins]);
+  for (const proxy of ['litellm', 'clawrouter', 'copilot-proxy', 'openrouter', 'google', 'fal']) assert.ok(!c.plugins.allow.includes(proxy));
+  const custom = reconcileConfig(c, { ...opts(root), app: { plugins: { allow: ['app-plugin'] } } }) as any;
+  assert.deepEqual(custom.plugins.allow, ['app-plugin', 'byokit', ...providerPlugins]);
+  assert.deepEqual((reconcileConfig(custom, opts(root)) as any).plugins.allow, custom.plugins.allow);
+
   // `agents.entries` is the engine's own agent-id map (5.6's `entries[*]`), exactly as the pin writes it.
   const hostile = reconcileConfig({ memory: { search: { provider: 'auto', fallback: 'openai' } }, agents: { entries: { m9: { memory: { search: { provider: 'openai', fallback: 'openai' } } } } } }, {
     ...opts(root), app: { gateway: { bind: 'lan', controlUi: { enabled: true }, tailscale: { mode: 'on' } }, discovery: { mdns: { mode: 'on' } } },
@@ -61,6 +68,34 @@ test('fresh and adversarial config force isolation and no paid memory fallback',
   assert.equal(local.memory.search.provider, 'ollama');
   const remote = reconcileConfig({ memory: { search: { provider: 'ollama', remote: { baseUrl: 'https://example.com', apiKey: 'secret' } } } }, opts(root)) as any;
   assert.equal(remote.memory.search.provider, 'none');
+});
+
+test('app-owned recovery prefixes are bounded namespaces, copied and mapped for API-key members', () => {
+  assert.deepEqual(appRecoveryPrefixes(), []);
+  const prefixes = ['agent:m1:crewhouse:', 'agent:m1:crewhouse:'];
+  assert.deepEqual(appRecoveryPrefixes({ keyPrefixes: prefixes }), ['agent:m1:crewhouse:', 'agent:byokit-key-m1:crewhouse:']);
+  const dir = scratchDir('recovery-prefixes');
+  try {
+    const opts = { stateDir: dir, pluginId: 'byokit', tools: [], spawnEngine: false, onState() {}, onExit() {} };
+    const stock = new Engine(opts);
+    assert.equal(stock.doctorContext().env.BYOKIT_APP_OWNED_SESSION_PREFIXES, '[]');
+    const app = new Engine({ ...opts, appOwnedSessions: { keyPrefixes: prefixes } });
+    prefixes.push('agent:m2:other:');
+    assert.deepEqual(JSON.parse(app.doctorContext().env.BYOKIT_APP_OWNED_SESSION_PREFIXES!),
+      ['agent:m1:crewhouse:', 'agent:byokit-key-m1:crewhouse:']);
+    assert.deepEqual(appRecoveryPrefixes({ keyPrefixes: ['agent:m1:task-'] }), ['agent:m1:task-', 'agent:byokit-key-m1:task-']);
+    assert.deepEqual(appRecoveryPrefixes({ keyPrefixes: ['agent:m1:signin-request:'] }),
+      ['agent:m1:signin-request:', 'agent:byokit-key-m1:signin-request:']);
+    assert.deepEqual(appRecoveryPrefixes({ keyPrefixes: ['agent:123:task-'] }), ['agent:123:task-']);
+    assert.deepEqual(appRecoveryPrefixes({ keyPrefixes: ['agent:byokit-key-m1:task-'] }), ['agent:byokit-key-m1:task-']);
+    for (const bad of [null, {}, [], { keyPrefixes: null }, { keyPrefixes: 'agent:m1:task:' }]) {
+      assert.throws(() => new Engine({ ...opts, appOwnedSessions: bad as any }), /invalid appOwnedSessions/);
+    }
+    for (const bad of [[null], [1], [''], ['agent:'], ['agent:m1:'], ['agent:m1:main'], ['agent:m1:ma'], ['agent:M1:task:']]) {
+      assert.throws(() => new Engine({ ...opts, appOwnedSessions: { keyPrefixes: bad as any } }), /invalid appOwnedSessions/);
+    }
+    assert.equal(existsSync(join(dir, 'openclaw')), false, 'option validation creates no engine files');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('prepare writes only changed config and isolates its environment', async () => {

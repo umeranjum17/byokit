@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { Accounts, ClaudePlanExpiredError, ClaudePlanPlatformError, claudeAuthorization, claudeCode, keystoreStore, memoryStore, offered, PROVIDERS, recordStore } from '../src/portable.ts';
+import { Accounts, ClaudePlanExpiredError, ClaudePlanPlatformError, claudeAuthorization, claudeCode, keystoreStore, memoryStore, offered, planLabel, PROVIDERS, recordStore } from '../src/portable.ts';
 import type { OAuthCredential, CredentialStore } from '@earendil-works/pi-ai';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/claude-plan-typescript.json', import.meta.url), 'utf8'));
@@ -14,7 +14,7 @@ function standIn(store = memoryStore()) {
   const calls: { url: string; init: RequestInit; body: any }[] = [];
   let response: any = fixture.exchange, status = 200;
   const f = (async (url: any, init: RequestInit) => {
-    calls.push({ url: String(url), init, body: JSON.parse(init.body as string) });
+    calls.push({ url: String(url), init, body: init.body ? JSON.parse(init.body as string) : undefined });
     if (String(url).endsWith('/v1/messages')) return new Response(status === 200 ? stream : JSON.stringify({ error: { message: 'recorded-access recorded-refresh' } }), { status });
     return new Response(JSON.stringify(response), { status });
   }) as typeof fetch;
@@ -22,9 +22,10 @@ function standIn(store = memoryStore()) {
   return { a, store, calls, set(value: any, code = 200) { response = value; status = code; } };
 }
 
-test('Claude is a default grey subscription route; API key remains separate and explicit', () => {
-  assert.deepEqual(offered().map((p) => p.key), ['chatgpt', 'claude']);
-  assert.equal(PROVIDERS.claude.terms, 'grey'); assert.equal(PROVIDERS.claude.billing, 'subscription');
+test('Claude is a default subscription route; API key remains separate and explicit', () => {
+  assert.ok(offered().some((p) => p.key === 'claude'));
+  assert.ok(!offered().some((p) => p.billing === 'api'));
+  assert.equal(PROVIDERS.claude.billing, 'subscription');
   assert.deepEqual(new Accounts().providers.map((p) => p.key), ['chatgpt', 'claude']);
 });
 
@@ -174,4 +175,36 @@ test('a resolver arriving after refresh starts joins the same flight', async () 
   const rt = await a.runtime(1), first = rt.getAuth(id); await sent;
   const second = rt.getAuth(id); release();
   const both = await Promise.all([first, second]); assert.equal(calls, 1); assert.ok(both.every((r) => r?.auth.apiKey === 'rotated-access'));
+});
+
+test('the plan is named from the Claude profile, read once per sign-in; unknown, never failing, when it does not say', async () => {
+  const s = standIn(); await s.store.modify(id, async () => token(fixture.now + 3600_000));
+  s.set({ account: { email: 'umer@example.com' }, organization: { organization_type: 'claude_max' } });
+  assert.deepEqual(await s.a.plan(1, 'claude'), { plan: 'max', email: 'umer@example.com', work: false });
+  assert.equal(s.calls[0].url, 'https://api.anthropic.com/api/oauth/profile');
+  assert.equal(new Headers(s.calls[0].init.headers).get('authorization'), 'Bearer recorded-access');
+  await s.a.plan(1, 'claude'); assert.equal(s.calls.length, 1, 'read once per sign-in');
+  await s.a.logout(1, 'claude'); assert.equal(await s.a.plan(1, 'claude'), null);
+
+  const t = standIn(); await t.store.modify(id, async () => token(fixture.now + 3600_000)); t.set({ error: 'recorded-access' }, 500);
+  assert.deepEqual(await t.a.plan(1, 'claude'), { plan: '', email: '', work: false });
+  t.set({ account: { has_claude_pro: true } });
+  assert.deepEqual(await t.a.plan(1, 'claude'), { plan: 'pro', email: '', work: false }, 'a failed read is tried again');
+  const u = standIn(); await u.store.modify(id, async () => token(fixture.now + 3600_000)); u.set({ organization: { organization_type: 'claude_team' } });
+  assert.equal((await u.a.plan(1, 'claude'))?.work, true);
+
+  // Another writer of the same store signs in someone else: the label follows the credential, not the member.
+  u.set({ account: { email: 'other@example.com' }, organization: { organization_type: 'claude_pro' } });
+  await u.store.modify(id, async () => ({ ...token(fixture.now + 3600_000), refresh: 'another-refresh' }));
+  assert.deepEqual(await u.a.plan(1, 'claude'), { plan: 'pro', email: 'other@example.com', work: false });
+
+  // Naming the plan never refreshes the sign-in, so it can never spend or lose it.
+  const v = standIn(); await v.store.modify(id, async () => token(Date.now() + 60_000)); v.set({ organization: { organization_type: 'claude_max' } });
+  assert.deepEqual(await v.a.plan(1, 'claude'), { plan: '', email: '', work: false });
+  assert.equal(v.calls.length, 0); assert.equal((await v.store.read(id))?.type, 'oauth');
+
+  assert.equal(planLabel('Claude', 'max'), 'Claude Max');
+  assert.equal(planLabel('ChatGPT', 'plus'), 'ChatGPT Plus');
+  assert.equal(planLabel('ChatGPT', 'prolite'), 'ChatGPT Pro Lite');
+  assert.equal(planLabel('Claude', ''), 'Claude');
 });

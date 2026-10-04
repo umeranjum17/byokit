@@ -59,7 +59,8 @@ const options: KitOptions = {
     said = now;
   },
 };
-if (fake) Object.assign(options, { spawnEngine: false, transport: (await fakeSignIn()).factory });
+const gateway = fake ? await fakeSignIn() : undefined;
+if (gateway) Object.assign(options, { spawnEngine: false, transport: gateway.factory });
 const kit = new OpenClawKit(options);
 
 // The fake's ChatGPT sign-in, held a few seconds on its code so a person (or the e2e test) can read it.
@@ -95,7 +96,8 @@ const jsonFile = <T>(file: string, empty: T) => ({
     renameSync(`${file}.tmp`, file);
   },
 });
-const grants: GrantStore = jsonFile<Grant[]>(join(state, 'grants.json'), []);
+const grantFile = jsonFile<Grant[]>(join(state, 'grants.json'), []);
+const grants: GrantStore = grantFile;
 const ingress = jsonFile<ServeIngress | null>(join(state, 'ingress.json'), null);
 
 // Pairing asks the person here, one device at a time: a second one asking meanwhile is turned away, and a question
@@ -111,6 +113,23 @@ const ask = (question: string) => new Promise<string>((resolve) => {
   const timer = setTimeout(() => { console.log(''); answer(''); }, 300_000);
   asking = answer;
 });
+
+// SYNTHETIC FIXTURE, fake mode only: the kit's offline browser fake (no Chromium, no profile, no real site) stands in
+// for the helper's browser, with one sign-in request already waiting on a loopback address. It shows the sign-in
+// card, takeover and live panel end to end; it is not browser protection. Its sign-in pings go out on the fake
+// Gateway's event stream, as the kit's own will.
+if (fake) {
+  const { fakeBrowserHost } = await import('@byokit/openclaw/testing');
+  const browser = await fakeBrowserHost({ members: [MEMBER],
+    authorize: (grant, member, control) => member === MEMBER && grantFile.load().some((g) => g.id === grant && (!control || g.role === 'control')),
+    ping: (member, kind) => gateway?.emit('byokit.browser', { member, kind }) });
+  kit.browser = browser;
+  await browser.raise({ member: MEMBER, sessionKey: 'agent:me:phone', checkUrl: 'http://127.0.0.1:2820/account',
+    reasons: ['password-field'], hints: ['password'] });
+  browser.fixture.authenticated(MEMBER, true); // the synthetic site reports signed in once Done is pressed
+  const jpeg = new Uint8Array(readFileSync(new URL('fixture-signin.jpg', import.meta.url)));
+  setInterval(() => browser.fixture.frame(MEMBER, { seq: Date.now(), at: Date.now(), w: 640, h: 400, jpeg }), 500).unref();
+}
 
 const host = await Host.open({
   keys: hostKeyFile(join(state, 'link-key.json')),

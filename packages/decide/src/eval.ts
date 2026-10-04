@@ -1,10 +1,12 @@
 // An eval file is JSONL: a header line `{ decision, question, note? }`, then one labelled case per line,
-// `{ state, expect, jev?, ms? }`. `expect` is the right answer, a list of right answers, or null when only an abstain is
+// `{ state, expect, images?, recorded?, jev?, ms? }`. `expect` is the right answer, a list of right answers, or null when only an abstain is
 // right. `jev` is a stored Jev-shaped answer replayed offline (CI never calls a model); --live --record refreshes it.
-import { resolve, type Answer, type Question } from './index.ts';
+import { decide, resolve, type Answer, type Question, type Raw, type Options } from './index.ts';
+import { normalizeImages, validateImageReferences, type ImageInput } from './images.ts';
+import type { ConfigOptions } from './config.ts';
 import { raw } from './jev.ts';
 
-export type Case = { state: unknown; expect: string | boolean | number | null | Array<string | boolean | number>; jev?: unknown; ms?: number };
+export type Case = { state: unknown; images?: readonly ImageInput[]; recorded?: Raw; expect: string | boolean | number | null | Array<string | boolean | number>; jev?: unknown; ms?: number };
 /** `note` says where the stored answers came from. */
 export type EvalFile = { decision: string; question: Question; note?: string; cases: Case[] };
 export type Report = {
@@ -18,12 +20,13 @@ export type Report = {
 export function parse(text: string): EvalFile {
   const [head, ...rest] = text.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
   if (!head?.decision || !head.question) throw new Error('the first line needs decision and question');
+  for (const c of rest) validateImageReferences({ [head.decision]: head.question }, normalizeImages(c.images));
   return { ...head, cases: rest };
 }
 
 export function format(f: EvalFile): string {
   const { cases, ...head } = f;
-  return [head, ...cases].map((l) => JSON.stringify(l)).join('\n') + '\n';
+  return [head, ...cases.map((c) => ({ ...c, ...(c.images && { images: normalizeImages(c.images) }) }))].map((l) => JSON.stringify(l)).join('\n') + '\n';
 }
 
 /** Scores `ask` over the cases, in order. */
@@ -37,7 +40,8 @@ export async function evaluate(cases: Case[], ask: (c: Case) => Promise<Answer>)
     if (a.abstained) {
       r.abstained++;
       if (c.expect === null) r.agree++;
-    } else if (right.includes(a.answer as never)) r.agree++;
+    } else if (Array.isArray(a.answer) ? Array.isArray(c.expect) &&
+      a.answer.length === c.expect.length && a.answer.every((id, index) => id === (c.expect as unknown[])[index]) : right.includes(a.answer as never)) r.agree++;
     else r.clearWrong++, r.wrong.push({ line: i + 2, expect: c.expect, got: a.answer, confidence: a.confidence });
   }
   ms.sort((a, b) => a - b);
@@ -45,9 +49,15 @@ export async function evaluate(cases: Case[], ask: (c: Case) => Promise<Answer>)
   return r;
 }
 
-/** A stored Jev-shaped answer through the same floors a live answer takes. */
+/** Run any kit backend over a labelled file, forwarding each case's images through decide. */
+export function evaluateDecisions(file: EvalFile, options: Omit<Options, 'images'> | Omit<ConfigOptions, 'images'>): Promise<Report> {
+  return evaluate(file.cases, async (c) => (await decide(c.state, { [file.decision]: file.question },
+    { ...options, images: c.images }))[file.decision]);
+}
+
+/** A generic Raw or legacy Jev-shaped recording through the same floors a live answer takes. */
 export function replay(q: Question): (c: Case) => Promise<Answer> {
-  return async (c) => ({ ...resolve(q, raw(q, c.jev)), by: 'jev (recorded)', ms: c.ms ?? 0 });
+  return async (c) => ({ ...resolve(q, c.recorded ?? raw(q, c.jev)), by: c.recorded ? 'recorded' : 'jev (recorded)', ms: c.ms ?? 0 });
 }
 
 export function summary(name: string, by: string, r: Report): string {
