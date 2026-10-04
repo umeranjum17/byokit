@@ -6,7 +6,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AuthStore } from './auth-store.ts';
-import { EngineAlreadyRunningError, pidAlive } from './engine-status.ts';
+import { EngineAlreadyRunningError, pidAlive, StartedProcesses } from './engine-status.ts';
 import { EnginePatchError, atomic, prepareEngineSet, processStartTime, readPatchSet, verifyEngineSet, type PatchSet } from './engine-patches.ts';
 import { ENGINE_VERSION } from './constants.ts';
 import { appendUsageBoot } from './usage-boots.ts';
@@ -59,6 +59,7 @@ export class Engine {
   private setDir?: string;
   private wantedSet?: PatchSet;
   private child?: ChildProcess;
+  private readonly started = new StartedProcesses();
   private starting?: Promise<{ port: number; token: string; identityPath: string } | undefined>;
   private readonly authStore: AuthStore;
   private stopping = false;
@@ -125,11 +126,12 @@ export class Engine {
             stdio: ['ignore', 'ignore', 'pipe'],
           });
           let stderr = '', expired = false;
+          this.started.add(child);
           child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-500); });
           const timer = setTimeout(() => { expired = true; child.kill('SIGKILL'); }, 300_000);
-          child.once('error', error => { clearTimeout(timer); reject(error); });
+          child.once('error', error => { clearTimeout(timer); this.started.forget(child); reject(error); });
           child.once('exit', code => {
-            clearTimeout(timer);
+            clearTimeout(timer); this.started.forget(child);
             if (code === 0 && !expired) resolve();
             else { this.state('failed', 'install'); reject(new Error(`engine install: ${expired ? 'timeout' : stderr}`)); }
           });
@@ -273,11 +275,14 @@ export class Engine {
         appendUsageBoot(usageDir, { bootId, startedAt: Date.now() });
         env.BYOKIT_ENGINE_USAGE_LEDGER = usageDir; env.BYOKIT_ENGINE_BOOT = bootId;
       }
+      // Detached keeps the engine out of the host's session; stop() still signals its pid alone, never its group.
       try { this.child = spawn(process.execPath, [entry, 'gateway', '--port', String(this.port)], { cwd: env.HOME, env, detached: true, stdio: ['ignore', fd, fd] }); }
       catch (error) { if (env.BYOKIT_ENGINE_BOOT) appendUsageBoot(usageDir, { bootId, failedAt: Date.now(), spawned: false }); throw error; }
     } finally { closeSync(fd); }
     const child = this.child;
+    this.started.add(child);
     child.on('error', () => {
+      this.started.forget(child);
       // Only absence of a pid proves no engine could have attempted a ledger write.
       if (!child.pid && env.BYOKIT_ENGINE_BOOT) { try { appendUsageBoot(usageDir, { bootId, failedAt: Date.now(), spawned: false }); } catch { /* unclosed boot remains incomplete */ } }
       if (this.child !== child || this.stopping) return;
@@ -290,6 +295,7 @@ export class Engine {
     }
     writeFileSync(join(this.root, 'gateway.pid'), String(child.pid), { mode: 0o600 });
     child.once('exit', (code) => {
+      this.started.forget(child);
       if (this.child !== child || this.stopping) return;
       this.child = undefined;
       this.removeOwnedPid(child.pid);
@@ -320,12 +326,7 @@ export class Engine {
     this.stopping = true;
     await this.starting?.catch(() => {});
     const child = this.child;
-    if (child?.pid && child.exitCode === null) {
-      try { process.kill(-child.pid, 'SIGTERM'); } catch { /* already gone */ }
-      for (let i = 0; i < 15 && child.exitCode === null && child.signalCode === null; i++) await delay(200);
-      if (child.exitCode === null && child.signalCode === null) { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ } }
-      for (let i = 0; i < 15 && child.exitCode === null && child.signalCode === null; i++) await delay(200);
-    }
+    await this.started.terminate(delay);
     if (child && child.exitCode === null && child.signalCode === null) throw new Error('engine did not stop; credential store still in use');
     this.child = undefined;
     this.removeOwnedPid(child?.pid);
