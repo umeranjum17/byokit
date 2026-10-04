@@ -19,7 +19,8 @@
     "smoke:pack": "node scripts/pack-smoke.ts",
     "test": "sh scripts/test.sh",
     "test:browser": "sh scripts/test.sh 'examples/pwa/*.test.ts'",
-    "test:engine": "sh scripts/test.sh 'packages/openclaw/test/engine/*.test.ts'",
+    "test:engine": "sh scripts/test.sh $(find packages/openclaw/test/engine -name '*.test.ts' ! -name 'browser-*.test.ts' | sort)",
+    "test:browser-engine": "sh scripts/test.sh 'packages/openclaw/test/engine/browser-*.test.ts'",
     "test:write-engine": "sh scripts/test.sh 'packages/write/test/engine/*.test.ts'",
     "gen:openclaw": "node packages/openclaw/scripts/gen-methods.ts"
   },

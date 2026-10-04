@@ -125,6 +125,40 @@ jobs:
           mkdir "$scratch/home" "$scratch/t"
           HOME="$scratch/home" TMPDIR="$scratch/t" npm run smoke:pack -- --openclaw-engine
 
+  # Stock published Gateway + kit-owned pipe Chromium. No accounts, personal browser, engine patch or real site.
+  openclaw-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      # Chromium keeps its own sandbox, so the runner needs unprivileged user namespaces. This runner is ephemeral.
+      - run: if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
+      - name: Install only the published stock lock (no kit patch application)
+        run: |
+          mkdir -p "$RUNNER_TEMP/stock" "$RUNNER_TEMP/browser-home"
+          cp packages/openclaw/engine/package{,-lock}.json "$RUNNER_TEMP/stock/"
+          HOME="$RUNNER_TEMP/browser-home" npm ci --prefix "$RUNNER_TEMP/stock" --ignore-scripts --no-audit --no-fund
+      - name: Scoped offline browser/engine qualification
+        env:
+          BYOKIT_BROWSER_REQUIRED: '1'
+        run: |
+          export BYOKIT_BROWSER_STOCK_ENTRY="$RUNNER_TEMP/stock/node_modules/openclaw/openclaw.mjs"
+          export BYOKIT_BROWSER_RECEIPT="$RUNNER_TEMP/browser-receipt.json"
+          npm run test:browser-engine
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: stock-browser-qualification
+          path: ${{ runner.temp }}/browser-receipt.json*
+          if-no-files-found: warn
+
   # @byokit/write against its exactly pinned npm engine, in process and through the engine bin.
   write-engine:
     runs-on: ubuntu-latest
