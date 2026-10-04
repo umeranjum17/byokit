@@ -62,6 +62,7 @@ latest first, so neither goes stale.
 | `@byokit/push` | not on npm (private) — build from source | native pre-display sealed notices | [all releases](https://github.com/umeranjum17/byokit/releases) |
 | `@byokit/dictation` | `npm install @byokit/dictation` (from its first release; until then build from source) | ready to publish | [dictation-v releases](https://github.com/umeranjum17/byokit/releases?q=dictation-v) |
 | `@byokit/usage` | `npm install @byokit/usage` | 0.1.0 | [all releases](https://github.com/umeranjum17/byokit/releases) |
+| `@byokit/browser` | `npm install @byokit/browser` (from its first release; until then build from source) | ready to publish | [browser-v releases](https://github.com/umeranjum17/byokit/releases?q=browser-v) |
 
 Unpacked sizes as of accounts 0.4.1, decide 0.2.0, herdr 0.1.0, link 0.3.1, reach 0.2.0, relay 0.1.3, seal 0.1.0,
 ui-core 0.2.0 (npm `dist.unpackedSize`): accounts ~117 kB, decide ~36 kB, herdr ~279 kB, link ~151 kB,
@@ -151,6 +152,7 @@ to ask. Each agent keeps its own subscription sign-in; the kit never sees a cred
 | [`@byokit/push`](packages/push) | Opens sealed push title/body before iOS and Android display, with app-provisioned device keys ([spec](docs/capability-kits.md#13-byokitpush)) | private |
 | [`@byokit/dictation`](packages/dictation) | Live partials/finals and recording transcription through injected local recognition or your own subscription ([spec](docs/dictation-kit.md)) | ready to publish |
 | [`@byokit/usage`](packages/usage) | Subscription usage windows and remaining room per provider and account (Node only) | Node |
+| [`@byokit/browser`](packages/browser) | PNG screenshots of URLs or local HTML through an app-selected installed Chromium, with private temporary profiles | ready (Node) |
 
 ## Quickstart
 

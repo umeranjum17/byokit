@@ -114,6 +114,32 @@ function main(): void {
       ["install", "--no-audit", "--no-fund", ...tgzPaths, `typescript@${tsVersion.version}`, "@types/node@22", "ws@8.21.3"],
       appDir,
     );
+    // Paired decisions must work from the tarball without a credential on the phone or a live provider.
+    writeFileSync(join(appDir, "paired-decide.mjs"), `
+import assert from 'node:assert/strict';
+import { decide, jevHost, pairedJev, PairedHostError } from '@byokit/decide';
+const handler = jevHost({ billing: 'api-key-billed-per-use',
+  keys: { get: () => 'packed-host-only' },
+  fetch: async () => Response.json({ answers: { urgent: { noul: 0.9 } },
+    usage: { input_tokens: 2, output_tokens: 1 }, private: 'packed-host-only' }),
+});
+const device = { id: 'umer-phone', name: 'Umer', role: 'control', key: 'public', created: 1 };
+const link = { status: 'online', request: async (op, args) => handler({ op, args }, device) };
+const answers = await decide({ name: 'Umer' }, { urgent: { kind: 'yesno', question: 'Urgent?' } },
+  { privacy: 'may-leave', backends: [pairedJev({ link })] });
+assert.equal(answers.urgent.answer, true);
+assert.equal(answers.urgent.usage.input_tokens, 2);
+assert.equal(answers.urgent.raw, undefined);
+assert.ok(!JSON.stringify(answers).includes('packed-host-only'));
+await assert.rejects(pairedJev({ link: null }).ask({}, {}, new AbortController().signal),
+  e => e instanceof PairedHostError && e.code === 'not-paired');
+`);
+    try {
+      sh("node", ["paired-decide.mjs"], appDir);
+      pass("@byokit/decide [paired host]");
+    } catch (err) {
+      fail("@byokit/decide [paired host]", (err as Error).message);
+    }
     // Portable loaders are lazy: importing the entry alone cannot prove artifact/dependency packaging.
     // A sibling consumer with nested installs prevents accidental resolution from this app or the repo.
     const strictAccounts = join(dir, "strict-accounts");
@@ -217,6 +243,31 @@ try {
     for (const e of entries) {
       const nested = join(appDir, "node_modules", e.name, "node_modules", "@byokit");
       if (existsSync(nested)) fail(e.name, `nested @byokit under ${e.name}: a pin the tarballs do not satisfy`);
+    }
+    // Exercise the Node screenshot kit from its tarball without launching a real browser.
+    writeFileSync(join(appDir, "browser.mjs"), `
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { createBrowser, findChromium } from '@byokit/browser';
+import { fakeBrowser } from '@byokit/browser/testing';
+assert.equal(await findChromium([process.execPath]), process.execPath);
+const bytes = new Uint8Array([137, 80, 78, 71]);
+const fake = fakeBrowser(bytes);
+const session = await createBrowser({ executablePath: process.execPath, deviceScaleFactor: 2 }, fake.launch);
+try {
+  await session.open({ html: '<main id="screen">Packed</main>' });
+  await session.waitFor({ selector: '#screen' });
+  assert.deepEqual(await session.screenshot({ selector: '#screen' }), bytes);
+  assert.equal(fake.launches[0].deviceScaleFactor, 2);
+} finally { await session.close(); }
+assert.equal(existsSync(dirname(fake.launches[0].profileDir)), false);
+`);
+    try {
+      sh("node", ["browser.mjs"], appDir);
+      pass("@byokit/browser [offline session]");
+    } catch (err) {
+      fail("@byokit/browser [offline session]", (err as Error).message);
     }
     writeFileSync(join(appDir, "locked-seal.mjs"), `
 import assert from 'node:assert/strict';

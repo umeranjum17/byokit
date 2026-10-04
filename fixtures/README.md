@@ -15,7 +15,7 @@ a Messages backend to the frozen Kotlin runtime.
 | `conformance/signin-errors.json` | A failed sign-in's message → the `words.json` key to show. |
 | `conformance/classify.json` | A model-call failure message → `rate_limit`, `overloaded`, `signed_out`, `network` or none, plus "resting until". |
 | `conformance/limit-responses.json` | Shared ChatGPT HTTP error (status + body) → kind, until, message. |
-| `conformance/limit-responses-typescript.json` | TypeScript-only plan exclusion: `usage_not_included` remains distinct from a rate limit. |
+| `conformance/limit-responses-typescript.json` | TypeScript-only plan exclusion and HTTP status/Retry-After metadata for caller retries. |
 | `conformance/token-responses.json` | A token response → the stored credential (same shape as pi-ai's `{type:"oauth",access,refresh,expires,accountId}`). |
 | `conformance/refresh-typescript.json` | TypeScript portable refresh: before-send attempt state, committed rotation, and no replay after uncertainty or terminal refusal. |
 | `conformance/device-code.json` | Device-code start and poll responses → parsed result. |
@@ -24,6 +24,7 @@ a Messages backend to the frozen Kotlin runtime.
 | `conformance/sse.json` | Shared streamed ChatGPT answer → its text, or the error it ended with. |
 | `conformance/sse-typescript.json` | TypeScript-only completion requirement, authoritative output, and coded SSE limits. |
 | `conformance/incomplete-typescript.json` | TypeScript-only cut-off answers: typed error, partial output, and incomplete event for SSE and JSON. |
+| `conformance/infer-typescript.json` | Pinned official default native text-model asset and tokenizer/context expectations; not a physical acceptance claim. |
 | `conformance/dictation-typescript.json` | Stable live partials, final-only corrections, silence and cancellation. |
 | `conformance/anthropic-sse-typescript.json` | Recorded Messages SSE, usage, tools/thinking, truncation, refusal and protocol errors (TypeScript only). |
 | `conformance/usage-typescript.json` | TypeScript quota normalization and account Auto input contract: hard blocks, scope, age and poll failures. |

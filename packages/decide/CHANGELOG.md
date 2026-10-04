@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Add an opt-in paired-host Jev backend over @byokit/link: the host holds the API key (billed per use), while phones receive probabilities and usage with typed pairing, connectivity and missing-key errors.
+- SECURITY: answerer now uses the shared state-as-data guard and a delimited JSON data block, so untrusted
+  on-screen text is separated from decision instructions. Apps using answerer should update; malformed model output still abstains.
+- FIX: every answerer answer, including abstentions and failures, labels confidenceSource as self-reported.
+- FIX: answerer retries HTTP 429 with the shared bounded backoff and Retry-After policy, respects aborts,
+  and throws RateLimitError when its retry budget is exhausted; callback error details never enter decision reasons.
+- Add typed answerer text options, including text.format JSON schemas, passed to the ask callback for accounts.respond.
+
+- FIX: The Message desk example no longer labels a missing estimate as self-reported 0% confidence; unavailable answers show no estimate.
+- Document the Message desk example for typed ChatGPT and Claude subscription decisions, self-reported confidence and human handoff below the floor.
+
 ## 0.6.1 (2026-10-02)
 
 - Dependency update: pins @byokit/accounts 0.18.0.

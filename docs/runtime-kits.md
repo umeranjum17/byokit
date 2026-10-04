@@ -472,6 +472,8 @@ export class OpenClawKit {
   disallowOnce(): void;
   // config
   patchConfig(patch: object, o?: { agentId?: string }): Promise<void>;   // config.get hash + config.patch
+  getConfigKey(key: string): unknown;             // one dotted key out of openclaw.json, no full config read
+  setConfigKey(key: string, value: unknown): unknown;  // one key in; returns what it replaced (undefined removes)
   memoryLimited(member: Member): boolean;
   doctorContext(): { entry: string; env: Record<string, string> };
 }
@@ -517,10 +519,14 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
    `needs-update/version`. Then start the bridge socket; state `ready`.
 3. **Crash**: on child exit while not stopping: drop the transport, state `restarting` with
    `retryAt = now + min(30 s, 1 s × 2^failures)`, then `start()` again; failures reset on a successful handshake.
-4. **stop()**: stop transport; SIGTERM the process group; wait 3 s; SIGKILL; wait 3 s; await exit; close the bridge
-   socket and delete it. Only the instance's child pid guard and acquired credential lock/state may be
-   cleaned; failed-start cleanup and stop without ownership never acquire a lock to seal or delete state.
-   State `stopped`.
+4. **stop()**: stop transport; SIGTERM **each pid the kit itself spawned**, by pid and never a process group;
+   wait 3 s; SIGKILL the same recorded pids; wait 3 s; await exit; close the bridge socket and delete it. The
+   recorded list is the whole authority: every spawn (`npm ci`, the gateway) is entered when it starts and
+   dropped when it exits, and a negative pid is never passed to `kill`. A group id belongs to whoever holds
+   it once the kit's own child is gone, and it carries processes the kit never started — the gateway is left
+   to shut its own sessions down on its own SIGTERM. Only the instance's child pid guard and acquired
+   credential lock/state may be cleaned; failed-start cleanup and stop without ownership never acquire a lock
+   to seal or delete state. State `stopped`.
 5. `doctorContext()` returns the adopted set's entry and isolated env for an offline doctor run (migration).
 
 ### 5.5 Isolated engine env
@@ -578,6 +584,26 @@ writing only if bytes change (0600):
 Crewhouse's product choices (tool profile and deny list, `skills.allowBundled`, workshop, `agents.defaults.sandbox`,
 `codex: { enabled: false }`, `memory-core` dreaming off) move into Crewhouse's `config` option unchanged.
 `memoryLimited(member)` = the member's (else top-level) `memory.search.provider === 'none'`.
+
+#### One key, not the whole config (`getConfigKey` / `setConfigKey`)
+
+`patchConfig` is the only whole-config writer and it can only start from a `config.get`, whose result redacts
+token-bearing values; an app therefore cannot read one key and later restore it unchanged. `getConfigKey(key)` and
+`setConfigKey(key, value)` are the narrow alternative, over the same `openclaw.json` file `prepare()` owns and the
+engine loads at boot (`OPENCLAW_CONFIG_PATH`), with no Gateway round trip and no `config.get`:
+
+- `key` is one dotted path of `[A-Za-z0-9_-]` segments, validated at the boundary; `__proto__`, `constructor` and
+  `prototype` are refused, because the walk assigns into that path.
+- `getConfigKey` returns the value, or `undefined` when the key is absent, as a copy.
+- `setConfigKey` writes only that key, creating the missing objects on the way, returns the value it replaced, and
+  takes `undefined` to remove the key, together with the empty objects that write created, so a removal lands the file
+  it read. Every other key keeps its order; the file is rewritten atomically in `prepare()`'s exact shape
+  (`JSON.stringify(config, null, 2) + '\n'`, 0600) and only when the bytes change.
+- The engine applies the value at its next boot, so a running Gateway keeps what it applied. Do not interleave a
+  narrow set with `patchConfig`: that one rewrites the whole config through the Gateway, last writer wins.
+- Precedence stays 5.6's: `KitOptions.config` is merged over the saved file on every `prepare()`, so a key the app
+  also passes in `config` belongs to that option, and the invariants above are re-forced at every boot. Narrow a
+  key the app does not pass in `config`.
 
 #### App-owned restart recovery (R1, binding 5.16)
 

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- FIX: respond errors preserve HTTP status and Retry-After through account failure handling, allowing callers
+  to retry 429 without adding request headers or other response headers to the error.
+
 ## 0.18.0 (2026-10-02)
 
 - Dependency update: pins @byokit/usage 0.7.0.

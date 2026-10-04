@@ -9,6 +9,7 @@ import { removeScratch, scratchDir } from '../../test-support.ts';
 import childProcess, { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../src/engine.ts';
+import { pidAlive } from '../src/engine-status.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import { hostKeySeal } from '../../secrets/src/index.ts';
@@ -235,6 +236,40 @@ process.exit(78);`);
   } finally {
     await engine.stop();
     unrelated.kill();
+    removeScratch(dir);
+  }
+});
+
+// A real Engine over a real spawned gateway: 5.3 stop() signals the pids the kit started, never a process
+// group. The gateway's own long-lived session shares that group and must outlive the kit's stop.
+test('stop ends the gateway the kit started and leaves a process the kit never started running', { timeout: 120_000 }, async () => {
+  const dir = scratchDir('engine-stop');
+  const engineDir = join(dir, 'engine');
+  const sessionPid = join(dir, 'session.pid');
+  seedInstall(engineDir);
+  writeFileSync(join(engineDir, 'node_modules/openclaw/openclaw.mjs'), `import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+if (process.argv[2] === 'doctor') process.exit(0);
+const session = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+writeFileSync(${JSON.stringify(sessionPid)}, String(session.pid));
+setInterval(() => {}, 1000);
+`);
+  await seedSet(engineDir);
+  const engine = new Engine({ stateDir: dir, engineDir, pluginId: 'byokit', tools: [], spawnEngine: true, onState() {}, onExit() {} });
+  let session = 0;
+  try {
+    await engine.start();
+    assert.equal(engine.doctor(30_000).status, 0, 'the started engine really runs against its isolated env');
+    const gateway = Number(readFileSync(join(dir, 'openclaw', 'gateway.pid'), 'utf8'));
+    for (let i = 0; i < 50 && !existsSync(sessionPid); i++) await delay(100);
+    session = Number(readFileSync(sessionPid, 'utf8'));
+    assert.ok(pidAlive(gateway) && pidAlive(session), 'the gateway the kit started and the session it started are both up');
+    await engine.stop();
+    assert.equal(pidAlive(gateway), false, 'the pid the kit started is gone');
+    assert.equal(pidAlive(session), true, 'a process the kit never started survives the stop');
+  } finally {
+    if (session) { try { process.kill(session, 'SIGKILL'); } catch { /* already gone */ } }
+    await engine.stop();
     removeScratch(dir);
   }
 });

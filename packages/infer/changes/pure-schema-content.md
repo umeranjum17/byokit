@@ -1,0 +1,1 @@
+- FIX: Pane summaries accept only the expected leading assistant header and whole enclosing JSON markdown fence before strict JSON/body/line validation. Insufficient output stays insufficient; trailing garbage and malformed output are rejected. The failed pure-content native option is not used.

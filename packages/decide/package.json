@@ -42,6 +42,7 @@
   },
   "dependencies": {
     "@byokit/accounts": "0.18.0",
-    "openai": "7.25.0"
+    "openai": "7.25.0",
+    "@byokit/link": "0.7.0"
   }
 }

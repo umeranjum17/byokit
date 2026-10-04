@@ -16,7 +16,13 @@ export class ResponseError extends Error {
   kind: Kind | null;
   /** When the provider said to come back (epoch ms), or 0. */
   until: number;
-  constructor(message: string, kind: Kind | null, until = 0) { super(message); this.kind = kind; this.until = until; }
+  /** HTTP metadata, when the failure came from an HTTP response. Only the retry header is added. */
+  status?: number;
+  retryAfter?: string;
+  constructor(message: string, kind: Kind | null, until = 0, http?: { status: number; retryAfter?: string }) {
+    super(message); this.kind = kind; this.until = until;
+    if (http) { this.status = http.status; this.retryAfter = http.retryAfter; }
+  }
 }
 
 /** An answer the provider cut off. Partial output is available, but never returned as a successful answer. */
@@ -276,7 +282,9 @@ export async function respond(o: Ask & Access): Promise<string | ResponseResult>
   });
   if (!res.ok) {
     const e = limitResponse(res.status, await res.text().catch(() => ''));
-    throw new ResponseError(e.message, e.kind, e.until ?? 0);
+    throw new ResponseError(e.message, e.kind, e.until ?? 0, {
+      status: res.status, retryAfter: res.headers?.get('retry-after') ?? undefined,
+    });
   }
   const reader = sseReader(o.onText, o.onEvent);
   const body = (res as any).body;
