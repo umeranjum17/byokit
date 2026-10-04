@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.3.1 (2026-10-01)
+
+
+
+- SECURITY: Lazy WebRTC capture no longer opens the Android microphone or sends untapped speech before `attachMic()`; `releaseMic()` closes recording while keeping the call connected. Apps using lazy capture should update.
+
+## 0.3.0 (2026-10-01)
+
+
+
 - Add opt-in lazy WebRTC microphone capture: preconnect without a microphone lease, attach and release capture without renegotiation, and release pending capture on close.
 
 ## 0.2.1 (2026-09-30)

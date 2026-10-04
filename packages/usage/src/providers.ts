@@ -8,7 +8,7 @@ export type Answer = SourceAnswer;
 type TokenSource = Extract<Source, { access: string } | { key: string }>;
 const USER_AGENT = 'byokit/usage/0.2.0';
 /** One bounded request; credentials and response bodies never become errors. */
-async function request(url: string, key: string, fetcher: typeof fetch, nowMs: number, extra: { headers?: Record<string, string>; body?: unknown } = {}, pacing?: { hook?: PacingHook; provider: Source['provider']; account: string; signal?: AbortSignal }): Promise<Answer> {
+export async function providerHttp(url: string, key: string, fetcher: typeof fetch, nowMs: number, extra: { headers?: Record<string, string>; body?: unknown } = {}, pacing?: { hook?: PacingHook; provider: Source['provider']; account: string; signal?: AbortSignal }): Promise<Answer> {
   const controller = new AbortController();
   const abort = () => controller.abort();
   pacing?.signal?.addEventListener('abort', abort, { once: true });
@@ -46,7 +46,7 @@ async function request(url: string, key: string, fetcher: typeof fetch, nowMs: n
 }
 export async function providerGet(source: TokenSource, fetcher: typeof fetch, nowMs: number, pacing?: { hook?: PacingHook; provider: Source['provider']; account: string; signal?: AbortSignal }): Promise<Answer> {
   const key = 'access' in source ? source.access : source.key;
-  const get = (url: string, extra?: { headers?: Record<string, string>; body?: unknown }) => request(url, key, fetcher, nowMs, extra, pacing);
+  const get = (url: string, extra?: { headers?: Record<string, string>; body?: unknown }) => providerHttp(url, key, fetcher, nowMs, extra, pacing);
   switch (source.provider) {
     case 'claude': return get('https://api.anthropic.com/api/oauth/usage', { headers: { 'anthropic-beta': 'oauth-2025-04-20' } });
     case 'codex': return get('https://chatgpt.com/backend-api/wham/usage', { headers: { 'ChatGPT-Account-Id': source.accountId } });
@@ -80,7 +80,7 @@ export async function providerGet(source: TokenSource, fetcher: typeof fetch, no
   }
 }
 /** A host hook gets the same deadline and failure envelope as built-in sources. */
-export async function customClaude(source: Extract<Source, { read: unknown }>, nowMs: number, pacing?: { hook?: PacingHook; account: string; signal?: AbortSignal }): Promise<Answer> {
+export async function customClaude(source: Extract<Source, { read: unknown }>, nowMs: number, pacing?: { hook?: PacingHook; account?: string; signal?: AbortSignal }): Promise<Answer> {
   const controller = new AbortController();
   const abort = () => controller.abort();
   pacing?.signal?.addEventListener('abort', abort, { once: true });
@@ -88,7 +88,7 @@ export async function customClaude(source: Extract<Source, { read: unknown }>, n
   const timer = setTimeout(abort, 10_000);
   try {
     const operation = async (): Promise<Answer> => {
-      if (source.origin && pacing?.hook) await pacing.hook({ provider: source.provider, account: pacing.account, origin: source.origin, signal: controller.signal });
+      if ('origin' in source && source.origin && pacing?.hook && pacing.account !== undefined) await pacing.hook({ provider: source.provider, account: pacing.account, origin: source.origin, signal: controller.signal });
       if (controller.signal.aborted) return { code: 'unavailable' };
       const answer = await source.read({ nowMs, signal: controller.signal });
       // Host readers may return cached figures; only the host knows observation time.
@@ -101,6 +101,10 @@ export async function customClaude(source: Extract<Source, { read: unknown }>, n
   } catch { return { code: 'unavailable' }; } finally { clearTimeout(timer); pacing?.signal?.removeEventListener('abort', abort); }
 }
 export function codexUsage(source: Extract<Source, { bin: string }>): Promise<Answer> {
+  return codexRequest(source, 'account/rateLimits/read', 20_000);
+}
+/** The single bounded app-server transport used for identity and usage. */
+export function codexRequest(source: Extract<Source, { bin: string }>, method: 'account/read' | 'account/rateLimits/read', timeoutMs = 15_000): Promise<Answer> {
   return new Promise((resolve) => {
     const child = spawn(source.bin, ['app-server'], { env: { ...source.env, CODEX_HOME: source.home }, stdio: ['pipe', 'pipe', 'ignore'] });
     let buffer = ''; let bytes = 0; let settled = false; let escalation: NodeJS.Timeout | undefined;
@@ -113,7 +117,7 @@ export function codexUsage(source: Extract<Source, { bin: string }>): Promise<An
       }
       resolve(answer);
     };
-    const timer = setTimeout(() => finish({ code: 'unavailable' }), 20_000);
+    const timer = setTimeout(() => finish({ code: 'unavailable' }), timeoutMs);
     child.once('error', () => finish({ code: 'unavailable' }));
     child.once('close', () => { clearTimeout(escalation); finish({ code: 'unavailable' }); });
     child.stdin.on('error', () => finish({ code: 'unavailable' }));
@@ -128,7 +132,7 @@ export function codexUsage(source: Extract<Source, { bin: string }>): Promise<An
         try {
           const message: unknown = JSON.parse(line);
           if (!record(message)) continue;
-          if (message.id === 1) child.stdin.write(`${JSON.stringify({ id: 2, method: 'account/rateLimits/read', params: {} })}\n`);
+          if (message.id === 1) child.stdin.write(`${JSON.stringify({ id: 2, method, params: {} })}\n`);
           if (message.id === 2) finish(record(message.result) ? { raw: message.result as CodexRateLimitResult } : { code: 'incomplete' });
         } catch { /* Non-JSON output is bounded and ignored. */ }
       }

@@ -63,17 +63,21 @@ export type AgentReadiness = {
   installHint: string; signInHint?: string;
 };
 export type AgentStatusRunner = (command: string, args: string[],
-  o?: { stdin?: string; timeoutMs?: number }) => Promise<{ stdout: string } | undefined>;
+  o?: { stdin?: string; timeoutMs?: number; env?: Record<string, string> }) => Promise<{ stdout: string } | undefined>;
 export type AgentStatusOptions = {
   path?: string[]; aliases?: Record<string, string[]>;
   readFile?: (file: string) => string | undefined;
   run?: AgentStatusRunner; timeoutMs?: number;
+  /** Explicit app-managed account folders. Absent selection never probes a default login. */
+  folders?: Record<string, string>;
+  /** Clean, host-passed env only; HOME and XDG directories are confined to the selected folder. */
+  env?: Record<string, string>;
 };
 // `startAgent` lifecycle: `installing` fires before the start when the kind needs an install
-// (auto-install launcher/shim or nothing on PATH — apps show "Installing …" instead of a blank
+// (legacy auto-install launcher/shim — Muse missing is a typed refusal, not an install or blank
 // start), `ready` carries the fresh ref, and `launchFailed` carries a typed reason plus plain
 // words. Subscribable per call (`StartAgent.onEvent`, no polling) or app-wide (`onStartAgent`).
-export type AgentLaunchFailureReason = 'placement-failed' | 'pane-busy' | 'install-failed' | 'start-rejected';
+export type AgentLaunchFailureReason = 'placement-failed' | 'pane-busy' | 'install-failed' | 'start-rejected' | 'not-installed';
 export type AgentStartEvent =
   | { phase: 'installing'; kind: string; message: string }
   | { phase: 'ready'; kind: string; ref: AgentRef }
@@ -84,21 +88,56 @@ export type StartAgent = {
   place: { workspace: 'new'; label?: string } | { tab: 'new'; workspaceId: string; label?: string }
        | { split: string; direction: 'right' | 'down' } | { pane: string };
   worktree?: { branch?: string; base?: string };
-  args?: string[]; env?: Record<string, string>; timeoutMs?: number;   // default 60_000
+  args?: string[]; env?: Record<string, string> | { env: Record<string, string>; unset: string[] }; timeoutMs?: number;   // default 60_000
   onEvent?: (e: AgentStartEvent) => void;   // per-call lifecycle: installing/ready/launchFailed
   installProbe?: AgentInstallProbe;          // install detection overrides (tests use fakes)
 };
-export type OpenSignInTab = Omit<StartAgent, 'place' | 'worktree'> & { workspaceId: string; label?: string };
+export type OpenSignInTab = Omit<StartAgent, 'place' | 'worktree'> & { workspaceId: string; label?: string; folder?: string };
+export type BusyHandoff =
+  | { busy?: 'refuse' }
+  | { busy: 'wait'; confirmed: { session: string; terminalId: string }; waitMs: number }
+  | { busy: 'interrupt'; confirmed: { session: string; terminalId: string; seq: number } };
 export type MoveToAccount = {
-  provider: 'claude' | 'codex'; folder: string; env?: Record<string, string>;
-  direction?: 'right' | 'down'; timeoutMs?: number;
+  provider: string; folder: string; env?: Record<string, string>;
+  direction?: 'right' | 'down'; timeoutMs?: number; whenBusy?: BusyHandoff;
 };
-export type MoveResult = { ok: true; session: string } | {
-  ok: false; code: 'too_early' | 'busy' | 'unsupported' | 'env_mismatch' | 'close_failed' | 'start_failed';
+export type MoveToAccountResult = { ok: true; session: string } | {
+  ok: false; code: 'too_early' | 'busy' | 'unsupported' | 'env_mismatch' | 'close_failed' | 'start_failed'
+    | 'blocked' | 'changed' | 'interrupt_unsupported';
   message: string; live?: string;
 };
+export type Move = {
+  paneId: string; kind: string; args: string[]; set: Record<string, string>; unset?: string[];
+  onStaged?(newPaneId: string): void; onReplaced?(newPaneId: string): void; timeoutMs?: number; whenBusy?: BusyHandoff;
+};
+export type MoveResult = { ok: true; paneId: string } | Extract<MoveToAccountResult, { ok: false }>;
 export type PromptReceipt = { paneId: string; terminalId: string; revision: number; status: AgentStatus;
   agentSession?: AgentSessionRef };
+export type AgentTurnFiles = {
+  /** Relative paths, including directories. Returning true prunes the entry. `.git` is always excluded. */
+  exclude?: (relativePath: string) => boolean;
+  maxFiles?: number; maxBytes?: number;
+};
+export type AgentTurnResultPolicy<T> = {
+  schema: Record<string, unknown>;
+  /** Use the app's JSON Schema validator; false or a throw rejects the payload. */
+  validate: (value: unknown) => value is T;
+  maxBytes?: number;
+};
+export type AgentTurnOptions<T = unknown> = {
+  prompt: string; cwd: string; timeoutMs?: number; signal?: AbortSignal;
+  files?: AgentTurnFiles; result?: AgentTurnResultPolicy<T>;
+  onEnd?: (end: AgentTurnEnd<T>) => void;
+};
+export type AgentTurnResult<T = unknown> =
+  | { state: 'not-requested' | 'missing' }
+  | { state: 'invalid'; reason: 'format' | 'schema' | 'too-large' | 'unsafe-file' }
+  | { state: 'valid'; value: T };
+export type AgentTurnEnd<T = unknown> = {
+  id: string; target: AgentRef; receipt: PromptReceipt; status: 'idle' | 'done';
+  changedFiles: { path: string; change: 'added' | 'modified' | 'deleted' }[];
+  result: AgentTurnResult<T>;
+};
 export type BlockedAgent = { paneId: string; workspaceId: string; tabId: string; kind?: string; revision: number; prompt: string; since: number };
 export type AgentSessionRef = { source: string; agent: string; kind: string; value: string };
 export type HerdrSnapshotWorktree = {

@@ -1,0 +1,51 @@
+✔ isolation: only the passed sign-in folder is read; ambient sign-ins and keys are untouched (143.429351ms)
+✔ isolation: credential symlinks cannot cause reads beyond the named folder (91.050172ms)
+✔ Claude managed-folder source never opens a default login, escapes its root, or leaks canary tokens (198.861393ms)
+✔ claude: usage contract: concurrent reads, freshness floor and restart keep one account reading (122.493738ms)
+✔ claude: usage contract: failed reads stand on the last good reading only while connected (45.589647ms)
+✔ codex: usage contract: concurrent reads, freshness floor and restart keep one account reading (122.801132ms)
+✔ codex: usage contract: failed reads stand on the last good reading only while connected (87.663356ms)
+✔ opencode: usage contract: concurrent reads, freshness floor and restart keep one account reading (99.502033ms)
+✔ opencode: usage contract: failed reads stand on the last good reading only while connected (49.314417ms)
+✔ zai: usage contract: concurrent reads, freshness floor and restart keep one account reading (96.814824ms)
+✔ zai: usage contract: failed reads stand on the last good reading only while connected (46.603148ms)
+✔ copilot: usage contract: concurrent reads, freshness floor and restart keep one account reading (93.725181ms)
+✔ copilot: usage contract: failed reads stand on the last good reading only while connected (45.89686ms)
+✔ grok: usage contract: concurrent reads, freshness floor and restart keep one account reading (98.456671ms)
+✔ grok: usage contract: failed reads stand on the last good reading only while connected (52.4382ms)
+✔ minimax: usage contract: concurrent reads, freshness floor and restart keep one account reading (96.326129ms)
+✔ minimax: usage contract: failed reads stand on the last good reading only while connected (51.43749ms)
+✔ gemini: usage contract: concurrent reads, freshness floor and restart keep one account reading (101.502104ms)
+✔ gemini: usage contract: failed reads stand on the last good reading only while connected (52.242688ms)
+✔ kimi: usage contract: concurrent reads, freshness floor and restart keep one account reading (100.997739ms)
+✔ kimi: usage contract: failed reads stand on the last good reading only while connected (45.712308ms)
+✔ recorded parsers, fingerprint inputs, finite raw reset times and words (114.401342ms)
+✔ per-account backoff, minimum retry interval, key changes and dynamic fetch (52.779143ms)
+✔ codex relogin, API-key folder identities, explicit environment and bounded fault output (167.160565ms)
+✔ failed payloads and provider refusals are codes without bodies or secrets (2.176393ms)
+✔ HTTP deadline aborts a stalled response without returning the provider body (0.621756ms)
+✔ store ignores oversized and old-shaped files and keeps the newest reading (101.449024ms)
+✔ Codex timeout escalates when the fake ignores SIGTERM (80.655691ms)
+✔ Claude explicit files, snapshot freshness, expiry, renewal and account isolation (75.013792ms)
+✔ token sources: Codex wham identity, own UA, renewal and opaque credentials never persist (36.003065ms)
+✔ Claude source hook and public store/backoff policy preserve per-account last-good readings (84.490102ms)
+✔ roomOf uses the tightest window, ms resets, span mapping and 24h freshness (0.386394ms)
+✔ Gemini project discovery and Grok monthly fallback use fixed own-UA endpoints (0.98288ms)
+✔ member token ledger: local days, seven-day caps, boundaries and host persistence (5.802082ms)
+✔ runtime call ledger: normalized provider counts, honest unknowns, app prices and shared member store (1.488426ms)
+✔ public Claude replacement helpers share disk last-good and account backoff across readers (72.810618ms)
+✔ shared Auto inputs: hard blocks, reset clocks, scoped precedence and reading age (114.624214ms)
+✔ poll outcomes retain source age, separate refresh failure, durable retry and account pacing (188.055599ms)
+✔ managed Claude source shares pacing, scoped hard blocks and last-good poll health (74.86934ms)
+✔ shared Codex identity client returns only approved identity fields, with the passed environment (81.604381ms)
+✔ managed Claude usage is read-only, bounded and carries app-passed headers without exposing credentials (182.763252ms)
+✔ plan view keeps every activity section account-scoped and poll failure distinct from exhaustion (14.489584ms)
+ℹ tests 42
+ℹ suites 0
+ℹ pass 42
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3558.115286
+~/.pi: sign-ins, settings and extensions unchanged, byte for byte.

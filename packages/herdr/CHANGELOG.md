@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+## 0.7.0 (2026-10-02)
+
+- Includes the Muse installation, managed-kind discovery and isolated readiness FIX/SECURITY changes recorded in the unpublished 0.6.0 preparation below; none add native login qualification.
+
+FIX: Re-read source quiescence, conversation, terminal and published sequence immediately before closing on every account move; roll back replacements on change and verify surviving conversations after uncertain cleanup. Published Herdr has no atomic conditional close.
+FIX: Add explicit confirmed, bounded `whenBusy: { busy: 'wait', confirmed, waitMs }` account handoff: move when this step finishes, never interrupt. Preserve default busy refusal, refuse missing sequence/stale identity, stop on blocked approvals, and return typed `interrupt_unsupported` without keys or lifecycle calls. Native working-step qualification remains separate from offline protocol fixtures.
+
+## 0.6.0 (2026-10-02)
+
+- SECURITY: Explicit Muse installation uses private staged HOME/XDG/temp paths, a clean environment, bounded HTTPS downloads and owned-process cancellation; it never imports personal credentials, edits shell profiles, or starts automatic login or updates.
+- FIX: Missing Muse on the effective private launch PATH now reports not installed and refuses before pane placement or start instead of showing a fake installation and waiting for the startup timeout. The explicit official installer returns verified local release paths for launch; account/catalog readiness remains unknown.
+
+FIX: Discover every pinned agent kind and use its actual account-folder and resume support for sign-in tabs and managed moves. Kinds without a folder override remain one sign-in per computer user, tab only. New move support is fixture-tested, not native-qualified.
+
+SECURITY: Readiness no longer probes default CLI logins. Pass `agentStatus(kinds, { folders: { [kind]: appManagedFolder }, env? })` to select an app-owned account; absent or invalid folders return unknown without running a CLI. Status commands receive a clean env with HOME/XDG/platform directories confined to that folder. Direct `runStatusCommand` calls without an explicit HOME return no answer. Injected status runners now receive the resolved executable path and explicit env (not an inherited default login).
+
+## 0.5.0 (2026-10-01)
+
+- SECURITY: StartAgent and openSignInTab accept a clean launch environment with explicit unsets, verified before launch in idle shells on new or existing panes; credential values stay out of terminal commands, argv and errors, preventing inherited API key (billed per use) variables from overriding subscription sign-in.
+
+## 0.4.1 (2026-10-01)
+
+- Dependency update: pins @byokit/relay 0.5.1.
+
+- FIX: Preserve the ready replacement after a lost source-close acknowledgment unless fresh reads verify the original conversation survived; report only a verified recovery conversation, or omit `live` when verification is unavailable.
+
+## 0.4.0 (2026-10-01)
+
+- Dependency update: pins @byokit/reach 0.6.0.
+
+- Add `move` with caller resume args, credential shedding, staging/replacement hooks and `MoveResult.paneId`.
+- Add per-call `cli` env overlays for managed folder hook installation.
+- Report surviving replacement panes when environment verification rollback fails; refuse folder moves for agents that ignore the folder variables.
+- Track a subscription agent's turn with `runTurn` and `onTurnEnd`: acknowledged Herdr status
+  events, optional JSON validated by the app's schema validator, and changed files from bounded
+  before/after snapshots of the app-owned working directory. No additional API billing path.
+
+## 0.3.0 (2026-10-01)
+
+- Dependency update: pins @byokit/reach 0.5.0.
+- Dependency update: pins @byokit/relay 0.5.0.
+- Dependency update: pins @byokit/link 0.7.0.
+
 - `PromptReceipt.agentSession` optionally identifies the conversation from the prompt response without an extra read.
 
 - FIX: Refuse non-empty `StartAgent.env` on existing panes instead of silently using the old subscription.
@@ -17,6 +60,7 @@
   `agentStatus` as `installState`) tells a real runnable binary apart from an auto-install
   launcher such as a mise shim: shimmed or absent reads `installs-on-first-start`, sharing the
   one probe path with `installedAgentKinds` (`resolveAgentBinary`, `isAutoInstallShim`).
+
 
 ## 0.2.0 (2026-09-30)
 

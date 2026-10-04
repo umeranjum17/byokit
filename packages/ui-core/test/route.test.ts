@@ -59,3 +59,17 @@ test('routeChoices is the one word table: every route code once, in recommendati
     assert.ok(c.title.length > 0 && c.sentence.length > 0 && c.needs.length > 0, c.code);
   }
 });
+
+test('key entry card states contain only words and never retain the submitted key', async () => {
+  const { keyStep, keyView } = await import('../src/key.ts');
+  const words = (key: string) => key === 'key.label' ? 'API key (billed per use)' : key;
+  const checking = keyStep('entry', { type: 'submit' });
+  assert.equal(checking, 'checking');
+  assert.equal(keyView(checking, words).busy, true);
+  const invalid = keyStep(checking, { type: 'result', result: 'invalid' });
+  assert.equal(keyView(invalid, words).editable, true);
+  assert.equal(keyStep(invalid, { type: 'edit' }), 'entry');
+  assert.equal(keyStep(checking, { type: 'result', result: 'ok' }), 'ok');
+  assert.equal(keyView('not_included', words).message, 'key.notIncluded');
+  assert.equal(keyView('ok', words).label, 'API key (billed per use)');
+});

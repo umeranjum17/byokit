@@ -67,7 +67,8 @@ echo "the app shows $code"
 # The person types the code on the provider's page.
 curl -fsS -o /dev/null --data "user_code=$code" "http://127.0.0.1:$port/codex/device"
 expect "ChatGPT is connected."
-expect "sara@example.com, plus plan"
+expect "ChatGPT Plus"
+expect "Signed in as sara@example.com"
 start
 expect "ChatGPT is connected." # kept in secure storage across a restart
 tap recheck

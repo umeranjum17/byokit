@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "byokit microphone proof",
+    "slug": "byokit-realtime-android-proof",
+    "android": {
+      "package": "io.github.umeranjum17.byokit.realtimeproof",
+      "permissions": [
+        "RECORD_AUDIO",
+        "ACCESS_NETWORK_STATE"
+      ]
+    }
+  }
+}

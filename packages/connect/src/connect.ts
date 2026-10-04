@@ -1,13 +1,14 @@
+import WORDS from './words.json' with { type: 'json' };
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Keystore } from '@byokit/secrets';
-import { ConnectError } from './errors.ts';
+import { ConnectError, providerCause } from './errors.ts';
 import { discover, type Discovered } from './discovery.ts';
 import { endpoint, redirect, request, json } from './http.ts';
 import { providers, type ProviderId } from './providers.ts';
-import type { ConnectOptions, OAuthClient, Provider, SignIn, McpOptions } from './types.ts';
+import type { ConnectOptions, OAuthClient, Provider, SignIn, McpOptions, Grant, ClientVerification } from './types.ts';
 
-interface Tokens { access: string; refresh?: string; expires?: number; scope?: string }
+interface Tokens { access: string; refresh?: string; expires?: number; scope?: string; refreshExpiresIn?: number; refreshExpiresAt?: number }
 interface Saved extends Discovered { client: OAuthClient; tokens: Tokens }
 interface Slot { tail: Promise<unknown>; epoch: number; tokenFlight?: { epoch: number; promise: Promise<string> } }
 // Across handles, only the same store + person + connection share work. No global token cache.
@@ -22,6 +23,15 @@ function serial<T>(slot: Slot, action: () => Promise<T>): Promise<T> {
 }
 function base64url(bytes: Uint8Array): string { return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
 function random(): string { return base64url(crypto.getRandomValues(new Uint8Array(32))); }
+
+function validClient(client: OAuthClient): OAuthClient {
+  if (!client || typeof client.id !== 'string' || !client.id.trim() ||
+      (client.secret !== undefined && (typeof client.secret !== 'string' || !client.secret)) ||
+      (client.authMethod !== undefined && !['none', 'client_secret_post', 'client_secret_basic'].includes(client.authMethod)) ||
+      (client.authMethod?.startsWith('client_secret_') && !client.secret)) throw new ConnectError('configuration');
+  return { id: client.id, secret: client.secret, authMethod: client.authMethod };
+}
+function validTime(value: unknown): boolean { return value === undefined || (typeof value === 'number' && Number.isFinite(value) && value >= 0); }
 
 /** One person's connection on one device; the host owns the store and browser. */
 export class Connection {
@@ -63,6 +73,30 @@ export class Connection {
       return value;
     } catch { throw new ConnectError('token'); }
   }
+  /** Snapshot for trusted app code, including the provider's refresh lifetime. */
+  async grant(): Promise<Grant | null> {
+    const saved = await this.saved();
+    if (!saved) return null;
+    const t = saved.tokens;
+    return { accessToken: t.access, refreshToken: t.refresh, expiresAt: t.expires, scope: t.scope,
+      refreshTokenExpiresIn: t.refreshExpiresIn, refreshTokenExpiresAt: t.refreshExpiresAt };
+  }
+  /** Google checks app credentials before rejecting this deliberately nonexistent refresh grant.
+   * Only invalid_grant confirms the details; other responses cannot prove validity. */
+  async verifyClient(input?: OAuthClient): Promise<ClientVerification> {
+    const client = validClient((input ?? this.options.client)!);
+    if (!client.secret || client.authMethod === 'none') throw new ConnectError('configuration');
+    try {
+      const info = await discover(this.provider, this.fetcher, this.timeout);
+      await this.exchange(info, client, { grant_type: 'refresh_token', refresh_token: 'byokit-client-check-not-a-grant' });
+    } catch (error) {
+      if (!(error instanceof ConnectError)) throw error;
+      if (error.cause?.error === 'invalid_client' && (error.status === 400 || error.status === 401)) return { outcome: 'invalid', message: WORDS.verification.invalid, cause: error.cause };
+      if (error.cause?.error === 'invalid_grant' && error.status === 400) return { outcome: 'valid', message: WORDS.verification.valid };
+      return { outcome: 'inconclusive', message: WORDS.verification.inconclusive, cause: error.cause };
+    }
+    return { outcome: 'inconclusive', message: WORDS.verification.inconclusive };
+  }
   async connected(): Promise<boolean> { return !!await this.saved(); }
   async disconnect(): Promise<void> {
     ++this.slot.epoch;
@@ -94,7 +128,7 @@ export class Connection {
       if (returned.protocol !== expected.protocol || returned.host !== expected.host || returned.pathname !== expected.pathname || returned.username || returned.password || returned.hash || returned.searchParams.getAll('state').length !== 1 || returned.searchParams.get('state') !== state) throw new ConnectError('callback');
       for (const [key, value] of expected.searchParams) if (returned.searchParams.getAll(key).length !== 1 || returned.searchParams.get(key) !== value) throw new ConnectError('callback');
       consumed = true;
-      if (returned.searchParams.has('error')) throw new ConnectError('declined');
+      if (returned.searchParams.has('error')) throw new ConnectError('declined', undefined, providerCause(Object.fromEntries(returned.searchParams), [state, verifier, client.id, client.secret ?? '', ...returned.searchParams.getAll('code')]));
       if (returned.searchParams.getAll('code').length !== 1 || !returned.searchParams.get('code')) throw new ConnectError('callback');
       await serial(this.slot, async () => {
         if (epoch !== this.slot.epoch) throw new ConnectError('callback');
@@ -113,8 +147,8 @@ export class Connection {
       method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' },
       body: JSON.stringify({ client_name: this.options.clientName ?? 'BYOKit', redirect_uris: [this.options.redirectUri], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none' }),
     }, this.timeout);
-    if (!response.ok) { await response.body?.cancel(); throw new ConnectError('registration', response.status); }
     const m = await json(response, 'registration');
+    if (!response.ok || m.error) throw new ConnectError('registration', response.status, providerCause(m, [this.options.clientName ?? 'BYOKit', this.options.redirectUri]));
     if (typeof m.client_id !== 'string' || !m.client_id || (m.token_endpoint_auth_method !== undefined && m.token_endpoint_auth_method !== 'none')) throw new ConnectError('registration');
     return { id: m.client_id, authMethod: 'none' };
   }
@@ -132,13 +166,17 @@ export class Connection {
     const m = await json(response, 'token');
     if (!response.ok || m.error) {
       // Only an explicit invalid grant proves revocation. Transient failures preserve the sign-in.
-      if (m.error === 'invalid_grant' && previous) throw new ConnectError('signin', response.status);
-      throw new ConnectError('token', response.status);
+      const cause = providerCause(m, [client.id, client.secret ?? '', previous?.access ?? '', previous?.refresh ?? '', ...Object.values(fields)]);
+      if (m.error === 'invalid_grant' && previous) throw new ConnectError('signin', response.status, cause);
+      throw new ConnectError('token', response.status, cause);
     }
     if (typeof m.access_token !== 'string' || !m.access_token || typeof m.token_type !== 'string' || m.token_type.toLowerCase() !== 'bearer' || (m.expires_in !== undefined && (!Number.isFinite(Number(m.expires_in)) || Number(m.expires_in) < 0))) throw new ConnectError('token');
+    if (m.refresh_token_expires_in !== undefined && (!validTime(m.refresh_token_expires_in) || !Number.isFinite(this.now + Number(m.refresh_token_expires_in) * 1000))) throw new ConnectError('token');
     return { access: m.access_token, refresh: typeof m.refresh_token === 'string' ? m.refresh_token : previous?.refresh,
       expires: m.expires_in === undefined ? undefined : this.now + Number(m.expires_in) * 1000,
-      scope: typeof m.scope === 'string' ? m.scope : previous?.scope };
+      scope: typeof m.scope === 'string' ? m.scope : previous?.scope,
+      refreshExpiresIn: typeof m.refresh_token_expires_in === 'number' ? m.refresh_token_expires_in : previous?.refreshExpiresIn,
+      refreshExpiresAt: typeof m.refresh_token_expires_in === 'number' ? this.now + m.refresh_token_expires_in * 1000 : previous?.refreshExpiresAt };
   }
   /** For trusted app code (mail/calendar/API calls). Never display or log this value. */
   async token(rejectedAccessToken?: string): Promise<string> {
@@ -152,6 +190,10 @@ export class Connection {
       const force = rejectedAccessToken !== undefined && rejectedAccessToken === old.access;
       if (!force && (old.expires === undefined || old.expires - this.now > 60_000)) return old.access;
       if (!old.refresh) {
+        if (!force && old.expires !== undefined && old.expires > this.now) return old.access;
+        throw new ConnectError('signin');
+      }
+      if (old.refreshExpiresAt !== undefined && old.refreshExpiresAt <= this.now) {
         if (!force && old.expires !== undefined && old.expires > this.now) return old.access;
         throw new ConnectError('signin');
       }

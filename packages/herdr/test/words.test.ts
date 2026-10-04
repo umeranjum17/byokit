@@ -23,6 +23,7 @@ const TABLE: readonly (readonly [WordKey, string])[] = [
   ['agent.notReady', "This helper isn't ready yet. Try again in a moment."],
   ['agent.installing', 'Installing {agent}…'],
   ['agent.installFailed', "Installing {agent} didn't finish. Try again in a moment."],
+  ['agent.notInstalled', 'Install this helper in the app first, then try again.'],
   ['agent.launchFailed', "That helper couldn't start. Try again in a moment."],
   ['approval.stale', 'That question already changed. Look again before answering.'],
   ['close.wouldWiden', 'Closing this would close more than you picked. Close the bigger one instead.'],
@@ -31,8 +32,12 @@ const TABLE: readonly (readonly [WordKey, string])[] = [
   ["move.busy", "Wait for this conversation to finish before moving it."],
   ["move.unsupported", "This conversation cannot move between these accounts."],
   ["move.env_mismatch", "The new pane did not receive that sign-in. Try again."],
-  ["move.close_failed", "The old pane could not close. The move was undone where possible."],
+  ["move.close_failed", "The move could not be confirmed. Check the remaining panes before trying again."],
   ["move.start_failed", "The new account could not take over. Try again."],
+  ['move.blocked', 'This conversation is waiting for your answer. Answer it, then move it.'],
+  ['move.changed', 'This conversation changed while moving, so it was not moved. Check your panes, then try again.'],
+  ['move.interrupt_unsupported', 'Stopping a step is not available for this agent. Move it when the step finishes.'],
+  ['turn.failed', 'This turn could not be confirmed. Check the helper before trying again.'],
 ];
 
 test('words.json is the 6.9 table verbatim — same keys, same sentences, nothing extra', () => {

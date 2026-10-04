@@ -114,11 +114,15 @@ export function useChatGptSheet() {
 | `runStore(oc)`, `runView(state, { words, name })` | One run: the reply streaming in, the tool at work, how it ended in the kit's words |
 | `approvalsStore(oc)`, `approvalWords(a, words, helper)` | The approvals waiting for a yes, live, each gone when answered or expired |
 | `herdrStore(hd)`, `herdrTreeView(tree)`, `blockedView(state)` | Herdr's agents by where they run, and the ones waiting for an answer, live |
+| `signInsStore(oc)`, `signInSheetView(request, { name, holder })`, `livePanelView(state)` | The browser sign-in sheet (sentence, buttons, chat chip) and live panel for the OpenClaw kit's handoff |
 | `useRun`, `useApprovals`, `useHerdrTree`, `useBlocked` | React hooks over those stores |
+| `connectView(routes, step?)`, `connectStep(step, action)` | Every account route the kits list, grouped by how the person pays, with the picked row and its key card |
+| `signInFor(view, { read, start?, cancel })`, `useConnect({ routes, read, start?, cancel })` | `useSignIn`'s options for the picked sign-in row; the hook holds the step |
 | Types | `Phase`, `SignInView`, `AccountView`, `UseSignIn`, `Route`, `RouteChoice`, `RouteCode`, `PairPhase`, `Role`, `DeviceKind`, `LinkStatus`; `RouteKind` from `@byokit/ui-core/route` |
 
 Entry points: `@byokit/ui-core` (everything, including the React hooks), `@byokit/ui-core/phase`,
-`@byokit/ui-core/route`, `@byokit/ui-core/link`, `@byokit/ui-core/kits` and `@byokit/ui-core/steps` (no React dependency).
+`@byokit/ui-core/route`, `@byokit/ui-core/link`, `@byokit/ui-core/kits`, `@byokit/ui-core/steps` and
+`@byokit/ui-core/connect` (no React dependency).
 
 ## Sign-in phases
 
@@ -156,6 +160,45 @@ import { routeChoices } from '@byokit/ui-core/route';
 
 console.log(routeChoices().map((c) => `${c.title}: ${c.sentence}`));
 ```
+
+## Connect an account
+
+`connectView(routes, step?)` (also `@byokit/ui-core/connect`, no React) draws the "Connect an AI account" list from
+the routes the kits discover (D18 in `docs/runtime-kits.md`): pass `@byokit/accounts` `routes(host)` and
+`@byokit/openclaw` `routes(facts)` together, unfiltered. Every route is listed, unavailable ones too, in these groups
+(empty ones left out):
+
+| Group | Rows | Offered by default |
+|---|---|---|
+| Plans | subscription and plan-key routes the kit offers by default | yes, when ready |
+| Pay per use | API-billed routes | no, only when picked |
+| On this computer | local runtimes | no |
+| Your own server | endpoint routes; the person says how it is paid for | no |
+| Cloud account | cloud credentials | no |
+| Other ways to connect | free or unknown billing ("Billing set by …") | no |
+| Speech, search and media | non-chat services | no |
+
+Billing decides the group, never the route's `offer` alone: an API, cloud, local, server, free or unknown row can
+never sit among Plans. Each row has `billingWords` ("Uses your ChatGPT plan", "Charged per use to your OpenAI
+account"), `method` ("Sign in with a code") and `status` (a sentence per readiness), plus `offered`, `ready` and
+`does`: `signin`, `key`, `setup` (the app's own cloud, local or server form) or `unavailable`. The view copies only
+these fields, so a credential on a route never reaches it; nothing in it names a provider.
+
+```ts
+import { connectStep, connectView, signInFor } from '@byokit/ui-core/connect';
+import { routes } from '@byokit/accounts';
+
+declare const api: { account(id: string): Promise<null>; signIn(id: string, body?: object): Promise<void>; cancel(id: string): Promise<void> };
+const step = connectStep({ at: 'list' }, { type: 'pick', key: 'accounts/openai:code' });
+const view = connectView(routes({ platform: 'browser' }), step);
+// view.groups → the list; view.chosen.row.does === 'signin' → draw the sign-in sheet:
+const options = signInFor(view, { read: (row) => api.account(row.id), start: (row, body) => api.signIn(row.id, body), cancel: (row) => api.cancel(row.id) });
+```
+
+A key route's `chosen.key` is the existing `keyView` card, labelled for its billing ("Key from your plan" or "Key
+(charged per use)"); submit the input straight to the kit and dispatch only `{ type: 'result', result }`.
+`useConnect({ routes, read, start?, cancel })` holds the step in React and returns the view with `pick`, `back`,
+`act` and `signIn`, the options to pass to `useSignIn` in a sheet keyed by `chosen.row.key`.
 
 ## Pairing words
 
@@ -225,6 +268,10 @@ Runtime kits' state, from `@byokit/ui-core/kits` (no React), typed to fit `@byok
 - Herdr: `herdrStore(hd)` keeps the tree and the agents waiting for an answer live from one stream;
   `herdrTreeView(tree)` groups the agents by where they run, with the status the kit's `agentWords` takes;
   `blockedView(state)` names each waiting agent.
+- Browser sign-in (`@byokit/openclaw` spec 5.17): `signInsStore(oc)` keeps the requests live from sign-in pings;
+  `signInSheetView(request, { name, holder })` gives the sentence (a kit word key and its values), the buttons and the
+  chat chip, which reads "entered" until a verified sign-in; `livePanelView(state)` says when to draw frames, take
+  input, show "Reconnecting…", or ask to confirm an address the person didn't expect. Watching asks the helper nothing.
 - Each store is `{ get, subscribe }`: draw from `get()` in any UI; the first `subscribe` starts following, the last
   unsubscribe stops. `runStep`, `approvalsStep` and `herdrStep` are the reducers underneath.
 
@@ -243,3 +290,9 @@ with the device client made once (`useMemo(() => herdrDevice(link), [link])`).
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](../../NOTICE).
+
+`@byokit/ui-core/kits` also exports `keyStep(state, action)` and `keyView(state, words)` for an explicit
+**API key (billed per use)** entry card. States are `entry`, `checking`, `ok`, `invalid`, `not_included`;
+actions are `submit`, `edit`, and `result` with the kit's add-key outcome. Supply the OpenClaw kit's `words`
+function for the label and sentences. These views never contain the entered key; submit it directly to the host
+and clear the input afterwards.

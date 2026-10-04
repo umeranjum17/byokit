@@ -221,7 +221,7 @@ test('the Node entry never pulls react-native-zeroconf; the react-native conditi
   const rn = await build({
     stdin: { contents: `import { browse, scan } from '../src/rn.ts'; browse; scan;`, resolveDir: import.meta.dirname },
     bundle: true, platform: 'browser', format: 'esm', write: false, metafile: true, logLevel: 'silent',
-    external: ['react-native-zeroconf'],
+    external: ['react-native-zeroconf', 'expo-modules-core'],
   });
   assert.ok(Object.values(rn.metafile!.outputs).some((output) => output.imports.some((entry) =>
     entry.path === 'react-native-zeroconf' && entry.external)));

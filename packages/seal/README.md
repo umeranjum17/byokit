@@ -144,6 +144,41 @@ not a signature. Anonymous boxes and notices do not identify the sender. Validat
 the app before acting on them. JSON `null` is indistinguishable from an opening failure; undefined values,
 cyclic objects and BigInts cannot be sealed as JSON.
 
+## Opening a notice in an iOS Notification Service Extension
+
+No JavaScript runs in an iOS Notification Service Extension, so the package also ships a Swift opener,
+`ios/Sources/ByokitSeal/ByokitSeal.swift` (CryptoKit only, iOS 13+). Add that file to the extension target. With
+`@byokit/relay`'s `mutableContent: true`, iOS runs the extension before the alert shows, even when the app is not
+running, and the extension can replace the generic text with the notice:
+
+```swift
+import UserNotifications
+
+final class NotificationService: UNNotificationServiceExtension {
+  override func didReceive(_ request: UNNotificationRequest, withContentHandler done: @escaping (UNNotificationContent) -> Void) {
+    let content = request.content.mutableCopy() as! UNMutableNotificationContent
+    if let secret = ByokitSeal.keychainSecret(service: "app:no-auth", account: "notice-secret", accessGroup: "TEAMID.com.example.shared"),
+       let notice = ByokitSeal.openNotice(userInfo: request.content.userInfo, secret: secret) as? [String: Any],
+       let title = notice["title"] as? String, let body = notice["body"] as? String {
+      content.title = title // validate before showing; the notice's sender is not authenticated
+      content.body = body
+    }
+    done(content) // on any failure the generic alert shows unchanged
+  }
+}
+```
+
+The app owns the notice key: it makes it with `boxKeyPair()`, gives the public key to its host, and saves only the
+32-byte secret as an unpadded base64url string in a keychain access group shared with its extension, readable after
+first unlock (with expo-secure-store: `setItemAsync('notice-secret', secret, { accessGroup, keychainAccessible:
+AFTER_FIRST_UNLOCK })`, which stores service `app:no-auth`). `keychainSecret` reads exactly that one item; the extension
+never reads other keychain items and never logs the secret or the notice. `openNotice(envelope, secret:)` opens an
+envelope from anywhere else. Its byte-for-byte parity with the TypeScript opener is checked by
+`ios/Tests/ByokitSealTests` against vectors this package's tests make and libsodium opens (`swift test` in this
+directory). One difference cannot be avoided: a Swift string cannot hold an unpaired UTF-16 surrogate, so a notice
+whose JSON contains one (for example text cut with `slice` through an emoji) opens in TypeScript but is nil in Swift,
+and the generic alert shows. Seal well-formed text (`String.prototype.toWellFormed`).
+
 ## Formats
 
 - `sealBox` emits ephemeral X25519 public key (32) | nonce (24) | `crypto_box_easy` ciphertext (16-byte MAC first).

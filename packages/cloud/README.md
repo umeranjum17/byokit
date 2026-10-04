@@ -2,17 +2,19 @@
 
 The person's own always-on cloud computer for an app's host process: the kit puts the host on a
 computer the person rents on their own account, keeps it running, and says what it costs them, as
-their own bill. The person-facing words say "your cloud computer". Nothing here names a machine
-provider: the app passes the provider's address, a label to show, and dated price rows
+their own bill. The person-facing words say "your cloud computer". The Boat adapter is named
+`boat()`; the app passes the provider's address, a label to show, and dated price rows
 ([spec](../../docs/cloud-kit.md)).
 
 ```ts
-import { machine, estimate, stateWords } from '@byokit/cloud';
+import { machine, type Provider, type MachineStore, type HostRecipe } from '@byokit/cloud';
 
-const m = machine({ provider, store });
-const ref = await m.create({ name: 'tracker', size: 'small', keepCopies: true });
-await m.install(recipe);
-await m.state(); // 'on'
+export async function start(provider: Provider, store: MachineStore, recipe: HostRecipe) {
+  const m = machine({ provider, store });
+  const ref = await m.create({ name: 'tracker', size: 'small', keepCopies: true });
+  await m.install(recipe);
+  return { ref, state: await m.state() }; // 'on'
+}
 ```
 
 `machine()` decides where the app's host process runs; the app's one runtime kit
@@ -27,17 +29,38 @@ inside the host process; `./testing` is Node only (the fake provider and the con
 **Status: in development.** This is the M3 build ([spec](../../docs/cloud-kit.md) §14):
 frozen types, words, pure parts (`renderUnit`, recipe checks, node argv, cost), `machine()`
 for §5.1–5.5 and §5.7 plus install and supervise (§8: `install`, `update`, `host`,
-`logs`, `deliver`), the fake provider and the contract suite, the sandbox API adapter
+`logs`, `deliver`), the fake provider and the contract suite, the Boat adapter
 (M4), and the SSH VM adapter (M2). Sleep-and-wake lands in M7, account link in M8.
 The package stays private until the recorded real-provider run (M6).
 
 The library reads no environment variable. Every spawned process gets an env built from nothing.
 
+## Boat adapter
+
+`boat({ baseUrl, label, prices, key, fetch? })` returns the Boat `Provider`. The app
+supplies the full API root (including its version path), display label, dated price
+rows and a key callback from its own store; the kit has no default provider or URL.
+`fetch` is optional. Setup runs from Node, Electron or React Native; Boat's CORS rules
+prevent setup from a web page. Tests use `boat.test` mapped to a loopback fake.
+
+```ts
+import { boat, machine, type MachineStore } from '@byokit/cloud';
+
+export function connect(options: Parameters<typeof boat>[0], store: MachineStore) {
+  return machine({ provider: boat(options), store });
+}
+```
+
+`sandboxApi()` remains a deprecated alias of `boat()` with the same typed options.
+The stored provider id stays `sandbox-api`, so existing machine records continue to
+work. Request shapes, credentials, cost rules and the M6 spending and publication
+gates are unchanged ([provider contract](../../docs/cloud-kit.md#6-boat-adapter-srcboatts)).
+
 ## Recipes
 
 The app supplies its host program and installer as a `HostRecipe`, and the kit writes
 and owns exactly one systemd unit per app (`byokit-<name>.service`, `Restart=always`):
-a system unit on the sandbox API (only the home and `/etc` survive sleep), a user unit
+a system unit on Boat (only the home and `/etc` survive sleep), a user unit
 plus `loginctl enable-linger` on an SSH VM (so the kit needs no root there unless the
 recipe asks for it), and a system unit with `User=` when the recipe sets `user`.
 

@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+## 0.7.0 (2026-10-02)
+
+- FIX: Subscription usage views now derive today, activity and people from one account-scoped call snapshot, preserve unknown token counts and distinguish quota polling failures from exhaustion; plan and model labels use plain names.
+
+## 0.6.1 (2026-10-01)
+
+- FIX: Local harness usage had no kit incremental source. Add an explicit-file,
+  bounded incremental JSONL source for fixture-qualified
+  Pi/OMP, Claude and Codex usage records, with normalized counts, event deduplication,
+  partial-line retention and rotation handling. Account, run, route and billing
+  attribution remain caller-owned; other harness stores and ccusage extras are unsupported.
+
+## 0.6.0 (2026-10-01)
+
+- FIX: Claude subscription quota snapshots can now be read through an identity-free ephemeral host callback without credentials or a fabricated account UUID; readings never enter a cache or shared store, and retry state stays local to the source.
+
+## 0.5.0 (2026-10-01)
+
+- Add a React Native entry for local call/token ledgers and pure quota helpers; subscription and API key (billed per use) attribution is preserved, with estimates only from app prices.
+
+## 0.4.0 (2026-10-01)
+
+
+
+- SECURITY: Claude subscription usage may read credentials only from app-managed folders under the passed stateDir, without refresh or credential writes; default logins and folder escapes are refused, tokens stay in one request and never enter output, errors, logs or stored readings.
+- Share the bounded Codex app-server client between identity and subscription usage reads.
+- Apply shared poll health, scoped quota and hard-limit semantics to managed Claude usage, including cancellable host pacing.
+- Add host lane/route attribution and member-scoped per-run token queries to `callLedger`, sharing existing limits and app-owned cap policy.
+- Accept OpenClaw run usage with separate cache buckets alongside accounts and decide results, without provider calls or logging. Subscription attribution defaults on; API key (billed per use) attribution stays explicit and labelled.
+
+## 0.3.0 (2026-10-01)
+
+
+
 - FIX: Subscription hard-limit flags now override positive percentage room, including blocks without quota windows; cached reset times never clear them.
 - FIX: Claude subscription normalized and scoped quota rows now take precedence over legacy aggregates; missing usage remains unknown.
 - Expose observation age and poll outcomes separately; retain last-good figures through failed polls without changing account health.

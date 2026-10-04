@@ -1,4 +1,7 @@
 // Public types for the OpenClaw runtime kit (docs/runtime-kits.md 5.2). Types only; behavior lives in the modules.
+import type { OutputSchema } from './output.ts';
+import type { GatewayEventName, GatewayEventPayload } from './generated/events.ts';
+export type { OutputSchema, SchemaOutput } from './output.ts';
 
 export type Member = string; // /^[a-z][a-z0-9-]{0,31}$/, = OpenClaw agentId (D9)
 
@@ -26,8 +29,12 @@ export interface ToolHost {
   call(run: RunRef, tool: string, input: Record<string, unknown>, signal: AbortSignal): Promise<string>;
 }
 
-export interface RunSpec extends RunRef {
+export interface RunSpec<S extends OutputSchema | undefined = OutputSchema | undefined> extends RunRef {
   message: string;
+  /** Stable per-dispatch action key; omit for a fresh UUID. Gateway-wide across agents/sessions for `agent`.
+   * Reuse only for the same input/attempt. In-memory bounded cache, not exactly-once across engine restarts. */
+  idempotencyKey?: string;
+  schema?: S; // JSON Schema subset: locally validated; unsupported keywords refused before a run
   system?: string;
   images?: { data: string; mimeType: string }[];
   thinking?: 'off' | 'low' | 'medium' | 'high';
@@ -35,6 +42,8 @@ export interface RunSpec extends RunRef {
   // this run only. `provider` is the id `providers(member)` reports; one not signed in ends `signed-out` before any
   // call. Absent: the engine's own selection.
   model?: string;
+  /** Explicit paid key choice. Uses a separate member-owned agent and separate session history. */
+  auth?: 'apiKey';
   // The app tools (KitOptions.tools names) this run may call; any other app tool is refused at the gate before
   // ToolHost.gate. Engine builtins are unaffected. A name the kit does not register is refused before any request.
   // Absent: every app tool.
@@ -72,10 +81,10 @@ export type PlanWindow = {
   windows: { label: string; usedPercent: number; resetAt?: number }[]; // usedPercent 0-100; resetAt epoch ms
 };
 
-export type RunEnd =
-  | { ok: true; text: string; usage?: RunUsage; planWindow?: PlanWindow } // each only when the engine reports it
+export type RunEnd<T = unknown> =
+  | { ok: true; text: string; data?: T; usage?: RunUsage; planWindow?: PlanWindow } // data: validated schema; usage/window: engine reports
   | { ok: false; aborted: true }
-  | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other'; until?: number; message: string };
+  | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other' | 'output'; until?: number; message: string };
 
 export type SignInOptions = { authChoice: string; via?: 'browser' | 'code'; signal?: AbortSignal };
 
@@ -105,8 +114,9 @@ export type Decision = { allow: boolean; reason?: string; answer?: unknown }; //
 
 export type KitState = {
   phase: 'stopped' | 'installing' | 'starting' | 'repairing' | 'ready' | 'restarting' | 'failed' | 'needs-update' | 'locked';
-  why?: 'install' | 'handshake' | 'exited' | 'port' | 'version' | 'engine-already-running';
+  why?: 'install' | 'handshake' | 'exited' | 'port' | 'version' | 'engine-already-running' | 'engine-patch';
   retryAt?: number;
+  patchSet?: string | null; // verified bundled set; null = unknown provenance
 };
 
 export type Hello = { protocol: number; server: { version: string }; methods: string[]; events: string[] };
@@ -115,15 +125,34 @@ export type Route = {
   choice: string;
   provider: string;
   plugin: string; // the bundled openclaw.plugin.json id that owns the choice; '' for a core static choice
-  billing: 'subscription' | 'api' | 'local';
+  billing: 'subscription' | 'api' | 'local' | 'free' | 'unknown';
   auth?: 'cli' | 'api_key' | 'token';
   terms?: 'allowed' | 'grey';
   termsUrl?: string;
-  via: 'browser' | 'code';
+  via: 'browser' | 'code' | 'paste' | 'key' | 'setup_token' | 'cli' | 'plan_key' | 'cloud' | 'local' | 'endpoint';
   prerequisite: string | null;
-  offer: boolean;
+  offer: boolean; // compatibility: true only for a ready default subscription route
+  id?: string;
+  name?: string;
+  company?: string;
+  aliases?: string[];
+  offerPolicy?: 'default' | 'explicit';
+  legacy?: { provider: string; via: 'browser' | 'code' }; // retained explicit sign-in selectors
+  billingFrom?: 'source' | 'host';
+  group?: 'models' | 'services';
+  platforms?: { node: 'yes' | 'host' | 'no'; browser: 'yes' | 'host' | 'no'; rn: 'yes' | 'host' | 'no' };
+  needs?: { binary?: string; plugin?: string; client?: string };
+  install?: { npmSpec?: string; clawhubSpec?: string; minHostVersion?: string };
+  upstream?: { surface: 'openclaw'; id: string; method?: string; revision: string; flow: 'present' | 'absent' };
+  readiness?: 'ready' | 'needs_binary' | 'needs_plugin' | 'needs_host' | 'needs_client' | 'unsupported_platform' | 'no_upstream_flow';
+  why?: string;
   reason: string;
   source: string;
+  revision: string;
+  checked: string;
+  label: string;
+  keyEntry: boolean;
+  keyErrors: { invalid: 'key.invalid'; not_included: 'key.notIncluded' } | null;
 };
 
 export interface GatewayTransport {
@@ -138,6 +167,12 @@ export interface GatewayTransport {
 }
 
 export type CallOptions = { timeoutMs?: number | null; signal?: AbortSignal };
+
+/** Kit-owned invalidation only: no origin, URL, input value or lease secret. */
+export type BrowserPing = { member: Member; kind: 'state' | 'signin' };
+export type KitEventName = GatewayEventName | 'byokit.browser';
+export type KitEventPayload<E extends KitEventName> = E extends 'byokit.browser' ? BrowserPing
+  : GatewayEventPayload<Extract<E, GatewayEventName>>;
 
 // Pass-through typing (4.6): re-exports of the generated method/event tables (O2 fills the tables, these names are
 // frozen by 5.3).

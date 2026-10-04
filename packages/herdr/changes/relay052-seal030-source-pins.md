@@ -1,0 +1,1 @@
+- Unreleased source dependency metadata: pin @byokit/seal 0.3.0 and @byokit/relay 0.5.2; this package's existing version is not republished. Previously published consumer metadata remains unchanged.

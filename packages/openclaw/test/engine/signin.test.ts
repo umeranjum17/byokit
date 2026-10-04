@@ -1,4 +1,4 @@
-// The pinned engine's own wizard, for real (5.7, O6): every choice id in routes.json exists in the tarball, and the
+// The pinned engine's own wizard, for real (5.7, O6): choices match bundled or external pin metadata, and the
 // drive speaks the contract the gateway actually serves — steps only from wizard.next, one setup admission at a time.
 import { test, before, after, mock } from 'node:test';
 import childProcess from 'node:child_process';
@@ -7,13 +7,14 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { pathToFileURL } from 'node:url';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { setImmediate as turn, setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../../src/engine.ts';
 import { gatewayTransport } from '../../src/transport.ts';
 import { providers, signIn, type SignInCtx } from '../../src/signin.ts';
 import { words } from '../../src/words.ts';
 import { routes } from '../../src/routes.ts';
+import pinSnapshot from '../fixtures/routes-pin.json' with { type: 'json' };
 import { scratchDir } from '../../../test-support.ts';
 import type { GatewayTransport, SignInView } from '../../src/types.ts';
 import { mockOpenAI } from '../../../accounts/src/testing/index.ts';
@@ -29,23 +30,28 @@ let calls: string[] = [];
 let openai: Awaited<ReturnType<typeof mockOpenAI>>;
 
 /** The pin's own inventory: every bundled manifest's `providerAuthChoices`, and the manifest id that owns each. */
-const pinnedChoices = (): { choices: Map<string, string>; staticChoices: string } => {
-  const pkg = join(engineDir, 'node_modules', 'openclaw');
+const pinnedChoices = (): { choices: Map<string, string>; guided: Set<string>; staticChoices: string } => {
+  const pkg = dirname(engine.doctorContext().entry);
   assert.equal(JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8')).version, '2026.8.1', 'the pinned tarball is installed');
   const choices = new Map<string, string>();
+  const guided = new Set<string>();
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) { walk(path); continue; }
       if (entry.name !== 'openclaw.plugin.json') continue;
-      const manifest = JSON.parse(readFileSync(path, 'utf8')) as { id?: string; providerAuthChoices?: { choiceId?: string }[] };
-      for (const choice of manifest.providerAuthChoices ?? []) if (choice.choiceId) choices.set(choice.choiceId, manifest.id ?? '');
+      const manifest = JSON.parse(readFileSync(path, 'utf8')) as { id?: string; providerAuthChoices?: { choiceId?: string; appGuidedAuth?: string; assistantVisibility?: string }[] };
+      for (const choice of manifest.providerAuthChoices ?? []) {
+        if (!choice.choiceId) continue;
+        choices.set(choice.choiceId, manifest.id ?? '');
+        if (choice.appGuidedAuth && choice.assistantVisibility !== 'manual-only') guided.add(choice.choiceId);
+      }
     }
   };
   walk(join(pkg, 'dist'));
   // The one core static choice lives outside every manifest (auth-choice-options.static.ts).
   const options = readdirSync(join(pkg, 'dist')).filter((name) => name.startsWith('auth-choice-options-'));
-  return { choices, staticChoices: options.map((name) => readFileSync(join(pkg, 'dist', name), 'utf8')).join('\n') };
+  return { choices, guided, staticChoices: options.map((name) => readFileSync(join(pkg, 'dist', name), 'utf8')).join('\n') };
 };
 
 /** The gateway needs a moment to bind after spawn: connect only once the port answers. */
@@ -77,7 +83,7 @@ mock.method(globalThis, 'fetch', (input, options) => {
   const spawn = childProcess.spawn;
   mock.method(childProcess, 'spawn', (...args: Parameters<typeof spawn>) => {
     const [file, argv, options] = args;
-    if (file === process.execPath && Array.isArray(argv) && argv.includes(join(engineDir, 'node_modules', 'openclaw', 'openclaw.mjs'))) {
+    if (file === process.execPath && Array.isArray(argv) && argv.includes(engine.doctorContext().entry)) {
       return spawn(file, ['--import', pathToFileURL(preload).href, ...argv], options);
     }
     return spawn(...args);
@@ -148,13 +154,32 @@ async function withGateway<T>(plugins: string[], fn: (ctx: SignInCtx, request: G
   }
 }
 
-test('routes.json and the pinned tarball agree in both directions, plugins included (5.7, 5.12)', { timeout: 120_000 }, () => {
+test('routes.json and bundled/external pin metadata agree in both directions (5.7, 5.12, B6)', { timeout: 120_000 }, () => {
   const { choices, staticChoices } = pinnedChoices();
   for (const route of routes()) {
+    if (!route.choice) {
+      assert.equal(route.readiness, 'no_upstream_flow', route.provider);
+      continue;
+    }
+    if (route.needs?.plugin) {
+      assert.ok(pinSnapshot.manifests.some(manifest => manifest.id === route.plugin
+        && 'providerAuthChoices' in manifest && (manifest.providerAuthChoices ?? []).some(choice => choice.choiceId === route.choice)),
+      `${route.choice} must exist in the external pin manifest snapshot`);
+      assert.equal(route.needs.plugin, route.plugin);
+      continue;
+    }
     assert.ok(choices.has(route.choice) || staticChoices.includes(`"${route.choice}"`),
       `${route.choice} is not an auth choice of the pinned tarball (${route.source})`);
   }
-  assert.ok(routes().length >= 30, 'the table is the pin\'s whole inventory, not just the offered routes');
+  assert.equal(routes().length, 96, 'full discovery includes unavailable choices, not just bundled ones');
+  const catalog = JSON.parse(readFileSync(join(dirname(engine.doctorContext().entry), 'scripts/lib/official-external-provider-catalog.json'), 'utf8')) as {
+    entries: { openclaw: { plugin: { id: string }; providers: { authChoices?: { choiceId: string }[] }[] } }[];
+  };
+  for (const { openclaw } of catalog.entries) for (const provider of openclaw.providers) {
+    for (const choice of provider.authChoices ?? []) {
+      assert.equal(routes().find(route => route.choice === choice.choiceId)?.plugin, openclaw.plugin.id, choice.choiceId);
+    }
+  }
   // The other direction, and the owning plugin of every choice: nothing pinned is unrouted, and no route names the
   // wrong plugin (the allowlist needs the owning id, 5.6).
   for (const [choice, plugin] of choices) {
@@ -166,8 +191,10 @@ test('routes.json and the pinned tarball agree in both directions, plugins inclu
   assert.equal(routes().find((entry) => entry.choice === 'custom-api-key')?.plugin, '', 'a core choice has no plugin');
 });
 
-test('every offered wizard route starts on the real engine without a caller allowlist (5.7, B6)', { timeout: 900_000 }, async () => {
-  for (const route of routes().filter((entry) => entry.offer && entry.auth !== 'cli')) {
+test('every offered app-guided route starts without a caller allowlist (5.7, B6)', { timeout: 900_000 }, async () => {
+  const { guided } = pinnedChoices();
+  assert.ok(guided.has('openai-device-code'), 'guided choices are read from the pinned inventory');
+  for (const route of routes().filter((entry) => entry.offer && guided.has(entry.choice))) {
     await withGateway([], async (_ctx, request) => {
       const sessionId = `byokit-probe-${route.choice}`;
       const started = await request('openclaw.setup.auth.start',
@@ -255,7 +282,7 @@ test('real gateway: without a caller allowlist the drive shows the code, never a
 
 test('the pinned wizard completes device approval after three minutes of fake time', async (t) => {
   // Exercise the real engine's WizardSession and prompter without a provider account or outbound fetch.
-  const dist = join(engineDir, 'node_modules', 'openclaw', 'dist');
+  const dist = join(dirname(engine.doctorContext().entry), 'dist');
   const file = readdirSync(dist).find((name) => name.startsWith('session-') && name.endsWith('.js')
     && readFileSync(join(dist, name), 'utf8').includes('WizardSession as t'));
   assert.ok(file, 'the pin must expose its wizard implementation');
@@ -288,7 +315,7 @@ test('the engine state directory is the only place a sign-in touches', () => {
 
 
 test('native Claude auth seam asks a task-owned CLI, clears overrides, and returns no credentials', async () => {
-  const { probeClaudeCliAuthStatus } = await import(pathToFileURL(join(engineDir, 'node_modules', 'openclaw',
+  const { probeClaudeCliAuthStatus } = await import(pathToFileURL(join(dirname(engine.doctorContext().entry),
     'dist', 'extensions', 'anthropic', 'cli-auth-seam.js')).href);
   const command = join(install, 'fake-claude');
   writeFileSync(command, `#!${process.execPath}

@@ -395,5 +395,30 @@
         "provenance": "unknown"
       }
     }
-  ]
+  ],
+  "hostRuns": {
+    "openclaw": {
+      "ok": true,
+      "text": "never-store-answer",
+      "usage": {
+        "input": 50,
+        "output": 20,
+        "cacheRead": 30,
+        "cacheWrite": 20,
+        "reasoning": 5,
+        "total": 120,
+        "costUsd": 99
+      }
+    },
+    "decide": {
+      "input_tokens": 40,
+      "output_tokens": 10
+    },
+    "tokens": {
+      "input": 240,
+      "output": 50,
+      "total": 290,
+      "provenance": "reported"
+    }
+  }
 }

@@ -51,4 +51,4 @@ export function decoy(root: string) {
     ran: () => readdirSync(marks),
   };
 }
-export { mockJwt, mockOpenAI, type MockOpenAIOptions } from './mock-openai.ts';
+export { mockJwt, mockOpenAI, type MockOpenAIAnswer, type MockOpenAIOptions } from './mock-openai.ts';

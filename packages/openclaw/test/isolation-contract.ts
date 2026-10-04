@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
-import { mkdirSync, writeFileSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { scratchDir } from '../../test-support.ts';
+import { removeScratch, scratchDir } from '../../test-support.ts';
 import { connect } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../src/engine.ts';
@@ -13,7 +13,7 @@ const listening = (port: number) => new Promise<boolean>(resolve => {
 });
 
 // Shared by npm test's offline child and test:engine's pinned engine.
-export async function isolationContract(install?: (dir: string) => string): Promise<void> {
+export async function isolationContract(install?: (dir: string) => string | Promise<string>): Promise<void> {
   const dir = scratchDir('engine-isolation');
   const decoy = join(dir, 'decoy');
   for (const name of ['.pi', '.openclaw', '.codex', '.claude', '.config/herdr']) {
@@ -27,7 +27,7 @@ export async function isolationContract(install?: (dir: string) => string): Prom
   process.env.OPENAI_API_KEY = 'should-not-be-inherited';
   const states: string[] = [];
   // Node rejects npm's ci arguments if an offline fixture ever needs repair; never invoke real npm.
-  const engine = new Engine({ stateDir: join(dir, 'own'), ...(install ? { engineDir: install(dir), npmPath: process.execPath } : {}), pluginId: 'byokit', tools: [], spawnEngine: true,
+  const engine = new Engine({ stateDir: join(dir, 'own'), ...(install ? { engineDir: await install(dir), npmPath: process.execPath } : {}), pluginId: 'byokit', tools: [], spawnEngine: true,
     onState: s => states.push(`${s.phase}/${s.why ?? ''}`), onExit() {} });
   try {
     const ctx = await engine.start();
@@ -68,7 +68,13 @@ export async function isolationContract(install?: (dir: string) => string): Prom
     assert.ok(!log.includes('should-not-be-inherited'));
     if (install) {
       const child = JSON.parse(readFileSync(join(engine.root, 'home', 'child.json'), 'utf8'));
-      assert.deepEqual(child.env, env, 'the child actually received the isolated environment');
+      const identity = JSON.parse(readFileSync(join(engine.root, 'gateway.identity'), 'utf8'));
+      const expected: Record<string, string | undefined> = { ...env, ...(identity.bootId ? { BYOKIT_ENGINE_BOOT: identity.bootId,
+        BYOKIT_ENGINE_USAGE_LEDGER: join(engine.root, 'usage') } : {}) };
+      if (identity.bootId) assert.match(identity.bootId, /^[0-9a-f-]{36}$/);
+      assert.equal(child.env.OPENCLAW_GATEWAY_TOKEN === expected.OPENCLAW_GATEWAY_TOKEN, true, 'token matches without entering failure traces');
+      assert.deepEqual({ ...child.env, OPENCLAW_GATEWAY_TOKEN: '<redacted>' }, { ...expected, OPENCLAW_GATEWAY_TOKEN: '<redacted>' },
+        'the child actually received only the isolated environment and accounting identity');
       assert.equal(child.cwd, env.HOME);
     }
     for (const name of ['.pi', '.openclaw', '.codex', '.claude', '.config/herdr']) assert.equal(readFileSync(join(decoy, name, 'canary'), 'utf8'), name);
@@ -76,6 +82,6 @@ export async function isolationContract(install?: (dir: string) => string): Prom
     await engine.stop();
     if (original === undefined) delete process.env.HOME; else process.env.HOME = original;
     if (originalKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = originalKey;
-    rmSync(dir, { recursive: true, force: true });
+    removeScratch(dir);
   }
 }

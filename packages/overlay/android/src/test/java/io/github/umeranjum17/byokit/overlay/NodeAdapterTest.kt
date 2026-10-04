@@ -331,6 +331,41 @@ class NodeAdapterTest {
     assertEquals("web field", FieldNode.of(focused!!, service).shown())
   }
 
+  @Test fun currentVirtualFocusWinsOverAStablePreviousEditableProviderResult() {
+    for (password in listOf(false, true)) {
+      val area = Info(editable = true, inputFocused = false, text = "area-0", id = "app:id/area")
+      val stale = Info(editable = true, text = "area-0", sameAs = area, id = "app:id/area")
+      val line = Info(editable = true, password = password, text = "input seed 0", lands = "line-0",
+        id = "app:id/line")
+      val page = Info(inputFocused = true, kids = listOf(area, line))
+      page.focusSnapshot = stale // provider returns the same previous node on every settling snapshot
+      line.focusSnapshot = stale // querying a virtual leaf can jump back to that global provider result too
+      val service = Service(root = page)
+      assertSame(stale, page.findFocus(AccessibilityNodeInfo.FOCUS_INPUT))
+      assertEquals(if (password) null else "input seed 0", FocusedFields.read(service)?.text)
+      val captured = FocusedFields.capture(service)
+      if (password) {
+        assertNull(captured)
+        assertEquals("failed", FocusedFields.insert(page, "line-0", replace = "all", pause = {},
+          copy = { error("password focus must not copy") }, service = service))
+        assertEquals(0, line.textReads)
+        assertEquals(emptyList<Int>(), line.actions)
+      } else {
+        assertEquals("input seed 0", captured!!.shown())
+        try {
+          assertEquals("inserted", FocusedFields.insert(captured, "line-0", replace = "all", pause = {},
+            copy = { error("must insert into the current field") }, service = service))
+        } finally { captured.recycle() }
+        assertEquals("line-0", line.text)
+      }
+      assertEquals("area-0", area.text)
+      assertEquals(0, area.textReads)
+      assertEquals(0, stale.textReads)
+      assertEquals(emptyList<Int>(), area.actions)
+      assertEquals(emptyList<Int>(), stale.actions)
+    }
+  }
+
   @Test fun virtualInputFocusUnderANativeContainerNeverGuessesOrExposesPasswords() {
     val decoy = Info(editable = true, inputFocused = false, text = "leave me")
     val password = Info(editable = true, password = true, text = "secret")

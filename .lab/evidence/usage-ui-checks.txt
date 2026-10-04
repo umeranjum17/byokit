@@ -1,0 +1,3 @@
+Source commit: 018969d3991d8a17436e0349c25e34f4128ccd1d
+All nine Android accessibility dumps: today/activity/people/models equal the provider-specific fixture total; one recorded call; no raw model ids or legacy plan names.
+Web snapshots saved in web-tabs.txt.

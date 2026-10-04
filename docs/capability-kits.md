@@ -1,8 +1,9 @@
-# Capability kits: `@byokit/write`, `@byokit/record`, `@byokit/overlay`, `@byokit/secrets` and `@byokit/statusbar`
+# Capability kits: `@byokit/write`, `@byokit/record`, `@byokit/overlay`, `@byokit/secrets`, `@byokit/statusbar`, `@byokit/push` and `@byokit/share`
 
 Foundation spec and builder breakdown. Status: **design approved for build (BK-0); the `write` and `record`
 scaffolds are in the repo with frozen signatures, `@byokit/secrets` (section 11) is implemented,
-and nothing else here is implemented yet.**
+and nothing else here is implemented yet. `@byokit/share` (section 14) has its TypeScript
+surface and JS hook layer in the repo (offline tests only); none of its native code is built, prebuilt or run.**
 This document is the single source of truth for the build lanes. A builder follows it literally. Where it is silent,
 the builder stops and asks rather than designs. Section 9 is the work-package list.
 
@@ -11,11 +12,12 @@ Contents: [1 Goal](#1-goal) · [2 Decisions](#2-decisions) · [3 Shared conventi
 [6 Recorder protocol v1](#6-recorder-protocol-v1) · [7 `@byokit/overlay`](#7-byokitoverlay) ·
 [8 Tests, CI and isolation](#8-tests-ci-and-isolation) · [9 Work packages](#9-work-packages) ·
 [10 Known facts builders must not re-derive](#10-known-facts-builders-must-not-re-derive) ·
-[11 `@byokit/secrets`](#11-byokitsecrets) · [12 `@byokit/statusbar`](#12-byokitstatusbar)
+[11 `@byokit/secrets`](#11-byokitsecrets) · [12 `@byokit/statusbar`](#12-byokitstatusbar) ·
+[13 `@byokit/push`](#13-byokitpush) · [14 `@byokit/share`](#14-byokitshare)
 
 ## 1. Goal
 
-BYOKit gains four **capability kits**. Each one is named for what it can do, not for the product behind it:
+BYOKit gains these **capability kits**. Each one is named for what it can do, not for the product behind it:
 
 - **`@byokit/write`**: drafting in a person's voice. It covers voice rules, the platforms a post can go to with
   their limits, the brief lines a writer follows, model-free checks on drafts (fit, voice, stock phrasing, kept facts)
@@ -30,6 +32,11 @@ BYOKit gains four **capability kits**. Each one is named for what it can do, not
 - **`@byokit/statusbar`** (section 12, BK-S1): one ongoing job shown as a status-bar chip on Android 16 (a promoted
   ongoing notification), with a counts-only lock-screen copy and up to three actions. On iOS and below Android 16 it
   reports `unsupported`.
+- **`@byokit/push`** (section 13): opens sealed push title and body before native display on iOS and Android.
+- **`@byokit/share`** (section 14): receiving shared text and files in an Expo app through expo-share-intent's full
+  public API, with a crash-safe Android receiver of its own, plus two option-gated build fixes on the same plugin
+  (`appleTargets` for @bacons/apple-targets, `desklink` for @desklink/react-native). It runs against the stock
+  published upstreams, pinned exactly, and never edits `node_modules`.
 
 An app such as a writing helper or a demo-video helper uses these kits the way a coding app uses `@byokit/herdr`.
 The kit supplies the typed, supervised, tested integration. The product keeps its own prompts, screens and
@@ -133,6 +140,15 @@ packages/write/
 `package.json`: `exports` `.` → `dist/index.js`, `./testing` → `dist/testing/index.js`; `bin`
 `{ "write": "dist/cli.js" }`; `files` `dist`, `schema`, `README.md`, `LICENSE`, `CHANGELOG.md`. Dependencies:
 none at BK-0; BK-P2 adds `"ownvoice-engine": "<exact>"`.
+
+The React Native condition selects `dist/portable.js`; `./portable` explicitly selects the same entry for other
+bundlers. Its `Compose` requires `{ engine: Engine }` (exported as `ComposeOptions`, also named
+`PortableComposeOptions`). It shares all methods, validation and the version gate with the Node client, but
+imports neither Node adapters nor the pinned engine. Node's `.` entry and CLI retain the lazy pinned default.
+The host owns its engine/transport and text privacy. The current pinned engine's lookbehind expressions are not
+Hermes-compatible, so the portable entry does not load it. Protocol 1 and generated/public wire parity are
+unchanged: no voice-sample field or behavior is defined. The built-entry scripted protocol fixture is
+`packages/write/test/fixtures/portable.ts`, with Hermes runner `packages/write/test/hermes.sh`.
 
 ### 4.2 Engine wire (what the kit expects from `ownvoice-engine` protocol 1)
 
@@ -2000,3 +2016,993 @@ assembles and runs JVM tests; `push-ios` runs Swift tests and builds the generat
 needs a push account or delivery network. Signed physical-device sleeping-phone proof is the manual procedure
 in the package README, with generic fallback, key clearing, tap routing and first-unlock behavior recorded.
 Publishing remains held by `private: true` until release approval.
+
+## 14. `@byokit/share`
+
+Owner-approved capability name: **share**. One package, `@byokit/share` 0.1.0 `private: true`, receives shared
+text and files in an Expo app and carries two third-party build fixes on the same config plugin. It replaces an
+app's `postinstall` rewrites of three published upstreams with its own Kotlin and TS code plus config-plugin edits of
+the app's *generated* native project. It never edits `node_modules`, imports no other kit and no runtime kit, and
+the app keeps its share screens and decisions (D-A).
+
+**Status: specified; the TypeScript surface (14.7) and the JS hook layer (`hook.ts`, `adapter.ts`, `rn.ts`) are in the
+repo with offline tests (H1-H22, `npm test`); no native build, prebuild, Gradle run, emulator run or device run has
+happened. Every statement here carries one of three labels; an unlabelled statement about this kit's own code is
+[PROPOSED].
+
+| Label | Meaning |
+|---|---|
+| [SOURCE-VERIFIED `file:line`] | The cited file in an unmodified published tarball (or this repo) shows it. Says nothing about runtime. |
+| [PROPOSED] | Design intent. Verified only when the acceptance case named next to it passes. |
+| [UNVERIFIED-RUNTIME] | Depends on Android, iOS, RN 0.86.3, Gradle, npm or device behaviour the evidence does not show, including reasoning from RN 0.81.5 sources. |
+
+**Citations** name a published package version and a path inside it. Short keys used below:
+
+| Key | Package and path |
+|---|---|
+| `esi` | expo-share-intent 8.0.1, package root |
+| `esik` | expo-share-intent 8.0.1 `android/src/main/java/expo/modules/shareintent/` |
+| `at` | @bacons/apple-targets 5.0.0 `build/` (`at/../package.json` is its package root) |
+| `dl` | @desklink/react-native 0.3.0, package root |
+| `emc` / `emck` / `emgp` | expo-modules-core 57.0.19 / its `android/src/main/java/expo/modules/kotlin/` / its `expo-module-gradle-plugin/src/main/kotlin/expo/modules/plugin/` |
+| `ema` / `eagp` | expo-modules-autolinking 57.0.13 / its `android/expo-gradle-plugin/` |
+| `expo` | expo 57.0.25 `android/src/main/java/expo/modules/` |
+| `cp` | @expo/config-plugins 57.0.9 `build/` |
+| `tpl` | expo-template-bare-minimum 57.0.27 |
+| Crewhouse | Crewhouse `mobile/` at fae80a2 (the consumer whose patches this replaces) |
+
+The scout evidence (extracted tarballs, consumer source copies, analyst and review outputs) and its integrity
+receipts live with firstmate, not in this repo. Anyone can reproduce the tarballs with `npm pack <name>@<version>`;
+each `sha512` equals the registry `dist.integrity` and the Crewhouse lock entry:
+
+| Tarball | Integrity |
+|---|---|
+| expo-share-intent@8.0.1 | `sha512-VOHzutKhiEuVW9ygWCfBlseVqR5Zs8+8GAOGdg42bm7yzHALmYBclrTL+6oCIv34q+CHxf/lCt/67qeZrORfVQ==` |
+| @bacons/apple-targets@5.0.0 | `sha512-03LEidnuAAccH5ueL03sOaauQMnpJ7ZGwrVUlzNc5K3BrlfGE9SDUJs1ITkXC7YLKfFPJyiB7VzoZYiRxJmUdA==` |
+| @desklink/react-native@0.3.0 | `sha512-CKhNL64waY3F0XbDRrnJ59qXdM82KDa6Uc6VsowH9IGV/fhdt6EA8GUGnMkh5xcvrXN5XEPpj4qrWRBp5NGAZA==` |
+
+All three are `dist-tags.latest` as of 2026-10-02; no newer release removes the problems.
+
+### 14.1 Decisions
+
+| # | Decision |
+|---|---|
+| SH-1 | **One package, one plugin.** `["@byokit/share", { shareIntent?, appleTargets?, desklink? }]` configures share receiving, the apple-targets fix and the desklink fix; each part is off unless its option is set. **Disclosed cost:** any app that installs the kit links `ShareModule` and `ShareListener`, a desklink-only app included. Without the manifest filters no implicit SEND reaches it. `.MainActivity` is `exported="true"` [SOURCE-VERIFIED `tpl/android/app/src/main/AndroidManifest.xml:23`], so an **explicit** SEND can probably reach it without any filter [UNVERIFIED-RUNTIME]; `ShareListener` would capture it, nothing reads it while no hook is mounted, and every read is guarded. "Harmless" is [PROPOSED]. |
+| SH-2 | **Stock, byte-identical upstreams.** Acceptance runs against the published expo-share-intent 8.0.1, @bacons/apple-targets 5.0.0 and @desklink/react-native 0.3.0, byte-identical in the app's `node_modules` (14.14 D2). No patch-package, `postinstall`, fork, vendored or bundled copy, source build or unpublished prerequisite. The OpenClaw bundling exception does not apply. |
+| SH-3 | **Exact optional peer pins** (14.5). Only these versions are qualified; moving one is a deliberate bump that reruns 14.12, 14.13 and 14.14. |
+| SH-4 | **Android: upstream's native module is replaced, not wrapped.** expo-share-intent's Android code is kept out of the build through Expo's supported `expoAutolinking.exclude` in the generated `settings.gradle`; the kit's own module `ByokitShare` receives shares; upstream's config plugin still writes the manifest filters. No `MainActivity` edit, no intent sanitizing in the host. |
+| SH-5 | **iOS: upstream passes through unchanged**; the kit's hook validates a share URL before any native call. |
+| SH-6 | **Full typed pass-through** of expo-share-intent's published surface (14.12): every public export, type, hook option, native member and plugin option, each marked identical, adapted or unsupported per platform. No `sharePlugin()` helper; `SharePluginOptions` is the typed config entry. |
+| SH-7 | **apple-targets: hide and restore.** A public-API config mod hides foreign extension targets while apple-targets runs, then restores them; a sibling guard fails loud. `match` accepts any glob, resolved with apple-targets' own nested `glob`. |
+| SH-8 | **desklink: Gradle from outside.** A root `build.gradle` insert applies `expo-module-gradle-plugin` to `:desklink-react-native`. desklink's source is unchanged. |
+| SH-9 | **`singleTask` only** (14.2). |
+| SH-10 | **Release.** `SECURITY:`/`FIX:` lines in `packages/share/CHANGELOG.md` `## Unreleased`, no cascade, `share` added to the canonical order (14.17). Main is the sole publisher and npm-trust owner. |
+
+### 14.2 The launch-mode rule
+
+**`.MainActivity` must have `android:launchMode="singleTask"`. Nothing is equivalent; `singleTop` is rejected.**
+
+- Upstream defaults to `singleTask` and merges caller attributes over it [SOURCE-VERIFIED
+  `esi/plugin/build/android/withAndroidMainActivityAttributes.js:31-34`]; the template sets it [SOURCE-VERIFIED
+  `tpl/android/app/src/main/AndroidManifest.xml:23`]; Crewhouse sets no launch-mode override [SOURCE-VERIFIED
+  Crewhouse `app.json:58-76`].
+- The warm path needs the running instance to get `onNewIntent` [SOURCE-VERIFIED
+  `expo/ReactActivityDelegateWrapper.kt:306-315` → `emck/ReactLifecycleDelegate.kt:40-41` → `emck/AppContext.kt:360-364`];
+  the RN `ReactActivity` hop is cited only from RN 0.81.5 [UNVERIFIED-RUNTIME for 0.86.3].
+- Under `singleTop` a share usually starts a second `MainActivity` in the sender's task [UNVERIFIED-RUNTIME].
+  Upstream papers over that with a relaunch that forwards the sender's grants [SOURCE-VERIFIED
+  `esik/ExpoShareIntentModule.kt:114-122`]; this kit never relaunches.
+
+Enforced by: option validation (14.6 step 2), the final-manifest assertion (14.6 step 3b, with its ordering caveat),
+D3's `.MainActivity` read and D6 W3. A committed `android/` that never runs prebuild gets neither plugin check (L2);
+the README tells bare apps to keep `singleTask`.
+
+### 14.3 Upstream facts builders must not re-derive
+
+**expo-share-intent 8.0.1, Android** [SOURCE-VERIFIED `esik/ExpoShareIntentModule.kt`]:
+- `getFileInfo` (`:59-112`) has no guard: `query(...)!!` at `:69`, `getType(uri)!!` at `:75`, an unclosed
+  `decodeStream(openInputStream(uri))` at `:84`, an unreleased `setDataSource` at `:90`; `?.toInt().toString() ?: null`
+  yields the string `"null"` (`:91-99`).
+- Warm intents run on the UI thread via `OnNewIntent` (`:199-201`); `expo/ExpoReactHostFactory.kt:86-93` re-throws
+  (process crash is [UNVERIFIED-RUNTIME]). The cold path clears its singleton only after success (`:184-188`).
+- Path resolution can return external-storage absolute paths (`:231`), a cache copy of any `content://` URI including
+  the app's own providers (`:264-265` → `getDataColumn` → copy at `:329-331`), or raw `uri.path` (`:268`). For
+  `file://`, `query(...)!!` at `:69` runs first, so the expected result is a crash [UNVERIFIED-RUNTIME].
+- The listener captures any typed launch intent (`esik/ExpoShareIntentReactActivityLifecycleListener.kt:15-21`).
+  `disableAndroid` gates only the manifest mods (`esi/plugin/build/index.js:29-34`); module and listener stay
+  registered (`esik/ExpoShareIntentPackage.kt:8-9`).
+- Text branching: `startsWith("text/plain")` gives text only (`:125-139`; VIEW reads `intent.dataString`, `:135-136`);
+  anything else gives files only (`:140-159`).
+- **Supported route:** `var exclude` on the autolinking settings extension
+  (`eagp/expo-autolinking-settings-plugin/.../ExpoAutolinkingSettingsExtension.kt:46`, passed on at `:75-81`, through
+  `SettingsManager.kt:31-35` and `AutolinkingCommandBuilder.kt:64`), appended to the package.json list at
+  `ema/build/commands/autolinkingOptions.js:156-157`. RN's own autolinking already skips Expo modules
+  (`ema/build/reactNativeConfig/androidResolver.js:142-144`). The template calls `expoAutolinking.useExpoModules()` at
+  `tpl/android/settings.gradle:32`. The effect is [UNVERIFIED-RUNTIME] until D5's package-list grep.
+- Manifest filters still come from upstream's plugin (`withAndroidIntentFilters.js:48-79`), not from autolinking.
+
+**expo-share-intent 8.0.1, iOS** [SOURCE-VERIFIED]: the extension copies into the app group
+(`esi/plugin/build/ios/ShareExtensionViewController.swift:298-308`) and the host reads only app-group UserDefaults
+(`esi/ios/ExpoShareIntentModule.swift:25-35`). Upstream's hook calls native `getShareIntent(url)` for **any** URL
+containing `<scheme>://dataUrl=` (`esi/build/useShareIntent.js:40-42`), and native runs `url.fragment!`
+(`ExpoShareIntentModule.swift:138-143`, also `:87,106,119,130,151`). The extension builds exactly
+`<scheme>://dataUrl=<scheme>ShareKey…#(media|text|weburl|file)` (`ShareExtensionViewController.swift:15,494,513-518`).
+`getScheme` can return null (`esi/build/utils.js:23-27`); `parseShareIntent` reads `options.debug` unguarded (`:117`).
+
+**@bacons/apple-targets 5.0.0, iOS** [SOURCE-VERIFIED]: candidates are listed by type only
+(`at/with-xcode-changes.js:58-63`), then `targets.find(productName) ?? targets[0]` (`:64-68`). Its custom
+`xcodeProjectBeta2` mod (`at/with-bacons-xcode.js:34`) reads the project from disk (`:53-61`); Expo's `xcodeproj`
+runs at precedence -1 (`cp/plugins/mod-compiler.js:122-152`), so plugin order cannot help. Options: `root`
+(default `./targets`), `match` (default `*`, any glob), `appleTeamId` (`at/config-plugin.js:16-17,28`;
+`at/config-plugin.d.ts:3-7`). Discovery: `globSync(`${root}/${match}/expo-target.config.@(json|js)`)`
+(`at/config-plugin.js:28-31`), `require`, call with `config` if a function (`:34-45`), then
+`sanitize(name || dir) || sanitize(dir) || sanitize(type)` (`at/with-widget.js:31-35`; `at/util.js:42-47`). It
+declares `glob ^10.4.2` (`at/../package.json:127`); Crewhouse's lock nests glob 10.5.0 under it and hoists 13.0.6.
+It returns false for an unknown product type before reading any Info.plist (`at/target.js:729-731`, read at `:733`).
+No Android mods.
+
+**@desklink/react-native 0.3.0, Android** [SOURCE-VERIFIED]: applies only `com.android.library` and `kotlin-android`
+(`dl/android/build.gradle:1-2`). Without the Pika compiler step (`emgp/ExpoModulesGradlePlugin.kt:22-33`;
+`emgp/ProjectConfiguration.kt:22-42`), `isIntrospectable<T>()`/`introspectionOf<T>()` in expo-modules-core's
+`types/ReturnType.kt:68-91` keep Pika's stubs, which throw "should be replaced by the compiler plugin" (string in
+Pika's `io/github/lukmccall/pika/IsIntrospectableKt.class`); the launch throw itself is reported by Crewhouse
+[UNVERIFIED-RUNTIME here]. Its `app.plugin.js:11-16` is iOS-only. The plugin id is on the root classpath
+(`eagp/.../SettingsManager.kt:113-125`); defaults are apply-if-missing (`emgp/ProjectConfiguration.kt:22-32`);
+`canBePublished` (`emgp/gradle/ExpoModuleExtension.kt:47`) and `enableCompileTimeOptimization` (`:49-50`) are read
+in `finalizeDsl` (`emgp/ExpoModulesGradlePlugin.kt:29-30`); `canBePublished` is read at
+`emgp/ProjectConfiguration.kt:88-92`, so `false` removes the versionName need. `:expo` calls `evaluationDependsOn`
+(`eagp/.../ExpoAutolinkingPlugin.kt:40`); RN forcing `:app` evaluation is checked only in RN 0.81.5
+[UNVERIFIED-RUNTIME for 0.86.3]. Project name `desklink-react-native`
+(`ema/src/platforms/android/android.ts:176-178`). The root `build.gradle` ends with `apply plugin:
+"expo-root-project"` then `"com.facebook.react.rootproject"` (`tpl/android/build.gradle:23-24`). iOS: plain podspec.
+
+### 14.4 Files and root wiring
+
+| File | WP | What it is |
+|---|---|---|
+| `packages/share/{package.json,tsconfig.json,README.md,CHANGELOG.md,LICENSE,.gitignore}` | WP1 | Scaffold; `tsconfig.json` copied from `packages/statusbar/tsconfig.json` (Expo module); CHANGELOG starts with `## Unreleased` holding the 14.17 lines |
+| `expo-module.config.json` | WP1 | `{"platforms":["android"],"android":{"modules":["io.github.umeranjum17.byokit.share.ShareModule"]}}` |
+| `app.plugin.js` | WP3 | Config plugin (14.6) |
+| `android/build.gradle` | WP2 | Copy of statusbar's; namespace `io.github.umeranjum17.byokit.share`; junit |
+| `android/src/main/AndroidManifest.xml` | WP2 | Empty `<manifest/>` |
+| `android/src/main/java/io/github/umeranjum17/byokit/share/SharePackage.kt` | WP2 | Contains the literal `import expo.modules.core.interfaces.Package` (scanned at `ema/build/platforms/android/android.js:86`) |
+| `…/share/{ShareListener,ShareModule,ShareReader,ShareRules,ShareInbox,ShareMeta}.kt` | WP2 | 14.9 |
+| `android/src/test/java/io/github/umeranjum17/byokit/share/{ShareRulesTest,ShareInboxTest,ShareMetaTest}.kt` | WP2 | 14.13 |
+| `src/types.ts`, `src/words.json`, `src/words.ts`, `src/index.ts`, `src/url.ts` | WP1 | `url.ts` holds pure `isValidShareUrl` |
+| `src/hook.ts` | WP2 | `createUseShareIntent(deps)`: no runtime imports, only `import type` from react; every dependency injected |
+| `src/rn.ts` | WP2 | The only file importing `react`, `react-native`, `expo-modules-core`, `expo-linking` or `expo-share-intent` at runtime |
+| `src/adapter.ts` | WP2 | Native-free `ShareIntentModule` builders: `createAndroidShareModule(native)` (the Android adapter, 14.8) and `guardIosShareModule(module, scheme)` (iOS `getShareIntent` behind `isValidShareUrl`), plus `androidPayload(r)` shared with `hook.ts` |
+| `test/{exports,portable,words,hook,plugin,url}.test.ts` | WP1-3 | 14.13 |
+| `test/fixtures/{withwidgets.pbxproj,root.build.gradle,settings.gradle,AndroidManifest.xml,esi-utils.js,esi-utils.d.ts}` | WP2-4 | Gradle files and manifest copied from `tpl/android/`; pbxproj captured in WP4; `esi-utils.js` is `esi/build/utils.js:37-120` (`parseJson`, `parseShareIntent`) with its MIT notice kept, typed by `esi-utils.d.ts` |
+
+Root wiring (WP1): the root `build` list (`package.json:14`); `tsconfig.json:7`'s exclude gains
+`packages/share/src/rn.ts`; `scripts/fix-words-dts.cjs:9`'s list gains `share`; README install and kit table rows
+(beside `README.md:58-59,144-145`); `examples/expo` (WP2): `package.json` and its lock gain `@byokit/share`
+(`file:../../packages/share`) and `expo-share-intent` 8.0.1 (plugin step 3a requires it from the app, so prebuild in
+the `react-native`, `statusbar-android`, `push-android` and `push-ios` jobs fails without it), plus
+`@bacons/apple-targets` 5.0.0, `expo-widgets` ~57.0.22 and `@desklink/react-native` 0.3.0 with `react-native-webrtc`
+if WP4 needs them in that app; then the plugin is listed in `app.json`; `.github/workflows/ci.yml` (14.13); `scripts/release.ts`
+in WP1r (14.17). The isolation sentences at `CONTRIBUTING.md:70-71` and `README.md:245` gain: "`@byokit/share` runs
+only its own native code, copies shared content into the app's cache only under the sender's grant, and its plugin
+edits only the generated `settings.gradle`, `build.gradle` and pbxproj."
+
+### 14.5 package.json
+
+- As statusbar (`packages/statusbar/package.json:1-58`): `"version": "0.1.0"`, `"private": true`, `"type": "module"`,
+  `repository.directory`, `engines.node ">=22.18"`, `publishConfig.access public`,
+  `"prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"`.
+- `peerDependencies`, all optional (`peerDependenciesMeta`): `"expo": ">=57.0.0"`, `"expo-modules-core": ">=3.0.0"`,
+  `"expo-share-intent": "8.0.1"`, `"@bacons/apple-targets": "5.0.0"`, `"@desklink/react-native": "0.3.0"`, plus
+  `react`, `react-native`, `expo-linking`. Exact, because the kit relies on upstream deep type paths, the `AndroidShareIntent` parse shape,
+  the iOS URL format and apple-targets' discovery internals.
+- `files` as statusbar (`packages/statusbar/package.json:27-35`): `dist`, `android`, `!android/build`,
+  `expo-module.config.json`, `app.plugin.js`, `README.md`, `LICENSE`, `CHANGELOG.md` (release lint fails without it,
+  `scripts/release.ts:341-342`).
+- `devDependencies`, exact: `"expo-modules-core": "57.0.19"` (statusbar `:52-54`), plus `"expo-share-intent": "8.0.1"`
+  and `"expo-linking": "57.0.11"` so root `npm run check` (`types.ts`) and `tsc -b` (`rn.ts`) resolve them; neither is
+  installed at the root today. The last two are an inference not in the report [PROPOSED].
+- `exports` as `packages/statusbar/package.json:15-26`: `"."` → `{ "react-native": { "types": "./dist/rn.d.ts",
+  "default": "./dist/rn.js" }, "types": "./dist/index.d.ts", "default": "./dist/index.js" }`, plus
+  `"./app.plugin.js"` and `"./package.json"`.
+  `app.plugin.js` does not import `dist/`.
+- README contract [PROPOSED]: the JS entry imports `expo-share-intent` and `expo-linking`; apps using only `desklink`
+  or `appleTargets` need not import it; apps must import from the kit, not `expo-share-intent` directly.
+
+### 14.6 Config plugin (`app.plugin.js`)
+
+Plain ESM; `expo/config-plugins` resolved lazily from the app as in `packages/push/app.plugin.js:11-12`. Options:
+`ShareIntentPluginOptions` (upstream `Parameters`, `esi/plugin/build/types.d.ts:4-19`), `AppleTargetsPluginOptions`
+(`= at/config-plugin.d.ts:3-7`), `SharePluginOptions = { shareIntent?; appleTargets?; desklink?: boolean }`.
+`withShare(config, options = {})`, every step [PROPOSED] and checked by C5:
+
+1. **Resolve from the app.** `app = createRequire(join(projectRoot, 'package.json'))`; `interop = m => m.default ?? m`.
+2. **Validate**, throwing plain `Error('@byokit/share: …')` (developer messages, not words) on: an unknown
+   **top-level** key; a non-boolean `desklink`; `config.plugins` also listing `expo-share-intent` or
+   `@bacons/apple-targets` (they would run twice); `shareIntent.androidMainActivityAttributes['android:launchMode']`
+   other than `'singleTask'`, with the message
+   `@byokit/share: MainActivity must stay singleTask so a share reaches the running app`. Keys **inside**
+   `shareIntent` and `appleTargets` pass through verbatim, unknown ones included.
+3. **`shareIntent` set.**
+   - a. `interop(app('expo-share-intent/app.plugin.js'))(config, options.shareIntent)`. Upstream requires `scheme`
+     unless `disableIOS` (`esi/plugin/build/withCompatibilityChecker.js:19-23`).
+   - b. Final-manifest assertion: `withBaseMod(config, { platform: 'android', mod: 'manifest', isProvider: false,
+     action })`; the action awaits `nextMod` first, then `AndroidConfig.Manifest.getMainActivityOrThrow`
+     (`cp/android/Manifest.js:82`) and throws unless `$['android:launchMode'] === 'singleTask'`. Writes nothing.
+     Caveat: it runs after every `withMod`-style manifest action, not after a `withBaseMod` post-action registered
+     later (`cp/plugins/withMod.js:94-121,189-203`); D3 re-reads the written file.
+   - c. Always, whatever `disableAndroid` says, `withSettingsGradle` with `insertShareExclude(contents)`: if the tag is
+     present return unchanged; else insert immediately before `expoAutolinking.useExpoModules()`, throwing if that
+     line is missing:
+     ```groovy
+     // @byokit/share exclude: @byokit/share reads shares on Android; keep expo-share-intent's native code out
+     expoAutolinking.exclude = (expoAutolinking.exclude ?: []) + ['expo-share-intent']
+     ```
+4. **`appleTargets` set.**
+   - `owned = ownedTargetNames(config, options.appleTargets)` immediately before applying upstream, then
+     `interop(app('@bacons/apple-targets/app.plugin.js'))(config, options.appleTargets)` (`{}` = upstream defaults).
+   - **Hide:** `withBaseMod(config, { platform: 'ios', mod: 'xcodeproj', isProvider: false, action })`
+     (`cp/index.js:207`); the action awaits `modRequest.nextMod`, then `assertNoOrphanSibling(section, owned)`, then
+     `hideForeignExtensions(section, owned)`, which rewrites each `com.apple.product-type.app-extension` target not in
+     `owned` to `…app-extension.byokit-hidden`. Same ordering caveat as 3b (L4).
+   - **Sibling guard:** if at least one owned name is already a target and another owned name is missing, throw
+     "run `expo prebuild --clean`" before anything is written (otherwise apple-targets falls back to `targets[0]`).
+   - **Restore:** `withFinalizedMod(['ios', …])` (`cp/plugins/withFinalizedMod.js:20-25`) runs `restoreHidden` on
+     `IOSConfig.Paths.getPBXProjectPath(projectRoot)`; idempotent; also repairs a project left by an aborted prebuild:
+     ```js
+     export const restoreHidden = text => text.replace(
+       /productType = "?com\.apple\.product-type\.app-extension\.byokit-hidden"?;/g,
+       'productType = "com.apple.product-type.app-extension";')
+     ```
+   - **Discovery**, matching apple-targets exactly, with **its own** nested glob:
+     ```js
+     export function ownedTargetNames(config, { root = './targets', match = '*' } = {}, { globSync, load } = fromAppleTargets(config)) {
+       const names = new Set()
+       for (const p of globSync(`${root}/${match}/expo-target.config.@(json|js)`, { cwd: config._internal.projectRoot, absolute: true })) {
+         let c = load(p); if (typeof c === 'function') c = c(config)
+         if (!c || typeof c !== 'object' || !c.type) continue        // upstream throws for these itself (at/config-plugin.js:39-48)
+         const dir = basename(dirname(p)); const n = sanitize(c.name || dir) || sanitize(dir) || sanitize(c.type)
+         if (n) names.add(n)
+       }
+       return names
+     }
+     function fromAppleTargets(config) {
+       const r = createRequire(createRequire(join(config._internal.projectRoot, 'package.json')).resolve('@bacons/apple-targets/package.json'))
+       return { globSync: r('glob').globSync, load: p => r(p) }      // apple-targets' nested glob@10, not the app's hoisted one
+     }
+     ```
+     `sanitize` is a verbatim copy of `at/util.js:42-47`. The third parameter exists only so C5 can inject a fake. A
+     function-style target config runs twice, here and upstream [UNVERIFIED-RUNTIME; harmless if pure]. Optional
+     cross-check, not primary: `config.extra.eas.build.experimental.ios.appExtensions[].targetName` before and after
+     upstream (`at/with-widget.js:263-266`; `at/with-eas-credentials.js:27-44`).
+   - Exported pure helpers: `hideForeignExtensions(section, owned) → string[]`, `restoreHidden(text)`,
+     `assertNoOrphanSibling(section, owned)`, `sanitize`, `ownedTargetNames`, `insertShareExclude`,
+     `insertDesklinkGradle`.
+5. **`desklink: true`.** `withProjectBuildGradle` with `insertDesklinkGradle(contents)`: if the tag is present return
+   unchanged; else insert before `apply plugin: "com.facebook.react.rootproject"` (either quote style); throw if that
+   line is missing or `expo-root-project` is not above it:
+   ```groovy
+   // @byokit/share desklink: build @desklink/react-native as an Expo module (Expo SDK 57 needs its compile step)
+   def byokitDesklink = findProject(':desklink-react-native')
+   if (byokitDesklink != null) {
+     if (byokitDesklink.state.executed) throw new GradleException('@byokit/share: :desklink-react-native was configured before the Expo module plugin could apply')
+     byokitDesklink.apply plugin: 'expo-module-gradle-plugin'
+     byokitDesklink.expoModule.canBePublished = false
+     byokitDesklink.expoModule.enableCompileTimeOptimization = true
+   }
+   ```
+   That ordering is SOURCE-VERIFIED; the bytecode effect is [UNVERIFIED-RUNTIME] until D5. Placement premise: `:expo`
+   calls `evaluationDependsOn` (`eagp/.../ExpoAutolinkingPlugin.kt:40`); that RN forces `:app` evaluation is checked
+   only in RN 0.81.5 [UNVERIFIED-RUNTIME for 0.86.3]; build success under Gradle 9.3.1 and AGP is [UNVERIFIED-RUNTIME]
+   until D5. `canBePublished` is read at `emgp/ProjectConfiguration.kt:88-92`, and `canBePublished = false` removes
+   the versionName need. A future desklink release that applies the plugin itself makes this a no-op [PROPOSED].
+6. **Return `config`.** The plugin never writes `node_modules`, `MainActivity` or package.json.
+
+### 14.7 Types and entries
+
+```ts
+// src/types.ts: upstream types re-exported verbatim (type-only). Explicit .js deep paths: nodenext, and esi has no "exports".
+// `export type … from` binds no local names, so the types this file uses are also imported.
+import type { ShareIntent, AndroidShareIntent, AndroidShareIntentFile, ErrorEventPayload, StateEventPayload } from 'expo-share-intent/build/ExpoShareIntentModule.types.js'
+import type { Parameters as ShareIntentPluginOptions } from 'expo-share-intent/plugin/build/types.js'
+export type {
+  ShareIntent, ShareIntentFile, ShareIntentMeta, ShareIntentOptions,
+  AndroidShareIntent, AndroidShareIntentFile, IosShareIntent, IosShareIntentFile,
+  NativeShareIntent, NativeShareIntentFile, ChangeEventPayload, ErrorEventPayload, StateEventPayload,
+} from 'expo-share-intent/build/ExpoShareIntentModule.types.js'
+export type { Parameters as ShareIntentPluginOptions, CustomParameter } from 'expo-share-intent/plugin/build/types.js'
+
+export type AppleTargetsPluginOptions = { appleTeamId?: string; match?: string; root?: string }
+export type SharePluginOptions = { shareIntent?: ShareIntentPluginOptions; appleTargets?: AppleTargetsPluginOptions; desklink?: boolean }
+
+export type ShareErrorCode = 'unreadable' | 'partial' | 'failed' | 'invalid_share_url'
+export type ShareSkipReason = 'not_content' | 'own_provider' | 'too_large' | 'unreadable'
+
+/** Upstream hook result (esi/build/useShareIntent.d.ts:4-10) plus additive fields. */
+export type ShareIntentState = {
+  isReady: boolean; hasShareIntent: boolean; shareIntent: ShareIntent
+  resetShareIntent: (clearNativeModule?: boolean) => void; error: string | null
+  errorCode: ShareErrorCode | null; skipped: number; skipReasons: readonly ShareSkipReason[]
+}
+/** esi/build/ExpoShareIntentModule.d.ts:3-14, typed to the runtime (onChange is a string on iOS, an object on Android). */
+export type ShareIntentModuleEvents = {
+  onChange: (e: { value: string | AndroidShareIntent }) => void
+  onError: (e: ErrorEventPayload) => void
+  onStateChange: (e: StateEventPayload) => void
+}
+/** NativeModule<Events> members (emc/build/ts-declarations/EventEmitter.d.ts:48-61) plus the module's own. */
+export interface ShareIntentModuleLike {
+  getShareIntent(url: string): Promise<void>        // iOS: rejects ShareError('invalid_share_url') before any native call
+  clearShareIntent(key: string): Promise<void>
+  hasShareIntent(key: string): boolean
+  addListener<E extends keyof ShareIntentModuleEvents>(event: E, listener: ShareIntentModuleEvents[E]): { remove(): void }
+  removeListener<E extends keyof ShareIntentModuleEvents>(event: E, listener: ShareIntentModuleEvents[E]): void
+  removeAllListeners(event: keyof ShareIntentModuleEvents): void
+  emit<E extends keyof ShareIntentModuleEvents>(event: E, ...args: Parameters<ShareIntentModuleEvents[E]>): void
+  listenerCount<E extends keyof ShareIntentModuleEvents>(event: E): number
+}
+/** Android ByokitShare native contract. */
+export type NativeShareRead =
+  | { kind: 'none'; seq: 0 }
+  | { kind: 'unreadable'; seq: number; skipReasons: ShareSkipReason[] }
+  | { kind: 'shared'; seq: number; text: string | null; title: string | null; files: AndroidShareIntentFile[]; skipReasons: ShareSkipReason[] }
+export interface NativeShare {
+  read(): Promise<NativeShareRead>   // repeatable: with nothing pending, returns the last delivered share until cleared
+  clear(seq: number): void           // clears only the delivered share with this seq; never a pending one
+  hasPending(): boolean
+  addListener(event: 'onShare', listener: () => void): { remove(): void }
+}
+```
+
+```ts
+// src/rn.ts (react-native condition)
+export function useShareIntent(options?: ShareIntentOptions): ShareIntentState
+export function ShareIntentProvider(props: { options?: ShareIntentOptions; children: React.ReactNode }): React.JSX.Element
+export function useShareIntentContext(): ShareIntentState
+export const ShareIntentContextConsumer: React.Consumer<ShareIntentState>
+export const ShareIntentModule: ShareIntentModuleLike | null   // Android: adapter over ByokitShare; iOS: guarded upstream
+export { getScheme, getShareExtensionKey, parseShareIntent } from 'expo-share-intent'
+export const shareSupported: boolean
+export { WORDS, words, errorWords, createUseShareIntent, ShareError, isValidShareUrl }
+export type * from './types.ts'
+
+// src/index.ts (portable: no React, RN or Expo runtime imports)
+export const shareSupported = false
+export { WORDS, words, errorWords, createUseShareIntent, ShareError, isValidShareUrl }
+export type * from './types.ts'
+
+// src/hook.ts (no runtime imports; `import type` from react only)
+export function createUseShareIntent(d: {
+  module: ShareIntentModuleLike | null
+  native?: NativeShare | null                       // Android path
+  useLinkingURL?: () => string | null               // iOS path (expo-linking)
+  parse: (v: string | AndroidShareIntent, o: ShareIntentOptions) => ShareIntent
+  getScheme: (o?: ShareIntentOptions) => string | null
+  getShareExtensionKey: (o?: ShareIntentOptions) => string
+  react: { useState: typeof useState; useEffect: typeof useEffect; useRef: typeof useRef }
+  appState: { currentState?: string | null; addEventListener(e: 'change', f: (s: string) => void): { remove(): void } }
+  os: string
+}): (o?: ShareIntentOptions) => ShareIntentState
+```
+
+`isValidShareUrl(url, scheme)` regex-escapes `scheme`, returns false for a null scheme, and accepts only
+`^<scheme>://dataUrl=<scheme>ShareKey(\?[^#]*)?#(media|text|weburl|file)$`.
+
+### 14.8 Hook semantics
+
+Both platforms, identical to upstream unless noted (checked by H1-H22):
+- **Options** are merged over upstream's defaults once; that object goes everywhere, including `parse` (it reads
+  `options.debug` unguarded). `disabled` (default true on web): no reads, no subscriptions, `isReady: false`.
+  `debug`: `console.debug` in JS only. `scheme` feeds `getScheme`, `getShareExtensionKey` and the iOS URL check.
+- **`resetShareIntent(clearNative = true)`:** if `disabled`, return (upstream `useShareIntent.js:25-26`); set `error`
+  and `errorCode` to null and `skipped` to 0; bump `resetGen` (Android); if `clearNative`, call `native.clear(applied)`
+  on Android (skipped when `applied` is 0) or `module.clearShareIntent(key)` on iOS; if a value was showing, reset to
+  upstream's default and call `onResetShareIntent` (upstream `:24-34`). After `resetShareIntent(false)` a remount
+  shows the share again (L15).
+- **Reset before the first delivery (L16, disclosed, not fixed):** a reset clears only what JS has applied. A share
+  pending or in flight at reset time is delivered afterwards (H22), by the rule "never drop an undelivered share"
+  (X1, X2). A consumer that wants "ignore everything until the next share" compares `seq` or timestamps itself.
+- **Background reset:** previous state `active`, next `inactive` or `background`, and `resetOnBackground !== false` →
+  `resetShareIntent(true)` (upstream `:70-76`).
+- **Provider and context** mirror upstream (`esi/build/ShareIntentProvider.js:4-24`); the default context adds
+  `errorCode: null, skipped: 0, skipReasons: []`.
+
+Android (`native` given):
+- Refs `applied = 0` (highest seq applied) and `resetGen = 0` (bumped by every reset, X19). `alive` is **not** a ref:
+  each effect run declares `let alive = true` and its cleanup sets it false (a ref stays false after StrictMode's
+  mount, cleanup, remount, H18).
+- One effect, in order: `addListener('onShare', refresh)`; the AppState subscription (refresh on `active`, plus the
+  reset rule); `refresh()`. Cleanup sets this run's `alive = false` and removes both.
+- `refresh`, defined inside the effect:
+  ```ts
+  const at = applied.current, gen = resetGen.current
+  native.read().then(
+    r => { if (!alive || r.kind === 'none' || r.seq <= applied.current) return; applied.current = r.seq; set(map(r)) },  // newer share: delivered even across a reset (H6)
+    () => { if (alive && applied.current === at && resetGen.current === gen) set(failed) })                              // X10, X19: a request issued before a reset never restores `failed`
+  ```
+- `map(r)` builds `{ type: files?.length ? 'file' : 'text', text, meta: { title }, files }` and parses it with
+  **upstream's** `parseShareIntent`:
+
+  | Result | `errorCode` | `error` | `skipped` |
+  |---|---|---|---|
+  | `shared`, no skips | `null` | `null` | 0 |
+  | `shared`, skips | `'partial'` | `null` (consumers that reset on error keep the readable files) | count |
+  | `unreadable` | `'unreadable'` | `share.unreadable` sentence | count |
+  | rejected read | `'failed'` | `share.failed` sentence | — |
+
+- The Android `ShareIntentModule` adapter keeps a JS listener set backing `addListener`, `removeListener`,
+  `removeAllListeners`, `emit` and `listenerCount`, and remembers the last seq it emitted for `clearShareIntent`.
+
+iOS (`useLinkingURL` and `module` given): upstream's flow (`useShareIntent.js:38-117`), except `refresh` calls
+`module.getShareIntent(url)` only if `url` contains `<scheme>://dataUrl=` **and** `isValidShareUrl(url, scheme)`; with
+the prefix but failing the check it sets `errorCode: 'invalid_share_url'` and the `share.invalid_link` sentence and
+makes no native call; without the prefix it ignores the URL.
+
+### 14.9 Android native (package `io.github.umeranjum17.byokit.share`)
+
+All Kotlin is [PROPOSED]; compiling it, and kotlinx-coroutines reaching the classpath through expo-modules-core
+(`emck/AppContext.kt:79-92`), are [UNVERIFIED-RUNTIME] until WP2. If coroutines are missing, add
+`implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android"`.
+
+```kotlin
+object ShareRules {                                                                    // pure, JVM-tested
+  const val CONSUMED = "io.github.umeranjum17.byokit.share.CONSUMED"
+  const val MAX_BYTES = 100L * 1024 * 1024
+  fun isTextBranch(type: String?) = type?.startsWith("text/plain") == true            // esik:125, charset forms included
+  fun isShare(action: String?, type: String?) = action == "android.intent.action.SEND" ||
+    action == "android.intent.action.SEND_MULTIPLE" || (action == "android.intent.action.VIEW" && isTextBranch(type))
+  /** null = may read; else the skip reason. content:// only; no N@authority; never a provider owned by our uid. */
+  fun reject(scheme: String?, authority: String?, providerUid: Int?, myUid: Int): String? = when {
+    scheme != "content" -> "not_content"
+    authority.isNullOrEmpty() || '@' in authority || providerUid == myUid -> "own_provider"
+    else -> null }
+  fun copyName(index: Int, displayName: String?, ext: String?): String   // [A-Za-z0-9._-], ≤100, never ""/"."/"..", "<index>-" prefix
+  fun label(displayName: String?, fallback: String) = displayName?.take(255)?.ifBlank { null } ?: fallback
+  fun mime(provider: String?, intentType: String?, extGuess: String?) =
+    provider ?: intentType?.takeUnless { '*' in it } ?: extGuess ?: "application/octet-stream"
+  fun kind(textBranch: Boolean, text: String?, streams: Int, read: Int) = when {
+    textBranch -> if (text != null) "shared" else "none"
+    read > 0 -> "shared"; streams > 0 -> "unreadable"; else -> "none" }
+}
+
+class ShareInbox<I, R>(private val folders: () -> List<Long>, private val delete: (Long) -> Unit, private val wipeAll: () -> Unit) {
+  private var seq = 0L; private var pending: Pair<Long, I>? = null; private var last: Pair<Long, R>? = null
+  private var watermark = 0L   // highest seq ever delivered (done) or cleared; independent of `last` (X18)
+  private val inFlight = mutableSetOf<Long>(); private var wiped = false
+  @Synchronized fun offer(i: I): Long { pending = ++seq to i; return seq }                    // UI thread; last wins (L13)
+  @Synchronized fun take(): Pair<Long, I>? {
+    if (!wiped) { wipeAll(); wiped = true }                                                    // X13: once per process
+    val p = pending ?: return null; pending = null; inFlight += p.first
+    val keep = inFlight + listOfNotNull(last?.first); folders().filter { it !in keep }.forEach(delete)  // X11
+    return p }
+  /** true only if this result is newer than everything delivered or cleared so far (X4, X18). */
+  @Synchronized fun done(s: Long, r: R): Boolean { inFlight -= s; if (s <= watermark) return false; watermark = s; last = s to r; return true }
+  @Synchronized fun requeue(p: Pair<Long, I>) { inFlight -= p.first; if (pending == null) pending = p } // X7
+  @Synchronized fun current(): Pair<Long, R>? = last                                         // X8
+  @Synchronized fun clear(s: Long) { if (s <= 0) return; if (last?.first == s) last = null; if (s > watermark) watermark = s }  // X1/X2: never pending; X18
+  @Synchronized fun hasPending() = pending != null
+}
+```
+
+**`ShareListener`** (`ReactActivityLifecycleListener`; `onCreate` reached via `expo/ReactActivityDelegateWrapper.kt:169-171`),
+body in try/catch: skip a null activity or intent, `FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY`, `!isShare(action, type)` or
+the CONSUMED marker; else `Inbox.get(a).offer(i)` and `a.intent = Intent(i).putExtra(CONSUMED, true)`. The template
+calls `super.onCreate(null)` (`tpl/.../MainActivity.kt:19`), so the listener cannot tell recreation from a fresh
+launch; the marker is the only defence (X17, L9). Whether RN 0.86.3 forwards `super.onCreate(null)` to the wrapper's
+listeners is [UNVERIFIED-RUNTIME]. Every body is in try/catch because unparcelling a foreign extra can throw
+[UNVERIFIED-RUNTIME, platform knowledge].
+
+**`Inbox`, `root` and `SharePackage`** (the report names `object Inbox` over `cacheDir/byokit-share` but gives no
+body; this fill-in is [PROPOSED, not in the report] and root confirms it before WP2):
+
+```kotlin
+fun root(ctx: Context) = File(ctx.cacheDir, "byokit-share")
+object Inbox {
+  @Volatile private var inbox: ShareInbox<Intent, Map<String, Any?>>? = null
+  fun get(ctx: Context): ShareInbox<Intent, Map<String, Any?>> = inbox ?: synchronized(this) {
+    inbox ?: root(ctx.applicationContext).let { r -> ShareInbox<Intent, Map<String, Any?>>(
+      folders = { r.listFiles()?.mapNotNull { it.name.toLongOrNull() } ?: emptyList() },
+      delete = { File(r, "$it").deleteRecursively() },
+      wipeAll = { r.deleteRecursively() }) }.also { inbox = it } }
+}
+class SharePackage : Package {
+  override fun createReactActivityLifecycleListeners(ctx: Context?) = listOf(ShareListener())
+}
+```
+
+Call sites pass a context: `Inbox.get(activity)` in `ShareListener`, the react context in `ShareModule`.
+
+**`ShareModule`:**
+
+```kotlin
+Name("ByokitShare"); Events("onShare")
+OnNewIntent { i -> val c = appContext.reactContext ?: return@OnNewIntent                     // context null: stop and ask (fill-in)
+  if (ShareRules.isShare(i.action, i.type)) { Inbox.get(c).offer(i); sendEvent("onShare") } }   // UI thread: store only
+AsyncFunction("read") Coroutine { ->
+  val ctx = appContext.reactContext ?: throw Exceptions.ReactContextLost()                    // X6: before take
+  val p = Inbox.get(ctx).take() ?: return@Coroutine (Inbox.get(ctx).current()?.let { it.second + ("seq" to it.first) } ?: mapOf("kind" to "none", "seq" to 0))
+  val r = try { withContext(Dispatchers.IO) { ShareReader(ctx).read(p.second, File(root(ctx), "${p.first}")) } }
+          catch (e: CancellationException) { Inbox.get(ctx).requeue(p); throw e }                // X7
+          catch (e: Exception) { mapOf("kind" to "unreadable", "skipReasons" to listOf("unreadable")) }
+  if (Inbox.get(ctx).done(p.first, r)) r + ("seq" to p.first) else mapOf("kind" to "none", "seq" to 0)   // X18: a superseded result never resurfaces
+}
+Function("clear") { s: Long -> appContext.reactContext?.let { Inbox.get(it).clear(s) } }
+Function("hasPending") { appContext.reactContext?.let { Inbox.get(it).hasPending() } ?: false }
+```
+
+[SOURCE-VERIFIED] the read starts on Expo's single `modulesQueue` (`emck/functions/SuspendFunctionComponent.kt:36-42`;
+`emck/AppContext.kt:71-74,88-92`); a cancelled scope leaves the promise unsettled (`:48-50`); a throw rejects
+(`:52-56`); `sendEvent` drops silently without a JS object (`emck/events/KModuleEventEmitterWrapper.kt:47-49`). Whether
+an event with no subscriber is buffered is unknown; the design assumes not [UNVERIFIED-RUNTIME], hence X9.
+
+**`ShareReader.read(intent, dir)`:**
+1. `dir.mkdirs()`; the folder name is the seq.
+2. Text branch: `text = VIEW ? intent.dataString : EXTRA_TEXT`; `title = EXTRA_TITLE` for SEND, null for VIEW; no
+   stream opened; return `{ kind: kind(true, text, 0, 0), text, title, files: [], skipReasons: [] }`.
+3. Files branch: streams from `EXTRA_STREAM` or SEND_MULTIPLE's list, with the API 33 split as `esik:165-173`; text
+   not read. Per URI, inside `try { … } catch (e: Exception) { out?.delete(); reasons += if (e is TooLarge) "too_large" else "unreadable" }`:
+   `uid = authority?.let { pm.resolveContentProvider(it, 0)?.applicationInfo?.uid }`, then `reject(...)?.let { reasons += it; continue }`;
+   display name from a null-safe `query`, as a label only; MIME `ShareRules.mime(getType, intent.type, MimeTypeMap guess)`;
+   `out = File(dir, copyName(...))` with the canonical-path guard (`esik:304-310`), 64 KB copy loop throwing `TooLarge`
+   past `MAX_BYTES`; `m = try { ShareMeta.of(out, mime) } catch (e: Exception) { ShareMeta.NONE }`; add
+   `{ contentUri, filePath: out.path, fileName, fileSize, mimeType, width, height, duration }` as strings, as upstream
+   sends them (`esik:103-111`). Return `{ kind: kind(false, null, streams.size, files.size), text: null, title: null, files, skipReasons }`.
+4. Log only `Log.w("ByokitShare", "skipped $n")`, no URIs. Only the sender's grant is used: no
+   `takePersistableUriPermission`, no relaunch.
+
+```kotlin
+object ShareMeta {                                                    // orient is pure and JVM-tested; of() runs on the private copy only
+  data class M(val width: Int?, val height: Int?, val durationMs: Long?)
+  val NONE = M(null, null, null)
+  fun orient(w: Int?, h: Int?, rot: Int, d: Long?) = if (rot == 90 || rot == 270) M(h, w, d) else M(w, h, d)
+  fun of(f: File, mime: String): M = when {
+    mime.startsWith("image/") -> BitmapFactory.Options().apply { inJustDecodeBounds = true }
+      .also { BitmapFactory.decodeFile(f.path, it) }
+      .let { if (it.outWidth > 0 && it.outHeight > 0) M(it.outWidth, it.outHeight, null) else NONE }
+    mime.startsWith("video/") -> { val r = MediaMetadataRetriever(); try { r.setDataSource(f.path)
+        orient(r.extractMetadata(METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull(), r.extractMetadata(METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull(),
+               r.extractMetadata(METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0, r.extractMetadata(METADATA_KEY_DURATION)?.toLongOrNull())
+      } finally { try { r.release() } catch (_: Exception) {} } }
+    else -> NONE
+  }
+}
+```
+
+`release()`, not `close()` (API 29): nothing proves minSdk ≥ 29. Expo's default is 24 via `setIfNotExist`
+(`eagp/expo-autolinking-plugin/.../ExpoRootProjectPlugin.kt:53`); the real value comes from RN 0.86.3's catalog
+[UNVERIFIED-RUNTIME]. Audio duration stays null, as upstream.
+
+### 14.10 Races
+
+All fixes [PROPOSED]. Rejected alternative: funnelling every read through one in-flight promise, because a read that
+never settles (L11, X7) would block every later share.
+
+| ID | Interleaving | Fix | Test |
+|---|---|---|---|
+| X1 | `OnNewIntent(B)`, then JS handles a queued `background` and clears | `clear(seq)` touches only the delivered share, never `pending` | J5, H4 |
+| X2 | `resetShareIntent()` while B is pending | Same as X1 | J5, H5, H6 |
+| X3 | Three overlapping reads (mount, active, onShare) | `none` never changes state; only `seq > applied` applies | H2, H9 |
+| X4 | Read A in flight, B arrives and finishes first | Monotonic seq; hook drops `seq <= applied`; `done` keeps the newer `last` | J3, H3 |
+| X5 | Two shares before any read | Last wins, disclosed (L13), upstream parity | J2 |
+| X6 | `take`, then `reactContext` null | Context checked before `take` | code review |
+| X7 | Host teardown or reload mid-copy | `CancellationException` requeues (only into an empty slot) and rethrows | J8 |
+| X8 | Unmount mid-read, then remount | `read()` with nothing pending returns `current()`; per-effect `alive` | H8, H18 |
+| X9 | `onShare` before subscription, or while already foreground | Subscribe before the first `read()` | H1, W2 |
+| X10 | Stale rejection after a newer apply | `failed` only if `applied === at` | H7 |
+| X11 | Prune vs in-flight copy; same-millisecond reads | Folder = seq; prune keeps `inFlight ∪ {last}` | J6, J10 |
+| X12 | Prune vs paths JS still holds | L14 lifetime rule (README) | J10 |
+| X13 | Process death | Wipe the root once per process at the first `take`; L9b | J7 |
+| X14 | Listener `onCreate` vs `OnNewIntent` | Both `offer`; seq orders them | J9 |
+| X15 | Share during app load | Disclosed (L1); not deterministically testable | — |
+| X16 | `inactive` parity | Upstream rule: `active` → `inactive` or `background` | H12 |
+| X17 | In-process recreation re-runs `ShareListener.onCreate` with a null bundle | CONSUMED marker on `activity.intent`; if it does not survive, offered again (L9) | D6 T-recreate (observational) |
+| X18 | `done(2,B)`, `clear(2)`, then late `done(1,A)` | `watermark` (highest delivered or cleared, independent of `last`); `done` returns false for `s <= watermark`, so `read` returns `none`, also on remount | J11, H19 |
+| X19 | Reset, then a read issued before it rejects (`applied` unchanged) | `resetGen` captured per request; `failed` needs `applied === at && resetGen === gen`; newer shares still delivered | H20, H21 |
+| X20 | Reset before the first delivery (`applied` 0, read in flight) | Not a bug: delivered after the reset; disclosed as L16, not fixed | H22 |
+
+### 14.11 Words (`src/words.json`)
+
+| Key | Sentence |
+|---|---|
+| `share.unreadable` | That file couldn't be opened here. Share it again from the app it came from. |
+| `share.partial` | Some of the shared files couldn't be opened, so they were left out. |
+| `share.failed` | That share couldn't be opened here. Try sharing it again. |
+| `share.invalid_link` | That link didn't come from this app's share sheet, so it was ignored. |
+
+`src/words.ts` is kit-conventions §9's helper verbatim (`WORDS`, `WordKey`, `words`) plus
+`errorWords(e: ShareError)`, which maps `ShareErrorCode` one-to-one (`invalid_share_url` → `share.invalid_link`).
+`ShareError` lives in `src/words.ts` beside `errorWords` and follows §3's template (`name = 'ShareError'`, `(code, message, o?)`). The words test applies the D-P jargon
+expression (`packages/statusbar/test/words.test.ts:21-24`, regex at `:22`). The Android adapter's `onError` carries the same sentences,
+no URIs. Plugin build errors stay plain strings in `app.plugin.js`.
+
+### 14.12 Coverage map of the published upstream surface
+
+Mappings are [SOURCE-VERIFIED] against upstream; the kit's side is [PROPOSED].
+
+**expo-share-intent 8.0.1 exports** (`esi/build/index.d.ts:1-5`):
+
+| Upstream | Kit | Android | iOS |
+|---|---|---|---|
+| `useShareIntent(options?)` (`useShareIntent.d.ts:4-10`) | `useShareIntent(o?): ShareIntentState` | Adapted: same five fields and AppState rules; reads `ByokitShare` with seq; adds `errorCode`, `skipped`, `skipReasons` | Same logic, guarded by `isValidShareUrl` |
+| `ShareIntentProvider` (`ShareIntentProvider.d.ts:12-15`) | Same signature; value `ShareIntentState` | Superset | Same |
+| `useShareIntentContext` (`.d.ts:11`) | `(): ShareIntentState` | Plus additive defaults | Same |
+| `ShareIntentContextConsumer` (`.d.ts:10`, deep import) | Exported | Same | Same |
+| `ShareIntentModule \| null` (`ExpoShareIntentModule.d.ts:8-14`) | `ShareIntentModuleLike \| null` | Adapter over `ByokitShare` (upstream's is `null` once excluded) | Upstream wrapped: `getShareIntent` guarded, rest delegated |
+| `parseShareIntent`, `getScheme`, `getShareExtensionKey` (`utils.d.ts:2-5`) | Re-export | Identical (key ignored, as `esik:191,195`) | Identical |
+| 13 deep types (`ExpoShareIntentModule.types.d.ts:1-114`) | `export type` | Identical | Identical |
+| `SHAREINTENT_DEFAULTVALUE`, `SHAREINTENT_OPTIONS_DEFAULT`, `parseJson` (not in `index.d.ts`) | Not re-exported; deep import still works | — | — |
+
+**`ShareIntentOptions`** (`types.d.ts:13-38`), identical on both platforms: `debug`, `resetOnBackground` (default true),
+`disabled` (default true on web; also makes reset a no-op), `scheme` (also the iOS URL check), `onResetShareIntent`.
+
+**Native members:**
+
+| Member | Kit Android adapter | Kit iOS |
+|---|---|---|
+| `getShareIntent(url)` (declared `string`, runtime void) | `Promise<void>`; runs `read()`; on `shared` emits `onStateChange{pending}` then `onChange{AndroidShareIntent}`; on `unreadable`/`failed` emits `onError` with words; the read starts on `modulesQueue`, IO is used only for the copy | Delegated only if `isValidShareUrl`; else rejects `ShareError('invalid_share_url')` |
+| `clearShareIntent(key)` | `clear(lastEmittedSeq)`; key ignored | Delegated |
+| `hasShareIntent(key)` | `hasPending()`: adapted to any unread share (upstream: cold captures only, `esik:195-197`) | Delegated (upstream always false) |
+| `addListener`, `removeListener`, `removeAllListeners`, `emit`, `listenerCount` | The adapter's JS listener set | Delegated |
+| `onChange` / `onError` / `onStateChange` | Object / `unreadable` and `failed` only, words, no URIs / `"pending"` only | Delegated |
+| Launch and new intent | Store and emit `onShare` only; SEND, SEND_MULTIPLE, VIEW with `text/plain*` | — |
+
+**Android `ShareIntentFile` fields:** `path` is always the private copy `cacheDir/byokit-share/<seq>/<name>`
+(adapted); `contentUri` identical, informational; `fileName` null-safe, ≤255, falls back to the copy name;
+`mimeType` never throws (14.9); `size` is bytes copied; `width`, `height`, `duration` preserved via `ShareMeta`, null on
+failure; `meta.title` from `EXTRA_TITLE`, SEND text branch only.
+
+**Unsafe upstream routes:**
+
+| Route | Upstream | Kit |
+|---|---|---|
+| External-storage path, `_data` column | `esik:221-268`, `:231` | Never used |
+| App's own provider copied to cache | `esik:264-265` → `:329-331` | `own_provider` |
+| `N@authority` | not checked | `own_provider` |
+| `file://` stream | `esik:69`, `:268` | `not_content` |
+| Relaunch with copied grants | `esik:116-122` | Never relaunches |
+| `!!` and unguarded calls | `esik:69,75,84,90` | Per-URI try/catch → `unreadable` / `too_large` |
+| Mixed text and file branching | `esik:125-159` | Same branching (identical) |
+| Malformed `Pair` in `files` | `esik:145` | Not reproduced; `parseShareIntent` filters it (`utils.js:95-96`) |
+| iOS `url.fragment!` from any `<scheme>://dataUrl=` link | `ExpoShareIntentModule.swift:138-143`; `useShareIntent.js:40-42` | `isValidShareUrl` first; the check also blocks forged keys that would read other app-group entries |
+| iOS `encodedData!` | `ExpoShareIntentModule.swift:207-208,211-212` | Not guardable from JS (L3) |
+
+**Plugin `Parameters`**, all passed through verbatim, unknown keys included: `iosActivationRules`,
+`iosShareExtensionName`, `iosAppGroupIdentifier`, `iosShareExtensionBundleIdentifier`, `iosHideView`,
+`preprocessorInjectJS`, `disableExperimental`, `disableIOS`, `androidIntentFilters`, `androidMultiIntentFilters`,
+`androidMainActivityAttributes` (launch-mode rule applies), `disableAndroid` (gates upstream's manifest mods only;
+the settings exclusion applies regardless).
+
+**@bacons/apple-targets 5.0.0:** `root`, `match` (any glob), `appleTeamId` passed through and drive
+`ownedTargetNames`; plugin type → `AppleTargetsPluginOptions`; `Config`, `ConfigFunction` (`at/config.d.ts:64,113`),
+`ExtensionStorage` and the iOS `ExtensionStorageModule` untouched (apps import them from upstream).
+
+**@desklink/react-native 0.3.0:** JS surface (`.`, `./availability`) and `withDesklinkPointer` untouched, not
+re-exported; apps that want them list desklink themselves. `desklink: true` only switches on the Gradle fix.
+
+### 14.13 Tests and CI
+
+Offline; picked up by `scripts/test.sh`'s package glob and `:byokit-share:testDebugUnitTest`.
+
+- **C1 `exports.test.ts`:** freezes both entries' names; `rn.ts` minus `index.ts` is exactly `useShareIntent`,
+  `ShareIntentProvider`, `useShareIntentContext`, `ShareIntentContextConsumer`, `ShareIntentModule`, `getScheme`,
+  `getShareExtensionKey`, `parseShareIntent`. esbuild bundles `rn.ts` with stubs for `react`, `react-native`
+  (`Platform.OS = 'android'`), `expo-modules-core` (records lookups, returns null), `expo-linking` and
+  `expo-share-intent`; lookups are `['ByokitShare']`, `shareSupported === false`, and the Android adapter has exactly
+  the eight `ShareIntentModuleLike` members `getShareIntent`, `clearShareIntent`, `hasShareIntent`, `addListener`,
+  `removeListener`, `removeAllListeners`, `emit`, `listenerCount`.
+- **C2 `portable.test.ts`:** export keys `['.', './app.plugin.js', './package.json']`; the browser bundle of
+  `index.ts` has none of `expo-modules-core`, `expo-share-intent`, `expo-linking`, `react`, `react-native` and no
+  `node:*`, and loads; in the RN bundle only `rn.ts` imports them.
+- **C3 `words.test.ts`:** the jargon expression; every key `hook.ts` uses exists.
+- **C4 `hook.test.ts`:** fake `NativeShare` logging calls in order with deferred `read()` promises; fake AppState
+  `emit(s)`; fake `emitShare()`; a ~20-line stub React running effects synchronously that can replay StrictMode's
+  effect, cleanup, effect.
+
+  | Case | Steps | Expected |
+  |---|---|---|
+  | H1 subscribe first | mount | log begins `addListener('onShare')`, then `read` |
+  | H2 triple fire | mount (r1), `emit('active')` (r2), `emitShare()` (r3); resolve r2 `{none}`, r3 `{seq:1,A}`, r1 `{seq:1,A}` | state A; one apply |
+  | H3 out of order | r1 open; `emitShare()` → r2; resolve r2 `{seq:2,B}`, then r1 `{seq:1,A}` | state B |
+  | H4 background reset vs new share | applied 1; `emit('background')`; `emitShare()` resolves `{seq:2,B}` | `clear(1)` once; state B; never `clear()` without an argument |
+  | H5 reset vs stale same seq | applied 1; r open; reset; resolve `{seq:1}` | empty; `clear(1)` |
+  | H6 reset vs newer | applied 1; r open; reset; resolve `{seq:2,B}` | state B |
+  | H7 stale rejection | r1 open; r2 resolves `{seq:2,B}`; r1 rejects | state B, `errorCode null`; a lone rejection gives `failed` |
+  | H8 unmount mid-read | r open; unmount; resolve; remount; read gives `current` `{seq:1}` | no apply after unmount; A after remount |
+  | H9 `none` never clears | state A; read `{none}` | state A |
+  | H10 disabled | mount `disabled`; reset; also on iOS with a share link | no `read`, no `addListener`, no `clear`, no `onResetShareIntent`; iOS: no `getShareIntent`, no `clearShareIntent` |
+  | H11 `resetOnBackground:false` | applied 1; `emit('background')` | no `clear`; state A |
+  | H12 inactive parity | applied 1; `emit('active')`, `emit('inactive')` | `clear(1)`; state empty |
+  | H13 iOS valid URL | `os:'ios'`, extension-format URL; then mount with no link, the link arrives, `emit('background')`, `emit('active')` | `module.getShareIntent(url)` once; background → `clearShareIntent(key)`; active re-reads the **current** link (a repeat share) |
+  | H14 reset callback | reset with a value / when empty | `onResetShareIntent` once / never |
+  | H15 iOS invalid URL | prefix but no fragment, or a foreign key; and a URL without the prefix | `errorCode 'invalid_share_url'`, zero native calls; no call and no error |
+  | H16 mapping | `unreadable`; files + skips; URL text; images, through the real `parseShareIntent` from `test/fixtures/esi-utils.js` | `'unreadable'` with words; `'partial'` with `error === null`; `weburl`; `media`; options passed to `parse` contain `debug` |
+  | H17 Android adapter | emit, clear, listener members | `onStateChange{pending}` before `onChange`; `clearShareIntent` → `clear(lastEmittedSeq)`; listener members reflect the set; iOS `guardIosShareModule`: a forged link rejects `ShareError('invalid_share_url')` with no inner call, the extension link and the seven other members delegate |
+  | H18 StrictMode | effect, cleanup, effect; read resolves `{seq:1,A}` | state A |
+  | H19 late older after clear | r1 open; `emitShare()` → r2 resolves `{seq:2,B}`; reset; r1 resolves `{seq:1,A}`. (a) unmount + remount, fake `read` returns `{none}` (J11 contract). (b) unmount + remount **before** r1 resolves | `clear(2)` once; empty after r1; (a) empty after remount; (b) r1, resolving a higher seq, is ignored (`alive` false: nothing parsed), empty |
+  | H20 reset then reject | applied 1; r open; reset; r rejects | empty; `errorCode null`; `error null` |
+  | H21 reset / new-share order | (a) applied 1; reset; `emitShare()` → `{seq:2,B}`. (b) applied 1; reset; `emitShare()` → rejects. (c) applied 1; r open; `emitShare()` → r2 open; reset; r2 `{seq:2,B}`; r rejects | (a) B. (b) `failed`. (c) B, r's rejection ignored |
+  | H22 reset before first delivery (L16) | mount, r1 open; reset; r1 resolves `{seq:1,A}` | no `clear` (applied 0); state A after the reset |
+
+- **C5 `plugin.test.ts`:** `hideForeignExtensions` marks only foreign app-extensions; `assertNoOrphanSibling` throws
+  when `actions` exists and owned `foo` is missing, passes on clean and complete projects; `restoreHidden` handles
+  quoted and unquoted forms, is idempotent, leaves zero markers; `insertDesklinkGradle` on `fixtures/root.build.gradle`
+  lands between the original lines 23 and 24, contains `enableCompileTimeOptimization = true`, is idempotent, throws
+  on drift; `insertShareExclude` on `fixtures/settings.gradle` lands before `:32`, is idempotent, throws without
+  `useExpoModules()`. Launch mode: `singleTop`, `standard`, `singleInstance`, `singleInstancePerTask` in options each
+  throw; a `withAndroidManifest` mod registered after ours that sets `singleTop` makes the final assertion throw; the
+  template value passes. Pass-through: an unknown key inside `shareIntent` reaches the upstream stub; an unknown
+  top-level key throws; a duplicate plugin entry throws. `ownedTargetNames` with injected glob and loader:
+  `match` `'*'`, `'w*'`, `'{a,b}'` each passed verbatim as `./targets/<match>/expo-target.config.@(json|js)`; a function
+  config is called with `config`; no `type` skipped; `name:'actions'` → `actions`; dir `my_widget` → `mywidget`;
+  precomposed `'Crème'` → `Crme`; `'Créme'` → `Creme`; a missing folder → empty set. Real-chain ordering:
+  `config._internal.projectRoot` = repo root with the root `@expo/config-plugins` 57.0.9 (`package-lock.json:2326-2328`;
+  the root lock has expo 57.0.26, while `examples/expo`'s has 57.0.25); one `withXcodeProject`
+  before ours and one after, each adding a foreign target; `config.mods.ios.xcodeproj(...)` leaves both hidden.
+- **C6 `url.test.ts`:** accepts the four extension forms with and without `?…`; rejects no fragment, an unknown
+  fragment, a foreign key, another scheme, a scheme with regex metacharacters (escaped), and a null scheme.
+- **C7 `ShareRulesTest.kt`:** `copyName` (traversal, empty, `..`, 300 chars, unicode); `reject` (`file`, `http` →
+  `not_content`; `0@x.y` → `own_provider`; foreign authority and uid → null; own uid → `own_provider`; null uid →
+  null (the read then fails and is caught)); `kind` (text branch with text → `shared`; files branch with 0 of 2 read
+  → `unreadable`; nothing → `none`); `isTextBranch("text/plain; charset=utf-8")`, `isShare(VIEW, "text/plain; charset=utf-8")` true,
+  `isShare(VIEW, "image/png")` false; `mime` fallbacks; `label` capping.
+- **C8 `ShareInboxTest.kt`** (pure Kotlin; `folders` a `MutableSet<Long>`, `delete` removes, `wipeAll` clears and
+  counts; J6 and J10 add folders **after** the first take, as `ShareReader` does):
+
+  | Case | Steps | Expected |
+  |---|---|---|
+  | J1 take once | offer(A); take; take | (1,A), `inFlight={1}`; then null |
+  | J2 last wins | offer(A); offer(B); take | (2,B) |
+  | J3 out-of-order done | offer A; take; offer B; take; done(2,rB); done(1,rA) | `done(2)` true, `done(1)` false; `current()==(2,rB)`; `inFlight={}` |
+  | J4 clear compares | after J3: clear(1), then clear(2) | first leaves (2,rB); second gives null |
+  | J5 clear never touches pending | offer A; take; done(1); offer B; clear(1); clear(2); take | (2,B) |
+  | J6 prune | seq 1 taken (wipe ran), folder 1, done(1); seq 2 taken, folder 2; seq 3 taken, folder 3; done(2); offer, take (seq 4) | before: last=2, `inFlight={3}`; after: {2,3} kept, 1 deleted; 4 never deleted |
+  | J7 wipe once | folders {7,8}; offer, take, offer, take | `wipeAll` once; 7 and 8 gone before seq 1 |
+  | J8 requeue | offer A; take; requeue; take | (1,A); with offer(B) before the requeue, it is ignored and take gives (2,B) |
+  | J9 concurrency | 8 threads × 500 `offer()` behind a latch | 4000 unique seqs, max 4000 |
+  | J10 superseded | J3 with folders 1, 2 added after their takes; offer, take | 1 deleted, 2 kept |
+  | J11 watermark after clear | offer A; take; offer B; take; done(2,rB); clear(2); done(1,rA); offer C; take | `done(2)` true; `done(1)` **false**; `current()` null; take gives seq 3; folder 1 pruned. `clear(0)` no-op; `clear(5)` with nothing delivered makes a later `done(4)` false |
+
+- **C9 `ShareMetaTest.kt`:** `orient` at 0, 90, 180, 270 and with nulls. `of()` runs only on a device (D6 R1). X6 is
+  checked in review (faking `appContext` would need Robolectric).
+
+**CI** (normal PRs and pushes): the `check` matrix (build, check, test, `smoke:pack` importing `app.plugin.js` under
+plain Node with no `dist`, release lint); **`share-android`** in the `statusbar-android` shape,
+added by WP2 as `npm ci`, prebuild `examples/expo`, `./gradlew assembleDebug :byokit-share:testDebugUnitTest`; WP4
+adds its `node scripts/share-expo-smoke.ts --android-only` step and the **`share-ios-prebuild`** job (a macOS GitHub
+runner, not the reserved Mac; prebuild only, D4 assertions via `--ios-only`), since WP4 creates that script. `examples/expo` uses `shareIntent: { disableIOS: true,
+androidIntentFilters: ['text/*','image/*'], androidMultiIntentFilters: ['image/*'] }`: it has no `scheme`, so without
+`disableIOS` upstream's checker would throw in the `react-native` and `push-ios` jobs.
+
+### 14.14 Clean-install qualification
+
+Runs twice: **(i)** against the `npm pack` tarball on the candidate SHA (local, permitted now); **(ii)** against
+`@byokit/share@0.1.0` from the registry after main publishes. Heavy steps hold the home's heavy-jobs lock on fd 9
+(never passed to adb or the emulator); HOME, AVD, Gradle and npm caches live in a throwaway dir.
+Nothing in WP0-WP5 needs the reserved Mac, npm auth or a publish. Emulator use (the WP2 Q-app U1/T1 record and
+WP5's D6) starts only after the home's supervisor emulator slot is granted, with one owned emulator.
+
+Apps: **Q-app**, generated by `scripts/share-expo-smoke.ts` from the packed kit and the pinned stack, rendering
+`<Text>{JSON.stringify({has, type, n, skipped, skipReasons, errorCode, text, w: files?.[0]?.width ?? null})}</Text>`;
+every share-hook assertion runs here. **Crewhouse** at origin/main plus the 14.18 adoption diff, only for launch,
+desklink, build and iOS-target checks (its share UI and watch need a paired home).
+
+- **D1 adopt.** (i): apply the diff's other edits, `npm install --save-exact <packed tgz>`, assert every lock entry
+  except `@byokit/share` and removed patch-only entries is unchanged (version and integrity), then
+  `rm -rf node_modules && npm ci`. (ii): the diff as written, then `npm ci`.
+- **D2 unmodified upstreams, before any Gradle run:** no `preinstall`/`install`/`postinstall`/`prepare` script, no
+  `scripts/patch-modules.mjs`, no `patches`, no `patch-package`; for expo-share-intent@8.0.1, @bacons/apple-targets@5.0.0,
+  @desklink/react-native@0.3.0, expo-modules-core@57.0.19 and expo-widgets@57.0.22: `npm pack` integrity equals the
+  lock's, `diff -r -x node_modules` against `node_modules/<name>` is empty, and `cmp` against the verified tarballs.
+- **D3 Android prebuild** (`npx expo prebuild --clean --no-install -p android`): exactly one `@byokit/share desklink`
+  tag, between `expo-root-project` and `com.facebook.react.rootproject`, with `enableCompileTimeOptimization = true`;
+  exactly one `@byokit/share exclude` tag, above `expoAutolinking.useExpoModules()`; the manifest has SEND and
+  SEND_MULTIPLE; `getMainActivityOrThrow(readAndroidManifestAsync(M)).$['android:launchMode'] === 'singleTask'`.
+- **D4 iOS prebuild** (Linux if `expo prebuild -p ios` works there [UNVERIFIED-RUNTIME], else the macOS CI job):
+  `--clean` then a second plain prebuild; no `Target "ExpoWidgetsTarget" already exists`; `check-pbx.mjs`
+  (`@bacons/xcode`) asserts distinct `ExpoWidgetsTarget`, `actions` and share-extension targets with
+  `productName === name` and app-extension type, zero `byokit-hidden` markers, ExpoWidgetsTarget's
+  `PRODUCT_BUNDLE_IDENTIFIER dev.crewhouse.app.ExpoWidgetsTarget` and `INFOPLIST_FILE ExpoWidgetsTarget/Info.plist`,
+  actions' `INFOPLIST_FILE ../targets/actions/Info.plist` and bundle id `dev.crewhouse.app.widget`, the `actions`
+  synchronized group owned only by `actions`, each `.appex` in Embed Foundation Extensions, the app depending on all three.
+- **D5 Gradle** (`./gradlew assembleRelease :byokit-share:testDebugUnitTest`): the class set
+  `node_modules/@desklink/react-native/android/build/**/kotlin-classes/**/DesklinkModule*.class` is non-empty, and
+  `javap -c -p` over it finds zero matches of
+  `lukmccall/pika/(IsIntrospectableKt\.isIntrospectable|IntrospectionOfKt\.introspectionOf|TypeDescriptorOfKt\.throwNonReifiedTypeDescriptorError)|should be replaced by the compiler plugin|reified type parameter`;
+  `node_modules/expo/android/build/generated/expo/src/main/java/expo/modules/ExpoModulesPackageList.kt` contains `io.github.umeranjum17.byokit.share` and not `expo.modules.shareintent`;
+  post-Gradle `cmp` of every packed file of the five upstreams. The `javap` check stays [UNVERIFIED-RUNTIME] until a
+  **negative control** (snippet removed → count above 0) passes; until then the D6 Crewhouse launch logcat is the gate.
+- **D6 one owned emulator** (`android-36 google_apis x86_64`, AVD `byk-share-qual`, port probed from 5560-5584,
+  serial checked with `emu avd name`; never touch other devices). Every case asserts alive and no `logcat -b crash`
+  entry. `AUTH` comes from `dumpsys package $A | grep -o 'authority=[^ ]*'`. Q-app cases, cold (`am force-stop`
+  first) and warm; U1-U3 send with `-t image/png`: U1 MediaStore image, no grant → `unreadable`,
+  `skipReasons ["unreadable"]`; U2 `content://com.android.contacts/contacts` → `unreadable`; U3 missing media id →
+  `unreadable`; U4 `file:///data/data/<app>/shared_prefs/x.xml` → `unreadable`, `n:0`,
+  `["not_content"]`; U5 `content://0@<own authority>/x` → `own_provider`; U6 `content://<own authority>/<path>` →
+  `["own_provider"]` (via `resolveContentProvider`); T1 text with a URL → `weburl`; T2 `text/plain` with text and an
+  unreadable stream → text, `skipped 0`; T3 `image/png` with text and an unreadable stream → `unreadable`, `text null`.
+  Readable via DocumentsUI and uiautomator, because `am`'s grant does not reach `EXTRA_STREAM` [UNVERIFIED-RUNTIME]
+  and `am` cannot build an `ArrayList<Uri>`; images come from `screencap` plus a media scan: R1 one screencap image → `n:1`, `media`, `w` = screencap width; M1 two
+  images (plus one unreadable if offered) → `n:2`, mixed variant `partial`, `skipped 1`. Observational: W1 two warm
+  SEND texts back to back → the second; W2 SEND while resumed → updates through `onShare`; W3 launch, then share from
+  DocumentsUI → exactly one `MainActivity`, in the original task; T-replay (cold T1, HOME, `am kill`, relaunch from
+  recents and `am start`) and T-recreate (`always_finish_activities 1`, then `font_scale 1.3` after a reset; both settings
+  restored afterwards) → no second delivery; a second delivery is recorded and opens the L9 follow-up; a crash fails the run. Crewhouse: launch
+  after `pm clear`, 8 s, no `reified type parameter`; U1 and T1 cold (capture only); open
+  `crewhouse://screen?bot=qual&watch=1`, HOME 35 s, relaunch. iOS and Android evidence in separate PR sections.
+- **D7 iOS on a Mac: DEFERRED** (Mac reserved): `pod install`, unsigned `xcodebuild`, simulator share of a photo and
+  text, a forged `crewhouse://dataUrl=x` (no crash, `invalid_share_url`), the Controls widget, the Live Activity.
+
+**Pinned qualification matrix.** Anything not IN is not claimed.
+
+| Platform | Case | App | Build | Status |
+|---|---|---|---|---|
+| JVM (Linux) | ShareRulesTest, ShareInboxTest J1-J11, ShareMetaTest | — | `:byokit-share:testDebugUnitTest` | IN |
+| Node 22, 24 | exports, portable, words, url, plugin, hook H1-H22 | — | `npm test` | IN |
+| Android | D1 lock check, D2 integrity and unmodified upstreams | Crewhouse, Q-app | tgz install, then `npm ci` | IN |
+| Android | D3 incl. `.MainActivity` singleTask | Crewhouse, Q-app | `expo prebuild --clean -p android` | IN |
+| Emulator `android-36 google_apis x86_64` only | U1-U6, T1-T3, cold and warm | Q-app | assembleRelease | IN |
+| same | R1, M1 | Q-app | release | IN; automation [UNVERIFIED-RUNTIME], manual capture as fallback |
+| same | W1, W2, W3 | Q-app | release | IN |
+| same | T-replay, T-recreate | Q-app | release | IN as observation |
+| same | launch, U1/T1 capture, desklink deep link plus HOME 35 s | Crewhouse | assembleRelease | IN |
+| Android | D5 bytecode with negative control, package list, post-Gradle `cmp` | Crewhouse, Q-app | assembleRelease | IN |
+| iOS | D4 pbxproj | Crewhouse | Linux prebuild or macOS CI | IN (prebuild only) |
+| — | D(ii) registry rerun | both | release | LATER (after npm publication) |
+| iOS | D7 | Crewhouse | — | OUT (Mac reserved) |
+| Android | debug-variant runtime, StrictMode on a device, other API levels, physical devices, other OEM share sheets or senders beyond `am` and DocumentsUI, split-screen beyond W2 | — | — | OUT |
+| Android | Crewhouse share composer, watch stream, landscape hold, reconnect | Crewhouse | — | OUT (needs a paired home) |
+| Android | live >100 MB file (L10), stalled provider or crafted video (L11), dev reload or cancel (X7), share during load (L1, X15) | — | — | OUT live; only the J/H cases listed |
+| Any | expo-share-intent ≠ 8.0.1, apple-targets ≠ 5.0.0, desklink ≠ 0.3.0, Expo ≠ 57.0.25, RN ≠ 0.86.3 | — | — | OUT (unqualified) |
+| Android | Kotlin ≥ 2.2 (L8); muxr; Ownvoice | — | — | OUT |
+
+Pinned stack: expo 57.0.25, RN 0.86.3, react 19.2.3, expo-share-intent 8.0.1, @bacons/apple-targets 5.0.0,
+expo-widgets 57.0.22, @desklink/react-native 0.3.0, react-native-webrtc 124.0.8, expo-linking 57.0.11,
+expo-constants 57.0.19, expo-modules-core 57.0.19, @expo/config-plugins 57.0.9. Crewhouse's lock matches every pin;
+`examples/expo` is on expo 57.0.25.
+
+### 14.15 Limits
+
+| ID | Platform | Limit | Status |
+|---|---|---|---|
+| L1 | Android | A warm share arriving while the app is still loading is dropped by Expo before any listener sees it; upstream behaves the same | [SOURCE-VERIFIED `expo/ReactActivityDelegateWrapper.kt:306-308`]; RN fall-through [UNVERIFIED-RUNTIME] |
+| L2 | Android | A committed `android/` that never runs prebuild gets neither the settings exclusion nor the launch-mode assertion; the README tells bare apps to add `expo.autolinking.android.exclude: ["expo-share-intent"]` and keep `singleTask` | — |
+| L3 | iOS | Upstream's `encodedData!` on undecodable app-group data cannot be guarded from JS; only the app's own extension writes there | [UNVERIFIED-RUNTIME] |
+| L4 | iOS | A third-party precedence-0 mod reading extension targets from disk does not see hidden ones; a `withBaseMod` `xcodeproj` post-action registered after ours can add a foreign target after the hide | [UNVERIFIED-RUNTIME] |
+| L5 | iOS | Foreign watch and App Clip targets are not hidden | [PROPOSED] |
+| L6 | iOS | apple-targets sets `DEVELOPMENT_TEAM` and `TargetAttributes` on all targets (`at/with-xcode-changes.js:70-95`); unchanged upstream behaviour | [SOURCE-VERIFIED] |
+| L8 | Android | desklink's `kotlinOptions { jvmTarget }` (`dl/android/build.gradle:13`) may warn or fail on Kotlin ≥ 2.2; only a desklink release fixes it. The Kotlin in use (Expo default 2.0.21, real value from RN 0.86.3's catalog) is unknown | [UNVERIFIED-RUNTIME] |
+| L9 | Android | An old share may be offered again, or show as unreadable, after process death (system recreates with the original SEND) or in-process recreation without the CONSUMED copy (X17). Never a crash | [UNVERIFIED-RUNTIME]; T-replay, T-recreate. `ponytail:` if either reproduces, add a persisted fingerprint of the last consumed share; ceiling: sharing the identical item again is ignored once |
+| L9b | Android | A share taken but unfinished when the process dies is lost (X13) | [PROPOSED] |
+| L10 | Android | A file over 100 MB is skipped as `too_large` | [PROPOSED] |
+| L11 | Android | A stalled provider, or a crafted video in MediaMetadataRetriever, blocks only our IO coroutine; no per-URI timeout (a blocking read cannot be interrupted) | first part [PROPOSED]; second [UNVERIFIED-RUNTIME] |
+| L12 | iOS | Adding an apple target to a project that already has one needs `prebuild --clean`; the sibling guard enforces it | [PROPOSED] |
+| L13 | Android | One pending slot, last wins (X5); upstream parity (`esik/ExpoShareIntentReactActivityLifecycleListener.kt:18`) | `ponytail:` single slot; a queue when a consumer needs bursts |
+| L14 | Android | A share's files stay until the next `take()` after it stops being the delivered share, or a process restart; consumers copy or upload before `resetShareIntent` | [PROPOSED] |
+| L15 | Android | After `resetShareIntent(false)`, a remount shows the share again via `current()`; upstream had nulled its singleton (`esik:187`) | [PROPOSED]; disclosed parity gap |
+| L16 | Android | A reset clears only shares JS has applied; a share pending or in flight at reset time, including before the first delivery, is delivered afterwards (X20). Reset races are ordered, not all suppressed | [PROPOSED]; H22 |
+
+L7 is not used. Safeguards kept by design (verified only when D6 U1-U6, T1, T2, R1, M1, W1-W3, T-replay and T-recreate
+pass): an unreadable share, cold or warm, does not crash; only the sender's grant is used; the app's own files cannot
+be reached through a share (`file://`, `N@authority`, own authorities); nothing is read on the UI thread and
+`modulesQueue` is held only for the take; `clear` never wipes a newer share; a cleared share never returns from a
+late older read; a stale rejection never overrides a reset; `singleTask` is enforced.
+
+### 14.16 Work packages
+
+Order: WP0 → WP1 → WP1r → (WP2 ∥ WP3) → WP4 → WP5 → WP6 release-prep PR → [npm publication hold lifts] → main
+publishes → consumer adoption. Root dispatches after this section lands. Source pushes, PRs, CI, green merges and the
+release-prep PR are permitted throughout; only the actual npm publication waits.
+
+| WP | Content | Acceptance | Deps | Builder |
+|---|---|---|---|---|
+| WP0 | This section | Lands on main | — | Opus 5.5 medium (docs) |
+| WP1 | Scaffold rest (README, LICENSE, `expo-module.config.json`: landed with the spec PR, as are `types.ts`, `words.ts`, `url.ts`, `index.ts` and the root build wiring); README rows and isolation sentences; `files` incl. `CHANGELOG.md`; CHANGELOG `## Unreleased` with the 14.17 lines; C1, C2, C3, C6 | `npm run build && npm run check && npm test`; pack smoke; tsc resolves the deep type paths [UNVERIFIED until run] | WP0 | Pi Sol 6.1 medium |
+| WP1r | Append `"share"` to `canonical` at `scripts/release.ts:608` (after `"push"`); nothing else. No lint change is needed: a SECURITY:/FIX: bullet on a first release passes; while `private` the bumped-version section check is skipped (`:356-358`); nothing depends on share, so no cascade (`:206-266`); the change is cosmetic, as unlisted packages already rank last (`:609-612`) | `npm run release -- lint --base origin/main` green on the WP1r branch; the `canonical` diff is the one token | WP1 | Pi Sol 6.1 medium |
+| WP2 Kotlin | 14.9, C7-C9, `examples/expo` wiring (`disableIOS: true`, 14.4), the `share-android` CI job without the smoke step (14.13) | Local `share-android` commands green under the lock; Q-app U1/T1 recorded | WP1 | Pi Sol 6.1 medium |
+| WP2 hook | `hook.ts`, `adapter.ts`, `rn.ts` (hook, Provider, context, Consumer), C4 H1-H22, `examples/expo/ShareDemo.tsx`: **landed with the spec PR** | `npm test` | WP0 | Opus 5.5 medium |
+| WP3 | `app.plugin.js` (14.6), C5 | `npm test`; `node -e "import('./packages/share/app.plugin.js')"` with no Expo installed | WP1 | Pi Sol 6.1 medium |
+| WP4 | `scripts/share-expo-smoke.ts`: packed kit, pinned stack, Q-app with the state `<Text>` and a `targets/actions` widget, D3/D4 assertions, `--android-only` / `--ios-only`, captures `withwidgets.pbxproj`; the smoke step in `share-android` and the `share-ios-prebuild` job | Passes locally under the lock; iOS part on Linux or the macOS CI job | WP2, WP3 | Pi Sol 6.1 medium |
+| WP5 | D1-D6 (i) on the Q-app and Crewhouse incl. U6, W1-W3, T2/T3, T-replay, T-recreate, R1 metadata, the D5 negative control | Every IN row green, evidence attached; no release line ships as a claim until its gate is green | WP4 | Pi Sol 6.1 medium |
+| WP6 | Release-prep PR (14.17) | 14.17, including on the release branch after "drop `private`": `npm run release -- prepare share=0.1.0 --dry-run` shows `share=0.1.0`, no pins, no cascade | WP5 | prep: this work; publish and trust: main |
+
+### 14.17 Release
+
+`packages/share/CHANGELOG.md` `## Unreleased` holds these lines (WP1 creates the file; lint requires it and its
+`files` entry, `scripts/release.ts:317-320,328-329,341-342`; the "do not edit CHANGELOG.md" rule targets existing
+packages, `CONTRIBUTING.md:121-124`). Format per `CONTRIBUTING.md` "Changelog and release notes":
+exactly `- SECURITY:` / `- FIX:` (a bold or `Fix:` prefix parses as a plain bullet), wrapped lines indented two
+spaces, SECURITY first. Later WP2-WP5 PRs may add `changes/` fragments; prepare folds them in
+(`:495-496`) and deletes them (`:545`). `FIX:` is right on a first
+release because consumers of the unmodified upstreams hit these bugs today, and `notes --since` relays only the SDK
+changelog; the consumer PR copies the lines verbatim, it does not replace them.
+
+```
+- SECURITY: On Android a share can no longer make the app read its own private files: content URIs served by
+  the app's own providers (including the `N@authority` form) are refused; that item is left out with
+  `skipReasons` `own_provider`, and the share reports `errorCode: 'unreadable'`, or `'partial'` when other
+  files were read. expo-share-intent 8.0.1 copies such content into the cache and hands its path to JS.
+- FIX: Sharing a file the app may not read, or a `file://` URI (refused as `not_content`), no longer crashes
+  the Android app, cold or warm; that file is left out, and the share reports `errorCode: 'partial'` with the
+  readable files, or `'unreadable'` when none could be read.
+- FIX: On iOS a link of the form `<scheme>://dataUrl=…` that did not come from the app's own share extension
+  is ignored and reported as `errorCode: 'invalid_share_url'` instead of reaching expo-share-intent's native
+  module, which can crash on it.
+- FIX: `appleTargets` keeps @bacons/apple-targets 5.0.0 from taking over another plugin's extension target
+  (such as expo-widgets' `ExpoWidgetsTarget`) on a fresh iOS prebuild. Checked by prebuild only.
+- FIX: `desklink` builds @desklink/react-native 0.3.0 as an Expo module, so it no longer crashes at launch on
+  Expo SDK 57, without a postinstall patch.
+- Receive shared text and files with `useShareIntent`, `ShareIntentProvider` and the rest of
+  expo-share-intent's public API; reads run off the main thread and image and video sizes are still reported.
+```
+
+Every line describes [PROPOSED] behaviour; WP6 does not run prepare until each gate is green:
+
+| Line | Gate |
+|---|---|
+| SECURITY | D6 U5, U6 plus `ShareRulesTest` |
+| FIX unreadable | D6 U1-U4 cold and warm, M1 (mixed variant for `'partial'`) |
+| FIX iOS link | H15 plus `url.test.ts`; the no-crash part stays [UNVERIFIED-RUNTIME] until D7, so the line says only "instead of reaching" |
+| FIX appleTargets | D4 |
+| FIX desklink | D5 `javap` with its negative control, plus the D6 Crewhouse launch case |
+| Final bullet | D6 R1 and C1 |
+
+Mechanics: nothing depends on share, so there is **no cascade** (`:206-266`). While `private`, only the
+bumped-version section check is skipped (`:356`); a non-empty `## Unreleased` is still required when shipped files
+change (`:359-360`), which the WP1 lines satisfy. WP6, following precedent 7a692353 (#231):
+- push first, with CI green including `share-ios-prebuild`;
+- on a named release branch (prepare refuses detached `HEAD` and `main`, `:470`, and a dirty tree, `:471`), commit
+  "chore(share): enable first public release" (drop `private`; prepare refuses private packages, `:481`), then
+  `npm run release -- prepare share=0.1.0`. An equal version is allowed while it is not on npm (`:487-490`);
+  Unreleased must have bullets (`:501-503`). Prepare rolls Unreleased, SECURITY:/FIX: lines included, into
+  `## 0.1.0 (<date>)`, and lint passes after it (`:356-358,754-755`). Merge on green.
+
+**Publishing belongs to main**, the sole publisher and npm-trust owner (hold **byk-npm-trust**): main runs
+`npm run release -- publish` on the green main head with its own npm session, once the npm404 publication hold
+(main285) lifts, and adds `@byokit/share` to its trusted-publishing scope (trust for a new name can likely be set only
+after that first publish [UNVERIFIED, npm behaviour]). This work never runs `npm login`, `npm trust` or a
+`release.yml` dispatch, and makes no second login or passkey request. Done means: `npm view @byokit/share@0.1.0`; tag
+`share-v0.1.0` whose GitHub release notes show the SECURITY:/FIX: lines (`release.ts:688-690`); D(ii) green; trust status reported as main reports it.
+
+### 14.18 Consumer adoption (handoff, not done here)
+
+Consumers change only through their own homes, after `@byokit/share@0.1.0` is on npm. The Crewhouse diff, handed
+over as written:
+- `package.json`: remove `scripts.postinstall`; add `"@byokit/share": "0.1.0"` (exact; D1 (i) substitutes the
+  packed tarball); pin `"expo-share-intent": "8.0.1"`. No autolinking exclude (prebuild runs). Delete
+  `scripts/patch-modules.mjs`, then `npm install`.
+- `app.json`: replace the `expo-share-intent` and `@bacons/apple-targets` entries with
+  `["@byokit/share", { "shareIntent": { "androidIntentFilters": ["text/*","image/*"], "androidMultiIntentFilters": ["image/*"], "iosActivationRules": { …unchanged… }, "iosShareExtensionName": "Send to Crewhouse" }, "appleTargets": {}, "desklink": true }]`;
+  keep `expo-widgets` and `./plugins/shortcuts.js`.
+- `App.tsx:27` imports from `'@byokit/share'`; `:662-668` stays (same hook shape). Optionally show the
+  `share.partial` sentence when `errorCode === 'partial'`.
+- Behaviour changes [PROPOSED until M1]: a partial multi-share now delivers the readable files; files stay until the
+  next share after a reset (L14).
+- The PR body copies the SECURITY:/FIX: lines verbatim, each with its gate evidence. Acceptance: Crewhouse CI plus
+  the D6 Crewhouse rows rerun on the merged SHA.
+
+muxr (SDK 55, desklink 0.3.0 unpatched) needs nothing now; inferred from expo-modules-core 55's changelog never naming
+Pika [UNVERIFIED-RUNTIME]. On SDK 57 (or 56, unverified) it adds `["@byokit/share", { "desklink": true }]`. Ownvoice
+needs nothing.
+
+### 14.19 Notes for builders
+
+- The spec PR also lands the frozen TypeScript surface and the WP2 JS layer, so builders share exact interfaces:
+  the WP1 builder's scaffold and `src/{types,url,index}.ts`, `src/words.ts` in §9 form with `ShareError` (§3), the
+  WP2 `src/{hook,adapter,rn}.ts`, `test/hook.test.ts` (H1-H22) with `test/fixtures/esi-utils.js`, the root build,
+  check-exclude and `fix-words-dts.cjs` wiring, and `examples/expo/ShareDemo.tsx` (`EXPO_PUBLIC_SHARE_DEMO=1`). Later
+  work packages build on these and change none of their signatures without a spec change.
+- Where the source report disagreed with itself, this section follows its revision 2.2: limits run L1-L16 (its WP0
+  row still said L1-L15), races X1-X20, tests J1-J11 and H1-H22. The report did not place `share` in the canonical
+  order; 14.17 appends it after `push`.
+- The snake_case members of `ShareErrorCode` and `ShareSkipReason` and the word key `share.invalid_link` differ from
+  [kit-conventions.md](kit-conventions.md) §2 (kebab codes) and §9 (camelCase keys). They are **binding** under its
+  Precedence rule: the 14.17 release lines quote `'invalid_share_url'`, `own_provider` and `not_content` verbatim.
+  Words follow §9's helper and §3's error template exactly (14.7, 14.11); where the report indexes `words[key]`,
+  read `words(key)`.
+- The report's WP1r acceptance (bare `release -- lint`, and a `--dry-run` prepare while `private`) cannot pass:
+  lint needs `--base` (`scripts/release.ts:731`) and prepare refuses private packages (`:481`), as the report's own
+  WP6 row says. 14.16 moves the plan check to WP6.
+- WP2 Kotlin's "Q-app U1/T1 recorded" comes from the report, but the Q-app generator is WP4. A WP2 builder without
+  it stops and asks root whether `examples/expo` stands in.
+- Open fallback, not adopted (F8): if D6 W1, W2 or warm T1 fail on the RN 0.86.3 `onNewIntent` hop, capture warm
+  shares in `ShareListener.onNewIntent` (`expo/ReactActivityDelegateWrapper.kt:310-311`) with the module emitting
+  `onShare` through a callback registered in `OnCreate`. That is a spec change first.

@@ -9,8 +9,10 @@ import { Supervisor } from './supervise.ts';
 import type {
   AgentCliSignIn, AgentReadiness, AgentStartEvent, AgentStatusOptions, AgentRef, AgentSessionRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,
   HerdrParams, HerdrResult, HerdrSnapshot, HerdrSnapshotAgent, HerdrSnapshotPane, HerdrSnapshotWorkspace, HerdrState, HerdrSubscription, HerdrSubscribeStop, PromptReceipt, StartAgent, TerminalSession,
-  HerdrTransport, MoveToAccount, MoveResult, OpenSignInTab,
+  HerdrTransport, Move, MoveToAccount, MoveToAccountResult, MoveResult, OpenSignInTab,
 } from './types.ts';
+import type { AgentTurnEnd, AgentTurnOptions } from './types.ts';
+import { createTurns } from './turns.ts';
 
 const kinds = ['pane.agent_detected', 'pane.created', 'pane.closed', 'pane.moved', 'pane.exited', 'pane.updated',
   'workspace.created', 'workspace.closed', 'workspace.renamed', 'workspace.updated', 'tab.created', 'tab.closed', 'tab.renamed'];
@@ -133,14 +135,17 @@ export class HerdrKit {
   private readonly agents: ReturnType<typeof createAgents>;
   private readonly startListeners = new Set<(e: AgentStartEvent) => void>();
   private readonly blockedList: Blocked;
+  private readonly turns: ReturnType<typeof createTurns>;
   constructor(o: HerdrKitOptions) {
     this.o = o;
     this.supervisor = new Supervisor(o, (s) => { this.current = s; o.onState?.(s); });
     this.accountPanes = createAccountPanes({ call: this.callAny, startAgent: (o) => this.startAgent(o) });
     this.agents = createAgents({ call: this.callAny, snapshot: () => this.snapshot(),
       reread: (paneId) => this.reread(paneId),
+      launchEnv: () => o.mode === 'own' ? this.supervisor.env() : undefined,
       emitStart: (e) => { for (const fn of [...this.startListeners]) try { fn(e); } catch { /* a listener never breaks a start */ } } });
     this.blockedList = new Blocked({ call: this.callAny });
+    this.turns = createTurns(this);
   }
   get state(): HerdrState { return this.current; }
   private publish() { for (const fn of this.listeners) fn(this.snapshot()); }
@@ -348,6 +353,7 @@ export class HerdrKit {
     }
   }
   async stop(): Promise<void> {
+    this.turns.stop();
     ++this.generation;
     this.statusReadyResolve?.();
     this.statusReadyPromise = Promise.resolve();
@@ -373,7 +379,7 @@ export class HerdrKit {
     if (!this.transport) throw new Error('herdr: not connected');
     return this.transport.subscribe(subs, on as (e: HerdrEvent) => void, onError ?? (() => {}));
   }
-  cli(args: string[], o?: { timeoutMs?: number }): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }> { return runCli(this.o.bin, this.supervisor.env(), args, o?.timeoutMs); }
+  cli(args: string[], o?: { timeoutMs?: number; env?: Record<string, string> }): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }> { return runCli(this.o.bin, { ...this.supervisor.env(), ...o?.env }, args, o?.timeoutMs); }
   terminal(paneId: string, o: { mode: 'control' | 'observe'; cols: number; rows: number }): TerminalSession { return openTerminal(this.o.bin, this.supervisor.env(), paneId, o); }
   snapshot(): HerdrSnapshot { return structuredClone(this.tree); }
   onChange(fn: (s: HerdrSnapshot) => void): () => void { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; }
@@ -393,7 +399,8 @@ export class HerdrKit {
    */
   statusWatchReady(): Promise<void> { return this.statusReadyPromise; }
   openSignInTab(o: OpenSignInTab): Promise<AgentRef> { return this.accountPanes.openSignInTab(o); }
-  moveToAccount(target: AgentRef, o: MoveToAccount): Promise<MoveResult> { return this.accountPanes.moveToAccount(target, o); }
+  move(o: Move): Promise<MoveResult> { return this.accountPanes.move(o); }
+  moveToAccount(target: AgentRef, o: MoveToAccount): Promise<MoveToAccountResult> { return this.accountPanes.moveToAccount(target, o); }
   startAgent(o: StartAgent): Promise<AgentRef> { return this.agents.startAgent(o); }
   // App-wide start lifecycle without polling: every startAgent's installing/ready/launchFailed
   // lands here as well as on that call's own `onEvent`. Returns the unsubscribe function.
@@ -402,6 +409,8 @@ export class HerdrKit {
     return () => { this.startListeners.delete(fn); };
   }
   prompt(target: AgentRef, text: string, o?: { wait?: { until?: AgentStatus[]; timeoutMs: number } }): Promise<PromptReceipt> { return this.agents.prompt(target, text, o); }
+  runTurn<T = unknown>(target: AgentRef, o: AgentTurnOptions<T>): Promise<AgentTurnEnd<T>> { return this.turns.runTurn(target, o); }
+  onTurnEnd(fn: (end: AgentTurnEnd) => void): () => void { return this.turns.onTurnEnd(fn); }
   sendKeys(target: AgentRef, keys: string[]): Promise<void> { return this.agents.sendKeys(target, keys); }
   wait(target: AgentRef, o: { until?: AgentStatus[]; timeoutMs: number }): Promise<AgentStatus> { return this.agents.wait(target, o); }
   read(paneId: string, o?: { source?: 'visible' | 'recent' | 'recent_unwrapped' | 'detection'; lines?: number; ansi?: boolean }): Promise<{ text: string; truncated: boolean }> { return this.agents.read(paneId, o); }

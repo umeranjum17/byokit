@@ -1,14 +1,12 @@
-// B5 acceptance: `agentStatus` reports installed + CLI sign-in per kind from each CLI's
-// own status command (never credential files), Pi reads "installs on first start", and the
-// probe covers muxr's extra PATH dirs. The command runner is injected; only the final smoke
-// uses real binaries and it skips when no known CLI is present.
+// Readiness probes only app-managed selections, using injected or task-owned binaries.
+// No real CLI login or default credential store is consulted.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { accessSync, chmodSync, constants as fsConstants, writeFileSync } from 'node:fs';
+import { chmodSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { basename, join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
-import { agentProbePath, extraPathDirs } from '../src/agents.ts';
+import { agentProbePath, extraPathDirs, runStatusCommand } from '../src/agents.ts';
 import { HerdrKit } from '../src/kit.ts';
 import type { AgentStatusRunner } from '../src/types.ts';
 
@@ -31,11 +29,11 @@ test('agentStatus: signed in, signed out, pi words and unknown kinds', async () 
   const seen: { command: string; args: string[] }[] = [];
   const run: AgentStatusRunner = async (command, args) => {
     seen.push({ command, args });
-    if (command === 'claude') return { stdout: '{"loggedIn":true}' };
-    if (command === 'codex') return { stdout: '{"id":2,"result":{}}' };
+    if (basename(command) === 'claude') return { stdout: '{"loggedIn":true}' };
+    if (basename(command) === 'codex') return { stdout: '{"id":2,"result":{}}' };
     return undefined;
   };
-  const out = await kit().agentStatus(['pi', 'claude', 'codex', 'mystery'], { path: [dir], run });
+  const out = await kit().agentStatus(['pi', 'claude', 'codex', 'mystery'], { path: [dir], run, folders: { claude: '/managed/claude', codex: '/managed/codex' } });
   assert.deepEqual(out.find((a) => a.kind === 'pi'),
     { kind: 'pi', installed: false, installState: 'installs-on-first-start', signedIn: 'unknown', installHint: 'installs on first start' });
   const claude = out.find((a) => a.kind === 'claude');
@@ -50,7 +48,7 @@ test('agentStatus: signed in, signed out, pi words and unknown kinds', async () 
   assert.deepEqual(mystery, { kind: 'mystery', installed: false, installState: 'installs-on-first-start', signedIn: 'unknown',
     installHint: 'Install the mystery command, then check again.' });
   // Only the CLIs' own status commands run — no credential file is ever opened.
-  assert.deepEqual(seen.map((s) => [s.command, ...s.args].join(' ')).sort(),
+  assert.deepEqual(seen.map((s) => [basename(s.command), ...s.args].join(' ')).sort(),
     ['claude auth status', 'codex app-server']);
 });
 
@@ -82,24 +80,39 @@ test('the probe covers the extra PATH dirs muxr probes', () => {
   }
 });
 
-test('smoke: real binaries answer with the documented shape', async (t) => {
-  if (process.env.BYOKIT_AGENT_STATUS_SMOKE !== '1') {
-    t.skip('opt-in with BYOKIT_AGENT_STATUS_SMOKE=1');
-    return;
+test('SECURITY: absent or invalid managed selection never invokes a readiness runner', async () => {
+  const dir = binDir('herdr-status-no-selection', ['claude', 'codex']);
+  const selections: (Record<string, string> | undefined)[] = [undefined, { claude: '', codex: 'relative' }, { claude: '/bad\nfolder' }];
+  for (const folders of selections) {
+    const out = await kit().agentStatus(['claude', 'codex'], { path: [dir], folders,
+      run: async () => { assert.fail('must not probe a default login'); } });
+    assert.ok(out.every((r) => r.signedIn === 'unknown'));
   }
-  const path = agentProbePath((process.env.PATH ?? '').split(delimiter));
-  const present = ['claude', 'codex'].filter((name) =>
-    path.some((dir) => {
-      try { accessSync(join(dir, name), fsConstants.X_OK); return true; } catch { return false; }
-    }));
-  if (present.length === 0) {
-    t.skip('no known agent CLI on the probe path');
-    return;
-  }
-  const out = await kit().agentStatus(present, { timeoutMs: 10_000 });
-  for (const a of out) {
-    assert.equal(a.installed, true);
-    assert.ok(['yes', 'no', 'unknown'].includes(a.signedIn), `${a.kind} answers in shape`);
-    assert.equal(typeof a.installHint, 'string');
+  assert.equal(await runStatusCommand('/must/not/spawn', []), undefined);
+});
+
+test('SECURITY: actual readiness spawn uses only the selected managed home and clean env', async () => {
+  const dir = binDir('herdr-status-clean-env', ['claude']);
+  const folder = scratchDir('herdr-status-managed');
+  writeFileSync(join(dir, 'claude'), `#!${process.execPath}\nprocess.stdout.write(JSON.stringify({ loggedIn: process.env.HOME === ${JSON.stringify(folder)} && process.env.CLAUDE_CONFIG_DIR === ${JSON.stringify(folder)} && !process.env.BYOKIT_DEFAULT_CREDENTIAL_CANARY && !process.env.ANTHROPIC_API_KEY }));\n`);
+  const saved = process.env.BYOKIT_DEFAULT_CREDENTIAL_CANARY;
+  process.env.BYOKIT_DEFAULT_CREDENTIAL_CANARY = 'private-default-login';
+  try {
+    const [result] = await kit().agentStatus(['claude'], { path: [dir], folders: { claude: folder },
+      readFile: () => 'task-owned binary' }); // Node lives under mise, but this fixture is not a mise shim.
+    assert.equal(result?.signedIn, 'yes');
+    await kit().agentStatus(['claude'], { path: [dir], folders: { claude: folder }, readFile: () => 'task-owned binary', env: { HOME: '/default', DISPLAY: ':fake' },
+      run: async (command, args, options) => {
+        assert.equal(command, join(dir, 'claude'));
+        assert.deepEqual(args, ['auth', 'status']);
+        assert.deepEqual(options?.env, { DISPLAY: ':fake', PATH: dir, HOME: folder, USERPROFILE: folder,
+          XDG_CONFIG_HOME: join(folder, '.config'), XDG_STATE_HOME: join(folder, '.local', 'state'),
+          XDG_DATA_HOME: join(folder, '.local', 'share'), XDG_CACHE_HOME: join(folder, '.cache'),
+          APPDATA: join(folder, 'AppData', 'Roaming'), LOCALAPPDATA: join(folder, 'AppData', 'Local'), CLAUDE_CONFIG_DIR: folder });
+        return { stdout: '{"loggedIn":"truthy"}' };
+      } }).then(([r]) => assert.equal(r?.signedIn, 'unknown'));
+  } finally {
+    if (saved === undefined) delete process.env.BYOKIT_DEFAULT_CREDENTIAL_CANARY;
+    else process.env.BYOKIT_DEFAULT_CREDENTIAL_CANARY = saved;
   }
 });

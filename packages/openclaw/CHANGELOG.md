@@ -2,7 +2,43 @@
 
 ## Unreleased
 
+## 0.6.0 (2026-10-02)
+
+- Portable `readAgentUsage` / `agentUsageOf` expose explicit-agent UTC retained-transcript totals with raw responses, cache freshness and missing-price counters preserved. Coverage stays partial: stock-engine detached Workshop reviews are absent, and unavailable data never becomes zero; complete internal-turn accounting is not claimed.
+- FIX: Host runs can reuse a caller-stable per-dispatch `idempotencyKey` after a lost connection instead of starting a second engine run. Omission keeps fresh UUIDs. Document the pinned engine's gateway-wide, bounded, in-memory cache and honest in-flight replay limits; this is not exactly-once across engine restarts.
+
+FIX: Generate complete pinned route discovery: 91 auth choices and five cloud/CLI providers, including external plugin dependencies, plan-key entry, service grouping and corrected provider/billing labels. `routes()` computes readiness without reading credentials or installing plugins; legacy boolean `offer` is ready default subscriptions only, with `offerPolicy` retaining eligibility. Missing plugins, binaries, client registrations and choiceless wizard flows remain visible, not falsely usable. Explicit API/local/endpoint routes never become default billing; endpoint billing requires host input. Full discovery also reaches the existing phone/web link without hiding unavailable rows. Existing choice IDs, legacy explicit browser/code selectors, native Claude activation guards and ChatGPT pairing are retained; corrected manifest provider IDs and semantic `via` values replace inaccurate discovery labels. Listing an API or unavailable route never authorizes a sign-in or makes it a default.
+
+- The README points to the shared account-route vocabulary (D18); pinned route discovery is not proof of additional implemented authentication flows.
+- FIX: ChatGPT sign-in now interrupts abandoned wizard/paste waits on gateway disconnect and reconfirms a new, usable OAuth profile for the selected member through the reconnected engine. Recovery is bounded and fails closed for unknown, missing, pre-existing or unrelated credentials, cancellation and expiry. A synchronous cleanup error during reconnect no longer suppresses the terminal sign-in view.
+
+## 0.5.0 (2026-10-01)
+
+- Dependency update: pins @byokit/relay 0.5.1.
+
+- FIX: Wait for approval callbacks in the bridge parking test instead of assuming the gate finishes within 50 ms.
+- FIX: Successful runs preserve complete generated text in the final callback and result instead of replacing it with a capped terminal snapshot; silent and empty replies remain empty.
+
+- Add app-supplied output schemas to host and device runs, with inferred result data, local final-answer validation and typed output failures. Subscription routes and explicit API key (billed per use) opt-in are unchanged.
+
+## 0.4.0 (2026-10-01)
+
+- Dependency update: pins @byokit/ui-core 0.6.0.
+- Dependency update: pins @byokit/reach 0.6.0.
+
+- Key readiness waits through the engine's retryable restart refusal after activation; missing keys still fail without another account.
+- API key (billed per use): `addKey` verifies and stores an explicitly entered key in a separate member-owned agent, with copying disabled and no automatic subscription fallback. `run({ auth: 'apiKey' })` selects it explicitly with separate history; key-entry labels, errors and route revision dates are included.
+- Offer subscription sign-ins, including pasted tokens and native Claude Code, by default and allow their provider plugins. API key (billed per use) routes remain app opt-in; proxies, compatibility aliases and local routes stay off.
+
+## 0.3.6 (2026-10-01)
+
 - FIX: Live orphan gateways recover after the engine rewrites its process title. Recovery verifies the recorded launch pid and process start time with the executable and isolated store paths; ambiguous ownership preserves the saved sign-in state.
+
+- Dependency update: pins @byokit/ui-core 0.5.0.
+- Dependency update: pins @byokit/reach 0.5.0.
+- Dependency update: pins @byokit/relay 0.5.0.
+- Dependency update: pins @byokit/link 0.7.0.
+- SECURITY: (from @byokit/link 0.7.0) `Host.shortCode()` adds a machine-key commitment to typed pairing; `pairWithCode()` verifies it before disclosing device identity or asking for approval. Legacy codes remain compatible; use the full new code when relay lookup is untrusted.
 
 ## 0.3.5 (2026-10-01)
 

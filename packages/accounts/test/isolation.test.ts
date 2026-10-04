@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
+import fs from 'node:fs';
 import { scratchDir } from '../../test-support.ts';
 import { join, resolve } from 'node:path';
 import { decoy, traceFs } from '../src/testing/index.ts';
@@ -25,6 +26,7 @@ test("a sign-in, a stored sign-in and its status never touch anyone else's AI se
   assert.deepEqual([out.code, out.url], ['MOCK-12345', 'https://auth.openai.com/codex/device'], 'the real ChatGPT sign-in reached its code');
   assert.deepEqual([out.cancelled, out.ready, out.openrouter, out.other], [false, true, false, false]);
   assert.equal(out.words, 'ChatGPT is connected.');
+  assert.equal(out.unchanged, true);
   assert.deepEqual(out.env, ['PI_CODING_AGENT_DIR', 'PI_OFFLINE', 'PI_SKIP_VERSION_CHECK', 'PI_TELEMETRY']);
   assert.ok(out.asked.every((u: string) => u.startsWith('auth.openai.com/api/accounts/deviceauth/')), out.asked.join(', '));
 
@@ -32,4 +34,92 @@ test("a sign-in, a stored sign-in and its status never touch anyone else's AI se
   assert.deepEqual(d.changed(), [], 'byte for byte, and not even rewritten');
   assert.deepEqual(d.ran(), []);
   assert.deepEqual(d.leaks(app), [], 'a key or sign-in from the decoy reached the app\'s folder');
+});
+
+test('managed Pi and found-row adoption never read grants, discovered sources or default logins', () => {
+  const root = scratchDir('pi-isolation'); const d = decoy(root); const app = join(root, 'app'); mkdirSync(app);
+  const stateDir = join(app, 'plans'); mkdirSync(stateDir);
+  const log = join(app, 'calls.jsonl'); const bin = join(app, 'pi'); const canary = 'private-pi-canary';
+  fs.writeFileSync(log, '');
+  fs.writeFileSync(bin, `#!${process.execPath}
+const fs = require('node:fs');
+fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({argv:process.argv.slice(2),env:process.env})+'\\n');
+if(process.argv[2]==='auth') console.log(JSON.stringify({status:'ready',provider:'openai-codex',authType:'oauth',access_token:${JSON.stringify(canary)}}));
+`, { mode: 0o755 });
+  const found = { id: 'found-pi', provider: 'pi', name: 'Found', folder: join(d.home, '.pi', 'agent'), found: true };
+  fs.writeFileSync(join(stateDir, 'accounts-v1.json'), JSON.stringify({ version: 1, accounts: [found] }));
+  const passed = { HOME: d.home, PATH: '/unused', PI_CODING_AGENT_DIR: found.folder, PI_CODING_AGENT_SESSION_DIR: found.folder, OPENAI_API_KEY: canary, ANTHROPIC_OAUTH_TOKEN: canary, CLAUDE_CONFIG_DIR: found.folder, CODEX_HOME: found.folder };
+  const module = new URL('../src/cli.ts', import.meta.url).href;
+  const r = spawnSync(process.execPath, ['--import', traceFs, '--input-type=module', '-e', `
+    const {cliAccounts}=await import(${JSON.stringify(module)});
+    const kit=cliAccounts(${JSON.stringify({ stateDir, bins: { pi: bin }, env: passed })});
+    const {account,signIn}=await kit.adopt('found-pi',{piProvider:'openai-codex'});
+    const {spawnSync}=await import('node:child_process');
+    const login=spawnSync('/bin/sh',['-c',signIn.shell],{env:process.env,encoding:'utf8'});
+    if(login.status!==0) throw new Error('fake TUI failed');
+    const ready=await kit.status(account.id);
+    await kit.rename(account.id,'Owned'); await kit.list();
+    await kit.cancel(account.id);
+    console.log(JSON.stringify({ready,signIn}));
+  `], { encoding: 'utf8', timeout: 20_000, env: { ...process.env, ...d.env, TRACE_ROOTS: d.env.TRACE_ROOTS + ':' + stateDir } });
+  assert.equal(r.status, 0, r.stderr); assert.doesNotMatch(r.stdout + r.stderr, new RegExp(canary));
+  assert.equal(JSON.parse(r.stdout).ready.state, 'ready');
+  const touches = d.touched().split('\n').filter(Boolean);
+  assert.ok(touches.every(p => p.startsWith(stateDir + '/') || p === stateDir), touches.join('\n'));
+  assert.ok(touches.every(p => !/\/(auth|settings|models)\.json$/.test(p)), 'kit never opens Pi credential/settings files');
+  assert.deepEqual(d.changed(), []); assert.deepEqual(d.ran(), []); assert.deepEqual(d.leaks(stateDir), []);
+  const calls = fs.readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.deepEqual(calls[0].argv, []);
+  for (const call of calls) {
+    assert.deepEqual(Object.keys(call.env).sort(), ['HOME', 'PATH', 'PI_CODING_AGENT_DIR']);
+    assert.ok(call.env.PI_CODING_AGENT_DIR.startsWith(stateDir + '/pi/'));
+    assert.doesNotMatch(JSON.stringify(call), new RegExp(canary));
+    if (call.argv.length) assert.deepEqual(call.argv, ['auth', 'check', '--provider', 'openai-codex', '--json', '--no-refresh']);
+  }
+});
+
+test('managed CLI accounts never touch default logins or inherit ambient keys', () => {
+  const root = scratchDir('cli-isolation'); const d = decoy(root);
+  const app = join(root, 'app'); mkdirSync(app);
+  const bins = join(app, 'bins'); mkdirSync(bins);
+  const log = join(app, 'calls.jsonl');
+  const canary = 'canary-byokit-7f3a9c';
+  const bin = join(bins, 'claude');
+  fs.writeFileSync(log, '');
+  fs.writeFileSync(bin, `#!${process.execPath}
+const fs = require('node:fs');
+fs.appendFileSync(${JSON.stringify(log)},JSON.stringify({argv:process.argv.slice(2),env:process.env})+'\\n');
+console.log(JSON.stringify({loggedIn:true,email:'isolated@example.test',subscriptionType:'pro',access_token:${JSON.stringify(canary)}}));
+`, { mode: 0o755 });
+  const history = join(d.home, '.claude', 'projects');
+  // A missing history target stays missing; add only links to it.
+  const stateDir = join(app, 'plans');
+  const module = new URL('../src/cli.ts', import.meta.url).href;
+  const passed = { HOME: d.home, PATH: '/unused', ONLY_PASSED: 'yes' };
+  const r = spawnSync(process.execPath, ['--import', traceFs, '--input-type=module', '-e', `
+    const {cliAccounts} = await import(${JSON.stringify(module)});
+    const kit = cliAccounts(${JSON.stringify({ stateDir, bins: { claude: bin }, env: passed, historyFrom: { claude: history } })});
+    const {account,signIn} = await kit.add('claude');
+    const before = await kit.status(account.id);
+    const {spawnSync}=await import('node:child_process');
+    const login=spawnSync('/bin/sh',['-c',signIn.shell],{env:process.env,encoding:'utf8'});
+    if(login.status!==0) throw new Error('fake login failed');
+    const after=await kit.status(account.id);
+    await kit.rename(account.id,'Isolated'); kit.acknowledgeTerms(); await kit.list();
+    await kit.remove(account.id);
+    console.log(JSON.stringify({before,after}));
+  `], { encoding: 'utf8', timeout: 20_000, env: { ...process.env, ...d.env } });
+  assert.equal(r.status, 0, r.stderr); assert.doesNotMatch(r.stdout + r.stderr, new RegExp(canary));
+  const result = JSON.parse(r.stdout); assert.equal(result.before.state, 'signing'); assert.equal(result.after.state, 'ready');
+  const touches = d.touched().split('\n').filter(Boolean);
+  assert.deepEqual(touches, [history], 'the sole default-folder touch names the symlink target without accessing it');
+  assert.equal(fs.existsSync(history), false);
+  assert.deepEqual(d.changed(), []); assert.deepEqual(d.ran(), []); assert.deepEqual(d.leaks(stateDir), []);
+  const calls = fs.readFileSync(log, 'utf8').trim().split('\n').map((line: string) => JSON.parse(line));
+  for (const call of calls) {
+    assert.deepEqual(Object.keys(call.env).sort(), ['CLAUDE_CONFIG_DIR', ...Object.keys(passed)].sort());
+    for (const [key, value] of Object.entries(passed)) assert.equal(call.env[key], value);
+    assert.ok(call.env.CLAUDE_CONFIG_DIR.startsWith(stateDir + '/claude/'));
+    assert.doesNotMatch(JSON.stringify(call), new RegExp(canary));
+  }
 });

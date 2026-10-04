@@ -2,6 +2,7 @@
 // request per connection — the server closes after answering; only `events.subscribe` is held open.
 // Ported from muxr `perf/fake-herdr/server.mjs` with the UI plugins, title churn, graphics and perf
 // byte rates removed.
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, unlinkSync } from 'node:fs';
 import { createServer, type Socket } from 'node:net';
 import { join } from 'node:path';
@@ -267,6 +268,26 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       return { type: 'tab_info', tab: tabView(tab) };
     },
 
+    'pane.process_info': (p) => {
+      const pane = paneOf(p.pane_id);
+      const busy = live.agents.some((a) => a.pane_id === pane.pane_id);
+      return { process_info: { shell_pid: 1, foreground_processes: [{ pid: busy ? 2 : 1, name: busy ? 'agent' : 'sh' }] } };
+    },
+    'pane.send_text': (p) => {
+      const pane = paneOf(p.pane_id);
+      const text = String(p.text ?? '');
+      // A real offline shell exercises the private launch file, never a real agent CLI.
+      if (!/^set \+x \+v; \. '/.test(text)) throw fail('unsupported', 'unsupported fake shell command');
+      const r = spawnSync('/bin/sh', ['-c', text + "printf '\\0'; /usr/bin/env -0"], {
+        env: pane.env ?? { PATH: '/usr/bin:/bin', HOME: dir }, encoding: 'utf8', timeout: 5000,
+      });
+      const [output, ...environment] = r.stdout.split('\0');
+      pane.text.push(output!);
+      pane.env = Object.fromEntries(environment.filter(Boolean).map((entry) => {
+        const i = entry.indexOf('='); return [entry.slice(0, i), entry.slice(i + 1)];
+      }));
+      return {};
+    },
     'pane.get': (p) => ({ pane: paneView(paneOf(p.pane_id)) }),
     'pane.close': (p) => {
       const pane = paneOf(p.pane_id);

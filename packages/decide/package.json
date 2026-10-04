@@ -1,6 +1,6 @@
 {
   "name": "@byokit/decide",
-  "version": "0.4.6",
+  "version": "0.6.1",
   "description": "Typed questions in, a typed answer with confidence out, abstaining below a floor. Rules, Jev and configurable OpenAI backends, and an eval runner.",
   "license": "Apache-2.0",
   "type": "module",
@@ -20,6 +20,10 @@
     "./eval": {
       "types": "./dist/eval.d.ts",
       "default": "./dist/eval.js"
+    },
+    "./claude-code": {
+      "types": "./dist/claude-code.d.ts",
+      "default": "./dist/claude-code.js"
     }
   },
   "bin": {
@@ -37,7 +41,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@byokit/accounts": "0.12.0",
+    "@byokit/accounts": "0.18.0",
     "openai": "7.25.0"
   }
 }

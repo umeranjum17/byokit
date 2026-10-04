@@ -1,0 +1,53 @@
+{
+  "repository": "https://github.com/herdrdev/herdr",
+  "version": "0.9.1",
+  "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
+  "files": [
+    {
+      "file": "mod-detect.rs",
+      "sha256": "41bcb1103fe0d82a973c945d6446b61c411bc87f487acef2b6e2201a7517f5bc",
+      "lines": [
+        [
+          43,
+          68
+        ],
+        [
+          124,
+          150
+        ],
+        [
+          198,
+          243
+        ]
+      ]
+    },
+    {
+      "file": "env.rs",
+      "sha256": "0435ddee8a13c5dd6e6712b5bd0a8044b54fd2ef584718e04338e9047b454e3c",
+      "lines": [
+        [
+          12,
+          26
+        ],
+        [
+          42,
+          72
+        ],
+        [
+          142,
+          207
+        ]
+      ]
+    },
+    {
+      "file": "agent_resume.rs",
+      "sha256": "b99edd014e5a7708f67737ab5cbbd6452cc1555f44b6ecc0779a69bb564a3c61",
+      "lines": [
+        [
+          136,
+          259
+        ]
+      ]
+    }
+  ]
+}

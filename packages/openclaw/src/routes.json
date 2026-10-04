@@ -1,36 +1,1038 @@
 [
   {
-    "choice": "openai",
-    "provider": "openai",
-    "plugin": "openai",
+    "choice": "alibaba-model-studio-api-key",
+    "provider": "alibaba",
+    "plugin": "alibaba",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Alibaba Model Studio: API key (billed per use).",
+    "source": "extensions/alibaba/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Alibaba Model Studio API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "alibaba:key:alibaba-model-studio-api-key",
+    "name": "Alibaba Model Studio",
+    "company": "Alibaba Model Studio",
+    "billingFrom": "source",
+    "group": "services",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "alibaba",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "",
+    "provider": "amazon-bedrock",
+    "plugin": "amazon-bedrock",
+    "billing": "api",
+    "via": "cloud",
+    "prerequisite": "Host-configured cloud credentials",
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Cloud credentials (billed per use); configured by the host, not a wizard sign-in choice.",
+    "source": "extensions/amazon-bedrock/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "amazon-bedrock",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "amazon-bedrock:cloud",
+    "name": "amazon-bedrock",
+    "company": "amazon-bedrock",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "amazon-bedrock"
+    },
+    "install": {
+      "npmSpec": "@openclaw/amazon-bedrock-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.5.12-beta.1"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "amazon-bedrock",
+      "method": "cloud",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "absent"
+    }
+  },
+  {
+    "choice": "",
+    "provider": "amazon-bedrock-mantle",
+    "plugin": "amazon-bedrock-mantle",
+    "billing": "api",
+    "via": "cloud",
+    "prerequisite": "Host-configured cloud credentials",
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Cloud credentials (billed per use); configured by the host, not a wizard sign-in choice.",
+    "source": "extensions/amazon-bedrock-mantle/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "amazon-bedrock-mantle",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "amazon-bedrock-mantle:cloud",
+    "name": "amazon-bedrock-mantle",
+    "company": "amazon-bedrock-mantle",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "amazon-bedrock-mantle"
+    },
+    "install": {
+      "npmSpec": "@openclaw/amazon-bedrock-mantle-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.5.12-beta.1"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "amazon-bedrock-mantle",
+      "method": "cloud",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "absent"
+    }
+  },
+  {
+    "choice": "anthropic-cli",
+    "provider": "anthropic",
+    "plugin": "anthropic",
     "billing": "subscription",
+    "via": "cli",
+    "auth": "cli",
+    "prerequisite": "Claude Code in the isolated HOME",
+    "offer": false,
+    "offerPolicy": "default",
+    "legacy": {
+      "provider": "claude-cli",
+      "via": "browser"
+    },
+    "reason": "Anthropic Claude CLI: subscription sign-in.",
+    "source": "extensions/anthropic/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Anthropic Claude CLI",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "anthropic:cli:anthropic-cli",
+    "name": "Anthropic",
+    "company": "Anthropic",
+    "aliases": [
+      "claude-cli"
+    ],
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "binary": "claude"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "anthropic",
+      "method": "cli",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "setup-token",
+    "provider": "anthropic",
+    "plugin": "anthropic",
+    "billing": "subscription",
+    "via": "setup_token",
+    "auth": "token",
+    "prerequisite": null,
+    "offer": true,
+    "offerPolicy": "default",
+    "legacy": {
+      "provider": "anthropic",
+      "via": "browser"
+    },
+    "reason": "Anthropic setup-token: subscription sign-in.",
+    "source": "extensions/anthropic/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Anthropic setup-token",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "anthropic:setup_token:setup-token",
+    "name": "Anthropic",
+    "company": "Anthropic",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "anthropic",
+      "method": "setup-token",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "apiKey",
+    "provider": "anthropic",
+    "plugin": "anthropic",
+    "billing": "api",
+    "via": "key",
+    "auth": "api_key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Anthropic: API key (billed per use).",
+    "source": "extensions/anthropic/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Anthropic API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "anthropic:key:apiKey",
+    "name": "Anthropic",
+    "company": "Anthropic",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "anthropic",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "",
+    "provider": "anthropic-vertex",
+    "plugin": "anthropic-vertex",
+    "billing": "api",
+    "via": "cloud",
+    "prerequisite": "Host-configured cloud credentials",
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Cloud credentials (billed per use); configured by the host, not a wizard sign-in choice.",
+    "source": "extensions/anthropic-vertex/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "anthropic-vertex",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "anthropic-vertex:cloud",
+    "name": "anthropic-vertex",
+    "company": "anthropic-vertex",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "anthropic-vertex"
+    },
+    "install": {
+      "npmSpec": "@openclaw/anthropic-vertex-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.5.12-beta.1"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "anthropic-vertex",
+      "method": "cloud",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "absent"
+    }
+  },
+  {
+    "choice": "arceeai-api-key",
+    "provider": "arcee",
+    "plugin": "arcee",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Arcee AI: API key (billed per use).",
+    "source": "extensions/arcee/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Arcee AI API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "arcee:key:arceeai-api-key",
+    "name": "Arcee AI",
+    "company": "Arcee AI",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "arcee"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/arcee-provider",
+      "npmSpec": "@openclaw/arcee-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "arcee",
+      "method": "arcee-platform",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "arceeai-openrouter",
+    "provider": "arcee",
+    "plugin": "arcee",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Arcee AI: API key (billed per use).",
+    "source": "extensions/arcee/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "OpenRouter API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "arcee:key:arceeai-openrouter",
+    "name": "Arcee AI",
+    "company": "Arcee AI",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "arcee"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/arcee-provider",
+      "npmSpec": "@openclaw/arcee-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "arcee",
+      "method": "openrouter",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "baseten-api-key",
+    "provider": "baseten",
+    "plugin": "baseten",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Baseten: API key (billed per use).",
+    "source": "extensions/baseten/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Baseten API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "baseten:key:baseten-api-key",
+    "name": "Baseten",
+    "company": "Baseten",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "baseten"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/baseten-provider",
+      "npmSpec": "@openclaw/baseten-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.7.2"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "baseten",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "byteplus-api-key",
+    "provider": "byteplus",
+    "plugin": "byteplus",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "BytePlus: API key (billed per use).",
+    "source": "extensions/byteplus/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "BytePlus API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "byteplus:key:byteplus-api-key",
+    "name": "BytePlus",
+    "company": "BytePlus",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "byteplus"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/byteplus-provider",
+      "npmSpec": "@openclaw/byteplus-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.7.2"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "byteplus",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "cerebras-api-key",
+    "provider": "cerebras",
+    "plugin": "cerebras",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Cerebras: API key (billed per use).",
+    "source": "extensions/cerebras/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Cerebras API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "cerebras:key:cerebras-api-key",
+    "name": "Cerebras",
+    "company": "Cerebras",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "cerebras"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/cerebras-provider",
+      "npmSpec": "@openclaw/cerebras-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "cerebras",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "chutes",
+    "provider": "chutes",
+    "plugin": "chutes",
+    "billing": "api",
     "via": "browser",
     "prerequisite": null,
-    "offer": true,
-    "reason": "ChatGPT/Codex subscription sign-in: the engine writes the redirect to the app's callback port.",
-    "source": "dist/provider-contract-api-*.js (2026.8.1)"
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Chutes: OAuth (billed per use).",
+    "source": "extensions/chutes/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Chutes (OAuth)",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "chutes:browser:chutes",
+    "name": "Chutes",
+    "company": "Chutes",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "chutes",
+      "client": "CHUTES_CLIENT_ID"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/chutes-provider",
+      "npmSpec": "@openclaw/chutes-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "chutes",
+      "method": "oauth",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
   },
   {
-    "choice": "openai-device-code",
-    "provider": "openai",
-    "plugin": "openai",
-    "billing": "subscription",
-    "via": "code",
+    "choice": "chutes-api-key",
+    "provider": "chutes",
+    "plugin": "chutes",
+    "billing": "api",
+    "via": "key",
     "prerequisite": null,
-    "offer": true,
-    "reason": "ChatGPT subscription sign-in by device code: the code is shown, no browser on this computer needed.",
-    "source": "dist/provider-contract-api-*.js (2026.8.1)"
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Chutes: API key (billed per use).",
+    "source": "extensions/chutes/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Chutes API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "chutes:key:chutes-api-key",
+    "name": "Chutes",
+    "company": "Chutes",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "chutes"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/chutes-provider",
+      "npmSpec": "@openclaw/chutes-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "chutes",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
   },
   {
-    "choice": "xai-oauth",
-    "provider": "xai",
-    "plugin": "xai",
-    "billing": "subscription",
-    "via": "code",
+    "choice": "clawrouter-api-key",
+    "provider": "clawrouter",
+    "plugin": "clawrouter",
+    "billing": "api",
+    "via": "key",
     "prerequisite": null,
-    "offer": true,
-    "reason": "Grok subscription sign-in through the engine's own wizard.",
-    "source": "dist/extensions/xai/openclaw.plugin.json (2026.8.1)"
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "ClawRouter: API key (billed per use).",
+    "source": "extensions/clawrouter/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "ClawRouter proxy key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "clawrouter:key:clawrouter-api-key",
+    "name": "ClawRouter",
+    "company": "ClawRouter",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "clawrouter",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "cloudflare-ai-gateway-api-key",
+    "provider": "cloudflare-ai-gateway",
+    "plugin": "cloudflare-ai-gateway",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Cloudflare AI Gateway: API key (billed per use).",
+    "source": "extensions/cloudflare-ai-gateway/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Cloudflare AI Gateway",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "cloudflare-ai-gateway:key:cloudflare-ai-gateway-api-key",
+    "name": "Cloudflare AI Gateway",
+    "company": "Cloudflare AI Gateway",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "cloudflare-ai-gateway"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/cloudflare-ai-gateway-provider",
+      "npmSpec": "@openclaw/cloudflare-ai-gateway-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "cloudflare-ai-gateway",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "cohere-api-key",
+    "provider": "cohere",
+    "plugin": "cohere",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Cohere: API key (billed per use).",
+    "source": "extensions/cohere/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Cohere API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "cohere:key:cohere-api-key",
+    "name": "Cohere",
+    "company": "Cohere",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "cohere"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/cohere-provider",
+      "npmSpec": "@openclaw/cohere-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "cohere",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "comfy-cloud-api-key",
+    "provider": "comfy",
+    "plugin": "comfy",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "ComfyUI: API key (billed per use).",
+    "source": "extensions/comfy/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Comfy Cloud API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "comfy:key:comfy-cloud-api-key",
+    "name": "ComfyUI",
+    "company": "ComfyUI",
+    "billingFrom": "source",
+    "group": "services",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "comfy"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/comfy-provider",
+      "npmSpec": "@openclaw/comfy-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.7.2"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "comfy",
+      "method": "cloud-api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "copilot-proxy",
+    "provider": "copilot-proxy",
+    "plugin": "copilot-proxy",
+    "billing": "unknown",
+    "via": "endpoint",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Billing must be supplied by the host; a server address does not determine billing.",
+    "source": "extensions/copilot-proxy/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Copilot Proxy",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "copilot-proxy:endpoint:copilot-proxy",
+    "name": "Copilot",
+    "company": "Copilot",
+    "billingFrom": "host",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "copilot-proxy",
+      "method": "local",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "deepinfra-api-key",
+    "provider": "deepinfra",
+    "plugin": "deepinfra",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "DeepInfra: API key (billed per use).",
+    "source": "extensions/deepinfra/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "DeepInfra API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "deepinfra:key:deepinfra-api-key",
+    "name": "DeepInfra",
+    "company": "DeepInfra",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "deepinfra"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/deepinfra-provider",
+      "npmSpec": "@openclaw/deepinfra-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "deepinfra",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "deepseek-api-key",
+    "provider": "deepseek",
+    "plugin": "deepseek",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "DeepSeek: API key (billed per use).",
+    "source": "extensions/deepseek/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "DeepSeek API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "deepseek:key:deepseek-api-key",
+    "name": "DeepSeek",
+    "company": "DeepSeek",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "deepseek"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/deepseek-provider",
+      "npmSpec": "@openclaw/deepseek-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "deepseek",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "fal-api-key",
+    "provider": "fal",
+    "plugin": "fal",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "fal: API key (billed per use).",
+    "source": "extensions/fal/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "fal API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "fal:key:fal-api-key",
+    "name": "fal",
+    "company": "fal",
+    "billingFrom": "source",
+    "group": "services",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "fal",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "featherless-api-key",
+    "provider": "featherless",
+    "plugin": "featherless",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Featherless AI: API key (billed per use).",
+    "source": "extensions/featherless/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Featherless AI API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "featherless:key:featherless-api-key",
+    "name": "Featherless AI",
+    "company": "Featherless AI",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "featherless"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/featherless-provider",
+      "npmSpec": "@openclaw/featherless-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.11"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "featherless",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "fireworks-api-key",
+    "provider": "fireworks",
+    "plugin": "fireworks",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Fireworks: API key (billed per use).",
+    "source": "extensions/fireworks/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Fireworks API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "fireworks:key:fireworks-api-key",
+    "name": "Fireworks",
+    "company": "Fireworks",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "fireworks"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/fireworks-provider",
+      "npmSpec": "@openclaw/fireworks-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.9"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "fireworks",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
   },
   {
     "choice": "github-copilot",
@@ -40,8 +1042,31 @@
     "via": "code",
     "prerequisite": null,
     "offer": true,
-    "reason": "GitHub Copilot subscription sign-in; the login stays in the engine's own folder.",
-    "source": "dist/extensions/github-copilot/openclaw.plugin.json (2026.8.1)"
+    "offerPolicy": "default",
+    "reason": "GitHub Copilot: subscription sign-in.",
+    "source": "extensions/github-copilot/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "GitHub Copilot",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "github-copilot:code:github-copilot",
+    "name": "Copilot",
+    "company": "Copilot",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "github-copilot",
+      "method": "device",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
   },
   {
     "choice": "github-copilot-enterprise",
@@ -51,30 +1076,1347 @@
     "via": "code",
     "prerequisite": null,
     "offer": true,
-    "reason": "GitHub Copilot Enterprise sign-in; the login stays in the engine's own folder.",
-    "source": "dist/extensions/github-copilot/openclaw.plugin.json (2026.8.1)"
+    "offerPolicy": "default",
+    "reason": "GitHub Copilot (Enterprise / data residency): subscription sign-in.",
+    "source": "extensions/github-copilot/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "GitHub Copilot (Enterprise / data residency)",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "github-copilot:code:github-copilot-enterprise",
+    "name": "Copilot",
+    "company": "Copilot",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "github-copilot",
+      "method": "device-enterprise",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "gmi-api-key",
+    "provider": "gmi",
+    "plugin": "gmi",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "GMI Cloud: API key (billed per use).",
+    "source": "extensions/gmi/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "GMI Cloud API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "gmi:key:gmi-api-key",
+    "name": "GMI Cloud",
+    "company": "GMI Cloud",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "gmi"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/gmi-provider",
+      "npmSpec": "@openclaw/gmi-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "gmi",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "gemini-api-key",
+    "provider": "google",
+    "plugin": "google",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Google: API key (billed per use).",
+    "source": "extensions/google/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Google AI Studio API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "google:key:gemini-api-key",
+    "name": "Google",
+    "company": "Google",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "google",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "",
+    "provider": "google-gemini-cli",
+    "plugin": "google",
+    "billing": "unknown",
+    "via": "cli",
+    "prerequisite": "Gemini CLI in the isolated HOME",
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Native CLI runtime; billing is unverified. No wizard sign-in choice.",
+    "source": "extensions/google/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "google-gemini-cli",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "google-gemini-cli:cli",
+    "name": "google-gemini-cli",
+    "company": "google-gemini-cli",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "binary": "gemini"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "google-gemini-cli",
+      "method": "cli",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "absent"
+    }
+  },
+  {
+    "choice": "",
+    "provider": "google-vertex",
+    "plugin": "google",
+    "billing": "api",
+    "via": "cloud",
+    "prerequisite": "Host-configured cloud credentials",
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Cloud credentials (billed per use); configured by the host, not a wizard sign-in choice.",
+    "source": "extensions/google/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "google-vertex",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "google-vertex:cloud",
+    "name": "google-vertex",
+    "company": "google-vertex",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "google-vertex",
+      "method": "cloud",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "absent"
+    }
+  },
+  {
+    "choice": "groq-api-key",
+    "provider": "groq",
+    "plugin": "groq",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Groq: API key (billed per use).",
+    "source": "extensions/groq/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Groq API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "groq:key:groq-api-key",
+    "name": "Groq",
+    "company": "Groq",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "groq"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/groq-provider",
+      "npmSpec": "@openclaw/groq-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "groq",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "huggingface-api-key",
+    "provider": "huggingface",
+    "plugin": "huggingface",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Hugging Face: API key (billed per use).",
+    "source": "extensions/huggingface/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Hugging Face API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "huggingface:key:huggingface-api-key",
+    "name": "Hugging Face",
+    "company": "Hugging Face",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "huggingface",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "kilocode-api-key",
+    "provider": "kilocode",
+    "plugin": "kilocode",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Kilo Gateway: API key (billed per use).",
+    "source": "extensions/kilocode/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Kilo Gateway API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "kilocode:key:kilocode-api-key",
+    "name": "Kilo Gateway",
+    "company": "Kilo Gateway",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "kilocode"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/kilocode-provider",
+      "npmSpec": "@openclaw/kilocode-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "kilocode",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "kimi-code-api-key",
+    "provider": "kimi",
+    "plugin": "kimi",
+    "billing": "subscription",
+    "via": "plan_key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "default",
+    "reason": "Kimi Code API key (subscription): subscription sign-in.",
+    "source": "extensions/kimi/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Kimi Code API key (subscription)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "kimi:plan_key:kimi-code-api-key",
+    "name": "Moonshot AI (Kimi)",
+    "company": "Moonshot AI (Kimi)",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "kimi"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/kimi-provider",
+      "npmSpec": "@openclaw/kimi-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "kimi",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "litellm-api-key",
+    "provider": "litellm",
+    "plugin": "litellm",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "LiteLLM: API key (billed per use).",
+    "source": "extensions/litellm/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "LiteLLM API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "litellm:key:litellm-api-key",
+    "name": "LiteLLM",
+    "company": "LiteLLM",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "litellm",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "llama-cpp",
+    "provider": "llama-cpp",
+    "plugin": "llama-cpp",
+    "billing": "local",
+    "via": "local",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Local runtime; explicitly select this route.",
+    "source": "extensions/llama-cpp/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Managed local server",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "llama-cpp:local:llama-cpp",
+    "name": "Local llama.cpp",
+    "company": "Local llama.cpp",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "llama-cpp"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "llama-cpp",
+      "method": "local",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "llama-cpp-existing-server",
+    "provider": "llama-cpp",
+    "plugin": "llama-cpp",
+    "billing": "unknown",
+    "via": "endpoint",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Billing must be supplied by the host; a server address does not determine billing.",
+    "source": "extensions/llama-cpp/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Existing llama-server",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "llama-cpp:endpoint:llama-cpp-existing-server",
+    "name": "Local llama.cpp",
+    "company": "Local llama.cpp",
+    "billingFrom": "host",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "llama-cpp"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "llama-cpp",
+      "method": "existing-server",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "lmstudio",
+    "provider": "lmstudio",
+    "plugin": "lmstudio",
+    "billing": "local",
+    "via": "local",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Local runtime; explicitly select this route.",
+    "source": "extensions/lmstudio/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "LM Studio",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "lmstudio:local:lmstudio",
+    "name": "LM Studio",
+    "company": "LM Studio",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "lmstudio",
+      "method": "custom",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "longcat-api-key",
+    "provider": "longcat",
+    "plugin": "longcat",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "LongCat: API key (billed per use).",
+    "source": "extensions/longcat/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "LongCat API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "longcat:key:longcat-api-key",
+    "name": "LongCat",
+    "company": "LongCat",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "longcat"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/longcat-provider",
+      "npmSpec": "@openclaw/longcat-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "longcat",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "meta-api-key",
+    "provider": "meta",
+    "plugin": "meta",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Meta: API key (billed per use).",
+    "source": "extensions/meta/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Meta API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "meta:key:meta-api-key",
+    "name": "Meta",
+    "company": "Meta",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "meta"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/meta-provider",
+      "npmSpec": "@openclaw/meta-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.11"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "meta",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "microsoft-foundry-entra",
+    "provider": "microsoft-foundry",
+    "plugin": "microsoft-foundry",
+    "billing": "api",
+    "via": "cloud",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Microsoft Foundry: Cloud credentials (billed per use).",
+    "source": "extensions/microsoft-foundry/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Microsoft Foundry (Entra ID / az login)",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "microsoft-foundry:cloud:microsoft-foundry-entra",
+    "name": "Microsoft Foundry",
+    "company": "Microsoft Foundry",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "microsoft-foundry",
+      "method": "entra-id",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "microsoft-foundry-apikey",
+    "provider": "microsoft-foundry",
+    "plugin": "microsoft-foundry",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Microsoft Foundry: API key (billed per use).",
+    "source": "extensions/microsoft-foundry/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Microsoft Foundry (API key)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "microsoft-foundry:key:microsoft-foundry-apikey",
+    "name": "Microsoft Foundry",
+    "company": "Microsoft Foundry",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "microsoft-foundry",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
   },
   {
     "choice": "minimax-global-oauth",
-    "provider": "minimax",
+    "provider": "minimax-portal",
     "plugin": "minimax",
     "billing": "subscription",
     "via": "code",
     "prerequisite": null,
     "offer": true,
-    "reason": "MiniMax subscription sign-in (global endpoint).",
-    "source": "dist/extensions/minimax/openclaw.plugin.json (2026.8.1)"
+    "offerPolicy": "default",
+    "legacy": {
+      "provider": "minimax",
+      "via": "code"
+    },
+    "reason": "MiniMax OAuth (Global): subscription sign-in.",
+    "source": "extensions/minimax/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "MiniMax OAuth (Global)",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "minimax-portal:code:minimax-global-oauth",
+    "name": "MiniMax",
+    "company": "MiniMax",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "minimax-portal",
+      "method": "oauth",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "minimax-global-api",
+    "provider": "minimax",
+    "plugin": "minimax",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "MiniMax: API key (billed per use).",
+    "source": "extensions/minimax/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "MiniMax API key (Global)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "minimax:key:minimax-global-api",
+    "name": "MiniMax",
+    "company": "MiniMax",
+    "aliases": [
+      "minimax",
+      "minimax-api",
+      "minimax-cloud",
+      "minimax-api-lightning"
+    ],
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "minimax",
+      "method": "api-global",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
   },
   {
     "choice": "minimax-cn-oauth",
-    "provider": "minimax",
+    "provider": "minimax-portal",
     "plugin": "minimax",
     "billing": "subscription",
     "via": "code",
     "prerequisite": null,
     "offer": true,
-    "reason": "MiniMax subscription sign-in (CN endpoint).",
-    "source": "dist/extensions/minimax/openclaw.plugin.json (2026.8.1)"
+    "offerPolicy": "default",
+    "legacy": {
+      "provider": "minimax",
+      "via": "code"
+    },
+    "reason": "MiniMax OAuth (CN): subscription sign-in.",
+    "source": "extensions/minimax/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "MiniMax OAuth (CN)",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "minimax-portal:code:minimax-cn-oauth",
+    "name": "MiniMax",
+    "company": "MiniMax",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "minimax-portal",
+      "method": "oauth-cn",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "minimax-cn-api",
+    "provider": "minimax",
+    "plugin": "minimax",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "MiniMax: API key (billed per use).",
+    "source": "extensions/minimax/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "MiniMax API key (CN)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "minimax:key:minimax-cn-api",
+    "name": "MiniMax",
+    "company": "MiniMax",
+    "aliases": [
+      "minimax-api-key-cn"
+    ],
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "minimax",
+      "method": "api-cn",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "mistral-api-key",
+    "provider": "mistral",
+    "plugin": "mistral",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Mistral AI: API key (billed per use).",
+    "source": "extensions/mistral/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Mistral API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "mistral:key:mistral-api-key",
+    "name": "Mistral AI",
+    "company": "Mistral AI",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "mistral"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/mistral-provider",
+      "npmSpec": "@openclaw/mistral-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.7.2"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "mistral",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "moonshot-api-key",
+    "provider": "moonshot",
+    "plugin": "moonshot",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Moonshot AI (Kimi): API key (billed per use).",
+    "source": "extensions/moonshot/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Moonshot API key (.ai)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "moonshot:key:moonshot-api-key",
+    "name": "Moonshot AI (Kimi)",
+    "company": "Moonshot AI (Kimi)",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "moonshot"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/moonshot-provider",
+      "npmSpec": "@openclaw/moonshot-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.9"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "moonshot",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "moonshot-api-key-cn",
+    "provider": "moonshot",
+    "plugin": "moonshot",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Moonshot AI (Kimi): API key (billed per use).",
+    "source": "extensions/moonshot/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Moonshot API key (.cn)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "moonshot:key:moonshot-api-key-cn",
+    "name": "Moonshot AI (Kimi)",
+    "company": "Moonshot AI (Kimi)",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "moonshot"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/moonshot-provider",
+      "npmSpec": "@openclaw/moonshot-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.9"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "moonshot",
+      "method": "api-key-cn",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "novita-api-key",
+    "provider": "novita",
+    "plugin": "novita",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "NovitaAI: API key (billed per use).",
+    "source": "extensions/novita/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "NovitaAI API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "novita:key:novita-api-key",
+    "name": "NovitaAI",
+    "company": "NovitaAI",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "novita"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/novita-provider",
+      "npmSpec": "@openclaw/novita-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.7.2"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "novita",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "nvidia-api-key",
+    "provider": "nvidia",
+    "plugin": "nvidia",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "NVIDIA: API key (billed per use).",
+    "source": "extensions/nvidia/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "NVIDIA API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "nvidia:key:nvidia-api-key",
+    "name": "NVIDIA",
+    "company": "NVIDIA",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "nvidia",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "ollama",
+    "provider": "ollama",
+    "plugin": "ollama",
+    "billing": "local",
+    "via": "local",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Local runtime; explicitly select this route.",
+    "source": "extensions/ollama/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Ollama",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "ollama:local:ollama",
+    "name": "Ollama",
+    "company": "Ollama",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "ollama",
+      "method": "local",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "ollama-cloud",
+    "provider": "ollama-cloud",
+    "plugin": "ollama",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Ollama: API key (billed per use).",
+    "source": "extensions/ollama/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Ollama Cloud",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "ollama-cloud:key:ollama-cloud",
+    "name": "Ollama",
+    "company": "Ollama",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "ollama-cloud",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "openai",
+    "provider": "openai",
+    "plugin": "openai",
+    "billing": "subscription",
+    "via": "browser",
+    "prerequisite": null,
+    "offer": true,
+    "offerPolicy": "default",
+    "reason": "ChatGPT Login: subscription sign-in.",
+    "source": "extensions/openai/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "ChatGPT Login",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "openai:browser:openai",
+    "name": "OpenAI",
+    "company": "OpenAI",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "openai",
+      "method": "oauth",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "openai-device-code",
+    "provider": "openai",
+    "plugin": "openai",
+    "billing": "subscription",
+    "via": "code",
+    "prerequisite": null,
+    "offer": true,
+    "offerPolicy": "default",
+    "reason": "ChatGPT Device Pairing: subscription sign-in.",
+    "source": "extensions/openai/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "ChatGPT Device Pairing",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "openai:code:openai-device-code",
+    "name": "OpenAI",
+    "company": "OpenAI",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "openai",
+      "method": "device-code",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "openai-api-key",
+    "provider": "openai",
+    "plugin": "openai",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "OpenAI: API key (billed per use).",
+    "source": "extensions/openai/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "OpenAI API Key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "openai:key:openai-api-key",
+    "name": "OpenAI",
+    "company": "OpenAI",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "openai",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "opencode-zen",
+    "provider": "opencode",
+    "plugin": "opencode",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "OpenCode: API key (billed per use).",
+    "source": "extensions/opencode/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "OpenCode Zen catalog",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "opencode:key:opencode-zen",
+    "name": "OpenCode",
+    "company": "OpenCode",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "opencode"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/opencode-provider",
+      "npmSpec": "@openclaw/opencode-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.7.2"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "opencode",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "opencode-go",
+    "provider": "opencode-go",
+    "plugin": "opencode-go",
+    "billing": "subscription",
+    "via": "plan_key",
+    "prerequisite": null,
+    "offer": true,
+    "offerPolicy": "default",
+    "reason": "OpenCode Go catalog: subscription sign-in.",
+    "source": "extensions/opencode-go/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "OpenCode Go catalog",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "opencode-go:plan_key:opencode-go",
+    "name": "OpenCode",
+    "company": "OpenCode",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "opencode-go",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "openrouter-api-key",
+    "provider": "openrouter",
+    "plugin": "openrouter",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "OpenRouter: API key (billed per use).",
+    "source": "extensions/openrouter/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "OpenRouter API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "openrouter:key:openrouter-api-key",
+    "name": "OpenRouter",
+    "company": "OpenRouter",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "openrouter",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
   },
   {
     "choice": "openrouter-oauth",
@@ -84,8 +2426,1130 @@
     "via": "browser",
     "prerequisite": null,
     "offer": false,
-    "reason": "API billing, not a subscription; upstream OAuth yields a credit-billed key.",
-    "source": "dist/extensions/openrouter/openclaw.plugin.json (2026.8.1)"
+    "offerPolicy": "explicit",
+    "reason": "OpenRouter: OAuth (billed per use).",
+    "source": "extensions/openrouter/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "OpenRouter OAuth",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "openrouter:browser:openrouter-oauth",
+    "name": "OpenRouter",
+    "company": "OpenRouter",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "openrouter",
+      "method": "oauth",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "pixverse-api-key",
+    "provider": "pixverse",
+    "plugin": "pixverse",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "PixVerse: API key (billed per use).",
+    "source": "extensions/pixverse/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "PixVerse API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "pixverse:key:pixverse-api-key",
+    "name": "PixVerse",
+    "company": "PixVerse",
+    "billingFrom": "source",
+    "group": "services",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "pixverse"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/pixverse-provider",
+      "npmSpec": "@openclaw/pixverse-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.5.26"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "pixverse",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "qianfan-api-key",
+    "provider": "qianfan",
+    "plugin": "qianfan",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Qianfan: API key (billed per use).",
+    "source": "extensions/qianfan/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Qianfan API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "qianfan:key:qianfan-api-key",
+    "name": "Qianfan",
+    "company": "Qianfan",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "qianfan"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/qianfan-provider",
+      "npmSpec": "@openclaw/qianfan-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "qianfan",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "qwen-standard-api-key-cn",
+    "provider": "qwen",
+    "plugin": "qwen",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Qwen Cloud: API key (billed per use).",
+    "source": "extensions/qwen/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Standard API Key for China (pay-as-you-go)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "qwen:key:qwen-standard-api-key-cn",
+    "name": "Qwen Cloud",
+    "company": "Qwen Cloud",
+    "aliases": [
+      "modelstudio-standard-api-key-cn"
+    ],
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "qwen"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/qwen-provider",
+      "npmSpec": "@openclaw/qwen-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "qwen",
+      "method": "standard-api-key-cn",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "qwen-standard-api-key",
+    "provider": "qwen",
+    "plugin": "qwen",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Qwen Cloud: API key (billed per use).",
+    "source": "extensions/qwen/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Standard API Key for Global/Intl (pay-as-you-go)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "qwen:key:qwen-standard-api-key",
+    "name": "Qwen Cloud",
+    "company": "Qwen Cloud",
+    "aliases": [
+      "modelstudio-standard-api-key"
+    ],
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "qwen"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/qwen-provider",
+      "npmSpec": "@openclaw/qwen-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "qwen",
+      "method": "standard-api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "qwen-api-key-cn",
+    "provider": "qwen",
+    "plugin": "qwen",
+    "billing": "subscription",
+    "via": "plan_key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "default",
+    "reason": "Coding Plan API Key for China (subscription): subscription sign-in.",
+    "source": "extensions/qwen/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Coding Plan API Key for China (subscription)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "qwen:plan_key:qwen-api-key-cn",
+    "name": "Qwen Cloud",
+    "company": "Qwen Cloud",
+    "aliases": [
+      "modelstudio-api-key-cn"
+    ],
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "qwen"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/qwen-provider",
+      "npmSpec": "@openclaw/qwen-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "qwen",
+      "method": "api-key-cn",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "qwen-api-key",
+    "provider": "qwen",
+    "plugin": "qwen",
+    "billing": "subscription",
+    "via": "plan_key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "default",
+    "reason": "Coding Plan API Key for Global/Intl (subscription): subscription sign-in.",
+    "source": "extensions/qwen/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Coding Plan API Key for Global/Intl (subscription)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "qwen:plan_key:qwen-api-key",
+    "name": "Qwen Cloud",
+    "company": "Qwen Cloud",
+    "aliases": [
+      "modelstudio-api-key"
+    ],
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "qwen"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/qwen-provider",
+      "npmSpec": "@openclaw/qwen-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "qwen",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "qwen-token-plan",
+    "provider": "qwen-token-plan",
+    "plugin": "qwen",
+    "billing": "subscription",
+    "via": "plan_key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "default",
+    "reason": "Qwen Token Plan (Global/Intl): subscription sign-in.",
+    "source": "extensions/qwen/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Qwen Token Plan (Global/Intl)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "qwen-token-plan:plan_key:qwen-token-plan",
+    "name": "Qwen Cloud",
+    "company": "Qwen Cloud",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "qwen"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/qwen-provider",
+      "npmSpec": "@openclaw/qwen-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "qwen-token-plan",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "qwen-token-plan-cn",
+    "provider": "qwen-token-plan",
+    "plugin": "qwen",
+    "billing": "subscription",
+    "via": "plan_key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "default",
+    "reason": "Qwen Token Plan (China): subscription sign-in.",
+    "source": "extensions/qwen/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Qwen Token Plan (China)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "qwen-token-plan:plan_key:qwen-token-plan-cn",
+    "name": "Qwen Cloud",
+    "company": "Qwen Cloud",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "qwen"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/qwen-provider",
+      "npmSpec": "@openclaw/qwen-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "qwen-token-plan",
+      "method": "api-key-cn",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "runway-api-key",
+    "provider": "runway",
+    "plugin": "runway",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Runway: API key (billed per use).",
+    "source": "extensions/runway/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Runway API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "runway:key:runway-api-key",
+    "name": "Runway",
+    "company": "Runway",
+    "billingFrom": "source",
+    "group": "services",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "runway",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "sglang",
+    "provider": "sglang",
+    "plugin": "sglang",
+    "billing": "local",
+    "via": "local",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Local runtime; explicitly select this route.",
+    "source": "extensions/sglang/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "SGLang",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "sglang:local:sglang",
+    "name": "SGLang",
+    "company": "SGLang",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "sglang",
+      "method": "custom",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "stepfun-standard-api-key-cn",
+    "provider": "stepfun",
+    "plugin": "stepfun",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "StepFun: API key (billed per use).",
+    "source": "extensions/stepfun/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "StepFun Standard API key (China)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "stepfun:key:stepfun-standard-api-key-cn",
+    "name": "StepFun",
+    "company": "StepFun",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "stepfun"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/stepfun-provider",
+      "npmSpec": "@openclaw/stepfun-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.9"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "stepfun",
+      "method": "standard-api-key-cn",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "stepfun-standard-api-key-intl",
+    "provider": "stepfun",
+    "plugin": "stepfun",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "StepFun: API key (billed per use).",
+    "source": "extensions/stepfun/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "StepFun Standard API key (Global/Intl)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "stepfun:key:stepfun-standard-api-key-intl",
+    "name": "StepFun",
+    "company": "StepFun",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "stepfun"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/stepfun-provider",
+      "npmSpec": "@openclaw/stepfun-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.9"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "stepfun",
+      "method": "standard-api-key-intl",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "stepfun-plan-api-key-cn",
+    "provider": "stepfun-plan",
+    "plugin": "stepfun",
+    "billing": "subscription",
+    "via": "plan_key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "default",
+    "reason": "StepFun Step Plan API key (China): subscription sign-in.",
+    "source": "extensions/stepfun/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "StepFun Step Plan API key (China)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "stepfun-plan:plan_key:stepfun-plan-api-key-cn",
+    "name": "StepFun",
+    "company": "StepFun",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "stepfun"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/stepfun-provider",
+      "npmSpec": "@openclaw/stepfun-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.9"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "stepfun-plan",
+      "method": "plan-api-key-cn",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "stepfun-plan-api-key-intl",
+    "provider": "stepfun-plan",
+    "plugin": "stepfun",
+    "billing": "subscription",
+    "via": "plan_key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "default",
+    "reason": "StepFun Step Plan API key (Global/Intl): subscription sign-in.",
+    "source": "extensions/stepfun/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "StepFun Step Plan API key (Global/Intl)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "stepfun-plan:plan_key:stepfun-plan-api-key-intl",
+    "name": "StepFun",
+    "company": "StepFun",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "stepfun"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/stepfun-provider",
+      "npmSpec": "@openclaw/stepfun-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.9"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "stepfun-plan",
+      "method": "plan-api-key-intl",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "synthetic-api-key",
+    "provider": "synthetic",
+    "plugin": "synthetic",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Synthetic: API key (billed per use).",
+    "source": "extensions/synthetic/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Synthetic API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "synthetic:key:synthetic-api-key",
+    "name": "Synthetic",
+    "company": "Synthetic",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "synthetic"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/synthetic-provider",
+      "npmSpec": "@openclaw/synthetic-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.7.2"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "synthetic",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "tokenhub-api-key",
+    "provider": "tencent-tokenhub",
+    "plugin": "tencent",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Tencent Cloud: API key (billed per use).",
+    "source": "extensions/tencent/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Tencent TokenHub",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "tencent-tokenhub:key:tokenhub-api-key",
+    "name": "Tencent Cloud",
+    "company": "Tencent Cloud",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "tencent"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/tencent-provider",
+      "npmSpec": "@openclaw/tencent-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.9"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "tencent-tokenhub",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "tokenplan-api-key",
+    "provider": "tencent-tokenplan",
+    "plugin": "tencent",
+    "billing": "subscription",
+    "via": "plan_key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "default",
+    "reason": "Tencent TokenPlan: subscription sign-in.",
+    "source": "extensions/tencent/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Tencent TokenPlan",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "tencent-tokenplan:plan_key:tokenplan-api-key",
+    "name": "Tencent Cloud",
+    "company": "Tencent Cloud",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "tencent"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/tencent-provider",
+      "npmSpec": "@openclaw/tencent-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.9"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "tencent-tokenplan",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "together-api-key",
+    "provider": "together",
+    "plugin": "together",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Together AI: API key (billed per use).",
+    "source": "extensions/together/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Together AI API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "together:key:together-api-key",
+    "name": "Together AI",
+    "company": "Together AI",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "together",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "venice-api-key",
+    "provider": "venice",
+    "plugin": "venice",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Venice AI: API key (billed per use).",
+    "source": "extensions/venice/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Venice AI API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "venice:key:venice-api-key",
+    "name": "Venice AI",
+    "company": "Venice AI",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "venice"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/venice-provider",
+      "npmSpec": "@openclaw/venice-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.9"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "venice",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "ai-gateway-api-key",
+    "provider": "vercel-ai-gateway",
+    "plugin": "vercel-ai-gateway",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Vercel AI Gateway: API key (billed per use).",
+    "source": "extensions/vercel-ai-gateway/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Vercel AI Gateway API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "vercel-ai-gateway:key:ai-gateway-api-key",
+    "name": "Vercel AI Gateway",
+    "company": "Vercel AI Gateway",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "vercel-ai-gateway"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/vercel-ai-gateway-provider",
+      "npmSpec": "@openclaw/vercel-ai-gateway-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.9"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "vercel-ai-gateway",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "vllm",
+    "provider": "vllm",
+    "plugin": "vllm",
+    "billing": "local",
+    "via": "local",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Local runtime; explicitly select this route.",
+    "source": "extensions/vllm/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "vLLM",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "vllm:local:vllm",
+    "name": "vLLM",
+    "company": "vLLM",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "vllm",
+      "method": "custom",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "volcengine-api-key",
+    "provider": "volcengine",
+    "plugin": "volcengine",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Volcano Engine: API key (billed per use).",
+    "source": "extensions/volcengine/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Volcano Engine API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "volcengine:key:volcengine-api-key",
+    "name": "Volcano Engine",
+    "company": "Volcano Engine",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "volcengine"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/volcengine-provider",
+      "npmSpec": "@openclaw/volcengine-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.7.2"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "volcengine",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "vydra-api-key",
+    "provider": "vydra",
+    "plugin": "vydra",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Vydra: API key (billed per use).",
+    "source": "extensions/vydra/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Vydra API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "vydra:key:vydra-api-key",
+    "name": "Vydra",
+    "company": "Vydra",
+    "billingFrom": "source",
+    "group": "services",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "vydra"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/vydra-provider",
+      "npmSpec": "@openclaw/vydra-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.7.2"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "vydra",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "xai-api-key",
+    "provider": "xai",
+    "plugin": "xai",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "xAI (Grok): API key (billed per use).",
+    "source": "extensions/xai/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "xAI API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "xai:key:xai-api-key",
+    "name": "xAI (Grok)",
+    "company": "xAI (Grok)",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "xai",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "xai-oauth",
+    "provider": "xai",
+    "plugin": "xai",
+    "billing": "subscription",
+    "via": "code",
+    "prerequisite": null,
+    "offer": true,
+    "offerPolicy": "default",
+    "reason": "xAI OAuth: subscription sign-in.",
+    "source": "extensions/xai/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "xAI OAuth",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "xai:code:xai-oauth",
+    "name": "xAI (Grok)",
+    "company": "xAI (Grok)",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "xai",
+      "method": "oauth",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
   },
   {
     "choice": "xai-device-code",
@@ -95,313 +3559,481 @@
     "via": "code",
     "prerequisite": null,
     "offer": false,
+    "offerPolicy": "explicit",
     "reason": "Compatibility alias the Gateway does not offer; use xai-oauth.",
-    "source": "dist/extensions/xai/openclaw.plugin.json (2026.8.1)"
+    "source": "extensions/xai/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "xAI device code",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "xai:code:xai-device-code",
+    "name": "xAI (Grok)",
+    "company": "xAI (Grok)",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "xai",
+      "method": "device-code",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "absent"
+    }
   },
   {
-    "choice": "alibaba-model-studio-api-key",
-    "provider": "alibaba",
-    "plugin": "alibaba",
+    "choice": "xiaomi-api-key",
+    "provider": "xiaomi",
+    "plugin": "xiaomi",
     "billing": "api",
-    "via": "browser",
+    "via": "key",
     "prerequisite": null,
     "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/alibaba/openclaw.plugin.json (2026.8.1)"
+    "offerPolicy": "explicit",
+    "reason": "Xiaomi: API key (billed per use).",
+    "source": "extensions/xiaomi/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Xiaomi API key (Pay-as-you-go)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "xiaomi:key:xiaomi-api-key",
+    "name": "Xiaomi",
+    "company": "Xiaomi",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "xiaomi"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/xiaomi-provider",
+      "npmSpec": "@openclaw/xiaomi-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.7.2"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "xiaomi",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
   },
   {
-    "choice": "anthropic-cli",
-    "provider": "claude-cli",
-    "plugin": "anthropic",
+    "choice": "xiaomi-token-plan-ams",
+    "provider": "xiaomi-token-plan",
+    "plugin": "xiaomi",
     "billing": "subscription",
-    "via": "browser",
-    "prerequisite": "Sign in through unmodified Claude Code on this machine using the kit's isolated HOME and CLAUDE_CONFIG_DIR; the login stays in Claude Code.",
-    "offer": true,
-    "reason": "Claude subscription via your own Claude Code login on this machine (Agent SDK runtime).",
-    "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)",
-    "auth": "cli",
-    "terms": "allowed",
-    "termsUrl": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use"
+    "via": "plan_key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "default",
+    "reason": "Xiaomi Token Plan (Europe): subscription sign-in.",
+    "source": "extensions/xiaomi/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Xiaomi Token Plan (Europe)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "xiaomi-token-plan:plan_key:xiaomi-token-plan-ams",
+    "name": "Xiaomi",
+    "company": "Xiaomi",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "xiaomi"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/xiaomi-provider",
+      "npmSpec": "@openclaw/xiaomi-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.7.2"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "xiaomi-token-plan",
+      "method": "token-plan-ams",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
   },
   {
-    "choice": "apiKey",
-    "provider": "anthropic",
-    "plugin": "anthropic",
+    "choice": "xiaomi-token-plan-cn",
+    "provider": "xiaomi-token-plan",
+    "plugin": "xiaomi",
+    "billing": "subscription",
+    "via": "plan_key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "default",
+    "reason": "Xiaomi Token Plan (China): subscription sign-in.",
+    "source": "extensions/xiaomi/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Xiaomi Token Plan (China)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "xiaomi-token-plan:plan_key:xiaomi-token-plan-cn",
+    "name": "Xiaomi",
+    "company": "Xiaomi",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "xiaomi"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/xiaomi-provider",
+      "npmSpec": "@openclaw/xiaomi-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.7.2"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "xiaomi-token-plan",
+      "method": "token-plan-cn",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "xiaomi-token-plan-sgp",
+    "provider": "xiaomi-token-plan",
+    "plugin": "xiaomi",
+    "billing": "subscription",
+    "via": "plan_key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "default",
+    "reason": "Xiaomi Token Plan (Singapore): subscription sign-in.",
+    "source": "extensions/xiaomi/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Xiaomi Token Plan (Singapore)",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "xiaomi-token-plan:plan_key:xiaomi-token-plan-sgp",
+    "name": "Xiaomi",
+    "company": "Xiaomi",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "xiaomi"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/xiaomi-provider",
+      "npmSpec": "@openclaw/xiaomi-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.7.2"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "xiaomi-token-plan",
+      "method": "token-plan-sgp",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "zai-api-key",
+    "provider": "zai",
+    "plugin": "zai",
     "billing": "api",
-    "via": "browser",
+    "via": "key",
     "prerequisite": null,
     "offer": false,
-    "reason": "API key (billed per use)",
-    "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)",
-    "auth": "api_key",
-    "terms": "allowed",
-    "termsUrl": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use"
+    "offerPolicy": "explicit",
+    "reason": "Z.AI: API key (billed per use).",
+    "source": "extensions/zai/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Z.AI API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "zai:key:zai-api-key",
+    "name": "Z.AI",
+    "company": "Z.AI",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "zai"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/zai-provider",
+      "npmSpec": "@openclaw/zai-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.9"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "zai",
+      "method": "api-key",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
   },
   {
-    "choice": "clawrouter-api-key",
-    "provider": "clawrouter",
-    "plugin": "clawrouter",
+    "choice": "zai-coding-global",
+    "provider": "zai",
+    "plugin": "zai",
+    "billing": "subscription",
+    "via": "plan_key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "default",
+    "reason": "Coding-Plan-Global: subscription sign-in.",
+    "source": "extensions/zai/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Coding-Plan-Global",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "zai:plan_key:zai-coding-global",
+    "name": "Z.AI",
+    "company": "Z.AI",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "zai"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/zai-provider",
+      "npmSpec": "@openclaw/zai-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.9"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "zai",
+      "method": "coding-global",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "zai-coding-cn",
+    "provider": "zai",
+    "plugin": "zai",
+    "billing": "subscription",
+    "via": "plan_key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "default",
+    "reason": "Coding-Plan-CN: subscription sign-in.",
+    "source": "extensions/zai/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Coding-Plan-CN",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "zai:plan_key:zai-coding-cn",
+    "name": "Z.AI",
+    "company": "Z.AI",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "zai"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/zai-provider",
+      "npmSpec": "@openclaw/zai-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.9"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "zai",
+      "method": "coding-cn",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "zai-global",
+    "provider": "zai",
+    "plugin": "zai",
     "billing": "api",
-    "via": "browser",
+    "via": "key",
     "prerequisite": null,
     "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/clawrouter/openclaw.plugin.json (2026.8.1)"
+    "offerPolicy": "explicit",
+    "reason": "Z.AI: API key (billed per use).",
+    "source": "extensions/zai/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Global",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "zai:key:zai-global",
+    "name": "Z.AI",
+    "company": "Z.AI",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "zai"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/zai-provider",
+      "npmSpec": "@openclaw/zai-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.9"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "zai",
+      "method": "global",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
   },
   {
-    "choice": "copilot-proxy",
-    "provider": "copilot-proxy",
-    "plugin": "copilot-proxy",
-    "billing": "local",
-    "via": "browser",
+    "choice": "zai-cn",
+    "provider": "zai",
+    "plugin": "zai",
+    "billing": "api",
+    "via": "key",
     "prerequisite": null,
     "offer": false,
-    "reason": "Local runtime on this computer; no account and no billing.",
-    "source": "dist/extensions/copilot-proxy/openclaw.plugin.json (2026.8.1)"
+    "offerPolicy": "explicit",
+    "reason": "Z.AI: API key (billed per use).",
+    "source": "extensions/zai/openclaw.plugin.json (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "CN",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "zai:key:zai-cn",
+    "name": "Z.AI",
+    "company": "Z.AI",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "zai"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/zai-provider",
+      "npmSpec": "@openclaw/zai-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.9"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "zai",
+      "method": "cn",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
   },
   {
     "choice": "custom-api-key",
     "provider": "custom",
     "plugin": "",
-    "billing": "api",
-    "via": "browser",
+    "billing": "unknown",
+    "via": "endpoint",
     "prerequisite": null,
     "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/auth-choice-options-BLHNSTXX.js (2026.8.1)"
-  },
-  {
-    "choice": "fal-api-key",
-    "provider": "fal",
-    "plugin": "fal",
-    "billing": "api",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/fal/openclaw.plugin.json (2026.8.1)"
-  },
-  {
-    "choice": "gemini-api-key",
-    "provider": "google",
-    "plugin": "google",
-    "billing": "api",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/provider-contract-api-*.js (2026.8.1)"
-  },
-  {
-    "choice": "huggingface-api-key",
-    "provider": "huggingface",
-    "plugin": "huggingface",
-    "billing": "api",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/huggingface/openclaw.plugin.json (2026.8.1)"
-  },
-  {
-    "choice": "litellm-api-key",
-    "provider": "litellm",
-    "plugin": "litellm",
-    "billing": "api",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/litellm/openclaw.plugin.json (2026.8.1)"
-  },
-  {
-    "choice": "lmstudio",
-    "provider": "lmstudio",
-    "plugin": "lmstudio",
-    "billing": "local",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "Local runtime on this computer; no account and no billing.",
-    "source": "dist/extensions/lmstudio/openclaw.plugin.json (2026.8.1)"
-  },
-  {
-    "choice": "microsoft-foundry-apikey",
-    "provider": "microsoft-foundry",
-    "plugin": "microsoft-foundry",
-    "billing": "api",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/microsoft-foundry/openclaw.plugin.json (2026.8.1)"
-  },
-  {
-    "choice": "microsoft-foundry-entra",
-    "provider": "microsoft-foundry",
-    "plugin": "microsoft-foundry",
-    "billing": "api",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/microsoft-foundry/openclaw.plugin.json (2026.8.1)"
-  },
-  {
-    "choice": "minimax-cn-api",
-    "provider": "minimax",
-    "plugin": "minimax",
-    "billing": "api",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/minimax/openclaw.plugin.json (2026.8.1)"
-  },
-  {
-    "choice": "minimax-global-api",
-    "provider": "minimax",
-    "plugin": "minimax",
-    "billing": "api",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/minimax/openclaw.plugin.json (2026.8.1)"
-  },
-  {
-    "choice": "nvidia-api-key",
-    "provider": "nvidia",
-    "plugin": "nvidia",
-    "billing": "api",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/nvidia/openclaw.plugin.json (2026.8.1)"
-  },
-  {
-    "choice": "ollama",
-    "provider": "ollama",
-    "plugin": "ollama",
-    "billing": "local",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "Local runtime on this computer; no account and no billing.",
-    "source": "dist/extensions/ollama/openclaw.plugin.json (2026.8.1)"
-  },
-  {
-    "choice": "ollama-cloud",
-    "provider": "ollama-cloud",
-    "plugin": "ollama",
-    "billing": "api",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/ollama/openclaw.plugin.json (2026.8.1)"
-  },
-  {
-    "choice": "openai-api-key",
-    "provider": "openai",
-    "plugin": "openai",
-    "billing": "api",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/provider-contract-api-*.js (2026.8.1)"
-  },
-  {
-    "choice": "opencode-go",
-    "provider": "opencode-go",
-    "plugin": "opencode-go",
-    "billing": "api",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/opencode-go/openclaw.plugin.json (2026.8.1)"
-  },
-  {
-    "choice": "openrouter-api-key",
-    "provider": "openrouter",
-    "plugin": "openrouter",
-    "billing": "api",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/openrouter/openclaw.plugin.json (2026.8.1)"
-  },
-  {
-    "choice": "runway-api-key",
-    "provider": "runway",
-    "plugin": "runway",
-    "billing": "api",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/runway/openclaw.plugin.json (2026.8.1)"
-  },
-  {
-    "choice": "setup-token",
-    "provider": "anthropic",
-    "plugin": "anthropic",
-    "billing": "subscription",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "Token import is not the native Claude Code login route; direct Claude.ai OAuth remains excluded.",
-    "source": "dist/extensions/anthropic/openclaw.plugin.json (2026.8.1)",
-    "auth": "token",
-    "terms": "grey",
-    "termsUrl": "https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use"
-  },
-  {
-    "choice": "sglang",
-    "provider": "sglang",
-    "plugin": "sglang",
-    "billing": "local",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "Local runtime on this computer; no account and no billing.",
-    "source": "dist/extensions/sglang/openclaw.plugin.json (2026.8.1)"
-  },
-  {
-    "choice": "together-api-key",
-    "provider": "together",
-    "plugin": "together",
-    "billing": "api",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/together/openclaw.plugin.json (2026.8.1)"
-  },
-  {
-    "choice": "vllm",
-    "provider": "vllm",
-    "plugin": "vllm",
-    "billing": "local",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "Local runtime on this computer; no account and no billing.",
-    "source": "dist/extensions/vllm/openclaw.plugin.json (2026.8.1)"
-  },
-  {
-    "choice": "xai-api-key",
-    "provider": "xai",
-    "plugin": "xai",
-    "billing": "api",
-    "via": "browser",
-    "prerequisite": null,
-    "offer": false,
-    "reason": "API billing, not a subscription; shown only when an app asks.",
-    "source": "dist/extensions/xai/openclaw.plugin.json (2026.8.1)"
+    "offerPolicy": "explicit",
+    "reason": "Billing must be supplied by the host; a server address does not determine billing.",
+    "source": "src/commands/auth-choice-options.static.ts (2026.8.1)",
+    "revision": "2026.8.1",
+    "checked": "2026-10-02",
+    "label": "Custom endpoint",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "custom:endpoint:custom-api-key",
+    "name": "custom",
+    "company": "custom",
+    "billingFrom": "host",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "custom",
+      "method": "custom",
+      "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+      "flow": "present"
+    }
   }
 ]

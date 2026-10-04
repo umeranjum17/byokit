@@ -39,7 +39,7 @@ const defaultSizes = (): readonly Size[] => [
 const defaultPrices = (): readonly Price[] => [
   {
     size: 'small', perHour: 0.018, planFloorPerMonth: 20, asleepPerHour: 0,
-    currency: 'USD', basis: 'incl. IPv4, excl. VAT', source: 'http://sandbox.test/prices', checked: today(),
+    currency: 'USD', basis: 'incl. IPv4, excl. VAT', source: 'http://boat.test/prices', checked: today(),
   },
 ];
 
@@ -173,7 +173,7 @@ export function fakeProvider(o: FakeProviderOptions = {}): Provider & { fake: Fa
   if (can.url) {
     full.url = async (m: MachineRef, port: number) => {
       calls.push({ op: 'url', args: [m.id, port] });
-      return `https://${m.id}-${port}.sandbox.test`;
+      return `https://${m.id}-${port}.boat.test`;
     };
   }
   if (can.usage) {
