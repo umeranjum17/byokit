@@ -472,6 +472,8 @@ export class OpenClawKit {
   disallowOnce(): void;
   // config
   patchConfig(patch: object, o?: { agentId?: string }): Promise<void>;   // config.get hash + config.patch
+  getConfigKey(key: string): unknown;             // one dotted key out of openclaw.json, no full config read
+  setConfigKey(key: string, value: unknown): unknown;  // one key in; returns what it replaced (undefined removes)
   memoryLimited(member: Member): boolean;
   doctorContext(): { entry: string; env: Record<string, string> };
 }
@@ -582,6 +584,26 @@ writing only if bytes change (0600):
 Crewhouse's product choices (tool profile and deny list, `skills.allowBundled`, workshop, `agents.defaults.sandbox`,
 `codex: { enabled: false }`, `memory-core` dreaming off) move into Crewhouse's `config` option unchanged.
 `memoryLimited(member)` = the member's (else top-level) `memory.search.provider === 'none'`.
+
+#### One key, not the whole config (`getConfigKey` / `setConfigKey`)
+
+`patchConfig` is the only whole-config writer and it can only start from a `config.get`, whose result redacts
+token-bearing values; an app therefore cannot read one key and later restore it unchanged. `getConfigKey(key)` and
+`setConfigKey(key, value)` are the narrow alternative, over the same `openclaw.json` file `prepare()` owns and the
+engine loads at boot (`OPENCLAW_CONFIG_PATH`), with no Gateway round trip and no `config.get`:
+
+- `key` is one dotted path of `[A-Za-z0-9_-]` segments, validated at the boundary; `__proto__`, `constructor` and
+  `prototype` are refused, because the walk assigns into that path.
+- `getConfigKey` returns the value, or `undefined` when the key is absent, as a copy.
+- `setConfigKey` writes only that key, creating the missing objects on the way, returns the value it replaced, and
+  takes `undefined` to remove the key, together with the empty objects that write created, so a removal lands the file
+  it read. Every other key keeps its order; the file is rewritten atomically in `prepare()`'s exact shape
+  (`JSON.stringify(config, null, 2) + '\n'`, 0600) and only when the bytes change.
+- The engine applies the value at its next boot, so a running Gateway keeps what it applied. Do not interleave a
+  narrow set with `patchConfig`: that one rewrites the whole config through the Gateway, last writer wins.
+- Precedence stays 5.6's: `KitOptions.config` is merged over the saved file on every `prepare()`, so a key the app
+  also passes in `config` belongs to that option, and the invariants above are re-forced at every boot. Narrow a
+  key the app does not pass in `config`.
 
 #### App-owned restart recovery (R1, binding 5.16)
 

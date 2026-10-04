@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { PROTOCOL_VERSION } from './constants.ts';
+import { atomic } from './engine-patches.ts';
 import { Approvals } from './approvals.ts';
 import { Bridge } from './bridge.ts';
 import { Engine } from './engine.ts';
@@ -18,7 +19,7 @@ import { outputSchema } from './output.ts';
 import { createKeys, type AddKeyResult } from './keys.ts';
 import { routes as routeTable, type RouteView } from './routes.ts';
 import { providers as engineProviders, signIn as startSignIn, signOut as engineSignOut, type SignInCtx } from './signin.ts';
-import { reconcileConfig, browserToolPolicySafe, browserProfileAcknowledged, browserSessionMayRun, memoryLimited as configMemoryLimited } from './config.ts';
+import { reconcileConfig, browserToolPolicySafe, browserProfileAcknowledged, browserSessionMayRun, memoryLimited as configMemoryLimited, configKeyPath, readConfigKey, writeConfigKey } from './config.ts';
 import type { BrowserHost, BrowserOptions, BrowserState } from './browser.ts';
 import { createBrowserHost, type BrowserHostController, type HostBroker } from './browser/host.ts';
 import { fileSignInStore } from './browser/store.ts';
@@ -985,6 +986,25 @@ export class OpenClawKit {
   memoryLimited(member: Member): boolean {
     const config = JSON.parse(readFileSync(join(this.engine.root, 'openclaw.json'), 'utf8')) as object;
     return configMemoryLimited(config, member);
+  }
+
+  // One key, not the whole config: stock config.get redacts token-bearing values and needs a gateway round
+  // trip, so it can never hand back a value the app may write unchanged. These read and write that one
+  // dotted key in the file prepare() owns; the engine applies it at its next boot.
+  getConfigKey(key: string): unknown {
+    const config = JSON.parse(readFileSync(join(this.engine.root, 'openclaw.json'), 'utf8')) as object;
+    return readConfigKey(config, configKeyPath(key));
+  }
+
+  setConfigKey(key: string, value: unknown): unknown {
+    const path = join(this.engine.root, 'openclaw.json');
+    const text = readFileSync(path, 'utf8');
+    const config = JSON.parse(text);
+    const previous = writeConfigKey(config, configKeyPath(key), value);
+    // prepare() writes exactly this shape, so an unchanged value leaves the file byte for byte alone.
+    const next = JSON.stringify(config, null, 2) + '\n';
+    if (next !== text) atomic(path, next);
+    return previous;
   }
 
   doctorContext(): { entry: string; env: Record<string, string> } { return this.engine.doctorContext(); }
