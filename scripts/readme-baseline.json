@@ -1,12 +1,6 @@
 [
   {
     "readme": "packages/accounts/README.md",
-    "block": 2,
-    "snapshot": "b210634b0e6b86b7f2e2a3896da85a1e05f56239b9c71994fa5587fc5087f195",
-    "reason": "Desktop example requires Electron declarations supplied by the host app, unavailable in the Node workspace."
-  },
-  {
-    "readme": "packages/accounts/README.md",
     "block": 3,
     "snapshot": "d7bf473caac14200592afc06ba01f6fed59d14e09bed934f58e27f90a9493d73",
     "reason": "Phone example requires Expo fetch resolution supplied by the host bundler; SecureStore declarations are now available in the Node workspace."
@@ -37,31 +31,31 @@
   },
   {
     "readme": "packages/decide/README.md",
-    "block": 3,
+    "block": 5,
     "snapshot": "73580d97c9732b5ccafd4c1cb2d7cfb37a34254be0281db2dfe47f733609bd27",
     "reason": "Plan-discovery fragment uses host-supplied accounts and member context."
   },
   {
     "readme": "packages/decide/README.md",
-    "block": 4,
+    "block": 6,
     "snapshot": "22607d677c6b58f8ee522c730d22707cec94ebf6cdd813469c8bb24d2fd882de",
     "reason": "Model-selection fragment omits hostConfig, state and questions context."
   },
   {
     "readme": "packages/decide/README.md",
-    "block": 5,
+    "block": 8,
     "snapshot": "687cc4b5ac7cc76e4521158275072ca589decc3770ad191ba92fcd1562525d5d",
     "reason": "Plan-sign-in fragment omits the host sign-in adapter, member and chosen model."
   },
   {
     "readme": "packages/decide/README.md",
-    "block": 6,
+    "block": 9,
     "snapshot": "101aa9234fc048bd3bc63a756480b3e293f8aaea121c34682622d30c26b898d3",
     "reason": "Configuration fragment omits the host configuration, account, member and question inputs."
   },
   {
     "readme": "packages/decide/README.md",
-    "block": 7,
+    "block": 10,
     "snapshot": "4e53e33512ea23be3a03f783a66c3ad769bd38bd5ad96e7dc5824cc132190b89",
     "reason": "Cache/retry fragment omits hostConfig, input text and questions context."
   },
@@ -94,12 +88,6 @@
     "block": 8,
     "snapshot": "67ce688872f69c8c1f68316f396c70c25068889d295991053a6651be2284d5c0",
     "reason": "Stream fragment omits imports, host options, panes, device link and terminal context."
-  },
-  {
-    "readme": "packages/cloud/README.md",
-    "block": 1,
-    "snapshot": "c5b666431d61363a7633f45f090b4ff03af2bade841dd829d8a5735d6dc4c6e1",
-    "reason": "Quickstart leaves provider, store and recipe undeclared; strength item 6 supplies fakes."
   },
   {
     "readme": "packages/reach/README.md",

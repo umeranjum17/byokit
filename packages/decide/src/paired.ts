@@ -142,6 +142,7 @@ function probability(v: unknown): v is number {
 function cleanAnswers(answers: Record<string, unknown>, questions: Record<string, Question>): Record<string, Raw | undefined> {
   return Object.fromEntries(Object.entries(questions).map(([name, q]) => {
     const a = Object.hasOwn(answers, name) ? answers[name] : undefined;
+    if (q.kind === 'rank') return [name, undefined];
     if (!record(a)) return [name, undefined];
     const labels = q.kind === 'yesno' ? ['true', 'false'] : q.kind === 'choice' ? Object.keys(q.options) : q.levels.map((_, i) => String(i));
     const p = record(a.probabilities) ? a.probabilities : {};

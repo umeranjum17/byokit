@@ -53,6 +53,8 @@ test('OpenAI config and account adapter bundle without runtime SDK, Node or ambi
   const bundle = await build({ stdin: { contents: `
     import { createDecider, parseConfig } from '../src/index.ts';
     import { chatgptPlan } from '@byokit/accounts/chatgpt-plan';
+    import { Accounts } from '@byokit/accounts';
+    globalThis.handle = new Accounts().chatgpt('Umer');
     globalThis.account = chatgptPlan({ session: async () => ({ accessToken: 'host-token',
       scopes: ['resource.invoke', 'chatgpt.tokens.use.direct'] }) });
     const run = createDecider(parseConfig({ backend: 'openai', model: 'chosen-model' }), {
@@ -69,6 +71,9 @@ test('OpenAI config and account adapter bundle without runtime SDK, Node or ambi
   assert.equal(urgent.answer, true);
   assert.equal(urgent.confidenceSource, 'self-reported');
   assert.equal(urgent.usage.input_tokens, 4);
+  assert.equal(sandbox.handle.billing, 'subscription');
+  assert.equal(typeof sandbox.handle.respond, 'function');
+  assert.deepEqual(Object.keys(sandbox.handle).sort(), ['billing', 'respond']);
   assert.equal(await sandbox.account.access(new AbortController().signal), 'host-token');
 });
 

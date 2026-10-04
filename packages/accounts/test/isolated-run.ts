@@ -2,10 +2,12 @@ import { sealing } from './sealing.ts';
 // Run by isolation.test.ts in a child process: the real Pi engine, a ChatGPT sign-in up to its code (the provider's
 // endpoints mocked), a stored sign-in and its status, all in the app's own folder. Prints one JSON line.
 import { join } from 'node:path';
-import { isolate } from '../src/isolate.ts';
+import { isolate, launchEnv } from '../src/isolate.ts';
 
 const app = process.env.APP_DIR!;
-isolate(join(app, 'engine'));
+const before = JSON.stringify(process.env);
+const engine = isolate(join(app, 'engine'));
+const launch = launchEnv({ set: { PI_CODING_AGENT_DIR: engine, PI_OFFLINE: '1', PI_TELEMETRY: '0', PI_SKIP_VERSION_CHECK: '1' } });
 const { Accounts, fileStore } = await import('../src/index.ts');
 
 const asked: string[] = [];
@@ -30,6 +32,7 @@ console.log(JSON.stringify({
   openrouter: await kit.signedIn(1, 'openrouter'),
   other: await kit.signedIn(2, 'chatgpt'),
   words: (await kit.status(1, 'chatgpt')).words,
-  env: Object.keys(process.env).filter((k) => /^PI_|_API_KEY$|^GH_TOKEN$/.test(k)).sort(),
+  unchanged: JSON.stringify(process.env) === before,
+  env: Object.keys(launch.env).filter((k) => /^PI_|_API_KEY$|^GH_TOKEN$/.test(k)).sort(),
   asked,
 }));

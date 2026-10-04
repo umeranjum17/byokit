@@ -1,7 +1,6 @@
 {
   "name": "@byokit/mcp",
   "version": "0.1.0",
-  "private": true,
   "description": "Hosted streamable HTTP tools and resources with device sign-in and authenticated sessions.",
   "license": "Apache-2.0",
   "type": "module",

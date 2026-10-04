@@ -36,6 +36,21 @@
       ],
       "@byokit/statusbar",
       [
+        "@byokit/share",
+        {
+          "shareIntent": {
+            "disableIOS": true,
+            "androidIntentFilters": [
+              "text/*",
+              "image/*"
+            ],
+            "androidMultiIntentFilters": [
+              "image/*"
+            ]
+          }
+        }
+      ],
+      [
         "@byokit/push",
         {
           "appGroup": "group.io.github.umeranjum17.byokit.example.notices"

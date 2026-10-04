@@ -1,7 +1,7 @@
 // Explicitly invoked lab code; never imported by library entries or run by CI.
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
-import { sandboxApi } from '../../packages/cloud/src/sandbox-api.ts';
+import { boat } from '../../packages/cloud/src/boat.ts';
 import { sshVm, sshHostKey, type SshVmOptions } from '../../packages/cloud/src/ssh.ts';
 import { memoryStore } from '../../packages/cloud/src/testing/fake-provider.ts';
 import type { HostRecipe, MachineRef, Price, Provider } from '../../packages/cloud/src/types.ts';
@@ -41,7 +41,7 @@ export async function liveRun(config: LiveConfig, record: (r: Report) => Promise
   const fingerprint = await sshHostKey(config.vm);
   assert.equal(fingerprint.fingerprint, config.vm.fingerprint, 'SSH fingerprint differs from the app-verified fingerprint');
   await fingerprint.confirm();
-  const rawSandbox = sandboxApi({ baseUrl: config.providerUrl, label: config.providerLabel, prices: config.prices, key: async () => key });
+  const rawSandbox = boat({ baseUrl: config.providerUrl, label: config.providerLabel, prices: config.prices, key: async () => key });
   const vm = sshVm(config.vm);
   let resources: { adapter: string; id: string; name: string }[] = [];
   try { resources = JSON.parse(await readFile(config.resourcesFile, 'utf8')); }

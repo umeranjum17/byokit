@@ -38,6 +38,10 @@ Options: `--port` (default 7310), `--via` (`auto`: Tailscale when it is installe
 Try it without the engine or an account: `BYOKIT_EXAMPLE_FAKE=1 npm start` runs the kit's stand-in Gateway. Its
 sign-in shows the code `CREW-2026` and says yes by itself a few seconds later; its helper answers
 `fake: <your message>`, and a message containing `[tool demo_note {"text":"buy milk"}]` asks to save that note.
+It also shows the helper's browser sign-in with a synthetic fixture (the kit's offline browser fake, no Chromium,
+no real site): a "Sign in to 127.0.0.1" card waits on `http://127.0.0.1:2820`, takeover shows a labelled stand-in
+page live, and Done puts "Signed in to 127.0.0.1 ✓" under the chat. It shows the screens only; it is not browser
+protection.
 
 ## What's where
 
@@ -51,9 +55,12 @@ sign-in shows the code `CREW-2026` and says yes by itself a few seconds later; i
   (`browserDeviceStore`); then `openclawDevice(link)`: `signIn.start('openai', 'code')` and `signIn.view` through
   `@byokit/ui-core`'s `phaseOf` for the sign-in card, `run` for the streamed reply, `approvals`/`events`/`decide` for
   what waits for a yes. Every status is a sentence from the kit (`words`, `oc.state().words`) or `@byokit/ui-core`
-  (`pairingView`, `linkWords`).
+  (`pairingView`, `linkWords`). Sign-ins for the helper's browser: `@byokit/ui-core/kits`' `signInsStore` over
+  `oc.browser.signIns` and `oc.events`, each request drawn from `signInSheetView`, takeover into
+  `oc.browser.live(source, { lease })` drawn from `livePanelView` (`web/browser.ts`).
 - `e2e.test.ts`: packs the packages, installs them into a copy of this folder, runs `host.ts` against the kit's fake
-  Gateway and drives a phone-sized headless Chromium through all of the above, Allow and Deny both. From the repo:
+  Gateway and drives a phone-sized headless Chromium through all of the above, Allow and Deny both, then the fixture
+  browser sign-in (screenshots named `fixture-*`). From the repo:
   `npm run build && sh scripts/test.sh examples/openclaw-kit/e2e.test.ts` (`BYOKIT_EXAMPLE_SHOTS=<folder>` keeps
   the screenshots).
 - `LIVE.md`: the check with the real engine, a real ChatGPT sign-in and a real phone, run once per kit release.

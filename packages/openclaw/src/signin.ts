@@ -11,6 +11,7 @@ export type SignInCtx = {
   request: GatewayTransport['request'];
   ensure(member: Member): Promise<{ agentId: string }>;
   callbackPort: number;
+  onDisconnect?(fn: () => void): () => void;
 };
 
 // The pin's wizard contract (2026.8.1): steps arrive only from `wizard.next` (wizard.status answers {status, error}
@@ -20,6 +21,7 @@ const START_MS = 60_000;
 const PULL_MS = 120_000;
 const STATUS_MS = 20_000;
 const CANCEL_MS = 10_000;
+const RECONFIRM_MS = 60_000;
 const TURNS = 200;
 const PASTE_MS = 15 * 60_000;
 
@@ -31,7 +33,7 @@ const pullOptions = (signal: AbortSignal) => ({ timeoutMs: PULL_MS, signal });
 
 /**
  * Drive the engine's provider-owned login. `on` sees every view the person watches; `done` resolves once, and
- * `paste` hands a returned browser address to a waiting wizard text step. Every exit short of done cancels this
+ * `paste` hands a returned browser address or sign-in token to a waiting wizard text step. Every exit short of done cancels this
  * session and its callback listener only.
  */
 export function signIn(
@@ -43,6 +45,7 @@ export function signIn(
   const via = o.via ?? 'browser';
   const owner = new AbortController();
   const { signal } = owner;
+  const driveOwner = new AbortController();
   const wantsCallback = via === 'browser' && o.authChoice === 'openai';
   let server: Server | undefined;
   let sessionId = '';
@@ -51,6 +54,27 @@ export function signIn(
   let settleStart!: () => void;
   const startingSettled = new Promise<void>((resolve) => { settleStart = resolve; });
   let over = false;
+  let recovering = false;
+  let offDisconnect: (() => void) | undefined;
+  let agentId: string | undefined;
+  let before: Set<string> | undefined;
+  // Only ChatGPT's OAuth routes are qualified for auth-reload recovery. No API-key fallback.
+  const reconfirm = o.authChoice === 'openai' || o.authChoice === 'openai-device-code';
+  // Pin models-auth-status: profiles carry {profileId, type, status, expiry: {at, remainingMs, label}}.
+  // Older summaries are not credential proof; a refreshed pre-existing id cannot stand in for this login.
+  const profiles = (status: unknown, usable = true): Set<string> | undefined => {
+    const auth = status as { unavailable?: unknown; providers?: { provider?: string; profiles?: {
+      profileId?: string; type?: string; status?: string; expiry?: { at?: number };
+    }[] }[] };
+    if (auth?.unavailable || !Array.isArray(auth?.providers) || auth.providers.some((row) =>
+      !row || typeof row !== 'object' || typeof row.provider !== 'string' || !Array.isArray(row.profiles)
+      || row.profiles.some((p) => !p || typeof p.profileId !== 'string' || typeof p.type !== 'string'))) return undefined;
+    return new Set(auth.providers.filter((row) => row.provider === 'openai').flatMap((row) =>
+      (row.profiles ?? []).filter((p) => p.type === 'oauth' && typeof p.profileId === 'string'
+        && (!usable || ((p.status === 'ok' || p.status === 'expiring') && Number.isFinite(p.expiry?.at)
+          && p.expiry!.at! > Date.now())))
+        .map((p) => p.profileId!)));
+  };
   let approval = false;
   let sawDeviceCode = false;
   let codeExpired = false;
@@ -65,9 +89,16 @@ export function signIn(
   let settle!: (view: SignInView) => void;
   let pasteIn: ((text: string) => void) | undefined;
   let returned: string | undefined;
+  // Once a secret step is seen, no later gateway prose, link or code is safe to display.
+  let sensitive = o.authChoice === 'setup-token' || o.authChoice === 'apiKey';
+  const secretFailure = () => o.authChoice === 'apiKey' ? 'API key activation failed' : 'Sign-in failed. Try again.';
 
   const done = new Promise<SignInView>((resolve) => { settle = resolve; });
-  const say = (v: Omit<SignInView, 'state' | 'via'>): void => on({ state: 'waiting', via, ...v });
+  const say = (v: Omit<SignInView, 'state' | 'via'>): void => {
+    if (!over && !recovering && !signal.aborted) on({ state: 'waiting', via, ...(sensitive
+      ? { ...(v.prompt ? { prompt: v.prompt } : {}), ...(v.error ? { error: secretFailure() } : {}) }
+      : v) });
+  };
   const closeCallback = async (): Promise<void> => {
     const held = server;
     server = undefined;
@@ -77,11 +108,13 @@ export function signIn(
     if (over) return;
     over = true;
     stopApproval();
+    offDisconnect?.();
     o.signal?.removeEventListener('abort', cancel);
     owner.abort();
     returned = undefined;
     pasteIn = undefined;
     await closeCallback();
+    if (sensitive && view.state === 'failed' && view.why === 'failed') view = { ...view, error: secretFailure() };
     on(view);
     settle(view);
   };
@@ -91,7 +124,8 @@ export function signIn(
       // session only as `openclaw.setup.auth.start` settles, so a cancel sent sooner is answered `wizard not found`
       // and leaves the person locked out of signing in. Waiting for that settlement is what frees the admission.
       await startingSettled;
-      if (sessionId) await ctx.request('wizard.cancel', { sessionId }, { timeoutMs: CANCEL_MS }).catch(() => {});
+      if (sessionId) await Promise.resolve().then(() => ctx.request('wizard.cancel', { sessionId },
+        { timeoutMs: CANCEL_MS })).catch(() => {});
     })();
     return releasing;
   };
@@ -138,11 +172,16 @@ export function signIn(
   };
 
   const drive = async (): Promise<SignInView> => {
+    const signal = AbortSignal.any([owner.signal, driveOwner.signal]);
     if (wantsCallback) {
       server = await holdCallback().catch(() => undefined);
       if (!server) return { state: 'failed', via, why: 'busy' };
     }
-    const { agentId } = await ctx.ensure(member);
+    ({ agentId } = await ctx.ensure(member));
+    if (reconfirm && ctx.onDisconnect) {
+      before = profiles(await authStatus(ctx.request, agentId).catch(() => undefined), false);
+      if (signal.aborted) return cancelled();
+    }
     // Native login is completed by the person in unmodified Claude Code. The pin does not expose this
     // choice via auth.start; activation verifies the CLI route and persists it only after a live test succeeds.
     if (o.authChoice === 'anthropic-cli' || o.authChoice === 'apiKey') {
@@ -194,6 +233,7 @@ export function signIn(
     const answer = (step: Step, value?: string): Promise<Pull> => ctx.request('wizard.next',
       { sessionId, answer: { stepId: step.id, ...(value === undefined ? {} : { value }) } }, options()) as Promise<Pull>;
     const waitForPaste = (): Promise<string | undefined> => new Promise((resolve) => {
+      if (signal.aborted) { resolve(undefined); return; }
       if (returned !== undefined) { const text = returned; returned = undefined; resolve(text); return; }
       let timer: NodeJS.Timeout | undefined;
       let settled = false;
@@ -222,7 +262,8 @@ export function signIn(
       }
       const current = step;
       step = undefined;
-      if (current.deviceCode) {
+      if (current.type === 'text' && current.sensitive) sensitive = true;
+      if (current.deviceCode && current.type !== 'text') {
         stopApproval();
         approval = true;
         sawDeviceCode = true;
@@ -241,7 +282,8 @@ export function signIn(
         continue;
       }
       if (current.type !== 'progress') stopApproval();
-      if (current.type === 'text' && !current.sensitive) {
+      if (current.type === 'text') {
+        if (current.sensitive) say({ prompt: 'Sign-in token' });
         const value = await waitForPaste();
         if (value === undefined) return signal.aborted ? cancelled() : expired();
         const next = await answer(current, value);
@@ -270,9 +312,52 @@ export function signIn(
     return error ? { state: 'failed', via, why: 'failed', error: cut(error) } : { state: 'done', via };
   };
 
+  const disconnected = new Promise<undefined>((resolve) => {
+    if (reconfirm) offDisconnect = ctx.onDisconnect?.(() => {
+      recovering = true;
+      resolve(undefined); // win the race before the old request's abort/close rejection propagates
+      driveOwner.abort();
+    });
+  });
+  const recover = async (): Promise<SignInView> => {
+    const failed: SignInView = { state: 'failed', via, why: 'failed', error: 'Sign-in could not be confirmed after the gateway restarted. Try again.' };
+    if (!agentId || !before) return failed;
+    const recovery = new AbortController();
+    const recoverySignal = AbortSignal.any([signal, recovery.signal]);
+    let timer: NodeJS.Timeout | undefined;
+    let abort!: () => void;
+    const end = new Promise<SignInView>((resolve) => {
+      abort = () => resolve(codeExpired ? expired() : cancelled());
+      signal.addEventListener('abort', abort, { once: true });
+      timer = setTimeout(() => resolve(failed), RECONFIRM_MS);
+      if (signal.aborted) abort();
+    });
+    const readback = async (): Promise<SignInView> => {
+      while (!recoverySignal.aborted && !over) {
+        const status = await Promise.resolve().then(() => ctx.request('models.authStatus', { agentId, refresh: true },
+          { timeoutMs: STATUS_MS, signal: recoverySignal })).catch(() => undefined);
+        const after = profiles(status);
+        if (!recoverySignal.aborted && after && [...after].some((p) => !before!.has(p))) return { state: 'done', via };
+        await new Promise<void>((resolve) => {
+          const stop = () => { clearTimeout(wait); recoverySignal.removeEventListener('abort', stop); resolve(); };
+          const wait = setTimeout(stop, 1_000);
+          recoverySignal.addEventListener('abort', stop, { once: true });
+          if (recoverySignal.aborted) stop();
+        });
+      }
+      return codeExpired ? expired() : cancelled();
+    };
+    try { return await Promise.race([readback(), end]); }
+    finally { recovery.abort(); clearTimeout(timer); signal.removeEventListener('abort', abort); }
+  };
+
   void (async () => {
     let view: SignInView;
-    try { view = await drive(); }
+    try {
+      const driven = await Promise.race([drive(), disconnected]);
+      view = driven ?? await recover();
+      if (signal.aborted) view = codeExpired ? expired() : cancelled();
+    }
     catch (error) {
       if (signal.aborted) view = codeExpired ? expired() : cancelled();
       else if (sawDeviceCode && /expired_token|code.*expired|device.*(?:expired|timed out)/i.test(cut(error))) view = expired();

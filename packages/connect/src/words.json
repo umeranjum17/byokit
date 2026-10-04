@@ -17,5 +17,10 @@
     "finishing": "Sign-in is already finishing. Return to the app.",
     "connected": "Connected. You can return to the app.",
     "failed": "Sign-in did not finish. Return to the app and try again."
+  },
+  "verification": {
+    "valid": "Your app details work.",
+    "invalid": "Check your app details and try again.",
+    "inconclusive": "Your app details could not be checked. Try again later."
   }
 }

@@ -1,7 +1,6 @@
 import { cacheKey, decide, type Answer, type Backend, type DecideCache, type Question, type ImageInput } from './index.ts';
 import { jev } from './jev.ts';
-import { openai, UnsupportedAccountError, type OpenAIRequestOptions } from './openai.ts';
-import type { ChatGPTPlanAccount } from '@byokit/accounts/chatgpt-plan';
+import { openai, UnsupportedAccountError, type OpenAIAccount, type OpenAIRequestOptions } from './openai.ts';
 import type { RetryOptions } from './http.ts';
 
 export type DecideConfig = RetryOptions & (
@@ -11,7 +10,7 @@ export type DecideConfig = RetryOptions & (
 /** Credentials and fetch stay host-owned; configuration itself is portable JSON. */
 export type ConfigHost = {
   keys?: { jev?: string; openai?: string };
-  account?: ChatGPTPlanAccount;
+  account?: OpenAIAccount;
   fetch?: typeof fetch;
   /** Separate cache namespace per person/account. Required for account authentication with a cache. */
   cacheScope?: string;

@@ -6,7 +6,7 @@ Nothing runs against a real provider by default. CI executes:
 node scripts/machine-proof/run.ts --dry-run --output .lab/m6-dry.json
 ```
 
-The same runner uses the loopback sandbox API and fake SSH binary, registers the entire
+The same runner uses the loopback Boat adapter and fake SSH binary, registers the entire
 `machineContract`, installs an app with M3, records all 21 M6 rows on both adapters,
 exercises sleep/resume and a throwaway redundant `noEnv` request, and checkpoints JSON.
 The fake never qualifies M6. `scripts/machine-proof.test.ts` also installs all three

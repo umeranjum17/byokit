@@ -1,0 +1,1 @@
+- Add redacted startup, page/module and link-stage diagnostics to the browser pairing test; the intermittent CI timeout's root cause remains unknown.

@@ -50,11 +50,20 @@ type World = {
   stop(): void;
 };
 
-async function world(o: { passThrough?: (method: string, grant: Grant) => boolean; relay?: boolean; tools?: boolean } = {}): Promise<World> {
+async function world(o: { passThrough?: (method: string, grant: Grant) => boolean; relay?: boolean; tools?: boolean; reply?: () => string } = {}): Promise<World> {
   const fake = fakeGateway();
   const stateDir = scratchDir('o9');
   // tools: two app tools, every call allowed and answered with its own name.
-  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, ...(o.tools ? {
+  const kit = new OpenClawKit({ stateDir, transport: (ctx) => {
+    const t = fake.factory(ctx);
+    return { ...t, request: async (method, params, options) => {
+      const result = await t.request(method, params, options);
+      if (method === 'agent' && o.reply) return { ...(result as object),
+        result: { ...(result as { result: object }).result, payloads: [{ text: o.reply() }] } };
+      return method === 'agent.wait' && o.reply
+        ? { ...(result as object), terminalReply: { text: o.reply() } } : result;
+    } };
+  }, spawnEngine: false, ...(o.tools ? {
     tools: ['report', 'lookup'].map((name) => ({ name, description: name, parameters: { type: 'object' } })),
     host: { gate: async () => ({ allow: true as const }), call: async (_run, tool) => `${tool} done` },
   } : {}) });
@@ -114,7 +123,20 @@ test('state, routes and member gating round-trip', async () => {
   assert.equal(st.state.phase, 'ready');
   assert.equal(st.words, words('engine.ready'));
   const routes = await a.oc.routes();
-  assert.ok(routes.length > 0 && routes.every((r) => r.offer));
+  assert.equal(routes.length, 96);
+  assert.equal(routes.filter(route => route.choice).length, 91);
+  assert.ok(routes.some(route => route.readiness === 'needs_plugin' && !route.offer));
+  assert.ok(routes.some(route => route.readiness === 'no_upstream_flow' && !route.offer));
+  for (const route of routes.filter(route => route.offer)) {
+    assert.equal(route.billing, 'subscription');
+    assert.equal(route.offerPolicy, 'default');
+    assert.equal(route.readiness, 'ready');
+  }
+  const calls = w.fake.calls.length;
+  for (const provider of ['openrouter', 'chutes', 'kimi', 'google-gemini-cli', 'ollama', 'custom']) {
+    await rejectsNotAllowed(a.oc.signIn.start(provider, 'browser'));
+  }
+  assert.equal(w.fake.calls.length, calls, 'listed explicit/unavailable routes do not trigger an engine auth call');
 
   const nobody = await device(w, undefined);
   await rejectsNotAllowed(nobody.oc.state());
@@ -403,7 +425,7 @@ test('serve binds per reach and pairs over its urls', async () => {
   await served.close();
 });
 
-test('native Claude sign-in is offered over the link and keeps account state in the engine', async () => {
+test('native CLI legacy browser sign-in survives full discovery and guards activation', async () => {
   const w = await world();
   let loggedIn = true;
   w.fake.handle('openclaw.setup.detect', () => ({ candidates: [{ kind: 'claude-cli', credentials: loggedIn }] }));
@@ -412,7 +434,11 @@ test('native Claude sign-in is offered over the link and keeps account state in 
     return { ok: true };
   });
   const a = await device(w, 'a');
-  assert.ok((await a.oc.routes()).some((route) => route.choice === 'anthropic-cli' && route.provider === 'claude-cli'));
+  const native = (await a.oc.routes()).find(route => route.choice === 'anthropic-cli');
+  assert.equal(native?.provider, 'anthropic', 'discovery uses the manifest provider, not its CLI backend');
+  assert.equal(native?.via, 'cli');
+  assert.equal(native?.offer, false, 'unknown binary availability is not a default claim');
+  assert.equal(native?.readiness, 'needs_binary');
   await a.oc.signIn.start('claude-cli', 'browser');
   const view = await until(async () => {
     const next = await a.oc.signIn.view('claude-cli');
@@ -423,4 +449,48 @@ test('native Claude sign-in is offered over the link and keeps account state in 
   loggedIn = false;
   assert.deepEqual(await a.oc.signIn.view('claude-cli'), { ready: false, signIn: null });
   assert.deepEqual((await a.oc.state()).signedIn, []);
+  const activations = w.fake.calls.filter(call => call.method === 'openclaw.setup.activate').length;
+  await a.oc.signIn.start('claude-cli', 'browser');
+  const unavailable = await until(async () => {
+    const next = await a.oc.signIn.view('claude-cli');
+    return next.signIn?.state === 'failed' ? next : undefined;
+  });
+  assert.equal(unavailable.ready, false);
+  assert.equal(w.fake.calls.filter(call => call.method === 'openclaw.setup.activate').length, activations,
+    'explicit legacy native selection still requires engine detection before activation');
+});
+
+
+test('a device schema run validates on the host and returns typed data over the real sealed link', async () => {
+  let text = '{"summary":"Ready"}';
+  const w = await world({ reply: () => text });
+  const a = await device(w, 'a');
+  const schema = { type: 'object', properties: { summary: { type: 'string' } },
+    required: ['summary'], additionalProperties: false } as const;
+
+  let returned = false;
+  for await (const frame of a.oc.run('report', { schema, system: 'Be brief.' })) {
+    if (frame.type !== 'end') continue;
+    assert.ok(frame.end.ok && frame.end.data);
+    const summary: string = frame.end.data.summary;
+    assert.equal(summary, 'Ready');
+    assert.equal(frame.end.text, text);
+    assert.ok(frame.end.usage);
+    returned = true;
+  }
+  assert.ok(returned);
+  const params = w.fake.calls.find((c) => c.method === 'agent')?.params as Record<string, unknown>;
+  assert.ok(String(params.extraSystemPrompt).startsWith('Be brief.\n\nReturn only one JSON value'));
+  assert.ok(String(params.extraSystemPrompt).endsWith(JSON.stringify(schema)));
+  text = '{"summary":123}';
+  for await (const frame of a.oc.run('report', { schema })) {
+    if (frame.type === 'end') assert.deepEqual(frame.end,
+      { ok: false, kind: 'output', message: 'The answer did not match the requested format.' });
+  }
+  const before = w.fake.calls.length;
+  await assert.rejects(async () => {
+    for await (const _ of a.oc.run('report', { schema: { properties: { summary: { format: 'email' } } } } as never)) void _;
+  }, LinkRefused);
+  assert.equal(w.fake.calls.length, before);
+  w.stop();
 });

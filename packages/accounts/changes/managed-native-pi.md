@@ -1,0 +1,3 @@
+- FIX: Manage named native Pi 0.87.1 subscription accounts with TUI sign-in instructions, OAuth-only status, selected provider/session launch arguments and ready-only Auto selection. Pi identity persists in a separate roster; email, plan and usage remain unknown.
+- SECURITY: Isolate Pi credentials, settings and sessions in selected app-owned folders; scrub inherited provider keys and never pass TUI login instructions as model prompts, expose credentials, or refresh grants in status probes.
+- FIX: Explicitly adopt a selected found row's metadata into a new empty managed login. Preserve discovered/default folders and idempotently map `adoptedFrom` to the new identity, with existing cancellation semantics.

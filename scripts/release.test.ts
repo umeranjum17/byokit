@@ -2,7 +2,7 @@
 // lint functions. No network, fixtures as strings (plus the nine real
 // CHANGELOGs on disk).
 import { strict as assert } from "node:assert";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -18,6 +18,7 @@ import {
   shippedPath,
   planCascade,
   rollUnreleased,
+  readFragments,
   topoOrder,
   type CascadePkg,
 } from "./release.ts";
@@ -263,7 +264,8 @@ test("release lint CLI requires notes for unchanged shipped schemas and accepts 
     const rejected = run(process.execPath, lintArgs);
     assert.equal(rejected.status, 1);
     assert.match(rejected.stderr, /without a ## Unreleased bullet/);
-    writeFileSync(changelogPath, changelog);
+    mkdirSync(join(dir, "packages/probe/changes"));
+    writeFileSync(join(dir, "packages/probe/changes/schema.md"), "- FIX: validate schema fields.\n");
     git("add", "."); git("commit", "-qm", "note feature without bump");
     for (const args of [lintArgs, [...lintArgs, "--direct"]]) {
       const accepted = run(process.execPath, args);
@@ -294,4 +296,73 @@ test("release lint CLI requires notes for unchanged shipped schemas and accepts 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("fragments preserve prefixes and formatting and satisfy empty Unreleased lint", () => {
+  const dir = mkdtempSync(join(tmpdir(), "release-fragments-"));
+  try {
+    mkdirSync(join(dir, "changes"));
+    writeFileSync(join(dir, "changes/b.md"), "- SECURITY: protect Umer.\n");
+    writeFileSync(join(dir, "changes/a.md"), "- FIX: help Umer.\n  Keep continuation.\n");
+    const fragments = readFragments(dir);
+    assert.equal(fragments.paths.length, 2);
+    const text = "# Changelog\n\n## Unreleased\n\n- Existing entry.\n";
+    const rolled = prepareChangelog(text, "0.1.1", "2026-10-01", fragments.lines);
+    assert.deepEqual(parseChangelog(rolled).unreleased, []);
+    assert.deepEqual(parseChangelog(rolled).versions[0].bullets, [
+      { kind: "FIX", text: "help Umer. Keep continuation." },
+      { kind: "SECURITY", text: "protect Umer." },
+      { kind: "other", text: "Existing entry." },
+    ]);
+    const input = {
+      changelogs: { probe: "# Changelog\n\n## Unreleased\n" },
+      files: { probe: ["CHANGELOG.md"] }, fragments: { probe: fragments.lines },
+      srcChanged: ["probe"], depsChanged: [], versionChanged: [] as string[],
+    };
+    assert.deepEqual(lint(input), []);
+    assert.ok(lint({ ...input, versionChanged: ["probe"], versions: {
+      probe: { before: "0.1.0", after: "0.1.1", isPrivate: false },
+    } }).some((e) => e.includes("non-empty changelog section")));
+    writeFileSync(join(dir, "changes/empty.md"), "- FIX:\n");
+    assert.throws(() => readFragments(dir), /invalid changelog fragment/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("prepare CLI compiles fragments with existing notes and deletes them in its commit", () => {
+  const dir = mkdtempSync(join(tmpdir(), "release-prepare-"));
+  const run = (cmd: string, args: string[]) => spawnSync(cmd, args, {
+    cwd: dir, encoding: "utf8", env: { ...process.env, PATH: join(dir, "bin") + ":" + process.env.PATH },
+  });
+  const git = (...args: string[]) => {
+    const r = run("git", ["-c", "user.name=Umer", "-c", "user.email=umer@example.invalid", "-c", "commit.gpgsign=false", ...args]);
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout;
+  };
+  try {
+    for (const path of ["scripts", "bin", "examples/expo", "packages/probe/changes"]) mkdirSync(join(dir, path), { recursive: true });
+    copyFileSync(join(root, "scripts/release.ts"), join(dir, "scripts/release.ts"));
+    writeFileSync(join(dir, "bin/npm"), `#!/bin/sh\nif [ "$1" = view ]; then echo '["0.1.0"]'; fi\n`);
+    chmodSync(join(dir, "bin/npm"), 0o755);
+    writeFileSync(join(dir, "packages/probe/package.json"), JSON.stringify({ name: "@byokit/probe", version: "0.1.0" }, null, 2));
+    const cl = join(dir, "packages/probe/CHANGELOG.md");
+    writeFileSync(cl, "# Changelog\n\n## Unreleased\n\n- Existing note for Umer.\n");
+    const fragment = join(dir, "packages/probe/changes/umer.md");
+    writeFileSync(fragment, "- FIX: fragment for Umer.\n");
+    git("init", "-q"); git("checkout", "-b", "release-test"); git("add", "."); git("commit", "-qm", "fixture");
+    const dry = run(process.execPath, ["scripts/release.ts", "prepare", "probe=patch", "--dry-run"]);
+    assert.equal(dry.status, 0, dry.stderr);
+    assert.match(dry.stdout, /Existing note for Umer/);
+    assert.match(dry.stdout, /FIX: fragment for Umer/);
+    assert.match(dry.stdout, /delete packages\/probe\/changes\/umer.md/);
+    assert.ok(existsSync(fragment), "dry-run preserves fragments");
+    // Configure the writer's commit identity locally in this throwaway repository.
+    git("config", "user.name", "Umer"); git("config", "user.email", "umer@example.invalid"); git("config", "commit.gpgsign", "false");
+    const prepared = run(process.execPath, ["scripts/release.ts", "prepare", "probe=patch"]);
+    assert.equal(prepared.status, 0, prepared.stderr);
+    assert.equal(existsSync(fragment), false);
+    assert.deepEqual(parseChangelog(readFileSync(cl, "utf8")).versions[0].bullets, [
+      { kind: "FIX", text: "fragment for Umer." }, { kind: "other", text: "Existing note for Umer." },
+    ]);
+    assert.equal(git("status", "--porcelain").trim(), "");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

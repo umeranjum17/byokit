@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.6.0 (2026-10-01)
+
+- Dependency update: pins @byokit/ui-core 0.6.0.
+
 - `directRoutes()` combines explicit loopback, tailnet and LAN listener scopes with typed hosts and ordered dial URLs.
 - Node and React Native share `nativeAddresses()`, `routeOf()`, `observe()` and bounded `probe()` observations; native readers are injectable and home evidence uses actual prefixes.
 - Explicit `@byokit/reach/react-native` entry alongside the existing export condition.

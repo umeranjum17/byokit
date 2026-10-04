@@ -1,0 +1,15 @@
+{
+  "rule": "Cloud methods are explicitly selected Node-only accounts. Saving, listing and selecting defaults never resolve SDK credentials, probe selected paths, invoke bindings or send requests. Secrets live only in the selected member's keyStore; profiles, paths, regions, project/location and binding names are non-secret metadata. Inference uses only the selected account and model provider. Cloud status is configured readiness, not live authorization.",
+  "ownership": {
+    "B3": ["aws-bedrock|cloud_credentials|api", "google-vertex|cloud_credentials|api", "cloudflare|cloud_credentials|api", "aws-bedrock|custom_endpoint|unknown"],
+    "B4": ["custom|local_none|local", "custom|custom_endpoint|unknown"],
+    "nativeEndpoint": "Stock skipAuth placeholder-SigV4-signs the device-internal loopback hop; the per-request kit forwarder validates that placeholder and strips signing/hop headers before fixed-target HTTP1 egress. Supplied key/bearer/profile is refused before IPC. Upstream flow remains present."
+  },
+  "cases": [
+    { "provider": "aws-bedrock", "options": { "route": "aws-bedrock:cloud:aws-profile", "via": "cloud", "profile": "selected", "home": "/chosen/home", "region": "us-east-1" }, "metadata": ["profile", "home", "region"] },
+    { "provider": "aws-bedrock", "options": { "route": "aws-bedrock:cloud:credential-chain", "via": "cloud", "home": "/chosen/home", "region": "us-east-1" }, "metadata": ["home", "region"] },
+    { "provider": "google-vertex", "options": { "route": "google-vertex:cloud:adc", "via": "cloud", "keyFile": "/chosen/adc.json", "project": "fixture", "location": "us-central1" }, "metadata": ["keyFile", "project", "location"] },
+    { "provider": "google-vertex", "options": { "route": "google-vertex:cloud:service-account", "via": "cloud", "keyFile": "/chosen/service.json", "project": "fixture", "location": "us-central1" }, "metadata": ["keyFile", "project", "location"] },
+    { "provider": "cloudflare", "options": { "route": "cloudflare:cloud:workers-binding", "via": "cloud", "binding": "selected-AI", "gatewayId": "fixture", "baseUrl": "https://workers-binding.ai/ai-gateway/gateways/fixture/openai" }, "metadata": ["binding", "gatewayId", "baseUrl"] }
+  ]
+}

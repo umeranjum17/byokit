@@ -5,14 +5,24 @@
 import webpush from 'web-push';
 
 export type WebSubscription = { endpoint: string; keys: { p256dh: string; auth: string } };
-/** A device's push address: an Expo push token, or a browser's Web Push subscription. */
-export type Subscription = { expo: string } | { web: WebSubscription };
+/** A device's push address: an Expo push token, or a browser's Web Push subscription. `platform` is the device's
+ *  own report of its OS (React Native `Platform.OS`); only an `'android'` token can get a data-only message. */
+export type Subscription = { expo: string; platform?: 'ios' | 'android' } | { web: WebSubscription };
 export type Vapid = { publicKey: string; privateKey: string };
 /** What a host sends. `to` picks devices (grant ids); default every device with a subscription. `actions` are the
  *  buttons the device may show; pressing one reaches the host's `onAction` through the relay. */
 export type Notification = {
   id: string; title: string; body?: string; data?: Record<string, unknown>;
   to?: string[]; actions?: string[]; urgency?: 'very-low' | 'low' | 'normal' | 'high'; ttl?: number;
+  /** Expo, iOS: APNs `mutable-content`, so the app's Notification Service Extension may replace the visible text
+   *  (for example with a notice it opens from `data`) before it shows. Without an extension, the alert shows as sent. */
+  mutableContent?: boolean;
+  /** Expo, iOS and Android: the notification category the app registered, whose buttons the alert shows. */
+  categoryId?: string;
+  /** Expo, Android: tokens subscribed with `platform: 'android'` get a data-only message (no title, body, sound or
+   *  category) for the app to present itself; other subscriptions get the visible alert. Android may delay it (Doze)
+   *  and does not deliver it to a force-stopped app; use `urgency: 'high'` for prompt delivery. */
+  dataOnly?: boolean;
 };
 /** One stored subscription. */
 export type PushRecord = { host: string; device: string; added: number } & Subscription;
@@ -48,7 +58,10 @@ export function isAllowedEndpoint(value: unknown, hosts: readonly string[] = DEF
 /** A subscription as a host sent it, checked; undefined if it is not one. */
 export function parseSubscription(s: any, hosts?: readonly string[]): Subscription | undefined {
   if (!s || typeof s !== 'object' || ('expo' in s) === ('web' in s)) return undefined;
-  if ('expo' in s) return isExpoToken(s.expo) ? { expo: s.expo } : undefined;
+  if ('expo' in s) {
+    if (!isExpoToken(s.expo) || ![undefined, 'ios', 'android'].includes(s.platform)) return undefined;
+    return { expo: s.expo, ...(s.platform && { platform: s.platform }) };
+  }
   const w = s.web;
   if (isAllowedEndpoint(w?.endpoint, hosts) && text(w?.keys?.p256dh, 256) && text(w?.keys?.auth, 256)) {
     return { web: { endpoint: w.endpoint, keys: { p256dh: w.keys.p256dh, auth: w.keys.auth } } };
@@ -65,8 +78,12 @@ export function parseNotification(n: any): Notification | undefined {
   if (n.actions !== undefined && !(Array.isArray(n.actions) && n.actions.length <= 4 && n.actions.every((a: unknown) => text(a, 32)))) return undefined;
   if (n.urgency !== undefined && !['very-low', 'low', 'normal', 'high'].includes(n.urgency)) return undefined;
   if (n.ttl !== undefined && !(Number.isInteger(n.ttl) && n.ttl >= 0 && n.ttl <= 28 * 86_400)) return undefined;
-  const { id, title, body, data, to, actions, urgency, ttl } = n;
-  return { id, title, ...(body !== undefined && { body }), ...(data && { data }), ...(to && { to }), ...(actions && { actions }), ...(urgency && { urgency }), ...(ttl !== undefined && { ttl }) };
+  if (n.mutableContent !== undefined && typeof n.mutableContent !== 'boolean') return undefined;
+  if (n.categoryId !== undefined && !(typeof n.categoryId === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(n.categoryId))) return undefined;
+  if (n.dataOnly !== undefined && typeof n.dataOnly !== 'boolean') return undefined;
+  const { id, title, body, data, to, actions, urgency, ttl, mutableContent, categoryId, dataOnly } = n;
+  return { id, title, ...(body !== undefined && { body }), ...(data && { data }), ...(to && { to }), ...(actions && { actions }), ...(urgency && { urgency }), ...(ttl !== undefined && { ttl }),
+    ...(mutableContent !== undefined && { mutableContent }), ...(categoryId && { categoryId }), ...(dataOnly !== undefined && { dataOnly }) };
 }
 
 export const vapidKeys = (): Vapid => webpush.generateVAPIDKeys();
@@ -84,7 +101,7 @@ export async function deliver(o: {
   });
   const gone = o.subs.filter((s) => !parseSubscription(s, o.hosts));
   const web = o.subs.filter((s): s is PushRecord & { web: WebSubscription } => 'web' in s && !gone.includes(s));
-  const expo = o.subs.filter((s): s is PushRecord & { expo: string } => 'expo' in s && !gone.includes(s));
+  const expo = o.subs.filter((s): s is PushRecord & Extract<Subscription, { expo: string }> => 'expo' in s && !gone.includes(s));
   let sent = 0;
   await Promise.all(web.map(async (s) => {
     try {
@@ -100,10 +117,13 @@ export async function deliver(o: {
     try {
       const res = await o.fetch(EXPO_SEND, {
         method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(5000),
-        body: JSON.stringify(expo.map((s) => ({
-          to: s.expo, title: n.title, ...(n.body !== undefined && { body: n.body }), sound: 'default', collapseId: n.id, ttl,
-          priority: n.urgency === 'high' ? 'high' : 'normal', data: payload(s.device),
-        }))),
+        body: JSON.stringify(expo.map((s) => {
+          const delivery = { to: s.expo, collapseId: n.id, ttl, priority: n.urgency === 'high' ? 'high' : 'normal', data: payload(s.device) };
+          // Expo sends a message with no title or body to Android as an FCM data message, which the app presents itself.
+          if (n.dataOnly && s.platform === 'android') return delivery;
+          return { ...delivery, title: n.title, ...(n.body !== undefined && { body: n.body }), sound: 'default',
+            ...(n.mutableContent !== undefined && { mutableContent: n.mutableContent }), ...(n.categoryId && { categoryId: n.categoryId }) };
+        })),
       });
       const tickets: any[] = res.ok ? ((await res.json()) as any)?.data ?? [] : [];
       tickets.forEach((t, i) => {

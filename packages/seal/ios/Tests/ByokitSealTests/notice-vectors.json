@@ -1,0 +1,299 @@
+{
+  "rule": "ByokitSeal.openNotice(envelope, secret) must equal expect (null: no notice) for every case; made by notice-vectors.test.ts",
+  "secret": "2aee7bc83adf55d0c26114e021b745265949ad66f66934b0091105789ba5aa2a",
+  "cases": [
+    {
+      "name": "object with non-ASCII text",
+      "envelope": {
+        "v": 1,
+        "sealed": "TSe87jE1xJRLKNJ92Amwe-EMNRYNIBMcqn6FV1SY0HwxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0gDyjbJBBy8RjWupbSu2SZqdDrffQgvVmdiIb5jYCb9pxMkEB_iWoP9RIMCrbwJral5x3fJGHDnvcR0UK9sJvIdgymk-lzTEnlL_HQZN0kE4qsmS8T9vOLykp4rbpmeWHlTTwQUJHV3FphQjn06Ue4E0XvPL-OB3us"
+      },
+      "expect": {
+        "kind": "ask",
+        "agent": "Builder",
+        "text": "Ship it? ✅ — “quoted” 𝄞",
+        "options": [
+          "Open",
+          "Answer"
+        ]
+      }
+    },
+    {
+      "name": "string",
+      "envelope": {
+        "v": 1,
+        "sealed": "AwUV8y5ZPP5dfJOfmw012K5Y8g2avokK_7gNoDlfYR1kZWZnaGlqa2xtbm9wcXJzdHV2d3h5env1VILxs_LXQFzhIRB9RbdOcCUKsQ"
+      },
+      "expect": "hi"
+    },
+    {
+      "name": "number",
+      "envelope": {
+        "v": 1,
+        "sealed": "XJFPDyg19iEXrUo_5ORDGaYSBfWwRhtB2lWV97tI7yh1dnd4eXp7fH1-f4CBgoOEhYaHiImKi4wqkbFoMvvr20cEZV0YE9-ZeUfbdw"
+      },
+      "expect": 42.5
+    },
+    {
+      "name": "array",
+      "envelope": {
+        "v": 1,
+        "sealed": "yg_0pLeJ_DBjuwaOZIkz-ESp0oTGvX9rossNRAicEAuGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ0mV5ubkA_xQmY0asSHc6ea7LUiE3HYqxjKnocNFoWu20Z5XKnN"
+      },
+      "expect": [
+        1,
+        "two",
+        {
+          "three": 3
+        }
+      ]
+    },
+    {
+      "name": "empty object",
+      "envelope": {
+        "v": 1,
+        "sealed": "Trp4Kiy0DgC_Kly2zA2viU_glu5vAnAGtdC2WIPSvymXmJmam5ydnp-goaKjpKWmp6ipqqusra7jbuXQBVEPooOvuQolwlEngvw"
+      },
+      "expect": {}
+    },
+    {
+      "name": "whole Poly1305 blocks",
+      "envelope": {
+        "v": 1,
+        "sealed": "hsFaERkgHSqaYCOs7q9JZkpUGGrS20ZYRTMXB7baKw1CQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFm5BAOBtZIoJhOsRhCAHfQYf2e6Q8rX037HhW5KbZRxrFe4yWeEB1s6vD6qVDwR6_4"
+      },
+      "expect": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "name": "several Salsa20 blocks",
+      "envelope": {
+        "v": 1,
+        "sealed": "jl-uEvTcdTffjJ5X_UZ7UPIlpRxPTYXJtWDgWJMj-zaoqaqrrK2ur7CxsrO0tba3uLm6u7y9vr__AA--ERT8nlaRapbRed05W80PNjYfoxfTK7IH2bK9tj9UyVAiVwBj_CCtZgQWKwk1i8hiLNCnlm5TqTwKOlZjcGq-ZU6v-xy3xZRUL-aBSnIENrV1ZlcISo8c8XlObD2wHkf_hP2enWLvKj_gSLft36K5Ef_5xYk6G0YXT-5bNoSg_q0VGfF_o5t54ezUGLfF6fV4YU8w3kYEDpX1gk7kPmcpifLHzjojsoLFtBGBvzySzNaWjIW3c_xVYV8qD9OvpoO7fwyGIvh9CDWFbRKN6e_zp3ykC1JxtnwtRRXV5RWAFWlflhry_7ARbecH5FpMQTzOEL92nLmoPX-Ng3l97sxnfSo6sN-RRnnrTamDQTqTntrqlszLWYLMrHWPw9h3Ntl2aGNf5FEfg1YiZXe0v3ONia-ZH9jBDfNN9mufNmOqFZ0knAwTKWN6vINjWHIVGq8Qsmmu9cozydGg2bRHs_JeV4hxp0ExWqJa5xYKacEB9jRXAenDS7YqdKJjVe7OXsXJHj9VahU6IIdEpYIaMaSS96hhqUV-sN_Xaq7fgHm6WA5U8QZ1Ia4ISW79I0xXP6It_35lEwHvpSX3QpvxUAW0xWv6KCz0ZmV5XG6ipPUITdcpjUpOl7hzyQVhga7jJCzJ70PjhSJ6y13JJ5OAwcgEW9BwnhA6NGCrYkUe4AlKjI1yKT78SOzSRVfbhqwuAGc6FcXAVFEy_qO-OBoZRF4eneahcgi_ghtmHgDJhq8v8gnN3QcRyeksLFcbirqwyTSvZB1orP1i53JbAq9M7wv-2JN7OGCkOxMNbFvtzIgEYw1ctLvnuazkJgwWpNWzws8UUTQRR_34PgYStK93h0PsgMQMniAnSnZNb5jzCgGVEV57UorumIQeKVrNRh-6V6P39OX-4-ybGQz4yDd13taQoS8mG5VZnBeVHe00sHwhIT8qGxmVevF-Cc9WJms8HdS0O8M9M-ryLSRTKeAX9bQ98qMQ8ip4tMJVWh5pQmsZPhmcGOm6HEu1e1Ry0AJuS025rQ4S2IQTZbtvoNJ8FJ_Gdomk-ZLvMOMOV0T0zHTN6yMrCboxf4782uMZkKsk5gzZ4THdqRyLAtIghNlootpRkJyDCjSds5zN_iypfqp7Shcb5xcdUFRXJ_Zt1XhDy1AhjfwTy4T7JJaVoLSbOIfhvyFenNFfvRT9cT6vvi6kaYvirw8PFQzJfc3Xyiq2OCt_vvWdz0In_Jd_FsktELkKpgUzh_C1HFLH1namv3eytRDBQRN7QJMd7ZW7VA-KeWPMOAkjb0pNU-X4OUWOXTFBUbJ4E3zg5MMN3NVOf8GwdXcIv5eZCrBxRxWCwRo-3mDOU87S_C5ZsSRatn7Q796A9iuHekIeAILaSlwsXjNEXuGg1KR7Cuk5MoHxTtnk0bKljpdPtPba-oTuEKGL_kxljABhq8hpWHSCBNXYj6rpbeCkUE4Q-gqyAdpWtFDcHLZHP1w4G4t3vlALdyqxFODzlV8Ps0iX8VTBACQL7h9FpBkZfKFkY6LjMgU99SrelMGraZadr7u09HbLRj5KR9KQ7WbeD6QLIx7fPPvx8GD0tCuYh2hth1HrQdoeiOwddzlexvSw2mJTjQ5ARm5RXqzL84P7mCC9xF7xRU5IHXEZlsSgOe6deWTvA--i13fqiIGsNFZYPbKkkTMq28B20Fl1ZHNk0SJHzMdLnNXs0idAhSptwBb7A4bX7IOlozi1XhpWQUmcwFxXtqI_t43EDGqU9nGX7YIoQbGQE4MLlkCrezHFycP215pwJZxXWWoA4L4kKWtcuDu5gB9VCkJlDHRrgBBWNPOTDp0BRkxaEMDjBsTQh50XPQJNbjC_c4ZIUXxM23nznk-OBXvRfiuHLvo_tRMUgJczMcPZF5o2c980m84UNX9diy8ofCmxI1HHfPHifDQynJMcnAmiB90C_QQpcWmD65mc23NqKgxwqcLrqB0zblEBy1URDF2Sd0kbQFJtbskPEArfK0oHnZjUil84RkJxQW2nx7dPWg1gXZ0huMF04BQ"
+      },
+      "expect": {
+        "text": "long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long long "
+      }
+    },
+    {
+      "name": "leading UTF-8 BOM",
+      "envelope": {
+        "v": 1,
+        "sealed": "Nsh592UNKS3WlfbMvez2nr_NqTfg5O_bbOhn24FpXwO5uru8vb6_wMHCw8TFxsfIycrLzM3Oz9DKDu__6X9NgEcEKKsH0NP9L4aKR89lVEqMIA"
+      },
+      "expect": {
+        "a": 1
+      }
+    },
+    {
+      "name": "JSON null is nothing",
+      "envelope": {
+        "v": 1,
+        "sealed": "lr70dDuo4-0Z0mXnPg0scRNqtbS5lK-ogtH4L9OKSwHKy8zNzs_Q0dLT1NXW19jZ2tvc3d7f4OGyFVGqc0nxHhX96jKlK2XPRT7cbg"
+      },
+      "expect": null
+    },
+    {
+      "name": "two leading BOMs",
+      "envelope": {
+        "v": 1,
+        "sealed": "_S5k8tB1doDnWgXUF1GqFr19l5x1nUeNAr4CsTLQr0Db3N3e3-Dh4uPk5ebn6Onq6-zt7u_w8fKVQDpfl4Phy9XY9N88B1rdx7dTU1E_pFc"
+      },
+      "expect": null
+    },
+    {
+      "name": "tampered MAC",
+      "envelope": {
+        "v": 1,
+        "sealed": "TSe87jE1xJRLKNJ92Amwe-EMNRYNIBMcqn6FV1SY0HwxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0gCyjbJBBy8RjWupbSu2SZqdDrffQgvVmdiIb5jYCb9pxMkEB_iWoP9RIMCrbwJral5x3fJGHDnvcR0UK9sJvIdgymk-lzTEnlL_HQZN0kE4qsmS8T9vOLykp4rbpmeWHlTTwQUJHV3FphQjn06Ue4E0XvPL-OB3us"
+      },
+      "expect": null
+    },
+    {
+      "name": "tampered ciphertext",
+      "envelope": {
+        "v": 1,
+        "sealed": "TSe87jE1xJRLKNJ92Amwe-EMNRYNIBMcqn6FV1SY0HwxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0gDyjbJBBy8RjWupbSu2SZqdDrffQgvVmdiIb5jYCb9pxMkEB_iWoP9RIMCrbwJral5x3fJGHDnvcR0UK9sJvIdgymk-lzTEnlL_HQZN0kE4qsmS8T9vOLykp4rbpmeWHlTTwQUJHV3FphQjn06Ue4E0XvPL-OB3uo"
+      },
+      "expect": null
+    },
+    {
+      "name": "tampered nonce",
+      "envelope": {
+        "v": 1,
+        "sealed": "TSe87jE1xJRLKNJ92Amwe-EMNRYNIBMcqn6FV1SY0HwxMjM0NTY3ODg6Ozw9Pj9AQUJDREVGR0gDyjbJBBy8RjWupbSu2SZqdDrffQgvVmdiIb5jYCb9pxMkEB_iWoP9RIMCrbwJral5x3fJGHDnvcR0UK9sJvIdgymk-lzTEnlL_HQZN0kE4qsmS8T9vOLykp4rbpmeWHlTTwQUJHV3FphQjn06Ue4E0XvPL-OB3us"
+      },
+      "expect": null
+    },
+    {
+      "name": "tampered ephemeral key",
+      "envelope": {
+        "v": 1,
+        "sealed": "TSe87zE1xJRLKNJ92Amwe-EMNRYNIBMcqn6FV1SY0HwxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0gDyjbJBBy8RjWupbSu2SZqdDrffQgvVmdiIb5jYCb9pxMkEB_iWoP9RIMCrbwJral5x3fJGHDnvcR0UK9sJvIdgymk-lzTEnlL_HQZN0kE4qsmS8T9vOLykp4rbpmeWHlTTwQUJHV3FphQjn06Ue4E0XvPL-OB3us"
+      },
+      "expect": null
+    },
+    {
+      "name": "wrong secret",
+      "envelope": {
+        "v": 1,
+        "sealed": "TSe87jE1xJRLKNJ92Amwe-EMNRYNIBMcqn6FV1SY0HwxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0gDyjbJBBy8RjWupbSu2SZqdDrffQgvVmdiIb5jYCb9pxMkEB_iWoP9RIMCrbwJral5x3fJGHDnvcR0UK9sJvIdgymk-lzTEnlL_HQZN0kE4qsmS8T9vOLykp4rbpmeWHlTTwQUJHV3FphQjn06Ue4E0XvPL-OB3us"
+      },
+      "secret": "3e8fe3ab30c0aabf54acd276f3d8bbbc2b7ca4a9495d204f255bacf578c74c86",
+      "expect": null
+    },
+    {
+      "name": "short secret",
+      "envelope": {
+        "v": 1,
+        "sealed": "TSe87jE1xJRLKNJ92Amwe-EMNRYNIBMcqn6FV1SY0HwxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0gDyjbJBBy8RjWupbSu2SZqdDrffQgvVmdiIb5jYCb9pxMkEB_iWoP9RIMCrbwJral5x3fJGHDnvcR0UK9sJvIdgymk-lzTEnlL_HQZN0kE4qsmS8T9vOLykp4rbpmeWHlTTwQUJHV3FphQjn06Ue4E0XvPL-OB3us"
+      },
+      "secret": "2aee7bc83adf55d0c26114e021b745265949ad66f66934b0091105789ba5aa",
+      "expect": null
+    },
+    {
+      "name": "truncated to 71 bytes",
+      "envelope": {
+        "v": 1,
+        "sealed": "TSe87jE1xJRLKNJ92Amwe-EMNRYNIBMcqn6FV1SY0HwxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0gDyjbJBBy8RjWupbSu2SY"
+      },
+      "expect": null
+    },
+    {
+      "name": "empty sealed",
+      "envelope": {
+        "v": 1,
+        "sealed": ""
+      },
+      "expect": null
+    },
+    {
+      "name": "padding",
+      "envelope": {
+        "v": 1,
+        "sealed": "wV0iZUWUVcn_FW5sHaa_t5ELuK9Q8rL5-FPqkyUlnU1TVFVWV1hZWltcXV5fYGFiY2RlZmdoaWrJKtXXUYgLo7CS-zlGIqUKIQ="
+      },
+      "expect": null
+    },
+    {
+      "name": "standard base64 character",
+      "envelope": {
+        "v": 1,
+        "sealed": "+Se87jE1xJRLKNJ92Amwe-EMNRYNIBMcqn6FV1SY0HwxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0gDyjbJBBy8RjWupbSu2SZqdDrffQgvVmdiIb5jYCb9pxMkEB_iWoP9RIMCrbwJral5x3fJGHDnvcR0UK9sJvIdgymk-lzTEnlL_HQZN0kE4qsmS8T9vOLykp4rbpmeWHlTTwQUJHV3FphQjn06Ue4E0XvPL-OB3us"
+      },
+      "expect": null
+    },
+    {
+      "name": "whitespace",
+      "envelope": {
+        "v": 1,
+        "sealed": "TSe87jE1xJRLKNJ92Amwe-EMNRYNIBMcqn6FV1SY0HwxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0gDyjbJBBy8RjWupbSu2SZqdDrffQgvVmdiIb5jYCb9pxMkEB_iWoP9RIMCrbwJral5x3fJGHDnvcR0UK9sJvIdgymk-lzTEnlL_HQZN0kE4qsmS8T9vOLykp4rbpmeWHlTTwQUJHV3FphQjn06Ue4E0XvPL-OB3us "
+      },
+      "expect": null
+    },
+    {
+      "name": "length 1 mod 4",
+      "envelope": {
+        "v": 1,
+        "sealed": "TSe87jE1xJRLKNJ92Amwe-EMNRYNIBMcqn6FV1SY0HwxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0gDyjbJBBy8RjWupbSu2SZqdDrffQgvVmdiIb5jYCb9pxMkEB_iWoP9RIMCrbwJral5x3fJGHDnvcR0UK9sJvIdgymk-lzTEnlL_HQZN0kE4qsmS8T9vOLykp4rbpmeWHlTTwQUJHV3FphQjn06Ue4E0XvPL-OB3usA"
+      },
+      "expect": null
+    },
+    {
+      "name": "stray low bits",
+      "envelope": {
+        "v": 1,
+        "sealed": "wV0iZUWUVcn_FW5sHaa_t5ELuK9Q8rL5-FPqkyUlnU1TVFVWV1hZWltcXV5fYGFiY2RlZmdoaWrJKtXXUYgLo7CS-zlGIqUKIB"
+      },
+      "expect": null
+    },
+    {
+      "name": "version 2",
+      "envelope": {
+        "v": 2,
+        "sealed": "TSe87jE1xJRLKNJ92Amwe-EMNRYNIBMcqn6FV1SY0HwxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0gDyjbJBBy8RjWupbSu2SZqdDrffQgvVmdiIb5jYCb9pxMkEB_iWoP9RIMCrbwJral5x3fJGHDnvcR0UK9sJvIdgymk-lzTEnlL_HQZN0kE4qsmS8T9vOLykp4rbpmeWHlTTwQUJHV3FphQjn06Ue4E0XvPL-OB3us"
+      },
+      "expect": null
+    },
+    {
+      "name": "version as string",
+      "envelope": {
+        "v": "1",
+        "sealed": "TSe87jE1xJRLKNJ92Amwe-EMNRYNIBMcqn6FV1SY0HwxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0gDyjbJBBy8RjWupbSu2SZqdDrffQgvVmdiIb5jYCb9pxMkEB_iWoP9RIMCrbwJral5x3fJGHDnvcR0UK9sJvIdgymk-lzTEnlL_HQZN0kE4qsmS8T9vOLykp4rbpmeWHlTTwQUJHV3FphQjn06Ue4E0XvPL-OB3us"
+      },
+      "expect": null
+    },
+    {
+      "name": "version as boolean",
+      "envelope": {
+        "v": true,
+        "sealed": "TSe87jE1xJRLKNJ92Amwe-EMNRYNIBMcqn6FV1SY0HwxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0gDyjbJBBy8RjWupbSu2SZqdDrffQgvVmdiIb5jYCb9pxMkEB_iWoP9RIMCrbwJral5x3fJGHDnvcR0UK9sJvIdgymk-lzTEnlL_HQZN0kE4qsmS8T9vOLykp4rbpmeWHlTTwQUJHV3FphQjn06Ue4E0XvPL-OB3us"
+      },
+      "expect": null
+    },
+    {
+      "name": "no version",
+      "envelope": {
+        "sealed": "TSe87jE1xJRLKNJ92Amwe-EMNRYNIBMcqn6FV1SY0HwxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0gDyjbJBBy8RjWupbSu2SZqdDrffQgvVmdiIb5jYCb9pxMkEB_iWoP9RIMCrbwJral5x3fJGHDnvcR0UK9sJvIdgymk-lzTEnlL_HQZN0kE4qsmS8T9vOLykp4rbpmeWHlTTwQUJHV3FphQjn06Ue4E0XvPL-OB3us"
+      },
+      "expect": null
+    },
+    {
+      "name": "sealed as number",
+      "envelope": {
+        "v": 1,
+        "sealed": 7
+      },
+      "expect": null
+    },
+    {
+      "name": "array envelope",
+      "envelope": [
+        1,
+        "TSe87jE1xJRLKNJ92Amwe-EMNRYNIBMcqn6FV1SY0HwxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0gDyjbJBBy8RjWupbSu2SZqdDrffQgvVmdiIb5jYCb9pxMkEB_iWoP9RIMCrbwJral5x3fJGHDnvcR0UK9sJvIdgymk-lzTEnlL_HQZN0kE4qsmS8T9vOLykp4rbpmeWHlTTwQUJHV3FphQjn06Ue4E0XvPL-OB3us"
+      ],
+      "expect": null
+    },
+    {
+      "name": "string envelope",
+      "envelope": "TSe87jE1xJRLKNJ92Amwe-EMNRYNIBMcqn6FV1SY0HwxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0gDyjbJBBy8RjWupbSu2SZqdDrffQgvVmdiIb5jYCb9pxMkEB_iWoP9RIMCrbwJral5x3fJGHDnvcR0UK9sJvIdgymk-lzTEnlL_HQZN0kE4qsmS8T9vOLykp4rbpmeWHlTTwQUJHV3FphQjn06Ue4E0XvPL-OB3us",
+      "expect": null
+    },
+    {
+      "name": "null envelope",
+      "envelope": null,
+      "expect": null
+    },
+    {
+      "name": "invalid UTF-8",
+      "envelope": {
+        "v": 1,
+        "sealed": "8LMwUjd-0SabjcRF4XGGFffEYUHBFL4xKL0b__AZ4SXs7e7v8PHy8_T19vf4-fr7_P3-_wABAgO3av6UzhTI2SzNEyt_mmXzgXBruQ"
+      },
+      "expect": null
+    },
+    {
+      "name": "not JSON",
+      "envelope": {
+        "v": 1,
+        "sealed": "28m_Gq8W5M3ZnDE_yMF2vqRlUApzE7knzYknVSkmUXH9_v8AAQIDBAUGBwgJCgsMDQ4PEBESExQkov10AWX4T13cKeK1RWMQyvtYBm61kPA"
+      },
+      "expect": null
+    },
+    {
+      "name": "trailing garbage",
+      "envelope": {
+        "v": 1,
+        "sealed": "cKKRB1t-FPCbTaKeMDyDmZUm455LLm2pOCsOhKAcp1kODxAREhMUFRYXGBkaGxwdHh8gISIjJCV2okAP3NO9_L59J8CI4M8t6616iw"
+      },
+      "expect": null
+    },
+    {
+      "name": "low-order ephemeral key",
+      "envelope": {
+        "v": 1,
+        "sealed": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expect": null
+    }
+  ]
+}
