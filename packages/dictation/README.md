@@ -81,7 +81,7 @@ For live dictation, retain the engine between taps and pass your `AudioMic` to `
 | `threads` | `6` | Integer 1–64; benchmark for your device |
 | `gain` | `1` | PCM amplitude multiplier 0.01–16, clipped to Int16 range |
 | `chunkMs` | `0` | Automatic 30-second windows with 5-second overlap for recordings over 30 seconds; integers 100–30000 opt into non-overlapping windows |
-| `vad.enabled` | `false` | Optional energy VAD removes file silence; disabling preserves all file audio |
+| `vad.enabled` | `false` | Optional file VAD removes file silence (energy, or neural when a `vad` factory is passed); disabling preserves all file audio |
 | `vad.threshold` | `0.0025` | Raw normalized RMS floor 0–1 after gain (0.01 on the UI's ×4 scale) |
 | `vad.relativeThreshold` | `0.1` | Live gate also requires this fraction of the recording's peak RMS; range 0–1 |
 | `vad.silenceMs` | `500` | Integer 20–10000; silence needed to end an optional file VAD speech region |

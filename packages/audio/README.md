@@ -4,8 +4,9 @@ Shared on-device audio detection. One streaming speech detector, one pinned MIT 
 no network, no keys, no microphone: the app supplies the inference session and the model
 bytes, the kit owns every decision a consumer can observe.
 
-Consumed by [`@byokit/dictation`](../dictation/README.md), whose offline segmentation and
-live turn gate both run through it when the app supplies a detector.
+Consumed by [`@byokit/dictation`](../dictation/README.md): the live turn gate runs through it
+whenever the app supplies a detector, while offline segmentation runs through it only
+when `vad.enabled` is true. That package's README owns the gating contract.
 
 ## What it is
 
