@@ -1,0 +1,27 @@
+# Fresh-project pack gate
+
+A brand-new consumer app outside the monorepo installs the packed `@byokit/*` tarballs from `npm pack` and imports, typechecks and runs them — the shape users actually receive from the registry. `scripts/pack-smoke.ts` owns this gate.
+
+## Sub-features
+
+- `pack-shape`: every publishable workspace packs without extraneous files.
+- `pack-install`: a scratch app outside the monorepo installs the tarballs.
+- `pack-run`: the installed packages import and run.
+
+## How to get to it (user POV)
+
+- The maintainer runs `npm run smoke:pack` before a release; CI runs it on PRs.
+
+## Driving it with node scratch consumers
+
+Preconditions: baseline (features/README.md); the heavy lock held for the whole run (installs + builds).
+
+- **Run the gate.** `npm run smoke:pack 2>&1 | tee .verify-artifacts/pack-fresh-project/drive.txt; echo "EXIT=$?"`. Exit code `0`.
+- **What it proves.** The script packs every workspace tarball, creates a scratch app outside the monorepo, installs the tarballs into it and proves the packed shape imports, typechecks and runs; it exits 1 on any failure.
+- **Proof.** The tee'd artifact ends with the script's success lines; the scratch app is the script's own and it removes it (including on abort — it kills only gateways it owns, by pid).
+
+## Gotchas
+
+- Heavy: full pack + install + typecheck of every package. Do not run concurrently with other builds/tests in this home.
+- The script kills only packed-gateway processes it can prove it owns (`gateway.pid`/`gateway.identity`); never kill by process name to "help" it.
+- If a previous run was SIGKILLed, a leftover scratch dir under the system tmp may hold a stale pid file that no live process answers — the script tolerates a dead pid; a live one from another run is a stop condition.
