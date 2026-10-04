@@ -1,7 +1,6 @@
 # On-device text generation: `@byokit/infer`
 
-Status: **foundation (2026-10-02)**. Source skeleton, offline tests and this spec are on main; the package is
-`private: true` and is not published until the qualification gates in §6 are recorded. Names, errors, state, words and
+Status: **first public release 0.1.0 (2026-10-04, byk decision)**. Source skeleton, offline tests and this spec are on main; the `private: true` marker is removed so the package publishes as 0.1.0 before the qualification gates in §6 are recorded, with the unmeasured limits disclosed in the release notes. §6 stays binding for any qualification claim. Names, errors, state, words and
 construction follow [kit-conventions.md](kit-conventions.md); this spec adds what is specific to this kit and is
 binding for its builders. A signature or decision change is a spec change first.
 
@@ -19,9 +18,9 @@ support check. `@byokit/dictation` is speech, not text. This kit is that missing
 
 | # | Decision | Why |
 |---|---|---|
-| I1 | Package `@byokit/infer`, first version **0.1.0**, `private: true` until §6 passes. Name accepted by Root for first publication (kit-conventions §1.2). | One plain word for the capability (run a model here). `generate`/`decide` are already function names. |
+| I1 | Package `@byokit/infer`, first version **0.1.0**, published before §6 passes by byk decision (2026-10-04); qualification claims still require §6. Name accepted by Root for first publication (kit-conventions §1.2). | One plain word for the capability (run a model here). `generate`/`decide` are already function names. |
 | I2 | Native binding: stock published **`llama.rn@0.12.9`** (npm, MIT, 2026-08-04, gitHead `2a20c13e6665cc7278f68c6b2b5819899d0e84fd`, llama.cpp build `10256`/`6c8dcaa`), an **exact optional peer**. The kit types a structural subset and the host injects `initLlama`, as dictation does with whisper.rn. | Same engine family as the shipped dictation kit; one GGUF path for Android and iOS; prebuilt Android JNI libs and iOS XCFramework pinned by SHA-256 in its own `install/native-artifacts.json`. Latest stable, not the `0.13.0-rc.*` `latest` tag. No fork or patch. |
-| I3 | Default candidate: **Qwen2.5-1.5B-Instruct Q4_K_M GGUF** (§3), authorized by Main313 after realistic Smol360M output was still `enough:false`. Smol360M and Qwen3-0.6B stay catalogued with `offer: false`; no automatic model switch/fallback. | Official Apache-2.0 instruct model with structured-output support. The kit stays private pending its accepted physical summary; source pinning is not qualification. |
+| I3 | Default candidate: **Qwen2.5-1.5B-Instruct Q4_K_M GGUF** (§3), authorized by Main313 after realistic Smol360M output was still `enough:false`. Smol360M and Qwen3-0.6B stay catalogued with `offer: false`; no automatic model switch/fallback. | Official Apache-2.0 instruct model with structured-output support. Source pinning is not qualification; the accepted physical summary is still pending (§6). |
 | I4 | One `LocalModel` per model: at most one native context; calls never queue (`busy`). | A pane summary is only useful for the card on screen; queued stale work wastes battery. |
 | I5 | Greedy decoding (`temperature: 0`, `seed: 0`), CPU only (`n_gpu_layers: 0`), `n_ctx` 2048, ≤256 output tokens, 4 threads, `use_mmap`, no `mlock`. Thinking off through the template (`enable_thinking: false`). | Repeatable output, predictable memory; GPU offload is device-specific (Android OpenCL is Adreno-only) and is a later measured opt-in. |
 | I6 | Summaries are grammar-constrained JSON `{enough, lines[≤4]}` with a discriminated `oneOf` schema: `enough` const `true` plus 3–4 nonempty ≤100-character single-line strings, or const `false` plus `lines: {const: []}`. Stock llama.rn's converter ignores `maxItems` when `items` is absent and prioritizes `pattern` over string lengths; the empty-array literal and `{1,100}` pattern bounds avoid those unsupported combinations. Grammar requests plain sentence text without double quotes/backslashes so encoded escapes cannot defeat newline bounds; JS validation remains unchanged and is still authoritative. The prompt states that same contract; no decoder Boolean coercion or legacy contradictory-output acceptance. JS rejects inconsistent flags, extra keys, embedded newlines, >100-character strings and wrong cardinality. (llama.rn `response_format: json_schema`) and validated again in JS. Only a leading literal `<\|im_start\|>assistant` header and a whole enclosing markdown `json` fence may be removed before JSON parsing; trailing garbage, other tags and malformed bodies remain invalid. No `force_pure_content`: its one packaged-native confirmation rejected before a result. | The model cannot ramble or emit a partial structure that looks complete; `enough: false` is the honest "not enough output" path. |
@@ -130,7 +129,7 @@ measurement logs outside the pooled worktree before cleanup.
   invented completion, missed failure and noise. Main313 permits only the recorded realistic Smol run then, on enough:false/badJSON, one Qwen2.5-1.5B confirmation; native exception is STOP, not an automatic model change.
 - **WP5 — iOS.** Same lab app on a physical iPhone once Root/main grants the Mac and Xcode 26.2 is installed; same
   measurements as WP3. Simulator results are labelled Simulator and never stand in for the phone.
-- **WP6 — Release prep.** Owner confirms the name; flip `private`; add `infer` to CI pack smoke; New/Fixed/Improved/
+- **WP6 — Release prep.** Owner confirmed the name; `private` flipped for the 0.1.0 first publication; add `infer` to CI pack smoke; New/Fixed/Improved/
   Known issues lines from `changes/`; sole publisher `byk-launch-env` publishes after exact-main CI and an installed
   public-tarball proof.
 
