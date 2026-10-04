@@ -517,10 +517,14 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
    `needs-update/version`. Then start the bridge socket; state `ready`.
 3. **Crash**: on child exit while not stopping: drop the transport, state `restarting` with
    `retryAt = now + min(30 s, 1 s × 2^failures)`, then `start()` again; failures reset on a successful handshake.
-4. **stop()**: stop transport; SIGTERM the process group; wait 3 s; SIGKILL; wait 3 s; await exit; close the bridge
-   socket and delete it. Only the instance's child pid guard and acquired credential lock/state may be
-   cleaned; failed-start cleanup and stop without ownership never acquire a lock to seal or delete state.
-   State `stopped`.
+4. **stop()**: stop transport; SIGTERM **each pid the kit itself spawned**, by pid and never a process group;
+   wait 3 s; SIGKILL the same recorded pids; wait 3 s; await exit; close the bridge socket and delete it. The
+   recorded list is the whole authority: every spawn (`npm ci`, the gateway) is entered when it starts and
+   dropped when it exits, and a negative pid is never passed to `kill`. A group id belongs to whoever holds
+   it once the kit's own child is gone, and it carries processes the kit never started — the gateway is left
+   to shut its own sessions down on its own SIGTERM. Only the instance's child pid guard and acquired
+   credential lock/state may be cleaned; failed-start cleanup and stop without ownership never acquire a lock
+   to seal or delete state. State `stopped`.
 5. `doctorContext()` returns the adopted set's entry and isolated env for an offline doctor run (migration).
 
 ### 5.5 Isolated engine env

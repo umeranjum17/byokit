@@ -1,0 +1,1 @@
+FIX: `stop()` now signals only the pids the kit itself spawned and never a process group, so shutdown no longer reaches processes the kit never started. Every spawn is recorded when it starts and dropped when it exits; the gateway is left to shut its own sessions down on its own SIGTERM.
