@@ -1,0 +1,19 @@
+{
+  "infer.unsupported": "This phone can't run the on-device model.",
+  "infer.notInstalled": "Download the on-device model to get summaries.",
+  "infer.installing": "Downloading the on-device model ({percent} percent)…",
+  "infer.installed": "On-device model ready.",
+  "infer.loading": "Starting the on-device model…",
+  "infer.ready": "On-device model ready.",
+  "infer.busy": "The on-device model is busy. Try again in a moment.",
+  "infer.failed": "The on-device model stopped working. Try again in a moment.",
+  "infer.invalid": "That model file can't be used.",
+  "infer.integrity": "The download didn't match the expected model, so it was removed. Try again.",
+  "infer.noSpace": "There isn't enough free space on this phone for the model.",
+  "infer.network": "The model couldn't be downloaded. Check the connection and try again.",
+  "infer.tooLarge": "There's too much text to summarize at once.",
+  "infer.incomplete": "The summary was cut off, so it isn't shown.",
+  "infer.unusable": "The summary was not usable. Try again.",
+  "infer.notEnough": "Not enough recent output to summarize.",
+  "infer.summaryLabel": "On-device summary · updated {time}"
+}
