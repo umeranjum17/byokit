@@ -60,6 +60,8 @@ class OverlayModule : Module() {
   private var app: String? = null
   private val watching = mutableListOf<() -> Unit>()
   // The keyboard follows the service's attach and detach on either host.
+  private var foregroundOff: (() -> Unit)? = null
+  private var lastForeground: String? = null
   private var keyboardOff: (() -> Unit)? = null
   private var pending: Promise? = null
   // A stop while the service is still starting waits for its startForeground; stopping it sooner crashes the app.
@@ -76,16 +78,25 @@ class OverlayModule : Module() {
 
     OnCreate {
       removers += OverlayService.hosts.add { h -> main.post { hostChanged("window", h) } }
-      removers += ByokitAccessibility.hosts.add { h -> main.post { hostChanged("accessibility", h) } }
+      removers += ByokitAccessibility.hosts.add { h -> main.post {
+        watchForeground()
+        hostChanged("accessibility", h)
+      } }
+      main.post { watchForeground() }
       removers += PanelActivity.open.add { open -> main.post { panelChanged(open) } }
     }
     OnDestroy {
       removers.forEach { it() }
       removers.clear()
       // The React context may already be gone, so this stop cannot throw.
-      main.post { runCatching { stopNow() } }
+      main.post {
+        foregroundOff?.invoke()
+        foregroundOff = null
+        runCatching { stopNow() }
+      }
     }
 
+    AsyncFunction("foregroundApp") { ByokitAccessibility.foreground?.current }.runOnQueue(Queues.MAIN)
     AsyncFunction("state") { state }.runOnQueue(Queues.MAIN)
     AsyncFunction("openPermission") {
       val intent = if (options?.host == "accessibility") Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
@@ -129,6 +140,19 @@ class OverlayModule : Module() {
       tapLog.since(since.toLong()).map { mapOf("app" to it.app, "at" to it.at.toDouble(), "action" to it.action) }
     }
     AsyncFunction("clearTaps") { tapLog.clear() }
+  }
+
+  /** Package updates work without start(), on either bubble host, and reset on service detach. */
+  private fun watchForeground() {
+    foregroundOff?.invoke()
+    val foreground = ByokitAccessibility.foreground
+    fun changed(app: String?) {
+      if (app == lastForeground) return
+      lastForeground = app
+      emit(mapOf("type" to "foregroundApp", "app" to app))
+    }
+    changed(foreground?.current)
+    foregroundOff = foreground?.onChange(::changed)
   }
 
   private fun start(o: StartRecord, promise: Promise) {

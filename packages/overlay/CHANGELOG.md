@@ -2,8 +2,10 @@
 
 ## Unreleased
 
-## 0.3.0 (2026-10-01)
+- `overlay.foregroundApp()` and `overlay.on('foregroundApp', ...)` expose only the current Android package from
+  the app's attached accessibility service, excluding host overlays; off or unknown returns null.
 
+## 0.3.0 (2026-10-01)
 
 
 - FIX: Focused web fields in Chrome and WebView now resolve reliably across window roots, refresh while focus
