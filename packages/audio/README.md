@@ -70,9 +70,11 @@ Chosen by measurement, not by reputation. Against the unchanged energy gate in
 The quiet clip is the clearest single result: energy misses 92 of its bins, this detector 18.
 Onset is the honest cost, 28 ms at the median.
 
-Reproduce it against the real graph, on CPU:
+Reproduce it against the real graph, on CPU. `onnxruntime-node` is an optional peer that this
+repository deliberately does not install, so install it yourself first:
 
 ```sh
+npm install --no-save onnxruntime-node@1.24.3   # the exact version these numbers were measured on
 node packages/audio/scripts/measureVad.mjs --model /path/to/silero_vad.onnx
 ```
 
