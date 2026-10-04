@@ -1,0 +1,14 @@
+# Repo config for no-mistakes validation.
+# test.instructions is read from the trusted default branch once merged.
+test:
+  instructions: |
+    Prove changes against the real built SDK, not summaries.
+    Read .agents/skills/verify-byokit/SKILL.md first, then the matching file in
+    .agents/skills/verify-byokit/features/ (index: features/README.md).
+    Launch (npm ci in a fresh worktree, then npm run build), run the doctor from
+    SKILL.md, drive the feature whose journey the change touches with its scratch
+    consumer, and capture command, stdout, stderr and exit code under
+    .verify-artifacts/<feature>/ (gitignored, survives cleanup).
+    Include the feature's error or missing case; declare surfaces unavailable on
+    this host (browser, React Native, Android, real providers) instead of
+    substituting a different path.
