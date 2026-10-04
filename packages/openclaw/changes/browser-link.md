@@ -1,1 +1,0 @@
-- Add member-scoped browser sign-in actions, private browser live view and portable device helpers. Browser frames and lease capabilities travel on transient encrypted streams, outside durable link answer caches; control requires the host's immediate grant-revocation seam. Watching or reconnecting never dispatches a model run.

@@ -1,1 +1,0 @@
-- Add the internal browser handoff host, durable settlement and conservative resume bookkeeping, with offline synthetic fixtures. Production sign-in remains blocked pending recovery-protection qualification.
