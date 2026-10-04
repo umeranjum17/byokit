@@ -1,4 +1,5 @@
 import { DictateError, type DictateEngine, type DictateInput, type DictateOptions, type DictateSegment, type DictateTranscript } from './types.ts';
+import { createVad, type Vad, type VadSession } from '@byokit/audio';
 import { mergeOverlap } from './text.ts';
 
 /** Recommended model identity; the host still supplies its file/asset, never a discovered path. */
@@ -104,6 +105,27 @@ function speechRanges(pcm: Int16Array, s: ResolvedWhisperSettings): [number, num
   return ranges;
 }
 
+/** With a supplied session the pinned neural detector segments, reusing this gate's
+ * own hangover and padding settings. Without one the unchanged energy gate above runs,
+ * so an app that ships no detector keeps exactly today's behavior. */
+async function segmentRanges(pcm: Int16Array, s: ResolvedWhisperSettings, session?: VadSession): Promise<[number, number][]> {
+  if (!session || !s.vad.enabled) {
+    try { return speechRanges(pcm, s); }
+    finally { await session?.release?.(); }
+  }
+  const vad = createVad({ session, silenceMs: s.vad.silenceMs, paddingMs: s.vad.paddingMs });
+  try {
+    await vad.push(pcm); await vad.flush();
+    // The detector reports milliseconds; every offset below this line is a sample index.
+    return vad.ranges().map(([from, to]) => [from * 16, to * 16]);
+  } finally { await vad.release(); }
+}
+
+/** A fresh detector for one stream; the app's factory hands out one session per stream. */
+export function vadDetector(session: VadSession, s: ResolvedWhisperSettings): Vad {
+  return createVad({ session, silenceMs: s.vad.silenceMs, paddingMs: s.vad.paddingMs });
+}
+
 export function whisperDecodeOptions(s: ResolvedWhisperSettings, o: DictateOptions, previous = ''): WhisperRnDecodeOptions {
   const language = o.languages?.[0] ?? s.language;
   // Per-call hints receive the same validation as construction settings.
@@ -117,15 +139,18 @@ export function whisperDecodeOptions(s: ResolvedWhisperSettings, o: DictateOptio
 
 /** Shared segmentation, gain, energy VAD, prompting and timestamp offsets. */
 export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperSettings, o: DictateOptions,
-  run: (pcm: Int16Array, options: WhisperRnDecodeOptions) => Promise<WhisperRnResult>): Promise<Omit<DictateTranscript, 'engine'>> {
-  checkAbort(o.signal);
-  if (o.timestamps === 'word') throw new DictateError('unsupported'); // RN returns segments, not word offsets.
-  const pcm = await whisperPcm(input, s.gain);
-  checkAbort(o.signal);
+  run: (pcm: Int16Array, options: WhisperRnDecodeOptions) => Promise<WhisperRnResult>, session?: VadSession): Promise<Omit<DictateTranscript, 'engine'>> {
+  let pcm: Int16Array;
+  try {
+    checkAbort(o.signal);
+    if (o.timestamps === 'word') throw new DictateError('unsupported'); // RN returns segments, not word offsets.
+    pcm = await whisperPcm(input, s.gain);
+    checkAbort(o.signal);
+  } catch (error) { await session?.release?.(); throw error; }
   const segments: DictateSegment[] = [];
   let text = '', language: string | undefined;
   const chunkSamples = (s.chunkMs || 30_000) * 16;
-  for (const [start, end] of speechRanges(pcm, s)) {
+  for (const [start, end] of await segmentRanges(pcm, s, session)) {
     const prefix = segments.map(segment => segment.text).join(' ');
     const overlap = !s.chunkMs && end - start > chunkSamples ? 5_000 * 16 : 0;
     let rangeText = '';
@@ -160,8 +185,13 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
   return { text, segments, language, durationMs: pcm.length / 16, usage: { audioMs: pcm.length / 16, basis: 'free' } };
 }
 
-/** Host injects initWhisper; one cached context, serialized inference, explicit disposal. */
-export function whisperRnEngine(o: { model: string | number; multilingual?: boolean; initWhisper(options: { filePath: string | number }): Promise<WhisperRnContext>; settings?: WhisperSettings }): DictateEngine & { release(): Promise<void> } {
+/** Host injects initWhisper; one cached context, serialized inference, explicit disposal.
+ * `vad` hands out one detector session per stream: offline segmentation and live
+ * capture each take their own, because a session carries recurrent state. Passing
+ * `vad` makes the live turn gate neural at once, while offline segmentation still
+ * follows `settings.vad.enabled`: left false, transcribe keeps the whole file and
+ * the factory changes nothing offline. */
+export function whisperRnEngine(o: { model: string | number; multilingual?: boolean; initWhisper(options: { filePath: string | number }): Promise<WhisperRnContext>; settings?: WhisperSettings; vad?: () => VadSession | Promise<VadSession> }): DictateEngine & { release(): Promise<void> } {
   if (!(typeof o.model === 'string' && o.model.trim() && !/^[a-z]+:\/\//i.test(o.model.replace(/^file:\/\//, ''))
     || typeof o.model === 'number' && Number.isSafeInteger(o.model) && o.model >= 0)) throw new DictateError('bad-model');
   const settings = whisperSettings(o.settings, o.multilingual);
@@ -174,9 +204,11 @@ export function whisperRnEngine(o: { model: string | number; multilingual?: bool
     context ??= o.initWhisper({ filePath: o.model }).catch(cause => { context = undefined; throw new DictateError('bad-model', { cause }); });
     return context;
   };
-  const transcribe = (input: DictateInput, options: DictateOptions, preview = false) => enqueue(() => transcribeWhisper(input,
-    preview ? { ...settings, initialPrompt: '', vocabulary: [] } : settings,
-    preview ? { ...options, prompt: undefined, keywords: undefined } : options, async (pcm, decode) => {
+  const transcribe = (input: DictateInput, options: DictateOptions, preview = false) => enqueue(async () => {
+    const session = o.vad && settings.vad.enabled ? await o.vad() : undefined;
+    return await transcribeWhisper(input,
+      preview ? { ...settings, initialPrompt: '', vocabulary: [] } : settings,
+      preview ? { ...options, prompt: undefined, keywords: undefined } : options, async (pcm, decode) => {
       const native = await acquire();
       checkAbort(options.signal);
       // Encode LE explicitly; do not pass a WAV header or rely on host endianness.
@@ -189,10 +221,12 @@ export function whisperRnEngine(o: { model: string | number; multilingual?: bool
       try { return await job.promise; }
       catch (cause) { checkAbort(options.signal); throw new DictateError('bad-model', { cause }); }
       finally { options.signal?.removeEventListener('abort', abort); }
-    }));
+    }, session);
+  });
   return {
     info: { id: 'whisper', model: String(o.model), onDevice: true, streaming: 'reread', account: 'none' },
-    capture: { speechThreshold: settings.vad.threshold / settings.gain, relativeThreshold: settings.vad.relativeThreshold, silenceMs: settings.vad.silenceMs, finalReading: 'recording' },
+    capture: { speechThreshold: settings.vad.threshold / settings.gain, relativeThreshold: settings.vad.relativeThreshold, silenceMs: settings.vad.silenceMs, finalReading: 'recording',
+      ...(o.vad ? { detect: async () => vadDetector(await o.vad!(), settings) } : {}) },
     transcribe: (input, options) => transcribe(input, options),
     preview: (input, options) => transcribe(input, options, true),
     release: () => enqueue(async () => { const current = context; context = undefined; await (await current)?.release(); }),

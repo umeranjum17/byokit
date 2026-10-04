@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdtemp, writeFile, chmod, rm, readdir } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { build } from 'esbuild';
@@ -10,7 +11,8 @@ import { Dictation, DictateError, settleWords, applyWordReplacements, routes, sy
 import { chatgptEngine, openaiEngine, openrouterEngine, whisperEngine } from '../src/node.ts';
 import { fakeEngine, fakeMic } from '../src/testing.ts';
 import { wav, mergeOverlap } from '../src/text.ts';
-import { whisperRnEngine, whisperSettings, type WhisperRnContext, type WhisperRnDecodeOptions, type WhisperSettings } from '../src/whisper.ts';
+import { whisperRnEngine, whisperSettings, transcribeWhisper, whisperPcm, type WhisperRnContext, type WhisperRnDecodeOptions, type WhisperSettings } from '../src/whisper.ts';
+import { createVad, VAD_STATE, VAD_WINDOW, type VadSession } from '../../audio/src/index.ts';
 import { wordErrorRate, runWer, checkWerRegression } from '../src/wer.ts';
 const tick = () => new Promise<void>(r => setImmediate(r));
 async function until(fn: () => boolean) { for (let i = 0; i < 200; i++) { if (fn()) return; await tick(); } assert.ok(fn(), 'flow did not reach checkpoint'); }
@@ -367,4 +369,82 @@ test('WER harness scores edit counts and runs all attributed clip categories thr
     assert.match(checkWerRegression(report, baseline)[0], /Changed fixture/);
     await assert.rejects(runWer({ binary, model: join(dir, 'fake-model.bin'), manifest: 'packages/dictation/fixtures/wer/manifest.json', profiles: ['missing'] }), /Unknown settings profile/);
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+// The consumer journey for an app-shipped speech detector: real recorded audio from the
+// committed regression fixtures, the real Dictation live gate, the real transcribeWhisper
+// segmentation, and the kit's documented session seam standing in for the ONNX runtime.
+// Detector accuracy and CPU are measured separately against the real pinned graph.
+function detectorFactory(quietWindows: number) {
+  const sessions: { windows: number; open: boolean }[] = [];
+  return {
+    /** One session per stream, as the kit requires: a session carries recurrent state,
+     * so each of these counts its own windows from zero. */
+    handOut: () => {
+      const state = { windows: 0, open: true }; sessions.push(state);
+      return { async run() { state.windows++; return { probability: state.windows > quietWindows ? 0.95 : 0.05, state: new Float32Array(VAD_STATE) }; }, async release() { state.open = false; } };
+    },
+    windows: () => sessions.at(-1)!.windows,
+    leaked: () => sessions.filter(session => session.open).length,
+  };
+}
+const wavOf = (name: string) => readFileSync(join(import.meta.dirname, '../../dictation/fixtures/wer/regression', `${name}.wav`));
+const stubContext = () => ({ transcribeData: () => ({ stop: async () => {}, promise: Promise.resolve({ result: '', segments: [] }) }), release: async () => {} }) as WhisperRnContext;
+const engineWith = (handOut?: () => VadSession) => whisperRnEngine({
+  model: 'base.en-q5_1', initWhisper: async () => stubContext(), settings: { vad: { enabled: true } },
+  vad: handOut ? async () => handOut() : undefined,
+});
+
+test('without a detector factory the live gate and segmentation are exactly today energy behaviour', async () => {
+  const engine = engineWith();
+  assert.equal(engine.capture?.detect, undefined, 'no factory means no detector on the live gate');
+  assert.equal(whisperSettings({ vad: { enabled: true } }).vad.threshold, 0.0025, 'the unchanged energy threshold');
+  const wav = wavOf('x-hiss-15'), pcm = await whisperPcm(wav, 1);
+  const decoded: number[] = [];
+  await transcribeWhisper(wav, whisperSettings({ vad: { enabled: true } }), {},
+    async chunk => { decoded.push(chunk.length); return { result: '', segments: [] }; });
+  assert.ok(decoded.reduce((a, b) => a + b, 0) > pcm.length * 0.9, 'the energy gate keeps the hiss and hands it to the decoder');
+});
+
+test('a supplied detector decides live turns: a loud frame the detector rejects opens nothing', async () => {
+  const detector = detectorFactory(1);
+  const engine = engineWith(detector.handOut);
+  assert.ok(engine.capture?.detect, 'the factory is exposed to the live gate');
+  const pcm = await whisperPcm(wavOf('clean-short'), 1);
+  const loud = pcm.slice(500 * 16, 500 * 16 + VAD_WINDOW);
+  const mic = fakeMic(), dictation = new Dictation({ engine, audio: mic.audio });
+  const turns: string[] = [];
+  const handle = dictation.listen();
+  handle.on('turn', e => turns.push(e.phase));
+  await tick();
+  mic.push({ data: loud, at: 0 });
+  await until(() => detector.windows() === 1);
+  assert.deepEqual(turns, [], 'the level gate alone would have opened a turn on this frame');
+  mic.push({ data: loud, at: 32 });
+  await until(() => turns.length === 1);
+  assert.deepEqual(turns, ['start'], 'the detector opened the turn');
+  await handle.finish();
+  assert.equal(detector.leaked(), 0, 'every session this listen took is disposed with it');
+});
+
+test('cancel disposes the detector, and offline segmentation hands the decoder exactly the detector ranges', async () => {
+  const live = detectorFactory(0), engine = engineWith(live.handOut);
+  const mic = fakeMic(), dictation = new Dictation({ engine, audio: mic.audio });
+  const handle = dictation.listen();
+  await tick();
+  handle.cancel();
+  await assert.rejects(handle.finish(), (e: DictateError) => e.code === 'cancelled');
+  assert.equal(live.leaked(), 0, 'a cancelled listen disposes its detector');
+
+  const wav = wavOf('clean-short'), pcm = await whisperPcm(wav, 1);
+  const settings = whisperSettings({ vad: { enabled: true } });
+  const offline = detectorFactory(12); // this fixture's own 400 ms lead stays silent
+  const decoded: number[] = [];
+  await transcribeWhisper(wav, settings, {}, async chunk => { decoded.push(chunk.length); return { result: '', segments: [] }; }, offline.handOut());
+  const expected = createVad({ session: offline.handOut(), silenceMs: settings.vad.silenceMs, paddingMs: settings.vad.paddingMs });
+  await expected.push(pcm); await expected.flush();
+  assert.deepEqual(decoded, [expected.ranges().reduce((sum, [from, to]) => sum + (to - from) * 16, 0)], 'samples, not milliseconds, reach the decoder');
+  assert.ok(decoded[0] > 0 && decoded[0] < pcm.length, 'the lead silence is dropped');
+  await expected.release();
+  assert.equal(offline.leaked(), 0, 'offline segmentation disposes every session it consumed');
 });

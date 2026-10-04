@@ -25,10 +25,14 @@ export interface AudioMicStream extends AsyncIterable<AudioFrame> {
   stop(): Promise<void> }
 export interface AudioMic { open(o: { rate: 16000; purpose: 'dictation'; signal?: AbortSignal }): Promise<AudioMicStream> }
 export type DictateInput = Uint8Array | Blob;
+/** One stream's speech detector: per-frame decisions in, and explicit disposal. */
+export type DictateDetector = { push(pcm: Int16Array): Promise<{ speech: boolean }[]>; release(): Promise<void> };
 export interface DictateEngine {
   readonly info: DictateEngineInfo;
-  /** Optional live energy gate: normalized PCM RMS (before the UI's ×4 scale). */
-  readonly capture?: { speechThreshold: number; relativeThreshold?: number; silenceMs: number; finalReading?: 'recording' };
+  /** Optional live energy gate: normalized PCM RMS (before the UI's ×4 scale). An engine
+   * that also ships a speech detector returns `detect`, which replaces the level gate
+   * with the detector's own per-frame decision; the detector is released on finish. */
+  readonly capture?: { speechThreshold: number; relativeThreshold?: number; silenceMs: number; finalReading?: 'recording'; detect?: () => Promise<DictateDetector> };
   available?(locale?: string): Promise<'ready' | 'needs-download' | 'unsupported' | 'mic-blocked'>;
   transcribe(input: DictateInput, o: DictateOptions): Promise<Omit<DictateTranscript, 'engine'>>;
   /** Throwaway live reading; kept/final text always uses transcribe. */

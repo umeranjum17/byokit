@@ -1,0 +1,355 @@
+{
+  "notice": "Labels derived from the committed dictation regression fixtures and that directory's NOTICE.md: the generator places speech at 400 ms and stops it 600 ms before the end. The lead and tail of every clip are label-negative; for the noise fixtures that material is the added hiss, babble or reverb, not silence. See NOTICE.md next to this file.",
+  "labelConvention": "Whole-utterance envelope, including within-utterance pauses. Not phonetic frame-level annotation.",
+  "scoring": {
+    "binMs": 20,
+    "detectorFrameMs": 32,
+    "threshold": 0.5,
+    "note": "Identical to the evaluation that chose this detector: 20 ms bins scored by the containing frame, onset latency from the END of the first overlapping positive frame."
+  },
+  "totals": {
+    "speechMs": 68743,
+    "nuisanceMs": 13000,
+    "nuisanceAudioMs": 6000
+  },
+  "clips": [
+    {
+      "id": "clean-short",
+      "file": "../../../dictation/fixtures/wer/regression/clean-short.wav",
+      "noise": "silence",
+      "durationMs": 3427,
+      "sha256": "1dce94977e72f93f18989a8d5818b0e13e733269b571a005a20d7bcce14f49f3",
+      "speechMs": [
+        [
+          400,
+          2827
+        ]
+      ],
+      "nuisanceMs": [
+        [
+          0,
+          400
+        ],
+        [
+          2827,
+          3427
+        ]
+      ],
+      "speechDb": -19.2,
+      "nuisanceDb": -180,
+      "peak": 0.89996337890625
+    },
+    {
+      "id": "clean",
+      "file": "../../../dictation/fixtures/wer/regression/clean.wav",
+      "noise": "silence",
+      "durationMs": 6944,
+      "sha256": "28d991b7860cb017fb9ee020d01e44ce8d2ed9f8aefcb9dedbb3d8d76cdccc6b",
+      "speechMs": [
+        [
+          400,
+          6344
+        ]
+      ],
+      "nuisanceMs": [
+        [
+          0,
+          400
+        ],
+        [
+          6344,
+          6944
+        ]
+      ],
+      "speechDb": -18.8,
+      "nuisanceDb": -92.3,
+      "peak": 0.89996337890625
+    },
+    {
+      "id": "quiet",
+      "file": "../../../dictation/fixtures/wer/regression/quiet.wav",
+      "noise": "silence",
+      "durationMs": 5203,
+      "sha256": "340efa028ea4a22ed61e2ac9354b9f64338ad0c6f4c9ad10b687c745b261073f",
+      "speechMs": [
+        [
+          400,
+          4603
+        ]
+      ],
+      "nuisanceMs": [
+        [
+          0,
+          400
+        ],
+        [
+          4603,
+          5203
+        ]
+      ],
+      "speechDb": -46.5,
+      "nuisanceDb": -180,
+      "peak": 0.04046630859375
+    },
+    {
+      "id": "fast",
+      "file": "../../../dictation/fixtures/wer/regression/fast.wav",
+      "noise": "silence",
+      "durationMs": 5934,
+      "sha256": "a73c8ff33e1dfde88514e9871b0d17ce3cb831d83252125a6cd5de3b34326229",
+      "speechMs": [
+        [
+          400,
+          5334
+        ]
+      ],
+      "nuisanceMs": [
+        [
+          0,
+          400
+        ],
+        [
+          5334,
+          5934
+        ]
+      ],
+      "speechDb": -19.4,
+      "nuisanceDb": -93.6,
+      "peak": 0.89996337890625
+    },
+    {
+      "id": "technical",
+      "file": "../../../dictation/fixtures/wer/regression/technical.wav",
+      "noise": "silence",
+      "durationMs": 8338,
+      "sha256": "3131442efccea95b311d42238538a2a96815fd37262800349fc4ade38495f121",
+      "speechMs": [
+        [
+          400,
+          7738
+        ]
+      ],
+      "nuisanceMs": [
+        [
+          0,
+          400
+        ],
+        [
+          7738,
+          8338
+        ]
+      ],
+      "speechDb": -21.3,
+      "nuisanceDb": -180,
+      "peak": 0.89996337890625
+    },
+    {
+      "id": "names",
+      "file": "../../../dictation/fixtures/wer/regression/names.wav",
+      "noise": "silence",
+      "durationMs": 9376,
+      "sha256": "369a3bb199611c8286d2b22a608c2e823bfa0d25b665283874dc1cff424ac397",
+      "speechMs": [
+        [
+          400,
+          8776
+        ]
+      ],
+      "nuisanceMs": [
+        [
+          0,
+          400
+        ],
+        [
+          8776,
+          9376
+        ]
+      ],
+      "speechDb": -20.5,
+      "nuisanceDb": -96.1,
+      "peak": 0.89996337890625
+    },
+    {
+      "id": "pauses",
+      "file": "../../../dictation/fixtures/wer/regression/pauses.wav",
+      "noise": "silence",
+      "durationMs": 10215,
+      "sha256": "6454f0320ee9c33fe596b6d57229f6005040ddf4deac8cac3fde66307ee8c16b",
+      "speechMs": [
+        [
+          400,
+          9615
+        ]
+      ],
+      "nuisanceMs": [
+        [
+          0,
+          400
+        ],
+        [
+          9615,
+          10215
+        ]
+      ],
+      "speechDb": -19.9,
+      "nuisanceDb": -107.2,
+      "peak": 0.89996337890625
+    },
+    {
+      "id": "noisy-hiss",
+      "file": "../../../dictation/fixtures/wer/regression/noisy-hiss.wav",
+      "noise": "hiss",
+      "durationMs": 5423,
+      "sha256": "de69f61d1fe20a00da4757cf967f25aa4d086bafda88499d1cb199d17fee4e91",
+      "speechMs": [
+        [
+          400,
+          4823
+        ]
+      ],
+      "nuisanceMs": [
+        [
+          0,
+          400
+        ],
+        [
+          4823,
+          5423
+        ]
+      ],
+      "speechDb": -19.2,
+      "nuisanceDb": -27.4,
+      "peak": 0.89996337890625
+    },
+    {
+      "id": "noisy-babble",
+      "file": "../../../dictation/fixtures/wer/regression/noisy-babble.wav",
+      "noise": "babble",
+      "durationMs": 5173,
+      "sha256": "5041e69d67e865226985a1bef4f1b1d607db0519771254e00c6664ad048f199b",
+      "speechMs": [
+        [
+          400,
+          4573
+        ]
+      ],
+      "nuisanceMs": [
+        [
+          0,
+          400
+        ],
+        [
+          4573,
+          5173
+        ]
+      ],
+      "speechDb": -19.6,
+      "nuisanceDb": -22.8,
+      "peak": 0.89996337890625
+    },
+    {
+      "id": "x-hiss-5",
+      "file": "../../../dictation/fixtures/wer/regression/x-hiss-5.wav",
+      "noise": "hiss",
+      "durationMs": 4947,
+      "sha256": "36abd117cb8304f477fa4752a51a8aa0e60b0ee97045ca38683a13889af7caf0",
+      "speechMs": [
+        [
+          400,
+          4347
+        ]
+      ],
+      "nuisanceMs": [
+        [
+          0,
+          400
+        ],
+        [
+          4347,
+          4947
+        ]
+      ],
+      "speechDb": -18.4,
+      "nuisanceDb": -22.4,
+      "peak": 0.89996337890625
+    },
+    {
+      "id": "x-hiss-15",
+      "file": "../../../dictation/fixtures/wer/regression/x-hiss-15.wav",
+      "noise": "hiss",
+      "durationMs": 5325,
+      "sha256": "65a83b763a2135c31346a7c14d4299d636032866274815d4520c5c3f5e19023e",
+      "speechMs": [
+        [
+          400,
+          4725
+        ]
+      ],
+      "nuisanceMs": [
+        [
+          0,
+          400
+        ],
+        [
+          4725,
+          5325
+        ]
+      ],
+      "speechDb": -18.9,
+      "nuisanceDb": -32.5,
+      "peak": 0.89996337890625
+    },
+    {
+      "id": "x-babble-12",
+      "file": "../../../dictation/fixtures/wer/regression/x-babble-12.wav",
+      "noise": "babble",
+      "durationMs": 5527,
+      "sha256": "bbb228d414573aa94a23b882109a32578e8466994512abf72cfe16543e5a651e",
+      "speechMs": [
+        [
+          400,
+          4927
+        ]
+      ],
+      "nuisanceMs": [
+        [
+          0,
+          400
+        ],
+        [
+          4927,
+          5527
+        ]
+      ],
+      "speechDb": -17.5,
+      "nuisanceDb": -24.5,
+      "peak": 0.89996337890625
+    },
+    {
+      "id": "x-reverb",
+      "file": "../../../dictation/fixtures/wer/regression/x-reverb.wav",
+      "noise": "reverb",
+      "durationMs": 5911,
+      "sha256": "239efdf6cae6ea160272ed0758df75be0b68ad78c54f5845d0d675ce0d06f925",
+      "speechMs": [
+        [
+          400,
+          5311
+        ]
+      ],
+      "nuisanceMs": [
+        [
+          0,
+          400
+        ],
+        [
+          5311,
+          5911
+        ]
+      ],
+      "speechDb": -18.6,
+      "nuisanceDb": -84.7,
+      "peak": 0.89996337890625
+    }
+  ]
+}
