@@ -316,7 +316,7 @@ Entries:
 
 | Export | What it does |
 | --- | --- |
-| `OpenClawKit` (`.`) | Prepares, starts, supervises and stops the engine. `call` / `callDynamic` pass through to the Gateway, `onEvent` listens. Helpers: `ensureMember`, `routes`, `providers`, `signedIn`, `signIn`, `signOut`, `migrateRetainedLogin`, `confirmRetainedLogin`, `toolNames`, `run`, `steer`, `abort`, `approvals`, `onApproval`, `decide`, `allowOnce`, `disallowOnce`, `patchConfig`, `memoryLimited`, `doctorContext` |
+| `OpenClawKit` (`.`) | Prepares, starts, supervises and stops the engine. `call` / `callDynamic` pass through to the Gateway, `onEvent` listens. Helpers: `ensureMember`, `routes`, `providers`, `signedIn`, `signIn`, `signOut`, `migrateRetainedLogin`, `confirmRetainedLogin`, `toolNames`, `run`, `steer`, `abort`, `approvals`, `onApproval`, `decide`, `allowOnce`, `disallowOnce`, `patchConfig`, `getConfigKey`, `setConfigKey`, `memoryLimited`, `doctorContext` |
 | `ENGINE_VERSION`, `PROTOCOL_VERSION`, `OPERATOR_SCOPES` (`.`) | The pinned engine version, its protocol and the operator scopes the kit connects with |
 | `KitOptions`, `RunSpec`, `RunEvent`, `RunEnd`, `RunUsage`, `PlanWindow`, `Route`, `Approval`, `Decision`, `ToolSpec`, `ToolHost`, `KitState`, ... (`.`) | Public types (docs/runtime-kits.md §5.2) |
 | `openclawDevice(link)` (`./device`) | Portable client: state, routes, sign-in, runs, steer, abort, approvals, events, sealed notices, pass-through `call` |
@@ -333,6 +333,24 @@ explicit tool allowlist and keeps `request_sign_in` refused: protected productio
 Public live view/thumbnail APIs are model-free; source tests alone do not prove private/restart protection.
 The opt-in physical fixture retains raw JPEG/control inputs before decoding, pipe chunk order, complete
 synthetic provider bodies and authoritative SQLite transcripts, including failures.
+
+## One config key, narrowed
+
+`patchConfig` is the only whole-config writer, and it can only start from `config.get`, whose result redacts
+token-bearing values: an app cannot read one key through it and write it back unchanged. For a single key, use the
+narrow pair over the config file the engine loads at boot:
+
+```ts
+const mode = kit.getConfigKey('skills.workshop.autonomous.mode'); // value, or undefined
+kit.setConfigKey('skills.workshop.autonomous.mode', 'off');       // returns the value it replaced
+kit.setConfigKey('skills.workshop.autonomous.mode', undefined);  // remove it again
+```
+
+One dotted path of `[A-Za-z0-9_-]` segments; prototype-reaching segments are refused. Only that key changes (every
+other key keeps its order, an unchanged value writes no bytes, and removing a key takes the empty objects it created
+back out), the write is atomic in `prepare()`'s exact shape, and the engine applies it at its next boot. Narrow a key
+your app does **not** also pass in `KitOptions.config`: that option is merged over the saved file on every boot and
+wins. Don't interleave a narrow set with `patchConfig`, which rewrites the whole config through the Gateway.
 
 ## App-owned task recovery
 

@@ -148,3 +148,47 @@ export function memoryLimited(config: object, member: Member): boolean {
   const entry = c.agents?.entries?.[member];
   return (entry?.memory ?? c.memory)?.search?.provider === 'none';
 }
+
+const KEY_SEGMENT = /^[A-Za-z0-9_-]+$/;
+const UNSAFE_SEGMENT = new Set(['__proto__', 'constructor', 'prototype']);
+
+/** One dotted path, validated at the boundary: a caller-supplied walk must never reach a prototype. */
+export function configKeyPath(key: string): string[] {
+  const segments = typeof key === 'string' && key.length ? key.split('.') : [];
+  if (!segments.length || segments.some(part => !KEY_SEGMENT.test(part) || UNSAFE_SEGMENT.has(part)))
+    throw new Error(`invalid config key: ${String(key)}`);
+  return segments;
+}
+
+/** The value at one dotted path, or undefined when it is absent. A copy, so a caller cannot hold kit state. */
+export function readConfigKey(config: unknown, segments: readonly string[]): unknown {
+  let node = config;
+  for (const segment of segments) {
+    if (!object(node) || !(segment in node)) return undefined;
+    node = (node as Obj)[segment];
+  }
+  return structuredClone(node);
+}
+
+/** Writes one dotted path, creating only the missing objects on the way, and returns the value it replaced.
+ * undefined removes the key, and with it the empty objects this call created, so a removal restores the file it
+ * read. Every other key keeps its place, so one narrow set stays one narrow set. */
+export function writeConfigKey(config: Obj, segments: readonly string[], value: unknown): unknown {
+  const chain: Obj[] = [config], created: boolean[] = [];
+  for (const segment of segments.slice(0, -1)) {
+    const parent = chain[chain.length - 1]!;
+    if (parent[segment] === undefined) { parent[segment] = {}; created.push(true); }
+    else if (!object(parent[segment])) throw new Error(`config key is not an object: ${segments.join('.')}`);
+    else created.push(false);
+    chain.push(parent[segment]);
+  }
+  const leaf = chain[chain.length - 1]!, last = segments[segments.length - 1]!;
+  const previous = readConfigKey(leaf, [last]);
+  if (value !== undefined) { leaf[last] = structuredClone(value); return previous; }
+  delete leaf[last];
+  for (let depth = chain.length - 1; depth > 0; depth--) {
+    if (!created[depth - 1] || Object.keys(chain[depth]!).length) break;
+    delete chain[depth - 1]![segments[depth - 1]!];
+  }
+  return previous;
+}
