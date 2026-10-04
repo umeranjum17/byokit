@@ -1,0 +1,4 @@
+{
+  "platforms": ["android"],
+  "android": { "modules": ["io.github.umeranjum17.byokit.share.ShareModule"] }
+}

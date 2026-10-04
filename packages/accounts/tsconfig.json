@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
-  "references": [{ "path": "../usage" }],
+  "references": [{ "path": "../usage" }, { "path": "../secrets" }],
   "compilerOptions": { "rootDir": "src", "outDir": "dist" },
   "include": ["src", "src/**/*.json"]
 }

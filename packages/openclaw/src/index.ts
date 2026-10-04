@@ -14,6 +14,9 @@ export type {
   GateResult,
   Hello,
   KitState,
+  KitEventName,
+  KitEventPayload,
+  BrowserPing,
   Member,
   PlanWindow,
   Route,
@@ -21,6 +24,8 @@ export type {
   RunEvent,
   RunRef,
   RunSpec,
+  OutputSchema,
+  SchemaOutput,
   RunUsage,
   SignInOptions,
   SignInView,
@@ -32,3 +37,12 @@ export type { AddKeyResult } from './keys.ts';
 export { stateWords, toAccountView, words, type AccountView, type WordKey } from './words.ts';
 
 export { EngineAlreadyRunningError } from './engine-status.ts';
+export { readAgentDayUsage } from './day-usage.ts';
+export type { AgentDayUsage, EngineStartedCharge, EngineStartedKind } from './day-usage.ts';
+export { readAgentUsage, agentUsageOf } from './usage.ts';
+export type { AgentUsageReading, LedgerUsageTotals, UsageCache, UsageWindow } from './usage.ts';
+export type {
+  LiveSource, BrowserState, SignInMethodHint, SignInReason, SignInChoice, SettledState, SettledReason,
+  ResumeState, NeedSignIn, TakeoverLease, LiveViewState, LiveFrame, LiveInput, ThumbnailResult,
+  SignInRefusedWhy, BrowserOptions, SiteVerifier, BrowserHost, BrowserDevice
+} from './browser.ts';

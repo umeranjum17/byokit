@@ -1,15 +1,30 @@
 // Credential stores behind Pi's own CredentialStore seam: one per person, never a shared fallback. Each platform's
 // storage is only "load the record, save the record"; this file keeps every one of them serialized the same way, so a
 // refresh and a sign-out never interleave. No Node import here: phones and browsers use it too (see node-stores.ts).
+import type { Defaults } from './multi.ts';
+import type { Billing } from './catalogue.ts';
+import type { EndpointRecord } from './endpoints.ts';
+import type { CloudAccount } from './cloud.ts';
 import type { Credential, CredentialStore, OAuthCredential } from '@earendil-works/pi-ai';
 
-export type Record = { [providerId: string]: Credential };
+/** Non-secret per-account route configuration. Secret values belong only in keyStore, never here. */
+export type AccountMetadata = {
+  route: string; billing: Billing; baseUrl?: string; compat?: 'openai' | 'anthropic'; region?: string;
+  profile?: string; keyFile?: string; accountId?: string; gatewayId?: string; endpoint?: EndpointRecord;
+  cloud?: CloudAccount;
+};
+export type AccountsIndex = { accounts?: { [id: string]: AccountMetadata }; names: { [id: string]: string }; emails: { [id: string]: string }; plans: { [id: string]: string }; addedAt: { [id: string]: number }; defaults: Defaults };
+export const emptyIndex = (): AccountsIndex => ({ names: {}, emails: {}, plans: {}, addedAt: {}, defaults: {} });
+export type Record = { [providerId: string]: Credential | AccountsIndex };
+export type IndexStore = { index(fn?: (index: AccountsIndex, data: Record) => void, options?: { signal?: AbortSignal }): Promise<AccountsIndex> };
+const credential = (data: Record, id: string): Credential | undefined => id.startsWith('.') ? undefined : data[id] as Credential | undefined;
 type RefreshState = { generation: number; state: 'ready' | 'attempted' | 'uncertain' | 'terminal' };
 /** Extends the credential seam so two durable writes can bracket a refresh while holding the same lock. */
 export type RefreshStore = CredentialStore & {
   refresh(id: string, due: (c: OAuthCredential) => boolean, rotate: (c: OAuthCredential) => Promise<OAuthCredential>): Promise<OAuthCredential | undefined>;
 };
-export type EndingStore = RefreshStore & { end(id: string, fn: (c: Credential | undefined) => Promise<void>): Promise<void> };
+export type AccountStore = RefreshStore & { end(id: string, fn: (c: Credential | undefined) => Promise<void>): Promise<void> };
+export type EndingStore = AccountStore & IndexStore;
 
 /** No provider response or credential is included in this error. `status` lets Accounts ask for sign-in again. */
 export class RefreshRequiredError extends Error {
@@ -42,10 +57,25 @@ export function recordStore(load: () => Promise<Record>, save: (data: Record) =>
   let chain: Promise<unknown> = Promise.resolve();
   const serial = <T>(fn: () => Promise<T>): Promise<T> => { const r = chain.then(fn); chain = r.catch(() => {}); return r; };
   return {
-    read: async (id) => (await load())[id],
-    list: async () => Object.entries(await load()).map(([providerId, c]) => ({ providerId, type: c.type })),
+    index: (fn, options) => serial(async () => {
+      const data = { ...await load() };
+      const before = fn && options?.signal ? JSON.parse(JSON.stringify(data)) as Record : undefined;
+      const stored = data['.accounts'] as AccountsIndex | undefined;
+      const index: AccountsIndex = stored ? { names: { ...stored.names }, emails: { ...stored.emails }, plans: { ...stored.plans }, addedAt: { ...stored.addedAt }, defaults: { ...stored.defaults }, ...(stored.accounts ? { accounts: JSON.parse(JSON.stringify(stored.accounts)) } : {}) } : emptyIndex();
+      if (options?.signal?.aborted) throw new Error('Login cancelled');
+      if (fn) {
+        fn(index, data);
+        data['.accounts'] = index;
+        await save(data);
+        if (options?.signal?.aborted) { await save(before!); throw new Error('Login cancelled'); }
+      }
+      return index;
+    }),
+    read: async (id) => credential(await load(), id),
+    list: async () => Object.entries(await load()).filter(([id]) => !id.startsWith('.')).map(([providerId, c]) => ({ providerId, type: (c as Credential).type })),
     modify: (id, fn, options) => serial(async () => {
-      const current = (await load())[id];
+      if (id.startsWith('.')) throw new Error('Use the account index seam for metadata.');
+      const current = credential(await load(), id);
       const next = await fn(current);
       if (next === undefined) return current;
       if (options?.signal?.aborted) throw new Error('Login cancelled');
@@ -53,7 +83,7 @@ export function recordStore(load: () => Promise<Record>, save: (data: Record) =>
       return next;
     }),
     refresh: (id, due, rotate) => serial(async () => {
-      const current = (await load())[id];
+      const current = credential(await load(), id);
       if (current?.type !== 'oauth') return undefined;
       if (needsReauth(current)) throw new RefreshRequiredError();
       if (!due(current)) return current;
@@ -81,7 +111,7 @@ export function recordStore(load: () => Promise<Record>, save: (data: Record) =>
     }),
     delete: (id) => serial(async () => { const data = await load(); if (id in data) { delete data[id]; await save(data); } }),
     end: (id, fn) => serial(async () => {
-      try { await fn((await load())[id]); }
+      try { await fn(credential(await load(), id)); }
       finally { const data = await load(); if (id in data) { delete data[id]; await save(data); } }
     }),
   };
@@ -152,6 +182,7 @@ export function browserStore(name: string, db = 'byokit'): EndingStore {
     typeof navigator !== 'undefined' && navigator.locks ? await navigator.locks.request<Promise<T>>(`byokit:${db}:${name}`, fn) : fn();
   return {
     ...store,
+    index: (fn, options) => locked(() => store.index(fn, options)),
     modify: (id, fn, options) => locked(() => store.modify(id, fn, options)),
     refresh: (id, due, rotate) => locked(() => store.refresh(id, due, rotate)),
     delete: (id, options) => locked(() => store.delete(id, options)),
@@ -160,6 +191,22 @@ export function browserStore(name: string, db = 'byokit'): EndingStore {
 }
 
 /** A device-owned @byokit/secrets backend, supplied by the host; no runtime Node import. One store per member/name. */
-export function keystoreStore(keystore: { get(name: string): Promise<string | null>; set(name: string, secret: string): Promise<void> }, name: string): CredentialStore {
+export function keystoreStore(keystore: { get(name: string): Promise<string | null>; set(name: string, secret: string): Promise<void> }, name: string): EndingStore {
   return recordStore(async () => JSON.parse(await keystore.get(name) ?? '{}'), async (data) => keystore.set(name, JSON.stringify(data)));
+}
+
+/** An engine sees only its provider slot, mapped to one public account's credential. */
+export function viewStore(store: EndingStore, providerId: string, accountId: string): AccountStore {
+  const key = (id: string) => {
+    if (id !== providerId) throw new Error('This account does not provide that sign-in.');
+    return accountId;
+  };
+  return {
+    read: (id, options) => store.read(key(id), options),
+    list: async () => { const c = await store.read(accountId); return c ? [{ providerId, type: c.type }] : []; },
+    modify: (id, fn, options) => store.modify(key(id), fn, options),
+    refresh: (id, due, rotate) => store.refresh(key(id), due, rotate),
+    delete: (id, options) => store.delete(key(id), options),
+    end: (id, fn) => store.end(key(id), fn),
+  };
 }

@@ -7,6 +7,8 @@ export class ComposeError extends Error {
   readonly detail?: Record<string, unknown>;
   constructor(code: ComposeErrorCode, message: string, detail?: Record<string, unknown>) {
     super(message);
+    // Preserve instanceof after a host bundler lowers this native Error subclass to ES5 for Hermes.
+    Object.setPrototypeOf(this, new.target.prototype);
     this.name = 'ComposeError';
     this.code = code;
     if (detail !== undefined) this.detail = detail;

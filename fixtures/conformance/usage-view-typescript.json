@@ -1,0 +1,10 @@
+{
+  "rule": "A plan view filters one call snapshot by provider and account for today, activity and people. Poll failure never establishes exhausted quota. Counts cover recorded calls only; unknown totals stay unknown. Labels never fall back to internal provider or model ids.",
+  "now": 1790838000000,
+  "provider": "codex",
+  "account": "umer-plan",
+  "tokens": 4600000000,
+  "model": "gpt-6-sol",
+  "modelLabel": "GPT 6 Sol",
+  "planLabel": "ChatGPT plan"
+}

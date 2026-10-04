@@ -4,8 +4,8 @@
 // the fake provider and the SSH bench (13.3).
 //
 // This server defines the fixture document both sides agree on (15.1, 6.1): field names
-// here are fixture choices, and nothing committed names a provider or its host —
-// fixtures use `http://sandbox.test`, mapped to the loopback port through the `fetch`
+// here are fixture choices for Boat, with no real provider host —
+// fixtures use `http://boat.test`, mapped to the loopback port through the `fetch`
 // option (M4). Fields:
 //   GET /me -> { accountId }
 //   POST /sandboxes { type, ttlSeconds, noEnv, snapshots } + Idempotency-Key -> { id, state }
@@ -144,7 +144,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
   const server = http.createServer((req, res) => {
     if (drop > 0) {
       drop -= 1;
-      const dropUrl = new URL(req.url ?? '/', 'http://sandbox.test');
+      const dropUrl = new URL(req.url ?? '/', 'http://boat.test');
       let dropPath = dropUrl.pathname;
       if (dropPath.startsWith('/api/v1')) dropPath = dropPath.slice('/api/v1'.length) || '/';
       const dropHeaders: Record<string, string> = {};
@@ -159,7 +159,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', () => {
       const rawUrl = req.url ?? '/';
-      const u = new URL(rawUrl, 'http://sandbox.test');
+      const u = new URL(rawUrl, 'http://boat.test');
       let path = u.pathname;
       if (path.startsWith('/api/v1')) path = path.slice('/api/v1'.length) || '/';
       let body: unknown = null;
@@ -291,7 +291,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
         if (rest === '/host' && req.method === 'POST') {
           const port = num(b['port']);
           if (port === null) return send(res, 400, { error: 'port is required' });
-          return send(res, 200, { url: `https://${id}-${port}.sandbox.test` });
+          return send(res, 200, { url: `https://${id}-${port}.boat.test` });
         }
         if (rest === '/usage' && req.method === 'GET') {
           return send(res, 200, { seconds: 86400, dollars: 0.5, running: true });

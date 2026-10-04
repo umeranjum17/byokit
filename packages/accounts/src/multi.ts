@@ -1,8 +1,15 @@
 // Pure start-of-run selection. Callers own identities and credentials and keep the returned account for the run.
+import type { Billing, Provider, Readiness, RouteVia } from './catalogue.ts';
 import { clock, say } from './words.ts';
 
+export type AccountId = string;
+export type AccountRef = AccountId;
+export type Via = RouteVia;
+export type ProviderInfo = Pick<Provider, 'key' | 'name' | 'company' | 'billing' | 'models'> & { via: Via[] };
+export type Account = AccountLike & { route: string; label: string; email?: string; plan?: string; billing: Billing; addedAt: number; readiness?: Readiness };
+export type ModelInfo = { id: string; name: string; tier?: 'strong' | 'fast'; available: boolean; why?: 'plan' | 'resting' | 'signed_out'; until?: number };
 export type SignInState = 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included';
-export type AccountLike = { id: string; provider: string; name: string; state: SignInState; billing: 'subscription' | 'api'; until?: number };
+export type AccountLike = { id: string; provider: string; name: string; state: SignInState; billing: Billing; until?: number };
 export type RoomSpan = 'session' | 'week' | 'month' | 'tightest';
 /** Every time here is epoch milliseconds; `at` is the source measurement time, never its receipt time. */
 export type Room = { left: number; span: RoomSpan; resetsAt?: number; at?: number } | { left: 'unknown'; at?: number };
@@ -106,7 +113,9 @@ export function resolveSelection<A extends AccountLike>(accounts: readonly A[], 
   room: (a: A, demand: readonly string[]) => Room, nowMs: number, models?: Models<A>): AccountPick<A> {
   const demand = [...new Set([...(sel.model ? [sel.model] : []), ...(sel.needs ?? [])])];
   const defaultAccount = accounts.find((a) => a.id === defaults.account);
-  const named = sel.account === 'default' ? defaultAccount?.state === 'ready' ? defaultAccount.id : undefined : sel.account === 'auto' ? undefined : sel.account;
+  // A saved ready non-custom API default is explicit choice, never API fallback. Custom endpoints retain B4's refusal.
+  const named = sel.account === 'default' ? defaultAccount?.state === 'ready' &&
+    (defaultAccount.billing === 'subscription' || defaultAccount.billing === 'api' && defaultAccount.provider !== 'custom') ? defaultAccount.id : undefined : sel.account === 'auto' ? undefined : sel.account;
   const provider = defaultAccount?.provider ?? accounts[0]?.provider;
   const rows = consider(accounts, (a) => room(a, demand), nowMs, demand, models, provider, named);
   const considered = rows.map((c) => c.row);

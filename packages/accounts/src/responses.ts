@@ -105,8 +105,10 @@ export type ResponseOutputItem =
 export const isFunctionCall = (item: ResponseOutputItem): item is ResponseFunctionCall =>
   isRecord(item) && item.type === 'function_call' && typeof item.name === 'string' && typeof item.arguments === 'string';
 
-/** The model's answer: the text (`onText` saw it piece by piece) and every output item. */
-export type ResponseResult = { text: string; output: ResponseOutputItem[] };
+/** Provider-reported token counts, with native details retained. Missing usage is never guessed. */
+export type ResponseUsage = { input_tokens: number; output_tokens: number; [key: string]: unknown };
+/** The model's answer: text, output items and token usage when the provider reports it. */
+export type ResponseResult = { text: string; output: ResponseOutputItem[]; usage?: ResponseUsage };
 
 /** What streams besides the words: each text piece, each tool call as it builds and lands, and each output item. */
 export type ResponseStreamEvent =
@@ -126,6 +128,7 @@ export function sseReader(onText?: (delta: string) => void, onEvent?: (event: Re
   let buffer = '', text = '', completed: string | undefined;
   let done = false, finished: ResponseResult | undefined;
   let incomplete: string | undefined;
+  let usage: ResponseUsage | undefined;
   const output: ResponseOutputItem[] = [];
   const emitted = new Set<string>();
   const calls = new Map<string, { name?: string; callId?: string; args: string }>();
@@ -173,6 +176,7 @@ export function sseReader(onText?: (delta: string) => void, onEvent?: (event: Re
     }
     if (e.type === 'response.completed' || e.type === 'response.incomplete' || e.response?.status === 'incomplete') {
       done = true;
+      if (isRecord(e.response?.usage)) usage = { ...e.response.usage } as ResponseUsage;
       if (Array.isArray(e.response?.output)) {
         for (const [i, item] of e.response.output.entries()) land(item, i);
         completed = e.response.output.flatMap((o: any) => o?.content ?? []).filter((c: any) => c?.type === 'output_text').map((c: any) => c.text ?? '').join('');
@@ -205,7 +209,7 @@ export function sseReader(onText?: (delta: string) => void, onEvent?: (event: Re
       const whole = text !== '' ? text : (completed ?? '');
       if (incomplete === undefined && whole === '' && output.length === 0) throw new ResponseError('ChatGPT stopped before completing its answer.', 'network');
       if (text === '' && whole !== '') onText?.(whole);
-      finished = { text: whole, output };
+      finished = { text: whole, output, ...(usage && { usage }) };
     }
     if (incomplete !== undefined) throw new IncompleteError(incomplete, finished);
     return finished;
@@ -218,6 +222,8 @@ export function sseReader(onText?: (delta: string) => void, onEvent?: (event: Re
 }
 
 export type Ask = {
+  /** Return text, output items and reported usage even without tools. */
+  result?: boolean;
   /** What the model is told to be. */
   instructions: string;
   /** The person's words, or the turns so far: messages (with `input_image` where the person attached one) and, after a
@@ -249,8 +255,10 @@ type Access = { access: string; accountId: string; model: string; base?: string;
 /** Ask ChatGPT with a signed-in token. `fetch`: pass one that streams (Expo's `expo/fetch`); any fetch works.
  *  Without `tools` the answer is the plain text, as before; with `tools` it is the text with every output item.
  *  Incomplete answers always throw IncompleteError and notify onEvent, including with tools. */
-export async function respond(o: Ask & Access & { tools?: undefined }): Promise<string>;
+export async function respond(o: Ask & Access & { result: true }): Promise<ResponseResult>;
+export async function respond(o: Ask & Access & { tools?: undefined; result?: false }): Promise<string>;
 export async function respond(o: Ask & Access & { tools: ResponseTool[] }): Promise<ResponseResult>;
+export async function respond(o: Ask & Access): Promise<string | ResponseResult>;
 export async function respond(o: Ask & Access): Promise<string | ResponseResult> {
   const input: ResponseInputItem[] = typeof o.input === 'string'
     ? [{ role: 'user', content: [{ type: 'input_text', text: o.input }] }]
@@ -292,5 +300,5 @@ export async function respond(o: Ask & Access): Promise<string | ResponseResult>
   } else {
     reader.push(await res.text()); // a fetch that can't stream: the whole answer at once
   }
-  return o.tools ? reader.result() : reader.end();
+  return o.tools || o.result ? reader.result() : reader.end();
 }

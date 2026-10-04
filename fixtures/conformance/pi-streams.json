@@ -1,0 +1,56 @@
+{
+  "pin": "@earendil-works/pi-ai@0.87.1",
+  "context": { "systemPrompt": "Be brief", "messages": [{ "role": "user", "content": "Hello", "timestamp": 0 }], "tools": [{ "name": "lookup", "description": "Look up", "parameters": { "type": "object", "properties": { "q": { "type": "string" } }, "required": ["q"] } }] },
+  "families": {
+    "completions": { "named": false, "done": true, "events": [
+      { "id": "fixture", "choices": [{ "index": 0, "delta": { "role": "assistant", "content": "Hello" }, "finish_reason": null }] },
+      { "id": "fixture", "choices": [{ "index": 0, "delta": { "tool_calls": [{ "index": 0, "id": "call_1", "type": "function", "function": { "name": "lookup", "arguments": "{\"q\":\"x\"}" } }] }, "finish_reason": null }] },
+      { "id": "fixture", "choices": [{ "index": 0, "delta": {}, "finish_reason": "tool_calls" }], "usage": { "prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5 } }
+    ] },
+    "anthropic": { "named": true, "done": false, "events": [
+      { "type": "message_start", "message": { "id": "fixture", "role": "assistant", "model": "fixture-model", "content": [], "usage": { "input_tokens": 3, "output_tokens": 0 } } },
+      { "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "Hello" } },
+      { "type": "content_block_stop", "index": 0 },
+      { "type": "content_block_start", "index": 1, "content_block": { "type": "tool_use", "id": "call_1", "name": "lookup", "input": {} } },
+      { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": "{\"q\":\"x\"}" } },
+      { "type": "content_block_stop", "index": 1 },
+      { "type": "message_delta", "delta": { "stop_reason": "tool_use", "stop_sequence": null }, "usage": { "output_tokens": 2 } },
+      { "type": "message_stop" }
+    ] },
+    "responses": { "named": true, "done": false, "events": [
+      { "type": "response.created", "response": { "id": "fixture" } },
+      { "type": "response.output_item.added", "output_index": 0, "item": { "type": "message", "id": "msg_1", "role": "assistant", "content": [] } },
+      { "type": "response.output_text.delta", "output_index": 0, "delta": "Hello" },
+      { "type": "response.output_item.done", "output_index": 0, "item": { "type": "message", "id": "msg_1", "role": "assistant", "content": [{ "type": "output_text", "text": "Hello", "annotations": [] }] } },
+      { "type": "response.output_item.added", "output_index": 1, "item": { "type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "lookup", "arguments": "" } },
+      { "type": "response.function_call_arguments.delta", "output_index": 1, "delta": "{\"q\":\"x\"}" },
+      { "type": "response.output_item.done", "output_index": 1, "item": { "type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "lookup", "arguments": "{\"q\":\"x\"}" } },
+      { "type": "response.completed", "response": { "id": "fixture", "status": "completed", "output": [], "usage": { "input_tokens": 3, "output_tokens": 2, "total_tokens": 5 } } }
+    ] },
+    "google": { "named": false, "done": false, "events": [
+      { "candidates": [{ "index": 0, "content": { "role": "model", "parts": [{ "text": "Hello" }] } }] },
+      { "candidates": [{ "index": 0, "content": { "role": "model", "parts": [{ "functionCall": { "id": "call_1", "name": "lookup", "args": { "q": "x" } } }] }, "finishReason": "STOP" }], "usageMetadata": { "promptTokenCount": 3, "candidatesTokenCount": 2, "totalTokenCount": 5 } }
+    ] },
+    "pi": { "named": false, "done": false, "events": [
+      { "type": "start" },
+      { "type": "text_start", "contentIndex": 0 },
+      { "type": "text_delta", "contentIndex": 0, "delta": "Hello" },
+      { "type": "text_end", "contentIndex": 0, "content": "Hello" },
+      { "type": "toolcall_start", "contentIndex": 1, "id": "call_1", "toolName": "lookup" },
+      { "type": "toolcall_delta", "contentIndex": 1, "delta": "{\"q\":\"x\"}" },
+      { "type": "toolcall_end", "contentIndex": 1, "toolCall": { "type": "toolCall", "id": "call_1", "name": "lookup", "arguments": { "q": "x" } } },
+      { "type": "done", "reason": "toolUse", "usage": { "input": 3, "output": 2, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 5, "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 } } }
+    ] }
+  },
+  "adapters": {
+    "openai-completions": "completions",
+    "openai-responses": "responses",
+    "anthropic-messages": "anthropic",
+    "google-generative-ai": "google",
+    "mistral-conversations": "completions",
+    "pi-messages": "pi",
+    "azure-openai-responses": "responses"
+  },
+  "expected": { "text": "Hello", "tool": "lookup", "arguments": { "q": "x" }, "usage": [3, 2, 5], "stopReason": "toolUse" }
+}

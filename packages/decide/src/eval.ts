@@ -40,7 +40,8 @@ export async function evaluate(cases: Case[], ask: (c: Case) => Promise<Answer>)
     if (a.abstained) {
       r.abstained++;
       if (c.expect === null) r.agree++;
-    } else if (right.includes(a.answer as never)) r.agree++;
+    } else if (Array.isArray(a.answer) ? Array.isArray(c.expect) &&
+      a.answer.length === c.expect.length && a.answer.every((id, index) => id === (c.expect as unknown[])[index]) : right.includes(a.answer as never)) r.agree++;
     else r.clearWrong++, r.wrong.push({ line: i + 2, expect: c.expect, got: a.answer, confidence: a.confidence });
   }
   ms.sort((a, b) => a - b);

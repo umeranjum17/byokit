@@ -268,6 +268,95 @@ test('browser entry bundles without runtime Node, filesystem or keystore code', 
   const result = await build({ entryPoints: ['packages/connect/src/index.ts'], bundle: true, platform: 'browser', format: 'esm', write: false, metafile: true });
   assert.ok(result.outputFiles[0].text.length > 0);
   assert.ok(!Object.keys(result.metafile!.inputs).some(path => /packages\/secrets|node:|\/src\/node\.ts/.test(path)));
-  for (const text of [...Object.values(WORDS.errors), ...Object.values(WORDS.browser)]) assert.doesNotMatch(text, new RegExp(plain.pattern, 'i'));
+  for (const text of [...Object.values(WORDS.errors), ...Object.values(WORDS.browser), ...Object.values(WORDS.verification)]) assert.doesNotMatch(text, new RegExp(plain.pattern, 'i'));
   assert.equal(providers.gmail.scopes[0], 'https://www.googleapis.com/auth/gmail.readonly');
+});
+
+test('client verification distinguishes rejected details, confirmed details and uncertain provider replies without a grant', async () => {
+  const store = memory(), http = fake();
+  const c = connect({ ...providers.google, oauth: app.oauth }, { ...options(http, store), client: { id: 'client', secret: 'secret-canary' } });
+  http.set({ error: 'invalid_client', error_description: 'Wrong secret-canary' }, 401);
+  const invalid = await c.verifyClient(); assert.equal(invalid.outcome, 'invalid');
+  assert.doesNotMatch(JSON.stringify(invalid), /secret-canary/);
+  http.set({ error: 'invalid_grant' }, 400);
+  assert.equal((await c.verifyClient()).outcome, 'valid');
+  for (const code of ['unauthorized_client', 'invalid_request', 'server_error', 'invalid_grant']) {
+    http.set({ error: code }, 503);
+    assert.equal((await c.verifyClient()).outcome, 'inconclusive');
+  }
+  http.set({ access_token: 'probe-access-canary', token_type: 'Bearer' });
+  assert.equal((await c.verifyClient()).outcome, 'inconclusive');
+  http.offline(); assert.equal((await c.verifyClient()).outcome, 'inconclusive');
+  assert.equal(store.values.size, 0);
+  for (const form of http.forms) {
+    assert.equal(form.get('grant_type'), 'refresh_token');
+    assert.equal(form.get('refresh_token'), 'byokit-client-check-not-a-grant');
+  }
+});
+
+test('refresh lifetime survives sign-in, restart and refresh; OAuth causes redact supplied and returned credentials', async () => {
+  const http = fake(), store = memory(); let now = 1000;
+  const opts = { ...options(http, store), client: { id: 'client', secret: 'secret-canary' }, now: () => now };
+  http.set({ access_token: 'access-canary', refresh_token: 'refresh-canary', token_type: 'Bearer', expires_in: 3600, refresh_token_expires_in: 7200 });
+  const c = await signed(opts);
+  assert.equal((await c.grant())?.refreshTokenExpiresIn, 7200);
+  assert.equal((await connect(app, opts).grant())?.refreshTokenExpiresAt, 7_201_000);
+  http.set({ access_token: 'rotated-access-canary', token_type: 'Bearer', expires_in: 3600 });
+  await c.token('access-canary');
+  assert.equal((await c.grant())?.refreshTokenExpiresAt, 7_201_000);
+  http.set({ access_token: 'rotated-access-canary', refresh_token: 'rotated-refresh-canary', token_type: 'Bearer', expires_in: 3600, refresh_token_expires_in: 9000 });
+  await c.token('rotated-access-canary');
+  assert.equal((await c.grant())?.refreshTokenExpiresIn, 9000);
+  assert.equal((await c.grant())?.refreshTokenExpiresAt, 9_001_000);
+  http.set({ error: 'server_error', error_description: 'Setup delayed: secret-canary rotated-refresh-canary rotated-access-canary https://example.test/?key=private', access_token: 'returned-canary' }, 503);
+  await assert.rejects(c.token('rotated-access-canary'), (e: unknown) => {
+    assert.ok(e instanceof ConnectError); assert.equal(e.cause?.error, 'server_error');
+    assert.match(e.cause?.error_description ?? '', /Setup delayed/);
+    assert.doesNotMatch(JSON.stringify(e), /secret-canary|refresh-canary|rotated-access-canary|returned-canary|private/);
+    assert.doesNotMatch(String(e) + JSON.stringify(e.cause), /secret-canary|refresh-canary|rotated-access-canary|returned-canary|private/);
+    return true;
+  });
+  http.set({ error: 'invalid_grant', error_description: 'rotated-refresh-canary secret-canary' }, 400);
+  await assert.rejects(c.token('rotated-access-canary'), (e: unknown) => e instanceof ConnectError && e.code === 'signin' && e.cause?.error === 'invalid_grant');
+  assert.equal(await c.connected(), false);
+  now = 1000; http.set({ access_token: 'access-canary', refresh_token: 'refresh-canary', token_type: 'Bearer', refresh_token_expires_in: 1 });
+  const expired = await signed(opts); now = 2000;
+  const before = http.count(); await assert.rejects(expired.token('access-canary'), error('signin')); assert.equal(http.count(), before);
+});
+
+
+test('verification uses supplied basic credentials and leaves an existing grant unchanged', async () => {
+  const http = fake(), store = memory(), opts = options(http, store), c = await signed(opts);
+  const original = [...store.values.values()];
+  const probe: typeof fetch = async (_url, init) => {
+    const form = new URLSearchParams(init?.body as URLSearchParams);
+    assert.equal(form.has('client_secret'), false); assert.equal(form.has('client_id'), false);
+    assert.ok(new Headers(init?.headers).get('authorization')?.startsWith('Basic '));
+    return response({ error: 'invalid_client', error_description: 'Wrong key canary%2Bsecret canary+secret' }, 400);
+  };
+  const check = await connect(app, { ...opts, fetch: probe }).verifyClient({ id: 'entered', secret: 'canary+secret', authMethod: 'client_secret_basic' });
+  assert.equal(check.outcome, 'invalid'); assert.doesNotMatch(JSON.stringify(check), /canary/);
+  assert.deepEqual([...store.values.values()], original);
+  assert.equal(await c.token(), 'access-canary');
+  await assert.rejects(c.verifyClient({ id: 'entered' }), error('configuration'));
+  const malformed = connect(app, { ...opts, fetch: async () => new Response('not JSON', { status: 502 }) });
+  assert.equal((await malformed.verifyClient({ id: 'entered', secret: 'canary' })).outcome, 'inconclusive');
+});
+
+test('authorization and callback failures retain sanitized provider causes', async () => {
+  const http = fake(), c = connect(app, { ...options(http), client: { id: 'client', secret: 'secret-canary' } });
+  let flow = await c.signIn();
+  http.set({ error: 'invalid_grant', error_description: 'Expired code-canary secret-canary' }, 400);
+  await assert.rejects(flow.finish(callback(flow.url)), (e: unknown) => {
+    assert.ok(e instanceof ConnectError); assert.equal(e.cause?.error, 'invalid_grant');
+    assert.match(e.cause?.error_description ?? '', /Expired/); assert.doesNotMatch(JSON.stringify(e.cause), /canary/); return true;
+  });
+  flow = await c.signIn();
+  const declined = callback(flow.url); declined.searchParams.set('error', 'access_denied');
+  declined.searchParams.append('code', 'second-code-canary');
+  declined.searchParams.set('error_description', `No permission for secret-canary code-canary second-code-canary ${declined.searchParams.get('state')}`);
+  await assert.rejects(flow.finish(declined), (e: unknown) => {
+    assert.ok(e instanceof ConnectError); assert.equal(e.code, 'declined'); assert.equal(e.cause?.error, 'access_denied');
+    assert.doesNotMatch(JSON.stringify(e.cause), /canary/); return true;
+  });
 });

@@ -239,3 +239,26 @@ test('key entry refuses unavailable routes and hides even an engine error that e
   assert.equal(JSON.stringify([end, fake.calls]).includes(key), false);
   await assert.rejects(kit.ensureMember('byokit-key-m1'), /invalid member/);
 }));
+
+test('schema validation precedes explicit API-key readiness and keeps its snapshot across that await', async () => withKit(async (kit, fake) => {
+  const before = fake.calls.length;
+  await assert.rejects(kit.run({ member: 'm1', sessionKey: 'agent:m1:json', auth: 'apiKey', message: 'Report',
+    schema: { format: 'email' } as never }), /invalid or unsupported output schema/);
+  assert.equal(fake.calls.length, before);
+  assert.equal(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'CANARY-SCHEMA-KEY' }), 'ok');
+  const schema = { type: 'string', enum: ['before'] } as const;
+  fake.handle('byokit.keys', () => {
+    (schema.enum as unknown as string[])[0] = 'after';
+    return { ok: true, model: 'openai/fake-key-model' };
+  });
+  fake.handle('agent', () => ({ runId: 'schema', status: 'ok', result: { payloads: [{ text: '"before"' }] } }));
+  fake.handle('agent.wait', () => ({ status: 'ok', terminalReply: { text: '"before"' } }));
+  const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:json', auth: 'apiKey', message: 'Report', schema });
+  assert.ok(end.ok);
+  const data: 'before' | undefined = end.data;
+  assert.equal(data, 'before');
+  const request = fake.calls.findLast((c) => c.method === 'agent')?.params as Record<string, unknown>;
+  assert.equal(request.agentId, 'byokit-key-m1');
+  assert.equal(request.sessionKey, 'agent:byokit-key-m1:json');
+  assert.ok(String(request.extraSystemPrompt).includes('"enum":["before"]'));
+}));

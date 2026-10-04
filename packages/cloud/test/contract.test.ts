@@ -1,7 +1,7 @@
 // M3 turns installs on: all 20 contract cases pass on fakeProvider(), and on the
 // sandbox and SSH benches every non-*fake* case passes or skips for a missing
 // method (the later of M3 and M4 turns the sandbox bench on; M3 is later).
-// Fixtures use http://sandbox.test, mapped to the loopback port through fetch (D-2).
+// Fixtures use http://boat.test, mapped to the loopback port through fetch (D-2).
 // The SSH VM bench runs the same contract against sshVm with the fake `ssh`.
 // Case 1 creates by adoption after confirm().
 import { after } from 'node:test';
@@ -13,7 +13,7 @@ import { machineContract, type MachineBench } from '../src/testing/contract.ts';
 import type { Price } from '../src/types.ts';
 import { sshVm, sshHostKey } from '../src/ssh.ts';
 import { setupFakeSsh } from '../src/testing/fake-ssh.ts';
-import { sandboxApi } from '../src/sandbox-api.ts';
+import { boat } from '../src/boat.ts';
 import { startFakeSandboxServer, type SandboxServer } from '../src/testing/fake-sandbox-server.ts';
 
 machineContract(async (): Promise<MachineBench> => {
@@ -29,16 +29,16 @@ after(async () => {
 machineContract(async (): Promise<MachineBench> => {
   sandbox ??= await startFakeSandboxServer();
   const port = new URL(sandbox.url).port;
-  const provider = sandboxApi({
-    baseUrl: 'http://sandbox.test/api/v1',
+  const provider = boat({
+    baseUrl: 'http://boat.test/api/v1',
     label: 'Test',
     prices: [{
       size: 'small', perHour: 0.018, planFloorPerMonth: 20, asleepPerHour: 0,
-      currency: 'USD', basis: 'incl. IPv4, excl. VAT', source: 'http://sandbox.test/prices', checked: '2026-09-29',
+      currency: 'USD', basis: 'incl. IPv4, excl. VAT', source: 'http://boat.test/prices', checked: '2026-09-29',
     }],
     key: async () => 'test-key',
     fetch: ((url: unknown, init: unknown) =>
-      fetch(String(url).replace('http://sandbox.test', `http://127.0.0.1:${port}`), init as RequestInit)) as typeof fetch,
+      fetch(String(url).replace('http://boat.test', `http://127.0.0.1:${port}`), init as RequestInit)) as typeof fetch,
   });
   return { provider, store: memoryStore(), installs: true };
 });
@@ -58,7 +58,7 @@ machineContract(async (): Promise<MachineBench> => {
     asleepPerHour: 6,
     currency: 'EUR',
     basis: 'incl. IPv4, excl. VAT',
-    source: 'http://sandbox.test/prices',
+    source: 'http://boat.test/prices',
     checked: new Date().toISOString().slice(0, 10),
   };
   const provider = sshVm({

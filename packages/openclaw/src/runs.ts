@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Bridge } from './bridge.ts';
 import { authStatus } from './auth-status.ts';
+import { outputSchema, type OutputSchema, type SchemaOutput } from './output.ts';
+import { words } from './words.ts';
 import { classify } from './classify.ts';
 import type { GatewayTransport, Member, PlanWindow, RunEnd, RunEvent, RunSpec, RunUsage } from './types.ts';
 
@@ -86,7 +88,7 @@ export function createRuns(ctx: {
   bridge: Pick<Bridge, 'register'>;
   tools: ReadonlySet<string>; // KitOptions.tools names, the only names a run's subset may carry
 }): {
-  run(spec: RunSpec, on?: (e: RunEvent) => void, keyAgent?: string): Promise<RunEnd>;
+  run<const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void, keyAgent?: string, preparedOutput?: ReturnType<typeof outputSchema>): Promise<RunEnd<SchemaOutput<S>>>;
   steer(k: string, t: string): Promise<void>;
   abort(k: string): Promise<void>;
 } {
@@ -101,17 +103,23 @@ export function createRuns(ctx: {
       return undefined;
     }
   };
-  const run = async (spec: RunSpec, on?: (e: RunEvent) => void, keyAgent?: string): Promise<RunEnd> => {
+  const run = async <const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void, keyAgent?: string, preparedOutput?: ReturnType<typeof outputSchema>): Promise<RunEnd<SchemaOutput<S>>> => {
     // Member boundary first: a member never speaks in another member's session, refused before any request.
     if (!spec.sessionKey.startsWith(`agent:${spec.member}:`))
       throw new Error(`refused: "${spec.sessionKey}" is not a session of member "${spec.member}"`);
+    // Same validation as the pin's NonEmptyString; preserve the caller's bytes (including whitespace).
+    if (spec.idempotencyKey !== undefined && (typeof spec.idempotencyKey !== 'string' || !spec.idempotencyKey.length))
+      throw new Error('refused: idempotencyKey must be a non-empty string');
+    const idempotencyKey = spec.idempotencyKey ?? randomUUID();
+    const output = preparedOutput ?? (spec.schema === undefined ? undefined : outputSchema(spec.schema));
+    const system = [spec.system, output?.prompt].filter(Boolean).join('\n\n');
     const picked = spec.model === undefined ? undefined : account(spec.model);
     for (const tool of spec.tools ?? [])
       if (!ctx.tools.has(tool)) throw new Error(`refused: "${tool}" is not one of this kit's tools`);
     const agentId = keyAgent ?? (await ctx.ensure(spec.member)).agentId;
     const sessionKey = keyAgent ? `agent:${keyAgent}:${spec.sessionKey.slice(`agent:${spec.member}:`.length)}` : spec.sessionKey;
-    const release = spec.register !== false ? ctx.bridge.register({ sessionKey, member: spec.member }, spec.tools) : undefined;
-    let last = '';
+    const release = spec.register !== false ? ctx.bridge.register({ sessionKey, member: spec.member }, spec.tools, idempotencyKey) : undefined;
+    let last: string | undefined;
     let runId = ''; // gateway events for other runs carry a real runId and never match the empty one
     let ended = false;
     // The engine flags an aborted run on its lifecycle end event; the wait receipt itself only says
@@ -167,9 +175,9 @@ export function createRuns(ctx: {
         agentId,
         sessionKey,
         message: spec.message,
-        idempotencyKey: randomUUID(),
+        idempotencyKey,
         ...(picked ?? {}),
-        ...(spec.system ? { extraSystemPrompt: spec.system } : {}),
+        ...(system ? { extraSystemPrompt: system } : {}),
         ...(spec.images ? { attachments: spec.images.map((image) => ({ mimeType: image.mimeType, content: image.data })) } : {}),
         ...(spec.thinking ? { thinking: spec.thinking } : {}),
       }, { expectFinal: true, timeoutMs: WAIT_CLIENT_MS, onAccepted });
@@ -177,18 +185,32 @@ export function createRuns(ctx: {
       const started = await Promise.race([ack, final]) as { runId: string };
       runId = started.runId;
       const result = await ctx.request('agent.wait', { runId, timeoutMs: WAIT_MS }, { timeoutMs: WAIT_CLIENT_MS }) as {
-        status?: string; stopReason?: string; terminalReply?: { text?: string }; error?: unknown; message?: unknown;
+        status?: string; stopReason?: string; terminalReply?: { disposition?: string; text?: string }; error?: unknown; message?: unknown;
       };
       if (result.status === 'ok') {
-        const text = typeof result.terminalReply?.text === 'string' ? result.terminalReply.text : last;
-        on?.({ type: 'text', text }); // the final cumulative text
+        // A cached `in_flight` replay has no final subscription. Keep the existing wait/stream fallback:
+        // re-sending `agent` to fetch its final could dispatch again if the bounded cache was evicted.
         const done = await Promise.race([final.catch(() => undefined), delay(FINAL_GRACE_MS, undefined, { ref: false })]);
-        const meta = isRecord(done) && isRecord(done.result) && isRecord(done.result.meta) ? done.result.meta : {};
+        ended = true; // no later stream event may supersede the final callback
+        const frame = isRecord(done) && isRecord(done.result) ? done.result : {};
+        const payloadText = Array.isArray(frame.payloads)
+          ? frame.payloads.filter((p): p is Record<string, unknown> & { text: string } => isRecord(p) && typeof p.text === 'string')
+            .map((p) => p.text) : [];
+        // The pin's terminal snapshot is capped display evidence, not the complete generated answer.
+        // Its silent/empty disposition still controls visibility, even after transient streamed text.
+        const terminal = result.terminalReply;
+        const text = terminal?.disposition === 'silent' || terminal?.disposition === 'empty' ? ''
+          : payloadText.length ? payloadText.join('\n\n')
+          : last ?? (typeof terminal?.text === 'string' ? terminal.text : '');
+        on?.({ type: 'text', text }); // the final cumulative text (unvalidated)
+        const parsed = output?.parse(text);
+        if (output && !parsed) return { ok: false, kind: 'output', message: words('member.output') };
+        const meta = isRecord(frame.meta) ? frame.meta : {};
         const agentMeta = isRecord(meta.agentMeta) ? meta.agentMeta : {};
         const usage = usageOf(agentMeta);
         const planWindow = typeof agentMeta.provider === 'string'
           ? await planWindowOf(agentId, agentMeta.provider.toLowerCase()) : undefined;
-        return { ok: true, text, ...(usage ? { usage } : {}), ...(planWindow ? { planWindow } : {}) };
+        return { ok: true, text, ...(parsed ? { data: parsed.data as SchemaOutput<S> } : {}), ...(usage ? { usage } : {}), ...(planWindow ? { planWindow } : {}) };
       }
       if (result.stopReason === 'aborted' || (abortedByEngine && result.status !== 'ok')) return { ok: false, aborted: true };
       const message = typeof result.error === 'string' ? result.error

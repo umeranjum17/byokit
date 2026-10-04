@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Run views accept structured-output failures and display the kit’s plain validation message.
+
+## 0.6.0 (2026-10-01)
+
+
+
 - API key (billed per use): framework-free `keyStep` and `keyView` entry-card states and plain billing/error words, without keeping a credential in view state.
 
 ## 0.5.0 (2026-10-01)

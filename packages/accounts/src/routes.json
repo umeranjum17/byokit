@@ -1,0 +1,1636 @@
+[
+  {
+    "id": "alibaba:plan_key:qwen-token-plan",
+    "provider": "alibaba",
+    "name": "Qwen Token Plan",
+    "company": "Alibaba",
+    "label": "Uses your Qwen Token Plan plan",
+    "aliases": [
+      "qwen-token-plan"
+    ],
+    "via": "plan_key",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "qwen-token-plan",
+      "method": "QWEN_TOKEN_PLAN_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "alibaba:plan_key:qwen-token-plan-cn",
+    "provider": "alibaba",
+    "name": "Qwen Token Plan CN",
+    "company": "Alibaba",
+    "label": "Uses your Qwen Token Plan CN plan",
+    "aliases": [
+      "qwen-token-plan-cn"
+    ],
+    "via": "plan_key",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "qwen-token-plan-cn",
+      "method": "QWEN_TOKEN_PLAN_CN_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "alibaba:plan_key:qwen-token-plan-individual",
+    "provider": "alibaba",
+    "name": "Qwen Token Plan Individual",
+    "company": "Alibaba",
+    "label": "Uses your Qwen Token Plan Individual plan",
+    "aliases": [
+      "qwen-token-plan-individual"
+    ],
+    "via": "plan_key",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "qwen-token-plan-individual",
+      "method": "QWEN_TOKEN_PLAN_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "ant-ling:key",
+    "provider": "ant-ling",
+    "name": "Ant Ling",
+    "company": "Ant Group",
+    "label": "API key (billed per use by Ant Group)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "ant-ling",
+      "method": "ANT_LING_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "anthropic:browser",
+    "provider": "anthropic",
+    "name": "Claude",
+    "company": "Anthropic",
+    "label": "Uses your Claude plan",
+    "aliases": [],
+    "via": "browser",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "anthropic",
+      "method": "loopback",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "anthropic:key",
+    "provider": "anthropic",
+    "name": "Anthropic",
+    "company": "Anthropic",
+    "label": "API key (billed per use by Anthropic)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "anthropic",
+      "method": "ANTHROPIC_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "anthropic:key:bearer",
+    "provider": "anthropic",
+    "name": "Anthropic",
+    "company": "Anthropic",
+    "label": "Paste your Anthropic bearer token (billing set by Anthropic)",
+    "aliases": [],
+    "via": "key",
+    "billing": "unknown",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "anthropic",
+      "method": "ANTHROPIC_AUTH_TOKEN",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "anthropic:paste",
+    "provider": "anthropic",
+    "name": "Claude",
+    "company": "Anthropic",
+    "label": "Uses your Claude plan",
+    "aliases": [],
+    "via": "paste",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "anthropic",
+      "method": "paste",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "anthropic:plan_key:oauth-token",
+    "provider": "anthropic",
+    "name": "Claude",
+    "company": "Anthropic",
+    "label": "Paste your Claude token (uses your Claude plan)",
+    "aliases": [],
+    "via": "plan_key",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "anthropic",
+      "method": "ANTHROPIC_OAUTH_TOKEN",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "anthropic:setup_token",
+    "provider": "anthropic",
+    "name": "Claude",
+    "company": "Anthropic",
+    "label": "Uses your Claude plan",
+    "aliases": [],
+    "via": "setup_token",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "host",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "anthropic",
+      "method": "ANTHROPIC_OAUTH_TOKEN",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "aws-bedrock:cloud:aws-profile",
+    "provider": "aws-bedrock",
+    "name": "Amazon Bedrock",
+    "company": "Amazon Web Services",
+    "label": "Cloud account (billed per use by Amazon Web Services)",
+    "aliases": [
+      "amazon-bedrock"
+    ],
+    "via": "cloud",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "amazon-bedrock",
+      "method": "aws-profile",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "aws-bedrock:cloud:credential-chain",
+    "provider": "aws-bedrock",
+    "name": "Amazon Bedrock",
+    "company": "Amazon Web Services",
+    "label": "Cloud account (billed per use by Amazon Web Services)",
+    "aliases": [
+      "amazon-bedrock"
+    ],
+    "via": "cloud",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "amazon-bedrock",
+      "method": "credential-chain",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "aws-bedrock:endpoint:skip-auth",
+    "provider": "aws-bedrock",
+    "name": "Amazon Bedrock",
+    "company": "Amazon Web Services",
+    "label": "Your own server (billing you choose)",
+    "aliases": [
+      "amazon-bedrock"
+    ],
+    "via": "endpoint",
+    "billing": "unknown",
+    "billingFrom": "host",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "amazon-bedrock",
+      "method": "skip-auth",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "aws-bedrock:key",
+    "provider": "aws-bedrock",
+    "name": "Amazon Bedrock",
+    "company": "Amazon Web Services",
+    "label": "API key (billed per use by Amazon Web Services)",
+    "aliases": [
+      "amazon-bedrock"
+    ],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "amazon-bedrock",
+      "method": "bearer-token",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "azure:key",
+    "provider": "azure",
+    "name": "Azure OpenAI",
+    "company": "Microsoft",
+    "label": "API key (billed per use by Microsoft)",
+    "aliases": [
+      "azure-openai-responses"
+    ],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "azure-openai-responses",
+      "method": "AZURE_OPENAI_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "baseten:key",
+    "provider": "baseten",
+    "name": "Baseten",
+    "company": "Baseten",
+    "label": "API key (billed per use by Baseten)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "baseten",
+      "method": "BASETEN_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "cerebras:key",
+    "provider": "cerebras",
+    "name": "Cerebras",
+    "company": "Cerebras",
+    "label": "API key (billed per use by Cerebras)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "cerebras",
+      "method": "CEREBRAS_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "cloudflare:cloud:workers-binding",
+    "provider": "cloudflare",
+    "name": "Cloudflare AI Gateway",
+    "company": "Cloudflare",
+    "label": "Cloud account (billed per use by Cloudflare)",
+    "aliases": [
+      "cloudflare-ai-gateway"
+    ],
+    "via": "cloud",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "host",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "cloudflare-ai-gateway",
+      "method": "workers-binding",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "cloudflare:key:cloudflare-ai-gateway",
+    "provider": "cloudflare",
+    "name": "Cloudflare AI Gateway",
+    "company": "Cloudflare",
+    "label": "API key (billed per use by Cloudflare)",
+    "aliases": [
+      "cloudflare-ai-gateway"
+    ],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "cloudflare-ai-gateway",
+      "method": "CLOUDFLARE_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "cloudflare:key:cloudflare-workers-ai",
+    "provider": "cloudflare",
+    "name": "Cloudflare Workers AI",
+    "company": "Cloudflare",
+    "label": "API key (billed per use by Cloudflare)",
+    "aliases": [
+      "cloudflare-workers-ai"
+    ],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "cloudflare-workers-ai",
+      "method": "CLOUDFLARE_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "custom:endpoint",
+    "provider": "custom",
+    "name": "Your own server",
+    "company": "Your own server",
+    "label": "Your own server (billing you choose)",
+    "aliases": [],
+    "via": "endpoint",
+    "billing": "unknown",
+    "billingFrom": "host",
+    "offer": "explicit",
+    "platforms": {
+      "node": "host",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "custom",
+      "method": "createProvider",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "custom:local",
+    "provider": "custom",
+    "name": "Local model",
+    "company": "Local model",
+    "label": "Runs on this computer",
+    "aliases": [],
+    "via": "local",
+    "billing": "local",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "host",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "custom",
+      "method": "createProvider",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "deepseek:key",
+    "provider": "deepseek",
+    "name": "DeepSeek",
+    "company": "DeepSeek",
+    "label": "API key (billed per use by DeepSeek)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "deepseek",
+      "method": "DEEPSEEK_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "fireworks:key",
+    "provider": "fireworks",
+    "name": "Fireworks",
+    "company": "Fireworks",
+    "label": "API key (billed per use by Fireworks)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "fireworks",
+      "method": "FIREWORKS_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "github-copilot:code",
+    "provider": "github-copilot",
+    "name": "GitHub Copilot",
+    "company": "GitHub",
+    "label": "Uses your GitHub Copilot plan",
+    "aliases": [],
+    "via": "code",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "github-copilot",
+      "method": "device",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "github-copilot:key",
+    "provider": "github-copilot",
+    "name": "GitHub Copilot",
+    "company": "GitHub",
+    "label": "Paste your Copilot token (uses your GitHub Copilot plan)",
+    "aliases": [],
+    "via": "key",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "github-copilot",
+      "method": "COPILOT_GITHUB_TOKEN",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "google-ai-studio:key",
+    "provider": "google-ai-studio",
+    "name": "Google",
+    "company": "Google",
+    "label": "API key (billed per use by Google)",
+    "aliases": [
+      "google"
+    ],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "google",
+      "method": "GEMINI_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "google-vertex:cloud:adc",
+    "provider": "google-vertex",
+    "name": "Google Vertex AI",
+    "company": "Google",
+    "label": "Cloud account (billed per use by Google)",
+    "aliases": [],
+    "via": "cloud",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "google-vertex",
+      "method": "adc",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "google-vertex:cloud:service-account",
+    "provider": "google-vertex",
+    "name": "Google Vertex AI",
+    "company": "Google",
+    "label": "Cloud account (billed per use by Google)",
+    "aliases": [],
+    "via": "cloud",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "google-vertex",
+      "method": "service-account",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "google-vertex:key",
+    "provider": "google-vertex",
+    "name": "Google Vertex AI",
+    "company": "Google",
+    "label": "API key (billed per use by Google)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "google-vertex",
+      "method": "GOOGLE_CLOUD_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "groq:key",
+    "provider": "groq",
+    "name": "Groq",
+    "company": "Groq",
+    "label": "API key (billed per use by Groq)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "groq",
+      "method": "GROQ_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "huggingface:key",
+    "provider": "huggingface",
+    "name": "Hugging Face",
+    "company": "Hugging Face",
+    "label": "API key (billed per use by Hugging Face)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "huggingface",
+      "method": "HF_TOKEN",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "kimi-code:code",
+    "provider": "kimi-code",
+    "name": "Kimi For Coding",
+    "company": "Moonshot AI",
+    "label": "Uses your Kimi For Coding plan",
+    "aliases": [
+      "kimi-coding"
+    ],
+    "via": "code",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "kimi-coding",
+      "method": "device",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "kimi-code:plan_key",
+    "provider": "kimi-code",
+    "name": "Kimi For Coding",
+    "company": "Moonshot AI",
+    "label": "Uses your Kimi For Coding plan",
+    "aliases": [
+      "kimi-coding"
+    ],
+    "via": "plan_key",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "kimi-coding",
+      "method": "KIMI_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "meta:code",
+    "provider": "meta",
+    "name": "Meta",
+    "company": "Meta",
+    "label": "Uses your Meta plan",
+    "aliases": [],
+    "via": "code",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "meta",
+      "method": "device",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "meta:key",
+    "provider": "meta",
+    "name": "Meta",
+    "company": "Meta",
+    "label": "API key (billed per use by Meta)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "meta",
+      "method": "META_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "minimax:key",
+    "provider": "minimax",
+    "name": "MiniMax",
+    "company": "MiniMax",
+    "label": "API key (billed per use by MiniMax)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "minimax",
+      "method": "MINIMAX_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "minimax:key:minimax-cn",
+    "provider": "minimax",
+    "name": "MiniMax CN",
+    "company": "MiniMax CN",
+    "label": "API key (billed per use by MiniMax CN)",
+    "aliases": [
+      "minimax-cn"
+    ],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "minimax-cn",
+      "method": "MINIMAX_CN_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "minimax:plan_key",
+    "provider": "minimax",
+    "name": "MiniMax",
+    "company": "MiniMax",
+    "label": "Uses your MiniMax plan",
+    "aliases": [],
+    "via": "plan_key",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "minimax",
+      "method": "plan-key",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "absent"
+    }
+  },
+  {
+    "id": "mistral:key",
+    "provider": "mistral",
+    "name": "Mistral",
+    "company": "Mistral",
+    "label": "API key (billed per use by Mistral)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "mistral",
+      "method": "MISTRAL_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "moonshot:key",
+    "provider": "moonshot",
+    "name": "Moonshot AI",
+    "company": "Moonshot AI",
+    "label": "API key (billed per use by Moonshot AI)",
+    "aliases": [
+      "moonshotai"
+    ],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "moonshotai",
+      "method": "MOONSHOT_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "moonshot:key:moonshotai-cn",
+    "provider": "moonshot",
+    "name": "Moonshot AI CN",
+    "company": "Moonshot AI",
+    "label": "API key (billed per use by Moonshot AI)",
+    "aliases": [
+      "moonshotai-cn"
+    ],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "moonshotai-cn",
+      "method": "MOONSHOT_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "nvidia:key",
+    "provider": "nvidia",
+    "name": "NVIDIA",
+    "company": "NVIDIA",
+    "label": "API key (billed per use by NVIDIA)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "nvidia",
+      "method": "NVIDIA_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "openai:browser",
+    "provider": "openai",
+    "name": "ChatGPT",
+    "company": "OpenAI",
+    "label": "Uses your ChatGPT plan",
+    "aliases": [
+      "openai-codex"
+    ],
+    "via": "browser",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "openai-codex",
+      "method": "loopback",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "openai:code",
+    "provider": "openai",
+    "name": "ChatGPT",
+    "company": "OpenAI",
+    "label": "Uses your ChatGPT plan",
+    "aliases": [
+      "openai-codex"
+    ],
+    "via": "code",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "openai-codex",
+      "method": "device",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "openai:key",
+    "provider": "openai",
+    "name": "OpenAI",
+    "company": "OpenAI",
+    "label": "API key (billed per use by OpenAI)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "openai",
+      "method": "OPENAI_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "openai:paste",
+    "provider": "openai",
+    "name": "ChatGPT",
+    "company": "OpenAI",
+    "label": "Uses your ChatGPT plan",
+    "aliases": [
+      "openai-codex"
+    ],
+    "via": "paste",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "openai-codex",
+      "method": "paste",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "opencode:key",
+    "provider": "opencode",
+    "name": "OpenCode Zen",
+    "company": "OpenCode Zen",
+    "label": "API key (billed per use by OpenCode Zen)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "opencode",
+      "method": "OPENCODE_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "opencode:plan_key:opencode-go",
+    "provider": "opencode",
+    "name": "OpenCode Go",
+    "company": "OpenCode Go",
+    "label": "Uses your OpenCode Go plan",
+    "aliases": [
+      "opencode-go"
+    ],
+    "via": "plan_key",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "opencode-go",
+      "method": "OPENCODE_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "openrouter:browser",
+    "provider": "openrouter",
+    "name": "OpenRouter",
+    "company": "OpenRouter",
+    "label": "API key (billed per use by OpenRouter)",
+    "aliases": [],
+    "via": "browser",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "openrouter",
+      "method": "loopback",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "openrouter:key",
+    "provider": "openrouter",
+    "name": "OpenRouter",
+    "company": "OpenRouter",
+    "label": "API key (billed per use by OpenRouter)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "openrouter",
+      "method": "OPENROUTER_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "openrouter:paste",
+    "provider": "openrouter",
+    "name": "OpenRouter",
+    "company": "OpenRouter",
+    "label": "API key (billed per use by OpenRouter)",
+    "aliases": [],
+    "via": "paste",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "openrouter",
+      "method": "paste",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "qwen:browser",
+    "provider": "qwen",
+    "name": "Qwen",
+    "company": "Alibaba",
+    "label": "Uses your Qwen plan",
+    "aliases": [],
+    "via": "browser",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "qwen-portal",
+      "method": "oauth",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "absent"
+    }
+  },
+  {
+    "id": "radius:browser",
+    "provider": "radius",
+    "name": "Radius",
+    "company": "Radius",
+    "label": "Billing set by Radius",
+    "aliases": [],
+    "via": "browser",
+    "billing": "unknown",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "radius",
+      "method": "loopback",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "radius:code",
+    "provider": "radius",
+    "name": "Radius",
+    "company": "Radius",
+    "label": "Billing set by Radius",
+    "aliases": [],
+    "via": "code",
+    "billing": "unknown",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "radius",
+      "method": "device",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "radius:key",
+    "provider": "radius",
+    "name": "Radius",
+    "company": "Radius",
+    "label": "Billing set by Radius",
+    "aliases": [],
+    "via": "key",
+    "billing": "unknown",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "radius",
+      "method": "RADIUS_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "together:key",
+    "provider": "together",
+    "name": "Together",
+    "company": "Together AI",
+    "label": "API key (billed per use by Together AI)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "together",
+      "method": "TOGETHER_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "vercel-ai-gateway:key",
+    "provider": "vercel-ai-gateway",
+    "name": "Vercel AI Gateway",
+    "company": "Vercel",
+    "label": "API key (billed per use by Vercel)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "vercel-ai-gateway",
+      "method": "AI_GATEWAY_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "xai:code",
+    "provider": "xai",
+    "name": "xAI",
+    "company": "xAI",
+    "label": "Uses your xAI plan",
+    "aliases": [],
+    "via": "code",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "xai",
+      "method": "device",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "xai:key",
+    "provider": "xai",
+    "name": "xAI",
+    "company": "xAI",
+    "label": "API key (billed per use by xAI)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "xai",
+      "method": "XAI_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "xiaomi:key",
+    "provider": "xiaomi",
+    "name": "Xiaomi",
+    "company": "Xiaomi",
+    "label": "API key (billed per use by Xiaomi)",
+    "aliases": [],
+    "via": "key",
+    "billing": "api",
+    "billingFrom": "source",
+    "offer": "explicit",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "xiaomi",
+      "method": "XIAOMI_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "xiaomi:plan_key:xiaomi-token-plan-ams",
+    "provider": "xiaomi",
+    "name": "Xiaomi Token Plan AMS",
+    "company": "Xiaomi Token Plan AMS",
+    "label": "Uses your Xiaomi Token Plan AMS plan",
+    "aliases": [
+      "xiaomi-token-plan-ams"
+    ],
+    "via": "plan_key",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "xiaomi-token-plan-ams",
+      "method": "XIAOMI_TOKEN_PLAN_AMS_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "xiaomi:plan_key:xiaomi-token-plan-cn",
+    "provider": "xiaomi",
+    "name": "Xiaomi Token Plan CN",
+    "company": "Xiaomi Token Plan CN",
+    "label": "Uses your Xiaomi Token Plan CN plan",
+    "aliases": [
+      "xiaomi-token-plan-cn"
+    ],
+    "via": "plan_key",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "xiaomi-token-plan-cn",
+      "method": "XIAOMI_TOKEN_PLAN_CN_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "xiaomi:plan_key:xiaomi-token-plan-sgp",
+    "provider": "xiaomi",
+    "name": "Xiaomi Token Plan SGP",
+    "company": "Xiaomi Token Plan SGP",
+    "label": "Uses your Xiaomi Token Plan SGP plan",
+    "aliases": [
+      "xiaomi-token-plan-sgp"
+    ],
+    "via": "plan_key",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "xiaomi-token-plan-sgp",
+      "method": "XIAOMI_TOKEN_PLAN_SGP_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "zai:plan_key",
+    "provider": "zai",
+    "name": "Z.AI",
+    "company": "Z.AI",
+    "label": "Uses your Z.AI plan",
+    "aliases": [],
+    "via": "plan_key",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "zai",
+      "method": "ZAI_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "zai:plan_key:zai-coding-cn",
+    "provider": "zai",
+    "name": "Z.AI Coding CN",
+    "company": "Z.AI",
+    "label": "Uses your Z.AI Coding CN plan",
+    "aliases": [
+      "zai-coding-cn"
+    ],
+    "via": "plan_key",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "zai-coding-cn",
+      "method": "ZAI_CODING_CN_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  }
+]

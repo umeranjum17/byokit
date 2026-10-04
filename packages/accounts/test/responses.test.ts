@@ -20,6 +20,7 @@ test('shared and TypeScript SSE cases: streaming, completion, and errors', () =>
     } else {
       assert.equal(run(), c.text);
       assert.equal(deltas.join(''), c.deltas ?? c.text, 'onText saw every piece');
+      assert.deepEqual(r.result().usage, c.usage);
     }
   }
 });
@@ -325,7 +326,31 @@ test('respond with the image_generation built-in: passed through, answered as te
 });
 
 test('tool pass-through changes no billing and offers no new route', () => {
-  assert.deepEqual(offered().map((p) => p.key), ['chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta', 'qwen', 'minimax']);
+  assert.deepEqual(offered().map((p) => p.key), ['chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta']);
   assert.equal(PROVIDERS.chatgpt.billing, 'subscription');
   assert.ok(!offered().some((p) => p.billing === 'api'), 'API rows stay opt-in');
+});
+
+
+test('respond result:true retains reported usage on streaming, buffered and JSON transports', async () => {
+  const usage = { input_tokens: 12, output_tokens: 3, input_tokens_details: { cached_tokens: 4 } };
+  const response = { status: 'completed', usage, output: [{ type: 'message', content: [{ type: 'output_text', text: 'Umer' }] }] };
+  const stream = `data: ${JSON.stringify({ type: 'response.completed', response })}\n\n`;
+  for (const mode of ['stream', 'buffered', 'json'] as const) {
+    const fetch = (async () => mode === 'json' ? Response.json(response) : mode === 'stream'
+      ? new Response(stream) : { ok: true, text: async () => stream } as Response) as typeof globalThis.fetch;
+    const a = await signedIn({ fetch });
+    const result = await a.respond(1, { instructions: '', input: 'Umer', result: true });
+    assert.equal(result.text, 'Umer');
+    assert.deepEqual(result.usage, usage);
+    assert.deepEqual((await a.respond(1, { instructions: '', input: 'Umer', tools: [] })).usage, usage);
+    assert.equal(await a.respond(1, { instructions: '', input: 'Umer' }), 'Umer');
+    const incomplete = sseReader();
+    incomplete.push(`data: ${JSON.stringify({ type: 'response.incomplete', response: { ...response, status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } } })}\n\n`);
+    assert.throws(() => incomplete.result(), (e: unknown) => {
+      assert.ok(e instanceof IncompleteError);
+      assert.deepEqual(e.result.usage, usage);
+      return true;
+    });
+  }
 });

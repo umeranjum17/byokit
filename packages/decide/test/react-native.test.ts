@@ -124,13 +124,13 @@ test('answerer labels every abstention and never retains injected or credential-
   const result = await decide({}, q, { privacy: 'stays-here', backends: [failing] });
   assert.equal(calls, 1, 'other statuses never retry');
   assert.equal(result.urgent.confidenceSource, 'self-reported');
-  assert.equal(result.urgent.reason, 'model failed: model request failed');
+  assert.equal(result.urgent.reason, 'model failed');
   assert.ok(!JSON.stringify(result).includes('synthetic private credential'));
   const incomplete = answerer({ name: 'model', leaves: false, ask: async () => {
     throw Object.assign(new Error('synthetic private credential in partial output'), { name: 'IncompleteError' });
   } });
   const cutOff = await decide({}, q, { privacy: 'stays-here', backends: [incomplete] });
-  assert.equal(cutOff.urgent.reason, 'model failed: model cut off its answer before it was complete');
+  assert.equal(cutOff.urgent.reason, 'model failed: answer was cut off');
   assert.equal(cutOff.urgent.confidenceSource, 'self-reported');
   assert.ok(!JSON.stringify(cutOff).includes('synthetic private credential'));
 });
@@ -191,6 +191,8 @@ test('OpenAI config and account adapter bundle without runtime SDK, Node or ambi
   const bundle = await build({ stdin: { contents: `
     import { createDecider, parseConfig } from '../src/index.ts';
     import { chatgptPlan } from '@byokit/accounts/chatgpt-plan';
+    import { Accounts } from '@byokit/accounts';
+    globalThis.handle = new Accounts().chatgpt('Umer');
     globalThis.account = chatgptPlan({ session: async () => ({ accessToken: 'host-token',
       scopes: ['resource.invoke', 'chatgpt.tokens.use.direct'] }) });
     const run = createDecider(parseConfig({ backend: 'openai', model: 'chosen-model' }), {
@@ -207,6 +209,9 @@ test('OpenAI config and account adapter bundle without runtime SDK, Node or ambi
   assert.equal(urgent.answer, true);
   assert.equal(urgent.confidenceSource, 'self-reported');
   assert.equal(urgent.usage.input_tokens, 4);
+  assert.equal(sandbox.handle.billing, 'subscription');
+  assert.equal(typeof sandbox.handle.respond, 'function');
+  assert.deepEqual(Object.keys(sandbox.handle).sort(), ['billing', 'respond']);
   assert.equal(await sandbox.account.access(new AbortController().signal), 'host-token');
 });
 

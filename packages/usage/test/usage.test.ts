@@ -8,6 +8,9 @@ import { fakeCodex, fakeFetch, usageContract } from '../src/testing/index.ts';
 import payloads from './usage-payloads.json' with { type: 'json' };
 import edge from '../../../fixtures/conformance/usage-typescript.json' with { type: 'json' };
 import plain from '../../../fixtures/conformance/plain-words.json' with { type: 'json' };
+import { anthropic } from '../../accounts/src/anthropic.ts';
+import { decide, MemoryCache } from '../../decide/src/index.ts';
+import type { RunEnd } from '../../openclaw/src/types.ts';
 
 const nowMs = 1788600000000;
 for (const provider of ['claude', 'codex', 'opencode', 'zai', 'copilot', 'grok', 'minimax', 'gemini', 'kimi'] as const) {
@@ -331,6 +334,85 @@ test('runtime call ledger: normalized provider counts, honest unknowns, app pric
 });
 
 
+test('host results aggregate per run with lane attribution, member limits and no extra calls', async () => {
+  const store = memoryTokenLedgerStore();
+  const ledger = callLedger({ store });
+  const base = { provider: 'anthropic', account: 'host-account', model: 'model-one', runId: 'run-one', time: nowMs,
+    lane: 'host', route: 'anthropic-cli', limits: payloads.claude.windows as Window[] };
+  let requests = 0;
+  const account = anthropic({ key: 'fixture-key', fetch: async () => {
+    requests++;
+    return Response.json({ id: 'message-one', type: 'message', role: 'assistant', model: 'model-one',
+      content: [{ type: 'text', text: 'never-store-answer' }], stop_reason: 'end_turn', stop_sequence: null,
+      usage: payloads.runtime[1].raw.usage });
+  } });
+  const direct = await account.respond({ model: 'model-one', max_tokens: 100,
+    messages: [{ role: 'user', content: 'never-store-prompt' }], result: true });
+  // The host explicitly opted into this API-key call before making it.
+  const billed = ledger.record('alice', { ...base, route: 'anthropic', billing: 'api', usage: direct });
+  assert.equal(billed.billingLabel, "Person's API bill");
+  const end: RunEnd = { ...payloads.hostRuns.openclaw, ok: true };
+  assert.ok(end.ok);
+  const subscription = ledger.record('alice', { ...base, time: nowMs + 1, usage: end, usageFormat: 'openclaw' });
+  assert.equal(subscription.billing, 'subscription');
+  assert.equal(subscription.billingLabel, "Person's own plan");
+  assert.deepEqual(subscription.tokens, payloads.runtime[1].tokens);
+  assert.equal(subscription.cost, undefined); // Engine price guesses never enter the ledger.
+  let decisions = 0;
+  const cache = new MemoryCache();
+  const backend = { name: 'fixture', leaves: false, async ask() {
+    decisions++;
+    return { check: { probabilities: { true: 1, false: 0 }, usage: payloads.hostRuns.decide, raw: { secret: 'never-store-secret' } } };
+  } };
+  const questions = { check: { kind: 'yesno' as const, question: 'Ready?' } };
+  const options = { privacy: 'stays-here' as const, backends: [backend], cache };
+  const answer = (await decide('fixture-state', questions, options)).check;
+  ledger.record('alice', { ...base, provider: 'fixture', route: 'decision', model: 'model-two', time: nowMs + 2, usage: answer });
+  const cached = (await decide('fixture-state', questions, options)).check;
+  assert.equal(cached.source, 'cache'); // Host records actual calls only, not cached answers.
+  ledger.record('bob', { ...base, usage: direct });
+  ledger.record('alice', { ...base, runId: 'run-two', time: nowMs + 3, usage: { input: 1, output: 2, cachedInput: 0 } });
+  // A call outside the requested range cannot contribute to the run.
+  ledger.record('alice', { ...base, time: nowMs - 1, usage: direct });
+  const restarted = callLedger({ store });
+  const run = restarted.queryRun('alice', 'run-one', nowMs, nowMs + 3);
+  assert.equal(run.runId, 'run-one');
+  assert.equal(run.calls.length, 3);
+  assert.deepEqual(run.tokens, payloads.hostRuns.tokens);
+  assert.equal(run.tokens.cachedInput, undefined); // Decide did not report cache counts.
+  assert.deepEqual(run.calls.map((call) => [call.lane, call.route, call.model]),
+    [['host', 'anthropic', 'model-one'], ['host', 'anthropic-cli', 'model-one'], ['host', 'decision', 'model-two']]);
+  assert.deepEqual(run.calls[0].limits, payloads.claude.windows);
+  assert.deepEqual(restarted.runs('alice', nowMs, nowMs + 4).map((run) => [run.runId, run.tokens.total]), [['run-one', 290], ['run-two', 3]]);
+  assert.equal(restarted.queryRun('bob', 'run-one', nowMs, nowMs + 3).tokens.total, 120);
+  const allowance = tokenLedger({ store, cap: () => 500 }).query('alice', nowMs, nowMs + 4);
+  assert.equal(allowance.tokens, 293);
+  assert.equal(allowance.week.tokens, 413); // Prior attempt counts in the seven-day allowance.
+  assert.equal(allowance.week.remaining, 87);
+  assert.doesNotMatch(JSON.stringify(run), /never-store|fixture-key|costUsd|raw/);
+  run.calls[0].tokens.input = 999;
+  run.calls[0].limits![0].usedPercent = 99;
+  assert.equal(restarted.queryRun('alice', 'run-one', nowMs, nowMs + 3).tokens.input, 240);
+  assert.deepEqual(restarted.queryRun('alice', 'run-one', nowMs, nowMs + 3).calls[0].limits, payloads.claude.windows);
+  assert.deepEqual(restarted.queryRun('alice', 'missing', nowMs, nowMs + 4).tokens,
+    { input: 0, output: 0, cachedInput: 0, cacheWrite: 0, total: 0, provenance: 'reported' });
+  ledger.record('alice', { ...base, time: nowMs + 4, state: 'failed' });
+  assert.equal(restarted.queryRun('alice', 'run-one', nowMs, nowMs + 5).tokens.total, undefined);
+  assert.equal(tokenLedger({ store, cap: 500 }).query('alice', nowMs, nowMs + 5).week.remaining, undefined);
+  assert.deepEqual(normalizeTokens('anthropic', {}, 'openclaw'), { provenance: 'unknown' });
+  assert.deepEqual(normalizeTokens('anthropic', { usage: { output: 7 } }, 'openclaw'),
+    { output: 7, cachedInput: 0, cacheWrite: 0, provenance: 'partial' });
+  assert.deepEqual(normalizeTokens('anthropic', { input: 10, output: 5, cacheRead: 2, total: 15 }, 'openclaw'), { provenance: 'unknown' });
+  assert.throws(() => ledger.record('alice', { ...base, lane: 'host\nsecret' }), TokenLedgerError);
+  assert.throws(() => ledger.record('alice', { ...base, route: '' }), TokenLedgerError);
+  assert.throws(() => ledger.record('alice', { ...base, usageFormat: 'other' as 'openclaw' }), TokenLedgerError);
+  assert.throws(() => restarted.queryRun('alice', '', nowMs, nowMs + 5), TokenLedgerError);
+  assert.throws(() => restarted.runs('alice', nowMs + 5, nowMs), TokenLedgerError);
+  assert.throws(() => restarted.queryRun('alice', 'run-one', nowMs + 5, nowMs), TokenLedgerError);
+  assert.equal(requests, 1);
+  assert.equal(decisions, 1);
+});
+
 test('public Claude replacement helpers share disk last-good and account backoff across readers', async () => {
   const dir = scratchDir('usage-public-helpers');
   const credentialsFile = join(dir, 'credentials.json');
@@ -537,4 +619,95 @@ test('managed Claude usage is read-only, bounded and carries app-passed headers 
   assert.equal(expired.code, 'expired'); assert.deepEqual(expired.windows, []); assert.equal(http.calls.length, 5);
   unlinkSync(credential); assert.equal(reader.connected(source), false);
   assert.equal((await reader.read(source, { nowMs })).code, 'not-connected');
+});
+
+
+test('ephemeral Claude snapshot is identity-free, uncached and source-local with honest failures', async () => {
+  let sharedCalls = 0;
+  const shared = (): never => { sharedCalls++; throw new Error('shared identity state accessed'); };
+  const reader = usage({ store: { get: shared, put: shared }, backoff: { get: shared, set: shared }, pace: async () => shared(), fetch: async () => { shared(); return new Response(); } });
+  let calls = 0; let signedIn = true;
+  const snapshot = { rate_limits: payloads.claude.raw, fetched_at: nowMs, accessToken: 'must-not-escape', folder: 'must-not-escape' };
+  const source: Source = { provider: 'claude', ephemeral: true, connected: () => signedIn, read: async () => {
+    calls++;
+    return calls === 1 ? { raw: snapshot, at: snapshot.fetched_at } : { code: 'rate-limited', retryAfterMs: 600_000 };
+  } };
+  assert.equal(reader.account(source), undefined);
+  assert.equal(reader.lastKnown(source), undefined);
+  const fresh = await reader.read(source, { nowMs });
+  assert.deepEqual(fresh.windows, payloads.claude.windows);
+  assert.equal(roomOf(fresh, nowMs).left, 58);
+  assert.equal(roomOf(fresh, nowMs).freshness, 'fresh');
+  assert.doesNotMatch(JSON.stringify(fresh), /must-not-escape|accessToken|folder/);
+  // Even a successful read is not cached; the next call observes the source again.
+  const failed = await reader.read(source, { nowMs: nowMs + 1 });
+  assert.equal(failed.code, 'rate-limited');
+  assert.deepEqual(failed.windows, []);
+  assert.equal(failed.at, undefined);
+  assert.equal(failed.poll?.retryAt, nowMs + 600_001);
+  assert.equal((await reader.read(source, { nowMs: nowMs + 2 })).code, 'rate-limited');
+  assert.equal(calls, 2);
+  const other: Source = { provider: 'claude', ephemeral: true, read: async () => ({ raw: snapshot }) };
+  assert.equal((await reader.read(other, { nowMs })).code, undefined);
+  assert.equal(roomOf(await reader.read(other, { nowMs }), nowMs).freshness, 'unknown');
+  assert.equal((await usage({}).read(source, { nowMs })).code, 'rate-limited');
+  signedIn = false;
+  assert.equal((await reader.read(source, { nowMs })).code, 'not-connected');
+  assert.equal(reader.connected(source), false);
+  assert.equal(reader.lastKnown(source), undefined);
+  assert.equal(calls, 3);
+  for (const answer of [{}, { raw: 'invalid' }, { code: 'not-connected' as const }, { code: 'auth' as const }, { code: 'expired' as const }]) {
+    const result = await reader.read({ provider: 'claude', ephemeral: true, read: async () => answer }, { nowMs });
+    assert.equal(result.code, 'code' in answer ? answer.code : 'incomplete');
+    assert.equal(roomOf(result, nowMs).left, 'unknown');
+  }
+  const hard = await reader.read({ provider: 'claude', ephemeral: true, read: async () => ({ limited: true, at: nowMs }) }, { nowMs });
+  assert.equal(roomOf(hard, nowMs).left, 0);
+  await assert.rejects(reader.read({ ...other, accountUuid: 'invented' } as Source), UsageError);
+  assert.equal(sharedCalls, 0);
+});
+
+test('ephemeral Claude concurrent reads share only their operation and respect deadline/cancellation', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let signal: AbortSignal | undefined; let calls = 0;
+  const source: Source = { provider: 'claude', ephemeral: true, read: async (opts) => {
+    signal = opts.signal; calls++;
+    return new Promise(() => {});
+  } };
+  const reader = usage({});
+  const a = reader.read(source, { nowMs }); const b = reader.read(source, { nowMs });
+  t.mock.timers.tick(10_000);
+  assert.equal((await a).code, 'unavailable'); assert.deepEqual(await a, await b);
+  assert.equal(signal?.aborted, true); assert.equal(calls, 1);
+  assert.equal((await reader.read(source, { nowMs: nowMs + 1 })).poll?.retryAt, nowMs + 60_000);
+  const controller = new AbortController(); controller.abort();
+  assert.equal((await reader.read({ ...source }, { nowMs, signal: controller.signal })).code, 'unavailable');
+  assert.equal(calls, 1);
+});
+
+test('plan view keeps every activity section account-scoped and poll failure distinct from exhaustion', async () => {
+  const { planView, planLabel, modelLabel } = await import('../src/view.ts');
+  const fixture = (await import('../../../fixtures/conformance/usage-view-typescript.json', { with: { type: 'json' } })).default;
+  const ledger = callLedger();
+  const call = ledger.record('umer', { provider: fixture.provider, account: fixture.account, model: fixture.model,
+    runId: 'one', time: fixture.now, billing: 'subscription', usage: { total: fixture.tokens } });
+  const other = { ...call, account: 'other', tokens: { total: 9, provenance: 'partial' as const } };
+  const failed: import('../src/types.ts').Reading = { provider: 'codex', windows: [], code: 'rate-limited' };
+  const view = planView({ provider: 'codex', account: fixture.account, calls: [call, other], nowMs: fixture.now,
+    quota: { account: fixture.account, reading: failed } });
+  assert.equal(view.label, fixture.planLabel); assert.equal(view.room.left, 'unknown');
+  assert.equal(view.today.tokens, fixture.tokens); assert.equal(view.activity.tokens, fixture.tokens);
+  assert.equal(view.people[0]?.tokens, fixture.tokens); assert.equal(view.models[0]?.label, fixture.modelLabel);
+  assert.equal(view.activity.text, '1 recorded call in 30 days');
+  const unknown = planView({ provider: 'codex', account: fixture.account, calls: [call, { ...call, tokens: { provenance: 'unknown' } }], nowMs: fixture.now });
+  assert.equal(unknown.today.tokens, undefined); assert.equal(unknown.today.knownTokens, fixture.tokens);
+  assert.equal(unknown.people[0]?.unknownCalls, 1);
+  assert.throws(() => planView({ provider: 'codex', account: fixture.account, calls: [], nowMs: fixture.now, quota: { account: 'other', reading: failed } }));
+  assert.equal(modelLabel('claude-opus-5-5'), 'Claude Opus 5.5');
+  assert.equal(modelLabel('private-binary-name'), 'AI model');
+  assert.equal(planLabel('claude'), 'Claude plan');
+  assert.equal(planView({ provider: 'codex', account: fixture.account, calls: [], nowMs: fixture.now,
+    quota: { account: fixture.account, reading: { ...failed, limited: true } } }).room.left, 0);
+  const { build } = await import('esbuild');
+  await build({ entryPoints: ['packages/usage/src/view.ts'], bundle: true, platform: 'browser', write: false, logLevel: 'silent' });
 });

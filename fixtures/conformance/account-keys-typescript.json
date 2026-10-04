@@ -1,0 +1,183 @@
+{
+  "scope": "B2 wrapped key tuples at @earendil-works/pi-ai@0.87.1; account lifecycle closure, not vendor live proof",
+  "selection": { "autoAndFallback": "subscription-only", "savedDefaultApi": "explicit, ready, non-custom accounts only", "customEndpointDefault": "non-subscription refused" },
+  "auth": { "selectedKeyOwnsHeaders": true, "clientOverride": "auth_override refusal; explicit native adapter remains available", "cloudflareGateway": "cf-aig-authorization only", "anthropicBearer": "authorization only" },
+  "tuples": [
+    {
+      "tuple": "alibaba|plan_key|subscription",
+      "routes": [
+        "alibaba:plan_key:qwen-token-plan",
+        "alibaba:plan_key:qwen-token-plan-cn",
+        "alibaba:plan_key:qwen-token-plan-individual"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "ant-ling|api_key|api",
+      "routes": [
+        "ant-ling:key"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "anthropic|other|subscription",
+      "routes": [
+        "anthropic:plan_key:oauth-token"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "aws-bedrock|api_key|api",
+      "routes": [
+        "aws-bedrock:key"
+      ],
+      "request": "needs_host"
+    },
+    {
+      "tuple": "azure|api_key|api",
+      "routes": [
+        "azure:key"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "baseten|api_key|api",
+      "routes": [
+        "baseten:key"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "cerebras|api_key|api",
+      "routes": [
+        "cerebras:key"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "cloudflare|api_key|api",
+      "routes": [
+        "cloudflare:key:cloudflare-ai-gateway",
+        "cloudflare:key:cloudflare-workers-ai"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "deepseek|api_key|api",
+      "routes": [
+        "deepseek:key"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "fireworks|api_key|api",
+      "routes": [
+        "fireworks:key"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "github-copilot|api_key|subscription",
+      "routes": [
+        "github-copilot:key"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "google-vertex|api_key|api",
+      "routes": [
+        "google-vertex:key"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "groq|api_key|api",
+      "routes": [
+        "groq:key"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "kimi-code|plan_key|subscription",
+      "routes": [
+        "kimi-code:plan_key"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "meta|api_key|api",
+      "routes": [
+        "meta:key"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "minimax|api_key|api",
+      "routes": [
+        "minimax:key",
+        "minimax:key:minimax-cn"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "mistral|api_key|api",
+      "routes": [
+        "mistral:key"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "moonshot|api_key|api",
+      "routes": [
+        "moonshot:key",
+        "moonshot:key:moonshotai-cn"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "opencode|plan_key|subscription",
+      "routes": [
+        "opencode:plan_key:opencode-go"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "radius|api_key|unknown",
+      "routes": [
+        "radius:key"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "vercel-ai-gateway|api_key|api",
+      "routes": [
+        "vercel-ai-gateway:key"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "xiaomi|api_key|api",
+      "routes": [
+        "xiaomi:key"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "xiaomi|plan_key|subscription",
+      "routes": [
+        "xiaomi:plan_key:xiaomi-token-plan-ams",
+        "xiaomi:plan_key:xiaomi-token-plan-cn",
+        "xiaomi:plan_key:xiaomi-token-plan-sgp"
+      ],
+      "request": "pinned-adapter"
+    },
+    {
+      "tuple": "zai|plan_key|subscription",
+      "routes": [
+        "zai:plan_key",
+        "zai:plan_key:zai-coding-cn"
+      ],
+      "request": "pinned-adapter"
+    }
+  ]
+}

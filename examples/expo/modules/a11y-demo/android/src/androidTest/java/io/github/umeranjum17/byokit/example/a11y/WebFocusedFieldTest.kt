@@ -1,8 +1,11 @@
 package io.github.umeranjum17.byokit.example.a11y
 
+import android.app.KeyguardManager
 import android.app.UiAutomation
 import android.accessibilityservice.AccessibilityService
+import android.content.Context
 import android.content.Intent
+import android.os.PowerManager
 import android.view.accessibility.AccessibilityNodeInfo
 import android.webkit.WebView
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -21,6 +24,112 @@ class WebFocusedFieldTest {
 
   private fun shell(command: String): String = automation.executeShellCommand(command).use {
     android.os.ParcelFileDescriptor.AutoCloseInputStream(it).bufferedReader().readText().trim()
+  }
+
+  private fun deviceState(): Triple<Boolean, Boolean, Boolean> {
+    val context = instrumentation.targetContext
+    val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    val keyguard = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+    return Triple(power.isInteractive, keyguard.isKeyguardLocked, keyguard.isKeyguardSecure)
+  }
+
+  private fun windowState(label: String) {
+    val (interactive, locked, secure) = deviceState()
+    println("WebView device $label: interactive=$interactive, keyguardLocked=$locked, keyguardSecure=$secure")
+    // Keep the owner/precondition evidence bounded, rather than dumping every window or service.
+    val owners = shell("dumpsys window displays").lineSequence().filter {
+      it.contains("mCurrentFocus") || it.contains("mFocusedApp") ||
+        it.contains("mTopFocusedDisplayId") || it.contains("mObscuringWindow") ||
+        it.contains("keyguard", ignoreCase = true)
+    }.take(12).map { it.trim().take(512) }.joinToString("\n")
+    println("WebView windows $label:\n$owners")
+    // Input focus owners follow their section headings on separate lines; keep those entries together.
+    var focusSection = false
+    val inputFocus = shell("dumpsys input").lineSequence().filter {
+      val line = it.trim()
+      val heading = line.startsWith("FocusedApplications:") ||
+        line.startsWith("FocusedWindows:") || line.startsWith("FocusRequests:")
+      val entry = focusSection && line.startsWith("displayId=")
+      if (heading) focusSection = true
+      else if (line.isNotEmpty() && !entry) focusSection = false
+      heading || entry || line.startsWith("FocusedDisplayId:")
+    }.take(12).map { it.trim().take(512) }.joinToString("\n")
+    println("WebView input $label:\n$inputFocus")
+  }
+
+  private var systemUiWaitIssued = false
+
+  private fun systemUiAnrOwner(): String? {
+    val title = "Application Not Responding: com.android.systemui"
+    val windows = shell("dumpsys window displays").lineSequence()
+      .map { it.trim().take(512) }.filter { it.startsWith("mCurrentFocus=") }.take(2).toList()
+    val inputDump = shell("dumpsys input")
+    val input = inputDump.lineSequence().map { it.trim().take(512) }
+      .dropWhile { !it.startsWith("FocusedWindows:") }.drop(1)
+      .takeWhile { it.startsWith("displayId=") }.take(2).toList()
+    println("SystemUI ANR owner: windows=$windows, input=$input")
+    if (windows.none { it.contains(title) } && input.none { it.contains(title) }) return null
+    // Both independent owners must name the same exact dialog on the sole CI display.
+    val owner = windows.singleOrNull()?.let {
+      Regex("""mCurrentFocus=Window\{([0-9a-f]+) u0 Application Not Responding: com\.android\.systemui\}""")
+        .matchEntire(it)?.groupValues?.get(1)
+    }
+    assertNotNull("Exact SystemUI ANR window owner", owner)
+    assertTrue("SystemUI ANR is on focused display 0",
+      inputDump.lineSequence().any { it.trim() == "FocusedDisplayId: 0" })
+    assertEquals("Window manager and input must agree on the SystemUI ANR owner",
+      listOf("displayId=0, name='$owner $title'"), input)
+    return owner
+  }
+
+  private fun waitForExactSystemUiAnr() {
+    val owner = systemUiAnrOwner()
+    if (owner == null) {
+      println("SystemUI ANR Wait: unexercised; no exact focused dialog")
+      return
+    }
+    windowState("before single SystemUI ANR Wait")
+    val root = automation.rootInActiveWindow ?: error("SystemUI ANR active root absent; left untouched")
+    val controls = root.findAccessibilityNodeInfosByViewId("android:id/aerr_wait")
+    try {
+      assertEquals("SystemUI ANR must expose the active platform dialog root", "android", root.packageName?.toString())
+      assertEquals("Exactly one platform ANR Wait control", 1, controls.size)
+      val wait = controls.single()
+      val clickable = wait.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK }
+      println("SystemUI ANR Wait control: owner=$owner, rootWindow=${root.windowId}, " +
+        "controlWindow=${wait.windowId}, id=${wait.viewIdResourceName}, " +
+        "visible=${wait.isVisibleToUser}, enabled=${wait.isEnabled}, clickable=$clickable")
+      assertEquals("Wait belongs to the active dialog", root.windowId, wait.windowId)
+      assertEquals("Platform Wait resource", "android:id/aerr_wait", wait.viewIdResourceName)
+      assertTrue("Platform Wait is visible, enabled and supports click",
+        wait.isVisibleToUser && wait.isEnabled && wait.isClickable && clickable)
+      assertEquals("Exact dialog still owns focus immediately before Wait", owner, systemUiAnrOwner())
+      assertFalse("Only one SystemUI ANR Wait action is permitted", systemUiWaitIssued)
+      systemUiWaitIssued = true
+      val accepted = wait.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+      println("SystemUI ANR Wait: one action issued; accepted=$accepted")
+      assertTrue("Platform accepted the single Wait action", accepted)
+      windowState("after single SystemUI ANR Wait")
+    } finally {
+      controls.forEach { it.recycle() }
+      root.recycle()
+    }
+  }
+
+  private fun prepareDevice() {
+    windowState("before setup")
+    val (interactive, _, _) = deviceState()
+    if (!interactive) {
+      shell("input keyevent KEYCODE_WAKEUP")
+      windowState("after wake")
+    }
+    // Never send credentials or try to bypass a secure lock. An unresolved lock still fails awaitPage.
+    val (_, locked, secure) = deviceState()
+    if (locked && !secure) {
+      shell("wm dismiss-keyguard")
+      windowState("after keyguard dismissal")
+    }
+    waitForExactSystemUiAnr()
   }
 
   private fun js(activity: WebFieldActivity, script: String): String {
@@ -55,13 +164,17 @@ class WebFocusedFieldTest {
   }
 
   private fun awaitPage(activity: WebFieldActivity) {
-    assertTrue("Local WebView page loaded", activity.loaded.await(60, TimeUnit.SECONDS))
+    val loaded = activity.loaded.await(60, TimeUnit.SECONDS)
+    if (!loaded) windowState("page load timeout")
+    assertTrue("Local WebView page loaded", loaded)
     val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60)
     var observed = ""
     while (!pageReady(activity)) {
       val state = pageState(activity)
       if (state != observed) { println("WebView waiting for page: $state"); observed = state }
-      assertTrue("WebView attached, laid out and window focused: $state", System.nanoTime() < deadline)
+      val withinDeadline = System.nanoTime() < deadline
+      if (!withinDeadline) windowState("page focus timeout")
+      assertTrue("WebView attached, laid out and window focused: $state", withinDeadline)
       instrumentation.runOnMainSync { activity.web.requestFocus() }
       Thread.sleep(100)
     }
@@ -74,6 +187,11 @@ class WebFocusedFieldTest {
       })
     }
     assertTrue("Local WebView page ready to draw", drawn.await(60, TimeUnit.SECONDS))
+    if (systemUiWaitIssued) {
+      windowState("fixture focus after single SystemUI ANR Wait")
+      assertNull("SystemUI ANR must not persist after fixture focus", systemUiAnrOwner())
+      assertTrue("Fixture retains window focus after Wait", pageReady(activity))
+    }
   }
 
   /** DOM focus completes before Chromium publishes it to Android. Wait on that independent test precondition,
@@ -145,6 +263,7 @@ class WebFocusedFieldTest {
     val enabled = shell("settings get secure accessibility_enabled")
     var activity: WebFieldActivity? = null
     try {
+      prepareDevice()
       val component = "${context.packageName}/${WebFieldService::class.java.name}"
       shell("settings put secure enabled_accessibility_services $component")
       shell("settings put secure accessibility_enabled 1")
@@ -191,6 +310,11 @@ class WebFocusedFieldTest {
         @Suppress("DEPRECATION") root.recycle()
       }
       assertEquals("\"private\"", js(page, "document.getElementById('password').value"))
+      if (systemUiWaitIssued) {
+        windowState("real checks after single SystemUI ANR Wait")
+        assertNull("SystemUI ANR must not recur during the real checks", systemUiAnrOwner())
+        assertTrue("Fixture retains window focus after real checks", pageReady(page))
+      }
       println("WebView focused fields: textarea 10/10, input 10/10, password hidden; decoy untouched")
     } finally {
       activity?.let { page -> instrumentation.runOnMainSync { page.finish() } }

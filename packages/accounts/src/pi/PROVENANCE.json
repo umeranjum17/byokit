@@ -1,0 +1,422 @@
+{
+  "package": "@earendil-works/pi-ai",
+  "version": "0.87.1",
+  "tarball": "https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.87.1.tgz",
+  "integrity": "sha512-X/3PfQBnnoeVdO9Cv8zHghUMglzlgNZYGNzoPnbRoGnHl3Rw3TlA2UKSUB7BRHUOxMryHXYa8dnjWZlbRheDZA==",
+  "gitHead": "f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
+  "license": "MIT",
+  "copyright": "Copyright (c) 2025 Mario Zechner",
+  "esbuild": "0.28.2",
+  "options": {
+    "entryPoints": {
+      "core": "node_modules/@earendil-works/pi-ai/dist/models.js",
+      "cloudflare-stream": "node_modules/@earendil-works/pi-ai/dist/providers/cloudflare-stream.js",
+      "openai-completions": "node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js",
+      "openai-responses": "node_modules/@earendil-works/pi-ai/dist/api/openai-responses.js",
+      "anthropic-messages": "node_modules/@earendil-works/pi-ai/dist/api/anthropic-messages.js",
+      "google-generative-ai": "node_modules/@earendil-works/pi-ai/dist/api/google-generative-ai.js",
+      "mistral-conversations": "node_modules/@earendil-works/pi-ai/dist/api/mistral-conversations.js",
+      "pi-messages": "node_modules/@earendil-works/pi-ai/dist/api/pi-messages.js",
+      "azure-openai-responses": "node_modules/@earendil-works/pi-ai/dist/api/azure-openai-responses.js"
+    },
+    "outdir": "packages/accounts/src/pi",
+    "bundle": true,
+    "splitting": true,
+    "format": "esm",
+    "platform": "neutral",
+    "target": "es2022",
+    "mainFields": [
+      "module",
+      "main"
+    ],
+    "conditions": [
+      "import"
+    ],
+    "external": [
+      "@anthropic-ai/sdk",
+      "@aws-sdk/client-bedrock-runtime",
+      "@earendil-works/pi-telemetry",
+      "@google/genai",
+      "@smithy/node-http-handler",
+      "http-proxy-agent",
+      "https-proxy-agent",
+      "openai",
+      "partial-json",
+      "typebox",
+      "node:*"
+    ],
+    "supported": {
+      "dynamic-import": false
+    },
+    "chunkNames": "chunk-[hash]",
+    "sourcemap": "linked",
+    "sourcesContent": true,
+    "legalComments": "eof",
+    "banner": {
+      "js": "// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled unmodified by @byokit/accounts; see NOTICE."
+    }
+  },
+  "externals": [
+    "@anthropic-ai/sdk",
+    "@google/genai",
+    "node:fs",
+    "openai",
+    "partial-json"
+  ],
+  "inputs": [
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/anthropic-messages.js",
+      "sha256": "97de17d406264322ff7927fa0c20e1c61b46386b5e14f9c6e0012599c01664f7"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/azure-openai-responses.js",
+      "sha256": "2cce830528a0d063cd76e9f234632637ed9782e12c687d3c5bc79f10483a7ff2"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/constrained-sampling.js",
+      "sha256": "0d43dcad594b8e63ff851a35c2d338bbf5d8dc67fe2b39d7fd48fde39c25b3ce"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/github-copilot-headers.js",
+      "sha256": "cd09a447ea282f5df02aab057f372d48ab95d72adb1d9d74510a2b5e1c7d78b3"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/google-generative-ai.js",
+      "sha256": "e2ebaeb55a99deded745b2ae0c8f3ca420c425d9cab0824ceb3b56224fe0efcf"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/google-shared.js",
+      "sha256": "0254007d8b7f0ebeb2b00f6a940041012c45220369f604f999c8e7019d36972a"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/lazy.js",
+      "sha256": "4b8083fd71cbbe2ed01be00fc6ae9bc67f84aa7bf50ef815f7863e156a3e003c"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/mistral-conversations.js",
+      "sha256": "beea0b191eaf33f0b412fb0c10219fac89a599fba9c4f215a1fcfd5ea8c3f46e"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js",
+      "sha256": "a2397cb3114a3d1a05993f6f19671ecbcc85540d8f8c59a233808c717df2682c"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/openai-prompt-cache.js",
+      "sha256": "cdb4c30de4e8918994e18556529077ee5d952db0d6960bb299a76f6d8d139d2a"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/openai-responses-shared.js",
+      "sha256": "7846279b34c2a569bda2b0753c8b083f8b976204b4fdd7586095ebbb6a643410"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/openai-responses.js",
+      "sha256": "3e95145f94ac2a255d1adc0ae65cf02c2e6d479f7a2dbf5c466db21885c29ec6"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/pi-messages.js",
+      "sha256": "f88b2bca1317b6fc7600cad90900fb60483c18db4afa234928b3e08b121d36bd"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/simple-options.js",
+      "sha256": "1caf860e028e22639578aba3ec8b79e5be9650c27bd3f19471c78502976555f3"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/transform-messages.js",
+      "sha256": "9d747a3d64c533f7bfaf2a66e8446dc006086559d364a09d4c51d1c8c9c332e5"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/auth/context.js",
+      "sha256": "5d0ea91a2fd2acf84e3b9717ce59e75006933c68d8efa91873894a9d963d41a0"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/auth/credential-store.js",
+      "sha256": "7e47b1a35815d04d9798ba7d8b9870409eeb522c36752c97a4c67416caaf2358"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/auth/resolve.js",
+      "sha256": "82ee45ecec319f59536759312a4de25313a8bb8cb7ce43db43d18edc10fef305"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/models-store.js",
+      "sha256": "bbce61b3123d849c711a64051b37166a2180ba379bc6c8e20b360f08787d2b5d"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/models.js",
+      "sha256": "75fa33149fb608bc4a7b7a0586c8ca8f0024465d580091b0c426c0baf3fbc80a"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/providers/cloudflare-stream.js",
+      "sha256": "8c02aa4d494297986b2d91388e13e7d56f8d9722282aa97b189e0382622a2b38"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/utils/abort.js",
+      "sha256": "17326034a23e443ca216f0b6ecb73db1dfd36a06698643ef77dc3ba9401f0636"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/utils/diagnostics.js",
+      "sha256": "698070e564b12f303927b0c28845a0ec51f2f3dd29434724dcdffddd31b0b469"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/utils/error-body.js",
+      "sha256": "3fbe4d7fdaa35ef2a65bd8d84f83317d774ad49db9403b00ef663a09ce1d454b"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/utils/estimate.js",
+      "sha256": "ad08d86f790f6113d82610d9b0d5007eb8ebd27245409cc7262aed0b43613ced"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/utils/event-stream.js",
+      "sha256": "29a6bb6b21387b8c1f2ecfb1ec508b4030aba3727373ab854d28333557f7a68e"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/utils/hash.js",
+      "sha256": "7dd6b602e479f30b32d1babeacb1fcb96bd234b13355991caa169013f7885d57"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/utils/headers.js",
+      "sha256": "da224200395b7e178b24a7e07c591f4fa635e4a06eb8694b78afeb742589670f"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/utils/json-parse.js",
+      "sha256": "824fa2bf05b37d65b105ac8c07172d19f22f56a4ac66fbffba943933e4fb6d62"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/utils/pi-user-agent.js",
+      "sha256": "03bea94c2f31a42729ab97a9c166655a3654f69dbdac3296ff0a789d76882611"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/utils/provider-env.js",
+      "sha256": "e1f64c60f0fde39a3a649e541d8248a85fdeefe414ff8b4dddf5f1be962d47e6"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/utils/provider-retry.js",
+      "sha256": "f14a8cfb9a99901a7cde6d588fad11aa8030e409d760d76050e580b6dba5c3f5"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/utils/sanitize-unicode.js",
+      "sha256": "77cb844b43f502cc24b25ef284ec5a6f6ac375ac994bcf688275848e1475bc80"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/utils/text.js",
+      "sha256": "95037d5b787075ffb951cdeaf3b93aeb89735d10b31b82e19d2921f505ac2b04"
+    },
+    {
+      "path": "node_modules/@earendil-works/pi-ai/dist/utils/transcript.js",
+      "sha256": "cd63514661b4036c3bcdda11a108f6be853f790a01216bf30fa80121e4fd320f"
+    }
+  ],
+  "outputs": [
+    {
+      "path": "anthropic-messages.d.ts",
+      "sha256": "d178fee4444fb78fb68ab5cd11bcb57fd8faeda2870a62cbde420f036cd1f24d"
+    },
+    {
+      "path": "anthropic-messages.js",
+      "sha256": "192808fd6b5bfc0d4af173a2ab61d2512ef4057ea3ada25962850636f46a2265"
+    },
+    {
+      "path": "anthropic-messages.js.map",
+      "sha256": "1516438e858853b823516af2d8a5122f3b2f411cb30f352e77cee4919979030c"
+    },
+    {
+      "path": "azure-openai-responses.d.ts",
+      "sha256": "7d470c51874127e873b48f67b0c3966fa331242e5cd3821466b7d41bef7b8637"
+    },
+    {
+      "path": "azure-openai-responses.js",
+      "sha256": "ff01d145023640c000f8adf8295238764e20e3344bf3c4b193639be7682509b1"
+    },
+    {
+      "path": "azure-openai-responses.js.map",
+      "sha256": "f3582c6e6ef26ed6ecf2bf0a7e6c66ce7d27f88c1c8f42dbfb26fb01b59bc72a"
+    },
+    {
+      "path": "chunk-22W7NBDD.js",
+      "sha256": "cda199505894ab2ab60cad25661c53473e1a414bbad950d4d99609d018b2d2cb"
+    },
+    {
+      "path": "chunk-22W7NBDD.js.map",
+      "sha256": "a75ac0fcbe89b64d752b158c0cf03c8c5e4f0e945611bfbb459342af06de4707"
+    },
+    {
+      "path": "chunk-2Q6VVASW.js",
+      "sha256": "b0e532f474c3ebc728305d38d1caaec95a4211b79244586a552b41759ed4a620"
+    },
+    {
+      "path": "chunk-2Q6VVASW.js.map",
+      "sha256": "2d3ebec75b64bffb1fd511716e40feb9629a9d509e7bc03fdfaa455e2de5cab2"
+    },
+    {
+      "path": "chunk-3ZIKFYRY.js",
+      "sha256": "f720f98a72f98678fb1a79c96045ac9660e7ead387c250759b3040c9ae800dc1"
+    },
+    {
+      "path": "chunk-3ZIKFYRY.js.map",
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9"
+    },
+    {
+      "path": "chunk-5CS55XCW.js",
+      "sha256": "b8efe5c5d227fa65394999d87ab924b033b3194b5f6d4ad14cd46dfa9f675003"
+    },
+    {
+      "path": "chunk-5CS55XCW.js.map",
+      "sha256": "23cc0c01f2ccc6cdd009c10062c3d60248ed33bc8c3a26018b97e4b466f3b5db"
+    },
+    {
+      "path": "chunk-66TZXFZR.js",
+      "sha256": "e52e9795aaae1515ba08248cdaa080688c38dad93a6a2ddb507d46c3dab17ae7"
+    },
+    {
+      "path": "chunk-66TZXFZR.js.map",
+      "sha256": "dfd72719c6e6f293e3f8fc0511846da9075c07aebcde35cf5b02a6e7614f50f3"
+    },
+    {
+      "path": "chunk-6OHM536L.js",
+      "sha256": "41fee3f154c9254313973811760f9a017784cf49d748d96f21b1d03f559ca2e2"
+    },
+    {
+      "path": "chunk-6OHM536L.js.map",
+      "sha256": "72db5a42ada68e2e812f5d154e46ac1ec31966c0b02693bd0d4694a65c2e42cc"
+    },
+    {
+      "path": "chunk-77WG7L4R.js",
+      "sha256": "2e715c053b3fc0f4766db6f355f201cb1b69d63cf64c277548fafddfe7adac7a"
+    },
+    {
+      "path": "chunk-77WG7L4R.js.map",
+      "sha256": "0e3577730f6114ac3085bf0180b253e39f70caa5d217f9d50c3984bb6d7bc1ce"
+    },
+    {
+      "path": "chunk-EDLR4U3Z.js",
+      "sha256": "14a8845721101ee57a565f149733da9a5caab75b9eb675476af8f8ca2ba97a28"
+    },
+    {
+      "path": "chunk-EDLR4U3Z.js.map",
+      "sha256": "a210e6794828d6eaa4d504dfb0a4d7d30a8efbe5c8cdaf4540dcb7a0436eb68c"
+    },
+    {
+      "path": "chunk-FF2CZYAY.js",
+      "sha256": "e587dbfb234d86238e7268a365f69ccfa77ef202a66d76f503bd505d6c093e92"
+    },
+    {
+      "path": "chunk-FF2CZYAY.js.map",
+      "sha256": "126550cd0a3554f49c126cda436d8f521b64e956c22419eaa95c22c7ed4c8d25"
+    },
+    {
+      "path": "chunk-HKHK62PD.js",
+      "sha256": "1fb765a381ed85ed66491bedebf48578fa2f7de80c7c4ad86b0109150258c571"
+    },
+    {
+      "path": "chunk-HKHK62PD.js.map",
+      "sha256": "5493f89ab2614ec048e2cef946b4d9bbc6600602dfe54e9a02766dac401c0b09"
+    },
+    {
+      "path": "chunk-NO6FHOUY.js",
+      "sha256": "09eae204b7d35c91bd30669eda5ebade0d1f494618eb62744e1ada5202559012"
+    },
+    {
+      "path": "chunk-NO6FHOUY.js.map",
+      "sha256": "2c26c455bdfbc25d7ab8319814aa2eafbfb1f1b6e6de58b0c4a521bd152b1ff2"
+    },
+    {
+      "path": "chunk-PMCJDLVU.js",
+      "sha256": "8b7ffca037b23974a9fa25de698e82e0c29206db5e089172131d63264cf8dfd5"
+    },
+    {
+      "path": "chunk-PMCJDLVU.js.map",
+      "sha256": "25231324480effb51f24d0ce81f913bb8f5cb39a30140e1cadf644502a41f4f8"
+    },
+    {
+      "path": "chunk-TF2BCWAX.js",
+      "sha256": "e08472e6e77f345fdf1ff50d535db47fa455cab0a039b952e2e69b66dbee26d8"
+    },
+    {
+      "path": "chunk-TF2BCWAX.js.map",
+      "sha256": "8db842e54a9a0e408932924b404b97f4f830554ede103582df280fb250250eb6"
+    },
+    {
+      "path": "cloudflare-stream.d.ts",
+      "sha256": "82d64c2eb906a6b0ef41276edd4a4885d0db7eca82713960b18e2d7fdf2121a0"
+    },
+    {
+      "path": "cloudflare-stream.js",
+      "sha256": "9859bcc64092d1517ffb07eed6234d05c93e9e48711fbf67c1bd2d2819d9f2c8"
+    },
+    {
+      "path": "cloudflare-stream.js.map",
+      "sha256": "bdd6da5951551e8bc5cfbda1dd3bfeedae4eac2376627c986d031c38c73e6c59"
+    },
+    {
+      "path": "core.d.ts",
+      "sha256": "d84b971cc56703d41acbf680117a7f1094630fb1032fd2c37899a8311c200f90"
+    },
+    {
+      "path": "core.js",
+      "sha256": "0dcaa46925bab7bc44e5e233f1c78ee77aae927da28249c28cb75cba1510b13e"
+    },
+    {
+      "path": "core.js.map",
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9"
+    },
+    {
+      "path": "google-generative-ai.d.ts",
+      "sha256": "6f4862bf067bd64a0f53265471ea7f10c39f9746f9be1d5f3a97ddc763fe5ef1"
+    },
+    {
+      "path": "google-generative-ai.js",
+      "sha256": "33c6656c2853790eb46a1dc6a633763fba3156e26626f5afde4d138e7bc71f31"
+    },
+    {
+      "path": "google-generative-ai.js.map",
+      "sha256": "1bbfcaae214355f7cd7b1e4c685d621a79f693e9e6160a2beb3e0e6e6bb51093"
+    },
+    {
+      "path": "mistral-conversations.d.ts",
+      "sha256": "fb9057631f4f77fb4176ff7bfed917e5ae18f6c357dc10b1c87bba5ac2f8917c"
+    },
+    {
+      "path": "mistral-conversations.js",
+      "sha256": "ec1ecfab453a40967bd1e26a1c2713f49e499a72f40ee6a79d41a70b001a0404"
+    },
+    {
+      "path": "mistral-conversations.js.map",
+      "sha256": "27eea5f6c4fb5cd4a64b0e725f6d6de2cb7229d43f6cdda57db0d49832bbe753"
+    },
+    {
+      "path": "openai-completions.d.ts",
+      "sha256": "16af69a83d5ca17ff3fd14dd0df341e78ccd85aa14257384f616fc87fda71298"
+    },
+    {
+      "path": "openai-completions.js",
+      "sha256": "561d071ece7f9e9a876dd351f1e9f48194f3a8141644add30127da9c75cbec6e"
+    },
+    {
+      "path": "openai-completions.js.map",
+      "sha256": "8243e5bec98d0f1ebdac22697253fc9c866d8e197cd30949ee5e60995263a3a8"
+    },
+    {
+      "path": "openai-responses.d.ts",
+      "sha256": "ecd675a07793deb0c9db007cc2b1a49c8fbdc8d02a441d8628fc5ba226fc13ef"
+    },
+    {
+      "path": "openai-responses.js",
+      "sha256": "2af2166ca254e687e19da17d0f223616a77f808c150ee378cadb3d9bc2657234"
+    },
+    {
+      "path": "openai-responses.js.map",
+      "sha256": "46c42255841ad3c4d6d103bedc446f615fd46586a6a9dcaf1c302643e3244f57"
+    },
+    {
+      "path": "pi-messages.d.ts",
+      "sha256": "9e73f16574530b2d4f89d30917f1d90b3c3300bd767d957d35629f6e7e7e8b10"
+    },
+    {
+      "path": "pi-messages.js",
+      "sha256": "147c22490939734b67c696e08a50130d838bd854f40f83f771ff6a91d0d769af"
+    },
+    {
+      "path": "pi-messages.js.map",
+      "sha256": "b760b4c2d6d95e98ee156e8f71ff73802bee96445816655f808acf7668a4f1ee"
+    }
+  ]
+}

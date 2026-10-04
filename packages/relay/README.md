@@ -228,6 +228,41 @@ subscriptions restored from storage are removed before delivery.
 `{ includeContent: true }` as its second argument to forward them. Choose a generic title too; see
 [SECURITY.md](SECURITY.md) for the push-content boundary and device revoke.
 
+### Sealed notices on a sleeping phone
+
+Seal the real content to the device (`sealNotice` from `@byokit/seal`) and send it as `data` with a generic title. For
+Expo tokens, the device also reports its OS when it subscribes, and the notification asks each platform to let the app
+replace the generic text:
+
+```ts
+import { RelayClient } from '@byokit/relay';
+import { sealNotice } from '@byokit/seal';
+declare const relay: RelayClient, deviceId: string, token: string, os: 'ios' | 'android', devicePublicKey: Uint8Array;
+declare const question: { agent: string; text: string };
+
+await relay.subscribe(deviceId, { expo: token, platform: os }); // the device sends its token and OS over the link
+await relay.notify({
+  id: 'ask-42', title: 'An agent needs you', data: sealNotice(question, devicePublicKey), urgency: 'high',
+  mutableContent: true,  // iOS: the app's Notification Service Extension may rewrite the alert before it shows
+  categoryId: 'agent.ask', // the category (buttons) the app registered
+  dataOnly: true,        // Android: no title, body or sound; the app opens `data` and presents the notification
+}, { includeContent: true });
+```
+
+| Option | Expo field | Effect |
+|---|---|---|
+| `mutableContent` | `mutableContent` (iOS) | APNs `mutable-content`. Without a Notification Service Extension the alert shows as sent. `false` is sent as `false`. |
+| `categoryId` | `categoryId` | The registered category, `[A-Za-z0-9][A-Za-z0-9._:-]{0,63}`. Not sent with a data-only message. |
+| `dataOnly` | title, body, sound and category omitted | Only tokens subscribed with `platform: 'android'`; others (iOS, or no `platform`) get the visible alert. |
+
+Expo puts `data` under the APNs payload's `body` key on iOS, so an extension reads the notice at
+`userInfo["body"]["data"]` (`@byokit/seal`'s Swift opener does). A data-only message runs the app's background
+notification task; Android may delay it (Doze) and never delivers it to a force-stopped app, so it is not guaranteed.
+Without `includeContent`, a data-only message carries only the id, the generic title and any action token, and the app
+fetches the details over the link. The app registers the task (`Notifications.registerTaskAsync`) and should show a
+notification for each high-priority data message, or Android may lower the priority of later ones. The
+content-free preset drops all three options. Web Push is unchanged: the service worker shows what it opens.
+
 With `actions`, each device's notification carries its own one-use `action` token. Pressing a button posts
 `{ token, action }` to `/relay/v1/push/action`; the relay asks the host (`onAction`) and waits up to 15 seconds for the
 answer, which goes back to the device.

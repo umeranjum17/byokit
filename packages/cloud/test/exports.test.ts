@@ -13,7 +13,7 @@ import { machine } from '../src/machine.ts';
 import { memoryStore } from '../src/testing/fake-provider.ts';
 
 test('the `.` entry carries the frozen surface (D-6)', () => {
-  for (const fn of [kit.machine, kit.sandboxApi, kit.claim, kit.wakeResolve, kit.estimate, kit.words, kit.stateWords, kit.hostWords, kit.keyWords, kit.errorWords]) {
+  for (const fn of [kit.machine, kit.boat, kit.claim, kit.wakeResolve, kit.estimate, kit.words, kit.stateWords, kit.hostWords, kit.keyWords, kit.errorWords]) {
     assert.equal(typeof fn, 'function');
   }
   assert.equal(typeof kit.MachineError, 'function');
@@ -40,7 +40,7 @@ test('M2: sshVm builds the SSH VM provider shape (7)', () => {
   assert.equal(typeof p.adopt, 'function');
   const monthly = {
     size: 'vm', perMonthCap: 6, asleepPerHour: 6, currency: 'EUR' as const,
-    basis: 'incl. IPv4, excl. VAT', source: 'http://sandbox.test/prices', checked: '2026-09-29',
+    basis: 'incl. IPv4, excl. VAT', source: 'http://boat.test/prices', checked: '2026-09-29',
   };
   assert.deepEqual(ssh.sshVm({
     ssh: '/usr/bin/ssh', host: 'vm.test', user: 'app',
@@ -83,8 +83,10 @@ test('package.json exports map: `.`, `./ssh`, `./idle` and `./testing` (D-6)', (
   }
 });
 
-test('sandboxApi() is built (M4): the sandbox API adapter behind one Provider', () => {
-  const p = kit.sandboxApi({ baseUrl: 'http://sandbox.test/api/v1', label: 'L', prices: [], key: async () => '' });
+test('boat() is built (M4), with the legacy factory as an identical typed alias', () => {
+  const legacy: typeof kit.boat = kit.sandboxApi;
+  assert.equal(legacy, kit.boat);
+  const p = kit.boat({ baseUrl: 'http://boat.test/api/v1', label: 'L', prices: [], key: async () => '' });
   assert.equal(p.id, 'sandbox-api');
   assert.equal(p.label, 'L');
   assert.deepEqual(p.sizes(), [
@@ -126,8 +128,8 @@ test('M3: install and supervise are built (8)', async () => {
 
 test('stubs throw not built with their package id', async () => {
   assert.throws(() => idle.idle({ linked: () => 0, held: () => false, minutes: 5, stop: async () => {} }), /not built: M7/);
-  assert.throws(() => idle.stopSelf({ baseUrl: 'http://sandbox.test/api/v1', id: 'x', key: async () => '' }), /not built: M7/);
-  assert.throws(() => kit.claim({ baseUrl: 'http://sandbox.test/api/v1' }), /not built: M8/);
+  assert.throws(() => idle.stopSelf({ baseUrl: 'http://boat.test/api/v1', id: 'x', key: async () => '' }), /not built: M7/);
+  assert.throws(() => kit.claim({ baseUrl: 'http://boat.test/api/v1' }), /not built: M8/);
   assert.throws(() => kit.wakeResolve({ provider: testing.fakeProvider(), ref: { provider: 'sandbox-api', account: 'a', id: 'i', name: 'n', keepCopies: true }, port: 443 }), /not built: M7/);
 });
 

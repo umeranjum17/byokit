@@ -2,7 +2,8 @@
 // scratch app outside the monorepo, and prove the packed shape imports,
 // typechecks and runs. Run: npm run smoke:pack. Exits 1 on any failure.
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { processStartTime, sha256 } from '../packages/openclaw/src/engine-patches.ts';
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,12 +14,34 @@ const root = join(here, "..");
 // An aborted smoke run (SIGINT/SIGTERM) must not leave the scratch app behind:
 // the finally in main covers success and failure, this covers abort.
 const pendingTmp = new Set<string>();
+function discardTmp(dir: string): void {
+  for (const name of ['s', 'o', 'a', 'b', 'r1', 'r2']) {
+    const root = join(dir, name, 'openclaw');
+    if (!existsSync(join(root, 'gateway.pid'))) continue;
+    {
+    const identity = JSON.parse(readFileSync(join(root, 'gateway.identity'), 'utf8')) as { pid: number; startTime: string };
+    if (String(identity.pid) !== readFileSync(join(root, 'gateway.pid'), 'utf8')) throw new Error('ambiguous owned packed gateway');
+    try {
+      if (processStartTime(identity.pid) !== identity.startTime) throw new Error('packed gateway pid was reused');
+      process.kill(identity.pid, 'SIGTERM');
+      spawnSync(process.execPath, ['-e', 'setTimeout(() => {}, 2000)']);
+      if (processStartTime(identity.pid) === identity.startTime) process.kill(identity.pid, 'SIGKILL');
+    } catch (error) { if (!['ENOENT', 'ESRCH'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error; }
+    }
+  }
+  const walk = (path: string) => {
+    if (!lstatSync(path).isDirectory()) return;
+    chmodSync(path, 0o700);
+    for (const name of readdirSync(path)) walk(join(path, name));
+  };
+  walk(dir); rmSync(dir, { recursive: true, force: true });
+}
 process.on("exit", () => {
-  for (const dir of pendingTmp) rmSync(dir, { recursive: true, force: true });
+  for (const dir of pendingTmp) discardTmp(dir);
 });
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
-    for (const dir of [...pendingTmp]) rmSync(dir, { recursive: true, force: true });
+    for (const dir of [...pendingTmp]) discardTmp(dir);
     process.removeAllListeners(signal);
     process.kill(process.pid, signal);
   });
@@ -32,7 +55,9 @@ function sh(cmd: string, args: string[], cwd: string): string {
 
 interface PackEntry {
   name: string;
+  version: string;
   filename: string;
+  files: { path: string }[];
 }
 
 // Include export-subpath and browser-condition failures, not just workspace
@@ -86,9 +111,31 @@ function main(): void {
     const tgzPaths = entries.map((e) => join(tgzDir, e.filename));
     sh(
       "npm",
-      ["install", "--no-audit", "--no-fund", ...tgzPaths, `typescript@${tsVersion.version}`, "@types/node@22"],
+      ["install", "--no-audit", "--no-fund", ...tgzPaths, `typescript@${tsVersion.version}`, "@types/node@22", "ws@8.21.3"],
       appDir,
     );
+    // Portable loaders are lazy: importing the entry alone cannot prove artifact/dependency packaging.
+    // A sibling consumer with nested installs prevents accidental resolution from this app or the repo.
+    const strictAccounts = join(dir, "strict-accounts");
+    execFileSync("mkdir", ["-p", strictAccounts]);
+    const closure = new Set(["@byokit/accounts"]);
+    for (const name of closure) {
+      const manifest = JSON.parse(readFileSync(join(appDir, "node_modules", name, "package.json"), "utf8"));
+      for (const dep of Object.keys(manifest.dependencies ?? {})) if (tgzByName.has(dep)) closure.add(dep);
+    }
+    writeFileSync(join(strictAccounts, "package.json"), JSON.stringify({ name: "strict-accounts", private: true, type: "module" }));
+    try {
+      sh("npm", ["install", "--install-strategy=nested", "--no-audit", "--no-fund", ...[...closure].map((name) => tgzByName.get(name)!), `typescript@${tsVersion.version}`, "@types/node@22"], strictAccounts);
+      for (const [source, dest] of [["scripts/accounts-key-probe.mjs", "probe.mjs"], ["scripts/accounts-key-probe-check.ts", "probe-check.ts"], ["fixtures/conformance/pi-streams.json", "pi-streams.json"]]) {
+        writeFileSync(join(strictAccounts, dest), readFileSync(join(root, source)));
+      }
+      writeFileSync(join(strictAccounts, "run.mjs"), "import { verifyAccountsProbe } from './probe-check.ts';\nawait import('./probe.mjs');\nverifyAccountsProbe(await globalThis.__accountsKeyProbe);\nfor (const entry of ['core', 'cloudflare-stream', 'openai-completions', 'openai-responses', 'anthropic-messages', 'google-generative-ai', 'mistral-conversations', 'pi-messages', 'azure-openai-responses']) await import('./node_modules/@byokit/accounts/dist/pi/' + entry + '.js');\n");
+      sh("node", ["--require", join(root, "scripts/test-egress-guard.cjs"), "--conditions=browser", "run.mjs"], strictAccounts);
+      writeFileSync(join(strictAccounts, "consumer.ts"), "import { type KeyAsk, type AssistantMessage, type Model, type Context, Accounts } from '@byokit/accounts';\nimport { keys } from '@byokit/accounts/keys';\nexport const ask = (accounts: Accounts, request: KeyAsk<'openai-completions'>): Promise<AssistantMessage> => accounts.respond('member', request);\nexport async function native(model: Model<'anthropic-messages'>, context: Context, client: NonNullable<KeyAsk<'anthropic-messages'>['options']>['client']): Promise<AssistantMessage> { const runtime = await keys(); const models = runtime.createModels({ authContext: { env: async () => undefined, fileExists: async () => false } }); return models.complete(model, context, { client }); }\n");
+      writeFileSync(join(strictAccounts, "tsconfig.json"), JSON.stringify({ compilerOptions: { module: "nodenext", moduleResolution: "nodenext", customConditions: ["browser"], target: "es2023", strict: true, noEmit: true, skipLibCheck: false, types: ["node"] }, files: ["consumer.ts"] }));
+      sh(join(strictAccounts, "node_modules/.bin/tsc"), ["-p", "tsconfig.json"], strictAccounts);
+      pass("@byokit/accounts [strict packed lazy portable keys]");
+    } catch (err) { fail("@byokit/accounts [strict packed lazy portable keys]", (err as Error).message); }
     // The writing engine must arrive from npm with the packed kit and answer through its default loader.
     writeFileSync(join(appDir, "write-engine.mjs"), `
 import assert from 'node:assert/strict';
@@ -105,6 +152,37 @@ assert.equal(check.length, 'Umer shipped the first version today.'.length);
     } catch (err) {
       fail("@byokit/write [npm engine]", (err as Error).message);
     }
+    // The portable bridge adapter must work through the installed export, not a workspace source alias.
+    writeFileSync(join(appDir, "signaling.mjs"), `
+import assert from 'node:assert/strict';
+import { WebSocketServer } from 'ws';
+import { authorizeBridge } from '@byokit/signaling';
+const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+await new Promise(resolve => server.once('listening', resolve));
+let connections = 0;
+server.on('connection', socket => {
+  connections++;
+  socket.on('message', raw => {
+    const { id, method, params } = JSON.parse(String(raw));
+    socket.send(JSON.stringify({ id, result: { method, params } }));
+  });
+});
+const authorize = authorizeBridge('ws://127.0.0.1:' + server.address().port, { permissions: ['view'] });
+try {
+  const first = await authorize();
+  assert.deepEqual(await first.signaling.request('hello', { protocol: 3 }), { method: 'hello', params: { protocol: 3 } });
+  const second = await authorize();
+  await assert.rejects(first.signaling.request('hello'), { code: 'closed' });
+  await second.signaling.request('capabilities');
+  assert.equal(connections, 2);
+} finally {
+  authorize.close();
+  for (const socket of server.clients) socket.terminate();
+  await new Promise(resolve => server.close(resolve));
+}
+`);
+    try { sh("node", ["signaling.mjs"], appDir); pass("@byokit/signaling [mock bridge]"); }
+    catch (err) { fail("@byokit/signaling [mock bridge]", (err as Error).message); }
     // Hosted MCP must run with the packed exports and its SDK dependency, outside the workspace.
     writeFileSync(join(appDir, "mcp.mjs"), `
 import assert from 'node:assert/strict';
@@ -399,8 +477,54 @@ console.log('packed-realtime-child-ok');
   }
 }
 
+// Candidate-pack closure qualification, not public-consumer adoption: the current OpenClaw source and its
+// internal runtime dependency closure are exact local tarballs; external dependencies stay registry supplied.
+// No unrelated/private kits or a fake Gateway may stand in for this receipt.
+function realOpenClawPack(): void {
+  const dir = mkdtempSync(join(tmpdir(), 'ocp-'));
+  pendingTmp.add(dir);
+  const env = { ...process.env, HOME: join(dir, 'home'), npm_config_cache: join(dir, 'cache') };
+  const run = (command: string, args: string[], cwd: string, timeout = 600_000) => {
+    const result = spawnSync(command, args, { cwd, env: command === 'npm' ? { ...env, NODE_OPTIONS: '' } : env, encoding: 'utf8', timeout, maxBuffer: 4 * 1024 * 1024 });
+    if (result.status !== 0) throw new Error(`${command} ${args.join(' ')}: ${result.error ?? ''}\n${result.stdout}\n${result.stderr}`);
+    return result.stdout;
+  };
+  try {
+    mkdirSync(env.HOME, { mode: 0o700 });
+    const closure = new Set(['@byokit/openclaw']);
+    for (const name of closure) {
+      const manifest = JSON.parse(readFileSync(join(root, 'packages', name.slice('@byokit/'.length), 'package.json'), 'utf8'));
+      if (manifest.private) throw new Error(`private kit in OpenClaw runtime closure: ${name}`);
+      for (const dep of Object.keys(manifest.dependencies ?? {})) if (dep.startsWith('@byokit/')) closure.add(dep);
+    }
+    const packed = JSON.parse(run('npm', ['pack', ...[...closure].map(name => `./packages/${name.slice('@byokit/'.length)}`), '--pack-destination', dir, '--json'], root)) as PackEntry[];
+    if (packed.length !== closure.size) throw new Error('OpenClaw runtime closure was not packed');
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'openclaw-engine-pack', private: true, type: 'module' }));
+    run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...packed.map(entry => join(dir, entry.filename))], dir);
+    for (const entry of packed) {
+      const installed = join(dir, 'node_modules', entry.name);
+      if (JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8')).version !== entry.version) throw new Error(`wrong installed version: ${entry.name}`);
+      if (existsSync(join(installed, 'node_modules', '@byokit'))) throw new Error(`nested @byokit under ${entry.name}: a pin the tarballs do not satisfy`);
+      for (const file of entry.files) {
+        const bytes = execFileSync('tar', ['-xOf', join(dir, entry.filename), `package/${file.path}`]);
+        if (sha256(readFileSync(join(installed, file.path))) !== sha256(bytes)) throw new Error(`installed tar bytes differ: ${entry.name}/${file.path}`);
+      }
+    }
+    console.log(JSON.stringify({ candidatePacks: packed.map(entry => ({ name: entry.name, version: entry.version, filename: entry.filename, sha256: sha256(readFileSync(join(dir, entry.filename))) })), consumerDir: dir, dependencySource: 'exact candidate internal runtime closure; external registry pins unchanged', publicConsumerAdoption: false }));
+    writeFileSync(join(dir, 'qualify.mjs'), readFileSync(join(root, 'packages/openclaw/test/engine/packed-patches.fixture.mjs')));
+    console.log(run(process.execPath, ['qualify.mjs', join(root, 'packages/openclaw/scripts/engine-patches.ts'), join(root, 'packages/openclaw/scripts/workshop-patch.ts')], dir, 850_000));
+    if (process.argv.includes('--keep-openclaw-fixture')) {
+      pendingTmp.delete(dir);
+      console.log(JSON.stringify({ retainedOwnedFixture: dir, processes: 'stopped; immutable sets retained for read-only derivation' }));
+      return;
+    }
+  } finally { if (pendingTmp.delete(dir)) discardTmp(dir); }
+}
 try {
-  if (process.argv[1] === fileURLToPath(import.meta.url)) main();
+  if (process.argv[1] === fileURLToPath(import.meta.url)) {
+    if (process.argv.includes('--openclaw-engine')) realOpenClawPack();
+    else main();
+  }
 } catch (e) {
   console.error(`smoke:pack: ${(e as Error).message}`);
   process.exit(1);

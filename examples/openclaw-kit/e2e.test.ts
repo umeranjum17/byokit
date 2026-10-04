@@ -135,6 +135,24 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   await text(page, '#reply', `fake: ${denyMe}`);
   assert.equal(notes(), 'buy milk\n');
 
+  // SYNTHETIC FIXTURE (fake mode): the kit's offline browser fake asks the person to sign in to a loopback site. The
+  // card names the address, the first time asks for the site's name, takeover shows the private tab live, and Done
+  // puts the chip under the chat. No Chromium profile, real site or model is involved.
+  const card = page.locator('#signins .signin');
+  await text(page, '#signins .signin-title', fill('signin.title', { site: '127.0.0.1' }));
+  await text(page, '#signins .origin', 'http://127.0.0.1:2820');
+  await shot(page, 'fixture-6-signin-card');
+  await page.fill('#signins input', '127.0.0.1');
+  await card.getByRole('button', { name: WORDS['signin.takeover'] }).click();
+  await page.locator('#live-box').waitFor();
+  await page.waitForFunction(() => { const c = document.querySelector('#live canvas') as HTMLCanvasElement | null; return !!c && c.width === 640; });
+  await shot(page, 'fixture-7-live-takeover');
+  await page.locator('#signins .signin').getByRole('button', { name: WORDS['signin.done'] }).click();
+  await text(page, '#chips .chip', `${fill('signin.verified', { site: '127.0.0.1' })} ✓`);
+  assert.equal(await page.locator('#live-box').isHidden(), true);
+  assert.equal(await page.locator('#signins-box').isHidden(), true);
+  await shot(page, 'fixture-8-signed-in-chip');
+
   // Signing out brings the sign-in card back with the kit's sentence.
   await page.click('#signout');
   await text(page, '#signin-title', fill('member.signedOut', { name: 'ChatGPT' }));

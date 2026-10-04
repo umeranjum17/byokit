@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../../../node_modules/@earendil-works/pi-ai/src/utils/headers.ts"],
+  "sourcesContent": ["import type { ProviderHeaders } from \"../types.ts\";\n\nexport function headersToRecord(headers: Headers): Record<string, string> {\n\tconst result: Record<string, string> = {};\n\tfor (const [key, value] of headers.entries()) {\n\t\tresult[key] = value;\n\t}\n\treturn result;\n}\n\nexport function providerHeadersToRecord(headers: ProviderHeaders | undefined): Record<string, string> | undefined {\n\tif (!headers) return undefined;\n\tconst result: Record<string, string> = {};\n\tfor (const [key, value] of Object.entries(headers)) {\n\t\tif (value !== null) result[key] = value;\n\t}\n\treturn Object.keys(result).length > 0 ? result : undefined;\n}\n"],
+  "mappings": ";;;AAEM,SAAU,gBAAgB,SAA0C;AACzE,QAAM,SAAiC,CAAA;AACvC,aAAW,CAAC,KAAK,KAAK,KAAK,QAAQ,QAAO,GAAI;AAC7C,WAAO,GAAG,IAAI;EACf;AACA,SAAO;AAAO;AAGT,SAAU,wBAAwB,SAA0E;AACjH,MAAI,CAAC;AAAS,WAAO;AACrB,QAAM,SAAiC,CAAA;AACvC,aAAW,CAAC,KAAK,KAAK,KAAK,OAAO,QAAQ,OAAO,GAAG;AACnD,QAAI,UAAU;AAAM,aAAO,GAAG,IAAI;EACnC;AACA,SAAO,OAAO,KAAK,MAAM,EAAE,SAAS,IAAI,SAAS;AAAU;",
+  "names": []
+}

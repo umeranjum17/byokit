@@ -1,0 +1,22 @@
+{
+  "rule": "Computer sign-ins use the published pinned adapters. Claude paste stays the default; browser callbacks are state checked. OpenRouter creates an API-billed permanent key kept only in the owner-selected keyStore. Radius billing is unknown and explicit-only. RFC 8628 fixtures qualify computer drivers, not portable runtime or live sign-ins.",
+  "revision": "@earendil-works/pi-ai@0.87.1",
+  "device": {
+    "device_code": "device-secret-canary",
+    "user_code": "TEST-CODE",
+    "verification_uri": "https://fixture.example/device",
+    "verification_uri_complete": "https://fixture.example/device?user_code=TEST-CODE",
+    "expires_in": 120,
+    "interval": 1
+  },
+  "token": { "access_token": "access-secret-canary", "refresh_token": "refresh-secret-canary", "expires_in": 3600 },
+  "apiKey": "api-key-secret-canary",
+  "setupToken": "setup-token-secret-canary",
+  "devices": [
+    { "key": "kimi", "provider": "kimi-coding", "start": "https://auth.kimi.com/api/oauth/device_authorization", "poll": "https://auth.kimi.com/api/oauth/token", "clientId": "17e5f671-d194-4dfb-9706-5516cb48c098" },
+    { "key": "meta", "provider": "meta", "start": "https://auth.meta.com/oidc/device/authorization/", "poll": "https://auth.meta.com/oidc/device/token/", "clientId": "1031625952748946" }
+  ],
+  "anthropic": { "callbackPort": 53692, "callbackPath": "/callback", "token": "https://platform.claude.com/v1/oauth/token" },
+  "openrouter": { "token": "https://openrouter.ai/api/v1/auth/keys" },
+  "radius": { "gateway": "https://radius.pi.dev", "callbackPort": 1456, "callbackPath": "/oauth/callback" }
+}

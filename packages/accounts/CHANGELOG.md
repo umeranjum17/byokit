@@ -2,9 +2,53 @@
 
 ## Unreleased
 
-- SECURITY: Add a Node-only managed CLI account boundary for subscription sign-in: only app-owned folders and explicitly passed absolute binaries, no default login access, no credential-file reads, no token output, and launch environment credential shedding.
 - FIX: respond errors preserve HTTP status and Retry-After through account failure handling, allowing callers
   to retry 429 without adding request headers or other response headers to the error.
+
+## 0.18.0 (2026-10-02)
+
+- Dependency update: pins @byokit/usage 0.7.0.
+
+- The README points to the shared account-route vocabulary (D18); pinned discovery metadata does not imply additional implemented authentication flows.
+- Name the Claude plan: `plan(member, 'claude')` reads it once per sign-in from Claude's profile with the stored access, never refreshing it (an empty plan, never a failure, when it doesn't say); `planLabel` says "ChatGPT Plus" or "Claude Max". The PWA and Expo examples sign in to Claude by its page and pasted code, show a connected card naming the plan, and stream an answer.
+- FIX: The README no longer claims browsers can reach Claude's token endpoint directly; a web page sends it through the app's own server.
+FIX: Discover every pinned provider and sign-in method with billing and platform readiness; qwen and MiniMax leave the default offer until their flows exist. Legacy provider IDs and explicit offer lists stay compatible.
+
+## 0.17.0 (2026-10-01)
+
+- Dependency update: pins @byokit/usage 0.6.1.
+
+- SECURITY: Restrict ChatGPT host access to ChatGPT subscription accounts before opening a credential runtime; a different provider id cannot select or expose its grant.
+- FIX: Managed CLI subscription rows with no supplied provider executable report not_included, so list and Auto remain available for other providers without touching the unavailable row's credentials or sign-in markers.
+- Add independent subscription accounts per member, fresh sign-in, identity replacement, account names and defaults.
+- Add a read-only nativePiAccount launch/session descriptor for independent app-owned Pi folders, qualified against native Pi 0.87.1. This does not share subscription grants, sign in, infer readiness or add Pi to managed Auto; found rows remain read-only and reconnect uses the person's normal provider-native UI outside the kit.
+
+- SECURITY: Add launchEnv to scrub inherited provider credentials, including subscription tokens and API key (billed per use) variables; isolate now prepares only the app folder and never mutates process.env. Apps must pass launchEnv().env when spawning a child.
+
+## 0.16.0 (2026-10-01)
+
+- FIX: Build device-owned secrets before accounts so API key routes compile in a fresh checkout.
+- Add opt-in member OpenAI, TypeSafe and OpenRouter API key (billed per use) routes,
+  stored through device-owned secrets stores with redacted outcomes and decide handoff.
+
+## 0.15.1 (2026-10-01)
+
+- Dependency update: pins @byokit/usage 0.6.0.
+- FIX: (from @byokit/usage 0.6.0) Claude subscription quota snapshots can now be read through an identity-free ephemeral host callback without credentials or a fabricated account UUID; readings never enter a cache or shared store, and retry state stays local to the source.
+
+## 0.15.0 (2026-10-01)
+
+- Dependency update: pins @byokit/usage 0.5.0.
+
+- FIX: ChatGPT subscription respond() now retains reported token usage with result: true or tools, including partial results for incomplete answers.
+- Bind an existing ChatGPT subscription login to a member-bound chatgpt() handle without exposing credentials.
+- Script mockOpenAI answers with string, regex or function prompt matchers and optional token usage.
+
+## 0.14.0 (2026-10-01)
+
+- Dependency update: pins @byokit/usage 0.4.0.
+
+- SECURITY: Add a Node-only managed CLI account boundary for subscription sign-in: only app-owned folders and explicitly passed absolute binaries, no default login access, no credential-file reads, no token output, and launch environment credential shedding.
 - Add managed CLI account creation, marker-gated sign-in, status, rename, cancellation, history links and removal, with legacy roster and terms compatibility.
 - Share the portable chooser's AccountLike type and accept normalized subscription usage with millisecond reset times.
 - Bound native status deadlines even when a passed CLI ignores termination; stdout is capped and only the owned child is terminated.

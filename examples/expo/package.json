@@ -17,7 +17,10 @@
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-native": "0.86.3",
-    "@byokit/push": "file:../../packages/push"
+    "@byokit/push": "file:../../packages/push",
+    "@byokit/usage": "file:../../packages/usage",
+    "@byokit/share": "file:../../packages/share",
+    "expo-share-intent": "8.0.1"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
