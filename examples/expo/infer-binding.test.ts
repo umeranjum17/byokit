@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { URL } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { build } from 'esbuild';
 import proof from '../../packages/infer/test/fixtures/summary-grammar-b10256.json' with { type: 'json' };
@@ -26,7 +27,10 @@ test('kit -> published 0.12.9 formatter -> JSI dispatch carries the supported gr
   sandbox.llamaGetFormattedChat = async (_id: number, messages: string, _template: unknown, params: any) => {
     formats.push(params);
     assert.equal(params.jinja, true);
-    assert.deepEqual(JSON.parse(params.json_schema), proof.schema);
+    const schema = JSON.parse(params.json_schema);
+    assert.deepEqual(schema, proof.schema);
+    for (const branch of schema.oneOf) assert.deepEqual(Object.keys(branch.properties), ['lines', 'enough'],
+      'serialized member order must reach the real formatter, not just compare as equal JSON objects');
     assert.equal(JSON.parse(messages)[0].content, proof.system);
     return { ...proof.corrected.jinja };
   };

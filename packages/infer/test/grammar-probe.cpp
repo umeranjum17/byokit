@@ -27,10 +27,13 @@ int main(int argc, char **argv) {
  auto raw = json::parse(read(argv[3])).at("text").get<std::string>();
  json checks = {{"exact_native_raw_accepted_by_jinja",accepts(j.grammar,raw)}};
  auto body = json::parse(raw.substr(raw.find('{')));
+ const bool lines_first = req.at("response_format").at("json_schema").at("schema").at("oneOf")[0].at("properties").begin().key() == "lines";
  auto trial = [&](const std::string &name, bool enough, json lines) {
-   checks[name] = accepts(j.grammar,j.generation_prompt + json({{"enough",enough},{"lines",lines}}).dump());
+   const auto value = lines_first ? json({{"lines",lines},{"enough",enough}}) : json({{"enough",enough},{"lines",lines}});
+   checks[name] = accepts(j.grammar,j.generation_prompt + value.dump());
  };
  auto lines = body.at("lines");
+ trial("false_four",false,lines);
  trial("true4",true,lines); lines.erase(lines.end()-1); trial("true3",true,lines);
  trial("false_empty",false,json::array()); trial("false_one",false,{"One proposed line."});
  trial("true2",true,{"First line.","Second line."});

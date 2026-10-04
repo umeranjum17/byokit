@@ -67,15 +67,16 @@ const SYSTEM = [
   'Each array entry must be one single line without a newline, double quotes or backslashes. Do not claim native code ran unless the pane states that it ran.',
 ].join('\n');
 
+// Decode facts before the adequacy flag; property order changes sampling, not the accepted JSON values.
 const SCHEMA = {
   oneOf: [
     { type: 'object', additionalProperties: false, required: ['enough', 'lines'], properties: {
-      enough: { const: true }, lines: { type: 'array', minItems: 3, maxItems: 4,
-        items: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[^"\\\\\\r\\n]{1,100}$' } },
+      lines: { type: 'array', minItems: 3, maxItems: 4,
+        items: { type: 'string', minLength: 1, maxLength: 100, pattern: '^[^"\\\\\\r\\n]{1,100}$' } }, enough: { const: true },
     } },
     { type: 'object', additionalProperties: false, required: ['enough', 'lines'], properties: {
       // Stock converter ignores maxItems without items; a literal empty array cannot admit proposed lines.
-      enough: { const: false }, lines: { const: [] },
+      lines: { const: [] }, enough: { const: false },
     } },
   ],
 };

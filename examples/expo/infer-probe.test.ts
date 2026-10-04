@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { URL } from 'node:url';
 import { REALISTIC_PANE } from './infer-pane-fixture.ts';
 import { LocalModel, InferError, paneText, model, summaryWords, errorWords, words } from '../../packages/infer/src/index.ts';
 import { memoryModelStore } from '../../packages/infer/src/testing.ts';

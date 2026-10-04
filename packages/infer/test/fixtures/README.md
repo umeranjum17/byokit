@@ -2,7 +2,7 @@
 
 `final-explicit-result.json` is the byte-exact owned synthetic native receipt (SHA256 `4dfe4aa040cfde7dfb7c0ffba25518e316e88eb2a52ea43b198587049b6bc040`), never accepted/coerced.
 
-`summary-grammar-b10256.json` records real released b10256 formatter + GBNF recognizer results, compiled against unmodified published llama.rn 0.12.9 headers. Old grammar accepts that contradiction; corrected grammar rejects it, accepts true3/4 and false[], enforces 1–100 plain characters, and rejects newline/quote/backslash escapes. It is not phone sampling or model-faithfulness proof.
+`summary-grammar-b10256.json` records real released b10256 formatter + GBNF recognizer results, compiled against unmodified published llama.rn 0.12.9 headers. Old grammar accepts that contradiction; corrected grammar rejects it, accepts true3/4 and false[], enforces 1–100 plain characters, and rejects newline/quote/backslash escapes. The current schema serializes lines before enough in both branches; the probe follows that order and also rejects false plus four lines in that same order. Property ordering changes the decode sequence, not parser/union semantics. It is not phone sampling or model-faithfulness proof.
 
 Reproduce with task-private verified CPU b10256 libraries and `grammar-probe.cpp` (no model load/generation):
 
