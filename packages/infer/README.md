@@ -4,7 +4,8 @@ Text generation on the phone itself, for React Native on Android and iOS: one pi
 your app downloads once with an integrity check, one native context, and nothing sent anywhere afterwards. It also
 gives you a ready 3–4 line terminal-pane summary and a backend for `@byokit/decide`'s `generate()`.
 
-> Unreleased (`private: true`) until it is qualified on a real Android phone and iPhone. See
+> First public release 0.1.0, published before phone qualification by byk decision: latency, memory, battery
+> and summary quality on a real Android phone and iPhone are still unmeasured. See
 > [the specification](../../docs/infer-kit.md) for scope, limits and what is still unmeasured.
 
 ## Install
@@ -37,7 +38,7 @@ export async function summarize(initLlama: InitLlama, store: InferModelStore, pa
 ```
 
 `model()` is the official Qwen2.5 1.5B Instruct Q4_K_M candidate, 1,117,320,736 bytes, Apache-2.0, pinned to the
-publisher's revision and SHA-256. The kit stays private pending physical qualification. `models()` retains SmolLM2
+publisher's revision and SHA-256. Physical qualification on a real phone is still pending. `models()` retains SmolLM2
 360M and Qwen3 0.6B with `offer: false`; it never switches models automatically.
 
 - **One call at a time.** A call while another runs rejects `busy`; cancel the old one with its `AbortSignal`, which
