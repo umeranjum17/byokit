@@ -61,6 +61,7 @@ latest first, so neither goes stale.
 | `@byokit/approve` | not on npm (private until release) | exact-action approval | [all releases](https://github.com/umeranjum17/byokit/releases) |
 | `@byokit/push` | not on npm (private) — build from source | native pre-display sealed notices | [all releases](https://github.com/umeranjum17/byokit/releases) |
 | `@byokit/dictation` | `npm install @byokit/dictation` (from its first release; until then build from source) | ready to publish | [dictation-v releases](https://github.com/umeranjum17/byokit/releases?q=dictation-v) |
+| `@byokit/audio` | `npm install @byokit/audio` (from its first release; until then build from source) | ready to publish | [audio-v releases](https://github.com/umeranjum17/byokit/releases?q=audio-v) |
 | `@byokit/usage` | `npm install @byokit/usage` | 0.1.0 | [all releases](https://github.com/umeranjum17/byokit/releases) |
 | `@byokit/browser` | `npm install @byokit/browser` (from its first release; until then build from source) | ready to publish | [browser-v releases](https://github.com/umeranjum17/byokit/releases?q=browser-v) |
 
@@ -151,6 +152,7 @@ to ask. Each agent keeps its own subscription sign-in; the kit never sees a cred
 | [`@byokit/statusbar`](packages/statusbar) | One ongoing job as a status-bar chip on Android 16 (Expo module): a counts-only lock-screen copy, up to three actions that need the phone unlocked, and a dismissal that sticks; iOS and older Android report unsupported ([spec](docs/capability-kits.md#12-byokitstatusbar)) | ready (Android) |
 | [`@byokit/push`](packages/push) | Opens sealed push title/body before iOS and Android display, with app-provisioned device keys ([spec](docs/capability-kits.md#13-byokitpush)) | private |
 | [`@byokit/dictation`](packages/dictation) | Live partials/finals and recording transcription through injected local recognition or your own subscription ([spec](docs/dictation-kit.md)) | ready to publish |
+| [`@byokit/audio`](packages/audio) | Shared on-device speech detection over one pinned neural graph, for Node, React Native and browsers | ready to publish |
 | [`@byokit/usage`](packages/usage) | Subscription usage windows and remaining room per provider and account (Node only) | Node |
 | [`@byokit/browser`](packages/browser) | PNG screenshots of URLs or local HTML through an app-selected installed Chromium, with private temporary profiles | ready (Node) |
 
