@@ -1,1 +1,0 @@
-- Improved: Serialize summary lines before the adequacy flag so the local decoder produces facts first. The same strict true/3–4-lines and false/empty union, parser and honest refusal remain unchanged.

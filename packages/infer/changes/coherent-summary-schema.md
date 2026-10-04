@@ -1,1 +1,0 @@
-- FIX: Express the summary prompt's success/insufficient branches in the native JSON grammar schema as well as JS validation: true requires 3–4 single-line strings; false requires an empty array. The exact native false-with-four-lines regression stays invalid; no Boolean coercion or contradictory-output acceptance.

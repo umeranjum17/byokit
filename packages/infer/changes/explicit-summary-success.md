@@ -1,1 +1,0 @@
-- FIX: State the successful summary protocol explicitly instead of only giving a negative JSON example. Enforce enough:true with 3–4 single-line strings or enough:false with an empty array; contradictory flags, newlines, extra fields and overlong strings are invalid, never coerced into success.

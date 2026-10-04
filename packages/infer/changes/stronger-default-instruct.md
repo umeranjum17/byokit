@@ -1,1 +1,0 @@
-- NEW: Pin the official Qwen2.5-1.5B-Instruct Q4_K_M default candidate with exact revision, bytes, SHA-256, Apache-2.0 licence and native-asset fixture. Smol360M remains catalogued but is no longer offered after its realistic pane run returned insufficient output; no automatic model fallback.

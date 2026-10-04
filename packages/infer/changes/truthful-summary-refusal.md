@@ -1,1 +1,0 @@
-- FIX: Give rejected summary output its own truthful “The summary was not usable. Try again.” wording, distinct from runtime failure. The Expo demo shows raw completion receipts only with explicit probe opt-in in a development build, never in product UI.
