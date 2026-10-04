@@ -38,7 +38,13 @@ It prints the exact version and the resolved file — that path must be inside `
 
 ## Drive
 
-Scratch consumers live in `scratch/` inside the worktree (so bare `@byokit/*` imports resolve to the workspace), one file per feature, written fresh per run. Every drive:
+Use Bash from the worktree root for the recipe and capture commands. Create an exclusive scratch directory for each run (so bare `@byokit/*` imports resolve to the workspace):
+
+```bash
+scratch_dir=$(mktemp -d ./scratch.verify-byokit.XXXXXX) || exit 1
+```
+
+Write each consumer inside "$scratch_dir"; keep that variable in the same shell through capture and cleanup. Every drive:
 
 - imports only public package entries (`@byokit/accounts`, `@byokit/accounts/testing`, …), never `packages/*/src` paths;
 - uses the repo's own stand-ins — `mockOpenAI()` from `@byokit/accounts/testing` answers on loopback (127.0.0.1, ephemeral port); no account, no real provider, no egress;
@@ -49,17 +55,40 @@ Exact recipes: `features/README.md` is the index; one file per feature.
 
 ## Evidence
 
-Every proof writes to `.verify-artifacts/<feature>/` in the worktree root: the command line, stdout, stderr and exit code (e.g. `script -qec` or `... 2>&1 | tee`). State the feature ID and entry point inside the artifact. `.verify-artifacts/` is gitignored: evidence is private, never committed, never attached to a public PR.
+Every proof writes to an exclusive run directory under `.verify-artifacts/<feature>/` in the worktree root. The feature recipe sets `feature`, `entry` and the Bash `drive` array; then run this capture block in the same shell:
+
+```bash
+mkdir -p ".verify-artifacts/$feature" || exit 1
+evidence_dir=$(mktemp -d ".verify-artifacts/$feature/run.XXXXXX") || exit 1
+if (
+  printf 'FEATURE=%s\nENTRY=%s\nCOMMAND=' "$feature" "$entry"
+  printf '%q ' "${drive[@]}"
+  printf '\n'
+  if "${drive[@]}"; then status=0; else status=$?; fi
+  printf '\nEXIT=%s\n' "$status"
+  exit "$status"
+) > "$evidence_dir/drive.txt" 2>&1; then
+  drive_status=0
+else
+  drive_status=$?
+fi
+cat "$evidence_dir/drive.txt"
+printf 'Evidence: %s/drive.txt\n' "$evidence_dir"
+test "$drive_status" -eq 0
+```
+
+The artifact contains the invoked command, stdout, stderr and the consumer's actual exit code; a failed command also fails the final status check. `.verify-artifacts/` is gitignored: evidence is private, never committed, never attached to a public PR.
 
 Proof standard: drive the real consumer path against the built SDK; capture the action and resulting output, not a summary; the error case must show the actual typed error and message.
 
 ## Cleanup
 
-```sh
-rm -rf scratch/
+```bash
+rm -rf -- "$scratch_dir"
+test -f "$evidence_dir/drive.txt"
 ```
 
-Remove only the scratch dir this run created; mock servers are closed by the drive itself. Cleanup never touches `.verify-artifacts/` — after cleanup, confirm the evidence files still exist at the named location; a cleanup that eats the proof fails the run.
+Remove only the exclusive scratch dir returned by this run’s `mktemp`; mock servers are closed by the drive itself. Cleanup never touches `.verify-artifacts/` — after cleanup, confirm the evidence files still exist at the named location; a cleanup that eats the proof fails the run.
 
 ## Floor (always enforced)
 
@@ -74,4 +103,4 @@ From `constraint-driven-development`, applies to this skill and every change ver
 
 ## Helpers
 
-No helper scripts ship with this skill: every drive is a plain `node scratch/<file>.mjs` grounded in the package READMEs (`packages/accounts/README.md` quickstart) and existing fixtures (`packages/accounts/src/testing/mock-openai.ts`, `examples/usage-demo.ts`, `scripts/pack-smoke.ts`). Write the consumer from the feature file, do not reverse-engineer one.
+No helper scripts ship with this skill: every drive is a plain `node "$scratch_dir/<file>.mjs"` grounded in the package READMEs (`packages/accounts/README.md` quickstart) and existing fixtures (`packages/accounts/src/testing/mock-openai.ts`, `examples/usage-demo.ts`, `scripts/pack-smoke.ts`). Write the consumer from the feature file, do not reverse-engineer one.

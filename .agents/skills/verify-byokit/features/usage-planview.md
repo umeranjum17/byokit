@@ -16,13 +16,13 @@ A consumer app renders a person's plan view — label, room left, quota and acti
 
 Preconditions: baseline (features/README.md).
 
-- **Write the consumer.** `scratch/verify-usage-planview.mjs` importing `demoView, providers` from `./examples/usage-demo.ts` (type stripping runs `.ts` directly) and printing `JSON.stringify` of `demoView('codex')` and `demoView('claude')`.
-- **Run and capture.** `node scratch/verify-usage-planview.mjs 2>&1 | tee .verify-artifacts/usage-planview/drive.txt; echo "EXIT=$?"`. Exit code `0`.
-- **Rate-limited honesty shows.** The codex view contains `"left":"unknown"` and an `outcome:"rate-limited"` poll — the selector refuses to invent a number.
+- **Write the consumer.** `"$scratch_dir/verify-usage-planview.mjs"` importing `demoView` from `../examples/usage-demo.ts` (type stripping runs `.ts` directly) and printing `JSON.stringify` of `demoView('codex')` and `demoView('claude')`.
+- **Run and capture.** `feature=usage-planview; entry=@byokit/usage/view; drive=(node "$scratch_dir/verify-usage-planview.mjs")`, then run SKILL.md Evidence’s capture block. Exit code `0`.
+- **Rate-limited honesty shows.** The codex view contains `room.left: "unknown"` and `quotaText` beginning with "The plan asked us to wait for a reading." — the selector refuses to invent a number.
 - **Plan label shows.** The claude view's `label` names the plan; activity derives from the fixture calls.
 
 ## Gotchas
 
 - Import from `@byokit/usage/view` (or the demo module); never from `packages/usage/src`.
 - `demoView` fixtures pin `nowMs`; do not compare its timestamps to wall-clock time.
-- Pure selectors: no server to clean up — cleanup is `rm -rf scratch/` as usual.
+- Pure selectors: no server to clean up — use SKILL.md Cleanup to remove only "$scratch_dir" and confirm the captured evidence survives.

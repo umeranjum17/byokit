@@ -16,9 +16,9 @@ A brand-new consumer app outside the monorepo installs the packed `@byokit/*` ta
 
 Preconditions: baseline (features/README.md); the heavy lock held for the whole run (installs + builds).
 
-- **Run the gate.** `npm run smoke:pack 2>&1 | tee .verify-artifacts/pack-fresh-project/drive.txt; echo "EXIT=$?"`. Exit code `0`.
+- **Run the gate.** `feature=pack-fresh-project; entry=scripts/pack-smoke.ts; drive=(npm run smoke:pack)`, then run SKILL.md Evidence’s capture block. Exit code `0`.
 - **What it proves.** The script packs every workspace tarball, creates a scratch app outside the monorepo, installs the tarballs into it and proves the packed shape imports, typechecks and runs; it exits 1 on any failure.
-- **Proof.** The tee'd artifact ends with the script's success lines; the scratch app is the script's own and it removes it (including on abort — it kills only gateways it owns, by pid).
+- **Proof.** The captured artifact contains the script’s success lines and ends with `EXIT=0`; the scratch app is the script's own and it removes it (including on abort — it kills only gateways it owns, by pid).
 
 ## Gotchas
 
