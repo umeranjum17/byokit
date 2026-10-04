@@ -47,7 +47,7 @@ export async function sileroSession(
   let session;
   try {
     session = await InferenceSession.create(file, { executionProviders: ['cpu'], graphOptimizationLevel: 'all', intraOpNumThreads: threads, interOpNumThreads: threads });
-  } catch (cause) { throw new AudioError('bad-model', { cause }); }
+  } catch (cause) { if (!path) await removeTemp(file); throw new AudioError('bad-model', { cause }); }
   const rate = BigInt64Array.from([BigInt(VAD_RATE)]);
   return {
     initMs: performance.now() - started,
@@ -61,17 +61,17 @@ export async function sileroSession(
       if (typeof next?.length !== 'number') throw new AudioError('bad-model');
       return { probability, state: Float32Array.from(next) };
     },
-    async release() { await session.release?.(); if (!path) await removeTemp(file); },
+    async release() { try { await session.release?.(); } finally { if (!path) await removeTemp(file); } },
   };
 }
 
 async function writeTemp(bytes: Uint8Array): Promise<string> {
-  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { mkdtemp, rm, writeFile } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const dir = await mkdtemp(join(tmpdir(), 'byokit-vad-'));
   const file = join(dir, 'silero.onnx');
-  await writeFile(file, bytes);
+  try { await writeFile(file, bytes); } catch (cause) { await rm(dir, { recursive: true, force: true }); throw cause; }
   return file;
 }
 async function removeTemp(file: string): Promise<void> {
