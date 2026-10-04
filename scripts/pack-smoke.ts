@@ -244,6 +244,31 @@ try {
       const nested = join(appDir, "node_modules", e.name, "node_modules", "@byokit");
       if (existsSync(nested)) fail(e.name, `nested @byokit under ${e.name}: a pin the tarballs do not satisfy`);
     }
+    // Exercise the Node screenshot kit from its tarball without launching a real browser.
+    writeFileSync(join(appDir, "browser.mjs"), `
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { createBrowser, findChromium } from '@byokit/browser';
+import { fakeBrowser } from '@byokit/browser/testing';
+assert.equal(await findChromium([process.execPath]), process.execPath);
+const bytes = new Uint8Array([137, 80, 78, 71]);
+const fake = fakeBrowser(bytes);
+const session = await createBrowser({ executablePath: process.execPath, deviceScaleFactor: 2 }, fake.launch);
+try {
+  await session.open({ html: '<main id="screen">Packed</main>' });
+  await session.waitFor({ selector: '#screen' });
+  assert.deepEqual(await session.screenshot({ selector: '#screen' }), bytes);
+  assert.equal(fake.launches[0].deviceScaleFactor, 2);
+} finally { await session.close(); }
+assert.equal(existsSync(dirname(fake.launches[0].profileDir)), false);
+`);
+    try {
+      sh("node", ["browser.mjs"], appDir);
+      pass("@byokit/browser [offline session]");
+    } catch (err) {
+      fail("@byokit/browser [offline session]", (err as Error).message);
+    }
     writeFileSync(join(appDir, "locked-seal.mjs"), `
 import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
