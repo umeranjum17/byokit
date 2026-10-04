@@ -1,0 +1,11 @@
+Source commit: 018969d3991d8a17436e0349c25e34f4128ccd1d
+
+All kit word values: raw model ids
+Pattern: claude-(opus|sonnet|haiku)-[0-9]|gpt-[0-9]
+No matches.
+rg exit code: 1
+
+Usage word values: internal plan names
+Pattern: OpenAI Codex|CHATGPT \(CODEX\)|\b(cli|binary|harness|Pi|Herdr|Codex)\b
+No matches.
+rg exit code: 1

@@ -65,6 +65,9 @@ test('each way a run can end has its phase and, where the kit has one, its sente
     assert.equal(view(s).words, said, kind);
     assert.doesNotMatch(view(s).words, PLAIN, kind);
   }
+  const output = ended({ ok: false, kind: 'output', message: 'The answer did not match the requested format.' });
+  assert.equal(output.phase, 'failed');
+  assert.equal(view(output).words, 'The answer did not match the requested format.');
   const clock = runView(ended({ ok: false, kind: 'resting', until: 0, message: '' }), { words, name: 'ChatGPT' }).words;
   assert.match(clock, /^ChatGPT needs a break until \S.*\.$/, 'the default clock says a time');
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { generate, generationCacheKey, MemoryGenerationCache, decide, InvalidSchemaError, type GenerationBackend } from '../src/index.ts';
+import { generate, generationCacheKey, MemoryGenerationCache, decide, rules, InvalidSchemaError, type GenerationBackend } from '../src/index.ts';
 import { claudeCode, ClaudeCodeError } from '../src/claude-code.ts';
 
 const schema = { type: 'object', required: ['name', 'scenes'], additionalProperties: false, properties: {
@@ -36,8 +36,14 @@ else {
   if (prompt.startsWith('{')) {
     const input = JSON.parse(prompt);
     if (input.questions) data = Object.fromEntries(Object.entries(input.questions).map(([k, q]) => {
+      if (q.kind === 'rank') {
+        const ranking = Object.keys(q.candidates).reverse();
+        return [k, { ranking, confidence: 0.9, scores: Object.fromEntries(ranking.map((id, i) => [id, 10 - i])),
+          ...(q.personReason && { personReason: 'The first candidate adds useful context for Umer.' }) }];
+      }
       const keys = q.kind === 'choice' ? Object.keys(q.options) : q.kind === 'yesno' ? ['true', 'false'] : q.levels.map((_, i) => String(i));
-      return [k, { probabilities: Object.fromEntries(keys.map((key, i) => [key, i === 0 ? 0.9 : 0.1 / (keys.length - 1)])), pick: keys[0] }];
+      return [k, { probabilities: Object.fromEntries(keys.map((key, i) => [key, i === 0 ? 0.9 : 0.1 / (keys.length - 1)])), pick: keys[0],
+        ...(q.personReason && { personReason: 'This is ready for Umer.' }) }];
     }));
   }
   process.stdout.write(JSON.stringify({ type: 'result', subtype: prompt === 'incomplete' ? 'error_max_turns' : 'success',
@@ -106,11 +112,27 @@ test('Claude binary seam: isolated subscription, structured generation, scalar d
     await assert.rejects(backend.generate({ prompt: 'normal', schema, images: [{ ...image, mime: 'image/webp' }] }), { name: 'InvalidImageError' });
     const answers = await decide({ name: 'Umer' }, {
       choice: { kind: 'choice', images: ['Umer-design'], options: { keep: 'Keep it', drop: 'Drop it' } },
-      yesno: { kind: 'yesno', question: 'Keep it?' },
+      yesno: { kind: 'yesno', question: 'Keep it?', personReason: true },
       score: { kind: 'score', levels: ['Good', 'Poor'] },
     }, { privacy: 'may-leave', backends: [backend], images: [image] });
     assert.deepEqual(Object.values(answers).map((a) => a.answer), ['keep', true, 0]);
     assert.equal(answers.choice.confidenceSource, 'self-reported');
+    assert.equal(answers.choice.personReason, undefined);
+    assert.equal(answers.yesno.personReason, 'This is ready for Umer.');
+    const privateNote = 'rules-only-note-for-Umer';
+    const scoped = await decide({ privateNote }, {
+      local: { kind: 'yesno', question: 'Local?', state: privateNote, backends: ['rules'] },
+      ordered: { kind: 'rank', candidates: { a: 'Question', b: 'Context' }, state: { name: 'Umer' }, personReason: true },
+    }, { privacy: 'may-leave', backends: [backend, rules((state) => state === privateNote)], images: [image] });
+    assert.deepEqual(scoped.ordered.answer, ['b', 'a']);
+    assert.deepEqual(scoped.ordered.scores, { b: 10, a: 9 });
+    assert.equal(scoped.ordered.personReason, 'The first candidate adds useful context for Umer.');
+    assert.equal(scoped.local.answer, true);
+    const rankLog = JSON.parse(await readFile(join(configDir, 'invocation.json'), 'utf8'));
+    assert.equal(JSON.stringify(rankLog.request).includes(privateNote), false);
+    const rankSchema = JSON.parse(rankLog.args[rankLog.args.indexOf('--json-schema') + 1]);
+    assert.deepEqual(rankSchema.properties.ordered.required, ['ranking', 'confidence', 'personReason']);
+    assert.equal(rankLog.request.message.content[1].type, 'image');
     const cache = new MemoryGenerationCache();
     const first = await generate<typeof data>({ state: { name: 'Umer' } }, schema, { backends: [backend], cache });
     const second = await generate<typeof data>({ state: { name: 'Umer' } }, schema, { backends: [backend], cache });

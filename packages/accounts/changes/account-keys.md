@@ -1,0 +1,4 @@
+- SECURITY: Key-route accounts keep secrets only in the member's device-owned keyStore, with no plaintext or ambient credential fallback. Selected-key helpers override credential headers and explicitly refuse opaque SDK clients before secrets; unmodified typed native Pi pass-through remains available for explicit client-owned authentication.
+- FIX: Key routes share account persistence and retain their pinned subscription or API key (billed per use) billing; non-subscription accounts are never an Auto or Default fallback.
+- FIX: Portable key routes lazily load a reproducible split artifact of unmodified pinned Pi adapters; Google uses global fetch while preserving the upstream custom-fetch refusal.
+- FIX: Browser and React Native key routes now opt in through `@byokit/accounts/keys` (`withKeys(portable)`), so the main portable entry no longer carries the adapters or vendor SDKs; without it, answering a key route reports `needs_keys` before any secret is read.

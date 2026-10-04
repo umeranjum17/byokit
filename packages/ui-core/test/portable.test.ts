@@ -11,8 +11,8 @@ import { words as ocWords } from '../../openclaw/src/words.ts';
 import { approvalsStore, herdrStore, runStore, useApprovals, useBlocked, useHerdrTree, useRun } from '../src/index.ts';
 
 for (const condition of ['browser', 'react-native'] as const) {
-  for (const entry of ['index', 'kits', 'phase', 'route', 'link', 'steps']) {
-    test(`${entry} bundles for ${condition} with nothing from Node${entry === 'kits' ? ' and no React' : ''}`, async () => {
+  for (const entry of ['index', 'kits', 'phase', 'route', 'link', 'steps', 'connect']) {
+    test(`${entry} bundles for ${condition} with nothing from Node${entry === 'kits' || entry === 'connect' ? ' and no React' : ''}`, async () => {
       const bundle = await build({
         entryPoints: [new URL(`../src/${entry}.ts`, import.meta.url).pathname],
         bundle: true, platform: 'browser', format: 'esm', conditions: [condition], external: ['react'],
@@ -21,7 +21,7 @@ for (const condition of ['browser', 'react-native'] as const) {
       const inputs = Object.keys(bundle.metafile!.inputs);
       assert.deepEqual(inputs.filter((f) => /(^|\/)node:/.test(f)), [], 'no Node module');
       const imports = Object.values(bundle.metafile!.outputs).flatMap((o) => o.imports.map((i) => i.path));
-      if (entry === 'kits') assert.deepEqual(imports, [], 'nothing left to import, React included');
+      if (entry === 'kits' || entry === 'connect') assert.deepEqual(imports, [], 'nothing left to import, React included');
     });
   }
 }

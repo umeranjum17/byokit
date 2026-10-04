@@ -1,20 +1,23 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { randomBytes, generateKeyPairSync } from 'node:crypto';
+import { randomBytes, generateKeyPairSync, randomUUID } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, copyFileSync, rmSync, realpathSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AuthStore } from './auth-store.ts';
-import { EngineAlreadyRunningError, pidAlive } from './engine-status.ts';
+import { EngineAlreadyRunningError, pidAlive, StartedProcesses } from './engine-status.ts';
+import { EnginePatchError, atomic, prepareEngineSet, processStartTime, readPatchSet, verifyEngineSet, type PatchSet } from './engine-patches.ts';
 import { ENGINE_VERSION } from './constants.ts';
-import { reconcileConfig } from './config.ts';
+import { appendUsageBoot } from './usage-boots.ts';
+import { reconcileConfig, appRecoveryPrefixes } from './config.ts';
 import { writePlugin, resolveBridge } from './bridge.ts';
 import type { KitOptions } from './kit.ts';
 import type { KitState, ToolSpec } from './types.ts';
 
-export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'installPolicy' | 'log' | 'bridge' | 'authSeal'> & {
+export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'appOwnedSessions' | 'installPolicy' | 'log' | 'bridge' | 'authSeal'> & {
   pluginId: string; tools: ToolSpec[]; gateBuiltins?: boolean; spawnEngine: boolean;
+  browserConfig?: () => { profiles: Record<string, { cdpUrl: string; attachOnly: true }>; tools: string[] };
   onState(s: KitState): void; onExit(code: number | null): void;
 };
 const kitDir = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -22,14 +25,6 @@ const putOnce = (path: string, data: string) => { if (!existsSync(path)) writeFi
 const putChanged = (path: string, data: string) => {
   if (!existsSync(path) || readFileSync(path, 'utf8') !== data) writeFileSync(path, data, { mode: 0o600 });
 };
-
-function processStartTime(pid: number): string {
-  const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
-  // comm can contain spaces and parentheses; field 22 is index 19 after its final ')'.
-  const startTime = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
-  if (!startTime || !/^\d+$/.test(startTime)) throw new Error('unverifiable engine start time');
-  return startTime;
-}
 
 type LockedPackage = { version: string; optional?: boolean; os?: string[]; cpu?: string[]; libc?: string[] };
 const supports = (list: string[] | undefined, value: string) => !list ||
@@ -61,18 +56,24 @@ export class Engine {
   readonly root: string;
   readonly bridgeSock: string;
   private readonly dir: string;
+  private setDir?: string;
+  private wantedSet?: PatchSet;
   private child?: ChildProcess;
+  private readonly started = new StartedProcesses();
   private starting?: Promise<{ port: number; token: string; identityPath: string } | undefined>;
   private readonly authStore: AuthStore;
   private stopping = false;
   private credentialsLocked = false;
   private repaired = false;
   private prepared?: Promise<void>;
+  patchSet?: string | null;
   private port = 0;
   private token = '';
   private readonly o: EngineOptions;
   private readonly paramPrefix: string;
+  private readonly appOwnedSessionPrefixes: string[];
   constructor(o: EngineOptions) {
+    this.appOwnedSessionPrefixes = appRecoveryPrefixes(o.appOwnedSessions);
     this.o = o;
     const bridge = resolveBridge(o.bridge);
     this.root = join(o.stateDir, 'openclaw');
@@ -81,8 +82,11 @@ export class Engine {
     this.paramPrefix = bridge.paramPrefix;
     this.authStore = new AuthStore({ root: this.root, stateDir: o.stateDir, engineDir: this.dir, seal: o.authSeal, log: o.log });
   }
-  private state(phase: KitState['phase'], why?: KitState['why'], retryAt?: number) { this.o.onState({ phase, ...(why ? { why } : {}), ...(retryAt ? { retryAt } : {}) }); }
-  private get entry() { return join(this.dir, 'node_modules', 'openclaw', 'openclaw.mjs'); }
+  private state(phase: KitState['phase'], why?: KitState['why'], retryAt?: number) { this.o.onState({ phase, ...(why ? { why } : {}), ...(retryAt ? { retryAt } : {}), ...(this.patchSet !== undefined ? { patchSet: this.patchSet } : {}) }); }
+  private get entry() {
+    if (this.o.spawnEngine && !this.setDir) throw new EnginePatchError('spec', 'engine-set');
+    return join(this.setDir ?? this.dir, 'node_modules', 'openclaw', 'openclaw.mjs');
+  }
   private async freePort(): Promise<number> {
     const server = createServer();
     return new Promise((resolve, reject) => {
@@ -96,7 +100,10 @@ export class Engine {
   }
   prepare(): Promise<void> {
     if (this.prepared) return this.prepared;
-    const pending = this.prepareOnce();
+    const pending = this.prepareOnce().catch(error => {
+      if (error instanceof EnginePatchError) { this.patchSet = null; this.state('failed', 'engine-patch'); }
+      throw error;
+    });
     this.prepared = pending;
     void pending.finally(() => { if (this.prepared === pending) this.prepared = undefined; }).catch(() => {});
     return pending;
@@ -104,24 +111,36 @@ export class Engine {
   private async prepareOnce(): Promise<void> {
     if (!this.o.authSeal && existsSync(join(this.root, 'auth-store.sealed'))) throw new Error('authSeal required for sealed credential store');
     await this.recoverOrphan();
-    for (const d of [this.root, ...(!this.o.authSeal ? [join(this.root, 'home'), join(this.root, 'state')] : []), join(this.root, 'tmp'), join(this.root, 'install-home'), join(this.root, 'npm-cache'), join(this.o.stateDir, 'logs'), this.dir]) mkdirSync(d, { recursive: true, mode: 0o700 });
+    for (const d of [this.root, ...(!this.o.authSeal ? [join(this.root, 'home'), join(this.root, 'state')] : []), join(this.root, 'tmp'), join(this.root, 'usage'), join(this.root, 'install-home'), join(this.root, 'npm-cache'), join(this.o.stateDir, 'logs')]) mkdirSync(d, { recursive: true, mode: 0o700 });
     try { await this.authStore.prepare(); this.credentialsLocked = false; }
     catch (error) { if (this.locked(error)) return; throw error; }
     if (this.o.spawnEngine) {
-      const versionPath = join(this.dir, 'node_modules', 'openclaw', 'package.json');
-      if (!existsSync(this.entry) || !installMatches(this.dir)) {
+      const lock = JSON.parse(readFileSync(join(kitDir, 'engine/package-lock.json'), 'utf8')) as { packages: Record<string, { integrity: string }> };
+      const patches = readPatchSet(join(kitDir, 'engine/patches.json'), ENGINE_VERSION, lock.packages['node_modules/openclaw']!.integrity);
+      const install = async (dir: string) => {
         this.state('installing');
-        rmSync(join(this.dir, 'node_modules'), { recursive: true, force: true });
-        for (const f of ['package.json', 'package-lock.json']) copyFileSync(join(kitDir, 'engine', f), join(this.dir, f));
-        const result = spawnSync(this.o.npmPath ?? 'npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', this.dir], {
-          env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: join(this.root, 'install-home'), npm_config_cache: join(this.root, 'npm-cache'), OPENCLAW_DISABLE_BUNDLED_PLUGIN_POSTINSTALL: '1' },
-          timeout: 300_000, stdio: 'pipe', encoding: 'utf8', maxBuffer: 1024 * 1024,
+        for (const f of ['package.json', 'package-lock.json']) copyFileSync(join(kitDir, 'engine', f), join(dir, f));
+        await new Promise<void>((resolve, reject) => {
+          const child = spawn(this.o.npmPath ?? 'npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', dir], {
+            env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: join(this.root, 'install-home'), npm_config_cache: join(this.root, 'npm-cache'), OPENCLAW_DISABLE_BUNDLED_PLUGIN_POSTINSTALL: '1' },
+            stdio: ['ignore', 'ignore', 'pipe'],
+          });
+          let stderr = '', expired = false;
+          this.started.add(child);
+          child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-500); });
+          const timer = setTimeout(() => { expired = true; child.kill('SIGKILL'); }, 300_000);
+          child.once('error', error => { clearTimeout(timer); this.started.forget(child); reject(error); });
+          child.once('exit', code => {
+            clearTimeout(timer); this.started.forget(child);
+            if (code === 0 && !expired) resolve();
+            else { this.state('failed', 'install'); reject(new Error(`engine install: ${expired ? 'timeout' : stderr}`)); }
+          });
         });
-        if (result.status !== 0) { this.state('failed', 'install'); throw new Error(`engine install: ${result.error ?? result.stderr?.slice(-500)}`); }
-      }
-      if (!existsSync(this.entry) || JSON.parse(readFileSync(versionPath, 'utf8')).version !== ENGINE_VERSION) {
-        this.state('needs-update', 'version'); throw new Error('engine version mismatch');
-      }
+      };
+      this.setDir = await prepareEngineSet(this.dir, patches, install, installMatches);
+      this.wantedSet = patches;
+      atomic(join(this.root, 'engine-set'), this.setDir);
+      this.patchSet = patches.id;
     }
     const tokenFile = join(this.root, 'token');
     putOnce(tokenFile, randomBytes(32).toString('hex'));
@@ -135,17 +154,18 @@ export class Engine {
     const pluginDir = join(this.root, 'plugin');
     mkdirSync(pluginDir, { recursive: true, mode: 0o700 });
     // The shipped plugin follows the kit on every prepare too: a state dir from an older kit must not keep its gate.
-    for (const f of ['package.json', 'index.js', 'keys.js']) {
+    for (const f of ['package.json', 'index.js', 'keys.js', 'usage.js']) {
       const source = join(kitDir, 'plugin', f);
       putChanged(join(pluginDir, f), readFileSync(source, 'utf8'));
     }
     // The bridge manifest and tool table follow the app's tools on every prepare (O5).
     writePlugin(pluginDir, { id: this.o.pluginId, tools: this.o.tools, paramPrefix: this.paramPrefix,
-      gateBuiltins: this.o.gateBuiltins !== false });
+      gateBuiltins: this.o.gateBuiltins !== false, browser: !!this.o.browserConfig });
     const path = join(this.root, 'openclaw.json');
     const saved = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined;
     const config = reconcileConfig(saved, { root: this.root, stateDir: this.o.stateDir, port: this.port, pluginId: this.o.pluginId,
-      pluginDir, policyPath: join(kitDir, 'policy', 'policy.mjs'), app: this.o.config, installPolicy: this.o.installPolicy });
+      pluginDir, policyPath: join(kitDir, 'policy', 'policy.mjs'), app: this.o.config, installPolicy: this.o.installPolicy,
+      browser: this.o.browserConfig?.() });
     putChanged(path, JSON.stringify(config, null, 2) + '\n');
   }
   doctorContext(): { entry: string; env: Record<string, string> } {
@@ -158,11 +178,14 @@ export class Engine {
       TMPDIR: join(this.root, 'tmp'), OPENCLAW_NO_RESPAWN: '1', OPENCLAW_SKIP_CHANNELS: '1', OPENCLAW_DISABLE_BONJOUR: '1',
       OPENCLAW_EXEC_SHELL_SNAPSHOT: '0', OPENCLAW_LOAD_SHELL_ENV: '0', OPENCLAW_GATEWAY_TOKEN: this.token,
       BYOKIT_BRIDGE_SOCK: this.bridgeSock,
+      BYOKIT_APP_OWNED_SESSION_PREFIXES: JSON.stringify(this.appOwnedSessionPrefixes),
     } };
   }
   doctor(timeoutMs: number): { status: number | null } {
     const { entry, env } = this.doctorContext();
+    if (this.o.spawnEngine) verifyEngineSet(this.setDir!, this.wantedSet!, installMatches);
     const result = spawnSync(process.execPath, [entry, 'doctor', '--fix', '--yes', '--non-interactive'], { cwd: env.HOME, env, timeout: timeoutMs, stdio: 'pipe' });
+    if (this.o.spawnEngine) verifyEngineSet(this.setDir!, this.wantedSet!, installMatches);
     return { status: result.status };
   }
   private verifiedOrphan(pid: number): boolean {
@@ -222,15 +245,15 @@ export class Engine {
   }
   private async startOnce(): Promise<{ port: number; token: string; identityPath: string } | undefined> {
     await this.prepare();
-    if (this.credentialsLocked) return undefined;
-    try { await this.authStore.start(); }
-    catch (error) { if (this.locked(error)) return undefined; throw error; }
-    try { return this.launch(); }
-    catch (error) {
-      // A launch failure after spawn still has a writer; the caller's stop must await its exit.
-      if (!this.child) await this.authStore.stop();
-      throw error;
-    }
+      if (this.credentialsLocked) return undefined;
+      try { await this.authStore.start(); }
+      catch (error) { if (this.locked(error)) return undefined; throw error; }
+      try { return this.launch(); }
+      catch (error) {
+        // A launch failure after spawn still has a writer; the caller's stop must await its exit.
+        if (!this.child) await this.authStore.stop();
+        throw error;
+      }
   }
   private launch(): { port: number; token: string; identityPath: string } {
     const identityPath = join(this.root, 'device.json');
@@ -240,23 +263,39 @@ export class Engine {
     }
     if (!this.o.spawnEngine) return { port: this.port, token: this.token, identityPath };
     if (this.child && this.child.exitCode === null) return { port: this.port, token: this.token, identityPath };
+    try { verifyEngineSet(this.setDir!, this.wantedSet!, installMatches); }
+    catch (error) { this.patchSet = null; this.state('failed', 'engine-patch'); throw error; }
     this.state('starting');
     const { entry, env } = this.doctorContext();
     const fd = openSync(join(this.o.stateDir, 'logs', 'openclaw.log'), 'a', 0o600);
-    try { this.child = spawn(process.execPath, [entry, 'gateway', '--port', String(this.port)], { cwd: env.HOME, env, detached: true, stdio: ['ignore', fd, fd] }); }
-    finally { closeSync(fd); }
+    const usageDir = join(this.root, 'usage'), bootId = randomUUID();
+    try {
+      const accounted = this.wantedSet!.files.some(file => file.path === 'dist/experience-review-default-6DPIIJds.js');
+      if (accounted) {
+        appendUsageBoot(usageDir, { bootId, startedAt: Date.now() });
+        env.BYOKIT_ENGINE_USAGE_LEDGER = usageDir; env.BYOKIT_ENGINE_BOOT = bootId;
+      }
+      // Detached keeps the engine out of the host's session; stop() still signals its pid alone, never its group.
+      try { this.child = spawn(process.execPath, [entry, 'gateway', '--port', String(this.port)], { cwd: env.HOME, env, detached: true, stdio: ['ignore', fd, fd] }); }
+      catch (error) { if (env.BYOKIT_ENGINE_BOOT) appendUsageBoot(usageDir, { bootId, failedAt: Date.now(), spawned: false }); throw error; }
+    } finally { closeSync(fd); }
     const child = this.child;
+    this.started.add(child);
     child.on('error', () => {
+      this.started.forget(child);
+      // Only absence of a pid proves no engine could have attempted a ledger write.
+      if (!child.pid && env.BYOKIT_ENGINE_BOOT) { try { appendUsageBoot(usageDir, { bootId, failedAt: Date.now(), spawned: false }); } catch { /* unclosed boot remains incomplete */ } }
       if (this.child !== child || this.stopping) return;
       this.child = undefined;
       void this.authStore.stop().then(() => { this.state('failed', 'exited'); this.o.onExit(null); }, () => this.state('failed', 'exited'));
     });
     if (!child.pid) { this.state('failed', 'exited'); throw new Error('engine spawn failed'); }
     if (process.platform === 'linux') {
-      writeFileSync(join(this.root, 'gateway.identity'), JSON.stringify({ pid: child.pid, startTime: processStartTime(child.pid) }), { mode: 0o600 });
+      writeFileSync(join(this.root, 'gateway.identity'), JSON.stringify({ pid: child.pid, startTime: processStartTime(child.pid), ...(env.BYOKIT_ENGINE_BOOT ? { bootId } : {}) }), { mode: 0o600 });
     }
     writeFileSync(join(this.root, 'gateway.pid'), String(child.pid), { mode: 0o600 });
     child.once('exit', (code) => {
+      this.started.forget(child);
       if (this.child !== child || this.stopping) return;
       this.child = undefined;
       this.removeOwnedPid(child.pid);
@@ -287,12 +326,7 @@ export class Engine {
     this.stopping = true;
     await this.starting?.catch(() => {});
     const child = this.child;
-    if (child?.pid && child.exitCode === null) {
-      try { process.kill(-child.pid, 'SIGTERM'); } catch { /* already gone */ }
-      for (let i = 0; i < 15 && child.exitCode === null && child.signalCode === null; i++) await delay(200);
-      if (child.exitCode === null && child.signalCode === null) { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* already gone */ } }
-      for (let i = 0; i < 15 && child.exitCode === null && child.signalCode === null; i++) await delay(200);
-    }
+    await this.started.terminate(delay);
     if (child && child.exitCode === null && child.signalCode === null) throw new Error('engine did not stop; credential store still in use');
     this.child = undefined;
     this.removeOwnedPid(child?.pid);

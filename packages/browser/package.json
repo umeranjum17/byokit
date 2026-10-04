@@ -1,0 +1,21 @@
+{
+  "name": "@byokit/browser",
+  "version": "0.1.0",
+  "description": "Capture PNGs of URLs or local HTML with an explicitly selected Chromium in an isolated session.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umeranjum17/byokit.git",
+    "directory": "packages/browser"
+  },
+  "engines": { "node": ">=22.18" },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./testing": { "types": "./dist/testing.d.ts", "default": "./dist/testing.js" }
+  },
+  "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md"],
+  "scripts": { "prepack": "tsc -b" },
+  "dependencies": { "playwright-core": "1.63.0" },
+  "publishConfig": { "access": "public" }
+}

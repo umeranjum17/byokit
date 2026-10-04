@@ -8,5 +8,5 @@ export { binEngine, inProcessEngine } from './engine.ts';
 export { checkLines, errorWords, words, type WordKey } from './words.ts';
 export type {
   BriefKind, ComposeErrorCode, ComposeOptions, DraftCheck, Engine, EngineHello, EngineRequest, EngineVerb, EngineVerbs,
-  ParsedVoice, Platform, PlatformKind, Rules,
+  ParsedVoice, Platform, PlatformKind, PortableComposeOptions, Rules,
 } from './types.ts';

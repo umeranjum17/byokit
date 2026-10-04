@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-10-01)
+
+- FIX: React Native now selects a portable `Compose` entry with a required app-supplied engine and no Node imports.
+  The explicit `./portable` entry uses the same validation and protocol 1 gate; the Node default and CLI are preserved.
+- FIX: Writing errors preserve their class identity when compiled to ES5 for Hermes.
+
 ## 0.1.0 (2026-09-30)
 
 - Initial public release: the typed `Compose` client and `write` agent CLI over the exact npm dependency

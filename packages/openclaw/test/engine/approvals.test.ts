@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { scratchDir } from '../../../test-support.ts';
+import { removeScratch, scratchDir } from '../../../test-support.ts';
 import { setTimeout as delay } from 'node:timers/promises';
 import { readFileSync } from 'node:fs';
 import { OpenClawKit } from '../../src/kit.ts';
@@ -70,6 +70,6 @@ test('a raised exec approval arrives, attributes, and resolves', { timeout: 360_
     }
   } finally {
     await kit.stop();
-    rmSync(stateDir, { recursive: true, force: true });
+    removeScratch(stateDir);
   }
 });

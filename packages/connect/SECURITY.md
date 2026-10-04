@@ -7,8 +7,11 @@ server pool or account sharing is provided. Connection keys are fixed-length SHA
 resource, issuer/token endpoint and configured client ID. Long identities therefore
 fit every keystore backend without exposing those identities in keyring labels.
 
-Treat `token()` as trusted app code: never display or log its result. The kit does
-not log credentials or include provider response bodies in OAuth errors. The full
+Treat `token()` and `grant()` as trusted app code: never display or log their results.
+The kit does not log credentials or include raw provider response bodies in OAuth
+errors. OAuth causes retain only `error` and `error_description`, with supplied and
+returned credentials (including URL/form encodings), URLs and authorization headers
+redacted. Treat descriptions as untrusted diagnostic text, never as HTML. The full
 MCP client can return private content and server error messages; handle those as
 private app data. Close each MCP client when finished.
 

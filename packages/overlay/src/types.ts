@@ -22,7 +22,8 @@ export type OverlayEvent =
   | { type: 'longPress' }
   | { type: 'moved'; edge: Edge; y: number }        // y: 0–1 of the usable height
   | { type: 'state'; state: OverlayState }
-  | { type: 'panel'; open: boolean };
+  | { type: 'panel'; open: boolean }
+  | { type: 'foregroundApp'; app: string | null };
 export type OverlayEventType = OverlayEvent['type'];
 // State transitions (native side, reported by state() and the `state` event):
 // - 'off' before the first start() and after stop().
@@ -43,6 +44,7 @@ export type PointHereOptions = {
 export type PointHereResult = 'shown' | 'needs-permission' | 'not-running' | 'display-changed' | 'unsupported';
 export interface Overlay {
   state(): Promise<OverlayState>;
+  foregroundApp(): Promise<string | null>; // attached accessibility service; package only, null when off/unknown
   openPermission(): Promise<void>;     // window: the "display over other apps" screen; accessibility: accessibility settings
   start(o: StartOptions): Promise<OverlayState>;
   stop(): Promise<void>;
@@ -61,6 +63,7 @@ export interface Overlay {
 }
 export interface NativeOverlay {                         // what the Kotlin module exposes (7.5); internal seam
   state(): Promise<OverlayState>;
+  foregroundApp(): Promise<string | null>; // attached accessibility service; package only, null when off/unknown
   openPermission(): Promise<void>;
   start(o: StartOptions): Promise<OverlayState>;
   stop(): Promise<void>;

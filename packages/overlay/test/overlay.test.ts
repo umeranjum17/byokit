@@ -11,6 +11,7 @@ function fakeNative() {
   const taps: TapEntry[] = [{ app: 'com.example', at: 5, action: 'tap' }];
   const native: NativeOverlay = {
     state: async () => { calls.push(['state']); return 'off'; },
+    foregroundApp: async () => 'com.example.fixture',
     openPermission: async () => { calls.push(['openPermission']); },
     start: async (o) => { calls.push(['start', o]); return 'on'; },
     stop: async () => { calls.push(['stop']); },
@@ -167,4 +168,23 @@ test('point marker passes through the captured space, custom timing and native o
   assert.equal(await o.pointHere({ x: 1, y: 1, label: 'Here', space }), 'display-changed');
   assert.equal(await createOverlay(null).pointHere({ x: 1, y: 1, label: 'Here' }), 'unsupported');
   await createOverlay(null).dismissPoint();
+});
+
+
+test('foreground package getter and changes share the existing listener channel, including unknown/service-off', async () => {
+  const { native, calls, emit } = fakeNative();
+  const overlay = createOverlay(native);
+  assert.equal(await overlay.foregroundApp(), 'com.example.fixture');
+  const seen: (string | null)[] = [];
+  const off = overlay.on('foregroundApp', (e) => seen.push(e.app));
+  overlay.on('tap', () => {});
+  emit({ type: 'foregroundApp', app: 'com.example.other' });
+  native.foregroundApp = async () => null;
+  assert.equal(await overlay.foregroundApp(), null);
+  emit({ type: 'foregroundApp', app: null });
+  off();
+  emit({ type: 'foregroundApp', app: 'com.example.fixture' });
+  assert.deepEqual(seen, ['com.example.other', null]);
+  assert.deepEqual(calls, [['addListener', 'overlay']]);
+  assert.equal(await createOverlay(null).foregroundApp(), null);
 });

@@ -1,6 +1,6 @@
 {
   "name": "@byokit/openclaw",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "description": "The OpenClaw runtime kit: the pinned engine's full operator surface with plain-words helpers for members, sign-in, runs and approvals.",
   "license": "Apache-2.0",
   "type": "module",
@@ -29,6 +29,14 @@
       "types": "./dist/device.d.ts",
       "default": "./dist/device.js"
     },
+    "./usage": {
+      "types": "./dist/usage.d.ts",
+      "default": "./dist/usage.js"
+    },
+    "./day-usage": {
+      "types": "./dist/day-usage.d.ts",
+      "default": "./dist/day-usage.js"
+    },
     "./link": {
       "types": "./dist/link.d.ts",
       "default": "./dist/link.js"
@@ -53,11 +61,11 @@
   },
   "dependencies": {
     "@byokit/link": "0.7.0",
-    "@byokit/relay": "0.5.0",
+    "@byokit/relay": "0.5.2",
     "@byokit/reach": "0.6.0",
-    "@byokit/seal": "0.2.0",
+    "@byokit/seal": "0.3.0",
     "@byokit/secrets": "0.5.0",
-    "@openclaw/gateway-client": "2026.8.1",
+    "@openclaw/gateway-client": "2026.9.6",
     "@openclaw/gateway-protocol": "2026.8.1",
     "ws": "8.21.3"
   },

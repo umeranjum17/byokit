@@ -66,6 +66,12 @@ test('one encrypted job delivers live text, binary images and final usage, resum
   assert.equal(frames[1]!.type, 'image');
   if (frames[1]!.type === 'image') assert.deepEqual(frames[1].data, Uint8Array.from({ length: 320_000 }, (_, i) => i % 256));
   assert.deepEqual(frames[2], { job: 'job-1', seq: 3, type: 'usage', usage: { inputTokens: 12, outputTokens: 34 } });
+  // Pairing closes its temporary socket without waiting for the relay to observe the close.
+  // Wait for that server-side event before counting the two persistent device links.
+  let pairingClosed = false;
+  again.server.once('upgrade', (_req, socket) => {
+    socket.once('close', () => { pairingClosed = true; });
+  });
   const strangerGrant = await pairWithOffer(offer(), { name: 'Other phone', onWords: () => {} });
   const stranger = device(strangerGrant);
   await stranger.link.request('ping');
@@ -76,6 +82,7 @@ test('one encrypted job delivers live text, binary images and final usage, resum
   const finished = await dev.link.stream('job.follow', { job: 'job-1', after: 4 });
   assert.equal(await readJobStream(finished, { job: 'job-1', after: 4 }, () => assert.fail('already applied frame')), 4);
   assert.doesNotMatch(hc.wire.join('\n'), /progress-marker|inputTokens|image\/png|job-1/);
+  await until(() => pairingClosed);
   assert.equal(again.relay.count(host.id), 2);
 });
 

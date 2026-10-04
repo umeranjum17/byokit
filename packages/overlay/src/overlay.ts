@@ -14,6 +14,7 @@ function check(o: StartOptions): void {
 
 const unsupported: Overlay = {
   state: async () => 'unsupported',
+  foregroundApp: async () => null,
   openPermission: async () => {},
   start: async () => 'unsupported',
   stop: async () => {},
@@ -43,6 +44,7 @@ export function createOverlay(native: NativeOverlay | null): Overlay {
   };
   return {
     state: () => native.state(),
+    foregroundApp: () => native.foregroundApp(),
     openPermission: () => native.openPermission(),
     start: async (o) => { check(o); return native.start(o); },
     stop: () => native.stop(),

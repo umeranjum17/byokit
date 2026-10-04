@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { fakeProvider, memoryStore } from '../packages/cloud/src/testing/fake-provider.ts';
 import { machine } from '../packages/cloud/src/machine.ts';
 import { startFakeSandboxServer } from '../packages/cloud/src/testing/fake-sandbox-server.ts';
-import { sandboxApi } from '../packages/cloud/src/sandbox-api.ts';
+import { boat } from '../packages/cloud/src/boat.ts';
 import { probes } from './machine-proof/probes.ts';
 import { dryRun, fakeNode } from './machine-proof/dry-run.ts';
 import { checks, markdown, runProof } from './machine-proof/proof.ts';
@@ -100,9 +100,9 @@ test('installation failure records missing checks and never qualifies a real rep
 test('scrub probe retries the trial TTL before interpreting a redundant noEnv rejection', async () => {
   const server = await startFakeSandboxServer({ trial: true });
   try {
-    const provider = sandboxApi({ baseUrl: server.url, label: 'Fixture', prices: [], key: async () => 'test-key' });
+    const provider = boat({ baseUrl: server.url, label: 'Fixture', prices: [], key: async () => 'test-key' });
     const ref = await provider.create!({ name: 'scrub', size: 'small', keepCopies: true, idempotencyKey: 'scrub-test' });
-    const hooks = probes({ apiRoot: server.url, key: async () => 'test-key', vmRelayUrl: 'https://sandbox.test', publicAddress: async () => '192.0.2.1', ask: async () => { throw new Error('no operator during tests'); }, commands: {} });
+    const hooks = probes({ apiRoot: server.url, key: async () => 'test-key', vmRelayUrl: 'https://boat.test', publicAddress: async () => '192.0.2.1', ask: async () => { throw new Error('no operator during tests'); }, commands: {} });
     const result = await hooks.noEnvScrub(provider, ref);
     assert.equal(result.status, 'observed');
     assert.match(result.detail, /HTTP 400/);
@@ -117,7 +117,7 @@ test('accepted scrub experiment polls readiness without a second normal resume c
   const provider = fakeProvider();
   const ref = await provider.create!({ name: 'scrub', size: 'small', keepCopies: true, idempotencyKey: 'accepted-scrub' });
   let requests = 0;
-  const hooks = probes({ apiRoot: 'https://sandbox.test/api/v1', key: async () => 'test-key', vmRelayUrl: 'https://sandbox.test', publicAddress: async () => '192.0.2.1', ask: async () => { throw new Error('no operator'); }, commands: {},
+  const hooks = probes({ apiRoot: 'https://boat.test/api/v1', key: async () => 'test-key', vmRelayUrl: 'https://boat.test', publicAddress: async () => '192.0.2.1', ask: async () => { throw new Error('no operator'); }, commands: {},
     fetch: (async () => { requests++; provider.fake.setState(ref.id, 'on'); return new Response('{}', { status: 200 }); }) as typeof fetch,
   });
   const result = await hooks.noEnvScrub(provider, ref);

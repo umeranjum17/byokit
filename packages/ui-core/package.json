@@ -36,6 +36,10 @@
     "./steps": {
       "types": "./dist/steps.d.ts",
       "default": "./dist/steps.js"
+    },
+    "./connect": {
+      "types": "./dist/connect.d.ts",
+      "default": "./dist/connect.js"
     }
   },
   "files": [

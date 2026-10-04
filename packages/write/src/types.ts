@@ -54,4 +54,6 @@ export interface Engine {
 }
 /** `engine` defaults to inProcessEngine(). */
 export type ComposeOptions = { engine?: Engine };
+/** Portable clients require the host to supply an engine; they never load the pinned Node engine. */
+export type PortableComposeOptions = { engine: Engine };
 export type ComposeErrorCode = 'missing' | 'needs-update' | 'engine' | 'invalid';

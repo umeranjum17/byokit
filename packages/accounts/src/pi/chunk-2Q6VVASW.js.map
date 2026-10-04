@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../../../node_modules/@earendil-works/pi-ai/src/utils/hash.ts"],
+  "sourcesContent": ["/** Fast deterministic hash to shorten long strings */\nexport function shortHash(str: string): string {\n\tlet h1 = 0xdeadbeef;\n\tlet h2 = 0x41c6ce57;\n\tfor (let i = 0; i < str.length; i++) {\n\t\tconst ch = str.charCodeAt(i);\n\t\th1 = Math.imul(h1 ^ ch, 2654435761);\n\t\th2 = Math.imul(h2 ^ ch, 1597334677);\n\t}\n\th1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);\n\th2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);\n\treturn (h2 >>> 0).toString(36) + (h1 >>> 0).toString(36);\n}\n"],
+  "mappings": ";;;AACM,SAAU,UAAU,KAAqB;AAC9C,MAAI,KAAK;AACT,MAAI,KAAK;AACT,WAAS,IAAI,GAAG,IAAI,IAAI,QAAQ,KAAK;AACpC,UAAM,KAAK,IAAI,WAAW,CAAC;AAC3B,SAAK,KAAK,KAAK,KAAK,IAAI,UAAU;AAClC,SAAK,KAAK,KAAK,KAAK,IAAI,UAAU;EACnC;AACA,OAAK,KAAK,KAAK,KAAM,OAAO,IAAK,UAAU,IAAI,KAAK,KAAK,KAAM,OAAO,IAAK,UAAU;AACrF,OAAK,KAAK,KAAK,KAAM,OAAO,IAAK,UAAU,IAAI,KAAK,KAAK,KAAM,OAAO,IAAK,UAAU;AACrF,UAAQ,OAAO,GAAG,SAAS,EAAE,KAAK,OAAO,GAAG,SAAS,EAAE;AAAE;",
+  "names": []
+}

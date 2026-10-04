@@ -85,26 +85,125 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
 |---|---|
 | `decide(state, questions, { privacy, backends, images?, timeoutMs?, cache? })` | Asks each backend in order for the questions still unanswered; returns an `Answer` per question |
 | `rules(fn)` | Your own function as a backend: return the answer for an obvious case, `undefined` otherwise. Stays on the device |
-| `answerer({ name, leaves, supportsImages?, ask })` | A host-owned model: `(prompt, signal, images) => text` or `{ text, usage?, rationale?, raw? }` |
+| `answerer({ name, leaves, supportsImages?, ask, text?, maxRetries?, retryBaseMs?, retryMaxMs? })` | A host-owned model: `(prompt, signal, images, request) => text` or `{ text, usage?, rationale?, raw? }`; typed text options and bounded 429 retries |
 | `jev({ key, via?, fetch?, maxRetries?, retryBaseMs?, retryMaxMs? })` | Jev as a backend, over TypeSafe's API (default) or OpenRouter (`via: 'openrouter'`). API-billed; retries 429s with backoff |
 | `openai({ model, key, request?, ... })` / `openai({ model, auth: 'account', account, request?, ... })` | OpenAI general models used for decisions; explicit API key or consented ChatGPT plan session |
 | `parseConfig(objectOrJSON)`, `createDecider(config, options)` | Validate portable config and set it once, with optional per-call overrides |
 | `ConfigError`, `UnsupportedAccountError`, `UnsupportedImagesError`, `InvalidImageError`, `OPENAI_ROUTES` | Typed config/account errors and billing labels (API key is never offered by default) |
+| `RateLimitError` | An answerer callback exhausted its 429 retries (`status: 429`, `retries`); `decide()` abstains on this failure |
 | `MemoryCache`, `cacheKey(state, questions, images?)` | In-memory reference cache for `decide({ cache })`, and the stable request key it uses |
 | `resolve(question, raw)` | The floors on one raw answer, for an app that holds a recorded answer |
 | `FLOOR` | The default floor, 0.6 |
-| `Question`, `Answer`, `Raw`, `Usage`, `ImageInput`, `DecisionImage`, `AnswererReply`, `AnswererOptions`, `Backend`, `DecideCache`, `Options` | The types |
+| `Question`, `QuestionOptions`, `Answer`, `RuleAnswer`, `Raw`, `Usage`, `ImageInput`, `DecisionImage`, `AnswererReply`, `AnswererOptions`, `AnswererRequestOptions`, `AnswererBackend`, `RetryOptions`, `Backend`, `DecideCache`, `Options` | The types |
 | `@byokit/decide/eval`: `evaluate`, `evaluateDecisions`, `replay`, `parse`, `format`, `summary` | Run and print an eval report over any backends |
 | `byokit-eval` (bin) | Replay or refresh an eval file from the command line |
 
 ## Questions and floors
 
-- **Questions**: `choice` (options with a one-line description each), `yesno`, and `score` (an ordered rubric, lowest
-  first; the answer is the level's index).
+- **Questions**: `choice` (options with a one-line description each), `yesno`, `score` (an ordered rubric, lowest
+  first; the answer is the level's index), and `rank` (candidate ids with descriptions, best first).
 - **The floors are code, not a prompt** (ported from firstmate's dispatch resolver): a 0.6 floor on the answer's
   confidence by default (`floor` per question). A choice option can declare its own floor (`floors`), checked against
   its own probability; a pick under it falls to the most probable other option that clears its own. A tie abstains.
 - An answer whose probabilities are missing an option, out of range or don't sum to 1 is an abstain, never an error.
+
+### Ranking and explanations
+
+```ts
+import { decide, rules } from '@byokit/decide';
+
+const { replies } = await decide({ name: 'Umer' }, {
+  replies: {
+    kind: 'rank',
+    candidates: { question: 'Ask a useful question', context: 'Add context', repeat: 'Repeat the post' },
+    instructions: 'Order by how much the reply adds to the conversation.',
+    personReason: true,
+  },
+}, { privacy: 'stays-here', backends: [rules(() => ({
+  answer: ['context', 'question', 'repeat'],
+  scores: { context: 3, question: 2, repeat: 0 },
+  personReason: 'The first reply adds useful context.',
+}))] });
+// replies.answer: ['context', 'question', 'repeat']
+// replies.scores: { context: 3, question: 2, repeat: 0 }
+// replies.personReason: 'The first reply adds useful context.'
+```
+
+`rank.candidates` is a non-empty map of app-owned ids to descriptions. `Answer.answer` is the complete ordered
+`string[]`, or `null` on abstention. Every id must appear exactly once; missing, duplicate or unknown ids abstain.
+The backend must report confidence in the order, between 0 and 1; the usual `floor` (default 0.6) applies.
+Optional `Answer.scores` maps candidate ids to finite numbers on the backend's own scale. Scores need not sum to 1,
+may be negative, and are never invented from list positions. Explicit orders may include equal scores.
+
+| Backend | Rank behavior | Person-facing explanation |
+|---|---|---|
+| `rules` | Return a `string[]`, or `{ answer: string[], scores?, personReason? }`; confidence is 1 | Return `{ answer, personReason }` for any question kind |
+| `openai` | Structured output with ranking, self-reported confidence, and scores or null | Requested in the schema only for opted-in questions |
+| `answerer` | JSON `{ ranking: string[], confidence: number, scores?: {...}, personReason?: string }` per rank question | Opted-in non-rank questions use `{ probabilities: {...}, personReason?: string }`; legacy probability maps still work |
+| `jev` | Fallback: send a Choice, order its probabilities descending, retain them as scores and use provider confidence; ties keep candidate declaration order | Not supported by the documented API; field remains absent |
+| Node subscription adapter | Structured schema with ranking, self-reported confidence and optional scores | Requested in the schema only for opted-in questions |
+
+Jev's fallback measures relative Choice preference, not confidence in every pair's order. Its
+[API reference](https://docs.typesafe.ai/api) documents Choice, Score and Noul, so no unsupported rank primitive or
+explanation field is sent. A custom backend without ranking can return `undefined` for that question; `decide`
+tries the next backend. If none answers, it abstains. The app can keep its original order or ask a person.
+
+For custom `Backend.ask`, a rank `Raw` has `{ probabilities: {}, ranking, confidence, scores?, personReason? }`.
+`resolve` validates it and carries `usage`/`raw` as usual. Recorded Jev Choice responses can replay as ranks;
+`evaluate` compares rank arrays in exact order. Other question kinds keep their existing eval semantics.
+
+`personReason: true` opts a question into a short explanation. It is absent by default, so existing calls request
+no extra explanation tokens. `Answer.reason` remains a diagnostic for logs. `Answer.personReason` is trimmed,
+limited to 160 characters, and rejected if blank, multiline, contains control characters or HTML/backtick markup.
+Malformed explanations do not discard a valid answer. Abstentions and choice runner-up changes omit them.
+Render explanations as plain text; generated wording still needs the host's content policy. Backends never turn
+errors or diagnostic reasons into person-facing text. A backend unable to explain may still answer without one.
+The separate model-supplied `rationale` remains diagnostic metadata, including on abstentions; it is not a
+person-facing explanation and is preserved for existing image and structured-answer callers.
+
+### Per-question state and privacy
+
+```ts
+import { answerer, decide, rules, type Question } from '@byokit/decide';
+
+const sharedPublicState = { name: 'Umer' };
+const publicPost = 'What helped you learn a new skill?';
+const publicReplies = ['Practice a little each day.', 'What did you try first?'];
+const publicCandidates = { context: publicReplies[0], question: publicReplies[1] };
+const localRules = rules((_state, name) => name === 'allowed' ? true : undefined);
+// Stand-in response for this example. Replace ask with the app's model call.
+const modelBackend = answerer({ name: 'example', leaves: true,
+  ask: async () => '{"replies":{"ranking":["context","question"],"confidence":0.8}}',
+});
+const questions: Record<string, Question> = {
+  allowed: { kind: 'yesno', question: 'Allowed by the local rules?',
+    state: { privateText: 'Local draft from Umer' }, privacy: 'stays-here', backends: ['rules'] },
+  replies: { kind: 'rank', candidates: publicCandidates,
+    state: { publicPost, publicReplies } },
+};
+const answers = await decide(sharedPublicState, questions, {
+  privacy: 'may-leave', backends: [localRules, modelBackend],
+});
+```
+
+`question.state` **replaces** the shared state; it is never merged. An explicitly supplied `null` or `undefined`
+also replaces it. `decide` sends each scoped question in its own backend invocation, with only its effective
+state and that question; the `state` property is removed from the question passed to `Backend.ask`. Unscoped
+questions keep the existing shared-state batch. The timeout budget applies to the whole backend pass, including
+all its scoped requests; successful requests survive a later scoped failure or timeout. Scoping can add requests
+and API key (billed per use) calls, so pass a small public state when possible.
+Image attachments remain shared across the call, as in the image API: `question.images` references criteria,
+and `question.state` does not filter attachments. Keep rules-only images out of a model-bound call.
+
+`question.privacy: 'stays-here'` excludes that question from every backend with `leaves: true`, even if local rules
+abstain. Question privacy can narrow the whole call's privacy, never widen it. Scope private question descriptions
+and candidate text too. `question.backends` optionally allows only the listed `Backend.name` values; `['rules']`
+reserves a question for rules even when a model stays on-device. An empty list permits no backend. The host owns
+backend names and must give them distinct, accurate names. The allowlist never overrides call or question privacy.
+Everything in a model-bound question can leave. A `state` override alone does not make a
+question local. This dispatch guarantee belongs to `decide`; direct `Backend.ask` calls take the state supplied
+by the host. Cache keys include the question overrides, privacy, backend allowlist and explanation opt-in; cache implementations
+must be trusted with answers and any backend raw responses they store.
 
 ## Backends
 
@@ -112,20 +211,37 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
   `timeoutMs` (default 5 s) answers nothing.
 - `privacy: 'stays-here'` skips every backend the state would leave the device for (Jev, or any answerer with
   `leaves: true`), so private text never goes to one.
-- **Any model**: `answerer({ name, leaves, ask })` makes a backend of any `(prompt, signal) => text`. On a phone, that
+- **Any model**: `answerer({ name, leaves, ask })` makes a backend of any `(prompt, signal, images, request) => text`. Existing
+  callbacks still work; the third argument remains the image attachments. Structured replies preserve host-supplied
+  usage, rationale and raw metadata; plain string replies expose only the recognized answers. On a phone, that
   is the ChatGPT the person signed in to with [`@byokit/accounts`](../accounts), on their own plan:
 
   ```ts
+  import type { Accounts, AuthHost } from '@byokit/accounts';
   import { answerer } from '@byokit/decide';
 
-  const chatgpt = answerer({
-    name: 'chatgpt',
-    leaves: true,
-    ask: (p, signal) => accounts.respond(me, { instructions: 'Reply with JSON only.', input: p, signal }),
-  });
+  // Pass the app's existing Accounts instance and signed-in member (for example, 'Umer').
+  function chatgptBackend(accounts: Accounts<AuthHost, string>, me: string) {
+    return answerer({
+      name: 'chatgpt',
+      leaves: true,
+      text: { format: { type: 'json_object' } }, // or a json_schema matching the question/probability map
+      ask: (p, signal, _images, request) => accounts.respond(me, { ...request, input: p, signal }),
+    });
+  }
   ```
 
-  It asks for each answer's probability as JSON; any other reply is an abstain.
+  It treats state as data in a delimited JSON block and asks for each answer's probability as JSON; any other reply
+  is an abstain. Every answer it produces, including abstentions and failures, carries
+  `confidenceSource: 'self-reported'`: these estimates are not calibrated provider confidence.
+  The callback's fourth argument carries trusted `instructions` and unchanged `text`; forward both to
+  `accounts.respond` as above so the state guard also reaches the provider's instruction field.
+  HTTP errors with `status: 429` retry twice by default, using `retryAfter` or `headers.get('retry-after')` when
+  supplied. Current `accounts.respond` errors expose that metadata. Other errors never retry. Waits use the same
+  exponential backoff as Jev/OpenAI (`retryBaseMs: 1000`, `retryMaxMs: 2000`), capped per wait, and stop on abort.
+  Calling the backend's `ask` directly throws `RateLimitError` on exhaustion; `decide` abstains and may try the next
+  backend. Callback messages and provider bodies are omitted from failure reasons. Each retry uses the same billing
+  route as its first call (subscription or API key, billed per use).
   - **Billing**: `rules` costs nothing. `answerer` with the person's ChatGPT uses their subscription. `jev()` is billed
   to the TypeSafe or OpenRouter key you pass.
 
@@ -166,6 +282,28 @@ API-shape responses from the official documentation, not live model recordings. 
 
 ### The person's ChatGPT plan
 
+For an app already using Accounts, bind the same person's Codex/ChatGPT subscription login directly:
+
+```ts
+import { Accounts, memoryStore } from '@byokit/accounts';
+import { openai } from '@byokit/decide';
+
+const accounts = new Accounts({ store: () => memoryStore() }); // use protected storage in your app
+// Show the sign-in returned by accounts.login('Umer', 'chatgpt'), then await accounts.finished(...).
+const account = accounts.chatgpt('Umer');
+const backend = openai({ auth: 'account', account, model: 'gpt-6-sol' });
+```
+
+This handle routes through `Accounts.respond`, including its refresh, limit and sign-out handling.
+Tokens stay in the app's own store; the handle exposes none. No separate token-sharing session or
+API key (billed per use) is needed. ChatGPT subscription sign-in is offered by default. Use this
+handle where the sign-in lives, including React Native; Accounts owns its fetch transport.
+Supported `request` fields are `instructions`, `text`, `reasoning`, `tools`, `tool_choice`,
+`parallel_tool_calls`, `store: false` and `stream: true`; other fields throw `UnsupportedAccountError`.
+Answers retain reported token usage and self-reported confidence. Missing usage stays absent.
+
+Apps with an official token-sharing integration can continue using the separate adapter below.
+
 [Official token sharing](https://developers.openai.com/siwc/token-sharing-open-source) permits eligible open-source
 and locally hosted apps to request ChatGPT plan usage with the person's explicit consent. Paid/remote apps need
 OpenAI's approval; signing in for identity alone is insufficient. The host completes the
@@ -187,8 +325,9 @@ const account = chatgptPlan({
 const backend = openai({ auth: 'account', account, model: chosenModel });
 ```
 
-This accounts adapter consumes a validated session; it does not start a sign-in. The existing
-`Accounts.login()` Codex flow and `Accounts.respond()` are separate and cannot supply this token-sharing credential.
+The token-sharing adapter consumes a validated session; it does not start a sign-in. The
+`accounts.chatgpt(member)` handle uses the existing Codex login through `Accounts.respond()` instead;
+it does not convert that credential into a token-sharing session.
 `chatgptPlan` checks `resource.invoke` and `chatgpt.tokens.use.direct` on every request; the host supplies refreshed tokens.
 The backend verifies `chosenModel` against the selected account's current catalogue, uses the public Responses API,
 and sets `store: false`, `stream: true` and array input. It never sends tokens to ChatGPT backend-api endpoints.
@@ -520,3 +659,81 @@ mismatches reject with `ClaudeCodeError`; cut-off output has `name: 'IncompleteE
 `code: 'incomplete'`. Failures use fixed text and never include stderr. It is also a `Backend` for
 `decide(..., { privacy: 'may-leave', backends: [backend] })` choice, yes/no and score questions;
 its confidence estimates are self-reported and still go through decide's ordinary floors.
+
+## Jev from a paired phone
+
+`pairedJev()` sends questions through an existing `@byokit/link` DeviceLink to the user's
+computer. The computer holds the API key (billed per use) and calls Jev; the phone receives
+only probabilities and token usage. Pairing does not enable paid decisions. The host app
+must ask for billing consent before constructing `jevHost()` with the explicit billing label.
+
+On the computer, compose the handler into the app's existing link host. This example uses
+an app-owned, passphrase-sealed `@byokit/secrets` store. The passphrase and key are supplied
+through the host app, never a phone bundle or ambient credential lookup.
+
+```ts
+import { Host, keyPair, type HostOptions } from '@byokit/link';
+import { fileStore } from '@byokit/secrets';
+import { jevHost, PAIRED_JEV_OP } from '@byokit/decide';
+
+async function enablePaidDecisions(passphrase: Uint8Array, consent: boolean, confirm: HostOptions['confirm']) {
+  if (!consent) return; // Ask the person: API key (billed per use).
+  const secrets = fileStore({ path: '/home/app/data/decision-keys.json', passphrase });
+  // Save the key through the host app with secrets.set('jev-typesafe', key).
+  const paid = jevHost({
+    billing: 'api-key-billed-per-use', via: 'typesafe',
+    keys: { get: (_device, via) => secrets.get(`jev-${via}`) },
+  });
+  return Host.open({
+    keys: keyPair(), name: 'Umer computer', confirm,
+    // This host offers only paid decisions, to paired control devices.
+    allow: (request, device) => device.role === 'control' && request.op === PAIRED_JEV_OP,
+    handle: paid,
+  }); // Use the app's existing grant store, pairing approval UI and socket wiring in production.
+}
+```
+
+On the phone, pass the existing paired link (or `null` before pairing):
+
+```ts
+import type { DeviceLink } from '@byokit/link';
+import { decide, pairedJev, PairedHostError } from '@byokit/decide';
+
+async function askFromPhone(link: DeviceLink | null) {
+  try {
+    return await decide({ name: 'Umer', text: 'The roof is leaking' }, {
+      urgent: { kind: 'yesno', question: 'Is this urgent?' },
+    }, { privacy: 'may-leave', timeoutMs: 30_000, backends: [pairedJev({ link, timeoutMs: 25_000 })] });
+  } catch (error) {
+    if (error instanceof PairedHostError) return { problem: error.code, words: error.message };
+    throw error;
+  }
+}
+```
+
+- `PairedHostError.code` is `host-offline`, `not-paired`, `key-missing`, `disabled`,
+  `not-allowed`, `invalid-request`, `request-failed` or `cancelled`. These errors propagate
+  through `decide()` so the app can offer reconnection, pairing or host key setup. Error words
+  contain no provider or storage details. A missing key never falls back to another billing route.
+- `JevHostKeys.get(device, via)` receives the authenticated grant. Adapt an accounts member
+  key route here when available, or scope a sealed secrets store to the member the host maps
+  from that grant. Never accept a member id, key, model, URL or billing route from request data.
+- Link pairing authentication, revocation and `Host.allow` apply before the handler runs.
+  Compose `PAIRED_JEV_OP` into an existing host's dispatcher and policy rather than replacing
+  its other operations. `enabled(device)` can withdraw host billing consent dynamically.
+- The host bounds provider work to 20 seconds by default and accepts at most 100 questions
+  with 100 options/levels each. The phone request deadline defaults to 30 seconds and refuses
+  to enqueue while offline. Set its request timeout below `decide().timeoutMs` to receive
+  typed transport timeouts; the general decide deadline otherwise abstains as usual.
+  `privacy: 'stays-here'` skips the paired backend entirely.
+- Paired Jev supports choice, yes/no and score questions only; rank questions return
+  `invalid-request` before billing. It is text only: image attachments throw `UnsupportedImagesError`
+  before any request or billing. Host replies omit person-facing explanations.
+- Floors, runner-up selection and abstention remain on the phone. Usage is preserved; arbitrary
+  provider JSON (`raw`) is intentionally omitted. Keep caches scoped to a person and paired host;
+  cached decisions do not check current host consent or connectivity.
+- Cancellation stops waiting on the phone; it cannot undo work or billing already started on the
+  host. Link resends a pending request across reconnects with its original deduplication key.
+  A fresh application retry is a new billable call. Durable deduplication uses the existing
+  link `AnswerStore`; a host crash before saving an answer can still cause a repeat call.
+- A hosted proxy is a follow-up, outside this paired-host route.

@@ -8,6 +8,7 @@
       "fast": "gpt-6-luna"
     },
     "callbackPort": 1455,
+    "fresh": { "param": "prompt", "value": "login" },
     "clientId": "app_EMoamEEZ73f0CkXaXp7hrann",
     "revoke": "https://auth.openai.com/oauth/revoke",
     "billing": "subscription",
@@ -31,7 +32,8 @@
       "terms": "grey",
       "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
       "source": "https://openrouter.ai/docs/guides/overview/auth/oauth"
-    }
+    },
+    "label": "API key (billed per use by OpenRouter)"
   },
   "grok": {
     "pi": "xai",
@@ -139,6 +141,9 @@
     },
     "billing": "subscription",
     "source": "https://chat.qwen.ai",
+    "offer": false,
+    "readiness": "no_upstream_flow",
+    "routes": ["qwen:browser"],
     "multiAccount": {
       "terms": "grey",
       "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
@@ -155,10 +160,49 @@
     },
     "billing": "subscription",
     "source": "https://www.minimax.io",
+    "offer": false,
+    "readiness": "no_upstream_flow",
+    "routes": ["minimax:key", "minimax:plan_key"],
     "multiAccount": {
       "terms": "grey",
       "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
       "source": "https://www.minimax.io"
+    }
+  },
+  "openai": {
+    "pi": "openai",
+    "name": "OpenAI",
+    "company": "OpenAI",
+    "models": {
+      "strong": "gpt-6-sol"
+    },
+    "billing": "api",
+    "auth": "api-key",
+    "label": "API key (billed per use by OpenAI)",
+    "offer": false,
+    "source": "https://platform.openai.com/docs/api-reference/authentication",
+    "multiAccount": {
+      "terms": "grey",
+      "why": "Each member supplies their own key.",
+      "source": "https://platform.openai.com/docs/api-reference/authentication"
+    }
+  },
+  "typesafe": {
+    "pi": "typesafe",
+    "name": "TypeSafe",
+    "company": "TypeSafe",
+    "models": {
+      "strong": "jev-latest"
+    },
+    "billing": "api",
+    "auth": "api-key",
+    "label": "API key (billed per use by TypeSafe)",
+    "offer": false,
+    "source": "https://docs.typesafe.ai",
+    "multiAccount": {
+      "terms": "grey",
+      "why": "Each member supplies their own key.",
+      "source": "https://docs.typesafe.ai"
     }
   }
 }

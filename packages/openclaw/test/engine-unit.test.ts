@@ -3,16 +3,65 @@ import { strict as assert } from 'node:assert';
 import fs, { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, symlinkSync, lstatSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { createServer } from 'node:net';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { scratchDir } from '../../test-support.ts';
-import { spawn } from 'node:child_process';
+import { removeScratch, scratchDir } from '../../test-support.ts';
+import childProcess, { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../src/engine.ts';
+import { pidAlive } from '../src/engine-status.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import { hostKeySeal } from '../../secrets/src/index.ts';
 import { once } from 'node:events';
+import { EnginePatchError, editText, patchId, prepareEngineSet, readPatchSet, sha256, verifyEngineSet, type PatchSet } from '../src/engine-patches.ts';
+
+// Unit-only byte fixtures, not real-engine qualification; production entries are seeded as exact stock bytes.
+test('immutable sets validate all bytes, clone offline, roll back by selection and preserve drift', async (t) => {
+  const dir = scratchDir('patches');
+  const base = join(dir, 'base');
+  const shipped = shippedSet();
+  const file = { path: 'dist/lab.js', before: sha256('const lab = 1;\n'), after: sha256('const lab = 2;\n'), edits: [{ find: 'lab = 1', replace: 'lab = 2' }] };
+  const set: PatchSet = { ...shipped, id: patchId([file]), files: [file] };
+  let installs = 0;
+  const install = (tmp: string) => {
+    installs++; seedInstall(tmp);
+    writeFileSync(join(tmp, 'node_modules/openclaw', file.path), 'const lab = 1;\n');
+    writeFileSync(join(tmp, 'unpatched'), 'stock');
+    fs.symlinkSync('unpatched', join(tmp, 'relative-link'));
+  };
+  const matches = () => true;
+  try {
+    const stock = await prepareEngineSet(base, shipped, install, matches);
+    const patched = await prepareEngineSet(base, set, install, matches);
+    assert.equal(installs, 1, 'patched set clones verified stock without installing');
+    assert.equal(existsSync(base), false, 'base is never read or written');
+    assert.equal(fs.readlinkSync(join(patched, 'relative-link')), 'unpatched');
+    const before = readFileSync(join(patched, '.byokit-tree'));
+    assert.equal(await prepareEngineSet(base, set, install, matches), patched);
+    assert.deepEqual(readFileSync(join(patched, '.byokit-tree')), before);
+    assert.equal(await prepareEngineSet(base, shipped, install, matches), stock, 'rollback selects original stock offline');
+    for (const path of [join(patched, 'node_modules/openclaw', file.path), join(patched, 'unpatched')]) {
+      fs.chmodSync(path, 0o644); writeFileSync(path, 'drift'); fs.chmodSync(path, 0o444);
+      assert.throws(() => verifyEngineSet(patched, set, matches), /engine-patch: drift/);
+      const next = await prepareEngineSet(base, set, install, matches);
+      assert.notEqual(next, patched); assert.equal(installs, 1);
+      assert.equal(readFileSync(path, 'utf8'), 'drift', 'drifted final is never repaired or deleted');
+    }
+    const malformed = join(dir, 'bad.json');
+    writeFileSync(malformed, JSON.stringify({ ...set, id: '0000000000000000' }));
+    assert.throws(() => readPatchSet(malformed, shipped.upstream.version, shipped.upstream.integrity), /engine-patch: spec/);
+    const outside = { ...file, path: '../escape.js' };
+    await assert.rejects(prepareEngineSet(base, { ...set, id: patchId([outside]), files: [outside] }, install, matches), /engine-patch: spec/);
+    assert.throws(() => editText('lab = 1; lab = 1', file), /engine-patch: spec/);
+    const originalRename = fs.renameSync;
+    t.mock.method(fs, 'renameSync', (...args: Parameters<typeof fs.renameSync>) => { if (String(args[0]).includes('.tmp-')) throw new Error('unit disk fault'); return originalRename(...args); });
+    syncBuiltinESMExports();
+    const other = { ...file, after: sha256('const lab = 3;\n'), edits: [{ find: 'lab = 1', replace: 'lab = 3' }] };
+    await assert.rejects(prepareEngineSet(base, { ...set, id: patchId([other]), files: [other] }, install, matches), /engine-patch: write/);
+    assert.ok(fs.readdirSync(base + '.sets').every(p => !p.startsWith('.tmp-')), 'own failed temp cleaned');
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports(); removeScratch(dir); }
+});
 
 const shippedEngine = fileURLToPath(new URL('../engine/', import.meta.url));
 const lock = JSON.parse(readFileSync(join(shippedEngine, 'package-lock.json'), 'utf8')) as {
@@ -29,13 +78,60 @@ function seedInstall(engineDir: string) {
     writeFileSync(join(engineDir, path, 'package.json'), JSON.stringify({ version: pkg.version }));
   }
   writeFileSync(join(engineDir, 'node_modules/openclaw/openclaw.mjs'), '');
+  mkdirSync(join(engineDir, 'node_modules/openclaw/dist'), { recursive: true });
+  writeFileSync(join(engineDir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.8.1', commit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b' }));
+  for (const file of shippedSet().files) {
+    const bytes = readFileSync(fileURLToPath(new URL(`./fixtures/stock/${file.path}.txt`, import.meta.url)));
+    assert.equal(sha256(bytes), file.before, `stock byte fixture drift: ${file.path}`);
+    const target = join(engineDir, 'node_modules/openclaw', file.path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, bytes);
+  }
 }
 
-test('prepare repairs stale manifests and dependencies, and reuses a matching install', async () => {
+function shippedSet(): PatchSet {
+  return readPatchSet(join(shippedEngine, 'patches.json'), '2026.8.1', JSON.parse(readFileSync(join(shippedEngine, 'package-lock.json'), 'utf8')).packages['node_modules/openclaw'].integrity);
+}
+function seedSet(engineDir: string): Promise<string> {
+  return prepareEngineSet(engineDir, shippedSet(), tmp => fs.cpSync(engineDir, tmp, { recursive: true }), () => true);
+}
+
+test('accounting start is fsynced before spawn; failed boot writes prevent spawn and pre-pid failure has durable zero-attempt proof', async t => {
+  const dir = scratchDir('boot-order'), engineDir = join(dir, 'engine');
+  seedInstall(engineDir); await seedSet(engineDir);
+  const engine = new Engine({ stateDir: dir, engineDir, pluginId: 'byokit', tools: [], spawnEngine: true, onState() {}, onExit() {} });
+  let spawns = 0, syncs = 0;
+  const originalSync = fs.fsyncSync;
+  try {
+    await engine.prepare();
+    const boots = join(engine.root, 'usage/boots.jsonl'); mkdirSync(boots);
+    t.mock.method(childProcess, 'spawn', (_exe: string, _args: string[], options: any) => {
+      spawns++;
+      assert.ok(syncs > 0, 'boot record was fsynced before the spawn call');
+      const rows = readFileSync(boots, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+      assert.equal(rows.at(-1).bootId, options.env.BYOKIT_ENGINE_BOOT);
+      assert.equal(options.env.BYOKIT_ENGINE_USAGE_LEDGER, join(engine.root, 'usage'));
+      throw new Error('unit definite pre-pid failure');
+    });
+    t.mock.method(fs, 'fsyncSync', (...args: Parameters<typeof fs.fsyncSync>) => {
+      originalSync(...args);
+      if (existsSync(boots) && fs.statSync(boots).isFile() && fs.fstatSync(args[0]).ino === fs.statSync(boots).ino) syncs++;
+    });
+    syncBuiltinESMExports();
+    await assert.rejects(engine.start(), /Usage boot record could not be made durable/); assert.equal(spawns, 0);
+    rmSync(boots, { recursive: true });
+    await assert.rejects(engine.start(), /unit definite pre-pid failure/); assert.equal(spawns, 1);
+    const rows = readFileSync(boots, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    assert.equal(rows.length, 2); assert.equal(rows[1].bootId, rows[0].bootId); assert.equal(rows[1].spawned, false);
+    assert.ok(rows[1].failedAt >= rows[0].startedAt); assert.ok(syncs >= 2);
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports(); await engine.stop(); removeScratch(dir); }
+});
+
+test('prepare verifies whole immutable installs and rebuilds drift without changing old trees', async () => {
   const dir = scratchDir('prepare');
   const engineDir = join(dir, 'engine');
   const npmPath = join(dir, 'npm.mjs');
-  const calls = join(engineDir, 'npm-calls');
+  const calls = join(dir, 'npm-calls');
   seedInstall(engineDir);
   writeFileSync(npmPath, `#!${process.execPath}
 import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync } from 'node:fs';
@@ -51,7 +147,9 @@ for (const [path, pkg] of Object.entries(lock.packages)) {
   writeFileSync(join(dir, path, 'package.json'), JSON.stringify({ version: pkg.version }));
 }
 writeFileSync(join(dir, 'node_modules/openclaw/openclaw.mjs'), '');
-appendFileSync(join(dir, 'npm-calls'), '1');
+mkdirSync(join(dir, 'node_modules/openclaw/dist'), { recursive: true });
+writeFileSync(join(dir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.8.1', commit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b' }));
+appendFileSync(${JSON.stringify(calls)}, '1');
 `, { mode: 0o700 });
   const engine = new Engine({ stateDir: dir, engineDir, npmPath, pluginId: 'byokit', tools: [],
     spawnEngine: true, onState() {}, onExit() {} });
@@ -73,35 +171,40 @@ appendFileSync(join(dir, 'npm-calls'), '1');
       assert.ok(otherLibc, 'shipped lock includes a libc-incompatible optional package');
       rmSync(join(engineDir, otherLibc[0]), { recursive: true, force: true });
     }
+    await seedSet(engineDir);
     await engine.prepare();
-    assert.equal(existsSync(calls), false, 'matching install is reused, including absent incompatible optional packages');
+    assert.equal(existsSync(calls), false, 'verified stock set is reused, including absent incompatible optional packages');
 
-    const dependency = 'node_modules/@agentclientprotocol/sdk';
-    let expectedCalls = '';
-    for (const damage of [
-      () => rmSync(join(engineDir, 'package.json')),
-      () => writeFileSync(join(engineDir, 'package.json'), '{}'),
-      () => writeFileSync(join(engineDir, 'package-lock.json'), readFileSync(join(shippedEngine, 'package-lock.json'), 'utf8') + '\n'),
-      () => rmSync(join(engineDir, dependency), { recursive: true }),
-      () => writeFileSync(join(engineDir, dependency, 'package.json'), '{"version":"0.0.0"}'),
-      () => writeFileSync(join(engineDir, dependency, 'package.json'), '{broken'),
-    ]) {
-      damage();
-      writeFileSync(join(engineDir, 'node_modules/stale-marker'), 'old install');
+    const stockSet: PatchSet = { ...shippedSet(), id: patchId([]), files: [] };
+    const stock = await prepareEngineSet(engineDir, stockSet, () => { throw new Error('verified stock must be reused offline'); }, () => true);
+    const stockTree = readFileSync(join(stock, '.byokit-tree'));
+    for (const path of ['package.json', 'package-lock.json', 'node_modules/@agentclientprotocol/sdk/package.json', 'node_modules/openclaw/dist/build-info.json', '.byokit-patches']) {
+      const old = readFileSync(join(engine.root, 'engine-set'), 'utf8');
+      const damaged = join(old, path);
+      fs.chmodSync(damaged, 0o644); writeFileSync(damaged, '{broken'); fs.chmodSync(damaged, 0o444);
       await engine.prepare();
-      expectedCalls += '1';
-      assert.equal(readFileSync(calls, 'utf8'), expectedCalls, 'damaged install calls npm ci');
-      for (const file of ['package.json', 'package-lock.json']) {
-        assert.deepEqual(readFileSync(join(engineDir, file)), readFileSync(join(shippedEngine, file)));
-      }
-      assert.equal(JSON.parse(readFileSync(join(engineDir, dependency, 'package.json'), 'utf8')).version,
-        lock.packages[dependency]!.version);
-      await engine.prepare();
-      assert.equal(readFileSync(calls, 'utf8'), expectedCalls, 'repaired install is reused');
+      assert.equal(existsSync(calls), false, 'patched drift clones verified stock offline, never invokes npm');
+      const next = readFileSync(join(engine.root, 'engine-set'), 'utf8');
+      assert.notEqual(next, old);
+      verifyEngineSet(next, shippedSet(), () => true);
+      verifyEngineSet(stock, stockSet, () => true);
+      assert.deepEqual(readFileSync(join(stock, '.byokit-tree')), stockTree, 'stock cache remains byte-valid and unchanged');
+      assert.equal(readFileSync(damaged, 'utf8'), '{broken', 'old final bytes preserved');
+      await engine.prepare(); assert.equal(existsSync(calls), false);
     }
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+    const kit = new OpenClawKit({ stateDir: join(dir, 'other-state'), engineDir, npmPath, transport: fakeGateway().factory });
+    await kit.prepare(); assert.equal(kit.state.patchSet, shippedSet().id);
+    const old = readFileSync(join(engine.root, 'engine-set'), 'utf8');
+    const damaged = join(old, '.byokit-patches');
+    fs.chmodSync(damaged, 0o644); writeFileSync(damaged, '{broken'); fs.chmodSync(damaged, 0o444);
+    // Only a damaged stock cache requires npm; all prior damage was to the patched/adopted set.
+    const stockMarker = join(stock, '.byokit-patches');
+    fs.chmodSync(stockMarker, 0o644); writeFileSync(stockMarker, '{broken'); fs.chmodSync(stockMarker, 0o444);
+    writeFileSync(npmPath, readFileSync(npmPath, 'utf8').replace('ea806575e6450e4d1efdfc72c19f04be982a1b9b', '0000000000000000000000000000000000000000'), { mode: 0o700 });
+    await assert.rejects(kit.prepare(), (e: unknown) => e instanceof EnginePatchError && e.cause === 'drift-after-build');
+    assert.equal(kit.state.why, 'engine-patch'); assert.equal(kit.state.patchSet, null);
+    assert.equal(readFileSync(calls, 'utf8'), '1', 'invalid stock cache invokes npm exactly once');
+  } finally { removeScratch(dir); }
 });
 
 test('repair once after exit 78, leave unrelated stale pid alone', async () => {
@@ -111,10 +214,11 @@ test('repair once after exit 78, leave unrelated stale pid alone', async () => {
   seedInstall(engineDir);
   writeFileSync(join(entryDir, 'package.json'), JSON.stringify({ version: '2026.8.1' }));
   writeFileSync(join(entryDir, 'openclaw.mjs'), `import {existsSync,writeFileSync,appendFileSync} from 'node:fs';
-const marker = new URL('../../marker', import.meta.url);
-if (process.argv[2] === 'doctor') { appendFileSync(new URL('../../doctors', import.meta.url), '1'); process.exit(0); }
+const marker = ${JSON.stringify(join(engineDir, 'marker'))};
+if (process.argv[2] === 'doctor') { appendFileSync(${JSON.stringify(join(engineDir, 'doctors'))}, '1'); process.exit(0); }
 if (!existsSync(marker)) { writeFileSync(marker, '1'); process.exit(78); }
 process.exit(78);`);
+  await seedSet(engineDir);
   const unrelated = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
   const states: string[] = [];
   const engine = new Engine({ stateDir: dir, engineDir, pluginId: 'byokit', tools: [], spawnEngine: true, onState: s => states.push(s.phase), onExit() {} });
@@ -132,7 +236,41 @@ process.exit(78);`);
   } finally {
     await engine.stop();
     unrelated.kill();
-    rmSync(dir, { recursive: true, force: true });
+    removeScratch(dir);
+  }
+});
+
+// A real Engine over a real spawned gateway: 5.3 stop() signals the pids the kit started, never a process
+// group. The gateway's own long-lived session shares that group and must outlive the kit's stop.
+test('stop ends the gateway the kit started and leaves a process the kit never started running', { timeout: 120_000 }, async () => {
+  const dir = scratchDir('engine-stop');
+  const engineDir = join(dir, 'engine');
+  const sessionPid = join(dir, 'session.pid');
+  seedInstall(engineDir);
+  writeFileSync(join(engineDir, 'node_modules/openclaw/openclaw.mjs'), `import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+if (process.argv[2] === 'doctor') process.exit(0);
+const session = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+writeFileSync(${JSON.stringify(sessionPid)}, String(session.pid));
+setInterval(() => {}, 1000);
+`);
+  await seedSet(engineDir);
+  const engine = new Engine({ stateDir: dir, engineDir, pluginId: 'byokit', tools: [], spawnEngine: true, onState() {}, onExit() {} });
+  let session = 0;
+  try {
+    await engine.start();
+    assert.equal(engine.doctor(30_000).status, 0, 'the started engine really runs against its isolated env');
+    const gateway = Number(readFileSync(join(dir, 'openclaw', 'gateway.pid'), 'utf8'));
+    for (let i = 0; i < 50 && !existsSync(sessionPid); i++) await delay(100);
+    session = Number(readFileSync(sessionPid, 'utf8'));
+    assert.ok(pidAlive(gateway) && pidAlive(session), 'the gateway the kit started and the session it started are both up');
+    await engine.stop();
+    assert.equal(pidAlive(gateway), false, 'the pid the kit started is gone');
+    assert.equal(pidAlive(session), true, 'a process the kit never started survives the stop');
+  } finally {
+    if (session) { try { process.kill(session, 'SIGKILL'); } catch { /* already gone */ } }
+    await engine.stop();
+    removeScratch(dir);
   }
 });
 
@@ -389,6 +527,7 @@ const engine = new Engine({ stateDir: ${JSON.stringify(dir)}, engineDir: ${JSON.
 await engine.start();
 setInterval(() => {}, 1000);
 `);
+  await seedSet(engineDir);
   mkdirSync(join(root, 'state'), { recursive: true });
   writeFileSync(join(root, 'state', 'auth.json'), 'saved-login');
   const host = spawn(process.execPath, [hostFile], { stdio: ['ignore', 'ignore', 'pipe'] });
@@ -472,6 +611,6 @@ setInterval(() => {}, 1000);
     if (gateway) { try { process.kill(gateway, 'SIGKILL'); } catch {} }
     const exited = once(unrelated, 'exit'); unrelated.kill(); await exited;
     await kit.stop();
-    rmSync(dir, { recursive: true, force: true });
+    removeScratch(dir);
   }
 });

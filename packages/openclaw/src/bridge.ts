@@ -42,7 +42,7 @@ export function resolveBridge(o?: { socketName?: string; paramPrefix?: string })
  */
 export function writePlugin(
   dir: string,
-  o: { id: string; tools: ToolSpec[]; paramPrefix: string; gateBuiltins: boolean },
+  o: { id: string; tools: ToolSpec[]; paramPrefix: string; gateBuiltins: boolean; browser?: boolean },
 ): void {
   resolveBridge({ paramPrefix: o.paramPrefix });
   const runParam = `${o.paramPrefix}_run`;
@@ -51,7 +51,7 @@ export function writePlugin(
     id: o.id,
     name: 'BYOKit bridge',
     activation: { onStartup: true },
-    contracts: { tools: o.tools.map((t) => t.name) },
+    contracts: { tools: o.tools.map((t) => t.name), ...(o.browser ? { agentToolResultMiddleware: ['openclaw', 'codex'] } : {}) },
     configSchema: { type: 'object', additionalProperties: false },
   };
   const table = {
@@ -60,6 +60,7 @@ export function writePlugin(
     permitParam,
     // true: engine builtins (web_fetch, memory, ...) are gated too, not only the app's tools.
     gateBuiltins: o.gateBuiltins,
+    ...(o.browser ? { browser: true } : {}),
     tools: o.tools.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters })),
   };
   for (const [file, data] of [['openclaw.plugin.json', manifest], ['tools.json', table]] as const) {
@@ -88,11 +89,15 @@ export class Bridge {
   private readonly approvalTimeoutMs: number;
   private readonly onAsk: (a: Approval) => void;
   private readonly onAskGone: (id: string) => void;
+  private readonly beforeAgentRun?: (key: string, runId?: string) => Promise<boolean>;
+  private readonly browserCapabilities?: () => readonly string[];
   private server?: Server;
+  private closing: Promise<void> = Promise.resolve();
+  private readonly sockets = new Set<Socket>();
   private readonly runs = new Map<string, RunRef>();
   // Every live registration per session key, each with its run's subset of the app's tools (RunSpec.tools; none: all
   // of them). Runs sharing a key share the narrowest: a tool must be in every live subset.
-  private readonly live = new Map<string, { tools?: ReadonlySet<string> }[]>();
+  private readonly live = new Map<string, { tools?: ReadonlySet<string>; runId?: string }[]>();
   private readonly permits = new Map<string, Permit>();
   private readonly tickets: Ticket[] = [];
   private armed: { keyPrefix: string; tool: string; input?: (i: Record<string, unknown>) => boolean; until: number } | undefined;
@@ -107,6 +112,8 @@ export class Bridge {
     approvalTimeoutMs: number;
     onAsk(a: Approval): void;
     onAskGone(id: string): void;
+    beforeAgentRun?: (key: string, runId?: string) => Promise<boolean>;
+    browserCapabilities?: () => readonly string[];
   }) {
     this.path = o.path;
     this.host = o.host;
@@ -115,18 +122,27 @@ export class Bridge {
     this.approvalTimeoutMs = Math.min(o.approvalTimeoutMs, MAX_APPROVAL_TIMEOUT_MS);
     this.onAsk = o.onAsk;
     this.onAskGone = o.onAskGone;
+    this.beforeAgentRun = o.beforeAgentRun;
+    this.browserCapabilities = o.browserCapabilities;
   }
 
-  start(): Promise<void> {
-    if (this.server) return Promise.resolve();
+  async start(): Promise<void> {
+    if (this.server) return;
     this.stopped = false;
-    // A stale socket file from a crashed run is not a listener; a live one survives unlinking.
+    await this.closing;
+    if (this.stopped || this.server) return;
+    // Old listener teardown must finish before it can unlink a newly rebound Unix socket.
     rmSync(this.path, { force: true });
-    this.server = createServer((socket) => this.serve(socket));
-    return new Promise((resolve, reject) => {
-      this.server!.once('error', reject);
-      this.server!.listen(this.path, () => {
-        this.server!.removeListener('error', reject);
+    const server = createServer(socket => {
+      this.sockets.add(socket);
+      socket.once('close', () => this.sockets.delete(socket));
+      this.serve(socket);
+    });
+    this.server = server;
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(this.path, () => {
+        server.removeListener('error', reject);
         resolve();
       });
     });
@@ -141,15 +157,25 @@ export class Bridge {
       this.onAskGone(id);
     }
     this.parked.clear();
-    this.server?.close();
+    // Tool subsets survive reconnect (B3); submission authority does not survive a lost engine transport.
+    for (const entries of this.live.values()) for (const entry of entries) entry.runId = undefined;
+    // Preserve already-ended refusal replies; abort outstanding calls through their close signal (N7).
+    for (const socket of this.sockets) if (!socket.writableEnded) socket.destroy();
+    const server = this.server;
     this.server = undefined;
-    void rm(this.path, { force: true }).catch(() => {});
+    if (server) this.closing = new Promise<void>(resolve => server.close(() => resolve()))
+      .then(() => rm(this.path, { force: true }).catch(() => {}));
   }
 
-  /** Register one run; the returned release ends only this registration (the key stays while another run holds it). */
-  register(run: RunRef, tools?: readonly string[]): () => void {
+  isRegisteredRun(key: string, runId?: string): boolean {
+    return !this.stopped && typeof runId === 'string' && !!runId
+      && (this.live.get(key) ?? []).some(entry => entry.runId === runId);
+  }
+
+  /** Register one run; release revokes only this exact registration, even when sessions overlap. */
+  register(run: RunRef, tools?: readonly string[], runId?: string): () => void {
     this.runs.set(run.sessionKey, run);
-    const entry = tools ? { tools: new Set(tools) } : {};
+    const entry = { ...(tools ? { tools: new Set(tools) } : {}), runId };
     const list = this.live.get(run.sessionKey);
     if (list) list.push(entry);
     else this.live.set(run.sessionKey, [entry]);
@@ -252,6 +278,18 @@ export class Bridge {
       return this.deny(socket, 'not a gate request');
     }
     if (!isRecord(message) || typeof message.kind !== 'string') return this.deny(socket, 'not a gate request');
+    if (message.kind === 'browser-capabilities') {
+      if (!this.browserCapabilities || this.stopped) return this.deny(socket, 'browser unavailable');
+      try { this.reply(socket, { capabilities: this.browserCapabilities() }); }
+      catch { this.deny(socket, 'browser unavailable'); }
+      return;
+    }
+    if (message.kind === 'before-agent-run') {
+      if (typeof message.key !== 'string' || !message.key || !this.beforeAgentRun) return this.deny(socket, 'run unavailable');
+      void this.beforeAgentRun(message.key, typeof message.runId === 'string' ? message.runId : undefined)
+        .then(allow => this.reply(socket, { allow }), () => this.deny(socket, 'run unavailable'));
+      return;
+    }
     if (message.kind === 'gate') return void this.gate(socket, message);
     if (message.kind === 'call') return void this.call(socket, message);
     return this.deny(socket, 'not a gate request');

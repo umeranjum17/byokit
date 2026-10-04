@@ -1,0 +1,2 @@
+- SECURITY: Sensitive subscription sign-in tokens stay out of sign-in views and results, including engine errors, links and codes after token entry.
+- FIX: Subscription setup-token sign-in now answers sensitive wizard text steps from the existing paste channel, once per step, with cancellation and timeout preserved. API key (billed per use) entry still requires explicit selection.

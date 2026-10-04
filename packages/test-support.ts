@@ -1,10 +1,24 @@
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const parent = tmpdir();
 const prefix = 'byokit-test-';
 let root: string | undefined;
+// Test teardown only: immutable engine sets need writable directories to unlink their children.
+function discard(path: string): void {
+  if (!existsSync(path)) return;
+  const walk = (dir: string) => {
+    if (!lstatSync(dir).isDirectory()) return;
+    chmodSync(dir, 0o700);
+    for (const name of readdirSync(dir)) walk(join(dir, name));
+  };
+  walk(path); rmSync(path, { recursive: true, force: true });
+}
+export function removeScratch(path: string): void {
+  if (!root || path !== root && !path.startsWith(root + '/')) throw new Error('not this process scratch');
+  discard(path);
+}
 const children = new Set<{ kill(signal?: NodeJS.Signals): boolean; once(event: 'exit', listener: () => void): unknown }>();
 
 /** Remove only this project's scratch parents whose recorded process is no longer alive. */
@@ -14,17 +28,17 @@ export function cleanStaleScratch(): void {
     if (!match) continue;
     let alive = true;
     try { process.kill(Number(match[1]), 0); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ESRCH') alive = false; }
-    if (!alive) rmSync(join(parent, entry.name), { recursive: true, force: true });
+    if (!alive) discard(join(parent, entry.name));
   }
 }
 
 function ensureRoot(): string {
   if (!root) {
     root = mkdtempSync(join(parent, `${prefix}${process.pid}-`));
-    process.on('exit', () => { for (const child of children) child.kill('SIGKILL'); rmSync(root!, { recursive: true, force: true }); });
+    process.on('exit', () => { for (const child of children) child.kill('SIGKILL'); discard(root!); });
     for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => {
       for (const child of children) child.kill('SIGKILL');
-      rmSync(root!, { recursive: true, force: true });
+      discard(root!);
       process.removeAllListeners(signal);
       process.kill(process.pid, signal);
     });

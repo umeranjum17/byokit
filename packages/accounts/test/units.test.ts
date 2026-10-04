@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, readFileSync, readdirSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
-import { PROVIDERS, WORDS, billingWords, classify, classifyFailure, REST_MS, fileStore, isolate, say, signInError } from '../src/index.ts';
+import { PROVIDERS, WORDS, billingWords, classify, classifyFailure, REST_MS, fileStore, isolate, launchEnv, say, signInError } from '../src/index.ts';
 
 test('the file store: Pi\'s auth.json shape, 0600 in a 0700 folder, serialized writes', async () => {
   const dir = join(scratchDir('store'), 'people', '1');
@@ -76,14 +76,29 @@ test('file storage refuses plaintext fallback, insecure backends and unsafe file
   await assert.rejects(fileStore(join(linkedDir, 'auth.json'), sealing).read('openai-codex'), /private 0700 folder/);
 });
 
-test('isolate() scrubs inherited Pi settings and provider keys, and pins the engine folder', () => {
-  Object.assign(process.env, { PI_CODING_AGENT_DIR: '/home/x/.pi/agent', PI_PACKAGE_DIR: '/x', OPENAI_API_KEY: 'k', GH_TOKEN: 't', AI_AGENT: 'pi', KEEP_ME: '1' });
+test('launch isolation copies and scrubs credentials; isolate never changes process.env', () => {
+  const before = { ...process.env };
+  const names = ['CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_AUTH_TOKEN', 'OPENAI_SESSION', 'CODEX_HOME',
+    'GEMINI_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS', 'XAI_TOKEN', 'OPENROUTER_API_KEY',
+    'GITHUB_TOKEN', 'COPILOT_GITHUB_TOKEN', 'MINIMAX_TOKEN', 'KIMI_TOKEN', 'MOONSHOT_TOKEN',
+    'QWEN_TOKEN', 'DASHSCOPE_TOKEN', 'META_TOKEN', 'AWS_SESSION_TOKEN', 'AZURE_TOKEN', 'HF_TOKEN',
+    ...Object.values(PROVIDERS).flatMap((p) => [p.key, p.pi, p.company].map((name) => name.toUpperCase().replace(/[^A-Z0-9]+/g, '_') + '_TOKEN'))];
+  const base = { PATH: '/usr/bin', HOME: '/app', LANG: 'C.UTF-8', KEEP: 'yes',
+    ...Object.fromEntries(names.map((key) => [key, 'fake-credential'])) };
+  const result = launchEnv({ base, account: { set: { CODEX_HOME: '/app/umer' }, unset: ['KEEP'] },
+    set: { NAME: 'Umer', DROP: 'yes' }, unset: ['DROP', 'NOT_PRESENT'] });
+  assert.ok(names.filter((key) => key !== 'CODEX_HOME').every((key) => !(key in result.env)));
+  assert.ok(names.every((key) => base[key as keyof typeof base] === 'fake-credential'));
+  assert.equal(result.env.CODEX_HOME, '/app/umer');
+  assert.equal(result.env.PATH, base.PATH); assert.equal(result.env.HOME, base.HOME); assert.equal(result.env.LANG, base.LANG);
+  assert.ok(['KEEP', 'DROP', 'NOT_PRESENT'].every((key) => result.unset.includes(key) && !(key in result.env)));
+  assert.ok(!result.unset.includes('CODEX_HOME'));
   const dir = join(scratchDir('iso'), 'engine');
   assert.equal(isolate(dir), dir);
-  assert.equal(process.env.PI_CODING_AGENT_DIR, dir);
-  for (const k of ['PI_PACKAGE_DIR', 'OPENAI_API_KEY', 'GH_TOKEN', 'AI_AGENT']) assert.equal(process.env[k], undefined, k);
-  assert.equal(process.env.KEEP_ME, '1');
+  launchEnv();
+  assert.ok(JSON.stringify(process.env) === JSON.stringify(before), 'parent environment unchanged');
   assert.equal(statSync(dir).mode & 0o777, 0o700);
+  assert.throws(() => launchEnv({ set: { 'bad=name': 'fake-credential' } }), /^Error: Invalid launch environment\.$/);
 });
 
 test('classify: the kinds an app acts on, and when the provider said to come back', () => {

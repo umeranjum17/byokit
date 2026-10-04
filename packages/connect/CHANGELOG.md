@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-10-01)
+
+- FIX: Preserve provider refresh-token lifetimes and sanitized OAuth error causes for setup guidance.
+- Add a client-details check without a user grant, with plain outcomes for accepted, rejected and uncertain replies.
+
 ## 0.1.0 (2026-10-01)
 
 

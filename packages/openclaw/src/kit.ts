@@ -14,10 +14,15 @@ import { createMembers } from './members.ts';
 import { keyAgentId, KEY_PREFIX, MEMBER_ID } from './members.ts';
 import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLogin } from './migrate.ts';
 import { createRuns } from './runs.ts';
+import { outputSchema } from './output.ts';
 import { createKeys, type AddKeyResult } from './keys.ts';
-import { routes as routeTable } from './routes.ts';
+import { routes as routeTable, type RouteView } from './routes.ts';
 import { providers as engineProviders, signIn as startSignIn, signOut as engineSignOut, type SignInCtx } from './signin.ts';
-import { reconcileConfig, memoryLimited as configMemoryLimited } from './config.ts';
+import { reconcileConfig, browserToolPolicySafe, browserProfileAcknowledged, browserSessionMayRun, memoryLimited as configMemoryLimited } from './config.ts';
+import type { BrowserHost, BrowserOptions, BrowserState } from './browser.ts';
+import { createBrowserHost, type BrowserHostController, type HostBroker } from './browser/host.ts';
+import { fileSignInStore } from './browser/store.ts';
+import { launchBroker } from './browser/broker.ts';
 import type {
   Approval,
   CallOptions,
@@ -30,11 +35,15 @@ import type {
   GatewayTransport,
   Hello,
   KitState,
+  KitEventName,
+  KitEventPayload,
   Member,
   Route,
   RunEnd,
   RunEvent,
   RunSpec,
+  OutputSchema,
+  SchemaOutput,
   SignInOptions,
   SignInView,
   ToolHost,
@@ -55,6 +64,8 @@ export type KitOptions = {
   gateBuiltins?: boolean; // default true: every tool call, engine builtins included, goes through host.gate (no host:
   // every call is blocked); false gates only the app's tools and lets builtins run ungated
   config?: object; // app OpenClaw config, deep-merged UNDER the invariants (5.6)
+  appOwnedSessions?: { keyPrefixes: string[] }; // caller-owned task prefixes; omitted/empty preserves stock recovery (5.16)
+  browser?: BrowserOptions; // explicit, private Chromium; handoff remains unprotected until recovery qualification
   installPolicy?: { trustedSkills: string; ownRoots: string[] }; // trusted-skills JSON path, own content roots
   callbackPort?: number; // default 1455
   approvalTimeoutMs?: number; // default 180_000
@@ -479,19 +490,177 @@ export class OpenClawKit {
   private readonly approvalsCtl: Approvals;
   private listeners = new Set<(e: { event: string; payload?: unknown }) => void>();
   private off: (() => void)[] = [];
+  private signInDisconnects = new Set<() => void>();
   private starting?: Promise<void>;
   private stopping = false;
   private failures = 0;
+  browser?: BrowserHost;
+  private browserHost?: BrowserHostController;
+  private readonly brokers = new Map<Member, HostBroker>();
+  private browserSafe = false;
+  private readonly browserAttaching = new Map<Member, Promise<void>>();
+  private readonly browserPolicySessions = new Set<string>();
+  private readonly browserProfiles: Record<string, { cdpUrl: string; attachOnly: true }> = {};
+  private readonly browserCapabilities = new Set<string>();
+
+  private browserConfig() { return { profiles: this.browserProfiles, tools: this.toolNames() }; }
+  private async launchBrowser(member: Member): Promise<HostBroker> {
+    let owned: HostBroker | undefined;
+    const broker = await launchBroker({ executablePath: this.o.browser!.executablePath,
+      profileDir: join(this.o.stateDir, 'browser', member, 'profile'), member,
+      onExit: () => { if (!this.stopping && owned && this.browserHost?.brokerBinding(member)?.broker === owned)
+        void this.browserHost.browserGone(member, owned).catch(() => {}); } });
+    owned = broker;
+    try {
+      const endpoint = broker.endpoint().cdpUrl, url = new URL(endpoint);
+      this.browserCapabilities.add(endpoint);
+      const token = url.searchParams.get('token');
+      if (!token) throw new Error('browser capability unavailable');
+      this.browserCapabilities.add(token);
+      const id = url.pathname.split('/').at(-1);
+      if (id && /^[a-f0-9]{32}$/i.test(id)) this.browserCapabilities.add(id);
+      await broker.fence(true); return broker;
+    }
+    catch (error) { await broker.close(); throw error; }
+  }
+  private async prepareBrowsers(): Promise<void> {
+    if (!this.o.browser || this.browserHost) return;
+    await this.engine.prepare();
+    const c = JSON.parse(readFileSync(join(this.engine.root, 'openclaw.json'), 'utf8'));
+    if (browserToolPolicySafe(c, this.toolNames())) {
+      const members = this.o.browser.members === 'all' ? Object.keys(c.agents?.entries ?? { main: {} }) : this.o.browser.members;
+      for (const member of members) if (this.browserMember(member) && !this.brokers.has(member)) {
+        const broker = await this.launchBrowser(member);
+        this.brokers.set(member, broker);
+        this.browserProfiles[`byokit-${member}`] = { ...broker.endpoint(), attachOnly: true };
+      }
+    }
+    this.browserHost = await createBrowserHost({ brokers: this.brokers, store: fileSignInStore(this.o.stateDir),
+      options: this.o.browser, authorize: (grant, member) => !!grant && this.browserMember(member),
+      park: async (_member, key) => this.abort(key), resume: async () => 'unknown',
+      // Production cannot raise while unprotected. Never substitute a guessed registrable site.
+      siteOf: () => { throw new Error('browser sign-in handoff unavailable'); },
+      ping: (member, kind) => {
+        for (const fn of this.listeners) fn({ event: 'byokit.browser', payload: { member, kind } });
+        if (kind === 'state' && this.browserHost) void this.publishBrowserProfile(member).catch(() => {});
+      },
+      // Host recovery owns the registry transition. Never recursively attach or publish a still-unowned endpoint.
+      restart: member => this.launchBrowser(member),
+    });
+    const controller = this.browserHost;
+    this.browser = {
+      state: member => this.browserState(member), signIns: controller.signIns.bind(controller),
+      takeover: controller.takeover.bind(controller), confirmOrigin: controller.confirmOrigin.bind(controller),
+      done: controller.done.bind(controller), notNow: controller.notNow.bind(controller),
+      reopen: controller.reopen.bind(controller), retry: controller.retry.bind(controller),
+      cancel: controller.cancel.bind(controller),
+      thumbnail: (source, by) => this.browserSafe ? controller.thumbnail(source, by) : Promise.resolve({ state: 'off' }),
+      live: (source, options, on) => {
+        if (!this.browserSafe) throw new Error('browser tool policy refused');
+        return controller.live(source, options, on);
+      }, forget: controller.forget.bind(controller),
+      ...{ revokeGrant: controller.revokeGrant.bind(controller) },
+    };
+  }
+  private async publishBrowserProfile(member: Member): Promise<void> {
+    const binding = this.browserHost?.brokerBinding(member);
+    if (!binding) return;
+    const { broker, generation, endpoint } = binding;
+    const name = `byokit-${member}`;
+    if (this.browserProfiles[name]?.cdpUrl === endpoint.cdpUrl) return;
+    this.brokers.set(member, broker);
+    await broker.fence(true);
+    this.browserProfiles[name] = { ...endpoint, attachOnly: true };
+    try {
+      await this.patchConfig({});
+      const current = this.browserHost?.brokerBinding(member);
+      if (current?.broker !== broker || current.generation !== generation) throw new Error('browser binding changed');
+      await this.checkBrowserTools(); // acknowledges the exact profile and rechecks policy/no-open request before unfencing
+    } catch { this.browserSafe = false; await broker.fence(true); throw new Error('browser endpoint unavailable'); }
+  }
+  private browserMember(member: Member): boolean {
+    return MEMBER_ID.test(member) && !member.startsWith(KEY_PREFIX) && !!this.o.browser
+      && (this.o.browser.members === 'all' || this.o.browser.members.includes(member));
+  }
+  private browserState(member: Member): BrowserState {
+    if (!this.browserSafe) return { member, phase: 'blocked', why: 'unsafe-tools' };
+    return this.browserHost?.state(member) ?? { member, phase: 'off', why: 'no-browser' };
+  }
+  private async checkBrowserTools(): Promise<boolean> {
+    if (!this.o.browser) return true;
+    this.browserSafe = false;
+    try {
+      const configPath = join(this.engine.root, 'openclaw.json');
+      const disk = readFileSync(configPath, 'utf8');
+      const snapshot = await this.request()('config.get') as { config?: object; configRevisionHash?: unknown; appliedConfigHash?: unknown };
+      const c = snapshot.config;
+      const owned = JSON.parse(disk) as { browser?: { profiles?: Record<string, unknown> } };
+      if (!browserToolPolicySafe(c, this.toolNames())) return false;
+      const roster = await this.request()('agents.list') as { agents: { id: string }[] };
+      if (!Array.isArray(roster.agents) || !roster.agents.length) return false;
+      const safe = new Set(['browser', 'request_sign_in', ...this.toolNames()]);
+      for (const { id } of roster.agents) {
+        if (!MEMBER_ID.test(id)) return false;
+        const sessionKey = `agent:${id}:byokit-browser-policy`;
+        if (!this.browserPolicySessions.has(sessionKey)) {
+          // The published tools.effective route requires an existing session. No message/task or model submission.
+          await this.request()('sessions.create', { agentId: id, key: sessionKey, label: 'Browser tool policy' });
+          this.browserPolicySessions.add(sessionKey);
+        }
+        const policy = await this.request()('tools.effective', { agentId: id, sessionKey }) as
+          { agentId: string; groups: { tools: { id: string }[] }[] };
+        if (policy.agentId !== id || !Array.isArray(policy.groups)
+          || policy.groups.some(group => !Array.isArray(group.tools) || group.tools.some(tool => !safe.has(tool.id)))) return false;
+      }
+      const stable = disk === readFileSync(configPath, 'utf8');
+      for (const [member, broker] of this.brokers) {
+        const binding = this.browserHost?.brokerBinding(member);
+        const profile = (c as { browser?: { profiles?: Record<string, { cdpUrl?: string; attachOnly?: boolean }> } }).browser?.profiles?.[`byokit-${member}`];
+        if (!binding || binding.broker !== broker || !browserProfileAcknowledged(profile,
+          owned.browser?.profiles?.[`byokit-${member}`], binding.endpoint.cdpUrl, snapshot, stable)) return false;
+        if (!this.browserHost?.signIns(member).some(r => ['waiting', 'held', 'checking'].includes(r.state))) {
+          await broker.fence(false);
+          const current = this.browserHost?.brokerBinding(member);
+          if (current?.broker !== broker || current.generation !== binding.generation) return false;
+        }
+      }
+      this.browserSafe = true;
+      return true;
+    } catch { return false; }
+    finally { if (!this.browserSafe) for (const broker of this.brokers.values()) await broker.fence(true); }
+  }
+
+  private async browserGate(run: import('./types.ts').RunRef, tool: string): Promise<string | undefined> {
+    if (!this.o.browser) return undefined;
+    const safe = await this.checkBrowserTools();
+    const allowed = new Set(['browser', 'request_sign_in', ...this.toolNames()]);
+    if (!safe || !allowed.has(tool)) return 'browser tool policy refused';
+    if ((tool === 'browser' || tool === 'request_sign_in') && !this.browserMember(run.member)) return 'browser member unavailable';
+    if ((tool === 'browser' || tool === 'request_sign_in') && this.browserHost?.signIns(run.member)
+      .some(r => ['waiting', 'held', 'checking'].includes(r.state))) return 'Waiting for the person to sign in';
+    if (tool === 'request_sign_in') return 'browser sign-in handoff unavailable';
+    return undefined;
+  }
 
   constructor(o: KitOptions) {
     if (o.tools?.length && !o.host) throw new Error('host required when tools are registered');
+    if (o.browser && o.gateBuiltins === false) throw new Error('gate-off');
+    if (o.browser && (!o.browser.executablePath.startsWith('/') || (o.browser.members !== 'all'
+      && (!Array.isArray(o.browser.members) || o.browser.members.some(m => !MEMBER_ID.test(m) || m.startsWith(KEY_PREFIX))))))
+      throw new Error('invalid browser options');
     // The engine lowercases and alias-maps a tool name before the gate hook sees it (bash -> exec, cron ->
     // automations); a name it would rewrite reaches the gate as a builtin, so refuse it here.
     for (const t of o.tools ?? []) {
-      if (!/^[a-z][a-z0-9_]*$/.test(t.name) || t.name === 'bash' || t.name === 'cron') throw new Error(`invalid tool name: ${t.name}`);
+      if (!/^[a-z][a-z0-9_]*$/.test(t.name) || t.name === 'bash' || t.name === 'cron'
+        || (o.browser && ['browser', 'request_sign_in', 'exec', 'process', 'code_execution', 'terminal', 'read', 'write', 'edit', 'apply_patch', 'gateway'].includes(t.name))) throw new Error(`invalid tool name: ${t.name}`);
     }
     this.o = o;
-    this.engine = new Engine({ ...o, pluginId: o.plugin?.id ?? 'byokit', tools: o.tools ?? [],
+    this.engine = new Engine({ ...o, pluginId: o.plugin?.id ?? 'byokit', tools: [...o.tools ?? [], ...(o.browser ? [{
+      name: 'request_sign_in', description: 'Ask the person to sign in to the current browser site.',
+      parameters: { type: 'object', additionalProperties: false, properties: {
+        note: { type: 'string', maxLength: 140 }, targetId: { type: 'string' } } },
+    }] : [])],
+      ...(o.browser ? { browserConfig: () => this.browserConfig() } : {}),
       gateBuiltins: o.gateBuiltins !== false, spawnEngine: o.spawnEngine !== false,
       onState: (s) => this.setState(s), onExit: () => this.closed('engine exited') });
     this.keys = createKeys({ root: this.engine.root,
@@ -503,15 +672,42 @@ export class OpenClawKit {
       request: (method, params, co) => this.request()(method, params, co),
       bridge: { resolveAsk: (id, d) => slot.bridge?.resolveAsk(id, d) ?? false },
     });
-    this.bridge = new Bridge({ path: this.engine.bridgeSock, host: o.host, tools: new Set((o.tools ?? []).map((t) => t.name)),
+    const host: ToolHost | undefined = o.browser ? {
+      gate: async (run, tool, input, info) => {
+        const refusal = await this.browserGate(run, tool);
+        if (refusal) return { allow: false, reason: refusal };
+        const result = await o.host?.gate(run, tool, input, info) ?? { allow: false as const, reason: 'tool host unavailable' };
+        const changed = await this.browserGate(run, tool);
+        return changed ? { allow: false, reason: changed } : result;
+      },
+      call: async (run, tool, input, signal) => {
+        const refusal = await this.browserGate(run, tool);
+        if (refusal) throw new Error(refusal);
+        if (!o.host) throw new Error('tool host unavailable');
+        return o.host.call(run, tool, input, signal);
+      },
+    } : o.host;
+    this.bridge = new Bridge({ path: this.engine.bridgeSock, host, tools: new Set([...this.toolNames(), ...(o.browser ? ['request_sign_in'] : [])]),
+      ...(o.browser ? { browserCapabilities: () => [...this.browserCapabilities],
+        beforeAgentRun: async (key: string, runId?: string) => {
+        // No action-id submission proof or redispatch claim. Open and unproven resumes are always refused.
+        if (!await this.checkBrowserTools() || !this.browserHost) return false;
+        return browserSessionMayRun(this.browserHost.signIns(), key, this.bridge.isRegisteredRun(key, runId));
+      } } : {}),
       permitted: o.permitted ?? (() => true), approvalTimeoutMs: o.approvalTimeoutMs ?? 180_000,
       onAsk: (a) => this.approvalsCtl.add(a), onAskGone: (id) => this.approvalsCtl.remove(id) });
     slot.bridge = this.bridge;
   }
 
-  private setState(s: KitState): void { this.current = s; this.o.onState?.(s); }
+  private setState(s: KitState): void {
+    this.current = { ...s, ...(this.engine.patchSet !== undefined ? { patchSet: this.engine.patchSet } : {}) };
+    this.o.onState?.(this.current);
+  }
   get state(): KitState { return this.current; }
-  prepare(): Promise<void> { return this.engine.prepare(); }
+  async prepare(): Promise<void> {
+    await this.engine.prepare();
+    if (this.engine.patchSet !== undefined) this.setState(this.current);
+  }
 
   start(): Promise<void> {
     if (this.current.phase === 'ready') return Promise.resolve();
@@ -526,6 +722,7 @@ export class OpenClawKit {
   private async connect(): Promise<void> {
     let transport: GatewayTransport | undefined;
     try {
+      await this.prepareBrowsers();
       const ctx = await this.engine.start();
       if (!ctx || this.stopping) return;
       this.setState({ phase: 'starting' });
@@ -547,16 +744,20 @@ export class OpenClawKit {
       this.off.push(transport.onEvent((e) => this.approvalsCtl.handleEvent(e)));
       this.failures = 0;
       this.setState({ phase: 'ready' });
+      if (this.o.browser) await this.checkBrowserTools();
       // Replays the engine's native approval lists over the now-live transport (N9).
       await this.approvalsCtl.resync();
     } catch (error) {
       const needsUpdate = this.current.phase === 'needs-update';
+      const patchFailure = this.current.why === 'engine-patch';
       if (transport && this.transport === transport) await this.disconnect();
       await this.engine.stop();
+      await this.closeBrowsers();
       if (error instanceof Error && 'code' in error && error.code === 'engine-already-running') {
         this.setState({ phase: 'failed', why: 'engine-already-running' });
         throw error;
       }
+      if (patchFailure) { this.setState({ phase: 'failed', why: 'engine-patch' }); throw error; }
       if (needsUpdate) this.setState({ phase: 'needs-update', why: 'version' });
       if (!needsUpdate && !this.stopping) this.setState({ phase: 'failed', why: 'handshake' });
       throw error;
@@ -567,6 +768,7 @@ export class OpenClawKit {
     this.off.splice(0).forEach((fn) => fn());
     const transport = this.transport;
     this.transport = undefined; this.greeting = undefined; this.members = undefined;
+    this.browserPolicySessions.clear();
     this.bridge.stop();
     await transport?.stop();
   }
@@ -574,6 +776,7 @@ export class OpenClawKit {
   private closed(_why: string): void {
     const engineFailed = _why === 'engine exited' && this.current.phase === 'failed' && this.current.why === 'exited';
     if (this.stopping || (this.current.phase !== 'ready' && !engineFailed)) return;
+    for (const fn of this.signInDisconnects) fn();
     void this.disconnect();
     if (this.o.spawnEngine === false) { this.setState({ phase: 'failed', why: 'handshake' }); return; }
     const retryAt = Date.now() + Math.min(30_000, 1000 * 2 ** this.failures++);
@@ -585,6 +788,15 @@ export class OpenClawKit {
     this.stopping = true;
     await this.disconnect();
     await this.engine.stop();
+    await this.closeBrowsers();
+  }
+
+  private async closeBrowsers(): Promise<void> {
+    if (this.browserHost) await this.browserHost.close();
+    else for (const broker of this.brokers.values()) await broker.close();
+    this.browserHost = undefined; this.browser = undefined; this.browserSafe = false;
+    this.brokers.clear();
+    for (const profile of Object.keys(this.browserProfiles)) delete this.browserProfiles[profile];
   }
 
   private request(): GatewayTransport['request'] {
@@ -592,6 +804,8 @@ export class OpenClawKit {
     return this.transport.request.bind(this.transport);
   }
   call<M extends GatewayMethod>(method: M, params: GatewayParams<M>, o?: CallOptions): Promise<GatewayResult<M>> {
+    if (this.o.browser && /^(config\.(apply|patch|set)|agents\.(create|update|delete)|plugins\.(install|uninstall|setEnabled|refresh))$/.test(method))
+      return Promise.reject(new Error('browser policy changes require guarded patchConfig'));
     try { return this.request()(method, params, o) as Promise<GatewayResult<M>>; } catch (error) { return Promise.reject(error); }
   }
   callDynamic(method: string, params?: unknown, o?: CallOptions): Promise<unknown> {
@@ -599,25 +813,42 @@ export class OpenClawKit {
     try { return this.request()(method, params, o); } catch (error) { return Promise.reject(error); }
   }
   get hello(): Hello | undefined { return this.greeting; }
-  onEvent<E extends GatewayEventName>(event: E | '*', fn: (payload: GatewayEventPayload<E>, event: E) => void): () => void {
+  onEvent<E extends KitEventName>(event: E | '*', fn: (payload: KitEventPayload<E>, event: E) => void): () => void {
     const listener = (e: { event: string; payload?: unknown }) => {
-      if (event === '*' || e.event === event) fn(e.payload as GatewayEventPayload<E>, e.event as E);
+      if (event === '*' || e.event === event) fn(e.payload as KitEventPayload<E>, e.event as E);
     };
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
   }
-  ensureMember(member: Member): Promise<{ agentId: string; workspace: string }> {
-    if (!this.members) return Promise.reject(new Error('gateway not ready'));
-    return this.members.ensure(member);
+  async ensureMember(member: Member): Promise<{ agentId: string; workspace: string }> {
+    if (!this.members) throw new Error('gateway not ready');
+    const result = await this.members.ensure(member);
+    if (!this.o.browser || !this.browserMember(member) || this.brokers.has(member) || !this.browserHost) return result;
+    let attaching = this.browserAttaching.get(member);
+    if (!attaching) {
+      attaching = (async () => {
+        if (!await this.checkBrowserTools()) return;
+        const broker = await this.launchBrowser(member);
+        await this.browserHost!.attachBroker(member, broker);
+        this.brokers.set(member, broker);
+        await broker.fence(true);
+        await this.publishBrowserProfile(member);
+      })();
+      this.browserAttaching.set(member, attaching);
+      void attaching.finally(() => { this.browserAttaching.delete(member); }).catch(() => {});
+    }
+    await attaching;
+    return result;
   }
 
   // sign-in (5.7): every body here is the module's, with this kit's transport, members and ports.
   private signInCtx(): SignInCtx {
     return { request: (method, params, o) => this.request()(method, params, o),
-      ensure: (member) => this.ensureMember(member), callbackPort: this.o.callbackPort ?? 1455 };
+      ensure: (member) => this.ensureMember(member), callbackPort: this.o.callbackPort ?? 1455,
+      onDisconnect: (fn) => { this.signInDisconnects.add(fn); return () => { this.signInDisconnects.delete(fn); }; } };
   }
 
-  routes(): Route[] {
+  routes(): RouteView[] {
     return routeTable();
   }
 
@@ -667,7 +898,7 @@ export class OpenClawKit {
         };
       },
       ensure: (member) => this.ensureMember(member),
-      bridge: this.bridge,
+      bridge: { register: (run, tools, runId) => this.bridge.register(run, tools && this.o.browser ? [...tools, 'request_sign_in'] : tools, runId) },
       tools: new Set(this.toolNames()),
     });
   }
@@ -677,8 +908,17 @@ export class OpenClawKit {
     return (this.o.tools ?? []).map((t) => t.name);
   }
 
-  run(spec: RunSpec, on?: (e: RunEvent) => void): Promise<RunEnd> {
+  async run<const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void): Promise<RunEnd<SchemaOutput<S>>> {
+    if (this.o.browser) {
+      if (!await this.checkBrowserTools()) return { ok: false, kind: 'other', message: 'browser tool policy refused' };
+      if (!await this.browserHost?.beforeRun(spec.member, this.runKey(spec.sessionKey, spec)))
+        return { ok: false, kind: 'other', message: 'Waiting for the person to sign in' };
+    }
     if (spec.auth !== undefined && spec.auth !== 'apiKey') return Promise.reject(new Error('Choose a supported account option.'));
+    // Snapshot before account readiness awaits; invalid schemas never reach the Gateway.
+    let output: ReturnType<typeof outputSchema> | undefined;
+    try { output = spec.schema === undefined ? undefined : outputSchema(spec.schema); }
+    catch (error) { return Promise.reject(error); }
     if (spec.auth === 'apiKey') return this.keys.exclusive(spec.member, async () => {
       if (!spec.sessionKey.startsWith(`agent:${spec.member}:`)) throw new Error('This conversation belongs to another member.');
       const selected = await this.keys.ready(spec.member);
@@ -686,9 +926,9 @@ export class OpenClawKit {
       if (spec.model !== undefined && spec.model !== selected.model)
         return { ok: false, kind: 'plan', message: 'Choose the model saved with this key.' };
       // RunRef.member stays the person for app gates; the engine receives the isolated agent and history.
-      return this.runs().run({ ...spec, model: selected.model }, on, selected.agentId);
+      return this.runs().run({ ...spec, model: selected.model }, on, selected.agentId, output);
     });
-    return this.runs().run(spec, on);
+    return this.runs().run(spec, on, undefined, output);
   }
 
   private runKey(sessionKey: string, o?: { auth?: 'apiKey' }): string {
@@ -736,7 +976,9 @@ export class OpenClawKit {
     const safe = reconcileConfig(response.config, { root: this.engine.root, stateDir: this.o.stateDir,
       port: Number(readFileSync(join(this.engine.root, 'port'), 'utf8')), pluginId: this.o.plugin?.id ?? 'byokit',
       pluginDir: join(this.engine.root, 'plugin'), policyPath: fileURLToPath(new URL('../policy/policy.mjs', import.meta.url)), app: patch,
-      installPolicy: this.o.installPolicy });
+      installPolicy: this.o.installPolicy, ...(this.o.browser ? { browser: this.browserConfig() } : {}) });
+    if (this.o.browser && !browserToolPolicySafe(safe, this.toolNames())) throw new Error('browser tool policy refused');
+    if (this.o.browser) { this.browserSafe = false; for (const broker of this.brokers.values()) await broker.fence(true); }
     await this.request()('config.patch', { raw: JSON.stringify(safe), baseHash: response.hash, ...(o?.agentId ? { agentId: o.agentId } : {}) });
   }
 

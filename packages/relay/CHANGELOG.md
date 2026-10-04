@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.5.2 (2026-10-02)
+
+- FIX: Pass optional `mutableContent`, `categoryId` and `dataOnly` from `Notification` to Expo instead of dropping
+  native delivery options: iOS alerts can be rewritten by
+  the app's Notification Service Extension and show the app's category, and Android tokens get a data-only message
+  with no visible title, body or sound. Expo subscriptions take an optional `platform` (`'ios'` or `'android'`);
+  only Android tokens get data-only messages, so older subscriptions keep the visible alert.
+- New: Optional Expo subscription platform tags distinguish Android data-only delivery from iOS and older visible subscriptions.
+- Fixed: Native delivery options are retained as described above; omitted options keep the existing visible Expo message unchanged.
+- Improved: Explicit false mutableContent survives forwarding; contentFreeNotify strips native options and content, and includeContent remains opt-in. Web Push is unchanged.
+- Known issues: Data-only delivery is best-effort under Android Doze and force-stop. iOS SDK, keychain entitlements, NSE and killed-app/device delivery are not qualified; mutableContent alone does not install an extension. categoryId currently uses the documented conservative 64-character syntax.
+
+## 0.5.1 (2026-10-01)
+
+- FIX: Wait for the temporary pairing socket to close before checking live device counts in the reconnect job test.
+
 ## 0.5.0 (2026-10-01)
 
 - Dependency update: pins @byokit/link 0.7.0.

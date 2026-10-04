@@ -13,6 +13,8 @@ test('./device bundles for a browser with nothing from Node, and the bundle impo
   const device = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString('base64')}`);
   assert.equal(typeof device.openclawDevice, 'function');
   assert.equal(typeof device.openNotice, 'function');
+  assert.equal(typeof device.readAgentUsage, 'function');
+  assert.equal(typeof device.agentUsageOf, 'function');
 });
 
 test('./device bundles under the react-native condition with nothing from Node', async () => {
