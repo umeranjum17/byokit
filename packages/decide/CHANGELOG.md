@@ -10,6 +10,9 @@
   and throws RateLimitError when its retry budget is exhausted; callback error details never enter decision reasons.
 - Add typed answerer text options, including text.format JSON schemas, passed to the ask callback for accounts.respond.
 
+- FIX: The Message desk example no longer labels a missing estimate as self-reported 0% confidence; unavailable answers show no estimate.
+- Document the Message desk example for typed ChatGPT and Claude subscription decisions, self-reported confidence and human handoff below the floor.
+
 ## 0.6.1 (2026-10-02)
 
 - Dependency update: pins @byokit/accounts 0.18.0.
