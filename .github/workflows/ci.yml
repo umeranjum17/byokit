@@ -215,7 +215,7 @@ jobs:
             ./android/gradlew -p examples/dictation-android --no-daemon connectedDebugAndroidTest
             ./examples/realtime-android/e2e-android.sh emulator-5554
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: android-test-reports
           include-hidden-files: true
@@ -263,12 +263,12 @@ jobs:
           disable-animations: true
           script: cd examples/expo/android && ./gradlew :app:installDebug -PreactNativeArchitectures=x86_64 && ./gradlew :byokit-overlay:connectedDebugAndroidTest :a11y-demo:connectedDebugAndroidTest -PreactNativeArchitectures=x86_64 && cd .. && ./e2e-screen-frame.sh emulator-5554 .screen-captures
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: byokit-screen-proof
           path: examples/expo/.screen-captures/*.png
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: overlay-webview-test-reports
           path: examples/expo/modules/a11y-demo/android/build/outputs/androidTest-results/
@@ -293,7 +293,7 @@ jobs:
         working-directory: examples/expo
       - run: CI=1 npx expo prebuild -p android --no-install && (cd android && ./gradlew assembleDebug :byokit-share:testDebugUnitTest --no-daemon)
         working-directory: examples/expo
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: share-android-receipts
@@ -316,7 +316,7 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: node scripts/share-expo-smoke.ts --ios-only --out /tmp/bks-ios
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: share-ios-prebuild-receipts
