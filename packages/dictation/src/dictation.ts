@@ -114,7 +114,7 @@ export class Dictation {
         else if (!wholeFinal && !speechAt && silence >= silenceSamples) { offset += samples / 16; chunks = []; samples = silence = 0; }
       }
     }).catch(async e => { failure = e; stopped = true; await stream?.stop(); });
-    const cleanup = async () => { await stream?.stop(); await detector?.release(); o.signal?.removeEventListener('abort', abort); this.stateTo('idle'); };
+    const cleanup = async () => { try { await stream?.stop(); } finally { await detector?.release(); o.signal?.removeEventListener('abort', abort); this.stateTo('idle'); } };
     const cancel = () => {
       if (cancelled || this.state.phase === 'idle') return;
       cancelled = stopped = true; controller.abort(); native?.cancel();

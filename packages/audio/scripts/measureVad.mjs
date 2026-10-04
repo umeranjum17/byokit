@@ -105,31 +105,33 @@ let firstFrameMs = null, sessionInitMs = 0;
 // creation is reported on its own and kept out of the per-audio-second cost.
 const session = await sileroSession(modelBytes, runtime);
 sessionInitMs = session.initMs;
-{
-  const vad = createVad({ session });
-  const before = performance.now();
-  await vad.push(clipOf(corpus.clips[0]).subarray(0, 512)); // one window, cold kernel selection alone
-  firstFrameMs = performance.now() - before;
-  vad.reset();
-}
-for (const clip of corpus.clips) {
-  const pcm = clipOf(clip);
-  rows.push({ id: clip.id, noise: clip.noise, speechDb: clip.speechDb, nuisanceDb: clip.nuisanceDb,
-    energy: score(clip, energyFrames(pcm)), neural: score(clip, await neuralFrames(pcm, session)) });
-}
-// Warm repeats: audio already decoded, no disk I/O inside the timed section.
-const decoded = corpus.clips.map(clip => clipOf(clip));
-for (let repeat = 0; repeat < REPEATS; repeat++) {
-  for (const pcm of decoded) {
-    for (const [name, run] of [['energy', async () => energyFrames(pcm)], ['neural', async () => neuralFrames(pcm, session)]]) {
-      const wall = performance.now(), cpu = process.cpuUsage();
-      await run();
-      const used = process.cpuUsage(cpu);
-      timed[name].wall += performance.now() - wall;
-      timed[name].cpu += (used.user + used.system) / 1e6;
+try {
+  {
+    const vad = createVad({ session });
+    const before = performance.now();
+    await vad.push(clipOf(corpus.clips[0]).subarray(0, 512)); // one window, cold kernel selection alone
+    firstFrameMs = performance.now() - before;
+    vad.reset();
+  }
+  for (const clip of corpus.clips) {
+    const pcm = clipOf(clip);
+    rows.push({ id: clip.id, noise: clip.noise, speechDb: clip.speechDb, nuisanceDb: clip.nuisanceDb,
+      energy: score(clip, energyFrames(pcm)), neural: score(clip, await neuralFrames(pcm, session)) });
+  }
+  // Warm repeats: audio already decoded, no disk I/O inside the timed section.
+  const decoded = corpus.clips.map(clip => clipOf(clip));
+  for (let repeat = 0; repeat < REPEATS; repeat++) {
+    for (const pcm of decoded) {
+      for (const [name, run] of [['energy', async () => energyFrames(pcm)], ['neural', async () => neuralFrames(pcm, session)]]) {
+        const wall = performance.now(), cpu = process.cpuUsage();
+        await run();
+        const used = process.cpuUsage(cpu);
+        timed[name].wall += performance.now() - wall;
+        timed[name].cpu += (used.user + used.system) / 1e6;
+      }
     }
   }
-}
+} finally { await session.release(); }
 const audioSeconds = corpus.clips.reduce((sum, clip) => sum + clip.durationMs, 0) / 1000;
 const field = (key, name) => rows.reduce((sum, row) => sum + row[key][name], 0);
 const summary = key => {
