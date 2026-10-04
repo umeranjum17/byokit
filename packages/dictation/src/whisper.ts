@@ -187,7 +187,10 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
 
 /** Host injects initWhisper; one cached context, serialized inference, explicit disposal.
  * `vad` hands out one detector session per stream: offline segmentation and live
- * capture each take their own, because a session carries recurrent state. */
+ * capture each take their own, because a session carries recurrent state. Passing
+ * `vad` makes the live turn gate neural at once, while offline segmentation still
+ * follows `settings.vad.enabled`: left false, transcribe keeps the whole file and
+ * the factory changes nothing offline. */
 export function whisperRnEngine(o: { model: string | number; multilingual?: boolean; initWhisper(options: { filePath: string | number }): Promise<WhisperRnContext>; settings?: WhisperSettings; vad?: () => VadSession | Promise<VadSession> }): DictateEngine & { release(): Promise<void> } {
   if (!(typeof o.model === 'string' && o.model.trim() && !/^[a-z]+:\/\//i.test(o.model.replace(/^file:\/\//, ''))
     || typeof o.model === 'number' && Number.isSafeInteger(o.model) && o.model >= 0)) throw new DictateError('bad-model');
