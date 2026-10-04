@@ -46,6 +46,9 @@ class ForegroundAppTest {
         if (missing) null else AccessibilityNodeInfo.obtain().apply {
           packageName = app
           text = "Private fixture text" // the public read must remain just a package
+          // Framework-delivered nodes are sealed; getWindow() rejects an unsealed synthetic node.
+          AccessibilityNodeInfo::class.java.getDeclaredMethod("setSealed", Boolean::class.javaPrimitiveType)
+            .invoke(this, true)
         }
       override fun getRootInActiveWindow(prefetchingStrategy: Int): AccessibilityNodeInfo? = rootInActiveWindow
     }

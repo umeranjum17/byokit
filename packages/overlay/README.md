@@ -135,6 +135,7 @@ With the app's existing accessibility service attached through `ByokitAccessibil
 current package even when no text field is focused or the bubble is stopped:
 
 ```ts
+import { overlay } from '@byokit/overlay';
 const unsubscribe = overlay.on('foregroundApp', ({ app }) => { /* update per-app suggestions */ });
 const app = await overlay.foregroundApp(); // Android package name or null
 // When finished:
