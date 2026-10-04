@@ -32,11 +32,21 @@ export const cases: readonly Case[] = [
   { id: 'missing-deadline', title: 'A missing detail', text: 'Umer: Can you move it?', question: urgent, expect: null, ask: 'Umer, does this need to happen today?' },
 ];
 
+export const types: Record<Question['kind'], string> = { choice: 'Choice', yesno: 'Yes / no', score: 'Priority level', rank: 'Order' };
+
 export function label(question: Question, answer: Answer['answer']): string {
   if (answer === null) return 'Needs your answer';
   if (question.kind === 'choice') return question.options[String(answer)] ?? 'Needs your answer';
   if (question.kind === 'yesno') return answer === true ? 'Yes' : 'No';
-  return question.levels[Number(answer)] ?? 'Needs your answer';
+  if (question.kind === 'score') return question.levels[Number(answer)] ?? 'Needs your answer';
+  return question.candidates[String(answer)] ?? 'Needs your answer';
+}
+
+export function handback(question: Question): string[] {
+  if (question.kind === 'yesno') return ['Yes', 'No'];
+  if (question.kind === 'choice') return Object.values(question.options);
+  if (question.kind === 'score') return question.levels;
+  return Object.keys(question.candidates);
 }
 
 export function median(values: readonly number[]): number | null {

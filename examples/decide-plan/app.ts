@@ -1,4 +1,4 @@
-import { cases, plans, type Plan } from './questions.ts';
+import { cases, handback, plans, types, type Plan } from './questions.ts';
 import type { Result } from './server.ts';
 import type { SignIn, Status } from '../../packages/accounts/src/portable.ts';
 
@@ -59,7 +59,7 @@ function renderResult(row: Result) {
   current = row;
   const target = $('current'); target.replaceChildren(node('h2', row.title), node('blockquote', row.text));
   target.append(node('div', row.outcome === 'unavailable' ? 'The plan could not answer' : row.answerLabel, 'answer-label'));
-  const type = row.question.kind === 'choice' ? 'Choice' : row.question.kind === 'yesno' ? 'Yes / no' : 'Priority level';
+  const type = types[row.question.kind];
   target.append(node('p', row.abstained ? 'No automatic answer was used.' : `${type}: ${String(row.answer)}`, 'typed'));
   const metrics = node('div', '', 'metrics');
   for (const [value, description] of [[row.confidence === null ? '—' : `${Math.round(row.confidence * 100)}%`, row.confidence === null ? 'No confidence estimate' : 'Self-reported confidence'], [`${Math.round(row.floor * 100)}%`, 'Required confidence'], [`${(row.latencyMs / 1000).toFixed(2)} s`, 'Time to answer']]) {
@@ -70,7 +70,7 @@ function renderResult(row: Result) {
   if (row.abstained) {
     const handoff = node('div', '', 'handoff'); handoff.append(node('h3', row.ask));
     const key = `${row.provider}:${row.caseId}`;
-    const answers = row.question.kind === 'yesno' ? ['Yes', 'No'] : row.question.kind === 'choice' ? Object.values(row.question.options) : row.question.levels;
+    const answers = handback(row.question);
     const received = node('p', handoffs.has(key) ? `Your answer: ${handoffs.get(key)}. You made this decision.` : row.outcome === 'unavailable' ? 'Your plan could not answer. You can answer instead.' : 'Your plan was unsure. You can answer instead.');
     for (const answer of answers) handoff.append(button(answer, () => { handoffs.set(key, answer); received.textContent = `Your answer: ${answer}. You made this decision.`; }));
     handoff.append(received); target.append(handoff);
