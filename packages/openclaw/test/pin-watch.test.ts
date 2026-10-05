@@ -19,20 +19,20 @@ function run(format: string): string {
   });
 }
 
-test('fixture dry run prints the 2026.8.1 -> 2026.9.6 method diff (+92/-3)', () => {
+test('fixture dry run prints the 2026.8.33 -> 2026.9.6 method diff (+91/-3)', () => {
   const summary = run('summary');
-  assert.match(summary, /2026\.8\.1 -> latest 2026\.9\.6: methods \+92\/-3 \(393 -> 482\)/);
+  assert.match(summary, /2026\.8\.33 -> latest 2026\.9\.6: methods \+91\/-3 \(394 -> 482\)/);
   assert.match(summary, /sessions\.compaction\.(branch|list|restore)/);
-  assert.match(summary, /extended-stable 2026\.8\.33: methods \+1\/-0 \(393 -> 394\)/);
+  assert.match(summary, /extended-stable 2026\.8\.33: methods \+0\/-0 \(394 -> 394\)/);
   assert.match(summary, /herdr pin 0\.9\.1 \(protocol 22\): up to date/);
   assert.match(summary, /drift: yes/);
 });
 
 test('fixture dry run as JSON carries the added/removed lists', () => {
   const report = JSON.parse(run('json'));
-  assert.equal(report.openclaw.pin, '2026.8.1');
+  assert.equal(report.openclaw.pin, '2026.8.33');
   assert.equal(report.openclaw.latest, '2026.9.6');
-  assert.equal(report.openclaw.toLatest.methods.added.length, 92);
+  assert.equal(report.openclaw.toLatest.methods.added.length, 91);
   assert.deepEqual(report.openclaw.toLatest.methods.removed, [
     'sessions.compaction.branch',
     'sessions.compaction.list',
@@ -47,7 +47,7 @@ test('fixture dry run as JSON carries the added/removed lists', () => {
 test('fixture dry run renders an issue body with the diff', () => {
   const body = run('issue-body');
   assert.match(body, /# Upstream pin drift/);
-  assert.match(body, /\+92\/-3/);
+  assert.match(body, /\+91\/-3/);
   assert.match(body, /sessions\.compaction\.list/);
 });
 

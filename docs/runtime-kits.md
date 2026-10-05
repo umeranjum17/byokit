@@ -47,9 +47,9 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D1 | Package names `@byokit/openclaw` and `@byokit/herdr`, in `packages/openclaw` and `packages/herdr`, Apache-2.0, ESM, Node ≥ 22.18, same source rules as the rest of the repo (type-stripped TS, `.ts` imports, no enums/namespaces/parameter properties). |
 | D2 | Entries per kit: `.` (Node host side), `./device` (portable: browsers, React Native, Node; no `node:*` or Node-only imports), `./link` (Node host-side link/relay/seal adapter), `./testing` (fakes, contract suites, scripted model). No other entries. |
 | D3 | Connection adapters ship **inside each kit** (`./link`, `./device`). No new shared glue package; the ~40 lines of `serve()` wiring are deliberately duplicated per kit (`ponytail:` comment naming the upgrade path: extract when a third runtime kit appears). |
-| D4 | OpenClaw engine pin stays **`openclaw@2026.8.1`** with `@openclaw/gateway-client@2026.8.1` and `@openclaw/gateway-protocol@2026.8.1` pinned exactly (Crewhouse parity; protocol version 4). Upgrades follow [5.12](#512-version-pin-and-upgrades). |
+| D4 | OpenClaw engine pin stays **`openclaw@2026.8.33`** with `@openclaw/gateway-client@2026.8.33` and `@openclaw/gateway-protocol@2026.8.33` pinned exactly (Crewhouse parity; protocol version 4). Upgrades follow [5.12](#512-version-pin-and-upgrades). |
 | D5 | Herdr pin is **v0.9.1** (latest release on 2026-09-28). The kit bundles that release's `herdr api schema --json` snapshot; a server whose reported protocol differs from the snapshot's is state `needs-update`. muxr, which requires ≥ 0.8.0 today, must move to the kit's pin as a precondition of its later adoption. |
-| D6 | "Complete supported surface", OpenClaw: every Gateway method in the pinned engine's method table for the **operator** role (382 in 2026.8.1, including the 12 core methods whose scope is resolved `dynamic`), every Gateway event (55), plus a typed-`unknown` `callDynamic` for names **not** in the table (plugin/channel-registered methods). The 11 `node`-role methods are the other side of the node protocol and are excluded from `call` (listed in the generated table with `role: 'node'`). The kit connects with all seven operator scopes: `operator.read`, `operator.write`, `operator.admin`, `operator.approvals`, `operator.questions`, `operator.pairing`, `operator.talk`. |
+| D6 | "Complete supported surface", OpenClaw: every Gateway method in the pinned engine's method table for the **operator** role (383 in 2026.8.33, including the 12 core methods whose scope is resolved `dynamic`), every Gateway event (55), plus a typed-`unknown` `callDynamic` for names **not** in the table (plugin/channel-registered methods). The 11 `node`-role methods are the other side of the node protocol and are excluded from `call` (listed in the generated table with `role: 'node'`). The kit connects with all seven operator scopes: `operator.read`, `operator.write`, `operator.admin`, `operator.approvals`, `operator.questions`, `operator.pairing`, `operator.talk`. |
 | D7 | "Complete supported surface", Herdr: every request method and event in the pinned schema (typed `call`, typed `subscribe`), the raw CLI as `cli(argv)` (complete by construction), and a typed wrapper for the one CLI-only surface the socket lacks (`terminal session control|observe`). |
 | D8 | Host-side kit APIs are full-power. Over a link, the pass-through (`oc.call`, `hd.call`) is **denied by default**; an app opts in with a `passThrough(method, grant)` predicate. Typed link ops are always member/scope-checked. |
 | D9 | Members. OpenClaw: a member is an app-chosen id matching `/^[a-z](?!.*--)[a-z0-9-]{0,23}$/` (no `--`, at most 24 characters, so every account agent id `<member>--<6 hex>` stays within 32), never `main`, `openclaw`, `crestodian` or starting `byokit-`; an agent that already exists under the older `/^[a-z][a-z0-9-]{0,31}$/` rule and is no member's account agent keeps working with its member agent only (D17), and no new member is created under the old rule. The id is used verbatim as the OpenClaw `agentId` of the member agent; every session key must start `agent:<member>:`, `agent:<member>--<6 hex>:` for an account agent in the member's index (5.15), or (key lane) exactly `agent:byokit-key-<member>:`; sign-ins are per agent (OpenClaw per-agent auth). Herdr: no member concept upstream; a link grant carries `meta.scope = { workspaces: 'all' \| string[] }`. |
@@ -270,7 +270,7 @@ the generated `report.json`.
 ```
 packages/openclaw/
   package.json  tsconfig.json  README.md  CHANGELOG.md  LICENSE
-  engine/package.json  engine/package-lock.json      # { "dependencies": { "openclaw": "2026.8.1" } }, integrity-locked
+  engine/package.json  engine/package-lock.json      # { "dependencies": { "openclaw": "2026.8.33" } }, integrity-locked
   plugin/index.js  plugin/accounts.js  plugin/package.json   # bridge plugin + account sealing (5.15); manifest at prepare
   policy/policy.mjs                                  # operator install policy (OpenClaw security.installPolicy, protocol 1)
   scripts/gen-methods.ts  scripts/method-types.json  # O2 generator + its override map
@@ -292,7 +292,7 @@ packages/openclaw/
 `package.json`: `exports` `.` → `dist/index.js`, `./device` → `dist/device.js` (with `react-native` and `browser`
 conditions pointing at the same file), `./link` → `dist/link.js`, `./testing` → `dist/testing/index.js`; `files`:
 `dist`, `engine`, `plugin`, `policy`, `README.md`, `LICENSE`. Dependencies (exact): `@openclaw/gateway-client`
-`2026.8.1`, `@openclaw/gateway-protocol` `2026.8.1`, `@byokit/link` (current `0.3.1`), `@byokit/relay` (current
+`2026.8.33`, `@openclaw/gateway-protocol` `2026.8.33`, `@byokit/link` (current `0.3.1`), `@byokit/relay` (current
 `0.1.3`), `@byokit/reach` (current `0.2.0`), `@byokit/seal` (current `0.1.0`), `ws` `8.21.3`. Dev: `@byokit/ui-core`
 (assignability test only).
 
@@ -478,7 +478,7 @@ export class OpenClawKit {
   doctorContext(): { entry: string; env: Record<string, string> };
 }
 export type RetainedLogin = { path: string } | { record: Record<string, unknown> };
-export const ENGINE_VERSION = '2026.8.1';
+export const ENGINE_VERSION = '2026.8.33';
 export const PROTOCOL_VERSION = 4;
 ```
 
@@ -900,7 +900,7 @@ always carry `source.authority 'third-party'`, so authority is not the check. An
 
 ### 5.10 Pass-through generation (`scripts/gen-methods.ts`, O2)
 
-Input: the pinned tarball installed under a temp dir (`npm pack openclaw@2026.8.1` + extract, network allowed at
+Input: the pinned tarball installed under a temp dir (`npm pack openclaw@2026.8.33` + extract, network allowed at
 generation time only) and the installed `@openclaw/gateway-protocol` types. Steps: locate the file containing
 `const CORE_GATEWAY_METHOD_SPEC_LIST = [` and evaluate only that array literal; locate `GATEWAY_AUX_METHODS` and
 `GATEWAY_EVENTS` the same way (constant entries only; non-literal entries such as `GATEWAY_EVENT_UPDATE_AVAILABLE`
@@ -927,7 +927,7 @@ differs from a fresh run against the pinned tarball in the engine job.
   spawnEngine: false, … })`. The factory captures `bridgeSock` so scripted tool calls reach the real bridge,
   split as the plugin splits them: it reads the kit's `plugin/tools.json` beside the socket, gates a builtin unless
   `gateBuiltins` is false and never calls one back (no table: every tool counts as the app's). `start()` resolves a hello with `protocol: 4`,
-  `server.version: '2026.8.1'`, and methods/events from the generated tables. Unknown method → rejects
+  `server.version: '2026.8.33'`, and methods/events from the generated tables. Unknown method → rejects
   `unknown method: <m>`.
 - Default handlers: `health`; `agents.list`/`agents.create` (in-memory); `models.authStatus`/`models.authLogout`
   (in-memory per agent); `openclaw.setup.auth.start` + `wizard.next` + `wizard.cancel` running the device-code script
@@ -2578,7 +2578,7 @@ H1, and O12/H10 (README example rows); later merges rebase.
 **O1 — scaffold and stubs** · Flash · deps: none
 - Files: `packages/openclaw/{package.json,tsconfig.json,README.md,CHANGELOG.md,LICENSE}`, all `src/*.ts` stubs
   (5.1) with 5.2/5.3/5.13/7.1/7.2 signatures, `src/constants.ts` (`ENGINE_VERSION`, `PROTOCOL_VERSION`, `OPERATOR_SCOPES`
-  per D6), `engine/package.json` + `engine/package-lock.json` (`npm install --package-lock-only openclaw@2026.8.1`,
+  per D6), `engine/package.json` + `engine/package-lock.json` (`npm install --package-lock-only openclaw@2026.8.33`,
   scripts off), `plugin/package.json` (`{"name":"byokit-openclaw-bridge","version":"0.1.0","type":"module",
   "openclaw":{"extensions":["./index.js"]}}`), empty `plugin/index.js` and `policy/policy.mjs` placeholders
   exporting nothing; root `package.json` build list gains `packages/openclaw`; `release.yml` options gain `openclaw`;

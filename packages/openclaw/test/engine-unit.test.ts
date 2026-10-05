@@ -79,7 +79,7 @@ function seedInstall(engineDir: string) {
   }
   writeFileSync(join(engineDir, 'node_modules/openclaw/openclaw.mjs'), '');
   mkdirSync(join(engineDir, 'node_modules/openclaw/dist'), { recursive: true });
-  writeFileSync(join(engineDir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.8.1', commit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b' }));
+  writeFileSync(join(engineDir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.8.33', commit: 'f773aa06a1a93b36b050f1a3f4b57d3d91311541' }));
   for (const file of shippedSet().files) {
     const bytes = readFileSync(fileURLToPath(new URL(`./fixtures/stock/${file.path}.txt`, import.meta.url)));
     assert.equal(sha256(bytes), file.before, `stock byte fixture drift: ${file.path}`);
@@ -90,7 +90,7 @@ function seedInstall(engineDir: string) {
 }
 
 function shippedSet(): PatchSet {
-  return readPatchSet(join(shippedEngine, 'patches.json'), '2026.8.1', JSON.parse(readFileSync(join(shippedEngine, 'package-lock.json'), 'utf8')).packages['node_modules/openclaw'].integrity);
+  return readPatchSet(join(shippedEngine, 'patches.json'), '2026.8.33', JSON.parse(readFileSync(join(shippedEngine, 'package-lock.json'), 'utf8')).packages['node_modules/openclaw'].integrity);
 }
 function seedSet(engineDir: string): Promise<string> {
   return prepareEngineSet(engineDir, shippedSet(), tmp => fs.cpSync(engineDir, tmp, { recursive: true }), () => true);
@@ -148,7 +148,7 @@ for (const [path, pkg] of Object.entries(lock.packages)) {
 }
 writeFileSync(join(dir, 'node_modules/openclaw/openclaw.mjs'), '');
 mkdirSync(join(dir, 'node_modules/openclaw/dist'), { recursive: true });
-writeFileSync(join(dir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.8.1', commit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b' }));
+writeFileSync(join(dir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.8.33', commit: 'f773aa06a1a93b36b050f1a3f4b57d3d91311541' }));
 appendFileSync(${JSON.stringify(calls)}, '1');
 `, { mode: 0o700 });
   const engine = new Engine({ stateDir: dir, engineDir, npmPath, pluginId: 'byokit', tools: [],
@@ -200,7 +200,7 @@ appendFileSync(${JSON.stringify(calls)}, '1');
     // Only a damaged stock cache requires npm; all prior damage was to the patched/adopted set.
     const stockMarker = join(stock, '.byokit-patches');
     fs.chmodSync(stockMarker, 0o644); writeFileSync(stockMarker, '{broken'); fs.chmodSync(stockMarker, 0o444);
-    writeFileSync(npmPath, readFileSync(npmPath, 'utf8').replace('ea806575e6450e4d1efdfc72c19f04be982a1b9b', '0000000000000000000000000000000000000000'), { mode: 0o700 });
+    writeFileSync(npmPath, readFileSync(npmPath, 'utf8').replace('f773aa06a1a93b36b050f1a3f4b57d3d91311541', '0000000000000000000000000000000000000000'), { mode: 0o700 });
     await assert.rejects(kit.prepare(), (e: unknown) => e instanceof EnginePatchError && e.cause === 'drift-after-build');
     assert.equal(kit.state.why, 'engine-patch'); assert.equal(kit.state.patchSet, null);
     assert.equal(readFileSync(calls, 'utf8'), '1', 'invalid stock cache invokes npm exactly once');
@@ -212,7 +212,7 @@ test('repair once after exit 78, leave unrelated stale pid alone', async () => {
   const engineDir = join(dir, 'engine');
   const entryDir = join(engineDir, 'node_modules', 'openclaw');
   seedInstall(engineDir);
-  writeFileSync(join(entryDir, 'package.json'), JSON.stringify({ version: '2026.8.1' }));
+  writeFileSync(join(entryDir, 'package.json'), JSON.stringify({ version: '2026.8.33' }));
   writeFileSync(join(entryDir, 'openclaw.mjs'), `import {existsSync,writeFileSync,appendFileSync} from 'node:fs';
 const marker = ${JSON.stringify(join(engineDir, 'marker'))};
 if (process.argv[2] === 'doctor') { appendFileSync(${JSON.stringify(join(engineDir, 'doctors'))}, '1'); process.exit(0); }

@@ -28,11 +28,11 @@ function byokitUsageFact(fact) {
 }
 `;
 export const workshopEdits: PatchFile['edits'] = [
-  { find: 'import { n as getRuntimeConfig } from "./io.runtime-CNGn9TXj.js";\n',
-    replace: 'import { n as getRuntimeConfig } from "./io.runtime-CNGn9TXj.js";\nimport { openSync as byokitOpen, writeSync as byokitWrite, fsyncSync as byokitFsync, closeSync as byokitClose } from "node:fs";\nimport { join as byokitJoin } from "node:path";\n' },
+  { find: 'import { n as getRuntimeConfig } from "./io.runtime-B4SqEZfi.js";\n',
+    replace: 'import { n as getRuntimeConfig } from "./io.runtime-B4SqEZfi.js";\nimport { openSync as byokitOpen, writeSync as byokitWrite, fsyncSync as byokitFsync, closeSync as byokitClose } from "node:fs";\nimport { join as byokitJoin } from "node:path";\n' },
   { find: 'async function runSkillExperienceReviewInner(candidate, deps) {\n', replace: helper + 'async function runSkillExperienceReviewInner(candidate, deps) {\n' },
   { find: '\tlet outcome;\n\tlet proposalId;\n\tlet usage;\n', replace: '\tlet outcome;\n\tlet proposalId;\n\tlet usage;\n\tlet byokitRunUsage;\n\tconst byokitFact = { chargeId: runId, agentId: foregroundPromptContext.agentId, kind: "workshop-review", provider: modelProviderId, model: modelId, ...candidate.ctx.authProfileId ? { authProfileId: candidate.ctx.authProfileId } : {}, startedAt: attemptedAtMs, origin: { sessionKey: foregroundSessionKey, ...candidate.ctx.runId ? { runId: candidate.ctx.runId } : {} } };\n' },
-  { find: '\ttry {\n\t\tlet embeddedResult;\n', replace: '\tbyokitUsageFact({ ...byokitFact, phase: "started", at: attemptedAtMs });\n\ttry {\n\t\tlet embeddedResult;\n' },
+  { find: '\t\tlet embeddedResult;\n\t\ttry {\n', replace: '\t\tbyokitUsageFact({ ...byokitFact, phase: "started", at: attemptedAtMs });\n\t\tlet embeddedResult;\n\t\ttry {\n' },
   { find: '\t\t} finally {\n\t\t\tpreparedRunAdmission.close();\n\t\t}\n\t\tassertSkillReviewRunSucceeded(embeddedResult);\n', replace: '\t\t} finally {\n\t\t\tpreparedRunAdmission.close();\n\t\t}\n\t\tbyokitRunUsage = embeddedResult?.meta?.agentMeta?.usage;\n\t\tassertSkillReviewRunSucceeded(embeddedResult);\n' },
   { find: '\t} catch (error) {\n\t\trecordSkillExperienceReviewOutcome(workspaceDir, {\n', replace: '\t} catch (error) {\n\t\tbyokitUsageFact({ ...byokitFact, phase: "ended", at: Date.now(), outcome: "failed", ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\t\trecordSkillExperienceReviewOutcome(workspaceDir, {\n' },
   { find: '\t} finally {\n\t\tclearAgentRunContext(runId);\n\t}\n\trecordSkillExperienceReviewOutcome(workspaceDir, {\n', replace: '\t} finally {\n\t\tclearAgentRunContext(runId);\n\t}\n\tbyokitUsageFact({ ...byokitFact, phase: "ended", at: Date.now(), outcome, ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\trecordSkillExperienceReviewOutcome(workspaceDir, {\n' },
@@ -45,10 +45,10 @@ if (!stock || stock.startsWith('--')) throw new Error('Pass stock package direct
 assert.equal(JSON.parse(readFileSync(join(stock, 'package.json'), 'utf8')).version, set.upstream.version);
 assert.equal(JSON.parse(readFileSync(join(stock, 'dist/build-info.json'), 'utf8')).commit, set.upstream.commit);
 assert.equal(readFileSync(join(stock, 'LICENSE'), 'utf8'), readFileSync(new URL('../engine/OPENCLAW-LICENSE', import.meta.url), 'utf8'));
-const file: PatchFile = { path: 'dist/experience-review-default-6DPIIJds.js', before: '', after: '', edits: workshopEdits };
+const file: PatchFile = { path: 'dist/experience-review-default-VDSPk_Xh.js', before: '', after: '', edits: workshopEdits };
 const text = readFileSync(join(stock, file.path), 'utf8');
 file.before = sha256(text);
-assert.equal(file.before, '30f43da07b2520dd785df42ba417737a0f2cc0286922fe2189f06ecbafc1ab9c', 'Stock pinned Workshop source changed');
+assert.equal(file.before, 'b1e8117d4728477f9d6ee81bd6eeb3b14fe8090e39a45bd76b34580f57822ecc', 'Stock pinned Workshop source changed');
 file.after = sha256(editText(text, file));
 const files = [...set.files.filter(f => f.path !== file.path), file].sort((a, b) => a.path.localeCompare(b.path));
 const result = JSON.stringify({ ...set, id: patchId(files), files }, null, 2) + '\n';

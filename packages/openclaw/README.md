@@ -7,7 +7,7 @@
 </p>
 
 <p align="center"><strong>The OpenClaw runtime kit: one object that runs the pinned engine for your app.</strong><br/>
-It drives the pinned OpenClaw engine (<code>openclaw@2026.8.1</code>, protocol 4) through one kit object. The
+It drives the pinned OpenClaw engine (<code>openclaw@2026.8.33</code>, protocol 4) through one kit object. The
 aggregator's full operator surface stays available as typed pass-through calls (<code>call</code> for every operator
 method, <code>callDynamic</code> for the rest), with plain-words helpers for members, sign-in, runs, approvals and
 config. For apps built on OpenClaw, where the engine holds the subscriptions.</p>
@@ -20,7 +20,7 @@ npm install @byokit/openclaw
 
 [![npm](https://img.shields.io/npm/v/@byokit/openclaw?style=flat&label=)](https://www.npmjs.com/package/@byokit/openclaw) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=openclaw-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
 
-Node 22.18 or later. The kit brings the engine with it: the first `start()` installs the pinned `openclaw@2026.8.1`
+Node 22.18 or later. The kit brings the engine with it: the first `start()` installs the pinned `openclaw@2026.8.33`
 under your `stateDir` (a few minutes, needs the network once), and later starts run from there. For a whole app, a
 phone page that pairs, signs in with ChatGPT, runs and answers approvals, see
 [`examples/openclaw-kit`](../../examples/openclaw-kit).
@@ -166,7 +166,7 @@ RPC data is retained; existing typed `call` pass-through is unchanged. Windows a
 refresh it. The engine response cache lasts 30 seconds; pending/stale/unknown data leaves `totals` absent.
 An absent agent row is unavailable, not proof of zero usage. Reset/deletion/retention can reduce counters.
 
-**Coverage is always `retained-transcripts-only`.** Stock 2026.8.1's detached Skill Workshop reviews are omitted
+**Coverage is always `retained-transcripts-only`.** Stock 2026.8.33's detached Skill Workshop reviews are omitted
 from its ledger; actual crash-recovery resumes and threshold memory flushes are counted through persisted
 transcripts, never through a second side total. This reader cannot enforce a complete all-turn budget. The app owns budget,
 share and unavailable/partial-data policy. Do not add run results to these totals: they already overlap. Engine
@@ -338,8 +338,8 @@ Entries:
 
 Every method and event the pin publishes has a real type: `kit.call('sessions.list', params)` is checked in and
 returns the engine's declared result, with no cast. For the slots the pin itself leaves undeclared the table stays
-`unknown`, and `src/generated/report.json` names every one of them per release. On `openclaw@2026.8.1` that is 301
-of 393 methods' params and 192 of their results, plus 21 of 55 event payloads; the other slots are not missing from
+`unknown`, and `src/generated/report.json` names every one of them per release. On `openclaw@2026.8.33` that is 302
+of 394 methods' params and 193 of their results, plus 21 of 55 event payloads; the other slots are not missing from
 the kit, they are not published by the engine, and typing them here would be a guess that does not match the
 gateway. `callDynamic` stays the same shape for a method the pin never declared.
 
@@ -523,7 +523,7 @@ retained-login cleanup and sealed approval limits.
 
 ## Status
 
-Pinned to OpenClaw `2026.8.1` (protocol 4); `ENGINE_VERSION` and `PROTOCOL_VERSION` carry the pin. Signatures are
+Pinned to OpenClaw `2026.8.33` (protocol 4); `ENGINE_VERSION` and `PROTOCOL_VERSION` carry the pin. Signatures are
 frozen (docs/runtime-kits.md §5).
 
 ## Links

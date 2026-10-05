@@ -136,6 +136,28 @@ export class Engine {
             else { this.state('failed', 'install'); reject(new Error(`engine install: ${expired ? 'timeout' : stderr}`)); }
           });
         });
+        // Newer pins ship a pending package-lifecycle marker that the gateway completes on first boot by
+        // running its own scripts, which needs a writable tree. Complete it here, while the set is still
+        // writable, with bundled plugin installs disabled: on a fresh install the prune is a no-op and
+        // upstream's own script removes the marker. Pins without the script (pre-8.33) skip this.
+        const lifecycle = join(dir, 'node_modules/openclaw/scripts/postinstall-bundled-plugins.mjs');
+        if (!existsSync(lifecycle)) return;
+        await new Promise<void>((resolve, reject) => {
+          const child = spawn(process.execPath, [lifecycle], {
+            env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: join(this.root, 'install-home'), npm_config_cache: join(this.root, 'npm-cache'), OPENCLAW_DISABLE_BUNDLED_PLUGIN_POSTINSTALL: '1' },
+            stdio: ['ignore', 'ignore', 'pipe'],
+          });
+          let stderr = '', expired = false;
+          this.started.add(child);
+          child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-500); });
+          const timer = setTimeout(() => { expired = true; child.kill('SIGKILL'); }, 120_000);
+          child.once('error', error => { clearTimeout(timer); this.started.forget(child); reject(error); });
+          child.once('exit', code => {
+            clearTimeout(timer); this.started.forget(child);
+            if (code === 0 && !expired) resolve();
+            else { this.state('failed', 'install'); reject(new Error(`engine lifecycle: ${expired ? 'timeout' : stderr}`)); }
+          });
+        });
       };
       this.setDir = await prepareEngineSet(this.dir, patches, install, installMatches);
       this.wantedSet = patches;
@@ -270,7 +292,8 @@ export class Engine {
     const fd = openSync(join(this.o.stateDir, 'logs', 'openclaw.log'), 'a', 0o600);
     const usageDir = join(this.root, 'usage'), bootId = randomUUID();
     try {
-      const accounted = this.wantedSet!.files.some(file => file.path === 'dist/experience-review-default-6DPIIJds.js');
+      // The bundle hash in the Workshop file name changes per release; the stable prefix names the seam.
+      const accounted = this.wantedSet!.files.some(file => file.path.startsWith('dist/experience-review-default-') && file.path.endsWith('.js'));
       if (accounted) {
         appendUsageBoot(usageDir, { bootId, startedAt: Date.now() });
         env.BYOKIT_ENGINE_USAGE_LEDGER = usageDir; env.BYOKIT_ENGINE_BOOT = bootId;

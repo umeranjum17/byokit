@@ -32,7 +32,7 @@ let openai: Awaited<ReturnType<typeof mockOpenAI>>;
 /** The pin's own inventory: every bundled manifest's `providerAuthChoices`, and the manifest id that owns each. */
 const pinnedChoices = (): { choices: Map<string, string>; guided: Set<string>; staticChoices: string } => {
   const pkg = dirname(engine.doctorContext().entry);
-  assert.equal(JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8')).version, '2026.8.1', 'the pinned tarball is installed');
+  assert.equal(JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8')).version, '2026.8.33', 'the pinned tarball is installed');
   const choices = new Map<string, string>();
   const guided = new Set<string>();
   const walk = (dir: string) => {

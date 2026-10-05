@@ -1,6 +1,6 @@
 {
  "source": "@openclaw/gateway-protocol",
- "version": "2026.8.1",
+ "version": "2026.8.33",
  "methods": [
   "agent",
   "agent.identity.get",
@@ -164,6 +164,7 @@
   "openclaw.chat",
   "openclaw.chat.history",
   "openclaw.setup.activate",
+  "openclaw.setup.activate.start",
   "openclaw.setup.auth.start",
   "openclaw.setup.detect",
   "openclaw.setup.prepare.start",

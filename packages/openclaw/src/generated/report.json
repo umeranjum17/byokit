@@ -1,13 +1,13 @@
 {
-  "engine": "2026.8.1",
+  "engine": "2026.8.33",
   "protocol": 4,
   "package": "openclaw",
-  "methods": 393,
-  "operatorMethods": 382,
+  "methods": 394,
+  "operatorMethods": 383,
   "nodeMethods": 11,
   "events": 55,
-  "matchedParams": 301,
-  "matchedResults": 192,
+  "matchedParams": 302,
+  "matchedResults": 193,
   "matchedEvents": 21,
   "patchedTypes": [
     "AuditRunInspectParams",

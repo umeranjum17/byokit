@@ -37,7 +37,7 @@ import type { FakeGateway, FakeHandler, FakeParams, StubCall, StubRequest } from
 
 test('the `.` entry exports the kit, the pins and the operator scopes (5.3, D4, D6)', () => {
   assert.equal(typeof kit.OpenClawKit, 'function');
-  assert.equal(ENGINE_VERSION, '2026.8.1');
+  assert.equal(ENGINE_VERSION, '2026.8.33');
   assert.equal(PROTOCOL_VERSION, 4);
   assert.deepEqual([...OPERATOR_SCOPES], [
     'operator.read', 'operator.write', 'operator.admin', 'operator.approvals', 'operator.questions', 'operator.pairing', 'operator.talk',

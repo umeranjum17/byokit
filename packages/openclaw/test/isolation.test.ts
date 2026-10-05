@@ -35,8 +35,8 @@ if (process.argv[2] !== 'gateway' || config.gateway.bind !== 'loopback') process
 createServer(socket => socket.end()).listen(config.gateway.port, '127.0.0.1');
 `);
     mkdirSync(join(entryDir, 'dist'), { recursive: true });
-    writeFileSync(join(entryDir, 'dist/build-info.json'), JSON.stringify({ version: '2026.8.1', commit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b' }));
-    const patch = readPatchSet(join(shipped, 'patches.json'), '2026.8.1', JSON.parse(readFileSync(join(shipped, 'package-lock.json'), 'utf8')).packages['node_modules/openclaw'].integrity);
+    writeFileSync(join(entryDir, 'dist/build-info.json'), JSON.stringify({ version: '2026.8.33', commit: 'f773aa06a1a93b36b050f1a3f4b57d3d91311541' }));
+    const patch = readPatchSet(join(shipped, 'patches.json'), '2026.8.33', JSON.parse(readFileSync(join(shipped, 'package-lock.json'), 'utf8')).packages['node_modules/openclaw'].integrity);
     for (const file of patch.files) {
       const bytes = readFileSync(fileURLToPath(new URL(`./fixtures/stock/${file.path}.txt`, import.meta.url)));
       assert.equal(sha256(bytes), file.before, `stock byte fixture drift: ${file.path}`);

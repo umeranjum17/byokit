@@ -1,4 +1,4 @@
-// R4 foundation probe, not acceptance: stock 2026.8.1's detached Workshop review is absent from sessions.usage.
+// R4 foundation probe, not acceptance: stock 2026.8.33's detached Workshop review is absent from sessions.usage.
 // Real scheduler, real provider requests, no direct review dispatch or accounts. Engine job only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -75,7 +75,7 @@ test('R4 stock engine starts Workshop review but its day ledger omits that usage
     // No production reconciliation sums this last-outcome record: it overwrites history and has no charge identity.
     if (process.env.BYOKIT_R4_EVIDENCE_DIR) {
       mkdirSync(process.env.BYOKIT_R4_EVIDENCE_DIR, { recursive: true });
-      writeFileSync(join(process.env.BYOKIT_R4_EVIDENCE_DIR, 'workshop.json'), JSON.stringify({ source: 'stock openclaw 2026.8.1', stateDir,
+      writeFileSync(join(process.env.BYOKIT_R4_EVIDENCE_DIR, 'workshop.json'), JSON.stringify({ source: 'stock openclaw 2026.8.33', stateDir,
         query, result, before, after, status, reading, providerCalls: calls, logs }, null, 2) + '\n');
     }
     assert.equal(after.cacheStatus.status, 'fresh');

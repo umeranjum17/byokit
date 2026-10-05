@@ -276,7 +276,7 @@ test('oc.state carries the kit and engine versions and the member\'s sign-ins', 
   const w = await world();
   const a = await device(w, 'a');
   const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
-  assert.deepEqual(await a.oc.state(), { state: { phase: 'ready' }, words: words('engine.ready'), version, engine: '2026.8.1', signedIn: [] });
+  assert.deepEqual(await a.oc.state(), { state: { phase: 'ready' }, words: words('engine.ready'), version, engine: '2026.8.33', signedIn: [] });
   // Only a usable sign-in counts: an expired or unfinished one (the pin lists both) is not signed in.
   w.fake.handle('models.authStatus', (p) => ({ providers: p.agentId === 'a' ? [{ provider: 'openai', status: 'ok' },
     { provider: 'xai', status: 'expired', profiles: [{ status: 'expired' }] }, { provider: 'minimax', status: 'missing' }] : [] }));

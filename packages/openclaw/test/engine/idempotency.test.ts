@@ -136,7 +136,7 @@ test('R2: accepted disconnect retries one run; cached inputs are not compared an
     releaseStub();
     await kit.stop();
     await stub.close();
-    const receipt = { engine: '2026.8.1', key, sourceHashes, trace, providerCalls: providerCounts() };
+    const receipt = { engine: '2026.8.33', key, sourceHashes, trace, providerCalls: providerCounts() };
     writeFileSync(join(stateDir, 'r2-trace.json'), JSON.stringify(receipt, null, 2));
     if (process.env.BYOKIT_R2_TRACE) writeFileSync(process.env.BYOKIT_R2_TRACE, JSON.stringify(receipt, null, 2));
   }

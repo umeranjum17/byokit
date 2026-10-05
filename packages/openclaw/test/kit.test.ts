@@ -111,7 +111,7 @@ test('typed call passes options through unchanged', async () => {
 test('dynamic refusal stays in sync with every generated method', async () => withKit(async (kit) => {
   const generated = readFileSync(new URL('../src/generated/methods.ts', import.meta.url), 'utf8');
   const names = [...generated.matchAll(/^  '([^']+)': .*role: '(?:operator|node)'/gm)].map((match) => match[1]!);
-  assert.equal(names.length, 393);
+  assert.equal(names.length, 394);
   for (const name of names) await assert.rejects(kit.callDynamic(name), /use typed call/);
 }));
 

@@ -78,7 +78,7 @@ test('the fake hello carries the protocol, the pinned version and the served met
   const fake = fakeGateway();
   const hello = await fake.transport.start();
   assert.equal(hello.protocol, 4);
-  assert.equal(hello.server.version, '2026.8.1');
+  assert.equal(hello.server.version, '2026.8.33');
   for (const method of METHODS) assert.ok(hello.methods.includes(method), `missing ${method}`);
   for (const event of EVENTS) assert.ok(hello.events.includes(event), `missing ${event}`);
 });

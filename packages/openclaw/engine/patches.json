@@ -1,22 +1,22 @@
 {
   "v": 1,
-  "id": "171ce088cd516dcf",
+  "id": "676b6db835715228",
   "upstream": {
     "name": "openclaw",
-    "version": "2026.8.1",
-    "integrity": "sha512-bSaFeaDFnQH/bU1vgKMac6eHkHHPHG0C/uwduXGI3eIS3lyiYSwmDU5ehhBUUhlPeV85tL5/KVwmoH48nX1tWw==",
-    "commit": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+    "version": "2026.8.33",
+    "integrity": "sha512-y1ti0TLEXk/vDB03XDPVICUE5DJWpp0EwoJHvQaWFKB4NZjyrIu9WDGSpcU+bIYwIpeqK9nlzQVjU8S3XkrHKA==",
+    "commit": "f773aa06a1a93b36b050f1a3f4b57d3d91311541",
     "license": "MIT"
   },
   "files": [
     {
-      "path": "dist/experience-review-default-6DPIIJds.js",
-      "before": "30f43da07b2520dd785df42ba417737a0f2cc0286922fe2189f06ecbafc1ab9c",
-      "after": "e9448c45a2d7f5e8ab7f1996269a4291d2453aac7641ea82cb82cc238e93cb43",
+      "path": "dist/experience-review-default-VDSPk_Xh.js",
+      "before": "b1e8117d4728477f9d6ee81bd6eeb3b14fe8090e39a45bd76b34580f57822ecc",
+      "after": "98f0f058b17e6b419432174aaacf845646849ecd780f8b0242dd5601d75cc23a",
       "edits": [
         {
-          "find": "import { n as getRuntimeConfig } from \"./io.runtime-CNGn9TXj.js\";\n",
-          "replace": "import { n as getRuntimeConfig } from \"./io.runtime-CNGn9TXj.js\";\nimport { openSync as byokitOpen, writeSync as byokitWrite, fsyncSync as byokitFsync, closeSync as byokitClose } from \"node:fs\";\nimport { join as byokitJoin } from \"node:path\";\n"
+          "find": "import { n as getRuntimeConfig } from \"./io.runtime-B4SqEZfi.js\";\n",
+          "replace": "import { n as getRuntimeConfig } from \"./io.runtime-B4SqEZfi.js\";\nimport { openSync as byokitOpen, writeSync as byokitWrite, fsyncSync as byokitFsync, closeSync as byokitClose } from \"node:fs\";\nimport { join as byokitJoin } from \"node:path\";\n"
         },
         {
           "find": "async function runSkillExperienceReviewInner(candidate, deps) {\n",
@@ -27,8 +27,8 @@
           "replace": "\tlet outcome;\n\tlet proposalId;\n\tlet usage;\n\tlet byokitRunUsage;\n\tconst byokitFact = { chargeId: runId, agentId: foregroundPromptContext.agentId, kind: \"workshop-review\", provider: modelProviderId, model: modelId, ...candidate.ctx.authProfileId ? { authProfileId: candidate.ctx.authProfileId } : {}, startedAt: attemptedAtMs, origin: { sessionKey: foregroundSessionKey, ...candidate.ctx.runId ? { runId: candidate.ctx.runId } : {} } };\n"
         },
         {
-          "find": "\ttry {\n\t\tlet embeddedResult;\n",
-          "replace": "\tbyokitUsageFact({ ...byokitFact, phase: \"started\", at: attemptedAtMs });\n\ttry {\n\t\tlet embeddedResult;\n"
+          "find": "\t\tlet embeddedResult;\n\t\ttry {\n",
+          "replace": "\t\tbyokitUsageFact({ ...byokitFact, phase: \"started\", at: attemptedAtMs });\n\t\tlet embeddedResult;\n\t\ttry {\n"
         },
         {
           "find": "\t\t} finally {\n\t\t\tpreparedRunAdmission.close();\n\t\t}\n\t\tassertSkillReviewRunSucceeded(embeddedResult);\n",
@@ -45,9 +45,9 @@
       ]
     },
     {
-      "path": "dist/main-session-recovery-state-BWIrIyi_.js",
-      "before": "418a957496786dd7ed28df4a7a02e31e9567020e1be5804545e785baf965f225",
-      "after": "f1afea642c78d7979ed40ce43c102c41f790c5dbedaec0e6e7eb8d6f47bc0032",
+      "path": "dist/main-session-recovery-state-EuX7zXtg.js",
+      "before": "048f647ccf65e5c9dfcffefb037104e68c15b08e6416342aab203e33e94b242b",
+      "after": "d90c3cbee7fef8b1452b5df79325f6974dcf69358b5a80c13ed82b86f20a4b42",
       "edits": [
         {
           "find": "function isMainRestartRecoveryCandidate(entry, sessionKey) {",
