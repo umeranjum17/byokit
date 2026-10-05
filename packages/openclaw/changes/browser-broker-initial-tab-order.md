@@ -1,0 +1,1 @@
+FIX: The browser broker now holds its CDP endpoint back until Chromium's initial tab exists, so `/json/list` can never serve an empty browser to an attaching engine on a cold or slow start; a browser that never lists a tab fails the launch honestly instead.

@@ -23,6 +23,8 @@ const context = vm.createContext({Blob, Uint8Array, createImageBitmap: async blo
  return {width:320,height:179,close(){}};
 }});
 const input = fs.createReadStream('', {fd:3}), output = fs.createWriteStream('', {fd:4});
+const protocolLateTab = protocolMode === 'late-tab';
+let tabPolls = 0;
 const targets = new Map([['agent', {targetId:'agent',type:'page',url:'http://127.0.0.1:1/task',title:'Task',browserContextId:'context'}]]);
 const sessions = new Map(); let seq=0, buffer='';
 const emit = (...messages) => output.write(messages.map(m => JSON.stringify(m)+'\\0').join(''));
@@ -39,7 +41,11 @@ function handle(m){
  const reply=result=>emit({id:m.id,result});
  switch(m.method){
  case 'Browser.getVersion':return reply({product:'HeadlessChrome/153.0.8010.12',protocolVersion:'1.3',userAgent:'HeadlessChrome'});
- case 'Target.getTargets':return reply({targetInfos:[...targets.values()]});
+ case 'Target.getTargets':{
+  // Cold-start ordering fixture: the pipe answers before the initial tab exists, exactly like a
+  // slow real runner. The tab only appears on the third listing.
+  if(protocolLateTab && ++tabPolls < 3) return reply({targetInfos:[]});
+  return reply({targetInfos:[...targets.values()]});}
  case 'Target.getTargetInfo':return reply({targetInfo:target==='browser'?{targetId:'browser',type:'browser',url:''}:targets.get(target)});
  case 'Target.setAutoAttach':{
   if(protocolMode==='raw' || target!=='browser')return reply({});
@@ -134,7 +140,7 @@ function discovery(endpoint: string, path: string) {
   u.pathname = `${u.pathname.replace(/\/devtools\/browser\/[A-Za-z0-9._-]+$/, '')}/json/${path}`;
   return u.href;
 }
-async function fixture(protocolMode: 'raw' | 'split' | 'coalesced' = 'raw') {
+async function fixture(protocolMode: 'raw' | 'split' | 'coalesced' | 'late-tab' = 'raw') {
   const dir = await mkdtemp(join(tmpdir(), 'broker-'));
   const executablePath = join(dir, 'chromium');
   await writeFile(executablePath, peer.replace("const protocolMode = 'raw';", `const protocolMode = '${protocolMode}';`)); await chmod(executablePath, 0o700);
@@ -144,6 +150,18 @@ async function fixture(protocolMode: 'raw' | 'split' | 'coalesced' = 'raw') {
   return { broker, endpoint, http, dir, async close() { await broker.close(); await rm(dir, { recursive: true, force: true }); } };
 }
 const lease = { epoch: 1, nonce: '0123456789abcdefghijklmnopqrstuv', origin: 'http://127.0.0.1:1', knownIdps: [] };
+
+test('launch holds the endpoint back until Chromium\'s initial tab exists, so discovery never lists an empty browser', { timeout: 10_000 }, async () => {
+  // The CI failure mode: on a cold runner /json/version answers (browser target is up) while the
+  // initial tab does not exist yet and /json/list returns []. The broker must not go live before then.
+  const f = await fixture('late-tab');
+  try {
+    assert.equal(f.broker.agentTab(), 'agent', 'launch resolved only after the late tab was listed');
+    const listed = await (await fetch(discovery(f.endpoint, 'list'))).json() as { id: string; webSocketDebuggerUrl: string }[];
+    assert.ok(listed.length > 0 && listed.every(t => new URL(t.webSocketDebuggerUrl).searchParams.get('token') === new URL(f.endpoint).searchParams.get('token')),
+      'every listed debug target carries the endpoint token');
+  } finally { await f.close(); }
+});
 
 test('pipe broker preserves before/reply/after order in one native read, including errors', { timeout: 5000 }, async () => {
   const f = await fixture();
