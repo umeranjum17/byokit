@@ -12,6 +12,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.umeranjum17.byokit.overlay.ByokitAccessibility
 import io.github.umeranjum17.byokit.overlay.AccessibilityForegroundApp
+import io.github.umeranjum17.byokit.overlay.FocusedFieldText
 import io.github.umeranjum17.byokit.overlay.FocusedFields
 import org.junit.Assert.*
 import org.junit.Test
@@ -86,9 +87,16 @@ class ForegroundAppTest {
       activity = instrumentation.startActivitySync(Intent(context, WebFieldActivity::class.java)
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as WebFieldActivity
       assertTrue(activity!!.loaded.await(30, TimeUnit.SECONDS))
-      await("Foreground fixture package resolves without editor focus") { source.current == context.packageName }
-      assertEquals(context.packageName, source.current)
-      assertNull("Fixture has no focused text box", FocusedFields.read(service))
+      // While our change listener is registered, the kit's Watch polls this getter on the app's main thread.
+      // Polling it here too races for the same process-wide accessibility client whose WebView root fetch needs
+      // that main thread: the two readers starve each other until the interaction timeout, and the await below
+      // never sees the package. The subscription is that single poller's output, so it is the safe sync point.
+      await("Foreground fixture package resolves without editor focus") { changes.contains(context.packageName) }
+      var onMain: String? = null
+      var focused: FocusedFieldText? = null
+      instrumentation.runOnMainSync { onMain = source.current; focused = FocusedFields.read(service) }
+      assertEquals(context.packageName, onMain)
+      assertNull("Fixture has no focused text box", focused)
       instrumentation.runOnMainSync {
         manager = service.getSystemService(WindowManager::class.java)
         overlay = View(service)
@@ -99,9 +107,10 @@ class ForegroundAppTest {
       }
       val fixture = "io.github.umeranjum17.byokit.example"
       shell("am start -W -n $fixture/${ForegroundFixtureActivity::class.java.name}")
-      await("Separate fixture package resolves beneath host overlay") { source.current == fixture }
-      await("Change subscription emits the separate package") { changes.contains(fixture) }
-      assertEquals("Host overlay must not replace the foreground package", fixture, source.current)
+      await("Change subscription emits the separate package beneath host overlay") { changes.contains(fixture) }
+      onMain = null
+      instrumentation.runOnMainSync { onMain = source.current }
+      assertEquals("Host overlay must not replace the foreground package", fixture, onMain)
       assertFalse("No unrelated package emitted", changes.any { it != null && it != context.packageName && it != fixture })
       instrumentation.runOnMainSync {
         remove?.invoke(); remove = null
