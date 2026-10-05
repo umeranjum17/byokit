@@ -48,7 +48,7 @@
       "id": "anthropic:setup_token", "provider": "anthropic", "name": "Claude", "company": "Anthropic", "label": "Uses your Claude plan",
       "via": "setup_token", "billing": "subscription", "billingFrom": "source", "offer": "default",
       "platforms": { "node": "host", "browser": "host", "rn": "host" },
-      "upstream": { "surface": "openclaw", "id": "setup-token", "revision": "openclaw@2026.8.1", "flow": "present" }
+      "upstream": { "surface": "openclaw", "id": "setup-token", "revision": "openclaw@2026.8.1", "flow": "absent" }
     },
     {
       "id": "aws-bedrock:cloud:profile", "provider": "aws-bedrock", "name": "Amazon Bedrock", "company": "Amazon Web Services", "label": "Cloud account (billed per use by Amazon Web Services)",

@@ -777,7 +777,7 @@ test('sensitive sign-in through the kit and link isolates members and keeps resu
   const sessions = new Map<string, string>();
   const received: { member: string; value: string }[] = [];
   const gateway = fakeGateway({
-    'models.authStatus': (params) => ({ providers: received.some((r) => r.member === params.agentId && r.member === 'ana') ? ['anthropic'] : [] }),
+    'models.authStatus': (params) => ({ providers: received.some((r) => r.member === params.agentId && r.member === 'ana') ? ['github-copilot'] : [] }),
     'openclaw.setup.auth.start': (params) => {
       sessions.set(String(params.sessionId), String(params.agentId));
       return { done: false };
@@ -806,16 +806,18 @@ test('sensitive sign-in through the kit and link isolates members and keeps resu
       relay: { notify: async (notice: unknown) => { notices.push(notice); return { sent: 1 }; } } as Parameters<typeof openclawLink>[1]['relay'] });
     const grant = (member: string) => ({ id: member, name: member, key: '', role: 'control' as const, created: 0 });
     const results: unknown[] = [];
+    await assert.rejects(async () => api.handle!({ op: 'oc.signin.start', args: { provider: 'anthropic', via: 'browser' } }, grant('ana')),
+      /can't do that/, 'the unoffered setup-token choice is not reachable through the link');
     for (const member of ['ana', 'bea'] as const) {
-      results.push(await api.handle!({ op: 'oc.signin.start', args: { provider: 'anthropic', via: 'browser' } }, grant(member)));
+      results.push(await api.handle!({ op: 'oc.signin.start', args: { provider: 'github-copilot', via: 'code' } }, grant(member)));
     }
     await turn();
     for (const member of ['bea', 'ana'] as const) {
-      results.push(await api.handle!({ op: 'oc.signin.paste', args: { provider: 'anthropic', text: tokens[member] } }, grant(member)));
+      results.push(await api.handle!({ op: 'oc.signin.paste', args: { provider: 'github-copilot', text: tokens[member] } }, grant(member)));
     }
     await turn();
     for (const member of ['ana', 'bea'] as const) {
-      const result = await api.handle!({ op: 'oc.signin.view', args: { provider: 'anthropic' } }, grant(member));
+      const result = await api.handle!({ op: 'oc.signin.view', args: { provider: 'github-copilot' } }, grant(member));
       results.push(result);
       assert.equal((result as { view: SignInView }).view.state, member === 'ana' ? 'done' : 'failed');
     }

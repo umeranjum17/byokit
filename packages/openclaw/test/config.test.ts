@@ -8,9 +8,9 @@ import { routes } from '../src/routes.ts';
 import { reconcileConfig, memoryLimited, appRecoveryPrefixes } from '../src/config.ts';
 
 const opts = (root: string) => ({ root, stateDir: root, port: 12345, pluginId: 'byokit', pluginDir: join(root, 'plugin'), policyPath: join(root, 'policy.mjs') });
-test('plugin allowlist merges caller ids, the bridge and only offered route plugins', () => {
+test('plugin allowlist merges caller ids, the bridge and only default-eligible bundled route plugins', () => {
   const root = '/tmp/byokit-config-check';
-  const offered = [...new Set(routes().filter(route => route.offer).map(route => route.plugin))];
+  const offered = [...new Set(routes().filter(route => route.offerPolicy === 'default' && !route.needs?.plugin).map(route => route.plugin))];
   assert.ok(offered.includes('openai'), 'ChatGPT device pairing needs the openai plugin');
   const fresh = reconcileConfig(undefined, opts(root)) as any;
   assert.deepEqual(fresh.plugins.allow, ['byokit', ...offered]);
@@ -19,6 +19,11 @@ test('plugin allowlist merges caller ids, the bridge and only offered route plug
   const merged = reconcileConfig(saved, { ...opts(root), pluginId: 'bridge', app }) as any;
   assert.deepEqual(merged.plugins.allow, [...new Set(['custom', 'openai', 'bridge', ...offered])]);
   assert.deepEqual(reconcileConfig(saved, opts(root)), reconcileConfig(reconcileConfig(saved, opts(root)), opts(root)));
+  for (const choice of ['anthropic-cli', 'apiKey']) {
+    const route = routes().find(route => route.choice === choice)!;
+    assert.equal(route.offer, false);
+    assert.ok(fresh.plugins.allow.includes(route.plugin), `${choice} keeps its plugin allowed while no route of it is offered`);
+  }
   for (const route of routes().filter(route => !route.offer && !offered.includes(route.plugin))) {
     assert.ok(!fresh.plugins.allow.includes(route.plugin), `${route.choice} is not enabled`);
   }
@@ -44,7 +49,7 @@ test('fresh and adversarial config force isolation and no paid memory fallback',
   assert.equal(c.memory.search.fallback, 'none');
   assert.equal(c.agents.defaults.models['openai/*'].agentRuntime.id, 'openclaw');
   assert.equal(c.security.installPolicy.enabled, true);
-  const providerPlugins = [...new Set(routes().filter((route) => route.offer).map((route) => route.plugin))];
+  const providerPlugins = [...new Set(routes().filter((route) => route.offerPolicy === 'default' && !route.needs?.plugin).map((route) => route.plugin))];
   assert.deepEqual(c.plugins.allow, ['byokit', ...providerPlugins]);
   for (const proxy of ['litellm', 'clawrouter', 'copilot-proxy', 'openrouter', 'google', 'fal']) assert.ok(!c.plugins.allow.includes(proxy));
   const custom = reconcileConfig(c, { ...opts(root), app: { plugins: { allow: ['app-plugin'] } } }) as any;

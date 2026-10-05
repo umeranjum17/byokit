@@ -57,7 +57,10 @@ export function reconcileConfig(saved: object | undefined, o: {
   c.plugins.load ??= {};
   c.plugins.load.paths = [...new Set([...(c.plugins.load.paths ?? []).filter((p: string) => !p.includes('byokit-openclaw-bridge')), o.pluginDir])];
   c.plugins.allow = [...new Set([...(c.plugins.allow ?? []), o.pluginId,
-    ...routes().filter(route => route.offer && route.plugin).map(route => route.plugin)])];
+    // Every default-eligible bundled route, not only the ready ones: anthropic-cli waits on its binary and
+    // shares its plugin with the explicit apiKey route, so neither may depend on another route being offered.
+    ...routes().filter(route => route.offerPolicy === 'default' && !route.needs?.plugin && route.plugin)
+      .map(route => route.plugin)])];
   c.plugins.entries ??= {};
   c.plugins.entries[o.pluginId] = merge(c.plugins.entries[o.pluginId] ?? {}, { hooks: { timeouts: { before_tool_call: 200_000 } } });
   if (o.browser) {
