@@ -3,7 +3,7 @@
 # (fm-device-lock.sh <serial> sh ./bench-infer.sh <serial>): it refuses to start, or to send any input, unless its own
 # fd 9 is that lock and still held; the sampler and logcat are its children and die with it. Lab app only: install, start, tap, screenshot, logcat of its own JS/Nano tags,
 # meminfo of the app and of AICore (Nano runs in AICore's process). Same pane (the PROBE realistic pane) for both.
-#   OUT=bench RUNS=5 ./bench-infer.sh <serial>
+#   OUT=bench RUNS=1 [NANO=0] fm-device-lock.sh <serial> sh ./bench-infer.sh <serial>
 # Needs the release APK built with EXPO_PUBLIC_INFER_DEMO=1 EXPO_PUBLIC_INFER_PROBE=1 and the GGUF model already
 # downloaded (e2e-infer.sh). Each run's speed is written to $OUT/speed.txt as it finishes (bench-speed.mjs). Timings come from logcat: `infer-completion result` (llama.rn timings, firstTokenMs) and
 # `infer-nano-timing` (firstTextMs, totalMs, outputTokens). Memory: app and AICore PSS/RSS plus the phone's MemAvailable
@@ -34,11 +34,11 @@ tap() {
   pressed=$(grep -c "press\.$1\$" "$out/logcat.txt" || true)
   for _ in 1 2 3; do
     xy=$(screen | grep -o "resource-id=\"$1\"[^>]*bounds=\"[^\"]*\"" | bounds)
-    [ -n "$xy" ] || { echo "no $1 on screen: $(words)" >&2; return 1; }
+    [ -n "$xy" ] || { input swipe 540 1800 540 700; sleep 1; continue; }   # a long answer pushes the buttons below the fold
     tap_xy "$xy"; sleep 2
     [ "$(grep -c "press\.$1\$" "$out/logcat.txt" || true)" = "$pressed" ] || return 0
   done
-  echo "$1 tapped 3 times, no press logged: $(words)" >&2; return 1
+  echo "$1 not pressed after 3 tries: $(words)" >&2; return 1
 }
 phase() {
   for _ in $(seq "${2:-60}"); do p=$(text_of infer-phase); case "|$1|" in *"|$p|"*) return;; esac; sleep 1; done
@@ -95,7 +95,9 @@ shot 01-status
 receipt "battery before: $(battery)"
 mark idle; sleep 3
 
-if text_of infer-nano-phase | grep -q ': ready$'; then
+if [ "${NANO:-1}" = 0 ]; then
+  receipt "nano: skipped (NANO=0)"
+elif text_of infer-nano-phase | grep -q ': ready$'; then
   start; phase installed 60; sleep 5
   a shell dumpsys meminfo >"$out/meminfo-system-before-nano.txt"   # Nano's weights may sit outside AICore's PSS (DMA-BUF)
   if run 'nano cold' infer-nano-summarize; then
