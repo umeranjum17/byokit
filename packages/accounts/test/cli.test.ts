@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readlinkSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cliAccounts, nativePiAccount, CliAccountError, type CliProvider } from '../src/cli.ts';
@@ -147,8 +147,11 @@ test('native Claude status resolves at its deadline and reaps a child that ignor
   const pid = claude.calls()[0].pid;
   t.mock.timers.tick(15_000); assert.equal((await pending).state, 'signed_out');
   t.mock.timers.tick(1000);
+  // The escalation SIGKILLs at once, but kill(pid, 0) also succeeds on the dead-but-unreaped zombie until this
+  // process reaps it, so bound the wait on the clock like the spawn wait above instead of a loop count.
   let alive = true;
-  for (let i = 0; i < 1000 && alive; i++) {
+  const reaped = Date.now() + 5000;
+  while (alive && Date.now() < reaped) {
     await new Promise<void>((resolve) => setImmediate(resolve));
     try { process.kill(pid, 0); } catch { alive = false; }
   }
@@ -163,20 +166,33 @@ test('Pi auth-check deadline is bounded and reaps only its owned child', async (
   const root = scratchDir('pi-deadline'); const pi = fake(join(root, 'bins'), 'pi');
   const kit = cliAccounts({ stateDir: join(root, 'plans'), bins: { pi: pi.bin }, env: { HOME: join(root, 'home'), PATH: '/unused', STATUS_MODE: 'hang' } });
   const { account } = await kit.add('pi', { piProvider: 'openai-codex' });
+  // A hung pi this status call did not start: the deadline must never signal a process it does not own.
+  const sibling = spawn(pi.bin, ['auth', 'check', '--provider', 'openai-codex', '--json', '--no-refresh'], { env: { STATUS_MODE: 'hang' }, stdio: 'ignore' });
+  t.after(() => { sibling.kill('SIGKILL'); });
+  const booted = Date.now() + 5000;
+  while (!pi.calls().some(c => c.pid === sibling.pid) && Date.now() < booted) await new Promise<void>(resolve => setImmediate(resolve));
+  assert.ok(pi.calls().some(c => c.pid === sibling.pid), 'the unrelated hung pi is running');
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const pending = kit.status(account.id);
   const end = Date.now() + 5000;
-  while (!pi.calls().length && Date.now() < end) await new Promise<void>(resolve => setImmediate(resolve));
-  assert.equal(pi.calls().length, 1); const pid = pi.calls()[0].pid;
+  while (!pi.calls().some(c => c.pid !== sibling.pid) && Date.now() < end) await new Promise<void>(resolve => setImmediate(resolve));
+  const owned = pi.calls().find(c => c.pid !== sibling.pid);
+  assert.ok(owned, 'the status call started its own child'); const pid = owned.pid;
   t.mock.timers.tick(15_000);
   const result = await pending; assert.equal(result.state, 'signed_out'); assert.equal(result.why, 'unknown');
   t.mock.timers.tick(1000);
   let alive = true;
-  for (let i = 0; i < 1000 && alive; i++) {
+  const reaped = Date.now() + 5000;
+  while (alive && Date.now() < reaped) {
     await new Promise<void>(resolve => setImmediate(resolve));
     try { process.kill(pid, 0); } catch { alive = false; }
   }
-  assert.equal(alive, false);
+  assert.equal(alive, false, 'the owned child is reaped after escalation');
+  let siblingAlive = true;
+  const settle = Date.now() + 500;
+  while (Date.now() < settle) await new Promise<void>(resolve => setImmediate(resolve));
+  try { process.kill(sibling.pid!, 0); } catch { siblingAlive = false; }
+  assert.equal(siblingAlive, true, 'the escalation never signals a process it does not own');
 });
 
 test('legacy bytes, host-owned rows, rollback, cancellation and folder escape rejection', async () => {
