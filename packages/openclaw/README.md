@@ -102,6 +102,9 @@ just to read a final result: on cache eviction that would start another run. App
 recovery. Typed `kit.call('agent', ...)` remains exact upstream pass-through. Details and real-engine proof are
 in [the run contract](../../docs/runtime-kits.md#58-runs-members-and-streams).
 
+Every code route shows its code the same way: a waiting view carries `code`, `url`, `expiresAt` (epoch ms, when
+the engine gives a lifetime) and the engine's own instructions in `message`, including routes whose pinned engine
+prints the code only into a note's text.
 Device approval can take longer than two minutes. The kit waits through the engine's advertised code lifetime
 (`expiresInMinutes` on the pin, or `expires_in` seconds when supplied), including progress pulls. If the engine
 supplies no lifetime, it owns the deadline. Ordinary wizard requests keep their 120-second timeout.

@@ -93,6 +93,8 @@ export type SignInView = {
   via: 'browser' | 'code';
   url?: string;
   code?: string;
+  expiresAt?: number; // epoch ms when `code` expires, when the engine says
+  message?: string; // the engine's instructions shown with `code`
   prompt?: string; // a secret-entry label, never its value
   error?: string;
   why?: 'busy' | 'declined' | 'expired' | 'failed';

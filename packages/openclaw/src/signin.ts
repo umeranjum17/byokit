@@ -25,7 +25,21 @@ const RECONFIRM_MS = 60_000;
 const TURNS = 200;
 const PASTE_MS = 15 * 60_000;
 
-type Step = { id?: string; type?: string; sensitive?: boolean; deviceCode?: { code?: string; expires_in?: number | string; expiresInMinutes?: number }; externalUrl?: string };
+type DeviceCode = { code?: string; expires_in?: number | string; expiresInMinutes?: number; message?: string };
+type Step = { id?: string; type?: string; sensitive?: boolean; message?: string; deviceCode?: DeviceCode; externalUrl?: string };
+
+// Two of the pin's code routes print their code only into a note's text ("Code: X" with
+// "Code expires in N minutes", or "enter the code X." with "Expires at: <ISO>"), never as `deviceCode`.
+// Read it back so every code route reaches the caller in the one structured shape.
+const noteCode = (step: Step): DeviceCode | undefined => {
+  const text = step.type === 'note' ? step.message ?? '' : '';
+  const code = /^Code: (\S+)$/m.exec(text)?.[1] ?? /enter the code (\S+?)\.?$/m.exec(text)?.[1];
+  if (!code) return undefined;
+  const minutes = /Code expires in (\d+) minutes/.exec(text)?.[1];
+  const at = Date.parse(/Expires at: (\S+)/.exec(text)?.[1] ?? '');
+  return { code, message: text, ...(minutes ? { expiresInMinutes: Number(minutes) }
+    : Number.isFinite(at) ? { expires_in: Math.max(0, Math.floor((at - Date.now()) / 1_000)) } : {}) };
+};
 type Pull = { done?: boolean; status?: string; error?: string; step?: Step };
 
 const cut = (value: unknown): string => (value instanceof Error ? value.message : String(value)).slice(0, 200);
@@ -263,19 +277,21 @@ export function signIn(
       const current = step;
       step = undefined;
       if (current.type === 'text' && current.sensitive) sensitive = true;
-      if (current.deviceCode && current.type !== 'text') {
+      const deviceCode = current.type === 'text' ? undefined : current.deviceCode ?? noteCode(current);
+      if (deviceCode) {
         stopApproval();
         approval = true;
         sawDeviceCode = true;
         // The pin converts its provider duration to minutes. Prefer exact seconds if the engine supplies them.
-        const duration = current.deviceCode.expires_in !== undefined
-          ? Number(current.deviceCode.expires_in) * 1_000
-          : Number(current.deviceCode.expiresInMinutes) * 60_000;
-        if (Number.isFinite(duration) && duration >= 0) {
-          codeTimer = setTimeout(() => { codeExpired = true; owner.abort(); }, duration);
-        }
+        const duration = deviceCode.expires_in !== undefined
+          ? Number(deviceCode.expires_in) * 1_000
+          : Number(deviceCode.expiresInMinutes) * 60_000;
+        const timed = Number.isFinite(duration) && duration >= 0;
+        if (timed) codeTimer = setTimeout(() => { codeExpired = true; owner.abort(); }, duration);
+        const message = deviceCode.message ?? current.message;
         // The code is on the card; acknowledging it lets the engine poll the provider itself.
-        say({ ...(current.deviceCode.code ? { code: current.deviceCode.code } : {}), ...(current.externalUrl ? { url: current.externalUrl } : {}) });
+        say({ ...(deviceCode.code ? { code: deviceCode.code } : {}), ...(current.externalUrl ? { url: current.externalUrl } : {}),
+          ...(timed ? { expiresAt: Date.now() + duration } : {}), ...(message ? { message } : {}) });
         const next = await answer(current);
         if (next.done) { terminal = next; break; }
         step = next.step;
