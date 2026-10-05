@@ -399,7 +399,7 @@ and all usage RPCs remain available; no new engine API or patch build seam is cr
 ```ts
 export type KitOptions = {
   stateDir: string;
-  authSeal?: SealingAdapter;                       // @byokit/secrets seal: engine state/home sealed while stopped
+  authSeal?: SealingAdapter;                       // @byokit/secrets seal: credential state (state tree + home config/credentials) sealed while stopped
   engineDir?: string;                    // default join(stateDir, 'openclaw', 'engine')
   npmPath?: string;                      // default: 'npm' found on PATH (the only env read, D13)
   enginePath?: string[];                 // extra dirs appended to the engine's PATH ('/usr/bin:/bin')
@@ -688,8 +688,12 @@ replacement decrypts to the same text, then atomically replace under their write
 on, reading a keyring-only store while unlocked upgrades it; failure leaves the previous store usable.
 Successful reads adopt the store mode for writes. Locked dual updates reuse authenticated encrypted
 wrapping metadata with fresh payload nonces; plaintext keys are not cached. The pinned engine has no supported OAuth persistence hook: it stores JSON in both
-agent SQLite and the shared state SQLite database. The kit seals the complete isolated `state` and `home`
-directories, including SQLite journals, at rest. File symlinks are included only when their fully resolved
+agent SQLite and the shared state SQLite database. The kit seals credential state only: the complete isolated `state` tree plus every
+config/credential path under `home`, excluding regenerable tool caches, transcripts and logs (the `home/.cache` and `home/.npm` subtrees the
+engine environment pins, and the `sessions`/`log`/`cache`/`.tmp`/`history.jsonl` subtrees of `.codex` and `projects`/`todos`/`shell-snapshots`/`statsig`/`file-history`/`history.jsonl`
+of `.claude`); excluded caches stay on disk unsealed across stops, unknown `home` paths stay sealed, and the sealed payload is built exactly once and
+verified by decrypting the sealed bytes. Snapshots from the pre-caches format (`v: 1`, whole trees) still restore completely and re-seal once as `v: 2`
+with a log line; nothing is dropped. File symlinks are included only when their fully resolved
 targets are regular files inside the isolated engine root; they restore as regular files at the link paths.
 Outside-root, dangling and directory symlinks (including loops), sockets, FIFOs and devices are skipped.
 `prepare()` seals existing plaintext stores and migration

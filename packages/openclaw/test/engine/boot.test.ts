@@ -6,13 +6,14 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, createPublicKey } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, readdirSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { hostKeySeal } from '@byokit/secrets';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { OpenClawKit } from '../../src/kit.ts';
+import { cached } from '../../src/auth-store.ts';
 import { Engine } from '../../src/engine.ts';
 import { pidAlive } from '../../src/engine-status.ts';
 import { gatewayTransport } from '../../src/transport.ts';
@@ -71,8 +72,17 @@ setInterval(() => {}, 1000);
     assert.match(readFileSync(join(stateDir, 'logs', 'openclaw.log'), 'utf8'), /SIGTERM/, 'the real engine handled graceful termination');
     assert.equal(readFileSync(marker, 'utf8'), 'retained-store');
     await kit.stop();
-    assert.equal(existsSync(join(root, 'home')), false);
+    // At rest only regenerable caches may remain under `home`; the sealed canary itself is gone.
+    assert.equal(existsSync(marker), false);
     assert.equal(existsSync(join(root, 'state')), false);
+    if (existsSync(join(root, 'home'))) {
+      for (const entry of readdirSync(join(root, 'home'), { recursive: true, withFileTypes: true })) {
+        if (entry.isFile()) {
+          const name = relative(join(root, 'home'), join(entry.parentPath, entry.name)).split('\\').join('/');
+          assert.equal(cached(`home/${name}`) || name.split('/').slice(0, -1).some((_, i) => cached(`home/${name.split('/').slice(0, i + 1).join('/')}`)), true, `only caches stay at rest: ${name}`);
+        }
+      }
+    }
     assert.equal(existsSync(join(root, 'gateway.pid')), false);
     assert.equal(existsSync(join(root, 'auth-store.lock')), false);
     assert.ok(existsSync(join(root, 'auth-store.sealed')));

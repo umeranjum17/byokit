@@ -1,6 +1,8 @@
 // The pin persists OAuth JSON in both shared and agent SQLite. There is no public persistence hook.
-// Seal the complete isolated stores, including journals, only after their writer has exited.
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync, closeSync, fsyncSync, openSync } from 'node:fs';
+// Seal only credential state — the engine's complete `state` tree plus every config/credential path in
+// `home` — never the regenerable tool caches, transcripts and logs a signed-in home accumulates.
+// Sealing those too once produced a snapshot past the runtime string limit and aborted boot.
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, rmdirSync, writeFileSync, closeSync, fsyncSync, openSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { SealingAdapter } from '@byokit/secrets';
 import { EngineAlreadyRunningError, pidAlive as live } from './engine-status.ts';
@@ -32,14 +34,28 @@ function put(path: string, bytes: Uint8Array): void {
     syncDir(dirname(path));
   } finally { rmSync(tmp, { force: true }); }
 }
-type Snapshot = { v: 1; dirs: string[]; files: [string, string][] };
+type Snapshot = { v: 1 | 2; dirs: string[]; files: [string, string][] };
+// Credential state is what restores a working signed-in session. Regenerable tool caches, transcripts
+// and logs never do: the XDG cache and npm cache homes the kit's engine environment pins, plus the
+// transcript/log/cache subtrees of the Codex and Claude Code CLIs it runs in `home`. Unknown paths stay
+// sealed — a credential location we do not know about must fail loudly, never drop silently.
+const HOME_CACHES: Record<string, readonly string[]> = {
+  home: ['.cache', '.npm'],
+  'home/.codex': ['sessions', 'log', 'cache', '.tmp', 'history.jsonl'],
+  'home/.claude': ['projects', 'todos', 'shell-snapshots', 'statsig', 'file-history', 'history.jsonl'],
+};
+/** True for the regenerable cache paths the collector never seals; tests assert these are all that stay at rest. */
+export function cached(name: string): boolean {
+  const parent = name.includes('/') ? name.slice(0, name.lastIndexOf('/')) : '';
+  return (HOME_CACHES[parent] ?? []).includes(name.slice(name.lastIndexOf('/') + 1));
+}
 function safePath(path: unknown): path is string {
   return typeof path === 'string' && /^(state|home)(\/[^/]+)*$/.test(path)
     && !path.split('/').some((part) => part === '.' || part === '..' || part.includes('\\') || part.includes('\0'));
 }
 function snapshot(text: string): Snapshot {
   const s = JSON.parse(text) as Snapshot;
-  if (s?.v !== 1 || !Array.isArray(s.dirs) || !Array.isArray(s.files)) throw new Error('invalid sealed credential store');
+  if ((s?.v !== 1 && s?.v !== 2) || !Array.isArray(s.dirs) || !Array.isArray(s.files)) throw new Error('invalid sealed credential store');
   const paths = new Set<string>();
   for (const path of s.dirs) {
     if (!safePath(path) || paths.has(path)) throw new Error('invalid sealed credential path');
@@ -131,10 +147,11 @@ export class AuthStore {
     return saved;
   }
   private collect(): Snapshot {
-    const s: Snapshot = { v: 1, dirs: [], files: [] };
+    const s: Snapshot = { v: 2, dirs: [], files: [] };
     const root = realpathSync(this.o.root);
     const walk = (path: string) => {
       const name = relative(this.o.root, path).split('\\').join('/');
+      if (cached(name)) return; // tool caches are never credential state; skipping a directory skips its subtree
       const stat = lstatSync(path);
       if (stat.isDirectory()) {
         chmodSync(path, 0o700);
@@ -159,25 +176,45 @@ export class AuthStore {
     for (const dir of ['state', 'home']) if (existsSync(join(this.o.root, dir))) walk(join(this.o.root, dir));
     return s;
   }
+  /** Remove the live credential trees: `state` entirely (it is all credential state, including the
+   *  runtime entries the collector skips), and in `home` exactly the sealed paths — regenerable caches
+   *  and the directories still holding them are left in place. */
+  private remove(s: Snapshot): void {
+    rmSync(join(this.o.root, 'state'), { recursive: true, force: true });
+    for (const [path] of s.files) if (path.startsWith('home/')) rmSync(join(this.o.root, path), { force: true });
+    for (const path of [...s.dirs].sort((a, b) => b.split('/').length - a.split('/').length)) {
+      if (!path.startsWith('home/')) continue;
+      try { rmdirSync(join(this.o.root, path)); }
+      catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== 'ENOTEMPTY' && code !== 'ENOENT') throw error; // a directory still holding caches stays
+      }
+    }
+  }
   private async persist(): Promise<void> {
     if (!this.o.seal) return;
     // Always authenticate an earlier snapshot before considering a leftover live store after a crash.
     const previous = await this.read();
     if (previous && (existsSync(this.cleanup) || existsSync(this.restoring))) {
-      for (const dir of ['state', 'home']) rmSync(join(this.o.root, dir), { recursive: true, force: true });
+      this.remove(previous);
       removeMarker(this.cleanup);
       removeMarker(this.restoring);
       this.o.log?.('interrupted credential transition recovered');
     }
-    const hasLive = ['state', 'home'].some((dir) => existsSync(join(this.o.root, dir)));
-    if (!hasLive && previous) return;
-    const text = JSON.stringify(this.collect());
-    const sealed = this.o.seal.encryptString(text);
-    if (this.o.seal.decryptString(Buffer.from(sealed)) !== text) throw new Error('credential seal verification failed');
+    const saved = this.collect();
+    // Live trees with nothing sealable are debris (crash leftovers, or only the caches a previous stop
+    // left in place) — keep the sealed credentials instead of replacing them with an empty snapshot.
+    // A running engine always leaves files behind (its SQLite stores), so a genuine sign-out still re-seals.
+    if (!saved.files.length && previous) return;
+    // The payload is built exactly once; verification decrypts the sealed bytes and compares to it.
+    const payload = JSON.stringify(saved);
+    const sealed = this.o.seal.encryptString(payload);
+    if (this.o.seal.decryptString(Buffer.from(sealed)) !== payload) throw new Error('credential seal verification failed');
     put(this.file, sealed);
-    if (this.o.seal.decryptString(readFileSync(this.file)) !== text) throw new Error('credential seal verification failed');
+    if (this.o.seal.decryptString(readFileSync(this.file)) !== payload) throw new Error('credential seal verification failed');
+    if (previous?.v === 1) this.o.log?.('sealed credential store re-sealed: tool caches no longer sealed');
     put(this.cleanup, encoder.encode('1'));
-    for (const dir of ['state', 'home']) rmSync(join(this.o.root, dir), { recursive: true, force: true });
+    this.remove(saved);
     removeMarker(this.cleanup);
   }
 

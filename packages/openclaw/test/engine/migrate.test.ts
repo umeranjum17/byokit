@@ -6,9 +6,10 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { connect } from 'node:net';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { hostKeySeal, type SealingAdapter } from '@byokit/secrets';
+import { cached } from '../../src/auth-store.ts';
 import { Engine } from '../../src/engine.ts';
 import { gatewayTransport } from '../../src/transport.ts';
 import { migrateRetainedLogin, confirmRetainedLogin } from '../../src/migrate.ts';
@@ -95,7 +96,19 @@ test('a sealed preserved sign-in survives doctor, gateway, stop and restart with
     assert.ok((await providers(ctx, 'm1')).includes('openai'), 'the canonical provider is signed in — no second login asked');
     await stop(home);
     assert.equal(existsSync(join(home.engine.root, 'state')), false);
-    assert.equal(existsSync(join(home.engine.root, 'home')), false);
+    // At rest only regenerable caches may remain under `home`; every sealed credential path is gone.
+    const remaining = (dir: string): string[] => {
+      if (!existsSync(dir)) return [];
+      return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        const path = join(dir, entry.name);
+        return entry.isDirectory() ? remaining(path) : [relative(home.engine.root, path).split('\\').join('/')];
+      });
+    };
+    for (const name of remaining(join(home.engine.root, 'home'))) {
+      const parts = name.split('/');
+      const excluded = cached(name) || parts.slice(0, -1).some((_, i) => cached(parts.slice(0, i + 1).join('/')));
+      assert.equal(excluded, true, `only caches stay at rest: ${name}`);
+    }
     const plaintext = (dir: string): void => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         if (entry.name === 'engine' || entry.name === 'npm-cache') continue;
