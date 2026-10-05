@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 0.6.2 (2026-10-05)
+
+FIX: The browser broker now holds its CDP endpoint back until Chromium's initial tab exists, so `/json/list` can never serve an empty browser to an attaching engine on a cold or slow start; a browser that never lists a tab fails the launch honestly instead.
+- Remove the fake Gateway's own happy-path self-tests for default member/auth and the device-code wizard script from `test/fake.test.ts`. They asserted the synthetic fixture's own response shapes and exact number of progress pulls, not product behaviour. Member creation, caching and validation, device-code sign-in through `kit.signIn`/`kit.signedIn`, `health` pass-through and sign-out remain covered by the shared public consumer contract (`src/testing/contract.ts`) and the packed Chromium journey in `examples/openclaw-kit/e2e.test.ts`. Every negative, cancellation, denial, gate, drop and refusal assertion is kept unchanged, and no test was added.
+- The quickstart's example output is what the example actually prints today: the offered-route list was stale
+  (it still showed `anthropic-cli` and a browser `setup-token` and missed `opencode-go`). The block is now the
+  real output of the runnable fake-Gateway example, followed by a "read next" pointer to the run contract, the
+  kit example and SECURITY.md.
+FIX: The sealed credential store now seals credential state only — the complete `state` tree plus config/credential paths under `home` — instead of the whole engine home, so a real signed-in home with tool caches no longer produces a sealed payload past the runtime string limit and aborts boot. Regenerable caches, transcripts and logs (`home/.cache`, `home/.npm`, and the `sessions`/`log`/`cache`/`.tmp`/`history.jsonl` subtrees of `.codex`, the `projects`/`todos`/`shell-snapshots`/`statsig`/`file-history`/`history.jsonl` subtrees of `.claude`) stay on disk unsealed; unknown `home` paths stay sealed. The sealed payload is built exactly once and verified by decrypting the sealed bytes. Existing `v: 1` snapshots still restore completely and re-seal once as `v: 2` with a log line; no credential is ever dropped.
+- Every type an entry hands a caller is now nameable from that entry, and none of them carries `any`.
+  `.` exports `GatewayMethods`, `RouteView`, `RouteFacts`, `JsonValue`, `UsageClient` and `DayUsageClient`;
+  `./device` exports `OpenClawDevice` and `DeviceEndFrame`; `./link` exports `OpenClawLinkOptions`,
+  `OpenClawLinkHost`, `OpenClawServeOptions` and `OpenClawServeHandle`; `./testing` exports `FakeGateway`,
+  `FakeHandler`, `FakeParams` and `StubRequest`, types `fakeGateway`'s script per method, and records each
+  stubbed request as a typed `StubRequest` instead of `any`. An app can write its own generic wrapper over
+  `call` and annotate what `routes()`, `openclawDevice()` and `openclawLink()` return without a cast. The
+  Gateway slots the pinned engine does not declare stay `unknown` and are listed per release in
+  `src/generated/report.json`; the README now says so beside the API table.
+
 ## 0.6.1 (2026-10-04)
 
 FIX: Let apps declare `appOwnedSessions.keyPrefixes` before Gateway startup so caller-requeued task sessions do not also receive an engine-started recovery turn. Preserve session history, policy gates, API-key session mapping and stock recovery for other namespaces.

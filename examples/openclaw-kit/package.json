@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@byokit/link": "0.7.0",
-    "@byokit/openclaw": "0.6.1",
+    "@byokit/openclaw": "0.6.2",
     "@byokit/reach": "0.6.0",
     "@byokit/seal": "0.3.0",
     "@byokit/ui-core": "0.6.0"
