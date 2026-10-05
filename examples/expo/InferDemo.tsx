@@ -105,6 +105,7 @@ const nanoBinding: NanoBinding | undefined = nanoNative ? {
       const tokens = (q: NanoRequest) => nanoNative.countTokens(q).then(c => c.totalTokens, () => -1);
       console.info(`infer-nano-timing ${JSON.stringify({ ...nanoNative.lastTiming(), inputTokens: await tokens(r), outputTokens: await tokens({ text }),
         systemChars: r.systemInstruction?.length ?? 0, promptChars: r.text.length, finishReason: out.candidates[0]?.finishReason })}`);
+      void captureCompletion({ kind: 'nano-result', text });  // the raw answer, so a rejected summary can be explained
     }
     return out;
   },
