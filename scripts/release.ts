@@ -649,6 +649,9 @@ function cmdPublish(rest: string[]): void {
           throw new Error(`${d}: CHANGELOG has no non-empty ## ${v} section`);
         }
       }
+      // A stale node_modules is an environment fault, not a release fault: install the workspace clean
+      // first, and let a failed install stop the publish instead of being read as one of the gates.
+      sh("npm", ["ci"], { stdio: "inherit" });
       sh("npm", ["run", "build"], { stdio: "inherit" });
       // tsc -b never deletes stale outputs, so start from a clean dist.
       for (const p of workspacePackages()) {

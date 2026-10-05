@@ -2,10 +2,10 @@
 # Every test runs in a throwaway HOME, and the real ~/.pi (its sign-ins, settings, models and extensions) must come out
 # of the run byte for byte as it went in. Its sessions are left out: a running pi writes those on its own.
 set -eu
-# Each invocation owns a short scratch folder, even if callers share TMPDIR.
-# Set it before any helper scans scratch so cleanup and leak detection cannot
-# see another run's files. With the default parent this is /tmp/bt.XXXXXX.
-scratch_parent=$(node -p 'require("node:os").tmpdir()')
+# Each invocation owns a short scratch folder, even if callers share TMPDIR, and it is created
+# directly under /tmp rather than under an inherited TMPDIR or another mktemp level: a deep parent
+# overflows Unix socket paths (EINVAL on listen) and reads as a product failure, not an environment one.
+scratch_parent=/tmp
 run_tmp=$(mktemp -d "$scratch_parent/bt.XXXXXX")
 export TMPDIR="$run_tmp"
 # The EXIT trap below invokes this function indirectly.
