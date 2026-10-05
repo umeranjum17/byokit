@@ -160,7 +160,7 @@ doesn't answer other web pages), so a PWA's model calls go through the app's own
 
 ## Catalogue and billing
 
-`catalogue.json` holds each provider's billing (`subscription`, `api`), models and source.
+`catalogue.json` holds each provider's billing (`subscription`, `api`), models, source, and RFC 8628 device data (`device`) where the provider offers it.
 All subscription rows are offered by default on platforms that support their sign-in. API-billed rows
 are offered only when the app names them. An explicit `offer` list is not platform-filtered.
 The `Provider` shape no longer has `terms`, `hidden` or `why`, and `Terms` is no longer exported.
