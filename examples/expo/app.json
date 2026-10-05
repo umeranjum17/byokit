@@ -65,7 +65,8 @@
           "ios": {}
         }
       ],
-      "./icon-plugin.cjs"
+      "./icon-plugin.cjs",
+      "./gradle-heap-plugin.cjs"
     ]
   }
 }
