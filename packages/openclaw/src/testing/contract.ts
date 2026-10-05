@@ -15,10 +15,18 @@ import { releaseStub, stubHolding, type ModelStub } from './model-stub.ts';
 
 export type ContractFixture = { kit: OpenClawKit; model?: ModelStub; peer?: { request(method: string, params?: unknown): Promise<unknown> } };
 
-// The generated method table arrives with O2; until then kit.call's typed surface accepts no method names, so the
-// suite drives pass-through through this string-typed view of the same runtime path.
-const call = (kit: OpenClawKit, method: string, params?: unknown): Promise<any> =>
-  (kit as unknown as { call(m: string, p?: unknown): Promise<any> }).call(method, params);
+/** The contract drives pass-through by method name, so results arrive untyped and are narrowed per case. */
+const call = (kit: OpenClawKit, method: string, params?: unknown): Promise<unknown> =>
+  (kit as unknown as { call(m: string, p?: unknown): Promise<unknown> }).call(method, params);
+
+/** The `config.get` snapshot the memory-invariant case asserts on. */
+type ConfigSnapshot = {
+  hash: string;
+  config: {
+    memory: { search: { provider: string; fallback: string } };
+    agents: { entries: Record<string, { memory: { search: { provider: string } } }> };
+  };
+};
 
 const REQUIRED_METHODS = [
   'agent', 'agent.wait', 'agents.create', 'agents.list', 'chat.abort', 'config.get', 'config.patch',
@@ -240,11 +248,11 @@ export function openclawContract(make: () => Promise<ContractFixture>, o?: { ski
     const { kit } = await make();
     try {
       await kit.patchConfig({ memory: { search: { provider: 'openai', fallback: 'openai' } } });
-      const config = await call(kit, 'config.get');
+      const config = await call(kit, 'config.get') as ConfigSnapshot;
       assert.equal(config.config.memory.search.provider, 'none');
       assert.equal(config.config.memory.search.fallback, 'none');
       await kit.patchConfig({ agents: { entries: { m1: { memory: { search: { provider: 'openai' } } } } } });
-      const after = await call(kit, 'config.get');
+      const after = await call(kit, 'config.get') as ConfigSnapshot;
       assert.equal(after.config.agents.entries.m1.memory.search.provider, 'none');
     } finally {
       await kit.stop();

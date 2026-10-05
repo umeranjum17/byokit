@@ -35,7 +35,8 @@ export type OpenClawLinkEvent =
 /** One `oc.sessions` row: `sessions.list` filtered to the member's `agent:<member>:` keys. */
 export type SessionRow = { sessionKey: string; [k: string]: unknown };
 
-type EndFrame<T = unknown> = { type: 'end'; end: RunEnd<T> };
+/** The frame `oc.run`'s stream ends with: the run's `RunEnd`, beside its events. */
+export type DeviceEndFrame<T = unknown> = { type: 'end'; end: RunEnd<T> };
 
 /** `oc.run`'s options beside the message: the member's own session, account, and the kit's run options. */
 export type DeviceRunOptions<S extends OutputSchema | undefined = OutputSchema | undefined> = {
@@ -331,7 +332,8 @@ export function browserDevice(link: DeviceLink): BrowserDevice {
   };
 }
 
-export function openclawDevice(link: DeviceLink): {
+/** `openclawDevice`'s device surface: every `oc.*` op the computer answers, typed. */
+export type OpenClawDevice = {
   browser: BrowserDevice;
   state(): Promise<DeviceState>;
   routes(): Promise<RouteView[]>;
@@ -343,7 +345,8 @@ export function openclawDevice(link: DeviceLink): {
   };
   signOut(p: string): Promise<void>;
   sessions(): Promise<SessionRow[]>;
-  run<const S extends OutputSchema | undefined = undefined>(message: string, o?: DeviceRunOptions<S>): AsyncIterable<RunEvent | EndFrame<SchemaOutput<S>>>;
+  run<const S extends OutputSchema | undefined = undefined>(message: string, o?: DeviceRunOptions<S>):
+    AsyncIterable<RunEvent | DeviceEndFrame<SchemaOutput<S>>>;
   steer(k: string, t: string, o?: { auth?: 'apiKey' }): Promise<void>;
   abort(k: string, o?: { auth?: 'apiKey' }): Promise<void>;
   approvals(): Promise<Approval[]>;
@@ -353,7 +356,9 @@ export function openclawDevice(link: DeviceLink): {
   openNotice(data: Record<string, unknown>, seed: Uint8Array): Approval | null;
   call<M extends GatewayMethod>(method: M, params: GatewayParams<M>): Promise<GatewayResult<M>>;
   callDynamic(method: string, params?: unknown): Promise<unknown>;
-} {
+};
+
+export function openclawDevice(link: DeviceLink): OpenClawDevice {
   return {
     browser: browserDevice(link),
     state: () => link.request('oc.state') as Promise<DeviceState>,
@@ -389,18 +394,18 @@ export function openclawDevice(link: DeviceLink): {
         [Symbol.asyncIterator]() {
           const it = inner[Symbol.asyncIterator]();
           return {
-            next: async (): Promise<IteratorResult<RunEvent | EndFrame<SchemaOutput<S>>>> => {
+            next: async (): Promise<IteratorResult<RunEvent | DeviceEndFrame<SchemaOutput<S>>>> => {
               if (finished) return { value: undefined, done: true };
               const frame = await it.next();
               if (frame.done) return { value: undefined, done: true };
               if (isRecord(frame.value) && frame.value.type === 'end') {
                 finished = true;
                 await it.return?.();
-                return { value: frame.value as EndFrame<SchemaOutput<S>>, done: false };
+                return { value: frame.value as DeviceEndFrame<SchemaOutput<S>>, done: false };
               }
               return { value: frame.value as RunEvent, done: false };
             },
-            return: async (): Promise<IteratorResult<RunEvent | EndFrame<SchemaOutput<S>>>> => {
+            return: async (): Promise<IteratorResult<RunEvent | DeviceEndFrame<SchemaOutput<S>>>> => {
               finished = true;
               await it.return?.();
               return { value: undefined, done: true };

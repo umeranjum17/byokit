@@ -13,12 +13,16 @@ import type {
   Decision,
   GatewayEventName,
   GatewayMethod,
+  GatewayMethods,
   GatewayTransport,
   GateResult,
   Hello,
+  JsonValue,
   KitState,
   Member,
   Route,
+  RouteFacts,
+  RouteView,
   RunEnd,
   RunEvent,
   RunSpec,
@@ -26,7 +30,10 @@ import type {
   ToolHost,
   ToolSpec,
 } from '../src/index.ts';
-import type { RetainedLogin } from '../src/kit.ts';
+import { OpenClawKit, type RetainedLogin } from '../src/kit.ts';
+import type { OpenClawDevice, DeviceEndFrame } from '../src/device.ts';
+import type { OpenClawLinkHost, OpenClawLinkOptions, OpenClawServeHandle, OpenClawServeOptions } from '../src/link.ts';
+import type { FakeGateway, FakeHandler, FakeParams, StubCall, StubRequest } from '../src/testing/index.ts';
 
 test('the `.` entry exports the kit, the pins and the operator scopes (5.3, D4, D6)', () => {
   assert.equal(typeof kit.OpenClawKit, 'function');
@@ -63,6 +70,29 @@ test('the documented type names compile from the `.` entry (5.2, 5.3)', () => {
 test('the `./device` entry exports the device client and the portable notice opener (7.2, 7.3)', () => {
   assert.equal(typeof device.openclawDevice, 'function');
   assert.equal(typeof device.openNotice, 'function');
+});
+
+test('every type the entries hand a caller is nameable from its own entry, and none carries `any`', () => {
+  // A caller annotates what an entry returns instead of inferring it or casting it.
+  const facts: RouteFacts = { platform: 'rn', host: false };
+  const view: RouteView = new kit.OpenClawKit({ stateDir: '.' }).routes()[0]!;
+  const json: JsonValue = { ok: [1, 'two', null] };
+  const params: GatewayMethods['agents.create']['params'] = { name: 'ana', workspace: '/w' };
+  const end: DeviceEndFrame<{ ok: boolean }> = { type: 'end', end: { ok: true, text: 'hi', data: { ok: true } } };
+  const client: OpenClawDevice = device.openclawDevice({} as never);
+  const linkOptions: OpenClawLinkOptions = { memberOf: () => undefined };
+  const linkHost: OpenClawLinkHost | undefined = undefined;
+  const serveOptions: OpenClawServeOptions | undefined = undefined;
+  const serveHandle: OpenClawServeHandle | undefined = undefined;
+  // The fake's script is typed per method, and its recorded call is a typed request, never `any`.
+  const scripted: FakeHandler<'agents.list'> = () => ({ defaultId: 'main' });
+  const fakeParams: FakeParams<'agents.create'> = { name: 'ana', workspace: '/w' };
+  const body: StubRequest = { model: 'test', messages: [{ role: 'user', content: 'hi' }] };
+  const recorded: StubCall = { authorization: 'Bearer x', path: '/v1/chat/completions', body };
+  const fake: FakeGateway | undefined = undefined;
+  // The kit's own generic wrapper writes once, over the published tables.
+  const forward = async <M extends GatewayMethod>(k: OpenClawKit, method: M, p: kit.GatewayParams<M>): Promise<kit.GatewayResult<M>> => k.call(method, p);
+  void [view, json, params, end, client, linkOptions, linkHost, serveOptions, serveHandle, scripted, fakeParams, recorded, fake, forward];
 });
 
 test('`.` and `./device` both export the kit\'s words (5.14)', () => {

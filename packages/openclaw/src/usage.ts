@@ -73,9 +73,11 @@ export function agentUsageOf(raw: unknown, member: Member, window: UsageWindow, 
 }
 
 /** Works with kit.call or the portable device.call; retains the complete existing pass-through. RPC errors reject. */
-export async function readAgentUsage(client: {
+/** What `readAgentUsage` needs from a reader: the kit (`call`) or a device (`callDynamic` + `call`) both fit. */
+export type UsageClient = {
   call(method: 'sessions.usage', params: SessionsUsageParams, options?: CallOptions): Promise<unknown>;
-}, member: Member, window: UsageWindow, options?: CallOptions): Promise<AgentUsageReading> {
+};
+export async function readAgentUsage(client: UsageClient, member: Member, window: UsageWindow, options?: CallOptions): Promise<AgentUsageReading> {
   validate(member, window);
   const raw = await client.call('sessions.usage', { agentId: member, startDate: window.startDate, endDate: window.endDate, mode: 'utc', groupBy: 'instance', limit: 1 }, options);
   return agentUsageOf(raw, member, window);

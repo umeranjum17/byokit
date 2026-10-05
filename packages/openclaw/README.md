@@ -319,12 +319,23 @@ Entries:
 | `OpenClawKit` (`.`) | Prepares, starts, supervises and stops the engine. `call` / `callDynamic` pass through to the Gateway, `onEvent` listens. Helpers: `ensureMember`, `routes`, `providers`, `signedIn`, `signIn`, `signOut`, `migrateRetainedLogin`, `confirmRetainedLogin`, `toolNames`, `run`, `steer`, `abort`, `approvals`, `onApproval`, `decide`, `allowOnce`, `disallowOnce`, `patchConfig`, `getConfigKey`, `setConfigKey`, `memoryLimited`, `doctorContext` |
 | `ENGINE_VERSION`, `PROTOCOL_VERSION`, `OPERATOR_SCOPES` (`.`) | The pinned engine version, its protocol and the operator scopes the kit connects with |
 | `KitOptions`, `RunSpec`, `RunEvent`, `RunEnd`, `RunUsage`, `PlanWindow`, `Route`, `Approval`, `Decision`, `ToolSpec`, `ToolHost`, `KitState`, ... (`.`) | Public types (docs/runtime-kits.md §5.2) |
-| `openclawDevice(link)` (`./device`) | Portable client: state, routes, sign-in, runs, steer, abort, approvals, events, sealed notices, pass-through `call` |
+| `GatewayMethods`, `GatewayMethod`, `GatewayParams`, `GatewayResult`, `GatewayEventName`, `GatewayEventPayload` (`.`) | The generated pass-through tables, so an app can write its own generic wrapper over `call` / `onEvent` once |
+| `RouteView`, `RouteFacts`, `JsonValue`, `UsageClient`, `DayUsageClient` (`.`) | The types `routes()`, `routes(facts)` and the usage readers return or take, nameable without a cast |
+| `openclawDevice(link)` (`./device`) | Portable client: state, routes, sign-in, runs, steer, abort, approvals, events, sealed notices, pass-through `call`. `OpenClawDevice` and `DeviceEndFrame` name what it returns |
 | `LinkRefused`, `openNotice` (`./device`) | The host's own refusal as an error; opens a sealed approval notice |
 | `words`, `stateWords`, `toAccountView` (`.`, `./device`) | The kit's sentences, so a phone shows the words the computer does; `toAccountView` feeds `@byokit/ui-core`'s `phaseOf` |
-| `openclawLink(kit, o)` (`./link`) | `handle` / `stream` / `allow` for a `@byokit/link` `Host`, checked per member, plus `onAction` for relay push actions |
-| `serve(o)` (`./link`) | Binds the link host per reach and returns its URLs |
-| `fakeGateway`, `openclawContract`, `startModelStub`, `useModelStub` (`./testing`) | In-memory Gateway, the contract suite and the scripted model for tests |
+| `openclawLink(kit, o)` (`./link`) | `handle` / `stream` / `allow` for a `@byokit/link` `Host`, checked per member, plus `onAction` for relay push actions. `OpenClawLinkOptions` / `OpenClawLinkHost` name both sides |
+| `serve(o)` (`./link`) | Binds the link host per reach and returns its URLs (`OpenClawServeOptions` / `OpenClawServeHandle`) |
+| `fakeGateway`, `openclawContract`, `startModelStub`, `useModelStub` (`./testing`) | In-memory Gateway, the contract suite and the scripted model for tests. `fakeGateway`'s script is typed per method (`FakeScript`, `FakeHandler`), and a recorded `StubCall` carries a typed `StubRequest` |
+
+### What the pass-through cannot type
+
+Every method and event the pin publishes has a real type: `kit.call('sessions.list', params)` is checked in and
+returns the engine's declared result, with no cast. For the slots the pin itself leaves undeclared the table stays
+`unknown`, and `src/generated/report.json` names every one of them per release. On `openclaw@2026.8.1` that is 301
+of 393 methods' params and 192 of their results, plus 21 of 55 event payloads; the other slots are not missing from
+the kit, they are not published by the engine, and typing them here would be a guess that does not match the
+gateway. `callDynamic` stays the same shape for a method the pin never declared.
 
 ## Owned browser (unqualified handoff)
 
