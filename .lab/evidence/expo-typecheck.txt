@@ -1,2 +1,0 @@
-npm notice run byokit-expo@1.0.0 typecheck
-npm notice run tsc --noEmit
