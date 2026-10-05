@@ -274,6 +274,79 @@ setInterval(() => {}, 1000);
   }
 });
 
+// pidAlive portability: macOS has no /proc, so a dead-but-unreaped guard must read stale
+// via ps there exactly as it does via /proc on Linux — while a live pid is never stolen.
+test('pidAlive is portable: macOS zombies read stale, live pids are never stolen', async (t) => {
+  await t.test('invalid guard reads alive on every platform branch', () => {
+    for (const bad of [0, -1, 1.5, NaN, Number.MAX_SAFE_INTEGER + 1]) {
+      assert.equal(pidAlive(bad, 'darwin'), true, `guard ${String(bad)} is ambiguous, never stale (macOS probe)`);
+      assert.equal(pidAlive(bad, 'linux'), true, `guard ${String(bad)} is ambiguous, never stale (Linux probe)`);
+    }
+    assert.equal(pidAlive(0), true, 'invalid guard stays alive on the host probe');
+  });
+
+  const live = spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { stdio: 'ignore' });
+  const livePid = live.pid;
+  assert.ok(livePid);
+  try {
+    await t.test('a live pid reads alive, including through the macOS probe', () => {
+      assert.equal(pidAlive(livePid), true, 'live pid stays alive (host probe)');
+      assert.equal(pidAlive(livePid, 'linux'), true, 'live pid stays alive (Linux /proc probe)');
+      assert.equal(pidAlive(livePid, 'darwin'), true, 'live pid stays alive (macOS probe runs real ps here)');
+    });
+
+    await t.test('a zombie reads stale through the macOS probe', (st) => {
+      st.mock.method(childProcess, 'spawnSync', (() => ({ stdout: 'Z+\n' })) as any);
+      syncBuiltinESMExports();
+      try {
+        assert.equal(pidAlive(livePid, 'darwin'), false, 'ps Z state is dead-but-unreaped, not a writer');
+      } finally { st.mock.restoreAll(); syncBuiltinESMExports(); }
+    });
+
+    await t.test('the macOS probe never reads /proc and tolerates ps trouble', (st) => {
+      const originalRead = fs.readFileSync;
+      const procReads: string[] = [];
+      const tripwire = (...args: any[]): any => {
+        if (typeof args[0] === 'string' && args[0].startsWith('/proc/')) {
+          procReads.push(args[0]);
+          throw new Error('no /proc on this platform');
+        }
+        return (originalRead as (...call: any[]) => any)(...args);
+      };
+      st.mock.method(fs, 'readFileSync', tripwire as typeof fs.readFileSync);
+      syncBuiltinESMExports();
+      try {
+        assert.equal(pidAlive(livePid, 'darwin'), true, 'live pid stays alive with no /proc read');
+        assert.deepEqual(procReads, [], 'the macOS probe never touches /proc');
+        for (const [name, stdout] of [['empty', ''], ['garbage', '???\n']] as const) {
+          st.mock.method(childProcess, 'spawnSync', (() => ({ stdout })) as any);
+          syncBuiltinESMExports();
+          try {
+            assert.equal(pidAlive(livePid, 'darwin'), true, `${name} ps output keeps the guard`);
+          } finally { st.mock.restoreAll(); syncBuiltinESMExports(); }
+          st.mock.method(fs, 'readFileSync', tripwire as typeof fs.readFileSync);
+          syncBuiltinESMExports();
+        }
+        st.mock.method(childProcess, 'spawnSync', (() => { throw new Error('ps missing'); }) as any);
+        syncBuiltinESMExports();
+        try {
+          assert.equal(pidAlive(livePid, 'darwin'), true, 'ps failure keeps the guard');
+        } finally { st.mock.restoreAll(); syncBuiltinESMExports(); }
+      } finally { st.mock.restoreAll(); syncBuiltinESMExports(); }
+    });
+
+    await t.test('a dead pid reads stale on the host', async () => {
+      const dead = spawn(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore' });
+      assert.ok(dead.pid);
+      await once(dead, 'exit');
+      for (let i = 0; i < 50 && pidAlive(dead.pid); i++) await delay(20);
+      assert.equal(pidAlive(dead.pid), false, 'reaped dead pid releases the guard');
+    });
+  } finally {
+    const exited = once(live, 'exit'); live.kill('SIGKILL'); await exited;
+  }
+});
+
 test('prepare defaults to bridge.sock/__byokit and honors explicit bridge options', async () => {
   const dir = scratchDir('engine-unit');
   try {

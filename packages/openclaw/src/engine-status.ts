@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import type { ChildProcess } from 'node:child_process';
+import { spawnSync, type ChildProcess } from 'node:child_process';
 
 /** Every process the kit itself spawned, held for shutdown by pid. */
 export class StartedProcesses {
@@ -34,15 +34,34 @@ export class EngineAlreadyRunningError extends Error {
   }
 }
 
-export function pidAlive(pid: number): boolean {
+export function pidAlive(pid: number, platform: NodeJS.Platform = process.platform): boolean {
   if (!Number.isSafeInteger(pid) || pid < 1) return true; // An invalid guard is ambiguous, never stale.
   try {
     process.kill(pid, 0);
     // An orphan can remain a zombie until its new parent reaps it; it has no writer left.
-    if (process.platform === 'linux') {
+    if (platform === 'linux') {
       const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
       if (stat.slice(stat.lastIndexOf(')') + 2).startsWith('Z ')) return false;
+    } else if (platform !== 'win32' && psReportsZombie(pid)) {
+      // No /proc here (notably macOS): only a definite zombie reads as stale.
+      return false;
     }
     return true;
   } catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
+}
+
+/**
+ * Why ps: `ps -o stat=` exists on macOS and Linux with the same leading-letter state
+ * convention, so a `Z` first letter names the same kernel fact the /proc read names on
+ * Linux. Linux keeps its /proc read (no subprocess, unchanged answers); every other Unix
+ * asks ps. Only positive `Z` evidence flips the answer — a missing ps, an empty reply,
+ * or gibberish keeps the guard, so a reused live pid is never stolen.
+ */
+function psReportsZombie(pid: number): boolean {
+  try {
+    const probed = spawnSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8', timeout: 5000 });
+    return (probed.stdout ?? '').trimStart().startsWith('Z');
+  } catch {
+    return false;
+  }
 }
