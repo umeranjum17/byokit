@@ -1,5 +1,6 @@
 import { InferError } from './types.ts';
 import type { LocalModel } from './model.ts';
+import type { NanoModel } from './nano.ts';
 
 export type PaneSummary =
   | { ok: true; lines: string[]; model: string; ms: number; inputLines: number }
@@ -85,7 +86,7 @@ const SCHEMA = {
  * A fully local 3–4 line summary of a pane. Expected outcomes come back as `ok: false`; an unusable model throws
  * `InferError`; an abort rejects with its supplied reason, or AbortError when unavailable. Cut-off/malformed output is never a summary.
  */
-export async function summarizePane(local: LocalModel, lines: readonly string[], o: PaneSummaryOptions = {}): Promise<PaneSummary> {
+export async function summarizePane(local: LocalModel | NanoModel, lines: readonly string[], o: PaneSummaryOptions = {}): Promise<PaneSummary> {
   const text = paneText(lines, o);
   if (text.join('').replace(/\s/g, '').length < 40) return { ok: false, code: 'not-enough-output' };
   let done;
@@ -114,7 +115,7 @@ export async function summarizePane(local: LocalModel, lines: readonly string[],
 }
 
 /** Retries once with the newer half when the tokenizer says the text does not fit. */
-async function paneTooLarge(local: LocalModel, text: string[], o: PaneSummaryOptions): Promise<PaneSummary> {
+async function paneTooLarge(local: LocalModel | NanoModel, text: string[], o: PaneSummaryOptions): Promise<PaneSummary> {
   if (text.length < 8) throw new InferError('too-large', 'The pane text does not fit the context.');
   return summarizePane(local, text.slice(Math.floor(text.length / 2)), { ...o, maxLines: Math.ceil(text.length / 2) });
 }

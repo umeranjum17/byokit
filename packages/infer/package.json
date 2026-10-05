@@ -1,7 +1,7 @@
 {
   "name": "@byokit/infer",
   "version": "0.1.0",
-  "description": "Text generation on the phone itself: a verified downloaded model, one native context, nothing sent anywhere.",
+  "description": "Text generation on the phone itself: Gemini Nano where present, else a verified downloaded model; nothing sent anywhere.",
   "license": "Apache-2.0",
   "type": "module",
   "repository": { "type": "git", "url": "git+https://github.com/umeranjum17/byokit.git", "directory": "packages/infer" },
