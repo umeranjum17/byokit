@@ -436,8 +436,9 @@ Route data follows the shared account-route vocabulary (D18 in [`docs/runtime-ki
 
 The pinned engine has no supported hook for sealing OAuth profile writes. Its `auth-profiles` loader stores
 credential JSON in agent SQLite databases and a shared state database, and doctor imports leave migration
-archives. `authSeal` therefore protects the complete isolated `state` and `home` directories, including SQLite
-journals. It uses the injected `SealingAdapter` from `@byokit/secrets`. `osKeyringSeal()` automatically
+archives. `authSeal` therefore protects credential state — the complete isolated `state` tree plus
+config/credential paths under `home`, including SQLite journals — while regenerable tool caches,
+transcripts and logs stay on disk unsealed. It uses the injected `SealingAdapter` from `@byokit/secrets`. `osKeyringSeal()` automatically
 uses a persistent private file key for new stores when no non-interactive keyring is available.
 Opening follows the saved envelope's mode. A locked or unresponsive keyring-only store leaves
 `kit.state.phase === 'locked'`: `prepare()` and `start()` resolve, show `stateWords(kit.state)` for
@@ -478,7 +479,8 @@ every retained sealed migration archive before retiring an automatic key. Rotate
 separately; dual-wrap rotation retains old wrapping keys for backups.
 
 Without `authSeal`, engine credentials remain plaintext. With it, successful `prepare()` and `stop()` leave
-only a sealed snapshot, `auth-store.sealed`, for those directories. The adapter authenticates the snapshot
+only a sealed snapshot, `auth-store.sealed`, for the sealed credential paths; regenerable caches stay on
+disk unsealed. The adapter authenticates the snapshot
 before any restoration; a wrong key, tampering, or a missing adapter rejects. Files restored for the engine
 have mode 0600 and directories 0700. File symlinks are sealed only when their fully resolved targets are
 regular files inside the isolated engine root; they restore as regular files at the link paths. Outside-root,
@@ -491,7 +493,8 @@ inspection or a rewritten command line), another host is alive, or shutdown time
 `{ phase: 'failed', why: 'engine-already-running' }`; show `stateWords(kit.state)` and retry after the other
 session stops. Failed-start cleanup and `stop()` on an instance with no ownership preserve the other
 writer's pid, lock, sealed snapshot and live state.
-Sealing copies the whole store through memory, so startup and stop cost grows with session history.
+The sealed payload is built once and verified by decrypting the sealed bytes, so startup and stop cost
+grows with credential state, not session history.
 
 The migration doctor temporarily opens the same store and reseals it even when import fails. Once the gateway
 verifies every provider, `confirmRetainedLogin()` removes the explicitly passed legacy source and writes only

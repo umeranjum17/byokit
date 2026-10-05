@@ -299,11 +299,17 @@ test('prepare defaults to bridge.sock/__byokit and honors explicit bridge option
 });
 
 // An opaque fake: only its in-memory map can recover bytes, and changed ciphertext is rejected.
+// It enforces the runtime keyring secret limit the old whole-home sealing exceeded, so any journey
+// using it fails the moment a payload the sealer must swallow grows past what a signed-in home allows.
+const SEAL_LIMIT = 1024 * 1024;
 function fakeSeal() {
   const values = new Map<string, string>();
   let n = 0;
-  return {
+  const seal = {
+    largest: 0,
     encryptString(text: string) {
+      if (text.length > SEAL_LIMIT) throw new Error('keystore secret is larger than 1 MiB');
+      seal.largest = Math.max(seal.largest, text.length);
       const id = `opaque-${++n}`;
       values.set(id, text);
       return new TextEncoder().encode(id);
@@ -314,6 +320,7 @@ function fakeSeal() {
       return value;
     },
   };
+  return seal;
 }
 
 test('sealed engine store covers SQLite, journals, JSON and isolated home; stop, prepare and restart retain no plaintext at rest', async () => {
@@ -328,11 +335,26 @@ test('sealed engine store covers SQLite, journals, JSON and isolated home; stop,
   for (const name of ['openclaw-agent.sqlite', 'openclaw-agent.sqlite-wal', 'auth-profiles.json']) writeFileSync(join(agent, name), secret);
   writeFileSync(join(engine.root, 'state', 'openclaw.sqlite'), secret);
   writeFileSync(join(engine.root, 'home', '.codex', 'auth.json'), secret);
+  // A real signed-in home carries tool caches far past the seal limit; they must never reach the sealer.
+  const caches: [string, string][] = [
+    ['home/.cache/tool/bin-store.bin', 'x'.repeat(1100 * 1024)],
+    ['home/.npm/_cacache/index-v5', 'npm-index'],
+    ['home/.codex/sessions/rollout-2026-01-01.jsonl', 'codex-transcript'],
+    ['home/.codex/history.jsonl', 'codex-history'],
+    ['home/.claude/projects/-ws/session-1.jsonl', 'claude-transcript'],
+    ['home/.claude/shell-snapshots/bash-snapshot.sh', 'claude-snapshot'],
+  ];
+  for (const [name, content] of caches) { mkdirSync(dirname(join(engine.root, name)), { recursive: true }); writeFileSync(join(engine.root, name), content); }
   await engine.prepare();
   assert.equal(existsSync(join(engine.root, 'state')), false);
-  assert.equal(existsSync(join(engine.root, 'home')), false);
+  for (const [name] of caches) assert.equal(existsSync(join(engine.root, name)), true, `cache left alone: ${name}`);
+  assert.equal(existsSync(join(engine.root, 'home', '.codex', 'auth.json')), false, 'the credential is sealed, not left at rest');
+  assert.ok(seal.largest < SEAL_LIMIT, `sealer payload ${seal.largest} stays under the runtime limit`);
   const sealed = join(engine.root, 'auth-store.sealed');
   assert.equal(readFileSync(sealed).includes(secret), false);
+  const snap = JSON.parse(seal.decryptString(readFileSync(sealed))) as { v: number; files: [string, string][] };
+  assert.equal(snap.v, 2);
+  assert.equal(snap.files.some(([name]) => name.startsWith('home/.cache') || name.startsWith('home/.npm') || name.includes('/sessions/') || name.includes('/projects/')), false, 'caches never enter the sealed payload');
   await engine.prepare(); // must not replace the saved store with newly created empty directories
   await engine.start();
   assert.equal(readFileSync(join(agent, 'openclaw-agent.sqlite-wal'), 'utf8'), secret);
@@ -346,7 +368,8 @@ test('sealed engine store covers SQLite, journals, JSON and isolated home; stop,
   await restarted.start();
   assert.equal(readFileSync(join(agent, 'openclaw-agent.sqlite'), 'utf8'), 'refreshed-token-canary');
   await restarted.stop();
-  assert.equal(existsSync(join(engine.root, 'home')), false);
+  assert.equal(existsSync(join(agent)), false);
+  for (const [name] of caches) assert.equal(existsSync(join(engine.root, name)), true, `cache survives every stop: ${name}`);
   assert.equal(readFileSync(sealed).includes(secret), false);
   await assert.rejects(new Engine({ ...o, authSeal: undefined }).start(), /authSeal required/);
   await restarted.start();
@@ -359,6 +382,23 @@ test('sealed engine store covers SQLite, journals, JSON and isolated home; stop,
   await restarted.start();
   assert.equal(readFileSync(join(agent, 'openclaw-agent.sqlite'), 'utf8'), 'refreshed-token-canary');
   await restarted.stop();
+  // A sealed snapshot from the old whole-home format still restores fully, then re-seals once as v2.
+  const events: string[] = [];
+  writeFileSync(sealed, seal.encryptString(JSON.stringify({ v: 1,
+    dirs: ['home', 'home/.codex', 'home/.cache', 'home/.cache/tool'],
+    files: [['home/.codex/auth.json', Buffer.from('legacy-login').toString('base64')],
+            ['home/.cache/tool/legacy.bin', Buffer.from('legacy-cache').toString('base64')]] })));
+  const upgraded = new Engine({ ...o, log: (line) => events.push(line) });
+  await upgraded.start();
+  assert.equal(readFileSync(join(engine.root, 'home', '.codex', 'auth.json'), 'utf8'), 'legacy-login');
+  assert.equal(readFileSync(join(engine.root, 'home', '.cache', 'tool', 'legacy.bin'), 'utf8'), 'legacy-cache', 'an old-format snapshot restores completely');
+  await upgraded.stop();
+  assert.equal(events.includes('sealed credential store re-sealed: tool caches no longer sealed'), true, `upgrade logged once: ${events.join('; ')}`);
+  const resealed = JSON.parse(seal.decryptString(readFileSync(sealed))) as { v: number; files: [string, string][] };
+  assert.equal(resealed.v, 2);
+  assert.equal(resealed.files.some(([name]) => name.startsWith('home/.cache')), false, 'the cache left the sealed payload');
+  assert.equal(readFileSync(join(engine.root, 'home', '.cache', 'tool', 'legacy.bin'), 'utf8'), 'legacy-cache', 'nothing is dropped: the cache stays on disk unsealed');
+  assert.equal(existsSync(join(engine.root, 'home', '.codex', 'auth.json')), false, 'the credential is re-sealed');
   writeFileSync(sealed, 'tampered');
   await assert.rejects(new Engine(o).start(), /authentication failed/);
   assert.equal(existsSync(agent), false, 'tamper rejection happens before any plaintext is restored');
