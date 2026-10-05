@@ -35,11 +35,22 @@ jobs:
       - run: npm run check
       - run: node scripts/readme-check.ts
       - name: Isolated tests (including hosted MCP HTTP round trip)
+        env:
+          BYOKIT_DIAGNOSTICS: ${{ runner.temp }}/diagnostics
         run: |
           export TMPDIR=$(mktemp -d /tmp/bk-XXXX)
           trap 'node -e '\''require("node:fs").rmSync(process.env.TMPDIR, { recursive: true, force: true })'\''' EXIT
           npm test # throwaway HOME, mocks only: no account, no network, no model
           sh scripts/test.sh examples/decide-plan/e2e.test.ts
+      # The link browser test's own account (timeline, runner pressure, Chrome's scrubbed launch log), kept for every run so
+      # a failure is read here instead of re-run, and passing runs show where the time went.
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: link-browser-diagnostics-node${{ matrix.node }}
+          path: ${{ runner.temp }}/diagnostics/
+          if-no-files-found: ignore
+          retention-days: 14
       - name: M6 preparation dry run (fake provider and fake SSH only)
         run: node scripts/machine-proof/run.ts --dry-run --output .lab/m6-dry.json
       - name: Packed kit consumers
