@@ -85,7 +85,7 @@ logcat=$!
 # The sampler keeps fd 9 (so while it runs the lock stays held) and stops once this script is gone.
 ( while held; do echo "$(date +%s) app $(mem $app) | aicore $(mem com.google.android.aicore) | system $(a shell grep MemAvailable /proc/meminfo | tr -s ' ')"; sleep 1; done; kill $logcat ) >>"$out/meminfo-samples.txt" 2>&1 &
 sampler=$!
-trap 'kill $sampler $logcat 2>/dev/null; wait $sampler $logcat 2>/dev/null' EXIT
+trap 'rc=$?; kill $sampler $logcat 2>/dev/null; wait $sampler $logcat 2>/dev/null; exit $rc' EXIT
 trap 'exit 143' INT TERM
 
 start; phase installed 60

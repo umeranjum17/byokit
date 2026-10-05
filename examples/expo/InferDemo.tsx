@@ -93,11 +93,24 @@ const coded = <T,>(p: Promise<T>) => p.catch((e: { code?: unknown }) => {
   const n = /^GENAI_(-?\d+)$/.exec(String(e?.code))?.[1];
   throw Object.assign(e instanceof Error ? e : new Error('Gemini Nano error'), n === undefined ? {} : { errorCode: Number(n) });
 });
+// Lab bench only: drops the oldest pane lines until Nano's own count of the request is at most this many tokens, so
+// its speed is compared with the GGUF model's at the same prompt size (different tokenizers count the same text differently).
+const MATCH_TOKENS = PROBE ? Number(process.env.EXPO_PUBLIC_INFER_MATCH_TOKENS) || 0 : 0;
+async function matchTokens(r: NanoRequest): Promise<NanoRequest> {
+  const m = /^<pane>\n([\s\S]*)\n<\/pane>$/.exec(r.text);
+  if (!m || !nanoNative) return r;
+  let lines = m[1].split('\n'), q = r;
+  while (lines.length > 1 && (await nanoNative.countTokens(q)).totalTokens > MATCH_TOKENS) {
+    lines = lines.slice(1); q = { ...r, text: `<pane>\n${lines.join('\n')}\n</pane>` };
+  }
+  return q;
+}
 const nanoBinding: NanoBinding | undefined = nanoNative ? {
   checkStatus: () => coded(nanoNative.checkStatus()), getBaseModelName: () => coded(nanoNative.getBaseModelName()),
   getTokenLimit: () => coded(nanoNative.getTokenLimit()), countTokens: r => coded(nanoNative.countTokens(r)),
   cancel: () => nanoNative.cancel(), close: () => nanoNative.close(),
-  generateContent: async r => {
+  generateContent: async q => {
+    const r = MATCH_TOKENS ? await matchTokens(q) : q;
     const out = await coded(nanoNative.generateContent(r));
     if (PROBE) {
       const text = out.candidates[0]?.text ?? '';
