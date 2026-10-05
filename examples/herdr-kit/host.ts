@@ -16,6 +16,7 @@ import { qrMatrix } from '@byokit/ui-core/link';
 
 const { values: flags } = parseArgs({ options: {
   herdr: { type: 'string' },                            // the Herdr program, as a full path
+  socket: { type: 'string' },                           // connect to an explicitly managed Herdr session
   path: { type: 'string' },                             // where Herdr's panes look for agent programs
   folder: { type: 'string', default: process.cwd() },   // where new agents start
   port: { type: 'string', default: '7310' },
@@ -38,9 +39,15 @@ if (!bin || !isAbsolute(bin)) {
   process.exit(2);
 }
 const path = flags.path?.split(':').filter(Boolean) ?? [dirname(bin), '/usr/local/bin', '/usr/bin', '/bin'];
+if (flags.socket && !isAbsolute(flags.socket)) {
+  console.error('Give the managed session socket as a full path: --socket <absolute path>');
+  process.exit(2);
+}
 
 let said = '';
-const kit = new HerdrKit({ mode: 'own', bin, stateDir: state, path, onState: (s) => {
+const kit = new HerdrKit({ ...(flags.socket
+  ? { mode: 'adopt' as const, socketPath: flags.socket }
+  : { mode: 'own' as const, stateDir: state }), bin, path, onState: (s) => {
   const now = stateWords(s);
   if (now && now !== said) console.log(now);
   said = now;

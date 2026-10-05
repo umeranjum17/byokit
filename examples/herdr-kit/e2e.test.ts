@@ -167,3 +167,38 @@ test('a page over plain http from the home network keeps its pairing too', async
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('adopting a managed session leaves its lifecycle with its owner', async () => {
+  await heard(/Connected to Herdr\./);
+  const adoptedDir = join(dir, 'adopted');
+  mkdirSync(adoptedDir);
+  const adoptedPort = await new Promise<number>((resolve) => {
+    const s = createServer().listen(0, '127.0.0.1', () => {
+      const { port } = s.address() as { port: number };
+      s.close(() => resolve(port));
+    });
+  });
+  const adopted = trackChild(spawn(process.execPath, [join(app, 'host.ts'), '--herdr', fakeHerdr,
+    '--socket', join(app, '.state/herdr/herdr.sock'), '--via', 'lan', '--port', String(adoptedPort)],
+  { cwd: adoptedDir, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
+  let output = '';
+  adopted.stdout.on('data', (b: Buffer) => { output += b.toString(); });
+  try {
+    for (let i = 0; i < 300 && !output.includes('Connected to Herdr.'); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.match(output, /Connected to Herdr\./);
+    assert.equal(existsSync(join(adoptedDir, '.state/herdr')), false, 'adopt mode starts no server');
+  } finally {
+    const exited = new Promise<void>((resolve) => adopted.once('exit', () => resolve()));
+    adopted.kill('SIGTERM');
+    await exited;
+  }
+  // The original owner can still send a real request to the same fake session.
+  const { HerdrKit } = await import(pathToFileURL(join(kitDir, 'index.js')).href) as typeof import('@byokit/herdr');
+  const probe = new HerdrKit({ mode: 'adopt', bin: fakeHerdr, socketPath: join(app, '.state/herdr/herdr.sock') });
+  try {
+    await probe.start();
+    assert.equal(probe.snapshot().connected, true, 'stopping the example did not stop the managed session');
+  } finally { await probe.stop(); }
+});
