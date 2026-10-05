@@ -344,9 +344,9 @@ export type RunEnd<T = unknown> =
   | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other' | 'output'; until?: number; message: string };
 export type SignInView = {
   state: 'waiting' | 'done' | 'failed'; via: 'browser' | 'code';
-  url?: string; code?: string; expiresAt?: number; message?: string; error?: string;
+  url?: string; code?: string; expiresAt?: number; message?: string; prompt?: string; error?: string;
   why?: 'busy' | 'declined' | 'expired' | 'failed';
-};                                                       // expiresAt: epoch ms when `code` expires, when the engine says; message: the engine's instructions shown with `code`
+};                                                       // expiresAt: epoch ms when `code` expires, when the engine says; message: the engine's instructions shown with `code`; prompt: what a waiting text step asks
 export type Approval = {
   id: string;                                                  // kit-minted, url-safe
   source: 'gate' | 'exec' | 'plugin' | 'question';
@@ -656,8 +656,10 @@ or a `note` step whose text carries the code, → view `{ code, url, expiresAt?,
 `deviceCode.expires_in` seconds (when supplied), otherwise the pin's `expiresInMinutes`; if neither is present,
 the engine owns expiry and the request has `timeoutMs: null`. The caller's optional `signal` and handle's `cancel()`
 release only this session. Code expiry yields `why: 'expired'`, cancellation `why: 'declined'`, with plain words.
-A non-sensitive `text` step → wait for `paste` (15 min) then answer
-`{ stepId, value }`; `note|confirm|select|action` → surface `externalUrl`, acknowledge; `progress` → pull again.
+Every `text` step → view `{ prompt }`, wait for `paste` (15 min), then answer `{ stepId, value }`. The rule
+is the engine's own `sensitive` flag: a non-sensitive step is not a secret, so its `message` is the prompt as
+written (`github-copilot-enterprise` asks for the Enterprise domain first); once any step is sensitive, or the
+choice is `setup-token`, the prompt is the fixed `Sign-in token` label and no gateway prose is shown; `note|confirm|select|action` → surface `externalUrl`, acknowledge; `progress` → pull again.
 Every exit short of done calls `wizard.cancel { sessionId }` for **its own** session. For `via: 'browser'` with
 `authChoice` `openai`, the kit holds `127.0.0.1:<callbackPort>` for the sign-in's life: any request pastes
 `http://<host><url>` into the wizard and answers a plain page (words key `signin.returned`); if the port is taken

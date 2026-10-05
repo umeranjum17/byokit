@@ -828,6 +828,47 @@ test('sensitive sign-in through the kit and link isolates members and keeps resu
   } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
+test('every text step is asked: a plain question as written, a sensitive one only as a fixed label', async (t) => {
+  // The pin's real first step for github-copilot-enterprise (2026.8.1): a non-sensitive question, nothing to show but it.
+  const enterprise = { id: 'domain', type: 'text', message: 'GitHub Enterprise domain (data residency)', placeholder: 'your-org.ghe.com' };
+  const canaries = ['synthetic-question-canary', 'synthetic-later-canary'];
+  const cases = [
+    { name: 'github-copilot-enterprise', choice: 'github-copilot-enterprise', steps: [enterprise], value: 'umer.ghe.com',
+      prompts: ['GitHub Enterprise domain (data residency)'] },
+    { name: 'sensitive, then plain', choice: 'custom-provider-choice', value: 'synthetic-secret-canary',
+      steps: [{ id: 'secret', type: 'text', sensitive: true, message: canaries[0] }, { id: 'later', type: 'text', message: canaries[1] }],
+      prompts: ['Sign-in token', 'Sign-in token'] },
+  ];
+  for (const c of cases) await t.test(c.name, async () => {
+    const stateDir = scratchDir('text-prompt');
+    const answers: unknown[] = [];
+    const gateway = fakeGateway({
+      'openclaw.setup.auth.start': (params) => { assert.equal(params.authChoice, c.choice); return { done: false }; },
+      'wizard.next': (params: any) => {
+        if (params.answer) answers.push(params.answer);
+        return answers.length < c.steps.length ? { done: false, step: c.steps[answers.length] } : { done: true };
+      },
+      'wizard.cancel': () => ({}),
+    });
+    const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: gateway.factory });
+    try {
+      await kit.start();
+      const views: SignInView[] = [];
+      const handle = kit.signIn('m1', { authChoice: c.choice, via: 'code' }, (v) => views.push(v));
+      // The caller answers only what it was asked, as an app would.
+      for (const [i] of c.steps.entries()) {
+        for (let waited = 0; views.filter((v) => v.prompt).length <= i && waited < 5_000; waited += 5) await delay(5);
+        assert.equal(views.filter((v) => v.prompt)[i]?.prompt, c.prompts[i], JSON.stringify(views));
+        handle.paste(c.value);
+      }
+      assert.deepEqual(await handle.done, { state: 'done', via: 'code' });
+      assert.deepEqual(answers, c.steps.map((step) => ({ stepId: step.id, value: c.value })));
+      if (c.choice !== 'github-copilot-enterprise')
+        for (const secret of [...canaries, c.value]) assert.ok(!JSON.stringify(views).includes(secret), secret);
+    } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+  });
+});
+
 test('explicit Anthropic key entry is API billed and never echoed in views or errors', async () => {
   const secret = 'test-secret-not-a-real-key';
   const fake = scripted({

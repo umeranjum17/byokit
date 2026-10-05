@@ -299,7 +299,9 @@ export function signIn(
       }
       if (current.type !== 'progress') stopApproval();
       if (current.type === 'text') {
-        if (current.sensitive) say({ prompt: 'Sign-in token' });
+        // Every text step is a question the person must answer, so it is always asked. A non-sensitive one is not a
+        // secret by the engine's own flag: its question is shown as written. Once anything is sensitive, only the fixed label is.
+        say({ prompt: sensitive ? 'Sign-in token' : current.message || 'Paste what the sign-in page gave you' });
         const value = await waitForPaste();
         if (value === undefined) return signal.aborted ? cancelled() : expired();
         const next = await answer(current, value);
