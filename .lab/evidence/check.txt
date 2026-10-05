@@ -1,2 +1,0 @@
-npm notice run check
-npm notice run tsc -p tsconfig.json

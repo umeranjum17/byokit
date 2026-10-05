@@ -77,7 +77,7 @@ printf 'Evidence: %s/drive.txt\n' "$evidence_dir"
 test "$drive_status" -eq 0
 ```
 
-The artifact contains the invoked command, stdout, stderr and the consumer's actual exit code; a failed command also fails the final status check. `.verify-artifacts/` is gitignored: evidence is private, never committed, never attached to a public PR.
+The artifact contains the invoked command, stdout, stderr and the consumer's actual exit code; a failed command also fails the final status check. `.verify-artifacts/` is gitignored: evidence is private, never committed, never attached to a public PR. Proof media — screenshots, screen recordings, emulator captures — is written outside the repository (never under `.lab/` or any other worktree path) and a public repository's PR links a private evidence page instead of committing or attaching it.
 
 Proof standard: drive the real consumer path against the built SDK; capture the action and resulting output, not a summary; the error case must show the actual typed error and message.
 
