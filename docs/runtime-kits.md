@@ -344,9 +344,9 @@ export type RunEnd<T = unknown> =
   | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other' | 'output'; until?: number; message: string };
 export type SignInView = {
   state: 'waiting' | 'done' | 'failed'; via: 'browser' | 'code';
-  url?: string; code?: string; error?: string;
+  url?: string; code?: string; expiresAt?: number; message?: string; error?: string;
   why?: 'busy' | 'declined' | 'expired' | 'failed';
-};
+};                                                       // expiresAt: epoch ms when `code` expires, when the engine says; message: the engine's instructions shown with `code`
 export type Approval = {
   id: string;                                                  // kit-minted, url-safe
   source: 'gate' | 'exec' | 'plugin' | 'question';
@@ -649,8 +649,9 @@ Until those packages merge, the table above is what ships.
 
 **signIn(member, { authChoice, via, signal? }, on)** — provider-owned wizard drive:
 `ensureMember`; `openclaw.setup.auth.start { sessionId: 'byokit-' + uuid, agentId, authChoice }` (60 s); pull steps
-only with `wizard.next` (120 s for ordinary steps, max 200 turns; never `wizard.status`); a `deviceCode` step → view
-`{ code, url }` then acknowledge `{ stepId }`. That acknowledgment and subsequent progress pulls wait until
+only with `wizard.next` (120 s for ordinary steps, max 200 turns; never `wizard.status`); a `deviceCode` step,
+or a `note` step whose text carries the code, → view `{ code, url, expiresAt?, message? }` then acknowledge
+`{ stepId }`. That acknowledgment and subsequent progress pulls wait until
 `deviceCode.expires_in` seconds (when supplied), otherwise the pin's `expiresInMinutes`; if neither is present,
 the engine owns expiry and the request has `timeoutMs: null`. The caller's optional `signal` and handle's `cancel()`
 release only this session. Code expiry yields `why: 'expired'`, cancellation `why: 'declined'`, with plain words.

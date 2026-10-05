@@ -270,13 +270,14 @@ test('sign-in: the device code is pulled and shown, and the card finishes when t
 });
 
 // Model the real transport's timeout and signal while the engine holds wizard.next for approval.
-function approvalGateway(afterMs: number, deviceCode: Record<string, unknown> = { code: 'UMER-2026', expiresInMinutes: 15 }, progress = false) {
+function approvalGateway(afterMs: number, deviceCode: Record<string, unknown> = { code: 'UMER-2026', expiresInMinutes: 15 }, progress = false,
+  step: Record<string, unknown> = { ...DEVICE_STEP, deviceCode }) {
   let shown = false;
   return scripted({
     'openclaw.setup.auth.start': () => ({ done: false }),
     'wizard.cancel': () => ({ status: 'cancelled' }),
     'wizard.next': (params: any, options?: any) => {
-      if (!shown) { shown = true; return { step: { ...DEVICE_STEP, deviceCode } }; }
+      if (!shown) { shown = true; return { step }; }
       if (params.answer && progress) { progress = false; return { step: { id: 'waiting', type: 'progress' } }; }
       return new Promise((resolve, reject) => {
         const timers: NodeJS.Timeout[] = [];
@@ -302,6 +303,30 @@ test('device approval after more than three minutes succeeds, including a progre
   await turn();
   t.mock.timers.tick(181_000);
   assert.deepEqual(await handle.done, { state: 'done', via: 'code' });
+});
+
+test('a code printed only into a note reaches the caller with its link and expiry, and waits out approval', async (t) => {
+  // The pinned engine's two text-only code notes, verbatim apart from the values.
+  const at = Date.UTC(2026, 9, 5, 12, 0, 0);
+  const notes = {
+    minutes: ['Open this URL in your browser and enter the code below.', 'URL: https://example.test/login/device',
+      'Code: UMER-2026', 'Code expires in 15 minutes. Never share it.'],
+    clock: ['Open https://example.test/oauth to approve access.', 'If prompted, enter the code UMER-2026.',
+      `Interval: 2000, Expires at: ${new Date(at + 600_000).toISOString()}`],
+  };
+  for (const [shape, lines] of Object.entries(notes)) await t.test(shape, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: at });
+    const message = lines.join('\n');
+    const fake = approvalGateway(181_000, undefined, true,
+      { id: 'step-note-code', type: 'note', title: 'Sign in', message, externalUrl: 'https://example.test/device' });
+    const views: SignInView[] = [];
+    const handle = signIn(ctx(fake), 'umer', { authChoice: 'github-copilot', via: 'code' }, (view) => views.push(view));
+    await turn();
+    t.mock.timers.tick(181_000);
+    assert.deepEqual(await handle.done, { state: 'done', via: 'code' });
+    assert.deepEqual(views[0], { state: 'waiting', via: 'code', code: 'UMER-2026', url: 'https://example.test/device',
+      expiresAt: at + (shape === 'minutes' ? 900_000 : 600_000), message });
+  });
 });
 
 test('device code expiry returns typed expired and cancels only its own session', async (t) => {
