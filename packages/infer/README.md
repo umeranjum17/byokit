@@ -1,7 +1,8 @@
 # @byokit/infer
 
-Text generation on the phone itself, for React Native on Android and iOS: one pinned, publicly licensed model that
-your app downloads once with an integrity check, one native context, and nothing sent anywhere afterwards. It also
+Text generation on the phone itself, for React Native on Android and iOS: Android's built-in Gemini Nano where the
+phone has it, else one pinned, publicly licensed model that your app downloads once with an integrity check; one
+native context, and nothing sent anywhere afterwards. It also
 gives you a ready 3–4 line terminal-pane summary and a backend for `@byokit/decide`'s `generate()`.
 
 > First public release 0.1.0, published before phone qualification by byk decision: latency, memory, battery
