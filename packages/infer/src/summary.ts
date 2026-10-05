@@ -13,6 +13,8 @@ export type PaneSummaryOptions = { signal?: AbortSignal; maxLines?: number; maxC
  * Prompt-identity logging for cache-hit analysis. OFF unless set: without it `summarizePane`
  * hashes nothing and reports nothing. When set, each prompt that reaches the engine records
  * `{ inputTokens, hash }` — never any content — with the tracker, the callback, or both.
+ * The resulting counts are synthetic until a real device session runs: they prove the counters
+ * work and nothing more; no real-world repeat rate may be inferred from them.
  */
 export type PaneSummaryIdentity = {
   tracker?: PromptIdentityLog;

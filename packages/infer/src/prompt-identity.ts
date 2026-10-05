@@ -36,6 +36,9 @@ export type PromptIdentityCounts = {
 /**
  * Counts exact repeats against changed prompts. A later device session feeds every
  * `summarizePane` identity here; `counts` (plain JSON) is what its bench script reads.
+ *
+ * These counts are synthetic until a real device session runs: they prove the counters work
+ * and nothing more. No real-world repeat rate may be inferred from them.
  */
 export class PromptIdentityLog {
   #last: PromptIdentity | undefined;
