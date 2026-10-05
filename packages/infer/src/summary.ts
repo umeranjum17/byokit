@@ -1,12 +1,23 @@
 import { InferError } from './types.ts';
 import type { LocalModel } from './model.ts';
 import type { NanoModel } from './nano.ts';
+import { promptHash, type PromptIdentity, type PromptIdentityLog } from './prompt-identity.ts';
 
 export type PaneSummary =
   | { ok: true; lines: string[]; model: string; ms: number; inputLines: number }
   | { ok: false; code: 'not-enough-output' | 'incomplete' | 'invalid-output' };
 
-export type PaneSummaryOptions = { signal?: AbortSignal; maxLines?: number; maxChars?: number };
+export type PaneSummaryOptions = { signal?: AbortSignal; maxLines?: number; maxChars?: number; identity?: PaneSummaryIdentity };
+
+/**
+ * Prompt-identity logging for cache-hit analysis. OFF unless set: without it `summarizePane`
+ * hashes nothing and reports nothing. When set, each prompt that reaches the engine records
+ * `{ inputTokens, hash }` — never any content — with the tracker, the callback, or both.
+ */
+export type PaneSummaryIdentity = {
+  tracker?: PromptIdentityLog;
+  onIdentity?: (id: PromptIdentity) => void;
+};
 
 // ponytail: pattern redaction is best-effort; it narrows what the model sees, it is not a secret scanner.
 // Every pattern is linear on hostile input; lines are capped before any of them runs.
@@ -89,13 +100,20 @@ const SCHEMA = {
 export async function summarizePane(local: LocalModel | NanoModel, lines: readonly string[], o: PaneSummaryOptions = {}): Promise<PaneSummary> {
   const text = paneText(lines, o);
   if (text.join('').replace(/\s/g, '').length < 40) return { ok: false, code: 'not-enough-output' };
+  const prompt = `<pane>\n${text.join('\n')}\n</pane>`;
   let done;
   try {
-    done = await local.complete({ system: SYSTEM, prompt: `<pane>\n${text.join('\n')}\n</pane>`,
+    done = await local.complete({ system: SYSTEM, prompt,
       jsonSchema: SCHEMA, maxOutputTokens: Math.min(200, local.limits.maxOutputTokens), signal: o.signal });
   } catch (e) {
     if (e instanceof InferError && e.code === 'too-large') return paneTooLarge(local, text, o);
     throw e;
+  }
+  if (o.identity) {
+    // The prompt was ingested whatever the output turns out to be, so record before validating it.
+    const id = { inputTokens: done.inputTokens, hash: promptHash(`${SYSTEM}\n${prompt}`) };
+    o.identity.tracker?.record(id);
+    o.identity.onIdentity?.(id);
   }
   if (done.stop === 'limit') return { ok: false, code: 'incomplete' };
   let parsed: unknown;

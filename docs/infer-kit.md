@@ -69,7 +69,8 @@ monorepo does **not** install it (offline CI); the lab app does.
 | `model.ts` | llama.rn structural subset (`InitLlama`, `LlamaRnContext`, params/result), `LocalModel`, `DEFAULT_LIMITS`, model/limit validation |
 | `nano.ts` | ML Kit GenAI Prompt structural subset (`NanoBinding`, request/response), `NanoModel` |
 | `backend.ts` | `inferBackend({ where })` (I10), `generationBackend(local)` for decide's `generate()` |
-| `summary.ts` | `summarizePane`, `paneText`, `plainText`, `redact` |
+| `summary.ts` | `summarizePane` (`identity?: { tracker?, onIdentity? }`, off unless set), `paneText`, `plainText`, `redact` |
+| `prompt-identity.ts` | `promptHash`, `PromptIdentityLog` (consecutive-identical / identical-non-consecutive / changed), `commonPrefixLength` |
 | `models.json` | the pinned catalogue (§3); `index.ts` validates every entry at import |
 | `words.json`/`words.ts` | `infer.*` sentences, `stateWords`, `errorWords` |
 | `testing.ts` (`./testing`) | `fakeLlama()`, `memoryModelStore()`, `fakeNano()` |
