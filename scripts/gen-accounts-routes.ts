@@ -3,6 +3,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { builtinProviders } from '@earendil-works/pi-ai/providers/all';
 import type { Billing, Route, RouteVia } from '../packages/accounts/src/catalogue.ts';
+import CATALOGUE from '../packages/accounts/src/catalogue.json' with { type: 'json' };
+
+/** A device route is available wherever the kit has that provider's device data: the phone engine signs it in itself. */
+const portableDevice = (id: string) => Object.values(CATALOGUE).some((p) => (p as { pi?: string }).pi === id && !!(p as { device?: unknown }).device);
 
 const dist = new URL('.', import.meta.resolve('@earendil-works/pi-ai'));
 const source = (path: string) => readFileSync(new URL(path, dist), 'utf8');
@@ -82,11 +86,13 @@ export function generateRoutes(): Route[] {
         if (via === 'code' && !/device[_-]code|device_code/.test(text)) throw new Error(`Missing device flow for ${p.id}`);
         if (via === 'browser' && !/createServer|startCallbackServer/.test(text)) throw new Error(`Missing browser flow for ${p.id}`);
         const billing = p.auth.oauth.isSubscription ? 'subscription' : p.id === 'openrouter' ? 'api' : 'unknown';
-        const portable = p.id === 'openai-codex' && via === 'code' || p.id === 'anthropic' && via === 'paste';
+        // ChatGPT signs in on its own flow; every other provider with catalogue device data signs in with the phone engine.
+        const device = via === 'code';
+        const portable = device || p.id === 'anthropic' && via === 'paste';
         add(p.id, p.id === 'openai-codex' ? 'ChatGPT' : p.id === 'anthropic' ? 'Claude' : p.name, via, billing,
           via === 'code' ? 'device' : via === 'browser' ? 'loopback' : 'paste', undefined,
-          { platforms: portable ? { node: 'yes', browser: 'host', rn: 'yes' } : node,
-            ...(p.id === 'openai-codex' && via === 'code' ? { platforms: all } : {}) });
+          { platforms: device ? (p.id === 'openai-codex' || portableDevice(p.id) ? all : node)
+            : portable ? { node: 'yes', browser: 'host', rn: 'yes' } : node });
       }
     }
     if (p.id === 'anthropic') {

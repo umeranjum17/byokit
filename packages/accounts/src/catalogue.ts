@@ -51,7 +51,10 @@ export function route(id: string, host: RouteHost = { platform: 'node' }): Route
 export type MultiAccountTerms = { terms: 'allowed' | 'grey' | 'partner' | 'forbidden'; why: string; source: string };
 /** `callbackPort`: where the provider sends the browser back after its own sign-in page, fixed for the client Pi signs in as.
  *  `revoke`: where signing out ends the sign-in on the provider's side too, for the client `clientId`. */
-export type Provider = { key: string; pi: string; name: string; company: string; models: { strong: string; fast?: string }; fresh?: { param: string; value: string }; callbackPort?: number; clientId?: string; revoke?: string; billing: Billing; auth?: 'api-key' | 'oauth'; label?: string; offer?: boolean; readiness?: Readiness; routes?: string[]; source: string; multiAccount: MultiAccountTerms };
+/** RFC 8628 device authorization, exactly as the provider's pinned client sends it: `form` carries any extra
+ *  authorization-request fields that client sends. Data only; the engine is one implementation for every provider. */
+export type DeviceFlow = { authorization: string; token: string; clientId: string; scope?: string; form?: Record<string, string>; source: string };
+export type Provider = { key: string; pi: string; name: string; company: string; models: { strong: string; fast?: string }; fresh?: { param: string; value: string }; callbackPort?: number; clientId?: string; revoke?: string; billing: Billing; auth?: 'api-key' | 'oauth'; label?: string; offer?: boolean; readiness?: Readiness; routes?: string[]; device?: DeviceFlow; source: string; multiAccount: MultiAccountTerms };
 
 export const PROVIDERS: Record<string, Provider> = Object.fromEntries(Object.entries(CATALOGUE).map(([key, p]) => [key, { key, ...p } as Provider]));
 // This gateway's billing is not subscription-qualified at the pin. Never add it to the default offer.
@@ -60,6 +63,11 @@ PROVIDERS.radius = {
   billing: 'unknown', auth: 'oauth', offer: false, label: 'Billing set by Radius', routes: ['radius:browser', 'radius:code'],
   source: 'https://radius.pi.dev', multiAccount: { terms: 'grey', why: 'Billing and account terms are set by the gateway.', source: 'https://radius.pi.dev' },
 };
+
+/** ChatGPT's own device flow is not RFC 8628; only catalogue device data takes this engine. */
+export const deviceFlow = (pi: string): DeviceFlow | undefined => Object.values(PROVIDERS).find((p) => p.pi === pi)?.device;
+/** What the picker offers: the provider rows a phone or browser can sign in to, in catalogue order. */
+export const signInChoices = (): Provider[] => Object.values(PROVIDERS).filter((p) => p.auth !== 'api-key' && !!p.device && p.billing === 'subscription');
 
 export function provider(key: string) {
   const p = PROVIDERS[key];

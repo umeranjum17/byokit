@@ -5,14 +5,19 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { build } from 'esbuild';
-import { Accounts, credentialOf, devicePoll, deviceStart, memoryStore, portableEngine, recordStore, secureStore, RefreshRequiredError, type SecureStoreLike } from '../src/portable.ts';
-import { mockOpenAI } from '../src/testing/index.ts';
+import { Accounts, credentialOf, devicePoll, deviceStart, memoryStore, portableEngine, recordStore, secureStore, signInChoices, RefreshRequiredError, type SecureStoreLike } from '../src/portable.ts';
+import { mockDevice, mockOpenAI } from '../src/testing/index.ts';
 import type { CredentialStore } from '@earendil-works/pi-ai';
 
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`../../../fixtures/conformance/${name}`, import.meta.url), 'utf8'));
 const openai = await mockOpenAI();
-after(() => openai.close());
-const kit = (store?: ReturnType<typeof memoryStore>) => new Accounts<any, number>({ app: 'Ownvoice', store: () => store ?? memoryStore(), authBase: openai.base });
+const device = await mockDevice();
+const brief = await mockDevice({ expiresIn: 1 }); // tokens that die at once, so refresh has to happen
+after(() => { openai.close(); device.close(); brief.close(); });
+const kit = (store?: ReturnType<typeof memoryStore>, options: Record<string, unknown> = {}) =>
+  new Accounts<any, number>({ app: 'Ownvoice', store: () => store ?? memoryStore(), authBase: openai.base, ...options });
+/** The phone's sign-in against the provider stand-in, for any provider the catalogue gives device data. */
+const phoneKit = (base: string, store?: ReturnType<typeof memoryStore>) => kit(store, { authBase: undefined, deviceBase: base });
 async function until(what: string, fn: () => boolean | Promise<boolean>, ms = 5000) {
   for (const end = Date.now() + ms; Date.now() < end; await new Promise((r) => setTimeout(r, 25))) if (await fn()) return;
   throw new Error(`timed out: ${what}`);
@@ -92,7 +97,7 @@ test('device and token errors never expose response bodies', async () => {
 
 test('sign in with ChatGPT by device code: the code and page to show, approved there, kept, plan read', async () => {
   const a = kit();
-  assert.deepEqual(a.providers.map((p) => p.key), ['chatgpt', 'claude'], 'only what a phone or browser can sign in to');
+  assert.deepEqual(a.providers.map((p) => p.key), ['chatgpt', 'grok', 'claude', 'kimi'], 'only what a phone or browser can sign in to, the device ones from catalogue data');
   const v = (await a.login(1, 'chatgpt'))!;
   assert.deepEqual([v.state, v.via, v.url], ['waiting', 'code', `${openai.base}/codex/device`]);
   assert.match(v.code!, /^MOCK-/);
@@ -116,6 +121,41 @@ test("a poll that can't get through (a backgrounded phone) waits for the next in
   openai.approve(v.code!);
   await a.finished(1, 'chatgpt');
   assert.equal(a.view(1, 'chatgpt')!.state, 'done');
+});
+
+test('any provider the catalogue gives device data signs in on the phone, with no provider of its own', async () => {
+  // The picker offers what the catalogue says; nothing here names a provider in code.
+  assert.deepEqual(signInChoices().map((p) => p.key), ['grok', 'kimi']);
+  for (const key of ['grok', 'kimi']) {
+    const a = phoneKit(device.base);
+    const v = (await a.login(1, key))!;
+    assert.deepEqual([v.state, v.via, v.url], ['waiting', 'code', `${device.base}/activate`], `${key}: the code and the page to open, no browser redirect`);
+    assert.match(v.code!, /^FIXTURE-/);
+    // The person approves the sign-in on their own phone, on the provider's page.
+    assert.equal(device.approve(v.code!), true);
+    await a.finished(1, key);
+    assert.equal((await a.status(1, key)).state, 'ready', `${key}: signed in`);
+    const [row] = await a.list(1);
+    assert.deepEqual([row.provider, row.billing], [key, 'subscription']);
+    // Signing out ends it here; nothing is sent anywhere the provider didn't document.
+    await a.logout(1, key);
+    assert.equal(await a.signedIn(1, key), false);
+    a.stop();
+  }
+  // A provider that hands out a short-lived token is refreshed before the next run needs it, and a decline keeps nothing.
+  const a = phoneKit(brief.base);
+  const v = (await a.login(1, 'grok'))!;
+  brief.approve(v.code!);
+  await a.finished(1, 'grok');
+  await a.keepFresh([1]);
+  assert.equal((await a.status(1, 'grok')).state, 'ready', 'refreshed on the provider\'s own token endpoint');
+  assert.ok(brief.state.requests.some((r) => r.body.includes('grant_type=refresh_token')));
+  const declined = (await a.login(1, 'kimi'))!;
+  brief.approve(declined.code!, true);
+  await a.finished(1, 'kimi');
+  assert.match(a.view(1, 'kimi')!.error!, /declined/i, 'one plain sentence about what the person did');
+  assert.equal(await a.signedIn(1, 'kimi'), false);
+  a.stop();
 });
 
 test('declined on the page, cancelled here, or refused at the exchange: one plain sentence, nothing kept', async () => {

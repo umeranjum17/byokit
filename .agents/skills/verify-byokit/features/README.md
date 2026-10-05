@@ -21,6 +21,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 ## Available on this host
 
 - [Accounts sign-in and ask](./accounts-signin.md) — the README quickstart against the built `@byokit/accounts` with `mockOpenAI()`.
+- [Catalogue device sign-in and the picker](./accounts-device.md) — RFC 8628 device sign-in for any provider the catalogue gives device data, with `mockDevice()`.
 - [Usage plan view](./usage-planview.md) — `@byokit/usage` selectors over fixture call records via `examples/usage-demo.ts`.
 - [Fresh-project pack gate](./pack-fresh-project.md) — `npm run smoke:pack`: install packed tarballs into a scratch app and import them.
 
@@ -38,5 +39,6 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 ## Features
 
 - [accounts-signin](./accounts-signin.md) — device-code sign-in, status, streamed ask, and the error paths.
+- [accounts-device](./accounts-device.md) — the provider picker and a catalogue-driven device sign-in, refresh and decline.
 - [usage-planview](./usage-planview.md) — plan/quota view rendered from call records.
 - [pack-fresh-project](./pack-fresh-project.md) — the packed-tarball fresh-consumer gate.

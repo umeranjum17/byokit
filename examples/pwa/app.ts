@@ -22,8 +22,10 @@ const accounts = new Accounts<any, number>({
   fetch: forwarded,
 });
 
-function card(key: 'chatgpt' | 'claude') {
+function card(key: string) {
   const { name } = PROVIDERS[key];
+  // Only the two providers this page can ask have a question box; every provider in the catalogue gets a sign-in card.
+  const answers = key === 'chatgpt' || key === 'claude';
   const el = ($('card') as HTMLTemplateElement).content.firstElementChild!.cloneNode(true) as HTMLElement;
   el.id = key;
   $('cards').append(el);
@@ -36,6 +38,7 @@ function card(key: 'chatgpt' | 'claude') {
   q('connect').textContent = 'Connect';
   q<HTMLInputElement>('pasted').placeholder = `Paste the code from the ${name} page`;
   q<HTMLTextAreaElement>('question').placeholder = `Ask ${name} something`;
+  q('question').hidden = q('ask').hidden = !answers;
 
   let drawing = 0;
   async function draw() {
@@ -85,6 +88,7 @@ function card(key: 'chatgpt' | 'claude') {
     const out = q('answer');
     const input = q<HTMLTextAreaElement>('question').value.trim();
     if (!input || asking) return;
+    if (!answers) return;
     const mine = asking = new AbortController();
     const signal = mine.signal;
     q<HTMLButtonElement>('ask').disabled = true; show('stop', true);
@@ -104,8 +108,9 @@ function card(key: 'chatgpt' | 'claude') {
 }
 
 const $ = (id: string) => document.getElementById(id)!;
-const draws = { chatgpt: card('chatgpt'), claude: card('claude') };
-accounts.onChange = (_member, key) => { draws[key as keyof typeof draws]?.(); };
-Promise.all([accounts.signedIn(ME, 'chatgpt'), accounts.signedIn(ME, 'claude')])
+// The picker is the catalogue's: every provider this platform can sign in to, in the order the kit offers them.
+const draws: Record<string, () => Promise<void>> = Object.fromEntries(accounts.providers.map((p) => [p.key, card(p.key)]));
+accounts.onChange = (_member, key) => { draws[key]?.(); };
+Promise.all(accounts.providers.map((p) => accounts.signedIn(ME, p.key)))
   .then(() => accounts.keepFresh([ME])).then(() => Object.values(draws).forEach((d) => d()));
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
