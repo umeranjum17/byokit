@@ -63,7 +63,11 @@ The kit imports no Android code: the app passes its native module over ML Kit Ge
 the GGUF model.
 
 ```ts
-import { inferBackend, NanoModel, whereWords } from '@byokit/infer';
+import { inferBackend, NanoModel, whereWords, type LocalModel, type NanoBinding } from '@byokit/infer';
+
+declare const nanoModule: NanoBinding | undefined;
+declare const localModel: LocalModel;
+declare const show: (text: string) => void;
 
 const nano = new NanoModel({ binding: nanoModule });                           // undefined on iOS: unsupported
 const local = await inferBackend({ where: 'local', gguf: localModel, nano });  // Nano when ready, else GGUF
