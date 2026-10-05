@@ -127,7 +127,15 @@ test('Ask on both cards: one question at a time, Stop, and an older answer never
   };
   for (const [glob, question] of [['**/fwd/chatgpt/backend-api/codex/responses', (b: any) => b.input[0].content[0].text], ['**/fwd/anthropic/v1/messages**', (b: any) => b.messages[0].content]] as const)
     await page.route(glob, (route) => { held.push({ route, question: question(route.request().postDataJSON()) }); });
-  const asked = async (n: number) => { while (held.length < n) await page.waitForTimeout(20); };
+  // Same 30s deadline as every other wait in this file (Playwright's default waitFor timeout):
+  // generous on a loaded build machine, far below the CI job cap, and consistent when reading a failure.
+  const asked = async (n: number) => {
+    const deadline = Date.now() + 30_000;
+    while (held.length < n) {
+      if (Date.now() > deadline) assert.fail(`timed out waiting for ${n} inference request(s) to reach the test route; saw ${held.length} (${held.map((h) => h.question).join(', ') || 'none yet'})`);
+      await page.waitForTimeout(20);
+    }
+  };
   const answer = (at: number, key: 'chatgpt' | 'claude') => held[at].route.fulfill({ body: stream[key](`${held[at].question} final`), contentType: 'text/event-stream' }).catch(() => {}); // a stopped one is gone
 
   await page.goto(site.url);
