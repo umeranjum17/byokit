@@ -26,5 +26,5 @@ else if (kind === 'gguf') {
   const n = JSON.parse(l.slice(l.indexOf('infer-nano-timing ') + 18));
   const decodeMs = n.totalMs - n.firstTextMs;
   console.log(`ttft_ms=${n.firstTextMs} decode_tok_s=${n.outputTokens > 1 && decodeMs > 0 ? ((n.outputTokens - 1) / decodeMs * 1000).toFixed(2) : 'n/a'} ` +
-    `end_to_end_tok_s=${(n.outputTokens / n.totalMs * 1000).toFixed(2)} output_tokens=${n.outputTokens} stream_pieces=${n.pieces} total_ms=${n.totalMs} finish=${n.finishReason}`);
+    `end_to_end_tok_s=${(n.outputTokens / n.totalMs * 1000).toFixed(2)} prompt_tokens=${n.inputTokens} (system ${n.systemChars} + prompt ${n.promptChars} chars) output_tokens=${n.outputTokens} stream_pieces=${n.pieces} total_ms=${n.totalMs} finish=${n.finishReason}`);
 } else throw new Error(`unknown kind ${kind}`);

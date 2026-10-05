@@ -101,8 +101,10 @@ const nanoBinding: NanoBinding | undefined = nanoNative ? {
     const out = await coded(nanoNative.generateContent(r));
     if (PROBE) {
       const text = out.candidates[0]?.text ?? '';
-      const outputTokens = await nanoNative.countTokens({ text }).then(c => c.totalTokens, () => -1);
-      console.info(`infer-nano-timing ${JSON.stringify({ ...nanoNative.lastTiming(), outputTokens, finishReason: out.candidates[0]?.finishReason })}`);
+      // Counted after the timed call, so the stamps cover generation only.
+      const tokens = (q: NanoRequest) => nanoNative.countTokens(q).then(c => c.totalTokens, () => -1);
+      console.info(`infer-nano-timing ${JSON.stringify({ ...nanoNative.lastTiming(), inputTokens: await tokens(r), outputTokens: await tokens({ text }),
+        systemChars: r.systemInstruction?.length ?? 0, promptChars: r.text.length, finishReason: out.candidates[0]?.finishReason })}`);
     }
     return out;
   },
