@@ -11,8 +11,10 @@ export function completionProbe(init: InitLlama, record: (entry: Record<string, 
     ctx.completion = async (options, onToken) => {
       await record({ kind: 'request', options });
       const started = Date.now();
+      let firstTokenMs: number | undefined;
+      const stamp = onToken && ((data: { token: string }) => { firstTokenMs ??= Date.now() - started; onToken(data); });
       let result: LlamaRnCompletionResult;
-      try { result = await completion(options, onToken); }
+      try { result = await completion(options, stamp); }
       catch (cause) {
         const error = cause && typeof cause === 'object' ? cause as Record<string, unknown> : {};
         const bounded = (value: unknown, max: number) => typeof value === 'string' ? value.slice(0, max) : undefined;
@@ -25,7 +27,7 @@ export function completionProbe(init: InitLlama, record: (entry: Record<string, 
         throw cause;
       }
       const native = result as LlamaRnCompletionResult & { timings?: unknown; chat_format?: number };
-      await record({ kind: 'result', elapsedMs: Date.now() - started, text: native.text, content: native.content,
+      await record({ kind: 'result', elapsedMs: Date.now() - started, firstTokenMs, text: native.text, content: native.content,
         adapterText: native.content || native.text, tokens_evaluated: native.tokens_evaluated, tokens_predicted: native.tokens_predicted,
         truncated: native.truncated, stopped_eos: native.stopped_eos, stopped_word: native.stopped_word,
         stopped_limit: native.stopped_limit, context_full: native.context_full, interrupted: native.interrupted,

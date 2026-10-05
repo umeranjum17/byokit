@@ -4,10 +4,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppState, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { initLlama } from 'llama.rn';
+import { requireOptionalNativeModule } from 'expo';
 import * as RNFS from '@dr.pogodin/react-native-fs';
 import { completionProbe, completionReceiptText } from './infer-probe.ts';
 import { REALISTIC_PANE } from './infer-pane-fixture.ts';
-import { InferError, LocalModel, errorWords, model, stateWords, summaryWords, summarizePane, words, type InferModelStore, type InferState,
+import { InferError, LocalModel, NanoModel, type NanoBinding, type NanoRequest, errorWords, model, stateWords, summaryWords, summarizePane, words, type InferModelStore, type InferState,
   type PaneSummary } from '@byokit/infer';
 
 // Fixed-label diagnostics. Separately gated completion receipts below are fixed-synthetic own-lab only.
@@ -83,7 +84,34 @@ const PANES: { id: string; label: string; lines: string[] }[] = [
 let onState: (s: InferState) => void = () => {};
 const local = new LocalModel({ model: model(), store, initLlama: PROBE ? completionProbe(initLlama, captureCompletion) : initLlama, onState: s => { receipt(`state.${s.phase}`); onState(s); }, device: { platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'android' ? 'android' : 'other' } });
 
+// Gemini Nano through the lab-only ByokitNanoDemo module (modules/nano-demo): AICore's own checkStatus() decides the phase.
+// GenAiException codes arrive as `GENAI_<n>` and become the numeric errorCode NanoModel maps; timings go to the lab log.
+type NanoDemo = Omit<NanoBinding, 'countTokens' | 'generateContent'> & { countTokens(r: NanoRequest): Promise<{ totalTokens: number }>;
+  generateContent(r: NanoRequest): Promise<{ candidates: { text: string; finishReason: number | null }[] }>; lastTiming(): Record<string, number> };
+const nanoNative = Platform.OS === 'android' ? requireOptionalNativeModule<NanoDemo>('ByokitNanoDemo') : null;
+const coded = <T,>(p: Promise<T>) => p.catch((e: { code?: unknown }) => {
+  const n = /^GENAI_(-?\d+)$/.exec(String(e?.code))?.[1];
+  throw Object.assign(e instanceof Error ? e : new Error('Gemini Nano error'), n === undefined ? {} : { errorCode: Number(n) });
+});
+const nanoBinding: NanoBinding | undefined = nanoNative ? {
+  checkStatus: () => coded(nanoNative.checkStatus()), getBaseModelName: () => coded(nanoNative.getBaseModelName()),
+  getTokenLimit: () => coded(nanoNative.getTokenLimit()), countTokens: r => coded(nanoNative.countTokens(r)),
+  cancel: () => nanoNative.cancel(), close: () => nanoNative.close(),
+  generateContent: async r => {
+    const out = await coded(nanoNative.generateContent(r));
+    if (PROBE) {
+      const text = out.candidates[0]?.text ?? '';
+      const outputTokens = await nanoNative.countTokens({ text }).then(c => c.totalTokens, () => -1);
+      console.info(`infer-nano-timing ${JSON.stringify({ ...nanoNative.lastTiming(), outputTokens, finishReason: out.candidates[0]?.finishReason })}`);
+    }
+    return out;
+  },
+} : undefined;
+let onNano: (s: InferState) => void = () => {};
+const nano = new NanoModel({ binding: nanoBinding, onState: s => { receipt(`nano.${s.phase}`); onNano(s); } });
+
 export function InferDemo() {
+  const [nanoState, setNanoState] = useState<InferState>(nano.state);
   const [state, setState] = useState<InferState>(local.state);
   const [pane, setPane] = useState(PANES[0].id);
   const [summary, setSummary] = useState<PaneSummary | null>(null);
@@ -98,12 +126,14 @@ export function InferDemo() {
 
   useEffect(() => {
     onState = setState;
+    onNano = setNanoState;
+    void nano.check().catch(fail);
     onReceipt = label => setReceipts(previous => [...previous.slice(-11), label]);
     onCompletionReceipt = setCompletionText;
     void local.check().catch(fail);
     // Backgrounded: stop work and free the native context; nothing runs in the background.
-    const sub = AppState.addEventListener('change', s => { if (s !== 'active') { run.current?.abort(new Error('background')); void local.release().catch(fail); } });
-    return () => { onState = () => {}; onReceipt = () => {}; onCompletionReceipt = () => {}; sub.remove(); };
+    const sub = AppState.addEventListener('change', s => { if (s !== 'active') { run.current?.abort(new Error('background')); void local.release().catch(fail); void nano.release().catch(fail); } });
+    return () => { onState = () => {}; onNano = () => {}; onReceipt = () => {}; onCompletionReceipt = () => {}; sub.remove(); };
   }, []);
 
   const fail = (e: unknown) => {
@@ -120,7 +150,7 @@ export function InferDemo() {
     finally { install.current = null; }
   };
 
-  const summarize = async (id: string) => {
+  const summarize = async (id: string, on: LocalModel | NanoModel = local) => {
     run.current?.abort(new Error('flipped'));
     const ctl = new AbortController();
     run.current = ctl;
@@ -130,7 +160,7 @@ export function InferDemo() {
     let started = 0;
     const job = previous.then(() => {
       started = Date.now();
-      return ctl.signal.aborted ? undefined : summarizePane(local, PANES.find(p => p.id === id)!.lines, { signal: ctl.signal });
+      return ctl.signal.aborted ? undefined : summarizePane(on, PANES.find(p => p.id === id)!.lines, { signal: ctl.signal });
     });
     last.current = job.catch(() => {});
     try {
@@ -138,7 +168,7 @@ export function InferDemo() {
       if (!r || ctl.signal.aborted) return;
       if (ctl.signal.aborted) return;
       setSummary(r);
-      setTiming(`${Date.now() - started} ms on this phone${r.ok ? ` · ${r.ms} ms generating` : ''}`);
+      setTiming(`${on === nano ? 'Gemini Nano · ' : ''}${Date.now() - started} ms on this phone${r.ok ? ` · ${r.ms} ms generating` : ''}`);
     } catch (e) { if (!ctl.signal.aborted) fail(e); }
   };
 
@@ -153,6 +183,8 @@ export function InferDemo() {
     <Text style={s.small}>{`${model().label} · ${model().licence} · stays on this phone`}</Text>
     <Text testID="infer-phase" style={s.small}>{state.phase}</Text>
     <Text testID="infer-state" style={s.note}>{stateWords(state) || 'Summarising on this phone…'}</Text>
+    <Text testID="infer-nano-phase" style={s.small}>{`${nano.id}: ${nanoState.phase}${nanoState.phase === 'unsupported' ? ` (${nanoState.why})` : ''}`}</Text>
+    <Text testID="infer-nano-state" style={s.note}>{stateWords(nanoState, { nano: true }) || 'Gemini Nano is answering on this phone…'}</Text>
     {PROBE && <Text testID="infer-probe" style={s.small}>{receipts.join(' → ')}</Text>}
     {!!said && <Text testID="infer-error" accessibilityRole="alert" style={s.note}>{said}</Text>}
     <View style={s.row}>
@@ -172,6 +204,7 @@ export function InferDemo() {
     </View>
     <View style={s.row}>
       {installed ? button('infer-summarize', 'Summarise', () => void summarize(pane)) : null}
+      {nanoState.phase === 'ready' ? button('infer-nano-summarize', 'Summarise with Gemini Nano', () => void summarize(pane, nano)) : null}
       {state.phase === 'busy' ? button('infer-cancel', 'Cancel', () => run.current?.abort(new Error('cancelled'))) : null}
     </View>
     {!!debugCompletionText && <Text testID="infer-completion-receipt" style={s.small}>{debugCompletionText}</Text>}

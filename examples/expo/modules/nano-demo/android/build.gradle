@@ -1,0 +1,24 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+android {
+  namespace "io.github.umeranjum17.byokit.example.nano"
+  defaultConfig {
+    minSdkVersion 26
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+// ML Kit GenAI Prompt beta4 ships Kotlin 2.3 metadata and kotlin-stdlib 2.3.21; React Native 0.86 compiles with Kotlin
+// 2.1.20. The app keeps its own stdlib and only this lab module reads the newer metadata.
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+  compilerOptions.freeCompilerArgs.add('-Xskip-metadata-version-check')
+}
+
+dependencies {
+  // The ML Kit GenAI Prompt version @byokit/infer's NanoBinding types (docs/infer-kit.md I9).
+  implementation('com.google.mlkit:genai-prompt:1.0.0-beta4') { exclude group: 'org.jetbrains.kotlin' }
+}

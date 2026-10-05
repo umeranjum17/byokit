@@ -22,7 +22,7 @@ if [ "${SKIP_BUILD:-0}" != 1 ]; then
   (cd android && EXPO_PUBLIC_INFER_DEMO=1 NODE_ENV=production ./gradlew assembleRelease --rerun-tasks -q)
 fi
 [ -f "$apk" ]
-unzip -l "$apk" | grep -q 'lib/arm64-v8a/librnllama' || { echo "FAILED: no arm64-v8a llama.rn library in $apk" >&2; exit 1; }
+unzip -l "$apk" | grep -q 'lib/arm64-v8a/librnllama_jni' || { echo "FAILED: no arm64-v8a llama.rn JNI library in $apk" >&2; exit 1; }
 
 screen() { a shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1; a exec-out cat /sdcard/ui.xml; }
 words() { screen | grep -oE "text=(\"[^\"]*\"|'[^']*')" | sed "s/^text=.//; s/.\$//; s/&apos;/'/g; s/&quot;/\"/g" | paste -sd'|'; }
