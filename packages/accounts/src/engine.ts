@@ -143,17 +143,23 @@ async function deviceLogin(pi: string, flow: DeviceFlow, name: string, base: str
       return c;
     }
     const error = json(r.body)?.error;
-    if (error !== 'authorization_pending' && error !== 'slow_down')
+    if (r.status === 0 || error === 'authorization_pending' || error === 'slow_down') {
+      if (error === 'slow_down') interval += 5000;
+      await sleep(interval, signal);
+      continue;
+    }
       throw new Error(`${name} device sign-in ${error === 'access_denied' ? 'was declined' : error === 'expired_token' ? 'expired' : `failed (${r.status || 'no answer'})`}.`);
-    if (error === 'slow_down') interval += 5000;
-    await sleep(interval, signal);
   }
 }
 
 const deviceRefresh = (flow: DeviceFlow, name: string, base?: string) => async (c: OAuthCredential) => {
-  const r = await form(at(flow.token, base), { grant_type: 'refresh_token', client_id: flow.clientId, refresh_token: c.refresh });
-  if (r.status < 200 || r.status > 299) { throw Object.assign(new Error(`${name} token refresh failed (${r.status})`), { status: r.status }); }
-  return deviceCredential(json(r.body), name, c.refresh);
+  const stop = new AbortController();
+  const t = setTimeout(() => stop.abort(), 15_000);
+  try {
+    const r = await form(at(flow.token, base), { grant_type: 'refresh_token', client_id: flow.clientId, refresh_token: c.refresh }, stop.signal);
+    if (r.status < 200 || r.status > 299) { throw Object.assign(new Error(`${name} token refresh failed (${r.status})`), { status: r.status }); }
+    return deviceCredential(json(r.body), name, c.refresh);
+  } finally { clearTimeout(t); }
 };
 
 /** A member's engine on phones and in browsers: ChatGPT's device-code sign-in, refresh and sign-out, into `credentials`. */
