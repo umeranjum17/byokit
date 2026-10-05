@@ -1,0 +1,1 @@
+- FIX: Gemini Nano is now told the JSON Schema describes its answer and is not the answer. Asked plainly, Nano v3 on a real phone returned the schema itself, so every Nano pane summary came back `invalid-output`. JSON validation is unchanged: there is still no grammar on the Nano path, so the wording and that validation are what keep the output conformant.

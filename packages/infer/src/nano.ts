@@ -89,8 +89,13 @@ export class NanoModel {
       }
       const b = this.binding!;
       // ponytail: no grammar from JS (typed output is Kotlin-only); the schema is asked for in words and the caller's
-      // JSON validation stays authoritative. Grammar-equivalence with the GGUF path is unmeasured.
-      const system = [req.system, req.jsonSchema && `Answer with JSON only, matching this JSON Schema: ${JSON.stringify(req.jsonSchema)}`].filter(Boolean).join('\n\n');
+      // JSON validation stays authoritative: conformance here rests on this wording plus that validator, not on a grammar.
+      // Grammar-equivalence with the GGUF path is unmeasured. Asked plainly ("matching this JSON Schema"), Nano v3
+      // (CPH2649, AICore) answered with the schema itself; this wording, which says what the schema is for, was checked
+      // on that one phone only.
+      const system = [req.system, req.jsonSchema && 'Answer with JSON only: one value that is valid against the JSON Schema below. '
+        + 'The schema describes your answer; it is not the answer. Never repeat the schema or its keywords.\n'
+        + `JSON Schema: ${JSON.stringify(req.jsonSchema)}`].filter(Boolean).join('\n\n');
       const request: NanoRequest = { text: req.prompt, ...(system && { systemInstruction: system }), temperature: 0, topK: 1, seed: 0, maxOutputTokens };
       const stop = () => { try { b.cancel(); } catch { /* already finished */ } };
       signal?.addEventListener('abort', stop, { once: true });

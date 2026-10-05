@@ -100,9 +100,17 @@ test('Nano: abort cancels the native call, one call at a time, cut-off is never 
   const cut = new NanoModel({ binding: fakeNano({ reply: () => ({ text: '{"enough":true,"lines":["Ru', finishReason: 1 }) }).binding });
   assert.deepEqual(await summarizePane(cut, ['$ npm test', 'running 42 tests in packages/accounts', 'not ok 1 - login refresh']), { ok: false, code: 'incomplete' });
   const lines = ['Running the accounts tests.', 'One test failed.', 'Login refresh is failing.'];
-  const ok = new NanoModel({ binding: fakeNano({ reply: () => '```json\n' + JSON.stringify({ enough: true, lines }) + '\n```' }).binding });
+  // Nano v3 on a real phone answered "matching this JSON Schema" with the schema itself, verbatim in a json fence.
+  // This fake does the same unless told the schema is not the answer; the echo must never pass as a summary.
+  const echoed = '```json\n{"oneOf":[{"type":"object","additionalProperties":false,"required":["enough","lines"],"properties":{"lines":{"type":"array","minItems":3,"maxItems":4,"items":{"type":"string","minLength":1,"maxLength":100,"pattern":"^[^\\"\\\\\\\\\\\\r\\\\n]{1,100}$"}},"enough":{"const":true}}},{"type":"object","additionalProperties":false,"required":["enough","lines"],"properties":{"lines":{"const":[]},"enough":{"const":false}}}]}\n```';
+  const phone = (r: { systemInstruction?: string }) => /it is not the answer/.test(r.systemInstruction ?? '')
+    ? '```json\n' + JSON.stringify({ enough: true, lines }) + '\n```' : echoed;
+  const ok = new NanoModel({ binding: fakeNano({ reply: phone }).binding });
   const s = await summarizePane(ok, ['$ npm test', 'running 42 tests in packages/accounts', 'not ok 1 - login refresh']);
-  assert.deepEqual(s.ok && [s.lines, s.model], [lines, 'gemini-nano@nano-fake']);
+  assert.deepEqual(s.ok && [s.lines, s.model], [lines, 'gemini-nano@nano-fake'], 'Nano is told the schema is not the answer');
+  const echo = new NanoModel({ binding: fakeNano({ reply: () => echoed }).binding });
+  assert.deepEqual(await summarizePane(echo, ['$ npm test', 'running 42 tests in packages/accounts', 'not ok 1 - login refresh']),
+    { ok: false, code: 'invalid-output' }, 'an echoed schema is rejected, never a summary');
   const free = await (await inferBackend({ where: 'local', gguf: await local(() => 'x'), nano: new NanoModel({ binding: fakeNano({ reply: () => 'Plain words.' }).binding }) }))
     .generate({ prompt: 'hi' });
   assert.deepEqual([free.data, free.text], [null, 'Plain words.']);
