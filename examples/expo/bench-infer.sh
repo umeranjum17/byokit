@@ -24,10 +24,16 @@ text_of() { screen | grep -o "text=\"[^\"]*\" resource-id=\"$1\"" | sed 's/^text
 tap_xy() { # shellcheck disable=SC2086 # "x y" is two arguments
   a shell input tap $1; }
 bounds() { sed 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]"/\1 \2 \3 \4/' | awk '{print int(($1+$3)/2), int(($2+$4)/2)}'; }
+# Tap until the app logs the press (a dump taken while React re-renders gives stale bounds).
 tap() {
-  xy=$(screen | grep -o "resource-id=\"$1\"[^>]*bounds=\"[^\"]*\"" | bounds)
-  [ -n "$xy" ] || { echo "no $1 on screen: $(words)" >&2; exit 1; }
-  tap_xy "$xy"
+  pressed=$(grep -c "press\.$1\$" "$out/logcat.txt" || true)
+  for _ in 1 2 3; do
+    xy=$(screen | grep -o "resource-id=\"$1\"[^>]*bounds=\"[^\"]*\"" | bounds)
+    [ -n "$xy" ] || { echo "no $1 on screen: $(words)" >&2; return 1; }
+    tap_xy "$xy"; sleep 2
+    [ "$(grep -c "press\.$1\$" "$out/logcat.txt" || true)" = "$pressed" ] || return 0
+  done
+  echo "$1 tapped 3 times, no press logged: $(words)" >&2; return 1
 }
 phase() {
   for _ in $(seq "${2:-60}"); do p=$(text_of infer-phase); case "|$1|" in *"|$p|"*) return;; esac; sleep 1; done
@@ -35,15 +41,19 @@ phase() {
 }
 # Tap $2 and wait for its run's record in logcat (the card's timing can sit below the fold, out of uiautomator's
 # reach), then write that run's speed at once as "$1: ...".
+# A failed run says so with the screen's own words and returns 1.
 run() {
   engine=${1%% *}; done0=$(speed count-$engine); failed0=$(speed count-failed)
-  mark "$1"; tap "$2"
+  mark "$1"; tap "$2" || { receipt "$1: FAILED, could not press $2"; return 1; }
   for _ in $(seq 300); do
     sleep 1
-    [ "$(speed count-failed)" = "$failed0" ] || { receipt "$1: FAILED, screen: $(words)"; exit 1; }
-    [ "$(speed count-$engine)" = "$done0" ] || { receipt "$1: $(speed "$engine")" | tee -a "$out/speed.txt"; return; }
+    [ "$(speed count-failed)" = "$failed0" ] || { sleep 2; receipt "$1: FAILED, screen: $(words)"; return 1; }
+    if [ "$(speed count-$engine)" != "$done0" ]; then
+      receipt "$1: $(speed "$engine")" | tee -a "$out/speed.txt" >/dev/null
+      sleep 3; return 0                               # let the card render before the next screenshot or tap
+    fi
   done
-  receipt "$1: FAILED, no record in 300 s, screen: $(words)"; exit 1
+  receipt "$1: FAILED, no record in 300 s, screen: $(words)"; return 1
 }
 speed() { node bench-speed.mjs "$out/logcat.txt" "$1"; }
 shot() { a exec-out screencap -p >"$out/$1.png"; echo "captured $out/$1.png"; }
@@ -69,6 +79,7 @@ logcat=$!
 ( while :; do echo "$(date +%s) app $(mem $app) | aicore $(mem com.google.android.aicore) | system $(a shell grep MemAvailable /proc/meminfo | tr -s ' ')"; sleep 1; done ) >>"$out/meminfo-samples.txt" 2>&1 9>&- &
 sampler=$!
 trap 'kill $sampler $logcat 2>/dev/null' EXIT
+trap 'exit 143' INT TERM
 
 start; phase installed 60
 sleep 5                                             # NanoModel.check() asks AICore (statusMs 3 s)
@@ -77,20 +88,14 @@ shot 01-status
 receipt "battery before: $(battery)"
 mark idle; sleep 3
 
-start; phase installed 60
-run 'gguf cold' infer-summarize; shot 02-gguf-cold
-i=1
-while [ "$i" -le "$runs" ]; do run "gguf warm $i" infer-summarize; i=$((i + 1)); done
-shot 03-gguf-warm
-mark gguf-steady; sleep 3; receipt "gguf steady app: $(mem $app)"
-a shell dumpsys meminfo $app >"$out/meminfo-app-after-gguf.txt"
-
 if text_of infer-nano-phase | grep -q ': ready$'; then
   start; phase installed 60; sleep 5
   a shell dumpsys meminfo >"$out/meminfo-system-before-nano.txt"   # Nano's weights may sit outside AICore's PSS (DMA-BUF)
-  run 'nano cold' infer-nano-summarize; shot 04-nano-cold
-  i=1
-  while [ "$i" -le "$runs" ]; do run "nano warm $i" infer-nano-summarize; i=$((i + 1)); done
+  if run 'nano cold' infer-nano-summarize; then
+    shot 04-nano-cold
+    i=1
+    while [ "$i" -le "$runs" ] && run "nano warm $i" infer-nano-summarize; do i=$((i + 1)); done
+  fi
   shot 05-nano-warm
   mark nano-steady; sleep 3; receipt "nano steady app: $(mem $app) aicore: $(mem com.google.android.aicore)"
   a shell dumpsys meminfo $app >"$out/meminfo-app-after-nano.txt"
@@ -99,6 +104,14 @@ if text_of infer-nano-phase | grep -q ': ready$'; then
 else
   receipt "nano: not ready on this phone, not benchmarked"
 fi
+start; phase installed 60
+run 'gguf cold' infer-summarize || exit 1; shot 02-gguf-cold
+i=1
+while [ "$i" -le "$runs" ]; do run "gguf warm $i" infer-summarize || exit 1; i=$((i + 1)); done
+shot 03-gguf-warm
+mark gguf-steady; sleep 3; receipt "gguf steady app: $(mem $app)"
+a shell dumpsys meminfo $app >"$out/meminfo-app-after-gguf.txt"
+
 receipt "battery after: $(battery)"
 mark end
 a shell input keyevent KEYCODE_HOME
