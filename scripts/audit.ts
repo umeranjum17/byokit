@@ -111,7 +111,9 @@ export function assessAudit(text: string, status: number | null, bracesMetadata?
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
     const result = spawnSync('npm', ['audit', '--audit-level=high', '--json'], { encoding: 'utf8', timeout: 120_000 });
-    if (result.error || result.signal) throw new Error('Audit command unavailable');
+    if (result.error || result.signal) {
+      throw new Error(`npm audit could not run: ${result.error?.message ?? `killed by signal ${result.signal}`}`);
+    }
     const report: unknown = JSON.parse(result.stdout);
     const hasBraces = record(report) && record(report.vulnerabilities) && Object.values(report.vulnerabilities).some(node =>
       record(node) && Array.isArray(node.via) && node.via.some(via => record(via) &&
@@ -120,8 +122,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     const assessment = assessAudit(result.stdout, result.status, metadata);
     console.log(JSON.stringify(assessment, null, 2));
     process.exitCode = assessment.blocked.length ? 1 : 0;
-  } catch {
-    console.error('Dependency audit failed: unavailable, erroneous or malformed report.');
+  } catch (error) {
+    // Unavailable tool, not an advisory finding: keep failing closed, but show the raw cause.
+    console.error(`Dependency audit tool unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    console.error('No audit report means no verification, so the gate fails. This is a tool failure, not an advisory.');
     process.exitCode = 1;
   }
 }
