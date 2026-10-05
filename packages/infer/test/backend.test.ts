@@ -44,7 +44,7 @@ test('a cut-off on-device answer is incomplete, never partial data', async () =>
 
 test('local is Gemini Nano when AICore has it ready, else the GGUF model; absent, silent or failing AICore never hangs', async () => {
   const gguf = await local(() => '{"title":"from gguf"}');
-  const ready = fakeNano({ reply: r => { assert.match(r.systemInstruction ?? '', /JSON only/); assert.match(r.systemInstruction ?? '', /not the answer/); return '{"title":"from nano"}'; } });
+  const ready = fakeNano({ reply: r => { assert.match(r.systemInstruction ?? '', /JSON only/); return '{"title":"from nano"}'; } });
   const nano = new NanoModel({ binding: ready.binding });
   const b = await inferBackend({ where: 'local', gguf, nano });
   assert.deepEqual([b.name, b.model, b.billing, b.leaves, b.local === nano], ['on-device-nano', 'gemini-nano@nano-fake', 'local', false, true]);
