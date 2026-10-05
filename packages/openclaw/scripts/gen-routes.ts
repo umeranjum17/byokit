@@ -62,7 +62,11 @@ export function generateRoutes(snapshot: PinSnapshot): Route[] {
     const keyEntry = via === 'key' || via === 'plan_key' || id === 'custom-api-key' || id === 'llama-cpp-existing-server';
     const scopes = choice.onboardingScopes;
     const services = !!scopes?.length && !scopes.includes('text-inference');
-    const offerPolicy = billing === 'subscription' && !alias ? 'default' : 'explicit';
+    // The pin's Gateway setup refuses an interactive sign-in whose choice has no app-guided flow
+    // ("That provider setup is not available on this Gateway."): list it, never offer it.
+    const unguided = !keyEntry && ['browser', 'code', 'setup_token'].includes(via) && !choice.appGuidedAuth;
+    const absent = alias || unguided;
+    const offerPolicy = billing === 'subscription' && !absent ? 'default' : 'explicit';
     return {
       choice: id, provider: choice.provider, plugin: manifest.id, billing, via,
       ...(id === 'anthropic-cli' ? { auth: 'cli' as const } : id === 'apiKey' ? { auth: 'api_key' as const }
@@ -70,10 +74,10 @@ export function generateRoutes(snapshot: PinSnapshot): Route[] {
       prerequisite: via === 'cli' ? 'Claude Code in the isolated HOME' : null,
       offer: offerPolicy === 'default' && Object.keys(needs).length === 0, offerPolicy,
       ...(id === 'anthropic-cli' ? { legacy: { provider: 'claude-cli', via: 'browser' as const } }
-        : id === 'setup-token' ? { legacy: { provider: 'anthropic', via: 'browser' as const } }
         : id === 'minimax-global-oauth' || id === 'minimax-cn-oauth'
           ? { legacy: { provider: 'minimax', via: 'code' as const } } : {}),
       reason: alias ? 'Compatibility alias the Gateway does not offer; use xai-oauth.'
+        : unguided ? 'The pinned Gateway has no app-guided sign-in for this choice.'
         : billing === 'api' ? `${choice.groupLabel ?? choice.provider}: ${via === 'cloud' ? 'Cloud credentials' : keyEntry ? 'API key' : 'OAuth'} (billed per use).`
         : billing === 'subscription' ? `${choice.choiceLabel}: subscription sign-in.`
         : billing === 'local' ? 'Local runtime; explicitly select this route.'
@@ -89,7 +93,7 @@ export function generateRoutes(snapshot: PinSnapshot): Route[] {
       ...(Object.keys(needs).length ? { needs } : {}),
       ...(external.has(manifest.id) && !bundled.has(manifest.id) ? { install: external.get(manifest.id)!.install } : {}),
       upstream: { surface: 'openclaw', id: choice.provider, method: choice.method, revision: REVISION,
-        flow: alias ? 'absent' : 'present' },
+        flow: absent ? 'absent' : 'present' },
     };
   }
   for (const manifest of snapshot.manifests) {

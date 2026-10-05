@@ -85,7 +85,8 @@ test('manifest identities and the six F0 label corrections are retained', () => 
   assert.equal(byChoice.get('anthropic-cli')?.provider, 'anthropic');
   assert.equal(byChoice.get('anthropic-cli')?.via, 'cli');
   assert.match(byChoice.get('anthropic-cli')?.prerequisite ?? '', /Claude Code/);
-  assert.equal(byChoice.get('setup-token')?.offer, true);
+  assert.equal(byChoice.get('setup-token')?.offer, false, 'the pinned Gateway refuses it, so it is never offered');
+  assert.equal(byChoice.get('setup-token')?.readiness, 'no_upstream_flow');
   assert.equal(byChoice.get('setup-token')?.via, 'setup_token');
   assert.equal(byChoice.get('apiKey')?.offer, false);
   assert.equal(byChoice.get('opencode-go')?.billing, 'subscription');
@@ -107,7 +108,7 @@ test('legacy pairing choices and device-code methods are unchanged', () => {
   assert.equal(routeFor('minimax', 'code')?.choice, 'minimax-global-oauth');
   assert.equal(routeFor('claude-cli', 'browser')?.choice, 'anthropic-cli');
   assert.equal(routeFor('claude-cli', 'browser')?.offer, false, 'explicit native selector is not a readiness/default claim');
-  assert.equal(routeFor('anthropic', 'browser')?.choice, 'setup-token');
+  assert.equal(routeFor('anthropic', 'browser'), undefined, 'no legacy selector reaches the refused setup-token choice');
   const byChoice = new Map(routes().map(route => [route.choice, route]));
   for (const choice of ['openai-device-code', 'xai-oauth', 'github-copilot', 'github-copilot-enterprise', 'minimax-global-oauth', 'minimax-cn-oauth', 'xai-device-code']) {
     assert.equal(byChoice.get(choice)?.via, 'code');

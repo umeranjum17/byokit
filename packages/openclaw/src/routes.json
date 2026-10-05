@@ -173,13 +173,9 @@
     "via": "setup_token",
     "auth": "token",
     "prerequisite": null,
-    "offer": true,
-    "offerPolicy": "default",
-    "legacy": {
-      "provider": "anthropic",
-      "via": "browser"
-    },
-    "reason": "Anthropic setup-token: subscription sign-in.",
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "The pinned Gateway has no app-guided sign-in for this choice.",
     "source": "extensions/anthropic/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
     "checked": "2026-10-02",
@@ -201,7 +197,7 @@
       "id": "anthropic",
       "method": "setup-token",
       "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
-      "flow": "present"
+      "flow": "absent"
     }
   },
   {

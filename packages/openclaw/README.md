@@ -112,7 +112,7 @@ supplies no lifetime, it owns the deadline. Ordinary wizard requests keep their 
 `done` returns a typed `SignInView`: `why: 'expired'` for an expired code, `why: 'declined'` for cancellation,
 with a plain sentence in `error`. `SignInOptions` is exported from the host entry.
 
-For a subscription setup-token or any sensitive wizard text step, pass the token once through the same
+For any sensitive wizard text step, pass the secret once through the same
 `signIn.paste(token)` channel and clear the input afterwards. The kit displays only a fixed entry label;
 subsequent wizard errors, links and codes are withheld, and failures use a fixed message rather than
 engine text that could echo the token. It is sent only as this member's wizard answer, never in views,
@@ -291,7 +291,6 @@ state: ready | protocol: 4
 event: {"type":"text","text":"fake: Say hello."}
 event: {"type":"text","text":"fake: Say hello."}
 end: {"ok":true,"text":"fake: Say hello.","usage":{"input":10,"output":16,"total":26}}
-route: setup-token                subscription setup_token
 route: github-copilot             subscription code
 route: github-copilot-enterprise  subscription code
 route: minimax-global-oauth       subscription code
@@ -539,4 +538,4 @@ frozen (docs/runtime-kits.md §5).
 
 Apache-2.0. See [LICENSE](LICENSE); the bundled engine's MIT text is [engine/OPENCLAW-LICENSE](engine/OPENCLAW-LICENSE).
 
-Claude: `anthropic-cli` uses your own unmodified Claude Code login on this machine (provider `claude-cli`, plugin `anthropic`; subscription billing), with login kept in Claude Code under the kit’s isolated `HOME=<stateDir>/openclaw/home` and `CLAUDE_CONFIG_DIR=<stateDir>/openclaw/home/.claude`; sign in there with `claude auth login`, then call `signIn`. Activation live-tests the route; native sign-out is through Claude Code. `apiKey` is explicit API billing (“API key (billed per use)”, `offer: false`): `signIn` asks for the key through `paste`, then engine activation verifies it. The kit never imports Claude credentials or implements direct Claude.ai OAuth; [Anthropic’s terms](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use) apply.
+Claude: `anthropic-cli` uses your own unmodified Claude Code login on this machine (provider `claude-cli`, plugin `anthropic`; subscription billing), with login kept in Claude Code under the kit’s isolated `HOME=<stateDir>/openclaw/home` and `CLAUDE_CONFIG_DIR=<stateDir>/openclaw/home/.claude`; sign in there with `claude auth login`, then call `signIn`. Activation live-tests the route; native sign-out is through Claude Code. `apiKey` is explicit API billing (“API key (billed per use)”, `offer: false`): `signIn` asks for the key through `paste`, then engine activation verifies it. The `setup-token` choice is listed but never offered: the pinned Gateway has no app-guided sign-in for it. The kit never imports Claude credentials or implements direct Claude.ai OAuth; [Anthropic’s terms](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use) apply.
