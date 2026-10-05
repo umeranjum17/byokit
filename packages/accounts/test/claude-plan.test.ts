@@ -106,7 +106,7 @@ test('plan inference uses direct bearer/native headers and identity body; 401 re
   const call = s.calls[0], headers = new Headers(call.init.headers);
   assert.equal(call.url, 'https://api.anthropic.com/v1/messages'); assert.equal(headers.get('authorization'), 'Bearer recorded-access');
   assert.equal(headers.get('x-api-key'), null); assert.equal(headers.get('x-app'), 'cli');
-  assert.equal(headers.get('anthropic-beta'), 'claude-code-20250219,oauth-2025-04-20'); assert.equal(headers.get('user-agent'), 'claude-code/2.1.74 (external, cli)');
+  assert.equal(headers.get('anthropic-beta'), 'claude-code-20250219,oauth-2025-04-20'); assert.equal(headers.get('user-agent'), null, 'no client value is invented');
   assert.equal(headers.get('anthropic-version'), '2023-06-01'); assert.equal(call.body.provider, undefined);
   assert.equal(call.body.system[0].text, "You are Claude Code, Anthropic's official CLI for Claude.");
   s.set({}, 401);

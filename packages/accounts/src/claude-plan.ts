@@ -157,11 +157,14 @@ export async function claudeProfile(access: string, options: Pick<ClaudePlanOpti
   return { plan, email: typeof email === 'string' ? email : '', work: /^(team|enterprise)/.test(plan) };
 }
 
-/** Hermes's baseline native-client fingerprint. No installed CLI is consulted for its version. */
-export function claudePlanMessages(access: string, options: { fetch?: typeof fetch } = {}) {
-  return anthropicMessages({ ...options, headers: {
+/** Hermes's baseline native-client fingerprint. The client value is the host's (`userAgent`, or a `headers`
+ *  entry): this route never freezes a version, and a caller's header wins. No client value sends no version. */
+export function claudePlanMessages(access: string, options: { fetch?: typeof fetch; userAgent?: string; headers?: Record<string, string> } = {}) {
+  const { userAgent, ...rest } = options;
+  return anthropicMessages({ ...rest, headers: {
     authorization: `Bearer ${access}`, 'anthropic-beta': 'claude-code-20250219,oauth-2025-04-20',
-    'user-agent': 'claude-code/2.1.74 (external, cli)', 'x-app': 'cli', 'anthropic-dangerous-direct-browser-access': 'true',
+    ...(userAgent ? { 'user-agent': userAgent } : {}),
+    'x-app': 'cli', 'anthropic-dangerous-direct-browser-access': 'true', ...options.headers,
   }, prepare: (request: AnthropicRequest) => ({ ...request, system: [
     { type: 'text', text: "You are Claude Code, Anthropic's official CLI for Claude." },
     ...(typeof request.system === 'string' ? [{ type: 'text' as const, text: request.system }] : request.system ?? []),

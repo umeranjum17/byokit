@@ -80,6 +80,8 @@ export type AccountsOptions<M extends Member = Member> = {
   anthropicBase?: string;
   /** Claude PKCE transport and Web Crypto supplied by the app (React Native). */
   claudePlan?: ClaudePlanOptions;
+  /** The client value the Claude plan route sends as its User-Agent. The host's own value; this kit sends none. */
+  claudeUserAgent?: string;
   /** The fetch `respond` asks with: one that streams on a phone (Expo's `expo/fetch`). Default: the platform's. */
   fetch?: typeof fetch;
   /** The originator header `respond` sends. Default: 'byokit'. */
@@ -744,7 +746,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         throw e;
       }
       if (!access) throw new ClaudePlanExpiredError();
-      try { return await claudePlanMessages(access, { fetch: this.opts.fetch }).respond(request); }
+      try { return await claudePlanMessages(access, { fetch: this.opts.fetch, userAgent: this.opts.claudeUserAgent }).respond(request); }
       catch (e) {
         if (e instanceof ResponseError && e.kind === 'signed_out') {
           await this.logout(member, 'claude').catch(() => {});
