@@ -41,8 +41,9 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
   };
 
   const asked: PairRequest[] = [];
-  let report: (r: any) => void, failed: (e: Error) => void;
+  let report: (r: any) => void, failed: (e: Error) => void, pageRequested: () => void;
   const reported = new Promise<any>((r, no) => { report = r; failed = no; });
+  const pageAsked = new Promise<void>((r) => { pageRequested = r; });
   const host = await Host.open({
     keys: keyPair(), name: 'Kitchen computer',
     confirm: (p) => { note('host approval'); asked.push(p); return true; },
@@ -68,7 +69,7 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
       note('module served');
       return res.writeHead(200, { 'content-type': 'text/javascript' }).end(js);
     }
-    if (req.url === '/pair') note('page served');
+    if (req.url === '/pair') { note('page served'); pageRequested(); }
     res.writeHead(200, { 'content-type': 'text/html' }).end(`<!doctype html><title>pairing</title><meta name="short-code" content="${code}"><script>fetch('/milestone/page-loaded', {method: 'POST'}).catch(() => {})</script><script type="module" src="/client.js" onload="fetch('/milestone/module-loaded', {method: 'POST'}).catch(() => {})" onerror="fetch('/milestone/module-error', {method: 'POST'}).catch(() => {})"></script>`);
   });
   const wss = new WebSocketServer({ server });
@@ -107,10 +108,19 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
     stderr += d.toString('utf8');
   });
   let failure: unknown;
-  try {
+  const within = <T>(ms: number, what: string, p: Promise<T>) => {
     let timer: any;
-    const r = await Promise.race([reported, new Promise((_, no) => { timer = setTimeout(() => no(new Error(`the browser never reported: after 60000ms the last step was "${trace.at(-1)?.replace(/^\d+ms /, '')}"`)), 60_000); })])
-      .finally(() => clearTimeout(timer)) as any;
+    return Promise.race([p, new Promise<never>((_, no) => { timer = setTimeout(() => no(new Error(`${what}: after ${ms}ms the last step was "${trace.at(-1)?.replace(/^\d+ms /, '')}"`)), ms); })])
+      .finally(() => clearTimeout(timer));
+  };
+  try {
+    // Starting the browser is not the test: the first Chrome on a fresh CI runner has taken 2-53s (once over 60s) just
+    // to ask for the page, while every later launch in the same job takes 1-2s. It gets its own limit and message, and
+    // the 60s pairing clock starts when the page is requested.
+    await within(180_000, 'the browser never asked for the page', Promise.race([pageAsked, reported]));
+    const pairing = Date.now();
+    const r = await within(60_000, 'the browser never reported', reported);
+    t.diagnostic(`browser start ${pairing - started}ms (not timed), pairing ${Date.now() - pairing}ms (60s limit)`);
     assert.equal(asked.length, 2);
     assert.equal(asked[0].name, 'Browser tab');
     assert.equal(r.words, asked[0].words, 'the page showed the same two words');
