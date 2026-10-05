@@ -145,6 +145,10 @@ for (const q of await hd.blocked()) {
 The [herdr-kit example](../../examples/herdr-kit) is the full version: pairing with a QR code and typed code, a
 persistent grant store, and the phone page above.
 
+Read next: [docs/runtime-kits.md](../../docs/runtime-kits.md) §11 for the decisions and the work packages this
+kit does not have yet, and [Two ways in](#two-ways-in) plus
+[Agent readiness](#agent-readiness) for the parts a new app picks first.
+
 ## API at a glance
 
 | Export | What it does |

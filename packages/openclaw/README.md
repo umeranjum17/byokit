@@ -288,16 +288,22 @@ state: ready | protocol: 4
 event: {"type":"text","text":"fake: Say hello."}
 event: {"type":"text","text":"fake: Say hello."}
 end: {"ok":true,"text":"fake: Say hello.","usage":{"input":10,"output":16,"total":26}}
-route: openai                     subscription browser
-route: openai-device-code         subscription code
-route: xai-oauth                  subscription code
+route: setup-token                subscription setup_token
 route: github-copilot             subscription code
 route: github-copilot-enterprise  subscription code
 route: minimax-global-oauth       subscription code
 route: minimax-cn-oauth           subscription code
-route: anthropic-cli              subscription browser
-route: setup-token                subscription browser
+route: openai                     subscription browser
+route: openai-device-code         subscription code
+route: opencode-go                subscription plan_key
+route: xai-oauth                  subscription code
 ```
+
+The block above is the whole quickstart: copy it into a `.mts` file next to your app's
+`node_modules` and `node` it. No engine, no account, no network. Then read
+[the run contract](../../docs/runtime-kits.md#58-runs-members-and-streams) for retries and
+streams, [`examples/openclaw-kit`](../../examples/openclaw-kit) for a whole app, and
+[SECURITY.md](SECURITY.md) before you store anything the engine returns.
 
 Subscription sign-ins are offered by default. API-billed routes remain in `kit.routes()` with `offer: false`;
 apps can offer them when the app or person opts in, labelled API key (billed per use). Each `Route` carries `billing` (`subscription`, `api` or
