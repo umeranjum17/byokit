@@ -4,7 +4,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { processStartTime, sha256 } from '../packages/openclaw/src/engine-patches.ts';
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -47,6 +46,11 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
+// Short-temp rule for the release path: every scratch dir here is task-owned and created directly under
+// /tmp, never under an inherited (possibly deep) TMPDIR and never nested deeper. Unix socket paths cap at
+// about 104 bytes, so a deep parent turns into an unrelated-looking release failure. Callers clean up.
+const shortTmp = (prefix: string): string => mkdtempSync(join("/tmp", prefix));
+
 function sh(cmd: string, args: string[], cwd: string): string {
   const r = spawnSync(cmd, args, { cwd, encoding: "utf8" });
   if (r.status !== 0) throw new Error(`failed: ${cmd} ${args.join(" ")}\n${r.stderr}${r.stdout}`);
@@ -68,7 +72,7 @@ export function smokeFailures(results: Map<string, string>): string[] {
 
 function main(): void {
   // No `byokit-` prefix: scripts/test.sh's leak check would blame other runs.
-  const dir = mkdtempSync(join(tmpdir(), "pack-smoke-byokit-"));
+  const dir = shortTmp("pack-smoke-byokit-");
   pendingTmp.add(dir);
   try {
     const tgzDir = join(dir, "tgz");
@@ -532,7 +536,7 @@ console.log('packed-realtime-child-ok');
 // internal runtime dependency closure are exact local tarballs; external dependencies stay registry supplied.
 // No unrelated/private kits or a fake Gateway may stand in for this receipt.
 function realOpenClawPack(): void {
-  const dir = mkdtempSync(join(tmpdir(), 'ocp-'));
+  const dir = shortTmp('ocp-');
   pendingTmp.add(dir);
   const env = { ...process.env, HOME: join(dir, 'home'), npm_config_cache: join(dir, 'cache') };
   const run = (command: string, args: string[], cwd: string, timeout = 600_000) => {
