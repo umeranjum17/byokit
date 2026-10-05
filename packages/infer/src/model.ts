@@ -50,7 +50,7 @@ export const neutralize = (s: string): string => s.replace(/<(?=\||\/?think>)/g,
 export const modelName = (m: InferModel): string => `${m.id}@${m.revision}`;
 
 // Stock React Native signals have aborted/listeners, but neither throwIfAborted nor reason.
-const abortReason = (signal: AbortSignal): unknown => signal.reason !== undefined ? signal.reason
+export const abortReason = (signal: AbortSignal): unknown => signal.reason !== undefined ? signal.reason
   : Object.assign(new Error('The on-device operation was cancelled.'), { name: 'AbortError' });
 export function throwIfAborted(signal?: AbortSignal): void { if (signal?.aborted) throw abortReason(signal); }
 

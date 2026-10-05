@@ -1,7 +1,8 @@
 # @byokit/infer
 
-Text generation on the phone itself, for React Native on Android and iOS: one pinned, publicly licensed model that
-your app downloads once with an integrity check, one native context, and nothing sent anywhere afterwards. It also
+Text generation on the phone itself, for React Native on Android and iOS: Android's built-in Gemini Nano where the
+phone has it, else one pinned, publicly licensed model that your app downloads once with an integrity check; one
+native context, and nothing sent anywhere afterwards. It also
 gives you a ready 3–4 line terminal-pane summary and a backend for `@byokit/decide`'s `generate()`.
 
 > First public release 0.1.0, published before phone qualification by byk decision: latency, memory, battery
@@ -52,7 +53,32 @@ publisher's revision and SHA-256. Physical qualification on a real phone is stil
 - **Private by construction.** Inference has no network path, no telemetry and no remote fallback. Pane text is
   treated as data, never as instructions: no tools, no execution. A cut-off or malformed answer is never shown as a
   summary. `log` never receives prompt, pane or generated text.
-- **No account, no billing.** Local inference uses no sign-in, subscription or API key.
+- **No account, no billing.** Local inference (Nano or GGUF) uses no sign-in, subscription or API key.
+
+## Gemini Nano
+
+On Android phones whose AICore has Gemini Nano, local generation can use that built-in model instead of the download.
+The kit imports no Android code: the app passes its native module over ML Kit GenAI Prompt (`NanoBinding`, typed after
+`1.0.0-beta4`). Without one, or when AICore says no, is silent for 3 s or fails, Nano is `unsupported` and local uses
+the GGUF model.
+
+```ts
+import { inferBackend, NanoModel, whereWords, type LocalModel, type NanoBinding } from '@byokit/infer';
+
+declare const nanoModule: NanoBinding | undefined;
+declare const localModel: LocalModel;
+declare const show: (text: string) => void;
+
+const nano = new NanoModel({ binding: nanoModule });                           // undefined on iOS: unsupported
+const local = await inferBackend({ where: 'local', gguf: localModel, nano });  // Nano when ready, else GGUF
+const { text } = await local.generate({ prompt: 'Say hello.' });               // or decide's generate() with a schema
+show(whereWords(local));                                                       // "Runs on this phone with its built-in model."
+```
+
+The choice is made once per `inferBackend()`; a call never falls back to the other model. `local.local` is the full
+typed pass-through (`nano.binding` is the whole Prompt surface the module exposes). Show Nano's state with
+`stateWords(s, { nano: true })`: Android owns its download. Nano has no grammar from JavaScript: a schema is asked for
+in the instructions and JSON validation stays authoritative. `./testing` has `fakeNano()`.
 
 `generationBackend(local)` plugs the phone's model into `@byokit/decide`'s `generate()` with `privacy: 'stays-here'`.
 `./testing` has `fakeLlama()` and `memoryModelStore()` for offline tests.

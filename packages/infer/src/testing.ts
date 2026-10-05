@@ -1,4 +1,5 @@
 import type { InferModel, InferModelStore } from './types.ts';
+import type { NanoBinding, NanoFeatureStatus, NanoRequest } from './nano.ts';
 import { throwIfAborted, type InitLlama, type LlamaRnCompletionParams, type LlamaRnCompletionResult, type LlamaRnContext, type LlamaRnContextParams } from './model.ts';
 
 export type FakeLlama = {
@@ -68,4 +69,32 @@ export function memoryModelStore(files: Record<string, Uint8Array> = {}, o: { fr
     ...(o.freeBytes !== undefined && { freeBytes: async () => o.freeBytes! }),
   };
   return { store, saved, downloads };
+}
+
+/**
+ * ML Kit GenAI Prompt stand-in. `status` answers checkStatus (a promise that never settles models a silent AICore);
+ * `reply` answers generateContent (a string means finishReason STOP); `failCode` rejects it with that `errorCode`.
+ * A reply that never resolves models a long decode, which `cancel()` interrupts. Tokens are 4 characters each.
+ */
+export function fakeNano(o: { status?: NanoFeatureStatus | Promise<NanoFeatureStatus>; reply?: (r: NanoRequest) => string | { text: string; finishReason: number } | Promise<string>;
+  failCode?: number } = {}) {
+  const requests: NanoRequest[] = [];
+  let cancels = 0, closed = 0, interrupt: (() => void) | undefined;
+  const binding: NanoBinding = {
+    checkStatus: async () => o.status ?? 3,
+    generateContent: async (r) => {
+      requests.push(r);
+      if (o.failCode !== undefined) throw Object.assign(new Error('fake GenAiException'), { errorCode: o.failCode });
+      const cancelled = new Promise<never>((_, reject) => { interrupt = () => reject(Object.assign(new Error('cancelled'), { errorCode: 7 })); });
+      let a;
+      try { a = await Promise.race([Promise.resolve(o.reply ? o.reply(r) : '{}'), cancelled]); } finally { interrupt = undefined; }
+      return { candidates: [typeof a === 'string' ? { text: a, finishReason: 0 } : a] };
+    },
+    countTokens: async (r) => ({ totalTokens: Math.ceil(((r.systemInstruction ?? '') + r.text).length / 4) }),
+    getTokenLimit: async () => 4000,
+    getBaseModelName: async () => 'nano-fake',
+    cancel: () => { cancels++; interrupt?.(); },
+    close: () => { closed++; },
+  };
+  return { binding, requests, get cancels() { return cancels; }, get closed() { return closed; } };
 }

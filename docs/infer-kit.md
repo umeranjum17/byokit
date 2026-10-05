@@ -8,7 +8,8 @@ binding for its builders. A signature or decision change is a spec change first.
 
 A React Native app on Android and iOS writes a 3–4 line summary of a terminal pane **on the phone**. After one
 explicit, integrity-checked model download, no pane text, prompt, summary, metric or log leaves the phone, and there
-is no remote fallback. Every app consumes the published kit; no app installs a raw model SDK of its own.
+is no remote fallback. Every app consumes the published kit; no app installs a raw model SDK of its own. Where the
+phone has Android's built-in Gemini Nano (AICore), local generation uses it instead of the downloaded model (I9).
 
 Feasibility and the gap this fills: `@byokit/decide` 0.6.x already has portable `generate()` with schema validation
 and `privacy: 'stays-here'`, but no native model loader, inference binding, verified model catalogue or device
@@ -26,6 +27,9 @@ support check. `@byokit/dictation` is speech, not text. This kit is that missing
 | I6 | Summaries are grammar-constrained JSON `{enough, lines[≤4]}` with a discriminated `oneOf` schema: `enough` const `true` plus 3–4 nonempty ≤100-character single-line strings, or const `false` plus `lines: {const: []}`. Stock llama.rn's converter ignores `maxItems` when `items` is absent and prioritizes `pattern` over string lengths; the empty-array literal and `{1,100}` pattern bounds avoid those unsupported combinations. Grammar requests plain sentence text without double quotes/backslashes so encoded escapes cannot defeat newline bounds; JS validation remains unchanged and is still authoritative. The prompt states that same contract; no decoder Boolean coercion or legacy contradictory-output acceptance. JS rejects inconsistent flags, extra keys, embedded newlines, >100-character strings and wrong cardinality. (llama.rn `response_format: json_schema`) and validated again in JS. Only a leading literal `<\|im_start\|>assistant` header and a whole enclosing markdown `json` fence may be removed before JSON parsing; trailing garbage, other tags and malformed bodies remain invalid. No `force_pure_content`: its one packaged-native confirmation rejected before a result. | The model cannot ramble or emit a partial structure that looks complete; `enough: false` is the honest "not enough output" path. |
 | I7 | Storage is the host's (`InferModelStore`, e.g. over `@dr.pogodin/react-native-fs@2.40.3`: `downloadFile`, native `hash(path, 'sha256')`, `getFSInfo`). The kit checks free space, size and SHA-256, and removes a mismatching file. | Hashing a 1.12 GB default file must be native; storage location is an app choice. |
 | I8 | No dependency on `@byokit/decide`: `generationBackend()` returns a structurally identical `GenerationBackend`, pinned by `test/backend.test.ts`. | decide pulls `openai`/accounts; a phone that only summarises does not need them. |
+| I9 | Second local backend: Android's built-in **Gemini Nano** through ML Kit GenAI Prompt `1.0.0-beta4` (AICore). The kit types a structural subset (`NanoBinding`) and the host injects its native module, as with `initLlama`. Only `checkStatus()` AVAILABLE is `ready`; no binding, UNAVAILABLE, an error or no answer within `statusMs` (3 s) is `unsupported`; DOWNLOADABLE/DOWNLOADING are `not-installed`/`installing` and the kit never starts AICore's download. The base model name is a label only. A request-level failure keeps Nano `ready`; any other failed generation stays `failed` until `release()` (AICore can report AVAILABLE while inference fails). Resolving during a running call keeps Nano. Greedy (`temperature 0`, `topK 1`, `seed 0`). No grammar: the schema is asked for in the system instruction and JS validation stays authoritative. Busy/quota/background codes → `busy`, 12 → `too-large`, absence codes → `unsupported`. | Nano runs on the phone's own accelerator where it exists; typed output is Kotlin-only, so JS cannot pass a schema. |
+| I10 | One entry point `inferBackend({ where })`: `'local'` resolves once to Nano when `check()` is `ready`, else the GGUF `LocalModel`; a call never falls back between backends. **Next slice (not built yet):** `where: 'plan'` takes the person's own subscription handle (structurally `accounts.chatgpt(member)`, `billing: 'subscription'` required, so an API-billed handle neither type-checks nor runs), with no dependency on decide or accounts (I8), never a fallback from or to local, one member's handle (no pooling, no rotation). | The caller chooses where text goes; the kit chooses the best local model. |
+| I11 | Labels: local backends are `on-device-nano` / `on-device` with `billing: 'local'`, `leaves: false`, and words that say this phone and never "plan" or "subscription" (`whereWords`); a Nano state's words never ask the person to download (`stateWords(s, { nano: true })`). The plan slice gets its own name, billing, `leaves: true` and words naming the plan. | Local and plan inference must never look alike to a person or in a log. |
 
 ## 3. Model and binding facts (verified 2026-10-02; builders must not re-derive)
 
@@ -63,11 +67,12 @@ monorepo does **not** install it (offline CI); the lab app does.
 |---|---|
 | `types.ts` | `InferError`/`InferErrorCode`, `InferModel`, `InferState`, `InferDevice`, `InferLimits`, `InferModelStore`, `CompleteRequest`, `Completion` |
 | `model.ts` | llama.rn structural subset (`InitLlama`, `LlamaRnContext`, params/result), `LocalModel`, `DEFAULT_LIMITS`, model/limit validation |
-| `backend.ts` | `generationBackend(local)` for decide's `generate()` |
+| `nano.ts` | ML Kit GenAI Prompt structural subset (`NanoBinding`, request/response), `NanoModel` |
+| `backend.ts` | `inferBackend({ where })` (I10), `generationBackend(local)` for decide's `generate()` |
 | `summary.ts` | `summarizePane`, `paneText`, `plainText`, `redact` |
 | `models.json` | the pinned catalogue (§3); `index.ts` validates every entry at import |
 | `words.json`/`words.ts` | `infer.*` sentences, `stateWords`, `errorWords` |
-| `testing.ts` (`./testing`) | `fakeLlama()`, `memoryModelStore()` |
+| `testing.ts` (`./testing`) | `fakeLlama()`, `memoryModelStore()`, `fakeNano()` |
 
 `LocalModel` API: `new LocalModel({ model, store, initLlama?, device?, limits?, onState?, log? })` (no I/O);
 `state`; `check()`; `install({ signal, onProgress })`; `remove()`; `complete({ system?, prompt, maxOutputTokens?,
@@ -79,6 +84,11 @@ AbortSignal has neither `throwIfAborted()` nor `reason`; no global polyfill or u
 `summarizePane(local, lines, { signal, maxLines = 80, maxChars = 6000 })` →
 `{ ok: true, lines, model, ms, inputLines } | { ok: false, code: 'not-enough-output' | 'incomplete' | 'invalid-output' }`.
 Under 40 visible characters returns `not-enough-output` without loading the model. An explicit success/false-empty contract is in the system prompt; enough:false with proposed lines is invalid, never promoted or coerced. Success requires 3–4 single-line strings after redaction; source guards do not establish model faithfulness.
+
+`NanoModel` API: `new NanoModel({ binding?, limits?, statusMs?, onState?, log? })` (no I/O); `state`; `id`
+(`gemini-nano@<base model>`); `check()`; `complete(…)` as above; `release()`; `binding` is the typed pass-through.
+`inferBackend({ where: 'local', gguf, nano? })` → a decide `GenerationBackend` plus `billing: 'local'` and the `local`
+model it uses; without a schema the answer is free text.
 
 Privacy invariants (each has a test): the kit imports nothing from Node or React Native; the bundled main entry has
 no `fetch`, `XMLHttpRequest` or `WebSocket`; the only URL a store is asked to fetch is `model.url` (https, pinned
@@ -148,6 +158,10 @@ Source (CI, offline) — done in the foundation unless marked:
       key-like runs), chrome collapsed, no tag or chat control token can be formed, system prompt says
       data-not-instructions, linear on hostile input; `enough: false` → `not-enough-output`.
 - [x] decide `generate()` with `privacy: 'stays-here'` uses the backend; cut-off → `incomplete`.
+- [x] I9–I11 local: resolves to Nano only when AICore reports it ready, else GGUF (absent, unavailable, silent,
+      failed AICore); Nano abort, `busy`, error codes, cut-off; distinct labels.
+- [ ] I10 plan slice: `where: 'plan'` through a real Accounts sign-in (mock), skipped by `stays-here`, API-billed refused.
+- [ ] Nano native module in the lab app; Nano and GGUF time to first token, tokens per second and memory on a4b93ea2.
 - [x] WP1 source: lab screen, exact pins, store adapter, device driver script; typecheck and Metro bundle pass.
 - [ ] WP1 lab app builds with the real binding (Android `assembleRelease`, APK has arm64 `librnllama`), and the iOS prebuild.
 - [ ] WP2 real-binding contract passes on a4b93ea2.

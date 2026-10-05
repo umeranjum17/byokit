@@ -15,5 +15,10 @@
   "infer.incomplete": "The summary was cut off, so it isn't shown.",
   "infer.unusable": "The summary was not usable. Try again.",
   "infer.notEnough": "Not enough recent output to summarize.",
-  "infer.summaryLabel": "On-device summary · updated {time}"
+  "infer.summaryLabel": "On-device summary · updated {time}",
+  "infer.whereNano": "Runs on this phone with its built-in model.",
+  "infer.whereGguf": "Runs on this phone with the downloaded model.",
+  "infer.nanoUnsupported": "This phone has no built-in model.",
+  "infer.nanoNotReady": "The phone's built-in model isn't ready yet.",
+  "infer.nanoFailed": "The phone's built-in model stopped working."
 }
