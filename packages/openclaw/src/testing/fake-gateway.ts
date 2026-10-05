@@ -6,15 +6,24 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { ENGINE_VERSION, PROTOCOL_VERSION } from '../constants.ts';
-import type { GatewayTransport, Hello } from '../types.ts';
+import type { GatewayMethod, GatewayParams, GatewayTransport, Hello } from '../types.ts';
 import type { KitOptions } from '../kit.ts';
 import { toolCalls } from './model-stub.ts';
 import { routes } from '../routes.ts';
 
-type Handler = (params: any, bridgeSock: string) => unknown;
+type Handler = (params: Record<string, unknown>, bridgeSock: string) => unknown;
 
-/** Pre-registered handlers for `fakeGateway(script)`, on top of the defaults (a same-name entry replaces one). */
-export type FakeScript = Record<string, Handler>;
+/** A scripted handler's params: the generated type when the pin publishes one, else the raw params object. */
+export type FakeParams<M extends GatewayMethod> =
+  unknown extends GatewayParams<M> ? Record<string, unknown> : GatewayParams<M>;
+
+/** A scripted handler for one method, with that method's params typed. */
+export type FakeHandler<M extends GatewayMethod = GatewayMethod> =
+  (params: FakeParams<M>, bridgeSock: string) => unknown;
+
+/** Pre-registered handlers for `fakeGateway(script)`, on top of the defaults (a same-name entry replaces one).
+ * Only methods the pinned engine publishes are scriptable, exactly as `kit.call` and `kit.callDynamic` divide them. */
+export type FakeScript = { [M in GatewayMethod]?: FakeHandler<M> };
 
 // The device-code script from Crewhouse's openclaw-wizard.test.ts, ported: the step, then progress, then done.
 const DEVICE_STEP = {
@@ -111,14 +120,16 @@ function bridgeRequest(path: string, message: Record<string, unknown>): Promise<
   });
 }
 
-export function fakeGateway(script?: FakeScript): {
+/** The fake's control surface: the transport to hand a kit, the calls it saw, and its triggers. */
+export type FakeGateway = {
   factory: NonNullable<KitOptions['transport']>;
   calls: { method: string; params: unknown }[];
   emit(event: string, payload?: unknown): void;
   failNext(method: string, message: string): void;
   drop(why: string): void;
-  handle(method: string, fn: Handler): void;
-} & { transport: GatewayTransport } {
+  handle(method: string, fn: FakeHandler): void;
+} & { transport: GatewayTransport };
+export function fakeGateway(script?: FakeScript): FakeGateway {
   const calls: { method: string; params: unknown }[] = [];
   const failures = new Map<string, string[]>();
   const handlers = new Map<string, Handler>();
@@ -170,7 +181,7 @@ export function fakeGateway(script?: FakeScript): {
     emit('agent', { runId: run.runId, seq: run.seq++, stream, ts: Date.now(), data });
 
   /** The `agent` handler: the run's scripted turn, its `[tool NAME {json}]` calls through the real bridge. */
-  const startRun = (params: any, bridgeSock: string): { runId: string; status: 'accepted' } => {
+  const startRun = (params: Record<string, unknown>, bridgeSock: string): { runId: string; status: 'accepted' } => {
     if (params.agentId != null && !agents.has(String(params.agentId))) throw new Error(`unknown agent: ${params.agentId}`);
     // Like the engine: the provider/model the run is called on, its own override or the member's (here openai).
     const run: Run = { runId: randomUUID(), sessionKey: String(params.sessionKey ?? ''), seq: 0,
@@ -258,11 +269,11 @@ export function fakeGateway(script?: FakeScript): {
     },
     'openclaw.setup.activate': (p) => {
       if (p.kind !== 'api-key') throw new Error('only the API-key setup path is simulated');
-      const route = routes().find((r) => r.choice === p.authChoice && r.keyEntry);
+      const route = routes().find((r) => r.choice === String(p.authChoice) && r.keyEntry);
       if (!route) return { ok: false, status: 'unavailable' };
       const model = `${route.provider}/fake-key-model`;
-      keys.set(p.agentId, { provider: route.provider, key: p.apiKey, model, sealed: false });
-      signInAgent(p.agentId, route.provider);
+      keys.set(String(p.agentId), { provider: route.provider, key: String(p.apiKey), model, sealed: false });
+      signInAgent(String(p.agentId), route.provider);
       return { ok: true, status: 'ok', modelRef: model };
     },
     'openclaw.setup.auth.start': (p) => {
@@ -328,14 +339,15 @@ export function fakeGateway(script?: FakeScript): {
     'exec.approval.request': (p) => {
       const id = String(p.id ?? `exec-${randomUUID()}`);
       const now = Date.now();
+      const plan = isPlainObject(p.systemRunPlan) ? p.systemRunPlan : {};
       emit('exec.approval.requested', {
         approvalKind: 'exec', id, createdAtMs: now, expiresAtMs: now + 180_000,
         request: {
           command: p.command,
           // Like the real engine, which normalizes the exec policy mode into request.ask (B8).
           ask: p.ask ?? 'on-miss',
-          agentId: p.agentId ?? p.systemRunPlan?.agentId,
-          sessionKey: p.sessionKey ?? p.systemRunPlan?.sessionKey,
+          agentId: p.agentId ?? plan.agentId,
+          sessionKey: p.sessionKey ?? plan.sessionKey,
         },
       });
       return { id };
@@ -368,7 +380,8 @@ export function fakeGateway(script?: FakeScript): {
     },
   };
   for (const [method, handler] of Object.entries(defaults)) handlers.set(method, handler);
-  for (const [method, handler] of Object.entries(script ?? {})) handlers.set(method, handler);
+  // A script handler is already per-method typed; the loose internal map only dispatches it.
+  for (const [method, handler] of Object.entries(script ?? {})) handlers.set(method, handler as Handler);
 
   const dispatch = async (method: string, params: unknown, bridgeSock: string): Promise<unknown> => {
     calls.push({ method, params: method === 'openclaw.setup.activate' && isPlainObject(params)
@@ -377,7 +390,7 @@ export function fakeGateway(script?: FakeScript): {
     if (queue?.length) throw new Error(queue.shift()!);
     const handler = handlers.get(method);
     if (!handler) throw new Error(`unknown method: ${method}`);
-    return await handler(params ?? {}, bridgeSock);
+    return await handler(isPlainObject(params) ? params : {}, bridgeSock);
   };
 
   const hello = (): Hello => ({

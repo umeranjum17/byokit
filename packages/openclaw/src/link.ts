@@ -99,14 +99,21 @@ function browserInput(value: unknown): value is LiveInput {
 
 type SignInDrive = { paste(text: string): void; cancel(): void };
 
+/** `openclawLink`'s options: which member a grant acts for, the D8 pass-through predicate, sealed relay push. */
+export type OpenClawLinkOptions = {
+  memberOf: (grant: Grant) => Member | undefined; // which member a device acts for (e.g. grant.meta.member)
+  passThrough?: (method: string, grant: Grant) => boolean; // D8; default () => false
+  relay?: RelayClient; // sealed approval push (7.3)
+};
+
+/** What `openclawLink` hands the link host: its request/stream handlers plus the kit's push entry point. */
+export type OpenClawLinkHost =
+  Pick<HostOptions, 'handle' | 'stream' | 'allow' | 'onGrantRemoved'> & { onAction(a: PushAction): Promise<unknown> };
+
 export function openclawLink(
   kit: OpenClawKit & { browser?: BrowserHost },
-  o: {
-    memberOf: (grant: Grant) => Member | undefined; // which member a device acts for (e.g. grant.meta.member)
-    passThrough?: (method: string, grant: Grant) => boolean; // D8; default () => false
-    relay?: RelayClient; // sealed approval push (7.3)
-  },
-): Pick<HostOptions, 'handle' | 'stream' | 'allow' | 'onGrantRemoved'> & { onAction(a: PushAction): Promise<unknown> } {
+  o: OpenClawLinkOptions,
+): OpenClawLinkHost {
   const passThrough = o.passThrough ?? (() => false);
   // The host lifecycle extension is supplied by the browser host. Without it control fails closed.
   const browser = (): BrowserHost => {
@@ -561,13 +568,17 @@ export function openclawLink(
 
 // ponytail: this ~40-line serve() wiring is deliberately duplicated per runtime kit (D3);
 // extract it into a shared package when a third runtime kit appears.
-export async function serve(o: {
+/** `serve`'s options: the link host to accept on, and the ingress to publish or replace. */
+export type OpenClawServeOptions = {
   host: Host;
   port: number;
   via?: Via;
   previous?: ServeIngress;
   http?: (req: IncomingMessage, res: ServerResponse) => void;
-}): Promise<{ urls: string[]; ingress?: ServeIngress; close(): Promise<void> }> {
+};
+/** The running ingress: its urls, the entry that reaches the engine, and an orderly close. */
+export type OpenClawServeHandle = { urls: string[]; ingress?: ServeIngress; close(): Promise<void> };
+export async function serve(o: OpenClawServeOptions): Promise<OpenClawServeHandle> {
   const r = await reach({ port: o.port, via: o.via, previous: o.previous });
   const server = createServer(
     o.http ??

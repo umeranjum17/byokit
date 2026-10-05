@@ -17,7 +17,13 @@ import { createServer, type Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import type { OpenClawKit } from '../kit.ts';
 
-export type StubCall = { authorization: string; path: string; body: any };
+export type StubRequest = {
+  model?: unknown;
+  input?: unknown;
+  messages?: { role?: string; content?: unknown; name?: unknown; tool_call_id?: unknown }[];
+  stream_options?: { include_usage?: boolean };
+};
+export type StubCall = { authorization: string; path: string; body: StubRequest };
 
 /** The token usage every stub reply reports when asked (`stream_options.include_usage`), per model call. */
 export const STUB_USAGE = { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 } as const;
@@ -51,8 +57,9 @@ export const releaseStub = (key?: string, reply = '') => {
 };
 export const stubHolding = (key?: string) => (key ? holds.has(key) : holds.size > 0);
 
-const words = (m: any) =>
-  typeof m?.content === 'string' ? m.content : Array.isArray(m?.content) ? m.content.map((c: any) => c.text ?? '').join('') : '';
+const words = (m: { content?: unknown }) =>
+  typeof m?.content === 'string' ? m.content : Array.isArray(m?.content)
+    ? m.content.map((c) => (typeof c?.text === 'string' ? c.text : '')).join('') : '';
 
 /**
  * One loopback HTTP server that speaks the script. `script` queues plain replies consumed one per completion
@@ -68,8 +75,8 @@ export function startModelStub(script: string[] = [], o: ModelStubOptions = {}):
   const server: Server = createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk);
-    let body: any;
-    try { body = JSON.parse(Buffer.concat(chunks).toString()); } catch { res.writeHead(400).end(); return; }
+    let body: StubRequest;
+    try { body = JSON.parse(Buffer.concat(chunks).toString()) as StubRequest; } catch { res.writeHead(400).end(); return; }
     const call = { authorization: String(req.headers.authorization ?? ''), path: req.url ?? '', body };
     calls.push(call); o.onCall?.(call); // Fixture evidence is persisted before any response/hold awaits.
     if (req.url === '/api/embed' || req.url === '/api/embeddings') {
@@ -78,22 +85,22 @@ export function startModelStub(script: string[] = [], o: ModelStubOptions = {}):
         embeddings: (Array.isArray(body.input) ? body.input : [body.input]).map(() => [0.1, 0.2, 0.3]),
       }));
     }
-    const messages: any[] = body.messages ?? [];
-    const system = messages.filter((m: any) => m.role === 'system').map((m: any) => words(m)).join('\n');
+    const messages = body.messages ?? [];
+    const system = messages.filter((m) => m.role === 'system').map((m) => words(m)).join('\n');
     const bot = idPattern.exec(system)?.[1] ?? 'bot';
     // The engine appends runtime-context user messages after the person's own (O11): the script lives in the
     // last user message that carries a script marker, falling back to the last user message for plain replies.
     // Tool results count from that same message, or the first scripted call replays forever: each follow-up
     // request carries a fresh trailing runtime-context user message with zero tool results after it.
-    const users = messages.filter((m: any) => m.role === 'user');
+    const users = messages.filter((m) => m.role === 'user');
     const structural = (text: string) => /\[tool \w+ \{|\[route [\w?-]+\]/.test(text) || text.startsWith(routingMarker);
     const phrased = (text: string) => /hit the limit|no helpers in plan|sign me out|ask permission/i.test(text);
-    const lastUser = [...users].reverse().find((m: any) => structural(words(m)))
-      ?? [...users].reverse().find((m: any) => phrased(words(m)))
-      ?? users.at(-1);
+    const lastUser = [...users].reverse().find((m) => structural(words(m)))
+      ?? [...users].reverse().find((m) => phrased(words(m)))
+      ?? users.at(-1) ?? {};
     const said = words(lastUser);
     const anchor = messages.lastIndexOf(lastUser);
-    const results = anchor < 0 ? [] : messages.slice(anchor + 1).filter((m: any) => m.role === 'tool');
+    const results = anchor < 0 ? [] : messages.slice(anchor + 1).filter((m) => m.role === 'tool');
     const scripted = toolCalls(said);
     const lastResult = results.at(-1);
     const done = () => {
@@ -105,7 +112,7 @@ export function startModelStub(script: string[] = [], o: ModelStubOptions = {}):
     if (said.startsWith(routingMarker)) {
       const options = [...said.matchAll(/^- ([a-z0-9-]+):/gm)].map((m) => m[1]);
       const pick = /\[route ([a-z0-9-]+|\?)\]/.exec(said)?.[1] ?? 'chief';
-      return plain(res, body, JSON.stringify(Object.fromEntries(options.map((o) => [o, pick === '?' ? 1 / options.length : o === pick ? 0.9 : 0.1 / (options.length - 1)]))));
+      return plain(res, body.model, JSON.stringify(Object.fromEntries(options.map((o) => [o, pick === '?' ? 1 / options.length : o === pick ? 0.9 : 0.1 / (options.length - 1)]))));
     }
     if (/sign me out/i.test(said)) {
       res.writeHead(401, { 'content-type': 'application/json' });
@@ -161,11 +168,11 @@ export function startModelStub(script: string[] = [], o: ModelStubOptions = {}):
   });
 }
 
-const plain = (res: import('node:http').ServerResponse, body: any, text: string) => {
+const plain = (res: import('node:http').ServerResponse, model: unknown, text: string) => {
   const id = randomUUID();
   res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
   const chunk = (delta: object, finish: string | null = null) =>
-    res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: body.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
+    res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
   chunk({ role: 'assistant', content: text });
   chunk({}, 'stop');
   res.end('data: [DONE]\n\n');
@@ -173,11 +180,8 @@ const plain = (res: import('node:http').ServerResponse, body: any, text: string)
 
 // provider id 'byokit-stub', model 'test': the stub becomes every agent's primary model.
 export async function useModelStub(kit: OpenClawKit, stub: ModelStub): Promise<void> {
-  // The generated method table arrives with O2; until then kit.call's typed surface accepts no method names, so
-  // configure through this string-typed view of the same runtime path.
-  const call = (kit as unknown as { call(m: string, p?: unknown): Promise<any> }).call.bind(kit);
-  const current = await call('config.get');
-  await call('config.patch', { baseHash: current.hash, raw: JSON.stringify({
+  const current = await kit.call('config.get', {}) as { hash: string };
+  await kit.call('config.patch', { baseHash: current.hash, raw: JSON.stringify({
     models: { providers: { 'byokit-stub': {
       baseUrl: stub.url, apiKey: 'byokit-stub', api: 'openai-completions',
       models: [{ id: 'test', name: 'Test', reasoning: true, input: ['text'],

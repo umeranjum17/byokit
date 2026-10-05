@@ -32,15 +32,19 @@ export type {
   ToolHost,
   ToolSpec,
 } from './types.ts';
+// The tables themselves, so an app can write its own generic wrapper over `call` without re-deriving them.
+export type { GatewayMethods } from './generated/methods.ts';
+export type { JsonValue } from './output.ts';
+export type { RouteFacts, RouteView } from './routes.ts';
 export { OpenClawKit, type KitOptions, type RetainedLogin } from './kit.ts';
 export type { AddKeyResult } from './keys.ts';
 export { stateWords, toAccountView, words, type AccountView, type WordKey } from './words.ts';
 
 export { EngineAlreadyRunningError } from './engine-status.ts';
 export { readAgentDayUsage } from './day-usage.ts';
-export type { AgentDayUsage, EngineStartedCharge, EngineStartedKind } from './day-usage.ts';
+export type { AgentDayUsage, DayUsageClient, EngineStartedCharge, EngineStartedKind } from './day-usage.ts';
 export { readAgentUsage, agentUsageOf } from './usage.ts';
-export type { AgentUsageReading, LedgerUsageTotals, UsageCache, UsageWindow } from './usage.ts';
+export type { AgentUsageReading, LedgerUsageTotals, UsageCache, UsageClient, UsageWindow } from './usage.ts';
 export type {
   LiveSource, BrowserState, SignInMethodHint, SignInReason, SignInChoice, SettledState, SettledReason,
   ResumeState, NeedSignIn, TakeoverLease, LiveViewState, LiveFrame, LiveInput, ThumbnailResult,

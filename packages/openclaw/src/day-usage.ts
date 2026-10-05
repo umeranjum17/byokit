@@ -81,9 +81,13 @@ export function engineStartedOf(raw: unknown, member: Member, window: AgentDayUs
   return { state: 'available', coverageSince: raw.coverageSince, charges, unreadableLines: raw.unreadableLines,
     complete: raw.complete && raw.unreadableLines === 0 && window.startMs >= raw.coverageSince && charges.every(c => c.state === 'counted') };
 }
+/** What `readAgentDayUsage` needs from a reader: the kit's `call` plus its own string-typed RPC. */
+export type DayUsageClient = {
+  callDynamic(method: string, params?: unknown): Promise<unknown>;
+  call(method: 'sessions.usage', params: SessionsUsageParams): Promise<unknown>;
+};
 /** Read the transcript and Workshop terms independently. A failed term never becomes zero. */
-export async function readAgentDayUsage(client: { callDynamic(method: string, params?: unknown): Promise<unknown>;
-  call(method: 'sessions.usage', params: SessionsUsageParams): Promise<unknown> }, member: Member, window: AgentDayUsage['window']): Promise<AgentDayUsage> {
+export async function readAgentDayUsage(client: DayUsageClient, member: Member, window: AgentDayUsage['window']): Promise<AgentDayUsage> {
   if (!/^[a-z][a-z0-9-]{0,31}$/.test(member)) throw new Error('Invalid member');
   const day = dates(window);
   const [transcriptRaw, ledgerRaw] = await Promise.all([
