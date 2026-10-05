@@ -514,9 +514,20 @@ export async function launchBroker(o: BrokerOptions): Promise<Broker> {
     await send('Browser.getVersion');
     await send('Browser.setDownloadBehavior', { behavior: 'deny', eventsEnabled: false });
     await send('Target.setDiscoverTargets', { discover: true });
-    const result = await send('Target.getTargets');
-    for (const t of result.targetInfos as Target[]) targets.set(t.targetId, t);
-    lastAgent = (result.targetInfos as Target[]).find(t => t.type === 'page')?.targetId;
+    // Chromium creates the initial tab after the pipe already answers, so a cold start can list zero
+    // page targets here. Never expose the endpoint before the agent tab exists: a discovery /json/list
+    // would honestly report an empty browser and break every engine that lists targets at attach.
+    const tabUntil = Date.now() + 30_000;
+    let pages: Target[] = [];
+    for (;;) {
+      const result = await send('Target.getTargets');
+      for (const t of result.targetInfos as Target[]) targets.set(t.targetId, t);
+      pages = (result.targetInfos as Target[]).filter(t => t.type === 'page');
+      if (pages.length > 0 || Date.now() >= tabUntil) break;
+      await new Promise(resolve => setTimeout(resolve, 25));
+    }
+    lastAgent = pages[0]?.targetId;
+    if (!lastAgent) throw failure();
     await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', () => resolve()); });
     port = (server.address() as { port: number }).port;
   } catch {
