@@ -6,8 +6,8 @@ export type { AiBinding } from '@earendil-works/pi-ai/api/cloudflare-ai-binding'
 export { CloudAccountError, cloudSelection, cloudCredential, type CloudAccount, type CloudOptions, type CloudStream } from './cloud.ts';
 export { Accounts, planOf, portable, type AccountsOptions, type ClaudePlanAsk, type AnthropicAccountAsk, type AuthHost, type Loopback, type Member, type Platform, type SignInOptions, type SignIn, type Status } from './accounts.ts';
 export { KeyRouteError, type KeyAsk, type KeyRuntime } from './key-routes.ts';
-export { PROVIDERS, offered, provider, routes, route, routeReadiness, type Billing, type MultiAccountTerms, type Provider, type Route, type RouteView, type RouteVia, type RouteHost, type Support, type Readiness } from './catalogue.ts';
-export { PORTABLE, claims, credentialOf, devicePoll, deviceStart, portableEngine, type EngineOptions, type Poll } from './engine.ts';
+export { PROVIDERS, deviceFlow, offered, provider, routes, route, routeReadiness, signInChoices, type Billing, type DeviceFlow, type MultiAccountTerms, type Provider, type Route, type RouteView, type RouteVia, type RouteHost, type Support, type Readiness } from './catalogue.ts';
+export { PORTABLE, claims, credentialOf, devicePoll, deviceStart, portableEngine, signable, type EngineOptions, type Poll } from './engine.ts';
 export { REST_MS, classify, classifyFailure, type Failure, type Kind } from './limits.ts';
 export { IncompleteError, ResponseError, isFunctionCall, limitResponse, respond, sseReader, type Ask, type ResponseFunctionCall, type ResponseInputItem, type ResponseOutputItem, type ResponseOutputMessage, type ResponseReasoning, type ResponseResult, type ResponseUsage, type ResponseStreamEvent, type ResponseText, type ResponseTextFormat, type ResponseTool, type ResponseToolChoice } from './responses.ts';
 export { viewStore, type EndingStore, type AccountStore, type AccountsIndex, type AccountMetadata, type IndexStore, browserStore, keystoreStore, memoryStore, recordStore, secureStore, RefreshRequiredError, type RefreshStore, type SecureStoreLike } from './stores.ts';

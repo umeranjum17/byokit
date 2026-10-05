@@ -94,8 +94,10 @@ export async function connect(safeStorage: SafeStorageLike) {
 
 ### On a phone or in a browser
 
-The same `Accounts` signs in to ChatGPT by device code with `fetch` alone (Pi's flows need Node), into the phone's
-secure storage or the browser's IndexedDB:
+The same `Accounts` signs in by device code with `fetch` alone (Pi's flows need Node), into the phone's
+secure storage or the browser's IndexedDB. The person approves the sign-in on their own phone; ChatGPT has its own
+device flow, and every other provider joins from its catalogue `device` row (RFC 8628 device authorization, the
+client id and endpoints its own pinned client uses):
 
 ```ts
 import * as SecureStore from 'expo-secure-store';
@@ -131,7 +133,8 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | `classifyFailure`, `classify`, `REST_MS` | An error's kind (limit, overload, plan without this use, lapsed sign-in, network) and default rest times |
 | `planOf`, `claims` | The ChatGPT plan and email behind a sign-in, from its own token |
 | `planLabel`, `claudeProfile` | A plan as a person says it ("ChatGPT Plus", "Claude Max"); the Claude plan and email from Claude's profile |
-| `deviceStart`, `devicePoll`, `credentialOf`, `portableEngine`, `PORTABLE` | The device-code flow, the sign-in built from a token answer, and the engine under `portable` |
+| `deviceStart`, `devicePoll`, `credentialOf`, `portableEngine`, `PORTABLE` | ChatGPT's own device-code flow, the sign-in built from a token answer, and the engine under `portable` |
+| `deviceFlow`, `signable`, `signInChoices`, `DeviceFlow` | A provider's RFC 8628 device data from the catalogue, which providers this engine signs in to, and the picker rows a phone or browser offers |
 | `isolate`, `launchEnv`, `INHERITED`, `emptyAuthContext` (`/isolate`) | Prepare app folders; copy and scrub child environments; ambient discovery off |
 | `mockOpenAI`, `mockJwt`, `decoy`, `traceFs`, `CANARY` (`/testing`) | A stand-in OpenAI, and the decoy-HOME harness and fs tracer for isolation tests |
 
@@ -146,7 +149,8 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | Anthropic (API key, billed per use) | App passes its own key, explicitly | Same fetch-only Messages provider | Same fetch-only Messages provider |
 | OpenRouter (API billing) | Pi's browser callback or paste; explicit API selection and device-owned `keyStore` required | Not yet | Not yet |
 | Radius (billing set by gateway) | Pi's browser callback (1456) or device code; explicit-only | Not yet | Not yet |
-| Grok, Copilot, Kimi, Meta | Pi's device flows; Copilot accepts an Enterprise domain | No | No |
+| Grok, Kimi | Pi's device flows; the same RFC 8628 flow from their catalogue `device` rows | Device code | Device code |
+| Copilot, Meta | Pi's device flows; Copilot accepts an Enterprise domain | No | No |
 | Where sign-ins are kept | `fileStore(path, safeStorage)`, sealing required | `browserStore(name)` (IndexedDB) | `secureStore(SecureStore, name)` (Keychain, Keystore) |
 
 Device code works everywhere: OpenAI's sign-in endpoints answer any web page. The page-straight-back sign-in needs a
@@ -385,6 +389,10 @@ only under the caller-supplied root; the caller owns its creation and cleanup.
 page where a person types the code, token exchange, refresh, revoke and streamed answers (echoing the question), so
 tests and demos sign in and ask end to end with no account. Point the kit at it with
 `new Accounts({ authBase, apiBase })`, as the [Quickstart](#quickstart) does.
+
+`mockDevice()` stands in for any provider the catalogue gives device data: the code, the page that approves it,
+polling and refresh on that provider's own documented endpoints. Point the kit at it with
+`new Accounts({ deviceBase })`.
 
 ## Links
 

@@ -44,6 +44,14 @@
     },
     "billing": "subscription",
     "source": "https://x.ai/news/grok-opencode",
+    "device": {
+      "authorization": "https://auth.x.ai/oauth2/device/code",
+      "token": "https://auth.x.ai/oauth2/token",
+      "clientId": "b1a00492-073a-47ea-816f-4c329264a828",
+      "scope": "openid profile email offline_access grok-cli:access api:access",
+      "form": { "referrer": "pi" },
+      "source": "@earendil-works/pi-ai@0.87.1 auth/oauth/xai.js"
+    },
     "multiAccount": {
       "terms": "grey",
       "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
@@ -111,6 +119,12 @@
     },
     "billing": "subscription",
     "source": "https://www.kimi.com",
+    "device": {
+      "authorization": "https://auth.kimi.com/api/oauth/device_authorization",
+      "token": "https://auth.kimi.com/api/oauth/token",
+      "clientId": "17e5f671-d194-4dfb-9706-5516cb48c098",
+      "source": "@earendil-works/pi-ai@0.87.1 auth/oauth/kimi-coding.js"
+    },
     "multiAccount": {
       "terms": "grey",
       "why": "This source does not explicitly document choosing between several accounts of this service in another app.",

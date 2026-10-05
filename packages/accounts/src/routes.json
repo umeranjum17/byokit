@@ -806,8 +806,8 @@
     "offer": "default",
     "platforms": {
       "node": "yes",
-      "browser": "no",
-      "rn": "no"
+      "browser": "yes",
+      "rn": "yes"
     },
     "upstream": {
       "surface": "accounts",
@@ -1446,8 +1446,8 @@
     "offer": "default",
     "platforms": {
       "node": "yes",
-      "browser": "no",
-      "rn": "no"
+      "browser": "yes",
+      "rn": "yes"
     },
     "upstream": {
       "surface": "accounts",

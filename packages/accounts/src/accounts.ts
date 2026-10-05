@@ -11,7 +11,7 @@ import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool 
 import { offered, provider, route, routes, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
 import { checkKeyModel, keyRespond, KeyRouteError, type KeyAsk, type KeyRuntime } from './key-routes.ts';
-import { claims, PORTABLE, portableEngine } from './engine.ts';
+import { claims, PORTABLE, portableEngine, signable } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
 import type { ChatGPTRespondAccount } from './chatgpt-plan.ts';
@@ -37,10 +37,10 @@ type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text
 /** Listens on this computer for the provider's page coming back: each request's path in, the page to answer with out. */
 export type Loopback = (port: number, handle: (path: string) => Promise<{ status: number; html: string }>) => Promise<{ close(): void }>;
 /** What differs by platform: the engine that signs in, which providers it can, and (on a computer) a loopback listener. */
-export type Platform = { kind?: 'node' | 'browser' | 'rn'; keys?: () => Promise<KeyRuntime>; engine: (credentials: CredentialStore, authBase?: string) => AuthHost; signsIn: (pi: string) => boolean; loopback?: Loopback; endpoint?: EndpointDriver; cloudStream?: CloudStream };
-/** Phones and browsers: ChatGPT by device code, no listener. Key routes answer once `withKeys` from
- *  `@byokit/accounts/keys` adds their runtime, which this entry never imports. */
-export const portable: Platform = { kind: 'browser', engine: (c, base) => portableEngine(c, { base }), signsIn: (pi) => pi === CLAUDE_PLAN_ID || PORTABLE.includes(pi) };
+export type Platform = { kind?: 'node' | 'browser' | 'rn'; keys?: () => Promise<KeyRuntime>; engine: (credentials: CredentialStore, authBase?: string, deviceBase?: string) => AuthHost; signsIn: (pi: string) => boolean; loopback?: Loopback; endpoint?: EndpointDriver; cloudStream?: CloudStream };
+/** Phones and browsers: any provider whose catalogue row carries RFC 8628 device data (ChatGPT on its own flow), no
+ *  listener. Key routes answer once `withKeys` from `@byokit/accounts/keys` adds their runtime, which this entry never imports. */
+export const portable: Platform = { kind: 'browser', engine: (c, base, deviceBase) => portableEngine(c, { base, deviceBase }), signsIn: (pi) => pi === CLAUDE_PLAN_ID || signable(pi) };
 
 export type ClaudePlanAsk = AnthropicAsk & { provider: 'claude' };
 
@@ -71,6 +71,9 @@ export type AccountsOptions<M extends Member = Member> = {
    *  Phones and browsers sign in and sign out there; on a computer Pi's engine always calls OpenAI, and only sign-out's
    *  revoke goes here. */
   authBase?: string;
+  /** Where every catalogue device sign-in goes instead of each provider's own host, for a stand-in in tests and
+   *  demos (`mockDevice()` from `@byokit/accounts/testing`). */
+  deviceBase?: string;
   /** Where ChatGPT answers `respond`, for a stand-in in tests and demos. */
   apiBase?: string;
   /** Anthropic Messages origin: an app-owned proxy or stand-in. */
@@ -490,7 +493,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         let error: unknown;
         try {
           const c = await raw.read(id);
-          if (c?.type === 'oauth') await revoke(this.opts.authBase ? `${this.opts.authBase}/oauth/revoke` : p.revoke!, p.clientId, c);
+          if (c?.type === 'oauth' && p.revoke) await revoke(this.opts.authBase ? `${this.opts.authBase}/oauth/revoke` : p.revoke!, p.clientId, c);
         } catch (e) { error = e; }
         await raw.delete(id);
         if (error) throw error;
@@ -500,7 +503,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   protected engine(member: M, raw: CredentialStore, accountId?: string): Promise<R> {
     const credentials = this.boundStore(member, raw, accountId);
-    return Promise.resolve(Object.assign(withClaudePlan(this.platform.engine(credentials, this.opts.authBase), credentials, accountId ? raw : this.baseStores.get(String(member)) ?? raw, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch }), {
+    return Promise.resolve(Object.assign(withClaudePlan(this.platform.engine(credentials, this.opts.authBase, this.opts.deviceBase), credentials, accountId ? raw : this.baseStores.get(String(member)) ?? raw, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch }), {
       credentialStore: credentials, readCredential: (id: string) => credentials.read(id),
     }) as R);
   }
@@ -910,7 +913,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     // Browser Claude stores into the same plan namespace, never the API-key namespace. OpenRouter's
     // permanent key stays in transient memory until the shared device-owned keyStore seam accepts it.
     const temporary = p.key === 'openrouter' ? memoryStore() : undefined;
-    const driver = temporary ? this.platform.engine(temporary)
+    const driver = temporary ? this.platform.engine(temporary, this.opts.authBase, this.opts.deviceBase)
       : p.key === 'claude' && body.via === 'browser' ? this.platform.engine(this.boundStore(member, viewStore(this.additions.get(id) ?? this.store(member), 'anthropic', this.additions.has(id) ? p.pi : this.storageKey(key)), key)) : rt;
     const pi = p.key === 'claude' && body.via === 'browser' ? 'anthropic' : p.pi;
     let codeOffered = false;
