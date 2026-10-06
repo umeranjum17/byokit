@@ -1,0 +1,6 @@
+result: {"ok":true,"session":"new1"}
+agent.start name: work-chat-4f927a
+agent.rename calls: [{"target":"new1","name":"work-chat"}]
+--- new pane text ---
+claude --resume conv-123 (running)
+--- pane.send_text payloads (0) ---

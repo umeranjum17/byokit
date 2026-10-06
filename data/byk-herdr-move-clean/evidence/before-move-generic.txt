@@ -1,0 +1,13 @@
+result: {"ok":true,"paneId":"new1"}
+agent.start name: move-85a32b551c42e66c
+--- new pane text ---
+$ unset ANTHROPIC_API_KEY
+$ echo BYOKIT_ACCOUNT_19cb2972b9e2da25="$CLAUDE_CONFIG_DIR"
+BYOKIT_ACCOUNT_19cb2972b9e2da25=/tmp/acct-work
+$ echo BYOKIT_ACCOUNT_18557b865285e18a="${ANTHROPIC_API_KEY+x}"
+BYOKIT_ACCOUNT_18557b865285e18a=
+claude --resume conv-123 (running)
+--- pane.send_text payloads (3) ---
+[new1] "unset ANTHROPIC_API_KEY\n"
+[new1] "echo BYOKIT_ACCOUNT_19cb2972b9e2da25=\"$CLAUDE_CONFIG_DIR\"\n"
+[new1] "echo BYOKIT_ACCOUNT_18557b865285e18a=\"${ANTHROPIC_API_KEY+x}\"\n"
