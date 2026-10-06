@@ -28,7 +28,10 @@ resolve with `phase: 'locked'`, do not restore plaintext or launch the engine, a
 retries after unlock. Opt-in dual wrapping opens through an owner-only host key without prompting;
 its protection is only as strong as that file, which must stay outside sealed-store backups.
 Unlocked keyring-only snapshots upgrade atomically under the store's exclusive lock after verifying
-the replacement decrypts to identical contents. Other sealing failures still reject.
+the replacement decrypts to identical contents. A store the key cannot authenticate, or whose authentic
+payload is not a snapshot, is never restored, overwritten or deleted: it is kept as
+`auth-store.sealed.unreadable-<ms>` and the engine starts signed out (`why: 'sign-in-reset'`). Other sealing
+failures still reject.
 
 ## Secrets at rest and in memory
 

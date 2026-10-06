@@ -389,7 +389,8 @@ function fakeSeal() {
     },
     decryptString(bytes: Buffer) {
       const value = values.get(new TextDecoder().decode(bytes));
-      if (value === undefined) throw new Error('authentication failed');
+      // Real adapters report a wrong key or damaged bytes as KeystoreError('auth-failed').
+      if (value === undefined) throw Object.assign(new Error('authentication failed'), { name: 'KeystoreError', code: 'auth-failed' });
       return value;
     },
   };
@@ -426,7 +427,7 @@ test('sealed engine store covers SQLite, journals, JSON and isolated home; stop,
   const sealed = join(engine.root, 'auth-store.sealed');
   assert.equal(readFileSync(sealed).includes(secret), false);
   const snap = JSON.parse(seal.decryptString(readFileSync(sealed))) as { v: number; files: [string, string][] };
-  assert.equal(snap.v, 2);
+  assert.equal(snap.v, 1, 'released readers through 0.6.1 open only v: 1; any other tag locks a rolled-back host out');
   assert.equal(snap.files.some(([name]) => name.startsWith('home/.cache') || name.startsWith('home/.npm') || name.includes('/sessions/') || name.includes('/projects/')), false, 'caches never enter the sealed payload');
   await engine.prepare(); // must not replace the saved store with newly created empty directories
   await engine.start();
@@ -455,7 +456,7 @@ test('sealed engine store covers SQLite, journals, JSON and isolated home; stop,
   await restarted.start();
   assert.equal(readFileSync(join(agent, 'openclaw-agent.sqlite'), 'utf8'), 'refreshed-token-canary');
   await restarted.stop();
-  // A sealed snapshot from the old whole-home format still restores fully, then re-seals once as v2.
+  // A sealed snapshot from the old whole-home format still restores fully, then re-seals once without its caches.
   const events: string[] = [];
   writeFileSync(sealed, seal.encryptString(JSON.stringify({ v: 1,
     dirs: ['home', 'home/.codex', 'home/.cache', 'home/.cache/tool'],
@@ -468,16 +469,37 @@ test('sealed engine store covers SQLite, journals, JSON and isolated home; stop,
   await upgraded.stop();
   assert.equal(events.includes('sealed credential store re-sealed: tool caches no longer sealed'), true, `upgrade logged once: ${events.join('; ')}`);
   const resealed = JSON.parse(seal.decryptString(readFileSync(sealed))) as { v: number; files: [string, string][] };
-  assert.equal(resealed.v, 2);
+  assert.equal(resealed.v, 1);
   assert.equal(resealed.files.some(([name]) => name.startsWith('home/.cache')), false, 'the cache left the sealed payload');
   assert.equal(readFileSync(join(engine.root, 'home', '.cache', 'tool', 'legacy.bin'), 'utf8'), 'legacy-cache', 'nothing is dropped: the cache stays on disk unsealed');
   assert.equal(existsSync(join(engine.root, 'home', '.codex', 'auth.json')), false, 'the credential is re-sealed');
-  writeFileSync(sealed, 'tampered');
-  await assert.rejects(new Engine(o).start(), /authentication failed/);
-  assert.equal(existsSync(agent), false, 'tamper rejection happens before any plaintext is restored');
-  writeFileSync(sealed, seal.encryptString(JSON.stringify({ v: 1, dirs: ['state'], files: [['state/../escape', 'dG9rZW4=']] })));
-  await assert.rejects(new Engine(o).start(), /invalid sealed credential file/);
-  assert.equal(existsSync(join(engine.root, 'escape')), false);
+  // 0.6.2 wrote v: 2; it still restores and re-seals as v: 1.
+  writeFileSync(sealed, seal.encryptString(JSON.stringify({ v: 2, dirs: ['home', 'home/.codex'], files: [['home/.codex/auth.json', Buffer.from('v2-login').toString('base64')]] })));
+  const fromV2 = new Engine(o);
+  await fromV2.start();
+  assert.equal(readFileSync(join(engine.root, 'home', '.codex', 'auth.json'), 'utf8'), 'v2-login');
+  await fromV2.stop();
+  assert.equal((JSON.parse(seal.decryptString(readFileSync(sealed))) as { v: number }).v, 1);
+  // A store the key cannot open, or an authentic payload that is not a snapshot, is kept aside byte for byte,
+  // never restored, overwritten or deleted; the engine starts signed out.
+  const asides = () => fs.readdirSync(engine.root).filter((name) => name.startsWith('auth-store.sealed.unreadable-'));
+  const unreadable = [Buffer.from('tampered'), Buffer.from(seal.encryptString(JSON.stringify({ v: 1, dirs: ['state'], files: [['state/../escape', 'dG9rZW4=']] })))];
+  for (const bytes of unreadable) {
+    for (const name of asides()) rmSync(join(engine.root, name));
+    writeFileSync(sealed, bytes);
+    const lines: string[] = [];
+    const fresh = new Engine({ ...o, log: (line) => lines.push(line) });
+    await fresh.start();
+    assert.equal(fresh.authStore.reset, true);
+    assert.equal(existsSync(agent), false, 'nothing from an unreadable store is restored');
+    assert.equal(existsSync(join(engine.root, 'escape')), false);
+    assert.equal(asides().length, 1);
+    assert.deepEqual(readFileSync(join(engine.root, asides()[0]!)), bytes, 'the unreadable store is kept unchanged');
+    assert.match(lines.join('\n'), /sealed credential store .*; kept as auth-store\.sealed\.unreadable-\d+; sign in again/);
+    await fresh.stop();
+    assert.deepEqual(readFileSync(join(engine.root, asides()[0]!)), bytes, 'a later stop seals beside it, never over it');
+    assert.ok(existsSync(sealed));
+  }
 
 });
 
