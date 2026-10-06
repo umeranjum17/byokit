@@ -53,21 +53,54 @@ own-mode commands above in a guarded lab.
 Try it without Herdr: `BYOKIT_EXAMPLE_FAKE=1 npm start` runs the kit's stand-in Herdr, whose one agent answers
 `fake pi: <your message>` and asks a question when you send `ask permission`.
 
+## Away from home: a relay, and notices only the phone can read
+
+`npm start -- … --relay https://relay.example` (a relay you run with `@byokit/relay`; add `--enrol <token>` from its
+owner on the first start) makes the computer dial out to the relay, so it needs no open port. The terminal also
+prints a short code for the relay, and the QR code carries the relay's address too, so a paired phone reaches the
+computer from anywhere.
+
+When an agent stops to ask something, the kit sends a notice through the relay to each phone that registered a
+notice key and a push address, sealed to that phone's key. A phone app does three things (`e2e.test.ts` does them
+in plain Node, as the phone):
+
+```ts
+const hd = herdrDevice(link);
+await hd.registerNotices(seed);                              // a 32-byte seed only the phone keeps
+await link.request('example.push', { expo: expoPushToken }); // its push address, handed to the relay
+const question = hd.openNotice(push.data.data, seed);        // push.data: the notification's data; null unless sealed to it
+```
+
+What the push service got in the test run (the envelope cut short):
+
+```json
+{ "to": "ExponentPushToken[away-phone]", "collapseId": "w1:p2", "priority": "high",
+  "data": { "id": "w1:p2", "title": "Waiting for your answer.", "data": { "v": 1, "sealed": "JDYdXVj_4a3tp8gl…" } },
+  "title": "Waiting for your answer." }
+```
+
+The relay and the push service read the kit's generic title and the notice's id (the agent's pane; the relay sends
+each id once). The question is inside `sealed`. `e2e.test.ts` fails if any of its text shows up on the wire,
+or if another key opens it. This web page takes no push notices itself; a phone app does.
+
 ## What's where
 
 - `host.ts`: `new HerdrKit({ mode: 'own', bin, stateDir: './.state' })`; a `@byokit/link` host (key in
   `.state/link-key.json`, paired phones in `.state/grants.json`, each with `meta.scope = { workspaces: 'all' }`);
   `herdrLink` answers the phone; `serve` finds the address (`@byokit/reach`) and serves the page on the same port.
   One op of its own, `example.setup`, tells the phone which agents Herdr knows (`kit.agentKinds()`) and the folder.
+  With `--relay`, a `RelayClient` made once the host is open carries the kit's sealed notices, and `example.push`
+  hands a phone's push address to it.
 - `web/app.ts`: plain DOM. Pairs with `pairWithCode`/`pairWithOffer` and keeps the pairing in this browser
   (`browserDeviceStore`); then `herdrDevice(link)`. `@byokit/ui-core/kits`' `herdrStore(hd)` keeps the agents
   (`herdrTreeView`) and their questions (`blockedView`) live from the kit's events; `startAgent`, `prompt`, `read`
   for the agent's screen (refreshed on every change) and `answer` for questions. Every status is a sentence from the
   kit (`agentWords`, `hd.state().words`) or `@byokit/ui-core` (`pairingView`, `linkWords`).
 - `e2e.test.ts`: packs the packages, installs them into a copy of this folder, runs `host.ts` against the kit's fake
-  Herdr and drives a phone-sized headless Chromium through all of the above. From the repo:
+  Herdr and drives a phone-sized headless Chromium through all of the above; then, through a loopback relay whose
+  push service is a recorder, a phone in plain Node gets an agent's question sealed. From the repo:
   `npm run build && sh scripts/test.sh examples/herdr-kit/e2e.test.ts` (`BYOKIT_EXAMPLE_SHOTS=<folder>` keeps
-  the screenshots).
+  the screenshots and `relay-wire.json`, what the push service got).
 - `LIVE.md`: the check with a real Herdr and a real phone, run once per kit release.
 
 ## Troubleshooting

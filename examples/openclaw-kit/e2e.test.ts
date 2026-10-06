@@ -3,15 +3,23 @@
 // this test ever runs), and a phone-sized headless Chromium going pair → sign in with a device code → a message that
 // uses the helper's tool → Allow → the reply, then one more → Deny. Every status a person reads must be the kit's own
 // sentence from its words.json. Third-party dependencies are linked from the repo's installed tree, so the run stays
-// offline. BYOKIT_EXAMPLE_SHOTS=<folder> keeps a screenshot of each step.
+// offline. Away from home, a loopback relay with a recording push service stands in for the real ones, and a phone app
+// (plain Node here) pairs through it and gets an approval sealed: nothing is sent anywhere real.
+// BYOKIT_EXAMPLE_SHOTS=<folder> keeps a screenshot of each step.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createServer as httpServer } from 'node:http';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Page } from 'playwright';
+import { DeviceLink, pairWithCode } from '@byokit/link';
+import { openclawDevice } from '@byokit/openclaw/device';
+import { Relay } from '@byokit/relay';
+import { findHost } from '@byokit/relay/device';
 import { scratchDir, trackChild } from '../../packages/test-support.ts';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -49,12 +57,27 @@ const shots = process.env.BYOKIT_EXAMPLE_SHOTS;
 const executablePath = existsSync(chromium.executablePath()) ? undefined : process.env.BYOKIT_CHROME ?? '/usr/bin/chromium';
 const browser = await chromium.launch({ executablePath });
 
+// The relay, on loopback. Its push service is this recorder: what Expo would receive, kept here and sent nowhere.
+const pushed: { to: string; title?: string; data: { id: string; action?: string; data?: Record<string, unknown> } }[] = [];
+const relay = await Relay.open({ push: { fetch: (async (url: string, init: RequestInit) => {
+  assert.equal(url, 'https://exp.host/--/api/v2/push/send');
+  const messages = JSON.parse(String(init.body));
+  pushed.push(...messages);
+  return Response.json({ data: messages.map(() => ({ status: 'ok', id: 'x' })) });
+}) as typeof fetch } });
+const relayServer = httpServer();
+relay.attach(relayServer);
+await new Promise<void>((r) => relayServer.listen(0, '127.0.0.1', r));
+const relayAt = `http://127.0.0.1:${(relayServer.address() as { port: number }).port}`;
+const { token } = await relay.enrolment({ name: 'Test computer' });
+
 const port = await new Promise<number>((resolve) => {
   const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address() as { port: number }; s.close(() => resolve(port)); });
 });
-const host = trackChild(spawn(process.execPath, ['host.ts', '--via', 'lan', '--port', String(port), '--name', NAME],
+const host = trackChild(spawn(process.execPath, ['host.ts', '--via', 'lan', '--port', String(port), '--name', NAME,
+  '--relay', relayAt, '--enrol', token],
   { cwd: app, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
-after(async () => { await browser.close(); host.kill('SIGTERM'); });
+after(async () => { await browser.close(); host.kill('SIGTERM'); relay.close(); relayServer.closeAllConnections(); relayServer.close(); });
 let said = '';
 host.stdout.on('data', (b: Buffer) => { said += b.toString(); });
 /** The host's first line matching `pattern` after `from` characters of what it said. */
@@ -182,4 +205,54 @@ test('a page over plain http from the home network keeps its pairing too', async
   await text(page, '#engine', WORDS['engine.ready']);
   assert.deepEqual(errors, []);
   await context.close();
+});
+
+test('away from home: a phone pairs through the relay, gets an approval sealed, and Allow on it comes back', async () => {
+  // The phone app finds the computer by the relay's short code, then pairs with the link code, as in the README.
+  await heard(/Relay: online/);
+  const from = said.length;
+  host.stdin.write('\n'); // fresh codes
+  const code = (await heard(CODE, from))[1];
+  const short = (await heard(/find this computer at \S+ with (\S+)/, from))[1];
+  const pairing = pairWithCode(await findHost(relayAt, short), code, { name: 'Away phone', onWords: () => {} });
+  await heard(/Pair Away phone\? \(y\/n\) $/, from);
+  host.stdin.write('y\n');
+  const link = new DeviceLink(await pairing);
+  after(() => link.stop());
+  const oc = openclawDevice(link);
+
+  // Its notice key (from a seed only the phone keeps) and its push address go to the computer over the link.
+  const seed = new Uint8Array(randomBytes(32));
+  await oc.registerNotices(seed);
+  await link.request('example.push', { expo: 'ExponentPushToken[away-phone]' });
+
+  // Signed in (the fake's code sign-in), a message that uses the tool waits for a yes, and the yes is asked by push.
+  await oc.signIn.start('openai', 'code');
+  for (let i = 0; i < 200 && !(await oc.signIn.view('openai')).ready; i++) await new Promise((r) => setTimeout(r, 50));
+  const ask = 'Note this: [tool demo_note {"text":"from away"}]';
+  const reply = (async () => { for await (const e of oc.run(ask)) if (e.type === 'end') return e; })();
+  for (let i = 0; i < 300 && !pushed.length; i++) await new Promise((r) => setTimeout(r, 50));
+  const [notice] = pushed;
+  assert.ok(notice, `the relay sent no push; approvals waiting: ${(await oc.approvals()).length}`);
+  const wire = JSON.stringify(notice);
+  if (shots) writeFileSync(join(shots, 'relay-wire.json'), `${JSON.stringify(notice, null, 2)}\n`);
+
+  // The push service gets the kit's generic title and an envelope it cannot open; in the clear too: the approval's id
+  // (the relay sends each id once) and the one-use token for its buttons. Never what is being asked.
+  assert.equal(notice.to, 'ExponentPushToken[away-phone]');
+  assert.equal(notice.title, WORDS['approval.notice']);
+  assert.doesNotMatch(wire, /from away|save a note|demo_note/, 'the relay and push service read only the generic title');
+  assert.equal(oc.openNotice(notice.data.data!, new Uint8Array(randomBytes(32))), null, 'another key opens nothing');
+  const opened = oc.openNotice(notice.data.data!, seed);
+  assert.ok(opened, 'the phone opens its notice');
+  assert.equal(opened.id, notice.data.id);
+  assert.equal(opened.summary, 'save a note');
+  assert.equal(notes().includes('from away'), false, 'nothing saved before the yes');
+
+  // Allow, pressed on the notice: the relay hands it to the computer, which lets the tool run.
+  const pressed = await fetch(`${relayAt}/relay/v1/push/action`, { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token: notice.data.action, action: 'allow' }) });
+  assert.equal(pressed.status, 200, await pressed.clone().text());
+  assert.equal((await reply)?.type, 'end');
+  assert.match(notes(), /from away\n$/);
 });

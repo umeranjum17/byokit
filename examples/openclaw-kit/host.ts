@@ -13,6 +13,8 @@ import { OpenClawKit, stateWords, type KitOptions, type ToolHost } from '@byokit
 import { openclawLink, serve } from '@byokit/openclaw/link';
 import { Host, type Grant, type GrantStore } from '@byokit/link';
 import { hostKeyFile } from '@byokit/link/node';
+import { RelayClient, type Subscription } from '@byokit/relay';
+import { linkUrl } from '@byokit/relay/device';
 import type { ServeIngress, Via } from '@byokit/reach';
 import { qrMatrix } from '@byokit/ui-core/link';
 
@@ -20,7 +22,10 @@ const { values: flags } = parseArgs({ options: {
   port: { type: 'string', default: '7310' },
   via: { type: 'string', default: 'auto' },             // auto | tailscale | tailscale-direct | private | lan
   name: { type: 'string', default: hostname() },
+  relay: { type: 'string' },                            // a relay to reach this computer away from home, e.g. https://relay.example
+  enrol: { type: 'string' },                            // the relay owner's one-use enrolment token, first start only
 } });
+if (flags.relay) flags.relay = flags.relay.replace(/\/+$/, '');
 
 // The only environment read: the e2e test (and a try-out without the engine) runs the kit's fake Gateway.
 const fake = process.env.BYOKIT_EXAMPLE_FAKE === '1';
@@ -131,6 +136,11 @@ if (fake) {
   setInterval(() => browser.fixture.frame(MEMBER, { seq: Date.now(), at: Date.now(), w: 640, h: 400, jpeg }), 500).unref();
 }
 
+// With --relay, each approval also goes to every phone that registered a notice key and a push address, sealed to that
+// phone's key: the relay and the push service read only the kit's generic title. The client needs the open host, so
+// the kit gets a `notify` that reaches it once it exists (below).
+let relay: RelayClient | undefined;
+const link = openclawLink(kit, { memberOf: () => MEMBER, ...(flags.relay && { relay: { notify: (n, o) => relay!.notify(n, o) } }) });
 const host = await Host.open({
   keys: hostKeyFile(join(state, 'link-key.json')),
   name: flags.name,
@@ -145,8 +155,17 @@ const host = await Host.open({
     console.log(yes ? `${p.name} is paired.` : `${p.name} was turned away.`);
     return yes;
   },
-  ...openclawLink(kit, { memberOf: () => MEMBER }),
+  ...link,
+  // This app's own op: a phone's push address for the relay.
+  handle: (req, grant) => req.op === 'example.push' && relay ? relay.subscribe(grant.id, req.args as Subscription) : link.handle(req, grant),
 });
+
+// Away from home: the computer dials out to the relay, so it needs no open port, and phones find it by a short code.
+// Allow and Deny on a notice come back through the relay to the kit.
+if (flags.relay) {
+  relay = new RelayClient(host, { url: `${flags.relay.replace(/^http/, 'ws')}/relay/v1/host`, enrol: flags.enrol,
+    onAction: link.onAction, onStatus: (s, why) => console.log(`Relay: ${s}${why ? ` (${why})` : ''}`) });
+}
 
 // Explicit static shell and icon routes; never serve arbitrary files from the host.
 const web = fileURLToPath(new URL('web/', import.meta.url));
@@ -184,9 +203,11 @@ function terminalQr(text: string): string {
 }
 
 function showCodes() {
-  const offer = host.offer({ role: 'control', urls: served.urls, base: page });
+  const away = relay ? [linkUrl(flags.relay!, host.id)] : []; // the phone tries this when home is out of reach
+  const offer = host.offer({ role: 'control', urls: [...served.urls, ...away], base: page });
   const { code } = host.code({ role: 'control' });
   console.log(`\n${terminalQr(offer.text)}\n\nOn the phone, scan this, or open ${page} and type ${code}`);
+  relay?.code().then((r) => console.log(`Away from home, find this computer at ${flags.relay} with ${r.code}`), () => {});
   console.log('Codes last five minutes. Press Enter for new ones.');
 }
 
@@ -196,6 +217,7 @@ kit.start().catch(() => {}); // a failed start is already said in words above; t
 const stop = async () => {
   input.close();
   await kit.stop().catch(() => {});
+  relay?.stop();
   host.close();
   await served.close();
   process.exit(0);

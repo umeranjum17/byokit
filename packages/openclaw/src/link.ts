@@ -103,7 +103,7 @@ type SignInDrive = { paste(text: string): void; cancel(): void };
 export type OpenClawLinkOptions = {
   memberOf: (grant: Grant) => Member | undefined; // which member a device acts for (e.g. grant.meta.member)
   passThrough?: (method: string, grant: Grant) => boolean; // D8; default () => false
-  relay?: RelayClient; // sealed approval push (7.3)
+  relay?: Pick<RelayClient, 'notify'>; // sealed approval push (7.3)
 };
 
 /** What `openclawLink` hands the link host: its request/stream handlers plus the kit's push entry point. */
