@@ -224,6 +224,9 @@ and are re-read before staging. Timeout returns `busy`, approval returns `blocke
 and missing sequence or invalid bounds returns `unsupported`. The person may stop the step themselves in the pane.
 `busy: 'interrupt'` (confirmed session/terminal/seq) returns `interrupt_unsupported`, never keys or lifecycle calls.
 Offline fixtures do not qualify real working-step handoff or native Pi moves. `StartAgent.env` applies to newly created placements; existing shells cannot receive a new env.
+A record env with `HOME` gives the pane a task-owned home: unless the env sets them, `XDG_CONFIG_HOME`,
+`XDG_DATA_HOME`, `XDG_STATE_HOME` and `XDG_CACHE_HOME` move under it too, so a sign-in inside the pane stays
+there. Other server variables still reach the pane; pass `{ env, unset }` for a fully replaced environment.
 Tokens stay on the device and are never logged. Each provider's own terms apply to how you use your plan.
 
 For managed-folder stores that supply resume arguments and credential shedding, use `move`:

@@ -104,11 +104,14 @@ test('K7: the worktree pane receives the env, and the branch is optional', async
       { workspace?: { worktree?: { checkout_path?: string; is_linked_worktree?: boolean } } };
     assert.equal(ws.workspace?.worktree?.is_linked_worktree, true);
     assert.equal(pane.pane?.cwd, ws.workspace?.worktree?.checkout_path);
-    // No branch: the start still resolves into a linked checkout.
+    // No branch: the start still resolves into a linked checkout. A task HOME confines the
+    // XDG dirs the caller did not set, so a sign-in in the pane stays under it.
     const plain = await kit.startAgent({ kind: 'pi', cwd: '/tmp/k7-wt', place: { workspace: 'new' },
-      worktree: {} });
+      worktree: {}, env: { HOME: '/tasks/t1', XDG_CACHE_HOME: '/tasks/cache' } });
     const plainPane = (await kit.call('pane.get', { pane_id: plain.paneId })) as
-      { pane?: { workspace_id?: string } };
+      { pane?: { workspace_id?: string; env?: Record<string, string> } };
+    assert.deepEqual(plainPane.pane?.env, { HOME: '/tasks/t1', XDG_CONFIG_HOME: '/tasks/t1/.config',
+      XDG_DATA_HOME: '/tasks/t1/.local/share', XDG_STATE_HOME: '/tasks/t1/.local/state', XDG_CACHE_HOME: '/tasks/cache' });
     const plainWs = (await kit.call('workspace.get', { workspace_id: plainPane.pane?.workspace_id ?? '' })) as
       { workspace?: { worktree?: { is_linked_worktree?: boolean } } };
     assert.equal(plainWs.workspace?.worktree?.is_linked_worktree, true, 'a branchless worktree still links');

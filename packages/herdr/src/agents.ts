@@ -116,7 +116,11 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       throw fail('env_mismatch', 'This pane needs to be opened again to use that sign-in.');
     }
     const timeout = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    const env = o.env === undefined || launch ? {} : { env: o.env };
+    // A pane HOME alone keeps the server's XDG dirs, so a sign-in would land outside it: confine them too.
+    const home = launch ? undefined : (o.env as Record<string, string> | undefined)?.HOME;
+    const env = o.env === undefined || launch ? {} : { env: home === undefined ? o.env : {
+      XDG_CONFIG_HOME: join(home, '.config'), XDG_DATA_HOME: join(home, '.local', 'share'),
+      XDG_STATE_HOME: join(home, '.local', 'state'), XDG_CACHE_HOME: join(home, '.cache'), ...o.env } };
     let paneId: string | undefined;
     let created = false;
     if (o.worktree !== undefined) {
