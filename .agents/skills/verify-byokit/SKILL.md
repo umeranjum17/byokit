@@ -53,6 +53,23 @@ Write each consumer inside "$scratch_dir"; keep that variable in the same shell 
 
 Exact recipes: `features/README.md` is the index; one file per feature.
 
+## Review evidence (a user-visible change)
+
+A change a person can see is proved by `capture/review-evidence.ts`, not by hand. The skill owns the capture: run the script, name the files it wrote. A hand-captured screenshot is a failure, not a fallback; when the script cannot reach one of the required proofs, extend the script (or the screen's row in it) in the same change, or record the gap as a follow-up task naming it exactly — never skip it silently.
+
+```bash
+feature=review-evidence; entry=capture/review-evidence.ts
+drive=(node .agents/skills/verify-byokit/capture/review-evidence.ts --base origin/main --slug <pr-or-branch>)
+```
+
+It drives the real example app in a real browser (Playwright's Chromium, else the system's; `mockOpenAI()` on loopback) and writes one stable folder, `.verify-artifacts/review/<slug>/`:
+
+- `<screen>/before__<theme>__<form>.png` and `<screen>/after__<theme>__<form>.png` — the screen before and after the change, in **every theme the app has** (light, dark) and **every form factor it has** (phone width, desktop width);
+- `<screen>/motion__<interaction>__<theme>__<form>.webm` — one motion recording per changed interaction, recorded from the running app;
+- `manifest.json` — the base ref, every file written, and every skip with the reason it was skipped.
+
+`before` is the screen as the `--base` ref has it (the example app of that ref, served from its own copy); a screen that ships its own before route (`usage.html?before`) uses that instead, so the pair compares on one ledger. A theme, form factor or screen the app does not have is written down in `manifest.json` with its reason — that is the only way to skip one. The script closes the browser, both servers and the stand-in, and removes its own scratch; the evidence folder survives. Wrap the run in the Evidence capture block below (it is a heavy job: hold the machine's heavy-job lock). Recipe and what the app really has: `features/pwa-review-evidence.md`.
+
 ## Evidence
 
 Every proof writes to an exclusive run directory under `.verify-artifacts/<feature>/` in the worktree root. The feature recipe sets `feature`, `entry` and the Bash `drive` array; then run this capture block in the same shell:
@@ -103,4 +120,6 @@ From `constraint-driven-development`, applies to this skill and every change ver
 
 ## Helpers
 
-No helper scripts ship with this skill: every drive is a plain `node "$scratch_dir/<file>.mjs"` grounded in the package READMEs (`packages/accounts/README.md` quickstart) and existing fixtures (`packages/accounts/src/testing/mock-openai.ts`, `examples/usage-demo.ts`, `scripts/pack-smoke.ts`). Write the consumer from the feature file, do not reverse-engineer one.
+One helper ships: `capture/review-evidence.ts`, the review-evidence capture above (add a screen by adding a row to its `SCREENS` table, with its real themes, form factors and before route — never a hand-written capture path).
+
+Every other drive is a plain `node "$scratch_dir/<file>.mjs"` grounded in the package READMEs (`packages/accounts/README.md` quickstart) and existing fixtures (`packages/accounts/src/testing/mock-openai.ts`, `examples/usage-demo.ts`, `scripts/pack-smoke.ts`). Write the consumer from the feature file, do not reverse-engineer one.
