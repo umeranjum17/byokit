@@ -125,10 +125,10 @@ const signInCtx = () => {
 };
 
 /** The kit's own ctx over a fresh task-owned gateway: one setup admission each, caller plugins merged (5.6). */
-async function withGateway<T>(plugins: string[], fn: (ctx: SignInCtx, request: GatewayTransport['request'], state: string) => Promise<T>): Promise<T> {
+async function withGateway<T>(plugins: string[], fn: (ctx: SignInCtx, request: GatewayTransport['request'], state: string) => Promise<T>, enginePath?: string[]): Promise<T> {
   const dir = scratchDir(`o6-gateway-${plugins.join('-') || 'none'}`);
   const state = join(dir, 'state');
-  const probe = new Engine({ stateDir: state, engineDir, pluginId: 'byokit', tools: [], spawnEngine: true,
+  const probe = new Engine({ stateDir: state, engineDir, pluginId: 'byokit', tools: [], spawnEngine: true, enginePath,
     config: { plugins: { allow: plugins } }, onState: () => {}, onExit: () => {} });
   let probeTransport: GatewayTransport | undefined;
   try {
@@ -327,4 +327,26 @@ console.log(JSON.stringify({ loggedIn: process.env.TEST_CLAUDE_LOGIN === 'yes', 
     ANTHROPIC_API_KEY: 'fake-key', ANTHROPIC_OAUTH_TOKEN: 'fake-token', TEST_CLAUDE_LOGIN: 'yes' };
   assert.deepEqual(probeClaudeCliAuthStatus({ command, env }), { status: 'available' });
   assert.deepEqual(probeClaudeCliAuthStatus({ command, env: { ...env, TEST_CLAUDE_LOGIN: 'no' } }), { status: 'missing' });
+});
+
+test('real gateway: a Claude Code login the engine detects is a signed-in claude-cli', { timeout: 300_000 }, async () => {
+  // A task-owned `claude` on the engine's PATH, logged in on a plan; it prints no credential.
+  const bin = scratchDir('o6-claude-bin');
+  writeFileSync(join(bin, 'claude'), `#!${process.execPath}
+const a = process.argv.slice(2).join(' ');
+if (a === '--version') console.log('2.1.0 (Claude Code)');
+else if (a === 'auth status --text') console.log('Login method: Claude Max Account');
+else if (a === 'auth status --json') console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'max' }));
+else process.exit(2);
+`, { mode: 0o700 });
+  try {
+    await withGateway(['anthropic'], async (ctx, request) => {
+      const detected = await request('openclaw.setup.detect', { agentId: 'm1' }, { timeoutMs: 20_000 }) as { candidates?: { kind?: string; credentials?: boolean }[] };
+      assert.ok(detected.candidates?.some((c) => c.kind === 'claude-cli' && c.credentials === true),
+        `the engine detects the login: ${JSON.stringify(detected.candidates?.map((c) => [c.kind, c.credentials]))}`);
+      const status = await request('models.authStatus', { agentId: 'm1', refresh: true }, { timeoutMs: 20_000 });
+      // Exactly claude-cli: a Claude Code login is plan-billed and never reads as 'anthropic', the API-billed provider.
+      assert.deepEqual(await providers(ctx, 'm1'), ['claude-cli'], `engine status: ${JSON.stringify(status)}`);
+    }, [bin]);
+  } finally { rmSync(bin, { recursive: true, force: true }); }
 });
