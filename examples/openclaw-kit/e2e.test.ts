@@ -24,7 +24,7 @@ import { scratchDir, trackChild } from '../../packages/test-support.ts';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const root = join(here, '../..');
-const PACKAGES = ['openclaw', 'link', 'relay', 'discover', 'seal', 'ui-core'];
+const PACKAGES = ['openclaw', 'link', 'relay', 'discover', 'reach', 'seal', 'ui-core'];
 
 // A clean copy of the example with the packed packages installed the way npm lays them out.
 const dir = scratchDir('openclaw-kit');

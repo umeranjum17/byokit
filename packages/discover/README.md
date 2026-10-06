@@ -181,7 +181,7 @@ before tailnet, remove duplicates, and include loopback only when there is no re
 Use `@byokit/discover/react-native` explicitly or the root `react-native` export condition. Both expose
 `nativeAddresses`, `routeOf`, `observe`, `probe` and `phoneNetwork` with the same types as Node. These functions import no
 Node modules. Expo apps use the bundled `ByokitReach` native module on Android/iOS by default. Rebuild the native
-binary after installing reach. Android reads interface prefixes and NetworkCapabilities; iOS reads
+binary after installing @byokit/discover. Android reads interface prefixes and NetworkCapabilities; iOS reads
 interface netmasks and NWPath transports. Bare React Native apps can supply their native address module
 through `nativeModule` on each call. This supports existing modules and fakes without a global singleton. A reader implements `addresses(): Promise<NativeAddress[]>`, returning
 `{ address, prefixLength?, interface? }` for each IPv4 interface. Obtain `prefixLength` from the platform’s
