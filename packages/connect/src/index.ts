@@ -3,6 +3,8 @@ export { providers } from './providers.ts';
 export type { ProviderId } from './providers.ts';
 export { ConnectError } from './errors.ts';
 export { MailReader, MailError } from './mail.ts';
+export { MailHistory, HistoryError } from './history.ts';
+export type { HistoryFormat, HistoryErrorCode, MailHistoryOptions, HistoryQuery, HistoryExportQuery } from './history.ts';
 export type { MailErrorCode, MailCredential, MailReaderOptions, MailEnvelope, MailBody, MailMessage, MailPage, MailListOptions, MailGetOptions } from './mail.ts';
 export type { ConnectErrorCode, ProviderErrorCause } from './errors.ts';
 export type { Provider, OAuthClient, OAuthEndpoints, ConnectOptions, SignIn, McpOptions, Grant, ClientVerification } from './types.ts';
