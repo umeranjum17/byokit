@@ -3,16 +3,24 @@
 // this test ever runs), and a phone-sized headless Chromium going pair → start agent → prompt → receipt → a question
 // → answer y → ready again. Every status a person reads must be the kit's own sentence from its words.json.
 // Third-party dependencies are linked from the repo's installed tree, so the run stays offline.
+// Away from home, a loopback relay with a recording push service stands in for the real ones, and a phone app (plain
+// Node here) pairs through it and gets an agent's question sealed: nothing is sent anywhere real.
 // BYOKIT_EXAMPLE_SHOTS=<folder> keeps a screenshot of each step, for the README: the computer gets a real name and the
 // agent a plausible session (capture-herdr.ts), so the pictures show what a person sees rather than the fake's words.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createServer as httpServer } from 'node:http';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium, type Page } from 'playwright';
+import { herdrDevice } from '@byokit/herdr/device';
+import { DeviceLink, pairWithCode } from '@byokit/link';
+import { Relay } from '@byokit/relay';
+import { findHost } from '@byokit/relay/device';
 import { scratchDir, trackChild } from '../../packages/test-support.ts';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -56,12 +64,26 @@ const QUESTION_PROMPT = capture?.QUESTION_PROMPT ?? 'ask permission';
 const executablePath = existsSync(chromium.executablePath()) ? undefined : process.env.BYOKIT_CHROME ?? '/usr/bin/chromium';
 const browser = await chromium.launch({ executablePath });
 
+// The relay, on loopback. Its push service is this recorder: what Expo would receive, kept here and sent nowhere.
+const pushed: { to: string; title?: string; data: { id: string; data?: Record<string, unknown> } }[] = [];
+const relay = await Relay.open({ push: { fetch: (async (url: string, init: RequestInit) => {
+  assert.equal(url, 'https://exp.host/--/api/v2/push/send');
+  const messages = JSON.parse(String(init.body));
+  pushed.push(...messages);
+  return Response.json({ data: messages.map(() => ({ status: 'ok', id: 'x' })) });
+}) as typeof fetch } });
+const relayServer = httpServer();
+relay.attach(relayServer);
+await new Promise<void>((r) => relayServer.listen(0, '127.0.0.1', r));
+const relayAt = `http://127.0.0.1:${(relayServer.address() as { port: number }).port}`;
+const { token } = await relay.enrolment({ name: 'Test computer' });
+
 const port = await new Promise<number>((resolve) => {
   const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address() as { port: number }; s.close(() => resolve(port)); });
 });
 const host = trackChild(spawn(process.execPath, ['host.ts', '--herdr', fakeHerdr, '--via', 'lan', '--port', String(port),
-  '--name', NAME, '--folder', dir], { cwd: app, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
-after(async () => { await browser.close(); host.kill('SIGTERM'); });
+  '--name', NAME, '--folder', dir, '--relay', relayAt, '--enrol', token], { cwd: app, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
+after(async () => { await browser.close(); host.kill('SIGTERM'); relay.close(); relayServer.closeAllConnections(); relayServer.close(); });
 let said = '';
 host.stdout.on('data', (b: Buffer) => { said += b.toString(); });
 /** The host's first line matching `pattern` after `from` characters of what it said. */
@@ -201,4 +223,46 @@ test('adopting a managed session leaves its lifecycle with its owner', async () 
     await probe.start();
     assert.equal(probe.snapshot().connected, true, 'stopping the example did not stop the managed session');
   } finally { await probe.stop(); }
+});
+
+test('away from home: a phone pairs through the relay, and an agent\'s question reaches it sealed', async () => {
+  // The phone app finds the computer by the relay's short code, then pairs with the link code, as in the README.
+  await heard(/Relay: online/);
+  const from = said.length;
+  host.stdin.write('\n'); // fresh codes
+  const code = (await heard(CODE, from))[1];
+  const short = (await heard(/find this computer at \S+ with (\S+)/, from))[1];
+  const pairing = pairWithCode(await findHost(relayAt, short), code, { name: 'Away phone', onWords: () => {} });
+  await heard(/Pair Away phone\? \(y\/n\) $/, from);
+  host.stdin.write('y\n');
+  const link = new DeviceLink(await pairing);
+  after(() => link.stop());
+  const hd = herdrDevice(link);
+
+  // Its notice key (from a seed only the phone keeps) and its push address go to the computer over the link.
+  const seed = new Uint8Array(randomBytes(32));
+  await hd.registerNotices(seed);
+  await link.request('example.push', { expo: 'ExponentPushToken[away-phone]' });
+
+  // An agent asks a question; the push service gets the kit's generic title and an envelope it cannot open.
+  const pane = (await hd.tree()).workspaces.flatMap((w) => w.tabs.flatMap((t) => t.panes)).find((p) => p.agent)!;
+  await hd.prompt(pane.id, QUESTION_PROMPT);
+  for (let i = 0; i < 300 && !pushed.length; i++) await new Promise((r) => setTimeout(r, 50));
+  const [notice] = pushed;
+  assert.ok(notice, 'the relay sent no push');
+  const wire = JSON.stringify(notice);
+  if (shots) writeFileSync(join(shots, 'relay-wire.json'), `${JSON.stringify(notice, null, 2)}\n`);
+  assert.equal(notice.to, 'ExponentPushToken[away-phone]');
+  assert.equal(notice.title, WORDS['agent.blocked']);
+  // In the clear: the title and the notice's id (its pane, so a newer notice replaces an older one). Never the question.
+  assert.equal(notice.data.id, pane.id);
+  assert.doesNotMatch(wire, /Allow this|ask permission/, 'the relay and push service read only the generic title');
+  assert.equal(hd.openNotice(notice.data.data!, new Uint8Array(randomBytes(32))), null, 'another key opens nothing');
+
+  // Only the phone opens it, and answers the question it holds.
+  const opened = hd.openNotice(notice.data.data!, seed);
+  assert.ok(opened, 'the phone opens its notice');
+  assert.equal(opened.paneId, pane.id);
+  assert.match(opened.prompt, /Allow this\? \(y\/n\)/);
+  await hd.answer(opened.paneId, ['y'], opened.revision);
 });

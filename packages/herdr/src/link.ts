@@ -83,7 +83,7 @@ const eventWorkspaces = (e: HerdrEvent, snap: HerdrSnapshot): Set<string> => {
 export function herdrLink(kit: HerdrKit, o: {
   scopeOf: (grant: Grant) => HerdrScope;
   passThrough?: (method: string, grant: Grant) => boolean; // D8; default () => false
-  relay?: RelayClient;                                     // sealed approval push (7.3)
+  relay?: Pick<RelayClient, 'notify'>;                     // sealed approval push (7.3)
 }): Pick<HostOptions, 'handle' | 'stream' | 'allow'> {
   if (!kit || typeof o?.scopeOf !== 'function') throw new Error('herdr: herdrLink needs a kit and scopeOf');
   const passThrough = o.passThrough ?? (() => false);

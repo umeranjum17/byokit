@@ -2301,7 +2301,7 @@ Same shape in both kits; names below use `oc`/`hd`.
 export function openclawLink(kit: OpenClawKit, o: {
   memberOf: (grant: Grant) => Member | undefined;          // which member a device acts for (e.g. grant.meta.member)
   passThrough?: (method: string, grant: Grant) => boolean; // D8; default () => false
-  relay?: RelayClient;                                     // sealed approval push (7.3)
+  relay?: Pick<RelayClient, 'notify'>;                     // sealed approval push (7.3); RelayClient fits
 }): Pick<HostOptions, 'handle' | 'stream' | 'allow'>;
 export function serve(o: { host: Host; port: number; via?: Via; previous?: ServeIngress;
   http?: (req: IncomingMessage, res: ServerResponse) => void }): Promise<{ urls: string[]; ingress?: ServeIngress; close(): Promise<void> }>;
@@ -2462,8 +2462,8 @@ examples/openclaw-kit/  package.json  host.ts  web/index.html  web/app.ts  READM
 examples/herdr-kit/     package.json  host.ts  web/index.html  web/app.ts  README.md  e2e.test.ts  LIVE.md
 ```
 
-- `package.json`: `"private": true`, dependencies on the kit and `@byokit/link`, `@byokit/reach`, `@byokit/ui-core`,
-  `@byokit/seal` at exact published versions, `esbuild` (dev) to bundle `web/app.ts`. Scripts: `start` (`node
+- `package.json`: `"private": true`, dependencies on the kit and `@byokit/link`, `@byokit/reach`, `@byokit/relay`,
+  `@byokit/ui-core`, `@byokit/seal` at exact published versions, `esbuild` (dev) to bundle `web/app.ts`. Scripts: `start` (`node
   host.ts`), `build:web`, `test` (`node --test e2e.test.ts`). Not part of the root workspaces.
 - `host.ts` (OpenClaw): `new OpenClawKit({ stateDir: './.state', tools: [demo_note], host,
   config: { plugins: { allow: ['openai'] } } })` where `demo_note`
@@ -2473,6 +2473,11 @@ examples/herdr-kit/     package.json  host.ts  web/index.html  web/app.ts  READM
   prints the offer as a terminal QR from `qrMatrix` and asks `Pair <name>? (y/n)` on stdin for `confirm`.
   Herdr: `new HerdrKit({ mode: 'own', bin: <from --herdr flag, absolute>, stateDir: './.state' })`, grants carry
   `meta.scope = { workspaces: 'all' }`, same link wiring with `herdrLink`.
+  Both: `--relay <url>` (and `--enrol <token>`, first start only) opens a `RelayClient` once the host is open and
+  passes the kit `relay: { notify }` reaching it (OpenClaw also `onAction`); the offer adds `linkUrl(relay, host.id)`,
+  the terminal prints the relay's short code, and op `example.push` hands a device's push address to
+  `relay.subscribe(grant.id, …)`. The page takes no push itself; a phone app registers its notice key, sends its
+  push address and opens what arrives (7.3).
 - `web/app.ts`: pair (typed code or scanned offer text pasted), then OpenClaw: sign-in sheet driven by
   `phaseOf(toAccountView…)`, a message box streaming `oc.run`, an approvals list with Allow/Deny; Herdr: tree, "Start
   agent" (kind picker from `hd.agentKinds()`, op `hd.kinds`), prompt box, pane text via `hd.read` refreshed on
@@ -2487,7 +2492,10 @@ examples/herdr-kit/     package.json  host.ts  web/index.html  web/app.ts  READM
   switches to `fakeGateway()` / `startFakeHerdr()` — the only env read, in example code, not library code), drives
   headless Chromium through pair → sign in (fake device code) → run with streamed text → approval Allow → result
   (Herdr: pair → start agent → prompt → receipt → `ask permission` blocked → answer `y` → idle), and asserts the
-  person-visible text equals `words.json` sentences.
+  person-visible text equals `words.json` sentences. Away from home: a loopback `Relay` whose push `fetch` is a
+  recorder, a Node device pairing by `findHost` + `pairWithCode`, registering a notice key and an Expo token; the
+  pushed message must carry the generic title, none of the approval's or question's text, and open only with the
+  device's own seed (OpenClaw: Allow through `/relay/v1/push/action` saves the note).
 - `LIVE.md`: the manual end-to-end proof, run once per kit release in the isolated lab: real engine (OpenClaw) with a
   real ChatGPT sign-in in the lab's retained test home, phone pairing over Tailscale, run + approval; real Herdr
   v0.9.1 in `own` mode (under a `--herdr-lab` brief) with one agent CLI signed in inside the lab home. Record date,

@@ -11,6 +11,8 @@ import { HerdrKit, stateWords } from '@byokit/herdr';
 import { herdrLink, serve } from '@byokit/herdr/link';
 import { Host, type Grant, type GrantStore } from '@byokit/link';
 import { hostKeyFile } from '@byokit/link/node';
+import { RelayClient, type Subscription } from '@byokit/relay';
+import { linkUrl } from '@byokit/relay/device';
 import type { ServeIngress, Via } from '@byokit/reach';
 import { qrMatrix } from '@byokit/ui-core/link';
 
@@ -22,6 +24,8 @@ const { values: flags } = parseArgs({ options: {
   port: { type: 'string', default: '7310' },
   via: { type: 'string', default: 'auto' },             // auto | tailscale | tailscale-direct | private | lan
   name: { type: 'string', default: hostname() },
+  relay: { type: 'string' },                            // a relay to reach this computer away from home, e.g. https://relay.example
+  enrol: { type: 'string' },                            // the relay owner's one-use enrolment token, first start only
 } });
 
 // The only environment read: the e2e test (and a try-out without Herdr) runs the kit's fake Herdr.
@@ -81,7 +85,14 @@ const ask = (question: string) => new Promise<string>((resolve) => {
 });
 
 // Every device paired here sees all of Herdr (`meta.scope` below); a grant without a scope sees nothing.
-const link = herdrLink(kit, { scopeOf: (g) => (g.meta as { scope?: { workspaces: 'all' | string[] } } | undefined)?.scope ?? { workspaces: [] } });
+// With --relay, each question an agent asks also goes to every phone that registered a notice key and a push address,
+// sealed to that phone's key: the relay and the push service read only the kit's generic title. The client needs the
+// open host, so the kit gets a `notify` that reaches it once it exists (below).
+let relay: RelayClient | undefined;
+const link = herdrLink(kit, {
+  scopeOf: (g) => (g.meta as { scope?: { workspaces: 'all' | string[] } } | undefined)?.scope ?? { workspaces: [] },
+  ...(flags.relay && { relay: { notify: (n, o) => relay!.notify(n, o) } }),
+});
 const host = await Host.open({
   keys: hostKeyFile(join(state, 'link-key.json')),
   name: flags.name,
@@ -97,11 +108,18 @@ const host = await Host.open({
     return yes;
   },
   ...link,
-  // One question of this app's own for its start-agent form: the kinds Herdr knows and the folder agents start in.
+  // This app's own ops: its start-agent form's kinds and folder, and a phone's push address for the relay.
   handle: async (req, grant) => req.op === 'example.setup'
     ? { kinds: await kit.agentKinds().catch(() => []), folder: resolve(flags.folder) }
+    : req.op === 'example.push' && relay ? relay.subscribe(grant.id, req.args as Subscription)
     : link.handle(req, grant),
 });
+
+// Away from home: the computer dials out to the relay, so it needs no open port, and phones find it by a short code.
+if (flags.relay) {
+  relay = new RelayClient(host, { url: `${flags.relay.replace(/^http/, 'ws')}/relay/v1/host`, enrol: flags.enrol,
+    onStatus: (s, why) => console.log(`Relay: ${s}${why ? ` (${why})` : ''}`) });
+}
 
 // Explicit static shell and icon routes; never serve arbitrary files from the host.
 const web = fileURLToPath(new URL('web/', import.meta.url));
@@ -140,9 +158,11 @@ function terminalQr(text: string): string {
 
 function showCodes() {
   const terms = { role: 'control' as const, meta: { scope: { workspaces: 'all' } } };
-  const offer = host.offer({ ...terms, urls: served.urls, base: page });
+  const away = relay ? [linkUrl(flags.relay!, host.id)] : []; // the phone tries this when home is out of reach
+  const offer = host.offer({ ...terms, urls: [...served.urls, ...away], base: page });
   const { code } = host.code(terms);
   console.log(`\n${terminalQr(offer.text)}\n\nOn the phone, scan this, or open ${page} and type ${code}`);
+  relay?.code().then((r) => console.log(`Away from home, find this computer at ${flags.relay} with ${r.code}`), () => {});
   console.log('Codes last five minutes. Press Enter for new ones.');
 }
 
@@ -152,6 +172,7 @@ kit.start().catch(() => {}); // a failed start is already said in words above; t
 const stop = async () => {
   input.close();
   await kit.stop().catch(() => {});
+  relay?.stop();
   host.close();
   await served.close();
   process.exit(0);

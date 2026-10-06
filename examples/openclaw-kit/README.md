@@ -43,6 +43,40 @@ no real site): a "Sign in to 127.0.0.1" card waits on `http://127.0.0.1:2820`, t
 page live, and Done puts "Signed in to 127.0.0.1 ✓" under the chat. It shows the screens only; it is not browser
 protection.
 
+## Away from home: a relay, and notices only the phone can read
+
+`npm start -- --relay https://relay.example` (a relay you run with `@byokit/relay`; add `--enrol <token>` from its
+owner on the first start) makes the computer dial out to the relay, so it needs no open port. The terminal also
+prints a short code for the relay, and the QR code carries the relay's address too, so a paired phone reaches the
+computer from anywhere.
+
+When the helper asks before it acts, the kit sends a notice through the relay to each phone that registered a notice
+key and a push address, sealed to that phone's key, with **Allow** and **Deny** on it. A phone app does three things
+(`e2e.test.ts` does them in plain Node, as the phone):
+
+```ts
+const oc = openclawDevice(link);
+await oc.registerNotices(seed);                              // a 32-byte seed only the phone keeps
+await link.request('example.push', { expo: expoPushToken }); // its push address, handed to the relay
+const approval = oc.openNotice(push.data, seed);             // push: the notification's data; null unless sealed to it
+```
+
+A button pressed on the notice posts `{ token, action }` to the relay's `/relay/v1/push/action`; the relay hands it
+to the computer, and the kit (`onAction`) allows or denies. What the push service got in the test run (the envelope
+cut short):
+
+```json
+{ "to": "ExponentPushToken[away-phone]", "collapseId": "gyX9IxUyWw5_I0os", "priority": "high",
+  "data": { "id": "gyX9IxUyWw5_I0os", "title": "Something is waiting for your yes.",
+            "data": { "v": 1, "sealed": "FPEu1pJJHgVBEAxv…" }, "actions": ["allow", "deny"], "action": "UhtgFSHSvIKrUmmP…" },
+  "title": "Something is waiting for your yes." }
+```
+
+The relay and the push service read the kit's generic title, the approval's id (so a newer notice replaces an older
+one) and the one-use token for its buttons. What the helper wants to do is inside `sealed`. `e2e.test.ts` fails if
+any of it shows up on the wire, or if another key opens it. A phone that registered no notice key gets the title
+only. This web page takes no push notices itself; a phone app does.
+
 ## What's where
 
 - `host.ts`: `new OpenClawKit({ stateDir: './.state', tools: [demo_note], host, config: { plugins: { allow:
@@ -50,7 +84,8 @@ protection.
   `.state/notes.txt`; the engine's own tools ask too. A `@byokit/link` host (key in `.state/link-key.json`, paired
   phones in `.state/grants.json`) answers the phone with `openclawLink(kit, { memberOf: () => 'me' })`: every paired
   phone acts for this app's one member. `serve` finds the address (`@byokit/reach`) and serves the page on the same
-  port.
+  port. With `--relay`, a `RelayClient` made once the host is open carries the kit's sealed notices and brings
+  their buttons back (`onAction`), and `example.push` hands a phone's push address to it.
 - `web/app.ts`: plain DOM. Pairs with `pairWithCode`/`pairWithOffer` and keeps the pairing in this browser
   (`browserDeviceStore`); then `openclawDevice(link)`: `signIn.start('openai', 'code')` and `signIn.view` through
   `@byokit/ui-core`'s `phaseOf` for the sign-in card, `run` for the streamed reply, `approvals`/`events`/`decide` for
@@ -60,9 +95,10 @@ protection.
   `oc.browser.live(source, { lease })` drawn from `livePanelView` (`web/browser.ts`).
 - `e2e.test.ts`: packs the packages, installs them into a copy of this folder, runs `host.ts` against the kit's fake
   Gateway and drives a phone-sized headless Chromium through all of the above, Allow and Deny both, then the fixture
-  browser sign-in (screenshots named `fixture-*`). From the repo:
+  browser sign-in (screenshots named `fixture-*`); then, through a loopback relay whose push service is a recorder, a
+  phone in plain Node gets an approval sealed and allows it from the notice. From the repo:
   `npm run build && sh scripts/test.sh examples/openclaw-kit/e2e.test.ts` (`BYOKIT_EXAMPLE_SHOTS=<folder>` keeps
-  the screenshots).
+  the screenshots and `relay-wire.json`, what the push service got).
 - `LIVE.md`: the check with the real engine, a real ChatGPT sign-in and a real phone, run once per kit release.
 
 ## Troubleshooting
