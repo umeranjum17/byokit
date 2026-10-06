@@ -280,7 +280,7 @@ registered Google client when applicable, and Crewhouse's callback address. Keep
 flow handles in the host's callback routing table until completion/cancellation.
 Crewhouse retains its own connection screen, Google setup guidance and tool gates.
 For remote apps, call `mcp()` and use `listTools`/`callTool` with their full results;
-for Gmail use `MailReader` below; for Calendar use `token()` until its typed kit
+for Gmail use `MailReader`/`MailSender` below; for Calendar use `token()` until its typed kit
 sits on this connection. No raw OAuth, refresh or MCP transport needs to remain in the consumer.
 
 ## Verification

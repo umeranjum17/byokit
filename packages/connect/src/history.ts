@@ -1,6 +1,6 @@
 // Owner-bound mail history and export. The credential (a Connection) stays the
 // only authentication; every call names its principal and anything but the bound
-// owner is denied before any provider fetch. Sends are out of scope.
+// owner is denied before any provider fetch. This module never sends.
 import { MailReader, MailError, type MailCredential, type MailEnvelope, type MailReaderOptions } from './mail.ts';
 
 export type HistoryFormat = 'json' | 'csv';
