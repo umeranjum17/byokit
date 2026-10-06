@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { test } from 'node:test';
 import { OpenClawKit } from '../src/kit.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import type { RunRef } from '../src/types.ts';
-import { osKeyringSeal, type KeyringBackend } from '../../secrets/src/index.ts';
+import { hostKeySeal, osKeyringSeal, type KeyringBackend } from '../../secrets/src/index.ts';
 import { stateWords } from '../src/words.ts';
 
 async function withKit(fn: (kit: OpenClawKit, fake: ReturnType<typeof fakeGateway>) => Promise<void>) {
@@ -64,6 +65,27 @@ test('locked saved credentials resolve prepare/start, preserve the store and rec
   await dualKit.stop();
   assert.equal(readFileSync(file)[4], 3, 'locked stop keeps both wraps');
   locked = false;
+});
+
+test('a saved sign-in the key cannot open is kept aside and the kit starts signed out, saying sign in again', async () => {
+  const stateDir = scratchDir('o4-unreadable');
+  const root = join(stateDir, 'openclaw');
+  mkdirSync(join(root, 'state'), { recursive: true });
+  writeFileSync(join(root, 'state', 'auth.json'), 'saved-sign-in');
+  await new OpenClawKit({ stateDir, authSeal: hostKeySeal({ key: randomBytes(32), service: 'o4' }), spawnEngine: false }).prepare();
+  const file = join(root, 'auth-store.sealed');
+  const bytes = readFileSync(file);
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, authSeal: hostKeySeal({ key: randomBytes(32), service: 'o4' }), spawnEngine: false, transport: fake.factory });
+  try {
+    await kit.start();
+    assert.deepEqual(kit.state, { phase: 'ready', why: 'sign-in-reset' });
+    assert.equal(stateWords(kit.state), "Your saved sign-in couldn't be opened, so it was kept aside. Sign in again.");
+    assert.equal(existsSync(join(root, 'state', 'auth.json')), false, 'the engine starts signed out');
+    const aside = readdirSync(root).filter((name) => name.startsWith('auth-store.sealed.unreadable-'));
+    assert.equal(aside.length, 1);
+    assert.deepEqual(readFileSync(join(root, aside[0]!)), bytes, 'the saved store is kept byte for byte');
+  } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
 test('call before start rejects instead of throwing synchronously', async () => {

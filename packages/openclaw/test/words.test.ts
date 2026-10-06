@@ -13,6 +13,7 @@ const TABLE: Record<string, string> = {
   'engine.starting': 'Starting up…',
   'engine.repairing': 'Fixing a small problem with the setup. This takes a moment.',
   'engine.locked': 'Your saved sign-in is locked. Unlock your password storage, then try again.',
+  'engine.signInAgain': "Your saved sign-in couldn't be opened, so it was kept aside. Sign in again.",
   'engine.ready': 'Ready.',
   'engine.restarting': 'Something stopped. Starting it again by itself.',
   'engine.alreadyRunning': 'Your saved sign-in is in use. Try again after the other session stops.',

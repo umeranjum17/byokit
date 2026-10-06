@@ -358,7 +358,7 @@ export type Approval = {
 export type Decision = { allow: boolean; reason?: string; answer?: unknown };   // answer: question.* only
 export type KitState = {
   phase: 'stopped' | 'installing' | 'starting' | 'repairing' | 'ready' | 'restarting' | 'failed' | 'needs-update' | 'locked';
-  why?: 'install' | 'handshake' | 'exited' | 'port' | 'version' | 'engine-already-running' | 'engine-patch';
+  why?: 'install' | 'handshake' | 'exited' | 'port' | 'version' | 'engine-already-running' | 'engine-patch' | 'sign-in-reset';
   retryAt?: number;
   patchSet?: string | null;                                    // bundled engine patch set id after prepare (5.16)
 };
@@ -687,7 +687,11 @@ the runtime kit delegates key management to that adapter. Opening follows the en
 adapter's current write mode. A locked or unresponsive keyring reports `KeystoreError('keyring-locked')`.
 `prepare()` and `start()` resolve with `phase: 'locked'` and plain recovery words, without launching the
 engine or changing the sealed snapshot; a later `start()` retries after unlock. Engine.start returns
-`undefined` on this recoverable state, and the kit must skip connecting. Other sealing failures still reject.
+`undefined` on this recoverable state, and the kit must skip connecting. A store the adapter cannot open
+(`KeystoreError('auth-failed')`: a different key, damaged or tampered bytes) or whose authentic payload is not a
+snapshot is renamed to `auth-store.sealed.unreadable-<ms>`, kept and never overwritten or deleted, with a log line;
+the engine starts signed out and the kit reports `{ phase: 'ready', why: 'sign-in-reset' }` until a sign-in through
+the kit completes. Other sealing failures still reject.
 Dual-wrap is explicit opt-in (`dualWrap: true`, default off) and weakens protection to the owner-only host
 key file. SealingAdapter may expose `upgrade(data: Buffer): Uint8Array | undefined`; readers verify the
 replacement decrypts to the same text, then atomically replace under their writer lock. With dual-wrap
@@ -698,8 +702,9 @@ agent SQLite and the shared state SQLite database. The kit seals credential stat
 config/credential path under `home`, excluding regenerable tool caches, transcripts and logs (the `home/.cache` and `home/.npm` subtrees the
 engine environment pins, and the `sessions`/`log`/`cache`/`.tmp`/`history.jsonl` subtrees of `.codex` and `projects`/`todos`/`shell-snapshots`/`statsig`/`file-history`/`history.jsonl`
 of `.claude`); excluded caches stay on disk unsealed across stops, unknown `home` paths stay sealed, and the sealed payload is built exactly once and
-verified by decrypting the sealed bytes. Snapshots from the pre-caches format (`v: 1`, whole trees) still restore completely and re-seal once as `v: 2`
-with a log line; nothing is dropped. File symlinks are included only when their fully resolved
+verified by decrypting the sealed bytes. Snapshots are always written as `v: 1`, the only tag released readers through 0.6.1
+accept, so a host rolled back to an earlier kit still opens them; `v: 2` snapshots (written by 0.6.2) restore and re-seal as `v: 1`.
+Pre-caches snapshots (whole trees) restore completely and re-seal once without their caches, with a log line; nothing is dropped. File symlinks are included only when their fully resolved
 targets are regular files inside the isolated engine root; they restore as regular files at the link paths.
 Outside-root, dangling and directory symlinks (including loops), sockets, FIFOs and devices are skipped.
 `prepare()` seals existing plaintext stores and migration
@@ -1078,6 +1083,7 @@ export function openNotice(data: Record<string, unknown>, seed: Uint8Array): App
 | `engine.starting` | Starting up… |
 | `engine.repairing` | Fixing a small problem with the setup. This takes a moment. |
 | `engine.locked` | Your saved sign-in is locked. Unlock your password storage, then try again. |
+| `engine.signInAgain` | Your saved sign-in couldn't be opened, so it was kept aside. Sign in again. |
 | `engine.ready` | Ready. |
 | `engine.restarting` | Something stopped. Starting it again by itself. |
 | `engine.alreadyRunning` | Your saved sign-in is in use. Try again after the other session stops. |

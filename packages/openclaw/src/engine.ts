@@ -61,7 +61,7 @@ export class Engine {
   private child?: ChildProcess;
   private readonly started = new StartedProcesses();
   private starting?: Promise<{ port: number; token: string; identityPath: string } | undefined>;
-  private readonly authStore: AuthStore;
+  readonly authStore: AuthStore;
   private stopping = false;
   private credentialsLocked = false;
   private repaired = false;

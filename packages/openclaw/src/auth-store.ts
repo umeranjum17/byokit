@@ -3,7 +3,7 @@
 // `home` — never the regenerable tool caches, transcripts and logs a signed-in home accumulates.
 // Sealing those too once produced a snapshot past the runtime string limit and aborted boot.
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, rmdirSync, writeFileSync, closeSync, fsyncSync, openSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { SealingAdapter } from '@byokit/secrets';
 import { EngineAlreadyRunningError, pidAlive as live } from './engine-status.ts';
 
@@ -34,6 +34,8 @@ function put(path: string, bytes: Uint8Array): void {
     syncDir(dirname(path));
   } finally { rmSync(tmp, { force: true }); }
 }
+// Always written as `v: 1`: released readers through 0.6.1 reject any other tag, so 0.6.2's `v: 2` locked a host
+// rolled back to an earlier kit out of its sign-in. `v: 2` stays readable and re-seals as `v: 1`.
 type Snapshot = { v: 1 | 2; dirs: string[]; files: [string, string][] };
 // Credential state is what restores a working signed-in session. Regenerable tool caches, transcripts
 // and logs never do: the XDG cache and npm cache homes the kit's engine environment pins, plus the
@@ -72,6 +74,8 @@ function snapshot(text: string): Snapshot {
 }
 
 export class AuthStore {
+  /** Set when an unreadable store was kept aside and the engine starts signed out; the kit clears it on sign-in. */
+  reset = false;
   private active = false;
   private owned = false;
   private queue: Promise<unknown> = Promise.resolve();
@@ -137,8 +141,14 @@ export class AuthStore {
     regular(this.file);
     const seal = this.o.seal!;
     const bytes = readFileSync(this.file);
-    const text = seal.decryptString(bytes);
-    const saved = snapshot(text);
+    let text: string;
+    try { text = seal.decryptString(bytes); }
+    catch (error) {
+      if ((error as { code?: unknown })?.code !== 'auth-failed') throw error;
+      return this.setAside('could not be authenticated');
+    }
+    let saved: Snapshot;
+    try { saved = snapshot(text); } catch { return this.setAside('is not a credential snapshot'); }
     const upgraded = seal.upgrade?.(bytes);
     if (upgraded) {
       if (seal.decryptString(Buffer.from(upgraded)) !== text) throw new Error('credential upgrade verification failed');
@@ -146,8 +156,17 @@ export class AuthStore {
     }
     return saved;
   }
+  /** Never overwrite or delete a store this kit cannot open: keep its bytes aside and start signed out. */
+  private setAside(why: string): undefined {
+    const aside = `${this.file}.unreadable-${Date.now()}`;
+    renameSync(this.file, aside);
+    syncDir(this.o.root);
+    this.reset = true;
+    this.o.log?.(`sealed credential store ${why}; kept as ${basename(aside)}; sign in again`);
+    return undefined;
+  }
   private collect(): Snapshot {
-    const s: Snapshot = { v: 2, dirs: [], files: [] };
+    const s: Snapshot = { v: 1, dirs: [], files: [] };
     const root = realpathSync(this.o.root);
     const walk = (path: string) => {
       const name = relative(this.o.root, path).split('\\').join('/');
@@ -212,7 +231,7 @@ export class AuthStore {
     if (this.o.seal.decryptString(Buffer.from(sealed)) !== payload) throw new Error('credential seal verification failed');
     put(this.file, sealed);
     if (this.o.seal.decryptString(readFileSync(this.file)) !== payload) throw new Error('credential seal verification failed');
-    if (previous?.v === 1) this.o.log?.('sealed credential store re-sealed: tool caches no longer sealed');
+    if (previous?.dirs.some(cached)) this.o.log?.('sealed credential store re-sealed: tool caches no longer sealed');
     put(this.cleanup, encoder.encode('1'));
     this.remove(saved);
     removeMarker(this.cleanup);

@@ -483,7 +483,9 @@ separately; dual-wrap rotation retains old wrapping keys for backups.
 Without `authSeal`, engine credentials remain plaintext. With it, successful `prepare()` and `stop()` leave
 only a sealed snapshot, `auth-store.sealed`, for the sealed credential paths; regenerable caches stay on
 disk unsealed. The adapter authenticates the snapshot
-before any restoration; a wrong key, tampering, or a missing adapter rejects. Files restored for the engine
+before any restoration; a missing adapter rejects. A store the key cannot open (a wrong key,
+damaged or tampered bytes) or whose payload is not a credential snapshot is kept aside as
+`auth-store.sealed.unreadable-<ms>` and the engine starts signed out (`why: 'sign-in-reset'`); sign in again. Files restored for the engine
 have mode 0600 and directories 0700. File symlinks are sealed only when their fully resolved targets are
 regular files inside the isolated engine root; they restore as regular files at the link paths. Outside-root,
 dangling and directory symlinks (including loops), sockets, FIFOs and devices are skipped.

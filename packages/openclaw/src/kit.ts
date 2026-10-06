@@ -744,7 +744,7 @@ export class OpenClawKit {
       await this.bridge.start();
       this.off.push(transport.onEvent((e) => this.approvalsCtl.handleEvent(e)));
       this.failures = 0;
-      this.setState({ phase: 'ready' });
+      this.setState(this.engine.authStore.reset ? { phase: 'ready', why: 'sign-in-reset' } : { phase: 'ready' });
       if (this.o.browser) await this.checkBrowserTools();
       // Replays the engine's native approval lists over the now-live transport (N9).
       await this.approvalsCtl.resync();
@@ -866,7 +866,13 @@ export class OpenClawKit {
     o: SignInOptions,
     on: (v: SignInView) => void,
   ): { paste(text: string): void; cancel(): void; done: Promise<SignInView> } {
-    return startSignIn(this.signInCtx(), member, o, on);
+    return startSignIn(this.signInCtx(), member, o, (view) => {
+      if (view.state === 'done' && this.engine.authStore.reset) {
+        this.engine.authStore.reset = false;
+        if (this.current.phase === 'ready') this.setState({ phase: 'ready' });
+      }
+      on(view);
+    });
   }
 
   signOut(member: Member, provider: string): Promise<void> {
