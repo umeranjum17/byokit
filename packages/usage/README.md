@@ -3,7 +3,7 @@
 Read subscription quota windows per provider and per account on Node 22.18 or later.
 React Native also supports local call/token accounting and pure quota parsing.
 The app owns sign-in, token renewal, account labels and selection. The kit reads room
-left, estimates no cost and never rotates an account.
+left, estimates cost only from app-supplied prices and never rotates an account.
 
 ```ts
 import { usage, roomOf } from '@byokit/usage';
@@ -312,6 +312,24 @@ inside the requested range; pass the run's full time range for its complete tota
 Retries and multiple routes/models are added under the app's run id. Members remain
 separate even when run ids match. Missing counts stay unknown in run totals, and
 the shared member ledger continues to withhold remaining allowance when needed.
+
+`preflight(call, { prices?, allowance?, room? })` reports before a call; it never
+sends one, and the caller decides whether to proceed. `call` is `{ provider, model,
+billing?, inputTokens, maxOutputTokens? }`: the app counts the request's input and
+passes its output ceiling (such as Messages `max_tokens`). It returns `billing`,
+`billingLabel`, `tokens: { input, maxOutput?, max? }`, `cost`, `allowance`, `plan?`
+and `exceeds`. `cost` is a ceiling from the app's price row (`basis: 'app-prices'`,
+`ceiling: true`): every input token at the dearest input or cache rate and output at
+its full ceiling, so the real call usually costs less. It is
+`{ amount: 'unknown', reason }` for `no-price`, `billing-mismatch` (a plan-backed
+call is never priced with an API row, or the reverse), `output-unbounded` or
+`invalid-price`; there is no default rate. The estimate is wrong when the app's
+input count or price row is wrong, and it cannot know cache hits or actual output.
+`allowance` comes from `tokenLedger().query(...).week`: `{ remaining, cap, from, to }`,
+`{ remaining: 'uncapped' }`, or unknown when not supplied or a recorded call lacks
+counts. `plan` is `roomOf`'s room for subscription calls only. `exceeds` compares
+the token ceiling with the remaining allowance and is `'unknown'` when either is;
+treat unknown as needing the person's decision, not as room.
 
 Pass a result with a `usage` field directly, or pass just its usage. For accounts'
 Messages result and decide's reported answer usage, the default provider format
