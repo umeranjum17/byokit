@@ -6,7 +6,9 @@ export { LocalModel, DEFAULT_LIMITS, modelName, type LocalModelOptions, type Ini
   type LlamaRnCompletionParams, type LlamaRnCompletionResult, type LlamaRnMessage } from './model.ts';
 export { NanoModel, type NanoModelOptions, type NanoBinding, type NanoFeatureStatus, type NanoRequest, type NanoResponse } from './nano.ts';
 export { inferBackend, generationBackend, type InferGenerationBackend, type InferLocalBackend, type InferWhere } from './backend.ts';
-export { summarizePane, paneText, plainText, redact, type PaneSummary, type PaneSummaryOptions } from './summary.ts';
+export { summarizePane, paneText, plainText, redact, type PaneSummary, type PaneSummaryOptions, type PaneSummaryIdentity } from './summary.ts';
+export { promptHash, samePromptIdentity, commonPrefixLength, PromptIdentityLog,
+  type PromptIdentity, type PromptIdentityCounts } from './prompt-identity.ts';
 export { WORDS, words, stateWords, errorWords, summaryWords, whereWords, type WordKey } from './words.ts';
 
 /** Pinned models, verified against the publisher's file metadata. `offer: false` entries are not yet qualified on a phone. */

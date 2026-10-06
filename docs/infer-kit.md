@@ -69,7 +69,8 @@ monorepo does **not** install it (offline CI); the lab app does.
 | `model.ts` | llama.rn structural subset (`InitLlama`, `LlamaRnContext`, params/result), `LocalModel`, `DEFAULT_LIMITS`, model/limit validation |
 | `nano.ts` | ML Kit GenAI Prompt structural subset (`NanoBinding`, request/response), `NanoModel` |
 | `backend.ts` | `inferBackend({ where })` (I10), `generationBackend(local)` for decide's `generate()` |
-| `summary.ts` | `summarizePane`, `paneText`, `plainText`, `redact` |
+| `summary.ts` | `summarizePane` (`identity?: { tracker?, onIdentity? }`, off unless set), `paneText`, `plainText`, `redact` |
+| `prompt-identity.ts` | `promptHash`, `PromptIdentityLog` (consecutive-identical / identical-non-consecutive / changed), `commonPrefixLength` |
 | `models.json` | the pinned catalogue (§3); `index.ts` validates every entry at import |
 | `words.json`/`words.ts` | `infer.*` sentences, `stateWords`, `errorWords` |
 | `testing.ts` (`./testing`) | `fakeLlama()`, `memoryModelStore()`, `fakeNano()` |
@@ -84,6 +85,8 @@ AbortSignal has neither `throwIfAborted()` nor `reason`; no global polyfill or u
 `summarizePane(local, lines, { signal, maxLines = 80, maxChars = 6000 })` →
 `{ ok: true, lines, model, ms, inputLines } | { ok: false, code: 'not-enough-output' | 'incomplete' | 'invalid-output' }`.
 Under 40 visible characters returns `not-enough-output` without loading the model. An explicit success/false-empty contract is in the system prompt; enough:false with proposed lines is invalid, never promoted or coerced. Success requires 3–4 single-line strings after redaction; source guards do not establish model faithfulness.
+
+The opt-in `identity` option (`{ tracker?, onIdentity? }`, off unless set) records `{ inputTokens, hash }` per prompt that reaches the engine, never any content. Its counts are synthetic until a real device session runs: they prove the counters work and nothing more, and no real-world repeat rate may be inferred from them.
 
 `NanoModel` API: `new NanoModel({ binding?, limits?, statusMs?, onState?, log? })` (no I/O); `state`; `id`
 (`gemini-nano@<base model>`); `check()`; `complete(…)` as above; `release()`; `binding` is the typed pass-through.
