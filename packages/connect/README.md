@@ -48,7 +48,7 @@ older flow; callbacks have a 15-minute deadline and can be used only once.
 Google requires the host's registered client. Use a Desktop client with loopback,
 or register the exact HTTPS/native redirect for that client. Presets keep Google's
 offline/consent parameters and request one service at a time: `google` (identity),
-`drive` (`drive.file`), `gmail` (read-only) and `calendar` (events). The host owns
+`drive` (`drive.file`), `gmail` (read-only; pass `scopes` to send) and `calendar` (events). The host owns
 Google consent-screen publishing and API enablement. The kit does not probe
 undocumented provider pages or impose a product-specific approval policy.
 
@@ -167,6 +167,28 @@ const message = await mail.get(page.messages[0].id); // Envelope plus bounded bo
 `maxBodyChars` (`body.truncated` says so). A 401 retries once, then reads as
 signed-out; rate limits carry `until` from `Retry-After`.
 
+## Send Gmail, one approval per message
+
+```ts
+import { connect, MailSender, type OutgoingMail } from '@byokit/connect';
+import type { Keystore } from '@byokit/secrets';
+declare const store: Keystore;
+declare function askPerson(mail: OutgoingMail): Promise<boolean>; // The host's own confirm step.
+const gmail = connect('gmail', { store, person: 'Umer', redirectUri: 'https://your-app.example/connect/callback',
+  scopes: ['https://www.googleapis.com/auth/gmail.send'] });
+const sender = new MailSender(gmail, mail => askPerson(mail));
+const sent = await sender.send({ to: 'crew@example.test', subject: 'Invoice paid', body: 'Thanks, Umer' });
+```
+
+Sending needs the `gmail.send` scope, requested through `scopes` (a grant without it
+fails sign-in with `scope`). Every `send` asks the approval once with the frozen
+message it will encode; only `true` sends, and anything else, including a throw,
+is `MailError` code `denied` before any token or provider call. One message per
+call: no batching, queue, retry or background send. A network failure leaves the
+outcome unknown, so check Sent before asking to send again. Plain-text bodies to
+bare addresses only: no cc/bcc, display names, HTML, attachments, replies in a
+thread or labels.
+
 ## Owner-bound history and export
 
 ```ts
@@ -258,7 +280,7 @@ registered Google client when applicable, and Crewhouse's callback address. Keep
 flow handles in the host's callback routing table until completion/cancellation.
 Crewhouse retains its own connection screen, Google setup guidance and tool gates.
 For remote apps, call `mcp()` and use `listTools`/`callTool` with their full results;
-for Gmail use `MailReader` below; for Calendar use `token()` until its typed kit
+for Gmail use `MailReader`/`MailSender` below; for Calendar use `token()` until its typed kit
 sits on this connection. No raw OAuth, refresh or MCP transport needs to remain in the consumer.
 
 ## Verification
