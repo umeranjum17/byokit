@@ -82,7 +82,10 @@ test('every offered plugin is allowed by the existing configuration rule', () =>
 test('manifest identities and the six F0 label corrections are retained', () => {
   const byChoice = new Map(routes().map(route => [route.choice, route]));
   for (const choice of ['minimax-global-oauth', 'minimax-cn-oauth']) assert.equal(byChoice.get(choice)?.provider, 'minimax-portal');
-  assert.equal(byChoice.get('anthropic-cli')?.provider, 'anthropic');
+  assert.equal(byChoice.get('anthropic-cli')?.provider, 'claude-cli');
+  assert.equal(byChoice.get('anthropic-cli')?.upstream?.id, 'anthropic');
+  assert.deepEqual(routes().filter(route => route.deprecatedProvider).map(route => [route.choice, route.deprecatedProvider]),
+    [['anthropic-cli', 'anthropic']]);
   assert.equal(byChoice.get('anthropic-cli')?.via, 'cli');
   assert.match(byChoice.get('anthropic-cli')?.prerequisite ?? '', /Claude Code/);
   assert.equal(byChoice.get('setup-token')?.offer, false, 'the pinned Gateway refuses it, so it is never offered');

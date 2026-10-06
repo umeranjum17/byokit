@@ -435,7 +435,9 @@ test('native CLI legacy browser sign-in survives full discovery and guards activ
   });
   const a = await device(w, 'a');
   const native = (await a.oc.routes()).find(route => route.choice === 'anthropic-cli');
-  assert.equal(native?.provider, 'anthropic', 'discovery uses the manifest provider, not its CLI backend');
+  assert.equal(native?.provider, 'claude-cli', 'discovery reports the provider signedIn and providers() use');
+  assert.equal(native?.deprecatedProvider, 'anthropic', 'the pre-0.7 provider stays readable until 0.8.0');
+  assert.equal(native?.id, 'anthropic:cli:anthropic-cli', 'the route id is unchanged');
   assert.equal(native?.via, 'cli');
   assert.equal(native?.offer, false, 'unknown binary availability is not a default claim');
   assert.equal(native?.readiness, 'needs_binary');
@@ -446,6 +448,9 @@ test('native CLI legacy browser sign-in survives full discovery and guards activ
   });
   assert.equal(view.ready, true);
   assert.deepEqual((await a.oc.state()).signedIn, ['claude-cli']);
+  // The provider discovery advertises is the one a signed-in Claude Code login answers to; never the API-billed one.
+  assert.equal(await w.kit.signedIn('a', native!.provider), true);
+  assert.equal(await w.kit.signedIn('a', 'anthropic'), false);
   loggedIn = false;
   assert.deepEqual(await a.oc.signIn.view('claude-cli'), { ready: false, signIn: null });
   assert.deepEqual((await a.oc.state()).signedIn, []);

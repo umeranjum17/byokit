@@ -122,7 +122,7 @@
   },
   {
     "choice": "anthropic-cli",
-    "provider": "anthropic",
+    "provider": "claude-cli",
     "plugin": "anthropic",
     "billing": "subscription",
     "via": "cli",
@@ -134,6 +134,7 @@
       "provider": "claude-cli",
       "via": "browser"
     },
+    "deprecatedProvider": "anthropic",
     "reason": "Anthropic Claude CLI: subscription sign-in.",
     "source": "extensions/anthropic/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",

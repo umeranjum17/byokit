@@ -46,6 +46,9 @@ export function generateRoutes(snapshot: PinSnapshot): Route[] {
   const rows: Route[] = [];
   function row(manifest: Manifest, choice: Choice): Route {
     const id = choice.choiceId;
+    // A Claude Code login is reported as `claude-cli` (auth-status, `providers()`, runs); the manifest's
+    // `anthropic` stays in the route id and `upstream.id`. `anthropic` itself is the API-billed provider.
+    const provider = id === 'anthropic-cli' ? 'claude-cli' : choice.provider;
     const plan = PLANS.has(id);
     const endpoint = ENDPOINT.has(id);
     const billing: Route['billing'] = endpoint ? 'unknown' : LOCAL.has(id) ? 'local'
@@ -68,12 +71,13 @@ export function generateRoutes(snapshot: PinSnapshot): Route[] {
     const absent = alias || unguided;
     const offerPolicy = billing === 'subscription' && !absent ? 'default' : 'explicit';
     return {
-      choice: id, provider: choice.provider, plugin: manifest.id, billing, via,
+      choice: id, provider, plugin: manifest.id, billing, via,
       ...(id === 'anthropic-cli' ? { auth: 'cli' as const } : id === 'apiKey' ? { auth: 'api_key' as const }
         : id === 'setup-token' ? { auth: 'token' as const } : {}),
       prerequisite: via === 'cli' ? 'Claude Code in the isolated HOME' : null,
       offer: offerPolicy === 'default' && Object.keys(needs).length === 0, offerPolicy,
-      ...(id === 'anthropic-cli' ? { legacy: { provider: 'claude-cli', via: 'browser' as const } }
+      ...(id === 'anthropic-cli' ? { legacy: { provider: 'claude-cli', via: 'browser' as const },
+        deprecatedProvider: 'anthropic' } // remove in 0.8.0 and build the id from `provider`
         : id === 'minimax-global-oauth' || id === 'minimax-cn-oauth'
           ? { legacy: { provider: 'minimax', via: 'code' as const } } : {}),
       reason: alias ? 'Compatibility alias the Gateway does not offer; use xai-oauth.'
