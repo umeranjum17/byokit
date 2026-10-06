@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add typed Gmail read and search (`MailReader`) on a connection: envelopes, one bounded body, opaque page tokens.
+
 ## 0.2.0 (2026-10-01)
 
 - FIX: Preserve provider refresh-token lifetimes and sanitized OAuth error causes for setup guidance.

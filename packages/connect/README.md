@@ -151,6 +151,22 @@ A 401 triggers one refresh/retry; redirects are refused. Close clients before
 `disconnect()` to release their streams. Arbitrary unauthenticated MCP servers and
 legacy HTTP+SSE transports are outside this sign-in kit's initial scope.
 
+## Read and search Gmail
+
+```ts
+import { connect, MailReader } from '@byokit/connect';
+import type { Keystore } from '@byokit/secrets';
+declare const store: Keystore;
+const gmail = connect('gmail', { store, person: 'Umer', redirectUri: 'https://your-app.example/connect/callback' });
+const mail = new MailReader(gmail, { maxBodyChars: 20_000 });
+const page = await mail.search('invoice'); // Gmail syntax; follow page.nextPageToken.
+const message = await mail.get(page.messages[0].id); // Envelope plus bounded body.
+```
+
+`search`/`list` return one page of envelopes; `get` adds the decoded body, cut at
+`maxBodyChars` (`body.truncated` says so). A 401 retries once, then reads as
+signed-out; rate limits carry `until` from `Retry-After`.
+
 ## Refresh, errors and storage
 
 Refresh runs when the token is within one minute of expiry, or after a 401. It is
@@ -226,8 +242,8 @@ registered Google client when applicable, and Crewhouse's callback address. Keep
 flow handles in the host's callback routing table until completion/cancellation.
 Crewhouse retains its own connection screen, Google setup guidance and tool gates.
 For remote apps, call `mcp()` and use `listTools`/`callTool` with their full results;
-for Gmail/Calendar use `token()` until their typed kits sit on this connection.
-No raw OAuth, refresh or MCP transport needs to remain in the consumer.
+for Gmail use `MailReader` below; for Calendar use `token()` until its typed kit
+sits on this connection. No raw OAuth, refresh or MCP transport needs to remain in the consumer.
 
 ## Verification
 
