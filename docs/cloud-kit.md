@@ -956,7 +956,7 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
 8. **`remove` is irreversible.** It needs `confirm === ref.id` and a person's action in the app, and also removes the
    kit's named snapshots.
 9. **Tests never touch the network or a real provider** (`scripts/test-egress-guard.cjs`). The sandbox adapter runs
-   against a loopback fake server; the SSH adapter against a fake `ssh` bin passed by absolute path (the reach
+   against a loopback fake server; the SSH adapter against a fake `ssh` bin passed by absolute path (the discover
    fake-CLI precedent).
 10. **Never read or write the owner's `~/.ssh`**, `~/.pi`, Herdr, muxr or CLIs. M2's isolation test runs the fs
     tracer over the SSH adapter.

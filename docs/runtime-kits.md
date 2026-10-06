@@ -29,13 +29,13 @@ aggregator" and exposes the aggregator's **full** power:
 
 Both kits: typed helpers for the common paths **plus** a first-class typed pass-through to the complete supported
 surface (OpenClaw Gateway operator protocol; Herdr socket API and CLI), so no consumer forks or bypasses the kit.
-They share connection adapters (`link`, `relay`, `reach`, `seal`, `ui-core`) and conventions, never a
+They share connection adapters (`link`, `relay`, `discover`, `seal`, `ui-core`) and conventions, never a
 lowest-common-denominator interface. `@byokit/accounts` keeps serving direct-provider apps (including Ownvoice); its
 multi-account shapes (`Account`, `Room`, `RunSelection`, `Pick` as `AccountPick`) are restated structurally by this kit (5.15), never
 imported. CLI sign-in status lives in `@byokit/herdr` `agentStatus` (B5); `@byokit/accounts` stays app-owned OAuth only and reports no CLI sign-in (B7).
 
 Out of scope for the build phase: releasing (firstmate/owner runs `release.yml`), muxr adoption (section 10), any
-operated service, and any change to `@byokit/accounts`, `link`, `relay`, `reach`, `seal`, `decide` or `ui-core`
+operated service, and any change to `@byokit/accounts`, `link`, `relay`, `discover`, `seal`, `decide` or `ui-core`
 source.
 
 ## 2. Decisions
@@ -221,7 +221,7 @@ app (niche workflow + UI)
 @byokit/openclaw  or  @byokit/herdr        ← runtime kit: aggregator's full power + helpers
   │ ./link adapter (host)      ▲ ./device client (phone/web)
   ▼                            │
-@byokit/link · relay · reach · seal · ui-core   ← unchanged connection kits
+@byokit/link · relay · discover · seal · ui-core   ← unchanged connection kits
 ```
 
 ### 4.2 State and isolation
