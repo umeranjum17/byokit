@@ -448,3 +448,26 @@ test('cancel disposes the detector, and offline segmentation hands the decoder e
   await expected.release();
   assert.equal(offline.leaked(), 0, 'offline segmentation disposes every session it consumed');
 });
+
+test('whisper.rn Silero VAD skips the final decode when it finds no speech and keeps the whole recording when it does', async () => {
+  let decodes = 0, vadReleases = 0;
+  const found: { t0: number; t1: number }[][] = [];
+  const engine = whisperRnEngine({ model: 1, initWhisper: async () => ({ release: async () => {}, transcribeData() {
+    decodes++; return { stop: async () => {}, promise: Promise.resolve({ result: 'made-up sentence', segments: [] }) };
+  } }), speech: { model: '/app/ggml-silero-v6.2.0.bin', async initWhisperVad({ filePath }) {
+    assert.equal(filePath, '/app/ggml-silero-v6.2.0.bin');
+    return { async detectSpeechData(data) { assert.equal(data.byteLength, 16000 * 2); return found.shift() ?? []; }, async release() { vadReleases++; } };
+  } } });
+  const mic = fakeMic(), handle = new Dictation({ engine, audio: mic.audio }).listen();
+  await tick();
+  mic.push({ data: new Int16Array(16000).fill(150), at: 0 }); await until(() => decodes === 1); // previews are not gated
+  const silent = await handle.finish();
+  assert.equal(silent.text, ''); assert.ok(silent.segments.every(s => !s.text)); assert.equal(decodes, 1);
+  found.push([{ t0: 0, t1: 50 }]);
+  assert.equal((await engine.transcribe(wav([new Int16Array(16000).fill(150)]), {})).text, 'made-up sentence');
+  assert.equal(decodes, 2);
+  await engine.release(); assert.equal(vadReleases, 1);
+  const broken = whisperRnEngine({ model: 1, initWhisper: async () => stubContext(), speech: { model: 2, initWhisperVad: async () => { throw new Error('no model'); } } });
+  await assert.rejects(broken.transcribe(wav([new Int16Array(16000)]), {}), (e: DictateError) => e.code === 'bad-model');
+  assert.throws(() => whisperRnEngine({ model: 1, initWhisper: async () => stubContext(), speech: { model: 'https://x/vad.bin', initWhisperVad: async () => { throw new Error('never'); } } }), (e: DictateError) => e.code === 'bad-model');
+});

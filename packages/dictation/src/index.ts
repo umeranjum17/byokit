@@ -4,7 +4,7 @@ import { DictateError, type DictateEngine, type DictateSystemNative, type Dictat
 export * from './types.ts';
 export { Dictation } from './dictation.ts';
 export { settleWords, applyWordReplacements } from './text.ts';
-export { DEFAULT_WHISPER_MODEL, whisperRnEngine, whisperSettings, type WhisperSettings, type ResolvedWhisperSettings, type WhisperRnContext, type WhisperRnDecodeOptions, type WhisperRnResult } from './whisper.ts';
+export { DEFAULT_WHISPER_MODEL, WHISPER_VAD_MODEL, whisperRnEngine, whisperSettings, type WhisperSettings, type ResolvedWhisperSettings, type WhisperRnContext, type WhisperRnDecodeOptions, type WhisperRnResult, type WhisperRnVadContext } from './whisper.ts';
 export const ROUTES = catalogue;
 export function routes() { return catalogue.map(r => ({ ...r })); }
 export const WORDS = messages;

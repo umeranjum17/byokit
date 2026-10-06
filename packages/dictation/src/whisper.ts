@@ -5,6 +5,16 @@ import { mergeOverlap } from './text.ts';
 /** Recommended model identity; the host still supplies its file/asset, never a discovered path. */
 export const DEFAULT_WHISPER_MODEL = 'base.en-q5_1';
 
+/** Pinned Silero VAD graph for whisper.rn's `initWhisperVad`, fetched by the host with
+ * `installModel` (which checks size and SHA-256). The kit itself downloads nothing. */
+export const WHISPER_VAD_MODEL = {
+  id: 'ggml-silero-v6.2.0',
+  url: 'https://huggingface.co/ggml-org/whisper-vad/resolve/9ffd54a1e1ee413ddf265af9913beaf518d1639b/ggml-silero-v6.2.0.bin',
+  bytes: 885_098,
+  sha256: '2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987',
+  multilingual: false,
+} as const;
+
 export type WhisperSettings = {
   language?: string;
   initialPrompt?: string;
@@ -53,6 +63,12 @@ export type WhisperRnResult = { result: string; language?: string; isAborted?: b
 export type WhisperRnContext = {
   /** Signed PCM16 LE, mono, 16 kHz (not WAV or Float32). */
   transcribeData(data: ArrayBuffer, options: WhisperRnDecodeOptions): { stop(): Promise<void>; promise: Promise<WhisperRnResult> };
+  release(): Promise<void>;
+};
+/** Structural subset of whisper.rn 0.7.2's `WhisperVadContext`; no speech returns no segments. */
+export type WhisperRnVadContext = {
+  /** Signed PCM16 LE, mono, 16 kHz, the same bytes as `transcribeData`. */
+  detectSpeechData(data: ArrayBuffer): Promise<{ t0: number; t1: number }[]>;
   release(): Promise<void>;
 };
 
@@ -137,16 +153,32 @@ export function whisperDecodeOptions(s: ResolvedWhisperSettings, o: DictateOptio
   };
 }
 
-/** Shared segmentation, gain, energy VAD, prompting and timestamp offsets. */
+/** Encode LE explicitly; do not pass a WAV header or rely on host endianness. */
+function pcm16le(pcm: Int16Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(pcm.length * 2), view = new DataView(buffer);
+  for (let i = 0; i < pcm.length; i++) view.setInt16(i * 2, pcm[i], true);
+  return buffer;
+}
+
+/** Shared segmentation, gain, energy VAD, prompting and timestamp offsets. `hasSpeech`
+ * gates the whole decode: Whisper turns room noise into made-up sentences. */
 export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperSettings, o: DictateOptions,
-  run: (pcm: Int16Array, options: WhisperRnDecodeOptions) => Promise<WhisperRnResult>, session?: VadSession): Promise<Omit<DictateTranscript, 'engine'>> {
-  let pcm: Int16Array;
+  run: (pcm: Int16Array, options: WhisperRnDecodeOptions) => Promise<WhisperRnResult>, session?: VadSession,
+  hasSpeech?: (pcm: Int16Array) => Promise<boolean>): Promise<Omit<DictateTranscript, 'engine'>> {
+  let pcm: Int16Array, speech = true;
   try {
     checkAbort(o.signal);
     if (o.timestamps === 'word') throw new DictateError('unsupported'); // RN returns segments, not word offsets.
     pcm = await whisperPcm(input, s.gain);
     checkAbort(o.signal);
+    if (hasSpeech) speech = pcm.length > 0 && await hasSpeech(pcm);
+    checkAbort(o.signal);
   } catch (error) { await session?.release?.(); throw error; }
+  const usage = { audioMs: pcm.length / 16, basis: 'free' } as const;
+  if (!speech) {
+    await session?.release?.();
+    return { text: '', segments: [], durationMs: pcm.length / 16, usage };
+  }
   const segments: DictateSegment[] = [];
   let text = '', language: string | undefined;
   const chunkSamples = (s.chunkMs || 30_000) * 16;
@@ -182,7 +214,7 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
     }
   }
   text = segments.map(segment => segment.text).join(' ').trim();
-  return { text, segments, language, durationMs: pcm.length / 16, usage: { audioMs: pcm.length / 16, basis: 'free' } };
+  return { text, segments, language, durationMs: pcm.length / 16, usage };
 }
 
 /** Host injects initWhisper; one cached context, serialized inference, explicit disposal.
@@ -190,12 +222,15 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
  * capture each take their own, because a session carries recurrent state. Passing
  * `vad` makes the live turn gate neural at once, while offline segmentation still
  * follows `settings.vad.enabled`: left false, transcribe keeps the whole file and
- * the factory changes nothing offline. */
-export function whisperRnEngine(o: { model: string | number; multilingual?: boolean; initWhisper(options: { filePath: string | number }): Promise<WhisperRnContext>; settings?: WhisperSettings; vad?: () => VadSession | Promise<VadSession> }): DictateEngine & { release(): Promise<void> } {
-  if (!(typeof o.model === 'string' && o.model.trim() && !/^[a-z]+:\/\//i.test(o.model.replace(/^file:\/\//, ''))
-    || typeof o.model === 'number' && Number.isSafeInteger(o.model) && o.model >= 0)) throw new DictateError('bad-model');
+ * the factory changes nothing offline. `speech` runs whisper.rn's Silero VAD over every
+ * final and file reading and skips the decode when it finds no speech; previews are not gated. */
+export function whisperRnEngine(o: { model: string | number; multilingual?: boolean; initWhisper(options: { filePath: string | number }): Promise<WhisperRnContext>; settings?: WhisperSettings; vad?: () => VadSession | Promise<VadSession>;
+  speech?: { model: string | number; initWhisperVad(options: { filePath: string | number }): Promise<WhisperRnVadContext> } }): DictateEngine & { release(): Promise<void> } {
+  const local = (model: string | number) => typeof model === 'string' && model.trim() && !/^[a-z]+:\/\//i.test(model.replace(/^file:\/\//, ''))
+    || typeof model === 'number' && Number.isSafeInteger(model) && model >= 0;
+  if (!local(o.model) || o.speech && !local(o.speech.model)) throw new DictateError('bad-model');
   const settings = whisperSettings(o.settings, o.multilingual);
-  let context: Promise<WhisperRnContext> | undefined;
+  let context: Promise<WhisperRnContext> | undefined, vadContext: Promise<WhisperRnVadContext> | undefined;
   let queue: Promise<unknown> = Promise.resolve();
   const enqueue = <T>(fn: () => Promise<T>): Promise<T> => {
     const result = queue.then(fn); queue = result.catch(() => {}); return result;
@@ -204,6 +239,13 @@ export function whisperRnEngine(o: { model: string | number; multilingual?: bool
     context ??= o.initWhisper({ filePath: o.model }).catch(cause => { context = undefined; throw new DictateError('bad-model', { cause }); });
     return context;
   };
+  const speech = o.speech;
+  const hasSpeech = speech && (async (pcm: Int16Array) => {
+    vadContext ??= speech.initWhisperVad({ filePath: speech.model }).catch(cause => { vadContext = undefined; throw new DictateError('bad-model', { cause }); });
+    const vad = await vadContext;
+    try { return (await vad.detectSpeechData(pcm16le(pcm))).length > 0; }
+    catch (cause) { throw new DictateError('bad-model', { cause }); }
+  });
   const transcribe = (input: DictateInput, options: DictateOptions, preview = false) => enqueue(async () => {
     const session = o.vad && settings.vad.enabled ? await o.vad() : undefined;
     return await transcribeWhisper(input,
@@ -211,17 +253,14 @@ export function whisperRnEngine(o: { model: string | number; multilingual?: bool
       preview ? { ...options, prompt: undefined, keywords: undefined } : options, async (pcm, decode) => {
       const native = await acquire();
       checkAbort(options.signal);
-      // Encode LE explicitly; do not pass a WAV header or rely on host endianness.
-      const buffer = new ArrayBuffer(pcm.length * 2), view = new DataView(buffer);
-      for (let i = 0; i < pcm.length; i++) view.setInt16(i * 2, pcm[i], true);
-      const job = native.transcribeData(buffer, decode);
+      const job = native.transcribeData(pcm16le(pcm), decode);
       const abort = () => { void job.stop().catch(() => {}); };
       options.signal?.addEventListener('abort', abort, { once: true });
       if (options.signal?.aborted) abort();
       try { return await job.promise; }
       catch (cause) { checkAbort(options.signal); throw new DictateError('bad-model', { cause }); }
       finally { options.signal?.removeEventListener('abort', abort); }
-    }, session);
+    }, session, preview ? undefined : hasSpeech);
   });
   return {
     info: { id: 'whisper', model: String(o.model), onDevice: true, streaming: 'reread', account: 'none' },
@@ -229,6 +268,9 @@ export function whisperRnEngine(o: { model: string | number; multilingual?: bool
       ...(o.vad ? { detect: async () => vadDetector(await o.vad!(), settings) } : {}) },
     transcribe: (input, options) => transcribe(input, options),
     preview: (input, options) => transcribe(input, options, true),
-    release: () => enqueue(async () => { const current = context; context = undefined; await (await current)?.release(); }),
+    release: () => enqueue(async () => {
+      const current = [context, vadContext]; context = vadContext = undefined;
+      await Promise.all(current.map(async c => (await c)?.release()));
+    }),
   };
 }
