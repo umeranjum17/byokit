@@ -44,6 +44,9 @@ export function preflight(call: PreflightCall, context: { prices?: PriceTable; a
   if (!price) cost = { amount: 'unknown', reason: 'no-price' };
   else if (price.billing !== billing) cost = { amount: 'unknown', reason: 'billing-mismatch' };
   else if (max === undefined) cost = { amount: 'unknown', reason: 'output-unbounded' };
+  else if (typeof price.inputPerMillion !== 'number' || !Number.isFinite(price.inputPerMillion) || price.inputPerMillion < 0
+    || price.cachedInputPerMillion !== undefined && (typeof price.cachedInputPerMillion !== 'number' || !Number.isFinite(price.cachedInputPerMillion) || price.cachedInputPerMillion < 0)
+    || price.cacheWritePerMillion !== undefined && (typeof price.cacheWritePerMillion !== 'number' || !Number.isFinite(price.cacheWritePerMillion) || price.cacheWritePerMillion < 0)) cost = { amount: 'unknown', reason: 'invalid-price' };
   else {
     // Cache reads and writes are unknown before the call, so all input is priced at the dearest input rate.
     const inputRate = Math.max(price.inputPerMillion, price.cachedInputPerMillion ?? 0, price.cacheWritePerMillion ?? 0);

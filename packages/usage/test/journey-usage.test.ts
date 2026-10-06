@@ -715,6 +715,7 @@ test('a host records runtime calls and measured tokens with honest billing label
   const unbounded = preflight({ ...call, billing: 'api', maxOutputTokens: undefined }, { prices, allowance: limits.query('alice', nowMs, nowMs + 1).week });
   assert.deepEqual(unbounded.cost, { amount: 'unknown', reason: 'output-unbounded' }); assert.equal(unbounded.exceeds, 'unknown');
   assert.equal(preflight({ ...call, billing: 'api' }, { prices: { anthropic: { 'model-one': { ...prices.anthropic['model-one'], outputPerMillion: -1 } } } }).cost.amount, 'unknown');
+  assert.deepEqual(preflight({ ...call, billing: 'api' }, { prices: { anthropic: { 'model-one': { ...prices.anthropic['model-one'], inputPerMillion: -2 } } } }).cost, { amount: 'unknown', reason: 'invalid-price' });
   // A call without reported counts makes the remaining allowance unknown, not larger.
   ledger.record('alice', { ...base, time: nowMs, state: 'failed' });
   const unrecorded = preflight({ ...call, billing: 'api' }, { prices, allowance: limits.query('alice', nowMs, nowMs + 1).week });
