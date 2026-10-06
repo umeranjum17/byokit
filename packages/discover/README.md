@@ -338,7 +338,7 @@ const hosts = await scan({ type: 'ssh', ms: 8000 });     // rejects on error or 
 ```
 
 A `BrowseService` carries `name`, `host`, `addresses`, `port` (`0` when the platform gave none) and `txt` (string
-values only). The pinned `react-native-zeroconf` dependency (`0.14.0`) is supplied by reach, not the app.
+values only). The pinned `react-native-zeroconf` dependency (`0.14.0`) is supplied by @byokit/discover, not the app.
 
 - **One browse at a time.** One native browser runs one browse at a time. Starting another `browse` or `scan`
   preempts the current handle, including when both request the same type: it receives one `stopped` event with
@@ -349,7 +349,7 @@ values only). The pinned `react-native-zeroconf` dependency (`0.14.0`) is suppli
   supplies no scan ID: an untyped late removal for a name reused by the new browse, or an error after that second,
   can still be attributed to the new scan; a real error during the quiet second is also ignored.
 - **Entries.** The default Node entry does not import the native module; use the `react-native` export condition for
-  browsing. Expo apps must rebuild their native binary after adding reach.
+  browsing. Expo apps must rebuild their native binary after adding @byokit/discover.
 - **Android emulator.** mDNS multicast does not work on the emulator; test discovery on a real device.
 
 ## Tests
