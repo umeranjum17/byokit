@@ -71,7 +71,10 @@ class ForegroundAppTest {
     var overlay: View? = null
     var remove: (() -> Unit)? = null
     var manager: WindowManager? = null
+    val fixture = "io.github.umeranjum17.byokit.example"
     try {
+      // A foreign app's platform ANR dialog would keep focus, and so the active window, from every fixture below.
+      PlatformAnr(automation, setOf(context.packageName, fixture), ::shell).clear()
       val component = "${context.packageName}/${WebFieldService::class.java.name}"
       shell("settings put secure enabled_accessibility_services $component")
       shell("settings put secure accessibility_enabled 1")
@@ -105,7 +108,6 @@ class ForegroundAppTest {
           WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
           PixelFormat.TRANSLUCENT))
       }
-      val fixture = "io.github.umeranjum17.byokit.example"
       shell("am start -W -n $fixture/${ForegroundFixtureActivity::class.java.name}")
       await("Change subscription emits the separate package beneath host overlay") { changes.contains(fixture) }
       onMain = null
@@ -125,7 +127,7 @@ class ForegroundAppTest {
         overlay?.let { manager?.removeView(it) }
         activity?.finish()
       }
-      shell("am force-stop io.github.umeranjum17.byokit.example")
+      shell("am force-stop $fixture")
       if (previous == "null") shell("settings delete secure enabled_accessibility_services")
       else shell("settings put secure enabled_accessibility_services $previous")
       if (enabled == "null") shell("settings delete secure accessibility_enabled")
