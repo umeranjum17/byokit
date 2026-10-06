@@ -2440,9 +2440,9 @@ oc.signIn.start('openai', 'code'), cancel: () => oc.signIn.cancel('openai') })`;
 `room` members are shaped so an app builds `@byokit/ui-core`'s `AccountsSource` from them with at most one line per
 member (`providers()` from the offered routes; `add` with a `key` is host-only); O14's `fits` test checks it.
 
-### 7.3 Relay, reach and seal
+### 7.3 Relay, discover and seal
 
-- **reach**: used only inside `serve()` (7.1); nothing kit-specific.
+- **discover**: used only inside `serve()` (7.1); nothing kit-specific.
 - **relay**: when `relay` is passed, each new `Approval`/`BlockedAgent` sends `relay.notify({ id: <approval id>,
   title: words('approval.notice'), data: { v: 1, sealed: b64url(sealBox(JSON.stringify(approval),
   box)) }, to: [grant.id], actions: ['allow', 'deny'] (OpenClaw) / none (Herdr), urgency: 'high' }, {
