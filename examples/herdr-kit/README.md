@@ -87,7 +87,7 @@ or if another key opens it. This web page takes no push notices itself; a phone 
 
 - `host.ts`: `new HerdrKit({ mode: 'own', bin, stateDir: './.state' })`; a `@byokit/link` host (key in
   `.state/link-key.json`, paired phones in `.state/grants.json`, each with `meta.scope = { workspaces: 'all' }`);
-  `herdrLink` answers the phone; `serve` finds the address (`@byokit/reach`) and serves the page on the same port.
+  `herdrLink` answers the phone; `serve` finds the address (`@byokit/discover`) and serves the page on the same port.
   One op of its own, `example.setup`, tells the phone which agents Herdr knows (`kit.agentKinds()`) and the folder.
   With `--relay`, a `RelayClient` made once the host is open carries the kit's sealed notices, and `example.push`
   hands a phone's push address to it.

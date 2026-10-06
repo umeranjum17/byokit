@@ -770,11 +770,11 @@ it. Everything else stays on loopback.
   1. the person's relay on the machine through the provider URL, `wss://<provider URL host>/link/v1/<hostId>`, with
      `relay.admit(host.keys.publicKey)`. After the first QR pairing, later devices can pair by typed code through
      `findHost(relayBase, code)`;
-  2. the person's tailnet through `@byokit/reach`, unchanged. Apps never call `reach` with `auto` or `lan` on a cloud
+  2. the person's tailnet through `@byokit/discover`, unchanged. Apps never call `reach` with `auto` or `lan` on a cloud
      machine: it would advertise an unreachable private address;
   3. SSH VM with no domain and no tailnet: Node and Electron devices only, through link's `Dial.resolve` hook running
      an `ssh -L` tunnel. Phones and browsers need candidate 1 or 2.
-- **Package changes:** `@byokit/link` none; `@byokit/reach` none; `@byokit/relay` gains a keepalive (M5), because a
+- **Package changes:** `@byokit/link` none; `@byokit/discover` none; `@byokit/relay` gains a keepalive (M5), because a
   half-open host→relay socket is noticed today only when TCP closes.
 - **Unverified until M6:** WebSocket through the provider's HTTPS proxy. If it fails, the fallback is the raw port
   with the relay's own TLS, or the tailnet.

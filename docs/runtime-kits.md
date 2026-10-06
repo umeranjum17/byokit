@@ -295,7 +295,7 @@ packages/openclaw/
 conditions pointing at the same file), `./link` → `dist/link.js`, `./testing` → `dist/testing/index.js`; `files`:
 `dist`, `engine`, `plugin`, `policy`, `README.md`, `LICENSE`. Dependencies (exact): `@openclaw/gateway-client`
 `2026.8.1`, `@openclaw/gateway-protocol` `2026.8.1`, `@byokit/link` (current `0.3.1`), `@byokit/relay` (current
-`0.1.3`), `@byokit/reach` (current `0.2.0`), `@byokit/seal` (current `0.1.0`), `ws` `8.21.3`. Dev: `@byokit/ui-core`
+`0.1.3`), `@byokit/discover` (current `0.2.0`), `@byokit/seal` (current `0.1.0`), `ws` `8.21.3`. Dev: `@byokit/ui-core`
 (assignability test only).
 
 ### 5.2 Public types (`src/types.ts`)
@@ -1834,7 +1834,7 @@ packages/herdr/
 ```
 
 Exports as D2 (`./device` with `react-native`/`browser` conditions, plus a Node-only `./binary`). Dependencies (exact): `@byokit/link`,
-`@byokit/relay`, `@byokit/reach`, `@byokit/seal` (current versions as 5.1), `ws` `8.21.3`. Dev (root):
+`@byokit/relay`, `@byokit/discover`, `@byokit/seal` (current versions as 5.1), `ws` `8.21.3`. Dev (root):
 `json-schema-to-typescript` pinned exactly (used by `gen-types.ts` only). Herdr itself is **not** an npm dependency
 (a native binary); the app installs it (README: `https://herdr.dev/install.sh` or the GitHub release) and passes `bin`.
 The opt-in helper `ensureHerdr({ dir, platform? })` (`src/binary.ts`, `./binary`, also spelled `fetchHerdr`)
@@ -2464,7 +2464,7 @@ examples/openclaw-kit/  package.json  host.ts  web/index.html  web/app.ts  READM
 examples/herdr-kit/     package.json  host.ts  web/index.html  web/app.ts  README.md  e2e.test.ts  LIVE.md
 ```
 
-- `package.json`: `"private": true`, dependencies on the kit and `@byokit/link`, `@byokit/reach`, `@byokit/relay`,
+- `package.json`: `"private": true`, dependencies on the kit and `@byokit/link`, `@byokit/discover`, `@byokit/relay`,
   `@byokit/ui-core`, `@byokit/seal` at exact published versions, `esbuild` (dev) to bundle `web/app.ts`. Scripts: `start` (`node
   host.ts`), `build:web`, `test` (`node --test e2e.test.ts`). Not part of the root workspaces.
 - `host.ts` (OpenClaw): `new OpenClawKit({ stateDir: './.state', tools: [demo_note], host,

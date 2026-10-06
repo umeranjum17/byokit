@@ -1,7 +1,7 @@
 {
   "name": "@byokit/reach",
   "version": "0.6.0",
-  "description": "The addresses a phone can dial the home computer on. Tailscale Serve with ownership checks, direct tailnet, LAN, mDNS advertising (Node) and mDNS browsing (React Native).",
+  "description": "Deprecated: renamed to @byokit/discover. Re-exports @byokit/discover unchanged through 0.7.x; removed in 0.8.0.",
   "license": "Apache-2.0",
   "type": "module",
   "repository": {
@@ -14,10 +14,6 @@
   },
   "exports": {
     ".": {
-      "react-native": {
-        "types": "./dist/rn.d.ts",
-        "default": "./dist/rn.js"
-      },
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
@@ -29,32 +25,15 @@
   "files": [
     "dist",
     "LICENSE",
-    "CHANGELOG.md",
-    "android",
-    "!android/build",
-    "ios",
-    "expo-module.config.json"
+    "CHANGELOG.md"
   ],
   "scripts": {
     "prepack": "tsc -b"
   },
   "dependencies": {
-    "@byokit/ui-core": "0.6.0",
-    "bonjour-service": "^1.4.4",
-    "react-native-zeroconf": "0.14.0"
+    "@byokit/discover": "0.6.0"
   },
   "publishConfig": {
     "access": "public"
-  },
-  "peerDependencies": {
-    "expo-modules-core": ">=3.0.0"
-  },
-  "peerDependenciesMeta": {
-    "expo-modules-core": {
-      "optional": true
-    }
-  },
-  "devDependencies": {
-    "expo-modules-core": "57.0.19"
   }
 }

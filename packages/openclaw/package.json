@@ -62,7 +62,7 @@
   "dependencies": {
     "@byokit/link": "0.7.0",
     "@byokit/relay": "0.5.2",
-    "@byokit/reach": "0.6.0",
+    "@byokit/discover": "0.6.0",
     "@byokit/seal": "0.3.0",
     "@byokit/secrets": "0.5.0",
     "@openclaw/gateway-client": "2026.9.6",

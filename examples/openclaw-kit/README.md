@@ -83,7 +83,7 @@ only. This web page takes no push notices itself; a phone app does.
   ['openai'] } } })`. `demo_note` (`{ text }`) is gated `{ ask: { summary: 'save a note' } }` and appends to
   `.state/notes.txt`; the engine's own tools ask too. A `@byokit/link` host (key in `.state/link-key.json`, paired
   phones in `.state/grants.json`) answers the phone with `openclawLink(kit, { memberOf: () => 'me' })`: every paired
-  phone acts for this app's one member. `serve` finds the address (`@byokit/reach`) and serves the page on the same
+  phone acts for this app's one member. `serve` finds the address (`@byokit/discover`) and serves the page on the same
   port. With `--relay`, a `RelayClient` made once the host is open carries the kit's sealed notices and brings
   their buttons back (`onAction`), and `example.push` hands a phone's push address to it.
 - `web/app.ts`: plain DOM. Pairs with `pairWithCode`/`pairWithOffer` and keeps the pairing in this browser

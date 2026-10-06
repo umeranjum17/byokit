@@ -158,7 +158,7 @@ kit does not have yet, and [Two ways in](#two-ways-in) plus
 | `HERDR_VERSION`, `HERDR_PROTOCOL` | The pinned Herdr release (`0.9.1`) and the protocol the kit speaks (`22`) |
 | `words`, `agentWords`, `stateWords`, `WORDS` | Plain sentences for agent statuses and kit states |
 | `herdrLink` (`@byokit/herdr/link`) | The host side of the `hd.*` link ops, spread into `Host.open`; scopes each grant to its workspaces and can push sealed approval notices through a relay |
-| `serve` (`@byokit/herdr/link`) | Finds the address with `@byokit/reach` and serves the link (and an optional page) on one port |
+| `serve` (`@byokit/herdr/link`) | Finds the address with `@byokit/discover` and serves the link (and an optional page) on one port |
 | `herdrDevice` (`@byokit/herdr/device`) | The phone and browser side: typed calls over a `DeviceLink` (`tree`, `startAgent`, `prompt`, `read`, `blocked`, `answer`, `events`, `terminal`, notices); no Node import |
 | `openNotice` (`@byokit/herdr/device`) | Opens a sealed approval notice with the device's own seed |
 | `startFakeHerdr`, `writeBinShim`, `herdrContract` (`@byokit/herdr/testing`) | The kit's stand-in Herdr, a bin shim that runs it, and the contract suite the kit passes |

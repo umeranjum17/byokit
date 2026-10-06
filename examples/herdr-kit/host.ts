@@ -13,7 +13,7 @@ import { Host, type Grant, type GrantStore } from '@byokit/link';
 import { hostKeyFile } from '@byokit/link/node';
 import { RelayClient, type Subscription } from '@byokit/relay';
 import { linkUrl } from '@byokit/relay/device';
-import type { ServeIngress, Via } from '@byokit/reach';
+import type { ServeIngress, Via } from '@byokit/discover';
 import { qrMatrix } from '@byokit/ui-core/link';
 
 const { values: flags } = parseArgs({ options: {
