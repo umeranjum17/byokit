@@ -57,64 +57,8 @@ class WebFocusedFieldTest {
     println("WebView input $label:\n$inputFocus")
   }
 
-  private var systemUiWaitIssued = false
-
-  private fun systemUiAnrOwner(): String? {
-    val title = "Application Not Responding: com.android.systemui"
-    val windows = shell("dumpsys window displays").lineSequence()
-      .map { it.trim().take(512) }.filter { it.startsWith("mCurrentFocus=") }.take(2).toList()
-    val inputDump = shell("dumpsys input")
-    val input = inputDump.lineSequence().map { it.trim().take(512) }
-      .dropWhile { !it.startsWith("FocusedWindows:") }.drop(1)
-      .takeWhile { it.startsWith("displayId=") }.take(2).toList()
-    println("SystemUI ANR owner: windows=$windows, input=$input")
-    if (windows.none { it.contains(title) } && input.none { it.contains(title) }) return null
-    // Both independent owners must name the same exact dialog on the sole CI display.
-    val owner = windows.singleOrNull()?.let {
-      Regex("""mCurrentFocus=Window\{([0-9a-f]+) u0 Application Not Responding: com\.android\.systemui\}""")
-        .matchEntire(it)?.groupValues?.get(1)
-    }
-    assertNotNull("Exact SystemUI ANR window owner", owner)
-    assertTrue("SystemUI ANR is on focused display 0",
-      inputDump.lineSequence().any { it.trim() == "FocusedDisplayId: 0" })
-    assertEquals("Window manager and input must agree on the SystemUI ANR owner",
-      listOf("displayId=0, name='$owner $title'"), input)
-    return owner
-  }
-
-  private fun waitForExactSystemUiAnr() {
-    val owner = systemUiAnrOwner()
-    if (owner == null) {
-      println("SystemUI ANR Wait: unexercised; no exact focused dialog")
-      return
-    }
-    windowState("before single SystemUI ANR Wait")
-    val root = automation.rootInActiveWindow ?: error("SystemUI ANR active root absent; left untouched")
-    val controls = root.findAccessibilityNodeInfosByViewId("android:id/aerr_wait")
-    try {
-      assertEquals("SystemUI ANR must expose the active platform dialog root", "android", root.packageName?.toString())
-      assertEquals("Exactly one platform ANR Wait control", 1, controls.size)
-      val wait = controls.single()
-      val clickable = wait.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK }
-      println("SystemUI ANR Wait control: owner=$owner, rootWindow=${root.windowId}, " +
-        "controlWindow=${wait.windowId}, id=${wait.viewIdResourceName}, " +
-        "visible=${wait.isVisibleToUser}, enabled=${wait.isEnabled}, clickable=$clickable")
-      assertEquals("Wait belongs to the active dialog", root.windowId, wait.windowId)
-      assertEquals("Platform Wait resource", "android:id/aerr_wait", wait.viewIdResourceName)
-      assertTrue("Platform Wait is visible, enabled and supports click",
-        wait.isVisibleToUser && wait.isEnabled && wait.isClickable && clickable)
-      assertEquals("Exact dialog still owns focus immediately before Wait", owner, systemUiAnrOwner())
-      assertFalse("Only one SystemUI ANR Wait action is permitted", systemUiWaitIssued)
-      systemUiWaitIssued = true
-      val accepted = wait.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-      println("SystemUI ANR Wait: one action issued; accepted=$accepted")
-      assertTrue("Platform accepted the single Wait action", accepted)
-      windowState("after single SystemUI ANR Wait")
-    } finally {
-      controls.forEach { it.recycle() }
-      root.recycle()
-    }
-  }
+  private val anr = PlatformAnr(automation,
+    setOf(instrumentation.targetContext.packageName, "io.github.umeranjum17.byokit.example"), ::shell, ::windowState)
 
   private fun prepareDevice() {
     windowState("before setup")
@@ -129,7 +73,7 @@ class WebFocusedFieldTest {
       shell("wm dismiss-keyguard")
       windowState("after keyguard dismissal")
     }
-    waitForExactSystemUiAnr()
+    anr.clear()
   }
 
   private fun js(activity: WebFieldActivity, script: String): String {
@@ -187,9 +131,9 @@ class WebFocusedFieldTest {
       })
     }
     assertTrue("Local WebView page ready to draw", drawn.await(60, TimeUnit.SECONDS))
-    if (systemUiWaitIssued) {
-      windowState("fixture focus after single SystemUI ANR Wait")
-      assertNull("SystemUI ANR must not persist after fixture focus", systemUiAnrOwner())
+    if (anr.waited.isNotEmpty()) {
+      windowState("fixture focus after single ANR Wait")
+      assertNull("Platform ANR must not persist after fixture focus", anr.owner())
       assertTrue("Fixture retains window focus after Wait", pageReady(activity))
     }
   }
@@ -310,9 +254,9 @@ class WebFocusedFieldTest {
         @Suppress("DEPRECATION") root.recycle()
       }
       assertEquals("\"private\"", js(page, "document.getElementById('password').value"))
-      if (systemUiWaitIssued) {
-        windowState("real checks after single SystemUI ANR Wait")
-        assertNull("SystemUI ANR must not recur during the real checks", systemUiAnrOwner())
+      if (anr.waited.isNotEmpty()) {
+        windowState("real checks after single ANR Wait")
+        assertNull("Platform ANR must not recur during the real checks", anr.owner())
         assertTrue("Fixture retains window focus after real checks", pageReady(page))
       }
       println("WebView focused fields: textarea 10/10, input 10/10, password hidden; decoy untouched")
