@@ -113,7 +113,7 @@ export class RelayClient {
   async unsubscribe(device: string, sub?: Subscription): Promise<void> { await this.call({ t: 'push.remove', device, ...(sub && { sub }) }); }
 
   /** Sends a notification to the devices' phones and browsers, even asleep. The same `id` is sent once. */
-  notify(n: Notification, options: { includeContent?: boolean } = {}): Promise<{ sent: number; duplicate?: true }> {
+  notify(n: Notification, options: { includeContent?: boolean } = {}): Promise<{ sent: number; duplicate?: true; held?: true }> {
     const generic = { ...n };
     if (!options.includeContent) { delete generic.body; delete generic.data; }
     return this.call({ t: 'push.notify', n: generic });

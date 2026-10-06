@@ -23,6 +23,9 @@ export type Enrolment = { id: string; hash: string; name?: string; expires: numb
 export type RelayState = { hosts: HostRecord[]; enrolments: Enrolment[]; push: PushRecord[]; vapid?: Vapid };
 export type RelayStore = { load(): RelayState | undefined | Promise<RelayState | undefined>; save(s: RelayState): void | Promise<void> };
 
+/** A daily quiet window in UTC (`{ start: '22:00', end: '07:00' }`); overnight windows wrap midnight.
+ *  Inside it, notifications wait and are delivered when it ends; `urgency: 'high'` always goes at once. */
+export type QuietHours = { start: string; end: string };
 /** A rate-limit bucket chosen by the embedding app. `host` is supplied only after proof or a valid action token;
  *  pre-authentication requests have no host. Return undefined to retain the per-address bucket. */
 export type LimitContext = { kind: keyof typeof LIMITS; request: IncomingMessage; host?: string };
@@ -51,6 +54,8 @@ export type RelayOptions = {
   push?: { subject?: string; fetch?: typeof fetch; hosts?: readonly string[] };
   /** How long a push action waits for the host's answer. Default 15 s. */
   actionMs?: number;
+  /** A daily quiet window: notifications wait inside it and go when it ends. Held only in memory. */
+  quietHours?: QuietHours;
   now?: () => number;
 };
 
@@ -74,6 +79,18 @@ function enrolmentMeta(value: unknown): unknown {
 }
 
 const ENROL_MS = 5 * 60_000;
+const quietMinutes = (v: string): number => {
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(v);
+  if (!m) throw new Error('bad quiet hours');
+  return Number(m[1]) * 60 + Number(m[2]);
+};
+/** Minutes since UTC midnight under the relay's clock, so tests move the window with `now`. */
+const quietAt = (nowMs: number): number => {
+  const d = new Date(nowMs);
+  return d.getUTCHours() * 60 + d.getUTCMinutes();
+};
+const inQuiet = (at: number, start: number, end: number): boolean =>
+  start <= end ? at >= start && at < end : at >= start || at < end;
 const CODE_MS = 5 * 60_000;
 const HELLO_MS = 10_000;
 const MAX_DEVICES = 256; // live device connections per host
@@ -105,6 +122,9 @@ export class Relay {
   private sent = new Map<string, string[]>(); // host -> recent notification ids
   private waiting = new Map<string, Waiting>();
   private pending = new Map<string, Set<string>>();
+  private held = new Map<string, Notification[]>(); // host -> notifications waiting for quiet hours to end
+  private quiet?: { start: number; end: number };
+  private quietTimer?: ReturnType<typeof setTimeout>;
   private saves: Promise<void> = Promise.resolve();
   private seq = 0;
 
@@ -119,9 +139,11 @@ export class Relay {
       && (typeof opts.signup.open !== 'boolean' || !Number.isSafeInteger(opts.signup.maxHosts) || opts.signup.maxHosts < 1)) {
       throw new Error('bad signup policy');
     }
+    if (opts.quietHours) quietMinutes(opts.quietHours.start), quietMinutes(opts.quietHours.end);
     const s = await opts.store?.load();
     const state: RelayState = { hosts: [...(s?.hosts ?? [])], enrolments: [...(s?.enrolments ?? [])], push: [...(s?.push ?? [])], vapid: s?.vapid };
     const relay = new Relay(opts, state);
+    if (opts.quietHours) relay.quiet = { start: quietMinutes(opts.quietHours.start), end: quietMinutes(opts.quietHours.end) };
     if (!state.vapid) await relay.change((s) => { s.vapid = vapidKeys(); });
     return relay;
   }
@@ -253,6 +275,7 @@ export class Relay {
     });
     for (const [c, v] of this.codes) if (v.host === id) this.codes.delete(c);
     for (const [t, v] of this.tokens) if (v.host === id) this.tokens.delete(t);
+    this.held.delete(id);
     this.sent.delete(id);
     for (const [key, w] of this.waiting) if (w.live.id === id) {
       this.waiting.delete(key);
@@ -270,6 +293,9 @@ export class Relay {
   }
 
   close() {
+    if (this.quietTimer) clearTimeout(this.quietTimer);
+    this.quietTimer = undefined;
+    this.held.clear();
     for (const l of [...this.live.values()]) this.drop(l, 1001, 'relay closing');
     this.wss.close();
   }
@@ -459,6 +485,39 @@ export class Relay {
       n = parseNotification(filtered);
       if (!n) throw new Error('bad filtered notification');
     }
+    const quiet = this.quiet && inQuiet(quietAt(this.now()), this.quiet.start, this.quiet.end);
+    if (!quiet) {
+      await this.flushHeld(host); // earlier held notifications go first, in the order they waited
+      return this.sendNow(host, n);
+    }
+    if (n.urgency === 'high') return this.sendNow(host, n);
+    const seen = this.sent.get(host) ?? [];
+    const waiting = this.held.get(host) ?? [];
+    // ponytail: held only in memory, so a relay restart drops what waited; persist the hold if that loss matters.
+    if (seen.includes(n.id) || this.pending.get(host)?.has(n.id) || waiting.some((w) => w.id === n.id)) {
+      return { sent: 0, duplicate: true };
+    }
+    this.held.set(host, [...waiting, n]);
+    if (!this.quietTimer) {
+      const at = quietAt(this.now());
+      const mins = ((this.quiet!.end - at + 24 * 60) % (24 * 60)) || 24 * 60;
+      this.quietTimer = later(mins * 60_000, () => { this.quietTimer = undefined; void this.flushHeld(); });
+    }
+    return { sent: 0, held: true };
+  }
+
+  /** Delivers everything held for one host, or every host, in waiting order. A push outage still loses the one
+   *  notification, the same as a live send; what stays unsent is dropped with it. */
+  private async flushHeld(host?: string): Promise<void> {
+    const hosts = host ? [host] : [...this.held.keys()];
+    for (const h of hosts) {
+      const waiting = this.held.get(h) ?? [];
+      this.held.delete(h);
+      for (const n of waiting) await this.sendNow(h, n);
+    }
+  }
+
+  private async sendNow(host: string, n: Notification): Promise<object> {
     const seen = this.sent.get(host) ?? [];
     // ponytail: remembered in memory, so a relay restart can deliver a retried notification twice.
     if (seen.includes(n.id) || this.pending.get(host)?.has(n.id)) return { sent: 0, duplicate: true };
