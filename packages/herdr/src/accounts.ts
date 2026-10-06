@@ -19,39 +19,40 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
     catch { return false; }
   }
 
-  // A shell rc can override placement env. Verify what the shell actually resolves, rather
-  // than pane.get's launch env. The variable name is fixed by the provider, never caller text.
-  async function checkEnv(paneId: string, variable: string, folder: string, timeout: number, absent = false): Promise<boolean> {
-    const marker = `BYOKIT_ACCOUNT_${randomBytes(8).toString('hex')}`;
-    const deadline = Date.now() + timeout;
-    const expansion = absent ? '${' + variable + '+x}' : '$' + variable;
-    try {
-      await call('pane.send_text', { pane_id: paneId, text: `echo ${marker}="${expansion}"\n` }, timeout);
-      for (;;) {
-        const result = await call('pane.read', { pane_id: paneId, source: 'recent_unwrapped', lines: 40,
-          format: 'text', strip_ansi: true }, Math.max(1, deadline - Date.now())) as Raw;
-        const readings = String(result?.read?.text ?? '').split('\n').map((line) => line.trim())
-          .filter((line) => line.startsWith(`${marker}=`)).map((line) => line.slice(marker.length + 1));
-        if (readings.length > 0) return readings.includes(folder);
-        if (Date.now() >= deadline) return false;
-        await sleep(Math.min(100, Math.max(1, deadline - Date.now())));
-      }
-    } catch { return false; }
-  }
-
-  // agent.start has no env/unset/command field in the pinned protocol. Clear credentials in
-  // the shell that launches it, then verify absence (never echo credential values).
-  async function prepareEnv(paneId: string, set: Record<string, string>, unset: string[], variable: string, timeout: number): Promise<boolean> {
+  // Env verification types nothing into the pane: every prep keystroke (unset lines,
+  // echo probes) stays in the new pane's scrollback where users see it after a move. The
+  // placement env rides `pane.split`, applied by the server before the shell is shown,
+  // so `pane.get` proves the new shell's launch env: every set var exact, every unset
+  // var absent. Fail closed: the split call cannot express removals, so a leaked
+  // credential in the launch env refuses the move instead of running on it.
+  // Limitation: a shell rc overriding placement env after launch is not visible here;
+  // no pinned RPC reads shell-effective env without typing into the pane.
+  async function verifyPaneEnv(paneId: string, set: Record<string, string>, unset: string[], timeout: number): Promise<boolean> {
     const entries = Object.entries(set);
     if ([...entries.map(([key]) => key), ...unset].some((key) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
       || entries.some(([, value]) => typeof value !== 'string' || /[\r\n\0]/.test(value))
       || unset.some((key) => key in set)) return false;
     try {
-      if (unset.length > 0) await call('pane.send_text', { pane_id: paneId, text: `unset ${unset.join(' ')}\n` }, timeout);
-      if (!await checkEnv(paneId, variable, set[variable]!, timeout)) return false;
-      for (const key of unset) if (!await checkEnv(paneId, key, '', timeout, true)) return false;
-      return true;
+      const pane = (await call('pane.get', { pane_id: paneId }, timeout) as Raw)?.pane;
+      const env = pane?.env;
+      if (!pane || typeof env !== 'object' || env === null || Array.isArray(env)) return false;
+      if (unset.some((key) => Object.hasOwn(env, key))) return false;
+      return entries.every(([key, value]) => env[key] === value);
     } catch { return false; }
+  }
+
+  // The replacement keeps the conversation's user-visible name. The server rejects
+  // duplicate agent names, so it starts unique while the source is still live, then
+  // takes the source's name once that pane is closed. A failed rename keeps the
+  // unique start name and never fails the move.
+  function moveNames(sourceName: unknown, kind: string): { start: string; want: string } {
+    const clean = (value: unknown): string | undefined => {
+      const slug = String(value ?? '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-')
+        .replace(/^[-_0-9]+/, '').slice(0, 32);
+      return /^[a-z][a-z0-9_-]{0,31}$/.test(slug) ? slug : undefined;
+    };
+    const want = clean(sourceName) ?? clean(kind) ?? 'agent';
+    return { start: `${want.slice(0, 25)}-${randomBytes(3).toString('hex')}`, want };
   }
 
   async function openSignInTab(o: OpenSignInTab): Promise<AgentRef> {
@@ -144,16 +145,15 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
         failed(code, await close(paneId) ? target.paneId : paneId);
       try { request?.onStaged?.(paneId); }
       catch { return rollback('start_failed'); }
-      if (request !== undefined && !await prepareEnv(paneId, request.set, request.unset ?? [], variable, timeout)) {
+      if (request !== undefined) {
+        if (!await verifyPaneEnv(paneId, request.set, request.unset ?? [], timeout)) return rollback('env_mismatch');
+      } else if (!await verifyPaneEnv(paneId, { ...o.env, [variable]: o.folder }, [], timeout)) {
         return rollback('env_mismatch');
       }
-      if (request === undefined && !await checkEnv(paneId, variable, o.folder, timeout)) {
-        return rollback('env_mismatch');
-      }
+      const names = moveNames(agent?.name, kind);
       try {
-        // Unique names avoid colliding with the still-live source agent.
         await ctx.startAgent({ kind, cwd: agent.foreground_cwd ?? agent.cwd ?? '.',
-          name: `move-${randomBytes(8).toString('hex')}`, place: { pane: paneId }, args, timeoutMs: timeout });
+          name: names.start, place: { pane: paneId }, args, timeoutMs: timeout });
         await call('agent.wait', { target: paneId, until: ['idle', 'done'], timeout_ms: timeout }, timeout + 5000);
         const deadline = Date.now() + timeout;
         for (;;) {
@@ -210,6 +210,14 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
         return failed('close_failed', live);
       }
       // The source is closed: a notification failure cannot undo a successful move.
+      // Take the conversation's name now that it is free; the unique start name stays
+      // when the rename is refused, and a rename failure never undoes the move.
+      if (names.want !== names.start) {
+        try {
+          await call('agent.rename', { target: paneId, name: names.want }, timeout);
+          replacement.name = names.want;
+        } catch { /* the unique start name stays; the move already succeeded */ }
+      }
       try { request?.onReplaced?.(paneId); } catch { /* notification only */ }
       return { ok: true, session: paneId };
     } finally { moving.delete(target.paneId); }
