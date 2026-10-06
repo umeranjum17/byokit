@@ -27,6 +27,7 @@ const { values: flags } = parseArgs({ options: {
   relay: { type: 'string' },                            // a relay to reach this computer away from home, e.g. https://relay.example
   enrol: { type: 'string' },                            // the relay owner's one-use enrolment token, first start only
 } });
+if (flags.relay) flags.relay = flags.relay.replace(/\/+$/, '');
 
 // The only environment read: the e2e test (and a try-out without Herdr) runs the kit's fake Herdr.
 const fake = process.env.BYOKIT_EXAMPLE_FAKE === '1';
