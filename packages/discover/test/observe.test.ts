@@ -193,8 +193,13 @@ test('the phone observation flow works when React Native URL has no WebSocket ho
 
 
 test('the packed explicit React Native entry imports under Node and executes injected readers', async () => {
-  const entry: typeof import('../src/observe.ts') & typeof import('../src/phone-network.ts') = await import('@byokit/reach' + '/react-native');
-  assert.equal(entry.routeOf('ws://192.168.1.20'), 'home');
-  assert.deepEqual(await entry.nativeAddresses({ nativeModule: snapshot({ address: '192.168.1.2', prefixLength: 24 }) }), [{ address: '192.168.1.2', prefixLength: 24 }]);
-  assert.deepEqual(await entry.phoneNetwork({ nativeModule: { phoneNetwork: async () => ({ onWifi: true, cellular: false, vpnActive: 'yes' }) } }), { onWifi: true, cellular: false, vpnActive: 'yes' });
+  // The deprecated @byokit/reach shim (removed in 0.8.0) must answer exactly like @byokit/discover.
+  for (const name of ['@byokit/discover', '@byokit/reach']) {
+    const entry: typeof import('../src/observe.ts') & typeof import('../src/phone-network.ts') = await import(name + '/react-native');
+    assert.equal(entry.routeOf('ws://192.168.1.20'), 'home');
+    assert.deepEqual(await entry.nativeAddresses({ nativeModule: snapshot({ address: '192.168.1.2', prefixLength: 24 }) }), [{ address: '192.168.1.2', prefixLength: 24 }]);
+    assert.deepEqual(await entry.phoneNetwork({ nativeModule: { phoneNetwork: async () => ({ onWifi: true, cellular: false, vpnActive: 'yes' }) } }), { onWifi: true, cellular: false, vpnActive: 'yes' });
+  }
+  const [shim, kit] = await Promise.all(['@byokit/reach', '@byokit/discover'].map((name) => import(name)));
+  assert.equal(shim.reach, kit.reach);
 });

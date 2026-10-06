@@ -10,7 +10,7 @@ import {
   PublicLinkError,
   type Grant, type Host, type HostOptions, type LinkRequest, type LinkStream, type Socket,
 } from '@byokit/link';
-import { reach, type ServeIngress, type Via } from '@byokit/reach';
+import { reach, type ServeIngress, type Via } from '@byokit/discover';
 import type { RelayClient } from '@byokit/relay';
 import type { HerdrKit } from './kit.ts';
 import type { AgentStatus, BlockedAgent, HerdrEvent, HerdrSnapshot, HerdrSubscription } from './types.ts';

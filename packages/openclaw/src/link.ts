@@ -14,7 +14,7 @@ import {
   type LinkRequest,
   type LinkStream,
 } from '@byokit/link';
-import { reach, type ServeIngress, type Via } from '@byokit/reach';
+import { reach, type ServeIngress, type Via } from '@byokit/discover';
 import type { PushAction, RelayClient } from '@byokit/relay';
 import { ENGINE_VERSION } from './constants.ts';
 import type { OpenClawKit } from './kit.ts';

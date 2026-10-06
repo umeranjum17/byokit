@@ -10,7 +10,7 @@ person's own Herdr, HOME or agent sign-ins.
    (`packages/herdr/schema/SOURCE.md`) into a task-owned folder; check its sha256. Use the guarded lab helper
    named in the brief to generate a non-default session, install its EXIT teardown before provisioning,
    then provision it. Check the client/server versions and owned socket with the helper's `run <session> status --json`.
-2. Pack the release candidate's packages (`npm pack -w packages/{herdr,link,relay,reach,seal,ui-core}`), copy
+2. Pack the release candidate's packages (`npm pack -w packages/{herdr,link,relay,discover,reach,seal,ui-core}`), copy
    this folder somewhere short (the Herdr socket lives under `.state/`), `npm i` the tarballs and `esbuild`.
 3. `npm start -- --herdr <absolute lab-helper wrapper path> --socket <absolute owned session socket> --path "<folder with one agent program>:/usr/bin:/bin" --via tailscale-direct`
    (or `tailscale` / `lan`, whichever the lab has). The wrapper must route commands through the helper's

@@ -90,15 +90,15 @@
     "reason": "Stream fragment omits imports, host options, panes, device link and terminal context."
   },
   {
-    "readme": "packages/reach/README.md",
+    "readme": "packages/discover/README.md",
     "block": 1,
-    "snapshot": "d0ceda817257b9be494d0bfed8c496b37bc407a7d893993407e7f01ea12e26c2",
+    "snapshot": "01bbe214d49a6b0b7ae4f84c300dbe46bbc72da279d96ecfbfb1b318f828b0df",
     "reason": "Quickstart omits saved state, server and host setup; strength item 6 makes it runnable."
   },
   {
-    "readme": "packages/reach/README.md",
+    "readme": "packages/discover/README.md",
     "block": 8,
-    "snapshot": "1c0916b26c2688d52bea5f579636772da0478bb98c9947ec8902d89891028a45",
+    "snapshot": "58efd7b4c2c060e441d546dc6caa7fcbe3cc4e6ea6215e6decd5f3a2cb33be7a",
     "reason": "Native browse fragment needs the React Native exports and native dependency context."
   },
   {
