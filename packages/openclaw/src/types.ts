@@ -95,7 +95,7 @@ export type SignInView = {
   code?: string;
   expiresAt?: number; // epoch ms when `code` expires, when the engine says
   message?: string; // the engine's instructions shown with `code`
-  prompt?: string; // a secret-entry label, never its value
+  prompt?: string; // what a waiting text step asks, answered through paste: the engine's question, or a fixed label once sensitive; never a value
   error?: string;
   why?: 'busy' | 'declined' | 'expired' | 'failed';
 };
