@@ -1,0 +1,1 @@
+- The O16 day-usage engine tests no longer fail when a run straddles UTC midnight: a case that could still be running at midnight starts just after it, so the day (and month) it reads is the day its engine stamps charges in.

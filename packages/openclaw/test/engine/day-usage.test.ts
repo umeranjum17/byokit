@@ -1,5 +1,5 @@
 // O16 real Gateway acceptance. A loopback provider scripts replies; only the stock scheduler starts reviews.
-import { test } from 'node:test';
+import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
@@ -11,6 +11,12 @@ import { OpenClawKit } from '../../src/kit.ts';
 import { readAgentDayUsage } from '../../src/day-usage.ts';
 import { useModelStub, STUB_USAGE } from '../../src/testing/model-stub.ts';
 import { scratchDir } from '../../../test-support.ts';
+// Each case reads the UTC day (and month ledger) it started in while the engine stamps real time, so a case still running
+// at the next UTC midnight would find its own charges in tomorrow's reading. Start it after midnight instead.
+beforeEach(async () => {
+  const left = Date.parse(new Date().toISOString().slice(0, 10)) + 86_400_000 - Date.now();
+  if (left < 600_000) await delay(left + 1000); // 600_000: the longest case's own timeout
+});
 test('O16 real Workshop, cold cache, failed writes, crash interruption and bounded month reads', { timeout: 600_000 }, async () => {
   let reviews = 0, foreground = 0, holdReviews = false;
   let releaseReview: (() => void) | undefined;
