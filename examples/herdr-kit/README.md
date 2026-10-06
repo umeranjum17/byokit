@@ -68,7 +68,7 @@ in plain Node, as the phone):
 const hd = herdrDevice(link);
 await hd.registerNotices(seed);                              // a 32-byte seed only the phone keeps
 await link.request('example.push', { expo: expoPushToken }); // its push address, handed to the relay
-const question = hd.openNotice(push.data, seed);             // push: the notification's data; null unless sealed to it
+const question = hd.openNotice(push.data.data, seed);        // push.data: the notification's data; null unless sealed to it
 ```
 
 What the push service got in the test run (the envelope cut short):
@@ -79,8 +79,8 @@ What the push service got in the test run (the envelope cut short):
   "title": "Waiting for your answer." }
 ```
 
-The relay and the push service read the kit's generic title and the notice's id (the agent's pane, so a newer notice
-replaces an older one). The question is inside `sealed`. `e2e.test.ts` fails if any of its text shows up on the wire,
+The relay and the push service read the kit's generic title and the notice's id (the agent's pane; the relay sends
+each id once). The question is inside `sealed`. `e2e.test.ts` fails if any of its text shows up on the wire,
 or if another key opens it. This web page takes no push notices itself; a phone app does.
 
 ## What's where

@@ -254,7 +254,7 @@ test('away from home: a phone pairs through the relay, and an agent\'s question 
   if (shots) writeFileSync(join(shots, 'relay-wire.json'), `${JSON.stringify(notice, null, 2)}\n`);
   assert.equal(notice.to, 'ExponentPushToken[away-phone]');
   assert.equal(notice.title, WORDS['agent.blocked']);
-  // In the clear: the title and the notice's id (its pane, so a newer notice replaces an older one). Never the question.
+  // In the clear: the title and the notice's id (its pane; the relay sends each id once). Never the question.
   assert.equal(notice.data.id, pane.id);
   assert.doesNotMatch(wire, /Allow this|ask permission/, 'the relay and push service read only the generic title');
   assert.equal(hd.openNotice(notice.data.data!, new Uint8Array(randomBytes(32))), null, 'another key opens nothing');

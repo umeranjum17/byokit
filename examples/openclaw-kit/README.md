@@ -58,7 +58,7 @@ key and a push address, sealed to that phone's key, with **Allow** and **Deny** 
 const oc = openclawDevice(link);
 await oc.registerNotices(seed);                              // a 32-byte seed only the phone keeps
 await link.request('example.push', { expo: expoPushToken }); // its push address, handed to the relay
-const approval = oc.openNotice(push.data, seed);             // push: the notification's data; null unless sealed to it
+const approval = oc.openNotice(push.data.data, seed);        // push.data: the notification's data; null unless sealed to it
 ```
 
 A button pressed on the notice posts `{ token, action }` to the relay's `/relay/v1/push/action`; the relay hands it
@@ -72,8 +72,8 @@ cut short):
   "title": "Something is waiting for your yes." }
 ```
 
-The relay and the push service read the kit's generic title, the approval's id (so a newer notice replaces an older
-one) and the one-use token for its buttons. What the helper wants to do is inside `sealed`. `e2e.test.ts` fails if
+The relay and the push service read the kit's generic title, the approval's id (the relay sends each id once) and
+the one-use token for its buttons. What the helper wants to do is inside `sealed`. `e2e.test.ts` fails if
 any of it shows up on the wire, or if another key opens it. A phone that registered no notice key gets the title
 only. This web page takes no push notices itself; a phone app does.
 

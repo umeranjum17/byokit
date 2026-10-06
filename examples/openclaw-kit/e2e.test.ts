@@ -238,7 +238,7 @@ test('away from home: a phone pairs through the relay, gets an approval sealed, 
   if (shots) writeFileSync(join(shots, 'relay-wire.json'), `${JSON.stringify(notice, null, 2)}\n`);
 
   // The push service gets the kit's generic title and an envelope it cannot open; in the clear too: the approval's id
-  // (so a newer notice replaces an older one) and the one-use token for its buttons. Never what is being asked.
+  // (the relay sends each id once) and the one-use token for its buttons. Never what is being asked.
   assert.equal(notice.to, 'ExponentPushToken[away-phone]');
   assert.equal(notice.title, WORDS['approval.notice']);
   assert.doesNotMatch(wire, /from away|save a note|demo_note/, 'the relay and push service read only the generic title');
