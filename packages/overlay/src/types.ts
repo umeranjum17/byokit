@@ -37,7 +37,7 @@ export type TapEntry = { app: string; at: number; action: string };   // no text
 export type PointHereOptions = {
   x: number;                          // ring centre in full-display physical pixels
   y: number;
-  label: string;                      // drawn beside the ring and announced for TalkBack
+  label: string;                      // drawn below the ring (above near the bottom edge) and announced for TalkBack
   space?: ScreenSpace;                // pass the captured space to reject stale display geometry
   ms?: number;                        // auto-dismiss; default 2500, range 1–60000
 };

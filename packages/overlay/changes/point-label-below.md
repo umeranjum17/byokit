@@ -1,0 +1,1 @@
+- Draw the point marker's label just below the ring, or above it near the bottom edge, instead of beside it, so it no longer covers the text of the button being pointed at.
