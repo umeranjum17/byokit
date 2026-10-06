@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.0 (2026-10-06)
+
+- Add approval-gated Gmail send (`MailSender`): one plain-text message per call, sent only after the host's approval returns `true` for that exact message.
+
 - Add typed Gmail read and search (`MailReader`) on a connection: envelopes, one bounded body, opaque page tokens.
 - Add owner-bound mail history and export (`MailHistory`): cross-page envelopes and `json`/`csv` export, foreign principals denied before any fetch.
 
