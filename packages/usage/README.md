@@ -517,9 +517,9 @@ const run = calls.queryRun('member-1', 'run-1', time, time + 1);
 ```
 
 This entry exports `callLedger`, `tokenLedger`, `memoryTokenLedgerStore`,
-`TokenLedgerError`, `normalizeTokens`, `priceCall`, all quota parsers listed above,
+`TokenLedgerError`, `normalizeTokens`, `priceCall`, `preflight`, all quota parsers listed above,
 `codexHardLimit`, `roomOf` and the words helpers, with their corresponding types
-(including `RunQuery`). `callLedger` supports the same `runs`/`queryRun` methods and
+(including `RunQuery`, `Preflight`, `PreflightCall`, `PreflightUnknown`). `callLedger` supports the same `runs`/`queryRun` methods and
 host-supplied lane/route attribution as the Node entry.
 The app supplies provider usage and quota payloads; `usage()`, credential/file
 adapters, `identity()`, fingerprints and disk quota stores remain Node-only.
