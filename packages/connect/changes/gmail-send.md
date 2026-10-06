@@ -1,0 +1,1 @@
+- Add approval-gated Gmail send (`MailSender`): one plain-text message per call, sent only after the host's approval returns `true` for that exact message.

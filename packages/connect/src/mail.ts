@@ -1,6 +1,6 @@
-// Typed Gmail read/search on a Connection. Sends are out of scope (write/outbox).
-/** Why a read or search failed. `message` is for logs; never show it to a person. */
-export type MailErrorCode = 'invalid' | 'network' | 'signed-out' | 'rate-limited';
+// Typed Gmail read/search and approval-gated send on a Connection.
+/** Why a read, search or send failed. `message` is for logs; never show it to a person. */
+export type MailErrorCode = 'invalid' | 'network' | 'signed-out' | 'rate-limited' | 'denied';
 export class MailError extends Error {
   readonly code: MailErrorCode;
   readonly status?: number;
@@ -12,16 +12,24 @@ export class MailError extends Error {
     if (o.until !== undefined) this.until = o.until;
   }
 }
-/** The only credential a reader needs. `Connection` satisfies this structurally. */
+/** The only credential a reader or sender needs. `Connection` satisfies this structurally. */
 export interface MailCredential {
   token(rejectedAccessToken?: string): Promise<string>;
 }
-export interface MailReaderOptions {
+export interface MailSenderOptions {
   userId?: string;
   fetch?: typeof fetch;
-  maxBodyChars?: number;
   now?: () => number;
 }
+export interface MailReaderOptions extends MailSenderOptions { maxBodyChars?: number }
+/** One message. `to` is one or more bare addresses (`name@host`); the sender is the signed-in mailbox. */
+export interface MailDraft { to: string | readonly string[]; subject: string; body: string }
+/** Exactly what will be sent, frozen: the approval sees the same object the send encodes. */
+export interface OutgoingMail { readonly to: readonly string[]; readonly subject: string; readonly body: string }
+/** Asked once per message, before any token or provider call. Only `true` sends; anything else, or a throw, denies. */
+export type MailApproval = (mail: OutgoingMail) => boolean | Promise<boolean>;
+export interface MailSendOptions { signal?: AbortSignal }
+export interface SentMail { id: string; threadId: string; labelIds: readonly string[] }
 /** Headers plus snippet. Absent headers read as `''`. */
 export interface MailEnvelope {
   id: string; threadId: string; subject: string; from: string; to: string; date: string;
@@ -59,19 +67,56 @@ function decodeBase64Url(data: string): string {
   }
   return new TextDecoder().decode(out.subarray(0, n));
 }
-export class MailReader {
+class Gmail {
   private credential: MailCredential;
   private userId: string;
   private fetcher: typeof fetch;
-  private maxBodyChars: number;
   private now: () => number;
+  constructor(kind: string, credential: MailCredential, options: MailSenderOptions) {
+    if (!credential || typeof credential.token !== 'function') throw new TypeError(`${kind} needs a credential with token()`);
+    const { userId = 'me', fetch, now = Date.now } = options ?? {};
+    if (typeof userId !== 'string' || !userId.trim()) throw new TypeError(`${kind} needs a non-empty userId`);
+    this.credential = credential; this.userId = userId; this.fetcher = fetch ?? globalThis.fetch; this.now = now;
+  }
+  /** GET with `params`, or POST `body` as JSON. A 401 retries once with a fresh token. */
+  protected async call(path: string, params: Record<string, string | readonly string[]>, signal?: AbortSignal, body?: unknown): Promise<unknown> {
+    signal?.throwIfAborted();
+    const refused = (cause: unknown): MailError => new MailError('signed-out', 'mail credential refused', { cause });
+    const send = async (access: string): Promise<Response> => {
+      const url = new URL(`${API}/users/${encodeURIComponent(this.userId)}${path}`);
+      for (const [key, value] of Object.entries(params)) for (const v of Array.isArray(value) ? value : [value]) url.searchParams.append(key, v);
+      try {
+        return await this.fetcher(url, body === undefined ? { headers: { authorization: `Bearer ${access}` }, signal }
+          : { method: 'POST', headers: { authorization: `Bearer ${access}`, 'content-type': 'application/json' }, body: JSON.stringify(body), signal });
+      } catch (error) {
+        signal?.throwIfAborted();
+        throw new MailError('network', 'mail provider could not be reached', { cause: error });
+      }
+    };
+    const access = await this.credential.token().catch(cause => { throw refused(cause); });
+    let res = await send(access);
+    if (res.status === 401) res = await send(await this.credential.token(access).catch(cause => { throw refused(cause); }));
+    if (res.status === 401 || res.status === 403) throw new MailError('signed-out', 'mail sign-in is gone or refused', { status: res.status });
+    if (res.status === 429) {
+      const after = Number(res.headers.get('retry-after'));
+      const until = Number.isFinite(after) && after >= 0 ? this.now() + after * 1000 : undefined;
+      throw new MailError('rate-limited', 'mail provider is rate limited', { status: 429, ...(until === undefined ? {} : { until }) });
+    }
+    if (!res.ok) throw new MailError('network', `mail provider answered HTTP ${res.status}`, { status: res.status });
+    try {
+      return await res.json();
+    } catch (error) {
+      throw new MailError('invalid', 'mail provider answered outside its shape (json)', { cause: error });
+    }
+  }
+}
+export class MailReader extends Gmail {
+  private maxBodyChars: number;
   constructor(credential: MailCredential, options: MailReaderOptions = {}) {
-    if (!credential || typeof credential.token !== 'function') throw new TypeError('MailReader needs a credential with token()');
-    const { userId = 'me', fetch, maxBodyChars = 20_000, now = Date.now } = options ?? {};
-    if (typeof userId !== 'string' || !userId.trim()) throw new TypeError('MailReader needs a non-empty userId');
+    super('MailReader', credential, options);
+    const { maxBodyChars = 20_000 } = options ?? {};
     if (!Number.isInteger(maxBodyChars) || maxBodyChars <= 0) throw new RangeError('MailReader maxBodyChars must be a positive integer');
-    this.credential = credential; this.userId = userId; this.fetcher = fetch ?? globalThis.fetch;
-    this.maxBodyChars = maxBodyChars; this.now = now;
+    this.maxBodyChars = maxBodyChars;
   }
   /** `q` is Gmail search syntax. */
   async search(query: string, options: MailListOptions = {}): Promise<MailPage> {
@@ -130,33 +175,72 @@ export class MailReader {
     if (Array.isArray(part.parts)) for (const child of part.parts) texts.push(this.bodyText(child));
     return texts.join('\n');
   }
-  private async call(path: string, params: Record<string, string | readonly string[]>, signal?: AbortSignal): Promise<unknown> {
-    signal?.throwIfAborted();
-    const refused = (cause: unknown): MailError => new MailError('signed-out', 'mail credential refused', { cause });
-    const send = async (access: string): Promise<Response> => {
-      const url = new URL(`${API}/users/${encodeURIComponent(this.userId)}${path}`);
-      for (const [key, value] of Object.entries(params)) for (const v of Array.isArray(value) ? value : [value]) url.searchParams.append(key, v);
-      try {
-        return await this.fetcher(url, { headers: { authorization: `Bearer ${access}` }, signal });
-      } catch (error) {
-        signal?.throwIfAborted();
-        throw new MailError('network', 'mail provider could not be reached', { cause: error });
-      }
-    };
-    const access = await this.credential.token().catch(cause => { throw refused(cause); });
-    let res = await send(access);
-    if (res.status === 401) res = await send(await this.credential.token(access).catch(cause => { throw refused(cause); }));
-    if (res.status === 401 || res.status === 403) throw new MailError('signed-out', 'mail sign-in is gone or refused', { status: res.status });
-    if (res.status === 429) {
-      const after = Number(res.headers.get('retry-after'));
-      const until = Number.isFinite(after) && after >= 0 ? this.now() + after * 1000 : undefined;
-      throw new MailError('rate-limited', 'mail provider is rate limited', { status: 429, ...(until === undefined ? {} : { until }) });
-    }
-    if (!res.ok) throw new MailError('network', `mail provider answered HTTP ${res.status}`, { status: res.status });
+}
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+/** Base64 without `Buffer`, so the sender stays portable. */
+function encodeBase64(bytes: Uint8Array): string {
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const n = bytes[i] << 16 | (bytes[i + 1] ?? 0) << 8 | (bytes[i + 2] ?? 0);
+    out += B64[n >> 18 & 63] + B64[n >> 12 & 63] + (i + 1 < bytes.length ? B64[n >> 6 & 63] : '=') + (i + 2 < bytes.length ? B64[n & 63] : '=');
+  }
+  return out;
+}
+const utf8 = (text: string): Uint8Array => new TextEncoder().encode(text);
+const ADDRESS = /^[^\s@<>()[\]\\,;:"]+@[^\s@<>()[\]\\,;:"]+\.[^\s@<>()[\]\\,;:".]+$/;
+/** Validates and freezes one draft; rejects header injection and anything but bare addresses. */
+function outgoing(draft: MailDraft): OutgoingMail {
+  if (!isRecord(draft)) throw new TypeError('mail send takes one draft object');
+  const { to: rawTo, subject, body } = draft;
+  // Copy first, then check the copy: the approval and the send see exactly what was checked.
+  const to = typeof rawTo === 'string' ? [rawTo] : Array.isArray(rawTo) ? Array.from(rawTo as unknown[]) : [];
+  if (!to.length || !to.every(a => typeof a === 'string' && ADDRESS.test(a))) throw new TypeError('mail to must be one or more bare addresses');
+  if (typeof subject !== 'string' || /[\r\n]/.test(subject)) throw new TypeError('mail subject must be one line of text');
+  if (typeof body !== 'string') throw new TypeError('mail body must be text');
+  return Object.freeze({ to: Object.freeze(to as string[]), subject, body });
+}
+/** RFC 2047 encoded words of at most 45 bytes each, so no word splits a character. Plain only when
+ *  a reader cannot decode it differently (`=?`) and the line stays short. */
+function headerText(text: string): string {
+  if (/^[\x20-\x7e]*$/.test(text) && !text.includes('=?') && text.length <= 900) return text;
+  const words: string[] = [];
+  let chunk = '';
+  for (const ch of text) {
+    if (utf8(chunk + ch).length > 45) { words.push(chunk); chunk = ''; }
+    chunk += ch;
+  }
+  words.push(chunk);
+  return words.map(w => `=?UTF-8?B?${encodeBase64(utf8(w))}?=`).join('\r\n ');
+}
+function mime(mail: OutgoingMail): string {
+  const body = encodeBase64(utf8(mail.body.replace(/\r?\n/g, '\r\n'))).replace(/.{76}/g, '$&\r\n');
+  return [`To: ${mail.to.join(', ')}`, `Subject: ${headerText(mail.subject)}`, 'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', body].join('\r\n');
+}
+/** Sends one message at a time from the signed-in Gmail, each only after its own approval. Needs `gmail.send`. */
+export class MailSender extends Gmail {
+  private approve: MailApproval;
+  constructor(credential: MailCredential, approve: MailApproval, options: MailSenderOptions = {}) {
+    super('MailSender', credential, options);
+    if (typeof approve !== 'function') throw new TypeError('MailSender needs an approval function');
+    this.approve = approve;
+  }
+  /** Asks the approval with the frozen message, then sends it once. Never retried: a failed send asks again. */
+  async send(draft: MailDraft, options: MailSendOptions = {}): Promise<SentMail> {
+    const mail = outgoing(draft);
+    options.signal?.throwIfAborted();
+    let approved: unknown;
     try {
-      return await res.json();
-    } catch (error) {
-      throw new MailError('invalid', 'mail provider answered outside its shape (json)', { cause: error });
+      approved = await this.approve(mail);
+    } catch (cause) {
+      throw new MailError('denied', 'mail send was not approved', { cause });
     }
+    if (approved !== true) throw new MailError('denied', 'mail send was not approved');
+    const raw = encodeBase64(utf8(mime(mail))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const json = await this.call('/messages/send', {}, options.signal, { raw });
+    if (!isRecord(json)) throw mailShape('sent');
+    const labels = json.labelIds;
+    return { id: field(json.id, 'id'), threadId: field(json.threadId, 'threadId'),
+      labelIds: Array.isArray(labels) && labels.every(v => typeof v === 'string') ? [...labels] : [] };
   }
 }
