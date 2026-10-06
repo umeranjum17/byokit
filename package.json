@@ -24,6 +24,9 @@
     "test:write-engine": "sh scripts/test.sh 'packages/write/test/engine/*.test.ts'",
     "gen:openclaw": "node packages/openclaw/scripts/gen-methods.ts"
   },
+  "overrides": {
+    "shell-quote": "1.12.0"
+  },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/ws": "^8.18.1",
