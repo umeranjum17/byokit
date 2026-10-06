@@ -8,7 +8,7 @@ into this folder's `.state`, a ChatGPT sign-in kept in the lab's retained test h
 ## Procedure
 
 1. In the lab, with the lab's retained test `HOME`: pack the release candidate's packages
-   (`npm pack -w packages/{openclaw,link,relay,reach,seal,ui-core}`), copy this folder somewhere short (the kit's
+   (`npm pack -w packages/{openclaw,link,relay,discover,reach,seal,ui-core}`), copy this folder somewhere short (the kit's
    bridge socket lives under `.state/`), `npm i` the tarballs and `esbuild`.
 2. `npm start -- --via tailscale-direct` (or `tailscale` / `lan`, whichever the lab has). The first start installs
    the pinned engine (`openclaw@2026.8.1`): see `Getting things ready on this computer…`, then `Ready.` Record the
