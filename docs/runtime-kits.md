@@ -257,10 +257,11 @@ or the lab (Herdr). A behavior the fake has and the contract does not assert is 
 Both kits use the same typing shape so apps learn it once:
 
 ```ts
+import type { CallOptions, GatewayMethods as Methods } from '@byokit/openclaw';
 type MethodName = keyof Methods;                       // generated
 type ParamsOf<M extends MethodName> = Methods[M]['params'];
 type ResultOf<M extends MethodName> = Methods[M]['result'];
-call<M extends MethodName>(method: M, params: ParamsOf<M>, o?: CallOptions): Promise<ResultOf<M>>;
+declare function call<M extends MethodName>(method: M, params: ParamsOf<M>, o?: CallOptions): Promise<ResultOf<M>>;
 ```
 
 `Methods` entries whose schema type could not be matched are `{ params: unknown; result: unknown }` and are listed in
@@ -302,6 +303,8 @@ conditions pointing at the same file), `./link` → `dist/link.js`, `./testing` 
 ### 5.2 Public types (`src/types.ts`)
 
 ```ts
+import type { AccountId, AccountRef, Considered, PickWhy } from '@byokit/accounts';
+import type { OutputSchema } from '@byokit/openclaw';
 export type Member = string;                                   // D9 rule, = the member agent's OpenClaw agentId
 export interface ToolSpec { name: string; description: string; parameters: object }   // JSON Schema object
 export interface RunRef { sessionKey: string; member: Member; meta?: unknown }
@@ -400,6 +403,14 @@ and all usage RPCs remain available; no new engine API or patch build seam is cr
 ### 5.3 `OpenClawKit` (`src/kit.ts`, exported from `.`)
 
 ```ts
+import type { Account, AccountId, AccountPick, AccountRef, Defaults, ModelInfo, Room, RunSelection } from '@byokit/accounts';
+import type { Approval, CallOptions, Decision, GatewayEventName, GatewayEventPayload, GatewayMethod, GatewayParams,
+  GatewayResult, GatewayTransport, Hello, KitState, Member, OutputSchema, Route, RunEnd, RunEvent, RunRef, RunSpec,
+  SchemaOutput, SignInView, ToolHost, ToolSpec } from '@byokit/openclaw';
+import type { SealingAdapter } from '@byokit/secrets';
+type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
+  'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
+
 export type KitOptions = {
   stateDir: string;
   authSeal?: SealingAdapter;                       // @byokit/secrets seal: credential state (state tree + home config/credentials) sealed while stopped
@@ -426,7 +437,7 @@ export type KitOptions = {
   log?: (line: string) => void;
 };
 
-export class OpenClawKit {
+export declare class OpenClawKit {
   constructor(o: KitOptions);
   readonly state: KitState;
   prepare(): Promise<void>;              // install + layout + config, no launch; idempotent
@@ -983,10 +994,31 @@ change; a stale set fails `before` and blocks release), re-checks that the Gatew
 ### 5.13 Internal module seams (stub signatures for O1)
 
 ```ts
+import type { Account, AccountId, AccountPick, Considered, Defaults, ModelInfo, PickWhy, Room, RunSelection } from '@byokit/accounts';
+import type { AccountView, Approval, Decision, GatewayTransport, KitState, KitOptions, Member, OutputSchema,
+  RetainedLogin, Route, RunEnd, RunEvent, RunRef, RunSpec, SchemaOutput, SignInView, ToolHost, ToolSpec,
+  WordKey } from '@byokit/openclaw';
+declare function outputSchema(value: unknown): { prompt: string; parse(text: string): { data: unknown } | undefined };
+type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
+  'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
+interface OpenClawKit {   // 5.3 signatures; the built kit has addKey only until O14
+  addKey(member: Member, o: { authChoice: string; apiKey: string; name?: string }): Promise<'ok' | 'invalid' | 'not_included'>;
+  addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId },
+    on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
+    done: Promise<{ view: SignInView; id: AccountId }> }>;
+  renameAccount(member: Member, id: AccountId, name: string): Promise<Account>;
+  removeAccount(member: Member, id: AccountId): Promise<void>;
+  models(member: Member, id: AccountId): Promise<ModelInfo[]>;
+  room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;
+  defaults(member: Member): Promise<Defaults>;
+  setDefaults(member: Member, d: Defaults): Promise<void>;
+  pick(member: Member, sel: RunSelection, o?: { sessionKey?: string }): Promise<AccountPick>;
+  move(ref: RunRef, to: AccountId): Promise<MoveResult>;
+}
 // engine.ts (O3)
 export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'appOwnedSessions' | 'installPolicy' | 'log' | 'bridge'>
   & { pluginId: string; tools: ToolSpec[]; spawnEngine: boolean; onState(s: KitState): void; onExit(code: number | null): void };
-export class Engine {
+export declare class Engine {
   constructor(o: EngineOptions); readonly root: string; readonly bridgeSock: string;
   prepare(): Promise<void>;
   start(): Promise<{ port: number; token: string; identityPath: string } | undefined>;   // undefined while credentials locked
@@ -995,19 +1027,19 @@ export class Engine {
   doctorContext(): { entry: string; env: Record<string, string> };
 }
 // config.ts (O3)
-export function reconcileConfig(saved: object | undefined, o: { root: string; stateDir: string; port: number;
+export declare function reconcileConfig(saved: object | undefined, o: { root: string; stateDir: string; port: number;
   pluginId: string; pluginDir: string; policyPath: string; app?: object; installPolicy?: KitOptions['installPolicy'] }): object;
-export function memoryLimited(config: object, member: Member): boolean;
+export declare function memoryLimited(config: object, member: Member): boolean;
 // transport.ts (O4)
-export function gatewayTransport(ctx: { port: number; token: string; identityPath: string; bridgeSock: string }): GatewayTransport;
+export declare function gatewayTransport(ctx: { port: number; token: string; identityPath: string; bridgeSock: string }): GatewayTransport;
 // members.ts (O4)
-export const MEMBER_ID: RegExp;
-export function createMembers(ctx: { request: GatewayTransport['request']; root: string }): { ensure(member: Member): Promise<{ agentId: string; workspace: string }> };
+export declare const MEMBER_ID: RegExp;
+export declare function createMembers(ctx: { request: GatewayTransport['request']; root: string }): { ensure(member: Member): Promise<{ agentId: string; workspace: string }> };
 // bridge.ts (O5)
-export function resolveBridge(o?: { socketName?: string; paramPrefix?: string }): { socketName: string; paramPrefix: string };
-export function writePlugin(dir: string, o: { id: string; tools: ToolSpec[]; paramPrefix: string;
+export declare function resolveBridge(o?: { socketName?: string; paramPrefix?: string }): { socketName: string; paramPrefix: string };
+export declare function writePlugin(dir: string, o: { id: string; tools: ToolSpec[]; paramPrefix: string;
   gateBuiltins: boolean }): void;
-export class Bridge {
+export declare class Bridge {
   constructor(o: { path: string; host?: ToolHost; tools: ReadonlySet<string>; permitted: (tool: string) => boolean; approvalTimeoutMs: number;
     onAsk(a: Approval): void; onAskGone(id: string): void });
   start(): Promise<void>; stop(): void;
@@ -1017,7 +1049,7 @@ export class Bridge {
   resolveAsk(id: string, d: Decision): boolean;
 }
 // approvals.ts (O5)
-export class Approvals {
+export declare class Approvals {
   constructor(o: { request: GatewayTransport['request']; bridge: Pick<Bridge, 'resolveAsk'> });
   handleEvent(e: { event: string; payload?: unknown }): void; add(a: Approval): void; remove(id: string): void;
   list(member?: Member): Approval[]; on(fn: (a: Approval, change: 'added' | 'resolved') => void): () => void;
@@ -1025,27 +1057,27 @@ export class Approvals {
 }
 // signin.ts (O6)
 export type SignInCtx = { request: GatewayTransport['request']; ensure(member: Member): Promise<{ agentId: string }>; callbackPort: number };
-export function signIn(ctx: SignInCtx, member: Member, o: { authChoice: string; via?: 'browser' | 'code' },
+export declare function signIn(ctx: SignInCtx, member: Member, o: { authChoice: string; via?: 'browser' | 'code' },
   on: (v: SignInView) => void): { paste(text: string): void; cancel(): void; done: Promise<SignInView> };
-export function providers(ctx: SignInCtx, member: Member, refresh?: boolean): Promise<string[]>;
-export function signOut(ctx: SignInCtx, member: Member, provider: string): Promise<void>;
+export declare function providers(ctx: SignInCtx, member: Member, refresh?: boolean): Promise<string[]>;
+export declare function signOut(ctx: SignInCtx, member: Member, provider: string): Promise<void>;
 // routes.ts (O6)
-export function routes(): Route[]; export function routeFor(provider: string, via: 'browser' | 'code'): Route | undefined;
+export declare function routes(): Route[]; export declare function routeFor(provider: string, via: 'browser' | 'code'): Route | undefined;
 // migrate.ts (O6)
 export type DoctorRunner = () => { status: number | null };
-export function migrateRetainedLogin(ctx: { root: string; prepare(): Promise<void>; doctor: DoctorRunner }, member: Member,
+export declare function migrateRetainedLogin(ctx: { root: string; prepare(): Promise<void>; doctor: DoctorRunner }, member: Member,
   source: RetainedLogin): Promise<'staged' | 'nothing' | 'failed'>;
-export function confirmRetainedLogin(ctx: SignInCtx, member: Member, source: RetainedLogin): Promise<boolean>;
+export declare function confirmRetainedLogin(ctx: SignInCtx, member: Member, source: RetainedLogin): Promise<boolean>;
 // runs.ts (O8)
-export function createRuns(ctx: { request: GatewayTransport['request']; onEvent: GatewayTransport['onEvent'];
+export declare function createRuns(ctx: { request: GatewayTransport['request']; onEvent: GatewayTransport['onEvent'];
   ensure(member: Member): Promise<{ agentId: string }>; bridge: Pick<Bridge, 'register' | 'unregister'> }):
   { run<const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void, keyAgent?: string,
       preparedOutput?: ReturnType<typeof outputSchema>): Promise<RunEnd<SchemaOutput<S>>>; steer(k: string, t: string): Promise<void>; abort(k: string): Promise<void> };
 // locks.ts (O14)
-export function createLocks(): { shared<T>(agentId: string, work: () => Promise<T>): Promise<T>;
+export declare function createLocks(): { shared<T>(agentId: string, work: () => Promise<T>): Promise<T>;
   exclusive<T>(agentIds: string[], work: () => Promise<T>): Promise<T>; live(agentId: string): boolean };
 // accounts.ts (O14)
-export function createAccounts(ctx: { request: GatewayTransport['request']; root: string;
+export declare function createAccounts(ctx: { request: GatewayTransport['request']; root: string;
   ensure(member: Member): Promise<{ agentId: string; workspace: string }>; signIn: SignInCtx;
   locks: ReturnType<typeof createLocks> }): {
   bind(member: Member, sessionKey: string): Promise<{ agentId: string; id?: AccountId } | undefined>;   // id absent: member agent
@@ -1059,21 +1091,21 @@ export function createAccounts(ctx: { request: GatewayTransport['request']; root
 // runs.ts gains `accounts: ReturnType<typeof createAccounts>` and `locks` in createRuns' ctx (O14).
 // pick.ts (O14; pure, portable)
 export type RoomOf = (a: Account, demand: readonly string[]) => Room;
-export function consider(accounts: readonly Account[], defaults: Defaults, sel: RunSelection, room: RoomOf,
+export declare function consider(accounts: readonly Account[], defaults: Defaults, sel: RunSelection, room: RoomOf,
   nowMs: number, models?: (a: Account) => readonly ModelInfo[], bound?: readonly AccountId[]): Considered[];
-export function chooseAccount(candidates: readonly Account[], room: (a: Account) => Room, nowMs: number):
+export declare function chooseAccount(candidates: readonly Account[], room: (a: Account) => Room, nowMs: number):
   { account: Account; why: PickWhy } | undefined;              // Auto only; resolveSelection builds the AccountPick
-export function resolveSelection(accounts: readonly Account[], defaults: Defaults, sel: RunSelection,
+export declare function resolveSelection(accounts: readonly Account[], defaults: Defaults, sel: RunSelection,
   room: RoomOf, nowMs: number, models?: (a: Account) => readonly ModelInfo[], bound?: readonly AccountId[]): AccountPick;
 // classify.ts (O8)
-export function classify(message: string): { kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other'; until?: number };
+export declare function classify(message: string): { kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other'; until?: number };
 // words.ts (O10)
-export function words(key: WordKey, vars?: Record<string, string>): string;
-export function stateWords(s: KitState): string;
-export function toAccountView(view: SignInView | null, ready: boolean): AccountView;   // AccountView = ui-core's shape, declared locally
+export declare function words(key: WordKey, vars?: Record<string, string>): string;
+export declare function stateWords(s: KitState): string;
+export declare function toAccountView(view: SignInView | null, ready: boolean): AccountView;   // AccountView = ui-core's shape, declared locally
 // notices.ts (O9; portable)
-export function sealNotice(a: Approval, boxPublicKey: Uint8Array): { v: 1; sealed: string };
-export function openNotice(data: Record<string, unknown>, seed: Uint8Array): Approval | null;
+export declare function sealNotice(a: Approval, boxPublicKey: Uint8Array): { v: 1; sealed: string };
+export declare function openNotice(data: Record<string, unknown>, seed: Uint8Array): Approval | null;
 ```
 
 ### 5.14 Words (`src/words.json`, O10)
@@ -1608,6 +1640,7 @@ The pinned transcript RPC resolves calendar days: a partial-day millisecond wind
 never a falsely precise day total.
 
 ```ts
+import type { AgentUsageReading, Member, UsageWindow } from '@byokit/openclaw';
 export type EngineStartedKind = 'workshop-review';
 export type EngineStartedCharge = {
   chargeId: string; member: Member; kind: EngineStartedKind;
@@ -1627,7 +1660,7 @@ export type AgentDayUsage = {
   complete: boolean;                           // only by the four rules above
   knownTotalTokens?: number;                   // only when both terms are available
 };
-export function readAgentDayUsage(client: { callDynamic(method: string, params?: unknown): Promise<unknown> },
+export declare function readAgentDayUsage(client: { callDynamic(method: string, params?: unknown): Promise<unknown> },
   member: Member, window: AgentDayUsage['window']): Promise<AgentDayUsage>;   // host kit or device client
 ```
 
@@ -1853,8 +1886,9 @@ PATH, never `~/.local/bin`, nothing on install or import. A hash mismatch or uns
 ### 6.2 Public API (`src/kit.ts`, exported from `.`)
 
 ```ts
+import type { HerdrEventName, HerdrEventOf, HerdrMethod, HerdrParams, HerdrResult, HerdrSubscription } from '@byokit/herdr';
 export const HERDR_VERSION = '0.9.1';
-export const HERDR_PROTOCOL: number;                     // from the snapshot (H2)
+export declare const HERDR_PROTOCOL: number;                     // from the snapshot (H2)
 export type HerdrState = {
   phase: 'stopped' | 'connecting' | 'ready' | 'reconnecting' | 'needs-update' | 'missing' | 'failed';
   why?: 'binary' | 'socket' | 'version' | 'server-exited';
@@ -1883,7 +1917,7 @@ export interface HerdrTransport {                        // socket.ts implements
 }
 export type HerdrEvent = { type: string; [k: string]: unknown };
 
-export class HerdrKit {
+export declare class HerdrKit {
   constructor(o: HerdrKitOptions);
   readonly state: HerdrState;
   start(): Promise<void>;        // own: spawn server; both: connect, version gate, event socket, bootstrap
@@ -1977,30 +2011,31 @@ export type TerminalSession = {
 Internal seams (stub signatures for H1):
 
 ```ts
+import type { BlockedAgent, HerdrKit, HerdrKitOptions, HerdrSnapshot, HerdrState, HerdrTransport, TerminalSession } from '@byokit/herdr';
 // socket.ts (H3)
-export function socketTransport(socketPath: string): HerdrTransport;
+export declare function socketTransport(socketPath: string): HerdrTransport;
 // supervise.ts (H3)
-export class Supervisor {
+export declare class Supervisor {
   constructor(o: HerdrKitOptions, onState: (s: HerdrState) => void);
   env(): Record<string, string>;                 // env for cli/terminal/server per 6.3/6.5
   start(): Promise<HerdrTransport>; stop(): Promise<void>;
 }
 // cli.ts (H4)
-export function runCli(bin: string, env: Record<string, string>, args: string[], timeoutMs?: number):
+export declare function runCli(bin: string, env: Record<string, string>, args: string[], timeoutMs?: number):
   Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }>;
 // terminal.ts (H4)
-export function openTerminal(bin: string, env: Record<string, string>, paneId: string,
+export declare function openTerminal(bin: string, env: Record<string, string>, paneId: string,
   o: { mode: 'control' | 'observe'; cols: number; rows: number }): TerminalSession;
 // agents.ts (H5)
 export type Call = (method: string, params: Record<string, unknown>, timeoutMs?: number) => Promise<unknown>;
-export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot }): Pick<HerdrKit,
+export declare function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot }): Pick<HerdrKit,
   'startAgent' | 'prompt' | 'sendKeys' | 'wait' | 'read' | 'agentKinds' | 'installedAgentKinds'>;
 // close.ts (H5)
-export function closePane(call: Call, paneId: string): Promise<void>;
-export function closeTab(call: Call, tabId: string): Promise<void>;
-export function closeWorkspace(call: Call, workspaceId: string): Promise<void>;
+export declare function closePane(call: Call, paneId: string): Promise<void>;
+export declare function closeTab(call: Call, tabId: string): Promise<void>;
+export declare function closeWorkspace(call: Call, workspaceId: string): Promise<void>;
 // approvals.ts (H5)
-export class Blocked {
+export declare class Blocked {
   constructor(ctx: { call: Call });
   update(paneId: string, agent: HerdrSnapshot['workspaces'][number]['tabs'][number]['panes'][number]['agent'], where: { workspaceId: string; tabId: string }): void;
   list(): BlockedAgent[]; on(fn: (b: BlockedAgent, change: 'added' | 'resolved') => void): () => void;
@@ -2307,12 +2342,18 @@ Same shape in both kits; names below use `oc`/`hd`.
 ### 7.1 Host side (`./link`)
 
 ```ts
-export function openclawLink(kit: OpenClawKit, o: {
+import type { Member, OpenClawKit } from '@byokit/openclaw';
+import type { Grant, Host, HostOptions } from '@byokit/link';
+import type { RelayClient } from '@byokit/relay';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+type Via = 'auto' | 'tailscale' | 'tailscale-direct' | 'private' | 'lan';   // @byokit/discover
+type ServeIngress = { kind: 'tailscale-serve'; port: number; dnsName: string; proxy: string };   // @byokit/discover
+export declare function openclawLink(kit: OpenClawKit, o: {
   memberOf: (grant: Grant) => Member | undefined;          // which member a device acts for (e.g. grant.meta.member)
   passThrough?: (method: string, grant: Grant) => boolean; // D8; default () => false
   relay?: Pick<RelayClient, 'notify'>;                     // sealed approval push (7.3); RelayClient fits
 }): Pick<HostOptions, 'handle' | 'stream' | 'allow'>;
-export function serve(o: { host: Host; port: number; via?: Via; previous?: ServeIngress;
+export declare function serve(o: { host: Host; port: number; via?: Via; previous?: ServeIngress;
   http?: (req: IncomingMessage, res: ServerResponse) => void }): Promise<{ urls: string[]; ingress?: ServeIngress; close(): Promise<void> }>;
 ```
 
@@ -2376,6 +2417,14 @@ The typed pass-through uses the 4.6 tables (`import type` only, so `./device` st
 re-exports them with the frame types below.
 
 ```ts
+import type { Account, AccountId, AccountPick, AccountRef, Defaults, ModelInfo, Room, RunSelection } from '@byokit/accounts';
+import type { AccountView, Approval, Decision, GatewayEventName, GatewayEventPayload, GatewayMethod, GatewayParams,
+  GatewayResult, KitState, OutputSchema, Route, RunEnd, RunEvent, SchemaOutput, SignInView } from '@byokit/openclaw';
+import type { DeviceLink } from '@byokit/link';
+import type { AgentRef, AgentStatus, BlockedAgent, HerdrEventName, HerdrEventOf, HerdrMethod, HerdrParams, HerdrResult,
+  HerdrSnapshot, HerdrState, HerdrSubscription, PromptReceipt, StartAgent } from '@byokit/herdr';
+type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
+  'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
 export type OpenClawLinkEvent =                             // oc.events frames
   | { [E in GatewayEventName]: { event: E; payload: GatewayEventPayload<E> } }[GatewayEventName]
   | { event: 'approval'; change: 'added' | 'resolved'; approval: Approval };
@@ -2383,7 +2432,7 @@ export type SessionRow = { sessionKey: string; [k: string]: unknown };
 export type DeviceRunOptions<S extends OutputSchema | undefined = OutputSchema | undefined> = { schema?: S; sessionKey?: string; model?: string; account?: AccountRef | 'default' | 'auto'; needs?: string[]; auth?: 'apiKey'; system?: string;
   images?: { data: string; mimeType: string }[]; thinking?: 'off' | 'low' | 'medium' | 'high'; tools?: string[] };
 export type DeviceState = { state: KitState; words: string; version: string; engine: string; signedIn?: string[] };
-export function openclawDevice(link: DeviceLink): {
+export declare function openclawDevice(link: DeviceLink): {
   state(): Promise<DeviceState>;                            // oc.state
   routes(): Promise<Route[]>;
   signIn: { start(p: string, via: 'browser' | 'code'): Promise<SignInView>; view(p: string): Promise<AccountView>;
@@ -2416,7 +2465,7 @@ export type DeviceTerminal = {
   exited: Promise<{ reason: string | null }>;               // stream end; reason = the host's words, null when clean
   onFrame(fn: (line: string) => void): () => void; send(line: string): void; close(): void;
 };
-export function herdrDevice(link: DeviceLink): {
+export declare function herdrDevice(link: DeviceLink): {
   state(): Promise<{ state: HerdrState; words: string }>;
   tree(): Promise<HerdrSnapshot>;
   agentKinds(): Promise<string[]>;                          // hd.kinds
