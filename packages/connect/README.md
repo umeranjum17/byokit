@@ -167,6 +167,22 @@ const message = await mail.get(page.messages[0].id); // Envelope plus bounded bo
 `maxBodyChars` (`body.truncated` says so). A 401 retries once, then reads as
 signed-out; rate limits carry `until` from `Retry-After`.
 
+## Owner-bound history and export
+
+```ts
+import { MailHistory, type Connection } from '@byokit/connect';
+declare const gmail: Connection; // Signed in for Umer.
+const history = new MailHistory(gmail, { owner: 'Umer' });
+const rows = await history.messages({ principal: 'Umer', query: 'invoice' });
+const csv = await history.export({ principal: 'Umer', query: 'invoice', format: 'csv' }); // Or 'json'.
+```
+
+The host binds `owner` once; every call names its `principal` and anything else
+is denied (`HistoryError` code `denied`) before any provider fetch. Retrieval
+pages through `search`/`list` up to `maxMessages` (default 100, at most 500).
+Export writes envelopes only — message bodies are never exported. Provider
+failures keep their `MailError` code, `status` and `until` under `HistoryError`.
+
 ## Refresh, errors and storage
 
 Refresh runs when the token is within one minute of expiry, or after a 401. It is
