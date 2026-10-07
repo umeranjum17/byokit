@@ -1,5 +1,6 @@
 import WORDS from './words.json' with { type: 'json' };
 import { createServer } from 'node:http';
+import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { connect, type Connection } from './connect.ts';
 import { ConnectError } from './errors.ts';
@@ -58,9 +59,10 @@ export async function connectLoopback(target: ProviderId | Provider | string, op
  * Absent file is `null` (Google not set up); a file other users can read, or any other client type, is refused. */
 export async function googleClientFile(path: string): Promise<OAuthClient | null> {
   let file;
-  try { file = await open(path, 'r'); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+  try { file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
   try {
     const info = await file.stat();
+    // Non-blocking open: a FIFO at the path is refused here instead of hanging.
     if (!info.isFile()) throw new Error(WORDS.clientFile.shape);
     if (process.platform !== 'win32' && info.mode & 0o077) throw new Error(WORDS.clientFile.mode);
     let installed: { client_id?: unknown; client_secret?: unknown } | undefined;

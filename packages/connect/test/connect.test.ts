@@ -378,6 +378,7 @@ test('house Google client file drives Gmail consent, an approved send, both deni
   // Missing: no file means Google is not set up; sign-in stops before any provider call.
   assert.equal(await googleClientFile(path), null);
   await assert.rejects(connect('gmail', { ...opts, redirectUri: 'http://127.0.0.1:1/callback' }).signIn(), error('configuration'));
+  assert.deepEqual(seen, []);
   // A readable-by-others file or a non-Desktop client is refused without echoing its contents.
   writeFileSync(path, JSON.stringify({ installed: { client_id: '123-house.apps.googleusercontent.com', client_secret: 'GOCSPX-secret-canary' } }), { mode: 0o644 }); chmodSync(path, 0o644);
   if (process.platform !== 'win32') await assert.rejects(googleClientFile(path), (e: Error) => e.message === WORDS.clientFile.mode);
