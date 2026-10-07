@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { Accounts, ResponseError, WORDS, callbackPage, memoryStore, recordStore, viewStore, type AuthHost, type Platform } from '../src/portable.ts';
 import { mockOpenAI } from '../src/testing/index.ts';
 import type { Record as CredentialRecord } from '../src/stores.ts';
-import { connect, pairWithOffer, startHost } from '../../link/test/helpers.ts';
+import { connect, pairWithOffer, startHost } from '../../pair/test/helpers.ts';
 import type { Credential } from '@earendil-works/pi-ai';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/account-identities-typescript.json', import.meta.url), 'utf8'));

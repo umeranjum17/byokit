@@ -6,8 +6,8 @@ import { hostId, keyPair, pairWithCode } from '@byokit/link';
 import { CLOSE, LIMITS, RelayClient, findHost } from '../src/index.ts';
 import { closed, device, hostClient, paired, sleep, startHost, startRelay, until } from './helpers.ts';
 import { linkUrl } from '../src/device.ts';
-import { Handshake, firstFrame } from '../../link/src/channel.ts';
-import { codeKey, parseCode } from '../../link/src/pairing.ts';
+import { Handshake, firstFrame } from '../../pair/src/channel.ts';
+import { codeKey, parseCode } from '../../pair/src/pairing.ts';
 
 test('linkUrl builds device addresses from host ids and findHost reuses the same address', async () => {
   const id = hostId(keyPair().publicKey);

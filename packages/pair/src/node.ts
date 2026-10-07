@@ -1,4 +1,4 @@
-// Node only (`@byokit/link/node`): host key and device grant files. Kept out of the main entry for browsers and React Native.
+// Node only (`@byokit/pair/node`): host key and device grant files. Kept out of the main entry for browsers and React Native.
 import { closeSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, unlinkSync, unwatchFile, watchFile, writeFileSync, writeSync } from 'node:fs';
 import type { Grant, GrantStore } from './host.ts';
 import { dirname } from 'node:path';

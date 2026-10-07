@@ -2,7 +2,7 @@
 // its pairing code for the phone at 10.0.2.2 (the emulator's name for this computer). Used by e2e-android.sh.
 import { createServer } from 'node:http';
 import ws from 'ws'; // this app's own copy (React Native's), older: the server is ws.Server
-import { Host, keyPair } from '../../packages/link/src/index.ts';
+import { Host, keyPair } from '../../packages/pair/src/index.ts';
 
 const port = Number(process.argv[2] ?? 21456);
 const host = await Host.open({

@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { WebSocketServer } from 'ws';
 import type { AddressInfo } from 'node:net';
-import { Host, keyPair, encodeOffer, parseOffer } from '../../packages/link/src/index.ts';
+import { Host, keyPair, encodeOffer, parseOffer } from '../../packages/pair/src/index.ts';
 import { serve } from './serve.ts';
 
 const site = await serve();

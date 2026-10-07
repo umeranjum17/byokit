@@ -154,7 +154,7 @@ The checked boxes mean the implementation and named evidence passed this review.
 remove the known limits above. Run the evidence offline after `npm ci` and `npm run build`:
 
 ```sh
-TMPDIR=/tmp sh scripts/test.sh 'packages/link/test/*.test.ts' 'packages/relay/test/*.test.ts'
+TMPDIR=/tmp sh scripts/test.sh 'packages/pair/test/*.test.ts' 'packages/relay/test/*.test.ts'
 ```
 
 | Row | Result and evidence (paths relative to this package) |

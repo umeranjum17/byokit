@@ -60,31 +60,31 @@
     "reason": "Cache/retry fragment omits hostConfig, input text and questions context."
   },
   {
-    "readme": "packages/link/README.md",
+    "readme": "packages/pair/README.md",
     "block": 2,
     "snapshot": "6615a56e17257f079ed1179dff9f136d800b0d4a3c7980b360682d9712f440cd",
     "reason": "Host fragment omits app database, confirmation UI, sockets, device id and broadcast event context."
   },
   {
-    "readme": "packages/link/README.md",
+    "readme": "packages/pair/README.md",
     "block": 3,
     "snapshot": "104c0237d8cba6b4d093e6ae60b59b65d33952e70ca694b987843ae224798c23",
     "reason": "Browser-offer fragment refers to an earlier host instance."
   },
   {
-    "readme": "packages/link/README.md",
+    "readme": "packages/pair/README.md",
     "block": 6,
     "snapshot": "d02faa7e333b55d99925215ad9b3fb76199b7536f9ab3dff137885127addd211",
     "reason": "Device fragment omits scanned offer, UI callbacks and host-provided secure storage."
   },
   {
-    "readme": "packages/link/README.md",
+    "readme": "packages/pair/README.md",
     "block": 7,
     "snapshot": "f6b80f4da0b89818f15a956c24c4470ab6282b4f472c86ccb3e362f75e42dd9f",
     "reason": "Device-storage fragment omits imports, SecureStore, scanned offer and callbacks."
   },
   {
-    "readme": "packages/link/README.md",
+    "readme": "packages/pair/README.md",
     "block": 8,
     "snapshot": "67ce688872f69c8c1f68316f396c70c25068889d295991053a6651be2284d5c0",
     "reason": "Stream fragment omits imports, host options, panes, device link and terminal context."

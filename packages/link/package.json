@@ -1,7 +1,7 @@
 {
   "name": "@byokit/link",
   "version": "0.7.0",
-  "description": "Scan a code to pair a phone or browser with the home computer over one encrypted link (Noise IK over WebSocket).",
+  "description": "Deprecated: renamed to @byokit/pair. Re-exports @byokit/pair unchanged through 0.8.x; removed in 0.9.0.",
   "license": "Apache-2.0",
   "type": "module",
   "repository": {
@@ -14,29 +14,24 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./dist/deprecated.d.ts",
+      "default": "./dist/deprecated.js"
     },
     "./node": {
-      "types": "./dist/node.d.ts",
-      "default": "./dist/node.js"
+      "types": "./dist/deprecated-node.d.ts",
+      "default": "./dist/deprecated-node.js"
     }
   },
   "files": [
     "dist",
-    "SECURITY.md",
+    "LICENSE",
     "CHANGELOG.md"
   ],
   "scripts": {
     "prepack": "tsc -b"
   },
   "dependencies": {
-    "@noble/ciphers": "2.4.0",
-    "b4a": "1.9.0",
-    "noise-handshake": "4.2.0",
-    "sodium-javascript": "0.8.0",
-    "sodium-native": "5.1.0",
-    "sodium-universal": "5.0.1"
+    "@byokit/pair": "0.7.0"
   },
   "publishConfig": {
     "access": "public"

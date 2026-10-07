@@ -1,0 +1,44 @@
+{
+  "name": "@byokit/pair",
+  "version": "0.7.0",
+  "description": "Scan a code to pair a phone or browser with the home computer over one encrypted link (Noise IK over WebSocket).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umeranjum17/byokit.git",
+    "directory": "packages/pair"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    }
+  },
+  "files": [
+    "dist",
+    "SECURITY.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "prepack": "tsc -b"
+  },
+  "dependencies": {
+    "@noble/ciphers": "2.4.0",
+    "b4a": "1.9.0",
+    "noise-handshake": "4.2.0",
+    "sodium-javascript": "0.8.0",
+    "sodium-native": "5.1.0",
+    "sodium-universal": "5.0.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

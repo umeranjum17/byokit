@@ -97,7 +97,7 @@ The checklist below records controls actually exercised by the loopback/fake-fet
 are relative to this package. Run after `npm ci` and `npm run build`:
 
 ```sh
-TMPDIR=/tmp sh scripts/test.sh 'packages/link/test/*.test.ts' 'packages/relay/test/*.test.ts'
+TMPDIR=/tmp sh scripts/test.sh 'packages/pair/test/*.test.ts' 'packages/relay/test/*.test.ts'
 ```
 
 - [x] Host proof requires the presented key and fresh challenge; enrolment/admission is the default, with explicitly capped open signup tested in `test/enrolment.test.ts`: `test/strict-auth.test.ts`, `test/enrolment.test.ts`; seed 0x3c04 in `test/parser-fuzz.test.ts` adds 64 challenge-bound proof, tamper, low-order and truncated-input cases.
