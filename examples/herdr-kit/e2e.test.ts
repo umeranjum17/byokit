@@ -82,7 +82,8 @@ const port = await new Promise<number>((resolve) => {
   const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address() as { port: number }; s.close(() => resolve(port)); });
 });
 const host = trackChild(spawn(process.execPath, ['host.ts', '--herdr', fakeHerdr, '--via', 'lan', '--port', String(port),
-  '--name', NAME, '--folder', dir, '--relay', relayAt, '--enrol', token], { cwd: app, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
+  '--name', NAME, '--folder', dir, '--relay', relayAt, `--enrol=${token}`], // `=` form: the token is b64url and may start with `-`
+  { cwd: app, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
 after(async () => { await browser.close(); host.kill('SIGTERM'); relay.close(); relayServer.closeAllConnections(); relayServer.close(); });
 let said = '';
 host.stdout.on('data', (b: Buffer) => { said += b.toString(); });
