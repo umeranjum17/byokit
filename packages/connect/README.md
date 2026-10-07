@@ -94,8 +94,9 @@ await attempt.done; // Then MailReader/MailSender on attempt.connection.
 ```
 
 `googleClientFile(path)` reads only the path the host passes. It returns `null` when
-the file is absent, and refuses a file other users can read or any client type
-other than Desktop app, with a plain message that never repeats the file's contents.
+the file is absent, and refuses a file other users can read, a non-regular file
+at the path, or any client type other than Desktop app, with a plain message
+that never repeats the file's contents.
 
 ## Check app details and inspect grant lifetime
 

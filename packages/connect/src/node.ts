@@ -56,7 +56,7 @@ export async function connectLoopback(target: ProviderId | Provider | string, op
   } catch (error) { cancelFlow?.(); settle(error); throw error; }
 }
 /** Reads the house Google client: the Desktop-app JSON downloaded from Google, at the path the host names.
- * Absent file is `null` (Google not set up); a file other users can read, or any other client type, is refused. */
+ * Absent file is `null` (Google not set up); a file other users can read, a non-regular file, or any other client type, is refused. */
 export async function googleClientFile(path: string): Promise<OAuthClient | null> {
   let file;
   try { file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
