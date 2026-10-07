@@ -258,4 +258,4 @@ Credentials, endpoint restrictions and redirect rejection are unchanged.
 The identity option allows a consumer to compare signaling latency; offline
 tests prove startup ordering, not a reduction in the remote provider's POST time.
 
-For an explicitly live microphone and subscription-provider proof, run [the bounded voice demo](../../examples/realtime-voice/README.md). It signs in through accounts, keeps credentials only in memory, and records connection facts and turn counts. Offline tests do not establish a live pass.
+For an explicitly live microphone and subscription-provider proof, run [the bounded voice demo](../../examples/realtime-voice/README.md). It signs in through accounts, keeping the sign-in at this computer's machine store, and records connection facts and turn counts. Offline tests do not establish a live pass.

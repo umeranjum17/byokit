@@ -401,11 +401,11 @@ only under the caller-supplied root; the caller owns its creation and cleanup.
 `mockOpenAI()` from `@byokit/accounts/testing` (or, from a repo checkout, `node packages/accounts/src/testing/mock-openai.ts [port]`) answers device code, its
 page where a person types the code, token exchange, refresh, revoke and streamed answers (echoing the question), so
 tests and demos sign in and ask end to end with no account. Point the kit at it with
-`new Accounts({ authBase, apiBase })`, as the [Quickstart](#quickstart) does.
+`new Accounts({ authBase, apiBase, store: () => memoryStore() })`, as the [Quickstart](#quickstart) does.
 
 `mockDevice()` stands in for any provider the catalogue gives device data: the code, the page that approves it,
 polling and refresh on that provider's own documented endpoints. Point the kit at it with
-`new Accounts({ deviceBase })`.
+`new Accounts({ deviceBase, store: () => memoryStore() })`.
 
 ## Links
 
@@ -572,7 +572,7 @@ Tokens belong in one device-owned `CredentialStore` per member. `keystoreStore(h
 `@byokit/secrets` without importing Node into the portable entry. Electron can pass safeStorage to `fileStore`;
 its sealed file writes atomically with mode 0600; a sealing adapter is required. Processes sharing one file take turns through a `<path>.lock` file beside it (see Refresh safety).
 Phones use `secureStore` with device-only accessibility. PWA `browserStore` uses IndexedDB and Web Locks; page
-scripts can read its credentials. Tokens are never collected by a BYOKit server or logged. The default is memory-only.
+scripts can read its credentials. Tokens are never collected by a BYOKit server or logged. There is no default store: pass one explicitly (`memoryStore()` only for sign-ins that end with the app).
 
 React Native hosts pass `claudePlan: { crypto: webCrypto }` when global Web Crypto is unavailable;
 `ClaudePlanPlatformError` reports missing secure randomness/SHA-256. Claude's token and profile endpoints don't answer
@@ -772,7 +772,7 @@ to agree to per-use billing before calling `saveKey`. These routes never enter
 `ladder`, even when a subscription is unavailable.
 
 ```ts
-import { Accounts } from '@byokit/accounts';
+import { Accounts, memoryStore } from '@byokit/accounts';
 import { fileStore } from '@byokit/secrets';
 import { jev, openai } from '@byokit/decide';
 
@@ -784,6 +784,7 @@ declare const chosenModel: string;
 const accounts = new Accounts({
   offer: ['openai', 'typesafe', 'openrouter'],
   keyStore: (member) => fileStore({ path: `${dataFolder}/${member}.keys`, passphrase }),
+  store: () => memoryStore(), // replace with your app's durable store
 });
 // After Umer explicitly agrees to billing per use, pass the entered key:
 await accounts.saveKey('Umer', 'typesafe', enteredKey, { billedPerUse: true });
@@ -845,9 +846,9 @@ interactions. Never expose credentials from that host-only handle in a UI or ano
 Built-in stores keep a non-secret account index alongside sealed credentials. Custom stores use `recordStore(load, save)` to supply the same transaction seam. New sign-ins are staged until they succeed:
 
 ```ts
-import { Accounts } from '@byokit/accounts';
+import { Accounts, memoryStore } from '@byokit/accounts';
 
-const accounts = new Accounts(); // in-memory store; pass your app's store to persist
+const accounts = new Accounts({ store: () => memoryStore() }); // in memory; pass your app's store to persist
 const added = await accounts.add('Umer', 'chatgpt', { via: 'code' });
 // Show added.signIn, then poll view('Umer', added.id) as with login.
 await accounts.finished('Umer', added.id);
@@ -867,14 +868,14 @@ charge a remote API. Auto **and Default** refuse non-subscription rows, even whe
 using its exact account id is explicit selection. `list()` carries the selected billing and its plain label.
 
 ```ts
-import { Accounts, ENDPOINT_PRESETS, type EndpointModel } from '@byokit/accounts';
+import { Accounts, ENDPOINT_PRESETS, memoryStore, type EndpointModel } from '@byokit/accounts';
 
 const model: EndpointModel = {
   id: 'your-installed-model', name: 'My model', reasoning: false, input: ['text'],
   contextWindow: 8192, maxTokens: 1024,
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, // host estimates, not billing evidence
 };
-const accounts = new Accounts(); // supply store(member) for durable metadata
+const accounts = new Accounts({ store: () => memoryStore() }); // supply your app's store(member) for durable metadata
 const { id } = await accounts.endpoint(1, { ...ENDPOINT_PRESETS.ollama, models: [model] });
 const runtime = await accounts.endpointRuntime(1, id);
 const selected = runtime.getModel(id, model.id)!;
@@ -913,9 +914,9 @@ Cloud routes are discovered alongside plans, but always chosen explicitly and bi
 or invoke a Workers binding. A ready cloud row means **configured**, not live authorization.
 
 ```ts
-import { Accounts, type Model } from '@byokit/accounts';
+import { Accounts, memoryStore, type Model } from '@byokit/accounts';
 declare const model: Model<'bedrock-converse-stream'>; // the app's selected pinned Pi model
-const accounts = new Accounts(); // use the member's app-owned store for durable accounts
+const accounts = new Accounts({ store: () => memoryStore() }); // use the member's app-owned store for durable accounts
 const signal = new AbortController().signal;
 const { id } = await accounts.addCloud(1, 'aws-bedrock', {
   route: 'aws-bedrock:cloud:aws-profile', via: 'cloud', profile: 'work',
@@ -979,12 +980,12 @@ cold Metro execution and lazy keys in a strict nested packed install. None requi
 ### Typed key-route example
 
 ```ts
-import { Accounts, type Model } from '@byokit/accounts';
+import { Accounts, memoryStore, type Model } from '@byokit/accounts';
 import type { Keystore } from '@byokit/secrets';
 
 export async function askWithKey(keyStore: (member: number) => Keystore,
   model: Model<'openai-completions'>, key: string) {
-  const accounts = new Accounts({ keyStore });
+  const accounts = new Accounts({ keyStore, store: () => memoryStore() }); // replace with your app's durable store
   const { id } = await accounts.add(1, 'groq:key', { via: 'key', key }); // API key (billed per use), explicitly selected
   return accounts.respond(1, { account: id, model, context: {
     messages: [{ role: 'user', content: 'Hello', timestamp: Date.now() }],
