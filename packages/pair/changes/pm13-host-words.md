@@ -1,0 +1,1 @@
+- FIX: the pairing picture's words match what the host now prints: scan the code, or type the shown code where the phone page asks for it, with no raw address to type.
