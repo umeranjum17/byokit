@@ -16,6 +16,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - Import public entries only; treat every command in a feature file as literal.
 - Set `feature`, `entry` and `drive` as the recipe specifies, then use SKILL.md Evidence’s Bash capture block to record the invoked command and actual exit code.
 - A drive that cannot show its output (or whose evidence file is missing after cleanup) is not a proof.
+- A user-visible change is proved by SKILL.md's review-evidence capture, not by hand: every changed screen before and after, in every theme and form factor the app has, plus one motion recording per changed interaction. A theme, form factor or screen the app does not have is written down in `manifest.json` with its reason; where the capture cannot reach a proof the reviewer asked for, extend the capture instead of capturing around it.
 - Report an unreachable surface (browser, React Native, Android, real provider) as unavailable with the attempted entry and the unmet precondition; never as verified through a different path.
 
 ## Available on this host
@@ -27,11 +28,12 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [Gmail send](./connect-mail-send.md) — `@byokit/connect` `MailSender` with fixture OAuth and a canned Gmail transport: approved, denied and missing-scope legs.
 - [House Google client file](./connect-house-client.md) — `googleClientFile` from `@byokit/connect/node` feeding a loopback Gmail sign-in and send: missing, refused, consent approved/denied and send approved/denied legs.
 - [Herdr task-owned HOME](./herdr-task-home.md) — `@byokit/herdr` `startAgent` with a task HOME on a real, isolated Herdr lab session (needs the environment's Herdr lab helper; never the person's own Herdr).
+- [PWA review evidence](./pwa-review-evidence.md) — frames and motion for a user-visible change, in every theme and form factor the app has.
 
 ## Not provable here (declare honestly, do not fake)
 
-- **Browser/PWA surface** (`examples/pwa`): needs Chromium via Playwright; drive only when the environment provides it (`npm run test:browser`).
-- **React Native / Expo** (`examples/expo`): runtime proof needs a configured emulator/device; see `CONTRIBUTING.md` for the existing bundle and emulator checks. Declare runtime proof unavailable when that prerequisite is unmet.
+- **Browser/PWA surface** (`examples/pwa`): needs Chromium via Playwright; drive only when the environment provides it (`npm run test:browser`, and the review-evidence capture, which brings its own Chromium fallback).
+- **React Native / Expo** (`examples/expo`): runtime proof needs a configured emulator/device; see `CONTRIBUTING.md` for the existing bundle and emulator checks. Declare runtime proof unavailable when that prerequisite is unmet. Its screens' phone frames and motion need that same device, so they are not captured from the web app instead.
 - **Android mirror** (`android/`): needs `JAVA_HOME`/`ANDROID_HOME`; `android/test.sh` covers it where configured.
 - **Real providers** (ChatGPT, Claude, …): no credentials, no egress, per repo test contract (`scripts/test-egress-guard.cjs`).
 
@@ -48,3 +50,4 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [connect-mail-send](./connect-mail-send.md) — one approval per message, denial without a request, `gmail.send` scope refusal.
 - [connect-house-client](./connect-house-client.md) — the house Google client file: missing/refused files, consent approve/deny, send approve/deny.
 - [herdr-task-home](./herdr-task-home.md) — an agent pane under a task-owned HOME, read from the agent process and from inside the pane.
+- [pwa-review-evidence](./pwa-review-evidence.md) — the review-evidence capture: before/after frames per theme and form factor, one motion recording per changed interaction.
