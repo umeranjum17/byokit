@@ -113,7 +113,7 @@ export function fileStore(path: string, safeStorage: SafeStorageLike): EndingSto
     }
     const touch = setInterval(() => { try { const now = new Date(); utimesSync(lockFile, now, now); } catch {} }, 5_000);
     touch.unref();
-    try { return await fn(); } finally { clearInterval(touch); unlinkSync(lockFile); }
+    try { return await fn(); } finally { clearInterval(touch); try { if (readFileSync(lockFile, 'utf8') === mine) unlinkSync(lockFile); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; } }
   };
   return recordStore(load, save, lock);
 }
