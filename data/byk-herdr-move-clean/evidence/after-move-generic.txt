@@ -1,5 +1,0 @@
-result: {"ok":true,"paneId":"new1"}
-agent.start name: my-chat-1d823e
---- new pane text ---
-claude --resume conv-123 (running)
---- pane.send_text payloads (0) ---
