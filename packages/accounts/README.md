@@ -286,8 +286,8 @@ may already have spent the grant. Storage failures before the send, such as a lo
   transaction across tabs. Without Web Locks, use one store instance and tab; multiple writers are only best-effort.
   Browser storage eviction, rollback and power-loss durability are outside this guarantee.
 - **Node/Electron `fileStore` with `portableEngine`**: the sealed file is atomically replaced and synced when Node
-  permissions permit; on POSIX the directory is synced too. Process restart retains the attempt. Use one instance per
-  path and a host lock across processes. On Windows or with Node's permission model, power-loss durability is best-effort.
+  permissions permit; on POSIX the directory is synced too. Process restart retains the attempt. A `<path>.lock` file
+  beside it serializes the whole transaction across processes; a dead holder's lock is removed. On Windows or with Node's permission model, power-loss durability is best-effort.
 - **`recordStore(load, save)`**: crash safety depends on the host's atomic, durable save completing before its promise
   resolves and a host lock across independent writers. A best-effort save makes refresh best-effort too.
 - **`memoryStore`**: serialized only in memory; there is no restart recovery. A bare custom `CredentialStore` can serve
@@ -444,8 +444,8 @@ supports opt-in dual-wrap migration through `@byokit/secrets`; a failed replacem
 original envelope usable. Hold the host writer lock for read upgrades as well as ordinary writes.
 
 Use an app-owned directory: the immediate folder must be a real 0700 directory and credential
-files must be private regular files. Reuse one store instance for each path; a host lock is required
-if several processes write the same file. See [SECURITY.md](SECURITY.md) for the threat model and limits.
+files must be private regular files. Processes writing the same file take turns through a `<path>.lock`
+file beside it. See [SECURITY.md](SECURITY.md) for the threat model and limits.
 
 **Migration from 0.7.x and earlier:** `fileStore(path)` is no longer accepted. Existing files already
 sealed with the same adapter remain readable. Plain JSON is never silently imported or overwritten.

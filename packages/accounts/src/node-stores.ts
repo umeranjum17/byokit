@@ -1,5 +1,5 @@
 // Desktop stores: sealed with a host-supplied adapter, such as Electron's safeStorage.
-import { constants, closeSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { constants, closeSync, fstatSync, fsyncSync, linkSync, lstatSync, statSync, utimesSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { dirname } from 'node:path';
 import { recordStore, type EndingStore } from './stores.ts';
@@ -16,8 +16,8 @@ export type SafeStorageLike = {
 };
 
 /** One person's sealed sign-ins in an app-owned 0600 file inside a private 0700 folder.
- * No plaintext fallback. Writes are serialized per store instance; use one instance per path and a host lock
- * if multiple processes share it. The host owns the adapter and its key, separately from this file. */
+ * No plaintext fallback. Writes, a whole refresh included, are serialized across every process sharing the path through
+ * a `<path>.lock` file beside it. The host owns the adapter and its key, separately from this file. */
 export function fileStore(path: string, safeStorage: SafeStorageLike): EndingStore {
   const ready = () => {
     if (!safeStorage || typeof safeStorage.encryptString !== 'function' || typeof safeStorage.decryptString !== 'function') {
@@ -82,5 +82,38 @@ export function fileStore(path: string, safeStorage: SafeStorageLike): EndingSto
       }
     } finally { if (created) try { unlinkSync(tmp); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; } }
   };
-  return recordStore(load, save);
+  // Processes sharing this path take turns through one lock file naming its holder (pid and a random tag); the holder
+  // touches it while it works. A waiter that finds the holder dead, or the file untouched for a while (a reused pid),
+  // claims `<lock>.<tag>` first, so exactly one waiter removes that lock.
+  const lockFile = `${path}.lock`;
+  /** Creates `file` already holding `text`, or returns false when it exists. */
+  const exclusive = (file: string, text: string) => {
+    const tmp = `${file}.${randomBytes(12).toString('hex')}.tmp`;
+    writeFileSync(tmp, text, { flag: 'wx', mode: 0o600 });
+    try { linkSync(tmp, file); return true; }
+    catch (e: any) { if (e?.code === 'EEXIST') return false; throw e; }
+    finally { unlinkSync(tmp); }
+  };
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e: any) { return e?.code === 'EPERM'; } };
+  const fresh = () => { try { return Date.now() - statSync(lockFile).mtimeMs < 30_000; } catch { return true; } };
+  const lock = async <T>(fn: () => Promise<T>): Promise<T> => {
+    mkdirSync(folder, { recursive: true, mode: 0o700 });
+    privateFolder();
+    const mine = `${process.pid} ${randomBytes(12).toString('hex')}`;
+    while (!exclusive(lockFile, mine)) {
+      let holder: string;
+      try { holder = readFileSync(lockFile, 'utf8'); } catch (e: any) { if (e?.code === 'ENOENT') continue; throw e; }
+      const [pid, tag] = holder.split(' ');
+      // ponytail: a waiter that dies between claiming and removing a dead holder's lock leaves both for a person to delete.
+      if ((!alive(Number(pid)) || !fresh()) && exclusive(`${lockFile}.${tag}`, mine)) {
+        try { if (readFileSync(lockFile, 'utf8') === holder) unlinkSync(lockFile); }
+        catch (e: any) { if (e?.code !== 'ENOENT') throw e; }
+        finally { unlinkSync(`${lockFile}.${tag}`); }
+      } else await new Promise((r) => setTimeout(r, 20));
+    }
+    const touch = setInterval(() => { try { const now = new Date(); utimesSync(lockFile, now, now); } catch {} }, 5_000);
+    touch.unref();
+    try { return await fn(); } finally { clearInterval(touch); unlinkSync(lockFile); }
+  };
+  return recordStore(load, save, lock);
 }

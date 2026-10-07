@@ -51,13 +51,15 @@ export async function refreshCredential(store: CredentialStore, id: string, due:
   throw new Error('Refresh requires a transactional credential store; use recordStore(load, save).');
 }
 
-/** A store over one whole record the platform loads and saves. Writes are serialized within this process; a write
- *  re-reads first, so a sign-in that took minutes never overwrites a provider that changed meanwhile. */
-export function recordStore(load: () => Promise<Record>, save: (data: Record) => Promise<void>): EndingStore {
+/** A store over one whole record the platform loads and saves. Writes are serialized within this process, and across
+ *  processes through `lock` when the platform has one; a write re-reads first, so a sign-in that took minutes never
+ *  overwrites a provider that changed meanwhile. */
+export function recordStore(load: () => Promise<Record>, save: (data: Record) => Promise<void>, lock = <T>(fn: () => Promise<T>) => fn()): EndingStore {
   let chain: Promise<unknown> = Promise.resolve();
-  const serial = <T>(fn: () => Promise<T>): Promise<T> => { const r = chain.then(fn); chain = r.catch(() => {}); return r; };
+  const serial = <T>(fn: () => Promise<T>): Promise<T> => { const r = chain.then(() => lock(fn)); chain = r.catch(() => {}); return r; };
   return {
-    index: (fn, options) => serial(async () => {
+    // Reading the index takes no turn, like read and list.
+    index: (fn, options) => (fn ? serial : <T>(f: () => Promise<T>) => f())(async () => {
       const data = { ...await load() };
       const before = fn && options?.signal ? JSON.parse(JSON.stringify(data)) as Record : undefined;
       const stored = data['.accounts'] as AccountsIndex | undefined;

@@ -111,8 +111,9 @@ export function withClaudePlan(engine: AuthHost, credentials: CredentialStore, l
     const c = await credentials.read(CLAUDE_PLAN_ID);
     if (c?.type !== 'oauth') return undefined;
     if (state.flight) return state.flight;
-    if (needsReauth(c) || state.spent.has(c.refresh)) throw new ClaudePlanExpiredError();
-    if (!due(c)) return c;
+    if (state.spent.has(c.refresh)) throw new ClaudePlanExpiredError();
+    // A refresh marker read outside the store's lock may be another process's refresh in flight; the lock decides.
+    if (!needsReauth(c) && !due(c)) return c;
     const work = refreshCredential(credentials, CLAUDE_PLAN_ID, due, async (current) => {
       if (!current.refresh || state.spent.has(current.refresh)) throw new ClaudePlanExpiredError();
       state.spent.add(current.refresh);
