@@ -47,6 +47,18 @@ const part = (page: Page, key: string, name: string) => page.locator(`#${key} [d
 
 const SCREENS: Screen[] = [
   {
+    id: 'signin-list',
+    path: '',
+    what: 'Signed-out provider list with logos and plan/pay-per-use chips',
+    themes: [...themes], // index.html ships both, through prefers-color-scheme
+    formFactors: ['phone', 'desktop'],
+    interaction: 'provider-list',
+    before: { via: 'ref' },
+    async drive(page) {
+      await part(page, 'chatgpt', 'status').filter({ hasText: /isn't signed in/ }).waitFor();
+    },
+  },
+  {
     id: 'signin',
     path: '',
     what: 'Sign in with ChatGPT by device code',
@@ -57,6 +69,59 @@ const SCREENS: Screen[] = [
     async drive(page) {
       await part(page, 'chatgpt', 'signin').click();
       await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).waitFor();
+    },
+  },
+  {
+    id: 'signin-connected',
+    path: '',
+    what: 'Connected card with plan badge and quiet Sign out',
+    themes: [...themes],
+    formFactors: ['phone', 'desktop'],
+    interaction: 'signin-connect',
+    before: { via: 'ref' },
+    async drive(page) {
+      await part(page, 'chatgpt', 'signin').click();
+      const code = (await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).textContent())!;
+      const [provider] = await Promise.all([page.context().waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
+      await provider.fill('#code', code.trim());
+      await provider.click('#continue');
+      await provider.close();
+      await part(page, 'chatgpt', 'status').filter({ hasText: /is connected/ }).waitFor();
+      await part(page, 'chatgpt', 'badge').filter({ hasText: /ChatGPT/ }).waitFor();
+    },
+  },
+  {
+    id: 'signin-error',
+    path: '',
+    what: 'Error banner with a retry as the single primary',
+    themes: [...themes],
+    formFactors: ['phone', 'desktop'],
+    interaction: 'signin-error',
+    before: { via: 'ref' },
+    async drive(page) {
+      await part(page, 'chatgpt', 'signin').click();
+      await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).waitFor();
+      // The provider refuses the poll outright: a red banner, not an amber one.
+      await page.route('**/api/accounts/deviceauth/token', (route) => route.fulfill({ status: 500,
+        json: { error: { code: 'deviceauth_invalid' } }, headers: { 'access-control-allow-origin': '*' } }));
+      await part(page, 'chatgpt', 'note').filter({ hasText: /didn't finish/i }).waitFor();
+    },
+  },
+  {
+    id: 'signin-expired',
+    path: '',
+    what: 'Expired code banner with a new sign-in as the single primary',
+    themes: [...themes],
+    formFactors: ['phone', 'desktop'],
+    interaction: 'signin-expired',
+    before: { via: 'ref' },
+    async drive(page) {
+      await part(page, 'chatgpt', 'signin').click();
+      await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).waitFor();
+      // The code is on the card; now the provider says it expired before it was typed there.
+      await page.route('**/api/accounts/deviceauth/token', (route) => route.fulfill({ status: 400,
+        json: { error: { code: 'deviceauth_expired' } }, headers: { 'access-control-allow-origin': '*' } }));
+      await part(page, 'chatgpt', 'note').filter({ hasText: /expired/i }).waitFor();
     },
   },
   {

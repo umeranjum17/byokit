@@ -20,7 +20,7 @@ Preconditions: baseline (features/README.md); heavy-job lock held for the whole 
 - **Run the capture.** `feature=review-evidence; entry=capture/review-evidence.ts; drive=(node .agents/skills/verify-byokit/capture/review-evidence.ts --base origin/main --slug <slug>)`, then run SKILL.md Evidence's capture block. Exit code `0`.
 - **What it writes.** `.verify-artifacts/review/<slug>/manifest.json` plus, per screen, `before`/`after` frames and one `motion__<interaction>__<theme>__<form>.webm` per theme and form factor. `signin` has light and dark (`index.html` themes on `prefers-color-scheme`); `usage` is light only, and the dark skip is written down with the reason.
 - **Form factors.** `phone` = 390×844 at 2×, `desktop` = 1280×800 — the widths `examples/pwa` lays out for (`usage.html` breaks at 700px; `index.html` is one column capped at 30em).
-- **Proof.** The frames show the real screen with its real state (`signin` after: the stand-in's `MOCK-…` code on the card; `usage` before/after: the old independent selectors and the fixed plan view on the same ledger), and the motion file is a recording of the interaction, not a screenshot series.
+- **Proof.** The frames show the real screen with its real state (`signin` after: the stand-in's `MOCK-…` code on the card; `signin-list` after: the signed-out provider rows; `signin-connected` after: the plan badge and quiet Sign out; `signin-expired` after: the expired banner over a fresh Sign in; `usage` before/after: the old independent selectors and the fixed plan view on the same ledger), and the motion file is a recording of the interaction, not a screenshot series.
 
 ## Gotchas
 
