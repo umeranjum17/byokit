@@ -19,6 +19,13 @@ const engineDir = resolve(process.env.R1_ENGINE_DIR ?? join(repo, '.tmp/r1/engin
 const tool = { name: 'note', description: 'task-owned test note', parameters: { type: 'object', properties: { phase: { type: 'string' } } } };
 const send = (data: unknown) => process.send?.(data);
 
+// Restart-time gate denials for the unowned recovering session: HEAD's registry-miss
+// 'unknown run' and the published kit's gateRun no-host branch "can't check this action
+// right now". Anything else is not a gate denial.
+const GATE_DENIALS = ['unknown run', "can't check this action right now"];
+const hasGateDenial = (transcripts: unknown): boolean =>
+  GATE_DENIALS.some((denial) => JSON.stringify(transcripts).includes(denial));
+
 if (process.argv[2] === 'worker') {
   const [stateDir, url, key, action] = process.argv.slice(3) as [string, string, string, string];
   // Inject only the test egress guard into the child's deliberately minimal env; no engine/source substitution.
@@ -233,7 +240,7 @@ if (process.argv[2] === 'worker') {
         assert.equal(row.provider.length, 3, 'one interrupted request + one two-request app continuation');
         assert.equal(entry.status, 'done');
         assert.ok(events.some(e => e.type === 'end' && e.result.ok && e.result.text === 'app task done'));
-        assert.equal(JSON.stringify(row.transcripts).includes('unknown run'), false);
+        assert.equal(hasGateDenial(row.transcripts), false);
         assert.equal(JSON.stringify(row.transcripts).includes('main_session_restart_recovery'), false);
         const initial = events.find(e => e.type === 'snapshot-before-restart')?.transcripts.find((t: any) => t.entries);
         assert.equal(JSON.parse(initial.entries[0].entry_json).sessionId, entry.sessionId, 'continuation preserves session identity');
@@ -241,7 +248,7 @@ if (process.argv[2] === 'worker') {
       if ((mode === 'late' && !owned) || mode === 'outside') {
         assert.equal(recovering, 2);
         assert.equal(row.provider.length, 5);
-        assert.ok(JSON.stringify(row.transcripts).includes('unknown run'));
+        assert.ok(hasGateDenial(row.transcripts), 'unowned recovery must carry a gate denial');
         assert.equal(entry.status, 'done');
         assert.ok(events.some(e => e.type === 'end' && e.result.ok));
       }
@@ -254,7 +261,7 @@ if (process.argv[2] === 'worker') {
         assert.equal(row.provider.length, 6, 'initial + three requeued interrupted attempts + final two-request continuation');
         assert.equal(entry.status, 'done');
         assert.equal(entry.mainRestartRecovery, undefined);
-        assert.equal(JSON.stringify(row.transcripts).includes('unknown run'), false);
+        assert.equal(hasGateDenial(row.transcripts), false);
         assert.equal(JSON.stringify(row.transcripts).includes('main_session_restart_recovery'), false);
         assert.ok(events.some(e => e.type === 'end' && e.result.ok));
       }
@@ -268,7 +275,7 @@ if (process.argv[2] === 'worker') {
       }
       console.log(JSON.stringify({ mode, key, requests: row.provider.length, recoveryRequests: recovering,
         outcomes: events.filter(e => e.type === 'end'), status: entry.status, recovery: entry.mainRestartRecovery,
-        unknownRun: JSON.stringify(row.transcripts).includes('unknown run') }));
+        gateDenial: hasGateDenial(row.transcripts) }));
     }
   } finally { await cleanup(); }
 }
