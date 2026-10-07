@@ -265,7 +265,8 @@ when no handler is set).
 
 `memoryStore()`, `fileStore(path, safeStorage)` (sealed, 0600), `secureStore(SecureStore, name,
 options?)` or `browserStore(name)`; any other storage with `recordStore(load, save)`. Writes are serialized within a
-store instance; `browserStore` also uses Web Locks across tabs for the whole record when available. Never a shared
+store instance; `fileStore` also serializes across processes through a `<path>.lock` file beside it, and
+`browserStore` uses Web Locks across tabs for the whole record when available. Never a shared
 fallback.
 
 ### Refresh safety
@@ -555,7 +556,7 @@ billing to an API key.
 
 Tokens belong in one device-owned `CredentialStore` per member. `keystoreStore(hostKeystore, 'member.1')` adapts
 `@byokit/secrets` without importing Node into the portable entry. Electron can pass safeStorage to `fileStore`;
-its sealed file writes atomically with mode 0600; a sealing adapter is required. Use one process per file (or a host-supplied cross-process lock).
+its sealed file writes atomically with mode 0600; a sealing adapter is required. Processes sharing one file take turns through a `<path>.lock` file beside it (see Refresh safety).
 Phones use `secureStore` with device-only accessibility. PWA `browserStore` uses IndexedDB and Web Locks; page
 scripts can read its credentials. Tokens are never collected by a BYOKit server or logged. The default is memory-only.
 
