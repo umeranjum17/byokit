@@ -23,6 +23,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 
 - [Accounts sign-in and ask](./accounts-signin.md) — the README quickstart against the built `@byokit/accounts` with `mockOpenAI()`.
 - [Catalogue device sign-in and the picker](./accounts-device.md) — RFC 8628 device sign-in for any provider the catalogue gives device data, with `mockDevice()`.
+- [Claude plan refresh](./accounts-claude-refresh.md) — a Claude plan sign-in kept through a lost refresh, rotated on retry, ended by a refusal.
 - [Usage plan view](./usage-planview.md) — `@byokit/usage` selectors over fixture call records via `examples/usage-demo.ts`.
 - [Fresh-project pack gate](./pack-fresh-project.md) — `npm run smoke:pack`: install packed tarballs into a scratch app and import them.
 - [Gmail send](./connect-mail-send.md) — `@byokit/connect` `MailSender` with fixture OAuth and a canned Gmail transport: approved, denied and missing-scope legs.
@@ -45,6 +46,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 
 - [accounts-signin](./accounts-signin.md) — device-code sign-in, status, streamed ask, and the error paths.
 - [accounts-device](./accounts-device.md) — the provider picker and a catalogue-driven device sign-in, refresh and decline.
+- [accounts-claude-refresh](./accounts-claude-refresh.md) — transient refresh keeps the sign-in, retry rotates the same grant, refusal signs out.
 - [usage-planview](./usage-planview.md) — plan/quota view rendered from call records.
 - [pack-fresh-project](./pack-fresh-project.md) — the packed-tarball fresh-consumer gate.
 - [connect-mail-send](./connect-mail-send.md) — one approval per message, denial without a request, `gmail.send` scope refusal.
