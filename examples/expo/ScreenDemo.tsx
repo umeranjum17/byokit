@@ -1,10 +1,17 @@
 import { useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
 import { overlay } from '@byokit/overlay';
 import { screenFrame, type ScreenFrameResult } from '@byokit/overlay/screen-frame';
 
+/** The marker ring is 19 dp in radius with a 2.5 dp stroke: its centre parks this far above the
+ *  target button's top edge, leaving a clear gap so neither ring nor label covers the button's text. */
+const RING_OUTER_DP = 21.5;
+const RING_CLEAR_DP = 16;
+
 /** Account-free native proof: opt in at build time with EXPO_PUBLIC_SCREEN_DEMO=1. */
 export function ScreenDemo() {
+  const scheme = useColorScheme();
+  const s = scheme === 'dark' ? dark : light;
   const target = useRef<View>(null);
   const [frame, setFrame] = useState<Extract<ScreenFrameResult, { status: 'captured' }> | null>(null);
   const [message, setMessage] = useState('Take a picture, then show Umer where to tap.');
@@ -25,7 +32,8 @@ export function ScreenDemo() {
   };
   const mark = (ms: number) => target.current?.measureInWindow(async (x, y, width, height) => {
     if (!frame) return;
-    const result = await overlay.pointHere({ x: (x + width / 2) * frame.space.density, y: (y + height / 2) * frame.space.density, label: 'Umer, tap here', space: frame.space, ms });
+    const d = frame.space.density;
+    const result = await overlay.pointHere({ x: (x + width / 2) * d, y: (y - RING_OUTER_DP - RING_CLEAR_DP) * d, label: 'Umer, tap here', space: frame.space, ms });
     setPoint(result === 'shown' ? 'Follow the ring.' : result === 'display-changed' ? 'Take a new picture after turning the phone.' : 'Start the guide first.');
   });
   return <View style={s.screen}>
@@ -37,6 +45,8 @@ export function ScreenDemo() {
     <Pressable testID="screenGuide" style={s.secondary} onPress={start}><Text style={s.secondaryText}>Start the guide</Text></Pressable>
     <View style={s.targetArea}>
       <Text style={s.caption}>A demo button beneath the marker</Text>
+      {/* Headroom for the parked ring: ring diameter plus the clear gap, so it never meets the caption. */}
+      <View style={s.markerZone} />
       <View ref={target} collapsable={false}>
         <Pressable testID="screenTarget" style={s.target} onPress={() => setTaps((n) => n + 1)}><Text style={s.targetText}>Umer’s next step</Text></Pressable>
       </View>
@@ -52,7 +62,7 @@ export function ScreenDemo() {
       onLoad={() => setMessage(`Picture ready. ${frame.width} × ${frame.height} pixels.`)} onError={() => setMessage('Could not open the picture.')} />}
   </View>;
 }
-const s = StyleSheet.create({
+const light = StyleSheet.create({
   screen: { flex: 1, paddingHorizontal: 24, paddingTop: 64, paddingBottom: 32, backgroundColor: '#f4f6ef', gap: 14 },
   eyebrow: { color: '#00674e', fontSize: 12, fontWeight: '700', letterSpacing: 1.5 },
   title: { fontSize: 30, fontWeight: '700', color: '#163a2d' },
@@ -63,9 +73,28 @@ const s = StyleSheet.create({
   secondaryText: { color: '#163a2d', fontWeight: '600', fontSize: 14 },
   targetArea: { marginVertical: 12, gap: 16, padding: 20, borderRadius: 16, backgroundColor: '#fff' },
   caption: { fontSize: 12, color: '#52695c' },
+  markerZone: { height: 64 },
   target: { padding: 22, borderRadius: 12, backgroundColor: '#e0e8d9', alignItems: 'center' },
   targetText: { fontSize: 17, fontWeight: '700', color: '#163a2d' },
   row: { flexDirection: 'row', gap: 8 },
   smallButton: { padding: 12, borderRadius: 10, backgroundColor: '#e0e8d9' },
   preview: { flex: 1, minHeight: 70, width: '100%', borderRadius: 12, backgroundColor: '#e0e8d9' },
+});
+const dark = StyleSheet.create({
+  screen: { flex: 1, paddingHorizontal: 24, paddingTop: 64, paddingBottom: 32, backgroundColor: '#0f1713', gap: 14 },
+  eyebrow: { color: '#7cc9a8', fontSize: 12, fontWeight: '700', letterSpacing: 1.5 },
+  title: { fontSize: 30, fontWeight: '700', color: '#ecf4ee' },
+  detail: { color: '#b7c8be', fontSize: 15, lineHeight: 21 },
+  button: { padding: 16, borderRadius: 12, backgroundColor: '#0e7a5b', alignItems: 'center' },
+  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  secondary: { padding: 12, borderRadius: 10, backgroundColor: '#1e2b25', alignItems: 'center' },
+  secondaryText: { color: '#e4efe8', fontWeight: '600', fontSize: 14 },
+  targetArea: { marginVertical: 12, gap: 16, padding: 20, borderRadius: 16, backgroundColor: '#151f1a' },
+  caption: { fontSize: 12, color: '#93a89d' },
+  markerZone: { height: 64 },
+  target: { padding: 22, borderRadius: 12, backgroundColor: '#223129', alignItems: 'center' },
+  targetText: { fontSize: 17, fontWeight: '700', color: '#f2f7f3' },
+  row: { flexDirection: 'row', gap: 8 },
+  smallButton: { padding: 12, borderRadius: 10, backgroundColor: '#1e2b25' },
+  preview: { flex: 1, minHeight: 70, width: '100%', borderRadius: 12, backgroundColor: '#1e2b25' },
 });
