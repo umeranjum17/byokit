@@ -1,14 +1,17 @@
 {
-  "rule": "A refresh transaction re-reads under the account's store lock, commits a non-secret generation attempt marker before sending, then commits the replacement pair before returning access. A failed attempt-marker save sends nothing. Only a provider refusal (400, 401 or 403, how invalid_grant arrives) marks the generation terminal; only no answer or a server error (5xx) sets it back to ready, so the stored grant is tried again and the sign-in is kept; any other answer, including an accepted 2xx that cannot be read, may have spent the grant and is uncertain. An attempted, uncertain or terminal generation requires sign-in again, even after reconstructing the store or requesting forced refresh. A replacement commit failure never returns the new access token or replays the old grant. A fresh sign-in replaces quarantine. This applies to the TypeScript portable engine, not the frozen Kotlin mirror or the desktop Pi engine.",
+  "rule": "A refresh transaction re-reads under the account's store lock, commits a non-secret generation attempt marker before sending, then commits the replacement pair before returning access. A failed attempt-marker save sends nothing. Only a refusal that proves the grant revoked (an OAuth invalid_grant error, or OpenAI's refresh_token_expired, refresh_token_reused or refresh_token_invalidated code) marks the generation terminal; no answer or any other refusal, a passing 401, 403 or 429 included, sets it back to ready, so the stored grant is tried again and the sign-in is kept; an accepted 2xx that cannot be read may have spent the grant and is uncertain. An attempted, uncertain or terminal generation requires sign-in again, even after reconstructing the store or requesting forced refresh. A replacement commit failure never returns the new access token or replays the old grant. A fresh sign-in replaces quarantine. This applies to the TypeScript portable engine, not the frozen Kotlin mirror or the desktop Pi engine.",
   "cases": [
     { "outcome": "lost-response", "state": "ready", "sends": 2 },
     { "outcome": "commit-failure", "state": "attempted", "sends": 1 },
-    { "outcome": "terminal", "status": 400, "state": "terminal", "sends": 1 },
-    { "outcome": "terminal", "status": 401, "state": "terminal", "sends": 1 },
-    { "outcome": "terminal", "status": 403, "state": "terminal", "sends": 1 },
+    { "outcome": "terminal", "status": 400, "body": "{\"error\":\"invalid_grant\",\"error_description\":\"canary-secret\"}", "state": "terminal", "sends": 1 },
+    { "outcome": "terminal", "status": 401, "body": "{\"error\":{\"code\":\"refresh_token_reused\",\"message\":\"canary-secret\"}}", "state": "terminal", "sends": 1 },
+    { "outcome": "terminal", "status": 403, "body": "{\"error\":\"invalid_grant\"}", "state": "terminal", "sends": 1 },
+    { "outcome": "passing-refusal", "status": 401, "body": "{\"error\":{\"message\":\"canary-secret\"}}", "state": "ready", "sends": 2 },
+    { "outcome": "passing-refusal", "status": 403, "state": "ready", "sends": 2 },
+    { "outcome": "passing-refusal", "status": 400, "body": "{\"error\":\"invalid_request\"}", "state": "ready", "sends": 2 },
     { "outcome": "server-error", "status": 500, "state": "ready", "sends": 2 },
     { "outcome": "unreadable-answer", "body": "{\"access_token\":\"not-a-token\"}", "state": "uncertain", "sends": 1 },
-    { "outcome": "rate-limited", "status": 429, "state": "uncertain", "sends": 1 },
+    { "outcome": "rate-limited", "status": 429, "state": "ready", "sends": 2 },
     { "outcome": "unchanged-grant", "state": "uncertain", "sends": 1 },
     { "outcome": "attempt-save-failure", "sends": 0 }
   ]

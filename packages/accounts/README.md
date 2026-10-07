@@ -273,12 +273,13 @@ fallback.
 
 `portableEngine` (the default on phones and in browsers) holds the store lock, re-reads the current sign-in, and saves
 a non-secret `byokitRefresh` generation/attempt marker in the credential record **before** sending a refresh grant.
-It commits the replacement pair before returning access. The provider refusing the grant (400, 401 or 403, how
-`invalid_grant` arrives), any other answer that may have spent it (an unchanged grant, an accepted answer that cannot be
-read), or a failure to save the replacement requires sign-in again; an attempted or quarantined generation is never
-retried, including by `recheck`. Only a lost response or a server error (5xx) keeps the sign-in: the marker is set back
-to ready and the stored grant is tried again on the next refresh. If the server had in fact spent it, that retry is
-refused and asks for sign-in then. If the attempt marker cannot be saved, nothing is sent. A fresh sign-in replaces
+It commits the replacement pair before returning access. The provider proving the grant revoked (`invalid_grant`, or
+OpenAI's `refresh_token_expired`, `refresh_token_reused` or `refresh_token_invalidated`), any other answer that may have
+spent it (an unchanged grant, an accepted answer that cannot be read), or a failure to save the replacement requires
+sign-in again; an attempted or quarantined generation is never retried, including by `recheck`. A lost response, a
+server error or any other refusal (a passing 401, 403 or 429 included) keeps the sign-in: the marker is set back to
+ready and the stored grant is tried again on the next refresh, so `recheck` and `access` never delete a sign-in over
+one. If the server had in fact spent it, that retry is refused and asks for sign-in then. If the attempt marker cannot be saved, nothing is sent. A fresh sign-in replaces
 quarantine. Storage failures before the send, such as a locked phone keychain, remain retryable.
 
 - **iOS/Android `secureStore`**: crash-safe across process restart after the platform acknowledges the marker write,
@@ -552,8 +553,8 @@ SHA-256 challenge), independent state, strict `code#state` validation, and direc
 `platform.claude.com/v1/oauth/token`. Refresh is single-flight for one store, saves an attempt before sending and commits the rotated credentials before
 returning access. An omitted replacement requires sign-in again. `ClaudePlanExpiredError` means sign in again, after a refused or uncertain rotation or a
 failed durable save of the rotated credentials; a persisted attempt prevents replay after restart and in other processes. A refresh that gets no answer
-or a server error, or whose attempt could not be saved, keeps the sign-in: it throws a plain error and the same grant is tried next time. Only a refusal
-removes the sign-in; an uncertain one stays marked so its grant is never sent again. A custom store must provide the refresh transaction seam (use
+or a server error, or whose attempt could not be saved, keeps the sign-in: it throws a plain error and the same grant is tried next time, as does a
+refusal that does not prove the grant revoked (a passing 401). Only `invalid_grant` removes the sign-in; an uncertain one stays marked so its grant is never sent again. A custom store must provide the refresh transaction seam (use
 `recordStore(load, save)`); a host lock is required for multiple processes. Local logout removes only this app's credentials; it does not promise server
 revocation. A Messages authentication refusal requests re-authentication without replaying the request or switching
 billing to an API key.

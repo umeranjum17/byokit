@@ -32,6 +32,16 @@ export class RefreshRequiredError extends Error {
   constructor() { super('This sign-in needs to be connected again.'); this.name = 'RefreshRequiredError'; }
 }
 
+/** Whether a token endpoint's refusal proves the grant revoked: OAuth's invalid_grant (RFC 6749 §5.2), or OpenAI's own
+ *  codes for it (as Codex reads them). A 400, 401 or 403 alone does not: an edge or a provider hiccup sends those too. */
+export function revoked(status: number, body: string) {
+  if (status < 400 || status > 499) return false;
+  try {
+    const error = JSON.parse(body)?.error;
+    return ['invalid_grant', 'refresh_token_expired', 'refresh_token_reused', 'refresh_token_invalidated'].includes(typeof error === 'string' ? error : error?.code);
+  } catch { return false; }
+}
+
 /** Legacy credentials have no marker. Unknown or incomplete state fails closed. */
 export function needsReauth(c: Credential | undefined): boolean {
   if (c?.type !== 'oauth' || c.byokitRefresh === undefined) return false;
@@ -101,12 +111,12 @@ export function recordStore(load: () => Promise<Record>, save: (data: Record) =>
       let next: OAuthCredential;
       try { next = await rotate(current); }
       catch (e: any) {
-        // The provider refusing the grant (invalid_grant arrives as 400, 401 or 403) ends the sign-in. Only no answer or a
-        // server error keeps it, the stored grant tried again next time as @byokit/connect does; any other answer may
-        // have spent it (an accepted but unreadable 2xx did).
+        // Only the provider proving the grant revoked (`revoked`, as invalid_grant) ends the sign-in. An accepted but
+        // unreadable 2xx may have spent it. No answer or any other refusal keeps it, the stored grant tried again next
+        // time as @byokit/connect does.
         const status = e?.status;
-        if ([400, 401, 403].includes(status)) { await settle('terminal'); throw new RefreshRequiredError(); }
-        if (typeof status === 'number' && status < 500) { await settle('uncertain'); throw new RefreshRequiredError(); }
+        if (e?.revoked === true) { await settle('terminal'); throw new RefreshRequiredError(); }
+        if (typeof status === 'number' && status >= 200 && status <= 299) { await settle('uncertain'); throw new RefreshRequiredError(); }
         await settle('ready');
         throw new Error(`The sign-in could not be refreshed over the network${status ? ` (the provider answered ${status})` : ''}; it is kept for the next try.`);
       }
