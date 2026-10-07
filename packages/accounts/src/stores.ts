@@ -94,16 +94,24 @@ export function recordStore(load: () => Promise<Record>, save: (data: Record) =>
       const write = async (c: OAuthCredential) => save({ ...(await load()), [id]: c });
       // Never send if this write fails. The marker stays in the same sealed record as the old pair.
       await write(attempted);
-      let next: OAuthCredential;
-      try {
-        next = await rotate(current);
-        if (next.refresh === current.refresh) throw new Error('Refresh did not replace the grant');
-        if (current.accountId && next.accountId !== current.accountId) throw new RefreshRequiredError();
-      }
-      catch (e: any) {
-        const state = [400, 401, 403].includes(e?.status) ? 'terminal' : 'uncertain';
-        // The before-send marker already prevents replay if the quarantine write also fails.
+      const settle = async (state: RefreshState['state']) => {
+        // The before-send marker already prevents replay if this write also fails.
         await write({ ...attempted, byokitRefresh: { generation, state } }).catch(() => {});
+      };
+      let next: OAuthCredential;
+      try { next = await rotate(current); }
+      catch (e: any) {
+        // The provider refusing the grant (invalid_grant arrives as 400, 401 or 403) ends the sign-in. Only no answer or a
+        // server error keeps it, the stored grant tried again next time as @byokit/connect does; any other answer may
+        // have spent it (an accepted but unreadable 2xx did).
+        const status = e?.status;
+        if ([400, 401, 403].includes(status)) { await settle('terminal'); throw new RefreshRequiredError(); }
+        if (typeof status === 'number' && status < 500) { await settle('uncertain'); throw new RefreshRequiredError(); }
+        await settle('ready');
+        throw new Error(`The sign-in could not be refreshed over the network${status ? ` (the provider answered ${status})` : ''}; it is kept for the next try.`);
+      }
+      if (next.refresh === current.refresh || (current.accountId && next.accountId !== current.accountId)) {
+        await settle(next.refresh === current.refresh ? 'uncertain' : 'terminal');
         throw new RefreshRequiredError();
       }
       const committed = { ...current, ...next, byokitRefresh: { generation: generation + 1, state: 'ready' } satisfies RefreshState };

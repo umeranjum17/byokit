@@ -1064,16 +1064,16 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         const c = await this.store(member).read(this.storageKey(key));
         return c?.type === 'oauth' && c.expires > Date.now();
       }
-      // A provider refusal or quarantined refresh requires sign-in again. A read failure before sending (for example
-      // a locked keychain) is unknown: try later.
+      // A provider refusal or quarantined refresh requires sign-in again. A lost answer, a server error or a read
+      // failure before sending (for example a locked keychain) is unknown: try later.
       const status = (e as any)?.status;
       return typeof status !== 'number' || status < 400 || status > 403;
     });
   }
 
   /** Refresh every signed-in account an hour ahead of expiry (call it now and then), so a sign-in never lapses while
-   *  nobody is looking. A refusal or uncertain refresh requires sign-in again; `onExpired` says so once. A storage
-   *  read failure before sending remains unknown and can be retried. */
+   *  nobody is looking. A refusal or uncertain refresh requires sign-in again; `onExpired` says so once. A lost answer,
+   *  a server error or a storage read failure before sending keeps the sign-in and is retried. */
   async keepFresh(members: readonly M[]) {
     for (const m of members) {
       const keys = new Set([...this.ready].filter(([id, ready]) => ready && id.startsWith(`${m}:`)).map(([id]) => this.accountKey(m, id.slice(String(m).length + 1))));

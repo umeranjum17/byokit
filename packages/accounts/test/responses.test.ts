@@ -3,8 +3,12 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Accounts, IncompleteError, ResponseError, isFunctionCall, limitResponse, offered, PROVIDERS, memoryStore, respond, sseReader, type ResponseStreamEvent } from '../src/portable.ts';
+import { join } from 'node:path';
+import { Accounts, IncompleteError, ResponseError, isFunctionCall, limitResponse, offered, PROVIDERS, memoryStore, respond, sseReader, type EndingStore, type ResponseStreamEvent } from '../src/portable.ts';
 import { mockOpenAI } from '../src/testing/index.ts';
+import { fileStore } from '../src/node-stores.ts';
+import { scratchDir } from '../../test-support.ts';
+import { sealing } from './sealing.ts';
 
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`../../../fixtures/conformance/${name}`, import.meta.url), 'utf8'));
 const openai = await mockOpenAI();
@@ -47,7 +51,7 @@ test('respond exposes only status and Retry-After metadata for callers retrying 
   }
 });
 
-async function signedIn(opts: { fetch?: typeof fetch } = {}) {
+async function signedIn(opts: { fetch?: typeof fetch; store?: () => EndingStore } = {}) {
   const a = new Accounts<any, number>({ store: () => memoryStore(), authBase: openai.base, apiBase: openai.base, ...opts });
   const v = (await a.login(1, 'chatgpt'))!;
   openai.approve(v.code!);
@@ -155,24 +159,32 @@ test('respond acts on coded failures in both SSE event forms', async () => {
   }
 });
 
-test('respond requires sign-in after an uncertain refresh and never replays the grant', async () => {
+test('a refresh lost to the network keeps the sign-in in the real fileStore and retries the same grant once it is back', async () => {
   openai.state.expiresIn = 0;
-  const a = await signedIn();
+  const path = join(scratchDir('transient-refresh'), 'people', '1', 'auth.json');
+  const a = await signedIn({ store: () => fileStore(path, sealing) });
   openai.state.expiresIn = 864_000;
+  const stored = () => JSON.parse(sealing.decryptString(readFileSync(path)))['openai-codex'];
+  const before = stored().refresh;
   const original = globalThis.fetch;
-  let sends = 0;
+  const sent: string[] = [];
+  let down = true;
   globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
     if (String(input) === `${openai.base}/oauth/token`) {
-      sends++;
-      return Promise.reject(new Error('fetch failed'));
+      sent.push(new URLSearchParams(String(init?.body)).get('refresh_token')!);
+      if (down) return Promise.reject(new Error('fetch failed'));
     }
     return original(input, init);
   }) as typeof fetch;
   try {
-    await assert.rejects(a.respond(1, { instructions: '', input: 'hi' }), (e: any) => e instanceof ResponseError && e.kind === 'signed_out');
-    assert.equal((await a.status(1, 'chatgpt')).state, 'needs_again');
-    await assert.rejects(a.respond(1, { instructions: '', input: 'hi' }), (e: any) => e instanceof ResponseError && e.kind === 'signed_out');
-    assert.equal(sends, 1);
+    await assert.rejects(a.respond(1, { instructions: '', input: 'hi' }), (e: any) => e instanceof ResponseError && e.kind === 'network');
+    assert.equal((await a.status(1, 'chatgpt')).state, 'ready', 'a lost answer is not a sign-out');
+    assert.equal(stored().refresh, before, 'the grant is kept');
+    down = false;
+    assert.ok(await a.respond(1, { instructions: '', input: 'hi' }), 'answered with the refreshed sign-in');
+    assert.deepEqual(sent, [before, before], 'the kept grant was retried, not a new sign-in');
+    assert.notEqual(stored().refresh, before);
+    assert.deepEqual(stored().byokitRefresh, { generation: 1, state: 'ready' });
   } finally { globalThis.fetch = original; }
 });
 
