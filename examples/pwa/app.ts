@@ -99,6 +99,10 @@ function card(key: string) {
       row.dataset.account = a.id;
       const head = document.createElement('div');
       head.className = 'acc-row';
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.dataset.state = a.state;
+      head.append(dot);
       const email = document.createElement('span');
       email.className = 'acc-email';
       email.dataset.email = '';
@@ -174,10 +178,8 @@ function card(key: string) {
     const waiting = shown?.state === 'waiting';
     if (mine !== drawing) return; // a later draw (a sign-out, say) already said how things are
     readRooms(rows).then((rooms) => { if (mine === drawing) drawRows(rows, rooms, { id: status.id, email: plan?.email }); });
-    q('status').textContent = status.words;
     q('badge').textContent = plan ? planLabel(name, plan.plan) : '';
     show('badge', !!plan?.plan);
-    el.dataset.state = waiting ? 'signing' : status.state;
     show('sheet', !!waiting && (phase === 'code' || phase === 'opening' || phase === 'waiting'));
     q('words').textContent = phase === 'code' ? `On the ${name} page, type this code:`
       : phase === 'waiting' ? `Sign in on the ${name} page, then copy the code it shows and paste it here.` : say('signIn.opening', { name });

@@ -29,8 +29,7 @@ test('sign in with ChatGPT in a browser: device code, the plan named, kept acros
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.goto(`${site.url}?openai=https://attacker.example`);
-  const status = part(page, 'chatgpt', 'status');
-  await assert.doesNotReject(status.filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor());
+  await part(page, 'chatgpt', 'signin').waitFor();
   assert.equal(await part(page, 'chatgpt', 'sheet').isVisible(), false, 'no sign-in sheet before the person starts');
 
   await part(page, 'chatgpt', 'signin').click();
@@ -45,19 +44,19 @@ test('sign in with ChatGPT in a browser: device code, the plan named, kept acros
   assert.match((await provider.locator('#words').textContent())!, /Signed in/);
   await provider.close();
 
-  await status.filter({ hasText: 'ChatGPT is connected.' }).waitFor();
+  await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).waitFor();
   await part(page, 'chatgpt', 'badge').filter({ hasText: 'ChatGPT Plus' }).waitFor();
   assert.equal(await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).textContent(), 'sara@example.com');
 
   await page.reload();
-  await status.filter({ hasText: 'ChatGPT is connected.' }).waitFor(); // kept in this browser's IndexedDB
+  await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).waitFor(); // kept in this browser's IndexedDB
 
   await part(page, 'chatgpt', 'signout').click();
-  await status.filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor();
+  await part(page, 'chatgpt', 'signin').waitFor();
   assert.equal(await part(page, 'chatgpt', 'sheet').isVisible(), false, 'old code is hidden after sign-out');
   assert.ok(openai.state.requests.some((r) => r.path === '/oauth/revoke'), 'ended at OpenAI too');
   await page.reload();
-  await status.filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor();
+  await part(page, 'chatgpt', 'signin').waitFor();
   assert.deepEqual(errors, []);
   await context.close();
 });
@@ -77,8 +76,7 @@ test('sign in with Claude in a browser: its page, the code pasted back, the plan
   await page.route('**/fwd/anthropic/api/oauth/profile', answer(JSON.stringify({ account: { email: 'umer@example.com' }, organization: { organization_type: 'claude_max' } })));
   await page.route('**/fwd/anthropic/v1/messages**', answer(messages.stream, 'text/event-stream'));
   await page.goto(site.url);
-  const status = part(page, 'claude', 'status');
-  await status.filter({ hasText: "Claude isn't signed in yet." }).waitFor();
+  await part(page, 'claude', 'signin').waitFor();
 
   await part(page, 'claude', 'signin').click();
   await page.locator('#claude [data-open][href*="state="]').waitFor();
@@ -88,7 +86,7 @@ test('sign in with Claude in a browser: its page, the code pasted back, the plan
   await part(page, 'claude', 'pasted').fill(`recorded-code#${open.searchParams.get('state')}`);
   await part(page, 'claude', 'connect').click();
 
-  await status.filter({ hasText: 'Claude is connected.' }).waitFor();
+  await page.locator('#claude [data-email]').filter({ hasText: 'umer@example.com' }).waitFor();
   await part(page, 'claude', 'badge').filter({ hasText: 'Claude Max' }).waitFor();
   assert.equal(await page.locator('#claude [data-email]').textContent(), 'umer@example.com');
   assert.equal(asked[0].body.code, 'recorded-code');
@@ -101,9 +99,9 @@ test('sign in with Claude in a browser: its page, the code pasted back, the plan
   assert.equal(inference.body.messages[0].content, 'Hello');
 
   await page.reload();
-  await status.filter({ hasText: 'Claude is connected.' }).waitFor(); // kept in this browser's IndexedDB
+  await page.locator('#claude [data-email]').filter({ hasText: 'umer@example.com' }).waitFor(); // kept in this browser's IndexedDB
   await part(page, 'claude', 'signout').click();
-  await status.filter({ hasText: "Claude isn't signed in yet." }).waitFor();
+  await part(page, 'claude', 'signin').waitFor();
   assert.equal((await fetch(`${site.url}fwd/elsewhere/x`)).status, 404, 'the page server passes on only to its named providers');
   await context.close();
 });
@@ -140,7 +138,7 @@ test('two ChatGPT plans: every plan listed with billing and room, Auto asks the 
   await page.goto(site.url);
   await part(page, 'chatgpt', 'signin').click();
   await approve();
-  await part(page, 'chatgpt', 'status').filter({ hasText: 'ChatGPT is connected.' }).waitFor();
+  await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).waitFor();
 
   openai.state.accountId = 'acct-2';
   openai.state.email = 'b@example.com';
@@ -217,7 +215,7 @@ test('Ask on both cards: one question at a time, Stop, and an older answer never
 
   for (const key of ['chatgpt', 'claude'] as const) {
     held.length = 0;
-    await part(page, key, 'status').filter({ hasText: /is connected\./ }).waitFor();
+    await page.locator(`#${key} [data-account]`).waitFor();
     const ask = part(page, key, 'ask'), stop = part(page, key, 'stop'), out = part(page, key, 'answer');
     const idle = async () => { assert.equal(await ask.isDisabled(), false); assert.equal(await stop.isVisible(), false); };
     await idle();
@@ -329,7 +327,7 @@ test('the README pictures: signed out, the code, connected', { skip: !process.en
     const context = await browser.newContext({ viewport: { width: 390, height: 450 }, deviceScaleFactor: 2 });
     const page = await context.newPage();
     await page.goto(site.url);
-    await part(page, 'chatgpt', 'status').filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor();
+    await part(page, 'chatgpt', 'signin').waitFor();
     return { context, page, shot: (name: string) => page.screenshot({ path: join(process.env.BYOKIT_EXAMPLE_SHOTS!, `${name}.png`) }) };
   };
   const first = await open();
@@ -345,14 +343,13 @@ test('the README pictures: signed out, the code, connected', { skip: !process.en
   await first.context.close();
 
   const { context, page, shot } = await open();
-  const status = part(page, 'chatgpt', 'status');
   await part(page, 'chatgpt', 'signin').click();
   const code = (await part(page, 'chatgpt', 'code').filter({ hasText: /-/ }).textContent())!;
   const [provider] = await Promise.all([context.waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
   await provider.fill('#code', code);
   await provider.click('#continue');
   await provider.close();
-  await status.filter({ hasText: 'ChatGPT is connected.' }).waitFor();
+  await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).waitFor();
   await shot('pwa-3-connected');
   await context.close();
 });
