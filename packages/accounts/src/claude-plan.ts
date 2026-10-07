@@ -3,17 +3,19 @@
 import type { AuthInteraction, CredentialStore, OAuthCredential } from '@earendil-works/pi-ai';
 import type { AuthHost } from './accounts.ts';
 import { anthropicMessages, type AnthropicRequest } from './anthropic.ts';
-import { needsReauth, refreshCredential, RefreshRequiredError } from './stores.ts';
+import { needsReauth, refreshCredential, RefreshRequiredError, revoked } from './stores.ts';
 
 export const CLAUDE_PLAN_ID = 'byokit-claude-plan';
 export const CLAUDE_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
 const REDIRECT = 'https://console.anthropic.com/oauth/code/callback';
 const SCOPES = 'org:create_api_key user:profile user:inference';
 
-/** A refused/uncertain rotation requires a new sign-in; its old refresh token must not be tried again. */
+/** A revoked/uncertain rotation requires a new sign-in; its old refresh token must not be tried again. */
 export class ClaudePlanExpiredError extends Error {
   readonly code = 'CLAUDE_PLAN_EXPIRED';
   readonly status = 401;
+  /** Thrown where a refresh is sent, it ends the sign-in (`recordStore` marks the grant terminal). */
+  readonly revoked = true;
   constructor() { super('Sign in with Claude again.'); this.name = 'ClaudePlanExpiredError'; }
 }
 export class ClaudePlanPlatformError extends Error {
@@ -84,8 +86,9 @@ export function withClaudePlan(engine: AuthHost, credentials: CredentialStore, l
       });
     } catch { throw new Error('Claude could not complete the sign-in on this connection.'); }
     if (!res.ok) {
-      if ([400, 401, 403].includes(res.status)) throw new ClaudePlanExpiredError();
-      throw new Error('Claude could not complete the sign-in. Try again later.');
+      // Only invalid_grant proves the grant revoked; any other refusal may pass, and the sign-in is kept.
+      if (revoked(res.status, await res.text().catch(() => ''))) throw new ClaudePlanExpiredError();
+      throw Object.assign(new Error('Claude could not complete the sign-in. Try again later.'), { status: res.status });
     }
     // An accepted answer (2xx) spent the grant even when it cannot be read; its status says so to the store.
     try { return await res.json(); } catch { throw Object.assign(new Error('Claude could not complete the sign-in. Try signing in again.'), { status: res.status }); }
@@ -126,7 +129,7 @@ export function withClaudePlan(engine: AuthHost, credentials: CredentialStore, l
       // No answer, a server error or storage failing before sending keeps the sign-in, its grant tried again next time.
       // The storage's own error is not shown: it may quote the record.
       if (!(e instanceof RefreshRequiredError)) throw sent ? e : new Error('Claude sign-in could not be refreshed in this device\'s storage; it is kept for the next try.');
-      // Only the provider refusing the grant ends the sign-in here; an uncertain one stays marked so it is never resent.
+      // Only the provider proving the grant revoked ends the sign-in here; an uncertain one stays marked so it is never resent.
       if (refused) await credentials.delete(CLAUDE_PLAN_ID).catch(() => {});
       throw new ClaudePlanExpiredError();
     });

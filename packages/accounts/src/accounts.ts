@@ -699,6 +699,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     let access: string | undefined;
     try { access = (await rt.getAuth(p.pi))?.auth?.apiKey; }
     catch (e: any) {
+      // The engine says 400-403 only for a revoked or quarantined grant; a passing refusal at refresh keeps the sign-in.
       if ([400, 401, 403].includes(e?.status)) {
         await rt.credentialStore.delete(p.pi);
         this.forgetAccount(member, key);
@@ -1064,16 +1065,16 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         const c = await this.store(member).read(this.storageKey(key));
         return c?.type === 'oauth' && c.expires > Date.now();
       }
-      // A provider refusal or quarantined refresh requires sign-in again. A lost answer, a server error or a read
-      // failure before sending (for example a locked keychain) is unknown: try later.
+      // A revoked (invalid_grant) or quarantined refresh requires sign-in again. A lost answer, any other refusal (a
+      // passing 401 included), a server error or a read failure before sending (a locked keychain) is unknown: try later.
       const status = (e as any)?.status;
       return typeof status !== 'number' || status < 400 || status > 403;
     });
   }
 
   /** Refresh every signed-in account an hour ahead of expiry (call it now and then), so a sign-in never lapses while
-   *  nobody is looking. A refusal or uncertain refresh requires sign-in again; `onExpired` says so once. A lost answer,
-   *  a server error or a storage read failure before sending keeps the sign-in and is retried. */
+   *  nobody is looking. A revoked or uncertain refresh requires sign-in again; `onExpired` says so once. A lost answer,
+   *  any other refusal, a server error or a storage read failure before sending keeps the sign-in and is retried. */
   async keepFresh(members: readonly M[]) {
     for (const m of members) {
       const keys = new Set([...this.ready].filter(([id, ready]) => ready && id.startsWith(`${m}:`)).map(([id]) => this.accountKey(m, id.slice(String(m).length + 1))));
@@ -1086,7 +1087,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     }
   }
 
-  /** After the account turned a request away: true if its sign-in still refreshes; if not, it is signed out for good. */
+  /** After the account turned a request away: true if its sign-in still refreshes or the refresh failed in passing; it is
+   *  signed out for good only when the provider proves the grant revoked (or the grant is quarantined). */
   async recheck(member: M, key: string) {
     key = await this.resolveKey(member, key);
     if (await this.endpointRecord(member, key)) { await this.logout(member, key); return false; }

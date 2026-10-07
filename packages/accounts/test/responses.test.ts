@@ -188,6 +188,50 @@ test('a refresh lost to the network keeps the sign-in in the real fileStore and 
   } finally { globalThis.fetch = original; }
 });
 
+test('a passing 401 at refresh keeps the sign-in in the real fileStore, after a due refresh or a refused request; only invalid_grant signs out', async () => {
+  openai.state.expiresIn = 0;
+  const path = join(scratchDir('passing-401-refresh'), 'people', '1', 'auth.json');
+  const a = await signedIn({ store: () => fileStore(path, sealing) });
+  const stored = () => JSON.parse(sealing.decryptString(readFileSync(path)))['openai-codex'];
+  const original = globalThis.fetch;
+  const sent: string[] = [];
+  let passing = true;
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) === `${openai.base}/oauth/token`) {
+      sent.push(new URLSearchParams(String(init?.body)).get('refresh_token')!);
+      if (passing) return Promise.resolve(new Response('{"error":{"message":"Unauthorized"}}', { status: 401 }));
+    }
+    return original(input, init);
+  }) as typeof fetch;
+  try {
+    // access(): the due refresh meets a 401 that names no revoked grant.
+    const first = stored().refresh;
+    await assert.rejects(a.respond(1, { instructions: '', input: 'hi' }), (e: any) => e instanceof ResponseError && e.kind === 'network');
+    assert.equal((await a.status(1, 'chatgpt')).state, 'ready', 'a passing 401 is not a sign-out');
+    assert.equal(stored().refresh, first, 'the grant is kept');
+    passing = false;
+    openai.state.expiresIn = 864_000;
+    assert.ok(await a.respond(1, { instructions: '', input: 'hi' }), 'answered once the provider is back');
+    assert.deepEqual(sent, [first, first], 'the kept grant was retried, not a new sign-in');
+    // recheck(): a refused request forces a refresh, which meets the same passing 401.
+    const second = stored().refresh;
+    passing = true;
+    openai.state.fail = { status: 401, body: JSON.stringify({ error: { message: 'Provided authentication token is expired.' } }) };
+    await assert.rejects(a.respond(1, { instructions: '', input: 'hi' }), (e: any) => e instanceof ResponseError && e.kind === 'overloaded');
+    assert.equal(stored().refresh, second, 'the grant is kept after the recheck');
+    assert.deepEqual(stored().byokitRefresh, { generation: 1, state: 'ready' });
+    passing = false;
+    assert.equal(await a.recheck(1, 'chatgpt'), true, 'the kept grant still refreshes');
+    assert.deepEqual(sent.slice(2), [second, second]);
+    // Proven revocation: the provider names the grant revoked (OpenAI's refresh_token_reused); only then is the sign-in deleted.
+    openai.state.refuse = true;
+    openai.state.fail = { status: 401, body: JSON.stringify({ error: { message: 'Provided authentication token is expired.' } }) };
+    await assert.rejects(a.respond(1, { instructions: '', input: 'hi' }), (e: any) => e instanceof ResponseError && e.kind === 'signed_out');
+    assert.equal(stored(), undefined, 'a revoked sign-in is deleted');
+    assert.notEqual((await a.status(1, 'chatgpt')).state, 'ready');
+  } finally { globalThis.fetch = original; Object.assign(openai.state, { refuse: false, expiresIn: 864_000, fail: undefined }); }
+});
+
 test('respond treats a refused refresh as signed out and needs another sign-in', async () => {
   openai.state.expiresIn = 0;
   const a = await signedIn();

@@ -248,7 +248,7 @@ test('refresh transaction fixtures: uncertain and terminal generations survive r
         assert.deepEqual(data['openai-codex'].byokitRefresh, { generation: 0, state: 'attempted' }, 'attempt saved before send');
         assert.equal(new URLSearchParams(String(init?.body)).get('refresh_token'), old.refresh, 'only ever the stored grant');
         if (row.outcome === 'lost-response') throw new Error('synthetic lost response with canary-secret');
-        if (row.status) return new Response('canary-secret', { status: row.status });
+        if (row.status) return new Response(row.body ?? 'canary-secret', { status: row.status });
         if (row.body) return new Response(row.body);
         return new Response(JSON.stringify({ ...response, refresh_token: row.outcome === 'unchanged-grant' ? old.refresh : 'rotated-grant' }));
       };

@@ -1,10 +1,10 @@
 # Claude plan refresh
 
-A consumer app holding a person's Claude plan sign-in keeps it through a refresh that gets no answer or a server error, and the next try rotates the same grant; only the provider refusing the grant signs the person out. All against a loopback stand-in for Claude's token endpoint.
+A consumer app holding a person's Claude plan sign-in keeps it through a refresh that gets no answer, a server error or a passing 401 (one that names no revoked grant), and the next try rotates the same grant; only the provider proving the grant revoked (`invalid_grant`) signs the person out. All against a loopback stand-in for Claude's token endpoint.
 
 ## Sub-features
 
-- `claude-refresh-transient`: a 503 from the token endpoint throws a plain error saying the sign-in is kept; `signedIn` stays `true` and `status` stays `ready`.
+- `claude-refresh-transient`: a 503, then a passing `401 {"error":{"type":"authentication_error"}}`, from the token endpoint each throw a plain error saying the sign-in is kept; `signedIn` stays `true` and `status` stays `ready`.
 - `claude-refresh-retry`: the next `getAuth` sends the same grant again and returns the rotated access.
 - `claude-refresh-refused`: an `invalid_grant` (400) throws `ClaudePlanExpiredError`, removes the stored sign-in and `status` reads `signed_out`.
 
@@ -16,9 +16,9 @@ A consumer app holding a person's Claude plan sign-in keeps it through a refresh
 
 Preconditions: baseline (features/README.md); no process of a previous drive is running.
 
-- **Write the consumer.** Create `"$scratch_dir/verify-claude-refresh.mjs"` importing `Accounts, memoryStore` from `@byokit/accounts`. Start a `node:http` server on `127.0.0.1:0` that records each JSON body's `refresh_token` and answers from a queue; pass its URL as `claudePlan.tokenUrl`. Seed `{ type: 'oauth', access: 'old-access', refresh: 'grant-1', expires: Date.now() + 60_000 }`. Queue and call `getAuth` three times: `503 {}`; `200 { access_token: 'new-access', refresh_token: 'grant-2', expires_in: 60 }`; `400 { error: 'invalid_grant' }`. After each, print the result or the error's name and message, `signedIn`, `status().state` and the grants sent. Close the server at the end.
+- **Write the consumer.** Create `"$scratch_dir/verify-claude-refresh.mjs"` importing `Accounts, memoryStore` from `@byokit/accounts`. Start a `node:http` server on `127.0.0.1:0` that records each JSON body's `refresh_token` and answers from a queue; pass its URL as `claudePlan.tokenUrl`. Seed `{ type: 'oauth', access: 'old-access', refresh: 'grant-1', expires: Date.now() + 60_000 }`. Queue and call `getAuth` four times: `503 {}`; `401 {"error":{"type":"authentication_error","message":"Unauthorized"}}`; `200 { access_token: 'new-access', refresh_token: 'grant-2', expires_in: 60 }`; `400 { error: 'invalid_grant' }`. After each, print the result or the error's name and message, `signedIn`, `status().state` and the grants sent. Close the server at the end.
 - **Run and capture.** `feature=accounts-claude-refresh; entry=@byokit/accounts; drive=(node "$scratch_dir/verify-claude-refresh.mjs")`, then run SKILL.md Evidence's capture block. Exit code `0`.
-- **Happy path shows.** After the 503: an `Error` whose message says the sign-in is kept, `signedIn=true status=ready`; after the rotation: `access=new-access` with grants sent `["grant-1","grant-1"]`.
+- **Happy path shows.** After the 503 and after the 401: an `Error` whose message says the sign-in is kept, `signedIn=true status=ready`; after the rotation: `access=new-access` with grants sent `["grant-1","grant-1","grant-1"]`.
 - **Error case shows.** `ClaudePlanExpiredError: Sign in with Claude again.`, `signedIn=false status=signed_out`, and the stored credential gone.
 - **Proof.** The captured artifact contains command output for the action and resulting state of every sub-feature above.
 

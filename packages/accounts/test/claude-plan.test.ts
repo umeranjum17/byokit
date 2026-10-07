@@ -107,8 +107,9 @@ test('invalid grant and missing refresh require sign-in; failed durable rotation
   }
 });
 
-test('a refresh that gets no answer or a server error keeps the Claude sign-in and the next try rotates the same grant', async () => {
-  for (const lost of [async () => { throw new Error('recorded-refresh'); }, async () => new Response('{}', { status: 503 })]) {
+test('a refresh that gets no answer, a server error or a passing 401 keeps the Claude sign-in and the next try rotates the same grant', async () => {
+  for (const lost of [async () => { throw new Error('recorded-refresh'); }, async () => new Response('{}', { status: 503 }),
+    async () => new Response('{"error":{"type":"authentication_error","message":"recorded-refresh"}}', { status: 401 })]) {
     const store = memoryStore(); await store.modify(id, async () => token());
     const sent: string[] = [];
     let answer = lost;

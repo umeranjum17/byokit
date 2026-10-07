@@ -6,7 +6,7 @@
 import type { AuthEvent, AuthInteraction, Credential, CredentialStore, OAuthCredential } from '@earendil-works/pi-ai';
 import type { AuthHost } from './accounts.ts';
 import { deviceFlow, PROVIDERS, type DeviceFlow } from './catalogue.ts';
-import { RefreshRequiredError, refreshCredential } from './stores.ts';
+import { RefreshRequiredError, refreshCredential, revoked } from './stores.ts';
 
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const CODE_LIVES_S = 15 * 60;
@@ -157,7 +157,7 @@ const deviceRefresh = (flow: DeviceFlow, name: string, base?: string) => async (
   const t = setTimeout(() => stop.abort(), 15_000);
   try {
     const r = await form(at(flow.token, base), { grant_type: 'refresh_token', client_id: flow.clientId, refresh_token: c.refresh }, stop.signal);
-    if (r.status < 200 || r.status > 299) { throw Object.assign(new Error(`${name} token refresh failed (${r.status})`), { status: r.status }); }
+    if (r.status < 200 || r.status > 299) { throw Object.assign(new Error(`${name} token refresh failed (${r.status})`), { status: r.status, revoked: revoked(r.status, r.body) }); }
     // An answer the provider accepted (2xx) spent the grant even when it cannot be read; keep its status to say so.
     try { return deviceCredential(json(r.body), name, c.refresh); } catch (e) { throw Object.assign(e as Error, { status: r.status }); }
   } finally { clearTimeout(t); }
@@ -179,7 +179,7 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
     }
   };
   const tokens = async (what: 'exchange' | 'refresh', r: { status: number; body: string }) => {
-    if (r.status < 200 || r.status > 299) throw Object.assign(new Error(`OpenAI Codex token ${what} failed (${r.status})`), { status: r.status });
+    if (r.status < 200 || r.status > 299) throw Object.assign(new Error(`OpenAI Codex token ${what} failed (${r.status})`), { status: r.status, revoked: revoked(r.status, r.body) });
     try { return credentialOf(json(r.body)); } catch (e) { throw Object.assign(e as Error, { status: r.status }); }
   };
   /** Each provider refreshes at its own token endpoint; a failure never reaches the person as anything but a reason. */
@@ -189,13 +189,13 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
       const stop = new AbortController();
       const t = setTimeout(() => stop.abort(), 15_000);
       try { return await tokens('refresh', await post('/oauth/token', { grant_type: 'refresh_token', refresh_token: c.refresh, client_id: CLIENT_ID }, true, stop.signal)); }
-      catch (e: any) { throw Object.assign(new Error(`OAuth refresh failed for ${id}: ${e?.message ?? e}`), { status: e?.status }); }
+      catch (e: any) { throw Object.assign(new Error(`OAuth refresh failed for ${id}: ${e?.message ?? e}`), { status: e?.status, revoked: e?.revoked }); }
       finally { clearTimeout(t); }
     };
     const name = nameOf(id);
     return async (c: OAuthCredential) => {
       try { return await deviceRefresh(flow, name, deviceBase)(c); }
-      catch (e: any) { throw Object.assign(new Error(`OAuth refresh failed for ${id}: ${e?.message ?? e}`), { status: e?.status }); }
+      catch (e: any) { throw Object.assign(new Error(`OAuth refresh failed for ${id}: ${e?.message ?? e}`), { status: e?.status, revoked: e?.revoked }); }
     };
   };
   const known = (id: string) => { if (!signable(id)) throw new Error(`${id} can't be signed in to on this device`); };
