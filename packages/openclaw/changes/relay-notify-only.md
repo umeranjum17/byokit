@@ -1,1 +1,0 @@
-- The `relay` option takes anything with `RelayClient`'s `notify`, so a host can hand the kit a relay it opens after `Host.open` (the client needs the open host). A `RelayClient` still fits; behaviour is unchanged.

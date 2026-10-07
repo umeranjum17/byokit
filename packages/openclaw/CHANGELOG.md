@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.6.3 (2026-10-07)
+
+- Dependency update: pins @byokit/relay 0.5.3.
+- Dependency update: pins @byokit/link 0.7.1.
+
+- FIX: Route `anthropic-cli` now reports provider `claude-cli`, the id `signedIn`, `providers()` and runs already use for a Claude Code login, so `kit.signedIn(member, route.provider)` answers true once Claude Code is signed in. **Deprecated:** the old provider `anthropic` on this route; it stays readable as `route.deprecatedProvider` (`'anthropic'`) through 0.7.x and is removed in 0.8.0. Match this route by `provider === 'claude-cli'` (or by `choice === 'anthropic-cli'`). The route id `anthropic:cli:anthropic-cli` is kept through 0.7.x and becomes `claude-cli:cli:anthropic-cli` in 0.8.0; choice `anthropic-cli` and the `{ provider: 'claude-cli', via: 'browser' }` link selector are unchanged. `anthropic` remains the API-billed provider only: a Claude Code login never makes `signedIn(member, 'anthropic')` true.
+FIX: Engine start on macOS no longer sticks on a dead-but-unreaped guard process. `pidAlive` detects zombies portably — `ps` state where there is no `/proc` — instead of Linux-only `/proc`, so a stale guard reads as stopped and start can recover. A live pid still reads as owned, an invalid guard still reads as ambiguous, and anything unexpected from the probe keeps the guard. Linux answers are unchanged.
+- FIX: Code sign-ins whose pinned engine prints the code only into a note now hand the caller the code, link, expiry (`expiresAt`) and instructions (`message`) in the same `SignInView` shape as structured codes, and wait out device approval instead of failing with `gateway request timeout for wizard.next` after two minutes.
+- The O16 day-usage engine tests no longer fail when a run straddles UTC midnight: a case that could still be running at midnight starts just after it, so the day (and month) it reads is the day its engine stamps charges in.
+- The `relay` option takes anything with `RelayClient`'s `notify`, so a host can hand the kit a relay it opens after `Host.open` (the client needs the open host). A `RelayClient` still fits; behaviour is unchanged.
+- FIX: The sealed credential store is written as `v: 1` again. 0.6.2's `v: 2` tag made every earlier kit (through 0.6.1) refuse an intact store with `invalid sealed credential store`, so a host rolled back to an earlier kit could not start and lost its saved sign-in. `v: 2` stores still restore and re-seal as `v: 1`.
+- A saved store the key cannot open (a different key, damaged or tampered bytes) or whose payload is not a credential snapshot no longer blocks engine start: it is kept as `auth-store.sealed.unreadable-<ms>` (never overwritten or deleted), the engine starts signed out, and the kit reports `{ phase: 'ready', why: 'sign-in-reset' }` with the words "Your saved sign-in couldn't be opened, so it was kept aside. Sign in again." until a sign-in through the kit completes.
+- FIX: Every wizard `text` step now reaches the caller as `SignInView.prompt`, not only sensitive ones. A non-sensitive step shows the engine's question as written (`github-copilot-enterprise` asks for the Enterprise domain first), so the sign-in no longer waits 15 minutes on a screen with nothing to answer. Once a step is sensitive (or the choice is `setup-token`), the prompt stays the fixed `Sign-in token` label and no gateway prose is shown, as before.
+- FIX: `setup-token` is no longer offered. The pinned Gateway has no app-guided sign-in for it and refuses every attempt with "That provider setup is not available on this Gateway.", so it is listed with `readiness: 'no_upstream_flow'`, the link no longer maps `{ provider: 'anthropic', via: 'browser' }` to it. `plugins.allow` now holds the plugin of every default-eligible bundled route rather than only the ready ones, so `anthropic-cli` and `apiKey` keep the `anthropic` plugin allowed without app config.
+- The R1 restart-recovery probe accepts both restart-time gate denials for the unowned recovering session (HEAD's `unknown run` and the published kit's `can't check this action right now`); any other transcript text still fails the denial assertion.
+
 ## 0.6.2 (2026-10-05)
 
 FIX: The browser broker now holds its CDP endpoint back until Chromium's initial tab exists, so `/json/list` can never serve an empty browser to an attaching engine on a cold or slow start; a browser that never lists a tab fails the launch honestly instead.

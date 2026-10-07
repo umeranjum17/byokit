@@ -1,1 +1,0 @@
-- `startAgent` with a record `env` that sets `HOME` now also places the pane's XDG config, data, state and cache directories under that home (unless set), so a sign-in inside the pane stays in the task-owned home instead of the server's.

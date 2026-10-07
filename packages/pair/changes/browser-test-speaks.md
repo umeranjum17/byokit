@@ -1,1 +1,0 @@
-- The browser pairing test now keeps the browser's own scrubbed launch log, exit code and runner pressure next to its result (CI uploads them), stops waiting the moment the browser exits, and names the last step reached when it times out.

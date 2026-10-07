@@ -1,6 +1,6 @@
 {
   "name": "@byokit/link",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Deprecated: renamed to @byokit/pair. Re-exports @byokit/pair unchanged through 0.8.x; removed in 0.9.0.",
   "license": "Apache-2.0",
   "type": "module",
@@ -31,7 +31,7 @@
     "prepack": "tsc -b"
   },
   "dependencies": {
-    "@byokit/pair": "0.7.0"
+    "@byokit/pair": "0.8.0"
   },
   "publishConfig": {
     "access": "public"

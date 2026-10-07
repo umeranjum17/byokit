@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.7.1 (2026-10-07)
+
+- Dependency update: pins @byokit/pair 0.8.0.
+
+- **Deprecated:** `@byokit/link` is renamed to `@byokit/pair`. This package is now a shim that re-exports `@byokit/pair` (`@byokit/link` and `@byokit/link/node` alike), so existing imports keep working unchanged through 0.8.x; it is removed in 0.9.0. Install `@byokit/pair` and change the import specifier; the API and the Node-only `./node` entry are the same.
+
 ## 0.7.0 (2026-10-01)
 
 

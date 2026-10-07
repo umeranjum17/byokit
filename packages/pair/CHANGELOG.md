@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.8.0 (2026-10-07)
+
+- Add redacted startup, page/module and link-stage diagnostics to the browser pairing test; the intermittent CI timeout's root cause remains unknown.
+- The browser pairing test now keeps the browser's own scrubbed launch log, exit code and runner pressure next to its result (CI uploads them), stops waiting the moment the browser exits, and names the last step reached when it times out.
+- Add `Host.compactOffer`: a QR-sized pairing offer carrying the same secret a typed code uses (same single use, short life, two-word compare and device approval, through one code entry) plus the packed dial addresses. A standard single-address offer encodes to under 80 characters, so its QR is version 4 or lower and fits an 80x24 terminal. `pairWithOffer` scans both compact and `byokit-link:1` offers; version 1 generation and parsing are unchanged.
+- Add optional `onGrantRemoved` privacy cleanup at the canonical durable grant-removal, expiry and authority-change boundary, including offline grants. Access is invalidated before cleanup is awaited; socket drops do not trigger it, and cleanup failure never restores access.
+- `@byokit/link` is now published as `@byokit/pair`, with the same API and the same Node-only `./node` entry; its earlier versions are the `@byokit/link` releases below. **Deprecated:** the `@byokit/link` name; it stays published as a shim that re-exports this package through 0.8.x and is removed in 0.9.0.
+
 ## 0.7.0 (2026-10-01)
 
 
