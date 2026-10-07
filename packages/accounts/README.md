@@ -577,8 +577,10 @@ Protocol references: [Hermes credentials at 57a22675, PKCE/exchange](https://git
 [oh-my-pi auth rule at 2b023d1b](https://github.com/can1357/oh-my-pi/blob/2b023d1b80133c523d66412602d99b5427408395/packages/catalog/src/compat/rules/auth/anthropic.kdl#L1),
 and [oh-my-pi refresh](https://github.com/can1357/oh-my-pi/blob/2b023d1b80133c523d66412602d99b5427408395/packages/ai/src/registry/engine/refresh.ts#L62).
 The common route follows Hermes's platform token host, three scopes and `axios/1.7.9` token User-Agent,
-with inference `claude-code/2.1.74 (external, cli)`, `x-app: cli`, bearer authorization, Messages version
-`2023-06-01` and betas `claude-code-20250219,oauth-2025-04-20`. The implementation is independent;
+with inference `x-app: cli`, bearer authorization, Messages version
+`2023-06-01` and betas `claude-code-20250219,oauth-2025-04-20`. The client value sent as the inference
+User-Agent is the host's: pass `claudeUserAgent` (or a `headers` entry) and your value wins over the route's
+defaults; the kit sends none of its own and never names a client version. The implementation is independent;
 [NOTICE](NOTICE) records the MIT protocol references.
 
 ## Choosing between accounts
