@@ -5,7 +5,10 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { build } from 'esbuild';
 import { connect, ConnectError, providers, type Provider, type ConnectOptions, CallToolResultSchema, ToolListChangedNotificationSchema } from '../src/index.ts';
-import { connectLoopback } from '../src/node.ts';
+import { connectLoopback, googleClientFile } from '../src/node.ts';
+import { MailSender, MailError } from '../src/index.ts';
+import { chmodSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { osKeyringSeal, overrideStore } from '../../secrets/src/index.ts';
 import type { Keystore } from '@byokit/secrets';
@@ -268,7 +271,7 @@ test('browser entry bundles without runtime Node, filesystem or keystore code', 
   const result = await build({ entryPoints: ['packages/connect/src/index.ts'], bundle: true, platform: 'browser', format: 'esm', write: false, metafile: true });
   assert.ok(result.outputFiles[0].text.length > 0);
   assert.ok(!Object.keys(result.metafile!.inputs).some(path => /packages\/secrets|node:|\/src\/node\.ts/.test(path)));
-  for (const text of [...Object.values(WORDS.errors), ...Object.values(WORDS.browser), ...Object.values(WORDS.verification)]) assert.doesNotMatch(text, new RegExp(plain.pattern, 'i'));
+  for (const text of [...Object.values(WORDS.errors), ...Object.values(WORDS.browser), ...Object.values(WORDS.verification), ...Object.values(WORDS.clientFile)]) assert.doesNotMatch(text, new RegExp(plain.pattern, 'i'));
   assert.equal(providers.gmail.scopes[0], 'https://www.googleapis.com/auth/gmail.readonly');
 });
 
@@ -359,4 +362,52 @@ test('authorization and callback failures retain sanitized provider causes', asy
     assert.ok(e instanceof ConnectError); assert.equal(e.code, 'declined'); assert.equal(e.cause?.error, 'access_denied');
     assert.doesNotMatch(JSON.stringify(e.cause), /canary/); return true;
   });
+});
+
+test('house Google client file drives Gmail consent, an approved send, both denials and a missing client', async () => {
+  const dir = scratchDir('connect-house'), path = join(dir, 'google-oauth-client.json');
+  const store = memory(), seen: string[] = [], forms: URLSearchParams[] = [];
+  const SCOPES = [...providers.gmail.scopes, 'https://www.googleapis.com/auth/gmail.send'];
+  const google: typeof fetch = async (input, init) => {
+    const url = new URL(String(input)); seen.push(url.host + url.pathname);
+    if (url.href === providers.gmail.oauth.token) { forms.push(new URLSearchParams(init?.body as URLSearchParams)); return response({ access_token: 'access-canary', refresh_token: 'refresh-canary', token_type: 'Bearer', expires_in: 3600, scope: SCOPES.join(' ') }); }
+    assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer access-canary');
+    return response({ id: 'sent-1', threadId: 't-1', labelIds: ['SENT'] });
+  };
+  const opts = { store, person: 'Umer', scopes: SCOPES, fetch: google };
+  // Missing: no file means Google is not set up; sign-in stops before any provider call.
+  assert.equal(await googleClientFile(path), null);
+  await assert.rejects(connect('gmail', { ...opts, redirectUri: 'http://127.0.0.1:1/callback' }).signIn(), error('configuration'));
+  // A readable-by-others file or a non-Desktop client is refused without echoing its contents.
+  writeFileSync(path, JSON.stringify({ installed: { client_id: '123-house.apps.googleusercontent.com', client_secret: 'GOCSPX-secret-canary' } }), { mode: 0o644 }); chmodSync(path, 0o644);
+  if (process.platform !== 'win32') await assert.rejects(googleClientFile(path), (e: Error) => e.message === WORDS.clientFile.mode);
+  writeFileSync(path, JSON.stringify({ web: { client_id: '123-house.apps.googleusercontent.com', client_secret: 'GOCSPX-secret-canary' } })); chmodSync(path, 0o600);
+  await assert.rejects(googleClientFile(path), (e: Error) => e.message === WORDS.clientFile.shape);
+  writeFileSync(path, JSON.stringify({ installed: { client_id: '123-house.apps.googleusercontent.com', client_secret: 'GOCSPX-secret-canary', redirect_uris: ['http://localhost'] } }));
+  const client = await googleClientFile(path);
+  assert.deepEqual(client, { id: '123-house.apps.googleusercontent.com', secret: 'GOCSPX-secret-canary' });
+  // Deny on Google's consent page: nothing is saved.
+  const refused = await connectLoopback('gmail', { ...opts, client: client!, open: async url => {
+    const back = new URL(new URL(url).searchParams.get('redirect_uri')!); back.searchParams.set('state', new URL(url).searchParams.get('state')!); back.searchParams.set('error', 'access_denied');
+    assert.equal((await fetch(back)).status, 400);
+  } });
+  await assert.rejects(refused.done, error('declined'));
+  assert.equal(await refused.connection.connected(), false);
+  // Approve: the consent URL carries the house client and both Gmail scopes; the exchange authenticates with its secret.
+  const flow = await connectLoopback('gmail', { ...opts, client: client!, open: async url => {
+    const asked = new URL(url).searchParams;
+    assert.equal(asked.get('client_id'), client!.id); assert.equal(asked.get('scope'), SCOPES.join(' '));
+    assert.equal(asked.get('access_type'), 'offline'); assert.equal(asked.get('prompt'), 'consent');
+    assert.equal((await fetch(callback(url, asked.get('redirect_uri')!))).status, 200);
+  } });
+  await flow.done;
+  assert.equal(forms[0].get('client_id'), client!.id); assert.equal(forms[0].get('client_secret'), client!.secret);
+  // Deny the send: no token use and no Gmail call. Approve it: exactly one send.
+  const before = seen.length;
+  await assert.rejects(new MailSender(flow.connection, () => false, { fetch: google }).send({ to: 'crew@example.test', subject: 'Hi', body: 'From Umer' }),
+    (e: unknown) => e instanceof MailError && e.code === 'denied');
+  assert.equal(seen.length, before);
+  const sent = await new MailSender(flow.connection, () => true, { fetch: google }).send({ to: 'crew@example.test', subject: 'Hi', body: 'From Umer' });
+  assert.equal(sent.id, 'sent-1');
+  assert.deepEqual(seen.slice(before), ['gmail.googleapis.com/gmail/v1/users/me/messages/send']);
 });

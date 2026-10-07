@@ -1,8 +1,9 @@
 import WORDS from './words.json' with { type: 'json' };
 import { createServer } from 'node:http';
+import { open } from 'node:fs/promises';
 import { connect, type Connection } from './connect.ts';
 import { ConnectError } from './errors.ts';
-import type { ConnectOptions, Provider } from './types.ts';
+import type { ConnectOptions, OAuthClient, Provider } from './types.ts';
 import type { ProviderId } from './providers.ts';
 export interface LoopbackOptions extends Omit<ConnectOptions, 'redirectUri'> {
   /** Host opens the browser; BYOKit never spawns the person's browser or CLI. */
@@ -52,4 +53,20 @@ export async function connectLoopback(target: ProviderId | Provider | string, op
     await options.open(flow.url);
     return { connection, done, cancel: () => { cancelFlow?.(); settle(new ConnectError('declined')); } };
   } catch (error) { cancelFlow?.(); settle(error); throw error; }
+}
+/** Reads the house Google client: the Desktop-app JSON downloaded from Google, at the path the host names.
+ * Absent file is `null` (Google not set up); a file other users can read, or any other client type, is refused. */
+export async function googleClientFile(path: string): Promise<OAuthClient | null> {
+  let file;
+  try { file = await open(path, 'r'); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+  try {
+    const info = await file.stat();
+    if (!info.isFile()) throw new Error(WORDS.clientFile.shape);
+    if (process.platform !== 'win32' && info.mode & 0o077) throw new Error(WORDS.clientFile.mode);
+    let installed: { client_id?: unknown; client_secret?: unknown } | undefined;
+    try { installed = JSON.parse(await file.readFile('utf8'))?.installed; } catch { throw new Error(WORDS.clientFile.shape); }
+    const id = installed?.client_id, secret = installed?.client_secret;
+    if (typeof id !== 'string' || !/^[\w-]+\.apps\.googleusercontent\.com$/.test(id) || typeof secret !== 'string' || !secret) throw new Error(WORDS.clientFile.shape);
+    return { id, secret };
+  } finally { await file.close(); }
 }

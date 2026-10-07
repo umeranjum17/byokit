@@ -1,0 +1,1 @@
+- FEAT: One documented house Google client route: `googleClientFile(path)` in `@byokit/connect/node` reads Google's downloaded Desktop-app JSON (mode 600) for Gmail and every other Google preset, returns `null` when it is absent, and refuses a file other users can read or another client type.

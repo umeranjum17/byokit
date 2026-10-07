@@ -18,6 +18,10 @@
     "connected": "Connected. You can return to the app.",
     "failed": "Sign-in did not finish. Return to the app and try again."
   },
+  "clientFile": {
+    "mode": "Your Google app file can be read by other people on this computer. Make it private to you.",
+    "shape": "Your Google app file is not a Desktop app downloaded from Google. Download it again."
+  },
   "verification": {
     "valid": "Your app details work.",
     "invalid": "Check your app details and try again.",
