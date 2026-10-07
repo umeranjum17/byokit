@@ -187,8 +187,8 @@ test('fresh catalogue parameter and process-wide loopback reservation; second si
       },
     } as unknown as AuthHost),
   };
-  const first = new Accounts({ offer: ['chatgpt'], callbackPort: 21345 }, platform);
-  const second = new Accounts({ offer: ['chatgpt'], callbackPort: 21345 }, platform);
+  const first = new Accounts({ offer: ['chatgpt'], callbackPort: 21345, store: () => memoryStore() }, platform);
+  const second = new Accounts({ offer: ['chatgpt'], callbackPort: 21345, store: () => memoryStore() }, platform);
   try {
     const one = await first.add('Umer', 'chatgpt');
     assert.equal(new URL(one.signIn!.url!).searchParams.get('prompt'), 'login');
@@ -240,7 +240,7 @@ test('portable addition and legacy login work without structuredClone or a globa
   const mock = await mockOpenAI({ email: 'umer@example.com' });
   const clone = Object.getOwnPropertyDescriptor(globalThis, 'structuredClone')!;
   const crypto = Object.getOwnPropertyDescriptor(globalThis, 'crypto')!;
-  const a = new Accounts({ authBase: mock.base });
+  const a = new Accounts({ store: () => memoryStore(), authBase: mock.base });
   try {
     Object.defineProperty(globalThis, 'structuredClone', { configurable: true, value: undefined });
     Object.defineProperty(globalThis, 'crypto', { configurable: true, value: undefined });

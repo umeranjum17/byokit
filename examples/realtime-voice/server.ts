@@ -1,11 +1,13 @@
-/** Explicit live demo. Never imported by tests; sign-in stays in memory. */
+/** Explicit live demo. Never imported by tests; sign-in is kept at this computer's machine store. */
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { WebSocketServer } from 'ws';
 import { build } from 'esbuild';
-import { Accounts, memoryStore } from '../../packages/accounts/src/portable.ts';
+import { Accounts } from '../../packages/accounts/src/portable.ts';
+import { machineStore } from '../../packages/accounts/src/index.ts';
+import { osKeyringSeal } from '../../packages/secrets/src/index.ts';
 import { realtimeEngine, toolBridge } from '../../packages/realtime/src/node.ts';
-const accounts = new Accounts<any, number>({ store: () => memoryStore() });
+const accounts = new Accounts<any, number>({ store: (m) => machineStore(m, osKeyringSeal({ service: 'byokit' })) });
 const bundle = await build({ entryPoints: [new URL('./voice.ts', import.meta.url).pathname], bundle: true, write: false, platform: 'browser', format: 'esm' });
 const page = await readFile(new URL('./index.html', import.meta.url));
 let engine: ReturnType<typeof realtimeEngine> | undefined;

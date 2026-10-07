@@ -36,6 +36,7 @@ for (const [i, c] of fixture.cases.entries()) test(`sign-out, revoke case ${i}: 
 });
 
 class ExternalKit extends Accounts {
+  constructor() { super({ store: () => memoryStore() }); }
   readonly external = memoryStore();
   protected open(member: Member) { return this.engine(member, this.external); }
 }
@@ -63,6 +64,7 @@ function deferred<T>() {
 }
 
 class RaceKit extends Accounts {
+  constructor() { super({ store: () => memoryStore() }); }
   readonly external = memoryStore();
   readonly refreshStarted = deferred<void>();
   readonly releaseRefresh = deferred<void>();

@@ -1,4 +1,4 @@
-// Explicit live example. The default Accounts store holds sign-ins only in this process's memory.
+// Explicit live example. Sign-ins are kept at this computer's machine store, shared with every app that uses it.
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { readFile, mkdir, appendFile } from 'node:fs/promises';
@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { build } from 'esbuild';
 import { Accounts } from '../../packages/accounts/src/portable.ts';
+import { machineStore } from '../../packages/accounts/src/index.ts';
+import { osKeyringSeal } from '../../packages/secrets/src/index.ts';
 import { answerer, decide, type Answer } from '../../packages/decide/src/index.ts';
 import { cases, label, median, plans, type Plan } from './questions.ts';
 
@@ -20,7 +22,7 @@ export type Result = {
 };
 
 export async function serve(options: { port?: number; accounts?: AccountHost; commit?: string; evidenceDir?: string } = {}) {
-  const accounts = options.accounts ?? new Accounts({ app: 'Message desk', offer: ['chatgpt', 'claude'], signInMs: 60 * 60_000 });
+  const accounts = options.accounts ?? new Accounts({ app: 'Message desk', offer: ['chatgpt', 'claude'], signInMs: 60 * 60_000, store: (m) => machineStore(m, osKeyringSeal({ service: 'byokit' })) });
   const commit = options.commit ?? execFileSync('git', ['rev-parse', 'HEAD'], { cwd: fileURLToPath(new URL('../..', import.meta.url)), encoding: 'utf8' }).trim();
   const bundle = await build({ entryPoints: [fileURLToPath(new URL('./app.ts', import.meta.url))], bundle: true, write: false, platform: 'browser', format: 'esm' });
   const page = await readFile(new URL('./index.html', import.meta.url));

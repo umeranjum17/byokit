@@ -1,8 +1,10 @@
 // Desktop stores: sealed with a host-supplied adapter, such as Electron's safeStorage.
 import { constants, closeSync, fstatSync, fsyncSync, linkSync, lstatSync, statSync, utimesSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { dirname } from 'node:path';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { recordStore, type EndingStore } from './stores.ts';
+import type { Member } from './accounts.ts';
 
 /** Pass Electron's safeStorage from the main process after ready, or an equivalent trusted sealing adapter.
  * Adapters without capability methods are responsible for ensuring their key is protected. */
@@ -116,4 +118,18 @@ export function fileStore(path: string, safeStorage: SafeStorageLike): EndingSto
     try { return await fn(); } finally { clearInterval(touch); try { if (readFileSync(lockFile, 'utf8') === mine) unlinkSync(lockFile); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; } }
   };
   return recordStore(load, save, lock);
+}
+
+/** One person's sealed sign-ins at this computer's conventional place, the same for every app that asks for it, so
+ * a second app finds the sign-in the first one made: `~/.local/share/byokit` (`~/Library/Application Support/byokit`
+ * on macOS, `AppData\Roaming\byokit` on Windows), then `people/<member>/auth.json`. Apps share it only when they also
+ * share the seal, such as `osKeyringSeal({ service: 'byokit' })` from `@byokit/secrets`; Electron's safeStorage is
+ * per app. */
+export function machineStore(member: Member, safeStorage: SafeStorageLike): EndingStore {
+  const name = String(member);
+  if (!/^[\w.-]+$/.test(name) || /^\.+$/.test(name)) throw new TypeError('machineStore needs a member made of letters, digits, ".", "_" or "-"');
+  const home = homedir();
+  const root = process.platform === 'darwin' ? join(home, 'Library', 'Application Support')
+    : process.platform === 'win32' ? join(home, 'AppData', 'Roaming') : join(home, '.local', 'share');
+  return fileStore(join(root, 'byokit', 'people', name, 'auth.json'), safeStorage);
 }

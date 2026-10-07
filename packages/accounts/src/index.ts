@@ -36,4 +36,4 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
 export * from './portable.ts';
 export { INHERITED, emptyAuthContext, isolate, launchEnv, type LaunchEnv, type LaunchEnvOptions } from './isolate.ts';
-export { fileStore, type SafeStorageLike } from './node-stores.ts';
+export { fileStore, machineStore, type SafeStorageLike } from './node-stores.ts';
