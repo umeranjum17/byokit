@@ -160,9 +160,9 @@ function terminalQr(text: string): string {
 function showCodes() {
   const terms = { role: 'control' as const, meta: { scope: { workspaces: 'all' } } };
   const away = relay ? [linkUrl(flags.relay!, host.id)] : []; // the phone tries this when home is out of reach
-  const offer = host.offer({ ...terms, urls: [...served.urls, ...away], base: page });
+  const qr = host.compactOffer({ ...terms, urls: [...served.urls, ...away] }); // QR-sized: same code entry, packed addresses
   const { code } = host.code(terms);
-  console.log(`\n${terminalQr(offer.text)}\n\nOn the phone, scan this, or open ${page} and type ${code}`);
+  console.log(`\n${terminalQr(qr.text)}\n\nOn the phone, scan this, or open ${page} and type ${code}`);
   relay?.code().then((r) => console.log(`Away from home, find this computer at ${flags.relay} with ${r.code}`), () => {});
   console.log('Codes last five minutes. Press Enter for new ones.');
 }

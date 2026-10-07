@@ -192,3 +192,171 @@ export function parseCode(typed: string): { secret: string; commitment?: string 
 
 /** The Noise pre-shared key a typed code stands for. */
 export const codeKey = (code: string): Uint8Array => hash(32, 'byokit-link-code-v1', parseCode(code)?.secret ?? '');
+
+// A compact pairing offer for the QR: the same secret a typed code carries (same single use, expiry, two words
+// and host approval, through the same code entry), plus the addresses to try, packed binary. Scanned, never typed,
+// so the QR's own error correction covers misreads and there is no transcription checksum. The tag is uppercase so
+// the QR stays in its dense alphanumeric mode. Version 1 offers keep parsing unchanged.
+export const COMPACT_TAG = 'BYOKIT-LINK:2:';
+export type CompactOffer = { code: string; urls: string[]; expires: number; name: string; role: Role; lifetime?: number };
+
+const COMPACT_VERSION = 2;
+const COMPACT_ROLE = 1; // control; view is the default bit-off state
+const COMPACT_LIFETIME = 2;
+const badCompact = () => new Error("That isn't a pairing code.");
+
+// Twelve base-31 digits need 63 bits, past float precision: BigInt throughout.
+const secretValue = (secret: string): bigint => {
+  let value = 0n;
+  for (const c of secret) value = value * 31n + BigInt(CODE_ALPHABET.indexOf(c));
+  return value;
+};
+
+const secretChars = (value: bigint): string => {
+  let out = '';
+  for (let i = 0; i < CODE_LENGTH; i++) { out = CODE_ALPHABET[Number(value % 31n)] + out; value /= 31n; }
+  return out;
+};
+
+// One address, packed: a type byte (secure scheme, IPv4 or name, default `/link` path or custom), then the address,
+// an explicit port (the scheme default when the URL leaves it out), and any custom path and query.
+function packUrl(u: string): number[] {
+  const p = new URL(u);
+  const secure = p.protocol === 'wss:';
+  const v4 = p.hostname.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)?.slice(1).map(Number);
+  const ip = v4 && v4.every((n) => n < 256) ? v4 as number[] : null;
+  const port = p.port ? Number(p.port) : secure ? 443 : 80;
+  // A bare authority (`ws://host:port`) keeps its empty path, so a decode is byte-stable; `/link` is still elided.
+  const path = p.pathname === '/' && !p.search && !p.hash ? '' : p.pathname + p.search + p.hash;
+  const textbook = path === '/link';
+  const host = new TextEncoder().encode(p.hostname);
+  const road = new TextEncoder().encode(path);
+  if (!(port >= 1 && port <= 65535) || host.length > 255 || road.length > 255) throw new Error('That address is too long for a compact code.');
+  const out = [(secure ? 128 : 0) | (ip ? 0 : 2) | (textbook ? 0 : 1)];
+  out.push(...(ip ?? [host.length, ...host]));
+  out.push(port >> 8, port & 255);
+  if (!textbook) out.push(road.length, ...road);
+  return out;
+}
+
+function unpackUrl(b: Uint8Array, at: { i: number }): string {
+  if (at.i >= b.length) throw badCompact();
+  const type = b[at.i++]!;
+  const secure = (type & 128) !== 0;
+  const custom = (type & 1) !== 0;
+  let host: string;
+  if ((type & 2) === 0) {
+    if (at.i + 6 > b.length) throw badCompact();
+    host = [...b.subarray(at.i, at.i + 4)].join('.');
+    at.i += 4;
+  } else {
+    const length = b[at.i++]!;
+    if (at.i + length + 2 > b.length) throw badCompact();
+    try { host = new TextDecoder('utf-8', { fatal: true }).decode(b.subarray(at.i, at.i + length)); }
+    catch { throw badCompact(); }
+    at.i += length;
+  }
+  const port = (b[at.i]! << 8) | b[at.i + 1]!;
+  at.i += 2;
+  let path = '/link';
+  if (custom) {
+    const length = b[at.i++]!;
+    if (at.i + length > b.length) throw badCompact();
+    try { path = new TextDecoder('utf-8', { fatal: true }).decode(b.subarray(at.i, at.i + length)); }
+    catch { throw badCompact(); }
+    at.i += length;
+  }
+  // The port is always written back: the envelope holds it explicitly, so the text has one canonical shape.
+  const url = `${secure ? 'wss' : 'ws'}://${host}:${port}${path}`;
+  if (!wsUrl(url)) throw badCompact();
+  return url;
+}
+
+/** Pack a code secret, its addresses and terms into QR-sized text. Throws a plain sentence for anything that would
+ *  not survive the trip (bad addresses, absurd lengths); the host calls this before storing the code, so a throw
+ *  leaves no open entry behind. */
+export function encodeCompactOffer(o: { code: string; urls: string[]; expires: number; name: string; role: Role; lifetime?: number }): string {
+  const secret = o.code.toUpperCase().replace(/[\s-]/g, '');
+  if (secret.length !== CODE_LENGTH || [...secret].some((c) => !CODE_ALPHABET.includes(c))) throw badCompact();
+  if (!Array.isArray(o.urls) || o.urls.length === 0 || o.urls.length > 8 || !o.urls.every(wsUrl)) throw badCompact();
+  if (!Number.isFinite(o.expires) || o.expires <= 0) throw badCompact();
+  if (o.role !== 'control' && o.role !== 'view') throw badCompact();
+  if (o.lifetime !== undefined && (!Number.isSafeInteger(o.lifetime) || o.lifetime <= 0 || o.lifetime > 4294967295 * 1000)) throw new Error('A lifetime must fit in a compact code.');
+  const bytes: number[] = [COMPACT_VERSION];
+  let value = secretValue(secret);
+  const word = new Array(8).fill(0) as number[];
+  for (let i = 7; i >= 0; i--) { word[i] = Number(value & 255n); value >>= 8n; }
+  bytes.push(...word);
+  const minutes = Math.ceil(o.expires / 60000); // minute resolution; rounded up, so our own "run out" never fires early
+  bytes.push((minutes >>> 24) & 255, (minutes >>> 16) & 255, (minutes >>> 8) & 255, minutes & 255);
+  bytes.push((o.role === 'control' ? COMPACT_ROLE : 0) | (o.lifetime === undefined ? 0 : COMPACT_LIFETIME), o.urls.length);
+  for (const u of o.urls) bytes.push(...packUrl(u));
+  const name = new TextEncoder().encode(cleanName(o.name, 'your computer'));
+  if (name.length > 255) throw new Error('That name is too long for a compact code.');
+  bytes.push(name.length, ...name);
+  if (o.lifetime !== undefined) {
+    const seconds = Math.ceil(o.lifetime / 1000);
+    bytes.push((seconds >>> 24) & 255, (seconds >>> 16) & 255, (seconds >>> 8) & 255, seconds & 255);
+  }
+  let bits = 0, acc = 0, out = '';
+  for (const byte of bytes) {
+    acc = (acc << 8 | byte) & 0xffff;
+    bits += 8;
+    while (bits >= 5) { bits -= 5; out += OFFER_ALPHABET[(acc >>> bits) & 31]; }
+  }
+  if (bits) out += OFFER_ALPHABET[(acc << (5 - bits)) & 31];
+  return COMPACT_TAG + out;
+}
+
+/** Read a compact offer. Case, spaces and dashes are forgiven; anything else that is not a compact offer throws a
+ *  plain sentence. Expiry follows `parseOffer`; `now = 0` permits inspection only. */
+export function decodeCompactOffer(scanned: string, now = Date.now()): CompactOffer {
+  const at = scanned.indexOf(COMPACT_TAG);
+  if (at < 0 || scanned.length > 2048) throw badCompact();
+  const s = scanned.slice(at + COMPACT_TAG.length).toUpperCase().replace(/[\s-]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+  if (!s || [...s].some((c) => !OFFER_ALPHABET.includes(c))) throw badCompact();
+  const raw: number[] = [];
+  let bits = 0, acc = 0;
+  for (const c of s) {
+    acc = (acc << 5 | OFFER_ALPHABET.indexOf(c)) & 0xffff;
+    bits += 5;
+    if (bits >= 8) { bits -= 8; raw.push((acc >>> bits) & 255); }
+  }
+  // One byte sequence has one canonical encoding: reject extra symbols and non-zero padding, as typed offers do.
+  if (s.length !== Math.ceil(raw.length * 8 / 5) || (bits && (acc & ((1 << bits) - 1)))) throw badCompact();
+  const b = Uint8Array.from(raw);
+  const pos = { i: 0 };
+  const take = (n: number): Uint8Array => {
+    if (pos.i + n > b.length) throw badCompact();
+    return b.subarray(pos.i, (pos.i += n));
+  };
+  if (take(1)[0] !== COMPACT_VERSION) throw badCompact();
+  let secret = 0n;
+  for (const byte of take(8)) secret = secret * 256n + BigInt(byte);
+  if (secret >= 31n ** BigInt(CODE_LENGTH)) throw badCompact();
+  const code = secretChars(secret);
+  if (pos.i + 4 > b.length) throw badCompact();
+  const minutes = new DataView(b.buffer, b.byteOffset + pos.i, 4).getUint32(0);
+  pos.i += 4;
+  const flags = take(1)[0]!;
+  if (flags & ~(COMPACT_ROLE | COMPACT_LIFETIME)) throw badCompact();
+  const count = take(1)[0]!;
+  if (!count || count > 8) throw badCompact();
+  const urls: string[] = [];
+  for (let i = 0; i < count; i++) urls.push(unpackUrl(b, pos));
+  const nameLength = take(1)[0]!;
+  let name: string;
+  try { name = new TextDecoder('utf-8', { fatal: true }).decode(take(nameLength)); }
+  catch { throw badCompact(); }
+  let lifetime: number | undefined;
+  if (flags & COMPACT_LIFETIME) {
+    if (pos.i + 4 > b.length) throw badCompact();
+    lifetime = new DataView(b.buffer, b.byteOffset + pos.i, 4).getUint32(0) * 1000;
+    pos.i += 4;
+  }
+  if (pos.i !== b.length) throw badCompact();
+  const expires = minutes * 60000;
+  if (expires < now) throw new Error('That pairing code has run out. Show a new one.');
+  return { code, urls, expires, name: cleanName(name, 'your computer'),
+    role: flags & COMPACT_ROLE ? 'control' : 'view', ...(lifetime === undefined ? {} : { lifetime }) };
+}

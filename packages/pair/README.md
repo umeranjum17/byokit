@@ -55,7 +55,7 @@ const wss = new WebSocketServer({ host: '127.0.0.1', port: 7300 });
 wss.on('connection', (ws) => host.accept(ws));
 
 // The offer is what the QR code shows.
-const { text } = host.offer({ role: 'control', urls: ['ws://127.0.0.1:7300/link'] });
+const { text } = host.compactOffer({ role: 'control', urls: ['ws://127.0.0.1:7300/link'] });
 
 // The phone or browser: scan, compare the words, then ask.
 const grant = await pairWithOffer(text, { name: 'Pixel 9', onWords: (w) => console.log(`device: check "${w}"`) });
@@ -78,7 +78,7 @@ answer: { echo: { text: 'hi' }, from: 'Pixel 9' }
 
 | Export | What it does |
 |---|---|
-| `Host` | The computer's end: `Host.open(options)`, then `accept`/`relay` sockets, `offer`/`code`/`shortCode`/`enrol` to pair, `devices`, `setMeta`, `revoke`, `broadcast`, `close` |
+| `Host` | The computer's end: `Host.open(options)`, then `accept`/`relay` sockets, `offer`/`compactOffer`/`code`/`shortCode`/`enrol` to pair, `devices`, `setMeta`, `revoke`, `broadcast`, `close` |
 | `pairWithOffer`, `pairWithCode` | Pair a device from a scanned offer or a typed code; returns its `DeviceGrant` |
 | `parseOffer`, `offerText`, `cleanName` | Read a QR or link, build terminal-to-browser links, and clean a displayed name |
 | `encodeOffer`, `decodeOffer` | Complete offline offer in typeable groups, with a transcription checksum |
@@ -107,7 +107,7 @@ const host = await Host.open({
 });
 wss.on('connection', (ws) => host.accept(ws));   // any WebSocket server; bind it to loopback/tailnet by default
 
-const { text } = host.offer({ role: 'control', urls: ['ws://192.168.1.20:7300/link'] });  // show as a QR
+const { text } = host.compactOffer({ role: 'control', urls: ['ws://192.168.1.20:7300/link'] });  // show as a QR
 const { code } = host.code({ role: 'view' });     // or a code to type: "7KQ4-M2XP-9RTH"
 host.devices(); await host.revoke(id); host.broadcast(event);
 ```
@@ -128,6 +128,9 @@ More host policy, all optional:
   the handler and `answers.put`.
 - `handshakes: { perMinute, perPeer }` limits new handshakes; pass `host.accept(ws, { peer: ip })` to count per source.
 
+`compactOffer` is the QR text: the same secret a typed code carries (same single use, life, words and
+approval) plus the addresses to try, packed binary, so a standard offer fits a QR version 4 or lower.
+`pairWithOffer` scans both compact and version 1 offers; version 1 keeps parsing for one release.
 `offer({ base: 'https://app.example/pair' })` makes a link a browser can open instead of a bare QR text.
 Handler errors are logged on the host (`onError` can receive them). Devices see “Your computer couldn't do that.”
 unless the handler explicitly throws `new PublicLinkError('A message safe to show.')`.
