@@ -13,7 +13,8 @@ const fixture = (name: string) => JSON.parse(readFileSync(new URL(`../../../fixt
 const openai = await mockOpenAI();
 const device = await mockDevice();
 const brief = await mockDevice({ expiresIn: 1 }); // tokens that die at once, so refresh has to happen
-after(() => { openai.close(); device.close(); brief.close(); });
+const keeping = await mockDevice({ expiresIn: 1, rotate: false }); // the same, from a provider that keeps its grant
+after(() => { openai.close(); device.close(); brief.close(); keeping.close(); });
 const kit = (store?: ReturnType<typeof memoryStore>, options: Record<string, unknown> = {}) =>
   new Accounts<any, number>({ app: 'Ownvoice', store: () => store ?? memoryStore(), authBase: openai.base, ...options });
 /** The phone's sign-in against the provider stand-in, for any provider the catalogue gives device data. */
@@ -150,6 +151,14 @@ test('any provider the catalogue gives device data signs in on the phone, with n
   await a.keepFresh([1]);
   assert.equal((await a.status(1, 'grok')).state, 'ready', 'refreshed on the provider\'s own token endpoint');
   assert.ok(brief.state.requests.some((r) => r.body.includes('grant_type=refresh_token')));
+  // A provider that keeps its grant (no new refresh token) stays signed in refresh after refresh.
+  const k = phoneKit(keeping.base);
+  keeping.approve((await k.login(1, 'kimi'))!.code!);
+  await k.finished(1, 'kimi');
+  for (let i = 0; i < 3; i++) await k.keepFresh([1]);
+  assert.equal(keeping.state.requests.filter((r) => r.body.includes('grant_type=refresh_token')).length, 3, 'refreshed each time');
+  assert.equal((await k.status(1, 'kimi')).state, 'ready', 'the kept grant is not mistaken for a spent one');
+  k.stop();
   const declined = (await a.login(1, 'kimi'))!;
   brief.approve(declined.code!, true);
   await a.finished(1, 'kimi');
@@ -250,7 +259,7 @@ test('refresh transaction fixtures: uncertain and terminal generations survive r
         if (row.outcome === 'lost-response') throw new Error('synthetic lost response with canary-secret');
         if (row.status) return new Response(row.body ?? 'canary-secret', { status: row.status });
         if (row.body) return new Response(row.body);
-        return new Response(JSON.stringify({ ...response, refresh_token: row.outcome === 'unchanged-grant' ? old.refresh : 'rotated-grant' }));
+        return new Response(JSON.stringify({ ...response, refresh_token: 'rotated-grant' }));
       };
       await assert.rejects(portableEngine(store()).getAuth('openai-codex'), (e: Error) => {
         assert.doesNotMatch(e.message, /canary-secret/);

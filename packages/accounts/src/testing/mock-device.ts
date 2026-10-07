@@ -7,20 +7,21 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 
-/** `expiresIn` is how long each token lives; a device code always has the 15 minutes RFC 8628's own clients use. */
-export type MockDeviceOptions = { port?: number; host?: string; expiresIn?: number; log?: (line: string) => void };
+/** `expiresIn` is how long each token lives; a device code always has the 15 minutes RFC 8628's own clients use.
+ *  `rotate: false` is a provider that keeps its grant: a refresh answers a new access token and no refresh token. */
+export type MockDeviceOptions = { port?: number; host?: string; expiresIn?: number; rotate?: boolean; log?: (line: string) => void };
 const CODE_LIVES_S = 900;
 
 /** Each provider's own documented device endpoints, answered under whatever base the kit is given. */
 const AUTHORIZATIONS = ['/oauth2/device/code', '/api/oauth/device_authorization'];
 const TOKENS = ['/oauth2/token', '/api/oauth/token'];
 
-export async function mockDevice({ port = 0, host = '127.0.0.1', expiresIn = 3600, log }: MockDeviceOptions = {}) {
+export async function mockDevice({ port = 0, host = '127.0.0.1', expiresIn = 3600, rotate = true, log }: MockDeviceOptions = {}) {
   const codes = new Map<string, { device: string; approved?: boolean; denied?: boolean }>();
   let asked = 0, issued = 0;
   const state = { live: new Set<string>(), requests: [] as { path: string; body: string }[], /** Drop this many polls, as a phone cuts a backgrounded app's network. */ dropPolls: 0 };
   const accessOf = new Map<string, string>(); // refresh token → the access token issued with it
-  // Every token response rotates the refresh token, as Pi's own store requires: the grant it replaces is spent.
+  // Every sign-in issues a new refresh token; a rotating refresh spends the grant it replaces.
   const issue = () => {
     const refresh = `rt_${++issued}`;
     state.live.add(refresh);
@@ -48,8 +49,11 @@ export async function mockDevice({ port = 0, host = '127.0.0.1', expiresIn = 360
       }
       case TOKENS[0]: case TOKENS[1]: {
         if (form.get('grant_type') === 'refresh_token') {
-          if (!state.live.delete(form.get('refresh_token') ?? '')) return send(400, { error: 'invalid_grant' });
-          return send(200, issue());
+          const grant = form.get('refresh_token') ?? '';
+          if (!state.live.has(grant)) return send(400, { error: 'invalid_grant' });
+          if (rotate) { state.live.delete(grant); return send(200, issue()); }
+          accessOf.set(grant, `at_${accessOf.size + 1}`);
+          return send(200, { access_token: accessOf.get(grant)!, expires_in: expiresIn, token_type: 'Bearer' });
         }
         const c = [...codes.values()].find((c) => c.device === form.get('device_code'));
         if (state.dropPolls > 0 && state.dropPolls--) return req.socket.destroy();
