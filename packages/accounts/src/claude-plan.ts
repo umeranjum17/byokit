@@ -3,7 +3,7 @@
 import type { AuthInteraction, CredentialStore, OAuthCredential } from '@earendil-works/pi-ai';
 import type { AuthHost } from './accounts.ts';
 import { anthropicMessages, type AnthropicRequest } from './anthropic.ts';
-import { needsReauth, refreshCredential } from './stores.ts';
+import { needsReauth, refreshCredential, RefreshRequiredError } from './stores.ts';
 
 export const CLAUDE_PLAN_ID = 'byokit-claude-plan';
 export const CLAUDE_CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
@@ -66,14 +66,14 @@ const credential = (j: any, now: number, previous?: OAuthCredential): OAuthCrede
   return { type: 'oauth', access: j.access_token, refresh: j.refresh_token ?? previous?.refresh ?? '', expires: now + j.expires_in * 1000 };
 };
 
-type State = { flight?: Promise<OAuthCredential | undefined>; spent: Set<string> };
-const states = new WeakMap<CredentialStore, State>();
+// In-process only: concurrent resolvers share one refresh. The store's persisted marker, under its lock, is what keeps
+// one grant from being sent twice across engines, processes and restarts.
+const flights = new WeakMap<CredentialStore, { flight?: Promise<OAuthCredential | undefined> }>();
 
 /** Adds only BYOKit's own Claude route; every other provider still belongs to the supplied engine. */
 export function withClaudePlan(engine: AuthHost, credentials: CredentialStore, lockKey: CredentialStore, options: ClaudePlanOptions = {}): AuthHost {
-  let shared = states.get(lockKey);
-  if (!shared) states.set(lockKey, shared = { spent: new Set() });
-  const state = shared;
+  let state = flights.get(lockKey);
+  if (!state) flights.set(lockKey, state = {});
   const now = options.now ?? Date.now;
   const post = async (body: object, signal?: AbortSignal) => {
     let res: Response;
@@ -87,7 +87,8 @@ export function withClaudePlan(engine: AuthHost, credentials: CredentialStore, l
       if ([400, 401, 403].includes(res.status)) throw new ClaudePlanExpiredError();
       throw new Error('Claude could not complete the sign-in. Try again later.');
     }
-    try { return await res.json(); } catch { throw new Error('Claude could not complete the sign-in. Try signing in again.'); }
+    // An accepted answer (2xx) spent the grant even when it cannot be read; its status says so to the store.
+    try { return await res.json(); } catch { throw Object.assign(new Error('Claude could not complete the sign-in. Try signing in again.'), { status: res.status }); }
   };
   const login = async ({ signal, notify, prompt }: AuthInteraction) => {
     const pending = await claudeAuthorization(options);
@@ -111,23 +112,26 @@ export function withClaudePlan(engine: AuthHost, credentials: CredentialStore, l
     const c = await credentials.read(CLAUDE_PLAN_ID);
     if (c?.type !== 'oauth') return undefined;
     if (state.flight) return state.flight;
-    if (state.spent.has(c.refresh)) throw new ClaudePlanExpiredError();
     // A refresh marker read outside the store's lock may be another process's refresh in flight; the lock decides.
     if (!needsReauth(c) && !due(c)) return c;
+    let sent = false, refused = false;
     const work = refreshCredential(credentials, CLAUDE_PLAN_ID, due, async (current) => {
-      if (!current.refresh || state.spent.has(current.refresh)) throw new ClaudePlanExpiredError();
-      state.spent.add(current.refresh);
-      return credential(await post({ grant_type: 'refresh_token', client_id: CLAUDE_CLIENT_ID, refresh_token: current.refresh }), now(), current);
-    }).catch(async () => {
-      await credentials.delete(CLAUDE_PLAN_ID).catch(() => {});
+      if (!current.refresh) throw new ClaudePlanExpiredError();
+      sent = true;
+      try {
+        const answer = await post({ grant_type: 'refresh_token', client_id: CLAUDE_CLIENT_ID, refresh_token: current.refresh });
+        try { return credential(answer, now(), current); } catch (e) { throw Object.assign(e as Error, { status: 200 }); }
+      } catch (e) { refused = e instanceof ClaudePlanExpiredError; throw e; }
+    }).catch(async (e) => {
+      // No answer, a server error or storage failing before sending keeps the sign-in, its grant tried again next time.
+      // The storage's own error is not shown: it may quote the record.
+      if (!(e instanceof RefreshRequiredError)) throw sent ? e : new Error('Claude sign-in could not be refreshed in this device\'s storage; it is kept for the next try.');
+      // Only the provider refusing the grant ends the sign-in here; an uncertain one stays marked so it is never resent.
+      if (refused) await credentials.delete(CLAUDE_PLAN_ID).catch(() => {});
       throw new ClaudePlanExpiredError();
     });
     state.flight = work;
-    try {
-      const next = await work;
-      if (next) state.spent.delete(next.refresh);
-      return next;
-    } finally { if (state.flight === work) state.flight = undefined; }
+    try { return await work; } finally { if (state.flight === work) state.flight = undefined; }
   };
   return Object.assign(engine, {
     login: ((original) => (id: string, type: 'oauth' | 'api_key', interaction: AuthInteraction) =>

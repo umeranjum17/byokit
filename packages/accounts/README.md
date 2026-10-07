@@ -550,8 +550,10 @@ const text = await accounts.respond(member, {
 The manual HTTPS callback works without a local listener or an installed CLI. It uses PKCE (secure random verifier,
 SHA-256 challenge), independent state, strict `code#state` validation, and direct JSON exchange/refresh at
 `platform.claude.com/v1/oauth/token`. Refresh is single-flight for one store, saves an attempt before sending and commits the rotated credentials before
-returning access. An omitted replacement requires sign-in again. `ClaudePlanExpiredError` means sign in again, including after a refused or uncertain rotation or a
-failed durable save; a persisted attempt prevents replay after restart. A custom store must provide the refresh transaction seam (use
+returning access. An omitted replacement requires sign-in again. `ClaudePlanExpiredError` means sign in again, after a refused or uncertain rotation or a
+failed durable save of the rotated credentials; a persisted attempt prevents replay after restart and in other processes. A refresh that gets no answer
+or a server error, or whose attempt could not be saved, keeps the sign-in: it throws a plain error and the same grant is tried next time. Only a refusal
+removes the sign-in; an uncertain one stays marked so its grant is never sent again. A custom store must provide the refresh transaction seam (use
 `recordStore(load, save)`); a host lock is required for multiple processes. Local logout removes only this app's credentials; it does not promise server
 revocation. A Messages authentication refusal requests re-authentication without replaying the request or switching
 billing to an API key.
