@@ -44,13 +44,13 @@ test('sign in with ChatGPT in a browser: device code, the plan named, kept acros
   assert.match((await provider.locator('#words').textContent())!, /Signed in/);
   await provider.close();
 
-  await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).waitFor();
+  await page.locator('#chatgpt [data-email]').filter({ hasText: 'umer@example.com' }).waitFor();
   await part(page, 'chatgpt', 'badge').filter({ hasText: 'ChatGPT Plus' }).waitFor();
-  assert.equal(await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).textContent(), 'sara@example.com');
+  assert.equal(await page.locator('#chatgpt [data-email]').filter({ hasText: 'umer@example.com' }).textContent(), 'umer@example.com');
   assert.equal(await page.locator('#chatgpt [data-chip]').count(), 0, 'no plan pill repeats on any account row');
 
   await page.reload();
-  await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).waitFor(); // kept in this browser's IndexedDB
+  await page.locator('#chatgpt [data-email]').filter({ hasText: 'umer@example.com' }).waitFor(); // kept in this browser's IndexedDB
 
   await part(page, 'chatgpt', 'signout').click();
   await part(page, 'chatgpt', 'signin').waitFor();
@@ -140,7 +140,7 @@ test('two ChatGPT plans: every plan listed with billing and room, Auto asks the 
   await page.goto(site.url);
   await part(page, 'chatgpt', 'signin').click();
   await approve();
-  await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).waitFor();
+  await page.locator('#chatgpt [data-email]').filter({ hasText: 'umer@example.com' }).waitFor();
 
   openai.state.accountId = 'acct-2';
   openai.state.email = 'b@example.com';
@@ -168,7 +168,7 @@ test('two ChatGPT plans: every plan listed with billing and room, Auto asks the 
   assert.equal(askedIds.filter((id) => id === 'acct-1').length, 1, 'the run never switches account mid-stream');
   assert.deepEqual(errors, []);
   openai.state.accountId = 'acct-1';
-  openai.state.email = 'sara@example.com';
+  openai.state.email = 'umer@example.com';
   await context.close();
 });
 
@@ -351,7 +351,7 @@ test('the README pictures: signed out, the code, connected', { skip: !process.en
   await provider.fill('#code', code);
   await provider.click('#continue');
   await provider.close();
-  await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).waitFor();
+  await page.locator('#chatgpt [data-email]').filter({ hasText: 'umer@example.com' }).waitFor();
   await shot('pwa-3-connected');
   await context.close();
 });

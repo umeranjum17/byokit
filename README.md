@@ -94,7 +94,7 @@ on a computer. Every state is one plain sentence your app can show.
 
 <p align="center">
   <img src="docs/images/pwa-1-signed-out.png" alt="byokit in a browser: ChatGPT isn't signed in yet, with a Sign in with ChatGPT button" width="240" />
-  <img src="docs/images/pwa-3-connected.png" alt="ChatGPT is connected, sara@example.com, plus plan, with Check the sign-in and Sign out" width="240" /><br/>
+  <img src="docs/images/pwa-3-connected.png" alt="ChatGPT is connected, umer@example.com, plus plan, with Check the sign-in and Sign out" width="240" /><br/>
   <sub><a href="examples/pwa"><code>examples/pwa</code></a> in headless Chromium, signed in against the stand-in OpenAI (<code>mockOpenAI()</code>).</sub>
 </p>
 

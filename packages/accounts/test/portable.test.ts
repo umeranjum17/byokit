@@ -110,7 +110,7 @@ test('sign in with ChatGPT by device code: the code and page to show, approved t
   await a.finished(1, 'chatgpt');
   assert.equal(a.view(1, 'chatgpt')!.state, 'done');
   assert.equal((await a.status(1, 'chatgpt')).words, 'ChatGPT is connected.');
-  assert.deepEqual(await a.plan(1), { plan: 'plus', email: 'sara@example.com', work: false });
+  assert.deepEqual(await a.plan(1), { plan: 'plus', email: 'umer@example.com', work: false });
   assert.equal(await a.signedIn(2, 'chatgpt'), false, 'one person, one store');
 });
 
