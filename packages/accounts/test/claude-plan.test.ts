@@ -98,9 +98,13 @@ test('invalid grant and missing refresh require sign-in; failed durable rotation
   for (let i = 0; i < 2; i++) await assert.rejects(broken.getAuth(id), (e: Error) => !(e instanceof ClaudePlanExpiredError) && /kept for the next try/.test(e.message) && !e.message.includes('secret'));
   assert.equal(failing.calls.length, 0); assert.equal(data[id].refresh, 'recorded-refresh');
   // An answer the provider accepted spent the grant even when it cannot be used: never sent again.
-  const unreadable = standIn(); await unreadable.store.modify(id, async () => token()); unreadable.set({ ...fixture.rotation, expires_in: 0 });
-  for (let i = 0; i < 2; i++) await assert.rejects((await unreadable.a.runtime(1)).getAuth(id), ClaudePlanExpiredError);
-  assert.equal(unreadable.calls.length, 1); assert.ok(needsReauth(await unreadable.store.read(id)));
+  for (const body of [JSON.stringify({ ...fixture.rotation, expires_in: 0 }), 'not json']) {
+    const store = memoryStore(); await store.modify(id, async () => token());
+    let calls = 0;
+    const a = new Accounts({ store: () => store, claudePlan: { now: () => fixture.now, fetch: (async () => { calls++; return new Response(body); }) as typeof fetch } });
+    for (let i = 0; i < 2; i++) await assert.rejects((await a.runtime(1)).getAuth(id), ClaudePlanExpiredError);
+    assert.equal(calls, 1); assert.ok(needsReauth(await store.read(id)));
+  }
 });
 
 test('a refresh that gets no answer or a server error keeps the Claude sign-in and the next try rotates the same grant', async () => {
