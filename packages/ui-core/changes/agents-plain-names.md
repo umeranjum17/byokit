@@ -1,0 +1,1 @@
+- FEAT: `herdrTreeView` groups carry `project`, the workspace folder's own name without the tab label, so rows can name an agent (computer, project, agent) without internal tab labels.

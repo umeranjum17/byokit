@@ -63,6 +63,7 @@ test('the tree view groups agents by where they run, with the status agentWords 
   assert.deepEqual(herdrTreeView(null), []);
   const groups = herdrTreeView(TREE);
   assert.deepEqual(groups.map((g) => g.where), ['site · main', 'pi · one'], 'folder name · tab; tabs without an agent left out');
+  assert.deepEqual(groups.map((g) => g.project), ['site', 'pi'], 'the folder name alone, without the tab label');
   assert.deepEqual(groups.map((g) => [g.workspaceId, g.tabId]), [['w1', 'w1:t1'], ['w2', 'w2:t1']]);
   assert.deepEqual(groups.flatMap((g) => g.agents.map((a) => [a.paneId, a.name, a.status])), [
     ['w1:p2', 'pi', 'idle'], ['w2:p1', 'reviewer', 'blocked'], ['w2:p2', 'codex', 'starting'],
