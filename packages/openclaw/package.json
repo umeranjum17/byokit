@@ -1,6 +1,6 @@
 {
   "name": "@byokit/openclaw",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "The OpenClaw runtime kit: the pinned engine's full operator surface with plain-words helpers for members, sign-in, runs and approvals.",
   "license": "Apache-2.0",
   "type": "module",
@@ -60,8 +60,8 @@
     "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"
   },
   "dependencies": {
-    "@byokit/link": "0.7.0",
-    "@byokit/relay": "0.5.2",
+    "@byokit/link": "0.7.1",
+    "@byokit/relay": "0.5.3",
     "@byokit/discover": "0.6.0",
     "@byokit/seal": "0.3.0",
     "@byokit/secrets": "0.5.0",

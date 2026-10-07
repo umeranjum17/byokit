@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.5.3 (2026-10-07)
+
+- Dependency update: pins @byokit/link 0.7.1.
+
 - Added `quietHours: { start, end }` (UTC `HH:MM`, overnight windows wrap midnight):
   notifications inside the window are held and delivered in order when it ends;
   `urgency: 'high'` always sends at once. `notify()` reports `{ held: true }`.

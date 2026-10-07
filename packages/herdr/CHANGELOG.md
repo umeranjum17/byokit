@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.7.1 (2026-10-07)
+
+- Dependency update: pins @byokit/relay 0.5.3.
+- Dependency update: pins @byokit/link 0.7.1.
+
+- `move` and `moveToAccount` no longer type env prep into the new pane: the split placement env is verified silently through `pane.get` (set vars exact, unset vars absent, fail closed), so no `unset` lines, echo probes or account folder values stay in the scrollback after a move.
+- The replacement agent keeps the conversation's name: it starts unique while the source is still live, then takes the source's session name through `agent.rename` once the source pane closes (best-effort; a refused rename never fails the move). New panes no longer show `move-<hex>` names.
+- The quickstart now says what to read next (the kit spec's decisions and work packages, then the two ways in
+  and agent readiness). Docs only; no typed surface changed.
+- The `relay` option takes anything with `RelayClient`'s `notify`, so a host can hand the kit a relay it opens after `Host.open` (the client needs the open host). A `RelayClient` still fits; behaviour is unchanged.
+- Unreleased source dependency metadata: pin @byokit/seal 0.3.0 and @byokit/relay 0.5.2; this package's existing version is not republished. Previously published consumer metadata remains unchanged.
+- `startAgent` with a record `env` that sets `HOME` now also places the pane's XDG config, data, state and cache directories under that home (unless set), so a sign-in inside the pane stays in the task-owned home instead of the server's.
+
 ## 0.7.0 (2026-10-02)
 
 - Includes the Muse installation, managed-kind discovery and isolated readiness FIX/SECURITY changes recorded in the unpublished 0.6.0 preparation below; none add native login qualification.

@@ -1,1 +1,0 @@
-- FIX: Code sign-ins whose pinned engine prints the code only into a note now hand the caller the code, link, expiry (`expiresAt`) and instructions (`message`) in the same `SignInView` shape as structured codes, and wait out device approval instead of failing with `gateway request timeout for wizard.next` after two minutes.

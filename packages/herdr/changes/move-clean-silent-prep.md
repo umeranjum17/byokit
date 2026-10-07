@@ -1,2 +1,0 @@
-- `move` and `moveToAccount` no longer type env prep into the new pane: the split placement env is verified silently through `pane.get` (set vars exact, unset vars absent, fail closed), so no `unset` lines, echo probes or account folder values stay in the scrollback after a move.
-- The replacement agent keeps the conversation's name: it starts unique while the source is still live, then takes the source's session name through `agent.rename` once the source pane closes (best-effort; a refused rename never fails the move). New panes no longer show `move-<hex>` names.

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.6.2 (2026-10-07)
+
+- Dependency update: pins @byokit/link 0.7.1.
+
 - Add an opt-in paired-host Jev backend over @byokit/link: the host holds the API key (billed per use), while phones receive probabilities and usage with typed pairing, connectivity and missing-key errors.
 - SECURITY: answerer now uses the shared state-as-data guard and a delimited JSON data block, so untrusted
   on-screen text is separated from decision instructions. Apps using answerer should update; malformed model output still abstains.

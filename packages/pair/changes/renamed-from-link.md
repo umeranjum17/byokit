@@ -1,1 +1,0 @@
-- `@byokit/link` is now published as `@byokit/pair`, with the same API and the same Node-only `./node` entry; its earlier versions are the `@byokit/link` releases below. **Deprecated:** the `@byokit/link` name; it stays published as a shim that re-exports this package through 0.8.x and is removed in 0.9.0.

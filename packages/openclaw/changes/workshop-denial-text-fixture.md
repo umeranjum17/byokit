@@ -1,1 +1,0 @@
-- The R1 restart-recovery probe accepts both restart-time gate denials for the unowned recovering session (HEAD's `unknown run` and the published kit's `can't check this action right now`); any other transcript text still fails the denial assertion.
