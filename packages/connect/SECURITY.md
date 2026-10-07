@@ -2,7 +2,8 @@
 
 The host supplies a keystore and person identifier. Scope it to the person and app on
 this device. Tokens and dynamic client credentials are written only to that store;
-the kit never reads ambient accounts, environment keys or credential files. No
+the kit never reads ambient accounts, environment keys or credential files. The only
+file it reads is the Google client file at the path the host passes to `googleClientFile`. No
 server pool or account sharing is provided. Connection keys are fixed-length SHA-256 names over person, provider,
 resource, issuer/token endpoint and configured client ID. Long identities therefore
 fit every keystore backend without exposing those identities in keyring labels.

@@ -60,6 +60,44 @@ parameters. Options `scopes` override the preset/discovered scopes; security
 parameters (`state`, PKCE, response type, client and redirect) cannot be overridden
 through `extra`. A sign-in with explicitly incomplete granted scopes is not saved.
 
+## The house Google client
+
+One Google OAuth client serves every Google route the house runs: this kit's Gmail
+reader and sender, and Crewhouse's Google connections.
+
+- **Client:** type **Desktop app**, in the house's own Google Cloud project, with the
+  Gmail, Calendar and Drive APIs enabled. Desktop clients accept any loopback port, so
+  `connectLoopback` needs no redirect registration.
+- **Consent:** audience External, published (*In production*; *Testing* grants stop
+  after 7 days). The consent screen lists `gmail.readonly`, `gmail.send`,
+  `calendar.events` and `drive.file`. Each connection still asks for one service;
+  sending adds `gmail.send` through `scopes`.
+- **Secret:** the JSON Google offers to download, unchanged, at
+  `~/.config/byokit/google-oauth-client.json`, mode 600. Never in a repository, a log
+  or a test HOME.
+
+```ts
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { connectLoopback, googleClientFile } from '@byokit/connect/node';
+import type { Keystore } from '@byokit/secrets';
+
+declare const store: Keystore;
+declare const yourApp: { openExternal(url: string): Promise<void>; setUpGoogle(): never };
+
+const client = await googleClientFile(join(homedir(), '.config', 'byokit', 'google-oauth-client.json'));
+if (!client) yourApp.setUpGoogle(); // No file yet: Google is not set up on this computer.
+const attempt = await connectLoopback('gmail', { store, person: 'Umer', client,
+  scopes: ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.send'],
+  open: url => yourApp.openExternal(url) });
+await attempt.done; // Then MailReader/MailSender on attempt.connection.
+```
+
+`googleClientFile(path)` reads only the path the host passes. It returns `null` when
+the file is absent, and refuses a file other users can read, a non-regular file
+at the path, or any client type other than Desktop app, with a plain message
+that never repeats the file's contents.
+
 ## Check app details and inspect grant lifetime
 
 ```ts
@@ -275,8 +313,8 @@ the connection handle; never persist its returned access token separately.
 ## Crewhouse adoption
 
 Replace the OAuth, token-file and `RemoteMcp` portions of `src/connections.ts` with
-one handle per member/app. Pass the member's keystore and member ID, the host's
-registered Google client when applicable, and Crewhouse's callback address. Keep
+one handle per member/app. Pass the member's keystore and member ID, the house Google
+client from `googleClientFile` when applicable, and Crewhouse's callback address. Keep
 flow handles in the host's callback routing table until completion/cancellation.
 Crewhouse retains its own connection screen, Google setup guidance and tool gates.
 For remote apps, call `mcp()` and use `listTools`/`callTool` with their full results;
