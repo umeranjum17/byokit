@@ -1064,8 +1064,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         const c = await this.store(member).read(this.storageKey(key));
         return c?.type === 'oauth' && c.expires > Date.now();
       }
-      // A provider refusal or quarantined refresh requires sign-in again. A read failure before sending (for example
-      // a locked keychain) is unknown: try later.
+      // A provider refusal or quarantined refresh requires sign-in again. A lost answer, a server error or a read
+      // failure before sending (for example a locked keychain) is unknown: try later.
       const status = (e as any)?.status;
       return typeof status !== 'number' || status < 400 || status > 403;
     });
