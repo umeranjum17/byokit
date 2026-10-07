@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { LinkError, type Grant, type LinkRequest } from '@byokit/link';
 import { decide, jevHost, pairedJev, PairedHostError, UnsupportedImagesError, PAIRED_JEV_OP, type Question, type PairedJevLink } from '../src/index.ts';
-import { startHost, connect, pairWithOffer, until } from '../../link/test/helpers.ts';
+import { startHost, connect, pairWithOffer, until } from '../../pair/test/helpers.ts';
 
 const device: Grant = { id: 'umer-phone', key: 'public-device-key', name: 'Umer', role: 'control', created: 1 };
 const questions: Record<string, Question> = {

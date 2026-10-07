@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import jsqr from 'jsqr';
-import { Host, keyPair } from '../../link/src/index.ts';
+import { Host, keyPair } from '../../pair/src/index.ts';
 import { consentWords, linkWords, pairingView, qrMatrix, qrText, type LinkStatus, type PairPhase } from '../src/link.ts';
 
 const PLAIN = new RegExp(JSON.parse(readFileSync(new URL('../../../fixtures/conformance/plain-words.json', import.meta.url), 'utf8')).pattern, 'i');
