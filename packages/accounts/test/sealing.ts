@@ -1,6 +1,6 @@
-// Test-only authenticated sealing; the ephemeral key never leaves this process.
+// Test-only authenticated sealing; the ephemeral key never leaves the test run (a child process is handed its parent's).
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-const key = randomBytes(32);
+export const key = process.env.SEAL_KEY ? Buffer.from(process.env.SEAL_KEY, 'hex') : randomBytes(32);
 export const sealing = {
   encryptString(text: string) {
     const iv = randomBytes(12);

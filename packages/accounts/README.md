@@ -265,7 +265,8 @@ when no handler is set).
 
 `memoryStore()`, `fileStore(path, safeStorage)` (sealed, 0600), `secureStore(SecureStore, name,
 options?)` or `browserStore(name)`; any other storage with `recordStore(load, save)`. Writes are serialized within a
-store instance; `browserStore` also uses Web Locks across tabs for the whole record when available. Never a shared
+store instance; `fileStore` also serializes across processes through a `<path>.lock` file beside it, and
+`browserStore` uses Web Locks across tabs for the whole record when available. Never a shared
 fallback.
 
 ### Refresh safety
@@ -286,8 +287,8 @@ may already have spent the grant. Storage failures before the send, such as a lo
   transaction across tabs. Without Web Locks, use one store instance and tab; multiple writers are only best-effort.
   Browser storage eviction, rollback and power-loss durability are outside this guarantee.
 - **Node/Electron `fileStore` with `portableEngine`**: the sealed file is atomically replaced and synced when Node
-  permissions permit; on POSIX the directory is synced too. Process restart retains the attempt. Use one instance per
-  path and a host lock across processes. On Windows or with Node's permission model, power-loss durability is best-effort.
+  permissions permit; on POSIX the directory is synced too. Process restart retains the attempt. A `<path>.lock` file
+  beside it serializes the whole transaction across processes; a dead holder's lock is removed. On Windows or with Node's permission model, power-loss durability is best-effort.
 - **`recordStore(load, save)`**: crash safety depends on the host's atomic, durable save completing before its promise
   resolves and a host lock across independent writers. A best-effort save makes refresh best-effort too.
 - **`memoryStore`**: serialized only in memory; there is no restart recovery. A bare custom `CredentialStore` can serve
@@ -444,8 +445,8 @@ supports opt-in dual-wrap migration through `@byokit/secrets`; a failed replacem
 original envelope usable. Hold the host writer lock for read upgrades as well as ordinary writes.
 
 Use an app-owned directory: the immediate folder must be a real 0700 directory and credential
-files must be private regular files. Reuse one store instance for each path; a host lock is required
-if several processes write the same file. See [SECURITY.md](SECURITY.md) for the threat model and limits.
+files must be private regular files. Processes writing the same file take turns through a `<path>.lock`
+file beside it. See [SECURITY.md](SECURITY.md) for the threat model and limits.
 
 **Migration from 0.7.x and earlier:** `fileStore(path)` is no longer accepted. Existing files already
 sealed with the same adapter remain readable. Plain JSON is never silently imported or overwritten.
@@ -555,7 +556,7 @@ billing to an API key.
 
 Tokens belong in one device-owned `CredentialStore` per member. `keystoreStore(hostKeystore, 'member.1')` adapts
 `@byokit/secrets` without importing Node into the portable entry. Electron can pass safeStorage to `fileStore`;
-its sealed file writes atomically with mode 0600; a sealing adapter is required. Use one process per file (or a host-supplied cross-process lock).
+its sealed file writes atomically with mode 0600; a sealing adapter is required. Processes sharing one file take turns through a `<path>.lock` file beside it (see Refresh safety).
 Phones use `secureStore` with device-only accessibility. PWA `browserStore` uses IndexedDB and Web Locks; page
 scripts can read its credentials. Tokens are never collected by a BYOKit server or logged. The default is memory-only.
 

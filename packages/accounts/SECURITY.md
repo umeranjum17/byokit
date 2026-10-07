@@ -42,7 +42,7 @@ mounts, a process running as the same OS user, root, and compromised host code a
 this boundary. Windows hosts must also configure private ACLs; POSIX mode bits and
 O_NOFOLLOW are not a substitute for Windows access controls. Atomic rename avoids partial
 records, but the directory is not synced: recovery after sudden power loss is not guaranteed.
-Use one store instance per path and a host lock for multiple processes. Encryption does
+Processes sharing a path take turns through a `<path>.lock` file beside it. Encryption does
 not prevent deletion, rollback to an older sealed record, or leaking credentials in memory.
 
 Browser IndexedDB is origin-scoped plaintext accessible to scripts in that origin. The host

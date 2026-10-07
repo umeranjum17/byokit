@@ -1,15 +1,20 @@
-import { sealing } from './sealing.ts';
+import { key, sealing } from './sealing.ts';
 // "Sign in with ChatGPT" on Pi's real ChatGPT sign-in, with OpenAI stood in for (mocked token and device endpoints):
 // the redirect back to this computer, the app's own page in that tab, the code fallback, and every way it can go wrong.
 // Moved from Crewhouse's test/onboard.test.ts with the code it covers.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
-import { readFileSync } from 'node:fs';
+import { readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { execFile, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
+import { promisify } from 'node:util';
 import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { Accounts, fileStore, planOf } from '../src/index.ts';
+import { CLAUDE_PLAN_ID } from '../src/claude-plan.ts';
+import { needsReauth } from '../src/stores.ts';
 
 // ChatGPT's redirect port is fixed at 1455 in the product; the tests take a free one so they never meet a real sign-in.
 const port = await new Promise<number>((r) => { const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address() as AddressInfo; s.close(() => r(port)); }); });
@@ -183,4 +188,43 @@ test("Pi's engine cannot refresh between revoke and removal", async () => {
     assert.equal(openai.refreshes, before);
     assert.deepEqual(JSON.parse(sealing.decryptString(readFileSync(path(OWNER)))), {});
   } finally { release(); onRevoke = undefined; a.stop(); }
+});
+
+// ChatGPT refreshes through Pi's engine (the store's modify); a Claude plan through the kit's refresh seam.
+for (const [provider, name, account] of [['openai-codex', 'ChatGPT', { accountId: 'acct-1' }], [CLAUDE_PLAN_ID, 'Claude', {}]] as const) test(`two app processes refreshing one ${name} sign-in at once keep the fresh one, never a spent grant`, async () => {
+  const path = join(scratchDir('two-processes'), 'people', '1', 'auth.json');
+  await fileStore(path, sealing).modify(provider, async () => ({ type: 'oauth', access: jwt('plus'), refresh: 'rt_1', expires: Date.now() + 60_000, ...account }));
+  // The provider rotates: a refresh spends its grant. The first refresh is held until a second one arrives (or a second
+  // passes), and a spent grant is refused after the winner's answer, so unserialized refreshes interleave every run.
+  const live = new Set(['rt_1']);
+  let issued = 1, waiting: (() => void) | undefined, answered!: () => void;
+  const winner = new Promise<void>((r) => { answered = r; });
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; }).on('end', async () => {
+      const grant = body.startsWith('{') ? JSON.parse(body).refresh_token : new URLSearchParams(body).get('refresh_token');
+      if (!live.delete(grant)) {
+        waiting?.(); await winner; await new Promise((r) => setTimeout(r, 200));
+        return res.writeHead(400, { 'content-type': 'application/json' }).end('{"error":"invalid_grant"}');
+      }
+      await new Promise<void>((r) => { waiting = r; setTimeout(r, 1000); });
+      live.add(`rt_${++issued}`);
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ access_token: jwt('plus'), refresh_token: `rt_${issued}`, expires_in: 864_000 }));
+      answered();
+    });
+  }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  // An app that crashed holding the store's lock does not wedge it, even when its pid now belongs to a live process.
+  writeFileSync(`${path}.lock`, `${provider === CLAUDE_PLAN_ID ? process.pid : spawnSync(process.execPath, ['-e', '']).pid} crashed`);
+  if (provider === CLAUDE_PLAN_ID) utimesSync(`${path}.lock`, new Date(0), new Date(0));
+  try {
+    const env = { ...process.env, PROVIDER: provider, STORE: path, SEAL_KEY: key.toString('hex'), TOKEN_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}/token` };
+    const run = () => promisify(execFile)(process.execPath, [join(import.meta.dirname, 'refresh-run.ts')], { env, timeout: 20_000 }).then((r) => JSON.parse(r.stdout.trim().split('\n').pop()!));
+    const runs = await Promise.all([run(), run()]);
+    const stored = JSON.parse(sealing.decryptString(readFileSync(path)))[provider];
+    assert.deepEqual(runs, [{ ok: true }, { ok: true }], `both processes got an access token; stored: ${JSON.stringify({ refresh: stored?.refresh, marker: stored?.byokitRefresh })}`);
+    assert.ok(live.has(stored.refresh), 'the stored grant is the one the provider still honours');
+    assert.ok(!needsReauth(stored), 'not a sign-in marked spent');
+    assert.equal(issued, 2, 'the second process used the first one\'s refresh instead of spending a grant');
+  } finally { server.closeAllConnections(); server.close(); }
 });
