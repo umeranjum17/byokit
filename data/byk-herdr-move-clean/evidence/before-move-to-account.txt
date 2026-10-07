@@ -1,9 +1,0 @@
-result: {"ok":true,"session":"new1"}
-agent.start name: move-50eab75c24477d05
-agent.rename calls: []
---- new pane text ---
-$ echo BYOKIT_ACCOUNT_9ae14fd8c309412a="$CLAUDE_CONFIG_DIR"
-BYOKIT_ACCOUNT_9ae14fd8c309412a=/tmp/acct-work
-claude --resume conv-123 (running)
---- pane.send_text payloads (1) ---
-[new1] "echo BYOKIT_ACCOUNT_9ae14fd8c309412a=\"$CLAUDE_CONFIG_DIR\"\n"
