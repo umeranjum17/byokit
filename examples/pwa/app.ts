@@ -2,7 +2,7 @@
 // code; Claude by its own page, whose code the person pastes back), kept in this browser's IndexedDB, with
 // @byokit/ui-core's phases. Every connected plan and key lists first, each with its billing and room; the Add rows
 // come after. Ask runs on one account chosen at the start: Auto takes the most room and says which one and why.
-import { Accounts, browserStore, clock, planLabel, resolveSelection, roomOf, roomWords, say, PROVIDERS, type Account, type Room } from '@byokit/accounts';
+import { Accounts, billingWords, browserStore, clock, planLabel, resolveSelection, roomOf, roomWords, say, signInError, PROVIDERS, type Account, type Room } from '@byokit/accounts';
 import { phaseOf } from '@byokit/ui-core/phase';
 
 declare const __BYOKIT_AUTH_BASE__: string | undefined;
@@ -25,6 +25,7 @@ const accounts = new Accounts<any, number>({
 
 // One tile per provider: its initial on its maker's colour, so the list reads at a glance in either theme.
 const LOGO: Record<string, string> = { chatgpt: '#10a37f', claude: '#d97757', grok: '#1d1d1f', kimi: '#4d6bfe', copilot: '#6e40c9', meta: '#0082fb' };
+const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms % 60000 / 1000)).padStart(2, '0')}`;
 
 /** Live rooms by account id, read seconds ago; Ask reuses a fresh one instead of delaying the run. */
 const roomCache = new Map<string, { room: Room; at: number }>();
@@ -75,12 +76,21 @@ function card(key: string) {
   $('cards').append(el);
   const q = <T extends HTMLElement = HTMLElement>(k: string) => el.querySelector(`[data-${k}]`) as T;
   const show = (k: string, on: boolean) => { q(k).hidden = !on; };
-  const note = (words: string) => { q('note').textContent = words; show('note', !!words); };
+  const banner = (tone: '' | 'error' | 'expired' | 'info', words: string) => {
+    const n = q('note');
+    if (!words) { n.hidden = true; return; }
+    n.textContent = words; n.dataset.tone = tone; n.hidden = false;
+  };
+  const note = (words: string) => banner(words ? 'error' : '', words);
   const logo = q('logo');
   logo.textContent = name[0];
   logo.style.background = LOGO[key] ?? '#6e6e73';
   q('name').textContent = name;
   q('company').textContent = company;
+  // The honest chip: what paying looks like here — a plan, or per-use billing — before any plan is known.
+  const billing = q('billing');
+  billing.textContent = PROVIDERS[key].billing === 'api' ? 'Pay per use' : 'Plan';
+  billing.title = billingWords(PROVIDERS[key]);
   q('signin').textContent = `Sign in with ${name}`;
   q('add').textContent = `Add another ${name}`;
   q('open').textContent = `Open ${name}`;
@@ -88,6 +98,22 @@ function card(key: string) {
   q<HTMLInputElement>('pasted').placeholder = `Paste the code from the ${name} page`;
   q<HTMLTextAreaElement>('question').placeholder = `Ask ${name} something`;
   q('question').hidden = q('ask').hidden = !answers;
+
+  // A countdown this card owns: redrawn on every draw, so a stale timer never writes another card's time.
+  let tick: number | undefined;
+  const countdown = (expiresAt?: number) => {
+    window.clearInterval(tick); tick = undefined;
+    const line = q('expires');
+    if (!expiresAt) { show('expires', false); return; }
+    const paint = () => {
+      const left = expiresAt - Date.now();
+      show('expires', true);
+      line.classList.toggle('out', left <= 0);
+      line.textContent = left <= 0 ? 'This code has expired. Cancel and sign in again for a new one.' : `Code expires in ${mmss(left)}`;
+    };
+    paint();
+    tick = window.setInterval(paint, 1000);
+  };
 
   /** One compact row per connected account: who, billing, the usage bar and its room. */
   function drawRows(rows: Account[], rooms: Map<string, Room>, self: { id: string; email?: string }) {
@@ -161,6 +187,7 @@ function card(key: string) {
 
   let drawing = 0;
   let pendingAdd: string | undefined;
+  let cancelledHere = false;
   async function draw() {
     const mine = ++drawing;
     const status = await accounts.status(ME, key);
@@ -178,23 +205,65 @@ function card(key: string) {
     const waiting = shown?.state === 'waiting';
     if (mine !== drawing) return; // a later draw (a sign-out, say) already said how things are
     readRooms(rows).then((rooms) => { if (mine === drawing) drawRows(rows, rooms, { id: status.id, email: plan?.email }); });
+    el.dataset.state = waiting ? 'signing' : status.state;
+    q('status').textContent = status.words;
     q('badge').textContent = plan ? planLabel(name, plan.plan) : '';
-    show('badge', !!plan?.plan);
-    show('sheet', !!waiting && (phase === 'code' || phase === 'opening' || phase === 'waiting'));
-    q('words').textContent = phase === 'code' ? `On the ${name} page, type this code:`
-      : phase === 'waiting' ? `Sign in on the ${name} page, then copy the code it shows and paste it here.` : say('signIn.opening', { name });
-    q('code').textContent = shown?.state === 'waiting' ? shown.code ?? '' : '';
-    show('code', phase === 'code');
-    q<HTMLAnchorElement>('open').href = shown?.state === 'waiting' ? shown.url ?? '#' : '#';
-    show('open', !!shown?.url && shown.state === 'waiting');
-    show('paste', key === 'claude' && phase === 'waiting');
-    if (shown?.state === 'failed') note(shown.error ?? '');
+    const known = !!plan?.plan;
+    show('badge', known); show('billing', !known);
+    q('who').textContent = plan?.email ? `Signed in as ${plan.email}` : '';
+    show('who', !!plan?.email);
+    // The sheet opens only while a sign-in is actually waiting; idle 'opening' shows the signed-out card alone.
+    const sheet = waiting && (phase === 'code' || phase === 'opening' || phase === 'waiting');
+    show('sheet', sheet);
+    countdown(waiting ? shown?.expiresAt : undefined);
+    if (phase === 'code') {
+      banner('', '');
+      q('words').textContent = `On the ${name} page, type this code:`;
+      q('code').textContent = shown?.state === 'waiting' ? shown.code ?? '' : '';
+      show('codewell', true);
+      const open = q<HTMLAnchorElement>('open');
+      open.href = shown?.state === 'waiting' ? shown.url ?? '#' : '#';
+      open.textContent = `Open ${name}`; open.removeAttribute('data-quiet');
+      show('open', !!shown?.url && shown.state === 'waiting');
+      show('paste', false);
+    } else if (phase === 'waiting') {
+      banner('', '');
+      q('words').textContent = say('signIn.waitingUrl', { name });
+      show('codewell', false);
+      // The paste box is this step's primary action, so Open steps back to a quiet link: one primary per step.
+      const open = q<HTMLAnchorElement>('open');
+      open.href = shown?.state === 'waiting' ? shown.url ?? '#' : '#';
+      open.textContent = `Reopen the ${name} page`; open.setAttribute('data-quiet', '');
+      show('open', !!shown?.url && shown.state === 'waiting');
+      show('paste', key === 'claude');
+    } else if (phase === 'opening') {
+      banner('', '');
+      q('words').textContent = say('signIn.opening', { name });
+      show('codewell', false); show('open', false); show('paste', false);
+    } else if (!ready || pendingAdd) {
+      // The sheet is gone; the sign-in button is the single primary again, under a banner saying what happened.
+      if (phase === 'expired') banner('expired', signInError(name, shown?.error ?? 'expired'));
+      else if (phase === 'cancelled') banner('info', say('signIn.cancelled'));
+      else if (phase === 'failed' || phase === 'busy' || phase === 'offline') {
+        banner(cancelledHere ? 'info' : 'error', cancelledHere ? say('signIn.cancelled') : signInError(name, shown?.error ?? 'failed'));
+      } else banner('', '');
+      cancelledHere = false;
+    } else banner('', '');
+    if (shown?.state === 'failed') void 0; // banner above already said it, in this card's own words
     show('signin', !ready && !waiting && !pendingAdd);
     show('add', ready && !waiting && !pendingAdd);
     show('ready', ready);
   }
 
-  q('signin').onclick = () => { note(''); accounts.login(ME, key).then(draw); };
+  q('copy').onclick = async () => {
+    const code = q('code').textContent.trim();
+    if (!code) return;
+    try { await navigator.clipboard.writeText(code); } catch { /* clipboard needs a secure page; selecting still works */ }
+    const b = q<HTMLButtonElement>('copy');
+    b.textContent = 'Copied';
+    window.setTimeout(() => { b.textContent = 'Copy'; }, 1200);
+  };
+  q('signin').onclick = () => { banner('', ''); accounts.login(ME, key).then(draw); };
   q('add').onclick = async () => {
     note('');
     try {
@@ -204,6 +273,7 @@ function card(key: string) {
     draw();
   };
   q('cancel').onclick = () => {
+    cancelledHere = true;
     accounts.cancel(ME, pendingAdd ?? key);
     pendingAdd = undefined;
   };
@@ -269,7 +339,8 @@ function card(key: string) {
 const $ = (id: string) => document.getElementById(id)!;
 // The picker is the catalogue's: every provider this platform can sign in to, in the order the kit offers them.
 const draws: Record<string, () => Promise<void>> = Object.fromEntries(accounts.providers.map((p) => [p.key, card(p.key)]));
-accounts.onChange = () => { Object.values(draws).forEach((d) => d()); };
+// An account being added reports under its own id, not its provider: redraw its card too, not only exact hits.
+accounts.onChange = (_member, key) => { const d = draws[key]; if (d) d(); else Object.values(draws).forEach((d) => d()); };
 Promise.all(accounts.providers.map((p) => accounts.signedIn(ME, p.key)))
   .then(() => accounts.keepFresh([ME])).then(() => Object.values(draws).forEach((d) => d()));
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');

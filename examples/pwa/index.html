@@ -10,8 +10,8 @@
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <title>byokit example</title>
 <style>
-  :root { color-scheme: light dark; --bg: #f5f5f7; --card: #fff; --ink: #1d1d1f; --soft: #6e6e73; --line: #e3e3e8; --fill: #ececf0; --accent: #0071e3; --accent-press: #0077ed; --ok: #1a8737; --warn: #935705; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #000; --card: #1c1c1e; --ink: #f5f5f7; --soft: #a1a1a6; --line: #38383a; --fill: #2c2c2e; --accent: #2997ff; --accent-press: #53a9ff; --ok: #4eda7d; --warn: #e8a33d; } }
+  :root { color-scheme: light dark; --bg: #f5f5f7; --card: #fff; --ink: #1d1d1f; --soft: #6e6e73; --line: #e3e3e8; --fill: #ececf0; --accent: #0071e3; --accent-press: #0077ed; --ok: #1a8737; --warn: #935705; --warn-bg: #fdf3e3; --err: #b3261e; --err-bg: #fdecea; --code-well: #f5f5f7; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #000; --card: #1c1c1e; --ink: #f5f5f7; --soft: #a1a1a6; --line: #38383a; --fill: #2c2c2e; --accent: #2997ff; --accent-press: #53a9ff; --ok: #4eda7d; --warn: #e8a33d; --warn-bg: #32270f; --err: #f28b82; --err-bg: #3a1a17; --code-well: #101012; } }
   * { box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif; font-size: 17px; line-height: 1.45; background: var(--bg); color: var(--ink); max-width: 30em; margin: 0 auto; padding: 2.5em 16px 4em; -webkit-font-smoothing: antialiased; }
   h1 { font-size: 1.7em; letter-spacing: -.02em; margin: 0 0 .15em; }
@@ -27,11 +27,20 @@
   .who-text h2 { font-size: 1.05em; margin: 0; }
   .company { color: var(--soft); font-size: .8em; margin: 0; }
   .badge { flex: none; font-size: .72em; font-weight: 600; background: var(--fill); color: var(--soft); border-radius: 99px; padding: .25em .75em; white-space: nowrap; }
+  .chip { flex: none; font-size: .72em; font-weight: 600; background: var(--fill); color: var(--soft); border-radius: 99px; padding: .25em .75em; white-space: nowrap; }
+  .status { display: flex; align-items: center; gap: .5em; color: var(--soft); font-size: .9em; margin: .8em 0 .2em; }
+  .status::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--soft); }
+  .card[data-state="ready"] .status::before { background: var(--ok); }
+  .card[data-state="signing"] .status::before { background: var(--accent); }
+  .card[data-state="needs_again"] .status::before, .card[data-state="resting"] .status::before, .card[data-state="not_included"] .status::before { background: var(--warn); }
   .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--soft); }
   .dot[data-state="ready"] { background: var(--ok); }
   .dot[data-state="signing"] { background: var(--accent); }
   .dot[data-state="needs_again"], .dot[data-state="resting"], .dot[data-state="not_included"] { background: var(--warn); }
-  .banner { border-radius: 12px; padding: .7em .9em; font-size: .9em; margin: .7em 0 0; background: var(--fill); color: var(--ink); }
+  .banner { border-radius: 12px; padding: .7em .9em; font-size: .9em; margin: .7em 0 0; }
+  .banner[data-tone="error"] { background: var(--err-bg); color: var(--err); }
+  .banner[data-tone="expired"] { background: var(--warn-bg); color: var(--warn); }
+  .banner[data-tone="info"] { background: var(--fill); color: var(--ink); }
   .acc { border-top: 1px solid var(--line); padding: .6em 0; }
   .acc-row { display: flex; align-items: baseline; gap: .5em; }
   .acc-email { font-weight: 600; }
@@ -40,14 +49,21 @@
   .meter > i { display: block; height: 100%; background: var(--accent); }
   .acc-room { color: var(--soft); font-size: .9em; margin: .2em 0; font-variant-numeric: tabular-nums; }
   .steps { color: var(--soft); font-size: .85em; margin: .8em 0 0; }
+  .codewell { display: flex; align-items: center; gap: .6em; background: var(--code-well); border: 1px dashed var(--line); border-radius: 14px; padding: .7em .8em; margin: .8em 0 0; }
+  .code { flex: 1; font-size: 1.7em; font-weight: 700; letter-spacing: .08em; margin: 0; font-variant-numeric: tabular-nums; }
+  .copy { flex: none; font: inherit; font-size: .85em; font-weight: 600; color: var(--accent); background: none; border: 0; border-radius: 8px; padding: .5em .7em; cursor: pointer; }
+  .expires { color: var(--soft); font-size: .85em; margin: .4em 0 0; font-variant-numeric: tabular-nums; }
+  .expires.out { color: var(--warn); font-weight: 600; }
   .primary, .secondary { font: inherit; display: block; box-sizing: border-box; width: 100%; margin: .7em 0 0; padding: .8em; border-radius: 14px; text-align: center; text-decoration: none; cursor: pointer; }
   .primary { background: var(--accent); color: #fff; border: 0; font-weight: 600; }
   @media (prefers-color-scheme: dark) { .primary { color: #000; } }
   .primary:active { background: var(--accent-press); }
   .primary:disabled { opacity: .45; cursor: default; }
   .secondary { background: var(--fill); color: var(--accent); border: 0; font-weight: 500; }
+  .primary[data-quiet] { display: inline-block; width: auto; background: none; color: var(--accent); font-weight: 400; padding: .5em 0; margin-top: .8em; }
+  .primary[data-quiet]:hover { text-decoration: underline; }
   .quiet { font: inherit; font-size: .9em; background: none; border: 0; color: var(--soft); padding: .5em 0; margin-top: .5em; cursor: pointer; text-decoration: underline; }
-  .code { font-size: 1.7em; font-weight: 700; letter-spacing: .08em; margin: .2em 0; font-variant-numeric: tabular-nums; }
+  .quiet:hover { color: var(--err); }
   input, textarea, select { font: inherit; box-sizing: border-box; width: 100%; padding: .7em .8em; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--ink); margin-top: .7em; }
   .answer { white-space: pre-wrap; margin: .8em 0 0; }
   [hidden] { display: none !important; }
@@ -62,13 +78,19 @@
     <div class="who">
       <span class="logo" data-logo aria-hidden="true"></span>
       <div class="who-text"><h2 data-name></h2><p class="company" data-company></p></div>
-      <span class="badge" data-badge hidden></span>
+      <span class="chip" data-billing></span><span class="badge" data-badge hidden></span>
     </div>
+    <p class="status" data-status>…</p>
+    <p class="lede" data-who hidden></p>
     <p class="banner" data-note role="alert" hidden></p>
     <div data-accounts></div>
     <div data-sheet hidden>
       <p class="steps" data-words></p>
-      <p class="code" data-code hidden></p>
+      <div class="codewell" data-codewell hidden>
+        <p class="code" data-code aria-live="polite"></p>
+        <button class="copy" data-copy type="button">Copy</button>
+      </div>
+      <p class="expires" data-expires hidden></p>
       <a class="primary" data-open target="_blank" rel="noopener"></a>
       <div data-paste hidden>
         <input data-pasted autocomplete="off" autocapitalize="off" spellcheck="false">
