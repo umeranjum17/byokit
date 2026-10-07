@@ -196,9 +196,10 @@ Android 14+ requests the entire default display; an OEM override to app-only cap
 instead of returning a picture with misleading coordinates. Protected content can be blank, as enforced by Android.
 If coordinates came from a resized preview, convert them back to the original image pixels first.
 
-`pointHere({ x, y, label, space?, ms? })` centres a ring at those full-display pixels, draws the label beside it and
-announces the full label for TalkBack. It needs an already started overlay (either host). It replaces the previous
-marker, defaults to 2500 ms (allowed range 1–60000), and returns `shown`, `not-running`, `needs-permission`,
+`pointHere({ x, y, label, space?, ms? })` centres a ring at those full-display pixels, draws the label just below it
+(above it near the bottom edge) and announces the full label for TalkBack. It needs an already started overlay (either
+host). It replaces the previous marker, defaults to 2500 ms (allowed range 1–60000), and returns `shown`,
+`not-running`, `needs-permission`,
 `display-changed`, or `unsupported`. Pass `frame.space` to reject stale geometry; without it the current display is
 used. Coordinates must be finite and inside the display, with a non-empty label. A marker never takes focus or
 accepts touches; its window opacity stays below Android's pass-through threshold. The bubble keeps its own existing
