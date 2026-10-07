@@ -60,12 +60,13 @@ export function claudeCode(paste: string, state: string) {
   return code;
 }
 
-const credential = (j: any, now: number, previous?: OAuthCredential): OAuthCredential => {
+const credential = (j: any, now: number, refreshing = false): OAuthCredential => {
   if (typeof j?.access_token !== 'string' || !j.access_token || typeof j.expires_in !== 'number'
     || !Number.isFinite(j.expires_in) || j.expires_in <= 0 || !Number.isFinite(now + j.expires_in * 1000)
-    || (j.refresh_token !== undefined && (typeof j.refresh_token !== 'string' || !j.refresh_token)))
+    || (j.refresh_token !== undefined && (typeof j.refresh_token !== 'string' || !j.refresh_token))
+    || (refreshing && j.refresh_token === undefined)) // Claude rotates every refresh; an omitted replacement may be spent
     throw new Error('Claude could not complete the sign-in. Try signing in again.');
-  return { type: 'oauth', access: j.access_token, refresh: j.refresh_token ?? previous?.refresh ?? '', expires: now + j.expires_in * 1000 };
+  return { type: 'oauth', access: j.access_token, refresh: j.refresh_token ?? '', expires: now + j.expires_in * 1000 };
 };
 
 // In-process only: concurrent resolvers share one refresh. The store's persisted marker, under its lock, is what keeps
@@ -123,7 +124,7 @@ export function withClaudePlan(engine: AuthHost, credentials: CredentialStore, l
       sent = true;
       try {
         const answer = await post({ grant_type: 'refresh_token', client_id: CLAUDE_CLIENT_ID, refresh_token: current.refresh });
-        try { return credential(answer, now(), current); } catch (e) { throw Object.assign(e as Error, { status: 200 }); }
+        try { return credential(answer, now(), true); } catch (e) { throw Object.assign(e as Error, { status: 200 }); }
       } catch (e) { refused = e instanceof ClaudePlanExpiredError; throw e; }
     }).catch(async (e) => {
       // No answer, a server error or storage failing before sending keeps the sign-in, its grant tried again next time.

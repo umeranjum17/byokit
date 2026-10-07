@@ -120,10 +120,8 @@ export function recordStore(load: () => Promise<Record>, save: (data: Record) =>
         await settle('ready');
         throw new Error(`The sign-in could not be refreshed over the network${status ? ` (the provider answered ${status})` : ''}; it is kept for the next try.`);
       }
-      if (next.refresh === current.refresh || (current.accountId && next.accountId !== current.accountId)) {
-        await settle(next.refresh === current.refresh ? 'uncertain' : 'terminal');
-        throw new RefreshRequiredError();
-      }
+      // A provider may keep its grant (no new refresh token): the answer is still a working sign-in.
+      if (current.accountId && next.accountId !== current.accountId) { await settle('terminal'); throw new RefreshRequiredError(); }
       const committed = { ...current, ...next, byokitRefresh: { generation: generation + 1, state: 'ready' } satisfies RefreshState };
       try { await write(committed); }
       catch { throw new RefreshRequiredError(); }

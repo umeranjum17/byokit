@@ -273,9 +273,9 @@ fallback.
 
 `portableEngine` (the default on phones and in browsers) holds the store lock, re-reads the current sign-in, and saves
 a non-secret `byokitRefresh` generation/attempt marker in the credential record **before** sending a refresh grant.
-It commits the replacement pair before returning access. The provider proving the grant revoked (`invalid_grant`, or
+It commits the replacement pair before returning access; a provider that keeps its grant (no new refresh token) stays signed in. The provider proving the grant revoked (`invalid_grant`, or
 OpenAI's `refresh_token_expired`, `refresh_token_reused` or `refresh_token_invalidated`), any other answer that may have
-spent it (an unchanged grant, an accepted answer that cannot be read), or a failure to save the replacement requires
+spent it (an accepted answer that cannot be read), or a failure to save the replacement requires
 sign-in again; an attempted or quarantined generation is never retried, including by `recheck`. A lost response, a
 server error or any other refusal (a passing 401, 403 or 429 included) keeps the sign-in: the marker is set back to
 ready and the stored grant is tried again on the next refresh, so `recheck` and `access` never delete a sign-in over
