@@ -1,0 +1,1 @@
+- Screen demo: park the point-marker ring above the target button with a clear gap so neither ring nor label covers its text, follow the system night mode with a real dark theme, and give the guide bubble an opaque token so it never reads as a cut-off fragment.

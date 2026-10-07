@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "io.github.umeranjum17.byokit.example"
@@ -29,7 +29,7 @@
         "@byokit/overlay",
         {
           "moods": {
-            "bubble": "./assets/android-icon-foreground.png",
+            "bubble": "./assets/bubble.png",
             "bubble_note": "./assets/android-icon-monochrome.png"
           }
         }
