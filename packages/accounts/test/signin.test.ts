@@ -210,7 +210,7 @@ test("a second app on this computer finds the first one's sign-in at the machine
     kit.stop();`;
   const env = { ...process.env, HOME: home, SEAL_KEY: key.toString('hex') };
   const { stdout } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', second], { env, timeout: 20_000 });
-  assert.deepEqual(JSON.parse(stdout.trim().split('\n').pop()!), { signedIn: true, plan: { plan: 'plus', email: 'sara@example.com', work: false } });
+  assert.deepEqual(JSON.parse(stdout.trim().split('\n').pop()!), { signedIn: true, plan: { plan: 'plus', email: openai.email, work: false } });
   assert.throws(() => machineStore('../1', sealing), /letters, digits/, 'a member never leaves the people folder');
 });
 
