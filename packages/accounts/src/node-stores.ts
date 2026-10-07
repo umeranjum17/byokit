@@ -92,7 +92,7 @@ export function fileStore(path: string, safeStorage: SafeStorageLike): EndingSto
     writeFileSync(tmp, text, { flag: 'wx', mode: 0o600 });
     try { linkSync(tmp, file); return true; }
     catch (e: any) { if (e?.code === 'EEXIST') return false; throw e; }
-    finally { unlinkSync(tmp); }
+    finally { try { unlinkSync(tmp); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; } }
   };
   const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e: any) { return e?.code === 'EPERM'; } };
   const fresh = () => { try { return Date.now() - statSync(lockFile).mtimeMs < 30_000; } catch { return true; } };
@@ -108,7 +108,7 @@ export function fileStore(path: string, safeStorage: SafeStorageLike): EndingSto
       if ((!alive(Number(pid)) || !fresh()) && exclusive(`${lockFile}.${tag}`, mine)) {
         try { if (readFileSync(lockFile, 'utf8') === holder) unlinkSync(lockFile); }
         catch (e: any) { if (e?.code !== 'ENOENT') throw e; }
-        finally { unlinkSync(`${lockFile}.${tag}`); }
+        finally { try { unlinkSync(`${lockFile}.${tag}`); } catch (e: any) { if (e?.code !== 'ENOENT') throw e; } }
       } else await new Promise((r) => setTimeout(r, 20));
     }
     const touch = setInterval(() => { try { const now = new Date(); utimesSync(lockFile, now, now); } catch {} }, 5_000);
