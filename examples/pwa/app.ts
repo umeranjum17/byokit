@@ -23,6 +23,9 @@ const accounts = new Accounts<any, number>({
   fetch: forwarded,
 });
 
+// One tile per provider: its initial on its maker's colour, so the list reads at a glance in either theme.
+const LOGO: Record<string, string> = { chatgpt: '#10a37f', claude: '#d97757', grok: '#1d1d1f', kimi: '#4d6bfe', copilot: '#6e40c9', meta: '#0082fb' };
+
 /** Live rooms by account id, read seconds ago; Ask reuses a fresh one instead of delaying the run. */
 const roomCache = new Map<string, { room: Room; at: number }>();
 const ROOM_TTL_MS = 60_000;
@@ -64,7 +67,7 @@ async function readRooms(rows: Account[]): Promise<Map<string, Room>> {
 }
 
 function card(key: string) {
-  const { name } = PROVIDERS[key];
+  const { name, company } = PROVIDERS[key];
   // Only the two providers this page can ask have a question box; every provider in the catalogue gets a sign-in card.
   const answers = key === 'chatgpt' || key === 'claude';
   const el = ($('card') as HTMLTemplateElement).content.firstElementChild!.cloneNode(true) as HTMLElement;
@@ -73,7 +76,11 @@ function card(key: string) {
   const q = <T extends HTMLElement = HTMLElement>(k: string) => el.querySelector(`[data-${k}]`) as T;
   const show = (k: string, on: boolean) => { q(k).hidden = !on; };
   const note = (words: string) => { q('note').textContent = words; show('note', !!words); };
+  const logo = q('logo');
+  logo.textContent = name[0];
+  logo.style.background = LOGO[key] ?? '#6e6e73';
   q('name').textContent = name;
+  q('company').textContent = company;
   q('signin').textContent = `Sign in with ${name}`;
   q('add').textContent = `Add another ${name}`;
   q('open').textContent = `Open ${name}`;
@@ -82,55 +89,45 @@ function card(key: string) {
   q<HTMLTextAreaElement>('question').placeholder = `Ask ${name} something`;
   q('question').hidden = q('ask').hidden = !answers;
 
-  /** Every connected row for this provider, before the Add rows; each names its billing and room. */
-  function drawRows(rows: Account[], rooms: Map<string, Room>) {
+  /** One compact row per connected account: who, billing, the usage bar and its room. */
+  function drawRows(rows: Account[], rooms: Map<string, Room>, self: { id: string; email?: string }) {
     const box = q('accounts');
     box.replaceChildren();
     for (const a of rows) {
       const row = document.createElement('div');
+      row.className = 'acc';
       row.dataset.account = a.id;
       const head = document.createElement('div');
-      const who = document.createElement('strong');
-      who.textContent = a.name;
-      head.append(who);
-      if (a.plan) {
-        const badge = document.createElement('span');
-        badge.className = 'badge';
-        badge.dataset.plan = '';
-        badge.textContent = planLabel(a.name, a.plan);
-        head.append(' ', badge);
-      }
+      head.className = 'acc-row';
+      const email = document.createElement('span');
+      email.className = 'acc-email';
+      email.dataset.email = '';
+      // The row's own address; the live profile's only for the default row it belongs to.
+      email.textContent = a.email ?? (a.id === self.id ? self.email ?? a.name : a.name);
+      head.append(email);
       const chip = document.createElement('span');
-      chip.className = 'chip';
+      chip.className = 'acc-chip';
       chip.dataset.chip = '';
       chip.textContent = a.billing === 'subscription' ? `Your ${a.name} plan`
         : a.billing === 'api' ? 'API key, billed per use' : a.label;
-      head.append(' ', chip);
+      head.append(chip);
       row.append(head);
-      if (a.email) {
-        const email = document.createElement('p');
-        email.className = 'small';
-        email.dataset.email = '';
-        email.textContent = `Signed in as ${a.email}`;
-        row.append(email);
-      }
       const room = rooms.get(a.id) ?? { left: 'unknown' as const };
-      const meter = document.createElement('div');
-      meter.dataset.room = '';
       if (typeof room.left === 'number') {
         const bar = document.createElement('div');
         bar.className = 'meter';
         const fill = document.createElement('i');
         fill.style.width = `${Math.round(room.left)}%`;
         bar.append(fill);
-        meter.append(bar);
+        bar.dataset.room = '';
+        row.append(bar);
       }
       const text = document.createElement('p');
-      text.className = 'small';
-      text.textContent = room.left === 'unknown' ? roomWords(room)
-        : `${roomWords(room)}${room.resetsAt ? ` · refills ${clock(room.resetsAt)}` : ''}`;
-      meter.append(text);
-      row.append(meter);
+      text.className = 'acc-room';
+      text.dataset.room = '';
+      text.textContent = typeof room.left !== 'number' ? roomWords(room)
+        : room.resetsAt ? `${Math.round(room.left)}% left - refills ${clock(room.resetsAt)}` : `${Math.round(room.left)}% left`;
+      row.append(text);
       if (a.state !== 'ready') {
         const out = document.createElement('button');
         out.className = 'quiet';
@@ -167,7 +164,7 @@ function card(key: string) {
     const ready = status.state === 'ready' || status.state === 'resting' || status.state === 'not_included';
     const plan = ready ? await accounts.plan(ME, key) : null;
     const rows = (await accounts.list(ME)).filter((a) => a.provider === key);
-    drawRows(rows, new Map());
+    drawRows(rows, new Map(), { id: status.id, email: plan?.email });
     drawPick(rows, q<HTMLSelectElement>('pick').value);
     const landed = pendingAdd ? accounts.view(ME, pendingAdd) : undefined;
     if (landed?.state === 'done' && pendingAdd) pendingAdd = undefined;
@@ -176,12 +173,11 @@ function card(key: string) {
     const phase = phaseOf({ ready: !pendingAdd && status.state === 'ready', signIn: shown });
     const waiting = shown?.state === 'waiting';
     if (mine !== drawing) return; // a later draw (a sign-out, say) already said how things are
-    readRooms(rows).then((rooms) => { if (mine === drawing) drawRows(rows, rooms); });
+    readRooms(rows).then((rooms) => { if (mine === drawing) drawRows(rows, rooms, { id: status.id, email: plan?.email }); });
     q('status').textContent = status.words;
     q('badge').textContent = plan ? planLabel(name, plan.plan) : '';
     show('badge', !!plan?.plan);
-    q('who').textContent = plan?.email ? `Signed in as ${plan.email}` : '';
-    show('who', !!plan?.email);
+    el.dataset.state = waiting ? 'signing' : status.state;
     show('sheet', !!waiting && (phase === 'code' || phase === 'opening' || phase === 'waiting'));
     q('words').textContent = phase === 'code' ? `On the ${name} page, type this code:`
       : phase === 'waiting' ? `Sign in on the ${name} page, then copy the code it shows and paste it here.` : say('signIn.opening', { name });
@@ -245,8 +241,11 @@ function card(key: string) {
       await accounts.setDefaults(ME, { ...await accounts.defaults(ME), account: pick.account.id });
       if (mine !== asking) return;
       const picked = q('picked');
-      picked.textContent = `Using ${pick.account.email ?? pick.account.name}: ` +
-        say(`pick.why.${pick.why}`, { name: pick.account.name, provider: pick.account.provider }) + ` ${pick.reason}`;
+      const who = pick.account.email ?? pick.account.name;
+      const room = rooms.get(pick.account.id);
+      picked.textContent = want === 'auto' && typeof room?.left === 'number'
+        ? `Auto picks ${who}: ${Math.round(room.left)}% left.`
+        : `Using ${who}: ` + say(`pick.why.${pick.why}`, { name: pick.account.name, provider: pick.account.provider });
       show('picked', true);
       draw();
       const signal = mine.signal;

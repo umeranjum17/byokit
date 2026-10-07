@@ -6,46 +6,70 @@
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#151514" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <title>byokit example</title>
 <style>
-  :root { color-scheme: light dark; --bg: #f6f5f2; --card: #fff; --ink: #1b1b1a; --soft: #6b6a66; --line: #e4e2dc; --primary: #1b1b1a; --on-primary: #fff; --badge: #ecebe6; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #151514; --card: #1f1f1d; --ink: #f2f1ed; --soft: #a3a29d; --line: #33322f; --primary: #f2f1ed; --on-primary: #151514; --badge: #2c2b29; } }
-  body { font: 17px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--ink); max-width: 30em; margin: 0 auto; padding: 2.5em 16px; }
-  h1 { font-size: 1.6em; margin: 0 0 .2em; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin: 16px 0; }
-  .card h2 { font-size: 1.15em; margin: 0; display: flex; align-items: center; gap: .5em; }
-  .badge { font-size: .75em; font-weight: 600; background: var(--badge); border-radius: 99px; padding: .15em .7em; }
-  .chip { font-size: .75em; background: none; border: 1px solid var(--line); border-radius: 99px; padding: .15em .7em; }
+  :root { color-scheme: light dark; --bg: #f5f5f7; --card: #fff; --ink: #1d1d1f; --soft: #6e6e73; --line: #e3e3e8; --fill: #ececf0; --accent: #0071e3; --accent-press: #0077ed; --ok: #1a8737; --warn: #935705; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #000; --card: #1c1c1e; --ink: #f5f5f7; --soft: #a1a1a6; --line: #38383a; --fill: #2c2c2e; --accent: #2997ff; --accent-press: #53a9ff; --ok: #4eda7d; --warn: #e8a33d; } }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif; font-size: 17px; line-height: 1.45; background: var(--bg); color: var(--ink); max-width: 30em; margin: 0 auto; padding: 2.5em 16px 4em; -webkit-font-smoothing: antialiased; }
+  h1 { font-size: 1.7em; letter-spacing: -.02em; margin: 0 0 .15em; }
+  .lede, .usage-link { color: var(--soft); font-size: .9em; margin: .3em 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  #cards { display: grid; gap: 16px; margin-top: 1em; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px; }
+  .who { display: flex; align-items: center; gap: .7em; }
+  .logo { flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; font-weight: 700; font-size: 1.05em; color: #fff; box-shadow: inset 0 0 0 1px var(--line); }
+  .who-text { min-width: 0; flex: 1; }
+  .who-text h2 { font-size: 1.05em; margin: 0; }
+  .company { color: var(--soft); font-size: .8em; margin: 0; }
+  .badge { flex: none; font-size: .72em; font-weight: 600; background: var(--fill); color: var(--soft); border-radius: 99px; padding: .25em .75em; white-space: nowrap; }
+  .status { display: flex; align-items: center; gap: .5em; color: var(--soft); font-size: .9em; margin: .8em 0 .2em; }
+  .status::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--soft); }
+  .card[data-state="ready"] .status::before { background: var(--ok); }
+  .card[data-state="signing"] .status::before { background: var(--accent); }
+  .card[data-state="needs_again"] .status::before, .card[data-state="resting"] .status::before, .card[data-state="not_included"] .status::before { background: var(--warn); }
+  .banner { border-radius: 12px; padding: .7em .9em; font-size: .9em; margin: .7em 0 0; background: var(--fill); color: var(--ink); }
   .acc { border-top: 1px solid var(--line); padding: .6em 0; }
-  .acc:first-child { border-top: 0; }
-  .meter { height: 6px; border-radius: 99px; background: var(--badge); margin: .4em 0 .2em; overflow: hidden; }
-  .meter > i { display: block; height: 100%; background: var(--primary); }
-  .small, .status { color: var(--soft); font-size: .9em; margin: .3em 0; }
-  .primary, .secondary { font: inherit; display: block; box-sizing: border-box; width: 100%; margin: .6em 0 0; padding: .75em; border-radius: 12px; text-align: center; text-decoration: none; cursor: pointer; }
-  .primary { background: var(--primary); color: var(--on-primary); border: 0; font-weight: 600; }
-  .secondary { background: none; color: var(--ink); border: 1px solid var(--line); }
-  .primary:disabled { opacity: .5; cursor: default; }
-  .quiet { font: inherit; font-size: .9em; background: none; border: 0; color: var(--soft); padding: .4em 0; margin-top: .4em; cursor: pointer; text-decoration: underline; }
-  .code { font-size: 2em; font-weight: 700; letter-spacing: .1em; margin: .2em 0; }
-  input, textarea, select { font: inherit; box-sizing: border-box; width: 100%; padding: .65em .8em; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--ink); margin-top: .6em; }
+  .acc-row { display: flex; align-items: baseline; gap: .5em; }
+  .acc-email { font-weight: 600; }
+  .acc-chip { margin-left: auto; flex: none; font-size: .72em; font-weight: 600; background: var(--fill); color: var(--soft); border-radius: 99px; padding: .25em .75em; white-space: nowrap; }
+  .meter { height: 6px; border-radius: 99px; background: var(--fill); margin: .45em 0 .2em; overflow: hidden; }
+  .meter > i { display: block; height: 100%; background: var(--accent); }
+  .acc-room { color: var(--soft); font-size: .9em; margin: .2em 0; font-variant-numeric: tabular-nums; }
+  .steps { color: var(--soft); font-size: .85em; margin: .8em 0 0; }
+  .primary, .secondary { font: inherit; display: block; box-sizing: border-box; width: 100%; margin: .7em 0 0; padding: .8em; border-radius: 14px; text-align: center; text-decoration: none; cursor: pointer; }
+  .primary { background: var(--accent); color: #fff; border: 0; font-weight: 600; }
+  @media (prefers-color-scheme: dark) { .primary { color: #000; } }
+  .primary:active { background: var(--accent-press); }
+  .primary:disabled { opacity: .45; cursor: default; }
+  .secondary { background: var(--fill); color: var(--accent); border: 0; font-weight: 500; }
+  .quiet { font: inherit; font-size: .9em; background: none; border: 0; color: var(--soft); padding: .5em 0; margin-top: .5em; cursor: pointer; text-decoration: underline; }
+  .code { font-size: 1.7em; font-weight: 700; letter-spacing: .08em; margin: .2em 0; font-variant-numeric: tabular-nums; }
+  input, textarea, select { font: inherit; box-sizing: border-box; width: 100%; padding: .7em .8em; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--ink); margin-top: .7em; }
   .answer { white-space: pre-wrap; margin: .8em 0 0; }
   [hidden] { display: none !important; }
+  @media (min-width: 900px) { body { max-width: 62em; } #cards { grid-template-columns: 1fr 1fr; align-items: start; } }
 </style>
-<h1>Umer's AI plans</h1>
-<p class="small">Sign in with a plan you already pay for. Your sign-ins stay in this browser.</p>
-<p class="small"><a href="usage.html">See plan usage</a></p>
+<h1>Umer&rsquo;s AI plans</h1>
+<p class="lede">Sign in with a plan you already pay for. Your sign-ins stay in this browser.</p>
+<p class="usage-link"><a href="usage.html">See plan usage</a></p>
 <div id="cards"></div>
 <template id="card">
-  <section class="card">
-    <h2><span data-name></span><span class="badge" data-badge hidden></span></h2>
+  <section class="card" data-state="signed_out">
+    <div class="who">
+      <span class="logo" data-logo aria-hidden="true"></span>
+      <div class="who-text"><h2 data-name></h2><p class="company" data-company></p></div>
+      <span class="badge" data-badge hidden></span>
+    </div>
     <p class="status" data-status>…</p>
-    <p class="small" data-who hidden></p>
-    <p class="small" data-note hidden></p>
+    <p class="banner" data-note role="alert" hidden></p>
     <div data-accounts></div>
     <div data-sheet hidden>
-      <p data-words></p>
+      <p class="steps" data-words></p>
       <p class="code" data-code hidden></p>
       <a class="primary" data-open target="_blank" rel="noopener"></a>
       <div data-paste hidden>
@@ -57,7 +81,7 @@
     <button class="primary" data-signin hidden></button>
     <div data-ready hidden>
       <select data-pick aria-label="Which account answers"></select>
-      <p class="small" data-picked hidden></p>
+      <p class="steps" data-picked hidden></p>
       <textarea data-question rows="2"></textarea>
       <button class="primary" data-ask>Ask</button>
       <button class="secondary" data-stop hidden>Stop</button>

@@ -47,7 +47,7 @@ test('sign in with ChatGPT in a browser: device code, the plan named, kept acros
 
   await status.filter({ hasText: 'ChatGPT is connected.' }).waitFor();
   await part(page, 'chatgpt', 'badge').filter({ hasText: 'ChatGPT Plus' }).waitFor();
-  assert.equal(await part(page, 'chatgpt', 'who').textContent(), 'Signed in as sara@example.com');
+  assert.equal(await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).textContent(), 'sara@example.com');
 
   await page.reload();
   await status.filter({ hasText: 'ChatGPT is connected.' }).waitFor(); // kept in this browser's IndexedDB
@@ -90,7 +90,7 @@ test('sign in with Claude in a browser: its page, the code pasted back, the plan
 
   await status.filter({ hasText: 'Claude is connected.' }).waitFor();
   await part(page, 'claude', 'badge').filter({ hasText: 'Claude Max' }).waitFor();
-  assert.equal(await part(page, 'claude', 'who').textContent(), 'Signed in as umer@example.com');
+  assert.equal(await page.locator('#claude [data-email]').textContent(), 'umer@example.com');
   assert.equal(asked[0].body.code, 'recorded-code');
 
   await part(page, 'claude', 'question').fill('Hello');
@@ -150,7 +150,7 @@ test('two ChatGPT plans: every plan listed with billing and room, Auto asks the 
   await assert.doesNotReject(rows.filter({ hasText: 'b@example.com' }).waitFor());
   assert.equal(await rows.count(), 2, 'every connected plan lists before the Add rows');
   assert.equal(await page.locator('#chatgpt [data-chip]').first().textContent(), 'Your ChatGPT plan');
-  await page.locator('#chatgpt [data-room]').filter({ hasText: '90% left this session' }).waitFor();
+  await page.locator('#chatgpt [data-room]').filter({ hasText: '90% left - refills' }).waitFor();
   await page.locator('#chatgpt [data-room]').filter({ hasText: /refills/ }).first().waitFor();
 
   const ask = async (question: string) => {
@@ -160,7 +160,7 @@ test('two ChatGPT plans: every plan listed with billing and room, Auto asks the 
   };
   await ask('first');
   assert.equal(askedIds.at(-1), 'acct-2', 'Auto lands on the account with the most room');
-  assert.match((await part(page, 'chatgpt', 'picked').textContent())!, /b@example\.com.*most room/);
+  assert.match((await part(page, 'chatgpt', 'picked').textContent())!, /Auto picks b@example\.com: 90% left\./);
 
   await page.locator('#chatgpt [data-pick]').selectOption('chatgpt');
   await ask('second');
