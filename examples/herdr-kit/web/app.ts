@@ -24,13 +24,15 @@ const store: KeptDevice = globalThis.isSecureContext ? browserDeviceStore('herdr
   clear: () => localStorage.removeItem('herdr-kit'),
 };
 // Keys Herdr sends to the pane exactly as named; the labels are what a person reads.
-const KEYS: [label: string, key: string, spoken: string][] = [['Enter', 'Enter', 'Press Enter'], ['y', 'y', 'Answer y'], ['n', 'n', 'Answer n'], ['Esc', 'Escape', 'Press Esc']];
+const KEYS: [label: string, key: string][] = [['Allow', 'y'], ['Deny', 'n'], ['Skip', 'Escape']];
+// Plain words for an agent's kind ('pi' is what the computer calls it, 'Pi' is what a person reads).
+const plainKind = (kind?: string) => (kind ? kind[0].toUpperCase() + kind.slice(1) : 'Agent');
 
 // ---- Pairing ----
 
 function showPair(phase: PairPhase, o: { words?: string; error?: string; hostName?: string } = {}) {
   $('home').hidden = true;
-  $('forget').hidden = true;
+  $('menu').hidden = true;
   $('pair').hidden = false;
   const view = pairingView({ phase, ...o });
   $('pair-title').textContent = view.title;
@@ -70,6 +72,7 @@ $('pair-form').onsubmit = async (e) => {
 
 let hd: Device;
 let link: DeviceLink;
+let host = 'your computer';
 let view: HerdrState = HERDR_EMPTY;
 let unwatch: (() => void) | undefined;
 let selected: string | undefined;
@@ -77,7 +80,8 @@ let selected: string | undefined;
 function connect(grant: DeviceGrant) {
   $('pair').hidden = true;
   $('home').hidden = false;
-  $('forget').hidden = false;
+  $('menu').hidden = false;
+  host = grant.hostName || 'your computer';
   link = new DeviceLink(grant, {
     store,
     onStatus: (s) => {
@@ -108,7 +112,7 @@ function online() {
 async function setup() {
   const { kinds, folder } = await link.request('example.setup') as { kinds: string[]; folder: string };
   const pick = $<HTMLSelectElement>('kind');
-  pick.replaceChildren(...kinds.map((k) => el('option', { value: k, textContent: k })));
+  pick.replaceChildren(...kinds.map((k) => el('option', { value: k, textContent: plainKind(k) })))
   const where = $<HTMLInputElement>('folder');
   if (!where.value) where.value = folder;
 }
@@ -120,31 +124,50 @@ function refresh(): Promise<void> {
   if (refreshing) { again = true; return refreshing; }
   refreshing = (async () => {
     try {
-      $('herdr').textContent = (await hd.state()).words;
       await drawAgent();
     } catch { /* the link line says why */ }
   })().finally(() => { refreshing = undefined; if (again) { again = false; void refresh(); } });
   return refreshing;
 }
 
+// Every row names its agent in plain words — computer, project, agent — and no two rows read the same: a second
+// agent that would read alike gets a number. Tab labels stay inside the computer; a person never reads them.
+function distinctMains(groups: { project: string; agents: { paneId: string; name: string; kind?: string }[] }[]) {
+  const seen = new Map<string, number>();
+  return new Map(groups.flatMap((g) => g.agents.map((a) => {
+    // A name someone gave the agent reads as is; otherwise the kind in plain words ('pi' reads 'Pi').
+    const base = a.name && a.name !== a.kind ? a.name : plainKind(a.kind);
+    const n = (seen.get(`${g.project} ${base}`) ?? 0) + 1;
+    seen.set(`${g.project} ${base}`, n);
+    return [a.paneId, n > 1 ? `${base} ${n}` : base] as [string, string];
+  })));
+}
+
 function drawTree() {
   if (!view.tree) return; // the computer hasn't said yet
   const groups = herdrTreeView(view.tree);
   selected ??= groups[0]?.agents[0]?.paneId; // a just-started agent stays picked until the tree has it
-  $('tree').replaceChildren(...(groups.length ? groups.flatMap((g) => [
-    el('p', { className: 'place', textContent: g.where, title: g.where }),
-    el('ul', {}, ...g.agents.map((a) => {
-      const button = el('button', { className: 'agent', type: 'button', onclick: () => { selected = a.paneId; drawTree(); void drawAgent(); } },
-        el('span', { className: 'who', textContent: a.name }), el('span', { className: `pill ${a.status}`, textContent: agentWords(a.status) }));
-      button.setAttribute('aria-pressed', String(a.paneId === selected));
-      button.dataset.pane = a.paneId;
-      return el('li', {}, button);
-    })),
-  ]) : [el('p', { className: 'empty', textContent: 'No agents yet. Start one below.' })]));
+  const mains = distinctMains(groups);
+  const rows = groups.flatMap((g) => g.agents.map((a) => ({ g, a })));
+  $('tree').replaceChildren(...(rows.length ? [el('ul', {}, ...rows.map(({ g, a }) => {
+    const main = mains.get(a.paneId) ?? plainKind(a.kind);
+    const sub = `${host} · ${g.project}`;
+    const status = agentWords(a.status);
+    const button = el('button', { className: 'agent', type: 'button', onclick: () => { selected = a.paneId; drawTree(); void drawAgent(); } },
+      el('span', { className: 'id' },
+        el('span', { className: 'who', textContent: main }),
+        el('span', { className: 'sub', textContent: sub })),
+      el('span', { className: `pill ${a.status}`, textContent: status }));
+    button.setAttribute('aria-pressed', String(a.paneId === selected));
+    button.setAttribute('aria-label', `${main}, ${sub}, ${status}`);
+    button.dataset.pane = a.paneId;
+    return el('li', {}, button);
+  }))] : [el('p', { className: 'empty', textContent: 'No agents yet. Start one below.' })]));
   const agent = agentIn(view.tree, selected);
   $('agent').hidden = !agent;
   if (agent) {
-    $('agent-name').textContent = agent.name;
+    const main = mains.get(agent.paneId) ?? plainKind(agent.kind);
+    $('agent-name').textContent = `${main} · ${host}`;
     $('agent-status').className = `pill ${agent.status}`;
     $('agent-status').textContent = agentWords(agent.status);
   }
@@ -166,20 +189,26 @@ const answerErrors = new Map<string, string>();
 function drawBlocked() {
   const list = blockedView(view);
   for (const pane of answerErrors.keys()) if (!list.some((b) => b.paneId === pane)) answerErrors.delete(pane);
+  const groups = view.tree ? herdrTreeView(view.tree) : [];
+  const mains = distinctMains(groups);
+  const projectOf = (paneId: string) => groups.find((g) => g.agents.some((a) => a.paneId === paneId))?.project;
   $('questions').hidden = list.length === 0;
   $('blocked').replaceChildren(...list.map((b) => {
+    const main = mains.get(b.paneId) ?? (b.kind ? plainKind(b.kind) : 'Agent');
+    const where = projectOf(b.paneId);
+    const who = where ? `${main} · ${host} · ${where}` : `${main} · ${host}`;
     const note = el('p', { className: 'error', role: 'alert', textContent: answerErrors.get(b.paneId) ?? '' } as Partial<HTMLParagraphElement>);
-    const keys = KEYS.map(([label, key, spoken]) => {
+    const keys = KEYS.map(([label, key]) => {
       const button = el('button', { type: 'button', textContent: label, onclick: async () => {
         for (const k of keys) k.disabled = true;
         try { await hd.answer(b.paneId, [key], b.revision); answerErrors.delete(b.paneId); }
         catch (e) { answerErrors.set(b.paneId, said(e)); note.textContent = said(e); for (const k of keys) k.disabled = false; }
       } });
-      button.setAttribute('aria-label', `${spoken} to ${b.name}`);
+      button.setAttribute('aria-label', `${label}: ${who}`);
       return button;
     });
     const item = el('li', { className: 'card question' },
-      el('h3', { textContent: b.name }),
+      el('h3', { textContent: who }),
       el('p', { className: 'status', textContent: agentWords('blocked') }),
       el('pre', { textContent: b.prompt.trim() }),
       el('div', { className: 'keys' }, ...keys), note);
@@ -194,12 +223,13 @@ $('prompt-form').onsubmit = async (e) => {
   const text = box.value.trim();
   if (!text || !selected) return;
   $<HTMLButtonElement>('send').disabled = true;
-  $('receipt').textContent = '';
+  $('receipt').textContent = 'Sending…';
   try {
     const receipt = await hd.prompt(selected, text);
     box.value = '';
-    $('receipt').textContent = 'Sent.';
+    $('receipt').textContent = 'Waiting for the reply below.';
     $('receipt').dataset.revision = String(receipt.revision);
+    void refresh();
   } catch (err) {
     $('receipt').textContent = said(err);
   } finally {
@@ -218,9 +248,8 @@ $('start-form').onsubmit = async (e) => {
   button.textContent = agentWords('starting');
   $('start-error').textContent = '';
   try {
-    const ref = await hd.startAgent({ kind, cwd, place: { workspace: 'new', label: kind } });
+    const ref = await hd.startAgent({ kind, cwd, place: { workspace: 'new', label: plainKind(kind) } });
     selected = ref.paneId;
-    ($('start') as HTMLDetailsElement).open = false;
     drawTree();
     void refresh();
   } catch (err) {

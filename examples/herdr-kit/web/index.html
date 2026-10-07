@@ -42,8 +42,9 @@
   .words { font-size: 1.7rem; font-weight: 700; text-align: center; letter-spacing: .02em; margin: 1rem 0; }
   .error { color: var(--bad); }
   ul { list-style: none; margin: 0; padding: 0; }
-  .place { color: var(--soft); font-size: .85rem; margin: .9rem 0 .35rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .agent { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: .75rem; text-align: left; margin-bottom: .5rem; }
+  .agent .id { display: flex; flex-direction: column; min-width: 0; }
+  .agent .sub { color: var(--soft); font-size: .85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .agent[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
   .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pill { flex: none; font-size: .8rem; font-weight: 600; padding: .25rem .6rem; border-radius: 999px; background: var(--line); color: var(--soft); }
@@ -52,11 +53,16 @@
   .pill.blocked { background: var(--ask-bg); color: var(--ask); }
   .question { border-color: var(--ask); margin-bottom: .75rem; }
   .question h3 { font-size: 1rem; margin: 0 0 .25rem; }
-  .keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: .5rem; margin-top: .75rem; }
+  .keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; margin-top: .75rem; }
+  .menu { position: relative; }
+  .menu summary { cursor: pointer; font-weight: 500; color: var(--soft); text-decoration: underline; min-height: 44px; display: flex; align-items: center; list-style: none; }
+  .menu summary::-webkit-details-marker { display: none; }
+  .menu .sheet { position: absolute; right: 0; z-index: 1; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: .5rem; box-shadow: 0 8px 24px rgb(0 0 0 / .12); }
+  .menu .sheet button { border: 0; white-space: nowrap; }
   .keys button { padding: .6rem .2rem; }
   pre { margin: .6rem 0 0; padding: .8rem; border-radius: 10px; background: var(--screen); color: var(--screen-ink); font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 18rem; overflow-y: auto; }
   pre:empty { display: none; }
-  details summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+
   .empty { color: var(--soft); }
   [hidden] { display: none !important; }
   @media (prefers-reduced-motion: no-preference) { button { transition: background-color .15s, border-color .15s; } }
@@ -64,7 +70,10 @@
 <main>
   <header>
     <h1>Agents</h1>
-    <button id="forget" class="quiet" hidden>Forget this computer</button>
+    <details id="menu" class="menu" hidden>
+      <summary>Options</summary>
+      <div class="sheet"><button id="forget" class="quiet">Forget this computer</button></div>
+    </details>
   </header>
   <p id="link" class="status" role="status"></p>
 
@@ -83,8 +92,6 @@
   </section>
 
   <section id="home" hidden>
-    <p id="herdr" class="status" role="status"></p>
-
     <section id="questions" hidden aria-labelledby="questions-heading">
       <h2 id="questions-heading">Questions for you</h2>
       <ul id="blocked" aria-live="polite"></ul>
@@ -109,8 +116,8 @@
       </div>
     </section>
 
-    <details id="start" class="card" style="margin-top:1.4rem">
-      <summary>Start agent</summary>
+    <section class="card" style="margin-top:1.4rem" aria-labelledby="start-heading">
+      <h2 id="start-heading" style="margin:0 0 .5rem">Start agent</h2>
       <form id="start-form">
         <label for="kind">Agent</label>
         <select id="kind"></select>
@@ -119,7 +126,7 @@
         <button class="primary" id="start-go">Start agent</button>
       </form>
       <p id="start-error" class="error" role="alert"></p>
-    </details>
+    </section>
   </section>
 </main>
 <script type="module" src="app.js"></script>

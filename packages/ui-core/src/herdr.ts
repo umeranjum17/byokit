@@ -57,10 +57,11 @@ const row = (paneId: string, agent: HerdrAgent): AgentRow => ({
 // A workspace labelled with its folder reads as the folder's own name.
 const place = (label: string) => label.split('/').filter(Boolean).pop() ?? label;
 
-/** The agents grouped by where they run ("project · tab"), tabs without an agent left out. */
+/** The agents grouped by where they run ("project · tab"), tabs without an agent left out. `project` is the
+ *  folder's own name alone, for rows that name the agent without the tab's internal label. */
 export function herdrTreeView(tree: HerdrTree | null) {
   return (tree?.workspaces ?? []).flatMap((w) => w.tabs.map((t) => ({
-    workspaceId: w.id, tabId: t.id, where: `${place(w.label)} · ${t.label}`,
+    workspaceId: w.id, tabId: t.id, project: place(w.label), where: `${place(w.label)} · ${t.label}`,
     agents: t.panes.flatMap((p) => (p.agent ? [row(p.id, p.agent)] : [])),
   }))).filter((g) => g.agents.length > 0);
 }

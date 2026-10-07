@@ -127,23 +127,27 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
   host.stdin.write('y\n');
 
   await text(page, '#link', `Connected to ${NAME}.`);
-  await text(page, '#herdr', WORDS['herdr.ready']);
-  await text(page, '#tree .agent', `pi${WORDS['agent.idle']}`);
+  assert.equal(await page.locator('#herdr').count(), 0, 'one connection line, not two');
+  await text(page, '#tree .agent .who', 'Pi');
+  assert.match((await page.locator('#tree .agent .sub').first().textContent()) ?? '',
+    new RegExp(`^${NAME} · \\S+$`), 'computer and project in plain words');
+  await text(page, '#agent-name', `Pi · ${NAME}`);
 
   // Start a new agent in its own workspace; it becomes the one selected.
-  await page.click('#start summary');
   await page.selectOption('#kind', 'pi');
   assert.equal(await page.inputValue('#folder'), dir);
   await page.click('#start-go');
   await page.locator('#tree .agent').nth(1).waitFor();
   const started = page.locator('#tree .agent[aria-pressed="true"]');
   assert.notEqual(await started.getAttribute('data-pane'), 'w1:p2', 'the new agent is selected, not the first one');
+  const rows = (await page.locator('#tree .agent').allTextContents()).map((r) => r.trim());
+  assert.equal(new Set(rows).size, rows.length, `no two rows read alike: ${JSON.stringify(rows)}`);
   await text(page, '#agent-status', WORDS['agent.idle']);
 
   // A prompt comes back with Herdr's receipt, and the agent's words show up on its screen.
   await page.fill('#prompt', PROMPT);
   await page.click('#send');
-  await text(page, '#receipt', 'Sent.');
+  await text(page, '#receipt', 'Waiting for the reply below.');
   assert.match((await page.locator('#receipt').getAttribute('data-revision'))!, /^\d+$/);
   await page.locator('#screen').filter({ hasText: REPLY }).waitFor();
   await text(page, '#agent-status', WORDS['agent.idle']);
@@ -156,9 +160,12 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
   await question.waitFor();
   await text(page, '#blocked .question p.status', WORDS['agent.blocked']);
   await text(page, '#blocked .question pre', 'Allow this? (y/n)');
+  assert.match((await page.locator('#blocked .question h3').textContent()) ?? '',
+    new RegExp(`^Pi · ${NAME} · \\S+$`), 'the question names its agent in plain words');
+  assert.deepEqual(await question.getByRole('button').allTextContents(), ['Allow', 'Deny', 'Skip']);
   await text(page, '#agent-status', WORDS['agent.blocked']);
   await shot(page, '4-question');
-  await question.getByRole('button', { name: /^Answer y/ }).click();
+  await question.getByRole('button', { name: /^Allow/ }).click();
   await question.waitFor({ state: 'detached' });
   assert.equal(await page.locator('#questions').isHidden(), true);
   await text(page, '#agent-status', WORDS['agent.idle']);
@@ -186,7 +193,7 @@ test('a page over plain http from the home network keeps its pairing too', async
   await text(page, '#link', `Connected to ${NAME}.`);
   await page.reload();
   await text(page, '#link', `Connected to ${NAME}.`);
-  await text(page, '#herdr', WORDS['herdr.ready']);
+  assert.equal(await page.locator('#herdr').count(), 0, 'one connection line, not two');
   assert.deepEqual(errors, []);
   await context.close();
 });
