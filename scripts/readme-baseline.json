@@ -62,7 +62,7 @@
   {
     "readme": "packages/pair/README.md",
     "block": 2,
-    "snapshot": "6615a56e17257f079ed1179dff9f136d800b0d4a3c7980b360682d9712f440cd",
+    "snapshot": "0ceae67c38a7a048c4f6a25cb296612c8d95f8270f80ccae9f2816be95958584",
     "reason": "Host fragment omits app database, confirmation UI, sockets, device id and broadcast event context."
   },
   {
