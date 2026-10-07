@@ -3,7 +3,8 @@
 // from @byokit/herdr's or @byokit/ui-core's words.
 import { DeviceLink, browserDeviceStore, normalizeCode, pairWithCode, pairWithOffer, type DeviceGrant, type KeptDevice } from '@byokit/link';
 import { agentWords, herdrDevice } from '@byokit/herdr/device';
-import { consentWords, linkWords, pairingView, type PairPhase } from '@byokit/ui-core/link';
+import { consentWords, linkWords, pairErrorWords, pairingView, type PairPhase } from '@byokit/ui-core/link';
+import { connectedWords } from '@byokit/ui-core/route';
 import { HERDR_EMPTY, agentIn, blockedView, herdrStore, herdrTreeView, type HerdrState } from '@byokit/ui-core/kits';
 
 type Device = ReturnType<typeof herdrDevice>;
@@ -41,8 +42,14 @@ function showPair(phase: PairPhase, o: { words?: string; error?: string; hostNam
   $('pair-words').hidden = !view.words;
   $('pair-words').textContent = view.words ?? '';
   $('pair-form').hidden = phase === 'compare' || phase === 'waiting';
-  $('pair-error').textContent = phase === 'failed' ? view.title : '';
-  if (phase === 'failed') $('pair-title').textContent = pairingView({ phase: 'scan', hostName: o.hostName }).title;
+  if (phase === 'failed') {
+    // Back to the code entry, with the failure in plain words under it: a run-out code says to get a new one,
+    // a mismatch says to check and retry.
+    $('pair-title').textContent = pairingView({ phase: 'scan', hostName: o.hostName }).title;
+    $('pair-error').textContent = pairErrorWords(o.error ?? '').words;
+  } else {
+    $('pair-error').textContent = '';
+  }
 }
 
 // A scanned QR opens this page with the offer after `#`; it never reaches a server. Ask before using it.
@@ -57,7 +64,10 @@ $('pair-form').onsubmit = async (e) => {
   const typed = ($('pair-input') as HTMLInputElement).value.trim();
   if (!typed) return;
   $<HTMLButtonElement>('pair-go').disabled = true;
-  const options = { name: deviceName(), onWords: (words: string) => showPair('compare', { words }) };
+  let words: string | undefined;
+  const options = { name: deviceName(), onWords: (w: string) => { words = w; showPair('compare', { words: w }); } };
+  // The words match; the computer hasn't said yes yet: say who is being waited on.
+  const waiter = setTimeout(() => { if (words) showPair('waiting', { words }); }, 2500);
   try {
     const here = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/`;
     const grant = normalizeCode(typed) ? await pairWithCode(here, typed, options) : await pairWithOffer(typed, options);
@@ -66,6 +76,7 @@ $('pair-form').onsubmit = async (e) => {
   } catch (err) {
     showPair('failed', { error: said(err) });
   } finally {
+    clearTimeout(waiter);
     $<HTMLButtonElement>('pair-go').disabled = false;
   }
 };
@@ -87,12 +98,14 @@ function connect(grant: DeviceGrant) {
   link = new DeviceLink(grant, {
     store,
     onStatus: (s) => {
-      $('link').textContent = linkWords(s, grant.hostName);
+      // Online names the route just dialled (`Connected to Kitchen computer - same Wi-Fi.`); every other status
+      // stays the link's own sentence. The grant keeps what worked first, so the route never contradicts it.
+      $('link').textContent = s === 'online' ? connectedWords(host, link.grant.urls[0]) : linkWords(s, host);
       if (s === 'online') online();
       if (s === 'removed') { unwatch?.(); unwatch = undefined; void store.clear(); showPair('scan'); }
     },
   });
-  $('link').textContent = linkWords(link.status, grant.hostName);
+  $('link').textContent = link.status === 'online' ? connectedWords(host, link.grant.urls[0]) : linkWords(link.status, host);
   hd = herdrDevice(link);
   // The agents and their questions, live: the store keeps the tree and the waiting list current from the kit's
   // events, and follows them again whenever the link comes back.

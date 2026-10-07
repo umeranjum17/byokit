@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { describeRoute, routeChoices } from '../src/route.ts';
+import { connectedWords, describeRoute, routeChoices, routeShort } from '../src/route.ts';
 
 test('describeRoute names the route a dial address takes', () => {
   assert.equal(describeRoute('wss://desk.tail0de54.ts.net'), 'Tailscale');
@@ -8,17 +8,38 @@ test('describeRoute names the route a dial address takes', () => {
   assert.equal(describeRoute('ws://100.64.0.1:8792', 'direct'), 'Tailscale');
   assert.equal(describeRoute('ws://100.90.0.4:8792', 'private'), 'Private network');
   assert.equal(describeRoute('ws://100.90.0.4:8792', 'tailscale'), 'Tailscale');
-  assert.equal(describeRoute('ws://100.64.0.1.example.com'), 'Hosted VPS / custom relay');
-  assert.equal(describeRoute('ws://192.168.1.8.example.com'), 'Hosted VPS / custom relay');
-  assert.equal(describeRoute('ws://100.128.0.1:8792'), 'Hosted VPS / custom relay');
-  assert.equal(describeRoute('wss://quiet-fox.trycloudflare.com'), 'Cloudflare tunnel');
-  assert.equal(describeRoute('ws://192.168.1.8:8792'), 'Local or private network');
-  assert.equal(describeRoute('ws://192.168.1.8:8792', 'lan'), 'Local or private network');
-  assert.equal(describeRoute('ws://localhost:8792'), 'Local or private network');
-  assert.equal(describeRoute('https://192.168.1.8'), 'Hosted VPS / custom relay');
-  assert.equal(describeRoute('wss://relay.example.com/link/v1/abc'), 'Hosted VPS / custom relay');
+  assert.equal(describeRoute('ws://100.64.0.1.example.com'), 'Your own server');
+  assert.equal(describeRoute('ws://192.168.1.8.example.com'), 'Your own server');
+  assert.equal(describeRoute('ws://100.128.0.1:8792'), 'Your own server');
+  assert.equal(describeRoute('wss://quiet-fox.trycloudflare.com'), 'Temporary public link');
+  assert.equal(describeRoute('ws://192.168.1.8:8792'), 'Same Wi-Fi');
+  assert.equal(describeRoute('ws://192.168.1.8:8792', 'lan'), 'Same Wi-Fi');
+  assert.equal(describeRoute('ws://localhost:8792'), 'Same Wi-Fi');
+  assert.equal(describeRoute('https://192.168.1.8'), 'Your own server');
+  assert.equal(describeRoute('wss://relay.example.com/link/v1/abc'), 'Away from home');
   assert.equal(describeRoute('not a url'), undefined);
   assert.equal(describeRoute(undefined), undefined);
+});
+
+test('the connected line names the route just dialled, plainly', () => {
+  assert.equal(connectedWords('Kitchen computer', 'ws://192.168.1.8:8792'), 'Connected to Kitchen computer - same Wi-Fi.');
+  assert.equal(connectedWords('Kitchen computer', 'wss://desk.tail0de54.ts.net'), 'Connected to Kitchen computer - Tailscale.');
+  assert.equal(connectedWords('Kitchen computer', 'wss://relay.example.com/link/v1/abc'), 'Connected to Kitchen computer - away from home.');
+  assert.equal(connectedWords('Kitchen computer', 'not a url'), 'Connected to Kitchen computer.');
+  assert.equal(connectedWords('Kitchen computer', undefined), 'Connected to Kitchen computer.');
+  assert.equal(routeShort(describeRoute('wss://quiet-fox.trycloudflare.com')), 'a temporary public link');
+  assert.equal(routeShort(undefined), undefined);
+});
+
+test('route words never carry addresses, protocols or relay jargon', () => {
+  const banned = /ws:\/\/|wss:\/\/|https?:\/\/|\bTLS\b|relay|credential|\d+\.\d+\.\d+\.\d+/i;
+  for (const c of routeChoices()) for (const s of [c.title, c.sentence, c.needs]) assert.doesNotMatch(s, banned, s);
+  for (const url of ['wss://desk.tail0de54.ts.net', 'ws://192.168.1.8:8792', 'ws://100.64.0.1:8792',
+    'wss://quiet-fox.trycloudflare.com', 'wss://relay.example.com/link/v1/abc', 'wss://umer.example:8792/link']) {
+    const route = describeRoute(url)!;
+    assert.doesNotMatch(route, banned, route);
+    assert.doesNotMatch(connectedWords('Kitchen computer', url), banned);
+  }
 });
 
 test('describeRoute parses pairing links on React Native, where URL.canParse is missing and hostname is empty for ws://', () => {
@@ -41,10 +62,10 @@ test('describeRoute parses pairing links on React Native, where URL.canParse is 
     assert.equal(describeRoute('wss://desk.tail0de54.ts.net'), 'Tailscale');
     assert.equal(describeRoute('ws://100.64.0.1:8792'), 'Private network');
     assert.equal(describeRoute('ws://100.64.0.1:8792', 'direct'), 'Tailscale');
-    assert.equal(describeRoute('ws://192.168.1.8:8792'), 'Local or private network');
-    assert.equal(describeRoute('ws://localhost:8792'), 'Local or private network');
-    assert.equal(describeRoute('wss://quiet-fox.trycloudflare.com'), 'Cloudflare tunnel');
-    assert.equal(describeRoute('wss://relay.example.com/link/v1/abc'), 'Hosted VPS / custom relay');
+    assert.equal(describeRoute('ws://192.168.1.8:8792'), 'Same Wi-Fi');
+    assert.equal(describeRoute('ws://localhost:8792'), 'Same Wi-Fi');
+    assert.equal(describeRoute('wss://quiet-fox.trycloudflare.com'), 'Temporary public link');
+    assert.equal(describeRoute('wss://relay.example.com/link/v1/abc'), 'Away from home');
     assert.equal(describeRoute('not a url'), undefined);
     assert.equal(describeRoute(undefined), undefined);
   } finally {

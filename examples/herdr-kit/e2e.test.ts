@@ -126,7 +126,7 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
   await shot(page, '2-compare');
   host.stdin.write('y\n');
 
-  await text(page, '#link', `Connected to ${NAME}.`);
+  await text(page, '#link', `Connected to ${NAME} - same Wi-Fi.`);
   assert.equal(await page.locator('#herdr').count(), 0, 'one connection line, not two');
   await text(page, '#tree .agent .who', 'project');
   assert.match((await page.locator('#tree .agent .sub').first().textContent()) ?? '',
@@ -186,13 +186,17 @@ test('a page over plain http from the home network keeps its pairing too', async
   const errors: string[] = [];
   page.on('pageerror', (e) => { errors.push(String(e)); console.error(e); });
   await page.goto(`http://127.0.0.1:${port}/`);
+  await page.fill('#pair-input', 'AAAA-BBBB-CCCC');
+  await page.click('#pair-go');
+  await text(page, '#pair-error', "That code didn't match. Check it, or show a new one on your computer.");
+  await text(page, '#pair-title', 'Scan the code on your computer, or type the code it shows.');
   await page.fill('#pair-input', code);
   await page.click('#pair-go');
   await heard(/\? \(y\/n\) $/, from);
   host.stdin.write('y\n');
-  await text(page, '#link', `Connected to ${NAME}.`);
+  await text(page, '#link', `Connected to ${NAME} - same Wi-Fi.`);
   await page.reload();
-  await text(page, '#link', `Connected to ${NAME}.`);
+  await text(page, '#link', `Connected to ${NAME} - same Wi-Fi.`);
   assert.equal(await page.locator('#herdr').count(), 0, 'one connection line, not two');
   assert.deepEqual(errors, []);
   await context.close();
@@ -235,7 +239,7 @@ test('adopting a managed session leaves its lifecycle with its owner', async () 
 
 test('away from home: a phone pairs through the relay, and an agent\'s question reaches it sealed', async () => {
   // The phone app finds the computer by the relay's short code, then pairs with the link code, as in the README.
-  await heard(/Relay: online/);
+  await heard(/Away from home: online/);
   const from = said.length;
   host.stdin.write('\n'); // fresh codes
   const code = (await heard(CODE, from))[1];

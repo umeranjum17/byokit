@@ -209,7 +209,7 @@ test('a page over plain http from the home network keeps its pairing too', async
 
 test('away from home: a phone pairs through the relay, gets an approval sealed, and Allow on it comes back', async () => {
   // The phone app finds the computer by the relay's short code, then pairs with the link code, as in the README.
-  await heard(/Relay: online/);
+  await heard(/Away from home: online/);
   const from = said.length;
   host.stdin.write('\n'); // fresh codes
   const code = (await heard(CODE, from))[1];

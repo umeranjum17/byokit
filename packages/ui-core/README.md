@@ -103,12 +103,15 @@ export function useChatGptSheet() {
 | `stepOf(phase)` | Where the three-step progress bar ("Open", "Say yes", "Done") stands |
 | `useSignIn({ read, start?, cancel, offline?, ms?, pinned? })` | React hook: starts the sign-in as the sheet opens, polls, and handles cancel, close, keep-work and "use a code instead"; without `start` it only watches and nothing begins |
 | `describeRoute(url, kind?)` | Names the route a dial address takes, for a pairing or settings screen |
+| `routeShort(route)` | The route as words inside a connected line (`same Wi-Fi`) |
+| `connectedWords(hostName, url?, kind?)` | The connected line to render (`Connected to Kitchen computer - same Wi-Fi.`), plain with no route |
 | `routeChoices()` | Every onboarding route in everyday words (`{ code, title, sentence, needs }`), in recommendation order |
 | `qrMatrix(text, { border }?)` | The pairing QR as rows of dark and light modules, with its quiet border (2 unless given) |
 | `qrText(text, { border }?)` | The same QR as half-block text rows for a terminal |
 | `consentWords({ hostName, role, device?, detail? })` | The question before pairing |
 | `pairingView({ phase, hostName?, words?, error?, device?, detail? })` | The pairing sheet's title and words for each phase |
 | `linkWords(status, hostName)` | The link's status in one sentence |
+| `pairErrorWords(error)` | A failed pairing as `expired`, `wrong` or the link's own sentence |
 | `stepsView(steps)` | The stepper rows to draw, from the caller's own step ids and states |
 | `stepsText(rows, { title })` | The same rows as text lines for a terminal |
 | `runStore(oc)`, `runView(state, { words, name })` | One run: the reply streaming in, the tool at work, how it ended in the kit's words |
@@ -148,12 +151,17 @@ into the phase to draw:
 
 `describeRoute(url, kind?)` (also `@byokit/ui-core/route`, no React) names the route a dial address takes, for a
 pairing or settings screen. Pass `tailscale`, `direct`, `private`, or `lan` when known (map reach's `tailscale-direct`
-to `direct`); without provenance, 100.64/10 is labeled Private network rather than assumed to be Tailscale.
+to `direct`); without provenance, 100.64/10 reads as a private network rather than assumed to be Tailscale, and the
+other home ranges read as same Wi-Fi.
 
 `routeChoices()` (same entry, no React) is the one word table for the onboarding route list: `{ code, title,
 sentence, needs }` per route in recommendation order, a superset of reach's `Via` (it also covers the temporary
-Cloudflare link and your own server, which reach does not probe). Reach's `recommend()` takes `sentence` and
+public link and your own server, which reach does not probe). Reach's `recommend()` takes `sentence` and
 `needs` from here and only adds availability.
+
+`connectedWords(hostName, url?, kind?)` (same entry) is the connected line a consumer renders: the computer with
+the route just dialled (`Connected to Kitchen computer - same Wi-Fi.`), or plain (`Connected to Kitchen computer.`)
+when there is no route to name.
 
 ```ts
 import { routeChoices } from '@byokit/ui-core/route';
