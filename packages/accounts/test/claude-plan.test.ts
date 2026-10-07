@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { Accounts, ClaudePlanExpiredError, ClaudePlanPlatformError, claudeAuthorization, claudeCode, keystoreStore, memoryStore, offered, planLabel, PROVIDERS, recordStore } from '../src/portable.ts';
 import type { OAuthCredential, CredentialStore } from '@earendil-works/pi-ai';
+import { needsReauth } from '../src/stores.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/claude-plan-typescript.json', import.meta.url), 'utf8'));
 const stream = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/claude-messages-typescript.json', import.meta.url), 'utf8')).cases[0].stream;
@@ -71,7 +72,7 @@ test('state mismatch and cancellation exchange nothing; another member has an in
   assert.equal(s.calls.length, 0); assert.ok(v?.url); s.a.stop();
 });
 
-test('rotation is single-flight across concurrent resolves, saved before returning, omitted replacement requires sign-in', async () => {
+test('rotation is single-flight across concurrent resolves, saved before returning, omitted replacement requires sign-in and is never resent', async () => {
   const s = standIn(); await s.store.modify(id, async () => token()); s.set(fixture.rotation);
   const rt = await s.a.runtime(1);
   const all = await Promise.all(Array.from({ length: 12 }, () => rt.getAuth(id)));
@@ -80,10 +81,12 @@ test('rotation is single-flight across concurrent resolves, saved before returni
   assert.deepEqual(s.calls[0].body, { grant_type: 'refresh_token', client_id: fixture.clientId, refresh_token: 'recorded-refresh' });
   s.set(fixture.withoutRotation);
   await assert.rejects(rt.getAuth(id, { minOAuthValidityMs: 100_000_000 }), ClaudePlanExpiredError);
-  assert.equal(await s.store.read(id), undefined);
+  assert.ok(needsReauth(await s.store.read(id)), 'the grant that may be spent stays marked, not deleted');
+  await assert.rejects((await s.a.runtime(1)).getAuth(id, { minOAuthValidityMs: 100_000_000 }), ClaudePlanExpiredError);
+  assert.equal(s.calls.length, 2);
 });
 
-test('invalid grant, missing refresh, uncertain network and failed durable rotation fail closed without token replay', async () => {
+test('invalid grant and missing refresh require sign-in; failed durable rotation sends nothing and keeps the sign-in', async () => {
   const invalid = standIn(); await invalid.store.modify(id, async () => token()); invalid.set(fixture.invalidGrant, 400);
   const rt = await invalid.a.runtime(1);
   await assert.rejects(rt.getAuth(id), ClaudePlanExpiredError); assert.equal(await rt.getAuth(id), undefined); assert.equal(invalid.calls.length, 1);
@@ -92,12 +95,31 @@ test('invalid grant, missing refresh, uncertain network and failed durable rotat
   let data: any = { [id]: token() };
   const failing = standIn(recordStore(async () => ({ ...data }), async () => { throw new Error('secret-recorded-refresh'); })); failing.set(fixture.rotation);
   const broken = await failing.a.runtime(1);
-  await assert.rejects(broken.getAuth(id), ClaudePlanExpiredError); await assert.rejects(broken.getAuth(id), ClaudePlanExpiredError); assert.equal(failing.calls.length, 0); assert.equal(data[id].refresh, 'recorded-refresh');
-  let dials = 0;
-  const uncertainStore = memoryStore(); await uncertainStore.modify(id, async () => token());
-  const uncertain = new Accounts({ store: () => uncertainStore, claudePlan: { now: () => fixture.now, fetch: (async () => { dials++; throw new Error('recorded-refresh'); }) as typeof fetch } });
-  const disconnected = await uncertain.runtime(1);
-  await assert.rejects(disconnected.getAuth(id), ClaudePlanExpiredError); assert.equal(await disconnected.getAuth(id), undefined); assert.equal(dials, 1);
+  for (let i = 0; i < 2; i++) await assert.rejects(broken.getAuth(id), (e: Error) => !(e instanceof ClaudePlanExpiredError) && /kept for the next try/.test(e.message) && !e.message.includes('secret'));
+  assert.equal(failing.calls.length, 0); assert.equal(data[id].refresh, 'recorded-refresh');
+  // An answer the provider accepted spent the grant even when it cannot be used: never sent again.
+  const unreadable = standIn(); await unreadable.store.modify(id, async () => token()); unreadable.set({ ...fixture.rotation, expires_in: 0 });
+  for (let i = 0; i < 2; i++) await assert.rejects((await unreadable.a.runtime(1)).getAuth(id), ClaudePlanExpiredError);
+  assert.equal(unreadable.calls.length, 1); assert.ok(needsReauth(await unreadable.store.read(id)));
+});
+
+test('a refresh that gets no answer or a server error keeps the Claude sign-in and the next try rotates the same grant', async () => {
+  for (const lost of [async () => { throw new Error('recorded-refresh'); }, async () => new Response('{}', { status: 503 })]) {
+    const store = memoryStore(); await store.modify(id, async () => token());
+    const sent: string[] = [];
+    let answer = lost;
+    const a = new Accounts({ store: () => store, claudePlan: { now: () => fixture.now, fetch: (async (_url: any, init: RequestInit) => {
+      sent.push(JSON.parse(init.body as string).refresh_token); return answer(); }) as typeof fetch } });
+    const rt = await a.runtime(1);
+    await assert.rejects(rt.getAuth(id), (e: Error) => !(e instanceof ClaudePlanExpiredError) && /kept for the next try/.test(e.message) && !e.message.includes('recorded-refresh'));
+    const kept = await store.read(id) as OAuthCredential;
+    assert.equal(kept.refresh, 'recorded-refresh'); assert.ok(!needsReauth(kept), 'still signed in');
+    assert.equal(await a.signedIn(1, 'claude'), true);
+    answer = async () => new Response(JSON.stringify(fixture.rotation));
+    assert.equal((await rt.getAuth(id))?.auth.apiKey, 'rotated-access');
+    assert.deepEqual(sent, ['recorded-refresh', 'recorded-refresh']);
+    assert.equal((await store.read(id) as OAuthCredential).refresh, 'rotated-refresh');
+  }
 });
 
 test('plan inference uses direct bearer/native headers and identity body; 401 requests re-auth without replay or billing fallback', async () => {

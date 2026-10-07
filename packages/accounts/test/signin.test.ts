@@ -228,3 +228,35 @@ for (const [provider, name, account] of [['openai-codex', 'ChatGPT', { accountId
     assert.equal(issued, 2, 'the second process used the first one\'s refresh instead of spending a grant');
   } finally { server.closeAllConnections(); server.close(); }
 });
+
+test('a Claude refresh that gets a server error in one app process keeps the sign-in; the other process rotates the same grant once', async () => {
+  const path = join(scratchDir('two-processes-lost'), 'people', '1', 'auth.json');
+  await fileStore(path, sealing).modify(CLAUDE_PLAN_ID, async () => ({ type: 'oauth', access: jwt('plus'), refresh: 'rt_1', expires: Date.now() + 60_000 }));
+  // The first refresh is held while the other process queues behind the store's lock, then answered 503 without
+  // spending the grant; a spent grant is refused, as the provider does.
+  const live = new Set(['rt_1']), sent: string[] = [];
+  let issued = 1;
+  const server = createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; }).on('end', async () => {
+      const grant = JSON.parse(body).refresh_token;
+      sent.push(grant);
+      if (sent.length === 1) { await new Promise((r) => setTimeout(r, 500)); return res.writeHead(503).end(); }
+      if (!live.delete(grant)) return res.writeHead(400, { 'content-type': 'application/json' }).end('{"error":"invalid_grant"}');
+      live.add(`rt_${++issued}`);
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ access_token: jwt('plus'), refresh_token: `rt_${issued}`, expires_in: 864_000 }));
+    });
+  }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const env = { ...process.env, PROVIDER: CLAUDE_PLAN_ID, STORE: path, SEAL_KEY: key.toString('hex'), TOKEN_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}/token` };
+    const run = () => promisify(execFile)(process.execPath, [join(import.meta.dirname, 'refresh-run.ts')], { env, timeout: 20_000 }).then((r) => JSON.parse(r.stdout.trim().split('\n').pop()!));
+    const runs = await Promise.all([run(), run()]);
+    const stored = JSON.parse(sealing.decryptString(readFileSync(path)))[CLAUDE_PLAN_ID];
+    const why = JSON.stringify({ runs, sent, refresh: stored?.refresh, marker: stored?.byokitRefresh });
+    assert.deepEqual(runs.map((r) => r.ok).sort(), [false, true], why);
+    assert.equal(runs.find((r) => !r.ok).error, 'Error', `the lost refresh is not a sign-out: ${why}`);
+    assert.deepEqual(sent, ['rt_1', 'rt_1'], `the kept grant was sent again once, never a spent one: ${why}`);
+    assert.ok(stored && live.has(stored.refresh) && !needsReauth(stored), `the sign-in is kept, holding the grant the provider honours: ${why}`);
+  } finally { server.closeAllConnections(); server.close(); }
+});
