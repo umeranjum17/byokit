@@ -273,11 +273,13 @@ fallback.
 
 `portableEngine` (the default on phones and in browsers) holds the store lock, re-reads the current sign-in, and saves
 a non-secret `byokitRefresh` generation/attempt marker in the credential record **before** sending a refresh grant.
-It commits the replacement pair before returning access. A lost response, terminal refusal, unchanged refresh grant,
-or failure to save the replacement requires sign-in again; an attempted or quarantined generation is never retried,
-including by `recheck`. If the attempt marker cannot be saved, nothing is sent. A fresh sign-in replaces quarantine.
-This deliberately requires sign-in again after even a network failure once a refresh send has started: the server
-may already have spent the grant. Storage failures before the send, such as a locked phone keychain, remain retryable.
+It commits the replacement pair before returning access. The provider refusing the grant (400, 401 or 403, how
+`invalid_grant` arrives), any other answer that may have spent it (an unchanged grant, an accepted answer that cannot be
+read), or a failure to save the replacement requires sign-in again; an attempted or quarantined generation is never
+retried, including by `recheck`. Only a lost response or a server error (5xx) keeps the sign-in: the marker is set back
+to ready and the stored grant is tried again on the next refresh. If the server had in fact spent it, that retry is
+refused and asks for sign-in then. If the attempt marker cannot be saved, nothing is sent. A fresh sign-in replaces
+quarantine. Storage failures before the send, such as a locked phone keychain, remain retryable.
 
 - **iOS/Android `secureStore`**: crash-safe across process restart after the platform acknowledges the marker write,
   with one store instance/refresh owner per storage name. Its chunk-generation pointer commits the marker and each

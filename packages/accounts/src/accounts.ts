@@ -1072,8 +1072,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
 
   /** Refresh every signed-in account an hour ahead of expiry (call it now and then), so a sign-in never lapses while
-   *  nobody is looking. A refusal or uncertain refresh requires sign-in again; `onExpired` says so once. A storage
-   *  read failure before sending remains unknown and can be retried. */
+   *  nobody is looking. A refusal or uncertain refresh requires sign-in again; `onExpired` says so once. A lost answer,
+   *  a server error or a storage read failure before sending keeps the sign-in and is retried. */
   async keepFresh(members: readonly M[]) {
     for (const m of members) {
       const keys = new Set([...this.ready].filter(([id, ready]) => ready && id.startsWith(`${m}:`)).map(([id]) => this.accountKey(m, id.slice(String(m).length + 1))));

@@ -158,7 +158,8 @@ const deviceRefresh = (flow: DeviceFlow, name: string, base?: string) => async (
   try {
     const r = await form(at(flow.token, base), { grant_type: 'refresh_token', client_id: flow.clientId, refresh_token: c.refresh }, stop.signal);
     if (r.status < 200 || r.status > 299) { throw Object.assign(new Error(`${name} token refresh failed (${r.status})`), { status: r.status }); }
-    return deviceCredential(json(r.body), name, c.refresh);
+    // An answer the provider accepted (2xx) spent the grant even when it cannot be read; keep its status to say so.
+    try { return deviceCredential(json(r.body), name, c.refresh); } catch (e) { throw Object.assign(e as Error, { status: r.status }); }
   } finally { clearTimeout(t); }
 };
 
@@ -179,7 +180,7 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
   };
   const tokens = async (what: 'exchange' | 'refresh', r: { status: number; body: string }) => {
     if (r.status < 200 || r.status > 299) throw Object.assign(new Error(`OpenAI Codex token ${what} failed (${r.status})`), { status: r.status });
-    return credentialOf(json(r.body));
+    try { return credentialOf(json(r.body)); } catch (e) { throw Object.assign(e as Error, { status: r.status }); }
   };
   /** Each provider refreshes at its own token endpoint; a failure never reaches the person as anything but a reason. */
   const refreshOf = (id: string) => {

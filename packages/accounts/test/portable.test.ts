@@ -229,7 +229,7 @@ test('refresh: ahead of expiry, rotating, one at a time; a refusal signs out onc
   Object.assign(openai.state, { refuse: false, expiresIn: 864_000 });
 });
 
-test('refresh transaction fixtures: uncertain and terminal generations survive reconstruction without replay', async () => {
+test('refresh transaction fixtures: uncertain and terminal generations survive reconstruction without replay; a lost answer keeps the grant', async () => {
   const original = globalThis.fetch;
   const response = fixture('token-responses.json').cases[0].response;
   const old = { ...credentialOf(response), expires: 0, extension: 'preserved' };
@@ -243,22 +243,24 @@ test('refresh transaction fixtures: uncertain and terminal generations survive r
         if (row.outcome === 'attempt-save-failure' || (row.outcome === 'commit-failure' && writes > 1)) throw new Error('synthetic storage failure');
         data = structuredClone(next);
       });
-      globalThis.fetch = async () => {
+      globalThis.fetch = async (_url, init) => {
         sends++;
         assert.deepEqual(data['openai-codex'].byokitRefresh, { generation: 0, state: 'attempted' }, 'attempt saved before send');
+        assert.equal(new URLSearchParams(String(init?.body)).get('refresh_token'), old.refresh, 'only ever the stored grant');
         if (row.outcome === 'lost-response') throw new Error('synthetic lost response with canary-secret');
         if (row.status) return new Response('canary-secret', { status: row.status });
+        if (row.body) return new Response(row.body);
         return new Response(JSON.stringify({ ...response, refresh_token: row.outcome === 'unchanged-grant' ? old.refresh : 'rotated-grant' }));
       };
       await assert.rejects(portableEngine(store()).getAuth('openai-codex'), (e: Error) => {
         assert.doesNotMatch(e.message, /canary-secret/);
-        return row.outcome === 'attempt-save-failure' || e instanceof RefreshRequiredError;
+        return row.outcome === 'attempt-save-failure' || (e instanceof RefreshRequiredError) === (row.state !== 'ready');
       });
       // A new engine AND a new store identity over the same persisted record lose all process-local state.
       const restarted = portableEngine(store());
       if (row.state) {
         assert.equal(data['openai-codex'].byokitRefresh.state, row.state, row.outcome);
-        assert.equal(await restarted.checkAuth('openai-codex'), undefined);
+        assert.deepEqual(await restarted.checkAuth('openai-codex'), row.state === 'ready' ? { source: 'OAuth', type: 'oauth' } : undefined);
       }
       await assert.rejects(restarted.getAuth('openai-codex', { minOAuthValidityMs: 365 * 86_400_000 }));
       assert.equal(sends, row.sends, row.outcome);
@@ -302,10 +304,10 @@ test('refresh holds the store lock across both commits, re-reads when queued, an
     globalThis.fetch = async (_url, init) => {
       sends++;
       assert.equal(new URLSearchParams(String(init?.body)).get('refresh_token'), 'rotated-grant');
-      throw new Error('lost response');
+      return new Response('{"error":"invalid_grant"}', { status: 400 });
     };
     await assert.rejects(portableEngine(store).getAuth('openai-codex', { minOAuthValidityMs: 365 * 86_400_000 }), RefreshRequiredError);
-    assert.deepEqual((await store.read('openai-codex') as any).byokitRefresh, { generation: 1, state: 'uncertain' });
+    assert.deepEqual((await store.read('openai-codex') as any).byokitRefresh, { generation: 1, state: 'terminal' });
     await store.modify('openai-codex', async () => credentialOf(response));
     assert.ok(await portableEngine(store).getAuth('openai-codex'), 'fresh sign-in can be used');
     assert.equal(sends, 2);
