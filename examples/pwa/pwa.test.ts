@@ -47,6 +47,7 @@ test('sign in with ChatGPT in a browser: device code, the plan named, kept acros
   await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).waitFor();
   await part(page, 'chatgpt', 'badge').filter({ hasText: 'ChatGPT Plus' }).waitFor();
   assert.equal(await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).textContent(), 'sara@example.com');
+  assert.equal(await page.locator('#chatgpt [data-chip]').count(), 0, 'no plan pill repeats on any account row');
 
   await page.reload();
   await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).waitFor(); // kept in this browser's IndexedDB
@@ -89,6 +90,7 @@ test('sign in with Claude in a browser: its page, the code pasted back, the plan
   await page.locator('#claude [data-email]').filter({ hasText: 'umer@example.com' }).waitFor();
   await part(page, 'claude', 'badge').filter({ hasText: 'Claude Max' }).waitFor();
   assert.equal(await page.locator('#claude [data-email]').textContent(), 'umer@example.com');
+  assert.equal(await page.locator('#claude [data-chip]').count(), 0, 'no plan pill repeats on any account row');
   assert.equal(asked[0].body.code, 'recorded-code');
 
   await part(page, 'claude', 'question').fill('Hello');
@@ -147,7 +149,7 @@ test('two ChatGPT plans: every plan listed with billing and room, Auto asks the 
   const rows = page.locator('#chatgpt [data-account]');
   await assert.doesNotReject(rows.filter({ hasText: 'b@example.com' }).waitFor());
   assert.equal(await rows.count(), 2, 'every connected plan lists before the Add rows');
-  assert.equal(await page.locator('#chatgpt [data-chip]').first().textContent(), 'Your ChatGPT plan');
+  assert.equal(await page.locator('#chatgpt [data-chip]').count(), 0, 'no plan pill repeats on any account row');
   await page.locator('#chatgpt [data-room]').filter({ hasText: '90% left - refills' }).waitFor();
   await page.locator('#chatgpt [data-room]').filter({ hasText: /refills/ }).first().waitFor();
 
