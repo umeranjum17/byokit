@@ -29,8 +29,7 @@ test('sign in with ChatGPT in a browser: device code, the plan named, kept acros
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.goto(`${site.url}?openai=https://attacker.example`);
-  const status = part(page, 'chatgpt', 'status');
-  await assert.doesNotReject(status.filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor());
+  await part(page, 'chatgpt', 'signin').waitFor();
   assert.equal(await part(page, 'chatgpt', 'sheet').isVisible(), false, 'no sign-in sheet before the person starts');
 
   await part(page, 'chatgpt', 'signin').click();
@@ -45,19 +44,19 @@ test('sign in with ChatGPT in a browser: device code, the plan named, kept acros
   assert.match((await provider.locator('#words').textContent())!, /Signed in/);
   await provider.close();
 
-  await status.filter({ hasText: 'ChatGPT is connected.' }).waitFor();
+  await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).waitFor();
   await part(page, 'chatgpt', 'badge').filter({ hasText: 'ChatGPT Plus' }).waitFor();
-  assert.equal(await part(page, 'chatgpt', 'who').textContent(), 'Signed in as sara@example.com');
+  assert.equal(await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).textContent(), 'sara@example.com');
 
   await page.reload();
-  await status.filter({ hasText: 'ChatGPT is connected.' }).waitFor(); // kept in this browser's IndexedDB
+  await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).waitFor(); // kept in this browser's IndexedDB
 
   await part(page, 'chatgpt', 'signout').click();
-  await status.filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor();
+  await part(page, 'chatgpt', 'signin').waitFor();
   assert.equal(await part(page, 'chatgpt', 'sheet').isVisible(), false, 'old code is hidden after sign-out');
   assert.ok(openai.state.requests.some((r) => r.path === '/oauth/revoke'), 'ended at OpenAI too');
   await page.reload();
-  await status.filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor();
+  await part(page, 'chatgpt', 'signin').waitFor();
   assert.deepEqual(errors, []);
   await context.close();
 });
@@ -77,8 +76,7 @@ test('sign in with Claude in a browser: its page, the code pasted back, the plan
   await page.route('**/fwd/anthropic/api/oauth/profile', answer(JSON.stringify({ account: { email: 'umer@example.com' }, organization: { organization_type: 'claude_max' } })));
   await page.route('**/fwd/anthropic/v1/messages**', answer(messages.stream, 'text/event-stream'));
   await page.goto(site.url);
-  const status = part(page, 'claude', 'status');
-  await status.filter({ hasText: "Claude isn't signed in yet." }).waitFor();
+  await part(page, 'claude', 'signin').waitFor();
 
   await part(page, 'claude', 'signin').click();
   await page.locator('#claude [data-open][href*="state="]').waitFor();
@@ -88,9 +86,9 @@ test('sign in with Claude in a browser: its page, the code pasted back, the plan
   await part(page, 'claude', 'pasted').fill(`recorded-code#${open.searchParams.get('state')}`);
   await part(page, 'claude', 'connect').click();
 
-  await status.filter({ hasText: 'Claude is connected.' }).waitFor();
+  await page.locator('#claude [data-email]').filter({ hasText: 'umer@example.com' }).waitFor();
   await part(page, 'claude', 'badge').filter({ hasText: 'Claude Max' }).waitFor();
-  assert.equal(await part(page, 'claude', 'who').textContent(), 'Signed in as umer@example.com');
+  assert.equal(await page.locator('#claude [data-email]').textContent(), 'umer@example.com');
   assert.equal(asked[0].body.code, 'recorded-code');
 
   await part(page, 'claude', 'question').fill('Hello');
@@ -101,10 +99,74 @@ test('sign in with Claude in a browser: its page, the code pasted back, the plan
   assert.equal(inference.body.messages[0].content, 'Hello');
 
   await page.reload();
-  await status.filter({ hasText: 'Claude is connected.' }).waitFor(); // kept in this browser's IndexedDB
+  await page.locator('#claude [data-email]').filter({ hasText: 'umer@example.com' }).waitFor(); // kept in this browser's IndexedDB
   await part(page, 'claude', 'signout').click();
-  await status.filter({ hasText: "Claude isn't signed in yet." }).waitFor();
+  await part(page, 'claude', 'signin').waitFor();
   assert.equal((await fetch(`${site.url}fwd/elsewhere/x`)).status, 404, 'the page server passes on only to its named providers');
+  await context.close();
+});
+
+test('two ChatGPT plans: every plan listed with billing and room, Auto asks the roomiest, switching sticks', async () => {
+  const context = await browser.newContext({ serviceWorkers: 'block' });
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  // Each test plan's live quota, as its provider reports it: acct-1 nearly spent, acct-2 nearly full.
+  const quota = (used: number) => ({ rate_limit: {
+    primary_window: { used_percent: used, limit_window_seconds: 18000, reset_after_seconds: 3600 },
+    secondary_window: { used_percent: used, limit_window_seconds: 604800, reset_after_seconds: 72000 } } });
+  await page.route('**/fwd/chatgpt/backend-api/wham/usage', (route) => route.fulfill({
+    json: route.request().headers()['chatgpt-account-id'] === 'acct-2' ? quota(10) : quota(75) }));
+  const askedIds: string[] = [];
+  const answer = (text: string) => `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: text })}\n\n` +
+    `data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output: [] } })}\n\n`;
+  await page.route('**/fwd/chatgpt/backend-api/codex/responses', (route) => {
+    const body = route.request().postDataJSON() as any;
+    const text = body?.input?.[0]?.content?.[0]?.text ?? 'hello';
+    askedIds.push(route.request().headers()['chatgpt-account-id']);
+    return route.fulfill({ body: answer(`${text} final`), contentType: 'text/event-stream' });
+  });
+  const approve = async () => {
+    await part(page, 'chatgpt', 'sheet').waitFor({ state: 'visible' });
+    const code = (await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).textContent())!;
+    const [provider] = await Promise.all([context.waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
+    await provider.fill('#code', code);
+    await provider.click('#continue');
+    assert.match((await provider.locator('#words').textContent())!, /Signed in/);
+    await provider.close();
+  };
+  await page.goto(site.url);
+  await part(page, 'chatgpt', 'signin').click();
+  await approve();
+  await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).waitFor();
+
+  openai.state.accountId = 'acct-2';
+  openai.state.email = 'b@example.com';
+  await part(page, 'chatgpt', 'add').click();
+  await approve();
+  const rows = page.locator('#chatgpt [data-account]');
+  await assert.doesNotReject(rows.filter({ hasText: 'b@example.com' }).waitFor());
+  assert.equal(await rows.count(), 2, 'every connected plan lists before the Add rows');
+  assert.equal(await page.locator('#chatgpt [data-chip]').first().textContent(), 'Your ChatGPT plan');
+  await page.locator('#chatgpt [data-room]').filter({ hasText: '90% left - refills' }).waitFor();
+  await page.locator('#chatgpt [data-room]').filter({ hasText: /refills/ }).first().waitFor();
+
+  const ask = async (question: string) => {
+    await part(page, 'chatgpt', 'question').fill(question);
+    await part(page, 'chatgpt', 'ask').click();
+    await part(page, 'chatgpt', 'answer').filter({ hasText: `${question} final` }).waitFor();
+  };
+  await ask('first');
+  assert.equal(askedIds.at(-1), 'acct-2', 'Auto lands on the account with the most room');
+  assert.match((await part(page, 'chatgpt', 'picked').textContent())!, /Auto picks b@example\.com: 90% left\./);
+
+  await page.locator('#chatgpt [data-pick]').selectOption('chatgpt');
+  await ask('second');
+  assert.equal(askedIds.at(-1), 'acct-1', 'manual switching asks the chosen account');
+  assert.equal(askedIds.filter((id) => id === 'acct-1').length, 1, 'the run never switches account mid-stream');
+  assert.deepEqual(errors, []);
+  openai.state.accountId = 'acct-1';
+  openai.state.email = 'sara@example.com';
   await context.close();
 });
 
@@ -153,7 +215,7 @@ test('Ask on both cards: one question at a time, Stop, and an older answer never
 
   for (const key of ['chatgpt', 'claude'] as const) {
     held.length = 0;
-    await part(page, key, 'status').filter({ hasText: /is connected\./ }).waitFor();
+    await page.locator(`#${key} [data-account]`).waitFor();
     const ask = part(page, key, 'ask'), stop = part(page, key, 'stop'), out = part(page, key, 'answer');
     const idle = async () => { assert.equal(await ask.isDisabled(), false); assert.equal(await stop.isVisible(), false); };
     await idle();
@@ -265,7 +327,7 @@ test('the README pictures: signed out, the code, connected', { skip: !process.en
     const context = await browser.newContext({ viewport: { width: 390, height: 450 }, deviceScaleFactor: 2 });
     const page = await context.newPage();
     await page.goto(site.url);
-    await part(page, 'chatgpt', 'status').filter({ hasText: "ChatGPT isn't signed in yet." }).waitFor();
+    await part(page, 'chatgpt', 'signin').waitFor();
     return { context, page, shot: (name: string) => page.screenshot({ path: join(process.env.BYOKIT_EXAMPLE_SHOTS!, `${name}.png`) }) };
   };
   const first = await open();
@@ -281,14 +343,13 @@ test('the README pictures: signed out, the code, connected', { skip: !process.en
   await first.context.close();
 
   const { context, page, shot } = await open();
-  const status = part(page, 'chatgpt', 'status');
   await part(page, 'chatgpt', 'signin').click();
   const code = (await part(page, 'chatgpt', 'code').filter({ hasText: /-/ }).textContent())!;
   const [provider] = await Promise.all([context.waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
   await provider.fill('#code', code);
   await provider.click('#continue');
   await provider.close();
-  await status.filter({ hasText: 'ChatGPT is connected.' }).waitFor();
+  await page.locator('#chatgpt [data-email]').filter({ hasText: 'sara@example.com' }).waitFor();
   await shot('pwa-3-connected');
   await context.close();
 });
