@@ -108,6 +108,70 @@ test('sign in with Claude in a browser: its page, the code pasted back, the plan
   await context.close();
 });
 
+test('two ChatGPT plans: every plan listed with billing and room, Auto asks the roomiest, switching sticks', async () => {
+  const context = await browser.newContext({ serviceWorkers: 'block' });
+  const page = await context.newPage();
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  // Each test plan's live quota, as its provider reports it: acct-1 nearly spent, acct-2 nearly full.
+  const quota = (used: number) => ({ rate_limit: {
+    primary_window: { used_percent: used, limit_window_seconds: 18000, reset_after_seconds: 3600 },
+    secondary_window: { used_percent: used, limit_window_seconds: 604800, reset_after_seconds: 72000 } } });
+  await page.route('**/fwd/chatgpt/backend-api/wham/usage', (route) => route.fulfill({
+    json: route.request().headers()['chatgpt-account-id'] === 'acct-2' ? quota(10) : quota(75) }));
+  const askedIds: string[] = [];
+  const answer = (text: string) => `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: text })}\n\n` +
+    `data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output: [] } })}\n\n`;
+  await page.route('**/fwd/chatgpt/backend-api/codex/responses', (route) => {
+    const body = route.request().postDataJSON() as any;
+    const text = body?.input?.[0]?.content?.[0]?.text ?? 'hello';
+    askedIds.push(route.request().headers()['chatgpt-account-id']);
+    return route.fulfill({ body: answer(`${text} final`), contentType: 'text/event-stream' });
+  });
+  const approve = async () => {
+    await part(page, 'chatgpt', 'sheet').waitFor({ state: 'visible' });
+    const code = (await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).textContent())!;
+    const [provider] = await Promise.all([context.waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
+    await provider.fill('#code', code);
+    await provider.click('#continue');
+    assert.match((await provider.locator('#words').textContent())!, /Signed in/);
+    await provider.close();
+  };
+  await page.goto(site.url);
+  await part(page, 'chatgpt', 'signin').click();
+  await approve();
+  await part(page, 'chatgpt', 'status').filter({ hasText: 'ChatGPT is connected.' }).waitFor();
+
+  openai.state.accountId = 'acct-2';
+  openai.state.email = 'b@example.com';
+  await part(page, 'chatgpt', 'add').click();
+  await approve();
+  const rows = page.locator('#chatgpt [data-account]');
+  await assert.doesNotReject(rows.filter({ hasText: 'b@example.com' }).waitFor());
+  assert.equal(await rows.count(), 2, 'every connected plan lists before the Add rows');
+  assert.equal(await page.locator('#chatgpt [data-chip]').first().textContent(), 'Your ChatGPT plan');
+  await page.locator('#chatgpt [data-room]').filter({ hasText: '90% left this session' }).waitFor();
+  await page.locator('#chatgpt [data-room]').filter({ hasText: /refills/ }).first().waitFor();
+
+  const ask = async (question: string) => {
+    await part(page, 'chatgpt', 'question').fill(question);
+    await part(page, 'chatgpt', 'ask').click();
+    await part(page, 'chatgpt', 'answer').filter({ hasText: `${question} final` }).waitFor();
+  };
+  await ask('first');
+  assert.equal(askedIds.at(-1), 'acct-2', 'Auto lands on the account with the most room');
+  assert.match((await part(page, 'chatgpt', 'picked').textContent())!, /b@example\.com.*most room/);
+
+  await page.locator('#chatgpt [data-pick]').selectOption('chatgpt');
+  await ask('second');
+  assert.equal(askedIds.at(-1), 'acct-1', 'manual switching asks the chosen account');
+  assert.equal(askedIds.filter((id) => id === 'acct-1').length, 1, 'the run never switches account mid-stream');
+  assert.deepEqual(errors, []);
+  openai.state.accountId = 'acct-1';
+  openai.state.email = 'sara@example.com';
+  await context.close();
+});
+
 test('Ask on both cards: one question at a time, Stop, and an older answer never overwrites a newer one', async () => {
   // Synthetic answers only: each question is held until the test answers it, with "<question> final", or fails it.
   const fixture = (f: string) => JSON.parse(readFileSync(new URL(`../../fixtures/conformance/${f}`, import.meta.url), 'utf8'));
