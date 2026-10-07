@@ -1,0 +1,1 @@
+- The stand-in OpenAI signs in as Umer (`umer@example.com`), so the example apps, their README pictures and the accounts tests all show the same demo person.

@@ -20,11 +20,11 @@ import { needsReauth } from '../src/stores.ts';
 const port = await new Promise<number>((r) => { const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address() as AddressInfo; s.close(() => r(port)); }); });
 
 /** A ChatGPT access token as OpenAI shapes it: the account, the plan and the email in its claims. */
-const jwt = (plan: string, email = 'sara@example.com') => ['x', Buffer.from(JSON.stringify({
+const jwt = (plan: string, email = 'umer@example.com') => ['x', Buffer.from(JSON.stringify({
   'https://api.openai.com/auth': { chatgpt_account_id: 'acct-1', chatgpt_plan_type: plan }, 'https://api.openai.com/profile': { email },
 })).toString('base64url'), 'sig'].join('.');
 
-const openai = { plan: 'plus', email: 'sara@example.com', exchange: 200, expiresIn: 864_000, refreshes: 0 };
+const openai = { plan: 'plus', email: 'umer@example.com', exchange: 200, expiresIn: 864_000, refreshes: 0 };
 let onRevoke: (() => Promise<void>) | undefined;
 const realFetch = globalThis.fetch;
 globalThis.fetch = (async (input: any, init?: any) => {
@@ -82,7 +82,7 @@ test("sign in with ChatGPT: its own page, straight back here; the tab shows the 
     assert.equal(await a.signedIn(OWNER, 'chatgpt'), true);
     assert.equal(await a.signedIn(2, 'chatgpt'), false);
     assert.match(sealing.decryptString(readFileSync(path(OWNER))), /openai-codex/);
-    assert.deepEqual(await a.plan(OWNER), { plan: 'plus', email: 'sara@example.com', work: false });
+    assert.deepEqual(await a.plan(OWNER), { plan: 'plus', email: 'umer@example.com', work: false });
   } finally { a.stop(); }
 });
 
@@ -137,19 +137,19 @@ test('sign-in failures on the page: declined, a failed exchange, the port taken,
 });
 
 test('a work ChatGPT is recognised from the sign-in itself, so the app can steer to a personal one', async () => {
-  assert.deepEqual(planOf(jwt('enterprise', 'sara@acme.com')), { plan: 'enterprise', email: 'sara@acme.com', work: true });
+  assert.deepEqual(planOf(jwt('enterprise', 'umer@acme.com')), { plan: 'enterprise', email: 'umer@acme.com', work: true });
   for (const p of ['business', 'team', 'edu']) assert.equal(planOf(jwt(p)).work, true, p);
   for (const p of ['plus', 'pro', 'free', 'go']) assert.equal(planOf(jwt(p)).work, false, p);
   assert.deepEqual(planOf('not-a-token'), { plan: '', email: '', work: false });
   const { a } = accounts();
   try {
-    Object.assign(openai, { plan: 'business', email: 'sara@acme.com' });
+    Object.assign(openai, { plan: 'business', email: 'umer@acme.com' });
     assert.equal(await a.plan(OWNER), null);
     const v = (await a.login(OWNER, 'chatgpt'))!;
     await back({ code: 'good', state: stateOf(v.url!) });
     await a.finished(OWNER, 'chatgpt');
-    assert.deepEqual(await a.plan(OWNER), { plan: 'business', email: 'sara@acme.com', work: true });
-  } finally { Object.assign(openai, { plan: 'plus', email: 'sara@example.com' }); a.stop(); }
+    assert.deepEqual(await a.plan(OWNER), { plan: 'business', email: 'umer@acme.com', work: true });
+  } finally { Object.assign(openai, { plan: 'plus', email: 'umer@example.com' }); a.stop(); }
 });
 
 test("Pi's engine keeps a successful short-lived refresh for keepFresh and forced recheck", async () => {

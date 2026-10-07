@@ -8,8 +8,8 @@ test('the sign-in phases, from what the back end says', () => {
   assert.equal(phaseOf({ signIn: { state: 'waiting', via: 'browser', url: 'https://example.test/authorize' } }), 'waiting');
   assert.equal(phaseOf({ signIn: { state: 'waiting', via: 'code', code: 'CREW-2026', url: 'https://example.test/device' } }), 'code');
   assert.equal(phaseOf({ ready: true, signIn: { state: 'done' } }), 'done');
-  assert.equal(phaseOf({ ready: true, work: 'sara@acme.com' }), 'work');
-  assert.equal(phaseOf({ ready: true, work: 'sara@acme.com' }, { keepWork: true }), 'done');
+  assert.equal(phaseOf({ ready: true, work: 'umer@acme.com' }), 'work');
+  assert.equal(phaseOf({ ready: true, work: 'umer@acme.com' }, { keepWork: true }), 'done');
   assert.equal(phaseOf({ signIn: { state: 'failed', why: 'declined' } }), 'cancelled');
   assert.equal(phaseOf({ signIn: { state: 'failed', why: 'busy' } }), 'busy');
   assert.equal(phaseOf({ signIn: { state: 'failed', why: 'expired' } }), 'expired');

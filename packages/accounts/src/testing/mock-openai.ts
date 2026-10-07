@@ -15,13 +15,13 @@ export type MockOpenAIOptions = { port?: number; host?: string; plan?: string; e
   answers?: readonly MockOpenAIAnswer[]; log?: (line: string) => void };
 
 /** An access token as OpenAI shapes it: the account, the plan and the email in its claims. */
-export const mockJwt = (plan = 'plus', email = 'sara@example.com', n = 0, accountId = 'acct-1') => ['eyJhbGciOiJub25lIn0', Buffer.from(JSON.stringify({
+export const mockJwt = (plan = 'plus', email = 'umer@example.com', n = 0, accountId = 'acct-1') => ['eyJhbGciOiJub25lIn0', Buffer.from(JSON.stringify({
   'https://api.openai.com/auth': { chatgpt_account_id: accountId, chatgpt_plan_type: plan }, 'https://api.openai.com/profile': { email }, n,
   // As long as a real one, whose claims fill about 1.5 kB.
   scp: ['openid', 'profile', 'email', 'offline_access'], pad: 'x'.repeat(1200),
 })).toString('base64url'), 'sig'].join('.');
 
-export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', email = 'sara@example.com', expiresIn = 864_000, answers = [], log }: MockOpenAIOptions = {}) {
+export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', email = 'umer@example.com', expiresIn = 864_000, answers = [], log }: MockOpenAIOptions = {}) {
   const codes = new Map<string, { device: string; approved?: boolean; denied?: boolean }>();
   let issued = 0, asked = 0;
   const state = {

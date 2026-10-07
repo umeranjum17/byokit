@@ -16,7 +16,7 @@ the platform's side (`package.json`'s `react-native` and `browser` conditions).<
 <p align="center">
   <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/pwa-1-signed-out.png" width="240" alt="The page &quot;byokit in a browser&quot;, signed out: &quot;ChatGPT isn't signed in yet.&quot; above a Sign in with ChatGPT button" />
   <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/pwa-2-code.png" width="240" alt="The same page signing in: &quot;Signing in to ChatGPT…&quot;, &quot;On the ChatGPT page, type this code:&quot; WDJB-MJHT, an Open ChatGPT link and a Cancel button" />
-  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/pwa-3-connected.png" width="240" alt="The same page signed in: &quot;ChatGPT is connected.&quot;, sara@example.com, plus plan, with Check the sign-in and Sign out buttons" />
+  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/pwa-3-connected.png" width="240" alt="The same page signed in: &quot;ChatGPT is connected.&quot;, umer@example.com, plus plan, with Check the sign-in and Sign out buttons" />
 </p>
 <p align="center"><sub><a href="../../examples/pwa"><code>examples/pwa</code></a> signing in by device code in headless Chromium (Playwright), against the kit's stand-in OpenAI (<code>mockOpenAI()</code>), not the real one; the pictured code is in OpenAI's format.</sub></p>
 
