@@ -27,6 +27,8 @@ const store: KeptDevice = globalThis.isSecureContext ? browserDeviceStore('herdr
 const KEYS: [label: string, key: string][] = [['Allow', 'y'], ['Deny', 'n'], ['Skip', 'Escape']];
 // Plain words for an agent's kind ('pi' is what the computer calls it, 'Pi' is what a person reads).
 const plainKind = (kind?: string) => (kind ? kind[0].toUpperCase() + kind.slice(1) : 'Agent');
+// A badge names a state, so it reads without the sentence's full stop ('Ready for you', not 'Ready for you.').
+const badge = (s: Parameters<typeof agentWords>[0]) => agentWords(s).replace(/\.$/, '');
 
 // ---- Pairing ----
 
@@ -130,8 +132,8 @@ function refresh(): Promise<void> {
   return refreshing;
 }
 
-// Every row names its agent in plain words — computer, project, agent — and no two rows read the same: a second
-// agent that would read alike gets a number. Tab labels stay inside the computer; a person never reads them.
+// Every row leads with the folder and names the agent second — folder, kind — and no two rows read the same: a
+// second agent that would read alike gets a number. Tab labels stay inside the computer; a person never reads them.
 function distinctMains(groups: { project: string; agents: { paneId: string; name: string; kind?: string }[] }[]) {
   const seen = new Map<string, number>();
   return new Map(groups.flatMap((g) => g.agents.map((a) => {
@@ -151,15 +153,15 @@ function drawTree() {
   const rows = groups.flatMap((g) => g.agents.map((a) => ({ g, a })));
   $('tree').replaceChildren(...(rows.length ? [el('ul', {}, ...rows.map(({ g, a }) => {
     const main = mains.get(a.paneId) ?? plainKind(a.kind);
-    const sub = `${host} · ${g.project}`;
-    const status = agentWords(a.status);
+    const sub = `${main} · ${host}`;
+    const status = badge(a.status);
     const button = el('button', { className: 'agent', type: 'button', onclick: () => { selected = a.paneId; drawTree(); void drawAgent(); } },
       el('span', { className: 'id' },
-        el('span', { className: 'who', textContent: main }),
+        el('span', { className: 'who', textContent: g.project }),
         el('span', { className: 'sub', textContent: sub })),
       el('span', { className: `pill ${a.status}`, textContent: status }));
     button.setAttribute('aria-pressed', String(a.paneId === selected));
-    button.setAttribute('aria-label', `${main}, ${sub}, ${status}`);
+    button.setAttribute('aria-label', `${g.project}, ${main}, ${host}, ${status}`);
     button.dataset.pane = a.paneId;
     return el('li', {}, button);
   }))] : [el('p', { className: 'empty', textContent: 'No agents yet. Start one below.' })]));
@@ -167,9 +169,10 @@ function drawTree() {
   $('agent').hidden = !agent;
   if (agent) {
     const main = mains.get(agent.paneId) ?? plainKind(agent.kind);
-    $('agent-name').textContent = `${main} · ${host}`;
+    const where = groups.find((g) => g.agents.some((x) => x.paneId === agent.paneId))?.project;
+    $('agent-name').textContent = where ? `${where} · ${main}` : `${main} · ${host}`;
     $('agent-status').className = `pill ${agent.status}`;
-    $('agent-status').textContent = agentWords(agent.status);
+    $('agent-status').textContent = badge(agent.status);
   }
 }
 
@@ -196,7 +199,8 @@ function drawBlocked() {
   $('blocked').replaceChildren(...list.map((b) => {
     const main = mains.get(b.paneId) ?? (b.kind ? plainKind(b.kind) : 'Agent');
     const where = projectOf(b.paneId);
-    const who = where ? `${main} · ${host} · ${where}` : `${main} · ${host}`;
+    // The card names its agent once, folder first; the computer is the link line above, not repeated here.
+    const who = where ? `${where} · ${main}` : `${main} · ${host}`;
     const note = el('p', { className: 'error', role: 'alert', textContent: answerErrors.get(b.paneId) ?? '' } as Partial<HTMLParagraphElement>);
     const keys = KEYS.map(([label, key]) => {
       const button = el('button', { type: 'button', textContent: label, onclick: async () => {

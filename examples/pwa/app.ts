@@ -135,12 +135,8 @@ function card(key: string) {
       // The row's own address; the live profile's only for the default row it belongs to.
       email.textContent = a.email ?? (a.id === self.id ? self.email ?? a.name : a.name);
       head.append(email);
-      const chip = document.createElement('span');
-      chip.className = 'acc-chip';
-      chip.dataset.chip = '';
-      chip.textContent = a.billing === 'subscription' ? `Your ${a.name} plan`
-        : a.billing === 'api' ? 'API key, billed per use' : a.label;
-      head.append(chip);
+      // No plan pill on the row: the card already names the provider and its billing, so 'Your <name> plan'
+      // would repeat on every account.
       row.append(head);
       const room = rooms.get(a.id) ?? { left: 'unknown' as const };
       if (typeof room.left === 'number') {

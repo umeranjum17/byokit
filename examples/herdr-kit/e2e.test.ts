@@ -128,10 +128,10 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
 
   await text(page, '#link', `Connected to ${NAME}.`);
   assert.equal(await page.locator('#herdr').count(), 0, 'one connection line, not two');
-  await text(page, '#tree .agent .who', 'Pi');
+  await text(page, '#tree .agent .who', 'project');
   assert.match((await page.locator('#tree .agent .sub').first().textContent()) ?? '',
-    new RegExp(`^${NAME} · \\S+$`), 'computer and project in plain words');
-  await text(page, '#agent-name', `Pi · ${NAME}`);
+    new RegExp(`^Pi · ${NAME}$`), 'agent and computer in plain words');
+  await text(page, '#agent-name', 'project · Pi');
 
   // Start a new agent in its own workspace; it becomes the one selected.
   await page.selectOption('#kind', 'pi');
@@ -142,7 +142,7 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
   assert.notEqual(await started.getAttribute('data-pane'), 'w1:p2', 'the new agent is selected, not the first one');
   const rows = (await page.locator('#tree .agent').allTextContents()).map((r) => r.trim());
   assert.equal(new Set(rows).size, rows.length, `no two rows read alike: ${JSON.stringify(rows)}`);
-  await text(page, '#agent-status', WORDS['agent.idle']);
+  await text(page, '#agent-status', WORDS['agent.idle'].replace(/\.$/, ''));
 
   // A prompt comes back with Herdr's receipt, and the agent's words show up on its screen.
   await page.fill('#prompt', PROMPT);
@@ -150,7 +150,7 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
   await text(page, '#receipt', 'Waiting for the reply below.');
   assert.match((await page.locator('#receipt').getAttribute('data-revision'))!, /^\d+$/);
   await page.locator('#screen').filter({ hasText: REPLY }).waitFor();
-  await text(page, '#agent-status', WORDS['agent.idle']);
+  await text(page, '#agent-status', WORDS['agent.idle'].replace(/\.$/, ''));
   await shot(page, '3-agent');
 
   // A question from the agent: it waits for an answer, and y answers it.
@@ -161,14 +161,14 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
   await text(page, '#blocked .question p.status', WORDS['agent.blocked']);
   await text(page, '#blocked .question pre', 'Allow this? (y/n)');
   assert.match((await page.locator('#blocked .question h3').textContent()) ?? '',
-    new RegExp(`^Pi · ${NAME} · \\S+$`), 'the question names its agent in plain words');
+    /^\S+ · Pi$/, 'the question names its folder and agent in plain words');
   assert.deepEqual(await question.getByRole('button').allTextContents(), ['Allow', 'Deny', 'Skip']);
-  await text(page, '#agent-status', WORDS['agent.blocked']);
+  await text(page, '#agent-status', WORDS['agent.blocked'].replace(/\.$/, ''));
   await shot(page, '4-question');
   await question.getByRole('button', { name: /^Allow/ }).click();
   await question.waitFor({ state: 'detached' });
   assert.equal(await page.locator('#questions').isHidden(), true);
-  await text(page, '#agent-status', WORDS['agent.idle']);
+  await text(page, '#agent-status', WORDS['agent.idle'].replace(/\.$/, ''));
   await shot(page, '5-answered');
 
   assert.deepEqual(errors, []);
