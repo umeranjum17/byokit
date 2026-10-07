@@ -2,7 +2,7 @@
 // keeps one durable grant per device, answers their requests, and removes them. It never listens on anything itself:
 // the app hands it WebSockets (`accept`), or one relay socket that carries many devices (`relay`).
 import { Handshake, b64, b64url, firstFrame, hostId, messageBytes, random, unb64url, type Channel, type KeyPair } from './channel.ts';
-import { bindCode, cleanName, codeKey, newCode, normalizeCode, offerText, type PairOffer } from './pairing.ts';
+import { bindCode, cleanName, codeKey, encodeCompactOffer, newCode, normalizeCode, offerText, type PairOffer } from './pairing.ts';
 import { PublicLinkError } from './device.ts';
 import { LINK_PROBE, LINK_PROBE_OK } from './check.ts';
 import { MAX_STREAMS, Streams, type LinkStream } from './stream.ts';
@@ -262,6 +262,19 @@ export class Host {
     const offer: PairOffer = { v: 1, host: b64url(this.keys.publicKey), name: cleanName(this.opts.name, 'your computer'), urls: o.urls, ticket,
       expires: p.expires, role: p.role, ...(p.lifetime === undefined ? {} : { lifetime: p.lifetime }) };
     return { text: offerText(offer, o.base), expires: p.expires };
+  }
+
+  /** A QR-sized offer: the same secret a typed code carries (same single use, life, words and approval, through
+   *  one code entry), plus the addresses to try, packed binary. No browser-link form: links keep `offer`. */
+  compactOffer(o: GrantTerms & { urls: string[] }): { text: string; code: string; expires: number } {
+    const p = this.pending(o);
+    const secret = normalizeCode(newCode())!;
+    const text = encodeCompactOffer({ code: secret, urls: o.urls, expires: p.expires,
+      name: cleanName(this.opts.name, 'your computer'), role: p.role,
+      ...(p.lifetime === undefined ? {} : { lifetime: p.lifetime }) }); // throws before anything is stored
+    this.codes.set(secret, p);
+    this.tries = 0;
+    return { text, code: secret.replace(/(.{4})(?=.)/g, '$1-'), expires: p.expires };
   }
 
   /** A code a person types on the device instead of scanning. Single use, gone after `pairMs`. */

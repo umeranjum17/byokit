@@ -61,6 +61,33 @@ test('scan to pair: the person at the host sees the same two words, then the dev
   assert.equal(h.asked.length, 1, 'the person is never asked about a spent code');
 });
 
+test('compact QR pairs like a typed code, and the old QR still scans', async () => {
+  const h = await startHost();
+  const single = h.host.compactOffer({ role: 'control', urls: [h.url] });
+  assert.ok(single.text.length < 80, `compact text is ${single.text.length} chars`);
+  const { text, code } = h.host.compactOffer({ role: 'control', urls: ['ws://127.0.0.1:1/nothing-here', h.url] });
+  let shown = '';
+  const grant = await pairWithOffer(text, { name: 'Pixel', onWords: (w) => { shown = w; } });
+  assert.equal(h.asked.length, 1);
+  assert.deepEqual({ ...h.asked[0], words: '' }, { name: 'Pixel', role: 'control', how: 'code', words: '' });
+  assert.equal(h.asked[0].words, shown, 'both screens show the same words');
+  assert.equal(grant.device.role, 'control');
+  assert.equal(grant.urls[0], h.url, 'the address that answered goes first');
+  assert.equal(grant.host, b64url(h.host.keys.publicKey), 'the device learned the host key from the handshake');
+
+  // The QR and its printed code are one single-use entry: a second scan, or typing the code, is refused.
+  await assert.rejects(pairWithOffer(text, { name: 'Again' }), (e: LinkError) => e.code === 'wrong-code' && !e.sealed);
+  await assert.rejects(pairWithCode(h.url, code, { name: 'Typist' }), (e: LinkError) => e.code === 'wrong-code');
+  assert.equal(h.asked.length, 1, 'the person is never asked about a spent code');
+
+  // A compact offer that ran out says so before dialling, and the host refuses it too.
+  const quick = await startHost({ pairMs: 150 });
+  const late = quick.host.compactOffer({ role: 'view', urls: [quick.url] }).text;
+  await sleep(200);
+  assert.throws(() => parseOffer(late), /isn't a pairing code/, 'not a version 1 offer');
+  await assert.rejects(pairWithOffer(late, { name: 'Late' }), (e: LinkError) => e.code === 'wrong-code');
+});
+
 test('a pairing code runs out, a person can say no, and a host can be full', async () => {
   const h = await startHost({ pairMs: 150 });
   const late = h.host.offer({ role: 'view', urls: [h.url] }).text;

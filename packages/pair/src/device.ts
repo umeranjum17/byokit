@@ -3,7 +3,7 @@
 // its requests survive a reconnect: each carries a key, so a retried tap runs once. Uses only the platform's
 // WebSocket, so the same code runs in browsers, React Native and Node.
 import { Handshake, b64, b64url, keyPair, keyPairFrom, random, unb64url, type KeyPair, type Mode } from './channel.ts';
-import { cleanName, codeKey, parseCode, parseOffer, shortKey } from './pairing.ts';
+import { cleanName, codeKey, decodeCompactOffer, parseCode, parseOffer, shortKey, COMPACT_TAG } from './pairing.ts';
 import type { Role } from './host.ts';
 import { Streams, type LinkStream } from './stream.ts';
 
@@ -149,8 +149,25 @@ export function pendingGrant(scanned: string, o: { name: string; key?: KeyPair }
 }
 
 /** A scanned QR (or opened pairing link) in, a grant out, once the person at the host says yes. `onWords` gets the
- *  two words to show while they decide. Tries each address in the code until one answers. */
+ *  two words to show while they decide. Tries each address in the code until one answers. A compact offer pairs
+ *  like a typed code over the packed addresses: same single use, life, words and approval, no host key pinned. */
 export async function pairWithOffer(scanned: string, o: PairOptions): Promise<DeviceGrant> {
+  if (scanned.indexOf(COMPACT_TAG) >= 0) {
+    const compact = decodeCompactOffer(scanned);
+    const me = o.key ?? keyPair();
+    let last = new LinkError('unreachable');
+    for (const url of compact.urls) {
+      try {
+        const l = await dial(url, me, { psk: codeKey(compact.code) }, { t: 'code', name: o.name }, o);
+        l.close();
+        return granted(me, b64url(l.hostKey), url, compact.urls, l.ready);
+      } catch (e: unknown) {
+        last = e instanceof LinkError ? e : new LinkError('unreachable');
+        if (last.code !== 'unreachable' && last.code !== 'timeout' && last.code !== 'wrong-host') break;
+      }
+    }
+    throw last;
+  }
   const offer = parseOffer(scanned);
   const me = o.key ?? keyPair();
   let last = new LinkError('unreachable');
