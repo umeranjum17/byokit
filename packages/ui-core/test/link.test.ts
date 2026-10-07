@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import jsqr from 'jsqr';
 import { Host, keyPair } from '../../pair/src/index.ts';
-import { consentWords, linkWords, pairingView, qrMatrix, qrText, type LinkStatus, type PairPhase } from '../src/link.ts';
+import { consentWords, linkWords, pairErrorWords, pairingView, qrMatrix, qrText, type LinkStatus, type PairPhase } from '../src/link.ts';
 
 const PLAIN = new RegExp(JSON.parse(readFileSync(new URL('../../../fixtures/conformance/plain-words.json', import.meta.url), 'utf8')).pattern, 'i');
 const plain = (s: string) => assert.doesNotMatch(s.replace(/Kitchen computer|relay\.example\.com|example\.com/g, 'X'), PLAIN, s);
@@ -75,6 +75,23 @@ test('P25: consent and pairing words name a phone or a browser, and carry one ap
   plain(pairingView({ phase: 'compare', hostName: 'Kitchen computer', detail: 'It can also show the shopping list.' }).title);
 });
 
+
+test('a failed pairing names expired, wrong-code or other', () => {
+  assert.deepEqual(pairErrorWords(new Error('That pairing code has run out. Show a new one.')), {
+    kind: 'expired', words: 'That pairing code has run out. Show a new one on your computer.' });
+  assert.deepEqual(pairErrorWords(Object.assign(new Error('That pairing code has run out.'), { code: 'expired' })), {
+    kind: 'expired', words: 'That pairing code has run out. Show a new one on your computer.' });
+  assert.deepEqual(pairErrorWords(new Error("That isn't a pairing code.")), {
+    kind: 'wrong', words: "That code didn't match. Check it, or show a new one on your computer." });
+  assert.deepEqual(pairErrorWords(Object.assign(new Error('nope'), { code: 'wrong-code' })), {
+    kind: 'wrong', words: "That code didn't match. Check it, or show a new one on your computer." });
+  assert.deepEqual(pairErrorWords(new Error('Your computer said no to this device.')), {
+    kind: 'other', words: 'Your computer said no to this device.' });
+  const banned = /ws:\/\/|\bTLS\b|relay|credential|\d+\.\d+\.\d+\.\d+/i;
+  for (const e of [new Error('That pairing code has run out.'), new Error("That isn't a pairing code."),
+    Object.assign(new Error('x'), { code: 'wrong-code' }), Object.assign(new Error('x'), { code: 'expired' })])
+    assert.doesNotMatch(pairErrorWords(e).words, banned);
+});
 
 test('pairing phases show the two words to compare, and the link status is one plain sentence', () => {
   assert.deepEqual(pairingView({ phase: 'compare', hostName: 'Kitchen computer', words: 'maple river' }),

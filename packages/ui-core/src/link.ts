@@ -58,6 +58,19 @@ export function pairingView(o: { phase: PairPhase; hostName?: string; words?: st
   }
 }
 
+/** A failed pairing as words for the phone's error line: `expired` when the code ran out (get a new one), `wrong`
+ *  when it didn't match (check and retry), else the link's own sentence. Reads @byokit/link's error `code` when it is
+ *  there (`wrong-code`, `expired`), else the message, so every path lands in the same plain words. */
+export function pairErrorWords(error: unknown): { kind: 'expired' | 'wrong' | 'other'; words: string } {
+  const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code: unknown }).code) : '';
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  if (code === 'expired' || (code !== 'wrong-code' && /run out|expired/i.test(message)))
+    return { kind: 'expired', words: 'That pairing code has run out. Show a new one on your computer.' };
+  if (code === 'wrong-code' || /isn't a pairing code|didn't match|wrong/i.test(message))
+    return { kind: 'wrong', words: "That code didn't match. Check it, or show a new one on your computer." };
+  return { kind: 'other', words: message || "Pairing didn't finish. Try again." };
+}
+
 /** The link's status (`LinkStatus` from @byokit/link) as one sentence. */
 export type LinkStatus = 'connecting' | 'online' | 'offline' | 'refused' | 'removed';
 export function linkWords(status: LinkStatus, hostName = 'your computer'): string {

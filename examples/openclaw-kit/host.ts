@@ -164,7 +164,7 @@ const host = await Host.open({
 // Allow and Deny on a notice come back through the relay to the kit.
 if (flags.relay) {
   relay = new RelayClient(host, { url: `${flags.relay.replace(/^http/, 'ws')}/relay/v1/host`, enrol: flags.enrol,
-    onAction: link.onAction, onStatus: (s, why) => console.log(`Relay: ${s}${why ? ` (${why})` : ''}`) });
+    onAction: link.onAction, onStatus: (s, why) => console.log(`Away from home: ${s}${why ? ` (${why})` : ''}`) });
 }
 
 // Explicit static shell and icon routes; never serve arbitrary files from the host.
@@ -190,7 +190,6 @@ const http = (req: IncomingMessage, res: ServerResponse) => {
 
 const served = await serve({ host, port: Number(flags.port), via: flags.via as Via, previous: ingress.load() ?? undefined, http });
 ingress.save(served.ingress ?? null);
-const page = served.urls[0].replace(/^ws/, 'http').replace(/\/?$/, '/');
 
 // A QR for the phone's camera: two rows of modules per line of text, dark on light whatever the terminal's colours.
 function terminalQr(text: string): string {
@@ -206,7 +205,7 @@ function showCodes() {
   const away = relay ? [linkUrl(flags.relay!, host.id)] : []; // the phone tries this when home is out of reach
   const qr = host.compactOffer({ role: 'control', urls: [...served.urls, ...away] }); // QR-sized: same code entry, packed addresses
   const { code } = host.code({ role: 'control' });
-  console.log(`\n${terminalQr(qr.text)}\n\nOn the phone, scan this, or open ${page} and type ${code}`);
+  console.log(`\n${terminalQr(qr.text)}\n\nOn the phone, scan this. If its page is already open there, type ${code} instead.`);
   relay?.code().then((r) => console.log(`Away from home, find this computer at ${flags.relay} with ${r.code}`), () => {});
   console.log('Codes last five minutes. Press Enter for new ones.');
 }
