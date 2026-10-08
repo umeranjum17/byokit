@@ -242,6 +242,6 @@ export function createRuns(ctx: {
   return {
     run,
     steer: (k, t) => ctx.request('sessions.steer', { sessionKey: k, message: t }) as Promise<void>,
-    abort: (k) => ctx.request('chat.abort', { sessionKey: k }) as Promise<void>,
+    abort: async (k) => { await ctx.request('chat.abort', { sessionKey: k }); },
   };
 }

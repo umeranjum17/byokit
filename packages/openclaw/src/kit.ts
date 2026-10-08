@@ -968,7 +968,7 @@ export class OpenClawKit {
     return this.runs().steer(this.runKey(sessionKey, o), text);
   }
 
-  abort(sessionKey: string, o?: { auth?: 'apiKey' }): Promise<void> {
+  async abort(sessionKey: string, o?: { auth?: 'apiKey' }): Promise<void> {
     return this.runs().abort(this.runKey(sessionKey, o));
   }
 

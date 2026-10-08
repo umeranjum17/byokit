@@ -8,14 +8,15 @@ import { dirname, join } from 'node:path';
 import { OpenClawKit } from '../../src/kit.ts';
 import { Engine } from '../../src/engine.ts';
 import { scratchDir } from '../../../test-support.ts';
-import { STUB_USAGE, startModelStub, useModelStub, type ModelStub } from '../../src/testing/model-stub.ts';
+import { STUB_USAGE, startModelStub, useModelStub, releaseStub, stubHolding, type ModelStub } from '../../src/testing/model-stub.ts';
+import { setTimeout as delay } from 'node:timers/promises';
 import type { RunEvent } from '../../src/types.ts';
 
 const REPORT = { name: 'report', description: 'record progress', parameters: { type: 'object' } };
 const FETCH = { name: 'webfetch', description: 'fenced web read', parameters: { type: 'object' } };
 
 const install = scratchDir('o11-engine-run');
-const engineDir = join(install, 'engine');
+const engineDir = process.env.BYOKIT_TEST_ENGINE_DIR ?? join(install, 'engine');
 let stub: ModelStub;
 
 before(async () => {
@@ -166,6 +167,60 @@ test('real tool calls cross the fail-closed gate; keyword memory stays free', { 
     }
   } finally {
     for (const k of kits.splice(0)) await k.stop().catch(() => {});
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('abort stays catchable after an active engine drops; healthy cancellation still reaches it', { timeout: 600_000 }, async () => {
+  const stateDir = scratchDir('abort-engine-drop');
+  const kit = new OpenClawKit({ stateDir, engineDir });
+  const until = async (ready: () => boolean) => {
+    const deadline = Date.now() + 120_000;
+    while (!ready()) {
+      assert.ok(Date.now() < deadline, 'engine/stub condition timed out');
+      await delay(20);
+    }
+  };
+  const unhandled: unknown[] = [];
+  const onUnhandled = (error: unknown) => { unhandled.push(error); };
+  process.on('unhandledRejection', onUnhandled);
+  try {
+    await kit.start();
+    await useModelStub(kit, stub);
+    await until(() => kit.state.phase === 'ready');
+    const healthyKey = 'agent:m1:abort:healthy';
+    const healthy = kit.run({ member: 'm1', sessionKey: healthyKey, message: 'ask permission to continue' });
+    await until(() => stubHolding());
+    await kit.abort(healthyKey).finally(() => releaseStub());
+    assert.deepEqual(await healthy, { ok: false, aborted: true });
+    const key = 'agent:m1:abort:drop';
+    const pending = kit.run({ member: 'm1', sessionKey: key, message: 'ask permission to continue' });
+    await until(() => stubHolding());
+    const root = join(stateDir, 'openclaw');
+    const pid = Number(readFileSync(join(root, 'gateway.pid'), 'utf8'));
+    const identity = JSON.parse(readFileSync(join(root, 'gateway.identity'), 'utf8'));
+    assert.equal(identity.pid, pid);
+    assert.equal(identity.startTime, readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ').at(-1)!.split(' ')[19]);
+    assert.ok(readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0').includes(`OPENCLAW_STATE_DIR=${join(root, 'state')}`));
+    process.kill(pid, 'SIGKILL');
+    await until(() => kit.state.phase !== 'ready');
+    // A synchronous throw skips .catch and fails the journey; failures must not be silently swallowed.
+    const dropped = await kit.abort(key).catch((error: Error) => error);
+    assert.ok(dropped instanceof Error && dropped.message === 'gateway not ready');
+    const lost = await pending;
+    assert.equal(lost.ok, false);
+    assert.equal('aborted' in lost, false, 'engine loss is not successful cancellation');
+    await kit.stop(); // do not address an automatically restarted engine in the already-gone control
+    const gone = await kit.abort(key).catch((error: Error) => error);
+    assert.ok(gone instanceof Error && gone.message === 'gateway not ready');
+    const invalid = await kit.abort('invalid', { auth: 'apiKey' }).catch((error: Error) => error);
+    assert.ok(invalid instanceof Error && invalid.message === 'Choose your own conversation.');
+    await delay(30);
+    assert.deepEqual(unhandled, []);
+  } finally {
+    releaseStub();
+    await kit.stop();
+    process.removeListener('unhandledRejection', onUnhandled);
     rmSync(stateDir, { recursive: true, force: true });
   }
 });

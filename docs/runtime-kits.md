@@ -868,6 +868,9 @@ the engine. External retained sources are touched only when explicitly passed to
 - `classify(message)` (`src/classify.ts`) = Crewhouse `classifyText` mapped `rate_limit|overloaded → resting`,
   `signed_out → signed-out`, `not_included → plan`, `network → network`, `null → other`, with `until` carried.
 - `steer` → `sessions.steer { sessionKey, message }`; `abort` → `chat.abort { sessionKey }`.
+  `abort` always returns a Promise: invalid key mapping, unavailable engine and transport failures reject that
+  Promise, never throw synchronously. Callers await/catch the failure; a lost engine is not a successful abort.
+  Healthy cancellation retains the engine's existing aborted run result.
 - Streams: `onEvent` delivers every Gateway event (typed); the link adapter filters by member (7.1).
 
 ### 5.8.1 Structured output
