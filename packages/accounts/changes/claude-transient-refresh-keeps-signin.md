@@ -1,0 +1,1 @@
+- FIX: A Claude plan refresh that gets no answer or a server error keeps the sign-in and tries the same grant next time, instead of deleting it; only the provider proving the grant revoked (`invalid_grant`) removes it, and a grant that may be spent stays marked in the store so no process sends it again.
