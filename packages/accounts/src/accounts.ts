@@ -65,7 +65,7 @@ export type AccountsOptions<M extends Member = Member> = {
   app?: string;
   /** Longest a sign-in may wait: longer than any provider's code lives. */
   signInMs?: number;
-  /** No redirect back by then: the page is probably stuck (or on a phone), so a code takes over by itself. */
+  /** No redirect back by then: a code takes over. Starts after callback-port acquisition, excluding contention wait. */
   redirectMs?: number;
   /** Listen here for the provider's redirect instead of its fixed port (tests, so they never meet a real sign-in). */
   callbackPort?: number;
@@ -965,20 +965,22 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       },
     });
     const timer = setTimeout(() => { flow.timedOut = true; flow.abort.abort(); }, this.opts.signInMs ?? 15 * 60_000);
-    const stuck = p.key === 'claude' ? undefined : setTimeout(() => this.toCode(flow), this.opts.redirectMs ?? 3 * 60_000);
+    let stuck: ReturnType<typeof setTimeout> | undefined;
     // Listen where the provider sends the browser back (the engine then finds the port taken and waits to be handed the address).
     const port = p.callbackPort && (this.opts.callbackPort ?? p.callbackPort);
     let reserved = !!port && body.via !== 'code' && !!this.platform.loopback && !ports.has(port);
     if (reserved) ports.add(port!);
-    const catcher = reserved && this.platform.loopback ? await this.catchRedirect(this.platform.loopback, flow, p.name, port!).catch(() => null) : undefined;
+    let catcher: Awaited<ReturnType<Loopback>> | undefined;
     let closed = false;
     const close = () => {
       if (!closed) { catcher?.close(); closed = true; }
       if (reserved) { ports.delete(port!); reserved = false; }
     };
     try {
-      if (catcher === null && !this.additions.has(id)) throw Object.assign(new Error('port busy'), { why: 'busy' as const });
-      try { await attempt(catcher === null || (port && !reserved && body.via !== 'code') ? 'code' : body.via ?? (catcher ? 'browser' : undefined)); } catch (e) {
+      if (reserved && this.platform.loopback) catcher = await this.catchRedirect(this.platform.loopback, flow, p.name, port!);
+      if (flow.abort.signal.aborted) throw new Error('Login cancelled');
+      stuck = p.key === 'claude' ? undefined : setTimeout(() => this.toCode(flow), this.opts.redirectMs ?? 3 * 60_000);
+      try { await attempt(port && !reserved && body.via !== 'code' ? 'code' : body.via ?? (catcher ? 'browser' : undefined)); } catch (e) {
         // The code instead: asked for, or the page never came back. Also when a browser sign-in could not return here at all.
         if (!flow.toCode && (catcher || body.via === 'code' || !codeOffered || flow.abort.signal.aborted)) throw e;
         Object.assign(flow, { url: undefined, code: undefined, via: 'code' });
@@ -1022,11 +1024,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     }
   }
 
-  /** Listen where the provider sends the browser back; rejects if something else on this computer already listens there. */
-  private catchRedirect(loopback: Loopback, flow: Flow, name: string, port: number) {
+  /** Acquire the fixed callback port before starting OAuth. The OS is the cross-process lock. */
+  private async catchRedirect(loopback: Loopback, flow: Flow, name: string, port: number) {
     const app = this.opts.app ?? 'the app';
     const page = (status: number, words: string, close = false) => ({ status, html: callbackPage(this.opts.app ?? name, words, close) });
-    return loopback(port, async (path) => {
+    const handle: Parameters<Loopback>[1] = async (path) => {
       const q = new URL(path, 'http://localhost').searchParams;
       if (!flow.oauthState || q.get('state') !== flow.oauthState || flow.state !== 'waiting') return page(400, say('callback.outOfDate', { app, name }));
       if (q.get('error')) flow.refuse?.(new Error(q.get('error')!));
@@ -1038,7 +1040,21 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       if (end === 'done') return page(200, say('callback.done', { app }), true);
       if (flow.why === 'declined') return page(200, say('callback.declined', { app }), true);
       return page(200, end === 'failed' ? say('callback.failed', { app, error: flow.error ?? '' }) : say('callback.nearly', { app }));
-    });
+    };
+    for (;;) {
+      if (flow.abort.signal.aborted) throw new Error('Login cancelled');
+      try { return await loopback(port, handle); }
+      catch (e: any) {
+        if (e?.code !== 'EADDRINUSE') throw e;
+        // ponytail: bounded polling, not FIFO; use a broker only if queue fairness becomes necessary.
+        await new Promise<void>((resolve) => {
+          const done = () => { clearTimeout(timer); flow.abort.signal.removeEventListener('abort', done); resolve(); };
+          const timer = setTimeout(done, 100);
+          flow.abort.signal.addEventListener('abort', done, { once: true });
+          if (flow.abort.signal.aborted) done();
+        });
+      }
+    }
   }
 
   /** The redirect address (or a code) pasted back, for when the browser couldn't return to this computer by itself. */
