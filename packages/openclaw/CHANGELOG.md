@@ -4,7 +4,7 @@
 
 ## 0.7.0 (2026-10-08)
 
-FIX: Unreadable sealed sign-ins now fail closed with `AuthStoreUnreadableError` and recovery words, leaving `auth-store.sealed` byte-identical for original-key or backup repair and retry instead of starting signed out with a replacement store.
+- FIX: Unreadable sealed sign-ins now fail closed with `AuthStoreUnreadableError` and recovery words, leaving `auth-store.sealed` byte-identical for original-key or backup repair and retry instead of starting signed out with a replacement store.
 
 ## 0.6.3 (2026-10-07)
 
