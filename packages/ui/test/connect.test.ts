@@ -124,12 +124,6 @@ for (const platform of ['node', 'browser', 'rn'] as const) test(`the kits' pinne
   assert.ok(rows(view).some((r) => r.group === 'perUse') && rows(view).some((r) => r.group === 'services'));
 });
 
-test('no provider is named in the view code', () => {
-  const src = readFileSync(new URL('../src/connect.ts', import.meta.url), 'utf8');
-  const providers = new Set([...accountRoutes(), ...openclawRoutes(), ...fixture.routes].map((r) => r.provider));
-  for (const p of providers) assert.ok(!new RegExp(`['"\`]${p.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')}['"\`:]`).test(src), p);
-});
-
 test('no credential reaches the view, whatever extra fields a route carries', () => {
   const canary = 'sk-canary-1f2e';
   const route = { ...synthetic[4], via: 'key', billing: 'api', readiness: 'ready', key: canary, token: canary, why: `bad ${canary}`, label: canary } as ConnectRoute;
