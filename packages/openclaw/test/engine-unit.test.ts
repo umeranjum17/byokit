@@ -718,6 +718,9 @@ setInterval(() => {}, 1000);
   writeFileSync(hostFile, `
 import { Engine } from ${JSON.stringify(new URL('../src/engine.ts', import.meta.url).href)};
 import { hostKeySeal } from ${JSON.stringify(new URL('../../secrets/src/index.ts', import.meta.url).href)};
+import { mock } from 'node:test';
+import { useSyntheticStock } from ${JSON.stringify(new URL('./stock-fixture.ts', import.meta.url).href)};
+useSyntheticStock({ mock });
 const engine = new Engine({ stateDir: ${JSON.stringify(dir)}, engineDir: ${JSON.stringify(engineDir)},
   authSeal: hostKeySeal({ key: new Uint8Array(32).fill(7) }), pluginId: 'byokit', tools: [], spawnEngine: true,
   onState() {}, onExit() {} });
@@ -728,12 +731,14 @@ setInterval(() => {}, 1000);
   mkdirSync(join(root, 'state'), { recursive: true });
   writeFileSync(join(root, 'state', 'auth.json'), 'saved-login');
   const host = spawn(process.execPath, [hostFile], { stdio: ['ignore', 'ignore', 'pipe'] });
+  let hostError = '';
+  host.stderr.on('data', chunk => { hostError += chunk; });
   let gateway = 0;
   const kit = new OpenClawKit({ stateDir: dir, engineDir, authSeal, transport: fakeGateway().factory });
   const unrelated = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
   try {
     for (let i = 0; i < 100 && !existsSync(ready) && host.exitCode === null; i++) await delay(50);
-    assert.ok(existsSync(ready), 'detached gateway reached its ordinary launch');
+    assert.ok(existsSync(ready), `detached gateway reached its ordinary launch: ${hostError}`);
     gateway = Number(readFileSync(ready, 'utf8'));
     const before = readFileSync(join(root, 'auth-store.sealed'));
     await assert.rejects(kit.start(), (e: unknown) => e instanceof Error && 'code' in e && e.code === 'engine-already-running');

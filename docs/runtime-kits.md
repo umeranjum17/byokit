@@ -62,7 +62,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D16 | Crewhouse adopts first with behavior parity; muxr adopts later in a separate muxr change after the Herdr kit is published and muxr's byokit cutover allows it. Neither adoption is part of the byokit PRs. |
 | D17 | Accounts (5.15). A member can hold several accounts, several per provider, subscription or API key. Each credential is granted once (sign in once, D11): an account is an agent holding a scoped view of the shared grant (`viewStore`), never a separately sealed copy, which also confines the pin's per-provider profile rotation inside one agent. The member agent holds the first view of each provider it is signed in to (its own existing sign-ins keep working, no migration; sign-ins read through another member's agent stop applying) and never holds an API key. Each run uses one account and one model, chosen, the default, or Auto (most room left, decided once at run start); a run never switches accounts, and a session stays on the account whose agent holds it until `move`. The engine's own per-person accounts, pooled proxies and per-request or mid-run rotation are not used. The kit adds the plugin id of every default-eligible bundled route to `plugins.allow` (5.6), so offered sign-ins work without app config. |
 | D18 | Account routes ([2.1](#21-account-routes-d18)). Every sign-in method a kit's pinned upstream supports is one data row in one shared vocabulary owned by `fixtures/conformance/account-routes-typescript.json`; each kit restates the shapes structurally (D3). Discovery lists every row, unavailable ones with a plain reason. Subscription rows are offered by default; every other billing is used only when the app or person names it. Billing is pinned upstream metadata or explicit host input, never inferred from an address. Credential import, pooling proxies, per-request or mid-run rotation, and tokens leaving the device never become routes. The one exception is adopting the machine's existing Claude/Codex login with the person's consent (D11). |
-| D19 | Bundled engine patches (5.16). The kit may change its pinned engine install only through `engine/patches.json`: exact unique-anchor edits with stock and patched sha256 per file, each inert unless the kit sets its env variable. A patched engine is a new immutable, fully verified set tree beside `engineDir`; no engine file any process may load is ever written in place, and rollback launches another set. No fork, republished tarball or source build. Two patches are planned: engine-started usage (Skill Workshop review facts in a kit-owned ledger) and app-owned session opt-out from restart recovery. Coverage is claimed only for the Gateway kinds 5.16 names; the worker bundle and every other detached kind are uncovered. |
+| D19 | Bundled engine patches: [5.16](#516-bundled-engine-patches-and-engine-started-usage) owns provenance, immutable sets, activation conditions and coverage. |
 | D20 | Browser sign-in handoff and live view ([5.17](#517-browser-sign-in-handoff-and-live-view-d20)). Each member gets a kit-owned pipe-only Chromium behind a kit CDP broker that the stock engine attaches to as an `attachOnly` profile (no engine patch). The person signs in by taking over a private tab no agent client can see; it is closed before the fence lifts. A request settles once; only a positive host-only site verification is `verified`, and only `verified` resumes, at most once, with no automatic redispatch when the outcome is unknown. Handoff stays refused until parked sessions are protected (O17 or the proven `before_agent_run` seam), and while any agent sharing the engine has a tool outside the closed safe set. Live view is the same broker's screencast over a link stream. |
 
 ### 2.1 Account routes (D18)
@@ -1522,8 +1522,17 @@ plus one reviewed edit. A fork, a republished tarball or a source build is never
   bundle named below. An empty `files` is a valid set.
 - The full OpenClaw MIT copyright and permission text ships as `engine/OPENCLAW-LICENSE` (the set republishes
   upstream excerpts; the repo `NOTICE` is not in the tarball).
-- Each patched function does nothing unless the kit sets its own env variable at spawn (5.5); with the variable
-  unset the engine behaves as stock. A patch adds no RPC, config key or schema to the engine.
+- Usage accounting and app-owned restart recovery patches do nothing unless the kit sets their own env
+  variables at spawn (5.5); with those variables unset they behave as stock. The Claude Tooling patch below
+  is route-gated instead. A patch adds no RPC, config key or schema to the engine.
+
+**Claude Tooling names.** On the Claude CLI route, after the backend system-prompt transform, the kit's
+bundled prepare patch prints OpenClaw tool names as `mcp__openclaw__<name>` in the policy-filtered
+`## Tooling` list, matching the CLI wire catalog. It rewrites only bare names present in `promptTools`;
+already-prefixed names, summaries, ordering and other sections stay unchanged. Non-Claude routes,
+skipped turn preparation and empty tool lists keep the stock prompt. No consumer aliases are added.
+`packages/openclaw/test/engine-unit.test.ts` exercises the shipped edit's rendered output; its minimal stock
+input is unit coverage, not qualification against the complete pinned engine or a live Claude CLI.
 
 **Engine sets.** A patched engine is never made by editing files in place: stock OpenClaw rewrites its process
 title (`/proc/<pid>/cmdline` is `openclaw-gateway`, `test/engine/boot.test.ts`) and a running Gateway holds no file or

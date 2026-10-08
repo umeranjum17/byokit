@@ -30,6 +30,8 @@ phone page that pairs, signs in with ChatGPT, runs and answers approvals, see
 `engine/patches.json` declares the exact upstream tarball integrity, commit, unique edits and before/after file
 hashes. The Gateway Workshop review patch writes content-free, durable usage facts only when the kit sets its
 accounting environment. The separately bundled worker and all other detached kinds remain uncovered.
+The Claude CLI route also uses the bundled [Tooling-name correction](../../docs/runtime-kits.md#516-bundled-engine-patches-and-engine-started-usage);
+apps do not need consumer tool aliases.
 The full upstream MIT notice ships in [engine/OPENCLAW-LICENSE](engine/OPENCLAW-LICENSE).
 
 Each `prepare()` verifies the **entire** selected engine tree, including unpatched files. The kit installs stock
