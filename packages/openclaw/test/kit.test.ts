@@ -331,6 +331,49 @@ test('ready runs reuse only witnessed, bounded member auth; mutations, expiry an
   } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
+test('readiness warms profile admission with or without native auth despite unusable expiries', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  for (const native of [false, true]) await withKit(async (kit, fake) => {
+    const expiresAt = Date.now() + 1_000;
+    fake.handle('models.authStatus', () => ({ providers: [
+      { provider: 'openai', status: 'expired', profiles: [
+        { status: 'expired', expiresAt: Date.now() - 1_000 },
+        { status: Date.now() < expiresAt ? 'ok' : 'expired', expiresAt },
+      ] },
+      { provider: 'anthropic', profiles: [{ status: 'expired', expiresAt: Date.now() - 1_000 }] },
+      { provider: 'claude-cli', profiles: [{ status: 'expired', expiresAt: Date.now() - 1_000 }] },
+    ] }));
+    fake.handle('openclaw.setup.detect', () => ({ candidates: [{ kind: 'claude-cli', credentials: native }] }));
+    assert.ok(await kit.signedIn('umer', 'openai'));
+    const spec = { member: 'umer', sessionKey: 'agent:umer:chat', message: 'Hello', model: 'openai/gpt-5.1' };
+    const warmRun = async (model: string) => {
+      const before = fake.calls.length;
+      assert.ok((await kit.run({ ...spec, model })).ok);
+      const calls = fake.calls.slice(before);
+      const agentAt = calls.findIndex(c => c.method === 'agent');
+      assert.ok(agentAt >= 0);
+      assert.equal(calls.slice(0, agentAt).some(c => c.method === 'models.authStatus'), false);
+      assert.equal(calls.some(c => c.method === 'openclaw.setup.detect'), false);
+    };
+    await warmRun(spec.model);
+    await warmRun(spec.model);
+    if (native) await warmRun('claude-cli/claude-sonnet-5');
+    else {
+      const out = await kit.run({ ...spec, model: 'claude-cli/claude-sonnet-5' });
+      assert.ok(!out.ok && 'kind' in out && out.kind === 'signed-out');
+    }
+    t.mock.timers.tick(1_001);
+    const before = fake.calls.length;
+    const expired = await kit.run(spec);
+    assert.ok(!expired.ok && 'kind' in expired && expired.kind === 'signed-out');
+    assert.equal(fake.calls.slice(before).filter(c => c.method === 'models.authStatus').length, 1);
+    if (native) {
+      assert.ok(await kit.signedIn('umer', 'claude-cli'));
+      await warmRun('claude-cli/claude-sonnet-5');
+    }
+  });
+});
+
 test('key entry refuses unavailable routes and hides even an engine error that echoes the secret', async () => withKit(async (kit, fake) => {
   const key = 'CANARY-ERROR-KEY-12345';
   assert.equal(await kit.addKey('m1', { authChoice: 'openai', apiKey: key }), 'not_included');

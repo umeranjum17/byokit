@@ -24,7 +24,7 @@ type AgentPayload = { runId: string; stream: string; data?: {
 // is: the row's own status is its worst profile's.
 type Row = { provider?: unknown; status?: unknown; profiles?: { status?: unknown }[]; usage?: unknown };
 type AuthStatus = { providers?: (string | Row)[]; unavailable?: { message?: unknown } };
-const USABLE = new Set(['ok', 'expiring', 'static']);
+export const USABLE = new Set(['ok', 'expiring', 'static']);
 const usable = (row: string | Row): boolean => typeof row === 'string'
   || (Array.isArray(row.profiles) && row.profiles.length > 0 ? row.profiles.some((p) => USABLE.has(String(p?.status)))
     : row.status === undefined || USABLE.has(String(row.status)));

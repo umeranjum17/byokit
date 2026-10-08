@@ -1,6 +1,6 @@
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
-import { signedInProviders } from './runs.ts';
+import { signedInProviders, USABLE } from './runs.ts';
 import type { GatewayTransport } from './types.ts';
 
 export type AuthStatus = { providers?: (string | {
@@ -14,7 +14,10 @@ export async function authStatus(
 ): Promise<AuthStatus> {
   const status = await request('models.authStatus', { agentId, ...(refresh ? { refresh: true } : {}) },
     { timeoutMs: 20_000 }) as AuthStatus;
-  if (!native) return status;
+  return native ? nativeStatus(request, agentId, status) : status;
+}
+
+async function nativeStatus(request: GatewayTransport['request'], agentId: string, status: AuthStatus): Promise<AuthStatus> {
   const detected = await request('openclaw.setup.detect', { agentId }, { timeoutMs: 20_000 }).catch(() => ({})) as {
     candidates?: { kind?: string; credentials?: boolean }[];
   };
@@ -55,15 +58,19 @@ export function createAuthStatus(root: string, request: GatewayTransport['reques
     const cached = snapshots.get(key);
     if (reuse && !refresh && before !== undefined && cached?.witness === before && cached.until > now) return cached.status;
     snapshots.delete(key);
-    const status = await authStatus(request, agentId, refresh, native);
-    const usable = signedInProviders(status);
-    // Empty/unknown/native-missing answers are not positive authority and are never reused.
-    if (before !== undefined && epoch === generation && witness(agentId) === before
-      && usable?.length && (!native || usable.includes('claude-cli'))) {
-      let until = now + 30_000; // measured from request start, not completion
-      for (const row of status.providers ?? []) if (typeof row !== 'string') for (const p of row.profiles ?? [])
-        if (typeof p.expiresAt === 'number' && Number.isFinite(p.expiresAt)) until = Math.min(until, p.expiresAt);
-      if (until > Date.now()) snapshots.set(key, { status, until, witness: before });
+    snapshots.delete(`${agentId}:false`);
+    const profiles = await authStatus(request, agentId, refresh);
+    const status = native ? await nativeStatus(request, agentId, profiles) : profiles;
+    if (before !== undefined && epoch === generation && witness(agentId) === before) {
+      for (const [route, answer] of (native ? [[false, profiles], [true, status]] : [[false, profiles]]) as [boolean, AuthStatus][]) {
+        const usable = signedInProviders(answer);
+        if (!usable?.length || (route && !usable.includes('claude-cli'))) continue;
+        let until = now + 30_000;
+        for (const row of answer.providers ?? []) if (typeof row !== 'string') for (const p of row.profiles ?? [])
+          if (USABLE.has(String(p?.status)) && typeof p.expiresAt === 'number' && Number.isFinite(p.expiresAt))
+            until = Math.min(until, p.expiresAt);
+        if (until > Date.now()) snapshots.set(`${agentId}:${route}`, { status: answer, until, witness: before });
+      }
     }
     return status;
   };
