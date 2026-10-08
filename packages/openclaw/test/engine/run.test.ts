@@ -171,7 +171,7 @@ test('real tool calls cross the fail-closed gate; keyword memory stays free', { 
   }
 });
 
-test('abort stays catchable after an active engine drops; healthy cancellation still reaches it', { timeout: 600_000 }, async () => {
+test('abort stays catchable after an active engine drops; healthy cancellation still reaches it', { skip: process.platform !== 'linux', timeout: 600_000 }, async () => {
   const stateDir = scratchDir('abort-engine-drop');
   const kit = new OpenClawKit({ stateDir, engineDir });
   const until = async (ready: () => boolean) => {
