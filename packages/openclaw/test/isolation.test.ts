@@ -5,11 +5,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isolationContract } from './isolation-contract.ts';
 import { prepareEngineSet, readPatchSet, sha256 } from '../src/engine-patches.ts';
+import { stockBytes, useSyntheticStock } from './stock-fixture.ts';
 
 // Run the real Engine supervisor's isolation contract in npm test without installing or calling a provider.
 // The engine job runs these same assertions against the actual pinned engine.
 test('engine isolation: offline child receives only the app-owned environment and listens on loopback',
-  { timeout: 30_000 }, () => isolationContract(async (dir) => {
+  { timeout: 30_000 }, (t) => isolationContract(async (dir) => {
+    useSyntheticStock(t);
     const engineDir = join(dir, 'fake-engine');
     const entryDir = join(engineDir, 'node_modules', 'openclaw');
     // Match the supervisor's install validation without installing any dependencies.
@@ -38,7 +40,7 @@ createServer(socket => socket.end()).listen(config.gateway.port, '127.0.0.1');
     writeFileSync(join(entryDir, 'dist/build-info.json'), JSON.stringify({ version: '2026.8.1', commit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b' }));
     const patch = readPatchSet(join(shipped, 'patches.json'), '2026.8.1', JSON.parse(readFileSync(join(shipped, 'package-lock.json'), 'utf8')).packages['node_modules/openclaw'].integrity);
     for (const file of patch.files) {
-      const bytes = readFileSync(fileURLToPath(new URL(`./fixtures/stock/${file.path}.txt`, import.meta.url)));
+      const bytes = stockBytes(file);
       assert.equal(sha256(bytes), file.before, `stock byte fixture drift: ${file.path}`);
       const target = join(entryDir, file.path);
       mkdirSync(dirname(target), { recursive: true });

@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { beforeEach, test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import fs, { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, symlinkSync, lstatSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
@@ -15,8 +15,14 @@ import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import { hostKeySeal } from '../../secrets/src/index.ts';
 import { once } from 'node:events';
 import { EnginePatchError, editText, patchId, prepareEngineSet, readPatchSet, sha256, verifyEngineSet, type PatchSet } from '../src/engine-patches.ts';
+import { stockBytes, useSyntheticStock } from './stock-fixture.ts';
 
-// Unit-only byte fixtures, not real-engine qualification; production entries are seeded as exact stock bytes.
+beforeEach(t => {
+  assert.ok('mock' in t);
+  useSyntheticStock(t);
+});
+
+// Unit-only byte fixtures, not real-engine qualification; the prepare bundle uses minimal stock input.
 test('immutable sets validate all bytes, clone offline, roll back by selection and preserve drift', async (t) => {
   const dir = scratchDir('patches');
   const base = join(dir, 'base');
@@ -69,7 +75,7 @@ test('immutable sets validate all bytes, clone offline, roll back by selection a
 test('claude route prints wire names in Tooling; other routes keep the stock prompt', async () => {
   const file = shippedSet().files.find((f) => f.path === 'dist/prepare.runtime-y2eXKhY3.js');
   assert.ok(file, 'patches.json carries the Claude Tooling-names entry');
-  const stock = readFileSync(fileURLToPath(new URL(`./fixtures/stock/${file.path}.txt`, import.meta.url)), 'utf8');
+  const stock = stockBytes(file).toString();
   assert.equal(sha256(stock), file.before, 'stock byte fixture drift');
   assert.equal(sha256(editText(stock, file)), file.after, 'patched bytes drift');
   const edit = file.edits[0]!;
@@ -139,7 +145,7 @@ function seedInstall(engineDir: string) {
   mkdirSync(join(engineDir, 'node_modules/openclaw/dist'), { recursive: true });
   writeFileSync(join(engineDir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.8.1', commit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b' }));
   for (const file of shippedSet().files) {
-    const bytes = readFileSync(fileURLToPath(new URL(`./fixtures/stock/${file.path}.txt`, import.meta.url)));
+    const bytes = stockBytes(file);
     assert.equal(sha256(bytes), file.before, `stock byte fixture drift: ${file.path}`);
     const target = join(engineDir, 'node_modules/openclaw', file.path);
     mkdirSync(dirname(target), { recursive: true });
