@@ -10,6 +10,8 @@ const stateDir = mkdtempSync(join(root, 'state-'));
 const bin = join(stateDir, 'bin');
 const home = join(stateDir, 'openclaw/home/.claude');
 mkdirSync(bin); mkdirSync(home, { recursive: true });
+// Keep the extensionless CLI's require() valid when the scratch root inherits this repo's ESM package.
+writeFileSync(join(bin, 'package.json'), JSON.stringify({ type: 'commonjs' }));
 writeFileSync(join(home, '.credentials.json'), 'synthetic signed-in');
 const countFile = join(stateDir, 'auth-count'), executions = join(stateDir, 'executions');
 writeFileSync(countFile, ''); writeFileSync(executions, '');

@@ -17,6 +17,8 @@ test('a run streams text, tracks each tool it uses, and ends done with the final
   const running = walk({ type: 'start' }, { type: 'text', text: 'Hel' }, { type: 'text', text: 'Hello' },
     { type: 'tool', name: 'web_search', phase: 'start' });
   assert.equal(running.phase, 'running');
+  assert.equal(runStep(running, { type: 'started' }), running, 'acceptance keeps the current reply and tools');
+  assert.equal(runStep(running, { type: 'thinking', tokens: 23 }), running, 'thinking keeps the current reply and tools');
   assert.equal(running.text, 'Hello', 'text is cumulative: each frame replaces');
   assert.equal(view(running).tool, 'web_search');
   const two = walk({ type: 'start' }, { type: 'tool', name: 'read', phase: 'start' }, { type: 'tool', name: 'read', phase: 'start' },
@@ -88,6 +90,8 @@ test('the store runs through the kit\'s device client: streamed, ended, and one 
   run.send('hello', { sessionKey: 'agent:me:1' });
   const first = await net.next();
   assert.deepEqual([first.op, first.args], ['oc.run', { message: 'hello', sessionKey: 'agent:me:1' }]);
+  first.line({ type: 'started' });
+  first.line({ type: 'thinking', tokens: 23 });
   first.line({ type: 'text', text: 'Hi' });
   first.line({ type: 'tool', name: 'demo_note', phase: 'start' });
   await until(() => run.get().tools.length === 1);

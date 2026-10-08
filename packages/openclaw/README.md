@@ -144,12 +144,15 @@ an API key added through pass-through calls, `addKey` returns `invalid` and leav
 
 A run spec also takes `system`, `images` (`{ data, mimeType }[]`), `thinking` and `tools`, a subset of the app tools
 (`KitOptions.tools` names) this run may call; any other app tool is refused at the gate before `ToolHost.gate` sees
-it. Run events first report `started` when the Gateway accepts the request (not when it finishes), then forward
-actual `thinking` progress as `{ type: 'thinking', tokens }` from the engine's `progressTokens`. No progress is
-invented on a silent route; a native lifecycle start never duplicates the accepted event.
-Admission reuses a positive, same-agent status for at most 30 seconds (capped by reported expiry), only while
-app-owned auth/config file metadata is unchanged. Auth/key/config changes and engine disconnects invalidate it;
-missing/expired sign-ins still fail before admission, and remote revocation keeps its actual signed-out error.
+it. Run events report `started` when the Gateway accepts the request (not when it finishes), and forward
+actual `thinking` progress as `{ type: 'thinking', tokens }`. Silent routes invent no progress; cached replays
+without a new accepted frame emit no `started`. Handle these frames explicitly rather than treating every
+non-text/tool frame as an end.
+Live readiness reads (`providers`, `signedIn`, or device `state()`) prepare admission for the next run, avoiding
+redundant checks while authority remains reusable. `providerStatus(member)` returns `undefined` for unknown
+status rather than `[]`; `providers` maps unknown to `[]`, and `signedIn` to `false`.
+See [the admission contract](../../docs/runtime-kits.md#58-runs-members-and-streams) for lifetime, expiry,
+file witnesses, invalidation and remote-revocation limits.
 Tool events carry the engine's call `id`, the `input` on `start` and the `output` and `error` on `end`. A run that
 ends ok carries `usage` (the engine's token total for the run, and `costUsd` when it priced the model) and
 `planWindow` (the subscription's quota windows as the engine last read them), each only when the engine reports it.

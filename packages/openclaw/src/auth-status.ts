@@ -29,7 +29,7 @@ async function nativeStatus(request: GatewayTransport['request'], agentId: strin
 }
 
 /** Admission snapshots, never credentials: per kit/agent/native route, at most 30s and never past reported expiry.
- * Witness only app-owned file metadata; changed/missing/unreadable state and all auth/lifecycle mutations recheck.
+ * Witness only app-owned file metadata (absence included); changed/unreadable state and auth/lifecycle mutations recheck.
  * Remote revocation still comes from the real run's signed-out error (a local status read cannot prove it either).
  */
 export function createAuthStatus(root: string, request: GatewayTransport['request']) {

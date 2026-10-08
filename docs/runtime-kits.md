@@ -692,7 +692,8 @@ No credential files or tokens are read. Normal wizard completion and API billing
 Mapping to `SignInView.why`: setup-admission-busy error → `busy`; person cancel →
 `declined`; 200 turns or 15 min → `expired`; else `failed`. Errors are cut to 200 chars.
 
-**signedIn / providers**: `models.authStatus { agentId }` (20 s); a provider entry is a string or `{ provider }`.
+**providerStatus / signedIn / providers**: live readiness reads; see 5.8 for the usable-provider rule,
+native Claude detection, unknown-status mapping and admission snapshots.
 **signOut**: `models.authLogout { provider, agentId, profileIds }` with the agent's own profiles of that provider
 (`byokit.accounts list`; from O14, 5.15). `signIn`, `signedIn`, `providers` and `signOut` address the
 member agent, whose sign-in to a provider is that provider's first account (5.15); `addAccount` adds any further one.
@@ -824,7 +825,10 @@ the engine. External retained sources are touched only when explicitly passed to
   normalizes ids; a bare string row, or a row with a profile `ok`/`expiring`/`static`, is signed in), else the run ends `{ ok: false, kind: 'signed-out' }` without calling the engine. The
   check may reuse a positive snapshot from this kit's `providerStatus`/`providers`/`signedIn`, device `oc.state`,
   or previous run, scoped by exact agent
-  and native-Claude detection mode, for at most 30 s from check start and never beyond reported profile expiry.
+  and native-Claude detection mode, for at most 30 s from check start and never beyond reported expiry of a
+  usable (`ok`/`expiring`/`static`) profile. Unusable profiles do not cap reuse. Fresh native readiness also
+  prepares the underlying non-native provider snapshot, even without Claude credentials; synthetic Claude
+  readiness never supplies ordinary profile authority.
   Public readiness/sign-in queries themselves stay live: they prepare a snapshot, never reuse one.
   `providerStatus` preserves unknown status as `undefined` for device state; `providers` maps it to `[]` and
   `signedIn` maps it to `false`.
@@ -2388,7 +2392,7 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 
 | Op | Args | Returns |
 |---|---|---|
-| `oc.state` *view* | — | `{ state: KitState, words: string, version, engine, signedIn? }`: this kit's package version, `ENGINE_VERSION`, and the providers the device member is usably signed in to while `ready` (`models.authStatus` rows by the 5.8 usable rule: an expired or unfinished sign-in is not; absent when not ready or the status is unavailable, never `[]` for unknown) |
+| `oc.state` *view* | — | `{ state: KitState, words: string, version, engine, signedIn? }`: this kit's package version, `ENGINE_VERSION`, and the providers the device member is usably signed in to while `ready` (live `providerStatus` by 5.8, preparing admission; absent when not ready or status is unknown, never `[]` for unknown) |
 | `oc.routes` *view* | — | offered routes only (`offer: true`) |
 | `oc.signin.start` | `{ provider, via }` | `SignInView` (kit picks `routeFor(provider, via)`) |
 | `oc.signin.view` *view* | `{ provider }` | `{ ready, view: SignInView \| null }` for `toAccountView` |
