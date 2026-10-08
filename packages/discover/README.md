@@ -117,7 +117,7 @@ Tailscale is transport only. Link's handshake still checks every device key.
 
 `recommend()` lists one entry per concrete route (`tailscale`, `tailscale-direct`, `private`, `lan`) with the
 recommended one first, so the recommendation order and the everyday copy live in one place. `sentence` and `needs`
-come from ui-core's `routeChoices()`; only availability is added here. `auto` is not a route: it picks the
+come from [`@byokit/ui`](../ui/README.md#routes)'s `routeChoices()`; only availability is added here. `auto` is not a route: it picks the
 recommended entry. Pass `state`, `serve`, `lan` and `private` fakes to decide without touching Tailscale or the
 network; with no options it probes this computer (`tailscaleState`, `inspectServe` on `port`, `routes`).
 

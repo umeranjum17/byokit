@@ -26,6 +26,8 @@ npm install @byokit/ui
 
 [![npm](https://img.shields.io/npm/v/@byokit/ui?style=flat&label=)](https://www.npmjs.com/package/@byokit/ui) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=ui-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
 
+Migrating from `@byokit/ui-core`? See the [deprecated shim's migration guide](../ui-core/README.md#migrate).
+
 ## Quickstart
 
 ```sh

@@ -130,7 +130,7 @@ For an owner who explicitly offers keys, `kit.addKey('ana', { authChoice: 'opena
 `ok`, `invalid` or `not_included`. Label the option **API key (billed per use)**. Select only `routes()` rows with
 `keyEntry: true`; API rows remain `offer: false`. Each route also carries its engine `revision`, `checked` date,
 label and key error word names. Submit the input directly, clear the field afterwards, and never log or save it in
-app state. The kit never returns engine key-check errors or the key. `ui-core/kits` supplies `keyStep`/`keyView`
+app state. The kit never returns engine key-check errors or the key. [`@byokit/ui/kits`](../ui/README.md) supplies `keyStep`/`keyView`
 for entry, checking, success and failure states, using the kit's `key.*` words.
 
 To use the saved key for one run, pass `auth: 'apiKey'`. The key lives in the member's separate
@@ -340,7 +340,7 @@ Entries:
 | `RouteView`, `RouteFacts`, `JsonValue`, `UsageClient`, `DayUsageClient` (`.`) | The types `routes()`, `routes(facts)` and the usage readers return or take, nameable without a cast |
 | `openclawDevice(link)` (`./device`) | Portable client: state, routes, sign-in, runs, steer, abort, approvals, events, sealed notices, pass-through `call`. `OpenClawDevice` and `DeviceEndFrame` name what it returns |
 | `LinkRefused`, `openNotice` (`./device`) | The host's own refusal as an error; opens a sealed approval notice |
-| `words`, `stateWords`, `toAccountView` (`.`, `./device`) | The kit's sentences, so a phone shows the words the computer does; `toAccountView` feeds `@byokit/ui-core`'s `phaseOf` |
+| `words`, `stateWords`, `toAccountView` (`.`, `./device`) | The kit's sentences, so a phone shows the words the computer does; `toAccountView` feeds [`@byokit/ui`](../ui/README.md)'s `phaseOf` |
 | `openclawLink(kit, o)` (`./link`) | `handle` / `stream` / `allow` for a `@byokit/link` `Host`, checked per member, plus `onAction` for relay push actions. `OpenClawLinkOptions` / `OpenClawLinkHost` name both sides |
 | `serve(o)` (`./link`) | Binds the link host per reach and returns its URLs (`OpenClawServeOptions` / `OpenClawServeHandle`) |
 | `fakeGateway`, `openclawContract`, `startModelStub`, `useModelStub` (`./testing`) | In-memory Gateway, the contract suite and the scripted model for tests. `fakeGateway`'s script is typed per method (`FakeScript`, `FakeHandler`), and a recorded `StubCall` carries a typed `StubRequest` |
