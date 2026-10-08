@@ -1,2 +1,0 @@
-FIX: Add member-scoped custom OpenAI/Anthropic-compatible endpoints and explicit local presets using the pinned provider/model adapters. Billing is a required choice (or preset fact), never inferred from a hostname; Auto and Default refuse non-subscription accounts.
-SECURITY: Endpoint keys stay in the member's selected device key backend; loopback readiness precedes credentials, and endpoint models never enter another member or default runtime.

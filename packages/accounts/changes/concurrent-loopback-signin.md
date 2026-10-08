@@ -1,1 +1,0 @@
-FIX: Concurrent app processes wait for the fixed OAuth callback port before starting browser sign-in, instead of failing busy and asking the person to start again. Waiting respects cancellation and the sign-in deadline; callback state checks are unchanged.
