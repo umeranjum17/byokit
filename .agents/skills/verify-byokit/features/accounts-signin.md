@@ -8,6 +8,7 @@ A consumer app signs a member into ChatGPT by device code against the loopback s
 - `signin-status`: `status` reports `ready` with human words after `finished`.
 - `signin-ask`: `respond` streams the answer and returns the final text.
 - `signin-errors`: a provider not offered rejects; asking with no sign-in raises `ResponseError`.
+- `signin-loopback-concurrent`: two Node app processes using the same fixed callback port finish their own browser ceremonies; wrong-state and stale-owner callbacks stay rejected, and owner/queued cancellation releases the wait.
 
 ## How to get to it (user POV)
 
@@ -22,6 +23,17 @@ Preconditions: baseline (features/README.md); no process of a previous drive is 
 - **Happy path shows.** `signin: waiting code MOCK-1000…`, `status: ChatGPT is connected.`, the streamed `You said: <input>` and `final: You said: <input>`.
 - **Error cases show.** `not-offered error: AI account not offered here` and `missing-signin error: ResponseError ChatGPT isn't signed in yet.`
 - **Proof.** The captured artifact contains command output for the action and resulting state of every sub-feature above.
+
+## Concurrent Node callback drive
+
+Run `node .agents/skills/verify-byokit/capture/accounts-loopback.mjs` after building.
+The two child-process consumers import the built public accounts entry and run the pinned
+OAuth engine. Each has its own `mockOpenAI()` on loopback; fetch maps only the engine's
+OpenAI transport to that stand-in (no real provider or installed credentials).
+The script asserts HTTP 400 for forged and previous-owner callbacks, HTTP 200 and distinct
+member emails for both correct callbacks, owner cancellation unblocking the other process,
+and cancellation while queued settling without a provider URL. Capture stdout, stderr and
+exit status using the skill's Evidence block (`feature=accounts-loopback`).
 
 ## Gotchas
 

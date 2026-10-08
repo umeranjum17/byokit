@@ -86,7 +86,7 @@ test("sign in with ChatGPT: its own page, straight back here; the tab shows the 
   } finally { a.stop(); }
 });
 
-test('sign-in failures on the page: declined, a failed exchange, the port taken, the page timing out; never half signed in', async () => {
+test('sign-in failures on the page: declined, a failed exchange, waiting for the port, the page timing out; never half signed in', async () => {
   const { a } = accounts();
   try {
     // Cancel on ChatGPT's page: nothing changed, said kindly, in the tab and in the app.
@@ -110,9 +110,12 @@ test('sign-in failures on the page: declined, a failed exchange, the port taken,
 
     // Something else on this computer is signing in to ChatGPT right now (its port is taken).
     const other: Server = await new Promise((r) => { const s = createServer().listen(port, '127.0.0.1', () => r(s)); });
-    v = (await a.login(OWNER, 'chatgpt'))!;
-    await new Promise((r) => other.close(r));
-    assert.deepEqual([v.state, v.why, v.error], ['failed', 'busy', 'Something else on this computer is signing in to ChatGPT. Try again in a minute.']);
+    const pending = a.login(OWNER, 'chatgpt');
+    setTimeout(() => other.close(), 150);
+    v = (await pending)!;
+    assert.deepEqual([v.state, v.via], ['waiting', 'browser'], 'the same ceremony starts once its callback port is available');
+    a.cancel(OWNER, 'chatgpt');
+    await pending;
 
     // Having trouble? The code instead, from the same button; and by itself when the page never comes back.
     v = (await a.login(OWNER, 'chatgpt'))!;
@@ -134,6 +137,19 @@ test('sign-in failures on the page: declined, a failed exchange, the port taken,
     a.cancel(OWNER, 'chatgpt');
     assert.equal(await a.signedIn(OWNER, 'chatgpt'), false, 'never half signed in');
   } finally { a.stop(); }
+});
+
+test('two app processes acquire the same callback port without restarting or mixing callbacks', async () => {
+  const { stdout } = await promisify(execFile)(process.execPath,
+    ['.agents/skills/verify-byokit/capture/accounts-loopback.mjs'], {
+      env: { ...process.env,
+        BYOKIT_ACCOUNTS_ENTRY: new URL('../src/index.ts', import.meta.url).href,
+        BYOKIT_TESTING_ENTRY: new URL('../src/testing/mock-openai.ts', import.meta.url).href },
+      timeout: 30000,
+    });
+  assert.match(stdout, /two processes: both correct member credentials/);
+  assert.match(stdout, /owner cancellation: queued app completes/);
+  assert.match(stdout, /queued cancellation: settles without provider URL/);
 });
 
 test('a work ChatGPT is recognised from the sign-in itself, so the app can steer to a personal one', async () => {
