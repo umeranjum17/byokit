@@ -14,12 +14,12 @@ import { gatewayTransport } from './transport.ts';
 import { createMembers } from './members.ts';
 import { keyAgentId, KEY_PREFIX, MEMBER_ID } from './members.ts';
 import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLogin } from './migrate.ts';
-import { createRuns } from './runs.ts';
+import { createRuns, signedInProviders } from './runs.ts';
 import { createAuthStatus } from './auth-status.ts';
 import { outputSchema } from './output.ts';
 import { createKeys, type AddKeyResult } from './keys.ts';
 import { routes as routeTable, type RouteView } from './routes.ts';
-import { providers as engineProviders, signIn as startSignIn, signOut as engineSignOut, type SignInCtx } from './signin.ts';
+import { signIn as startSignIn, signOut as engineSignOut, type SignInCtx } from './signin.ts';
 import { reconcileConfig, browserToolPolicySafe, browserProfileAcknowledged, browserSessionMayRun, memoryLimited as configMemoryLimited, configKeyPath, readConfigKey, writeConfigKey } from './config.ts';
 import type { BrowserHost, BrowserOptions, BrowserState } from './browser.ts';
 import { createBrowserHost, type BrowserHostController, type HostBroker } from './browser/host.ts';
@@ -871,12 +871,17 @@ export class OpenClawKit {
     return routeTable();
   }
 
+  async providerStatus(member: Member): Promise<string[] | undefined> {
+    const { agentId } = await this.ensureMember(member);
+    return signedInProviders(await this.admission.read(agentId, false, true, false));
+  }
+
   providers(member: Member): Promise<string[]> {
-    return engineProviders(this.signInCtx(), member);
+    return this.providerStatus(member).then((names) => names ?? []);
   }
 
   signedIn(member: Member, provider: string): Promise<boolean> {
-    return engineProviders(this.signInCtx(), member).then((names) => names.includes(provider)).catch(() => false);
+    return this.providers(member).then((names) => names.includes(provider)).catch(() => false);
   }
 
   signIn(

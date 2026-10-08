@@ -454,6 +454,7 @@ export declare class OpenClawKit {
   ensureMember(member: Member): Promise<{ agentId: string; workspace: string }>;
   // sign-in (5.7)
   routes(): Route[];
+  providerStatus(member: Member): Promise<string[] | undefined>;
   providers(member: Member): Promise<string[]>;
   signedIn(member: Member, provider: string): Promise<boolean>;
   signIn(member: Member, o: { authChoice: string; via?: 'browser' | 'code' }, on: (v: SignInView) => void):
@@ -821,9 +822,12 @@ the engine. External retained sources are touched only when explicitly passed to
   if it is not `provider/model` or carries an `@profile` pin. Before the run, `models.authStatus { agentId }` (once
   more with `refresh: true` while it answers `unavailable`) must list the provider (lowercased, as the engine
   normalizes ids; a bare string row, or a row with a profile `ok`/`expiring`/`static`, is signed in), else the run ends `{ ok: false, kind: 'signed-out' }` without calling the engine. The
-  check may reuse a positive snapshot from this kit's `providers`/`signedIn` or previous run, scoped by exact agent
+  check may reuse a positive snapshot from this kit's `providerStatus`/`providers`/`signedIn`, device `oc.state`,
+  or previous run, scoped by exact agent
   and native-Claude detection mode, for at most 30 s from check start and never beyond reported profile expiry.
   Public readiness/sign-in queries themselves stay live: they prepare a snapshot, never reuse one.
+  `providerStatus` preserves unknown status as `undefined` for device state; `providers` maps it to `[]` and
+  `signedIn` maps it to `false`.
   Every reuse stats only app-owned config/profile/CLI-auth file metadata; a changed or unreadable witness rechecks.
   Missing/unknown status is never reused. Refresh bypasses reuse. Disconnect/start/stop, auth/setup/wizard/config/
   agent/secret mutations and key replacement invalidate (before and after mutation); engine signed-out failures
