@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { AuthInteraction } from '@earendil-works/pi-ai';
-import { Accounts, PROVIDERS, offered, ResponseError, type AuthHost, type Member } from '../src/index.ts';
+import { Accounts, PROVIDERS, memoryStore, offered, ResponseError, type AuthHost, type Member } from '../src/index.ts';
 
 /** A scripted engine: `script(interaction, attempt)` plays one login; credentials live in a plain map. */
 function engine(script: (i: AuthInteraction, attempt: number) => Promise<void>) {
@@ -30,7 +30,7 @@ const port = await new Promise<number>((r) => { const s = createServer().listen(
 class Kit extends Accounts {
   hosts = new Map<string, ReturnType<typeof engine>>();
   script: Parameters<typeof engine>[0];
-  constructor(script: Parameters<typeof engine>[0], offer?: string[]) { super({ offer, signInMs: 500, callbackPort: port }); this.script = script; }
+  constructor(script: Parameters<typeof engine>[0], offer?: string[]) { super({ offer, signInMs: 500, callbackPort: port, store: () => memoryStore() }); this.script = script; }
   protected open(member: Member) { const e = engine(this.script); this.hosts.set(String(member), e); return Promise.resolve(e.host); }
 }
 const pick = (i: AuthInteraction) => i.prompt({ type: 'select', message: 'how', options: [{ id: 'browser', label: 'Browser' }, { id: 'device_code', label: 'Device code' }] });
@@ -184,7 +184,7 @@ test('member key routes: sealed locally, consented, redacted, isolated, and hand
   const { openai } = await import('../../decide/src/openai.ts');
   const dir = scratchDir('member-keys');
   const keyStore = (member: Member) => secretFile({ path: join(dir, `${member}.json`), passphrase: new Uint8Array(32).fill(7) });
-  const accounts = new Accounts({ offer: ['chatgpt', 'openai', 'typesafe', 'openrouter'], keyStore });
+  const accounts = new Accounts({ offer: ['chatgpt', 'openai', 'typesafe', 'openrouter'], keyStore, store: () => memoryStore() });
   const observed: unknown[] = [];
   accounts.onChange = (member, route) => observed.push([member, route]);
   accounts.onSignedIn = (member, route) => observed.push([member, route]);
@@ -202,7 +202,7 @@ test('member key routes: sealed locally, consented, redacted, isolated, and hand
     assert.equal(accounts.providers.find((p) => p.key === route)?.label, label);
     assert.ok(!readFileSync(join(dir, 'Umer.json'), 'utf8').includes(secret));
     assert.ok(!JSON.stringify(observed).includes(secret));
-    const restored = new Accounts({ offer: [route], keyStore });
+    const restored = new Accounts({ offer: [route], keyStore, store: () => memoryStore() });
     const key = await restored.key('Umer', route);
     let calls = 0;
     const fakeFetch: typeof fetch = async (url, init) => {

@@ -38,12 +38,12 @@ The whole ChatGPT flow, run against the stand-in OpenAI so it needs no account a
 by device code, see the status, ask.
 
 ```ts
-import { Accounts, portable } from '@byokit/accounts';
+import { Accounts, memoryStore, portable } from '@byokit/accounts';
 import { mockOpenAI } from '@byokit/accounts/testing';
 
 const openai = await mockOpenAI(); // a stand-in OpenAI on 127.0.0.1, no account needed
 const accounts = new Accounts(
-  { authBase: openai.base, apiBase: openai.base }, // default store: in memory
+  { authBase: openai.base, apiBase: openai.base, store: () => memoryStore() }, // in memory: this demo ends with it
   portable, // device code with fetch alone, as on a phone or in a browser
 );
 
@@ -75,17 +75,18 @@ On a computer it uses Pi's [`@earendil-works/pi-ai`](https://www.npmjs.com/packa
 flows, pinned exactly:
 
 ```ts
-import type { SafeStorageLike } from '@byokit/accounts';
 import { isolate, launchEnv } from '@byokit/accounts/isolate';
 const dir = isolate('/path/to/app/engine'); // creates the folder; never changes process.env
 const launch = launchEnv({ set: { PI_CODING_AGENT_DIR: dir, PI_OFFLINE: '1',
   PI_TELEMETRY: '0', PI_SKIP_VERSION_CHECK: '1' } });
 // Pass launch.env to spawn(), or launch to Herdr's startAgent({ env: launch, ... }).
 
-// Your Electron main process waits for app.whenReady(), then passes its safeStorage here.
-export async function connect(safeStorage: SafeStorageLike) {
-  const { Accounts, fileStore } = await import('@byokit/accounts');
-  const accounts = new Accounts({ store: (member) => fileStore(`/path/to/app/people/${member}/auth.json`, safeStorage) });
+// Every BYOKit app on this computer keeps sign-ins at one machine store under one seal, so the person signs in once.
+export async function connect() {
+  const { Accounts, machineStore } = await import('@byokit/accounts');
+  const { osKeyringSeal } = await import('@byokit/secrets');
+  const seal = osKeyringSeal({ service: 'byokit' });
+  const accounts = new Accounts({ store: (member) => machineStore(member, seal) });
   const shown = await accounts.login(1, 'chatgpt', { via: 'code' }); // { state: 'waiting', code, url }
   // show shown.code and shown.url; the sign-in finishes by itself
   return { shown, status: await accounts.status(1, 'chatgpt') };
@@ -126,7 +127,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | `Accounts` | Sign-in, status, sign-out, asking and limits for each member: `login`, `finished`, `status`, `plan`, `logout`, `respond`, `chatgpt`, `failed`, `ladder`, `keepFresh`; explicit custom servers: `endpoint`, `endpointReadiness`, `endpointRuntime` |
 | `ENDPOINT_PRESETS`, `EndpointError`, `EndpointOptions`, `EndpointModel`, `EndpointDriver` | Local preset facts, typed readiness failures, public endpoint/model configuration and the same-device host driver seam |
 | `portable`, `computer`, `loopback` | The platform `Accounts` runs on: device code with `fetch` alone, or (Node entry only) Pi's flows and the loopback listener |
-| `memoryStore`, `fileStore`, `secureStore`, `browserStore`, `recordStore` | One store per person: in memory, a sealed 0600 file (Node entry only), Keychain/Keystore, IndexedDB, or your own load and save |
+| `machineStore`, `fileStore`, `secureStore`, `browserStore`, `recordStore`, `memoryStore` | One store per person: the computer's sealed file every app shares or a sealed 0600 file of your own (Node entry only), Keychain/Keystore, IndexedDB, your own load and save, or in memory |
 | `offered`, `provider`, `PROVIDERS` | The catalogue: each provider's billing, models and source |
 | `billingWords`, `say`, `WORDS`, `signInError`, `failure`, `clock`, `callbackPage` | The plain sentences every app shows the same way (`words.json`), a time in words, and the page a browser sees after a sign-in |
 | `respond`, `ResponseError`, `IncompleteError`, `sseReader`, `limitResponse`, `isFunctionCall` | Ask ChatGPT's answers endpoint with a sign-in, with tools, pictures, thinking effort and an answer shape; the error with the words to show and the kind acted on |
@@ -138,7 +139,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | `isolate`, `launchEnv`, `INHERITED`, `emptyAuthContext` (`/isolate`) | Prepare app folders; copy and scrub child environments; ambient discovery off |
 | `mockOpenAI`, `mockJwt`, `decoy`, `traceFs`, `CANARY` (`/testing`) | A stand-in OpenAI, and the decoy-HOME harness and fs tracer for isolation tests |
 
-`computer`, `loopback` and `fileStore` come from the Node entry only; `isolate` and `/testing` need Node too.
+`computer`, `loopback`, `machineStore` and `fileStore` come from the Node entry only; `isolate` and `/testing` need Node too.
 
 ## Which sign-in works where
 
@@ -151,7 +152,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | Radius (billing set by gateway) | Pi's browser callback (1456) or device code; explicit-only | Not yet | Not yet |
 | Grok, Kimi | Pi's device flows; the same RFC 8628 flow from their catalogue `device` rows | Device code | Device code |
 | Copilot, Meta | Pi's device flows; Copilot accepts an Enterprise domain | No | No |
-| Where sign-ins are kept | `fileStore(path, safeStorage)`, sealing required | `browserStore(name)` (IndexedDB) | `secureStore(SecureStore, name)` (Keychain, Keystore) |
+| Where sign-ins are kept | `machineStore(member, seal)`, shared by every app on the computer; or `fileStore(path, seal)` | `browserStore(name)` (IndexedDB) | `secureStore(SecureStore, name)` (Keychain, Keystore) |
 
 Device code works everywhere: OpenAI's sign-in endpoints answer any web page. The page-straight-back sign-in needs a
 listener on the computer the browser runs on, so it is desktop only: ChatGPT sends the browser back to
@@ -263,8 +264,16 @@ when no handler is set).
 
 ## One person, one store
 
-`memoryStore()`, `fileStore(path, safeStorage)` (sealed, 0600), `secureStore(SecureStore, name,
-options?)` or `browserStore(name)`; any other storage with `recordStore(load, save)`. Writes are serialized within a
+`Accounts` needs a `store` before it reads or keeps a sign-in; there is no default. Keep sign-ins durably so they outlive
+a restart: `machineStore(member, seal)` on a computer, `secureStore(SecureStore, name, options?)` on a phone,
+`browserStore(name)` in a browser, `fileStore(path, seal)` (sealed, 0600) for an app's own file, or any other storage
+with `recordStore(load, save)`. `memoryStore()` is the explicit choice for sign-ins that end with the app.
+
+`machineStore` keeps each person at one conventional place on the computer, the same for every app:
+`~/.local/share/byokit/people/<member>/auth.json` (`~/Library/Application Support/byokit/...` on macOS,
+`AppData\Roaming\byokit\...` on Windows). A second app that passes the same member and the same seal
+(`osKeyringSeal({ service: 'byokit' })` from `@byokit/secrets`) is signed in already; Electron's `safeStorage` seals per
+app, so it cannot share. A member is letters, digits, `.`, `_` and `-`. Writes are serialized within a
 store instance; `fileStore` also serializes across processes through a `<path>.lock` file beside it, and
 `browserStore` uses Web Locks across tabs for the whole record when available. Never a shared
 fallback.
@@ -392,11 +401,11 @@ only under the caller-supplied root; the caller owns its creation and cleanup.
 `mockOpenAI()` from `@byokit/accounts/testing` (or, from a repo checkout, `node packages/accounts/src/testing/mock-openai.ts [port]`) answers device code, its
 page where a person types the code, token exchange, refresh, revoke and streamed answers (echoing the question), so
 tests and demos sign in and ask end to end with no account. Point the kit at it with
-`new Accounts({ authBase, apiBase })`, as the [Quickstart](#quickstart) does.
+`new Accounts({ authBase, apiBase, store: () => memoryStore() })`, as the [Quickstart](#quickstart) does.
 
 `mockDevice()` stands in for any provider the catalogue gives device data: the code, the page that approves it,
 polling and refresh on that provider's own documented endpoints. Point the kit at it with
-`new Accounts({ deviceBase })`.
+`new Accounts({ deviceBase, store: () => memoryStore() })`.
 
 ## Links
 
@@ -563,7 +572,7 @@ Tokens belong in one device-owned `CredentialStore` per member. `keystoreStore(h
 `@byokit/secrets` without importing Node into the portable entry. Electron can pass safeStorage to `fileStore`;
 its sealed file writes atomically with mode 0600; a sealing adapter is required. Processes sharing one file take turns through a `<path>.lock` file beside it (see Refresh safety).
 Phones use `secureStore` with device-only accessibility. PWA `browserStore` uses IndexedDB and Web Locks; page
-scripts can read its credentials. Tokens are never collected by a BYOKit server or logged. The default is memory-only.
+scripts can read its credentials. Tokens are never collected by a BYOKit server or logged. There is no default store: pass one explicitly (`memoryStore()` only for sign-ins that end with the app).
 
 React Native hosts pass `claudePlan: { crypto: webCrypto }` when global Web Crypto is unavailable;
 `ClaudePlanPlatformError` reports missing secure randomness/SHA-256. Claude's token and profile endpoints don't answer
@@ -763,7 +772,7 @@ to agree to per-use billing before calling `saveKey`. These routes never enter
 `ladder`, even when a subscription is unavailable.
 
 ```ts
-import { Accounts } from '@byokit/accounts';
+import { Accounts, memoryStore } from '@byokit/accounts';
 import { fileStore } from '@byokit/secrets';
 import { jev, openai } from '@byokit/decide';
 
@@ -775,6 +784,7 @@ declare const chosenModel: string;
 const accounts = new Accounts({
   offer: ['openai', 'typesafe', 'openrouter'],
   keyStore: (member) => fileStore({ path: `${dataFolder}/${member}.keys`, passphrase }),
+  store: () => memoryStore(), // replace with your app's durable store
 });
 // After Umer explicitly agrees to billing per use, pass the entered key:
 await accounts.saveKey('Umer', 'typesafe', enteredKey, { billedPerUse: true });
@@ -802,13 +812,15 @@ Saving a key marks it connected locally; the selected provider checks validity o
 ### Computer sign-in methods
 
 ```ts
-import { Accounts } from '@byokit/accounts';
+import { Accounts, machineStore, type SafeStorageLike } from '@byokit/accounts';
 import type { Keystore } from '@byokit/secrets';
 // This example has one member; the app supplies that member's private device-owned store.
 declare const memberKeys: Keystore;
+declare const seal: SafeStorageLike;
 declare const returnedRedirectUrl: string;
 const accounts = new Accounts({
   offer: ['claude', 'openrouter', 'radius', 'copilot'], keyStore: () => memberKeys,
+  store: (member) => machineStore(member, seal),
 });
 // Claude's existing paste route remains the default on every supported platform.
 await accounts.login('Umer', 'claude');
@@ -834,9 +846,9 @@ interactions. Never expose credentials from that host-only handle in a UI or ano
 Built-in stores keep a non-secret account index alongside sealed credentials. Custom stores use `recordStore(load, save)` to supply the same transaction seam. New sign-ins are staged until they succeed:
 
 ```ts
-import { Accounts } from '@byokit/accounts';
+import { Accounts, memoryStore } from '@byokit/accounts';
 
-const accounts = new Accounts(); // in-memory store; pass your app's store to persist
+const accounts = new Accounts({ store: () => memoryStore() }); // in memory; pass your app's store to persist
 const added = await accounts.add('Umer', 'chatgpt', { via: 'code' });
 // Show added.signIn, then poll view('Umer', added.id) as with login.
 await accounts.finished('Umer', added.id);
@@ -856,14 +868,14 @@ charge a remote API. Auto **and Default** refuse non-subscription rows, even whe
 using its exact account id is explicit selection. `list()` carries the selected billing and its plain label.
 
 ```ts
-import { Accounts, ENDPOINT_PRESETS, type EndpointModel } from '@byokit/accounts';
+import { Accounts, ENDPOINT_PRESETS, memoryStore, type EndpointModel } from '@byokit/accounts';
 
 const model: EndpointModel = {
   id: 'your-installed-model', name: 'My model', reasoning: false, input: ['text'],
   contextWindow: 8192, maxTokens: 1024,
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, // host estimates, not billing evidence
 };
-const accounts = new Accounts(); // supply store(member) for durable metadata
+const accounts = new Accounts({ store: () => memoryStore() }); // supply your app's store(member) for durable metadata
 const { id } = await accounts.endpoint(1, { ...ENDPOINT_PRESETS.ollama, models: [model] });
 const runtime = await accounts.endpointRuntime(1, id);
 const selected = runtime.getModel(id, model.id)!;
@@ -902,9 +914,9 @@ Cloud routes are discovered alongside plans, but always chosen explicitly and bi
 or invoke a Workers binding. A ready cloud row means **configured**, not live authorization.
 
 ```ts
-import { Accounts, type Model } from '@byokit/accounts';
+import { Accounts, memoryStore, type Model } from '@byokit/accounts';
 declare const model: Model<'bedrock-converse-stream'>; // the app's selected pinned Pi model
-const accounts = new Accounts(); // use the member's app-owned store for durable accounts
+const accounts = new Accounts({ store: () => memoryStore() }); // use the member's app-owned store for durable accounts
 const signal = new AbortController().signal;
 const { id } = await accounts.addCloud(1, 'aws-bedrock', {
   route: 'aws-bedrock:cloud:aws-profile', via: 'cloud', profile: 'work',
@@ -968,12 +980,12 @@ cold Metro execution and lazy keys in a strict nested packed install. None requi
 ### Typed key-route example
 
 ```ts
-import { Accounts, type Model } from '@byokit/accounts';
+import { Accounts, memoryStore, type Model } from '@byokit/accounts';
 import type { Keystore } from '@byokit/secrets';
 
 export async function askWithKey(keyStore: (member: number) => Keystore,
   model: Model<'openai-completions'>, key: string) {
-  const accounts = new Accounts({ keyStore });
+  const accounts = new Accounts({ keyStore, store: () => memoryStore() }); // replace with your app's durable store
   const { id } = await accounts.add(1, 'groq:key', { via: 'key', key }); // API key (billed per use), explicitly selected
   return accounts.respond(1, { account: id, model, context: {
     messages: [{ role: 'user', content: 'Hello', timestamp: Date.now() }],

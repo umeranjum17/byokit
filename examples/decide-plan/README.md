@@ -2,8 +2,10 @@
 
 A browser example of `@byokit/decide` on the person's ChatGPT and Claude plans.
 It uses BYOKit's real plan sign-ins and `Accounts.respond`, with no rules backend,
-API key, alternate billing route, saved account folder or installed tool credentials.
-Sign-ins live only in the server's memory and are discarded when it closes.
+API key, alternate billing route or installed tool credentials.
+Sign-ins are kept sealed at this computer's machine store (`machineStore`, sealed with
+`osKeyringSeal({ service: 'byokit' })`), so a restart or another BYOKit app on this computer
+reuses them.
 
 From the repository root:
 
@@ -28,8 +30,8 @@ The app allows up to an hour for a provider's sign-in, including human verificat
 The provider's own code expiry still applies; expired codes require a new sign-in.
 
 The server listens only on a new loopback port. It rejects other Host headers and
-cross-origin mutations; do not expose this memory-only, single-person example to
-the internet. It neither reads nor changes the person's other sign-ins. Only the
+cross-origin mutations; do not expose this single-person example to
+the internet. It reads and changes only BYOKit's machine store, never another tool's sign-ins. Only the
 messages and their question definitions leave the computer for the chosen plan.
 
 ## Live evidence

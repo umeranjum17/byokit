@@ -5,14 +5,14 @@ import { key, sealing } from './sealing.ts';
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
-import { readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { execFile, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { promisify } from 'node:util';
 import { scratchDir } from '../../test-support.ts';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
-import { Accounts, fileStore, planOf } from '../src/index.ts';
+import { Accounts, fileStore, machineStore, planOf } from '../src/index.ts';
 import { CLAUDE_PLAN_ID } from '../src/claude-plan.ts';
 import { needsReauth } from '../src/stores.ts';
 
@@ -191,6 +191,29 @@ test("Pi's engine cannot refresh between revoke and removal", async () => {
 });
 
 // ChatGPT refreshes through Pi's engine (the store's modify); a Claude plan through the kit's refresh seam.
+test("a second app on this computer finds the first one's sign-in at the machine store, and never asks again", async () => {
+  const home = scratchDir('machine');
+  const realHome = process.env.HOME;
+  process.env.HOME = home;
+  const first = new Accounts<any, number>({ app: 'Crewhouse', store: (m) => machineStore(m, sealing), callbackPort: port, redirectMs: 600 });
+  try {
+    const v = (await first.login(OWNER, 'chatgpt'))!;
+    assert.equal((await back({ code: 'good', state: stateOf(v.url!) })).status, 200);
+    await first.finished(OWNER, 'chatgpt');
+  } finally { first.stop(); process.env.HOME = realHome; }
+  if (process.platform === 'linux') assert.ok(existsSync(join(home, '.local', 'share', 'byokit', 'people', String(OWNER), 'auth.json')), 'the conventional path');
+  // The second app: its own process and name, the same computer and seal; no login of its own.
+  const second = `import { Accounts, machineStore } from ${JSON.stringify(new URL('../src/index.ts', import.meta.url).href)};
+    import { sealing } from ${JSON.stringify(new URL('./sealing.ts', import.meta.url).href)};
+    const kit = new Accounts({ app: 'Message desk', store: (m) => machineStore(m, sealing) });
+    console.log(JSON.stringify({ signedIn: await kit.signedIn(${OWNER}, 'chatgpt'), plan: await kit.plan(${OWNER}) }));
+    kit.stop();`;
+  const env = { ...process.env, HOME: home, SEAL_KEY: key.toString('hex') };
+  const { stdout } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', second], { env, timeout: 20_000 });
+  assert.deepEqual(JSON.parse(stdout.trim().split('\n').pop()!), { signedIn: true, plan: { plan: 'plus', email: openai.email, work: false } });
+  assert.throws(() => machineStore('../1', sealing), /letters, digits/, 'a member never leaves the people folder');
+});
+
 for (const [provider, name, account] of [['openai-codex', 'ChatGPT', { accountId: 'acct-1' }], [CLAUDE_PLAN_ID, 'Claude', {}]] as const) test(`two app processes refreshing one ${name} sign-in at once keep the fresh one, never a spent grant`, async () => {
   const path = join(scratchDir('two-processes'), 'people', '1', 'auth.json');
   await fileStore(path, sealing).modify(provider, async () => ({ type: 'oauth', access: jwt('plus'), refresh: 'rt_1', expires: Date.now() + 60_000, ...account }));

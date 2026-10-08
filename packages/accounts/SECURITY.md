@@ -28,6 +28,10 @@ at construction and on each operation. An equivalent adapter is trusted to use a
 encryption and keep its key outside this file, preferably in an OS keyring. An arbitrary
 adapter can lie about sealing; this seam cannot certify the host's implementation.
 
+`machineStore(member, adapter)` is `fileStore` at one conventional path per OS user. Every app of
+that user holding the same seal reads and changes the same sign-ins: that sharing is its purpose,
+so sign-ins there are only as private as the least trusted app given the seal.
+
 New immediate directories are 0700; existing immediate directories must be real 0700
 directories. Reads use O_NOFOLLOW, then inspect the opened descriptor for a private regular
 file; nonblocking opens avoid waiting on a substituted FIFO. Writes seal before opening a

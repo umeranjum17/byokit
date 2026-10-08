@@ -11,13 +11,13 @@ A consumer app signs a member into ChatGPT by device code against the loopback s
 
 ## How to get to it (user POV)
 
-- The consumer app constructs `new Accounts({ authBase, apiBase, offer }, portable)` with `mockOpenAI()`'s base URLs, calls `login(1, 'chatgpt')`, shows the code, then `finished`/`status`/`respond` (README "Quickstart").
+- The consumer app constructs `new Accounts({ authBase, apiBase, offer, store: () => memoryStore() }, portable)` with `mockOpenAI()`'s base URLs, calls `login(1, 'chatgpt')`, shows the code, then `finished`/`status`/`respond` (README "Quickstart").
 
 ## Driving it with node scratch consumers
 
 Preconditions: baseline (features/README.md); no process of a previous drive is running.
 
-- **Write the consumer.** Create `"$scratch_dir/verify-accounts-signin.mjs"` importing `Accounts, portable` from `@byokit/accounts` and `mockOpenAI` from `@byokit/accounts/testing`, exactly as the SKILL.md Drive section and the README quickstart show, including both error cases (`offer: ['chatgpt']` then `login(1, 'grok')`; a bare `Accounts` instance calling `respond` with no sign-in) and `await openai.close()` at the end.
+- **Write the consumer.** Create `"$scratch_dir/verify-accounts-signin.mjs"` importing `Accounts, memoryStore, portable` from `@byokit/accounts` and `mockOpenAI` from `@byokit/accounts/testing`, exactly as the SKILL.md Drive section and the README quickstart show, including both error cases (`offer: ['chatgpt']` then `login(1, 'grok')`; an `Accounts` instance with its own `memoryStore()` calling `respond` with no sign-in) and `await openai.close()` at the end.
 - **Run and capture.** `feature=accounts-signin; entry=@byokit/accounts; drive=(node "$scratch_dir/verify-accounts-signin.mjs")`, then run SKILL.md Evidence’s capture block. Exit code `0`.
 - **Happy path shows.** `signin: waiting code MOCK-1000…`, `status: ChatGPT is connected.`, the streamed `You said: <input>` and `final: You said: <input>`.
 - **Error cases show.** `not-offered error: AI account not offered here` and `missing-signin error: ResponseError ChatGPT isn't signed in yet.`
@@ -27,5 +27,5 @@ Preconditions: baseline (features/README.md); no process of a previous drive is 
 
 - The code is `MOCK-1000…` because the stand-in issues it; a real provider's code differs in shape only.
 - `openai.approve(shown.code)` plays the person typing the code; without it `finished` never resolves.
-- The in-memory default store means concurrent runs cannot interfere; still give each run its own exclusive scratch and evidence directories.
+- The explicit in-memory store means concurrent runs cannot interfere; still give each run its own exclusive scratch and evidence directories.
 - `respond` with `onText` streams to stdout — capture must include the streamed fragment, not only the final line.

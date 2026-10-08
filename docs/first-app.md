@@ -31,11 +31,11 @@ npm install @byokit/accounts @byokit/decide
 Save this as `first-app.ts`. It is complete — paste it verbatim.
 
 ```ts
-import { Accounts, portable } from '@byokit/accounts';
+import { Accounts, memoryStore, portable } from '@byokit/accounts';
 import { mockOpenAI } from '@byokit/accounts/testing';
 
 const mock = await mockOpenAI(); // stand-in OpenAI on 127.0.0.1 — no account, no network
-const accounts = new Accounts({ authBase: mock.base, apiBase: mock.base }, portable);
+const accounts = new Accounts({ authBase: mock.base, apiBase: mock.base, store: () => memoryStore() }, portable);
 
 const shown = await accounts.login(1, 'chatgpt', { via: 'code' });
 console.log('Open this page:', shown?.url);
@@ -101,12 +101,12 @@ sign-in. Save this as `decide-chatgpt.ts` — complete, paste it verbatim
 (it signs in on the mock first, so it runs as-is):
 
 ```ts
-import { Accounts, portable } from '@byokit/accounts';
+import { Accounts, memoryStore, portable } from '@byokit/accounts';
 import { mockOpenAI } from '@byokit/accounts/testing';
 import { answerer, decide } from '@byokit/decide';
 
 const mock = await mockOpenAI();
-const accounts = new Accounts({ authBase: mock.base, apiBase: mock.base }, portable);
+const accounts = new Accounts({ authBase: mock.base, apiBase: mock.base, store: () => memoryStore() }, portable);
 const shown = await accounts.login(1, 'chatgpt', { via: 'code' });
 mock.approve(shown!.code!);
 await accounts.finished(1, 'chatgpt');
@@ -149,8 +149,8 @@ approves on the real page.
 
 ```diff
 -const mock = await mockOpenAI(); // stand-in OpenAI on 127.0.0.1 — no account, no network
--const accounts = new Accounts({ authBase: mock.base, apiBase: mock.base }, portable);
-+const accounts = new Accounts(); // the live plan, in your app's store (see below)
+-const accounts = new Accounts({ authBase: mock.base, apiBase: mock.base, store: () => memoryStore() }, portable);
++const accounts = new Accounts({ store: (member) => machineStore(member, osKeyringSeal({ service: 'byokit' })) });
 ```
 
 ```diff
@@ -165,9 +165,11 @@ approves on the real page.
 The live file, complete:
 
 ```ts
-import { Accounts } from '@byokit/accounts';
+import { Accounts, machineStore } from '@byokit/accounts';
+import { osKeyringSeal } from '@byokit/secrets';
 
-const accounts = new Accounts(); // the live plan, in your app's store (see below)
+// The live plan, kept at this computer's machine store: a restart or another BYOKit app is signed in already.
+const accounts = new Accounts({ store: (member) => machineStore(member, osKeyringSeal({ service: 'byokit' })) });
 
 const shown = await accounts.login(1, 'chatgpt', { via: 'code' });
 console.log('Open this page:', shown?.url);
@@ -179,10 +181,12 @@ console.log((await accounts.status(1, 'chatgpt')).words);
 console.log(await accounts.respond(1, { instructions: 'Answer briefly.', input: 'Plan my day' }));
 ```
 
-`new Accounts()` keeps this member's sign-in in memory. A real app names a
-store per person instead — sealed file on a computer, Keychain/Keystore on a
-phone, IndexedDB in a browser — and drops `via: 'code'` to use each
-platform's default flow. Depth, not new concepts:
+Run `npm install @byokit/secrets` for the seal. `machineStore` keeps the sign-in
+sealed at the computer's one place for it, shared by every BYOKit app there; a
+phone app uses Keychain/Keystore (`secureStore`) and a browser IndexedDB
+(`browserStore`) instead. `memoryStore()` is only for sign-ins that should end
+with the app. A real app also drops `via: 'code'` to use each platform's default
+flow. Depth, not new concepts:
 [`@byokit/accounts` README](../packages/accounts/README.md#on-a-computer)
 (§ "On a computer" / "On a phone or in a browser").
 

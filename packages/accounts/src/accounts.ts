@@ -49,7 +49,9 @@ export type AnthropicAccountAsk = AnthropicAsk & { provider: 'anthropic'; key: s
 export type AccountsOptions<M extends Member = Member> = {
   /** The accounts this app offers, in order. Default: every subscription provider supported on this platform. */
   offer?: readonly string[];
-  /** Each member's own store. Default: in memory. */
+  /** Each member's own store, required before the first sign-in is read or kept: `machineStore` on a computer (shared
+   * by every app on it), `secureStore` on a phone, `browserStore` in a browser, or `memoryStore()` for sign-ins that
+   * end with the app. */
   store?: (member: M) => CredentialStore;
   /** Device-owned @byokit/secrets store per member. Required to save API keys; no plaintext fallback. */
   keyStore?: (member: M) => Keystore;
@@ -406,7 +408,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   protected store(member: M) {
     let s = this.stores.get(String(member));
     if (!s) {
-      const base = (this.opts.store ?? memoryStore)(member);
+      if (!this.opts.store) throw new Error('Pass a store to keep sign-ins: machineStore on a computer, secureStore on a phone, browserStore in a browser, or memoryStore() for sign-ins that end with the app.');
+      const base = this.opts.store(member);
       this.baseStores.set(String(member), base);
       let chain: Promise<unknown> = Promise.resolve();
       const serial = <T>(fn: () => Promise<T>) => { const result = chain.then(fn); chain = result.catch(() => {}); return result; };
