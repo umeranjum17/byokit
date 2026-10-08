@@ -137,13 +137,15 @@ To use the saved key for one run, pass `auth: 'apiKey'`. The key lives in the me
 `byokit-key-<member>` agent and workspace, with `copyToAgents: false` and only that key in its local auth order.
 Its selected model is used; omit `model` or pass that same model. Key runs have separate history. To steer or stop
 one, pass `{ auth: 'apiKey' }` to `steer` or `abort` too (the device helpers accept the same option).
-`abort` always returns a Promise. Await it or attach `.catch(...)`: an unavailable engine, transport failure or
-invalid API-key session key rejects with the original error, never throws synchronously, and is not reported as
-successful cancellation.
 Ordinary runs never enter the key agent, even when the subscription is resting. This agent boundary is necessary
 because the engine's profile pins can rotate. The `byokit-key-` member prefix is reserved. Adding another key
 replaces the previous key; a failed replacement leaves this option unavailable. If the normal agent already has
 an API key added through pass-through calls, `addKey` returns `invalid` and leaves that key untouched.
+
+`OpenClawKit.abort` always returns a Promise. Await it or attach `.catch(...)`: an unavailable engine, transport
+failure or invalid API-key session key rejects with the original error, never throws synchronously, and is not
+reported as successful cancellation. Healthy cancellation ends the run as defined in
+[the run contract](../../docs/runtime-kits.md#58-runs-members-and-streams).
 
 A run spec also takes `system`, `images` (`{ data, mimeType }[]`), `thinking` and `tools`, a subset of the app tools
 (`KitOptions.tools` names) this run may call; any other app tool is refused at the gate before `ToolHost.gate` sees

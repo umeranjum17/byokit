@@ -1,6 +1,6 @@
 # OpenClaw cancellation after engine loss
 
-An app can cancel a held run through `OpenClawKit.abort(...).catch(...)` even if its engine has just dropped. Failures remain observable Promise rejections, not synchronous throws or false successful cancellations. Healthy cancellation still ends the run aborted.
+This journey verifies the [OpenClaw cancellation usage contract](../../../../packages/openclaw/README.md#quickstart) through a healthy held run, an engine drop and an already-gone engine, using the public built kit.
 
 ## Sub-features
 
@@ -21,9 +21,8 @@ Build and doctor per SKILL.md. The maintained consumer imports only public built
 ```bash
 feature=openclaw-abort
 entry=capture/openclaw-abort.mjs
-# Outside the checkout, on disk rather than RAM-backed /tmp; unique and task-owned.
-mkdir -p "$HOME/.cache/fm-scratch"
-scratch_dir=$(mktemp -d "$HOME/.cache/fm-scratch/openclaw-abort.XXXXXX") || exit 1
+# Absolute, exclusive worktree path for engine ownership checks; avoid RAM-backed /tmp.
+scratch_dir=$(mktemp -d "$PWD/scratch.verify-byokit.XXXXXX") || exit 1
 export ABORT_SCRATCH="$scratch_dir"
 drive=(node .agents/skills/verify-byokit/capture/openclaw-abort.mjs)
 ```
