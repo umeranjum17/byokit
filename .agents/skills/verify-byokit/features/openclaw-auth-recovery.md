@@ -1,6 +1,6 @@
 # OpenClaw sealed sign-in recovery
 
-A saved sign-in that cannot be opened blocks startup without changing its bytes. Restore the original seal/key access (or a valid backup with its matching key), then retry instead of signing in again.
+Verification recipe for [OpenClaw's sealed sign-in recovery](../../../../packages/openclaw/README.md#credential-sealing-and-threat-model).
 
 ## Sub-features
 
@@ -11,7 +11,7 @@ A saved sign-in that cannot be opened blocks startup without changing its bytes.
 
 ## How to get to it (user POV)
 
-The host passes `authSeal` to `OpenClawKit`. When `prepare()` or `start()` rejects, show `stateWords(kit.state)`. Restore the original adapter/key access and retry `start()`; if the adapter must be replaced, construct a kit with the original seal. Never generate a replacement key or automatically reset the store. Backup restoration requires all writers stopped and the host writer lock.
+Follow the [host recovery procedure](../../../../packages/openclaw/README.md#credential-sealing-and-threat-model); the consumer below drives it with synthetic credentials.
 
 ## Driving it with node scratch consumers
 
@@ -27,4 +27,4 @@ Use SKILL.md's Evidence capture block after allocating `evidence_dir`, or the ta
 
 ## Gotchas
 
-The private state uses a short `.verify-artifacts/auth-*` path to stay below Unix socket path limits, and is removed in `finally`; retained logs go to the supplied evidence directory. This verifies the real SDK/store and seal boundary, not provider OAuth validity or a spawned engine. There is no changed app screen, theme or device UI; recovery words are checked as public SDK output. Damaged bytes cannot be decrypted without an authentic backup; key reset cannot be repaired by generating a new key.
+The private state uses a short `.verify-artifacts/auth-*` path to stay below Unix socket path limits, and is removed in `finally`; retained logs go to the supplied evidence directory. This verifies the real SDK/store and seal boundary, not provider OAuth validity or a spawned engine. There is no changed app screen, theme or device UI; recovery words are checked as public SDK output.

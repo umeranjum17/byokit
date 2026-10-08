@@ -703,11 +703,10 @@ engine or changing the sealed snapshot; a later `start()` retries after unlock. 
 (`KeystoreError('auth-failed')`: a different key, damaged or tampered bytes) or whose authentic payload is not a
 snapshot stays byte-identical at `auth-store.sealed`. `prepare()` and `start()` reject with the exported
 `AuthStoreUnreadableError` (`code: 'auth-store-unreadable'`, reason `auth-failed` or `invalid-snapshot`)
-and report `{ phase: 'failed', why: 'auth-store-unreadable' }`; no engine or sign-in starts. Restore the
-original seal/key access (and original adapter service/stateDir binding when applicable), then retry
-`start()` with a kit using that seal. A damaged snapshot needs an authentic backup and its matching key,
-restored only while stopped under the host writer lock. Never rotate a key or replace the snapshot as
-an automatic recovery. Other sealing failures still reject.
+and report `{ phase: 'failed', why: 'auth-store-unreadable' }`; no engine or sign-in starts.
+Never rotate a key or replace the snapshot as an automatic recovery. The host repair procedure is in
+[OpenClaw's credential sealing guidance](../packages/openclaw/README.md#credential-sealing-and-threat-model).
+Other sealing failures still reject.
 Dual-wrap is explicit opt-in (`dualWrap: true`, default off) and weakens protection to the owner-only host
 key file. SealingAdapter may expose `upgrade(data: Buffer): Uint8Array | undefined`; readers verify the
 replacement decrypts to the same text, then atomically replace under their writer lock. With dual-wrap
