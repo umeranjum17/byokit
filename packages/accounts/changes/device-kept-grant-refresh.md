@@ -1,1 +1,0 @@
-- FIX: A device sign-in whose provider keeps its grant on refresh (no new refresh token, as Grok or Kimi may answer) now stays signed in instead of asking to connect again after its first refresh. Claude Pro/Max still requires a rotated grant.

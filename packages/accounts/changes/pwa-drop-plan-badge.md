@@ -1,1 +1,0 @@
-- The PWA example's account rows no longer repeat the plan as a pill on every row; each row keeps its address, usage bar and room.
