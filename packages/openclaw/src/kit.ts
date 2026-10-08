@@ -15,6 +15,7 @@ import { createMembers } from './members.ts';
 import { keyAgentId, KEY_PREFIX, MEMBER_ID } from './members.ts';
 import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLogin } from './migrate.ts';
 import { createRuns } from './runs.ts';
+import { createAuthStatus } from './auth-status.ts';
 import { outputSchema } from './output.ts';
 import { createKeys, type AddKeyResult } from './keys.ts';
 import { routes as routeTable, type RouteView } from './routes.ts';
@@ -488,6 +489,7 @@ export class OpenClawKit {
   // Only the socket itself is per-connection. Approvals always reaches the live transport through this.request().
   private readonly bridge: Bridge;
   private readonly keys: ReturnType<typeof createKeys>;
+  private readonly admission: ReturnType<typeof createAuthStatus>;
   private readonly approvalsCtl: Approvals;
   private listeners = new Set<(e: { event: string; payload?: unknown }) => void>();
   private off: (() => void)[] = [];
@@ -664,6 +666,7 @@ export class OpenClawKit {
       ...(o.browser ? { browserConfig: () => this.browserConfig() } : {}),
       gateBuiltins: o.gateBuiltins !== false, spawnEngine: o.spawnEngine !== false,
       onState: (s) => this.setState(s), onExit: () => this.closed('engine exited') });
+    this.admission = createAuthStatus(this.engine.root, (method, params, options) => this.request()(method, params, options));
     this.keys = createKeys({ root: this.engine.root,
       restarting: () => this.current.phase === 'restarting' || this.current.phase === 'starting',
       request: (method, params, options) => this.request()(method, params, options),
@@ -701,6 +704,7 @@ export class OpenClawKit {
   }
 
   private setState(s: KitState): void {
+    if (s.phase !== 'ready') this.admission?.invalidate();
     this.current = { ...s, ...(this.engine.patchSet !== undefined ? { patchSet: this.engine.patchSet } : {}) };
     this.o.onState?.(this.current);
   }
@@ -770,6 +774,7 @@ export class OpenClawKit {
   }
 
   private async disconnect(): Promise<void> {
+    this.admission.invalidate();
     this.off.splice(0).forEach((fn) => fn());
     const transport = this.transport;
     this.transport = undefined; this.greeting = undefined; this.members = undefined;
@@ -806,7 +811,14 @@ export class OpenClawKit {
 
   private request(): GatewayTransport['request'] {
     if (!this.transport || this.current.phase !== 'ready') throw new Error('gateway not ready');
-    return this.transport.request.bind(this.transport);
+    const transport = this.transport;
+    return (method, params, options) => {
+      const changesAuth = /^(models\.authLogout|openclaw\.setup\.(auth\.start|activate)|wizard\.(next|cancel)|config\.(apply|patch|set)|agents\.(create|update|delete)|secrets\.(reload|store\.(set|delete))|byokit\.keys)$/.test(method);
+      if (!changesAuth || (method === 'byokit.keys' && (params as { action?: string } | undefined)?.action === 'ready'))
+        return transport.request(method, params, options);
+      this.admission.invalidate();
+      return Promise.resolve().then(() => transport.request(method, params, options)).finally(() => this.admission.invalidate());
+    };
   }
   call<M extends GatewayMethod>(method: M, params: GatewayParams<M>, o?: CallOptions): Promise<GatewayResult<M>> {
     if (this.o.browser && /^(config\.(apply|patch|set)|agents\.(create|update|delete)|plugins\.(install|uninstall|setEnabled|refresh))$/.test(method))
@@ -849,6 +861,8 @@ export class OpenClawKit {
   // sign-in (5.7): every body here is the module's, with this kit's transport, members and ports.
   private signInCtx(): SignInCtx {
     return { request: (method, params, o) => this.request()(method, params, o),
+      // Public readiness/sign-in reads stay live; their fresh result can prepare the next run's admission.
+      authStatus: (agentId, refresh, native) => this.admission.read(agentId, refresh, native, false),
       ensure: (member) => this.ensureMember(member), callbackPort: this.o.callbackPort ?? 1455,
       onDisconnect: (fn) => { this.signInDisconnects.add(fn); return () => { this.signInDisconnects.delete(fn); }; } };
   }
@@ -896,6 +910,8 @@ export class OpenClawKit {
   private runs(): ReturnType<typeof createRuns> {
     return createRuns({
       request: (method, params, o) => this.request()(method, params, o),
+      authStatus: this.admission.read,
+      invalidateAuth: this.admission.invalidate,
       onEvent: (fn) => {
         this.listeners.add(fn);
         return () => {

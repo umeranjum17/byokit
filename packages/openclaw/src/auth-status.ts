@@ -1,7 +1,10 @@
+import { statSync } from 'node:fs';
+import { join } from 'node:path';
+import { signedInProviders } from './runs.ts';
 import type { GatewayTransport } from './types.ts';
 
 export type AuthStatus = { providers?: (string | {
-  provider?: unknown; status?: unknown; profiles?: { status?: unknown }[]; usage?: unknown;
+  provider?: unknown; status?: unknown; profiles?: { status?: unknown; expiresAt?: unknown }[]; usage?: unknown;
 })[]; unavailable?: { message?: unknown } };
 
 /** Native Claude login stays in Claude Code. The pin's profile status does not include this synthetic auth;
@@ -20,4 +23,49 @@ export async function authStatus(
     return { providers: [...rows, { provider: 'claude-cli', status: 'ok' }] };
   }
   return { ...status, providers: rows };
+}
+
+/** Admission snapshots, never credentials: per kit/agent/native route, at most 30s and never past reported expiry.
+ * Witness only app-owned file metadata; changed/missing/unreadable state and all auth/lifecycle mutations recheck.
+ * Remote revocation still comes from the real run's signed-out error (a local status read cannot prove it either).
+ */
+export function createAuthStatus(root: string, request: GatewayTransport['request']) {
+  const snapshots = new Map<string, { status: AuthStatus; until: number; witness: string }>();
+  let generation = 0;
+  const invalidate = () => { generation++; snapshots.clear(); };
+  const witness = (agentId: string): string | undefined => {
+    try {
+      return ['openclaw.json', `state/agents/${agentId}/agent/auth-profiles.json`,
+        'state/auth-profiles.json', 'state/agents/main/agent/auth-profiles.json',
+        'home/.claude/.credentials.json', 'home/.claude/.claude.json', 'home/.claude/settings.json',
+        'home/.claude.json', 'home/.codex/auth.json'].map(path => {
+        try {
+          const s = statSync(join(root, path), { bigint: true });
+          return `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'absent';
+          throw error;
+        }
+      }).join('|');
+    } catch { return undefined; } // unreadable witnesses never authorize reuse
+  };
+  const read = async (agentId: string, refresh = false, native = false, reuse = true): Promise<AuthStatus> => {
+    const now = Date.now(), key = `${agentId}:${native}`, before = witness(agentId), epoch = generation;
+    for (const [key, snapshot] of snapshots) if (snapshot.until <= now) snapshots.delete(key);
+    const cached = snapshots.get(key);
+    if (reuse && !refresh && before !== undefined && cached?.witness === before && cached.until > now) return cached.status;
+    snapshots.delete(key);
+    const status = await authStatus(request, agentId, refresh, native);
+    const usable = signedInProviders(status);
+    // Empty/unknown/native-missing answers are not positive authority and are never reused.
+    if (before !== undefined && epoch === generation && witness(agentId) === before
+      && usable?.length && (!native || usable.includes('claude-cli'))) {
+      let until = now + 30_000; // measured from request start, not completion
+      for (const row of status.providers ?? []) if (typeof row !== 'string') for (const p of row.profiles ?? [])
+        if (typeof p.expiresAt === 'number' && Number.isFinite(p.expiresAt)) until = Math.min(until, p.expiresAt);
+      if (until > Date.now()) snapshots.set(key, { status, until, witness: before });
+    }
+    return status;
+  };
+  return { read, invalidate };
 }

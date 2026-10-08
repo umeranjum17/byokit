@@ -269,6 +269,68 @@ test('API key is explicit, member-local, secret-free, and removed without fallba
   off();
 }));
 
+test('ready runs reuse only witnessed, bounded member auth; mutations, expiry and disconnect recheck', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const stateDir = scratchDir('run-admission');
+  const fake = fakeGateway();
+  let loggedIn = true;
+  fake.handle('models.authStatus', () => ({ providers: [] }));
+  fake.handle('openclaw.setup.detect', () => ({ candidates: [{ kind: 'claude-cli', credentials: loggedIn }] }));
+  fake.handle('models.authLogout', () => { loggedIn = false; return {}; });
+  fake.handle('openclaw.setup.activate', () => { loggedIn = true; return { ok: true }; });
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+  const spec = { member: 'umer', sessionKey: 'agent:umer:chat', message: 'Hello', model: 'claude-cli/claude-sonnet-5' };
+  const detects = () => fake.calls.filter(c => c.method === 'openclaw.setup.detect').length;
+  const run = () => kit.run(spec);
+  try {
+    await kit.start();
+    assert.ok(await kit.signedIn('umer', 'claude-cli'));
+    assert.ok((await run()).ok);
+    assert.ok((await run()).ok);
+    assert.equal(detects(), 1, 'the prepared check is reused before both runs');
+    t.mock.timers.tick(30_001);
+    assert.ok((await run()).ok);
+    assert.equal(detects(), 2, 'warm snapshots have a hard lifetime');
+    await kit.ensureMember('scout');
+    assert.ok((await run()).ok); // agent creation invalidates shared auth state
+    const count = detects();
+    assert.ok((await kit.run({ ...spec, member: 'scout', sessionKey: 'agent:scout:chat' })).ok);
+    assert.equal(detects(), count + 1, 'no cross-member reuse');
+    const credentials = join(stateDir, 'openclaw/home/.claude/.credentials.json');
+    mkdirSync(join(stateDir, 'openclaw/home/.claude'), { recursive: true });
+    writeFileSync(credentials, 'task-owned synthetic credential change');
+    loggedIn = false;
+    const agentCalls = fake.calls.filter(c => c.method === 'agent').length;
+    const out = await run();
+    assert.ok(!out.ok && 'kind' in out && out.kind === 'signed-out');
+    assert.equal(fake.calls.filter(c => c.method === 'agent').length, agentCalls);
+    await kit.call('openclaw.setup.activate', { agentId: 'umer', kind: 'claude-cli' });
+    assert.ok((await run()).ok);
+    fake.failNext('agent', '401 Unauthorized: your sign-in has expired');
+    const revoked = await run();
+    assert.ok(!revoked.ok && 'kind' in revoked && revoked.kind === 'signed-out', JSON.stringify(revoked));
+    await kit.signOut('umer', 'claude-cli');
+    assert.ok(!(await run()).ok);
+    await kit.stop();
+    await assert.rejects(run(), /gateway not ready/);
+    loggedIn = true;
+    await kit.start();
+    const restarted = detects();
+    assert.ok((await run()).ok);
+    assert.equal(detects(), restarted + 1);
+    // A reported OAuth expiry caps reuse even inside the 30s lifetime.
+    const expiresAt = Date.now() + 1_000;
+    fake.handle('models.authStatus', () => ({ providers: [{ provider: 'openai', profiles: [
+      { status: Date.now() < expiresAt ? 'ok' : 'expired', expiresAt },
+    ] }] }));
+    const oauth = { ...spec, model: 'openai/gpt-5.1' };
+    assert.ok((await kit.run(oauth)).ok);
+    t.mock.timers.tick(1_001);
+    const expired = await kit.run(oauth);
+    assert.ok(!expired.ok && 'kind' in expired && expired.kind === 'signed-out');
+  } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 test('key entry refuses unavailable routes and hides even an engine error that echoes the secret', async () => withKit(async (kit, fake) => {
   const key = 'CANARY-ERROR-KEY-12345';
   assert.equal(await kit.addKey('m1', { authChoice: 'openai', apiKey: key }), 'not_included');

@@ -144,7 +144,13 @@ an API key added through pass-through calls, `addKey` returns `invalid` and leav
 
 A run spec also takes `system`, `images` (`{ data, mimeType }[]`), `thinking` and `tools`, a subset of the app tools
 (`KitOptions.tools` names) this run may call; any other app tool is refused at the gate before `ToolHost.gate` sees
-it. Tool events carry the engine's call `id`, the `input` on `start` and the `output` and `error` on `end`. A run that
+it. Run events first report `started` when the Gateway accepts the request (not when it finishes), then forward
+actual `thinking` progress as `{ type: 'thinking', tokens }` from the engine's `progressTokens`. No progress is
+invented on a silent route; a native lifecycle start never duplicates the accepted event.
+Admission reuses a positive, same-agent status for at most 30 seconds (capped by reported expiry), only while
+app-owned auth/config file metadata is unchanged. Auth/key/config changes and engine disconnects invalidate it;
+missing/expired sign-ins still fail before admission, and remote revocation keeps its actual signed-out error.
+Tool events carry the engine's call `id`, the `input` on `start` and the `output` and `error` on `end`. A run that
 ends ok carries `usage` (the engine's token total for the run, and `costUsd` when it priced the model) and
 `planWindow` (the subscription's quota windows as the engine last read them), each only when the engine reports it.
 `openclawDevice(link).run(message, o)` takes the same options over the link, and `state()` adds the kit and engine

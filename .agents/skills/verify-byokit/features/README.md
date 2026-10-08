@@ -24,6 +24,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [Accounts sign-in and ask](./accounts-signin.md) — the README quickstart against the built `@byokit/accounts` with `mockOpenAI()`.
 - [Catalogue device sign-in and the picker](./accounts-device.md) — RFC 8628 device sign-in for any provider the catalogue gives device data, with `mockDevice()`.
 - [Claude plan refresh](./accounts-claude-refresh.md) — a Claude plan sign-in kept through a lost refresh, rotated on retry, ended only by a revoked grant.
+- [OpenClaw accepted/thinking run progress](./openclaw-run-progress.md) — built public API, real pinned Gateway + offline native CLI stand-in, timestamped progress/admission timeline and account-change refusal.
 - [OpenClaw sealed sign-in recovery](./openclaw-auth-recovery.md) — wrong-seal failure retains original bytes, correct-seal retry restores sign-in, healthy restart still works.
 - [Machine store shared across apps](./accounts-machine-store.md) — a second app process is signed in already from the computer's machine store; a wrong seal and a missing store are refused.
 - [ChatGPT refresh refusal](./accounts-refresh-refusal.md) — a phone/browser ChatGPT sign-in kept through a passing 401 at a due or forced refresh, ended only by a revoked grant.

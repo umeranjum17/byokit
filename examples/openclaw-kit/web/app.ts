@@ -185,7 +185,7 @@ $('run-form').onsubmit = async (e) => {
     for await (const frame of oc.run(text, { sessionKey: SESSION })) {
       if (frame.type === 'text') $('reply').textContent = frame.text;
       else if (frame.type === 'tool') $('tool').textContent = frame.phase === 'start' ? `Using ${frame.name.replaceAll('_', ' ')}…` : '';
-      else {
+      else if (frame.type === 'end') {
         if (frame.end.ok) { $('reply').textContent = frame.end.text || $('reply').textContent; box.value = ''; }
         $('run-said').textContent = endWords(frame.end);
         if (!frame.end.ok && 'kind' in frame.end && frame.end.kind === 'signed-out') void refresh();

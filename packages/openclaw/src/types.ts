@@ -52,6 +52,8 @@ export interface RunSpec<S extends OutputSchema | undefined = OutputSchema | und
 }
 
 export type RunEvent =
+  | { type: 'started' } // the Gateway accepted the run, not answer completion
+  | { type: 'thinking'; tokens: number } // actual engine progressTokens, not text or estimated usage
   | { type: 'text'; text: string } // cumulative assistant text
   | {
     type: 'tool';

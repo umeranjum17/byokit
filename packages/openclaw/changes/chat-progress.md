@@ -1,0 +1,1 @@
+- Forward actual thinking-token progress and report Gateway acceptance as `started`; reuse bounded, file-witnessed member admission status so ready runs avoid redundant sign-in checks without skipping authority checks.
