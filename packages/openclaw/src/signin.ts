@@ -9,6 +9,7 @@ import type { GatewayTransport, Member, SignInOptions, SignInView } from './type
 
 export type SignInCtx = {
   request: GatewayTransport['request'];
+  authStatus?: (agentId: string, refresh: boolean, native: boolean) => ReturnType<typeof authStatus>;
   ensure(member: Member): Promise<{ agentId: string }>;
   callbackPort: number;
   onDisconnect?(fn: () => void): () => void;
@@ -393,7 +394,8 @@ export function signIn(
 /** Usable provider profiles plus native Claude Code readiness reported by the engine. */
 export async function providers(ctx: SignInCtx, member: Member, refresh?: boolean): Promise<string[]> {
   const { agentId } = await ctx.ensure(member);
-  return signedInProviders(await authStatus(ctx.request, agentId, refresh, true)) ?? [];
+  return signedInProviders(await (ctx.authStatus ? ctx.authStatus(agentId, refresh ?? false, true)
+    : authStatus(ctx.request, agentId, refresh, true))) ?? [];
 }
 
 export async function signOut(ctx: SignInCtx, member: Member, provider: string): Promise<void> {

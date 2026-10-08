@@ -225,15 +225,27 @@ test('oc.run streams text frames then end', async () => {
     usage: { input: 5, output: 11, total: 16 } } });
 });
 
-test('oc.run carries a picked account to the kit run', async () => {
+test('device state warms picked-account admission before oc.run starts', async () => {
   const w = await world();
   w.fake.handle('models.authStatus', () => ({ providers: [{ provider: 'openai', status: 'ok' }] }));
+  w.fake.handle('openclaw.setup.detect', () => ({ candidates: [{ kind: 'claude-cli', credentials: true }] }));
   const a = await device(w, 'a');
-  const frames: unknown[] = [];
-  for await (const f of a.oc.run('hello', { model: 'openai/gpt-5.1' })) frames.push(f);
-  assert.deepEqual(frames.at(-1), { type: 'end', end: { ok: true, text: 'fake: hello', usage: { input: 5, output: 11, total: 16 } } });
-  const call = w.fake.calls.find((c) => c.method === 'agent')?.params as Record<string, unknown>;
-  assert.deepEqual([call.provider, call.model], ['openai', 'gpt-5.1']);
+  for (const model of ['openai/gpt-5.1', 'claude-cli/claude-sonnet-5']) {
+    const stateAt = w.fake.calls.length;
+    assert.deepEqual((await a.oc.state()).signedIn, ['openai', 'claude-cli']);
+    assert.equal(w.fake.calls.slice(stateAt).filter(c => c.method === 'models.authStatus').length, 1);
+    const runAt = w.fake.calls.length;
+    const frames: unknown[] = [];
+    for await (const f of a.oc.run('hello', { model })) frames.push(f);
+    assert.deepEqual(frames[0], { type: 'started' });
+    assert.deepEqual(frames.at(-1), { type: 'end', end: { ok: true, text: 'fake: hello', usage: { input: 5, output: 11, total: 16 } } });
+    const calls = w.fake.calls.slice(runAt);
+    const agentAt = calls.findIndex(c => c.method === 'agent');
+    assert.ok(agentAt >= 0);
+    assert.equal(calls.slice(0, agentAt).some(c => c.method === 'models.authStatus' || c.method === 'openclaw.setup.detect'), false);
+    const call = calls[agentAt].params as Record<string, unknown>;
+    assert.deepEqual([call.provider, call.model], model.split('/'));
+  }
 });
 
 test('oc.run forwards system, images and thinking, and checks each option', async () => {

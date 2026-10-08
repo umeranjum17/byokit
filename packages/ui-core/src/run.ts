@@ -5,7 +5,8 @@
 //   failed    it ended with a problem: `words` says which, in the kit's own sentence
 import { store, type Store } from './follow.ts';
 
-export type RunEvent = { type: 'text'; text: string } | { type: 'tool'; name: string; phase: 'start' | 'end' };
+export type RunEvent = { type: 'started' } | { type: 'thinking'; tokens: number }
+  | { type: 'text'; text: string } | { type: 'tool'; name: string; phase: 'start' | 'end' };
 export type RunEnd =
   | { ok: true; text: string }
   | { ok: false; aborted: true }
@@ -32,6 +33,7 @@ export function runStep(s: RunState, a: RunAction): RunState {
   if (a.type === 'start') return { phase: 'running', text: '', tools: [] };
   if (s.phase !== 'running') return s; // a finished run hears nothing more
   switch (a.type) {
+    case 'started': case 'thinking': return s;
     case 'text': return { ...s, text: a.text };
     case 'tool': {
       if (a.phase === 'start') return { ...s, tools: [...s.tools, { name: a.name, done: false }] };

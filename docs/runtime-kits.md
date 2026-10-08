@@ -331,6 +331,8 @@ export interface RunSpec<S extends OutputSchema | undefined = OutputSchema | und
   register?: boolean;                                          // default true: the bridge recognizes this run
 }
 export type RunEvent =
+  | { type: 'started' }                                       // Gateway accepted, not completed
+  | { type: 'thinking'; tokens: number }                      // actual thinking progressTokens
   | { type: 'account'; account: AccountId; model: string; sessionKey: string;   // 5.15: first event of a run on
       how: 'chosen' | 'default' | 'auto'; why: PickWhy;        // an account, before the `agent` request
       considered: Considered[] }
@@ -452,6 +454,7 @@ export declare class OpenClawKit {
   ensureMember(member: Member): Promise<{ agentId: string; workspace: string }>;
   // sign-in (5.7)
   routes(): Route[];
+  providerStatus(member: Member): Promise<string[] | undefined>;
   providers(member: Member): Promise<string[]>;
   signedIn(member: Member, provider: string): Promise<boolean>;
   signIn(member: Member, o: { authChoice: string; via?: 'browser' | 'code' }, on: (v: SignInView) => void):
@@ -689,7 +692,8 @@ No credential files or tokens are read. Normal wizard completion and API billing
 Mapping to `SignInView.why`: setup-admission-busy error → `busy`; person cancel →
 `declined`; 200 turns or 15 min → `expired`; else `failed`. Errors are cut to 200 chars.
 
-**signedIn / providers**: `models.authStatus { agentId }` (20 s); a provider entry is a string or `{ provider }`.
+**providerStatus / signedIn / providers**: live readiness reads; see 5.8 for the usable-provider rule,
+native Claude detection, unknown-status mapping and admission snapshots.
 **signOut**: `models.authLogout { provider, agentId, profileIds }` with the agent's own profiles of that provider
 (`byokit.accounts list`; from O14, 5.15). `signIn`, `signedIn`, `providers` and `signOut` address the
 member agent, whose sign-in to a provider is that provider's first account (5.15); `addAccount` adds any further one.
@@ -755,6 +759,7 @@ the engine. External retained sources are touched only when explicitly passed to
   agents (member boundary, D9). Every run first finds the account its session is bound to (5.15). Register with the bridge
   unless `register === false`, with `spec.tools` as the run's subset (5.9); a `spec.tools` name outside
   `KitOptions.tools` is refused before any request. Subscribe to Gateway `agent` events filtered by `runId`:
+  `stream === 'thinking'` with finite non-negative numeric `data.progressTokens` → `{ type: 'thinking', tokens }`;
   `stream === 'assistant'` with string `data.text` → `{ type: 'text', text }`; `stream === 'tool'` with string
   `data.name` and `data.phase` `start` → `{ type: 'tool', name, phase: 'start', id: data.toolCallId, input: data.args }`,
   `result` (the pin, O11) or `end` → `{ phase: 'end', id, output: data.result, error: data.isError }` (each field only
@@ -763,7 +768,9 @@ the engine. External retained sources are touched only when explicitly passed to
   recipient, and that copy is never stripped by verbose level; `args` has its strings redacted, `result` text
   content is capped at 8000 characters by the engine. Request `agent { agentId, sessionKey, message,
   extraSystemPrompt, idempotencyKey: spec.idempotencyKey ?? uuid, attachments?, thinking?, provider?, model? }` with `expectFinal`: the
-  interim `status: 'accepted'` frame names the run (its `runId` is taken as it lands), then `agent.wait { runId,
+  interim `status: 'accepted'` frame names the run (its `runId` is taken as it lands) and emits `{ type: 'started' }`
+  once, before subsequent stream events. Native lifecycle start does not double-emit; cached final/in-flight replays
+  without an accepted frame do not invent a start. Acceptance is not completion. Then `agent.wait { runId,
   timeoutMs: 3_600_000 }` (client timeout 3_610_000) decides the end as before. `status === 'ok'` → final text event
   and `{ ok: true, text, usage?, planWindow? }`. Silent/empty terminal dispositions produce empty text. Otherwise
   text comes from string `result.payloads[].text` fields in the `agent` final frame, joined in order with two
@@ -815,8 +822,22 @@ the engine. External retained sources are touched only when explicitly passed to
 - `spec.model` (`provider/model`) picks the account a run is called and billed on. It is refused before any request
   if it is not `provider/model` or carries an `@profile` pin. Before the run, `models.authStatus { agentId }` (once
   more with `refresh: true` while it answers `unavailable`) must list the provider (lowercased, as the engine
-  normalizes ids; a bare string row, or a row with a profile `ok`/`expiring`/`static`, is signed in), else the run ends `{ ok: false, kind: 'signed-out' }` without calling the engine. The split
-  ref is sent as the `agent` request's per-run `provider`/`model` (pin `AgentParamsSchema`; needs `operator.admin`,
+  normalizes ids; a bare string row, or a row with a profile `ok`/`expiring`/`static`, is signed in), else the run ends `{ ok: false, kind: 'signed-out' }` without calling the engine. The
+  check may reuse a positive snapshot from this kit's `providerStatus`/`providers`/`signedIn`, device `oc.state`,
+  or previous run, scoped by exact agent
+  and native-Claude detection mode, for at most 30 s from check start and never beyond reported expiry of a
+  usable (`ok`/`expiring`/`static`) profile. Unusable profiles do not cap reuse. Fresh native readiness also
+  prepares the underlying non-native provider snapshot, even without Claude credentials; synthetic Claude
+  readiness never supplies ordinary profile authority.
+  Public readiness/sign-in queries themselves stay live: they prepare a snapshot, never reuse one.
+  `providerStatus` preserves unknown status as `undefined` for device state; `providers` maps it to `[]` and
+  `signedIn` maps it to `false`.
+  Every reuse stats only app-owned config/profile/CLI-auth file metadata; a changed or unreadable witness rechecks.
+  Missing/unknown status is never reused. Refresh bypasses reuse. Disconnect/start/stop, auth/setup/wizard/config/
+  agent/secret mutations and key replacement invalidate (before and after mutation); engine signed-out failures
+  invalidate too. No agent request runs in parallel with an unfinished admission check. Native Claude still asks
+  engine `setup.detect`; local snapshots do not prove remote revocation, whose actual run error stays signed-out.
+  The split ref is sent as the `agent` request's per-run `provider`/`model` (pin `AgentParamsSchema`; needs `operator.admin`,
   which the kit holds). An explicit provider/model is strict: the engine reports failure instead of falling back to
   another provider or model, and nothing is persisted on the session (pin `docs/concepts/model-failover.md`
   "explicit user selections ... are strict"). An `@profile` auth-profile pin is not offered: the pin only takes one
@@ -2371,7 +2392,7 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 
 | Op | Args | Returns |
 |---|---|---|
-| `oc.state` *view* | — | `{ state: KitState, words: string, version, engine, signedIn? }`: this kit's package version, `ENGINE_VERSION`, and the providers the device member is usably signed in to while `ready` (`models.authStatus` rows by the 5.8 usable rule: an expired or unfinished sign-in is not; absent when not ready or the status is unavailable, never `[]` for unknown) |
+| `oc.state` *view* | — | `{ state: KitState, words: string, version, engine, signedIn? }`: this kit's package version, `ENGINE_VERSION`, and the providers the device member is usably signed in to while `ready` (live `providerStatus` by 5.8, preparing admission; absent when not ready or status is unknown, never `[]` for unknown) |
 | `oc.routes` *view* | — | offered routes only (`offer: true`) |
 | `oc.signin.start` | `{ provider, via }` | `SignInView` (kit picks `routeFor(provider, via)`) |
 | `oc.signin.view` *view* | `{ provider }` | `{ ready, view: SignInView \| null }` for `toAccountView` |

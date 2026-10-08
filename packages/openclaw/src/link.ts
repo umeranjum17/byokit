@@ -20,9 +20,7 @@ import { ENGINE_VERSION } from './constants.ts';
 import type { OpenClawKit } from './kit.ts';
 import { b64urlDecode, b64urlEncode, sealNotice } from './notices.ts';
 import { routeFor } from './routes.ts';
-import { authStatus } from './auth-status.ts';
 import { outputSchema } from './output.ts';
-import { signedInProviders } from './runs.ts';
 import type { Approval, Member, RunSpec, SignInView } from './types.ts';
 import { stateWords, words } from './words.ts';
 
@@ -252,20 +250,6 @@ export function openclawLink(
   const endReason = (error: unknown): string =>
     error instanceof PublicLinkError ? error.message.slice(0, 200) : 'failed';
 
-  const signIns = async (member: Member): Promise<string[] | undefined> => {
-    try {
-      const { agentId } = await kit.ensureMember(member);
-      const status = await authStatus((method, params, options) => {
-        if (method === 'models.authStatus')
-          return kit.call(method, params as { agentId: string; refresh?: boolean }, options);
-        return kit.call('openclaw.setup.detect', params as { agentId: string }, options);
-      }, agentId, false, true);
-      return signedInProviders(status);
-    } catch {
-      return undefined;
-    }
-  };
-
   const handle = async (req: LinkRequest, grant: Grant): Promise<unknown> => {
     const member = memberOf(grant);
     if (grant.role === 'view' && !VIEW_OPS.has(req.op)) throw refused();
@@ -322,7 +306,7 @@ export function openclawLink(
       case 'oc.state': {
         // signedIn: the providers the device member is usably signed in to (an expired or unfinished sign-in is not),
         // only while the engine can say: absent is unknown, never "none".
-        const signedIn = kit.state.phase === 'ready' ? await signIns(member) : undefined;
+        const signedIn = kit.state.phase === 'ready' ? await kit.providerStatus(member).catch(() => undefined) : undefined;
         return { state: kit.state, words: stateWords(kit.state), version: KIT_VERSION, engine: ENGINE_VERSION,
           ...(signedIn ? { signedIn } : {}) };
       }

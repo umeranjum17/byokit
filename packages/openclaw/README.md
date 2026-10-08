@@ -144,7 +144,16 @@ an API key added through pass-through calls, `addKey` returns `invalid` and leav
 
 A run spec also takes `system`, `images` (`{ data, mimeType }[]`), `thinking` and `tools`, a subset of the app tools
 (`KitOptions.tools` names) this run may call; any other app tool is refused at the gate before `ToolHost.gate` sees
-it. Tool events carry the engine's call `id`, the `input` on `start` and the `output` and `error` on `end`. A run that
+it. Run events report `started` when the Gateway accepts the request (not when it finishes), and forward
+actual `thinking` progress as `{ type: 'thinking', tokens }`. Silent routes invent no progress; cached replays
+without a new accepted frame emit no `started`. Handle these frames explicitly rather than treating every
+non-text/tool frame as an end.
+Live readiness reads (`providers`, `signedIn`, or device `state()`) prepare admission for the next run, avoiding
+redundant checks while authority remains reusable. `providerStatus(member)` returns `undefined` for unknown
+status rather than `[]`; `providers` maps unknown to `[]`, and `signedIn` to `false`.
+See [the admission contract](../../docs/runtime-kits.md#58-runs-members-and-streams) for lifetime, expiry,
+file witnesses, invalidation and remote-revocation limits.
+Tool events carry the engine's call `id`, the `input` on `start` and the `output` and `error` on `end`. A run that
 ends ok carries `usage` (the engine's token total for the run, and `costUsd` when it priced the model) and
 `planWindow` (the subscription's quota windows as the engine last read them), each only when the engine reports it.
 `openclawDevice(link).run(message, o)` takes the same options over the link, and `state()` adds the kit and engine

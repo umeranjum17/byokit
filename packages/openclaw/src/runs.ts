@@ -17,14 +17,14 @@ const STATUS_MS = 5_000;
 
 // The slice of the gateway's `agent` event payload a run streams (5.8); the rest passes to onEvent-less callers.
 type AgentPayload = { runId: string; stream: string; data?: {
-  text?: unknown; name?: unknown; phase?: unknown; toolCallId?: unknown; args?: unknown; result?: unknown; isError?: unknown;
+  text?: unknown; name?: unknown; phase?: unknown; toolCallId?: unknown; args?: unknown; result?: unknown; isError?: unknown; progressTokens?: unknown;
 } };
 
 // `models.authStatus` provider rows (a bare string on older shapes). A provider is usable while any of its profiles
 // is: the row's own status is its worst profile's.
 type Row = { provider?: unknown; status?: unknown; profiles?: { status?: unknown }[]; usage?: unknown };
 type AuthStatus = { providers?: (string | Row)[]; unavailable?: { message?: unknown } };
-const USABLE = new Set(['ok', 'expiring', 'static']);
+export const USABLE = new Set(['ok', 'expiring', 'static']);
 const usable = (row: string | Row): boolean => typeof row === 'string'
   || (Array.isArray(row.profiles) && row.profiles.length > 0 ? row.profiles.some((p) => USABLE.has(String(p?.status)))
     : row.status === undefined || USABLE.has(String(row.status)));
@@ -83,6 +83,8 @@ function account(model: string): { provider: string; model: string } {
 
 export function createRuns(ctx: {
   request: GatewayTransport['request'];
+  authStatus?: (agentId: string, refresh: boolean, native: boolean) => ReturnType<typeof authStatus>;
+  invalidateAuth?: () => void;
   onEvent: GatewayTransport['onEvent'];
   ensure(member: Member): Promise<{ agentId: string }>;
   bridge: Pick<Bridge, 'register'>;
@@ -102,6 +104,11 @@ export function createRuns(ctx: {
     } catch {
       return undefined;
     }
+  };
+  const failure = (message: string) => {
+    const classified = classify(message);
+    if (classified.kind === 'signed-out') ctx.invalidateAuth?.();
+    return { ok: false as const, ...classified, message };
   };
   const run = async <const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void, keyAgent?: string, preparedOutput?: ReturnType<typeof outputSchema>): Promise<RunEnd<SchemaOutput<S>>> => {
     // Member boundary first: a member never speaks in another member's session, refused before any request.
@@ -131,7 +138,9 @@ export function createRuns(ctx: {
       if (!p || p.runId !== runId) return;
       if (p.stream === 'lifecycle' && (p.data as { phase?: string; aborted?: boolean } | undefined)?.phase === 'end'
         && (p.data as { aborted?: boolean }).aborted === true) abortedByEngine = true;
-      if (p.stream === 'assistant' && typeof p.data?.text === 'string') {
+      if (p.stream === 'thinking' && count(p.data?.progressTokens)) {
+        on?.({ type: 'thinking', tokens: p.data.progressTokens });
+      } else if (p.stream === 'assistant' && typeof p.data?.text === 'string') {
         last = p.data.text;
         on?.({ type: 'text', text: p.data.text });
       } else if (p.stream === 'tool' && typeof p.data?.name === 'string') {
@@ -153,7 +162,8 @@ export function createRuns(ctx: {
         // the engine would otherwise fail the run only after admitting it. An explicit provider/model is strict on
         // the pinned engine (never another provider or model), so this check plus the override is the guarantee.
         const status = (refresh: boolean) =>
-          authStatus(ctx.request, agentId, refresh, picked.provider === 'claude-cli');
+          ctx.authStatus ? ctx.authStatus(agentId, refresh, picked.provider === 'claude-cli')
+            : authStatus(ctx.request, agentId, refresh, picked.provider === 'claude-cli');
         let auth = await status(false);
         if (auth.unavailable) auth = await status(true); // no prepared snapshot yet: build it once
         if (auth.unavailable)
@@ -168,7 +178,11 @@ export function createRuns(ctx: {
       const ack = new Promise<unknown>((resolve) => { accepted = resolve; });
       // The run id is taken as the accepted frame lands, so no event read after it is missed.
       const onAccepted = (payload: unknown): void => {
-        if (isRecord(payload) && typeof payload.runId === 'string') runId = payload.runId;
+        if (isRecord(payload) && typeof payload.runId === 'string') {
+          const first = !runId;
+          runId = payload.runId;
+          if (first && payload.status === 'accepted') on?.({ type: 'started' });
+        }
         accepted(payload);
       };
       const final = ctx.request('agent', {
@@ -215,10 +229,10 @@ export function createRuns(ctx: {
       if (result.stopReason === 'aborted' || (abortedByEngine && result.status !== 'ok')) return { ok: false, aborted: true };
       const message = typeof result.error === 'string' ? result.error
         : typeof result.message === 'string' ? result.message : '';
-      return { ok: false, ...classify(message), message };
+      return failure(message);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { ok: false, ...classify(message), message };
+      return failure(message);
     } finally {
       ended = true;
       unsubscribe();

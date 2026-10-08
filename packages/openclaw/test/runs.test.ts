@@ -29,7 +29,13 @@ function harness(reply?: string) {
   };
   const runs = createRuns({
     request: async (method, params, options) => {
-      const result = await t.request(method, params, options);
+      const result = await t.request(method, params, method === 'agent' ? { ...options, onAccepted: (payload) => {
+        options?.onAccepted?.(payload);
+        const runId = (payload as { runId: string }).runId;
+        for (const progressTokens of [12, -1, NaN, '12']) fake.emit('agent', { runId, stream: 'thinking', data: { progressTokens } });
+        fake.emit('agent', { runId: 'another-run', stream: 'thinking', data: { progressTokens: 99 } });
+        fake.emit('agent', { runId, stream: 'lifecycle', data: { phase: 'start' } });
+      } } : options);
       if (method === 'agent' && reply !== undefined) return { ...(result as object),
         result: { ...(result as { result: object }).result, payloads: [{ text: reply }] } };
       return method === 'agent.wait' && reply !== undefined
@@ -54,6 +60,8 @@ test('a run streams its events in order and ends ok', async () => {
   // The run's usage rides the `agent` final frame; the fake reports no plan window for the provider.
   assert.deepEqual(end, { ok: true, text, usage: { input: 30, output: 36, total: 66 } });
   assert.deepEqual(events, [
+    { type: 'started' },
+    { type: 'thinking', tokens: 12 },
     { type: 'tool', name: 'note', phase: 'start', id: 'call-1', input: { x: 1 } },
     { type: 'tool', name: 'note', phase: 'end', id: 'call-1', output: { content: [{ type: 'text', text: 'note ran' }] }, error: false },
     { type: 'text', text },
@@ -549,7 +557,7 @@ test('complete final answers supersede capped snapshots with coherent callbacks 
     const s = scripted({ final: frame([{ text }]), wait });
     const end = await s.runs.run(spec, (e) => events.push(e));
     assert.equal(end.ok, false);
-    assert.deepEqual(events, []);
+    assert.deepEqual(events, [{ type: 'started' }]);
     if (wait.stopReason) assert.deepEqual(end, { ok: false, aborted: true });
     else assert.ok(!end.ok && 'message' in end && end.message === 'bad request');
   }
