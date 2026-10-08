@@ -362,7 +362,7 @@ export type Approval = {
 export type Decision = { allow: boolean; reason?: string; answer?: unknown };   // answer: question.* only
 export type KitState = {
   phase: 'stopped' | 'installing' | 'starting' | 'repairing' | 'ready' | 'restarting' | 'failed' | 'needs-update' | 'locked';
-  why?: 'install' | 'handshake' | 'exited' | 'port' | 'version' | 'engine-already-running' | 'engine-patch' | 'sign-in-reset';
+  why?: 'install' | 'handshake' | 'exited' | 'port' | 'version' | 'engine-already-running' | 'engine-patch' | 'sign-in-reset' | 'auth-store-unreadable';
   retryAt?: number;
   patchSet?: string | null;                                    // bundled engine patch set id after prepare (5.16)
 };
@@ -701,9 +701,13 @@ adapter's current write mode. A locked or unresponsive keyring reports `Keystore
 engine or changing the sealed snapshot; a later `start()` retries after unlock. Engine.start returns
 `undefined` on this recoverable state, and the kit must skip connecting. A store the adapter cannot open
 (`KeystoreError('auth-failed')`: a different key, damaged or tampered bytes) or whose authentic payload is not a
-snapshot is renamed to `auth-store.sealed.unreadable-<ms>`, kept and never overwritten or deleted, with a log line;
-the engine starts signed out and the kit reports `{ phase: 'ready', why: 'sign-in-reset' }` until a sign-in through
-the kit completes. Other sealing failures still reject.
+snapshot stays byte-identical at `auth-store.sealed`. `prepare()` and `start()` reject with the exported
+`AuthStoreUnreadableError` (`code: 'auth-store-unreadable'`, reason `auth-failed` or `invalid-snapshot`)
+and report `{ phase: 'failed', why: 'auth-store-unreadable' }`; no engine or sign-in starts. Restore the
+original seal/key access (and original adapter service/stateDir binding when applicable), then retry
+`start()` with a kit using that seal. A damaged snapshot needs an authentic backup and its matching key,
+restored only while stopped under the host writer lock. Never rotate a key or replace the snapshot as
+an automatic recovery. Other sealing failures still reject.
 Dual-wrap is explicit opt-in (`dualWrap: true`, default off) and weakens protection to the owner-only host
 key file. SealingAdapter may expose `upgrade(data: Buffer): Uint8Array | undefined`; readers verify the
 replacement decrypts to the same text, then atomically replace under their writer lock. With dual-wrap
@@ -1116,7 +1120,8 @@ export declare function openNotice(data: Record<string, unknown>, seed: Uint8Arr
 | `engine.starting` | Starting up… |
 | `engine.repairing` | Fixing a small problem with the setup. This takes a moment. |
 | `engine.locked` | Your saved sign-in is locked. Unlock your password storage, then try again. |
-| `engine.signInAgain` | Your saved sign-in couldn't be opened, so it was kept aside. Sign in again. |
+| `engine.signInAgain` | Your saved sign-in couldn't be opened, so it was kept aside. Sign in again. (legacy state) |
+| `engine.authStoreUnreadable` | Your saved sign-in couldn't be opened. It is unchanged. Restore its original key or a working backup, then retry. |
 | `engine.ready` | Ready. |
 | `engine.restarting` | Something stopped. Starting it again by itself. |
 | `engine.alreadyRunning` | Your saved sign-in is in use. Try again after the other session stops. |

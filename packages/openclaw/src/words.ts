@@ -27,6 +27,7 @@ const PHASE_WORDS: Record<Exclude<KitState['phase'], 'stopped'>, WordKey> = {
 export function stateWords(s: KitState): string {
   // 'stopped' is never on screen (4.3 covers what a person can see), so 5.14 has no row for it.
   if (s.phase === 'failed' && s.why === 'engine-already-running') return words('engine.alreadyRunning');
+  if (s.why === 'auth-store-unreadable') return words('engine.authStoreUnreadable');
   if (s.why === 'sign-in-reset') return words('engine.signInAgain');
   return s.phase === 'stopped' ? '' : words(PHASE_WORDS[s.phase]);
 }

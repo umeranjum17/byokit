@@ -5,7 +5,7 @@ import { createServer } from 'node:net';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
-import { AuthStore } from './auth-store.ts';
+import { AuthStore, AuthStoreUnreadableError } from './auth-store.ts';
 import { EngineAlreadyRunningError, pidAlive, StartedProcesses } from './engine-status.ts';
 import { EnginePatchError, atomic, prepareEngineSet, processStartTime, readPatchSet, verifyEngineSet, type PatchSet } from './engine-patches.ts';
 import { ENGINE_VERSION } from './constants.ts';
@@ -102,6 +102,7 @@ export class Engine {
     if (this.prepared) return this.prepared;
     const pending = this.prepareOnce().catch(error => {
       if (error instanceof EnginePatchError) { this.patchSet = null; this.state('failed', 'engine-patch'); }
+      if (error instanceof AuthStoreUnreadableError) this.state('failed', 'auth-store-unreadable');
       throw error;
     });
     this.prepared = pending;
@@ -247,7 +248,11 @@ export class Engine {
     await this.prepare();
       if (this.credentialsLocked) return undefined;
       try { await this.authStore.start(); }
-      catch (error) { if (this.locked(error)) return undefined; throw error; }
+      catch (error) {
+        if (this.locked(error)) return undefined;
+        if (error instanceof AuthStoreUnreadableError) this.state('failed', 'auth-store-unreadable');
+        throw error;
+      }
       try { return this.launch(); }
       catch (error) {
         // A launch failure after spawn still has a writer; the caller's stop must await its exit.

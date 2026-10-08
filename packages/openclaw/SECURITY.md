@@ -29,9 +29,12 @@ retries after unlock. Opt-in dual wrapping opens through an owner-only host key 
 its protection is only as strong as that file, which must stay outside sealed-store backups.
 Unlocked keyring-only snapshots upgrade atomically under the store's exclusive lock after verifying
 the replacement decrypts to identical contents. A store the key cannot authenticate, or whose authentic
-payload is not a snapshot, is never restored, overwritten or deleted: it is kept as
-`auth-store.sealed.unreadable-<ms>` and the engine starts signed out (`why: 'sign-in-reset'`). Other sealing
-failures still reject.
+payload is not a snapshot, is never restored, renamed, overwritten or deleted: it stays byte-identical
+at `auth-store.sealed`. `prepare()` and `start()` reject with `AuthStoreUnreadableError`
+(`code: 'auth-store-unreadable'`), and the kit reports `failed` with `why: 'auth-store-unreadable'`.
+Restore original key access or an authentic backup with its matching key while stopped under the
+host writer lock, then retry. No key rotation, reset or new sign-in is attempted as recovery.
+Other sealing failures still reject.
 
 ## Secrets at rest and in memory
 
