@@ -29,13 +29,13 @@ aggregator" and exposes the aggregator's **full** power:
 
 Both kits: typed helpers for the common paths **plus** a first-class typed pass-through to the complete supported
 surface (OpenClaw Gateway operator protocol; Herdr socket API and CLI), so no consumer forks or bypasses the kit.
-They share connection adapters (`link`, `relay`, `discover`, `seal`, `ui-core`) and conventions, never a
+They share connection adapters (`link`, `relay`, `discover`, `seal`, `ui`) and conventions, never a
 lowest-common-denominator interface. `@byokit/accounts` keeps serving direct-provider apps (including Ownvoice); its
 multi-account shapes (`Account`, `Room`, `RunSelection`, `Pick` as `AccountPick`) are restated structurally by this kit (5.15), never
 imported. CLI sign-in status lives in `@byokit/herdr` `agentStatus` (B5); `@byokit/accounts` stays app-owned OAuth only and reports no CLI sign-in (B7).
 
 Out of scope for the build phase: releasing (firstmate/owner runs `release.yml`), muxr adoption (section 10), any
-operated service, and any change to `@byokit/accounts`, `link`, `relay`, `discover`, `seal`, `decide` or `ui-core`
+operated service, and any change to `@byokit/accounts`, `link`, `relay`, `discover`, `seal`, `decide` or `ui`
 source.
 
 ## 2. Decisions
@@ -70,7 +70,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 One vocabulary covers every account mechanism on every surface: `@byokit/accounts` (the pinned pi-ai providers,
 auth modules and `createProvider`), `@byokit/openclaw` (the pinned engine's auth choices, bundled and external
 plugins, and providers configured without a choice) and `@byokit/herdr` (the pinned agent kinds). Each kit restates
-these shapes; `packages/ui-core/test/account-routes.test.ts` checks the fixture and that today's shapes fit.
+these shapes; `packages/ui/test/account-routes.test.ts` checks the fixture and that today's shapes fit.
 
 ```ts
 type Billing = 'subscription' | 'api' | 'local' | 'free' | 'unknown';
@@ -222,7 +222,7 @@ app (niche workflow + UI)
 @byokit/openclaw  or  @byokit/herdr        ← runtime kit: aggregator's full power + helpers
   │ ./link adapter (host)      ▲ ./device client (phone/web)
   ▼                            │
-@byokit/link · relay · discover · seal · ui-core   ← unchanged connection kits
+@byokit/link · relay · discover · seal · ui   ← unchanged connection kits
 ```
 
 ### 4.2 State and isolation
@@ -864,7 +864,7 @@ the engine. External retained sources are touched only when explicitly passed to
   `{ auth: 'apiKey' }` to address that separate history (host and device). A supplied model must
   equal the selected key model; it cannot choose another provider. Ordinary runs never enter the key agent.
   `addKey` invalidates the old key before checking a replacement; a failed replacement leaves the key option
-  unavailable. Key entry and its result are represented by the framework-free `ui-core/kits` key card view.
+  unavailable. Key entry and its result are represented by the framework-free `ui/kits` key card view.
 - `classify(message)` (`src/classify.ts`) = Crewhouse `classifyText` mapped `rate_limit|overloaded → resting`,
   `signed_out → signed-out`, `not_included → plan`, `network → network`, `null → other`, with `until` carried.
 - `steer` → `sessions.steer { sessionKey, message }`; `abort` → `chat.abort { sessionKey }`.
@@ -1126,7 +1126,7 @@ export declare function classify(message: string): { kind: 'signed-out' | 'resti
 // words.ts (O10)
 export declare function words(key: WordKey, vars?: Record<string, string>): string;
 export declare function stateWords(s: KitState): string;
-export declare function toAccountView(view: SignInView | null, ready: boolean): AccountView;   // AccountView = ui-core's shape, declared locally
+export declare function toAccountView(view: SignInView | null, ready: boolean): AccountView;   // AccountView = ui's shape, declared locally
 // notices.ts (O9; portable)
 export declare function sealNotice(a: Approval, boxPublicKey: Uint8Array): { v: 1; sealed: string };
 export declare function openNotice(data: Record<string, unknown>, seed: Uint8Array): Approval | null;
@@ -1162,8 +1162,8 @@ export declare function openNotice(data: Record<string, unknown>, seed: Uint8Arr
 | `link.notAllowed` | This device can't do that. Ask the person at the computer. |
 
 `words(key, vars)` fills `{name}`, `{time}`, `{helper}`, `{summary}`; `stateWords(state: KitState)`;
-`toAccountView(view: SignInView | null, ready: boolean): AccountView` produces `@byokit/ui-core`'s `AccountView`
-shape so `useSignIn`/`phaseOf` work unchanged (`why` maps 1:1; `busy`, `declined`, `expired` are ui-core's).
+`toAccountView(view: SignInView | null, ready: boolean): AccountView` produces `@byokit/ui`'s `AccountView`
+shape so `useSignIn`/`phaseOf` work unchanged (`why` maps 1:1; `busy`, `declined`, `expired` are ui's).
 
 ### 5.15 Accounts: one shared grant, one view per account (D17)
 
@@ -1174,7 +1174,7 @@ owner's profiles through unless its own local order for the provider says otherw
 the merged store with no source flag and no per-profile identity. So an account is an agent holding a scoped view of one shared
 sign-in (`viewStore`), never a separately sealed copy of the credential.
 
-**Types** (`src/types.ts`; restated structurally from `@byokit/accounts` `multi.ts`, never imported; the ui-core
+**Types** (`src/types.ts`; restated structurally from `@byokit/accounts` `multi.ts`, never imported; the ui
 `fits` test checks both against its own copy). `AccountPick` is `@byokit/accounts`' `Pick`, renamed here because the
 kit's modules use TypeScript's `Pick<T, K>`:
 
@@ -1218,7 +1218,7 @@ export type MoveResult = { ok: true; session: string } | { ok: false; code: 'too
 
 `Room.at` optional, `RunSelection.needs`, `Considered`, `PickWhy` and `AccountPick.why`/`considered` are amendments to
 `@byokit/accounts`' `multi.ts` shapes and its Auto fixture: they land there first (fixture rows first), then O14 restates
-them, and the ui-core `fits` test checks both. The failure codes `'bound' | 'paid'` and `Considered.out: 'bound'` are
+them, and the ui `fits` test checks both. The failure codes `'bound' | 'paid'` and `Considered.out: 'bound'` are
 kit-only (sessions bind to accounts only here): `@byokit/accounts` never returns them, and `fits` checks the accounts
 shapes against the kit's with those members added.
 
@@ -1426,7 +1426,7 @@ it never decides which account a sign-in belongs to, and a changed email changes
 
 `addAccount` resolves once the target is known: `Promise<{ id; paste; cancel; done: Promise<{ view: SignInView; id:
 AccountId }> }>`, where `done.id` is the account the sign-in ended in. `name` defaults to `<label> <n>`; the email's
-local part is only a suggestion the app offers (`@byokit/ui-core` `nameSuggestions`), so the index never holds it.
+local part is only a suggestion the app offers (`@byokit/ui` `nameSuggestions`), so the index never holds it.
 
 **API keys.** `addKey(member, { authChoice, apiKey, name? })` accepts only routes with `keyEntry` (else
 `not_included`), writes the index entry, creates a new account agent, calls typed `openclaw.setup.activate { kind:
@@ -2517,8 +2517,8 @@ export declare function herdrDevice(link: DeviceLink): {
 The host's exit code and stderr tail stay host-side (diagnostics, 6.5). `signIn.view` returns the `AccountView` shape `useSignIn({ read, start, cancel })` expects, so a
 React or React Native sign-in sheet is `useSignIn({ read: () => oc.signIn.view('openai'), start: () =>
 oc.signIn.start('openai', 'code'), cancel: () => oc.signIn.cancel('openai') })`; `pairingView`, `consentWords`,
-`linkWords`, `qrMatrix` from `@byokit/ui-core` cover pairing unchanged. The `accounts`, `account`, `models` and
-`room` members are shaped so an app builds `@byokit/ui-core`'s `AccountsSource` from them with at most one line per
+`linkWords`, `qrMatrix` from `@byokit/ui` cover pairing unchanged. The `accounts`, `account`, `models` and
+`room` members are shaped so an app builds `@byokit/ui`'s `AccountsSource` from them with at most one line per
 member (`providers()` from the offered routes; `add` with a `key` is host-only); O14's `fits` test checks it.
 
 ### 7.3 Relay, discover and seal
@@ -2534,7 +2534,7 @@ member (`providers()` from the offered routes; `add` with a `key` is host-only);
   without a box key get the generic title only (`includeContent: false`).
 - **seal**: `src/notices.ts` holds `sealNotice(approval, boxPublicKey)` and (portable, re-exported by `./device`)
   `openNotice(data, seed)` → `openBox` → JSON → shape-checked `Approval` or `null`.
-- **ui-core**: 5.14 `toAccountView`; `stateWords`; ui-core itself unchanged.
+- **ui**: 5.14 `toAccountView`; `stateWords`; ui itself unchanged.
 
 ## 8. Example apps
 
@@ -2654,7 +2654,7 @@ Sol:            O3 (O1)           │ │                 H3 (H1,H2,H6)      │
                 O11 (O3,O4,O5,O6,O8)                  H9* Flash (H3,H5,H7) lab
 Flash last: O12 (O9,O11)                              H10 Flash (H7,H9)
 Sol after publish: O13 (crewhouse repo)               H11 later, muxr repo (not scheduled)
-Sol later: O14 (O11, accounts Auto + fixture, ui-core AccountsSource)
+Sol later: O14 (O11, accounts Auto + fixture, ui AccountsSource)
 Sol later: O15 (O11) ─┬─ O16 (lane 19 usage)
                       └─ O17 (R1 lane)
 Browser (5.17): O18 ─┬─ O19 ─┐
@@ -2790,7 +2790,7 @@ H1, and O12/H10 (README example rows); later merges rebase.
 - Files: `src/words.json`, `src/words.ts`, `test/words.test.ts`.
 - Behavior: 5.14 table verbatim; `words`, `stateWords`, `toAccountView`.
 - Acceptance: every key present with the exact sentence; banned-jargon regex (4.3) passes; every `KitState.phase`
-  has a sentence; `toAccountView` result is assignable to `@byokit/ui-core`'s `AccountView` (type test) and
+  has a sentence; `toAccountView` result is assignable to `@byokit/ui`'s `AccountView` (type test) and
   `phaseOf` yields `opening`, `waiting`, `code`, `done`, `busy`, `cancelled`, `expired`, `failed` for the matching
   inputs.
 
@@ -2813,7 +2813,7 @@ H1, and O12/H10 (README example rows); later merges rebase.
   lab task for firstmate, recorded later).
 
 **O14 — accounts as agents** · Sol · deps: O11; `@byokit/accounts` Auto (`chooseAccount`/`resolveSelection`) and
-its fixture; `@byokit/ui-core` `AccountsSource` (for `fits`) · version: openclaw next minor
+its fixture; `@byokit/ui` `AccountsSource` (for `fits`) · version: openclaw next minor
 - Files: `src/accounts.ts`, `src/pick.ts`, `src/locks.ts`, `plugin/accounts.js`, `src/types.ts`, `src/kit.ts`,
   `src/runs.ts`, `src/members.ts`, `src/approvals.ts`, `src/bridge.ts`, `src/signin.ts`, `src/config.ts`,
   `src/engine.ts` (copies `plugin/accounts.js`), `src/link.ts`, `src/device.ts`, `src/words.json`, `src/words.ts`,
@@ -2866,7 +2866,7 @@ its fixture; `@byokit/ui-core` `AccountsSource` (for `fits`) · version: opencla
   leaves the member agent `ready` and no file of the removed agent under `<root>`; a pre-O14 two-member state reads
   the second member `signed_out` for the first member's provider; `IDENTITY.md` is byte-identical after `addAccount`; `plugins.allow` holds every
   offered route's plugin; `move` carries the transcript (user and tool rows) to the target agent; an API-key account
-  never serves an `'auto'` run. ui-core `fits`: an at-most-one-line-per-member adapter builds `AccountsSource` from
+  never serves an `'auto'` run. ui `fits`: an at-most-one-line-per-member adapter builds `AccountsSource` from
   the device client.
 
 **O15 — bundled engine patch packaging** · Sol · deps: O11 · version: openclaw next minor
@@ -2956,7 +2956,7 @@ its fixture; `@byokit/ui-core` `AccountsSource` (for `fits`) · version: opencla
 - Acceptance: the suite passes on the fake now and on the real host once O20 lands.
 
 **O24 — browser UI** · Opus frontend · deps: O18, O23
-- Files: `packages/ui-core` view models (`signInSheetView`, `liveViewStore`), `examples/openclaw-kit` sheet, live
+- Files: `packages/ui` view models (`signInSheetView`, `liveViewStore`), `examples/openclaw-kit` sheet, live
   panel and chip, their tests and changes fragments.
 - Acceptance: every `NeedSignIn` state and word renders; no secret-bearing value in view-model state; reconnect
   makes no model call.
@@ -3082,7 +3082,7 @@ upstreams, 218 from other open agent projects' catalogues) has a home: 24 are co
 
 | WP | Scope | Owned files | Deps |
 |---|---|---|---|
-| F0 | D18, this lane, the fixture and its structural test | `docs/runtime-kits.md`, `fixtures/README.md`, `fixtures/conformance/account-routes-typescript.json`, `packages/ui-core/test/account-routes.test.ts`, README pointers | — |
+| F0 | D18, this lane, the fixture and its structural test | `docs/runtime-kits.md`, `fixtures/README.md`, `fixtures/conformance/account-routes-typescript.json`, `packages/ui/test/account-routes.test.ts`, README pointers | — |
 | B1 | accounts route table generated from the pinned pi-ai; `qwen` and `minimax` leave the default offer until their flows exist | `scripts/gen-accounts-routes.ts`, `packages/accounts/src/{routes.json,catalogue.ts,portable.ts}` | F0 |
 | B2 | one key and plan-key path replacing the per-provider special cases; environment tokens become explicit paste rows | `packages/accounts/src/accounts.ts` | B1 |
 | B3 | cloud credentials, Node only | `packages/accounts/src/accounts.ts`, `routes.json` | B1 |
@@ -3099,7 +3099,7 @@ upstreams, 218 from other open agent projects' catalogues) has a home: 24 are co
 | C3 | further OAuth browser and paste flows | `packages/accounts/src/flows/*` | B5 |
 | C4 | further setup-token, environment-token and free-tier rows | `packages/accounts/src/{accounts.ts,routes.json}` | B2 |
 | C5 | non-model service rows: data, adapters, auth tests | `packages/accounts/src/routes.json`, tests | B2, B4 |
-| U1 | ui-core connect view grouping every route (plans, pay per use, on this computer, your own server, cloud, services) | `packages/ui-core/src/connect.ts`, words | F0, B1, B6, B9 |
+| U1 | ui connect view grouping every route (plans, pay per use, on this computer, your own server, cloud, services) | `packages/ui/src/connect.ts`, words | F0, B1, B6, B9 |
 | U2 | examples list every route; no hardcoded provider | `examples/*` | U1 |
 
 Acceptance for every package: its fixture rows, mocks and fakes in `npm test`; no live vendor sign-in is required.

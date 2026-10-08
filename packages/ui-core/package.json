@@ -1,7 +1,7 @@
 {
   "name": "@byokit/ui-core",
   "version": "0.6.0",
-  "description": "Headless sign-in, pairing and runtime-kit view state for any UI, plus plain-words copy.",
+  "description": "Deprecated: renamed to @byokit/ui. Re-exports @byokit/ui unchanged through 0.7.x; removed in 0.8.0.",
   "license": "Apache-2.0",
   "type": "module",
   "repository": {
@@ -14,57 +14,46 @@
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./dist/deprecated.d.ts",
+      "default": "./dist/deprecated.js"
     },
     "./phase": {
-      "types": "./dist/phase.d.ts",
-      "default": "./dist/phase.js"
+      "types": "./dist/deprecated-phase.d.ts",
+      "default": "./dist/deprecated-phase.js"
     },
     "./route": {
-      "types": "./dist/route.d.ts",
-      "default": "./dist/route.js"
+      "types": "./dist/deprecated-route.d.ts",
+      "default": "./dist/deprecated-route.js"
     },
     "./link": {
-      "types": "./dist/link.d.ts",
-      "default": "./dist/link.js"
+      "types": "./dist/deprecated-link.d.ts",
+      "default": "./dist/deprecated-link.js"
     },
     "./kits": {
-      "types": "./dist/kits.d.ts",
-      "default": "./dist/kits.js"
+      "types": "./dist/deprecated-kits.d.ts",
+      "default": "./dist/deprecated-kits.js"
     },
     "./steps": {
-      "types": "./dist/steps.d.ts",
-      "default": "./dist/steps.js"
+      "types": "./dist/deprecated-steps.d.ts",
+      "default": "./dist/deprecated-steps.js"
     },
     "./connect": {
-      "types": "./dist/connect.d.ts",
-      "default": "./dist/connect.js"
+      "types": "./dist/deprecated-connect.d.ts",
+      "default": "./dist/deprecated-connect.js"
     }
   },
   "files": [
     "dist",
+    "LICENSE",
     "CHANGELOG.md"
   ],
   "scripts": {
     "prepack": "tsc -b"
   },
-  "peerDependencies": {
-    "react": ">=18"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    }
-  },
-  "devDependencies": {
-    "@types/react": "^19.3.0",
-    "react": "^19.3.0"
+  "dependencies": {
+    "@byokit/ui": "0.6.0"
   },
   "publishConfig": {
     "access": "public"
-  },
-  "dependencies": {
-    "uqr": "0.1.3"
   }
 }
