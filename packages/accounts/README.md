@@ -245,8 +245,13 @@ qualification claims, not live vendor sign-in claims.
 
 On computers, the provider's own page by default. For ChatGPT, whose page returns to this computer's port 1455, the
 kit listens there itself, so the tab shows your app's words (`new Accounts({ app: 'My App' })`) and only once they are
-true. A code takes over when asked ("Having trouble?"), when the page never comes back, or when the port is taken by
-another sign-in.
+true. If another process holds the fixed callback port, `login` waits before starting OAuth or returning a page to
+open; it starts automatically when the port is free, without restarting the ceremony. The wait respects `cancel`
+and the overall `signInMs` deadline (15 minutes by default), and is not FIFO. Within one process, a second flow
+using the same port takes the code route instead (or paste for providers without device code).
+
+A code takes over when asked ("Having trouble?") or when the page never comes back. The `redirectMs` fallback
+clock starts after acquiring the callback port, so waiting for another process does not consume it.
 
 A 15-minute cap, nothing kept unless the engine can use it, and every failure is one plain sentence (`words.json`)
 with a `why` for apps that word it themselves. `plan(member)` tells a work ChatGPT from a personal one; `plan(member, 'claude')` names the Claude plan (read once per

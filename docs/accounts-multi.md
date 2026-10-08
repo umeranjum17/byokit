@@ -20,4 +20,4 @@ This is not a mapping from Claude accounts to Pi, and does not add Pi to `cliAcc
 
 `cliAccounts.list()` and `status(id)` retain an owned managed row when its provider binary was not supplied, returning `state: 'not_included'` without reading its grant, launching a process or changing sign-in markers. Shared Auto excludes that row. `add`, `signInAgain` and `usageSource` still require the explicitly supplied provider binary; missing availability is not authority to use PATH or the person's default login. Found rows stay excluded and all managed operations reject them.
 
-Fresh browser sign-in uses catalogue `fresh: {param, value}`. ChatGPT requests `prompt=login`. Loopback ports are reserved process-wide until the flow ends or switches to code; another flow uses device code, or paste for providers without it. No credential or key enters the index, public views, errors or output.
+Fresh browser sign-in uses catalogue `fresh: {param, value}`. ChatGPT requests `prompt=login`. For callback-port contention and fallback behavior, see [Sign-in](../packages/accounts/README.md#sign-in). No credential or key enters the index, public views, errors or output.

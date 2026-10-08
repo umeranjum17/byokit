@@ -65,7 +65,7 @@ export type AccountsOptions<M extends Member = Member> = {
   app?: string;
   /** Longest a sign-in may wait: longer than any provider's code lives. */
   signInMs?: number;
-  /** No redirect back by then: the page is probably stuck (or on a phone), so a code takes over by itself. */
+  /** No redirect back by then: a code takes over. Starts after callback-port acquisition, excluding contention wait. */
   redirectMs?: number;
   /** Listen here for the provider's redirect instead of its fixed port (tests, so they never meet a real sign-in). */
   callbackPort?: number;
