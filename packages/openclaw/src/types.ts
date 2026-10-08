@@ -116,7 +116,7 @@ export type Decision = { allow: boolean; reason?: string; answer?: unknown }; //
 
 export type KitState = {
   phase: 'stopped' | 'installing' | 'starting' | 'repairing' | 'ready' | 'restarting' | 'failed' | 'needs-update' | 'locked';
-  why?: 'install' | 'handshake' | 'exited' | 'port' | 'version' | 'engine-already-running' | 'engine-patch' | 'sign-in-reset';
+  why?: 'install' | 'handshake' | 'exited' | 'port' | 'version' | 'engine-already-running' | 'engine-patch' | 'sign-in-reset' | 'auth-store-unreadable';
   retryAt?: number;
   patchSet?: string | null; // verified bundled set; null = unknown provenance
 };

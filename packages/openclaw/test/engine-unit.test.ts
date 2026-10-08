@@ -480,8 +480,7 @@ test('sealed engine store covers SQLite, journals, JSON and isolated home; stop,
   assert.equal(readFileSync(join(engine.root, 'home', '.codex', 'auth.json'), 'utf8'), 'v2-login');
   await fromV2.stop();
   assert.equal((JSON.parse(seal.decryptString(readFileSync(sealed))) as { v: number }).v, 1);
-  // A store the key cannot open, or an authentic payload that is not a snapshot, is kept aside byte for byte,
-  // never restored, overwritten or deleted; the engine starts signed out.
+  // Unreadable or structurally invalid snapshots fail closed in place, never restoring or overwriting.
   const asides = () => fs.readdirSync(engine.root).filter((name) => name.startsWith('auth-store.sealed.unreadable-'));
   const unreadable = [Buffer.from('tampered'), Buffer.from(seal.encryptString(JSON.stringify({ v: 1, dirs: ['state'], files: [['state/../escape', 'dG9rZW4=']] })))];
   for (const bytes of unreadable) {
@@ -489,15 +488,14 @@ test('sealed engine store covers SQLite, journals, JSON and isolated home; stop,
     writeFileSync(sealed, bytes);
     const lines: string[] = [];
     const fresh = new Engine({ ...o, log: (line) => lines.push(line) });
-    await fresh.start();
-    assert.equal(fresh.authStore.reset, true);
+    await assert.rejects(fresh.start(), { code: 'auth-store-unreadable' });
     assert.equal(existsSync(agent), false, 'nothing from an unreadable store is restored');
     assert.equal(existsSync(join(engine.root, 'escape')), false);
-    assert.equal(asides().length, 1);
-    assert.deepEqual(readFileSync(join(engine.root, asides()[0]!)), bytes, 'the unreadable store is kept unchanged');
-    assert.match(lines.join('\n'), /sealed credential store .*; kept as auth-store\.sealed\.unreadable-\d+; sign in again/);
+    assert.equal(asides().length, 0);
+    assert.deepEqual(readFileSync(sealed), bytes, 'the unreadable store is kept unchanged');
+    assert.equal(lines.some(line => line.includes('sign in again')), false);
     await fresh.stop();
-    assert.deepEqual(readFileSync(join(engine.root, asides()[0]!)), bytes, 'a later stop seals beside it, never over it');
+    assert.deepEqual(readFileSync(sealed), bytes, 'failed-start stop never overwrites it');
     assert.ok(existsSync(sealed));
   }
 

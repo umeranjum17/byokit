@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { test } from 'node:test';
+import { AuthStoreUnreadableError } from '../src/auth-store.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import type { RunRef } from '../src/types.ts';
@@ -67,24 +68,41 @@ test('locked saved credentials resolve prepare/start, preserve the store and rec
   locked = false;
 });
 
-test('a saved sign-in the key cannot open is kept aside and the kit starts signed out, saying sign in again', async () => {
+test('wrong seal refuses prepare/start without changing sign-in; restoring the seal retries the same store', async () => {
   const stateDir = scratchDir('o4-unreadable');
   const root = join(stateDir, 'openclaw');
   mkdirSync(join(root, 'state'), { recursive: true });
   writeFileSync(join(root, 'state', 'auth.json'), 'saved-sign-in');
-  await new OpenClawKit({ stateDir, authSeal: hostKeySeal({ key: randomBytes(32), service: 'o4' }), spawnEngine: false }).prepare();
+  const seal = hostKeySeal({ key: randomBytes(32), service: 'o4' });
+  await new OpenClawKit({ stateDir, authSeal: seal, spawnEngine: false }).prepare();
   const file = join(root, 'auth-store.sealed');
   const bytes = readFileSync(file);
   const fake = fakeGateway();
-  const kit = new OpenClawKit({ stateDir, authSeal: hostKeySeal({ key: randomBytes(32), service: 'o4' }), spawnEngine: false, transport: fake.factory });
+  let currentSeal = hostKeySeal({ key: randomBytes(32), service: 'o4' });
+  let connected = 0;
+  const kit = new OpenClawKit({ stateDir, authSeal: {
+    encryptString: text => currentSeal.encryptString(text),
+    decryptString: data => currentSeal.decryptString(data),
+  }, spawnEngine: false, transport: ctx => { connected++; return fake.factory(ctx); } });
   try {
+    await assert.rejects(kit.prepare(), AuthStoreUnreadableError);
+    await assert.rejects(kit.start(), { code: 'auth-store-unreadable', reason: 'auth-failed' });
+    assert.deepEqual(kit.state, { phase: 'failed', why: 'auth-store-unreadable' });
+    assert.match(stateWords(kit.state), /unchanged.*original key.*retry/);
+    assert.equal(connected, 0);
+    assert.equal(existsSync(join(root, 'state', 'auth.json')), false);
+    assert.equal(readdirSync(root).some(name => name.includes('.unreadable-')), false);
+    assert.deepEqual(readFileSync(file), bytes);
+    await kit.stop();
+    assert.deepEqual(readFileSync(file), bytes);
+    currentSeal = seal;
     await kit.start();
-    assert.deepEqual(kit.state, { phase: 'ready', why: 'sign-in-reset' });
-    assert.equal(stateWords(kit.state), "Your saved sign-in couldn't be opened, so it was kept aside. Sign in again.");
-    assert.equal(existsSync(join(root, 'state', 'auth.json')), false, 'the engine starts signed out');
-    const aside = readdirSync(root).filter((name) => name.startsWith('auth-store.sealed.unreadable-'));
-    assert.equal(aside.length, 1);
-    assert.deepEqual(readFileSync(join(root, aside[0]!)), bytes, 'the saved store is kept byte for byte');
+    assert.equal(kit.state.phase, 'ready');
+    assert.equal(connected, 1);
+    assert.equal(readFileSync(join(root, 'state', 'auth.json'), 'utf8'), 'saved-sign-in');
+    await kit.stop();
+    await kit.start();
+    assert.equal(readFileSync(join(root, 'state', 'auth.json'), 'utf8'), 'saved-sign-in');
   } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 

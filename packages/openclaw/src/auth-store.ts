@@ -3,7 +3,7 @@
 // `home` — never the regenerable tool caches, transcripts and logs a signed-in home accumulates.
 // Sealing those too once produced a snapshot past the runtime string limit and aborted boot.
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, rmdirSync, writeFileSync, closeSync, fsyncSync, openSync } from 'node:fs';
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { SealingAdapter } from '@byokit/secrets';
 import { EngineAlreadyRunningError, pidAlive as live } from './engine-status.ts';
 
@@ -73,9 +73,18 @@ function snapshot(text: string): Snapshot {
   return s;
 }
 
+/** Opening failed; the original snapshot stays in place for repair and retry. */
+export class AuthStoreUnreadableError extends Error {
+  readonly code = 'auth-store-unreadable';
+  readonly reason: 'auth-failed' | 'invalid-snapshot';
+  constructor(reason: 'auth-failed' | 'invalid-snapshot') {
+    super("Saved sign-in could not be opened; auth-store.sealed is unchanged. Restore the original seal/key access or a working backup with its matching key, then retry.");
+    this.name = 'AuthStoreUnreadableError';
+    this.reason = reason;
+  }
+}
+
 export class AuthStore {
-  /** Set when an unreadable store was kept aside and the engine starts signed out; the kit clears it on sign-in. */
-  reset = false;
   private active = false;
   private owned = false;
   private queue: Promise<unknown> = Promise.resolve();
@@ -145,25 +154,16 @@ export class AuthStore {
     try { text = seal.decryptString(bytes); }
     catch (error) {
       if ((error as { code?: unknown })?.code !== 'auth-failed') throw error;
-      return this.setAside('could not be authenticated');
+      throw new AuthStoreUnreadableError('auth-failed');
     }
     let saved: Snapshot;
-    try { saved = snapshot(text); } catch { return this.setAside('is not a credential snapshot'); }
+    try { saved = snapshot(text); } catch { throw new AuthStoreUnreadableError('invalid-snapshot'); }
     const upgraded = seal.upgrade?.(bytes);
     if (upgraded) {
       if (seal.decryptString(Buffer.from(upgraded)) !== text) throw new Error('credential upgrade verification failed');
       put(this.file, upgraded);
     }
     return saved;
-  }
-  /** Never overwrite or delete a store this kit cannot open: keep its bytes aside and start signed out. */
-  private setAside(why: string): undefined {
-    const aside = `${this.file}.unreadable-${Date.now()}`;
-    renameSync(this.file, aside);
-    syncDir(this.o.root);
-    this.reset = true;
-    this.o.log?.(`sealed credential store ${why}; kept as ${basename(aside)}; sign in again`);
-    return undefined;
   }
   private collect(): Snapshot {
     const s: Snapshot = { v: 1, dirs: [], files: [] };

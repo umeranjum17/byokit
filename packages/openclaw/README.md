@@ -484,8 +484,18 @@ Without `authSeal`, engine credentials remain plaintext. With it, successful `pr
 only a sealed snapshot, `auth-store.sealed`, for the sealed credential paths; regenerable caches stay on
 disk unsealed. The adapter authenticates the snapshot
 before any restoration; a missing adapter rejects. A store the key cannot open (a wrong key,
-damaged or tampered bytes) or whose payload is not a credential snapshot is kept aside as
-`auth-store.sealed.unreadable-<ms>` and the engine starts signed out (`why: 'sign-in-reset'`); sign in again. Files restored for the engine
+damaged or tampered bytes) or whose payload is not a credential snapshot stays unchanged at
+`auth-store.sealed`. Both `prepare()` and `start()` reject with exported `AuthStoreUnreadableError`
+(`code: 'auth-store-unreadable'`, `reason: 'auth-failed' | 'invalid-snapshot'`). The kit reports
+`{ phase: 'failed', why: 'auth-store-unreadable' }`; show `stateWords(kit.state)`, not a sign-in prompt.
+Restore access to the original seal/key (and the original service/stateDir binding if the adapter uses
+one), then retry `start()` with that adapter. Do not generate/rotate a key to repair an unreadable store.
+If the bytes are damaged, stop all writers, acquire the host writer lock, and restore an authentic
+backup with its matching key before retrying. There is no automatic reset or overwrite.
+For stores kept aside by an older kit, restore the original `.unreadable-*` snapshot to
+`auth-store.sealed` only while stopped under that lock, preserving both it and any replacement as
+backups first; use the original seal. Without the matching key or an authentic backup the kit cannot
+recover the sign-in. Files restored for the engine
 have mode 0600 and directories 0700. File symlinks are sealed only when their fully resolved targets are
 regular files inside the isolated engine root; they restore as regular files at the link paths. Outside-root,
 dangling and directory symlinks (including loops), sockets, FIFOs and devices are skipped.
