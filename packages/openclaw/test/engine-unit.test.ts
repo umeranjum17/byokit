@@ -63,6 +63,67 @@ test('immutable sets validate all bytes, clone offline, roll back by selection a
   } finally { t.mock.restoreAll(); syncBuiltinESMExports(); removeScratch(dir); }
 });
 
+// Claude wire names for the Tooling list (ch-cli-tool-prefix): the printed Tooling names on the
+// Claude route must equal the Claude wire catalog names (mcp__openclaw__-prefixed); every other
+// route stays byte-identical and already-prefixed names are never prefixed again.
+test('claude route prints wire names in Tooling; other routes keep the stock prompt', async () => {
+  const { claudeToolPrefixEdits, CLAUDE_TOOL_PREFIX_PATH } = await import('../scripts/claude-tool-prefix-patch.ts');
+  const file = shippedSet().files.find((f) => f.path === CLAUDE_TOOL_PREFIX_PATH);
+  assert.ok(file, 'patches.json carries the Claude Tooling-names entry');
+  assert.deepEqual(file.edits, claudeToolPrefixEdits, 'shipped edits match the owned patch source');
+  const stock = readFileSync(fileURLToPath(new URL(`./fixtures/stock/${file.path}.txt`, import.meta.url)), 'utf8');
+  assert.equal(sha256(stock), file.before, 'stock byte fixture drift');
+  assert.equal(sha256(editText(stock, file)), file.after, 'patched bytes drift');
+  const edit = file.edits[0]!;
+  assert.equal(file.edits.length, 1);
+  const inserted = edit.replace.slice(edit.find.length);
+  assert.ok(inserted.includes('mcp__openclaw__'));
+  const render = new Function('systemPrompt', 'skipsTurnPreparation', 'isClaudeCli', 'promptTools',
+    `${inserted}\nreturn systemPrompt;`) as (prompt: string, skip: boolean, claude: boolean, tools: { name: string }[]) => string;
+  const prompt = [
+    'You are a personal assistant running inside OpenClaw.',
+    '',
+    '## Tooling',
+    'Tools policy-filtered. Names case-sensitive; call exact.',
+    '- web_search: Web search',
+    '- web_fetch: Fetch/extract URL',
+    '- sessions_history: Read visible session/subagent history',
+    '- view_image',
+    '- crew_read',
+    '- crew_recruit',
+    '- mcp__openclaw__shell',
+    'The AGENTS.md Tools section guides usage; it never grants availability.',
+    '',
+    '## Skills you follow',
+    '- recruit: use crew_recruit to hire (a bare mention outside the Tooling list)',
+    '',
+    '## Other',
+    '- crew_read',
+    '',
+  ].join('\n');
+  const tools = ['web_search', 'web_fetch', 'sessions_history', 'view_image', 'crew_read', 'crew_recruit']
+    .map((name) => ({ name }));
+  // The Claude wire catalog for this run: every OpenClaw tool prefixed, natively named tools untouched.
+  const wire = new Set([...tools.map((t) => `mcp__openclaw__${t.name}`), 'mcp__openclaw__shell']);
+  const claude = render(prompt, false, true, [...tools, { name: 'mcp__openclaw__shell' }]);
+  const listed = claude.split('\n').filter((line) => line.startsWith('- mcp__openclaw__'));
+  assert.equal(listed.length, wire.size, 'rendered Tooling list equals the wire catalog names');
+  for (const name of wire) assert.ok(listed.some((line) => line === `- ${name}` || line.startsWith(`- ${name}:`)), `wire name printed: ${name}`);
+  const toolingSection = claude.split('## Tooling')[1]!.split('## ')[0]!;
+  assert.ok(!toolingSection.split('\n').some((line) => /^- (web_search|crew_read|crew_recruit)(:|$)/.test(line)), 'no bare OpenClaw name left in Tooling');
+  assert.ok(!claude.includes('mcp__openclaw__mcp__openclaw__'), 'never double-prefixed');
+  assert.ok(claude.includes('- mcp__openclaw__web_search: Web search'), 'summaries preserved');
+  assert.deepEqual(claude.split('\n').filter((l) => l.startsWith('- mcp__openclaw__')).map((l) => l.split(':')[0]),
+    ['- mcp__openclaw__web_search', '- mcp__openclaw__web_fetch', '- mcp__openclaw__sessions_history',
+      '- mcp__openclaw__view_image', '- mcp__openclaw__crew_read', '- mcp__openclaw__crew_recruit', '- mcp__openclaw__shell'],
+    'ordering preserved');
+  assert.ok(claude.includes('- recruit: use crew_recruit to hire'), 'non-Tooling prose untouched');
+  assert.ok(claude.split('## Other')[1]!.includes('- crew_read'), 'other sections untouched');
+  assert.equal(render(prompt, false, false, tools), prompt, 'other routes byte-identical');
+  assert.equal(render(prompt, true, true, tools), prompt, 'control/side-question runs untouched');
+  assert.equal(render(prompt, false, true, []), prompt, 'no tools, no rewrite');
+});
+
 const shippedEngine = fileURLToPath(new URL('../engine/', import.meta.url));
 const lock = JSON.parse(readFileSync(join(shippedEngine, 'package-lock.json'), 'utf8')) as {
   packages: Record<string, { version: string; optional?: boolean; os?: string[]; cpu?: string[]; libc?: string[] }>;

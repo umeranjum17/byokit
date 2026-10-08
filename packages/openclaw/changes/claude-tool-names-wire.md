@@ -1,0 +1,1 @@
+FIX: On the Claude CLI route the printed `## Tooling` list now uses the Claude wire catalog names (`mcp__openclaw__<tool>`), so a listed tool can be called exactly as printed. Every other route keeps the stock prompt byte-identical, and already-prefixed names are never prefixed again.
