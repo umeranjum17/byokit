@@ -1,4 +1,4 @@
-// ui-core draws in browsers and React Native too: every entry bundles under the `browser` and `react-native`
+// ui draws in browsers and React Native too: every entry bundles under the `browser` and `react-native`
 // conditions with nothing from Node, and `./kits` with no React either. The kits' real device clients fit the hooks
 // and stores as they are (checked by `npm run check`; `fits` never runs).
 import { test } from 'node:test';

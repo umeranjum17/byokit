@@ -7,7 +7,7 @@ import { chmodSync, writeFileSync } from 'node:fs';
 import type { NetworkInterfaceInfo } from 'node:os';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
-import { routeChoices } from '../../ui-core/src/route.ts';
+import { routeChoices } from '../../ui/src/route.ts';
 import { recommend, type RecommendEntry, type TailscaleState } from '../src/index.ts';
 
 const up = { installed: true, backendState: 'Running', needsSignin: false, dnsName: 'dev.tailnet.ts.net', ips: ['100.64.0.1'] } satisfies TailscaleState;

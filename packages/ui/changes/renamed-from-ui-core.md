@@ -1,0 +1,1 @@
+- `@byokit/ui-core` is now published as `@byokit/ui`, with the same API and the same entries (`.`, `./phase`, `./route`, `./link`, `./kits`, `./steps`, `./connect`); its earlier versions are the `@byokit/ui-core` releases below. **Deprecated:** the `@byokit/ui-core` name; it stays published as a shim that re-exports this package through 0.7.x and is removed in 0.8.0.

@@ -43,7 +43,7 @@ latest first, so neither goes stale.
 | Package | Install | npm | Latest release |
 |---|---|---|---|
 | `@byokit/accounts` | `npm install @byokit/accounts` | [![npm](https://img.shields.io/npm/v/@byokit/accounts?style=flat&label=)](https://www.npmjs.com/package/@byokit/accounts) | [accounts-v releases](https://github.com/umeranjum17/byokit/releases?q=accounts-v) |
-| `@byokit/ui-core` | `npm install @byokit/ui-core` | [![npm](https://img.shields.io/npm/v/@byokit/ui-core?style=flat&label=)](https://www.npmjs.com/package/@byokit/ui-core) | [ui-core-v releases](https://github.com/umeranjum17/byokit/releases?q=ui-core-v) |
+| `@byokit/ui` | `npm install @byokit/ui` | [![npm](https://img.shields.io/npm/v/@byokit/ui?style=flat&label=)](https://www.npmjs.com/package/@byokit/ui) | [ui-v releases](https://github.com/umeranjum17/byokit/releases?q=ui-v) |
 | `@byokit/seal` | `npm install @byokit/seal` | [![npm](https://img.shields.io/npm/v/@byokit/seal?style=flat&label=)](https://www.npmjs.com/package/@byokit/seal) | [seal-v releases](https://github.com/umeranjum17/byokit/releases?q=seal-v) |
 | `@byokit/link` | `npm install @byokit/link` | [![npm](https://img.shields.io/npm/v/@byokit/link?style=flat&label=)](https://www.npmjs.com/package/@byokit/link) | [link-v releases](https://github.com/umeranjum17/byokit/releases?q=link-v) |
 | `@byokit/relay` | `npm install @byokit/relay @byokit/link` | [![npm](https://img.shields.io/npm/v/@byokit/relay?style=flat&label=)](https://www.npmjs.com/package/@byokit/relay) | [relay-v releases](https://github.com/umeranjum17/byokit/releases?q=relay-v) |
@@ -125,7 +125,7 @@ to ask. Each agent keeps its own subscription sign-in; the kit never sees a cred
 - **Reach the computer.** `@byokit/discover` finds the addresses a phone can dial (Tailscale Serve, the tailnet, the home
   network) and `@byokit/relay` routes link frames when there is no direct path, without being able to read them.
 - **Keep data sealed.** `@byokit/seal` is portable NaCl-compatible box, secretbox and signatures for data at rest.
-- **Your own look.** `@byokit/ui-core` is the headless state behind the screens above: sign-in phases, the pairing
+- **Your own look.** `@byokit/ui` is the headless state behind the screens above: sign-in phases, the pairing
   QR, consent and status words.
 
 ## Packages
@@ -133,7 +133,7 @@ to ask. Each agent keeps its own subscription sign-in; the kit never sees a cred
 | Package | What it does | npm |
 |---|---|---|
 | [`@byokit/accounts`](packages/accounts) | Sign in with the AI plan you already pay for, into your app's own store; limits, refresh, plain words. Node, Electron, browsers and PWAs, React Native on iOS and Android | [![npm](https://img.shields.io/npm/v/@byokit/accounts?style=flat&label=)](https://www.npmjs.com/package/@byokit/accounts) |
-| [`@byokit/ui-core`](packages/ui-core) | Headless sign-in and pairing state for any UI (React, React Native, or none): phases, QR, consent, link words, route labels | [![npm](https://img.shields.io/npm/v/@byokit/ui-core?style=flat&label=)](https://www.npmjs.com/package/@byokit/ui-core) |
+| [`@byokit/ui`](packages/ui) | Headless sign-in and pairing state for any UI (React, React Native, or none): phases, QR, consent, link words, route labels | [![npm](https://img.shields.io/npm/v/@byokit/ui?style=flat&label=)](https://www.npmjs.com/package/@byokit/ui) |
 | [`@byokit/signaling`](packages/signaling) | Portable bridge WebSocket requests, typed session events and fresh authorization sockets | [![npm](https://img.shields.io/npm/v/@byokit/signaling?style=flat&label=)](https://www.npmjs.com/package/@byokit/signaling) |
 | [`@byokit/approve`](packages/approve) | Exact-action approval: a grant binds to the one request naming its action, button label, app and reason, and refuses any other or mutated request | ready for first release |
 | [`@byokit/seal`](packages/seal) | Portable NaCl-compatible box and secretbox for data at rest, plus Ed25519 signatures | [![npm](https://img.shields.io/npm/v/@byokit/seal?style=flat&label=)](https://www.npmjs.com/package/@byokit/seal) |

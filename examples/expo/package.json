@@ -9,7 +9,7 @@
     "@byokit/overlay": "file:../../packages/overlay",
     "@byokit/seal": "file:../../packages/seal",
     "@byokit/statusbar": "file:../../packages/statusbar",
-    "@byokit/ui-core": "file:../../packages/ui-core",
+    "@byokit/ui": "file:../../packages/ui",
     "expo": "~57.0.25",
     "expo-build-properties": "~57.0.22",
     "expo-crypto": "~57.0.3",

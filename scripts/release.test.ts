@@ -39,7 +39,7 @@ test("bump patches and minors, refusing major and prereleases", () => {
 });
 
 test("parseChangelog reads all nine real changelogs", () => {
-  for (const dir of ["accounts", "decide", "herdr", "pair", "discover", "relay", "seal", "ui-core"]) {
+  for (const dir of ["accounts", "decide", "herdr", "pair", "discover", "relay", "seal", "ui"]) {
     const parsed = parseChangelog(changelog(dir));
     assert.ok(parsed.versions.length > 0, `${dir} has versions`);
     assert.ok(

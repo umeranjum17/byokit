@@ -1,5 +1,5 @@
 // The runtime kits' view state as React hooks (React and React Native alike). Each hook reads one of the
-// framework-free stores from `@byokit/ui-core/kits`; pass the same device client each render (e.g. from useMemo),
+// framework-free stores from `@byokit/ui/kits`; pass the same device client each render (e.g. from useMemo),
 // since a new one starts following afresh.
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { approvalsStore, type Approval, type ApprovalsSource, type FollowOptions } from './approvals.ts';

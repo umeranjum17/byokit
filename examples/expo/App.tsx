@@ -1,5 +1,5 @@
 // byokit on a phone (iOS and Android): "Sign in with ChatGPT" (@byokit/accounts' device code) and "Sign in with Claude"
-// (its own page, whose code the person pastes back), kept in the phone's secure storage, @byokit/ui-core's sheet
+// (its own page, whose code the person pastes back), kept in the phone's secure storage, @byokit/ui's sheet
 // phases; asking either with the answer streaming in (expo/fetch), a decision
 // with @byokit/decide's answerer, pairing with a computer over @byokit/link, and sealing data with @byokit/seal. For a demo with no account, point it
 // at the stand-in OpenAI and a link host on this computer (see e2e-android.sh):
@@ -18,7 +18,7 @@ import { answerer, decide } from '@byokit/decide';
 import { DeviceLink, secureDeviceStore, type LinkStatus } from '@byokit/link';
 import { boxKeyPairFromSeed, openBox, openSecretBox, sealBox, sealSecretBox, signDetached, signingKeyPairFromSeed, verifyDetached } from '@byokit/seal';
 import { forgettableStore, pairInput, pairingGeneration } from './pairing.ts';
-import { linkWords, pairingView, useSignIn, type PairPhase } from '@byokit/ui-core';
+import { linkWords, pairingView, useSignIn, type PairPhase } from '@byokit/ui';
 import { overlay, stateWords, type OverlayState } from '@byokit/overlay';
 import { stateWords as chipWords, status as chip } from '@byokit/statusbar';
 import { focusedField } from '@byokit/overlay/focused-field';
