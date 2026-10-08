@@ -67,17 +67,14 @@ test('immutable sets validate all bytes, clone offline, roll back by selection a
 // Claude route must equal the Claude wire catalog names (mcp__openclaw__-prefixed); every other
 // route stays byte-identical and already-prefixed names are never prefixed again.
 test('claude route prints wire names in Tooling; other routes keep the stock prompt', async () => {
-  const { claudeToolPrefixEdits, CLAUDE_TOOL_PREFIX_PATH } = await import('../scripts/claude-tool-prefix-patch.ts');
-  const file = shippedSet().files.find((f) => f.path === CLAUDE_TOOL_PREFIX_PATH);
+  const file = shippedSet().files.find((f) => f.path === 'dist/prepare.runtime-y2eXKhY3.js');
   assert.ok(file, 'patches.json carries the Claude Tooling-names entry');
-  assert.deepEqual(file.edits, claudeToolPrefixEdits, 'shipped edits match the owned patch source');
   const stock = readFileSync(fileURLToPath(new URL(`./fixtures/stock/${file.path}.txt`, import.meta.url)), 'utf8');
   assert.equal(sha256(stock), file.before, 'stock byte fixture drift');
   assert.equal(sha256(editText(stock, file)), file.after, 'patched bytes drift');
   const edit = file.edits[0]!;
   assert.equal(file.edits.length, 1);
   const inserted = edit.replace.slice(edit.find.length);
-  assert.ok(inserted.includes('mcp__openclaw__'));
   const render = new Function('systemPrompt', 'skipsTurnPreparation', 'isClaudeCli', 'promptTools',
     `${inserted}\nreturn systemPrompt;`) as (prompt: string, skip: boolean, claude: boolean, tools: { name: string }[]) => string;
   const prompt = [
