@@ -150,9 +150,10 @@ class WebFocusedFieldTest {
     var requests = 0
     var observed = "no snapshot"
     val app = instrumentation.targetContext.packageName
+    val nodes = mutableListOf<String>()
     do {
       val editors = mutableListOf<AccessibilityNodeInfo>()
-      val nodes = mutableListOf<String>()
+      nodes.clear()
       fun visit(node: AccessibilityNodeInfo) {
         var kept = false
         try {
@@ -180,7 +181,7 @@ class WebFocusedFieldTest {
           it.isPassword == password && (password || it.text?.toString() == text)
         } ?: false
         observed = "editors=${unique.size}, focused=${focused.size}, expected=${ready}"
-        if (requests == 0 || System.nanoTime() >= deadline) println("WebView raw nodes: $nodes")
+        if (requests == 0) println("WebView raw nodes: $nodes")
         if (ready && pageReady(activity)) {
           println("Android accessibility focus ready: $description; requests=$requests; $observed")
           return
@@ -202,6 +203,7 @@ class WebFocusedFieldTest {
       }
       Thread.sleep(100) // polling interval, never a substitute for the focus/text condition
     } while (System.nanoTime() < deadline)
+    println("WebView raw nodes at timeout: $nodes")
     println("WebView DOM at timeout: " + js(activity, "JSON.stringify({active:document.activeElement.id,ready:document.readyState,editors:document.querySelectorAll('input,textarea').length})"))
     instrumentation.runOnMainSync {
       println("WebView provider at timeout: ${activity.web.accessibilityNodeProvider?.javaClass?.name}; current=${WebView.getCurrentWebViewPackage()}")
