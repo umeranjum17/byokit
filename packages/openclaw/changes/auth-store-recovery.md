@@ -1,1 +1,0 @@
-FIX: Unreadable sealed sign-ins now fail closed with `AuthStoreUnreadableError` and recovery words, leaving `auth-store.sealed` byte-identical for original-key or backup repair and retry instead of starting signed out with a replacement store.
