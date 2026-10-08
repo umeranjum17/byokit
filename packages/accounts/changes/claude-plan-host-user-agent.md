@@ -1,1 +1,0 @@
-- FIX: The Claude plan inference route no longer sends a frozen `claude-code/2.1.74` User-Agent that Anthropic answers with `signed_out`. The client value is the host's: pass `claudeUserAgent` (or a `headers` entry) and your value wins; with none passed, no client version is sent. A caller's header now overrides the route's defaults instead of the other way round.
