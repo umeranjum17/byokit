@@ -10,7 +10,7 @@ const NOTE = { name: 'note', description: 'a test tool the host answers', parame
 
 async function make(): Promise<ContractFixture> {
   const stateDir = scratchDir('o11-fake');
-  const fake = fakeGateway();
+  const fake = fakeGateway(undefined, { rosterApplyMs: 150 });
   const kit = new OpenClawKit({
     stateDir,
     transport: fake.factory,
