@@ -1772,7 +1772,7 @@ Explicit headless selection uses `hostKeySeal` with a separately provisioned 32-
 resolver. It creates no key, saves no key and has no plaintext fallback. The host owns key rotation and
 old-key backup retention; the mode-0 wire has a zero id and no key version. Resolver failures are sanitized.
 
-Acceptance: fake-only native/keyring unit tests exercise accounts' real fileStore, rotation, tamper/wrong
+Acceptance: fake-only native/keyring journeys (`test/journey-secrets.test.ts`) exercise accounts' real fileStore, rotation, tamper/wrong
 key rejection with no overwrite, dropped/failed key writes, unavailable storage and explicit headless
 sealing. Opt-in real Linux tests run in CI's own disposable D-Bus/Secret Service session, skipping when
 unavailable unless CI requires the provisioned service. `scripts/test-keyring.sh` clears inherited desktop
