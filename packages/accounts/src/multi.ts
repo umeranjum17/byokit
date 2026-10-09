@@ -13,7 +13,7 @@ export type AccountLike = { id: string; provider: string; name: string; state: S
 export type RoomSpan = 'session' | 'week' | 'month' | 'tightest';
 /** Every time here is epoch milliseconds; `at` is the source measurement time, never its receipt time. */
 export type Room = { left: number; span: RoomSpan; resetsAt?: number; at?: number } | { left: 'unknown'; at?: number };
-export type RunSelection = { account: string | 'default' | 'auto'; model?: string; needs?: string[] };
+export type RunSelection = { account: string | 'default' | 'auto'; model?: string; needs?: string[]; provider?: string };
 export type Defaults = { account?: string; model?: string; auto?: boolean };
 export type PickWhy = 'chosen' | 'default' | 'first_ready' | 'only' | 'most_room' | 'earlier_reset' | 'list_order' | 'no_reading' | 'refills_first';
 export type Considered = {
@@ -116,7 +116,7 @@ export function resolveSelection<A extends AccountLike>(accounts: readonly A[], 
   // A saved ready non-custom API default is explicit choice, never API fallback. Custom endpoints retain B4's refusal.
   const named = sel.account === 'default' ? defaultAccount?.state === 'ready' &&
     (defaultAccount.billing === 'subscription' || defaultAccount.billing === 'api' && defaultAccount.provider !== 'custom') ? defaultAccount.id : undefined : sel.account === 'auto' ? undefined : sel.account;
-  const provider = defaultAccount?.provider ?? accounts[0]?.provider;
+  const provider = sel.provider ?? defaultAccount?.provider ?? accounts[0]?.provider;
   const rows = consider(accounts, (a) => room(a, demand), nowMs, demand, models, provider, named);
   const considered = rows.map((c) => c.row);
   const auto = rank(rows); // also fills explanations for every eligible row, even on explicit selection

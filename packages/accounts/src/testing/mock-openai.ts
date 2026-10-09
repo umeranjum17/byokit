@@ -27,7 +27,8 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
   const state = {
     /** Refresh tokens OpenAI still honours; a refresh spends the old one (rotation), sign-out revokes one. */
     live: new Set<string>(),
-    requests: [] as { path: string; body: string }[],
+    /** Every request received: its path, body, and the ChatGPT account header (`chatgpt-account-id`) when sent. */
+    requests: [] as { path: string; body: string; account?: string }[],
     /** Scripts may be replaced between requests, without restarting the sign-in stand-in. */
     answers: [...answers],
     /** Refuse every refresh, as when the person signed out elsewhere. */
@@ -61,7 +62,7 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
     for await (const chunk of req) body += chunk;
     const url = new URL(req.url ?? '/', 'http://x');
     const form = new URLSearchParams(body);
-    state.requests.push({ path: url.pathname, body });
+    state.requests.push({ path: url.pathname, body, ...(req.headers['chatgpt-account-id'] ? { account: String(req.headers['chatgpt-account-id']) } : {}) });
     log?.(`${req.method} ${url.pathname} ${form.get('grant_type') ?? ''}`.trim());
     const send = (status: number, data: unknown, type = 'application/json') => {
       res.writeHead(status, { 'content-type': type, 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'POST, GET, OPTIONS' });

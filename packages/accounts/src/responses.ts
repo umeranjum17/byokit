@@ -246,6 +246,10 @@ export type Ask = {
   /** Each text piece, tool call, output item, and incomplete answer notification. */
   onEvent?: (event: ResponseStreamEvent) => void;
   signal?: AbortSignal;
+  /** Which signed-in account answers, resolved once before any request: `{ account: 'auto' | 'default' | id }`.
+   *  Omitted: the saved default, else the provider's first account, exactly as before. Consumed by
+   *  `Accounts.respond`; the bare `respond(o)` helper that takes a token ignores it. */
+  select?: { account: string };
   /** The app's own originator header value. Default: 'byokit'. */
   originator?: string;
 };

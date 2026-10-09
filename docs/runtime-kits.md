@@ -1240,7 +1240,8 @@ export type Room = { left: number; span: RoomSpan; resetsAt?: number; at?: numbe
 export type ModelInfo = { id: string; name: string; tier?: 'strong' | 'fast'; available: boolean;
   why?: 'plan' | 'resting' | 'signed_out'; until?: number };                   // id = 'provider/model'
 export type RunSelection = { account: AccountRef | 'default' | 'auto'; model?: string;
-  needs?: string[] };                // every other 'provider/model' the run may call (subagents, fallbacks)
+  needs?: string[];                  // every other 'provider/model' the run may call (subagents, fallbacks)
+  provider?: string };               // limits the choice to one provider; absent = the saved default's provider
 export type Defaults = { account?: AccountId; model?: string; auto?: boolean };
 export type Considered = { id: AccountId;
   out?: 'state' | 'resting' | 'billing' | 'model' | 'provider' | 'bound';   // why it is not a candidate; absent = one
@@ -1262,7 +1263,7 @@ export type MoveResult = { ok: true; session: string } | { ok: false; code: 'too
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // shared with @byokit/herdr
 ```
 
-`Room.at` optional, `RunSelection.needs`, `Considered`, `PickWhy` and `AccountPick.why`/`considered` are amendments to
+`Room.at` optional, `RunSelection.needs`, `RunSelection.provider` (the respond-select slice), `Considered`, `PickWhy` and `AccountPick.why`/`considered` are amendments to
 `@byokit/accounts`' `multi.ts` shapes and its Auto fixture: they land there first (fixture rows first), then O14 restates
 them, and the ui `fits` test checks both. The failure codes `'bound' | 'paid'` and `Considered.out: 'bound'` are
 kit-only (sessions bind to accounts only here): `@byokit/accounts` never returns them, and `fits` checks the accounts

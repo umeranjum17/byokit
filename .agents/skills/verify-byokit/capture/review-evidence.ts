@@ -45,6 +45,52 @@ type Screen = {
 
 const part = (page: Page, key: string, name: string) => page.locator(`#${key} [data-${name}]`);
 
+/** Sign in one ChatGPT account through the card (Sign in for the first, Add another after) and the stand-in's page. */
+async function connectChatGPT(page: Page, identity: { accountId: string; email: string; plan: string }, first: boolean) {
+  Object.assign(openai.state, identity);
+  const start = part(page, 'chatgpt', first ? 'signin' : 'add');
+  await start.waitFor({ state: 'visible' });
+  await start.click();
+  const codeAt = part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ });
+  await codeAt.waitFor();
+  const code = (await codeAt.textContent())!;
+  const [provider] = await Promise.all([page.context().waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
+  await provider.fill('#code', code.trim());
+  await provider.click('#continue');
+  await provider.close();
+  await part(page, 'chatgpt', 'status').filter({ hasText: /is connected/ }).waitFor();
+  await page.locator('#chatgpt [data-account]', { hasText: identity.email }).waitFor();
+}
+
+/** The stand-in does not serve ChatGPT's usage endpoint: answer it per account, so Auto has a room to rank. */
+async function withRooms(page: Page, rooms: Record<string, { usedPercent: number }>) {
+  await page.route('**/wham/usage', (route) => {
+    const id = route.request().headers()['chatgpt-account-id'];
+    const used = id ? rooms[id]?.usedPercent ?? 100 : 0;
+    return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
+      body: JSON.stringify({ rate_limit: { primary_window: { used_percent: used, limit_window_seconds: 604800, reset_after_seconds: 3600 } } }) });
+  });
+}
+
+/** Answers go through the page's own `/fwd/chatgpt/` proxy; send them to the stand-in instead of the real endpoint. */
+async function withAnswers(page: Page) {
+  await page.route('**/fwd/chatgpt/backend-api/codex/responses', async (route) => {
+    const h = route.request().headers();
+    const up = await fetch(`${openai.base}/codex/responses`, { method: 'POST', body: route.request().postData() ?? '',
+      headers: { 'content-type': 'application/json', authorization: h['authorization'] ?? '', 'chatgpt-account-id': h['chatgpt-account-id'] ?? '',
+        'openai-beta': h['openai-beta'] ?? '', originator: h['originator'] ?? '' } });
+    return route.fulfill({ status: up.status, contentType: up.headers.get('content-type') ?? 'text/event-stream', headers: { 'access-control-allow-origin': '*' }, body: await up.text() });
+  });
+}
+
+/** Pick Auto, ask, and wait for the answer (or the typed error the app shows for that ask). */
+async function askAuto(page: Page, question: string, answer: string | RegExp = `You said: ${question}`) {
+  await part(page, 'chatgpt', 'pick').selectOption('auto');
+  await part(page, 'chatgpt', 'question').fill(question);
+  await part(page, 'chatgpt', 'ask').click();
+  await part(page, 'chatgpt', 'answer').filter({ hasText: answer }).waitFor();
+}
+
 const SCREENS: Screen[] = [
   {
     id: 'signin-list',
@@ -137,6 +183,43 @@ const SCREENS: Screen[] = [
     async drive(page) {
       await page.locator('nav button', { hasText: 'Claude plan' }).click();
       await page.locator('h2').filter({ hasText: 'Claude plan' }).waitFor();
+    },
+  },
+  {
+    id: 'ask-select-work',
+    path: '',
+    what: 'Auto names the roomier account (Work) and answers from that account, not the personal default',
+    themes: [...themes],
+    formFactors: ['phone', 'desktop'],
+    interaction: 'ask-account-select',
+    before: { via: 'ref' },
+    async drive(page) {
+      await withRooms(page, { 'umer-work': { usedPercent: 40 }, 'umer-personal': { usedPercent: 70 } });
+      await withAnswers(page);
+      await connectChatGPT(page, { accountId: 'umer-work', email: 'umer@work.example', plan: 'team' }, true);
+      await connectChatGPT(page, { accountId: 'umer-personal', email: 'umer@example.com', plan: 'plus' }, false);
+      await askAuto(page, 'Which account am I?');
+      await part(page, 'chatgpt', 'picked').filter({ hasText: /Auto picks umer@work\.example/ }).waitFor();
+    },
+  },
+  {
+    id: 'ask-select-personal',
+    path: '',
+    what: 'After the picked account hits its limit, the next Auto moves to Personal and answers from it',
+    themes: [...themes],
+    formFactors: ['phone', 'desktop'],
+    interaction: 'ask-account-rest',
+    before: { via: 'ref' },
+    async drive(page) {
+      await withRooms(page, { 'umer-work': { usedPercent: 40 }, 'umer-personal': { usedPercent: 70 } });
+      await withAnswers(page);
+      await connectChatGPT(page, { accountId: 'umer-work', email: 'umer@work.example', plan: 'team' }, true);
+      await connectChatGPT(page, { accountId: 'umer-personal', email: 'umer@example.com', plan: 'plus' }, false);
+      await askAuto(page, 'Which account am I?');
+      openai.state.fail = { status: 429, body: JSON.stringify({ error: { code: 'rate_limit_exceeded', message: 'You have hit your usage limit' } }) };
+      await askAuto(page, 'Now hit the limit', /usage limit/i);
+      await askAuto(page, 'Who answers now?');
+      await part(page, 'chatgpt', 'picked').filter({ hasText: /Auto picks umer@example\.com/ }).waitFor();
     },
   },
 ];
