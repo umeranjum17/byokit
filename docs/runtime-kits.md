@@ -1621,8 +1621,9 @@ signalled or waited for.
   `.byokit-patches` (`{ id, files, tree }`, where `tree` is the sha256 of `.byokit-tree`) sits beside it. Both are
   written durably (write, `fsync`, rename, `fsync` the parent), then the whole tree is verified against them, and the temporary
   directory is renamed onto the final name and `fsync` the sets directory. Per-entry `fsync`s are not taken: the
-  manifest is a claim the pre-publication verification proves against every byte on disk, and after a power loss a
-  published set may be torn, but the adopt rule's full verification detects any torn entry as drift and rebuilds,
+  pre-publication verification re-reads the whole built tree and proves it matches the manifest, catching any copy or
+  derivation that deviated before publication; power-loss durability rests on the next-launch whole-tree check, and
+  after a power loss a published set may be torn, but the adopt rule's full verification detects any torn entry as drift and rebuilds,
   so a torn set is never launched. Wherever no bulk flush runs (every non-Linux platform, macOS, Windows and BSD
   included, and Linux without a working `sync -f`), durability rests on the same next-launch whole-tree verification: a set torn by power loss
   is detected as drift and rebuilt, never launched, and the worst case is a full reinstall. A rename that loses to another kit
