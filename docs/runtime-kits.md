@@ -1615,18 +1615,18 @@ signalled or waited for.
   stock set (`files: []`) is installed by 5.4's `npm ci`; every other set is copied from a verified stock set (never
   from `engineDir/node_modules`) with `cpSync(…, { recursive: true, verbatimSymlinks: true, mode: COPYFILE_FICLONE })`,
   no hardlinks. Verify version and commit and every `before`, apply the edits, verify every `after`, then freeze the
-  built copy in one pass: read its tree once, set files 0444 and directories 0555 (links untouched), flush once
-  (where `sync -f` runs: one filesystem-wide syncfs through coreutils `sync -f`; elsewhere no flush), and record the frozen entries as the
-  manifest `.byokit-tree` (a sorted JSON array of every entry's path, type, mode, size, sha256 or symlink target).
+  built copy: read its tree once, set files 0444 and directories 0555 (links untouched) in bounded batches, and flush
+  once (`sync -f` on Linux, one filesystem-wide syncfs; no flush elsewhere). The frozen entries become the manifest
+  `.byokit-tree` (a sorted JSON array of every entry's path, type, mode, size, sha256 or symlink target), and
   `.byokit-patches` (`{ id, files, tree }`, where `tree` is the sha256 of `.byokit-tree`) sits beside it. Both are
-  written durably (write, `fsync`, rename, `fsync` the parent), then the whole tree is verified against them, and the temporary
-  directory is renamed onto the final name and `fsync` the sets directory. Per-entry `fsync`s are not taken: the
-  pre-publication verification re-reads the whole built tree and proves the published tree equals the tree as read at
-  freeze time, and the patched files and build version were checked before freeze; power-loss durability rests on the next-launch whole-tree check, and
-  after a power loss a published set may be torn, but the adopt rule's full verification detects any torn entry as drift and rebuilds,
-  so a torn set is never launched. Wherever no bulk flush runs (every non-Linux platform, macOS, Windows and BSD
-  included, and Linux without a working `sync -f`), durability rests on the same next-launch whole-tree verification: a set torn by power loss
-  is detected as drift and rebuilt, never launched, and the worst case is a full reinstall. A rename that loses to another kit
+  written durably (write, `fsync`, rename, `fsync` the parent), the whole tree is verified against them, and the
+  temporary directory is renamed onto the final name and `fsync`ed in its parent. Per-entry `fsync`s are not taken.
+  Durability: the pre-publication check proves the published tree equals the tree as read at freeze time, and the
+  patched files and build version were checked before freeze. Power loss can still tear a published set; on any
+  platform, the adopt rule's next-launch whole-tree verification detects the torn entry as drift and rebuilds it, so a
+  torn set is never launched. Where no bulk flush runs (every non-Linux platform, macOS, Windows and BSD included, and
+  Linux without a working `sync -f`), that verification is the only power-loss guard, and the worst case is a full
+  reinstall. A rename that loses to another kit
   (`ENOTEMPTY`/`EEXIST`, `EPERM` on Windows) removes only its own temporary directory and adopts the winner after
   verification; any other error fails, never copy-over or remove-and-retry. A kit removes its own temporary directory
   on failure; another kit's is removed only when its `<pid>-<startTime>` is provably dead on Linux, and left
