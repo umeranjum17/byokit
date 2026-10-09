@@ -305,22 +305,26 @@ function card(key: string) {
       const want = q<HTMLSelectElement>('pick').value;
       const pick = resolveSelection(rows, await accounts.defaults(ME), { account: want }, (a) => rooms.get(a.id) ?? { left: 'unknown' }, Date.now());
       if (mine !== asking) return;
-      if (!pick.ok) { out.textContent = pick.reason; settle(mine); draw(); return; }
+      // A default that cannot answer is refused by respond itself, so its reason is shown there, not a label for another account.
+      const answerable = pick.ok && (want !== 'default' || pick.how === 'default');
+      if (!pick.ok && want !== 'default') { out.textContent = pick.reason; settle(mine); draw(); return; }
       if (mine !== asking) return;
       const picked = q('picked');
-      const who = pick.account.email ?? pick.account.name;
-      const room = rooms.get(pick.account.id);
-      picked.textContent = want === 'auto' && typeof room?.left === 'number'
-        ? `Auto picks ${who}: ${Math.round(room.left)}% left.`
-        : `Using ${who}: ` + say(`pick.why.${pick.why}`, { name: pick.account.name, provider: pick.account.provider });
-      show('picked', true);
+      if (answerable) {
+        const who = pick.account.email ?? pick.account.name;
+        const room = rooms.get(pick.account.id);
+        picked.textContent = want === 'auto' && typeof room?.left === 'number'
+          ? `Auto picks ${who}: ${Math.round(room.left)}% left.`
+          : `Using ${who}: ` + say(`pick.why.${pick.why}`, { name: pick.account.name, provider: pick.account.provider });
+      }
+      show('picked', answerable);
       draw();
       const signal = mine.signal;
       const onText = (d: string) => { if (mine === asking) out.textContent += d; };
       try {
         const text = key === 'claude'
           ? await accounts.respond(ME, { provider: 'claude', model: PROVIDERS.claude.models.strong, max_tokens: 1024, system: 'Answer in a few short sentences.', messages: [{ role: 'user', content: input }], onText, signal })
-          : await accounts.respond(ME, { instructions: 'Answer in a few short sentences.', input, onText, signal, select: { account: pick.account.id } });
+          : await accounts.respond(ME, { instructions: 'Answer in a few short sentences.', input, onText, signal, select: { account: want } });
         if (mine === asking) out.textContent = text;
       } catch (e: any) { if (mine === asking) out.textContent = e.message; }
       settle(mine);

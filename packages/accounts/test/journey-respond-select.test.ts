@@ -69,7 +69,7 @@ test('respond answers from the selected ChatGPT account, rests only that one, an
     const before = answers(openai.state.requests).length;
     await assert.rejects(
       accounts.respond(1, { instructions: 'Be brief.', input: 'again', select: { account: 'auto' } }),
-      (e: any) => e instanceof ResponseError && e.kind === 'rate_limit',
+      (e: any) => e instanceof ResponseError && e.kind === 'rate_limit' && e.until > Date.now(),
     );
     assert.equal(answers(openai.state.requests).length, before + 1, 'one request, no retry on another account');
     const rows = await accounts.list(1);
@@ -105,11 +105,91 @@ test('respond answers from the selected ChatGPT account, rests only that one, an
       (e: any) => e instanceof ResponseError && e.kind === 'signed_out',
     );
     assert.equal(answers(openai.state.requests).length, asked, 'no request was sent for the signed-out id');
+  } finally {
+    accounts.stop();
+    await openai.close();
+  }
+});
+
+async function twoSignIns(name: string) {
+  const openai = await mockOpenAI();
+  const store = fileStore(join(scratchDir(name), 'member-1.json'), sealing);
+  const saved = new Map<string, string>();
+  const keyStore = () => ({ get: async (id: string) => saved.get(id) ?? null, set: async (id: string, key: string) => { saved.set(id, key); }, delete: async (id: string) => saved.delete(id), list: async () => [] });
+  const accounts = new Accounts<any, number>(
+    { authBase: openai.base, apiBase: openai.base, app: 'byokit journey', store: () => store, keyStore },
+    portable,
+  );
+  Object.assign(openai.state, { accountId: 'umer-work', email: 'umer@work.example', plan: 'team' });
+  const workSignIn = await accounts.add(1, 'chatgpt', { via: 'code' });
+  openai.approve(workSignIn.signIn!.code!);
+  await accounts.finished(1, workSignIn.id);
+  const work = accounts.view(1, workSignIn.id)!.id!;
+  await accounts.rename(1, work, 'Work');
+  Object.assign(openai.state, { accountId: 'umer-personal', email: 'umer@example.com', plan: 'plus' });
+  const personalSignIn = await accounts.add(1, 'chatgpt', { via: 'code' });
+  openai.approve(personalSignIn.signIn!.code!);
+  await accounts.finished(1, personalSignIn.id);
+  const personal = accounts.view(1, personalSignIn.id)!.id!;
+  await accounts.rename(1, personal, 'Personal');
+  return { openai, store, accounts, work, personal };
+}
+
+test('a default that cannot answer is refused typed, and Auto never answers from a non-ChatGPT default', async () => {
+  const { openai, store, accounts, work, personal } = await twoSignIns('journey-default-refusals');
+  try {
+    // A saved Anthropic key is the default: Auto still answers from the ChatGPT sign-in, and the default is refused.
+    const api = await accounts.add(1, 'anthropic', { via: 'key', key: 'sk-ant-journey' });
+    await accounts.setDefaults(1, { account: api.id });
+    assert.equal(await accounts.respond(1, { instructions: 'Be brief.', input: 'Auto?', select: { account: 'auto' } }), 'You said: Auto?');
+    assert.equal(answers(openai.state.requests).at(-1)!.account, 'umer-work', 'Auto answered from ChatGPT, not the Anthropic default');
+    const apiAsked = answers(openai.state.requests).length;
     await assert.rejects(
-      accounts.respond(1, { instructions: 'Be brief.', input: 'default ghost', select: { account: 'default' } }),
-      (e: any) => e instanceof ResponseError,
+      accounts.respond(1, { instructions: 'Be brief.', input: 'default', select: { account: 'default' } }),
+      (e: any) => e instanceof ResponseError && e.kind === 'not_included',
     );
-    assert.equal(answers(openai.state.requests).length, asked, 'no request was sent for the signed-out default');
+    assert.equal(answers(openai.state.requests).length, apiAsked, 'no request for a non-ChatGPT default');
+
+    // The saved ChatGPT default is signed out: refused as signed_out, and Work (ready) does not answer for it.
+    await accounts.setDefaults(1, { account: personal });
+    await store.delete(personal);
+    const outAsked = answers(openai.state.requests).length;
+    await assert.rejects(
+      accounts.respond(1, { instructions: 'Be brief.', input: 'default', select: { account: 'default' } }),
+      (e: any) => e instanceof ResponseError && e.kind === 'signed_out',
+    );
+    assert.equal(answers(openai.state.requests).length, outAsked, 'no request for the signed-out default');
+
+    // Work is the only signed-in account. A limit rests it, and the next Auto refuses as rate_limit with its until.
+    openai.state.fail = { status: 429, body: JSON.stringify({ error: { code: 'rate_limit_exceeded', message: 'You have hit your usage limit' } }) };
+    await assert.rejects(
+      accounts.respond(1, { instructions: 'Be brief.', input: 'limit', select: { account: 'auto' } }),
+      (e: any) => e instanceof ResponseError && e.kind === 'rate_limit' && e.until > Date.now(),
+    );
+    const restingAsked = answers(openai.state.requests).length;
+    await assert.rejects(
+      accounts.respond(1, { instructions: 'Be brief.', input: 'all resting', select: { account: 'auto' } }),
+      (e: any) => e instanceof ResponseError && e.kind === 'rate_limit' && e.until > Date.now(),
+    );
+    assert.equal(answers(openai.state.requests).length, restingAsked, 'no request while every signed-in account rests');
+    assert.equal((await accounts.list(1)).find((r) => r.id === work)!.state, 'resting');
+  } finally {
+    accounts.stop();
+    await openai.close();
+  }
+});
+
+test('a bare-id default that is signed out is refused, not answered from the other ChatGPT account', async () => {
+  const { openai, store, accounts, work } = await twoSignIns('journey-bare-default');
+  try {
+    await accounts.setDefaults(1, { account: work });
+    for (const c of await store.list()) if (!c.providerId.includes('.')) await store.delete(c.providerId);
+    const asked = answers(openai.state.requests).length;
+    await assert.rejects(
+      accounts.respond(1, { instructions: 'Be brief.', input: 'bare', select: { account: 'default' } }),
+      (e: any) => e instanceof ResponseError && e.kind === 'signed_out',
+    );
+    assert.equal(answers(openai.state.requests).length, asked, 'no request for the signed-out bare default');
   } finally {
     accounts.stop();
     await openai.close();

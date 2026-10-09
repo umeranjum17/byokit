@@ -353,7 +353,9 @@ does not return the chosen account. An explicit id whose sign-in is gone is refu
 `signed_out` before any request, an explicit id never falls back to the default, and a limit or lapsed sign-in rests
 only the account that ran (so the next Auto skips it) while the saved default is left unchanged. `select: { account: 'default' }`
 answers only from the saved default: when it is signed out or not ready, `respond` refuses with `signed_out`, and while it
-rests with `rate_limit` and its `until`, before any request and never from another account. Omitting `select`
+rests with `rate_limit` and its `until`, before any request and never from another account. Auto and default
+consider only ChatGPT accounts; when every signed-in one rests, Auto refuses with `rate_limit` and the soonest `until`, and
+`signed_out` only when none is signed in. Omitting `select`
 keeps the saved default, else the provider's first account, exactly as before.
 
 A cut-off answer always throws `IncompleteError` (a `ResponseError` with `kind: null`), with or without tools.

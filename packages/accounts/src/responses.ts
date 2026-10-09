@@ -7,7 +7,6 @@
 // and `text.verbosity` with the `text.format` schema. Without `tools` the answer is the plain text, as before; with
 // `tools` the result carries the output items (`function_call` and the rest) next to the text.
 import { classify, type Kind } from './limits.ts';
-import type { RunSelection } from './multi.ts';
 
 const limitKind = (code: string): Kind | null => code === 'usage_not_included' ? 'not_included'
   : /^(usage_limit_reached|rate_limit_exceeded)$/.test(code) ? 'rate_limit' : null;
@@ -250,7 +249,7 @@ export type Ask = {
   /** Which signed-in account answers, resolved once before any request: `{ account: 'auto' | 'default' | id }`.
    *  Omitted: the saved default, else the provider's first account, exactly as before. Consumed by
    *  `Accounts.respond`; the bare `respond(o)` helper that takes a token ignores it. */
-  select?: RunSelection;
+  select?: { account: string };
   /** The app's own originator header value. Default: 'byokit'. */
   originator?: string;
 };
