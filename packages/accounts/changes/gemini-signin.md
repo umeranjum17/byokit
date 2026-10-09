@@ -1,1 +1,1 @@
-- Add the Gemini Code Assist (Google Cloud Code Assist) browser and paste sign-in to `@byokit/accounts` on a computer, with the `google-gemini-cli:browser` and `:paste` routes offered once the flow lands.
+- Add the Gemini Code Assist (Google Cloud Code Assist) browser and paste sign-in to `@byokit/accounts` on a computer, with the `google-gemini-cli:browser` and `:paste` routes; `googleBase` points it at a stand-in host.
