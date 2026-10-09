@@ -21,7 +21,7 @@ wss.on('connection', (ws) => host.accept(ws));
 const urls = [`ws://127.0.0.1:${(wss.address() as AddressInfo).port}/link`];
 after(async () => { await browser.close(); host.close(); wss.close(); site.close(); });
 
-test('browser deep link pairs view-only, reads and retains its sealed grant across reload', async () => {
+test('browser deep link pairs view-only, reads and retains its sealed grant across reload', { timeout: 120_000 }, async () => {
   const context = await browser.newContext();
   const page = await context.newPage();
   const errors: string[] = [];
@@ -41,7 +41,7 @@ test('browser deep link pairs view-only, reads and retains its sealed grant acro
   await context.close();
 });
 
-test('pasted offline envelope pairs, expired and control offers are refused before pairing', async () => {
+test('pasted offline envelope pairs, expired and control offers are refused before pairing', { timeout: 120_000 }, async () => {
   const context = await browser.newContext();
   const page = await context.newPage();
   await page.goto(site.url + 'pair.html');

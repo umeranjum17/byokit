@@ -4,6 +4,8 @@
 // the plan named, an answer streamed, through the page's own server to recorded stand-ins. Plus what makes it an
 // installable PWA.
 // BYOKIT_EXAMPLE_SHOTS=<folder> takes the README pictures, showing the code in OpenAI's own format, not the stand-in's.
+// Every test carries a 120s timeout: Playwright's launches, closes and evaluates have no timeout of their own, so a wedged
+// one must fail this job with the test's name (node:test prints it) long before the CI job cap cancels the whole run.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
@@ -23,7 +25,7 @@ after(async () => { await browser.close(); site.close(); await openai.close(); }
 /** A part of one provider's card. */
 const part = (page: Page, key: string, name: string) => page.locator(`#${key} [data-${name}]`);
 
-test('sign in with ChatGPT in a browser: device code, the plan named, kept across a reload, signed out', async () => {
+test('sign in with ChatGPT in a browser: device code, the plan named, kept across a reload, signed out', { timeout: 120_000 }, async () => {
   const context = await browser.newContext();
   const page = await context.newPage();
   const errors: string[] = [];
@@ -62,7 +64,7 @@ test('sign in with ChatGPT in a browser: device code, the plan named, kept acros
   await context.close();
 });
 
-test('sign in with Claude in a browser: its page, the code pasted back, the plan named, an answer streamed', async () => {
+test('sign in with Claude in a browser: its page, the code pasted back, the plan named, an answer streamed', { timeout: 120_000 }, async () => {
   const fixture = (f: string) => JSON.parse(readFileSync(new URL(`../../fixtures/conformance/${f}`, import.meta.url), 'utf8'));
   const plan = fixture('claude-plan-typescript.json'), messages = fixture('claude-messages-typescript.json').cases[0];
   // Routed here, so the page's own requests are seen (a service worker's would not be).
@@ -108,7 +110,7 @@ test('sign in with Claude in a browser: its page, the code pasted back, the plan
   await context.close();
 });
 
-test('two ChatGPT plans: every plan listed with billing and room, Auto asks the roomiest, switching sticks', async () => {
+test('two ChatGPT plans: every plan listed with billing and room, Auto asks the roomiest, switching sticks', { timeout: 120_000 }, async () => {
   const context = await browser.newContext({ serviceWorkers: 'block' });
   const page = await context.newPage();
   const errors: string[] = [];
@@ -172,7 +174,7 @@ test('two ChatGPT plans: every plan listed with billing and room, Auto asks the 
   await context.close();
 });
 
-test('Ask on both cards: one question at a time, Stop, and an older answer never overwrites a newer one', async () => {
+test('Ask on both cards: one question at a time, Stop, and an older answer never overwrites a newer one', { timeout: 120_000 }, async () => {
   // Synthetic answers only: each question is held until the test answers it, with "<question> final", or fails it.
   const fixture = (f: string) => JSON.parse(readFileSync(new URL(`../../fixtures/conformance/${f}`, import.meta.url), 'utf8'));
   const plan = fixture('claude-plan-typescript.json'), recorded = fixture('claude-messages-typescript.json').cases[0].stream;
@@ -208,6 +210,7 @@ test('Ask on both cards: one question at a time, Stop, and an older answer never
   const [provider] = await Promise.all([context.waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
   await provider.fill('#code', code);
   await provider.click('#continue');
+  assert.match((await provider.locator('#words').textContent())!, /Signed in/); // let the form's page land first: closing mid-navigation wedges page.close(), which has no timeout of its own
   await provider.close();
   await part(page, 'claude', 'signin').click();
   await page.locator('#claude [data-open][href*="state="]').waitFor();
@@ -261,7 +264,7 @@ test('Ask on both cards: one question at a time, Stop, and an older answer never
   await context.close();
 });
 
-test('two tabs serialize sign-out and a queued refresh through Web Locks', async () => {
+test('two tabs serialize sign-out and a queued refresh through Web Locks', { timeout: 120_000 }, async () => {
   const context = await browser.newContext();
   const first = await context.newPage();
   const second = await context.newPage();
@@ -293,7 +296,7 @@ test('two tabs serialize sign-out and a queued refresh through Web Locks', async
   await context.close();
 });
 
-test('an installable PWA: its manifest and a service worker that keeps the page working offline', async () => {
+test('an installable PWA: its manifest and a service worker that keeps the page working offline', { timeout: 120_000 }, async () => {
   const context = await browser.newContext();
   const page = await context.newPage();
   await page.goto(site.url);
@@ -324,7 +327,7 @@ test('an installable PWA: its manifest and a service worker that keeps the page 
   await context.close();
 });
 
-test('the README pictures: signed out, the code, connected', { skip: !process.env.BYOKIT_EXAMPLE_SHOTS }, async () => {
+test('the README pictures: signed out, the code, connected', { skip: !process.env.BYOKIT_EXAMPLE_SHOTS, timeout: 120_000 }, async () => {
   const open = async () => {
     const context = await browser.newContext({ viewport: { width: 390, height: 450 }, deviceScaleFactor: 2 });
     const page = await context.newPage();
@@ -350,6 +353,7 @@ test('the README pictures: signed out, the code, connected', { skip: !process.en
   const [provider] = await Promise.all([context.waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
   await provider.fill('#code', code);
   await provider.click('#continue');
+  assert.match((await provider.locator('#words').textContent())!, /Signed in/); // as above: never close the page while its form's navigation is still in flight
   await provider.close();
   await page.locator('#chatgpt [data-email]').filter({ hasText: 'umer@example.com' }).waitFor();
   await shot('pwa-3-connected');

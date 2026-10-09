@@ -12,7 +12,7 @@ self.addEventListener('install', e => e.waitUntil(caches.open('byokit-shell-v3')
 self.addEventListener('fetch', e => { if (new URL(e.request.url).origin !== location.origin) return;
 e.respondWith(fetch(e.request).catch(() => caches.match(e.request))); });`;
 
-test('installed shell includes usage offline and upgrades only its own old caches', async () => {
+test('installed shell includes usage offline and upgrades only its own old caches', { timeout: 120_000 }, async () => {
   const site = await serve();
   let worker = legacy;
   const server = createServer(async (req, res) => {
