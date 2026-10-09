@@ -1,4 +1,4 @@
-// `@byokit/overlay` React Native entry (docs/capability-kits.md 7.3): the only file loading the 'ByokitOverlay' native
+// `@byokit/bubble` React Native entry (docs/capability-kits.md 7.3): the only file loading the 'ByokitOverlay' native
 // module. It is built for Android only, so on iOS the lookup is null and `overlay` is `unsupported`.
 import { requireOptionalNativeModule } from 'expo-modules-core';
 import { createOverlay } from './overlay.ts';

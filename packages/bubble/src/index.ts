@@ -1,4 +1,4 @@
-// `@byokit/overlay` default entry (docs/capability-kits.md 7.3): native-free, so it loads on every platform. Here
+// `@byokit/bubble` default entry (docs/capability-kits.md 7.3): native-free, so it loads on every platform. Here
 // there is no native module, so `overlay` is `unsupported`; React Native resolves `rn.ts` instead.
 import { createOverlay } from './overlay.ts';
 

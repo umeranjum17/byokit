@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, useColorScheme, View } from 'react-native';
-import { overlay } from '@byokit/overlay';
-import { screenFrame, type ScreenFrameResult } from '@byokit/overlay/screen-frame';
+import { overlay } from '@byokit/bubble';
+import { screenFrame, type ScreenFrameResult } from '@byokit/bubble/screen-frame';
 
 /** The marker ring is 19 dp in radius with a 2.5 dp stroke: its centre parks this far above the
  *  target button's top edge, leaving a clear gap so neither ring nor label covers the button's text. */

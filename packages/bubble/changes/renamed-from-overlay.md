@@ -1,0 +1,1 @@
+- `@byokit/overlay` is now published as `@byokit/bubble`, with the same API and the same entries (`.`, `./focused-field`, `./screen-frame`, each with its React Native twin); its earlier versions are the `@byokit/overlay` releases below. **Deprecated:** the `@byokit/overlay` name; it stays published as a shim that re-exports this package through 0.3.x and is removed in 0.4.0.

@@ -6,7 +6,7 @@
     "@byokit/accounts": "file:../../packages/accounts",
     "@byokit/decide": "file:../../packages/decide",
     "@byokit/link": "file:../../packages/link",
-    "@byokit/overlay": "file:../../packages/overlay",
+    "@byokit/bubble": "file:../../packages/bubble",
     "@byokit/seal": "file:../../packages/seal",
     "@byokit/statusbar": "file:../../packages/statusbar",
     "@byokit/ui": "file:../../packages/ui",

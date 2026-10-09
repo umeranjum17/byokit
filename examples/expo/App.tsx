@@ -19,9 +19,9 @@ import { DeviceLink, secureDeviceStore, type LinkStatus } from '@byokit/link';
 import { boxKeyPairFromSeed, openBox, openSecretBox, sealBox, sealSecretBox, signDetached, signingKeyPairFromSeed, verifyDetached } from '@byokit/seal';
 import { forgettableStore, pairInput, pairingGeneration } from './pairing.ts';
 import { linkWords, pairingView, useSignIn, type PairPhase } from '@byokit/ui';
-import { overlay, stateWords, type OverlayState } from '@byokit/overlay';
+import { overlay, stateWords, type OverlayState } from '@byokit/bubble';
 import { stateWords as chipWords, status as chip } from '@byokit/statusbar';
-import { focusedField } from '@byokit/overlay/focused-field';
+import { focusedField } from '@byokit/bubble/focused-field';
 
 const ME = 1;
 const accounts = new Accounts<any, number>({
