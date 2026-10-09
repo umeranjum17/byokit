@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { isActionReply, LIMITS, MAX_ACTION_REPLY, type PushAction } from '../src/index.ts';
+import { LIMITS, MAX_ACTION_REPLY, type PushAction } from '../src/index.ts';
 import { paired, startRelay } from './helpers.ts';
 
 /** Expo accepts every send; each message is recorded so the test can read its one-use action token. */
@@ -51,24 +51,28 @@ test('a sealed reply is forwarded to the host callback unchanged', async () => {
   assert.deepEqual(seen, [{ device: h.grant.device.id, event: 'seal-1', action: 'answer', reply }]);
 });
 
-test('the reply bound accepts the maximum and refuses malformed or oversized replies without spending the token', async () => {
+test('the reply bound counts UTF-8 bytes: a reply within it is accepted even when JSON inflates it, one past it is refused', async () => {
   const world = expoWorld();
   const r = await startRelay({ push: { fetch: world.fetch } });
   const replies: (string | undefined)[] = [];
   const h = await paired(r, 'Phone', { onAction: (a) => { replies.push(a.reply); return null; } });
+  const euro = '€'.repeat(Math.floor(MAX_ACTION_REPLY / 3));
+  const atBound = euro + 'x'.repeat(MAX_ACTION_REPLY % 3);
+  const pastBound = euro + 'xxx';
+  const controls = '\u0001'.repeat(MAX_ACTION_REPLY);
+  assert.equal(Buffer.byteLength(atBound), MAX_ACTION_REPLY);
+  assert.equal(Buffer.byteLength(pastBound), MAX_ACTION_REPLY + 1);
   const token = await ask(r, h, world, 'bound-1');
-  for (const bad of [42, {}, [], ['x'], '', 'x'.repeat(MAX_ACTION_REPLY + 1)]) {
+  for (const bad of [42, {}, [], ['x'], '', 'x'.repeat(MAX_ACTION_REPLY + 1), pastBound]) {
     const res = await press(r.http, token, 'answer', bad);
     assert.equal(res.status, 400, `refused: ${JSON.stringify(bad).slice(0, 32)}`);
     assert.deepEqual(await res.json(), { error: 'bad reply' });
   }
-  assert.equal(isActionReply('x'.repeat(MAX_ACTION_REPLY)), true);
-  assert.equal(isActionReply('x'.repeat(MAX_ACTION_REPLY + 1)), false);
-  assert.equal(isActionReply(''), false);
-  const max = 'x'.repeat(MAX_ACTION_REPLY);
-  assert.equal((await press(r.http, token, 'answer', max)).status, 200, 'the token survived every refusal');
-  assert.deepEqual(replies, [max]);
-  assert.equal((await press(r.http, token, 'answer', max)).status, 404, 'still one use');
+  assert.equal((await press(r.http, token, 'answer', atBound)).status, 200, 'the token survived every refusal');
+  const token2 = await ask(r, h, world, 'bound-2');
+  assert.equal((await press(r.http, token2, 'answer', controls)).status, 200, 'a full-size reply the JSON encoder inflates six-fold is not refused');
+  assert.deepEqual(replies, [atBound, controls]);
+  assert.equal((await press(r.http, token, 'answer', atBound)).status, 404, 'still one use');
 });
 
 test('action authorization, one-use and rate limits are unchanged with a reply', async () => {

@@ -8,8 +8,9 @@ reading or storing it, while the one-use token, action authorization and rate li
 
 - `reply-forwarded`: `POST /relay/v1/push/action` with `{ token, action, reply }` reaches `onAction` as
   `PushAction.reply`, byte for byte.
-- `reply-bounded`: a non-empty string of at most `MAX_ACTION_REPLY` (8192) characters is accepted; anything else is
-  refused with `400 { error: 'bad reply' }` before the one-use token is spent.
+- `reply-bounded`: a non-empty string of at most `MAX_ACTION_REPLY` (8192) UTF-8 bytes is accepted, including a
+  multi-byte or control-character reply that JSON inflates; anything else is refused with
+  `400 { error: 'bad reply' }` before the one-use token is spent.
 - `reply-opaque`: the relay neither reads nor stores the reply; its state holds no ciphertext.
 
 ## How to get to it (user POV)
@@ -31,7 +32,7 @@ Preconditions: baseline (features/README.md), plus the built `@byokit/relay` and
   then run SKILL.md Evidence’s capture block. Exit code `0`.
 - **Forwarded unchanged, not stored.** The successful press logs status `200` with `value.got === reply`, the host
   callback shows the same `reply`, and `reply stored by relay?` is `false`.
-- **Bounded, and the token survives a refusal.** An 8193-character reply logs `400 {"error":"bad reply"}` and the
+- **Bounded, and the token survives a refusal.** An 8193-byte reply logs `400 {"error":"bad reply"}` and the
   next press with the same `token` logs `200`, so the token was not spent.
 - **The oversized leg is the error case**, showing the real typed HTTP status and body.
 

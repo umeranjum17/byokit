@@ -268,7 +268,7 @@ With `actions`, each device's notification carries its own one-use `action` toke
 answer, which goes back to the device.
 
 A press may also carry `reply`: one sealed ciphertext (for example a free-text answer sealed to the host's box key). It
-must be a non-empty string of at most `MAX_ACTION_REPLY` (8192) characters; anything else is refused before the token is
+must be a non-empty string of at most `MAX_ACTION_REPLY` (8192) UTF-8 bytes of ciphertext; anything else is refused before the token is
 spent, so a corrected press still works. The relay forwards the string unchanged to `onAction` as `PushAction.reply` and
 never reads or stores it. The host opens it with its own key; the relay's content boundary is unchanged.
 
