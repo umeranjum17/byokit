@@ -2,9 +2,11 @@
 // `keyringStore`, `fileStore`, `overrideStore`, `osKeyringStore`, and the sealing adapters
 // (`osKeyringSeal`, `hostKeySeal`, `hostKeyFileSeal`) are what a host passes around; `@byokit/secrets/web` and
 // `@byokit/secrets/native` are the browser and phone entries; `@byokit/accounts` is the accounts file a sealing
-// adapter protects. Every import is a published entry, never src or internals. Each journey folds the security and
-// correctness contracts it covers into its assertions. The journeys never touch the owner's keyring: keyring work
-// drives fake CLIs, or a private D-Bus session started for the test.
+// adapter protects. The journeys import those published entries plus three test helpers: `fake-cli.ts` (fake keyring
+// tools), `private-session.ts` (the real-keyring guard) and `scratchDir` from test-support. Cross-process cases spawn
+// the built `dist/index.js`. Each journey folds the security and correctness contracts it covers into its assertions.
+// The journeys never touch the owner's keyring: keyring work drives fake CLIs, or a private D-Bus session started
+// for the test.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs, { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -12,6 +14,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { webcrypto, randomBytes } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { build } from 'esbuild';
 import { IDBFactory } from 'fake-indexeddb';
@@ -42,9 +45,21 @@ function bench(tool: FakeTool, extra: Record<string, string> = {}) {
   writeFileSync(canaryFile, CANARY);
   const env = { FAKE_TOOL: tool, FAKE_LOG: log, FAKE_STATE: state, FAKE_CANARY_FILE: canaryFile, ...extra };
   const make = (service = 'byokit-secrets') => keyringStore({ bin, tool, service, env });
-  const calls = () => readFileSync(log, 'utf8').trim().split('\n').filter(Boolean)
-    .map((line) => JSON.parse(line) as { argv: string[]; env: Record<string, string>; stdinBytes: number; selfCheck?: string });
+  const calls = () => invocations(log);
   return { dir, bin, tool, env, make, calls };
+}
+
+type Invocation = { argv: string[]; env: Record<string, string>; stdinBytes: number; selfCheck?: string };
+function invocations(log: string): Invocation[] {
+  return readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line) as Invocation);
+}
+
+async function withPatchedFs<K extends 'fstatSync' | 'renameSync'>(name: K, patch: (real: (typeof fs)[K]) => (typeof fs)[K], run: () => unknown): Promise<void> {
+  const real = fs[name];
+  fs[name] = patch(real);
+  syncBuiltinESMExports();
+  try { await run(); }
+  finally { fs[name] = real; syncBuiltinESMExports(); }
 }
 
 function walk(dir: string, visit: (path: string, name: string) => void): void {
@@ -194,8 +209,9 @@ test('an app keeps one secret per name in the OS keyring, with the value only ev
   ]) assert.throws(() => assertPrivateKeyringSession({ ...isolated, ...change }), /private OS session/);
   assert.throws(() => assertPrivateKeyringSession({ BYOKIT_REAL_KEYRING: '1' }), /private OS session/);
 
-  if (process.platform === 'linux' && spawnSync('dbus-run-session', ['--version']).status === 0) await privateSecretService();
 });
+
+test('private Secret Service: locked and hung probes never unlock or prompt, and recover once unlocked', { skip: process.platform !== 'linux' || spawnSync('dbus-run-session', ['--version']).status !== 0 }, privateSecretService);
 
 test('a poisoned environment changes nothing: no secret is read from it and no spawn inherits it', async () => {
   const dir = scratchDir('secrets-env');
@@ -398,11 +414,8 @@ test('sealing keeps credentials encrypted and fails closed: wrong, tampered, mis
     chmodSync(dirname(permKey), 0o750);
     assert.throws(() => hostKeyFileSeal(perm), code('invalid'));
     chmodSync(dirname(permKey), 0o700);
-    const originalFstat = fs.fstatSync;
-    fs.fstatSync = ((...args: Parameters<typeof fs.fstatSync>) => ({ ...originalFstat(...args), uid: process.getuid!() + 1, isFile: () => true })) as typeof fs.fstatSync;
-    syncBuiltinESMExports();
-    try { assert.throws(() => hostKeyFileSeal(perm), code('invalid')); }
-    finally { fs.fstatSync = originalFstat; syncBuiltinESMExports(); }
+    await withPatchedFs('fstatSync', (real) => ((...args: Parameters<typeof fs.fstatSync>) => ({ ...real(...args), uid: process.getuid!() + 1, isFile: () => true })) as typeof fs.fstatSync,
+      () => assert.throws(() => hostKeyFileSeal(perm), code('invalid')));
   }
 
   // Eight processes racing on first use publish one complete key, and each opens the others' envelopes.
@@ -426,11 +439,8 @@ test('sealing keeps credentials encrypted and fails closed: wrong, tampered, mis
   const retiredBytes = Buffer.from(rotating.encryptString(CANARY));
   const rotPaths = ['store', 'archive'].map((name) => join(rot.stateDir, name));
   for (const path of rotPaths) writeFileAtomic(path, retiredBytes);
-  const originalRename = fs.renameSync;
-  fs.renameSync = ((from, to) => { if (to === rotPaths[1]) throw new Error(CANARY); return originalRename(from, to); }) as typeof fs.renameSync;
-  syncBuiltinESMExports();
-  try { assert.throws(() => rotating.rotate(rotPaths), code('unavailable')); }
-  finally { fs.renameSync = originalRename; syncBuiltinESMExports(); }
+  await withPatchedFs('renameSync', (real) => ((from, to) => { if (to === rotPaths[1]) throw new Error(CANARY); return real(from, to); }) as typeof fs.renameSync,
+    () => assert.throws(() => rotating.rotate(rotPaths), code('unavailable')));
   assert.ok(existsSync(retired), 'the old key stays until every store is rewritten');
   const resumed = hostKeyFileSeal(rot);
   for (const path of rotPaths) assert.equal(resumed.decryptString(readFileSync(path)), CANARY, 'a mixed-generation store stays readable');
@@ -563,11 +573,8 @@ test('sealing keeps credentials encrypted and fails closed: wrong, tampered, mis
   assert.equal(modeOne[4], 1);
   const dualOptions = osKeyringSeal({ ...upgradeOptions, dualWrap: true });
   const upgraded = accountFileStore(upgradePath, dualOptions);
-  const originalUpgradeRename = fs.renameSync;
-  fs.renameSync = ((from, to) => { if (to === upgradePath) throw new Error('interrupted'); return originalUpgradeRename(from, to); }) as typeof fs.renameSync;
-  syncBuiltinESMExports();
-  try { await assert.rejects(upgraded.read('provider'), /interrupted/); }
-  finally { fs.renameSync = originalUpgradeRename; syncBuiltinESMExports(); }
+  await withPatchedFs('renameSync', (real) => ((from, to) => { if (to === upgradePath) throw new Error('interrupted'); return real(from, to); }) as typeof fs.renameSync,
+    () => assert.rejects(upgraded.read('provider'), /interrupted/));
   assert.deepEqual(readFileSync(upgradePath), modeOne);
   assert.equal((await upgraded.read('provider'))?.type, 'api_key');
   const upgradedBytes = readFileSync(upgradePath);
@@ -724,6 +731,24 @@ test('the browser and phone entries keep secrets at rest, and the published entr
   fake.setItemAsync = async () => { throw new Error(CANARY); };
   await assert.rejects(phone.set('x', CANARY), code('failed'));
 
+  // The optional SecureStore peer loads on demand: while it is missing a call maps to unavailable, and once it is
+  // installed the next call retries the import and succeeds. The bundle keeps expo-secure-store external so its
+  // import is resolved at run time, the way a host app resolves it.
+  const peerDir = scratchDir('secrets-peer');
+  const peerBundle = await build({
+    stdin: { contents: "export { nativeStore } from '@byokit/secrets/native';", resolveDir: import.meta.dirname },
+    bundle: true, platform: 'browser', format: 'esm', write: false, external: ['expo-secure-store'], logLevel: 'silent',
+  });
+  const peerPath = join(peerDir, 'native.mjs');
+  writeFileSync(peerPath, peerBundle.outputFiles[0].text);
+  const late = (await import(pathToFileURL(peerPath).href) as { nativeStore: typeof nativeStore }).nativeStore();
+  await assert.rejects(late.get('k'), (e: any) => e?.code === 'unavailable' && !String(e.message).includes(CANARY));
+  const peerModule = join(peerDir, 'node_modules', 'expo-secure-store');
+  mkdirSync(peerModule, { recursive: true });
+  writeFileSync(join(peerModule, 'package.json'), JSON.stringify({ name: 'expo-secure-store', type: 'module', main: 'index.js' }));
+  writeFileSync(join(peerModule, 'index.js'), 'export async function getItemAsync() { return "peer-secret"; } export async function setItemAsync() {} export async function deleteItemAsync() {}');
+  assert.equal(await late.get('k'), 'peer-secret', 'the failed peer load was cached instead of retried');
+
   // Both published cross-platform entries bundle for a phone and a browser with no Node code, and run in a fresh VM.
   for (const condition of ['browser', 'react-native']) {
     const bundle = await build({
@@ -772,7 +797,6 @@ test('a keystore run under a locked-down permission set never touches anyone els
   }
   const before = snapshot(decoyHome);
   const repo = resolve(import.meta.dirname, '..', '..', '..');
-  const distUrl = new URL('../dist/index.js', import.meta.url).href;
   const fakeCliUrl = new URL('./fake-cli.ts', import.meta.url).href;
 
   // Control: under these flags, reading the decoy someone's sign-in is refused outright.
@@ -787,7 +811,7 @@ test('a keystore run under a locked-down permission set never touches anyone els
     writeFileSync(runFile, `
       import { writeFileSync } from 'node:fs';
       import { join } from 'node:path';
-      import { fileStore, keyringStore } from ${JSON.stringify(distUrl)};
+      import { fileStore, keyringStore } from ${JSON.stringify(distIndex)};
       import { writeFakeCli } from ${JSON.stringify(fakeCliUrl)};
       const [workDir, tool] = process.argv.slice(2);
       const CANARY = 'sk-canary-isolation-1c5d';
@@ -816,8 +840,7 @@ test('a keystore run under a locked-down permission set never touches anyone els
     const out = JSON.parse(r.stdout.trim().split('\n').pop()!) as { ok: boolean };
     assert.equal(out.ok, true, `tool ${tool}: ${JSON.stringify(out)}`);
     // The fakes logged every call: the canary reached them on stdin only.
-    const logged = readFileSync(join(work, 'invocations.jsonl'), 'utf8').trim().split('\n').filter(Boolean)
-      .map((line) => JSON.parse(line) as { argv: string[]; env: Record<string, string>; selfCheck?: string });
+    const logged = invocations(join(work, 'invocations.jsonl'));
     assert.ok(logged.length >= 3, `tool ${tool}: expected calls, saw ${logged.length}`);
     for (const call of logged) {
       assert.equal(call.selfCheck, undefined, `tool ${tool}: the fake saw the canary in argv or env`);
