@@ -222,6 +222,22 @@ test('a pending save that never settles ends pairing when the computer drops the
   }
 });
 
+test('a compact pending save that never settles times out while the socket stays open', async () => {
+  const umer = await computer();
+  const at = await address(umer.host);
+  const settles = (p: Promise<unknown>) => Promise.race([p.then(() => 'paired', (e: LinkError) => e.code), sleep(3000).then(() => 'hung')]);
+  try {
+    const pairing = pairWithOffer(umer.host.compactOffer({ role: 'view', urls: [at.url] }).text, {
+      name: 'Umer phone', onWords: () => {}, timeoutMs: 200, onPending: () => new Promise<void>(() => {}),
+    });
+    assert.equal(await settles(pairing), 'timeout');
+    assert.equal(umer.asked(), 0, 'the computer never heard of the phone');
+  } finally {
+    at.close();
+    umer.host.close();
+  }
+});
+
 test('parseOffer reads a compact QR for inspection without a host key, and a version 1 offer keeps its host', async () => {
   const umer = await computer();
   const at = await address(umer.host);

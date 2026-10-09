@@ -118,10 +118,10 @@ async function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Ui
             }
           };
           if (!host.pin) return go();
-          // The host proved it holds the code; the app keeps its key before this device is disclosed in message 3. A slow
-          // save runs on no clock of ours: if the host drops the socket meanwhile, this pairing ends with that close.
+          // The host proved it holds the code; the app keeps its key before this device is disclosed in message 3. A save
+          // that never settles times out, or ends sooner when the host drops the socket.
           clearTimeout(timer);
-          Promise.resolve().then(() => host.pin!(hs.remoteKey)).then(() => {
+          within(o.timeoutMs ?? 8000, Promise.resolve().then(() => host.pin!(hs.remoteKey))).then(() => {
             if (settled) return;
             try { go(); } catch { fail(new LinkError('unreachable')); }
           }, fail);
@@ -183,13 +183,13 @@ type OfferOptions = PairOptions & {
  *  like a typed code over the packed addresses: same single use, life, words and approval; the host key it pins is
  *  the one the code handshake authenticated, handed to `onPending` before the host learns this device. */
 export async function pairWithOffer(scanned: string, o: OfferOptions): Promise<DeviceGrant> {
+  let shown = false; // words shown: the host knows this device and has spent the code, so no other address can answer
+  const words = { ...o, onWords: (w: string) => { shown = true; o.onWords(w); } };
   if (scanned.indexOf(COMPACT_TAG) >= 0) {
     const compact = decodeCompactOffer(scanned);
     const me = o.key ?? keyPair();
     const pin = o.onPending && ((key: Uint8Array) => o.onPending!(pendingGrant(scanned, { name: o.name, key: me, host: b64url(key) })));
     let last = new LinkError('unreachable');
-    let shown = false; // words shown: the host knows this device and spent the code, so no other address can answer
-    const words = { ...o, onWords: (w: string) => { shown = true; o.onWords(w); } };
     for (const url of compact.urls) {
       try {
         const l = await dial(url, me, { psk: codeKey(compact.code), pin }, { t: 'code', name: o.name, ...(pin ? { pending: 1 as const } : {}) }, words);
@@ -207,8 +207,6 @@ export async function pairWithOffer(scanned: string, o: OfferOptions): Promise<D
   const me = o.key ?? keyPair();
   if (o.onPending) await within(o.timeoutMs ?? 8000, Promise.resolve(o.onPending(pendingGrant(scanned, { name: o.name, key: me }))));
   let last = new LinkError('unreachable');
-  let shown = false; // words shown: the host took the ticket, so no other address can answer
-  const words = { ...o, onWords: (w: string) => { shown = true; o.onWords(w); } };
   for (const url of offer.urls) {
     try {
       const l = await dial(url, me, { key: unb64url(offer.host) }, { t: 'pair', ticket: offer.ticket, name: o.name, ...(o.onPending ? { pending: 1 as const } : {}) }, words);

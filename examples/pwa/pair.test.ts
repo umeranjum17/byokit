@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { WebSocketServer } from 'ws';
 import type { AddressInfo } from 'node:net';
-import { Host, keyPair, encodeOffer, parseOffer } from '../../packages/pair/src/index.ts';
+import { Host, keyPair, encodeOffer, parseV1Offer } from '../../packages/pair/src/index.ts';
 import { serve } from './serve.ts';
 
 const site = await serve();
@@ -50,8 +50,7 @@ test('pasted offline envelope pairs, expired and control offers are refused befo
   await page.click('#connect');
   await page.locator('#status').filter({ hasText: 'Ask your computer for an invitation to read here.' }).waitFor();
   const text = host.offer({ role: 'view', kind: 'browser', urls }).text;
-  const offer = parseOffer(text);
-  if (!('ticket' in offer)) throw new Error('expected a version 1 offer');
+  const offer = parseV1Offer(text);
   await page.fill('#offer', encodeOffer({ ...offer, expires: 1 }));
   await page.click('#connect');
   await page.locator('#status').filter({ hasText: 'run out' }).waitFor();
