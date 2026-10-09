@@ -670,15 +670,16 @@ Both are read-only: neither writes the defaults nor the account index. An id tha
 every reading unknown, so list order decides.
 
 ```ts
-import { Accounts, type Room } from '@byokit/accounts';
+import { Accounts, machineStore, type Room, type SafeStorageLike } from '@byokit/accounts';
 
+declare const seal: SafeStorageLike;
 declare function readingFor(account: { id: string }): Promise<Room>; // the host's own usage reading
 
-const accounts = new Accounts({ store: (member) => machineStore(member), app: 'my app' });
-const pick = await accounts.pick('umer', { account: 'auto' }, (account) => readingFor(account));
-if (pick.ok) {
-  console.log(pick.reason);                    // "Right now that's Work: 60% left this week"
-  for (const model of await accounts.models('umer', pick.account.id))
+const accounts = new Accounts({ store: (member) => machineStore(member, seal), app: 'my app' });
+const picked = await accounts.pick('umer', { account: 'auto' }, (account) => readingFor(account));
+if (picked.ok) {
+  console.log(picked.reason);                  // "Right now that's Work: 60% left this week"
+  for (const model of await accounts.models('umer', picked.account.id))
     console.log(model.id, model.available, model.why ?? '');
 }
 ```
