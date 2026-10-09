@@ -143,7 +143,7 @@ export type Route = {
   offerPolicy?: 'default' | 'explicit';
   legacy?: { provider: string; via: 'browser' | 'code' }; // retained explicit sign-in selectors
   /** @deprecated This route's `provider` before 0.7.0 (`anthropic` on `anthropic-cli`); use `provider` (`claude-cli`).
-   * Discovery data only, never a sign-in or `signedIn` id. Removed in 0.8.0, when that route's id becomes
+   * Discovery data only, never a sign-in or `signedIn` id. Removed in 0.9.0, when that route's id becomes
    * `claude-cli:cli:anthropic-cli`. */
   deprecatedProvider?: string;
   billingFrom?: 'source' | 'host';

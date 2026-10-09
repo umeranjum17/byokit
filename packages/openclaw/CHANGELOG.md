@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.8.0 (2026-10-09)
+
+- Forward actual thinking-token progress and report Gateway acceptance as `started`; reuse bounded, file-witnessed member admission status so ready runs avoid redundant sign-in checks without skipping authority checks. Device state uses the same live readiness boundary; `providerStatus` preserves unknown versus empty sign-in status.
+- FIX: On the Claude CLI route the printed `## Tooling` list now uses the Claude wire catalog names (`mcp__openclaw__<tool>`), so a listed tool can be called exactly as printed. Every other route keeps the stock prompt byte-identical, and already-prefixed names are never prefixed again.
+- The deprecated `anthropic` provider alias on route `anthropic-cli` stays readable as `route.deprecatedProvider` (`'anthropic'`); its removal moves to 0.9.0.
+- FIX: `OpenClawKit.abort` always returns a Promise, including after an engine drop; cancellation failures remain catchable without changing healthy abort results.
+- FIX: `ensureMember` resolves only once `agents.list` shows the member (bounded ~5 s wait, then a plain error naming the member), so a turn sent right after it is no longer rejected as `unknown agent id` while the engine hot-reloads its roster.
+
 ## 0.7.0 (2026-10-08)
 
 - FIX: Unreadable sealed sign-ins now fail closed with `AuthStoreUnreadableError` and recovery words, leaving `auth-store.sealed` byte-identical for original-key or backup repair and retry instead of starting signed out with a replacement store.

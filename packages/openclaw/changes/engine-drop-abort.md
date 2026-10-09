@@ -1,1 +1,0 @@
-- FIX: `OpenClawKit.abort` always returns a Promise, including after an engine drop; cancellation failures remain catchable without changing healthy abort results.

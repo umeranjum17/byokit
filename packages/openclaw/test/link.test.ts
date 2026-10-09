@@ -448,7 +448,7 @@ test('native CLI legacy browser sign-in survives full discovery and guards activ
   const a = await device(w, 'a');
   const native = (await a.oc.routes()).find(route => route.choice === 'anthropic-cli');
   assert.equal(native?.provider, 'claude-cli', 'discovery reports the provider signedIn and providers() use');
-  assert.equal(native?.deprecatedProvider, 'anthropic', 'the pre-0.7 provider stays readable until 0.8.0');
+  assert.equal(native?.deprecatedProvider, 'anthropic', 'the pre-0.7 provider stays readable until 0.9.0');
   assert.equal(native?.id, 'anthropic:cli:anthropic-cli', 'the route id is unchanged');
   assert.equal(native?.via, 'cli');
   assert.equal(native?.offer, false, 'unknown binary availability is not a default claim');
