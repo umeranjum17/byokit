@@ -1644,7 +1644,10 @@ signalled or waited for.
   `<name>.<random>` sibling or builds one, once per `prepare()`.
 - **Failure.** No spawn on an unverified set: state `failed`, `why: 'engine-patch'`, with the set and cause
   (`write`: a set or temporary directory cannot be created; `drift-after-build`: a freshly built set fails
-  verification) in the error. `KitState.patchSet` (5.2) is the adopted set's `id` (`null` before the first adoption).
+  verification) in the error. A failed install or verification also retains a size-capped, environment-free
+  diagnosis at `<stateDir>/logs/engine-install-drift.json` (first failed root-manifest/package check with expected
+  vs actual version or the read error, npm path and version, npm stderr tail) before the failed temporary tree is
+  deleted. `KitState.patchSet` (5.2) is the adopted set's `id` (`null` before the first adoption).
 
 **Rollback contract (one rule):** rollback is adopting another set. Copying from a verified stock set needs no
 network; only building the stock set runs `npm ci` (registry unless cached). A kit from before this section runs

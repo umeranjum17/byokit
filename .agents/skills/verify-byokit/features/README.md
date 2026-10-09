@@ -29,6 +29,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [OpenClaw sealed sign-in recovery](./openclaw-auth-recovery.md) — wrong-seal failure retains original bytes; correct-seal retry, healthy restart and fail-closed refusals reach ready (or refuse) through a real spawned pinned engine with an offline native stand-in, plus supplied-gateway marker legs.
 - [OpenClaw engine learning state](./openclaw-learning-state.md) — `learning()`/`setLearning()`/`restoreLearning()` on a stopped home: absence is a value, `propose` is visible, restores are byte for byte, refusals carry the real cause.
 - [OpenClaw engine-set freeze cost](./openclaw-engine-freeze.md) — clean first install freezes in seconds with no per-entry fsync; drift still rebuilds, torn sets never launch.
+- [OpenClaw install drift diagnostics](./openclaw-install-drift-diagnostics.md) — a failed install or post-build verification retains the first failed check, npm path/version and npm stderr tail at `<stateDir>/logs/engine-install-drift.json` after the failed temp is deleted.
 - [Machine store shared across apps](./accounts-machine-store.md) — a second app process is signed in already from the computer's machine store; a wrong seal and a missing store are refused.
 - [ChatGPT refresh refusal](./accounts-refresh-refusal.md) — a phone/browser ChatGPT sign-in kept through a passing 401 at a due or forced refresh, ended only by a revoked grant.
 - [Usage plan view](./usage-planview.md) — `@byokit/usage` selectors over fixture call records via `examples/usage-demo.ts`.
@@ -61,6 +62,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [accounts-claude-refresh](./accounts-claude-refresh.md) — transient refresh (no answer, 5xx, passing 401) keeps the sign-in, retry rotates the same grant, invalid_grant signs out.
 - [accounts-refresh-refusal](./accounts-refresh-refusal.md) — passing 401 at `access` or `recheck` keeps the ChatGPT sign-in, retry rotates, a revoked grant signs out.
 - [openclaw-auth-recovery](./openclaw-auth-recovery.md) — fail-closed startup, retained original and original-key retry through the built OpenClaw kit.
+- [openclaw-install-drift-diagnostics](./openclaw-install-drift-diagnostics.md) — forced fixture-package drift through the built kit's `prepare()` retains every diagnostics field.
 - [accounts-machine-store](./accounts-machine-store.md) — one sign-in reused by a second app through `machineStore`, wrong-seal and no-store refusals.
 - [usage-planview](./usage-planview.md) — plan/quota view rendered from call records.
 - [pack-fresh-project](./pack-fresh-project.md) — the packed-tarball fresh-consumer gate.
