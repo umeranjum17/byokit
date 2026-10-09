@@ -8,7 +8,7 @@ import { cloudSelection, CloudAccountError, type CloudOptions, type CloudStream 
 import type { AiBinding } from '@earendil-works/pi-ai/api/cloudflare-ai-binding';
 import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfile, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
-import { offered, provider, route, routes, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
+import { offered, provider, route, routes, PROVIDERS, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
 import { checkKeyModel, keyRespond, KeyRouteError, type KeyAsk, type KeyRuntime } from './key-routes.ts';
 import { claims, PORTABLE, portableEngine, signable } from './engine.ts';
@@ -16,7 +16,7 @@ import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
 import type { ChatGPTRespondAccount } from './chatgpt-plan.ts';
 import { emptyIndex, viewStore, memoryStore, refreshCredential, type AccountMetadata, type EndingStore, type RefreshStore } from './stores.ts';
-import type { Account, Defaults, Via } from './multi.ts';
+import { resolveSelection, type Account, type AccountPick, type Defaults, type ModelInfo, type Room, type RunSelection, type Via } from './multi.ts';
 import type { Credential } from '@earendil-works/pi-ai';
 import { callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';
 
@@ -261,6 +261,47 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       else this.preferred.delete(`${member}:${p.key}`);
     }
   }
+  /** Choose the account and model a run should use over this member's real `list()` and `defaults()`: one reading per
+   *  account, then the same pure chooser the portable entry exports. Read-only: it never writes defaults or the index.
+   *  `room` reads an account once (sync or a Promise); absent or throwing, every row reads unknown and list order decides. */
+  async pick(member: M, sel: RunSelection = { account: 'auto' },
+    room?: (account: Account, demand: readonly string[]) => Room | Promise<Room>): Promise<AccountPick<Account>> {
+    const accounts = await this.list(member);
+    const defaults = await this.defaults(member);
+    const demand = [...new Set([...(sel.model ? [sel.model] : []), ...(sel.needs ?? [])])];
+    const rooms = new Map<string, Room>();
+    for (const account of accounts) {
+      let read: Room = { left: 'unknown' };
+      try { if (room) read = await room(account, demand); } catch { read = { left: 'unknown' }; }
+      rooms.set(account.id, read);
+    }
+    const models = new Map(accounts.map((account) => [account.id, this.modelsOf(account)]));
+    return resolveSelection(accounts, defaults, sel, (account) => rooms.get(account.id) ?? { left: 'unknown' }, Date.now(),
+      (account) => models.get(account.id) ?? []);
+  }
+
+  /** One account's models from the catalogue, each usable or the word for why it is not. Read-only. */
+  async models(member: M, id: string): Promise<ModelInfo[]> {
+    id = this.accountKey(member, id);
+    const account = (await this.list(member)).find((a) => a.id === id);
+    if (!account) throw new Error('No such account.');
+    return this.modelsOf(account);
+  }
+
+  private modelsOf(account: Account): ModelInfo[] {
+    const p = PROVIDERS[account.provider];
+    if (!p) return [];
+    const why: ModelInfo['why'] = account.state === 'resting' ? 'resting' : account.state === 'not_included' ? 'plan' : account.state === 'ready' ? undefined : 'signed_out';
+    const rows: ModelInfo[] = [];
+    for (const tier of ['strong', 'fast'] as const) {
+      const id = p.models[tier];
+      if (!id) continue;
+      rows.push({ id, name: id, tier, available: account.state === 'ready',
+        ...(why ? { why } : {}), ...(account.state === 'resting' && account.until ? { until: account.until } : {}) });
+    }
+    return rows;
+  }
+
   async rename(member: M, id: string, name: string): Promise<Account> {
     id = this.accountKey(member, id);
     const account = (await this.list(member)).find((a) => a.id === id);
