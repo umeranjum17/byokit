@@ -129,7 +129,7 @@ export type FakeGateway = {
   drop(why: string): void;
   handle(method: string, fn: FakeHandler): void;
 } & { transport: GatewayTransport };
-export function fakeGateway(script?: FakeScript): FakeGateway {
+export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number }): FakeGateway {
   const calls: { method: string; params: unknown }[] = [];
   const failures = new Map<string, string[]>();
   const handlers = new Map<string, Handler>();
@@ -247,8 +247,13 @@ export function fakeGateway(script?: FakeScript): FakeGateway {
       agents: [...agents.values()].map((agent) => ({ id: agent.id })),
     }),
     'agents.create': (p) => {
-      ensureAgent(String(p.name), p.workspace ? String(p.workspace) : undefined);
-      return { id: String(p.name) };
+      const id = String(p.name);
+      const workspace = p.workspace ? String(p.workspace) : undefined;
+      // With rosterApplyMs the fake mirrors the pinned engine: create answers before the roster hot-reload
+      // makes the agent visible to agents.list (Crewhouse saw ~113 ms).
+      if (o?.rosterApplyMs) setTimeout(() => ensureAgent(id, workspace), o.rosterApplyMs);
+      else ensureAgent(id, workspace);
+      return { id };
     },
     'models.authStatus': (p) => ({
       providers: (agents.get(String(p?.agentId ?? 'main'))?.providers ?? []).map((provider) => ({ provider })),

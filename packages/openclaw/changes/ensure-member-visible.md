@@ -1,0 +1,1 @@
+- FIX: `ensureMember` resolves only once `agents.list` shows the member (bounded ~5 s wait, then a plain error naming the member), so a turn sent right after it is no longer rejected as `unknown agent id` while the engine hot-reloads its roster.

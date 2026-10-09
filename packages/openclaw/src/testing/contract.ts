@@ -81,6 +81,19 @@ export function openclawContract(make: () => Promise<ContractFixture>, o?: { ski
     }
   });
 
+  test('contract: a turn sent right after ensureMember is not an unknown agent', async () => {
+    const { kit } = await make();
+    try {
+      // The roster applies a beat after agents.create answers (engine hot-reload); ensureMember must wait
+      // until agents.list shows the member, so the first turn is not rejected as 'unknown agent id'.
+      await kit.ensureMember('m1');
+      const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:contract:6', message: 'hello fresh member' });
+      assert.ok(end.ok, JSON.stringify(end));
+    } finally {
+      await kit.stop();
+    }
+  });
+
   test('contract: a member cannot run in another member\'s session', async () => {
     const { kit } = await make();
     try {
