@@ -95,6 +95,7 @@ reply: { pong: 'ping' }
 | `LIMITS` | Per-client-address limits per minute |
 | `CLOSE` | WebSocket close codes the relay uses (replaced, not enrolled, bad proof, enrolment, revoked, too many) |
 | `isAllowedEndpoint`, `isExpoToken` | Checks for Web Push endpoints and Expo push tokens |
+| `MAX_ACTION_REPLY` | The most UTF-8 bytes a notification action's sealed `reply` may carry (8192) |
 | Types | `RelayOptions`, `RelayStore`, `RelayState`, `HostRecord`, `Enrolment`, `RelayClientOptions`, `RelayStatus`, `PushAction`, `Notification`, `PushRecord`, `Subscription`, `WebSubscription` |
 
 ## Relay
@@ -267,10 +268,11 @@ With `actions`, each device's notification carries its own one-use `action` toke
 `{ token, action }` to `/relay/v1/push/action`; the relay asks the host (`onAction`) and waits up to 15 seconds for the
 answer, which goes back to the device.
 
-A press may also carry `reply`: one sealed ciphertext (for example a free-text answer sealed to the host's box key). It
-must be a non-empty string of at most `MAX_ACTION_REPLY` (8192) UTF-8 bytes of ciphertext; anything else is refused before the token is
-spent, so a corrected press still works. The relay forwards the string unchanged to `onAction` as `PushAction.reply` and
-never reads or stores it. The host opens it with its own key; the relay's content boundary is unchanged.
+A press may also carry `reply`: one sealed ciphertext (for example a free-text answer sealed to the host's box key).
+It must be a non-empty string of at most `MAX_ACTION_REPLY` (8192) UTF-8 bytes of ciphertext; anything else is refused
+before the token is spent, so a corrected press still works. The relay forwards the string unchanged to `onAction` as
+`PushAction.reply` and never reads or stores it. The host opens it with its own key; the relay's content boundary is
+unchanged.
 
 ## Limits
 
