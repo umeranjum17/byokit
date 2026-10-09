@@ -1,4 +1,5 @@
 // Internal artifact seam. Published patch semantics live only in engine/patches.json.
+import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, constants, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { chmod, cp, open, readdir, rm } from 'node:fs/promises';
@@ -133,15 +134,25 @@ async function removeTemp(dir: string): Promise<void> {
   };
   await walk(dir); await rm(dir, { recursive: true, force: true });
 }
-async function freeze(dir: string): Promise<void> {
-  const entries = tree(dir);
-  // Bound descriptors/I/O while yielding the host event loop. Every regular file and directory is fsynced.
+const flushFs = (dir: string): Promise<void> => new Promise(resolve => {
+  // One filesystem-wide syncfs through `sync -f` (~2 s vs ~110 s of per-file fsyncs on the reference btrfs host);
+  // durability rule: docs/runtime-kits.md 5.16.
+  if (process.platform !== 'linux') return resolve();
+  const child = spawn('sync', ['-f', dir], { stdio: 'ignore' });
+  child.once('error', () => resolve());
+  child.once('exit', () => resolve());
+});
+// Freeze makes the tree read-only and returns its entries as the manifest; durability rule: docs/runtime-kits.md 5.16.
+async function freeze(dir: string): Promise<TreeEntry[]> {
+  // Bound I/O while yielding the host event loop: chmod only, in batches. Links are left untouched (and keep
+  // their recorded mode); every file becomes 0444 and every directory 0555, exactly what the manifest records.
+  const entries = tree(dir).map(entry => entry.kind === 'link' ? entry : { ...entry, mode: entry.kind === 'dir' ? 0o555 : 0o444 });
   const paths = [...entries.filter(e => e.kind === 'file'), ...entries.filter(e => e.kind === 'dir').reverse()];
   for (let i = 0; i < paths.length; i += 16) await Promise.all(paths.slice(i, i + 16).map(async entry => {
-    const path = join(dir, entry.path);
-    await chmod(path, entry.kind === 'dir' ? 0o555 : 0o444);
-    const fd = await open(path, 'r'); try { await fd.sync(); } finally { await fd.close(); }
+    await chmod(join(dir, entry.path), entry.mode);
   }));
+  await flushFs(dir);
+  return entries;
 }
 export function engineSetName(set: PatchSet): string { return `${sha256(set.upstream.integrity).slice(0, 16)}-${set.id}`; }
 export async function prepareEngineSet(engineDir: string, set: PatchSet, install: (dir: string) => void | Promise<void>, installMatches: (dir: string) => boolean): Promise<string> {
@@ -184,8 +195,8 @@ export async function prepareEngineSet(engineDir: string, set: PatchSet, install
       atomic(path, after);
     }
     metadata(tmp, set);
-    await freeze(tmp);
-    const bytes = JSON.stringify(tree(tmp));
+    const entries = await freeze(tmp);
+    const bytes = JSON.stringify(entries);
     // Root alone is writable while publishing metadata, then made read-only too.
     await chmod(tmp, 0o700);
     atomic(join(tmp, '.byokit-tree'), bytes);

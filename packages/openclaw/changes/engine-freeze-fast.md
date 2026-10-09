@@ -1,0 +1,1 @@
+- Cut first-install wall time ~3x (freeze ~20x) by dropping the 37,999 per-entry `fsync`s from `freeze()`: entries are chmodded read-only in bounded batches, one filesystem-wide `sync -f` flush runs where available (Linux, ~2 s measured vs ~110 s of per-file fsync transactions), and the manifest is read from the built tree once. Durability rule: `docs/runtime-kits.md` 5.16.

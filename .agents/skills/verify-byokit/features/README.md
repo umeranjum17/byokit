@@ -28,6 +28,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [OpenClaw accepted/thinking run progress](./openclaw-run-progress.md) — built public API, real pinned Gateway + offline native CLI stand-in, timestamped progress/admission timeline and account-change refusal.
 - [OpenClaw sealed sign-in recovery](./openclaw-auth-recovery.md) — wrong-seal failure retains original bytes; correct-seal retry, healthy restart and fail-closed refusals reach ready (or refuse) through a real spawned pinned engine with an offline native stand-in, plus supplied-gateway marker legs.
 - [OpenClaw engine learning state](./openclaw-learning-state.md) — `learning()`/`setLearning()`/`restoreLearning()` on a stopped home: absence is a value, `propose` is visible, restores are byte for byte, refusals carry the real cause.
+- [OpenClaw engine-set freeze cost](./openclaw-engine-freeze.md) — clean first install freezes in seconds with no per-entry fsync; drift still rebuilds, torn sets never launch.
 - [Machine store shared across apps](./accounts-machine-store.md) — a second app process is signed in already from the computer's machine store; a wrong seal and a missing store are refused.
 - [ChatGPT refresh refusal](./accounts-refresh-refusal.md) — a phone/browser ChatGPT sign-in kept through a passing 401 at a due or forced refresh, ended only by a revoked grant.
 - [Usage plan view](./usage-planview.md) — `@byokit/usage` selectors over fixture call records via `examples/usage-demo.ts`.
