@@ -328,11 +328,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
   async add(member: M, key: string, options: (Omit<SignInOptions, 'via'> & { via?: Via; key?: string }) | CloudOptions = {}): Promise<{ id: string; signIn?: SignIn }> {
     if ('route' in options) return this.addCloud(member, key, options);
-    if (key.includes(':')) {
-      // A sign-in route id (`provider:browser`, `provider:paste`) selects that flow for the provider.
-      const flow = route(key);
-      if (['browser', 'paste', 'code'].includes(flow.via)) return this.add(member, flow.provider, { ...options, via: flow.via });
-    }
+    // A Google sign-in route id (`google-gemini-cli:browser`, `:paste`) selects that flow for the provider.
+    const google = key === 'google-gemini-cli:browser' ? 'browser' : key === 'google-gemini-cli:paste' ? 'paste' : undefined;
+    if (google) return this.add(member, 'google-gemini-cli', { ...options, via: google });
     if (key.includes(':') || options.via === 'key' || options.via === 'plan_key' || options.key !== undefined) {
       const r = key.includes(':') ? route(key) : routes().find((r) => (r.provider === key || r.aliases?.includes(key)) && r.via === (options.via ?? 'key'));
       if (!r || !['key', 'plan_key'].includes(r.via)) throw new Error('Choose a key route to add an account.');
@@ -557,7 +555,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   protected engine(member: M, raw: CredentialStore, accountId?: string): Promise<R> {
     const credentials = this.boundStore(member, raw, accountId);
     const engine = withClaudePlan(this.platform.engine(credentials, this.opts.authBase, this.opts.deviceBase), credentials, accountId ? raw : this.baseStores.get(String(member)) ?? raw, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch });
-    return Promise.resolve(Object.assign(withGoogle(engine, credentials, { base: this.opts.authBase, fetch: this.opts.fetch }), {
+    const callbackPort = this.opts.callbackPort ?? provider('google-gemini-cli').callbackPort!;
+    return Promise.resolve(Object.assign(withGoogle(engine, credentials, { base: this.opts.authBase, fetch: this.opts.fetch, callbackPort }), {
       credentialStore: credentials, readCredential: (id: string) => credentials.read(id),
     }) as R);
   }
@@ -975,7 +974,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         throw new Error('Enter a GitHub Enterprise domain, without a path or credentials.');
     }
     if (p.key === 'claude' && body.via === 'code') throw new Error('Claude uses a browser or a pasted code, not a device code.');
-    if (body.via === 'paste' && !['claude', 'chatgpt', 'openrouter', 'google-gemini-cli', 'google-antigravity'].includes(p.key))
+    if (p.key === 'google-gemini-cli' && body.via === 'code') throw new Error('Google uses a browser or a pasted address.');
+    if (body.via === 'paste' && !['claude', 'chatgpt', 'openrouter', 'google-gemini-cli'].includes(p.key))
       throw Object.assign(new Error('This provider has no paste sign-in flow.'), { readiness: 'no_upstream_flow' });
     if (p.key === 'openrouter') {
       if (body.via === 'code') throw new Error('OpenRouter uses a browser or a pasted code, not a device code.');
@@ -985,7 +985,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const selected = p.key === 'claude' && body.via === 'browser' ? 'anthropic:browser'
       : p.key === 'radius' ? `radius:${body.via ?? 'browser'}`
       : p.key === 'openrouter' ? `openrouter:${body.via ?? 'browser'}`
-      : p.key === 'google-gemini-cli' || p.key === 'google-antigravity' ? `${p.key}:${body.via ?? 'browser'}` : undefined;
+      : p.key === 'google-gemini-cli' ? `${p.key}:${body.via ?? 'browser'}` : undefined;
     if (selected) {
       const r = route(selected, { platform: this.platform.loopback ? 'node' : 'rn' });
       if (r.readiness !== 'ready') throw Object.assign(new Error(r.why), { readiness: r.readiness });

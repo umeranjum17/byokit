@@ -1,15 +1,15 @@
 // Google Cloud Code Assist sign-in for @byokit/accounts on a computer: PKCE on Google's own page, the browser returning
-// to the client's fixed loopback port (or the person pasting the redirect address), then the code exchange and userinfo.
-// An independent implementation of the protocol the two upstream Google clients use; the recorded facts are the
-// fixture (fixtures/conformance/google-oauth-typescript.json). The public OAuth client ids are reused as the upstream
-// implementations do (the C3 decision in docs/runtime-kits.md); no client secret or upstream code is included.
+// to the loopback port the app listens on (or the person pasting the redirect address), then the code exchange and
+// userinfo. An independent implementation of the protocol the upstream Google CLI uses; the recorded facts are the
+// fixture (fixtures/conformance/google-oauth-typescript.json). The public OAuth client id is reused as the upstream
+// implementation does (the C3 decision in docs/runtime-kits.md); no client secret or upstream code is included.
 // No Node import here: the portable bundle carries this file, so it uses Web Crypto only.
 import type { AuthInteraction, CredentialStore, OAuthCredential } from '@earendil-works/pi-ai';
 import type { AuthHost } from '../accounts.ts';
 import { RefreshRequiredError, refreshCredential, revoked } from '../stores.ts';
 
-/** The Pi provider ids this flow signs in to. Both clients share the protocol and differ only in the data below. */
-export type GoogleClient = 'google-gemini-cli' | 'google-antigravity';
+/** The Pi provider id this flow signs in to. */
+export type GoogleClient = 'google-gemini-cli';
 
 export type GoogleProtocol = {
   authorize: string;
@@ -19,10 +19,10 @@ export type GoogleProtocol = {
   scopes: string[];
   /** The upstream fresh-sign-in parameters the client sends (the C3 decision: whichever the parity snapshot uses). */
   authorizeParams: Record<string, string>;
-  callback: { hostname: string; port: number; path: string };
+  callback: { hostname: string; path: string };
 };
 
-/** Public client ids, reused from the open-source upstream CLIs as the upstream implementations do. No secret. */
+/** Public client id, reused from the open-source upstream CLI as the upstream implementation does. No secret. */
 export const GOOGLE_CLIENTS: Record<GoogleClient, GoogleProtocol> = {
   'google-gemini-cli': {
     authorize: 'https://accounts.google.com/o/oauth2/v2/auth',
@@ -31,16 +31,7 @@ export const GOOGLE_CLIENTS: Record<GoogleClient, GoogleProtocol> = {
     clientId: '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com',
     scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile'],
     authorizeParams: { access_type: 'offline', prompt: 'consent' },
-    callback: { hostname: '127.0.0.1', port: 8085, path: '/oauth2callback' },
-  },
-  'google-antigravity': {
-    authorize: 'https://accounts.google.com/o/oauth2/v2/auth',
-    token: 'https://oauth2.googleapis.com/token',
-    userinfo: 'https://www.googleapis.com/oauth2/v1/userinfo?alt=json',
-    clientId: '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com',
-    scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/cclog', 'https://www.googleapis.com/auth/experimentsandconfigs'],
-    authorizeParams: { access_type: 'offline', prompt: 'consent' },
-    callback: { hostname: '127.0.0.1', port: 51121, path: '/oauth-callback' },
+    callback: { hostname: '127.0.0.1', path: '/oauth2callback' },
   },
 };
 
@@ -49,41 +40,41 @@ export type GoogleOptions = {
   /** A stand-in base for offline tests and demos (`mockGoogle()` from @byokit/accounts/testing). */
   base?: string;
   now?: () => number;
+  /** The loopback port the kit listens on; the redirect address names it, so the browser returns to the listener. */
+  callbackPort: number;
 };
 
 const base64url = (bytes: Uint8Array) => btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 /** A stand-in base replaces Google's host, so a test or demo never leaves this device. */
 const at = (url: string, base?: string) => !base ? url : new URL(url.substring(url.indexOf('/', url.indexOf('//') + 2)), base.endsWith('/') ? base : `${base}/`).href;
 
-/** The redirect address the client registers: the loopback port and path from the pinned client. */
-export const googleRedirect = (client: GoogleProtocol) => `http://${client.callback.hostname}:${client.callback.port}${client.callback.path}`;
+/** The redirect address the client registers: the loopback host and path, on the port the kit listens on. */
+export const googleRedirect = (client: GoogleProtocol, port: number) => `http://${client.callback.hostname}:${port}${client.callback.path}`;
 
 /** Pending state/verifier never enter persistent storage. */
-export async function googleAuthorization(id: GoogleClient, options: GoogleOptions = {}) {
+export async function googleAuthorization(id: GoogleClient, options: GoogleOptions) {
   const crypto = globalThis.crypto;
   if (!crypto?.getRandomValues || !crypto.subtle?.digest) throw new Error('Google sign-in needs secure random bytes and SHA-256 on this device.');
   const client = GOOGLE_CLIENTS[id];
   const verifier = base64url(crypto.getRandomValues(new Uint8Array(32)));
   const state = base64url(crypto.getRandomValues(new Uint8Array(32)));
   const challenge = base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
+  const redirect = googleRedirect(client, options.callbackPort);
   const url = new URL(at(client.authorize, options.base));
-  url.search = new URLSearchParams({ response_type: 'code', client_id: client.clientId, redirect_uri: googleRedirect(client),
+  url.search = new URLSearchParams({ response_type: 'code', client_id: client.clientId, redirect_uri: redirect,
     scope: client.scopes.join(' '), state, code_challenge: challenge, code_challenge_method: 'S256', ...client.authorizeParams }).toString();
-  return { url: url.toString(), verifier, state, redirect: googleRedirect(client) };
+  return { url: url.toString(), verifier, state, redirect };
 }
 
 /** The code from the redirect address the browser landed on (or a raw code), checked against this sign-in's state. */
 export function googleCode(paste: string, state: string) {
   const text = paste.trim();
-  if (/^https?:\/\//.test(text)) {
-    const url = new URL(text);
-    const code = url.searchParams.get('code');
-    const returned = url.searchParams.get('state');
-    if (!code || returned !== state) throw new Error('The Google sign-in code does not match this sign-in. Try signing in again.');
-    return code;
-  }
   if (!text) throw new Error('Paste the address the Google page returned to.');
-  return text;
+  if (!/\?|code=|state=/.test(text)) return text;
+  const params = new URLSearchParams(text.includes('?') ? text.slice(text.indexOf('?') + 1) : text);
+  const code = params.get('code');
+  if (!code || params.get('state') !== state) throw new Error('The Google sign-in code does not match this sign-in. Try signing in again.');
+  return code;
 }
 
 const credential = (j: any, now: number, previous?: string): OAuthCredential => {
@@ -95,7 +86,7 @@ const credential = (j: any, now: number, previous?: string): OAuthCredential => 
 };
 
 /** Adds only BYOKit's own Google routes; every other provider still belongs to the supplied engine. */
-export function withGoogle(engine: AuthHost, credentials: CredentialStore, options: GoogleOptions = {}): AuthHost {
+export function withGoogle(engine: AuthHost, credentials: CredentialStore, options: GoogleOptions): AuthHost {
   const now = options.now ?? Date.now;
   const isGoogle = (id: string): id is GoogleClient => id in GOOGLE_CLIENTS;
   const post = async (url: string, body: Record<string, string>, signal?: AbortSignal) => {
@@ -123,9 +114,11 @@ export function withGoogle(engine: AuthHost, credentials: CredentialStore, optio
     const token = await post(at(client.token, options.base), { grant_type: 'authorization_code', client_id: client.clientId,
       code, code_verifier: pending.verifier, redirect_uri: pending.redirect }, signal);
     if (signal?.aborted) throw new Error('Login cancelled');
-    const info = await (options.fetch ?? fetch)(at(client.userinfo, options.base), { headers: { authorization: `Bearer ${String(token.access_token)}`, accept: 'application/json' }, signal });
-    const email = info.ok ? String(((await info.json().catch(() => ({}))) as { email?: string }).email ?? '') : '';
-    const c = { ...credential(token, now()), ...(email ? { accountId: email, email } : {}) } as OAuthCredential;
+    const grant = credential(token, now());
+    // The email is display metadata: a failed lookup leaves the account without one rather than failing the sign-in.
+    const info = await (options.fetch ?? fetch)(at(client.userinfo, options.base), { headers: { authorization: `Bearer ${grant.access}`, accept: 'application/json' }, signal }).catch(() => undefined);
+    const email = info?.ok ? String((await info.json().catch(() => null) as { email?: string } | null)?.email ?? '') : '';
+    const c = { ...grant, ...(email ? { accountId: email, email } : {}) } as OAuthCredential;
     if (signal?.aborted) throw new Error('Login cancelled');
     try { await credentials.modify(id, async () => c, { signal }); }
     catch { throw new Error('Google sign-in could not be saved on this device. Try signing in again.'); }

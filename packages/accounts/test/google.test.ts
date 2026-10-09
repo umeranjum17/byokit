@@ -133,6 +133,66 @@ test('browser sign-in: Google’s page, the return to :8085, list() ready with t
   }
 });
 
+test('an app-set callbackPort moves the listener and the redirect address together', async () => {
+  const google = await mockGoogle();
+  const store = memoryStore();
+  const accounts = new Accounts({ store: () => store, authBase: google.base, app: 'byokit journey', callbackPort: 19085 });
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:browser');
+    assert.equal(new URL(signIn!.url!).searchParams.get('redirect_uri'), 'http://127.0.0.1:19085/oauth2callback');
+    assert.equal((await fetch(await callbackAddress(signIn!.url!))).status, 200, 'the listener on the app port answers');
+    await accounts.finished(OWNER, id);
+    assert.equal((await accounts.list(OWNER))[0].state, 'ready');
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('a failed email lookup still signs in; the account is ready without an email', async () => {
+  const google = await mockGoogle();
+  const store = memoryStore();
+  const realFetch = globalThis.fetch;
+  const accounts = new Accounts({ store: () => store, authBase: google.base, app: 'byokit journey',
+    fetch: (input, init) => String(input).includes('/oauth2/v1/userinfo') ? Promise.reject(new TypeError('fetch failed')) : realFetch(input, init) });
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:browser');
+    await fetch(await callbackAddress(signIn!.url!));
+    await accounts.finished(OWNER, id);
+    const rows = await accounts.list(OWNER);
+    assert.deepEqual([rows[0]?.state, rows[0]?.email], ['ready', undefined]);
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('paste: an address pasted without its http:// still completes', async () => {
+  const { google, accounts } = await journey();
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:paste');
+    const address = await callbackAddress(signIn!.url!);
+    accounts.paste(OWNER, id, address.replace(/^http:\/\//, ''));
+    await accounts.finished(OWNER, id);
+    assert.equal((await accounts.list(OWNER))[0]?.state, 'ready');
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('a Google sign-in takes only the browser or paste route; other providers keep their key-route message', async () => {
+  const { google, accounts } = await journey();
+  try {
+    await assert.rejects(accounts.add(OWNER, 'google-gemini-cli', { via: 'code' }), /Google uses a browser or a pasted address/);
+    await assert.rejects(accounts.add(OWNER, 'anthropic:browser'), /Choose a key route to add an account/);
+    assert.deepEqual(await accounts.list(OWNER), []);
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
 test('paste: the person pastes the redirect address, and :8085 is never opened', async () => {
   const { google, accounts } = await journey();
   try {
