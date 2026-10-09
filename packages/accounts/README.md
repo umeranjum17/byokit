@@ -347,6 +347,13 @@ Messages route; absent usage stays absent. Subscription token counts do not impl
 A limit or a lapsed sign-in is acted on as `failed()` does, then thrown as a
 `ResponseError` with the words to show and the kind acted on. Rules: [conformance fixtures](../../fixtures/README.md).
 
+Pass `select: { account: 'auto' | 'default' | id }` to answer from a chosen ChatGPT account instead of the saved
+default. The selection is resolved once, before any request, through the same `pick` a UI can call first; `respond`
+does not return the chosen account. An explicit id whose sign-in is gone is refused with a `ResponseError` kind
+`signed_out` before any request, an explicit id never falls back to the default, and a limit or lapsed sign-in rests
+only the account that ran (so the next Auto skips it) while the saved default is left unchanged. Omitting `select`
+keeps the saved default, else the provider's first account, exactly as before.
+
 A cut-off answer always throws `IncompleteError` (a `ResponseError` with `kind: null`), with or without tools.
 Its `reason` preserves the provider's `incomplete_details.reason`, including `max_output_tokens` and
 `content_filter` (`unknown` when absent). Its `result` holds the partial `{ text, output, usage? }` for apps that want to
@@ -669,6 +676,9 @@ Both are read-only: neither writes the defaults nor the account index. An id tha
 `ok: false` with `code: 'unknown_account'`; `models` refuses it. A `room` source that is absent or throws leaves
 every reading unknown, so list order decides.
 
+Call `pick` first to learn Auto's choice, then hand that account to `respond` (which does not return it): the run
+answers through the chosen account's own sign-in and never through the default.
+
 ```ts
 import { Accounts, machineStore, type Room, type SafeStorageLike } from '@byokit/accounts';
 
@@ -681,6 +691,9 @@ if (picked.ok) {
   console.log(picked.reason);                  // "Right now that's Work: 60% left this week"
   for (const model of await accounts.models('umer', picked.account.id))
     console.log(model.id, model.available, model.why ?? '');
+  const answer = await accounts.respond('umer', {
+    instructions: 'Answer briefly.', input: 'Plan my day', select: { account: picked.account.id },
+  });
 }
 ```
 

@@ -810,13 +810,25 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     }
     const key = 'chatgpt';
     const p = this.offer(key);
-    const { access, accountId } = await this.access(member);
+    // Select once, before any request. Auto/default go through the same pick the caller can read first; an explicit id
+    // is taken as named, so a signed-out one reaches `access` and is refused typed rather than silently swapped.
+    let picked: string | undefined;
+    if (ask.select) {
+      const choice = await this.pick(member, ask.select);
+      if (choice.ok) picked = choice.account.id;
+      else if (ask.select.account === 'auto' || ask.select.account === 'default')
+        throw new ResponseError(choice.reason, choice.code === 'not_included' ? 'not_included' : 'signed_out');
+      else picked = this.accountKey(member, ask.select.account);
+    }
+    const { access, accountId } = await this.access(member, ask.signal, picked);
     try {
       const base = { ...ask, access, accountId, model: ask.model ?? p.models.strong, base: this.opts.apiBase, fetch: this.opts.fetch, originator: ask.originator ?? this.opts.originator };
       return await respond(base);
     } catch (e: any) {
       if (e instanceof ResponseError && e.kind && e.kind !== 'network') {
-        const acted = await this.failed(member, key, e);
+        // The exact account that ran rests or is marked, never another one: with a pick, that includes the bare
+        // provider id when the default is a different account.
+        const acted = await this.failed(member, picked ?? key, e, picked !== undefined);
         if (acted && acted.kind !== e.kind) throw new ResponseError(e.message, acted.kind, acted.until,
           e.status !== undefined ? { status: e.status, retryAfter: e.retryAfter } : undefined);
       }
@@ -847,12 +859,13 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   /** An account's error, acted on. A limit or overload rests it (until when it said, or a default). A plan without this
    *  use is marked so. A refusal is checked: a sign-in that no longer refreshes is signed out for real, one that still
    *  does was a passing refusal and rests a few minutes (kind `overloaded`) rather than loop. Returns the kind acted on,
-   *  or null for an error that is not about the account; `network` changes nothing. */
-  async failed(member: M, key: string, error: string | ResponseError) {
-    key = await this.resolveKey(member, key);
+   *  or null for an error that is not about the account; `network` changes nothing. `exact` acts on the given id as
+   *  already resolved: no provider-default substitution, so a bare id that is itself the account is kept. */
+  async failed(member: M, key: string, error: string | ResponseError, exact = false) {
+    key = exact ? this.accountKey(member, key) : await this.resolveKey(member, key);
     const c = error instanceof ResponseError ? error.kind && { kind: error.kind, until: error.until } : classify(error);
     if (!c || c.kind === 'network') return c;
-    if (c.kind === 'signed_out' && await this.recheck(member, key)) c.kind = 'overloaded';
+    if (c.kind === 'signed_out' && await this.recheck(member, key, true)) c.kind = 'overloaded';
     if (c.kind === 'not_included') this.accountNotIncluded(member, key, true);
     else if (c.kind !== 'signed_out') {
       c.until ||= Date.now() + REST_MS[c.kind];
@@ -1150,9 +1163,10 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
 
   /** After the account turned a request away: true if its sign-in still refreshes or the refresh failed in passing; it is
-   *  signed out for good only when the provider proves the grant revoked (or the grant is quarantined). */
-  async recheck(member: M, key: string) {
-    key = await this.resolveKey(member, key);
+   *  signed out for good only when the provider proves the grant revoked (or the grant is quarantined). `exact` keeps the
+   *  given id as already resolved, for the same reason as `failed`. */
+  async recheck(member: M, key: string, exact = false) {
+    key = exact ? this.accountKey(member, key) : await this.resolveKey(member, key);
     if (await this.endpointRecord(member, key)) { await this.logout(member, key); return false; }
     const p = this.offer(key);
     // A saved API key cannot refresh itself after an authentication refusal.

@@ -306,7 +306,6 @@ function card(key: string) {
       const pick = resolveSelection(rows, await accounts.defaults(ME), { account: want }, (a) => rooms.get(a.id) ?? { left: 'unknown' }, Date.now());
       if (mine !== asking) return;
       if (!pick.ok) { out.textContent = pick.reason; settle(mine); draw(); return; }
-      await accounts.setDefaults(ME, { ...await accounts.defaults(ME), account: pick.account.id });
       if (mine !== asking) return;
       const picked = q('picked');
       const who = pick.account.email ?? pick.account.name;
@@ -321,7 +320,7 @@ function card(key: string) {
       try {
         const text = key === 'claude'
           ? await accounts.respond(ME, { provider: 'claude', model: PROVIDERS.claude.models.strong, max_tokens: 1024, system: 'Answer in a few short sentences.', messages: [{ role: 'user', content: input }], onText, signal })
-          : await accounts.respond(ME, { instructions: 'Answer in a few short sentences.', input, onText, signal });
+          : await accounts.respond(ME, { instructions: 'Answer in a few short sentences.', input, onText, signal, select: { account: pick.account.id } });
         if (mine === asking) out.textContent = text;
       } catch (e: any) { if (mine === asking) out.textContent = e.message; }
       settle(mine);
