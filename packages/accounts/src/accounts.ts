@@ -815,9 +815,18 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     let picked: string | undefined;
     if (ask.select) {
       const choice = await this.pick(member, ask.select);
-      if (choice.ok) picked = choice.account.id;
-      else if (ask.select.account === 'auto' || ask.select.account === 'default')
-        throw new ResponseError(choice.reason, choice.code === 'not_included' ? 'not_included' : 'signed_out');
+      if (ask.select.account === 'default') {
+        // The saved default is the only account a default answers from: anything else pick chose is refused, not used.
+        const saved = (await this.defaults(member)).account;
+        if (!choice.ok || choice.how !== 'default' || choice.account.id !== saved) {
+          const s = saved ? await this.status(member, saved) : undefined;
+          if (s?.state === 'resting') throw new ResponseError(s.words, 'rate_limit', s.until);
+          throw new ResponseError(s?.words ?? choice.reason, 'signed_out');
+        }
+        picked = saved;
+      }
+      else if (choice.ok) picked = choice.account.id;
+      else if (ask.select.account === 'auto') throw new ResponseError(choice.reason, choice.code === 'not_included' ? 'not_included' : 'signed_out');
       else picked = this.accountKey(member, ask.select.account);
     }
     const { access, accountId } = await this.access(member, ask.signal, picked);

@@ -84,6 +84,19 @@ test('respond answers from the selected ChatGPT account, rests only that one, an
     // The saved default is unchanged throughout.
     assert.deepEqual(await accounts.defaults(1), defaultsBefore);
 
+    // A resting default is refused typed with its until, and no request is sent, even though Work is ready.
+    openai.state.fail = { status: 429, body: JSON.stringify({ error: { code: 'rate_limit_exceeded', message: 'You have hit your usage limit' } }) };
+    await assert.rejects(
+      accounts.respond(1, { instructions: 'Be brief.', input: 'rest', select: { account: personal } }),
+      (e: any) => e instanceof ResponseError && e.kind === 'rate_limit',
+    );
+    const resting = answers(openai.state.requests).length;
+    await assert.rejects(
+      accounts.respond(1, { instructions: 'Be brief.', input: 'default', select: { account: 'default' } }),
+      (e: any) => e instanceof ResponseError && e.kind === 'rate_limit' && e.until > Date.now(),
+    );
+    assert.equal(answers(openai.state.requests).length, resting, 'no request was sent for the resting default');
+
     // An explicit id whose credential is gone is refused typed, before any request reaches the server.
     await store.delete(personal);
     const asked = answers(openai.state.requests).length;
@@ -92,6 +105,11 @@ test('respond answers from the selected ChatGPT account, rests only that one, an
       (e: any) => e instanceof ResponseError && e.kind === 'signed_out',
     );
     assert.equal(answers(openai.state.requests).length, asked, 'no request was sent for the signed-out id');
+    await assert.rejects(
+      accounts.respond(1, { instructions: 'Be brief.', input: 'default ghost', select: { account: 'default' } }),
+      (e: any) => e instanceof ResponseError,
+    );
+    assert.equal(answers(openai.state.requests).length, asked, 'no request was sent for the signed-out default');
   } finally {
     accounts.stop();
     await openai.close();
