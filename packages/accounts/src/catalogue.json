@@ -227,7 +227,6 @@
       "strong": "gemini-3-pro"
     },
     "callbackPort": 8085,
-    "clientId": "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com",
     "billing": "subscription",
     "auth": "oauth",
     "routes": ["google-gemini-cli:browser", "google-gemini-cli:paste"],

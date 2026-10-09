@@ -974,7 +974,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         throw new Error('Enter a GitHub Enterprise domain, without a path or credentials.');
     }
     if (p.key === 'claude' && body.via === 'code') throw new Error('Claude uses a browser or a pasted code, not a device code.');
-    if (p.key === 'google-gemini-cli' && body.via === 'code') throw new Error('Google uses a browser or a pasted address.');
+    if (p.key === 'google-gemini-cli' && body.via && !['browser', 'paste'].includes(body.via))
+      throw Object.assign(new Error('Google uses a browser or a pasted address.'), { readiness: 'no_upstream_flow' });
     if (body.via === 'paste' && !['claude', 'chatgpt', 'openrouter', 'google-gemini-cli'].includes(p.key))
       throw Object.assign(new Error('This provider has no paste sign-in flow.'), { readiness: 'no_upstream_flow' });
     if (p.key === 'openrouter') {
@@ -1059,7 +1060,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     try {
       if (reserved && this.platform.loopback) catcher = await this.catchRedirect(this.platform.loopback, flow, p.name, port!);
       if (flow.abort.signal.aborted) throw new Error('Login cancelled');
-      stuck = p.key === 'claude' ? undefined : setTimeout(() => this.toCode(flow), this.opts.redirectMs ?? 3 * 60_000);
+      stuck = p.key === 'claude' || body.via === 'paste' ? undefined : setTimeout(() => this.toCode(flow), this.opts.redirectMs ?? 3 * 60_000);
       try { await attempt(port && !reserved && body.via !== 'code' ? 'code' : body.via ?? (catcher ? 'browser' : undefined)); } catch (e) {
         // The code instead: asked for, or the page never came back. Also when a browser sign-in could not return here at all.
         if (!flow.toCode && (catcher || body.via === 'code' || !codeOffered || flow.abort.signal.aborted)) throw e;

@@ -185,8 +185,25 @@ test('a Google sign-in takes only the browser or paste route; other providers ke
   const { google, accounts } = await journey();
   try {
     await assert.rejects(accounts.add(OWNER, 'google-gemini-cli', { via: 'code' }), /Google uses a browser or a pasted address/);
+    await assert.rejects(accounts.add(OWNER, 'google-gemini-cli', { via: 'cli' }), /Google uses a browser or a pasted address/);
     await assert.rejects(accounts.add(OWNER, 'anthropic:browser'), /Choose a key route to add an account/);
     assert.deepEqual(await accounts.list(OWNER), []);
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('paste: a late paste after the browser redirect window still completes', async () => {
+  const google = await mockGoogle();
+  const accounts = new Accounts({ store: () => memoryStore(), authBase: google.base, app: 'byokit journey', redirectMs: 100 });
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:paste');
+    const address = await callbackAddress(signIn!.url!);
+    await new Promise((r) => setTimeout(r, 300));
+    accounts.paste(OWNER, id, address);
+    await accounts.finished(OWNER, id);
+    assert.equal((await accounts.list(OWNER))[0]?.state, 'ready');
   } finally {
     accounts.stop();
     await google.close();

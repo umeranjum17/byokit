@@ -14,5 +14,5 @@ can1357/oh-my-pi readers at commit 2b023d1 (https://github.com/can1357/oh-my-pi)
 No upstream runtime code or credential discovery is included.
 
 @byokit/accounts' Google Cloud Code Assist sign-in is an independent implementation
-of the protocol the Apache-2.0 Gemini CLI and Antigravity clients use; it reuses
-their public OAuth client ids only, with no client secret and no upstream code.
+of the protocol the Apache-2.0 Gemini CLI client uses; it reuses that client's
+public OAuth client id only, with no client secret and no upstream code.
