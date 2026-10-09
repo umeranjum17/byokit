@@ -197,10 +197,11 @@ test('prepare verifies whole immutable installs and rebuilds drift without chang
   const npmPath = join(dir, 'npm.mjs');
   const calls = join(dir, 'npm-calls');
   seedInstall(engineDir);
-  writeFileSync(npmPath, `#!${process.execPath}
+  const npmScript = (build: { commit: string; driftPath?: string }) => `#!${process.execPath}
 import { mkdirSync, readFileSync, writeFileSync, appendFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 const args = process.argv.slice(2);
+if (args[0] === '--version') { console.log('11.9.9-fixture'); process.exit(0); }
 const dir = args.at(-1);
 if (JSON.stringify(args.slice(0, -1)) !== JSON.stringify(['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix'])) process.exit(1);
 if (existsSync(join(dir, 'node_modules/stale-marker'))) process.exit(2);
@@ -208,13 +209,15 @@ const lock = JSON.parse(readFileSync(join(dir, 'package-lock.json'), 'utf8'));
 for (const [path, pkg] of Object.entries(lock.packages)) {
   if (!path) continue;
   mkdirSync(join(dir, path), { recursive: true });
-  writeFileSync(join(dir, path, 'package.json'), JSON.stringify({ version: pkg.version }));
+  writeFileSync(join(dir, path, 'package.json'), JSON.stringify({ version: ${JSON.stringify(build.driftPath ?? '')} === path ? '0.0.0-forced-drift' : pkg.version }));
 }
 writeFileSync(join(dir, 'node_modules/openclaw/openclaw.mjs'), '');
 mkdirSync(join(dir, 'node_modules/openclaw/dist'), { recursive: true });
-writeFileSync(join(dir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.8.1', commit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b' }));
+writeFileSync(join(dir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.8.1', commit: ${JSON.stringify(build.commit)} }));
+console.error('npm warn fixture install noise');
 appendFileSync(${JSON.stringify(calls)}, '1');
-`, { mode: 0o700 });
+`;
+  writeFileSync(npmPath, npmScript({ commit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b' }), { mode: 0o700 });
   const engine = new Engine({ stateDir: dir, engineDir, npmPath, pluginId: 'byokit', tools: [],
     spawnEngine: true, onState() {}, onExit() {} });
   try {
@@ -264,10 +267,36 @@ appendFileSync(${JSON.stringify(calls)}, '1');
     // Only a damaged stock cache requires npm; all prior damage was to the patched/adopted set.
     const stockMarker = join(stock, '.byokit-patches');
     fs.chmodSync(stockMarker, 0o644); writeFileSync(stockMarker, '{broken'); fs.chmodSync(stockMarker, 0o444);
-    writeFileSync(npmPath, readFileSync(npmPath, 'utf8').replace('ea806575e6450e4d1efdfc72c19f04be982a1b9b', '0000000000000000000000000000000000000000'), { mode: 0o700 });
+    writeFileSync(npmPath, npmScript({ commit: '0'.repeat(40) }), { mode: 0o700 });
     await assert.rejects(kit.prepare(), (e: unknown) => e instanceof EnginePatchError && e.cause === 'drift-after-build');
     assert.equal(kit.state.why, 'engine-patch'); assert.equal(kit.state.patchSet, null);
     assert.equal(readFileSync(calls, 'utf8'), '1', 'invalid stock cache invokes npm exactly once');
+    // A non-comparator drift still retains the npm facts with no first-failed check.
+    const diagnosticsPath = join(dir, 'other-state', 'logs', 'engine-install-drift.json');
+    const metadataRecord = JSON.parse(readFileSync(diagnosticsPath, 'utf8')) as { firstFailedCheck: unknown; npm: { path: string } };
+    assert.equal(metadataRecord.firstFailedCheck, null);
+    assert.equal(metadataRecord.npm.path, npmPath);
+    // Forced drift: one fixture package installs the wrong version, so the fresh temp fails the comparator.
+    // The diagnosis is retained before the failed temp is deleted, naming the first failed package,
+    // expected vs actual version, the npm path and version, and the capped npm stderr tail.
+    const driftPackage = 'node_modules/@agentclientprotocol/sdk';
+    writeFileSync(npmPath, npmScript({ commit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b', driftPath: driftPackage }), { mode: 0o700 });
+    await assert.rejects(kit.prepare(), (e: unknown) => e instanceof EnginePatchError && e.cause === 'drift-after-build');
+    const record = JSON.parse(readFileSync(diagnosticsPath, 'utf8')) as {
+      at: string; failedDir: string; firstFailedCheck: { check: string; path: string; expected: string; actual: string; readError: string | null };
+      npm: { path: string; version: string | null }; npmStderrTail: string;
+    };
+    assert.deepEqual(Object.keys(record), ['at', 'failedDir', 'firstFailedCheck', 'npm', 'npmStderrTail'], 'no environment values in the record');
+    assert.ok(!existsSync(record.failedDir), 'the failed temp is deleted; the diagnosis outlives it');
+    assert.equal(record.firstFailedCheck.check, 'package-version');
+    assert.equal(record.firstFailedCheck.path, driftPackage);
+    assert.equal(record.firstFailedCheck.expected, lock.packages[driftPackage]!.version);
+    assert.equal(record.firstFailedCheck.actual, '0.0.0-forced-drift');
+    assert.equal(record.firstFailedCheck.readError, null);
+    assert.deepEqual(record.npm, { path: npmPath, version: '11.9.9-fixture' });
+    assert.ok(record.npmStderrTail.includes('npm warn fixture install noise'));
+    assert.ok(fs.statSync(diagnosticsPath).size <= 8192, 'diagnostics are size-capped');
+    assert.equal(readFileSync(calls, 'utf8'), '11', 'each forced failure invoked npm exactly once');
   } finally { removeScratch(dir); }
 });
 

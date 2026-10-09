@@ -43,7 +43,10 @@ patch id (`null` after a provenance failure); a refusal is `why: 'engine-patch'`
 
 Rollback selects a verified stock or older set; known sets and offline clones require no registry access.
 Drift leaves the old bytes untouched and builds a replacement sibling; rebuilding stock may need the registry.
-Pre-change kits still run the untouched base install. No garbage collection: each retained set can occupy about
+When an install or post-build verification fails, the kit retains a size-capped, environment-free diagnosis at
+`<stateDir>/logs/engine-install-drift.json` — the first failed root-manifest or package check (path, expected vs
+actual version, or the read error), the npm path and version, and the npm stderr tail — before the failed temporary
+tree is deleted. Pre-change kits still run the untouched base install. No garbage collection: each retained set can occupy about
 889 MB on this pin (reflinks may reduce physical storage). Whole-tree verification also adds preparation I/O;
 read-only modes protect against accidental writes, not a malicious host app that owns the files.
 

@@ -2,12 +2,12 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { randomBytes, generateKeyPairSync, randomUUID } from 'node:crypto';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, copyFileSync, rmSync, realpathSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { join, dirname } from 'node:path';
+import { basename, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AuthStore, AuthStoreUnreadableError } from './auth-store.ts';
 import { EngineAlreadyRunningError, pidAlive, StartedProcesses } from './engine-status.ts';
-import { EnginePatchError, atomic, prepareEngineSet, processStartTime, readPatchSet, verifyEngineSet, type PatchSet } from './engine-patches.ts';
+import { EnginePatchError, atomic, prepareEngineSet, processStartTime, readPatchSet, sha256, verifyEngineSet, type PatchSet } from './engine-patches.ts';
 import { ENGINE_VERSION } from './constants.ts';
 import { appendUsageBoot } from './usage-boots.ts';
 import { reconcileConfig, appRecoveryPrefixes } from './config.ts';
@@ -30,7 +30,12 @@ type LockedPackage = { version: string; optional?: boolean; os?: string[]; cpu?:
 const supports = (list: string[] | undefined, value: string) => !list ||
   (!list.includes(`!${value}`) && (list.includes('any') || list.every(item => item.startsWith('!')) || list.includes(value)));
 
+type InstallDrift = { setDir: string; check: 'root-manifest' | 'package-version' | 'read'; path: string; expected?: string; actual?: string; readError?: string };
+// First failed check of the most recent installMatches call; retained with the npm facts in
+// <stateDir>/logs/engine-install-drift.json before the failed temp is deleted.
+let installDrift: InstallDrift | undefined;
 function installMatches(dir: string): boolean {
+  installDrift = undefined;
   const manifests = ['package.json', 'package-lock.json'].map(file => ({
     path: join(dir, file), shipped: readFileSync(join(kitDir, 'engine', file)),
   }));
@@ -38,16 +43,29 @@ function installMatches(dir: string): boolean {
   // npm omits optional binaries for other platforms (including the other Linux libc).
   const report = process.platform === 'linux' ? process.report.getReport() as { header: { glibcVersionRuntime?: string } } : undefined;
   const libc = report?.header.glibcVersionRuntime ? 'glibc' : process.platform === 'linux' ? 'musl' : '';
+  let reading = 'package.json';
   try {
-    if (manifests.some(({ path, shipped }) => !readFileSync(path).equals(shipped))) return false;
+    for (const { path, shipped } of manifests) {
+      const installed = readFileSync(path);
+      if (!installed.equals(shipped)) {
+        installDrift = { setDir: dir, check: 'root-manifest', path: basename(path), expected: sha256(shipped), actual: sha256(installed) };
+        return false;
+      }
+    }
     for (const [path, pkg] of Object.entries(lock.packages)) {
       if (!path) continue; // The root manifest is checked byte for byte above.
       if (pkg.optional && (!supports(pkg.os, process.platform) || !supports(pkg.cpu, process.arch) || !supports(pkg.libc, libc))) continue;
-      if (JSON.parse(readFileSync(join(dir, path, 'package.json'), 'utf8')).version !== pkg.version) return false;
+      reading = `${path}/package.json`;
+      const version = JSON.parse(readFileSync(join(dir, path, 'package.json'), 'utf8')).version;
+      if (version !== pkg.version) {
+        installDrift = { setDir: dir, check: 'package-version', path, expected: pkg.version, actual: String(version) };
+        return false;
+      }
     }
     return true;
-  } catch {
+  } catch (error) {
     // Missing or unreadable manifests and malformed installed package metadata need repair too.
+    installDrift = { setDir: dir, check: 'read', path: reading, readError: String((error as Error).message).slice(0, 300) };
     return false;
   }
 }
@@ -83,6 +101,24 @@ export class Engine {
     this.authStore = new AuthStore({ root: this.root, stateDir: o.stateDir, engineDir: this.dir, seal: o.authSeal, log: o.log });
   }
   private state(phase: KitState['phase'], why?: KitState['why'], retryAt?: number) { this.o.onState({ phase, ...(why ? { why } : {}), ...(retryAt ? { retryAt } : {}), ...(this.patchSet !== undefined ? { patchSet: this.patchSet } : {}) }); }
+  // Retained at <stateDir>/logs/engine-install-drift.json (overwritten per failure) after the failed
+  // temporary set is deleted: the first failed check, the npm identity and the npm stderr tail.
+  // Bounded fields, no environment values or secrets; diagnostics never mask the failure they describe.
+  private retainInstallDiagnostics(error: EnginePatchError, npmPath: string, npmStderrTail: string): void {
+    try {
+      const npm = spawnSync(npmPath, ['--version'], { encoding: 'utf8', timeout: 5000 });
+      const drift = installDrift;
+      writeFileSync(join(this.o.stateDir, 'logs', 'engine-install-drift.json'), JSON.stringify({
+        at: new Date().toISOString(),
+        failedDir: error.file ?? null,
+        firstFailedCheck: drift && drift.setDir === error.file
+          ? { check: drift.check, path: drift.path, expected: drift.expected ?? null, actual: drift.actual ?? null, readError: drift.readError ?? null }
+          : null,
+        npm: { path: npmPath, version: npm.status === 0 && npm.stdout ? npm.stdout.trim().slice(0, 100) : null },
+        npmStderrTail: npmStderrTail.slice(0, 500),
+      }), { mode: 0o600 });
+    } catch { /* diagnostics must never mask the failure being diagnosed */ }
+  }
   private get entry() {
     if (this.o.spawnEngine && !this.setDir) throw new EnginePatchError('spec', 'engine-set');
     return join(this.setDir ?? this.dir, 'node_modules', 'openclaw', 'openclaw.mjs');
@@ -118,11 +154,13 @@ export class Engine {
     if (this.o.spawnEngine) {
       const lock = JSON.parse(readFileSync(join(kitDir, 'engine/package-lock.json'), 'utf8')) as { packages: Record<string, { integrity: string }> };
       const patches = readPatchSet(join(kitDir, 'engine/patches.json'), ENGINE_VERSION, lock.packages['node_modules/openclaw']!.integrity);
+      const npmPath = this.o.npmPath ?? 'npm';
+      let npmStderrTail = '';
       const install = async (dir: string) => {
         this.state('installing');
         for (const f of ['package.json', 'package-lock.json']) copyFileSync(join(kitDir, 'engine', f), join(dir, f));
         await new Promise<void>((resolve, reject) => {
-          const child = spawn(this.o.npmPath ?? 'npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', dir], {
+          const child = spawn(npmPath, ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', dir], {
             env: { PATH: process.env.PATH ?? '/usr/bin:/bin', HOME: join(this.root, 'install-home'), npm_config_cache: join(this.root, 'npm-cache'), OPENCLAW_DISABLE_BUNDLED_PLUGIN_POSTINSTALL: '1' },
             stdio: ['ignore', 'ignore', 'pipe'],
           });
@@ -130,15 +168,22 @@ export class Engine {
           this.started.add(child);
           child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-500); });
           const timer = setTimeout(() => { expired = true; child.kill('SIGKILL'); }, 300_000);
-          child.once('error', error => { clearTimeout(timer); this.started.forget(child); reject(error); });
+          child.once('error', error => { clearTimeout(timer); this.started.forget(child); npmStderrTail = stderr; reject(error); });
           child.once('exit', code => {
-            clearTimeout(timer); this.started.forget(child);
+            clearTimeout(timer); this.started.forget(child); npmStderrTail = stderr;
             if (code === 0 && !expired) resolve();
             else { this.state('failed', 'install'); reject(new Error(`engine install: ${expired ? 'timeout' : stderr}`)); }
           });
         });
       };
-      this.setDir = await prepareEngineSet(this.dir, patches, install, installMatches);
+      try {
+        this.setDir = await prepareEngineSet(this.dir, patches, install, installMatches);
+      } catch (error) {
+        // The failed temp is already deleted; keep its diagnosis for the next natural failure.
+        if (error instanceof EnginePatchError && (error.cause === 'drift-after-build' || error.cause === 'write'))
+          this.retainInstallDiagnostics(error, npmPath, npmStderrTail);
+        throw error;
+      }
       this.wantedSet = patches;
       atomic(join(this.root, 'engine-set'), this.setDir);
       this.patchSet = patches.id;
