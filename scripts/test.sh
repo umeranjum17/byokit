@@ -60,6 +60,10 @@ throwaway=$(mktemp -d "$run_tmp/home.XXXXXX")
 root=$(CDPATH="" cd -- "$(dirname -- "$0")/.." && pwd)
 export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $root/scripts/test-egress-guard.cjs"
 [ $# -gt 0 ] || set -- 'packages/*/test/*.test.ts' 'scripts/*.test.ts'
+# Before node:test starts, remove scratch roots a killed or crashed test process left behind in the
+# shared scratch parent. A root whose recorded pid is still alive (a parallel run in another
+# worktree) is kept.
+node --input-type=module -e "import { cleanStaleScratch } from '$root/packages/test-support.ts'; cleanStaleScratch('$scratch_parent');"
 # Browsers Playwright installed stay where they are; nothing else of the real HOME is seen.
 browser_cache=${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}
 if PLAYWRIGHT_BROWSERS_PATH="$browser_cache" HOME="$throwaway" node --test --test-concurrency=1 "$@"; then test_status=0; else test_status=$?; fi

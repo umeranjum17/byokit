@@ -21,14 +21,15 @@ export function removeScratch(path: string): void {
 }
 const children = new Set<{ kill(signal?: NodeJS.Signals): boolean; once(event: 'exit', listener: () => void): unknown }>();
 
-/** Remove only this project's scratch parents whose recorded process is no longer alive. */
-export function cleanStaleScratch(): void {
-  for (const entry of readdirSync(parent, { withFileTypes: true })) {
+/** Remove only this project's scratch parents whose recorded process is no longer alive.
+ * The parent defaults to this run's tmpdir; callers that sweep the runner's shared scratch pass it explicitly. */
+export function cleanStaleScratch(at: string = parent): void {
+  for (const entry of readdirSync(at, { withFileTypes: true })) {
     const match = entry.isDirectory() && entry.name.match(/^byokit-test-(\d+)-/);
     if (!match) continue;
     let alive = true;
     try { process.kill(Number(match[1]), 0); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ESRCH') alive = false; }
-    if (!alive) discard(join(parent, entry.name));
+    if (!alive) discard(join(at, entry.name));
   }
 }
 
