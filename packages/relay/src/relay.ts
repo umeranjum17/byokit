@@ -12,7 +12,7 @@ import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { b64url, hostId, unb64url } from '@byokit/link';
 import { CLOSE, challenge } from './proof.ts';
-import { deliver, parseNotification, parseSubscription, pushHosts, vapidKeys, type Notification, type PushRecord, type Vapid } from './push.ts';
+import { deliver, isActionReply, MAX_ACTION_REPLY, parseNotification, parseSubscription, pushHosts, vapidKeys, type Notification, type PushRecord, type Vapid } from './push.ts';
 
 /** A host allowed to register. `id` is link's `hostId(key)`, the address devices dial. */
 export type HostRecord = { id: string; key: string; name: string; added: number; meta?: unknown };
@@ -95,6 +95,8 @@ const CODE_MS = 5 * 60_000;
 const HELLO_MS = 10_000;
 const MAX_DEVICES = 256; // live device connections per host
 const MAX_PAYLOAD = 2 << 20;
+// JSON writes each control byte of a reply as six bytes (\u00XX), so a full-size reply can need six times its length.
+const MAX_ACTION_BODY = 6 * MAX_ACTION_REPLY + 1024;
 const DEDUP = 2048; // notification ids remembered per host
 
 type Live = { id: string; ws: WebSocket; devices: Map<string, WebSocket>; next: number };
@@ -205,11 +207,11 @@ export class Relay {
       }
       if (path === '/relay/v1/push/action' && req.method === 'POST') {
         if (!this.opts.limitKey && this.limited('action', req)) return json(res, 429, { error: 'too many requests' });
-        const body: any = await readJson(req);
+        const body: any = await readJson(req, MAX_ACTION_BODY);
         const token = this.tokens.get(String(body?.token ?? ''));
         const host = token && token.expires >= this.now() ? token.host : undefined;
         if (this.opts.limitKey && this.limited('action', req, host)) return json(res, 429, { error: 'too many requests' });
-        const r = await this.action(String(body?.token ?? ''), String(body?.action ?? ''));
+        const r = await this.action(String(body?.token ?? ''), String(body?.action ?? ''), body?.reply);
         return json(res, r.status, r.body);
       }
       const owner = this.opts.ownerToken;
@@ -562,10 +564,13 @@ export class Relay {
     return v.host;
   }
 
-  private async action(token: string, action: string): Promise<{ status: number; body: object }> {
+  private async action(token: string, action: string, reply?: unknown): Promise<{ status: number; body: object }> {
     const t = this.tokens.get(token);
     if (!t || t.expires < this.now()) return { status: 404, body: { error: 'no such notification' } };
     if (!t.actions.includes(action)) return { status: 400, body: { error: 'no such action' } };
+    // A sealed reply is opaque here: bound its length, refuse anything else, and never look inside. Checked before the
+    // token is spent, so a corrected press with the same one-use token still works.
+    if (reply !== undefined && !isActionReply(reply)) return { status: 400, body: { error: 'bad reply' } };
     const l = this.live.get(t.host);
     if (!l) return { status: 503, body: { error: 'computer offline' } }; // the token stays, so pressing again later works
     this.tokens.delete(token); // one use from here: the host may act on it
@@ -573,7 +578,7 @@ export class Relay {
     const answer = await new Promise<Parameters<Waiting['resolve']>[0] | undefined>((resolve) => {
       const timer = later(Math.min(this.opts.actionMs ?? 15_000, 15_000), () => { this.waiting.delete(id); resolve(undefined); });
       this.waiting.set(id, { live: l, resolve: (a) => { clearTimeout(timer); resolve(a); } });
-      l.ws.send(JSON.stringify({ t: 'push.action', id, device: t.device, event: t.event, action }));
+      l.ws.send(JSON.stringify({ t: 'push.action', id, device: t.device, event: t.event, action, ...(reply !== undefined && { reply }) }));
     });
     if (!answer) return { status: 504, body: { error: 'computer did not answer in time' } };
     return answer.ok ? { status: 200, body: { ok: true, value: answer.value ?? null } } : { status: 502, body: { error: answer.error ?? 'failed' } };
@@ -585,12 +590,12 @@ function json(res: ServerResponse, status: number, body: object): true {
   return true;
 }
 
-async function readJson(req: IncomingMessage): Promise<unknown> {
+async function readJson(req: IncomingMessage, limit = 16_384): Promise<unknown> {
   let size = 0;
   const parts: Buffer[] = [];
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 16_384) throw new Error('too big');
+    if (size > limit) throw new Error('too big');
     parts.push(chunk);
   }
   return JSON.parse(Buffer.concat(parts).toString('utf8') || '{}');
