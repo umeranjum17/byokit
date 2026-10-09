@@ -1,1 +1,0 @@
-- The deprecated `anthropic` provider alias on route `anthropic-cli` stays readable as `route.deprecatedProvider` (`'anthropic'`); its removal moves to 0.9.0.
