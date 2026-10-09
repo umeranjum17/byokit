@@ -7,6 +7,7 @@ import type { Api, ApiStreamOptions, AssistantMessage, AssistantMessageEventStre
 import { cloudSelection, CloudAccountError, type CloudOptions, type CloudStream } from './cloud.ts';
 import type { AiBinding } from '@earendil-works/pi-ai/api/cloudflare-ai-binding';
 import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfile, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
+import { withGoogle } from './flows/google.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
 import { offered, provider, route, routes, PROVIDERS, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
@@ -327,6 +328,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
   async add(member: M, key: string, options: (Omit<SignInOptions, 'via'> & { via?: Via; key?: string }) | CloudOptions = {}): Promise<{ id: string; signIn?: SignIn }> {
     if ('route' in options) return this.addCloud(member, key, options);
+    if (key.includes(':')) {
+      // A sign-in route id (`provider:browser`, `provider:paste`) selects that flow for the provider.
+      const flow = route(key);
+      if (['browser', 'paste', 'code'].includes(flow.via)) return this.add(member, flow.provider, { ...options, via: flow.via });
+    }
     if (key.includes(':') || options.via === 'key' || options.via === 'plan_key' || options.key !== undefined) {
       const r = key.includes(':') ? route(key) : routes().find((r) => (r.provider === key || r.aliases?.includes(key)) && r.via === (options.via ?? 'key'));
       if (!r || !['key', 'plan_key'].includes(r.via)) throw new Error('Choose a key route to add an account.');
@@ -427,7 +433,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       data[this.storageKey(canonical)] = c;
       index.addedAt[canonical] ??= Date.now();
       const info = c.type === 'oauth' ? planOf(c.access) : undefined;
-      if (info?.email) index.emails[canonical] = info.email;
+      const email = info?.email || (c.type === 'oauth' && typeof c.email === 'string' ? c.email : '');
+      if (email) index.emails[canonical] = email;
       if (info?.plan) index.plans[canonical] = info.plan;
     }, { signal: flow.abort.signal });
     this.aliases.set(`${member}:${key}`, canonical);
@@ -549,7 +556,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   protected engine(member: M, raw: CredentialStore, accountId?: string): Promise<R> {
     const credentials = this.boundStore(member, raw, accountId);
-    return Promise.resolve(Object.assign(withClaudePlan(this.platform.engine(credentials, this.opts.authBase, this.opts.deviceBase), credentials, accountId ? raw : this.baseStores.get(String(member)) ?? raw, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch }), {
+    const engine = withClaudePlan(this.platform.engine(credentials, this.opts.authBase, this.opts.deviceBase), credentials, accountId ? raw : this.baseStores.get(String(member)) ?? raw, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch });
+    return Promise.resolve(Object.assign(withGoogle(engine, credentials, { base: this.opts.authBase, fetch: this.opts.fetch }), {
       credentialStore: credentials, readCredential: (id: string) => credentials.read(id),
     }) as R);
   }
@@ -967,7 +975,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         throw new Error('Enter a GitHub Enterprise domain, without a path or credentials.');
     }
     if (p.key === 'claude' && body.via === 'code') throw new Error('Claude uses a browser or a pasted code, not a device code.');
-    if (body.via === 'paste' && !['claude', 'chatgpt', 'openrouter'].includes(p.key))
+    if (body.via === 'paste' && !['claude', 'chatgpt', 'openrouter', 'google-gemini-cli', 'google-antigravity'].includes(p.key))
       throw Object.assign(new Error('This provider has no paste sign-in flow.'), { readiness: 'no_upstream_flow' });
     if (p.key === 'openrouter') {
       if (body.via === 'code') throw new Error('OpenRouter uses a browser or a pasted code, not a device code.');
@@ -976,7 +984,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     }
     const selected = p.key === 'claude' && body.via === 'browser' ? 'anthropic:browser'
       : p.key === 'radius' ? `radius:${body.via ?? 'browser'}`
-      : p.key === 'openrouter' ? `openrouter:${body.via ?? 'browser'}` : undefined;
+      : p.key === 'openrouter' ? `openrouter:${body.via ?? 'browser'}`
+      : p.key === 'google-gemini-cli' || p.key === 'google-antigravity' ? `${p.key}:${body.via ?? 'browser'}` : undefined;
     if (selected) {
       const r = route(selected, { platform: this.platform.loopback ? 'node' : 'rn' });
       if (r.readiness !== 'ready') throw Object.assign(new Error(r.why), { readiness: r.readiness });
@@ -1039,7 +1048,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     let stuck: ReturnType<typeof setTimeout> | undefined;
     // Listen where the provider sends the browser back (the engine then finds the port taken and waits to be handed the address).
     const port = p.callbackPort && (this.opts.callbackPort ?? p.callbackPort);
-    let reserved = !!port && body.via !== 'code' && !!this.platform.loopback && !ports.has(port);
+    let reserved = !!port && body.via !== 'code' && body.via !== 'paste' && !!this.platform.loopback && !ports.has(port);
     if (reserved) ports.add(port!);
     let catcher: Awaited<ReturnType<Loopback>> | undefined;
     let closed = false;

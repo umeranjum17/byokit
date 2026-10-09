@@ -218,5 +218,24 @@
       "why": "Each member supplies their own key.",
       "source": "https://docs.typesafe.ai"
     }
+  },
+  "google-gemini-cli": {
+    "pi": "google-gemini-cli",
+    "name": "Gemini Code Assist",
+    "company": "Google",
+    "models": {
+      "strong": "gemini-3-pro"
+    },
+    "callbackPort": 8085,
+    "clientId": "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com",
+    "billing": "subscription",
+    "auth": "oauth",
+    "routes": ["google-gemini-cli:browser", "google-gemini-cli:paste"],
+    "source": "https://github.com/google-gemini/gemini-cli",
+    "multiAccount": {
+      "terms": "grey",
+      "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
+      "source": "https://github.com/google-gemini/gemini-cli"
+    }
   }
 }

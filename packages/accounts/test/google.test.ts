@@ -6,7 +6,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
+import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
+import { Accounts, memoryStore } from '@byokit/accounts';
 import { mockGoogle, type MockGoogleClient } from '@byokit/accounts/testing';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/google-oauth-typescript.json', import.meta.url), 'utf8')) as {
@@ -74,3 +76,134 @@ for (const client of Object.keys(fixture.clients) as MockGoogleClient[]) {
     }
   });
 }
+
+// A consumer's journey through the BUILT @byokit/accounts on a computer, against the same stand-in: add() opens Google's
+// page, the browser returns to the client's loopback port, and list() shows the account ready with the email from the
+// sign-in. The same stand-in covers the paste route, the busy-port wait and a cancel. No account and no real network.
+const OWNER = 1;
+const journey = async () => {
+  const google = await mockGoogle();
+  const store = memoryStore();
+  const accounts = new Accounts({ store: () => store, authBase: google.base, app: 'byokit journey' });
+  return { google, store, accounts };
+};
+/** Drive the stand-in's page and read the redirect address it sends the browser to. */
+const callbackAddress = async (authorize: string) => {
+  const auth = await fetch(authorize, { redirect: 'manual' });
+  assert.equal(auth.status, 303);
+  return auth.headers.get('location')!;
+};
+
+test('browser sign-in: Google’s page, the return to :8085, list() ready with the email, refresh, logout', async () => {
+  const { google, store, accounts } = await journey();
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:browser');
+    assert.equal(signIn?.state, 'waiting');
+    const url = new URL(signIn!.url!);
+    assert.equal(url.pathname, '/o/oauth2/v2/auth', 'the client’s own authorize page, stood in for offline');
+    assert.equal(url.searchParams.get('redirect_uri'), 'http://127.0.0.1:8085/oauth2callback');
+    assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
+    const address = await callbackAddress(signIn!.url!);
+    assert.match(address, /^http:\/\/127\.0\.0\.1:8085\/oauth2callback\?/);
+    assert.equal((await fetch(address)).status, 200, 'the app’s own page on the loopback port');
+    await accounts.finished(OWNER, id);
+    const rows = await accounts.list(OWNER);
+    assert.equal(rows.length, 1);
+    assert.deepEqual([rows[0].provider, rows[0].state, rows[0].email], ['google-gemini-cli', 'ready', 'umer@example.com']);
+    // The canary: no access or refresh token reaches list, status, the stored index or a status word.
+    const status = await accounts.status(OWNER, 'google-gemini-cli');
+    const index = JSON.stringify(await store.index());
+    for (const canary of ['recorded-access', 'recorded-refresh']) {
+      assert.ok(!JSON.stringify([rows, status]).includes(canary), `${canary} is absent from list and status`);
+      assert.ok(!index.includes(canary), `${canary} is absent from the stored index`);
+    }
+    // A refresh rotates the grant in the store; the account is still ready.
+    const rt = await accounts.runtime(OWNER);
+    const auth = await rt.getAuth('google-gemini-cli', { minOAuthValidityMs: 10 ** 9 });
+    assert.equal(auth?.auth.apiKey, 'rotated-access');
+    assert.ok(google.state.requests.some((r) => r.body.includes('grant_type=refresh_token')));
+    assert.equal((await accounts.list(OWNER))[0].state, 'ready');
+    // Logout ends it here and keeps nothing.
+    await accounts.logout(OWNER, 'google-gemini-cli');
+    assert.equal(await store.read('google-gemini-cli'), undefined);
+    assert.deepEqual(await accounts.list(OWNER), []);
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('paste: the person pastes the redirect address, and :8085 is never opened', async () => {
+  const { google, accounts } = await journey();
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:paste');
+    assert.equal(signIn?.state, 'waiting');
+    const address = await callbackAddress(signIn!.url!);
+    // The paste route never listens: the port is free while the sign-in waits.
+    const probe = createServer();
+    await new Promise<void>((r) => probe.listen(8085, '127.0.0.1', r));
+    await new Promise<void>((r) => probe.close(() => r()));
+    accounts.paste(OWNER, id, address);
+    await accounts.finished(OWNER, id);
+    const rows = await accounts.list(OWNER);
+    assert.deepEqual([rows[0]?.state, rows[0]?.email], ['ready', 'umer@example.com']);
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('a busy :8085 waits for the port and then completes; the OS lock is the port rule', async () => {
+  const { google, accounts } = await journey();
+  const blocker = createServer((_q, r) => r.end('busy'));
+  await new Promise<void>((r) => blocker.listen(8085, '127.0.0.1', r));
+  try {
+    let returned = false;
+    const pending = accounts.add(OWNER, 'google-gemini-cli:browser').then((v) => { returned = true; return v; });
+    await new Promise((r) => setTimeout(r, 250));
+    assert.equal(returned, false, 'a busy callback port makes the sign-in wait, never fail');
+    await new Promise<void>((r) => blocker.close(() => r()));
+    const { id, signIn } = await pending;
+    const address = await callbackAddress(signIn!.url!);
+    assert.equal((await fetch(address)).status, 200);
+    await accounts.finished(OWNER, id);
+    assert.equal((await accounts.list(OWNER))[0].state, 'ready');
+  } finally {
+    accounts.stop();
+    await new Promise<void>((r) => blocker.close(() => r()));
+    await google.close();
+  }
+});
+
+test('cancel closes the listener and keeps nothing', async () => {
+  const { google, store, accounts } = await journey();
+  try {
+    const { id } = await accounts.add(OWNER, 'google-gemini-cli:browser');
+    accounts.cancel(OWNER, id);
+    await accounts.finished(OWNER, id);
+    assert.equal(await store.read('google-gemini-cli'), undefined);
+    assert.deepEqual(await accounts.list(OWNER), []);
+    const probe = createServer();
+    await new Promise<void>((r) => probe.listen(8085, '127.0.0.1', r));
+    await new Promise<void>((r) => probe.close(() => r()));
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('a refused refresh reports signed out, and its error never quotes the token', async () => {
+  const { google, accounts } = await journey();
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:browser');
+    await fetch(await callbackAddress(signIn!.url!));
+    await accounts.finished(OWNER, id);
+    google.state.refuse = true;
+    const rt = await accounts.runtime(OWNER);
+    await assert.rejects(rt.getAuth('google-gemini-cli', { minOAuthValidityMs: 10 ** 9 }),
+      (e: Error) => !/recorded-(access|refresh)/.test(e.message));
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});

@@ -7,14 +7,14 @@ import { offered, provider, route, routes, routeReadiness, type Route, type Rout
 
 const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/account-routes-typescript.json', import.meta.url), 'utf8'));
 
-test('checked-in route snapshot covers the installed pin: 41 providers, 54 tuples, every method and explicit plan-token paste', () => {
+test('checked-in route snapshot covers the installed pin: 41 providers, 56 tuples, every method and explicit plan-token paste', () => {
   const generated = generateRoutes();
   assert.equal(readFileSync(new URL('../src/routes.json', import.meta.url), 'utf8'), JSON.stringify(generated, null, 2) + '\n');
   const pinned = builtinProviders();
   assert.equal(pinned.length, 41);
-  assert.deepEqual([...new Set(generated.filter((r) => r.upstream.flow === 'present' && r.upstream.id !== 'custom').map((r) => r.upstream.id))].sort(), pinned.map((p) => p.id).sort());
-  assert.equal(new Set(generated.filter((r) => r.upstream.flow === 'present').map((r) => `${r.provider}|${r.via}|${r.billing}`)).size, 54);
-  assert.equal(generated.length, 66, 'regional/method variants and two unavailable legacy rows');
+  assert.deepEqual([...new Set(generated.filter((r) => r.upstream.flow === 'present' && r.upstream.id !== 'custom').map((r) => r.upstream.id))].sort(), [...pinned.map((p) => p.id), 'google-gemini-cli'].sort(), 'the Google Code Assist client is a kit-owned flow, not a pinned pi-ai provider');
+  assert.equal(new Set(generated.filter((r) => r.upstream.flow === 'present').map((r) => `${r.provider}|${r.via}|${r.billing}`)).size, 56);
+  assert.equal(generated.length, 68, 'regional/method variants, two unavailable legacy rows and the two Google Code Assist rows');
   for (const r of generated) {
     assert.ok(fixture.vocabulary.via.includes(r.via), r.id);
     assert.ok(fixture.vocabulary.billing.includes(r.billing), r.id);
@@ -38,7 +38,7 @@ test('discovery keeps every row on every platform; host offers only ready subscr
   for (const platform of ['node', 'browser', 'rn'] as const) {
     const host = { platform };
     const listed = routes(host);
-    assert.equal(listed.length, 66);
+    assert.equal(listed.length, 68);
     assert.deepEqual(offered(host), listed.filter((r) => r.readiness === 'ready' && r.billing === 'subscription'));
     assert.ok(!offered(host).some((r) => r.provider === 'minimax' || r.provider === 'qwen'));
     for (const r of listed) if (r.readiness !== 'ready') assert.ok(r.why);
@@ -58,7 +58,7 @@ test('discovery keeps every row on every platform; host offers only ready subscr
     assert.equal(route(id).readiness, 'ready');
     assert.ok(offered({ platform: 'node' }).some((r) => r.id === id));
   }
-  assert.equal(offered({ platform: 'node' }).length, 21);
+  assert.equal(offered({ platform: 'node' }).length, 23);
   assert.ok(offered({ platform: 'node' }).every((r) => r.billing === 'subscription'));
 });
 
@@ -82,6 +82,6 @@ test('legacy provider IDs and explicit lists stay compatible; two dead defaults 
   assert.equal(provider('qwen').pi, 'qwen-portal');
   assert.equal(provider('minimax').pi, 'minimax');
   assert.deepEqual(provider('minimax').routes, ['minimax:key', 'minimax:plan_key']);
-  assert.deepEqual(offered().map((p) => p.key), ['chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta']);
+  assert.deepEqual(offered().map((p) => p.key), ['chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta', 'google-gemini-cli']);
   assert.deepEqual(offered(['qwen', 'minimax', 'openai']).map((p) => p.key), ['qwen', 'minimax', 'openai']);
 });

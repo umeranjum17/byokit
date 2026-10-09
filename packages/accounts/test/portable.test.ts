@@ -34,7 +34,7 @@ test('portable entry bundles for a browser and can be imported', async () => {
   assert.ok(!Object.keys(keyed.metafile.inputs).some((path) => path.startsWith('node:') || path.includes('node_modules/@earendil-works/pi-ai/')));
   assert.doesNotMatch(result.outputFiles[0].text, /\bimport\s*\(\s*[^'"`]/, 'no non-literal dynamic imports');
   const portable = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString('base64')}`);
-  assert.equal(portable.routes({ platform: 'rn' }).length, 66);
+  assert.equal(portable.routes({ platform: 'rn' }).length, 68);
   assert.equal(portable.route('openai:code', { platform: 'rn' }).readiness, 'ready');
   assert.ok(portable.offered({ platform: 'rn' }).every((r: { billing: string; readiness: string }) => r.billing === 'subscription' && r.readiness === 'ready'));
   const store = portable.memoryStore();

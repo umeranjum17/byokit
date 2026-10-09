@@ -672,6 +672,54 @@
     }
   },
   {
+    "id": "google-gemini-cli:browser",
+    "provider": "google-gemini-cli",
+    "name": "Gemini Code Assist",
+    "company": "Google",
+    "label": "Uses your Gemini Code Assist plan",
+    "aliases": [],
+    "via": "browser",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "google-gemini-cli",
+      "method": "oauth",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "google-gemini-cli:paste",
+    "provider": "google-gemini-cli",
+    "name": "Gemini Code Assist",
+    "company": "Google",
+    "label": "Uses your Gemini Code Assist plan",
+    "aliases": [],
+    "via": "paste",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "google-gemini-cli",
+      "method": "oauth",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
     "id": "google-vertex:cloud:adc",
     "provider": "google-vertex",
     "name": "Google Vertex AI",

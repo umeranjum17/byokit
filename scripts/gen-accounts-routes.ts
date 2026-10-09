@@ -108,6 +108,9 @@ export function generateRoutes(): Route[] {
   add('qwen', 'Qwen', 'browser', 'subscription', 'oauth', undefined, { company: 'Alibaba', platforms: node, upstream: { surface: 'accounts', id: 'qwen-portal', method: 'oauth', revision, flow: 'absent' } });
   // No plan login exists at this pin; a key is not proof of a plan.
   add('minimax', 'MiniMax', 'plan_key', 'subscription', 'plan-key', undefined, { upstream: { surface: 'accounts', id: 'minimax', method: 'plan-key', revision, flow: 'absent' } });
+  // The Google Code Assist clients are not pi-ai providers; their flows live in packages/accounts/src/flows/google.ts.
+  for (const via of ['browser', 'paste'] as const)
+    add('google-gemini-cli', 'Gemini Code Assist', via, 'subscription', 'oauth', undefined, { company: 'Google', platforms: node });
   if (new Set(result.map((r) => r.id)).size !== result.length) throw new Error('Duplicate route id');
   return result.sort((a, b) => a.id.localeCompare(b.id, 'en'));
 }
