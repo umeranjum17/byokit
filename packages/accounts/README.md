@@ -356,7 +356,7 @@ answers only from the saved default: when it is signed out or not ready, `respon
 rests with `rate_limit` and its `until`, before any request and never from another account. An explicit id is sent even while that
 account rests: it is the person's own choice, and a real limit rests it again with its `until`. Auto and default
 consider only ChatGPT accounts; when every signed-in one rests, Auto refuses with `rate_limit` and the soonest `until`, and
-`signed_out` only when none is signed in. Omitting `select`
+otherwise refuses with `signed_out`. Omitting `select`
 keeps the saved default, else the provider's first account, exactly as before.
 
 A cut-off answer always throws `IncompleteError` (a `ResponseError` with `kind: null`), with or without tools.
