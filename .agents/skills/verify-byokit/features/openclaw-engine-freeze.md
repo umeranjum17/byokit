@@ -11,14 +11,14 @@ intentionally not taken — crash safety is `verifyEngineSet`'s whole-tree conte
 - A clean first install (stock set + patched set) completes and both sets verify, with no per-entry fsync in `freeze` and one bulk flush.
 - A drifted/damaged published set is still detected by full verification and rebuilt as a sibling; the old tree's
   bytes are preserved; the drifted set is never launched (covered by `packages/openclaw/test/engine-unit.test.ts`).
-- Freeze wall time on a real engine set is seconds, not minutes (one tree read, chmod pass + one syncfs).
+- Freeze wall time on a real engine set is seconds, not minutes (one tree read, chmod pass + one syncfs). This is the
+  author's measurement on the reference host, not something the repository verifies.
 
 ## How to drive it (real install, needs registry access)
 
 From a built worktree, run a clean `Engine.prepare()` with an isolated stateDir/engineDir under a short scratch
-path (Unix socket limits), through the home's memory gate, and time it. The task's evidence
-(`data/byk-install-freeze-cheap/evidence/measure-*.log` in the dispatching home) used a `node:module`
-`registerHooks` probe wrapping `async function freeze(dir: string): Promise<TreeEntry[]> {` in
+path (Unix socket limits), through the home's memory gate, and time it. The split can be measured with a
+`node:module` `registerHooks` probe wrapping `async function freeze(dir: string): Promise<TreeEntry[]> {` in
 `packages/openclaw/src/engine-patches.ts` to split freeze wall time from total prepare. The probe wraps the source
 form only. Offline, the whole journey (clone, patch, freeze, publish, drift rebuild, fault refusal) is covered by
 the existing engine-patch tests; no new unit test belongs here.

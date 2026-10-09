@@ -136,9 +136,9 @@ async function removeTemp(dir: string): Promise<void> {
 }
 const flushFs = (dir: string): Promise<void> => new Promise(resolve => {
   // One filesystem-wide syncfs through coreutils `sync -f`: per-file fsync transactions cost ~110 s per set on
-  // the reference btrfs host (37,999 fsyncs), one syncfs ~2 s. A performance flush only — it also keeps the
-  // reflink clone below cheap — so where `sync -f` cannot run (no sync binary, a sync that rejects -f, or a non-Linux
-  // host) the flush is skipped, durability rests on next-launch whole-tree verification, and it is never an error.
+  // the reference btrfs host (37,999 fsyncs), one syncfs ~2 s. A performance flush only, so where `sync -f` cannot run
+  // (no sync binary, a sync that rejects -f, or a non-Linux host) the flush is skipped, durability rests on next-launch
+  // whole-tree verification, and it is never an error.
   if (process.platform !== 'linux') return resolve();
   const child = spawn('sync', ['-f', dir], { stdio: 'ignore' });
   child.once('error', () => resolve());
