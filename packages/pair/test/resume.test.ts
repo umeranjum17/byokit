@@ -238,6 +238,46 @@ test('a compact pending save that never settles times out while the socket stays
   }
 });
 
+test('a compact QR whose socket drops once the computer has the code is not tried at another address', async () => {
+  const umer = await computer();
+  const first = await address(umer.host);
+  const second = await address(umer.host);
+  const settles = (p: Promise<unknown>) => Promise.race([p.then(() => 'paired', (e: LinkError) => e.code), sleep(3000).then(() => 'hung')]);
+  try {
+    let saving = () => {};
+    const started = new Promise<void>((r) => { saving = r; });
+    const pairing = pairWithOffer(umer.host.compactOffer({ role: 'view', urls: [first.url, second.url] }).text, {
+      name: 'Umer phone', onWords: () => {}, onPending: () => { saving(); return new Promise<void>(() => {}); },
+    });
+    await started;
+    first.drop();
+    assert.equal(await settles(pairing), 'unreachable', 'the second address would only answer wrong-code for the spent code');
+    assert.equal(umer.asked(), 0);
+  } finally {
+    first.close();
+    second.close();
+    umer.host.close();
+  }
+});
+
+test('a compact QR whose pending save times out on one address is not tried at another', async () => {
+  const umer = await computer();
+  const first = await address(umer.host);
+  const second = await address(umer.host);
+  const settles = (p: Promise<unknown>) => Promise.race([p.then(() => 'paired', (e: LinkError) => e.code), sleep(3000).then(() => 'hung')]);
+  try {
+    const pairing = pairWithOffer(umer.host.compactOffer({ role: 'view', urls: [first.url, second.url] }).text, {
+      name: 'Umer phone', onWords: () => {}, timeoutMs: 200, onPending: () => new Promise<void>(() => {}),
+    });
+    assert.equal(await settles(pairing), 'timeout', 'the second address would only answer wrong-code for the spent code');
+    assert.equal(umer.asked(), 0);
+  } finally {
+    first.close();
+    second.close();
+    umer.host.close();
+  }
+});
+
 test('parseOffer reads a compact QR for inspection without a host key, and a version 1 offer keeps its host', async () => {
   const umer = await computer();
   const at = await address(umer.host);

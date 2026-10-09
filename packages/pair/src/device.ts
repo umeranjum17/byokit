@@ -183,12 +183,12 @@ type OfferOptions = PairOptions & {
  *  like a typed code over the packed addresses: same single use, life, words and approval; the host key it pins is
  *  the one the code handshake authenticated, handed to `onPending` before the host learns this device. */
 export async function pairWithOffer(scanned: string, o: OfferOptions): Promise<DeviceGrant> {
-  let shown = false; // words shown: the host knows this device and has spent the code, so no other address can answer
-  const words = { ...o, onWords: (w: string) => { shown = true; o.onWords(w); } };
+  let taken = false; // the host has the code (it read the ticket or the code's first message): no other address can answer
+  const words = { ...o, onWords: (w: string) => { taken = true; o.onWords(w); } };
   if (scanned.indexOf(COMPACT_TAG) >= 0) {
     const compact = decodeCompactOffer(scanned);
     const me = o.key ?? keyPair();
-    const pin = o.onPending && ((key: Uint8Array) => o.onPending!(pendingGrant(scanned, { name: o.name, key: me, host: b64url(key) })));
+    const pin = o.onPending && ((key: Uint8Array) => { taken = true; return o.onPending!(pendingGrant(scanned, { name: o.name, key: me, host: b64url(key) })); });
     let last = new LinkError('unreachable');
     for (const url of compact.urls) {
       try {
@@ -198,7 +198,7 @@ export async function pairWithOffer(scanned: string, o: OfferOptions): Promise<D
       } catch (e: unknown) {
         if (!(e instanceof LinkError)) throw e; // the app's own onPending failure, as it said it
         last = e;
-        if (shown || (last.code !== 'unreachable' && last.code !== 'timeout' && last.code !== 'wrong-host')) break;
+        if (taken || (last.code !== 'unreachable' && last.code !== 'timeout' && last.code !== 'wrong-host')) break;
       }
     }
     throw last;
@@ -214,7 +214,7 @@ export async function pairWithOffer(scanned: string, o: OfferOptions): Promise<D
       return granted(me, offer.host, url, offer.urls, l.ready);
     } catch (e: any) {
       last = e instanceof LinkError ? e : new LinkError('unreachable');
-      if (shown || (last.code !== 'unreachable' && last.code !== 'timeout' && last.code !== 'wrong-host')) break;
+      if (taken || (last.code !== 'unreachable' && last.code !== 'timeout' && last.code !== 'wrong-host')) break;
     }
   }
   throw last;

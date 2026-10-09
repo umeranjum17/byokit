@@ -289,7 +289,7 @@ await link.request('send.message', { text: 'hi' }, { timeoutMs: 20_000, notValid
   approved; a host with another key there is `refused`. Because the device tells the host it kept a pending grant, a yes
   given after it went away still counts; a device that kept none gets no grant it could never use. So when
   `pairWithOffer` rejects after `onPending` ran without a sealed refusal (`e.sealed` false, e.g. `unreachable` once the
-  words were shown), keep the pending grant and make a `DeviceLink` from it: it comes online on a yes and forgets
+  computer has taken the code), keep the pending grant and make a `DeviceLink` from it: it comes online on a yes and forgets
   itself on a no.
   `pendingGrant(scanned, { name, key, host })` builds the same grant; a compact offer needs `host`.
 - `resolve: (url) => …` runs before each dial (e.g. open an SSH tunnel and return `ws://127.0.0.1:<port>/…`);
