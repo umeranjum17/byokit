@@ -74,6 +74,9 @@ export type AccountsOptions<M extends Member = Member> = {
    *  Phones and browsers sign in and sign out there; on a computer Pi's engine always calls OpenAI, and only sign-out's
    *  revoke goes here. */
   authBase?: string;
+  /** Where Google's sign-in lives (its authorize, token, refresh and userinfo calls), for a stand-in in tests and demos
+   *  (`mockGoogle()` from `@byokit/accounts/testing`). Only Google's route reads it; `authBase` never receives tokens. */
+  googleBase?: string;
   /** Where every catalogue device sign-in goes instead of each provider's own host, for a stand-in in tests and
    *  demos (`mockDevice()` from `@byokit/accounts/testing`). */
   deviceBase?: string;
@@ -332,8 +335,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     // A Google sign-in route id (`google-gemini-cli:browser`, `:paste`) selects that flow for the provider.
     if (key.startsWith('google-gemini-cli:')) {
       const via = key.slice('google-gemini-cli:'.length);
-      if (via !== 'browser' && via !== 'paste') throw googleViaError();
-      return this.add(member, 'google-gemini-cli', { ...options, via });
+      return this.add(member, 'google-gemini-cli', { ...options, via: via as Via });
     }
     if (key.includes(':') || options.via === 'key' || options.via === 'plan_key' || options.key !== undefined) {
       const r = key.includes(':') ? route(key) : routes().find((r) => (r.provider === key || r.aliases?.includes(key)) && r.via === (options.via ?? 'key'));
@@ -560,7 +562,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const credentials = this.boundStore(member, raw, accountId);
     const engine = withClaudePlan(this.platform.engine(credentials, this.opts.authBase, this.opts.deviceBase), credentials, accountId ? raw : this.baseStores.get(String(member)) ?? raw, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch });
     const callbackPort = this.opts.callbackPort ?? provider('google-gemini-cli').callbackPort!;
-    return Promise.resolve(Object.assign(withGoogle(engine, credentials, { base: this.opts.authBase, fetch: this.opts.fetch, callbackPort }), {
+    return Promise.resolve(Object.assign(withGoogle(engine, credentials, { base: this.opts.googleBase, fetch: this.opts.fetch, callbackPort }), {
       credentialStore: credentials, readCredential: (id: string) => credentials.read(id),
     }) as R);
   }

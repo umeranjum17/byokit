@@ -84,7 +84,7 @@ const OWNER = 1;
 const journey = async () => {
   const google = await mockGoogle();
   const store = memoryStore();
-  const accounts = new Accounts({ store: () => store, authBase: google.base, app: 'byokit journey' });
+  const accounts = new Accounts({ store: () => store, googleBase: google.base, app: 'byokit journey' });
   return { google, store, accounts };
 };
 /** Drive the stand-in's page and read the redirect address it sends the browser to. */
@@ -136,7 +136,7 @@ test('browser sign-in: Google’s page, the return to :8085, list() ready with t
 test('an app-set callbackPort moves the listener and the redirect address together', async () => {
   const google = await mockGoogle();
   const store = memoryStore();
-  const accounts = new Accounts({ store: () => store, authBase: google.base, app: 'byokit journey', callbackPort: 19085 });
+  const accounts = new Accounts({ store: () => store, googleBase: google.base, app: 'byokit journey', callbackPort: 19085 });
   try {
     const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:browser');
     assert.equal(new URL(signIn!.url!).searchParams.get('redirect_uri'), 'http://127.0.0.1:19085/oauth2callback');
@@ -153,7 +153,7 @@ test('a failed email lookup still signs in; the account is ready without an emai
   const google = await mockGoogle();
   const store = memoryStore();
   const realFetch = globalThis.fetch;
-  const accounts = new Accounts({ store: () => store, authBase: google.base, app: 'byokit journey',
+  const accounts = new Accounts({ store: () => store, googleBase: google.base, app: 'byokit journey',
     fetch: (input, init) => String(input).includes('/oauth2/v1/userinfo') ? Promise.reject(new TypeError('fetch failed')) : realFetch(input, init) });
   try {
     const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:browser');
@@ -196,9 +196,34 @@ test('a Google sign-in takes only the browser or paste route; other providers ke
   }
 });
 
+test('an app that sets authBase still sends Google’s sign-in to Google’s own hosts; tokens never go to authBase', async () => {
+  const sent: string[] = [];
+  const google = (async (input: string | URL | Request) => {
+    const url = String(input instanceof Request ? input.url : input);
+    sent.push(url);
+    if (url.startsWith('https://oauth2.googleapis.com/token')) return Response.json({ access_token: 'a1', refresh_token: 'r1', expires_in: 3600 });
+    if (url.startsWith('https://www.googleapis.com/oauth2/v1/userinfo')) return Response.json({ email: 'umer@example.com' });
+    return new Response('not stubbed', { status: 599 });
+  }) as typeof fetch;
+  const accounts = new Accounts({ store: () => memoryStore(), authBase: 'http://127.0.0.1:9', app: 'byokit journey', fetch: google });
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:paste');
+    const url = new URL(signIn!.url!);
+    assert.equal(url.origin, 'https://accounts.google.com');
+    accounts.paste(OWNER, id, `http://127.0.0.1:8085/oauth2callback?code=c1&state=${url.searchParams.get('state')}`);
+    await accounts.finished(OWNER, id);
+    assert.equal((await accounts.list(OWNER))[0]?.email, 'umer@example.com');
+    const auth = await (await accounts.runtime(OWNER)).getAuth('google-gemini-cli', { minOAuthValidityMs: 10 ** 9 });
+    assert.equal(auth?.auth.apiKey, 'a1');
+    assert.deepEqual(sent.map((u) => new URL(u).origin), ['https://oauth2.googleapis.com', 'https://www.googleapis.com', 'https://oauth2.googleapis.com']);
+  } finally {
+    accounts.stop();
+  }
+});
+
 test('browser: a redirect that arrives after the fallback window still completes the sign-in', async () => {
   const google = await mockGoogle();
-  const accounts = new Accounts({ store: () => memoryStore(), authBase: google.base, app: 'byokit journey', redirectMs: 100 });
+  const accounts = new Accounts({ store: () => memoryStore(), googleBase: google.base, app: 'byokit journey', redirectMs: 100 });
   try {
     const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:browser');
     const address = await callbackAddress(signIn!.url!);
@@ -215,7 +240,7 @@ test('browser: a redirect that arrives after the fallback window still completes
 
 test('browser: a second member waiting while the port is held keeps its URL and state after the fallback', async () => {
   const google = await mockGoogle();
-  const accounts = new Accounts({ store: () => memoryStore(), authBase: google.base, app: 'byokit journey', redirectMs: 100 });
+  const accounts = new Accounts({ store: () => memoryStore(), googleBase: google.base, app: 'byokit journey', redirectMs: 100 });
   try {
     const first = await accounts.add(OWNER, 'google-gemini-cli:browser');
     const second = await accounts.add(2, 'google-gemini-cli:browser');
@@ -265,7 +290,7 @@ test('paste: an error return for another sign-in is out of date, not declined', 
 
 test('paste: a late paste after the browser redirect window still completes', async () => {
   const google = await mockGoogle();
-  const accounts = new Accounts({ store: () => memoryStore(), authBase: google.base, app: 'byokit journey', redirectMs: 100 });
+  const accounts = new Accounts({ store: () => memoryStore(), googleBase: google.base, app: 'byokit journey', redirectMs: 100 });
   try {
     const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:paste');
     const address = await callbackAddress(signIn!.url!);
