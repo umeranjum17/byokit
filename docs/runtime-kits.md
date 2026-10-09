@@ -110,8 +110,8 @@ existing Claude/Codex login with the person's consent (D11).
 
 1. **Data.** Each surface generates its table from its pin; no provider is special-cased in code. The `id` names
    the provider and `via`. One time-boxed exception: OpenClaw's `anthropic-cli` reports provider `claude-cli` from
-   0.7.0 but keeps id `anthropic:cli:anthropic-cli` (and `deprecatedProvider: 'anthropic'`) through 0.7.x so lookups
-   by the old name still resolve; 0.8.0 drops `deprecatedProvider` and renames the id to `claude-cli:cli:anthropic-cli`. `upstream` names the pinned source; `flow: 'absent'` lists a row the pin cannot sign in.
+   0.7.0 but keeps id `anthropic:cli:anthropic-cli` (and `deprecatedProvider: 'anthropic'`) through 0.8.x so lookups
+   by the old name still resolve; 0.9.0 drops `deprecatedProvider` and renames the id to `claude-cli:cli:anthropic-cli`. `upstream` names the pinned source; `flow: 'absent'` lists a row the pin cannot sign in.
 2. **Billing is fixed.** `billingFrom: 'source'` is pinned metadata; `'host'` is what the person or app chose when
    adding it. Endpoint rows are always `host`. An address never decides billing: a loopback proxy can charge a remote
    API. `unknown` is valid and explicit.
@@ -659,7 +659,7 @@ checks inventory and starts the routes the pin supports through its setup wizard
 the core `custom-api-key`). That includes the 55 choices whose plugins are not in the tarball (row `needs.plugin`,
 installed only on an explicit call, B7), plus rows for the 5 providers configured without a choice (cloud or CLI).
 Corrections to today's table: `minimax-global-oauth` and `minimax-cn-oauth` belong to manifest provider
-`minimax-portal`; `anthropic-cli` reports provider `claude-cli` (from 0.7.0; the id `signedIn`, `providers()` and runs use for a Claude Code login), while its plugin, `upstream.id` and route id keep the manifest provider `anthropic` (`anthropic:cli:anthropic-cli`, the one row whose id prefix is not its `provider`, see the 2.1 exception). Its pre-0.7 provider `anthropic` is kept as `deprecatedProvider: 'anthropic'` through 0.7.x; 0.8.0 removes it and renames the id to `claude-cli:cli:anthropic-cli`. `anthropic` stays the API-billed provider: a Claude Code login never reports it; `opencode-go` is a plan
+`minimax-portal`; `anthropic-cli` reports provider `claude-cli` (from 0.7.0; the id `signedIn`, `providers()` and runs use for a Claude Code login), while its plugin, `upstream.id` and route id keep the manifest provider `anthropic` (`anthropic:cli:anthropic-cli`, the one row whose id prefix is not its `provider`, see the 2.1 exception). Its pre-0.7 provider `anthropic` is kept as `deprecatedProvider: 'anthropic'` through 0.8.x; 0.9.0 removes it and renames the id to `claude-cli:cli:anthropic-cli`. `anthropic` stays the API-billed provider: a Claude Code login never reports it; `opencode-go` is a plan
 key (subscription); `microsoft-foundry-entra` is Entra cloud credentials, not an API key;
 `alibaba-model-studio-api-key` comes from a video-generation plugin; `copilot-proxy` billing is unverified
 (`unknown`). A sensitive wizard text step (`setup-token`) is answered from the paste channel without echo (B8).
