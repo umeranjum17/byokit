@@ -4,7 +4,7 @@
 
 ## 0.6.4 (2026-10-09)
 
-- Dependency update: pins @byokit/link 0.7.2.
+- Dependency update: pins @byokit/link 0.8.0.
 - Dependency update: pins @byokit/accounts 0.20.0.
 
 ## 0.6.3 (2026-10-08)

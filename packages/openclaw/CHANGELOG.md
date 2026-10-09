@@ -4,8 +4,8 @@
 
 ## 0.9.0 (2026-10-09)
 
-- Dependency update: pins @byokit/relay 0.5.4.
-- Dependency update: pins @byokit/link 0.7.2.
+- Dependency update: pins @byokit/relay 0.6.0.
+- Dependency update: pins @byokit/link 0.8.0.
 
 - Cut first-install wall time ~3x (freeze ~20x) by dropping the 37,999 per-entry `fsync`s from `freeze()`: entries are chmodded read-only in bounded batches, one filesystem-wide `sync -f` flush runs where available (Linux, ~2 s measured vs ~110 s of per-file fsync transactions), and the manifest is read from the built tree once. Durability rule: `docs/runtime-kits.md` 5.16.
 - FEAT: Name the engine's learning switch: `learning()`, `setLearning(mode | 'default')` and `restoreLearning(captured)` over the config key `skills.workshop.autonomous.mode` (`off | propose | auto`, engine default `auto` when absent), as a typed, file-backed veneer on the one-key pair — valid on a stopped home, before boot and after `stop()`. Absence is a value (`{ present: false }`); an unknown mode throws listing the accepted values, a stored value outside the enum makes `learning()` throw naming it, both writers throw when `KitOptions.config` also passes `skills`, and `restoreLearning` reads back and throws on mismatch. The README also documents the supported repair of a retained home killed without `stop()` (orphan gateway, stale lock, reseal, exit-78 doctor repair) and cross-references the separate auth-store seal size bound.
