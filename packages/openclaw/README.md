@@ -426,8 +426,9 @@ itself — no manual file surgery:
 
 - It stops a leftover Gateway only after verifying it is a same-user orphan of this root (matching pid, identity,
   start time, exe/cwd and env), and only when the auth-store lock's owner is dead; then it seals the leftover live
-  `state/` and `home/` trees back into the store under the acquired lock. Anything ambiguous (a live lock owner, an
-  unverifiable pid, another writer alive, shutdown timeout) fails closed with `EngineAlreadyRunningError` instead.
+  credential state (`state/` and the non-cache `home/` paths, see below) back into the store under the acquired
+  lock. Anything ambiguous (a live lock owner, an unverifiable pid, another writer alive, shutdown timeout) fails
+  closed with `EngineAlreadyRunningError` instead.
 - A stale `auth-store.lock/` with a dead owner is recovered through a `recovery/` marker; interrupted
   `cleanup`/`restoring` transitions are completed from the authenticated snapshot; empty live trees are treated as
 debris.
@@ -568,11 +569,9 @@ damaged or tampered bytes) or whose payload is not a credential snapshot stays u
 `auth-store.sealed`. Both `prepare()` and `start()` reject with exported `AuthStoreUnreadableError`
 (`code: 'auth-store-unreadable'`, `reason: 'auth-failed' | 'invalid-snapshot'`). The kit reports
 `{ phase: 'failed', why: 'auth-store-unreadable' }`; show `stateWords(kit.state)`, not a sign-in prompt.
-Saved sign-in data over the limit instead rejects with exported `AuthStoreSealSizeError` (`code: 'auth-store-seal-size'`,
-fields `size` and `cap`); the kit reports `{ phase: 'failed', why: 'auth-store-seal-size', sealSize: { size, cap } }`
-on start, and an engine exit that hits it reports the same. On that refusal the last good saved store is kept as it was
-and no live file is deleted. Do not move or delete files to get under the limit; report it to the byokit maintainers.
-`encrypt()` builds no snapshot-sized JSON string: the envelope is assembled as bytes, still transiently two byte copies.
+Saved sign-in data over the cap rejects with `AuthStoreSealSizeError`, and the kit reports
+`{ phase: 'failed', why: 'auth-store-seal-size', sealSize: { size, cap } }`; the refusal rules are in
+[Retained home killed without stop()](#retained-home-killed-without-stop).
 Restore access to the original seal/key (and the original service/stateDir binding if the adapter uses
 one), then retry `start()` with that adapter. Do not generate/rotate a key to repair an unreadable store.
 If the bytes are damaged, stop all writers, acquire the host writer lock, and restore an authentic

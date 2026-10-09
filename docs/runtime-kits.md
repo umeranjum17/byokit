@@ -366,8 +366,9 @@ export type Approval = {
 export type Decision = { allow: boolean; reason?: string; answer?: unknown };   // answer: question.* only
 export type KitState = {
   phase: 'stopped' | 'installing' | 'starting' | 'repairing' | 'ready' | 'restarting' | 'failed' | 'needs-update' | 'locked';
-  why?: 'install' | 'handshake' | 'exited' | 'port' | 'version' | 'engine-already-running' | 'engine-patch' | 'sign-in-reset' | 'auth-store-unreadable';
+  why?: 'install' | 'handshake' | 'exited' | 'port' | 'version' | 'engine-already-running' | 'engine-patch' | 'sign-in-reset' | 'auth-store-unreadable' | 'auth-store-seal-size';
   retryAt?: number;
+  sealSize?: { size: number; cap: number };                    // with 'auth-store-seal-size'; size is a lower bound
   patchSet?: string | null;                                    // bundled engine patch set id after prepare (5.16)
 };
 export type Hello = { protocol: number; server: { version: string }; methods: string[]; events: string[] };
@@ -752,6 +753,8 @@ engine or changing the sealed snapshot; a later `start()` retries after unlock. 
 snapshot stays byte-identical at `auth-store.sealed`. `prepare()` and `start()` reject with the exported
 `AuthStoreUnreadableError` (`code: 'auth-store-unreadable'`, reason `auth-failed` or `invalid-snapshot`)
 and report `{ phase: 'failed', why: 'auth-store-unreadable' }`; no engine or sign-in starts.
+Saved data over the seal cap rejects with `AuthStoreSealSizeError` and reports `{ phase: 'failed', why: 'auth-store-seal-size' }`;
+the cap and refusal rules are owned by the OpenClaw README.
 Never rotate a key or replace the snapshot as an automatic recovery. The host repair procedure is in
 [OpenClaw's credential sealing guidance](../packages/openclaw/README.md#credential-sealing-and-threat-model).
 Other sealing failures still reject.
