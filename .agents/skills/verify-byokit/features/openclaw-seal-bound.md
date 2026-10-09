@@ -6,7 +6,7 @@ Verification recipe for the [auth-store seal bound](../../../../packages/opencla
 
 - A host killed without `stop()` leaves live plaintext trees plus a stale lock; the next `start()` reseals only credential state ( caches on disk are left in place, never sealed, never read).
 - A credential file larger than the 1 MiB envelope chunk round-trips byte for byte (single-pass seal envelope).
-- Credential state over the fixed cap rejects with exported `AuthStoreSealSizeError` (`code: 'auth-store-seal-size'`, fields `size`, `cap`), `{ phase: 'failed', why: 'auth-store-seal-size', sealSize }` and recovery words giving the size and limit in MB; the last good saved store is kept as it was, no live file is deleted, and nothing is read or chmodded before the refusal.
+- Credential state over the fixed cap rejects with exported `AuthStoreSealSizeError` (`code: 'auth-store-seal-size'`, fields `size`, `cap`), `{ phase: 'failed', why: 'auth-store-seal-size', sealSize }` and recovery words giving the size and limit in MB; the last good saved store is kept as it was, no live file is deleted, and housekeeping such as archive retirement may still run.
 
 ## How to get to it (user POV)
 

@@ -144,6 +144,7 @@ export class Engine {
     const pending = this.prepareOnce().catch(error => {
       if (error instanceof EnginePatchError) { this.patchSet = null; this.state('failed', 'engine-patch'); }
       if (error instanceof AuthStoreUnreadableError) this.state('failed', 'auth-store-unreadable');
+      if (error instanceof AuthStoreSealSizeError) this.exitedState(error);
       throw error;
     });
     this.prepared = pending;
