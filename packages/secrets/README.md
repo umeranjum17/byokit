@@ -218,15 +218,18 @@ closed (automatic selection falls back to the file key); hosts must bundle its p
 - Owned byte copies are zeroed after use; JavaScript strings, native copies and returned plaintext
   cannot reliably be erased. Never log keys, credentials or decrypted content.
 
-Tests inject `keyring: KeyringBackend` and never use the owner's keyring. A real Linux test is opt-in
-through `sh scripts/test-keyring.sh`, which clears the environment and creates a private HOME, XDG
-tree, D-Bus and daemon control directory. The test asserts the bus is the private one and refuses
-inherited desktop settings before any native call. Setting `BYOKIT_REAL_KEYRING` alone cannot
-authorize a real test. Without an available Secret Service the opt-in test skips, unless CI requires
-the provisioned service. CI runs the same isolated harness.
-Unit coverage exercises accounts' actual fileStore, fresh nonces, rotation, wrong keys, lost keys,
-metadata tampering, persistence failures and the explicit server path. macOS/Windows native runtime
-qualification remains host/platform CI work; the native API wrapper is fake-tested on every platform.
+Tests drive the built package the way a host app does: `test/journey-secrets.test.ts` imports only the
+published entries `@byokit/secrets`, `@byokit/secrets/web` and `@byokit/secrets/native`, and uses fake
+keyring CLIs so the owner's keyring is never touched. A real Linux test is opt-in through
+`sh scripts/test-keyring.sh`, which clears the environment and creates a private HOME, XDG tree, D-Bus
+and daemon control directory. The test asserts the bus is the private one and refuses inherited desktop
+settings before any native call. Setting `BYOKIT_REAL_KEYRING` alone cannot authorize a real test.
+Without an available Secret Service the opt-in test skips, unless CI requires the provisioned service.
+CI runs the same isolated harness. The journeys cover keyring lookup and label scoping, keystore
+read/write/delete, sealing and unsealing with wrong-key, tampered and truncated input refused,
+process-env isolation, a locked keyring that is never unlocked or written to, and a locked-down
+permission run that leaves a decoy HOME byte for byte. macOS/Windows native runtime qualification
+remains host/platform CI work.
 
 ## Servers and headless Node
 
