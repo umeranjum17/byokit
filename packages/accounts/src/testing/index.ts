@@ -52,4 +52,5 @@ export function decoy(root: string) {
   };
 }
 export { mockDevice, type MockDeviceOptions } from './mock-device.ts';
+export { mockGoogle, type MockGoogleClient, type MockGoogleOptions, type MockGoogleProtocol } from './mock-google.ts';
 export { mockJwt, mockOpenAI, type MockOpenAIAnswer, type MockOpenAIOptions } from './mock-openai.ts';

@@ -11,6 +11,7 @@ a Messages backend to the frozen Kotlin runtime.
 | `conformance/member-keys-typescript.json` | TypeScript-only explicit member API-key consent, billing, sealing and redaction rules. |
 | `conformance/claude-messages-typescript.json` | TypeScript-only native Claude Messages stream captures. |
 | `conformance/computer-signins-typescript.json` | Pinned computer browser/paste and RFC 8628 flows; controlled loopback fixtures, explicit billing and secret-store canaries. No portable-device or live qualification. |
+| `conformance/google-oauth-typescript.json` | TypeScript-only Google Cloud Code Assist protocol for the two Google routes (google-gemini-cli and google-antigravity): PKCE loopback authorize, token exchange and refresh, userinfo, and the loadCodeAssist/onboardUser project answers, replayed offline with recorded tokens and project ids; a refused refresh (invalid_grant) and an individual account with no Code Assist tier. Checked by `packages/accounts/test/google.test.ts`. |
 | `conformance/claude-plan-typescript.json` | TypeScript-only Claude subscription PKCE, strict state, exchange and refresh rules (offline protocol captures). |
 | `conformance/signin-errors.json` | A failed sign-in's message → the `words.json` key to show. |
 | `conformance/classify.json` | A model-call failure message → `rate_limit`, `overloaded`, `signed_out`, `network` or none, plus "resting until". |
