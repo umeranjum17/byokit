@@ -1614,13 +1614,13 @@ signalled or waited for.
 - **Build** (only when no verifying set exists): in `<sets>/.tmp-<pid>-<startTime>-<random>` on the same device. The
   stock set (`files: []`) is installed by 5.4's `npm ci`; every other set is copied from a verified stock set (never
   from `engineDir/node_modules`) with `cpSync(…, { recursive: true, verbatimSymlinks: true, mode: COPYFILE_FICLONE })`,
-  no hardlinks. Verify version and commit and every `before`, apply the edits, verify every `after`, then derive
-  the manifest `.byokit-set.json` (`{ v: 1, id, integrity, entries }`, every entry's path, type, mode, size, sha256
-  or symlink target, sorted) from the verified stock tree plus the hash-checked edits — a freshly installed stock
-  set reads its own tree, a clone derives without re-reading the copy — set files 0444 and directories 0555, flush
-  once (Linux: one filesystem-wide syncfs through `sync -f`; elsewhere no flush), write the manifests durably
-  (write, `fsync`, rename, `fsync` the parent), verify the whole tree against the manifest, rename the temporary
-  directory onto the final name and `fsync` the sets directory. Per-entry `fsync`s are not taken: the derived
+  no hardlinks. Verify version and commit and every `before`, apply the edits, verify every `after`, then freeze the
+  built copy in one pass: read its tree once, set files 0444 and directories 0555 (links untouched), flush once
+  (Linux: one filesystem-wide syncfs through `sync -f`; elsewhere no flush), and record the frozen entries as the
+  manifest `.byokit-tree` (a sorted JSON array of every entry's path, type, mode, size, sha256 or symlink target).
+  `.byokit-patches` (`{ id, files, tree }`, where `tree` is the sha256 of `.byokit-tree`) sits beside it. Both are
+  written durably (write, `fsync`, rename, `fsync` the parent), then the whole tree is verified against them, and the temporary
+  directory is renamed onto the final name and `fsync` the sets directory. Per-entry `fsync`s are not taken: the
   manifest is a claim the pre-publication verification proves against every byte on disk, and after a power loss a
   published set may be torn, but the adopt rule's full verification detects any torn entry as drift and rebuilds,
   so a torn set is never launched. On every non-Linux platform (macOS, Windows and BSD included) there is no bulk
