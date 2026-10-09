@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { beforeEach, test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import fs, { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, symlinkSync, lstatSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
@@ -15,8 +15,14 @@ import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import { hostKeySeal } from '../../secrets/src/index.ts';
 import { once } from 'node:events';
 import { EnginePatchError, editText, patchId, prepareEngineSet, readPatchSet, sha256, verifyEngineSet, type PatchSet } from '../src/engine-patches.ts';
+import { stockBytes, useSyntheticStock } from './stock-fixture.ts';
 
-// Unit-only byte fixtures, not real-engine qualification; production entries are seeded as exact stock bytes.
+beforeEach(t => {
+  assert.ok('mock' in t);
+  useSyntheticStock(t);
+});
+
+// Unit-only byte fixtures, not real-engine qualification; the prepare bundle uses minimal stock input.
 test('immutable sets validate all bytes, clone offline, roll back by selection and preserve drift', async (t) => {
   const dir = scratchDir('patches');
   const base = join(dir, 'base');
@@ -63,6 +69,64 @@ test('immutable sets validate all bytes, clone offline, roll back by selection a
   } finally { t.mock.restoreAll(); syncBuiltinESMExports(); removeScratch(dir); }
 });
 
+// Claude wire names for the Tooling list (ch-cli-tool-prefix): the printed Tooling names on the
+// Claude route must equal the Claude wire catalog names (mcp__openclaw__-prefixed); every other
+// route stays byte-identical and already-prefixed names are never prefixed again.
+test('claude route prints wire names in Tooling; other routes keep the stock prompt', async () => {
+  const file = shippedSet().files.find((f) => f.path === 'dist/prepare.runtime-y2eXKhY3.js');
+  assert.ok(file, 'patches.json carries the Claude Tooling-names entry');
+  const stock = stockBytes(file).toString();
+  assert.equal(sha256(stock), file.before, 'stock byte fixture drift');
+  assert.equal(sha256(editText(stock, file)), file.after, 'patched bytes drift');
+  const edit = file.edits[0]!;
+  assert.equal(file.edits.length, 1);
+  const inserted = edit.replace.slice(edit.find.length);
+  const render = new Function('systemPrompt', 'skipsTurnPreparation', 'isClaudeCli', 'promptTools',
+    `${inserted}\nreturn systemPrompt;`) as (prompt: string, skip: boolean, claude: boolean, tools: { name: string }[]) => string;
+  const prompt = [
+    'You are a personal assistant running inside OpenClaw.',
+    '',
+    '## Tooling',
+    'Tools policy-filtered. Names case-sensitive; call exact.',
+    '- web_search: Web search',
+    '- web_fetch: Fetch/extract URL',
+    '- sessions_history: Read visible session/subagent history',
+    '- view_image',
+    '- crew_read',
+    '- crew_recruit',
+    '- mcp__openclaw__shell',
+    'The AGENTS.md Tools section guides usage; it never grants availability.',
+    '',
+    '## Skills you follow',
+    '- recruit: use crew_recruit to hire (a bare mention outside the Tooling list)',
+    '',
+    '## Other',
+    '- crew_read',
+    '',
+  ].join('\n');
+  const tools = ['web_search', 'web_fetch', 'sessions_history', 'view_image', 'crew_read', 'crew_recruit']
+    .map((name) => ({ name }));
+  // The Claude wire catalog for this run: every OpenClaw tool prefixed, natively named tools untouched.
+  const wire = new Set([...tools.map((t) => `mcp__openclaw__${t.name}`), 'mcp__openclaw__shell']);
+  const claude = render(prompt, false, true, [...tools, { name: 'mcp__openclaw__shell' }]);
+  const listed = claude.split('\n').filter((line) => line.startsWith('- mcp__openclaw__'));
+  assert.equal(listed.length, wire.size, 'rendered Tooling list equals the wire catalog names');
+  for (const name of wire) assert.ok(listed.some((line) => line === `- ${name}` || line.startsWith(`- ${name}:`)), `wire name printed: ${name}`);
+  const toolingSection = claude.split('## Tooling')[1]!.split('## ')[0]!;
+  assert.ok(!toolingSection.split('\n').some((line) => /^- (web_search|crew_read|crew_recruit)(:|$)/.test(line)), 'no bare OpenClaw name left in Tooling');
+  assert.ok(!claude.includes('mcp__openclaw__mcp__openclaw__'), 'never double-prefixed');
+  assert.ok(claude.includes('- mcp__openclaw__web_search: Web search'), 'summaries preserved');
+  assert.deepEqual(claude.split('\n').filter((l) => l.startsWith('- mcp__openclaw__')).map((l) => l.split(':')[0]),
+    ['- mcp__openclaw__web_search', '- mcp__openclaw__web_fetch', '- mcp__openclaw__sessions_history',
+      '- mcp__openclaw__view_image', '- mcp__openclaw__crew_read', '- mcp__openclaw__crew_recruit', '- mcp__openclaw__shell'],
+    'ordering preserved');
+  assert.ok(claude.includes('- recruit: use crew_recruit to hire'), 'non-Tooling prose untouched');
+  assert.ok(claude.split('## Other')[1]!.includes('- crew_read'), 'other sections untouched');
+  assert.equal(render(prompt, false, false, tools), prompt, 'other routes byte-identical');
+  assert.equal(render(prompt, true, true, tools), prompt, 'control/side-question runs untouched');
+  assert.equal(render(prompt, false, true, []), prompt, 'no tools, no rewrite');
+});
+
 const shippedEngine = fileURLToPath(new URL('../engine/', import.meta.url));
 const lock = JSON.parse(readFileSync(join(shippedEngine, 'package-lock.json'), 'utf8')) as {
   packages: Record<string, { version: string; optional?: boolean; os?: string[]; cpu?: string[]; libc?: string[] }>;
@@ -81,7 +145,7 @@ function seedInstall(engineDir: string) {
   mkdirSync(join(engineDir, 'node_modules/openclaw/dist'), { recursive: true });
   writeFileSync(join(engineDir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.8.1', commit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b' }));
   for (const file of shippedSet().files) {
-    const bytes = readFileSync(fileURLToPath(new URL(`./fixtures/stock/${file.path}.txt`, import.meta.url)));
+    const bytes = stockBytes(file);
     assert.equal(sha256(bytes), file.before, `stock byte fixture drift: ${file.path}`);
     const target = join(engineDir, 'node_modules/openclaw', file.path);
     mkdirSync(dirname(target), { recursive: true });
@@ -654,6 +718,9 @@ setInterval(() => {}, 1000);
   writeFileSync(hostFile, `
 import { Engine } from ${JSON.stringify(new URL('../src/engine.ts', import.meta.url).href)};
 import { hostKeySeal } from ${JSON.stringify(new URL('../../secrets/src/index.ts', import.meta.url).href)};
+import { mock } from 'node:test';
+import { useSyntheticStock } from ${JSON.stringify(new URL('./stock-fixture.ts', import.meta.url).href)};
+useSyntheticStock({ mock });
 const engine = new Engine({ stateDir: ${JSON.stringify(dir)}, engineDir: ${JSON.stringify(engineDir)},
   authSeal: hostKeySeal({ key: new Uint8Array(32).fill(7) }), pluginId: 'byokit', tools: [], spawnEngine: true,
   onState() {}, onExit() {} });
@@ -664,12 +731,14 @@ setInterval(() => {}, 1000);
   mkdirSync(join(root, 'state'), { recursive: true });
   writeFileSync(join(root, 'state', 'auth.json'), 'saved-login');
   const host = spawn(process.execPath, [hostFile], { stdio: ['ignore', 'ignore', 'pipe'] });
+  let hostError = '';
+  host.stderr.on('data', chunk => { hostError += chunk; });
   let gateway = 0;
   const kit = new OpenClawKit({ stateDir: dir, engineDir, authSeal, transport: fakeGateway().factory });
   const unrelated = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
   try {
     for (let i = 0; i < 100 && !existsSync(ready) && host.exitCode === null; i++) await delay(50);
-    assert.ok(existsSync(ready), 'detached gateway reached its ordinary launch');
+    assert.ok(existsSync(ready), `detached gateway reached its ordinary launch: ${hostError}`);
     gateway = Number(readFileSync(ready, 'utf8'));
     const before = readFileSync(join(root, 'auth-store.sealed'));
     await assert.rejects(kit.start(), (e: unknown) => e instanceof Error && 'code' in e && e.code === 'engine-already-running');
