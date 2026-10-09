@@ -617,6 +617,8 @@ test('sealing rejects concurrent owners, and does not claim stopped when the sea
   assert.equal(readFileSync(join(engine.root, 'state', 'auth.json'), 'utf8'), 'still-recoverable');
   fail = false;
   await engine.stop();
+  const resealed = JSON.parse(seal.decryptString(readFileSync(join(engine.root, 'auth-store.sealed'))));
+  assert.deepEqual(resealed.files.find(([name]: [string]) => name === 'state/auth.json'), ['state/auth.json', Buffer.from('still-recoverable').toString('base64')], 'a second stop seals what the failed stop left');
 });
 
 test('sealed migration follows only in-root file symlinks and skips runtime entries', { skip: process.platform === 'win32' }, async (t) => {

@@ -518,8 +518,9 @@ Route data follows the shared account-route vocabulary (D18 in [`docs/runtime-ki
 The pinned engine has no supported hook for sealing OAuth profile writes. Its `auth-profiles` loader stores
 credential JSON in agent SQLite databases and a shared state database, and doctor imports leave migration
 archives. `authSeal` therefore protects credential state — the complete isolated `state` tree plus
-config/credential paths under `home`, including SQLite journals — while regenerable tool caches,
-transcripts and logs stay on disk unsealed. It uses the injected `SealingAdapter` from `@byokit/secrets`. `osKeyringSeal()` automatically
+config/credential paths under `home`, including SQLite journals — while regenerable tool caches in `home` stay on disk unsealed. The whole `state` tree is sealed, so any engine transcripts
+kept there are sealed too: on a long-used host whose `state` passes the cap, `start()` and `stop()` refuse with the typed
+size error instead of aborting the process. It uses the injected `SealingAdapter` from `@byokit/secrets`. `osKeyringSeal()` automatically
 uses a persistent private file key for new stores when no non-interactive keyring is available.
 Opening follows the saved envelope's mode. A locked or unresponsive keyring-only store leaves
 `kit.state.phase === 'locked'`: `prepare()` and `start()` resolve, show `stateWords(kit.state)` for
@@ -571,7 +572,7 @@ Saved sign-in data over the limit instead rejects with exported `AuthStoreSealSi
 fields `size` and `cap`); the kit reports `{ phase: 'failed', why: 'auth-store-seal-size', sealSize: { size, cap } }`
 on start, and an engine exit that hits it reports the same. On that refusal the last good saved store is kept as it was
 and no live file is deleted. Do not move or delete files to get under the limit; report it to the byokit maintainers.
-`encrypt()` builds its envelope without a second full-size copy, so the envelope step holds one snapshot-sized string, not two.
+`encrypt()` builds no snapshot-sized JSON string: the envelope is assembled as bytes, still transiently two byte copies.
 Restore access to the original seal/key (and the original service/stateDir binding if the adapter uses
 one), then retry `start()` with that adapter. Do not generate/rotate a key to repair an unreadable store.
 If the bytes are damaged, stop all writers, acquire the host writer lock, and restore an authentic

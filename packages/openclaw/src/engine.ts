@@ -70,7 +70,7 @@ function installMatches(dir: string): boolean {
   }
 }
 
-const refusedOnly = (error: unknown) => { if (error instanceof AuthStoreSealSizeError) return error; throw error; };
+export const refusedOnly = (error: unknown) => { if (error instanceof AuthStoreSealSizeError) return error; throw error; };
 export class Engine {
   readonly root: string;
   readonly bridgeSock: string;

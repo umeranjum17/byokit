@@ -101,7 +101,7 @@ setInterval(() => {}, 1000);
   assert.ok(failure instanceof AuthStoreSealSizeError, `expected AuthStoreSealSizeError, got ${failure?.name}`);
   assert.equal(failure.code, 'auth-store-seal-size');
   assert.ok(failure.cap > 0 && failure.size > failure.cap);
-  assert.ok(failure.message.includes(`about ${Math.ceil(failure.size / 1024 / 1024)} MB`) && failure.message.includes(`the limit is ${failure.cap / 1024 / 1024} MB`), 'the error names the size and the cap in MB');
+  assert.ok(failure.message.includes(`more than ${Math.floor(failure.size / 1024 / 1024)} MB`) && failure.message.includes(`the limit is ${failure.cap / 1024 / 1024} MB`), 'the error names the size and the cap in MB');
   assert.deepEqual(readFileSync(file), before, 'the refused store is unchanged');
   assert.equal(existsSync(huge), true, 'the over-cap live file is unchanged');
   console.log(JSON.stringify({ leg: 'over-cap store', error: failure.name, code: failure.code, size: failure.size, cap: failure.cap, state: over.state, words: stateWords(over.state), sealedFileUnchanged: true, processContinued: true }));

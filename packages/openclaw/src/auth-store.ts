@@ -98,7 +98,7 @@ export class AuthStoreSealSizeError extends Error {
   readonly cap: number;
   constructor(size: number, cap: number) {
     const MiB = 1024 * 1024;
-    super(`Your saved sign-in data is too large to keep safely (about ${Math.ceil(size / MiB)} MB; the limit is ${cap / MiB} MB). ` +
+    super(`Your saved sign-in data is too large to keep safely (more than ${Math.floor(size / MiB)} MB; the limit is ${cap / MiB} MB). ` +
       'Your sign-ins were kept.');
     this.name = 'AuthStoreSealSizeError';
     this.size = size;
@@ -321,10 +321,12 @@ export class AuthStore {
       try {
         await this.archives();
         await this.persist();
-      } finally {
-        this.active = false;
-        this.release();
+      } catch (error) {
+        if (error instanceof AuthStoreSealSizeError) { this.active = false; this.release(); }
+        throw error;
       }
+      this.active = false;
+      this.release();
     });
   }
   offline<T>(task: () => Promise<T>): Promise<T> {
