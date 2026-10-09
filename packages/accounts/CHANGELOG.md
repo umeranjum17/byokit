@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.20.0 (2026-10-09)
+
+- FEAT: `Accounts.pick(member, selection, room?)` chooses the account and model a run should use over this member's real `list()` and `defaults()`, taking one reading per account and returning the same `AccountPick` as the portable `resolveSelection`; `Accounts.models(member, id)` lists one account's catalogue models with `available` and the word for why not (`resting` and `until`, `signed_out`, or `plan`). Both are read-only: neither writes the defaults nor the account index.
+
 ## 0.19.0 (2026-10-08)
 
 - FIX: Add member-scoped custom OpenAI/Anthropic-compatible endpoints and explicit local presets using the pinned provider/model adapters. Billing is a required choice (or preset fact), never inferred from a hostname; Auto and Default refuse non-subscription accounts.

@@ -20,7 +20,7 @@ person's own Herdr, HOME or agent sign-ins.
 5. Start an agent; sign it in once inside its own screen, using only the guarded named session and task-owned
    sign-in folder. If the provider requires human consent, pause with its URL and code; never copy a person's
    existing sign-in or type their password.
-6. From the phone: send a message, see the reply on the agent's screen, see `Ready for you.` again.
+6. From the phone: send a message, see the reply on the agent's screen, see `Ready for you` again.
 7. Ask the agent for something that needs permission; answer from **Questions for you** with each of the key
    buttons at least once over the run (`Enter`, `y`, `n`, `Esc`: the app sends Herdr the key names `Enter`, `y`,
    `n`, `Escape`); the question leaves the list and the agent carries on.

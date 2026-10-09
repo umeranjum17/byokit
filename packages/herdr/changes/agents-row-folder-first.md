@@ -1,1 +1,0 @@
-- The herdr-kit example's agent rows lead with the workspace folder and name the agent second (`shop · Pi`), question cards name folder and agent without repeating the computer, and state badges read without the sentence's full stop (`Ready for you`).
