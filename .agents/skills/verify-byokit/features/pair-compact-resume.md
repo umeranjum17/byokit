@@ -12,6 +12,8 @@ answering at the same address is refused; a version 1 QR resumes the same way; t
   `DeviceLink` from the kept grant goes `online` and gets an answer; the kept grant loses `pendingUntil`.
 - `impostor-refused`: another computer (other key) answering at the same address leaves the resumed link `refused`
   and the kept grant unchanged.
+- `no-orphan`: a phone that passed no `onPending` and is killed during approval leaves no grant on the computer after
+  the yes (it never said it kept a pending grant, so the grant could never be used).
 - `token-size`: the compact token for the name `Umer` and one `linkUrl(relay, hostId(key))` on a loopback IPv4 relay
   is 109 characters, QR version 5: 21 half-block rows with `@byokit/ui` `qrText` (border 2), 23 with a 4-module border.
 
@@ -31,7 +33,8 @@ Preconditions: baseline (features/README.md), plus the built `@byokit/pair`, `@b
   another host, and spawns the phone as a child `node --input-type=module -e` process (cwd `$scratch_dir`) running
   `pairWithOffer` with `onPending` writing the grant file. When `confirm` opens it SIGKILLs the child, approves, then
   spawns a resume child (`DeviceLink` from the file) first against an impostor host and then against the real one,
-  printing each status, the answer and the kept grant's `host`/`pendingUntil`. It then prints the measured token and
+  printing each status, the answer and the kept grant's `host`/`pendingUntil`. A `no-orphan` leg runs the phone without a
+  grant file (no `onPending`), kills it at `confirm`, approves, and checks the computer holds no grant. It then prints the measured token and
   `qrText` for the `token-size` case.
 - **Run and capture.** `feature=pair-compact-resume; entry=@byokit/pair; drive=(node "$scratch_dir/verify-pair-compact-resume.mjs")`,
   then run SKILL.md Evidence's capture block. Exit code `0`.
