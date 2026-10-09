@@ -1,7 +1,7 @@
 # OpenClaw engine-set freeze cost
 
 Verification recipe for the engine-set freeze in [`@byokit/openclaw`](../../../../packages/openclaw/README.md)
-(`prepareEngineSet`/`freeze`, 5.16): a first install chmods ~38,000 entries read-only, flushes once (Linux syncfs)
+(`prepareEngineSet`/`freeze`, 5.16): a first install chmods ~38,000 entries read-only, flushes once (Linux syncfs where `sync -f` works; otherwise no flush)
 and publishes the set with a manifest read from the freshly built tree in one pass; per-entry fsyncs are
 intentionally not taken — crash safety is `verifyEngineSet`'s whole-tree content check at every reuse/launch
 (a set torn by power loss mismatches `.byokit-tree` and rebuilds as drift, never launches).

@@ -1616,15 +1616,15 @@ signalled or waited for.
   from `engineDir/node_modules`) with `cpSync(…, { recursive: true, verbatimSymlinks: true, mode: COPYFILE_FICLONE })`,
   no hardlinks. Verify version and commit and every `before`, apply the edits, verify every `after`, then freeze the
   built copy in one pass: read its tree once, set files 0444 and directories 0555 (links untouched), flush once
-  (Linux: one filesystem-wide syncfs through `sync -f`; elsewhere no flush), and record the frozen entries as the
+  (where `sync -f` runs: one filesystem-wide syncfs through coreutils `sync -f`; elsewhere no flush), and record the frozen entries as the
   manifest `.byokit-tree` (a sorted JSON array of every entry's path, type, mode, size, sha256 or symlink target).
   `.byokit-patches` (`{ id, files, tree }`, where `tree` is the sha256 of `.byokit-tree`) sits beside it. Both are
   written durably (write, `fsync`, rename, `fsync` the parent), then the whole tree is verified against them, and the temporary
   directory is renamed onto the final name and `fsync` the sets directory. Per-entry `fsync`s are not taken: the
   manifest is a claim the pre-publication verification proves against every byte on disk, and after a power loss a
   published set may be torn, but the adopt rule's full verification detects any torn entry as drift and rebuilds,
-  so a torn set is never launched. On every non-Linux platform (macOS, Windows and BSD included) there is no bulk
-  flush at all, so durability there rests on the same next-launch whole-tree verification: a set torn by power loss
+  so a torn set is never launched. Wherever no bulk flush runs (every non-Linux platform, macOS, Windows and BSD
+  included, and Linux without a working `sync -f`), durability rests on the same next-launch whole-tree verification: a set torn by power loss
   is detected as drift and rebuilt, never launched, and the worst case is a full reinstall. A rename that loses to another kit
   (`ENOTEMPTY`/`EEXIST`, `EPERM` on Windows) removes only its own temporary directory and adopts the winner after
   verification; any other error fails, never copy-over or remove-and-retry. A kit removes its own temporary directory
