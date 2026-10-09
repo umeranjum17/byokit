@@ -85,10 +85,10 @@ refused, never authorized. Bad input never yields `{ ok: true }`.
 
 ## Verification limits
 
-The package tests cover the full matrix — exact match, each of `action`/`button`/`app`/`reason`/`stale-identity`/
-`expired` refusals, supersession, unknown ids, forged deadlines, frozen outputs — against the real
-implementation, with the committed `test/fixtures.json` regenerated from it (`node test/scenario.ts`). The
-portable entry bundles for browsers and React Native without Node imports. The kit proves the binding and its
+`test/journey-approve.test.ts` drives the built package the way a host app does: it raises, approves and authorizes
+across the full matrix — exact match, each of `action`/`button`/`app`/`reason`/`stale-identity`/`expired` refusals,
+supersession, unknown ids, forged deadlines, frozen outputs — and bundles the published entry for browsers and React
+Native, running it where there is no Node. The kit proves the binding and its
 refusals; it does not store, transport, sign or persist anything, does not decide policy, and does not know
 which button a person physically pressed — the host renders the button from `request.subject` and calls
 `approve` on the press.
