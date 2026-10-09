@@ -1,6 +1,10 @@
 // The link end to end over real WebSockets: a host behind a `ws` server, devices on Node's built-in (browser-shaped)
 // WebSocket. Pairing, grants, revoke, reconnect with idempotent requests, a relay that routes blind, and migration.
-import { test } from 'node:test';
+import { test as nodeTest } from 'node:test';
+// A request here waits through reconnects with no deadline of its own, so a stalled link or host would park a test at
+// 0% CPU forever and hang the whole one-at-a-time suite (seen twice in full runs on 9 Oct 2026). Every test is bounded
+// instead: a wait that stalls fails by name within a minute instead of hanging the run.
+const test = (name: string, fn: () => Promise<void>) => nodeTest(name, { timeout: 60_000 }, fn);
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
