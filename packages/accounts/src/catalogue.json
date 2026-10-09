@@ -229,6 +229,7 @@
     "callbackPort": 8085,
     "billing": "subscription",
     "auth": "oauth",
+    "revoke": "https://oauth2.googleapis.com/revoke",
     "routes": ["google-gemini-cli:browser", "google-gemini-cli:paste"],
     "source": "https://github.com/google-gemini/gemini-cli",
     "multiAccount": {

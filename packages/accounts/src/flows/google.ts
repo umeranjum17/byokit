@@ -52,6 +52,21 @@ const bounded = (signal?: AbortSignal) => signal ? AbortSignal.any([signal, Abor
 /** The redirect address the client registers: the loopback host and path, on the port the kit listens on. */
 export const googleRedirect = (client: GoogleProtocol, port: number) => `http://${client.callback.hostname}:${port}${client.callback.path}`;
 
+/** Whether a Pi provider id is a Google client this flow signs in. */
+export const isGoogleClient = (pi: string): pi is GoogleClient => pi in GOOGLE_CLIENTS;
+
+/** Google's documented OAuth revoke endpoint, on the `googleBase` stand-in when an app sets one. The refresh token goes
+ *  only to Google's own host (or its stand-in); `authBase` is OpenAI's and never receives a Google call. */
+export const googleRevokeUrl = (base?: string) => at('https://oauth2.googleapis.com/revoke', base);
+
+/** Ends a Google sign-in at Google's revoke endpoint (RFC 7009): the refresh token, else the access token, as one form
+ *  field, never retried. A refused revoke throws a message that never names the token; the caller deletes the local copy. */
+export async function googleRevoke(url: string, c: { access: string; refresh: string }, doFetch: typeof fetch = fetch) {
+  const body = new URLSearchParams({ token: c.refresh || c.access }).toString();
+  const response = await doFetch(url, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body, signal: AbortSignal.timeout(10_000) });
+  if (!response.ok) throw new Error(`Google sign-out failed (${response.status})`);
+}
+
 /** Pending state/verifier never enter persistent storage. */
 export async function googleAuthorization(id: GoogleClient, options: GoogleOptions) {
   const crypto = globalThis.crypto;
@@ -90,7 +105,7 @@ const credential = (j: any, now: number, previous?: string): OAuthCredential => 
 
 /** Adds only BYOKit's own Google routes; every other provider still belongs to the supplied engine. */
 export function withGoogle(engine: AuthHost, credentials: CredentialStore, options: GoogleOptions): AuthHost {
-  const isGoogle = (id: string): id is GoogleClient => id in GOOGLE_CLIENTS;
+  const isGoogle = isGoogleClient;
   const post = async (url: string, body: Record<string, string>, signal?: AbortSignal) => {
     let res: Response;
     try {

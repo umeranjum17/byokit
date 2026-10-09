@@ -260,9 +260,9 @@ sign-in from Claude's profile, an empty plan when it doesn't say), and `planLabe
 
 ## Sign-out
 
-`logout(member, key)` attempts to revoke a ChatGPT token at OpenAI (`POST auth.openai.com/oauth/revoke`), then deletes
-the local sign-in even if the revoke fails. A failed revoke rejects after local deletion; report it because the remote
-sign-in may remain active.
+`logout(member, key)` attempts to revoke the sign-in at the provider (`POST auth.openai.com/oauth/revoke` for ChatGPT;
+Google's revoke endpoint for Gemini Code Assist), then deletes the local sign-in even if the revoke fails. A failed
+revoke rejects after local deletion; report it because the remote sign-in may remain active.
 
 Within one store instance, a refresh already in progress finishes first, so sign-out uses its rotated token. If a
 cancelled sign-in finishes late, `onSignOutError` reports a failed revoke of its discarded credential (or a generic failure is logged
@@ -426,7 +426,7 @@ polling and refresh on that provider's own documented endpoints. Point the kit a
 `new Accounts({ deviceBase, store: () => memoryStore() })`.
 
 `mockGoogle()` stands in for Gemini Code Assist's sign-in on a computer: its authorize page, the loopback return, the
-token exchange, refresh, userinfo and project answers. Point the kit at it with
+token exchange, refresh, userinfo, sign-out revoke and project answers. Point the kit at it with
 `new Accounts({ googleBase, store: () => memoryStore() })`.
 
 ## Links
