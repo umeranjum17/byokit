@@ -15,12 +15,12 @@ import { providers, signIn, type SignInCtx } from '../../src/signin.ts';
 import { words } from '../../src/words.ts';
 import { routes } from '../../src/routes.ts';
 import pinSnapshot from '../fixtures/routes-pin.json' with { type: 'json' };
-import { scratchDir } from '../../../test-support.ts';
+import { scratchDir, sharedEngineDir } from '../../../test-support.ts';
 import type { GatewayTransport, SignInView } from '../../src/types.ts';
 import { mockOpenAI } from '../../../accounts/src/testing/index.ts';
 
 const install = scratchDir('o6-engine-signin');
-const engineDir = join(install, 'engine');
+const engineDir = sharedEngineDir() ?? join(install, 'engine');
 const stateDir = join(install, 'state');
 // 5.6: offered routes must work without the app having to allow their provider plugins itself.
 const engine = new Engine({ stateDir, engineDir, pluginId: 'byokit', tools: [], spawnEngine: true,

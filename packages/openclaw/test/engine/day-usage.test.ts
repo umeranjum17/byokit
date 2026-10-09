@@ -10,7 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { OpenClawKit } from '../../src/kit.ts';
 import { readAgentDayUsage } from '../../src/day-usage.ts';
 import { useModelStub, STUB_USAGE } from '../../src/testing/model-stub.ts';
-import { scratchDir } from '../../../test-support.ts';
+import { scratchDir, sharedEngineDir } from '../../../test-support.ts';
 // Each case reads the UTC day (and month ledger) it started in, but the engine is a separate process stamping charges with
 // its own clock, so a case still running at the next UTC midnight finds them in tomorrow's reading. Start it after midnight,
 // and fail a case that straddled one anyway instead of letting it read as a usage bug.
@@ -46,7 +46,7 @@ test('O16 real Workshop, cold cache, failed writes, crash interruption and bound
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address(); assert.ok(address && typeof address !== 'string');
   const stateDir = process.env.BYOKIT_O16_STATE_DIR ?? scratchDir('o16-workshop');
-  const kit = new OpenClawKit({ stateDir, engineDir: process.env.BYOKIT_O16_ENGINE_DIR,
+  const kit = new OpenClawKit({ stateDir, engineDir: process.env.BYOKIT_O16_ENGINE_DIR ?? sharedEngineDir(),
     tools: [{ name: 'report', description: 'Progress', parameters: { type: 'object' } }],
     config: { skills: { workshop: { autonomous: { mode: 'auto' } } }, agents: { defaults: { heartbeat: { every: '0m' }, compaction: { memoryFlush: { enabled: false } } } } },
     host: { gate: async () => ({ allow: true }), call: async () => 'Progress recorded.' } });
@@ -170,7 +170,7 @@ test('O16 threshold memory flush is counted through transcripts only', { timeout
   const address = server.address(); assert.ok(address && typeof address !== 'string');
   const stub = { port: address.port, url: `http://127.0.0.1:${address.port}/v1`, calls: [], close: async () => new Promise<void>(resolve => server.close(() => resolve())) };
   const stateDir = process.env.BYOKIT_O16_STATE_DIR ? process.env.BYOKIT_O16_STATE_DIR + '-memory' : scratchDir('o16-memory');
-  const kit = new OpenClawKit({ stateDir, engineDir: process.env.BYOKIT_O16_ENGINE_DIR,
+  const kit = new OpenClawKit({ stateDir, engineDir: process.env.BYOKIT_O16_ENGINE_DIR ?? sharedEngineDir(),
     config: { plugins: { allow: ['memory-core'], slots: { memory: 'memory-core' } }, agents: { defaults: { heartbeat: { every: '0m' },
       compaction: { reserveTokens: 0, memoryFlush: { enabled: true, softThresholdTokens: 6000 } } } } } });
   const startMs = Date.parse(new Date().toISOString().slice(0, 10)), endMs = startMs + 86_400_000 - 1;
@@ -222,7 +222,7 @@ test('O16 real crash recovery resumes are counted through retained transcripts o
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   const address = server.address(); assert.ok(address && typeof address !== 'string');
   const stateDir = process.env.BYOKIT_O16_STATE_DIR ? process.env.BYOKIT_O16_STATE_DIR + '-recovery' : scratchDir('o16-recovery');
-  const kit = new OpenClawKit({ stateDir, engineDir: process.env.BYOKIT_O16_ENGINE_DIR, tools: [{ name: 'report', description: 'Progress', parameters: { type: 'object' } }],
+  const kit = new OpenClawKit({ stateDir, engineDir: process.env.BYOKIT_O16_ENGINE_DIR ?? sharedEngineDir(), tools: [{ name: 'report', description: 'Progress', parameters: { type: 'object' } }],
     config: { agents: { defaults: { heartbeat: { every: '0m' }, compaction: { memoryFlush: { enabled: false } } } } },
     host: { gate: async () => ({ allow: true }), call: async () => 'Recorded.' } });
   const startMs = Date.parse(new Date().toISOString().slice(0, 10)), endMs = startMs + 86_400_000 - 1;

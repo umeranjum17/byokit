@@ -11,13 +11,13 @@ import { fileURLToPath } from 'node:url';
 import { OpenClawKit } from '../../src/kit.ts';
 import { Engine } from '../../src/engine.ts';
 import { gatewayTransport } from '../../src/transport.ts';
-import { scratchDir } from '../../../test-support.ts';
+import { scratchDir, sharedEngineDir } from '../../../test-support.ts';
 import routes from '../../src/routes.json' with { type: 'json' };
 
 const pkgDir = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const repoDir = dirname(dirname(pkgDir));
 const install = scratchDir('o11-engine-generated');
-const engineDir = join(install, 'engine');
+const engineDir = sharedEngineDir() ?? join(install, 'engine');
 
 before(async () => {
   // Install the pin once; every case reuses it with a fresh state dir (the O6 signin.test.ts pattern).

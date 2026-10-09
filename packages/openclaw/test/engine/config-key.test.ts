@@ -8,10 +8,10 @@ import { readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { OpenClawKit } from '../../src/kit.ts';
 import { Engine } from '../../src/engine.ts';
-import { scratchDir } from '../../../test-support.ts';
+import { scratchDir, sharedEngineDir } from '../../../test-support.ts';
 
 const install = scratchDir('o11-engine-config-key');
-const engineDir = join(install, 'engine');
+const engineDir = sharedEngineDir() ?? join(install, 'engine');
 const KEY = 'skills.workshop.autonomous.mode';
 
 before(async () => {

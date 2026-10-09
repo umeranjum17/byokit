@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { removeScratch, scratchDir } from '../../../test-support.ts';
+import { removeScratch, scratchDir, sharedEngineDir } from '../../../test-support.ts';
 import { setTimeout as delay } from 'node:timers/promises';
 import { readFileSync } from 'node:fs';
 import { OpenClawKit } from '../../src/kit.ts';
@@ -21,7 +21,7 @@ async function until(there: () => boolean, ms = 30_000): Promise<void> {
 
 test('a raised exec approval arrives, attributes, and resolves', { timeout: 360_000 }, async () => {
   const stateDir = scratchDir('engine-approvals');
-  const kit = new OpenClawKit({ stateDir, approvalTimeoutMs: 30_000 });
+  const kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), approvalTimeoutMs: 30_000 });
   try {
     try {
       await kit.start();

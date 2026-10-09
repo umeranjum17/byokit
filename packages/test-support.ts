@@ -50,6 +50,12 @@ export function scratchDir(name = 'fixture'): string {
   return mkdtempSync(join(ensureRoot(), `${name}-`));
 }
 
+/** Real-engine tests share one engine-set install per job when scripts/test.sh exports BYOKIT_TEST_ENGINE_DIR
+ * (a job-scoped dir off tmpfs); unset keeps the per-scratch install, so a single file run directly still works. */
+export function sharedEngineDir(): string | undefined {
+  return process.env.BYOKIT_TEST_ENGINE_DIR;
+}
+
 export function trackChild<T extends { kill(signal?: NodeJS.Signals): boolean; once(event: 'exit', listener: () => void): unknown }>(child: T): T {
   children.add(child);
   child.once('exit', () => children.delete(child));
