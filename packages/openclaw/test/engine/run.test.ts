@@ -7,7 +7,7 @@ import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { OpenClawKit } from '../../src/kit.ts';
 import { Engine } from '../../src/engine.ts';
-import { scratchDir } from '../../../test-support.ts';
+import { scratchDir, sharedEngineDir } from '../../../test-support.ts';
 import { STUB_USAGE, startModelStub, useModelStub, releaseStub, stubHolding, type ModelStub } from '../../src/testing/model-stub.ts';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { RunEvent } from '../../src/types.ts';
@@ -16,7 +16,7 @@ const REPORT = { name: 'report', description: 'record progress', parameters: { t
 const FETCH = { name: 'webfetch', description: 'fenced web read', parameters: { type: 'object' } };
 
 const install = scratchDir('o11-engine-run');
-const engineDir = process.env.BYOKIT_TEST_ENGINE_DIR ?? join(install, 'engine');
+const engineDir = sharedEngineDir() ?? join(install, 'engine');
 let stub: ModelStub;
 
 before(async () => {

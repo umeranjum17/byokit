@@ -17,10 +17,10 @@ import { cached } from '../../src/auth-store.ts';
 import { Engine } from '../../src/engine.ts';
 import { pidAlive } from '../../src/engine-status.ts';
 import { gatewayTransport } from '../../src/transport.ts';
-import { scratchDir } from '../../../test-support.ts';
+import { scratchDir, sharedEngineDir } from '../../../test-support.ts';
 
 const install = scratchDir('o11-engine-boot');
-const engineDir = join(install, 'engine');
+const engineDir = sharedEngineDir() ?? join(install, 'engine');
 
 before(async () => {
   // Install the pin once; the case boots from a cold state dir (the O6 signin.test.ts pattern).

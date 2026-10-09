@@ -9,14 +9,14 @@ import { join } from 'node:path';
 import { OpenClawKit } from '../../src/kit.ts';
 import { Engine } from '../../src/engine.ts';
 import { gatewayTransport } from '../../src/transport.ts';
-import { scratchDir } from '../../../test-support.ts';
+import { scratchDir, sharedEngineDir } from '../../../test-support.ts';
 import { startModelStub, useModelStub, type ModelStub } from '../../src/testing/model-stub.ts';
 import { openclawContract, type ContractFixture } from '../../src/testing/contract.ts';
 
 const NOTE = { name: 'note', description: 'a test tool the host answers', parameters: { type: 'object' } };
 
 const install = scratchDir('o11-engine-contract');
-const engineDir = join(install, 'engine');
+const engineDir = sharedEngineDir() ?? join(install, 'engine');
 let stub: ModelStub;
 
 before(async () => {

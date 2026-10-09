@@ -7,7 +7,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { OpenClawKit } from '../../src/kit.ts';
-import { scratchDir } from '../../../test-support.ts';
+import { scratchDir, sharedEngineDir } from '../../../test-support.ts';
 import { useModelStub, STUB_USAGE } from '../../src/testing/model-stub.ts';
 import { readAgentUsage } from '../../src/usage.ts';
 
@@ -39,7 +39,7 @@ test('R4 stock engine starts Workshop review but its day ledger omits that usage
   const stub = { port: address.port, url: `http://127.0.0.1:${address.port}/v1`, calls: [], close: async () => {} };
   const stateDir = scratchDir('r4');
   const logs: string[] = [];
-  const kit = new OpenClawKit({ stateDir, engineDir: process.env.BYOKIT_R4_ENGINE_DIR ?? join(scratchDir('r4-install'), 'engine'), tools: [{ name: 'report', description: 'Progress', parameters: { type: 'object' } }],
+  const kit = new OpenClawKit({ stateDir, engineDir: process.env.BYOKIT_R4_ENGINE_DIR ?? sharedEngineDir() ?? join(scratchDir('r4-install'), 'engine'), tools: [{ name: 'report', description: 'Progress', parameters: { type: 'object' } }],
     config: { skills: { workshop: { autonomous: { mode: 'auto' } } }, agents: { defaults: { heartbeat: { every: '0m' }, compaction: { memoryFlush: { enabled: false } } } } },
     log: line => logs.push(line), host: { gate: async () => ({ allow: true }), call: async () => 'Progress recorded.' } });
   try {

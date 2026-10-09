@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { OpenClawKit } from '../../src/kit.ts';
 import { gatewayTransport } from '../../src/transport.ts';
-import { scratchDir } from '../../../test-support.ts';
+import { scratchDir, sharedEngineDir } from '../../../test-support.ts';
 import { releaseStub, startModelStub, stubHolding, useModelStub } from '../../src/testing/model-stub.ts';
 import type { GatewayTransport, RunSpec } from '../../src/types.ts';
 
@@ -28,7 +28,7 @@ test('R2: accepted disconnect retries one run; cached inputs are not compared an
   let drop = false;
   let disconnected: Promise<void> | undefined;
   const events = new Set<Parameters<GatewayTransport['onEvent']>[0]>();
-  const kit = new OpenClawKit({ stateDir, engineDir: process.env.BYOKIT_R2_ENGINE_DIR,
+  const kit = new OpenClawKit({ stateDir, engineDir: process.env.BYOKIT_R2_ENGINE_DIR ?? sharedEngineDir(),
     transport: (ctx) => {
       connect = async () => {
         active = gatewayTransport(ctx);

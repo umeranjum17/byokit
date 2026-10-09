@@ -14,7 +14,7 @@ import { Engine } from '../../src/engine.ts';
 import { gatewayTransport } from '../../src/transport.ts';
 import { migrateRetainedLogin, confirmRetainedLogin } from '../../src/migrate.ts';
 import { providers, type SignInCtx } from '../../src/signin.ts';
-import { scratchDir } from '../../../test-support.ts';
+import { scratchDir, sharedEngineDir } from '../../../test-support.ts';
 import type { GatewayTransport } from '../../src/types.ts';
 
 // Each case gets its own install and state: a preserved sign-in must never depend on another case's engine.
@@ -30,7 +30,7 @@ type House = { dir: string; stateDir: string; legacy: string; engine: Engine; se
 async function house(sealed = false): Promise<House> {
   const dir = scratchDir('o6-migrate-real');
   const stateDir = join(dir, 'state');
-  const engineDir = join(dir, 'engine');
+  const engineDir = sharedEngineDir() ?? join(dir, 'engine');
   const legacy = join(dir, 'people', 'm1', 'engine', 'auth.json');
   mkdirSync(join(legacy, '..'), { recursive: true });
   const seal: SealingAdapter | undefined = sealed ? hostKeySeal({ key: new Uint8Array(32).fill(9), service: 'engine-test' }) : undefined;
