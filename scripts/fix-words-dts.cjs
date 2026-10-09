@@ -13,7 +13,7 @@ if (existsSync(pi) && existsSync(join(root, 'packages/accounts/dist'))) {
   rmSync(piDist, { recursive: true, force: true });
   cpSync(pi, piDist, { recursive: true });
 }
-for (const pkg of ['accounts', 'realtime', 'openclaw', 'herdr', 'write', 'record', 'overlay', 'cloud', 'statusbar', 'usage', 'share', 'infer', 'outbox']) {
+for (const pkg of ['accounts', 'realtime', 'openclaw', 'herdr', 'write', 'record', 'bubble', 'overlay', 'cloud', 'statusbar', 'usage', 'share', 'infer', 'outbox']) {
   const file = join(root, 'packages', pkg, 'dist', 'words.d.ts');
   let text;
   try { text = readFileSync(file, 'utf8'); } catch { continue; } // dist not built yet: nothing to fix

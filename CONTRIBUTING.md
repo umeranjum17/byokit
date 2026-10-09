@@ -85,7 +85,7 @@ unfixed vulnerability; no dependency override or product artifact fix is implied
   there with the binary itself; the kit never opens or copies credentials, inherits API keys, or falls back to API billing.
   Tests use an offline fake binary.
   `@byokit/usage` reads only the sign-in folder the app passes and spawns only the Codex binary the app passes
-  by absolute path, with an environment built from nothing plus what the app passes; its tests use fakes only. `@byokit/overlay` and
+  by absolute path, with an environment built from nothing plus what the app passes; its tests use fakes only. `@byokit/bubble` and
   `@byokit/statusbar` and `@byokit/push` run only their own native code inside the app or its notification extension.
   `@byokit/share` runs only its own native code, copies shared content into the app's cache only under the sender's
   grant, and its plugin edits only the generated `settings.gradle`, `build.gradle` and pbxproj. `@byokit/cloud` ([docs/cloud-kit.md](docs/cloud-kit.md)) spawns only the

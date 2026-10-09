@@ -9,5 +9,5 @@ import App, { BubblePanel } from './App';
 // the environment is set up appropriately
 registerRootComponent(App);
 
-// The panel @byokit/overlay opens on a bubble tap (start's `panel` key).
+// The panel @byokit/bubble opens on a bubble tap (start's `panel` key).
 AppRegistry.registerComponent('bubblePanel', () => BubblePanel);

@@ -14,8 +14,8 @@ android {
 }
 
 dependencies {
-  // ByokitAccessibility: the service hands itself to @byokit/overlay (docs/capability-kits.md 7.5).
-  implementation project(':byokit-overlay')
+  // ByokitAccessibility: the service hands itself to @byokit/bubble (docs/capability-kits.md 7.5).
+  implementation project(':byokit-bubble')
   androidTestImplementation 'androidx.test:runner:1.6.2'
   androidTestImplementation 'androidx.test.ext:junit:1.2.1'
 }

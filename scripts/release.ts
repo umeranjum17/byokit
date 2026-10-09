@@ -605,7 +605,7 @@ function cmdPublish(rest: string[]): void {
   const npmOf = new Map<string, string[] | null>();
   for (const p of pkgs) npmOf.set(p.dir, npmVersions(p.name));
   const pending = pkgs.filter((p) => !(npmOf.get(p.dir) ?? [])?.includes(p.version));
-  const canonical = ["pair", "link", "seal", "secrets", "connect", "discover", "reach", "ui", "ui-core", "accounts", "realtime", "decide", "relay", "openclaw", "herdr", "write", "record", "overlay", "cloud", "statusbar", "usage", "push", "share", "signaling", "infer", "outbox"];
+  const canonical = ["pair", "link", "seal", "secrets", "connect", "discover", "reach", "ui", "ui-core", "accounts", "realtime", "decide", "relay", "openclaw", "herdr", "write", "record", "bubble", "overlay", "cloud", "statusbar", "usage", "push", "share", "signaling", "infer", "outbox"];
   const rank = (d: string): number => {
     const i = canonical.indexOf(d);
     return i < 0 ? canonical.length : i;

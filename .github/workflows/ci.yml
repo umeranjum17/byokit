@@ -271,7 +271,7 @@ jobs:
             examples/dictation-android/build/outputs/androidTest-results/
             examples/realtime-android/.proof/
 
-  # @byokit/overlay's Expo module: the example prebuilds with the kit's config plugin and assembles with its Kotlin,
+  # @byokit/bubble's Expo module: the example prebuilds with the kit's config plugin and assembles with its Kotlin,
   # then JVM tests, consent/point-marker proof and real Chromium WebView focus/insertion run on an emulator.
   overlay-android:
     runs-on: ubuntu-latest
@@ -293,7 +293,7 @@ jobs:
       - run: npm run build
       - run: npm ci --no-audit --no-fund
         working-directory: examples/expo
-      - run: CI=1 npx expo prebuild -p android --no-install && (cd android && ./gradlew assembleRelease :byokit-overlay:testDebugUnitTest)
+      - run: CI=1 npx expo prebuild -p android --no-install && (cd android && ./gradlew assembleRelease :byokit-bubble:testDebugUnitTest)
         working-directory: examples/expo
         env:
           EXPO_PUBLIC_SCREEN_DEMO: '1'
@@ -307,7 +307,7 @@ jobs:
           target: google_apis
           profile: pixel_7
           disable-animations: true
-          script: cd examples/expo/android && ./gradlew :app:installDebug -PreactNativeArchitectures=x86_64 && ./gradlew :byokit-overlay:connectedDebugAndroidTest :a11y-demo:connectedDebugAndroidTest -PreactNativeArchitectures=x86_64 && cd .. && ./e2e-screen-frame.sh emulator-5554 .screen-captures
+          script: cd examples/expo/android && ./gradlew :app:installDebug -PreactNativeArchitectures=x86_64 && ./gradlew :byokit-bubble:connectedDebugAndroidTest :a11y-demo:connectedDebugAndroidTest -PreactNativeArchitectures=x86_64 && cd .. && ./e2e-screen-frame.sh emulator-5554 .screen-captures
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

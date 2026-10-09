@@ -41,8 +41,8 @@ Contents: [1 Names](#1-names) · [2 Codes](#2-codes) · [3 Errors](#3-errors) ·
 The owner rejected the first proposed name table. The four never-published kits were renamed on main (#142:
 machine→cloud, capture→record, compose→write, status→statusbar) with no shims; their class, type, API and word-key
 names kept the old words (`MachineError`, `CaptureError`, `ComposeError`, `capture.*` keys), which §3, §9 and §10
-now ask to follow the kit. The owner also approved secrets (was keystore) for its first public release. The approved naming table also renames link→pair, reach→discover and ui-core→ui with deprecated shims;
-overlay→bubble follows in-lane. See each deprecated package's README for migration guidance.
+now ask to follow the kit. The owner also approved secrets (was keystore) for its first public release. The approved naming table also renames link→pair, reach→discover, ui-core→ui and overlay→bubble with deprecated shims.
+See each deprecated package's README for migration guidance.
 Names still marked **pending** require owner approval before a rename or first publish.
 
 | current | published | third-party integration | name |
@@ -54,7 +54,7 @@ Names still marked **pending** require owner approval before a rename or first p
 | secrets (was keystore) | no | no | **secrets** (owner-approved for first release) |
 | pair (was link) | yes | no | **pair** (approved kit naming table) |
 | openclaw | yes | yes (OpenClaw) | **openclaw** (by the rule) |
-| overlay | yes | no | **bubble** (approved; rename follows in-lane) |
+| bubble (was overlay) | yes | no | **bubble** (approved kit naming table) |
 | discover (was reach) | yes | no | **discover** (approved kit naming table) |
 | record (was capture) | no | no | **record** (renamed in #142) |
 | relay | yes | no | pending |

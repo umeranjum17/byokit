@@ -4,5 +4,5 @@
   "include": ["packages/*/src", "packages/*/test", "examples/pwa", "examples/herdr-kit", "examples/openclaw-kit", "examples/decide-plan", "scripts/machine-proof", "scripts/machine-proof.test.ts", "scripts/audit.ts", "scripts/audit.test.ts", "examples/realtime-voice", ".agents/skills/verify-byokit/capture", "examples/dictation-android/consumer.ts"],
   // expo-modules-core's types declare React Native globals (a numeric setTimeout, a required NODE_ENV) that would
   // leak into every Node package here; `tsc -b packages/<kit>` typechecks these files in their own program.
-  "exclude": ["packages/discover/src/rn.ts", "packages/discover/src/native.ts", "packages/overlay/src/rn.ts", "packages/overlay/src/focused-field.rn.ts", "packages/overlay/src/screen-frame.rn.ts", "packages/statusbar/src/rn.ts", "packages/push/src/rn.ts", "packages/speak/src/rn.ts", "packages/share/src/rn.ts"]
+  "exclude": ["packages/discover/src/rn.ts", "packages/discover/src/native.ts", "packages/bubble/src/rn.ts", "packages/bubble/src/focused-field.rn.ts", "packages/bubble/src/screen-frame.rn.ts", "packages/statusbar/src/rn.ts", "packages/push/src/rn.ts", "packages/speak/src/rn.ts", "packages/share/src/rn.ts"]
 }

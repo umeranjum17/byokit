@@ -1,4 +1,4 @@
-// `@byokit/overlay/focused-field` default entry (docs/capability-kits.md 7.4): no native module here, so nothing is
+// `@byokit/bubble/focused-field` default entry (docs/capability-kits.md 7.4): no native module here, so nothing is
 // ever available, read or typed in. React Native resolves `focused-field.rn.ts` instead.
 
 export type FocusedText = { app: string; text: string; selection: { start: number; end: number } | null };
