@@ -27,6 +27,14 @@ export type Notification = {
 /** One stored subscription. */
 export type PushRecord = { host: string; device: string; added: number } & Subscription;
 
+/** The most characters a sealed `reply` may carry, matching the native sealed-notice envelope cap. The relay
+ *  forwards the string unchanged and never parses it. */
+export const MAX_ACTION_REPLY = 8192;
+/** A reply the relay will carry: a non-empty string within `MAX_ACTION_REPLY`, otherwise refused. The relay only
+ *  bounds its length; it never reads the ciphertext. */
+export const isActionReply = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0 && value.length <= MAX_ACTION_REPLY;
+
 const EXPO_SEND = 'https://exp.host/--/api/v2/push/send';
 const UNSAFE = /[\u0000-\u001f\u007f]/;
 const text = (v: unknown, max: number) => typeof v === 'string' && v.length > 0 && v.length <= max && !UNSAFE.test(v);

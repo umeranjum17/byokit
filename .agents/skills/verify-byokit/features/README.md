@@ -33,6 +33,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [Gmail send](./connect-mail-send.md) — `@byokit/connect` `MailSender` with fixture OAuth and a canned Gmail transport: approved, denied and missing-scope legs.
 - [House Google client file](./connect-house-client.md) — `googleClientFile` from `@byokit/connect/node` feeding a loopback Gmail sign-in and send: missing, refused, consent approved/denied and send approved/denied legs.
 - [Herdr task-owned HOME](./herdr-task-home.md) — `@byokit/herdr` `startAgent` with a task HOME on a real, isolated Herdr lab session (needs the environment's Herdr lab helper; never the person's own Herdr).
+- [Relay notification action replies](./relay-action-reply.md) — the built `@byokit/relay` action route forwards a bounded opaque sealed reply to the host unchanged, refuses malformed or oversized replies without spending the token, and stores nothing.
 - [PWA review evidence](./pwa-review-evidence.md) — frames and motion for a user-visible change, in every theme and form factor the app has.
 
 ## Not provable here (declare honestly, do not fake)
@@ -61,4 +62,5 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [connect-mail-send](./connect-mail-send.md) — one approval per message, denial without a request, `gmail.send` scope refusal.
 - [connect-house-client](./connect-house-client.md) — the house Google client file: missing/refused files, consent approve/deny, send approve/deny.
 - [herdr-task-home](./herdr-task-home.md) — an agent pane under a task-owned HOME, read from the agent process and from inside the pane.
+- [relay-action-reply](./relay-action-reply.md) — the relay action route carries a bounded opaque sealed reply to the host callback, refuses bad replies and stores nothing.
 - [pwa-review-evidence](./pwa-review-evidence.md) — the review-evidence capture: before/after frames per theme and form factor, one motion recording per changed interaction.

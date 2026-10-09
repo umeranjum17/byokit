@@ -120,7 +120,7 @@ Routes:
 | `WS /link/v1/<host id>` | a device | bare link frames to and from that host |
 | `WS /relay/v1/host` | a host | proves its key, then carries its devices' frames as `{c, f}` / `{c, end}` |
 | `GET /relay/v1/codes/<code>` | a device | a short code → `{ host }` |
-| `POST /relay/v1/push/action` | a device | `{ token, action }`: a notification's button, answered by the host |
+| `POST /relay/v1/push/action` | a device | `{ token, action, reply? }`: a notification's button, with an optional bounded sealed reply, answered by the host |
 | `POST /relay/v1/enrolments`, `GET /relay/v1/hosts`, `DELETE /relay/v1/hosts/<id>` | the owner (`Authorization: Bearer <ownerToken>`) | make an enrolment, list and revoke hosts |
 
 Use the typed owner client instead of assembling these requests:
@@ -266,6 +266,11 @@ content-free preset drops all three options. Web Push is unchanged: the service 
 With `actions`, each device's notification carries its own one-use `action` token. Pressing a button posts
 `{ token, action }` to `/relay/v1/push/action`; the relay asks the host (`onAction`) and waits up to 15 seconds for the
 answer, which goes back to the device.
+
+A press may also carry `reply`: one sealed ciphertext (for example a free-text answer sealed to the host's box key). It
+must be a non-empty string of at most `MAX_ACTION_REPLY` (8192) characters; anything else is refused before the token is
+spent, so a corrected press still works. The relay forwards the string unchanged to `onAction` as `PushAction.reply` and
+never reads or stores it. The host opens it with its own key; the relay's content boundary is unchanged.
 
 ## Limits
 

@@ -10,8 +10,9 @@ import type { Notification, Subscription } from './push.ts';
 /** `replaced`: another copy of this host registered, so this one stopped. `refused`: the relay does not allow this
  *  host (not enrolled, enrolment used or expired, revoked); it stopped too. */
 export type RelayStatus = 'connecting' | 'online' | 'offline' | 'replaced' | 'refused';
-/** A button pressed on a notification, from device `device` (its grant id). */
-export type PushAction = { device: string; event: string; action: string };
+/** A button pressed on a notification, from device `device` (its grant id). `reply` is a bounded sealed ciphertext
+ *  the device attached (opaque to the relay), forwarded unchanged from the action route. */
+export type PushAction = { device: string; event: string; action: string; reply?: string };
 /** Where the client keeps the devices whose push addresses the relay has not yet confirmed removing (grant ids). Pass a
  *  durable one (a file or a database row): the default keeps them in memory, so a restart before the relay confirms
  *  would forget them and the removed device could keep getting notifications. */
@@ -306,7 +307,8 @@ export class RelayClient {
         return ok ? c.resolve(value) : c.reject(new Error(String(error ?? 'relay refused')));
       }
       if (m?.t === 'push.action') {
-        const a: PushAction = { device: String(m.device), event: String(m.event), action: String(m.action) };
+        const a: PushAction = { device: String(m.device), event: String(m.event), action: String(m.action),
+          ...(m.reply !== undefined && { reply: String(m.reply) }) };
         void Promise.resolve().then(() => {
           if (!this.opts.onAction) throw new Error('no action handler');
           return this.opts.onAction(a);
