@@ -77,7 +77,7 @@ export function generateRoutes(snapshot: PinSnapshot): Route[] {
       prerequisite: via === 'cli' ? 'Claude Code in the isolated HOME' : null,
       offer: offerPolicy === 'default' && Object.keys(needs).length === 0, offerPolicy,
       ...(id === 'anthropic-cli' ? { legacy: { provider: 'claude-cli', via: 'browser' as const },
-        deprecatedProvider: 'anthropic' } // remove in 0.8.0 and build the id from `provider`
+        deprecatedProvider: 'anthropic' } // remove in 0.9.0 and build the id from `provider`
         : id === 'minimax-global-oauth' || id === 'minimax-cn-oauth'
           ? { legacy: { provider: 'minimax', via: 'code' as const } } : {}),
       reason: alias ? 'Compatibility alias the Gateway does not offer; use xai-oauth.'
