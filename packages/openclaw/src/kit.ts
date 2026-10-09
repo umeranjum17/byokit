@@ -771,6 +771,10 @@ export class OpenClawKit {
         this.setState({ phase: 'failed', why: 'auth-store-unreadable' });
         throw error;
       }
+      if (error instanceof Error && 'code' in error && error.code === 'auth-store-seal-size') {
+        this.setState({ phase: 'failed', why: 'auth-store-seal-size' });
+        throw error;
+      }
       if (patchFailure) { this.setState({ phase: 'failed', why: 'engine-patch' }); throw error; }
       if (needsUpdate) this.setState({ phase: 'needs-update', why: 'version' });
       if (!needsUpdate && !this.stopping) this.setState({ phase: 'failed', why: 'handshake' });

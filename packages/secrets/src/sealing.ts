@@ -55,9 +55,30 @@ function copyKey(value: Uint8Array): Buffer {
   }
   return Buffer.from(value);
 }
+// The authenticated envelope is exactly the bytes JSON.stringify({ service, text }) produces, but escaped in
+// bounded chunks: JSON string escaping is per character, so chunk-wise escaping (never splitting a surrogate
+// pair, whose halves would otherwise escape differently than the pair) is byte-identical to the whole-string
+// stringify. A full second stringify once made the payload a second runtime string the size of the snapshot
+// itself and aborted the process on the string limit; here the largest string is one chunk.
+const ENVELOPE_CHUNK = 1 << 20;
+function envelope(text: string, service: string): Buffer {
+  const parts: Buffer[] = [Buffer.from(`{"service":${JSON.stringify(service)},"text":"`, 'utf8')];
+  for (let at = 0; at < text.length;) {
+    let end = Math.min(at + ENVELOPE_CHUNK, text.length);
+    const last = text.charCodeAt(end - 1);
+    if (end < text.length && last >= 0xd800 && last <= 0xdbff) end++; // keep a surrogate pair in one chunk
+    const escaped = JSON.stringify(text.slice(at, end));
+    parts.push(Buffer.from(escaped.slice(1, -1), 'utf8'));
+    at = end;
+  }
+  parts.push(Buffer.from('"}', 'utf8'));
+  const out = Buffer.concat(parts);
+  for (const part of parts) part.fill(0);
+  return out;
+}
 export function encrypt(text: string, key: Buffer, header: Buffer, service: string): Uint8Array {
   if (typeof text !== 'string') throw new KeystoreError('invalid', 'Sealing requires a string');
-  const payload = Buffer.from(JSON.stringify({ service, text }), 'utf8');
+  const payload = envelope(text, service);
   const plain = Buffer.concat([header, payload]);
   try { return Buffer.concat([header, sealSecretBox(plain, key)]); }
   finally { payload.fill(0); plain.fill(0); }

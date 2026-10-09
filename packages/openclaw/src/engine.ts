@@ -5,7 +5,7 @@ import { createServer } from 'node:net';
 import { basename, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
-import { AuthStore, AuthStoreUnreadableError } from './auth-store.ts';
+import { AuthStore, AuthStoreUnreadableError, AuthStoreSealSizeError } from './auth-store.ts';
 import { EngineAlreadyRunningError, pidAlive, StartedProcesses } from './engine-status.ts';
 import { EnginePatchError, atomic, prepareEngineSet, processStartTime, readPatchSet, sha256, verifyEngineSet, type PatchSet } from './engine-patches.ts';
 import { ENGINE_VERSION } from './constants.ts';
@@ -139,6 +139,7 @@ export class Engine {
     const pending = this.prepareOnce().catch(error => {
       if (error instanceof EnginePatchError) { this.patchSet = null; this.state('failed', 'engine-patch'); }
       if (error instanceof AuthStoreUnreadableError) this.state('failed', 'auth-store-unreadable');
+      if (error instanceof AuthStoreSealSizeError) this.state('failed', 'auth-store-seal-size');
       throw error;
     });
     this.prepared = pending;

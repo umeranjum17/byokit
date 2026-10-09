@@ -1,6 +1,7 @@
 import { beforeEach, test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import fs, { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, symlinkSync, lstatSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { syncBuiltinESMExports } from 'node:module';
 import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
@@ -10,6 +11,8 @@ import childProcess, { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../src/engine.ts';
 import { pidAlive } from '../src/engine-status.ts';
+import { AuthStoreSealSizeError, SEAL_CAP_BYTES, cached } from '../src/auth-store.ts';
+import { stateWords } from '../src/words.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import { hostKeySeal } from '../../secrets/src/index.ts';
@@ -841,6 +844,144 @@ setInterval(() => {}, 1000);
     if (host.exitCode === null && host.signalCode === null) { const exited = once(host, 'exit'); host.kill('SIGKILL'); await exited; }
     if (gateway) { try { process.kill(gateway, 'SIGKILL'); } catch {} }
     const exited = once(unrelated, 'exit'); unrelated.kill(); await exited;
+    await kit.stop();
+    removeScratch(dir);
+  }
+});
+
+// The auth-store seal bound (Crewhouse kit gap, 2026-10-04): a large engine home must never abort the
+// process at seal time. Tool caches stay off the sealer — however large — across a host kill without
+// stop(), the sealed payload holds only credential files, and a store over SEAL_CAP_BYTES refuses with
+// AuthStoreSealSizeError (naming size and cap) leaving the seal and live trees unchanged.
+test('a large cache home never reaches the sealer across a host kill, and an over-cap store refuses with a typed error', { skip: process.platform !== 'linux', timeout: 120_000 }, async () => {
+  const dir = scratchDir('seal-bound');
+  const engineDir = join(dir, 'engine');
+  const root = join(dir, 'openclaw');
+  const key = new Uint8Array(32).fill(9);
+  const baseSeal = hostKeySeal({ key });
+  const sealed: string[] = [];
+  const spySeal = {
+    encryptString: (text: string) => { sealed.push(text); return baseSeal.encryptString(text); },
+    decryptString: (data: Buffer) => baseSeal.decryptString(data),
+  };
+  seedInstall(engineDir);
+  const ready = join(root, 'ready');
+  writeFileSync(join(engineDir, 'node_modules/openclaw/openclaw.mjs'), `
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+const state = join(process.env.OPENCLAW_STATE_DIR, 'auth.json');
+const initialized = ${JSON.stringify(join(root, 'initialized'))};
+process.title = 'openclaw-gateway';
+if (!existsSync(initialized)) {
+  writeFileSync(state, 'refreshed-login');
+  writeFileSync(initialized, '1');
+} else if (readFileSync(state, 'utf8') !== 'refreshed-login') process.exit(1);
+writeFileSync(${JSON.stringify(ready)}, String(process.pid));
+process.on('SIGTERM', () => process.exit(0));
+setInterval(() => {}, 1000);
+`);
+  const hostFile = join(dir, 'host.mjs');
+  writeFileSync(hostFile, `
+import { Engine } from ${JSON.stringify(new URL('../src/engine.ts', import.meta.url).href)};
+import { hostKeySeal } from ${JSON.stringify(new URL('../../secrets/src/index.ts', import.meta.url).href)};
+import { mock } from 'node:test';
+import { useSyntheticStock } from ${JSON.stringify(new URL('./stock-fixture.ts', import.meta.url).href)};
+useSyntheticStock({ mock });
+const engine = new Engine({ stateDir: ${JSON.stringify(dir)}, engineDir: ${JSON.stringify(engineDir)},
+  authSeal: hostKeySeal({ key: new Uint8Array(32).fill(9) }), pluginId: 'byokit', tools: [], spawnEngine: true,
+  onState() {}, onExit() {} });
+await engine.start();
+setInterval(() => {}, 1000);
+`);
+  await seedSet(engineDir);
+  // Credential state: a sign-in plus a >1 MiB ledger whose base64 crosses the sealer's chunk boundary.
+  mkdirSync(join(root, 'state'), { recursive: true });
+  writeFileSync(join(root, 'state', 'auth.json'), 'saved-login');
+  const ledger = randomBytes(1536 * 1024);
+  writeFileSync(join(root, 'state', 'ledger.sqlite'), ledger);
+  mkdirSync(join(root, 'home', '.claude'), { recursive: true });
+  writeFileSync(join(root, 'home', '.claude', 'settings.json'), '{"model":"opus"}');
+  // Sparse regenerable caches, >300 MB on disk: XDG cache, npm cache and CLI transcript trees.
+  const caches: [string, number][] = [
+    ['home/.cache/pnpm/store/v10/blob-0.bin', 150 * 1024 * 1024],
+    ['home/.cache/pnpm/store/v10/blob-1.bin', 150 * 1024 * 1024],
+    ['home/.cache/pnpm/store/v10/blob-2.bin', 150 * 1024 * 1024],
+    ['home/.npm/_cacache/index-v5/entry', 120 * 1024 * 1024],
+    ['home/.codex/sessions/2026/10/04/transcript.jsonl', 60 * 1024 * 1024],
+    ['home/.claude/projects/-home-user/secrets.jsonl', 60 * 1024 * 1024],
+  ];
+  let cacheBytes = 0;
+  for (const [name, size] of caches) {
+    const path = join(root, name);
+    mkdirSync(dirname(path), { recursive: true });
+    const fd = fs.openSync(path, 'w');
+    fs.ftruncateSync(fd, size);
+    fs.closeSync(fd);
+    cacheBytes += size;
+  }
+  const kit = new OpenClawKit({ stateDir: dir, engineDir, authSeal: spySeal, transport: fakeGateway().factory });
+  let gateway = 0;
+  const cacheSealed = (path: string) => cached(path)
+    || path.split('/').slice(0, -1).some((_, i) => cached(path.split('/').slice(0, i + 1).join('/')));
+  try {
+    const host = spawn(process.execPath, [hostFile], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let hostError = '';
+    host.stderr.on('data', chunk => { hostError += chunk; });
+    for (let i = 0; i < 100 && !existsSync(ready) && host.exitCode === null; i++) await delay(50);
+    assert.ok(existsSync(ready), `detached gateway reached its ordinary launch: ${hostError}`);
+    gateway = Number(readFileSync(ready, 'utf8'));
+    // The host is killed without stop(): live plaintext trees and the stale lock are all that remain.
+    const exited = once(host, 'exit');
+    host.kill('SIGKILL');
+    await exited;
+    assert.equal(pidAlive(gateway), true, 'the detached fake gateway survived its host');
+    sealed.length = 0;
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready', 'recovery reseals the killed home and restarts');
+    assert.ok(sealed.length > 0, 'the reseal after the host kill reached the sealer');
+    let credentialBytes = 0;
+    for (const text of sealed) {
+      const snap = JSON.parse(text) as { files: [string, string][] };
+      for (const [path, data] of snap.files) {
+        assert.equal(cacheSealed(path), false, `a regenerable cache reached the sealer: ${path}`);
+        credentialBytes += Buffer.from(data, 'base64').length;
+      }
+    }
+    assert.ok(credentialBytes < 4 * 1024 * 1024, `only credential files were sealed (${credentialBytes} bytes)`);
+    const payloadChars = Math.max(...sealed.map(text => text.length));
+    console.log(`[seal-bound] killed home carried ${cacheBytes} bytes (${(cacheBytes / 2 ** 20).toFixed(0)} MiB) of regenerable caches; ` +
+      `recovery sealed ${credentialBytes} credential bytes into a ${payloadChars}-character snapshot`);
+    for (const [name] of caches) assert.equal(existsSync(join(root, name)), true, `cache left at rest: ${name}`);
+    await kit.stop();
+    // Restore proves the single-pass envelope round-trips: the >1 MiB ledger is byte-identical, and
+    // its base64 crossed the sealer's chunk boundary on the way in.
+    await kit.start();
+    assert.equal(readFileSync(join(root, 'state', 'auth.json'), 'utf8'), 'refreshed-login');
+    assert.ok(readFileSync(join(root, 'state', 'ledger.sqlite')).equals(ledger), 'large credential file restored byte-identical');
+    assert.equal(readFileSync(join(root, 'home', '.claude', 'settings.json'), 'utf8'), '{"model":"opus"}');
+    await kit.stop();
+    // A credential file over the cap refuses with a typed error before it is read; the process continues.
+    const storeFile = join(root, 'auth-store.sealed');
+    const before = readFileSync(storeFile);
+    mkdirSync(join(root, 'state'), { recursive: true });
+    const huge = join(root, 'state', 'huge.sqlite');
+    const fd = fs.openSync(huge, 'w');
+    fs.ftruncateSync(fd, SEAL_CAP_BYTES + 1024 * 1024);
+    fs.closeSync(fd);
+    sealed.length = 0;
+    await assert.rejects(kit.start(), (e: unknown): e is AuthStoreSealSizeError =>
+      e instanceof AuthStoreSealSizeError && e.size > e.cap && e.cap === SEAL_CAP_BYTES
+      && e.message.includes(String(e.size)) && e.message.includes(String(e.cap)));
+    assert.equal(sealed.length, 0, 'an over-cap store never reaches the sealer');
+    assert.equal(kit.state.phase, 'failed');
+    assert.equal(kit.state.why, 'auth-store-seal-size');
+    assert.match(stateWords(kit.state), /too large to seal/);
+    assert.deepEqual(readFileSync(storeFile), before, 'the refused store is unchanged');
+    assert.equal(existsSync(huge), true, 'the over-cap live file is unchanged');
+    assert.equal(pidAlive(gateway), false, 'no gateway survived the refused start');
+    console.log(`[seal-bound] over-cap store (${SEAL_CAP_BYTES + 1024 * 1024} bytes) refused with AuthStoreSealSizeError; process continued`);
+  } finally {
+    if (gateway && pidAlive(gateway)) { try { process.kill(gateway, 'SIGKILL'); } catch {} }
     await kit.stop();
     removeScratch(dir);
   }

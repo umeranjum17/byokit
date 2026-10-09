@@ -1,7 +1,8 @@
 // The pin persists OAuth JSON in both shared and agent SQLite. There is no public persistence hook.
 // Seal only credential state — the engine's complete `state` tree plus every config/credential path in
 // `home` — never the regenerable tool caches, transcripts and logs a signed-in home accumulates.
-// Sealing those too once produced a snapshot past the runtime string limit and aborted boot.
+// Sealing those too once produced a snapshot past the runtime string limit and aborted boot; the collector is
+// narrowed to credential state and capped (SEAL_CAP_BYTES), refusing with a typed error instead.
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, rmdirSync, writeFileSync, closeSync, fsyncSync, openSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { SealingAdapter } from '@byokit/secrets';
@@ -81,6 +82,28 @@ export class AuthStoreUnreadableError extends Error {
     super("Saved sign-in could not be opened; auth-store.sealed is unchanged. Restore the original seal/key access or a working backup with its matching key, then retry.");
     this.name = 'AuthStoreUnreadableError';
     this.reason = reason;
+  }
+}
+
+/** Total raw credential bytes one snapshot may seal. The sealed payload is one runtime string, so a
+ *  snapshot beyond this bound cannot be sealed at all: instead of aborting the process deep inside the
+ *  sealer (a 364,927,687-character snapshot once hit the runtime string limit and killed Node), collect()
+ *  refuses with this error while the store is still intact. Credential state is normally a few MiB; the
+ *  cap leaves several times that headroom. */
+export const SEAL_CAP_BYTES = 128 * 1024 * 1024;
+
+/** Credential state exceeded `SEAL_CAP_BYTES`; nothing was read beyond the refusing file, nothing was
+ *  sealed and nothing was removed — `auth-store.sealed` and the live trees are unchanged. */
+export class AuthStoreSealSizeError extends Error {
+  readonly code = 'auth-store-seal-size';
+  readonly size: number;
+  readonly cap: number;
+  constructor(size: number, cap: number) {
+    super(`Credential state is ${size} bytes and cannot be sealed: the seal cap is ${cap} bytes. ` +
+      'Move regenerable data (tool caches are already skipped) out of the engine state and home trees, then retry.');
+    this.name = 'AuthStoreSealSizeError';
+    this.size = size;
+    this.cap = cap;
   }
 }
 
@@ -167,6 +190,7 @@ export class AuthStore {
   }
   private collect(): Snapshot {
     const s: Snapshot = { v: 1, dirs: [], files: [] };
+    let total = 0;
     const root = realpathSync(this.o.root);
     const walk = (path: string) => {
       const name = relative(this.o.root, path).split('\\').join('/');
@@ -179,17 +203,22 @@ export class AuthStore {
         return;
       }
       let file = path;
+      let target = stat;
       if (stat.isSymbolicLink()) {
         try { file = realpathSync(path); } catch (error) {
           if (['ENOENT', 'ENOTDIR', 'ELOOP'].includes((error as NodeJS.ErrnoException).code ?? '')) return;
           throw error;
         }
-        const target = relative(root, file);
-        if (isAbsolute(target) || target === '..' || target.startsWith(`..${sep}`)) return;
-        if (!lstatSync(file).isFile()) return;
-      } else if (!stat.isFile()) return;
+        const rel = relative(root, file);
+        if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) return;
+        target = lstatSync(file);
+      }
+      if (!target.isFile()) return;
       // Read the checked target, but save the link's path: restore materializes a regular file there.
       chmodSync(file, 0o600);
+      // Refuse by size before reading: an over-cap file must never reach memory or the sealer.
+      total += target.size;
+      if (total > SEAL_CAP_BYTES) throw new AuthStoreSealSizeError(total, SEAL_CAP_BYTES);
       s.files.push([name, readFileSync(file).toString('base64')]);
     };
     for (const dir of ['state', 'home']) if (existsSync(join(this.o.root, dir))) walk(join(this.o.root, dir));
