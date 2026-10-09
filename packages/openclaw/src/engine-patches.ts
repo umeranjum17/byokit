@@ -144,11 +144,7 @@ const flushFs = (dir: string): Promise<void> => new Promise(resolve => {
   child.once('error', () => resolve());
   child.once('exit', () => resolve());
 });
-// Freeze makes the tree read-only and returns the manifest entries with their frozen modes. The caller owns the
-// manifest and re-verifies before publishing. Durability: one bulk flush, no per-entry fsyncs — crash safety is
-// verifyEngineSet's whole-tree check at every reuse/launch (any torn or missing entry mismatches .byokit-tree and
-// rebuilds as drift, never launches), plus atomic()'s manifest fsyncs and the fsynced publication rename below.
-// macOS fsync never flushed to permanent storage, so verification was already the power-loss guarantee there.
+// Freeze makes the tree read-only and returns its entries as the manifest; durability rule: docs/runtime-kits.md 5.16.
 async function freeze(dir: string): Promise<TreeEntry[]> {
   // Bound I/O while yielding the host event loop: chmod only, in batches. Links are left untouched (and keep
   // their recorded mode); every file becomes 0444 and every directory 0555, exactly what the manifest records.
