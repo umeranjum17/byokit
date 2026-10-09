@@ -329,8 +329,11 @@ npm run check
 sh scripts/test.sh 'packages/connect/test/*.test.ts'
 ```
 
-Tests use fake providers and a real loopback callback only. They cover PKCE/state,
-replay/cancel/expiry, discovery/DCR/resource binding, refresh races and revocation,
-per-person isolation, rich MCP JSON/SSE responses and browser bundling. No real
-accounts or outbound network calls are used. Live provider/device sign-ins are not
-claimed by these tests.
+`packages/connect/test/journey-connect.test.ts` drives the built package the way a
+host app does — `connect`/`signIn`/`token`/`mcp`, the loopback listener, the house
+Google client, `MailReader`/`MailSender` and `MailHistory`. Fake providers and a real
+loopback callback only. It covers PKCE/state and exact-callback binding, per-person
+isolation, refresh races and revocation, discovery/DCR/resource binding, rich MCP
+JSON/SSE responses, the approved/denied send, owner-bound history and browser
+bundling. No real accounts or outbound network calls are used. Live
+provider/device sign-ins are not claimed by these tests.
