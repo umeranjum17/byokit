@@ -8,7 +8,7 @@
 </p>
 
 <p align="center"><strong>Sign in with the AI plan you already pay for, inside your own app.</strong><br/>
-ChatGPT and Claude Pro/Max on every platform (Claude needs Web Crypto); Grok, GitHub Copilot, Kimi and Meta on computers.
+ChatGPT and Claude Pro/Max on every platform (Claude needs Web Crypto); Gemini Code Assist, Grok, GitHub Copilot, Kimi and Meta on computers.
 OpenRouter and Anthropic API keys are billed per use and require explicit app opt-in. Sign-ins go into your app's own store: on a computer (Node, Electron), in a browser
 (a PWA, Electron's renderer) and on a phone (React Native and Expo, iOS and Android). One import; your bundler picks
 the platform's side (`package.json`'s `react-native` and `browser` conditions).</p>
@@ -150,6 +150,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | Anthropic (API key, billed per use) | App passes its own key, explicitly | Same fetch-only Messages provider | Same fetch-only Messages provider |
 | OpenRouter (API billing) | Pi's browser callback or paste; explicit API selection and device-owned `keyStore` required | Not yet | Not yet |
 | Radius (billing set by gateway) | Pi's browser callback (1456) or device code; explicit-only | Not yet | Not yet |
+| Gemini Code Assist (subscription) | Google's own page, back to this computer's port 8085, or paste the address it lands on | Not yet | Not yet |
 | Grok, Kimi | Pi's device flows; the same RFC 8628 flow from their catalogue `device` rows | Device code | Device code |
 | Copilot, Meta | Pi's device flows; Copilot accepts an Enterprise domain | No | No |
 | Where sign-ins are kept | `machineStore(member, seal)`, shared by every app on the computer; or `fileStore(path, seal)` | `browserStore(name)` (IndexedDB) | `secureStore(SecureStore, name)` (Keychain, Keystore) |
@@ -423,6 +424,10 @@ tests and demos sign in and ask end to end with no account. Point the kit at it 
 `mockDevice()` stands in for any provider the catalogue gives device data: the code, the page that approves it,
 polling and refresh on that provider's own documented endpoints. Point the kit at it with
 `new Accounts({ deviceBase, store: () => memoryStore() })`.
+
+`mockGoogle()` stands in for Gemini Code Assist's sign-in on a computer: its authorize page, the loopback return, the
+token exchange, refresh, userinfo and project answers. Point the kit at it with
+`new Accounts({ googleBase, store: () => memoryStore() })`.
 
 ## Links
 
