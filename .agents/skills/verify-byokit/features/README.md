@@ -22,6 +22,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 ## Available on this host
 
 - [Accounts sign-in and ask](./accounts-signin.md) — the README quickstart against the built `@byokit/accounts` with `mockOpenAI()`.
+- [Accounts pick and models](./accounts-pick.md) — two signed-in ChatGPT accounts: `Accounts.pick` names the roomier one with its reason, `Accounts.models` lists each account's models, and a resting account's models say why and until when.
 - [Catalogue device sign-in and the picker](./accounts-device.md) — RFC 8628 device sign-in for any provider the catalogue gives device data, with `mockDevice()`.
 - [Claude plan refresh](./accounts-claude-refresh.md) — a Claude plan sign-in kept through a lost refresh, rotated on retry, ended only by a revoked grant.
 - [OpenClaw accepted/thinking run progress](./openclaw-run-progress.md) — built public API, real pinned Gateway + offline native CLI stand-in, timestamped progress/admission timeline and account-change refusal.
@@ -53,6 +54,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [openclaw-abort](./openclaw-abort.md) — healthy real-engine cancellation, engine-drop and already-gone catchable failures, invalid key mapping, no unhandled rejection in the handled consumer journey.
 
 - [accounts-signin](./accounts-signin.md) — device-code sign-in, status, streamed ask, and the error paths.
+- [accounts-pick](./accounts-pick.md) — `pick`/`models` over two real accounts: roomier winner with reason, a rest moving the pick, per-account model availability, and the unknown-id and no-reading cases.
 - [accounts-device](./accounts-device.md) — the provider picker and a catalogue-driven device sign-in, refresh and decline.
 - [accounts-claude-refresh](./accounts-claude-refresh.md) — transient refresh (no answer, 5xx, passing 401) keeps the sign-in, retry rotates the same grant, invalid_grant signs out.
 - [accounts-refresh-refusal](./accounts-refresh-refusal.md) — passing 401 at `access` or `recheck` keeps the ChatGPT sign-in, retry rotates, a revoked grant signs out.

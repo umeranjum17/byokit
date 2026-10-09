@@ -124,7 +124,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 
 | Export | What it does |
 |---|---|
-| `Accounts` | Sign-in, status, sign-out, asking and limits for each member: `login`, `finished`, `status`, `plan`, `logout`, `respond`, `chatgpt`, `failed`, `ladder`, `keepFresh`; explicit custom servers: `endpoint`, `endpointReadiness`, `endpointRuntime` |
+| `Accounts` | Sign-in, status, sign-out, asking and limits for each member: `login`, `finished`, `status`, `plan`, `logout`, `respond`, `chatgpt`, `failed`, `ladder`, `keepFresh`, `pick`, `models`; explicit custom servers: `endpoint`, `endpointReadiness`, `endpointRuntime` |
 | `ENDPOINT_PRESETS`, `EndpointError`, `EndpointOptions`, `EndpointModel`, `EndpointDriver` | Local preset facts, typed readiness failures, public endpoint/model configuration and the same-device host driver seam |
 | `portable`, `computer`, `loopback` | The platform `Accounts` runs on: device code with `fetch` alone, or (Node entry only) Pi's flows and the loopback listener |
 | `machineStore`, `fileStore`, `secureStore`, `browserStore`, `recordStore`, `memoryStore` | One store per person: the computer's sealed file every app shares or a sealed 0600 file of your own (Node entry only), Keychain/Keystore, IndexedDB, your own load and save, or in memory |
@@ -658,6 +658,30 @@ Identity and re-authentication stay with the host's canonical device store or en
 scoped by member/provider proves identity; names and emails do not. The TypeScript identity fixture records
 wrong-account, duplicate identity, changed-email, absent-identity, removal/refresh and extension-field boundaries
 for runtime integration; the chooser consumes host-validated state and never adopts credentials itself.
+
+### Choosing from an app's own accounts
+
+`Accounts.pick(member, selection, room?)` makes that choice over the accounts a person is really signed in to:
+it lists them, reads the saved defaults, takes one reading per account, and returns the same `AccountPick`.
+`Accounts.models(member, id)` lists one account's models from the catalogue, each with `available` and, when it
+cannot run, `why` (`resting`, when a rest's `until` is named, `signed_out`, or `plan` for a use the plan omits).
+Both are read-only: neither writes the defaults nor the account index. An id that is not in the list comes back
+`ok: false` with `code: 'unknown_account'`; `models` refuses it. A `room` source that is absent or throws leaves
+every reading unknown, so list order decides.
+
+```ts
+import { Accounts, type Room } from '@byokit/accounts';
+
+declare function readingFor(account: { id: string }): Promise<Room>; // the host's own usage reading
+
+const accounts = new Accounts({ store: (member) => machineStore(member), app: 'my app' });
+const pick = await accounts.pick('umer', { account: 'auto' }, (account) => readingFor(account));
+if (pick.ok) {
+  console.log(pick.reason);                    // "Right now that's Work: 60% left this week"
+  for (const model of await accounts.models('umer', pick.account.id))
+    console.log(model.id, model.available, model.why ?? '');
+}
+```
 
 ## Managed CLI accounts (Node only)
 
