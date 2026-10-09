@@ -179,6 +179,25 @@ test('a default that cannot answer is refused typed, and Auto never answers from
   }
 });
 
+test('a revoked picked account is signed out alone: the saved default keeps its sign-in', async () => {
+  const { openai, store, accounts, work, personal } = await twoSignIns('journey-revoked-pick');
+  try {
+    await accounts.setDefaults(1, { account: personal });
+    openai.state.fail = { status: 401, body: JSON.stringify({ error: { code: 'token_expired', message: 'Provided authentication token is expired.' } }) };
+    openai.state.refuse = true;
+    await assert.rejects(
+      accounts.respond(1, { instructions: 'Be brief.', input: 'revoked', select: { account: 'auto' } }),
+      (e: any) => e instanceof ResponseError && e.kind === 'signed_out',
+    );
+    assert.deepEqual((await store.list()).map((c) => c.providerId), [personal], 'only the revoked picked sign-in was removed');
+    assert.equal((await accounts.defaults(1)).account, personal);
+    assert.notEqual(work, personal);
+  } finally {
+    accounts.stop();
+    await openai.close();
+  }
+});
+
 test('a bare-id default that is signed out is refused, not answered from the other ChatGPT account', async () => {
   const { openai, store, accounts, work } = await twoSignIns('journey-bare-default');
   try {

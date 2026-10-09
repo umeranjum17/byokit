@@ -813,7 +813,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     // Select once, before any request. Auto/default go through the same pick the caller can read first; an explicit id
     // is taken as named, so a signed-out one reaches `access` and is refused typed rather than silently swapped.
     let picked: string | undefined;
-    if (ask.select) {
+    if (ask.select && ask.select.account !== 'auto' && ask.select.account !== 'default') picked = this.accountKey(member, ask.select.account);
+    else if (ask.select) {
       const choice = await this.pick(member, { account: ask.select.account, provider: 'chatgpt' });
       if (ask.select.account === 'default') {
         // The saved default is the only account a default answers from: anything else pick chose is refused, not used.
@@ -826,7 +827,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         picked = choice.account.id;
       }
       else if (choice.ok) picked = choice.account.id;
-      else if (ask.select.account === 'auto') {
+      else {
         const signedIn = choice.considered.filter((r) => this.providerKey(r.id) === 'chatgpt' && r.out !== 'state');
         const resting = signedIn.filter((r) => r.out === 'resting');
         if (signedIn.length && resting.length === signedIn.length) {
@@ -835,7 +836,6 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         }
         throw new ResponseError(choice.reason, 'signed_out');
       }
-      else picked = this.accountKey(member, ask.select.account);
     }
     const { access, accountId } = await this.access(member, ask.signal, picked);
     try {
@@ -1184,12 +1184,12 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    *  given id as already resolved, for the same reason as `failed`. */
   async recheck(member: M, key: string, exact = false) {
     key = exact ? this.accountKey(member, key) : await this.resolveKey(member, key);
-    if (await this.endpointRecord(member, key)) { await this.logout(member, key); return false; }
+    if (await this.endpointRecord(member, key)) { await this.endAccount(member, key, true); return false; }
     const p = this.offer(key);
     // A saved API key cannot refresh itself after an authentication refusal.
     const ok = this.isKey(p)
       ? false : await this.refreshed(member, key, 365 * 86_400_000);
-    if (!ok) { await this.logout(member, key).catch(() => {}); this.forgetAccount(member, key); }
+    if (!ok) { await this.endAccount(member, key, true).catch(() => {}); this.forgetAccount(member, key); }
     return ok;
   }
 
