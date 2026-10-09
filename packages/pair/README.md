@@ -154,7 +154,9 @@ console.log(text); // terminal-to-browser deep link; the offer stays after #
 
 `offerText(parseOffer(text), 'https://app.example/pair.html')` makes the same deep link from an existing offer.
 There is no separate `offerLink`. Use `parseOffer(text, 0)` to inspect an expired offer; this does not renew it,
-and pairing still refuses an expired ticket.
+and pairing still refuses an expired ticket. `parseOffer` reads a compact QR too, returning a `CompactOffer` (expiry,
+addresses, name, role) with no `host` or `ticket`: narrow with `'host' in offer` before reading a version 1 offer's
+fields, and before `offerText` or `encodeOffer`, which take a version 1 `PairOffer`.
 
 For an offline, typeable alternative, `encodeOffer(parseOffer(text))` holds the **entire offer**, including
 all direct and relay addresses. `decodeOffer` also reads old compact direct codes for migration, preserving

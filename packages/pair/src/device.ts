@@ -3,7 +3,7 @@
 // its requests survive a reconnect: each carries a key, so a retried tap runs once. Uses only the platform's
 // WebSocket, so the same code runs in browsers, React Native and Node.
 import { Handshake, b64, b64url, keyPair, keyPairFrom, random, unb64url, type KeyPair, type Mode } from './channel.ts';
-import { cleanName, codeKey, decodeCompactOffer, parseCode, parseOffer, shortKey, COMPACT_TAG } from './pairing.ts';
+import { cleanName, codeKey, decodeCompactOffer, parseCode, parseOffer, parseV1Offer, shortKey, COMPACT_TAG } from './pairing.ts';
 import type { Role } from './host.ts';
 import { Streams, type LinkStream } from './stream.ts';
 
@@ -62,6 +62,10 @@ export class PublicLinkError extends LinkError {
 const known = (why: unknown): why is LinkProblem => typeof why === 'string' && Object.hasOwn(LINK_WORDS, why);
 const problem = (why: unknown): LinkProblem => (known(why) ? why : 'unreachable');
 const later = (ms: number, fn: () => void) => { const t: any = setTimeout(fn, ms); t.unref?.(); return t; };
+const within = <T>(ms: number, work: Promise<T>): Promise<T> => new Promise((resolve, reject) => {
+  const t = later(ms, () => reject(new LinkError('timeout')));
+  work.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+});
 
 type Open = { ready: any; hostKey: Uint8Array; send: (m: unknown) => void; data: (s: number, d: Uint8Array) => void; close: () => void };
 type Hello = { t: 'auth'; session: string; ack: number; fresh: boolean } | { t: 'pair'; ticket: string; name: string; pending?: 1 } | { t: 'code'; name: string; pending?: 1 };
@@ -80,11 +84,10 @@ async function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Ui
     let up = false;
     let settled = false;
     let ws: WebSocketLike;
-    let pinning: Promise<void> | null = null;
     const fail = (e: Error) => { // a LinkError, or the app's own `pin` failure before anything is disclosed
       clearTimeout(timer);
       if (up) on.close(e as LinkError);
-      else if (!settled) { if (pinning) pinning.then(() => reject(e), reject); else reject(e); } // a save still under way settles first, its own failure winning
+      else if (!settled) reject(e);
       up = false;
       settled = true;
       try { ws.close(); } catch {}
@@ -97,7 +100,7 @@ async function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Ui
     ws.onopen = () => ws.send(hs.write(mode === 'ik' ? { v: 1 } : {}));
     ws.onerror = () => fail(new LinkError('unreachable'));
     // Before the handshake finishes nothing is authenticated, so these only choose what to say, never what to forget.
-    ws.onclose = (e: any) => fail(new LinkError(ch ? 'unreachable' : e?.code === 4401 && mode === 'code' ? 'wrong-code' : e?.code === 4403 ? 'wrong-host' : e?.code === 4408 ? 'timeout' : 'unreachable'));
+    ws.onclose = (e: any) => fail(new LinkError(ch ? 'unreachable' : e?.code === 4401 && mode === 'code' ? 'wrong-code' : e?.code === 4403 ? 'wrong-host' : 'unreachable'));
     ws.onmessage = (ev: any) => {
       if (settled && !up) return;
       try {
@@ -116,10 +119,9 @@ async function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Ui
           };
           if (!host.pin) return go();
           // The host proved it holds the code; the app keeps its key before this device is disclosed in message 3. A slow
-          // save runs on no clock of ours: the host drops a handshake left waiting too long, which ends this one too.
+          // save runs on no clock of ours: if the host drops the socket meanwhile, this pairing ends with that close.
           clearTimeout(timer);
-          pinning = Promise.resolve().then(() => host.pin!(hs.remoteKey));
-          pinning.then(() => {
+          Promise.resolve().then(() => host.pin!(hs.remoteKey)).then(() => {
             if (settled) return;
             try { go(); } catch { fail(new LinkError('unreachable')); }
           }, fail);
@@ -156,7 +158,7 @@ type PairOptions = Dial & { name: string; onWords: (w: string) => void; key?: Ke
  *  `pairWithOffer`'s `onPending` hand it over. A compact offer carries no host key: it needs `host`, the key the code
  *  handshake authenticated (`onPending` passes it). For a version 1 offer, a different `host` is refused. */
 export function pendingGrant(scanned: string, o: { name: string; key?: KeyPair; host?: string }): DeviceGrant {
-  const offer = scanned.indexOf(COMPACT_TAG) >= 0 ? decodeCompactOffer(scanned) : parseOffer(scanned);
+  const offer = parseOffer(scanned);
   let host = 'host' in offer ? offer.host : undefined;
   if (o.host !== undefined) {
     let given: Uint8Array;
@@ -201,9 +203,9 @@ export async function pairWithOffer(scanned: string, o: OfferOptions): Promise<D
     }
     throw last;
   }
-  const offer = parseOffer(scanned);
+  const offer = parseV1Offer(scanned);
   const me = o.key ?? keyPair();
-  await o.onPending?.(pendingGrant(scanned, { name: o.name, key: me }));
+  if (o.onPending) await within(o.timeoutMs ?? 8000, Promise.resolve(o.onPending(pendingGrant(scanned, { name: o.name, key: me }))));
   let last = new LinkError('unreachable');
   let shown = false; // words shown: the host took the ticket, so no other address can answer
   const words = { ...o, onWords: (w: string) => { shown = true; o.onWords(w); } };

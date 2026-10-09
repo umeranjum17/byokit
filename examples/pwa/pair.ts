@@ -29,6 +29,7 @@ $('pair').onsubmit = async (e) => {
   try {
     const text = ($('offer') as HTMLTextAreaElement).value;
     const offer = text.includes('byokit-link:1:') ? parseOffer(text) : decodeOffer(text);
+    if (!('ticket' in offer)) throw new Error('Ask your computer for a pairing link or code.');
     // Host-side policy is authoritative. This example also refuses offers that don't explicitly say view-only.
     if (offer.role !== 'view') throw new Error('Ask your computer for an invitation to read here.');
     const grant = await pairWithOffer(offerText(offer), { name: 'My browser', onWords: (words) => {

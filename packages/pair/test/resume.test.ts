@@ -10,7 +10,7 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { DeviceLink, Host, LinkError, b64url, keyPair, keyPairFrom, pairWithOffer, pendingGrant, unb64url, type Grant } from '@byokit/pair';
+import { DeviceLink, Host, LinkError, b64url, keyPair, keyPairFrom, pairWithOffer, parseOffer, pendingGrant, unb64url, type Grant } from '@byokit/pair';
 import { scratchDir, trackChild } from '../../test-support.ts';
 
 // The phone: scan, keep the pending grant where `onPending` hands it over (when given a file), show the words.
@@ -190,6 +190,50 @@ test('a pending grant pins only a key the handshake authenticated, and a failed 
     await assert.rejects(pairWithOffer(v1, { name: 'Umer phone', onWords: () => {}, onPending: () => { throw full; } }), (e) => e === full);
     await sleep(100);
     assert.equal(umer.asked() + umer.grants().length, 0, 'the computer never heard of the phone');
+  } finally {
+    at.close();
+    umer.host.close();
+  }
+});
+
+test('a pending save that never settles ends pairing when the computer drops the socket; a version 1 save that never settles times out', async () => {
+  const umer = await computer();
+  const at = await address(umer.host);
+  const settles = (p: Promise<unknown>) => Promise.race([p.then(() => 'paired', (e: LinkError) => e.code), sleep(3000).then(() => 'hung')]);
+  try {
+    let saving = () => {};
+    const started = new Promise<void>((r) => { saving = r; });
+    const pairing = pairWithOffer(umer.host.compactOffer({ role: 'view', urls: [at.url] }).text, {
+      name: 'Umer phone', onWords: () => {}, onPending: () => { saving(); return new Promise<void>(() => {}); },
+    });
+    await started;
+    at.drop();
+    assert.equal(await settles(pairing), 'unreachable');
+    assert.equal(umer.asked(), 0, 'the computer never heard of the phone');
+
+    const hung = pairWithOffer(umer.host.offer({ role: 'view', urls: [at.url] }).text, {
+      name: 'Umer phone', onWords: () => {}, timeoutMs: 200, onPending: () => new Promise<void>(() => {}),
+    });
+    assert.equal(await settles(hung), 'timeout');
+    assert.equal(umer.asked(), 0);
+  } finally {
+    at.close();
+    umer.host.close();
+  }
+});
+
+test('parseOffer reads a compact QR for inspection without a host key, and a version 1 offer keeps its host', async () => {
+  const umer = await computer();
+  const at = await address(umer.host);
+  try {
+    const compact = parseOffer(umer.host.compactOffer({ role: 'control', urls: [at.url] }).text, 0);
+    assert.equal('host' in compact, false);
+    assert.deepEqual([compact.role, compact.urls, compact.name], ['control', [at.url], 'Umer']);
+    assert.ok(compact.expires > Date.now());
+    assert.throws(() => parseOffer(umer.host.compactOffer({ role: 'view', urls: [at.url] }).text, Date.now() + 3_600_000), /run out/);
+
+    const v1 = parseOffer(umer.host.offer({ role: 'control', urls: [at.url] }).text, 0);
+    assert.equal('host' in v1 && v1.host, b64url(umer.host.keys.publicKey));
   } finally {
     at.close();
     umer.host.close();

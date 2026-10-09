@@ -51,6 +51,7 @@ test('pasted offline envelope pairs, expired and control offers are refused befo
   await page.locator('#status').filter({ hasText: 'Ask your computer for an invitation to read here.' }).waitFor();
   const text = host.offer({ role: 'view', kind: 'browser', urls }).text;
   const offer = parseOffer(text);
+  if (!('ticket' in offer)) throw new Error('expected a version 1 offer');
   await page.fill('#offer', encodeOffer({ ...offer, expires: 1 }));
   await page.click('#connect');
   await page.locator('#status').filter({ hasText: 'run out' }).waitFor();
