@@ -1,15 +1,16 @@
 // The pin persists OAuth JSON in both shared and agent SQLite. There is no public persistence hook.
 // Seal only credential state — the engine's complete `state` tree plus every config/credential path in
 // `home` — never the regenerable tool caches, transcripts and logs a signed-in home accumulates.
-// Sealing those too once produced a snapshot past the runtime string limit and aborted boot.
+// Sealing those too once produced a snapshot past the runtime string limit and aborted boot; the collector is
+// narrowed to credential state and capped (SEAL_CAP_BYTES), refusing with a typed error instead.
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, rmdirSync, writeFileSync, closeSync, fsyncSync, openSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { SealingAdapter } from '@byokit/secrets';
 import { EngineAlreadyRunningError, pidAlive as live } from './engine-status.ts';
 
 const encoder = new TextEncoder();
-const archive = (name: string) => /^(auth-profiles|auth-state|auth|oauth)\.json\.(migrated-.+|sqlite-import\..+\.bak)$/.test(name)
-  || name.endsWith('.moved-to-engine');
+const archive = (name: string) => !name.endsWith('.sealed') && (/^(auth-profiles|auth-state|auth|oauth)\.json\.(migrated-.+|sqlite-import\..+\.bak)$/.test(name)
+  || name.endsWith('.moved-to-engine'));
 function regular(path: string): void {
   if (!lstatSync(path).isFile()) throw new Error(`credential store requires regular files: ${path}`);
 }
@@ -81,6 +82,27 @@ export class AuthStoreUnreadableError extends Error {
     super("Saved sign-in could not be opened; auth-store.sealed is unchanged. Restore the original seal/key access or a working backup with its matching key, then retry.");
     this.name = 'AuthStoreUnreadableError';
     this.reason = reason;
+  }
+}
+
+/** Total raw credential bytes one snapshot may seal. The sealed payload is one runtime string, so collect()
+ *  refuses a larger snapshot before reading it and the process never aborts inside the sealer. Credential
+ *  state is normally a few MiB; the cap leaves several times that headroom. */
+export const SEAL_CAP_BYTES = 128 * 1024 * 1024;
+
+/** The saved sign-in data is over `SEAL_CAP_BYTES`. On a refusal the last good saved store is kept as it
+ *  was and no live file is deleted. `size` is a lower bound: the running total when the cap was crossed. */
+export class AuthStoreSealSizeError extends Error {
+  readonly code = 'auth-store-seal-size';
+  readonly size: number;
+  readonly cap: number;
+  constructor(size: number, cap: number) {
+    const MiB = 1024 * 1024;
+    super(`Your saved sign-in data is too large to keep safely (more than ${Math.floor(size / MiB)} MB; the limit is ${cap / MiB} MB). ` +
+      'Your sign-ins were kept.');
+    this.name = 'AuthStoreSealSizeError';
+    this.size = size;
+    this.cap = cap;
   }
 }
 
@@ -165,35 +187,46 @@ export class AuthStore {
     }
     return saved;
   }
-  private collect(): Snapshot {
-    const s: Snapshot = { v: 1, dirs: [], files: [] };
+  private inventory(): { dirs: string[]; files: { name: string; file: string; size: number }[] } {
+    const dirs: string[] = [];
+    const files: { name: string; file: string; size: number }[] = [];
+    let total = 0;
     const root = realpathSync(this.o.root);
     const walk = (path: string) => {
       const name = relative(this.o.root, path).split('\\').join('/');
       if (cached(name)) return; // tool caches are never credential state; skipping a directory skips its subtree
       const stat = lstatSync(path);
       if (stat.isDirectory()) {
-        chmodSync(path, 0o700);
-        s.dirs.push(name);
+        dirs.push(name);
         for (const child of readdirSync(path).sort()) walk(join(path, child));
         return;
       }
       let file = path;
+      let target = stat;
       if (stat.isSymbolicLink()) {
         try { file = realpathSync(path); } catch (error) {
           if (['ENOENT', 'ENOTDIR', 'ELOOP'].includes((error as NodeJS.ErrnoException).code ?? '')) return;
           throw error;
         }
-        const target = relative(root, file);
-        if (isAbsolute(target) || target === '..' || target.startsWith(`..${sep}`)) return;
-        if (!lstatSync(file).isFile()) return;
-      } else if (!stat.isFile()) return;
-      // Read the checked target, but save the link's path: restore materializes a regular file there.
-      chmodSync(file, 0o600);
-      s.files.push([name, readFileSync(file).toString('base64')]);
+        const rel = relative(root, file);
+        if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) return;
+        target = lstatSync(file);
+      }
+      if (!target.isFile()) return;
+      // Refuse by size before any file is touched or read: an over-cap file must never reach memory or the sealer.
+      total += target.size;
+      if (total > SEAL_CAP_BYTES) throw new AuthStoreSealSizeError(total, SEAL_CAP_BYTES);
+      files.push({ name, file, size: target.size });
     };
     for (const dir of ['state', 'home']) if (existsSync(join(this.o.root, dir))) walk(join(this.o.root, dir));
-    return s;
+    return { dirs, files };
+  }
+  private collect(): Snapshot {
+    const { dirs, files } = this.inventory();
+    for (const dir of dirs) chmodSync(join(this.o.root, dir), 0o700);
+    // Read the checked target, but save the link's path: restore materializes a regular file there.
+    for (const { file } of files) chmodSync(file, 0o600);
+    return { v: 1, dirs, files: files.map(({ name, file }): [string, string] => [name, readFileSync(file).toString('base64')]) };
   }
   /** Remove the live credential trees: `state` entirely (it is all credential state, including the
    *  runtime entries the collector skips), and in `home` exactly the sealed paths — regenerable caches
@@ -285,8 +318,13 @@ export class AuthStore {
   stop(): Promise<void> {
     return this.serial(async () => {
       if (!this.owned) return;
-      await this.archives();
-      await this.persist();
+      try {
+        await this.archives();
+        await this.persist();
+      } catch (error) {
+        if (error instanceof AuthStoreSealSizeError) { this.active = false; this.release(); }
+        throw error;
+      }
       this.active = false;
       this.release();
     });

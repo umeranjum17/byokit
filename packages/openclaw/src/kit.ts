@@ -9,7 +9,8 @@ import { PROTOCOL_VERSION } from './constants.ts';
 import { atomic } from './engine-patches.ts';
 import { Approvals } from './approvals.ts';
 import { Bridge } from './bridge.ts';
-import { Engine } from './engine.ts';
+import { Engine, refusedOnly } from './engine.ts';
+import { AuthStoreSealSizeError } from './auth-store.ts';
 import { gatewayTransport } from './transport.ts';
 import { createMembers } from './members.ts';
 import { keyAgentId, KEY_PREFIX, MEMBER_ID } from './members.ts';
@@ -761,8 +762,13 @@ export class OpenClawKit {
       const needsUpdate = this.current.phase === 'needs-update';
       const patchFailure = this.current.why === 'engine-patch';
       if (transport && this.transport === transport) await this.disconnect();
-      await this.engine.stop();
+      const refused = await this.engine.stop().then(() => undefined, refusedOnly);
       await this.closeBrowsers();
+      const sealRefusal = refused ?? (error instanceof AuthStoreSealSizeError ? error : undefined);
+      if (sealRefusal) {
+        this.setState({ phase: 'failed', why: 'auth-store-seal-size', sealSize: { size: sealRefusal.size, cap: sealRefusal.cap } });
+        throw sealRefusal;
+      }
       if (error instanceof Error && 'code' in error && error.code === 'engine-already-running') {
         this.setState({ phase: 'failed', why: 'engine-already-running' });
         throw error;

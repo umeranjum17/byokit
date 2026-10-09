@@ -42,7 +42,7 @@ export { OpenClawKit, type KitOptions, type RetainedLogin } from './kit.ts';
 export type { AddKeyResult } from './keys.ts';
 export { stateWords, toAccountView, words, type AccountView, type WordKey } from './words.ts';
 
-export { AuthStoreUnreadableError } from './auth-store.ts';
+export { AuthStoreUnreadableError, AuthStoreSealSizeError } from './auth-store.ts';
 export { EngineAlreadyRunningError } from './engine-status.ts';
 export { readAgentDayUsage } from './day-usage.ts';
 export type { AgentDayUsage, DayUsageClient, EngineStartedCharge, EngineStartedKind } from './day-usage.ts';
