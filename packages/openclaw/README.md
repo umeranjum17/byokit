@@ -426,8 +426,9 @@ itself — no manual file surgery:
 
 - It stops a leftover Gateway only after verifying it is a same-user orphan of this root (matching pid, identity,
   start time, exe/cwd and env), and only when the auth-store lock's owner is dead; then it seals the leftover live
-  `state/` and `home/` trees back into the store under the acquired lock. Anything ambiguous (a live lock owner, an
-  unverifiable pid, another writer alive, shutdown timeout) fails closed with `EngineAlreadyRunningError` instead.
+  credential state (`state/` and the non-cache `home/` paths, see below) back into the store under the acquired
+  lock. Anything ambiguous (a live lock owner, an unverifiable pid, another writer alive, shutdown timeout) fails
+  closed with `EngineAlreadyRunningError` instead.
 - A stale `auth-store.lock/` with a dead owner is recovered through a `recovery/` marker; interrupted
   `cleanup`/`restoring` transitions are completed from the authenticated snapshot; empty live trees are treated as
 debris.
@@ -441,9 +442,18 @@ and `install-home/`. None of these is safe to edit by hand, and `auth-store.seal
 restore an authentic backup under the lock instead (see the credential sealing section). Keep backups before any
 manual intervention.
 
-If a leftover `home/` carries large regenerable tool caches, resealing can exceed the runtime string bound and
-abort; that seal size bound is a separate, known limitation (tracked as the auth-store seal size demand), not
-fixed by the recovery path — move only regenerable cache trees aside (keeping backups) and retry `start()`.
+Resealing after the kill collects credential state only: the complete `state` tree plus every `home` path that is
+not a regenerable cache — the XDG cache and npm cache homes (`home/.cache`, `home/.npm`) and the transcript, log
+and cache subtrees of the CLIs the engine runs (`home/.codex` sessions/log/cache/`.tmp`/`history.jsonl`,
+`home/.claude` projects/todos/shell-snapshots/statsig/file-history/`history.jsonl`). Those stay on disk unsealed, so
+however large a killed home's tool caches are, they never reach the sealer. Unknown `home` paths are still sealed
+(credential locations the kit does not know about must fail loudly, never drop silently), and one snapshot is
+bounded: if the collected credential files together pass a fixed limit, `prepare()`, `start()`, `stop()` and an engine
+exit reject with exported `AuthStoreSealSizeError` (`code: 'auth-store-seal-size'`, fields `size` and `cap`). On that
+refusal the last good saved store is kept as it was and no live file is deleted; nothing else is promised. A refused
+`stop()` still releases the lock. Its `size` is a lower bound (the running total at the refusal). Do not move or delete
+files under `state/` or `home/` to get under the limit: the next successful seal would drop them. If your app hits
+this, report the error's size and cap to the byokit maintainers; the limit was reached in real use.
 
 ## App-owned task recovery
 
@@ -509,8 +519,9 @@ Route data follows the shared account-route vocabulary (D18 in [`docs/runtime-ki
 The pinned engine has no supported hook for sealing OAuth profile writes. Its `auth-profiles` loader stores
 credential JSON in agent SQLite databases and a shared state database, and doctor imports leave migration
 archives. `authSeal` therefore protects credential state — the complete isolated `state` tree plus
-config/credential paths under `home`, including SQLite journals — while regenerable tool caches,
-transcripts and logs stay on disk unsealed. It uses the injected `SealingAdapter` from `@byokit/secrets`. `osKeyringSeal()` automatically
+config/credential paths under `home`, including SQLite journals — while regenerable tool caches in `home` stay on disk unsealed. The whole `state` tree is sealed, so any engine transcripts
+kept there are sealed too: on a long-used host whose `state` passes the cap, `start()` and `stop()` refuse with the typed
+size error instead of aborting the process. It uses the injected `SealingAdapter` from `@byokit/secrets`. `osKeyringSeal()` automatically
 uses a persistent private file key for new stores when no non-interactive keyring is available.
 Opening follows the saved envelope's mode. A locked or unresponsive keyring-only store leaves
 `kit.state.phase === 'locked'`: `prepare()` and `start()` resolve, show `stateWords(kit.state)` for
@@ -558,6 +569,9 @@ damaged or tampered bytes) or whose payload is not a credential snapshot stays u
 `auth-store.sealed`. Both `prepare()` and `start()` reject with exported `AuthStoreUnreadableError`
 (`code: 'auth-store-unreadable'`, `reason: 'auth-failed' | 'invalid-snapshot'`). The kit reports
 `{ phase: 'failed', why: 'auth-store-unreadable' }`; show `stateWords(kit.state)`, not a sign-in prompt.
+Saved sign-in data over the cap rejects with `AuthStoreSealSizeError`, and the kit reports
+`{ phase: 'failed', why: 'auth-store-seal-size', sealSize: { size, cap } }`; the refusal rules are in
+[Retained home killed without stop()](#retained-home-killed-without-stop).
 Restore access to the original seal/key (and the original service/stateDir binding if the adapter uses
 one), then retry `start()` with that adapter. Do not generate/rotate a key to repair an unreadable store.
 If the bytes are damaged, stop all writers, acquire the host writer lock, and restore an authentic
