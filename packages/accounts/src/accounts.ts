@@ -100,6 +100,7 @@ export function planOf(access: string): { plan: string; email: string; work: boo
 }
 
 const ports = new Set<number>();
+const googleViaError = () => Object.assign(new Error('Google uses a browser or a pasted address.'), { readiness: 'no_upstream_flow' });
 const offline = (e: any) => failure(String(e?.message)) === 'offline';
 
 /** Ends a sign-in on the provider's side, as Codex's own logout does (openai/codex#17825): the refresh token, else the
@@ -329,8 +330,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   async add(member: M, key: string, options: (Omit<SignInOptions, 'via'> & { via?: Via; key?: string }) | CloudOptions = {}): Promise<{ id: string; signIn?: SignIn }> {
     if ('route' in options) return this.addCloud(member, key, options);
     // A Google sign-in route id (`google-gemini-cli:browser`, `:paste`) selects that flow for the provider.
-    const google = key === 'google-gemini-cli:browser' ? 'browser' : key === 'google-gemini-cli:paste' ? 'paste' : undefined;
-    if (google) return this.add(member, 'google-gemini-cli', { ...options, via: google });
+    if (key.startsWith('google-gemini-cli:')) {
+      const via = key.slice('google-gemini-cli:'.length);
+      if (via !== 'browser' && via !== 'paste') throw googleViaError();
+      return this.add(member, 'google-gemini-cli', { ...options, via });
+    }
     if (key.includes(':') || options.via === 'key' || options.via === 'plan_key' || options.key !== undefined) {
       const r = key.includes(':') ? route(key) : routes().find((r) => (r.provider === key || r.aliases?.includes(key)) && r.via === (options.via ?? 'key'));
       if (!r || !['key', 'plan_key'].includes(r.via)) throw new Error('Choose a key route to add an account.');
@@ -963,6 +967,12 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     flow.refuse?.(new Error('switching to a code'));
   }
 
+  private offerCode(member: M, key: string, flow: Flow) {
+    if (flow.state !== 'waiting' || flow.via !== 'browser') return;
+    flow.via = 'code';
+    this.onChange?.(member, key);
+  }
+
   /** Check the selected route before opening any member store or starting a provider request. */
   private signInReady(p: Provider, body: SignInOptions) {
     if (p.auth === 'api-key') throw new Error('Connect an API key after agreeing to billing per use.');
@@ -974,8 +984,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         throw new Error('Enter a GitHub Enterprise domain, without a path or credentials.');
     }
     if (p.key === 'claude' && body.via === 'code') throw new Error('Claude uses a browser or a pasted code, not a device code.');
-    if (p.key === 'google-gemini-cli' && body.via && !['browser', 'paste'].includes(body.via))
-      throw Object.assign(new Error('Google uses a browser or a pasted address.'), { readiness: 'no_upstream_flow' });
+    if (p.key === 'google-gemini-cli' && body.via && !['browser', 'paste'].includes(body.via)) throw googleViaError();
     if (body.via === 'paste' && !['claude', 'chatgpt', 'openrouter', 'google-gemini-cli'].includes(p.key))
       throw Object.assign(new Error('This provider has no paste sign-in flow.'), { readiness: 'no_upstream_flow' });
     if (p.key === 'openrouter') {
@@ -1060,7 +1069,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     try {
       if (reserved && this.platform.loopback) catcher = await this.catchRedirect(this.platform.loopback, flow, p.name, port!);
       if (flow.abort.signal.aborted) throw new Error('Login cancelled');
-      stuck = p.key === 'claude' || body.via === 'paste' ? undefined : setTimeout(() => this.toCode(flow), this.opts.redirectMs ?? 3 * 60_000);
+      stuck = p.key === 'claude' || body.via === 'paste' ? undefined : setTimeout(() => codeOffered || !catcher ? this.toCode(flow) : this.offerCode(member, key, flow), this.opts.redirectMs ?? 3 * 60_000);
       try { await attempt(port && !reserved && body.via !== 'code' ? 'code' : body.via ?? (catcher ? 'browser' : undefined)); } catch (e) {
         // The code instead: asked for, or the page never came back. Also when a browser sign-in could not return here at all.
         if (!flow.toCode && (catcher || body.via === 'code' || !codeOffered || flow.abort.signal.aborted)) throw e;

@@ -72,6 +72,7 @@ export function googleCode(paste: string, state: string) {
   if (!text) throw new Error('Paste the address the Google page returned to.');
   if (!/\?|code=|state=/.test(text)) return text;
   const params = new URLSearchParams(text.includes('?') ? text.slice(text.indexOf('?') + 1) : text);
+  if (params.get('error')) throw new Error(params.get('error')!);
   const code = params.get('code');
   if (!code || params.get('state') !== state) throw new Error('The Google sign-in code does not match this sign-in. Try signing in again.');
   return code;

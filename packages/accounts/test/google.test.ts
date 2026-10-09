@@ -186,7 +186,41 @@ test('a Google sign-in takes only the browser or paste route; other providers ke
   try {
     await assert.rejects(accounts.add(OWNER, 'google-gemini-cli', { via: 'code' }), /Google uses a browser or a pasted address/);
     await assert.rejects(accounts.add(OWNER, 'google-gemini-cli', { via: 'cli' }), /Google uses a browser or a pasted address/);
+    await assert.rejects(accounts.add(OWNER, 'google-gemini-cli:code'), /Google uses a browser or a pasted address/);
+    await assert.rejects(accounts.add(OWNER, 'google-gemini-cli:setup_token'), /Google uses a browser or a pasted address/);
     await assert.rejects(accounts.add(OWNER, 'anthropic:browser'), /Choose a key route to add an account/);
+    assert.deepEqual(await accounts.list(OWNER), []);
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('browser: a redirect that arrives after the fallback window still completes the sign-in', async () => {
+  const google = await mockGoogle();
+  const accounts = new Accounts({ store: () => memoryStore(), authBase: google.base, app: 'byokit journey', redirectMs: 100 });
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:browser');
+    const address = await callbackAddress(signIn!.url!);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(accounts.view(OWNER, id)?.via, 'code', 'the fallback offers a pasted address too');
+    assert.equal((await fetch(address)).status, 200, 'the same listener still answers the same sign-in');
+    await accounts.finished(OWNER, id);
+    assert.equal((await accounts.list(OWNER))[0]?.state, 'ready');
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('paste: a pasted error return is a declined sign-in that keeps nothing', async () => {
+  const { google, accounts } = await journey();
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:paste');
+    const state = new URL(await callbackAddress(signIn!.url!)).searchParams.get('state');
+    accounts.paste(OWNER, id, `http://127.0.0.1:8085/oauth2callback?error=access_denied&state=${state}`);
+    await accounts.finished(OWNER, id);
+    assert.equal(accounts.view(OWNER, id)?.why, 'declined');
     assert.deepEqual(await accounts.list(OWNER), []);
   } finally {
     accounts.stop();
