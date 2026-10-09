@@ -94,7 +94,7 @@ export function encodeOffer(offer: PairOffer): string {
 
 /** Read an offline offer without network access. Case, spaces and dashes are ignored; O means 0 and I/L mean 1.
  * Old compact direct offers remain readable for migration; new offers always use the current format.
- * Other typos fail the checksum. Expiry and addresses follow `parseOffer`; `now = 0` permits inspection only. */
+ * Other typos fail the checksum. Expiry and addresses follow `parseV1Offer`; `now = 0` permits inspection only. */
 export function decodeOffer(text: string, now = Date.now()): PairOffer {
   if (text.length > MAX_TYPED_OFFER) throw badOffer();
   const compact = text.toUpperCase().replace(/[\s-]/g, '');

@@ -115,9 +115,9 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
 - [x] Host policy is enforced before the app handler; without `allow`, view-only defaults closed. Only an explicit `PublicLinkError` discloses its chosen message; other handler failures are logged on the host and return plain `failed`.
 - [x] A device forgets its grant only on a sealed `revoked`, `ended` or `not-paired` (or when a pending pairing expires).
 - [x] Names shown to people are stripped of control and direction-flipping characters and capped at 60.
-- [x] `parseOffer` accepts only `ws:`/`wss:` addresses without credentials, at most 8, a 32-byte key and 16-byte
+- [x] `parseV1Offer` accepts only `ws:`/`wss:` addresses without credentials, at most 8, a 32-byte key and 16-byte
       ticket.
-- [x] Offline offer decoding checks the checksum, version, canonical padding, bounds and all `parseOffer` rules, including expiry; inspecting with `now = 0` never renews a ticket. Legacy compact offers are accepted only on the migration read path, with their original pinned key, ticket, role and second-resolution expiry; they cannot change new encodings.
+- [x] Offline offer decoding checks the checksum, version, canonical padding, bounds and all `parseV1Offer` rules, including expiry; inspecting with `now = 0` never renews a ticket. Legacy compact offers are accepted only on the migration read path, with their original pinned key, ticket, role and second-resolution expiry; they cannot change new encodings.
 - [x] The channel refuses frames past 2³² − 1 and messages over 16 MB.
 - [x] Stream opens re-check the grant and policy before the app's `stream` handler; data past a stream's window,
       or stream data that isn't a binary inner message, drops the socket; streams end on disconnect and revoke.
