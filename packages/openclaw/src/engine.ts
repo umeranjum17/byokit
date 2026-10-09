@@ -356,13 +356,15 @@ export class Engine {
       this.child = undefined;
       this.removeOwnedPid(child.pid);
       void (async () => {
-        const refused = await this.authStore.stop().then(() => undefined, refusedOnly);
+        let refused = await this.authStore.stop().then(() => undefined, refusedOnly);
         if (this.stopping) return;
         if (!refused && code === 78 && !this.repaired) {
           this.repaired = true;
           this.state('repairing');
-          const result = await this.withAuthStore(async () => this.doctor(60_000));
-          if (result.status === 0 && !this.stopping) { await this.start(); return; }
+          try {
+            const result = await this.withAuthStore(async () => this.doctor(60_000));
+            if (result.status === 0 && !this.stopping) { await this.start(); return; }
+          } catch (error) { refused = refusedOnly(error); }
         }
         this.exitedState(refused);
         this.o.onExit(code);

@@ -337,6 +337,36 @@ process.exit(78);`);
   }
 });
 
+test('a refused seal during the exit-78 repair reports the seal-size state and still runs onExit', async () => {
+  const dir = scratchDir('engine-unit');
+  const engineDir = join(dir, 'engine');
+  const entryDir = join(engineDir, 'node_modules', 'openclaw');
+  seedInstall(engineDir);
+  writeFileSync(join(entryDir, 'package.json'), JSON.stringify({ version: '2026.8.1' }));
+  const marker = join(engineDir, 'marker');
+  const grown = join(dir, 'openclaw', 'state', 'grown.sqlite');
+  writeFileSync(join(entryDir, 'openclaw.mjs'), `import {existsSync,writeFileSync,truncateSync} from 'node:fs';
+if (process.argv[2] === 'doctor') { writeFileSync(${JSON.stringify(grown)}, ''); truncateSync(${JSON.stringify(grown)}, ${SEAL_CAP_BYTES + 1024 * 1024}); process.exit(0); }
+if (!existsSync(${JSON.stringify(marker)})) { writeFileSync(${JSON.stringify(marker)}, '1'); }
+process.exit(78);`);
+  await seedSet(engineDir);
+  mkdirSync(join(dir, 'openclaw', 'state'), { recursive: true });
+  const states: string[] = [];
+  const exits: (number | null)[] = [];
+  const engine = new Engine({ stateDir: dir, engineDir, authSeal: hostKeySeal({ key: new Uint8Array(32).fill(5) }), pluginId: 'byokit', tools: [], spawnEngine: true,
+    onState: s => states.push(s.why ?? s.phase), onExit: code => exits.push(code) });
+  try {
+    await engine.start();
+    for (let i = 0; i < 100 && exits.length === 0; i++) await delay(50);
+    assert.deepEqual(exits, [78], 'onExit runs after a refused repair seal');
+    assert.equal(states.at(-1), 'auth-store-seal-size', 'a refused repair seal reports the seal-size state');
+    assert.equal(existsSync(grown), true, 'the over-cap live file is left in place');
+  } finally {
+    await engine.stop();
+    removeScratch(dir);
+  }
+});
+
 // A real Engine over a real spawned gateway: 5.3 stop() signals the pids the kit started, never a process
 // group. The gateway's own long-lived session shares that group and must outlive the kit's stop.
 test('stop ends the gateway the kit started and leaves a process the kit never started running', { timeout: 120_000 }, async () => {
