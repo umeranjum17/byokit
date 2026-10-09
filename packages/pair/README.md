@@ -279,10 +279,17 @@ await link.request('send.message', { text: 'hi' });  // waits through reconnects
 await link.request('send.message', { text: 'hi' }, { timeoutMs: 20_000, notValidAfter: Date.now() + 60_000 });
 ```
 
-- For crash-safe pairing, make a `keyPair()`, save `pendingGrant(scanned, { name, key })` before pairing, then pass
-  that same `key` to `pairWithOffer(scanned, { name, key, onWords })`. If the app dies while the person decides,
-  a `DeviceLink` made from the saved pending grant retries until approval (up to five minutes after the offer expires),
-  then forgets it if the host still has not approved.
+- For crash-safe pairing, pass `onPending: (g) => secureStore.save(g)` to `pairWithOffer`. It gets the pending grant
+  before the host can approve this device: for a compact offer, once the host proved it holds the code and before
+  this device's key and name reach it (so the grant pins the host key the handshake authenticated); for a version 1
+  offer, before dialling. If the app dies while the person decides, a `DeviceLink` made from the saved pending grant
+  retries until approval (up to five minutes after the offer expires), then forgets it if the host still has not
+  approved; a host with another key there is `refused`. Because the device tells the host it kept a pending grant, a yes
+  given after it went away still counts; a device that kept none gets no grant it could never use. So when
+  `pairWithOffer` rejects after `onPending` ran without a sealed refusal (`e.sealed` false, e.g. `unreachable` once the
+  words were shown), keep the pending grant and make a `DeviceLink` from it: it comes online on a yes and forgets
+  itself on a no.
+  `pendingGrant(scanned, { name, key, host })` builds the same grant; a compact offer needs `host`.
 - `resolve: (url) => …` runs before each dial (e.g. open an SSH tunnel and return `ws://127.0.0.1:<port>/…`);
   `link.addUrl(url)` adds an address found later (a wrong host there just fails its handshake).
 - A quiet connection is pinged (`pingMs`, default 20 s) and redialled when the host stops answering; at most
