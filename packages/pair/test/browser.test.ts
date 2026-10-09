@@ -2,7 +2,7 @@
 // Chromium, pairing from a link and making requests against a real host.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -13,9 +13,10 @@ import { build } from 'esbuild';
 import { WebSocketServer } from 'ws';
 import { Host, b64url, keyPair, type PairRequest } from '../src/index.ts';
 import { allowedMilestones } from './browser/milestones.ts';
+import { ownedBrowser, testBrowserBinary } from './browser/owned-browser.ts';
 
-const chrome = [process.env.BYOKIT_CHROME, 'chromium', 'google-chrome', 'google-chrome-stable', 'chromium-browser']
-  .find((c) => c && spawnSync('which', [c]).status === 0);
+// One documented key (BYOKIT_CHROME) selects the browser; unset, the first Chromium on PATH is used.
+const chrome = testBrowserBinary();
 
 const web = build({
   entryPoints: [join(import.meta.dirname, 'browser', 'client.ts')], bundle: true, platform: 'browser', format: 'esm', write: false, logLevel: 'silent',
@@ -96,7 +97,8 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
   note(`path lengths HOME=${process.env.HOME?.length ?? 0} TMPDIR=${process.env.TMPDIR?.length ?? 0} profile=${profile.length}`);
   note(`environment presence DISPLAY=${!!process.env.DISPLAY} DBUS=${!!process.env.DBUS_SESSION_BUS_ADDRESS} XDG_RUNTIME=${!!process.env.XDG_RUNTIME_DIR}`);
   note('browser launch');
-  const browser = trackChild(spawn(chrome!, args, { stdio: ['ignore', 'ignore', 'pipe'], detached: true }));
+  const owned = ownedBrowser(chrome!, args, profile);
+  const browser = trackChild(owned.chrome);
   const exited = new Promise<void>((r) => browser.once('close', () => r()));
   browser.once('spawn', () => note('browser spawned'));
   browser.once('error', (e) => { note('browser spawn error'); failed(new Error(`the browser could not start: ${e.message}`)); });
@@ -134,10 +136,13 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
     failure = e;
     throw e;
   } finally {
-    try { process.kill(-browser.pid!, 'SIGKILL'); } catch {} // the whole group: Chrome's helpers outlive the main process
+    // Close exactly the processes this helper spawned over their own CDP pipe; never a process group.
+    let cleanupError: unknown;
+    try { await owned.close(); } catch (error) { cleanupError = error; }
     host.close(); wss.close(); server.close();
     await exited; // after this the browser's stderr is complete
     if (failure) console.error(`browser diagnostics (observed arrival times):\n${trace.join('\n')}\nbrowser stderr, last 40 lines:\n${scrub(stderr).trimEnd().split('\n').slice(-40).join('\n')}`);
+    if (cleanupError) console.error(`browser cleanup failed: ${String(cleanupError)}`);
     t.diagnostic(`browser timeline: ${trace.filter((l) => /launch|spawned|stderr|served|report|exit/.test(l)).join(', ')}`);
     // The whole account next to the test result; CI keeps it as an artifact.
     if (process.env.BYOKIT_DIAGNOSTICS) {
@@ -148,6 +153,9 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
         `trace (ms since the test started):\n${trace.join('\n')}`, `browser stderr (${stderr.length} bytes):\n${stderr}`,
       ].join('\n\n')));
     }
-    try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch {} // ponytail: a stray helper may still hold it; it is in tmp
+    // A failed close keeps its cleanup-failure.json receipt (skip the stray-profile cleanup); a real
+    // close already removed the profile. Never mask the journey's own failure with the cleanup error.
+    if (!cleanupError) { try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch {} }
+    if (cleanupError && !failure) throw cleanupError;
   }
 });

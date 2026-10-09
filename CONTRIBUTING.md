@@ -13,6 +13,8 @@ npm run build   # tsc -b: each package's dist/
 npm run check   # tsc over sources and tests, strict
 npm test        # every test in a throwaway HOME (outbound network blocked; loopback fakes stay usable), then a byte-for-byte check of your real ~/.pi
 npm run test:browser   # the PWA example in headless Chromium (npx playwright install chromium, or BYOKIT_CHROME)
+# BYOKIT_CHROME is the one documented key for a test browser: an absolute path or a PATH name of an
+# installed Chromium. Unset, the first Chromium on PATH is used; with none, the browser tests skip.
 sh scripts/test.sh examples/herdr-kit/e2e.test.ts   # the Herdr kit example, packed, against the fake Herdr
 sh scripts/test.sh examples/openclaw-kit/e2e.test.ts   # the OpenClaw kit example, packed, against the fake Gateway
 ```
