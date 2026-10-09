@@ -1,16 +1,16 @@
 # OpenClaw auth-store seal bound
 
-Verification recipe for the [auth-store seal bound](../../../../packages/openclaw/README.md#retained-home-killed-without-stop): a large engine home can never abort the process at seal time. Regenerable tool caches never reach the sealer however large they are (including across a host killed without `stop()`), the sealed snapshot holds only credential files bounded by `SEAL_CAP_BYTES`, and an over-cap store refuses with a typed error that names the size and the cap while `auth-store.sealed` and the live trees stay unchanged.
+Verification recipe for the [auth-store seal bound](../../../../packages/openclaw/README.md#retained-home-killed-without-stop): a large engine home can never abort the process at seal time. Regenerable tool caches never reach the sealer however large they are (including across a host killed without `stop()`), the sealed snapshot holds only credential files bounded by a fixed cap, and an over-cap store refuses with a typed error that carries the size and the cap before any write, leaving `auth-store.sealed` and the live trees unchanged.
 
 ## Sub-features
 
 - A host killed without `stop()` leaves live plaintext trees plus a stale lock; the next `start()` reseals only credential state ( caches on disk are left in place, never sealed, never read).
 - A credential file larger than the 1 MiB envelope chunk round-trips byte for byte (single-pass seal envelope).
-- Credential state over `SEAL_CAP_BYTES` rejects with exported `AuthStoreSealSizeError` (`code: 'auth-store-seal-size'`, fields `size`, `cap`), `{ phase: 'failed', why: 'auth-store-seal-size' }` and recovery words; the sealed snapshot is unchanged and the refusing file is never read.
+- Credential state over the fixed cap rejects with exported `AuthStoreSealSizeError` (`code: 'auth-store-seal-size'`, fields `size`, `cap`), `{ phase: 'failed', why: 'auth-store-seal-size' }` and recovery words; the sealed snapshot, live trees and modes are unchanged, and nothing is read or chmodded before the refusal.
 
 ## How to get to it (user POV)
 
-Start the kit against a home whose engine tool caches grew large; if a host crash skipped `stop()`, the next start recovers the sign-in itself. A home whose credential state itself exceeds the cap fails with a clear error naming the size and cap instead of aborting; moving large non-cache files out of `state/` and `home/` and retrying is safe.
+Start the kit against a home whose engine tool caches grew large; if a host crash skipped `stop()`, the next start recovers the sign-in itself. A home whose credential state itself exceeds the cap fails with a clear error naming the size and cap instead of aborting; do not move or delete files to get under the limit; report it.
 
 ## Driving it with node scratch consumers
 
@@ -26,4 +26,4 @@ Use SKILL.md's Evidence capture block after allocating `evidence_dir`. The consu
 
 ## Gotchas
 
-The killed-host leg spawns a child that must resolve the same built packages as the parent: the consumer writes the child script into the evidence directory (inside the worktree) so bare `@byokit/*` imports resolve, and passes the synthetic seal key inline. Caches are created with `ftruncate` holes; asserting they still exist with their full sizes after stop proves they were never read or removed. The over-cap leg needs a file larger than `SEAL_CAP_BYTES` (129 MiB sparse): sparse creation keeps it cheap because the collector refuses by `stat` size before any read. No changed app screen, theme or device UI; the typed error and words are public SDK output.
+The killed-host leg spawns a child that must resolve the same built packages as the parent: the consumer writes the child script into the evidence directory (inside the worktree) so bare `@byokit/*` imports resolve, and passes the synthetic seal key inline. Caches are created with `ftruncate` holes; asserting they still exist with their full sizes after stop proves they were never read or removed. The over-cap leg needs a file larger than the 128 MiB limit (129 MiB sparse): sparse creation keeps it cheap because the collector refuses by `stat` size before any read. No changed app screen, theme or device UI; the typed error and words are public SDK output.

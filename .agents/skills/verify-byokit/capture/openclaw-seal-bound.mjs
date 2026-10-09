@@ -4,7 +4,8 @@ import { closeSync, existsSync, ftruncateSync, mkdirSync, mkdtempSync, openSync,
 import { dirname, join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { AuthStoreSealSizeError, OpenClawKit, SEAL_CAP_BYTES, stateWords } from '@byokit/openclaw';
+import { AuthStoreSealSizeError, OpenClawKit, stateWords } from '@byokit/openclaw';
+const SEAL_CAP_BYTES = 128 * 1024 * 1024;
 import { fakeGateway } from '@byokit/openclaw/testing';
 import { hostKeySeal } from '@byokit/secrets';
 

@@ -88,20 +88,20 @@ export class AuthStoreUnreadableError extends Error {
 /** Total raw credential bytes one snapshot may seal. The sealed payload is one runtime string, so a
  *  snapshot beyond this bound cannot be sealed at all: instead of aborting the process deep inside the
  *  sealer (a 364,927,687-character snapshot once hit the runtime string limit and killed Node), collect()
- *  refuses with this error while the store is still intact. Credential state is normally a few MiB; the
+ *  checks the size before any write, so a refusal leaves the store intact. Credential state is normally a few MiB; the
  *  cap leaves several times that headroom. */
 export const SEAL_CAP_BYTES = 128 * 1024 * 1024;
 
-/** Credential state exceeded `SEAL_CAP_BYTES`; nothing was read beyond the refusing file, nothing was
- *  sealed or removed, and the sealed snapshot and the live trees' contents are unchanged (file and
- *  directory modes may already be tightened). `size` is a lower bound: the running total at the refusal. */
+/** The saved sign-in data is over `SEAL_CAP_BYTES`. Refused before any write: the sealed snapshot, the live
+ *  `state` and `home` trees and their modes are exactly as they were. `size` is a lower bound: the running
+ *  total when the cap was crossed. */
 export class AuthStoreSealSizeError extends Error {
   readonly code = 'auth-store-seal-size';
   readonly size: number;
   readonly cap: number;
   constructor(size: number, cap: number) {
-    super(`Credential state is at least ${size} bytes and cannot be sealed: the seal cap is ${cap} bytes. ` +
-      'Move large files out of the engine state and home folders, other than tool caches, then try again.');
+    super(`Your saved sign-in data is too large to keep safely (at least ${size} bytes; the limit is ${cap} bytes). ` +
+      'Your sign-ins were left as they were.');
     this.name = 'AuthStoreSealSizeError';
     this.size = size;
     this.cap = cap;
@@ -189,8 +189,9 @@ export class AuthStore {
     }
     return saved;
   }
-  private collect(): Snapshot {
-    const s: Snapshot = { v: 1, dirs: [], files: [] };
+  private inventory(): { dirs: string[]; files: { name: string; file: string; size: number }[] } {
+    const dirs: string[] = [];
+    const files: { name: string; file: string; size: number }[] = [];
     let total = 0;
     const root = realpathSync(this.o.root);
     const walk = (path: string) => {
@@ -198,8 +199,7 @@ export class AuthStore {
       if (cached(name)) return; // tool caches are never credential state; skipping a directory skips its subtree
       const stat = lstatSync(path);
       if (stat.isDirectory()) {
-        chmodSync(path, 0o700);
-        s.dirs.push(name);
+        dirs.push(name);
         for (const child of readdirSync(path).sort()) walk(join(path, child));
         return;
       }
@@ -215,15 +215,20 @@ export class AuthStore {
         target = lstatSync(file);
       }
       if (!target.isFile()) return;
-      // Refuse by size before touching modes or reading: an over-cap file must never reach memory or the sealer.
+      // Refuse by size before any file is touched or read: an over-cap file must never reach memory or the sealer.
       total += target.size;
       if (total > SEAL_CAP_BYTES) throw new AuthStoreSealSizeError(total, SEAL_CAP_BYTES);
-      // Read the checked target, but save the link's path: restore materializes a regular file there.
-      chmodSync(file, 0o600);
-      s.files.push([name, readFileSync(file).toString('base64')]);
+      files.push({ name, file, size: target.size });
     };
     for (const dir of ['state', 'home']) if (existsSync(join(this.o.root, dir))) walk(join(this.o.root, dir));
-    return s;
+    return { dirs, files };
+  }
+  private collect(): Snapshot {
+    const { dirs, files } = this.inventory();
+    for (const dir of dirs) chmodSync(join(this.o.root, dir), 0o700);
+    // Read the checked target, but save the link's path: restore materializes a regular file there.
+    for (const { file } of files) chmodSync(file, 0o600);
+    return { v: 1, dirs, files: files.map(({ name, file }): [string, string] => [name, readFileSync(file).toString('base64')]) };
   }
   /** Remove the live credential trees: `state` entirely (it is all credential state, including the
    *  runtime entries the collector skips), and in `home` exactly the sealed paths — regenerable caches
@@ -297,6 +302,7 @@ export class AuthStore {
   prepare(): Promise<void> {
     return this.serial(async () => {
       if (this.active) return;
+      if (this.o.seal) this.inventory();
       this.acquire();
       try {
         await this.read();
@@ -316,6 +322,7 @@ export class AuthStore {
     return this.serial(async () => {
       if (!this.owned) return;
       try {
+        if (this.o.seal) this.inventory();
         await this.archives();
         await this.persist();
       } finally {
@@ -331,7 +338,7 @@ export class AuthStore {
       try {
         await this.restore();
         try { return await task(); }
-        finally { await this.archives(); await this.persist(); }
+        finally { if (this.o.seal) this.inventory(); await this.archives(); await this.persist(); }
       } finally { this.release(); }
     });
   }

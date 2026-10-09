@@ -70,6 +70,7 @@ function installMatches(dir: string): boolean {
   }
 }
 
+const exitReason = (refused: unknown) => refused instanceof AuthStoreSealSizeError ? 'auth-store-seal-size' : 'exited';
 export class Engine {
   readonly root: string;
   readonly bridgeSock: string;
@@ -139,7 +140,6 @@ export class Engine {
     const pending = this.prepareOnce().catch(error => {
       if (error instanceof EnginePatchError) { this.patchSet = null; this.state('failed', 'engine-patch'); }
       if (error instanceof AuthStoreUnreadableError) this.state('failed', 'auth-store-unreadable');
-      if (error instanceof AuthStoreSealSizeError) this.state('failed', 'auth-store-seal-size');
       throw error;
     });
     this.prepared = pending;
@@ -338,7 +338,7 @@ export class Engine {
       if (!child.pid && env.BYOKIT_ENGINE_BOOT) { try { appendUsageBoot(usageDir, { bootId, failedAt: Date.now(), spawned: false }); } catch { /* unclosed boot remains incomplete */ } }
       if (this.child !== child || this.stopping) return;
       this.child = undefined;
-      void this.authStore.stop().then(() => { this.state('failed', 'exited'); this.o.onExit(null); }, () => this.state('failed', 'exited'));
+      void this.authStore.stop().then(() => undefined, (error: unknown) => error).then((refused) => { this.state('failed', exitReason(refused)); this.o.onExit(null); });
     });
     if (!child.pid) { this.state('failed', 'exited'); throw new Error('engine spawn failed'); }
     if (process.platform === 'linux') {
@@ -351,15 +351,15 @@ export class Engine {
       this.child = undefined;
       this.removeOwnedPid(child.pid);
       void (async () => {
-        await this.authStore.stop();
+        const refused = await this.authStore.stop().then(() => undefined, (error: unknown) => error);
         if (this.stopping) return;
-        if (code === 78 && !this.repaired) {
+        if (!refused && code === 78 && !this.repaired) {
           this.repaired = true;
           this.state('repairing');
           const result = await this.withAuthStore(async () => this.doctor(60_000));
           if (result.status === 0 && !this.stopping) { await this.start(); return; }
         }
-        this.state('failed', 'exited');
+        this.state('failed', exitReason(refused));
         this.o.onExit(code);
       })().catch(() => this.state('failed', 'exited'));
     });

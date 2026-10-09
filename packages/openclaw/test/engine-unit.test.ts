@@ -1,10 +1,10 @@
 import { beforeEach, test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import fs, { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, symlinkSync, lstatSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { syncBuiltinESMExports } from 'node:module';
 import { createServer } from 'node:net';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { removeScratch, scratchDir } from '../../test-support.ts';
 import childProcess, { spawn } from 'node:child_process';
@@ -849,6 +849,22 @@ setInterval(() => {}, 1000);
   }
 });
 
+// Path, mode, size and content hash of every entry the seal could read or change: the live trees and the sealed store.
+function treeListing(root: string): string[] {
+  const out: string[] = [];
+  const walk = (path: string) => {
+    const stat = lstatSync(path);
+    const name = relative(root, path);
+    const mode = (stat.mode & 0o777).toString(8);
+    if (stat.isDirectory()) {
+      out.push(`${name}/ ${mode}`);
+      for (const child of fs.readdirSync(path).sort()) walk(join(path, child));
+    } else out.push(`${name} ${mode} ${stat.size} ${createHash('sha256').update(readFileSync(path)).digest('hex')}`);
+  };
+  for (const top of ['state', 'home', 'auth-store.sealed']) if (existsSync(join(root, top))) walk(join(root, top));
+  return out;
+}
+
 // The auth-store seal bound (Crewhouse kit gap, 2026-10-04): a large engine home must never abort the
 // process at seal time. Tool caches stay off the sealer — however large — across a host kill without
 // stop(), the sealed payload holds only credential files, and a store over SEAL_CAP_BYTES refuses with
@@ -969,16 +985,18 @@ setInterval(() => {}, 1000);
     fs.ftruncateSync(fd, SEAL_CAP_BYTES + 1024 * 1024);
     fs.closeSync(fd);
     sealed.length = 0;
+    const startRefusedAt = treeListing(root);
     await assert.rejects(kit.start(), (e: unknown): e is AuthStoreSealSizeError =>
       e instanceof AuthStoreSealSizeError && e.size > e.cap && e.cap === SEAL_CAP_BYTES
       && e.message.includes(`at least ${e.size} bytes`) && e.message.includes(String(e.cap)));
     assert.equal(sealed.length, 0, 'an over-cap store never reaches the sealer');
     assert.equal(kit.state.phase, 'failed');
     assert.equal(kit.state.why, 'auth-store-seal-size');
-    assert.match(stateWords(kit.state), /too large to seal/);
+    assert.match(stateWords(kit.state), /too large to keep safely/);
     assert.deepEqual(readFileSync(storeFile), before, 'the refused store is unchanged');
     assert.equal(existsSync(huge), true, 'the over-cap live file is unchanged');
     assert.equal(pidAlive(gateway), false, 'no gateway survived the refused start');
+    assert.deepEqual(treeListing(root), startRefusedAt, 'the refused start leaves the live trees, their modes and the sealed store byte-identical');
     console.log(`[seal-bound] over-cap store (${SEAL_CAP_BYTES + 1024 * 1024} bytes) refused with AuthStoreSealSizeError; process continued`);
     rmSync(huge);
     await kit.start();
@@ -987,16 +1005,41 @@ setInterval(() => {}, 1000);
     fs.ftruncateSync(stopFd, SEAL_CAP_BYTES + 1024 * 1024);
     fs.closeSync(stopFd);
     const beforeStop = readFileSync(storeFile);
+    const stopRefusedAt = treeListing(root);
     sealed.length = 0;
     await assert.rejects(kit.stop(), (e: unknown) => e instanceof AuthStoreSealSizeError);
     assert.equal(sealed.length, 0, 'an over-cap stop never reaches the sealer');
     assert.deepEqual(readFileSync(storeFile), beforeStop, 'the refused stop leaves the sealed store unchanged');
     assert.equal(existsSync(huge), true, 'the over-cap live file survives the refused stop');
+    assert.deepEqual(treeListing(root), stopRefusedAt, 'the refused stop leaves the live trees, their modes and the sealed store byte-identical');
     assert.equal(existsSync(join(root, 'auth-store.lock')), false, 'the refused stop releases the store lock');
     rmSync(huge);
     await kit.start();
     assert.equal(kit.state.phase, 'ready', 'a start after the refused stop works');
     assert.equal(readFileSync(join(root, 'state', 'auth.json'), 'utf8'), 'refreshed-login');
+    await kit.stop();
+    const seen: string[] = [];
+    const exits: (number | null)[] = [];
+    const engine = new Engine({ stateDir: dir, engineDir, authSeal: spySeal, pluginId: 'byokit', tools: [], spawnEngine: true,
+      onState(s) { seen.push(s.why ?? s.phase); }, onExit(code) { exits.push(code); } });
+    await engine.start();
+    const enginePid = Number(readFileSync(join(root, 'gateway.pid'), 'utf8'));
+    assert.equal(pidAlive(enginePid), true, 'the engine child is running before the crash');
+    const exitFd = fs.openSync(huge, 'w');
+    fs.ftruncateSync(exitFd, SEAL_CAP_BYTES + 1024 * 1024);
+    fs.closeSync(exitFd);
+    const crashedAt = treeListing(root);
+    process.kill(enginePid, 'SIGKILL');
+    for (let i = 0; i < 200 && !seen.includes('auth-store-seal-size'); i++) await delay(50);
+    assert.equal(seen.at(-1), 'auth-store-seal-size', 'a refused exit seal reports the seal-size state');
+    assert.deepEqual(exits, [null], 'onExit still runs after a refused exit seal');
+    assert.equal(pidAlive(enginePid), false, 'the crashed engine child is gone');
+    assert.deepEqual(treeListing(root), crashedAt, 'the refused exit leaves the live trees, their modes and the sealed store byte-identical');
+    assert.equal(existsSync(join(root, 'auth-store.lock')), false, 'the refused exit releases the store lock');
+    rmSync(huge);
+    await engine.stop();
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready', 'a start after the refused exit works');
     await kit.stop();
   } finally {
     if (gateway && pidAlive(gateway)) { try { process.kill(gateway, 'SIGKILL'); } catch {} }
