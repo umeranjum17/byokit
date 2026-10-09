@@ -33,7 +33,7 @@ export type SignInOptions = { via?: 'browser' | 'code' | 'paste'; fresh?: boolea
 export type SignIn = { id?: string; state: 'waiting' | 'done' | 'failed'; via?: 'browser' | 'code'; url?: string; code?: string; expiresAt?: number; error?: string; why?: Why };
 export type Status = { id: string; provider: string; account: string; name: string; state: 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included'; until?: number; words: string };
 type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text: string) => void; refuse?: (e: Error) => void; timedOut?: boolean; toCode?: boolean;
-  oauthState?: string; done?: Promise<void>; shown?: () => void };
+  oauthState?: string; done?: Promise<void>; shown?: () => void; busyPort?: boolean };
 
 /** Listens on this computer for the provider's page coming back: each request's path in, the page to answer with out. */
 export type Loopback = (port: number, handle: (path: string) => Promise<{ status: number; html: string }>) => Promise<{ close(): void }>;
@@ -1058,6 +1058,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
           const url = new URL(e.url);
           if (body.fresh && p.fresh) url.searchParams.set(p.fresh.param, p.fresh.value); // "Use my personal account": ask which account, again
           Object.assign(flow, { via: 'browser', url: url.toString(), code: undefined, oauthState: url.searchParams.get('state') ?? undefined });
+          // The port belongs to another sign-in here: the same page lets the person paste instead, without the timer's wait.
+          if (flow.busyPort) this.offerCode(member, key, flow);
         }
         if (e.type === 'device_code') Object.assign(flow, { via: 'code', code: e.userCode, url: e.verificationUri, expiresAt: e.expiresInSeconds ? Date.now() + e.expiresInSeconds * 1000 : undefined });
         if (flow.url) flow.shown?.();
@@ -1069,16 +1071,37 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     // Listen where the provider sends the browser back (the engine then finds the port taken and waits to be handed the address).
     const port = p.callbackPort && (this.opts.callbackPort ?? p.callbackPort);
     const googlePaste = p.key === 'google-gemini-cli' && body.via === 'paste';
-    let reserved = !!port && body.via !== 'code' && !googlePaste && !!this.platform.loopback && !ports.has(port);
+    // Google never runs a device code and never binds the port itself, so its listener is the only way back: a second
+    // Google sign-in on a port this process already holds waits on the same OS lock another process does, instead of
+    // skipping the wait and publishing a URL the holder's listener answers out of date.
+    const googleBrowser = p.key === 'google-gemini-cli' && body.via !== 'code' && !googlePaste && !!this.platform.loopback;
+    let reserved = !!port && body.via !== 'code' && !googlePaste && !!this.platform.loopback && (googleBrowser || !ports.has(port));
     if (reserved) ports.add(port!);
     let catcher: Awaited<ReturnType<Loopback>> | undefined;
+    let acquiring: Promise<Awaited<ReturnType<Loopback>> | undefined> | undefined;
+    // Stops a wait that is still polling once the flow is over, so a freed port is never left held by a finished sign-in.
+    const waiting = new AbortController();
     let closed = false;
     const close = () => {
-      if (!closed) { catcher?.close(); closed = true; }
+      if (closed) return;
+      catcher?.close();
+      closed = true;
       if (reserved) { ports.delete(port!); reserved = false; }
     };
     try {
-      if (reserved && this.platform.loopback) catcher = await this.catchRedirect(this.platform.loopback, flow, p.name, port!);
+      if (reserved && this.platform.loopback) {
+        if (googleBrowser) {
+          // The wait runs alongside the flow: the paste receiver registers first, so it is answered at once, and only once
+          // the port is known ours (bound) or another sign-in's (the pasted-address view is offered) does the page go up.
+          let known!: () => void;
+          const decided = new Promise<void>((r) => (known = r));
+          acquiring = this.catchRedirect(this.platform.loopback, flow, p.name, port!, { signal: waiting.signal,
+            onWait: () => { this.onPortHeld(member, key, flow); known(); } }).then((c) => { known(); return c; }, (e) => { known(); throw e; });
+          await decided;
+        } else {
+          catcher = await this.catchRedirect(this.platform.loopback, flow, p.name, port!);
+        }
+      }
       if (flow.abort.signal.aborted) throw new Error('Login cancelled');
       stuck = p.key === 'claude' || googlePaste ? undefined : setTimeout(() => p.key === 'google-gemini-cli' ? this.offerCode(member, key, flow) : this.toCode(flow), this.opts.redirectMs ?? 3 * 60_000);
       try { await attempt(port && !reserved && body.via !== 'code' && !googlePaste ? 'code' : body.via ?? (catcher ? 'browser' : undefined)); } catch (e) {
@@ -1119,6 +1142,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     } finally {
       clearTimeout(timer);
       clearTimeout(stuck);
+      waiting.abort();
+      if (acquiring) { try { (await acquiring)?.close(); } catch {} }
       close();
       if (flow.state !== 'done') { this.additions.delete(id); this.runtimes.delete(id); }
       this.onChange?.(member, flow.id ?? key);
@@ -1126,7 +1151,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
 
   /** Acquire the fixed callback port before starting OAuth. The OS is the cross-process lock. */
-  private async catchRedirect(loopback: Loopback, flow: Flow, name: string, port: number) {
+  private async catchRedirect(loopback: Loopback, flow: Flow, name: string, port: number,
+    control: { signal?: AbortSignal; onWait?: () => void } = {}): Promise<Awaited<ReturnType<Loopback>> | undefined> {
     const app = this.opts.app ?? 'the app';
     const page = (status: number, words: string, close = false) => ({ status, html: callbackPage(this.opts.app ?? name, words, close) });
     const handle: Parameters<Loopback>[1] = async (path) => {
@@ -1142,20 +1168,31 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       if (flow.why === 'declined') return page(200, say('callback.declined', { app }), true);
       return page(200, end === 'failed' ? say('callback.failed', { app, error: flow.error ?? '' }) : say('callback.nearly', { app }));
     };
+    // Stop once the flow is over (cancelled, failed or done): a finished sign-in never leaves its port held.
+    const over = () => flow.abort.signal.aborted || flow.state !== 'waiting' || !!control.signal?.aborted;
+    let waited = false;
     for (;;) {
-      if (flow.abort.signal.aborted) throw new Error('Login cancelled');
+      if (over()) return undefined;
       try { return await loopback(port, handle); }
       catch (e: any) {
         if (e?.code !== 'EADDRINUSE') throw e;
+        if (!waited) { waited = true; control.onWait?.(); }
         // ponytail: bounded polling, not FIFO; use a broker only if queue fairness becomes necessary.
         await new Promise<void>((resolve) => {
-          const done = () => { clearTimeout(timer); flow.abort.signal.removeEventListener('abort', done); resolve(); };
+          const done = () => { clearTimeout(timer); flow.abort.signal.removeEventListener('abort', done); control.signal?.removeEventListener('abort', done); resolve(); };
           const timer = setTimeout(done, 100);
           flow.abort.signal.addEventListener('abort', done, { once: true });
-          if (flow.abort.signal.aborted) done();
+          control.signal?.addEventListener('abort', done, { once: true });
+          if (over()) done();
         });
       }
     }
+  }
+
+  /** The callback port is another sign-in's: offer the pasted-address view now, and remember it for the page's own arrival. */
+  private onPortHeld(member: M, key: string, flow: Flow) {
+    flow.busyPort = true;
+    this.offerCode(member, key, flow);
   }
 
   /** The redirect address (or a code) pasted back, for when the browser couldn't return to this computer by itself. */

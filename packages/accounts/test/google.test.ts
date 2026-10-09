@@ -243,15 +243,14 @@ test('browser: a redirect that arrives after the fallback window still completes
   }
 });
 
-test('browser: a second member waiting while the port is held keeps its URL and state after the fallback', async () => {
-  const google = await mockGoogle();
-  const accounts = new Accounts({ store: () => memoryStore(), googleBase: google.base, app: 'byokit journey', redirectMs: 100 });
+test('browser: a second Google sign-in on a port this process holds waits and offers paste at once', async () => {
+  const { google, accounts } = await journey();
   try {
     const first = await accounts.add(OWNER, 'google-gemini-cli:browser');
     const second = await accounts.add(2, 'google-gemini-cli:browser');
+    // The redirectMs fallback is minutes away: the pasted-address view is offered as soon as the held port is found.
+    assert.equal(accounts.view(2, second.id)?.via, 'code', 'the held port offers the pasted address at once, not after the timer');
     const address = await callbackAddress(second.signIn!.url!);
-    await new Promise((r) => setTimeout(r, 300));
-    assert.equal(accounts.view(2, second.id)?.via, 'code');
     accounts.paste(2, second.id, address);
     await accounts.finished(2, second.id);
     assert.equal((await accounts.list(2))[0]?.state, 'ready');
@@ -329,19 +328,19 @@ test('paste: the person pastes the redirect address, and :8085 is never opened',
   }
 });
 
-test('a busy :8085 waits for the port and then completes; the OS lock is the port rule', async () => {
+test('a busy :8085 offers paste at once and serves the browser return once the port frees', async () => {
   const { google, accounts } = await journey();
   const blocker = createServer((_q, r) => r.end('busy'));
   await new Promise<void>((r) => blocker.listen(8085, '127.0.0.1', r));
   try {
-    let returned = false;
-    const pending = accounts.add(OWNER, 'google-gemini-cli:browser').then((v) => { returned = true; return v; });
-    await new Promise((r) => setTimeout(r, 250));
-    assert.equal(returned, false, 'a busy callback port makes the sign-in wait, never fail');
-    await new Promise<void>((r) => blocker.close(() => r()));
-    const { id, signIn } = await pending;
+    const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:browser');
+    assert.equal(accounts.view(OWNER, id)?.via, 'code', 'a port held by another app offers the pasted address at once');
     const address = await callbackAddress(signIn!.url!);
-    assert.equal((await fetch(address)).status, 200);
+    // The wait for the port is the same OS lock used across processes: once it frees, the browser return completes it.
+    await new Promise<void>((r) => blocker.close(() => r()));
+    let served: Response | undefined;
+    for (let i = 0; i < 60 && !served; i++) { try { served = await fetch(address); } catch { await new Promise((r) => setTimeout(r, 50)); } }
+    assert.equal(served?.status, 200, 'the listener answers the browser return once the port is free');
     await accounts.finished(OWNER, id);
     assert.equal((await accounts.list(OWNER))[0].state, 'ready');
   } finally {
