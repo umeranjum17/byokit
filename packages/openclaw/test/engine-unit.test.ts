@@ -622,6 +622,23 @@ test('sealing rejects concurrent owners, and does not claim stopped when the sea
   assert.deepEqual(resealed.files.find(([name]: [string]) => name === 'state/auth.json'), ['state/auth.json', Buffer.from('still-recoverable').toString('base64')], 'a second stop seals what the failed stop left');
 });
 
+test('a sealed archive is kept as it was across start and stop, never re-wrapped', async () => {
+  const dir = scratchDir('seal-archive-kept');
+  const seal = fakeSeal();
+  const engine = new Engine({ stateDir: dir, authSeal: seal, pluginId: 'byokit', tools: [], spawnEngine: false, onState() {}, onExit() {} });
+  const agent = join(engine.root, 'state', 'agents', 'm1', 'agent');
+  mkdirSync(agent, { recursive: true });
+  writeFileSync(join(agent, 'auth-profiles.json.migrated-old'), 'migration-access');
+  await engine.prepare();
+  await engine.start();
+  const sealedArchive = join(agent, 'auth-profiles.json.migrated-old.sealed');
+  const before = readFileSync(sealedArchive);
+  await engine.stop();
+  await engine.start();
+  assert.deepEqual(readFileSync(sealedArchive), before, 'the sealed archive is unchanged by a stop');
+  await engine.stop();
+});
+
 test('sealed migration follows only in-root file symlinks and skips runtime entries', { skip: process.platform === 'win32' }, async (t) => {
   const { migrateRetainedLogin } = await import('../src/migrate.ts');
   const dir = scratchDir('seal-runtime');

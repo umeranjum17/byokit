@@ -1,6 +1,6 @@
 # OpenClaw auth-store seal bound
 
-Verification recipe for the [auth-store seal bound](../../../../packages/openclaw/README.md#retained-home-killed-without-stop): a large engine home can never abort the process at seal time. Regenerable tool caches never reach the sealer however large they are (including across a host killed without `stop()`), the sealed snapshot holds only credential files bounded by a fixed cap, and an over-cap store refuses with a typed error that carries the size and the cap before any write, keeping the last good saved store as it was and deleting no live file.
+Verification recipe for the [auth-store seal bound](../../../../packages/openclaw/README.md#retained-home-killed-without-stop): a large engine home can never abort the process at seal time. Regenerable tool caches never reach the sealer however large they are (including across a host killed without `stop()`), the sealed snapshot holds only credential files bounded by a fixed cap, and an over-cap store refuses with a typed error that carries the size and the cap; the last good saved store is kept as it was, no live file is deleted, and housekeeping such as archive retirement may still run.
 
 ## Sub-features
 

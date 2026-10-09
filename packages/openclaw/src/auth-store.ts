@@ -9,8 +9,8 @@ import type { SealingAdapter } from '@byokit/secrets';
 import { EngineAlreadyRunningError, pidAlive as live } from './engine-status.ts';
 
 const encoder = new TextEncoder();
-const archive = (name: string) => /^(auth-profiles|auth-state|auth|oauth)\.json\.(migrated-.+|sqlite-import\..+\.bak)$/.test(name)
-  || name.endsWith('.moved-to-engine');
+const archive = (name: string) => !name.endsWith('.sealed') && (/^(auth-profiles|auth-state|auth|oauth)\.json\.(migrated-.+|sqlite-import\..+\.bak)$/.test(name)
+  || name.endsWith('.moved-to-engine'));
 function regular(path: string): void {
   if (!lstatSync(path).isFile()) throw new Error(`credential store requires regular files: ${path}`);
 }
