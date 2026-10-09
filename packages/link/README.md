@@ -2,8 +2,8 @@
 
 <p align="center"><strong>Deprecated: renamed to <a href="../pair"><code>@byokit/pair</code></a>.</strong></p>
 
-This package re-exports `@byokit/pair` unchanged, `@byokit/link` and `@byokit/link/node` alike, so
-existing imports keep working through 0.8.x. It is removed in 0.9.0.
+This package re-exports `@byokit/pair` as is, `@byokit/link` and `@byokit/link/node` alike, so
+existing imports keep working. It is removed in 0.9.0.
 
 ## Migrate
 
