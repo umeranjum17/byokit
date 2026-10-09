@@ -129,6 +129,16 @@ test('limits: an account rests until it said, the ladder skips it, and a refusal
   assert.equal((await kit.failed(2, 'chatgpt', 'fetch failed'))?.kind, 'network');
   assert.equal(kit.restingUntil(2, 'chatgpt'), 0, 'a network hiccup is not a rest');
 
+  // The ChatGPT/Codex "Next reset in N hours" wording rests until that reset, not the 60-minute fallback.
+  const reset = await kit.failed(1, 'chatgpt', "You've reached your Codex subscription usage limit. Next reset in 4 hours, 3:00 PM.");
+  assert.equal(reset?.kind, 'rate_limit');
+  assert.ok(Math.abs((reset?.until ?? 0) - (Date.now() + 4 * 3_600_000)) < 1000, `until ${reset?.until}`);
+  assert.ok(Math.abs(kit.restingUntil(1, 'chatgpt') - (Date.now() + 4 * 3_600_000)) < 1000);
+  // A rate limit that names no reset keeps the 60-minute fallback.
+  const capped = await kit.failed(1, 'chatgpt', 'You have hit your ChatGPT usage limit (plus plan).');
+  assert.equal(capped?.kind, 'rate_limit');
+  assert.ok(Math.abs(kit.restingUntil(1, 'chatgpt') - (Date.now() + 60 * 60_000)) < 1000);
+
   // A refusal from an account that still refreshes was a passing one: a short rest, not a sign-out.
   await kit.login(3, 'chatgpt');
   await kit.finished(3, 'chatgpt');
