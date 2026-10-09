@@ -353,7 +353,8 @@ does not return the chosen account. An explicit id whose sign-in is gone is refu
 `signed_out` before any request, an explicit id never falls back to the default, and a limit or lapsed sign-in rests
 only the account that ran (so the next Auto skips it) while the saved default is left unchanged. `select: { account: 'default' }`
 answers only from the saved default: when it is signed out or not ready, `respond` refuses with `signed_out`, and while it
-rests with `rate_limit` and its `until`, before any request and never from another account. Auto and default
+rests with `rate_limit` and its `until`, before any request and never from another account. An explicit id is sent even while that
+account rests: it is the person's own choice, and a real limit rests it again with its `until`. Auto and default
 consider only ChatGPT accounts; when every signed-in one rests, Auto refuses with `rate_limit` and the soonest `until`, and
 `signed_out` only when none is signed in. Omitting `select`
 keeps the saved default, else the provider's first account, exactly as before.
@@ -690,7 +691,7 @@ declare const seal: SafeStorageLike;
 declare function readingFor(account: { id: string }): Promise<Room>; // the host's own usage reading
 
 const accounts = new Accounts({ store: (member) => machineStore(member, seal), app: 'my app' });
-const picked = await accounts.pick('umer', { account: 'auto' }, (account) => readingFor(account));
+const picked = await accounts.pick('umer', { account: 'auto', provider: 'chatgpt' }, (account) => readingFor(account));
 if (picked.ok) {
   console.log(picked.reason);                  // "Right now that's Work: 60% left this week"
   for (const model of await accounts.models('umer', picked.account.id))

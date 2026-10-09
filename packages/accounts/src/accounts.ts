@@ -821,14 +821,12 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         if (!choice.ok || choice.how !== 'default' || choice.account.id !== saved) {
           const s = saved ? await this.accountStatus(member, saved) : undefined;
           if (s?.state === 'resting') throw new ResponseError(s.words, 'rate_limit', s.until);
-          if (!choice.ok && choice.code === 'not_included') throw new ResponseError(choice.reason, 'not_included');
           throw new ResponseError(s && s.state !== 'ready' ? s.words : say('pick.out.state'), 'signed_out');
         }
         picked = choice.account.id;
       }
       else if (choice.ok) picked = choice.account.id;
       else if (ask.select.account === 'auto') {
-        if (choice.code === 'not_included') throw new ResponseError(choice.reason, 'not_included');
         const signedIn = choice.considered.filter((r) => this.providerKey(r.id) === 'chatgpt' && r.out !== 'state');
         const resting = signedIn.filter((r) => r.out === 'resting');
         if (signedIn.length && resting.length === signedIn.length) {
@@ -848,7 +846,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         // The exact account that ran rests or is marked, never another one: with a pick, that includes the bare
         // provider id when the default is a different account.
         const acted = await this.failed(member, picked ?? key, e, picked !== undefined);
-        if (acted) throw new ResponseError(e.message, acted.kind, acted.until,
+        if (acted && (picked !== undefined || acted.kind !== e.kind)) throw new ResponseError(e.message, acted.kind, acted.until,
           e.status !== undefined ? { status: e.status, retryAfter: e.retryAfter } : undefined);
       }
       throw e;
