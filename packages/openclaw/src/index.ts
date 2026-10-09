@@ -17,6 +17,8 @@ export type {
   KitEventName,
   KitEventPayload,
   BrowserPing,
+  LearningCapture,
+  LearningMode,
   Member,
   PlanWindow,
   Route,

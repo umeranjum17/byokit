@@ -39,6 +39,8 @@ import type {
   KitState,
   KitEventName,
   KitEventPayload,
+  LearningCapture,
+  LearningMode,
   Member,
   Route,
   RunEnd,
@@ -79,6 +81,9 @@ export type KitOptions = {
 };
 
 export type RetainedLogin = { path: string } | { record: Record<string, unknown> };
+
+/** The engine's learning-mode config key (5.6 "Engine learning state"). */
+const LEARNING_KEY = 'skills.workshop.autonomous.mode';
 
 const operatorMethods = new Set<string>([
   'agent',
@@ -1030,6 +1035,42 @@ export class OpenClawKit {
     const next = JSON.stringify(config, null, 2) + '\n';
     if (next !== text) atomic(path, next);
     return previous;
+  }
+
+  // The engine's learning switch, named: a typed veneer over the narrow pair above, file-backed and boot-free
+  // (5.6 "Engine learning state"). The engine itself falls back silently on a stored value outside its enum;
+  // these refuse, so a typo or a corrupted file surfaces instead of quietly flipping learning.
+  learning(): LearningCapture {
+    const value = this.getConfigKey(LEARNING_KEY);
+    if (value === undefined) return { present: false };
+    if (value !== 'off' && value !== 'propose' && value !== 'auto')
+      throw new Error(`learning: stored ${LEARNING_KEY} is ${JSON.stringify(value)}, not one of off|propose|auto`);
+    return { present: true, mode: value };
+  }
+
+  setLearning(mode: LearningMode | 'default'): LearningCapture {
+    if (mode !== 'off' && mode !== 'propose' && mode !== 'auto' && mode !== 'default')
+      throw new Error(`setLearning: unknown learning mode ${JSON.stringify(mode)}, expected off|propose|auto|default`);
+    this.assertLearningWritable('setLearning');
+    const previous = this.learning();
+    this.setConfigKey(LEARNING_KEY, mode === 'default' ? undefined : mode);
+    return previous;
+  }
+
+  restoreLearning(captured: LearningCapture): LearningCapture {
+    if (captured.present && captured.mode !== 'off' && captured.mode !== 'propose' && captured.mode !== 'auto')
+      throw new Error(`restoreLearning: unknown learning mode ${JSON.stringify(captured.mode)}, expected off|propose|auto`);
+    this.assertLearningWritable('restoreLearning');
+    this.setConfigKey(LEARNING_KEY, captured.present ? captured.mode : undefined);
+    const read = this.learning();
+    if (read.present !== captured.present || (read.present && captured.present && read.mode !== captured.mode))
+      throw new Error(`learning restore readback mismatch: captured ${JSON.stringify(captured)}, read ${JSON.stringify(read)}`);
+    return read;
+  }
+
+  private assertLearningWritable(op: string): void {
+    if ((this.o.config as Record<string, unknown> | undefined)?.skills !== undefined)
+      throw new Error(`${op}: KitOptions.config also passes skills; that option wins at every boot (5.6)`);
   }
 
   doctorContext(): { entry: string; env: Record<string, string> } { return this.engine.doctorContext(); }

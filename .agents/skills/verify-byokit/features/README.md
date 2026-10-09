@@ -26,6 +26,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [Claude plan refresh](./accounts-claude-refresh.md) — a Claude plan sign-in kept through a lost refresh, rotated on retry, ended only by a revoked grant.
 - [OpenClaw accepted/thinking run progress](./openclaw-run-progress.md) — built public API, real pinned Gateway + offline native CLI stand-in, timestamped progress/admission timeline and account-change refusal.
 - [OpenClaw sealed sign-in recovery](./openclaw-auth-recovery.md) — wrong-seal failure retains original bytes, correct-seal retry restores sign-in, healthy restart still works.
+- [OpenClaw engine learning state](./openclaw-learning-state.md) — `learning()`/`setLearning()`/`restoreLearning()` on a stopped home: absence is a value, `propose` is visible, restores are byte for byte, refusals carry the real cause.
 - [Machine store shared across apps](./accounts-machine-store.md) — a second app process is signed in already from the computer's machine store; a wrong seal and a missing store are refused.
 - [ChatGPT refresh refusal](./accounts-refresh-refusal.md) — a phone/browser ChatGPT sign-in kept through a passing 401 at a due or forced refresh, ended only by a revoked grant.
 - [Usage plan view](./usage-planview.md) — `@byokit/usage` selectors over fixture call records via `examples/usage-demo.ts`.

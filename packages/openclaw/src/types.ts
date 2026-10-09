@@ -5,6 +5,12 @@ export type { OutputSchema, SchemaOutput } from './output.ts';
 
 export type Member = string; // /^[a-z][a-z0-9-]{0,31}$/, = OpenClaw agentId (D9)
 
+/** The engine's learning mode: config key `skills.workshop.autonomous.mode` (5.6). */
+export type LearningMode = 'off' | 'propose' | 'auto';
+
+/** Exactly what `learning()` saw: absence is a value, not "probably default" (5.6). */
+export type LearningCapture = { present: false } | { present: true; mode: LearningMode };
+
 export interface ToolSpec {
   name: string;
   description: string;
