@@ -203,6 +203,7 @@ test('an app that sets authBase still sends Google’s sign-in to Google’s own
     sent.push(url);
     if (url.startsWith('https://oauth2.googleapis.com/token')) return Response.json({ access_token: 'a1', refresh_token: 'r1', expires_in: 3600 });
     if (url.startsWith('https://www.googleapis.com/oauth2/v1/userinfo')) return Response.json({ email: 'umer@example.com' });
+    if (url === 'https://oauth2.googleapis.com/revoke') return new Response('', { status: 200 });
     return new Response('not stubbed', { status: 599 });
   }) as typeof fetch;
   const accounts = new Accounts({ store: () => memoryStore(), authBase: 'http://127.0.0.1:9', app: 'byokit journey', fetch: google });
@@ -215,7 +216,11 @@ test('an app that sets authBase still sends Google’s sign-in to Google’s own
     assert.equal((await accounts.list(OWNER))[0]?.email, 'umer@example.com');
     const auth = await (await accounts.runtime(OWNER)).getAuth('google-gemini-cli', { minOAuthValidityMs: 10 ** 9 });
     assert.equal(auth?.auth.apiKey, 'a1');
-    assert.deepEqual(sent.map((u) => new URL(u).origin), ['https://oauth2.googleapis.com', 'https://www.googleapis.com', 'https://oauth2.googleapis.com']);
+    // Sign-out revokes at Google's own host too, never at authBase.
+    await accounts.logout(OWNER, 'google-gemini-cli');
+    assert.equal(sent.at(-1), 'https://oauth2.googleapis.com/revoke');
+    assert.deepEqual(sent.map((u) => new URL(u).origin), ['https://oauth2.googleapis.com', 'https://www.googleapis.com', 'https://oauth2.googleapis.com', 'https://oauth2.googleapis.com']);
+    assert.ok(!sent.some((u) => u.startsWith('http://127.0.0.1:9')), 'authBase never receives a Google call');
   } finally {
     accounts.stop();
   }
@@ -375,6 +380,53 @@ test('a refused refresh reports signed out, and its error never quotes the token
       (e: Error) => !/recorded-(access|refresh)/.test(e.message));
   } finally {
     accounts.stop();
+    await google.close();
+  }
+});
+
+test('logout revokes the stored refresh token at Google’s stand-in, then deletes it locally', async () => {
+  const { google, store, accounts } = await journey();
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:browser');
+    await fetch(await callbackAddress(signIn!.url!));
+    await accounts.finished(OWNER, id);
+    // A refresh rotates the stored grant, so sign-out revokes the token that is actually stored.
+    await (await accounts.runtime(OWNER)).getAuth('google-gemini-cli', { minOAuthValidityMs: 10 ** 9 });
+    await accounts.logout(OWNER, 'google-gemini-cli');
+    const revokes = google.state.requests.filter((r) => r.path === '/revoke');
+    assert.equal(revokes.length, 1, 'exactly one revoke request reaches Google');
+    assert.ok(revokes[0].body.includes('token=rotated-refresh'), 'the stored refresh token is the one revoked');
+    assert.deepEqual(google.state.revoked, ['rotated-refresh']);
+    assert.equal(google.state.live.has('rotated-refresh'), false, 'Google no longer honours the revoked grant');
+    assert.equal(await store.read('google-gemini-cli'), undefined, 'the local copy is deleted');
+    assert.deepEqual(await accounts.list(OWNER), []);
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('a refused Google revoke still deletes locally and reports honestly, without the token', async () => {
+  const { google, store, accounts } = await journey();
+  const originalConsole = { log: console.log, warn: console.warn, error: console.error };
+  const logged: string[] = [];
+  console.log = console.warn = console.error = (...args) => { logged.push(args.map(String).join(' ')); };
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:browser');
+    await fetch(await callbackAddress(signIn!.url!));
+    await accounts.finished(OWNER, id);
+    google.state.refuseRevoke = true;
+    const failure = await accounts.logout(OWNER, 'google-gemini-cli').then(() => undefined, (e: Error) => e);
+    assert.match(failure?.message ?? '', /Google sign-out failed \(400\)/);
+    assert.equal(await store.read('google-gemini-cli'), undefined, 'deleted here whatever Google answered');
+    assert.equal(await accounts.signedIn(OWNER, 'google-gemini-cli'), false);
+    const revoke = google.state.requests.find((r) => r.path === '/revoke');
+    assert.ok(revoke?.body.includes('token=recorded-refresh'), 'Google was asked to revoke the stored refresh token');
+    for (const leak of [failure?.message ?? '', ...logged])
+      assert.ok(!/recorded-(access|refresh)|rotated-(access|refresh)/.test(leak), 'the token never reaches a thrown message or a log');
+  } finally {
+    accounts.stop();
+    Object.assign(console, originalConsole);
     await google.close();
   }
 });

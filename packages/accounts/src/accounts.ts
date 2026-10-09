@@ -7,7 +7,7 @@ import type { Api, ApiStreamOptions, AssistantMessage, AssistantMessageEventStre
 import { cloudSelection, CloudAccountError, type CloudOptions, type CloudStream } from './cloud.ts';
 import type { AiBinding } from '@earendil-works/pi-ai/api/cloudflare-ai-binding';
 import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfile, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
-import { withGoogle } from './flows/google.ts';
+import { googleRevoke, googleRevokeUrl, isGoogleClient, withGoogle } from './flows/google.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
 import { offered, provider, route, routes, PROVIDERS, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
@@ -74,8 +74,9 @@ export type AccountsOptions<M extends Member = Member> = {
    *  Phones and browsers sign in and sign out there; on a computer Pi's engine always calls OpenAI, and only sign-out's
    *  revoke goes here. */
   authBase?: string;
-  /** Where Google's sign-in lives (its authorize, token, refresh and userinfo calls), for a stand-in in tests and demos
-   *  (`mockGoogle()` from `@byokit/accounts/testing`). Only Google's route reads it; `authBase` never receives tokens. */
+  /** Where Google's sign-in lives (its authorize, token, refresh, userinfo and sign-out revoke calls), for a stand-in in
+   *  tests and demos (`mockGoogle()` from `@byokit/accounts/testing`). Only Google's route reads it; `authBase` never
+   *  receives tokens. */
   googleBase?: string;
   /** Where every catalogue device sign-in goes instead of each provider's own host, for a stand-in in tests and
    *  demos (`mockDevice()` from `@byokit/accounts/testing`). */
@@ -495,6 +496,13 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     try { return await work; } finally { if (this.chains.get(id) === tail) this.chains.delete(id); }
   }
 
+  /** Ends one credential on the provider's side. Google revokes at its own host (through `googleBase` in tests), never
+   *  `authBase`; every other provider follows the ChatGPT-shaped revoke. The caller deletes the local copy whatever this does. */
+  private async endCredential(p: Provider, c: { access: string; refresh: string }) {
+    if (isGoogleClient(p.pi)) return googleRevoke(googleRevokeUrl(this.opts.googleBase), c, this.opts.fetch);
+    return revoke(this.opts.authBase ? `${this.opts.authBase}/oauth/revoke` : p.revoke!, p.clientId, c);
+  }
+
   protected boundStore(member: M, raw: CredentialStore, accountId?: string): BoundStore {
     const key = (id: string) => `${member}:${accountId ?? this.providers.find((p) => p.pi === id)?.key ?? id}`;
     return {
@@ -517,7 +525,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         const discard = async (next: Awaited<ReturnType<CredentialStore['read']>>) => {
           const p = this.providers.find((p) => p.pi === id);
           if (next?.type === 'oauth' && p?.revoke) {
-            try { await revoke(this.opts.authBase ? `${this.opts.authBase}/oauth/revoke` : p.revoke!, p.clientId, next); } catch (e) {
+            try { await this.endCredential(p, next); } catch (e) {
               const error = e instanceof Error ? e : new Error(String(e));
               if (this.onSignOutError) this.onSignOutError(member, accountId ?? p.key, error);
               else console.error('Sign-out of a discarded credential failed');
@@ -550,7 +558,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         let error: unknown;
         try {
           const c = await raw.read(id);
-          if (c?.type === 'oauth' && p.revoke) await revoke(this.opts.authBase ? `${this.opts.authBase}/oauth/revoke` : p.revoke!, p.clientId, c);
+          if (c?.type === 'oauth' && p.revoke) await this.endCredential(p, c);
         } catch (e) { error = e; }
         await raw.delete(id);
         if (error) throw error;
@@ -1215,8 +1223,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     return ok;
   }
 
-  /** Signs out here, and at the provider too where it can end a sign-in (ChatGPT), best effort: the sign-in is deleted
-   *  here whatever the provider answers. */
+  /** Signs out here, and at the provider too where it can end a sign-in (ChatGPT, Google), best effort: the sign-in is
+   *  deleted here whatever the provider answers. */
   logout(member: M, key: string) { return this.endAccount(member, key); }
 
   private async endAccount(member: M, key: string, exact = false) {

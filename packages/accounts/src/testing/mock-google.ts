@@ -1,8 +1,8 @@
 // Google Cloud Code Assist sign-in, stood in for: PKCE authorize, the loopback callback, code exchange and refresh,
-// userinfo, and the Code Assist project calls, all answered on 127.0.0.1 so a test drives the whole journey with no
-// account and no real network. Two clients share the protocol and differ in the facts the kit reuses (callback port and
-// path, scopes, Code Assist base and metadata): google-gemini-cli on :8085 and google-antigravity on :51121. Point the
-// kit's Google flow at `base`, or run it alone:
+// userinfo, sign-out revoke, and the Code Assist project calls, all answered on 127.0.0.1 so a test drives the whole
+// journey with no account and no real network. Two clients share the protocol and differ in the facts the kit reuses
+// (callback port and path, scopes, Code Assist base and metadata): google-gemini-cli on :8085 and google-antigravity
+// on :51121. Point the kit's Google flow at `base`, or run it alone:
 //   node packages/accounts/src/testing/mock-google.ts [client] [port]
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -64,6 +64,10 @@ export async function mockGoogle({ client = 'google-gemini-cli', port = 0, host 
     /** Refresh tokens the provider still honours; the first refresh spends the exchange grant. */
     live: new Set<string>(),
     requests: [] as { method: string; path: string; query: string; body: string }[],
+    /** Refresh tokens the provider has revoked; the next refresh with one answers invalid_grant. */
+    revoked: [] as string[],
+    /** Answer `/revoke` with invalid_grant instead of 200. */
+    refuseRevoke: false,
     /** The authorize query parameters most recently seen, and the callback the person's return landed on. */
     authorize: undefined as Record<string, string> | undefined,
     callback: undefined as Record<string, string> | undefined,
@@ -120,6 +124,13 @@ export async function mockGoogle({ client = 'google-gemini-cli', port = 0, host 
       }
       case '/oauth2/v1/userinfo':
         return send(200, USERINFO);
+      case '/revoke': {
+        const token = form.get('token') ?? '';
+        if (state.refuseRevoke) return send(400, INVALID_GRANT);
+        state.revoked.push(token);
+        state.live.delete(token);
+        return send(200, {});
+      }
       case '/v1internal:loadCodeAssist':
         return send(200, state.ineligible ? INELIGIBLE : state.provision ? PROVISION.loadCodeAssist : ELIGIBLE);
       case '/v1internal:onboardUser':
