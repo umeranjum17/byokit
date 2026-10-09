@@ -29,7 +29,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "@types/ws": "^8.18.1",
+    "@types/ws": "^8.18.2",
     "abort-controller": "3.0.0",
     "esbuild": "0.28.2",
     "json-schema-to-typescript": "16.0.0",
@@ -37,6 +37,6 @@
     "playwright": "^1.63.0",
     "tweetnacl": "1.0.3",
     "typescript": "^5.9.0",
-    "ws": "^8.21.3"
+    "ws": "^8.22.0"
   }
 }
