@@ -50,7 +50,7 @@ jobs:
       - name: Build cached whisper.cpp from whisper.rn (portable AVX2 CPU target)
         run: node packages/dictation/scripts/bench/build.mjs --source "$PWD/.lab/wer-cache/source/package" --output "$PWD/.lab/wer-cache/build" --portable
       # Save before inference: a failed WER run must not lose the expensive cold build.
-      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         if: steps.whisper-cache.outputs.cache-hit != 'true'
         with:
           path: .lab/wer-cache
