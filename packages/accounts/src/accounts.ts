@@ -1058,7 +1058,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     let stuck: ReturnType<typeof setTimeout> | undefined;
     // Listen where the provider sends the browser back (the engine then finds the port taken and waits to be handed the address).
     const port = p.callbackPort && (this.opts.callbackPort ?? p.callbackPort);
-    let reserved = !!port && body.via !== 'code' && body.via !== 'paste' && !!this.platform.loopback && !ports.has(port);
+    const googlePaste = p.key === 'google-gemini-cli' && body.via === 'paste';
+    let reserved = !!port && body.via !== 'code' && !googlePaste && !!this.platform.loopback && !ports.has(port);
     if (reserved) ports.add(port!);
     let catcher: Awaited<ReturnType<Loopback>> | undefined;
     let closed = false;
@@ -1069,8 +1070,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     try {
       if (reserved && this.platform.loopback) catcher = await this.catchRedirect(this.platform.loopback, flow, p.name, port!);
       if (flow.abort.signal.aborted) throw new Error('Login cancelled');
-      stuck = p.key === 'claude' || body.via === 'paste' ? undefined : setTimeout(() => codeOffered || !catcher ? this.toCode(flow) : this.offerCode(member, key, flow), this.opts.redirectMs ?? 3 * 60_000);
-      try { await attempt(port && !reserved && body.via !== 'code' ? 'code' : body.via ?? (catcher ? 'browser' : undefined)); } catch (e) {
+      stuck = p.key === 'claude' || googlePaste ? undefined : setTimeout(() => p.key === 'google-gemini-cli' ? this.offerCode(member, key, flow) : this.toCode(flow), this.opts.redirectMs ?? 3 * 60_000);
+      try { await attempt(port && !reserved && body.via !== 'code' && !googlePaste ? 'code' : body.via ?? (catcher ? 'browser' : undefined)); } catch (e) {
         // The code instead: asked for, or the page never came back. Also when a browser sign-in could not return here at all.
         if (!flow.toCode && (catcher || body.via === 'code' || !codeOffered || flow.abort.signal.aborted)) throw e;
         Object.assign(flow, { url: undefined, code: undefined, via: 'code' });

@@ -47,6 +47,8 @@ export type GoogleOptions = {
 const base64url = (bytes: Uint8Array) => btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 /** A stand-in base replaces Google's host, so a test or demo never leaves this device. */
 const at = (url: string, base?: string) => !base ? url : new URL(url.substring(url.indexOf('/', url.indexOf('//') + 2)), base.endsWith('/') ? base : `${base}/`).href;
+/** A stalled Google endpoint ends the call after 15 seconds, even when the sign-in itself has no deadline. */
+const bounded = (signal?: AbortSignal) => signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
 
 /** The redirect address the client registers: the loopback host and path, on the port the kit listens on. */
 export const googleRedirect = (client: GoogleProtocol, port: number) => `http://${client.callback.hostname}:${port}${client.callback.path}`;
@@ -93,7 +95,7 @@ export function withGoogle(engine: AuthHost, credentials: CredentialStore, optio
   const post = async (url: string, body: Record<string, string>, signal?: AbortSignal) => {
     let res: Response;
     try {
-      res = await (options.fetch ?? fetch)(url, { method: 'POST', signal: signal ?? AbortSignal.timeout(15_000), headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body: new URLSearchParams(body).toString() });
+      res = await (options.fetch ?? fetch)(url, { method: 'POST', signal: bounded(signal), headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' }, body: new URLSearchParams(body).toString() });
     } catch { throw new Error('Google could not complete the sign-in on this connection.'); }
     const text = await res.text().catch(() => '');
     if (!res.ok) {
@@ -117,7 +119,7 @@ export function withGoogle(engine: AuthHost, credentials: CredentialStore, optio
     if (signal?.aborted) throw new Error('Login cancelled');
     const grant = credential(token, now());
     // The email is display metadata: a failed lookup leaves the account without one rather than failing the sign-in.
-    const info = await (options.fetch ?? fetch)(at(client.userinfo, options.base), { headers: { authorization: `Bearer ${grant.access}`, accept: 'application/json' }, signal }).catch(() => undefined);
+    const info = await (options.fetch ?? fetch)(at(client.userinfo, options.base), { headers: { authorization: `Bearer ${grant.access}`, accept: 'application/json' }, signal: bounded(signal) }).catch(() => undefined);
     const email = info?.ok ? String((await info.json().catch(() => null) as { email?: string } | null)?.email ?? '') : '';
     const c = { ...grant, ...(email ? { accountId: email, email } : {}) } as OAuthCredential;
     if (signal?.aborted) throw new Error('Login cancelled');

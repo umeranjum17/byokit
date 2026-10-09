@@ -213,6 +213,26 @@ test('browser: a redirect that arrives after the fallback window still completes
   }
 });
 
+test('browser: a second member waiting while the port is held keeps its URL and state after the fallback', async () => {
+  const google = await mockGoogle();
+  const accounts = new Accounts({ store: () => memoryStore(), authBase: google.base, app: 'byokit journey', redirectMs: 100 });
+  try {
+    const first = await accounts.add(OWNER, 'google-gemini-cli:browser');
+    const second = await accounts.add(2, 'google-gemini-cli:browser');
+    const address = await callbackAddress(second.signIn!.url!);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(accounts.view(2, second.id)?.via, 'code');
+    accounts.paste(2, second.id, address);
+    await accounts.finished(2, second.id);
+    assert.equal((await accounts.list(2))[0]?.state, 'ready');
+    accounts.cancel(OWNER, first.id);
+    await accounts.finished(OWNER, first.id);
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
 test('paste: a pasted error return is a declined sign-in that keeps nothing', async () => {
   const { google, accounts } = await journey();
   try {
