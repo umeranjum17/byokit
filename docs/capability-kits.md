@@ -1334,11 +1334,13 @@ app. `app.plugin.js` adds nothing to the manifest.
   `expo-modules-core` external. It fails on
   any `node:*` import, and on any `expo-modules-core` import outside `rn.ts` and `focused-field.rn.ts`. The JVM tests
   run in the `overlay-android` job.
-- **secrets, isolation.** `test/keyring-isolation.test.ts` puts a decoy HOME beside the throwaway one and runs a
+- **secrets, isolation.** The `keystore run under a locked-down permission set` journey in
+  `test/journey-secrets.test.ts` puts a decoy HOME beside the throwaway one and runs a
   child `node --permission --allow-fs-read=<repo> --allow-fs-write=<scratch> --allow-child-process` that stores a
   canary through the fake keyring CLIs (both tools) and the passphrase file under scratch. A control read of the
   decoy throws `ERR_ACCESS_DENIED`; the run asserts the decoy's canaries are byte-identical and the fakes' argv/env
-  logs hold no canary. `test/process-env.test.ts` poisons `process.env` and greps `process.env` out of `src/`.
+  logs hold no canary. The poisoned-environment journey in the same file sets `process.env` to hostile values and
+  checks that no secret is read from it and no spawn inherits it.
 - **CI jobs added:**
   - `write-engine` (BK-P2): Node 24, `npm ci`, `npm run build`, `npm run test:write-engine`
     (`sh scripts/test.sh 'packages/write/test/engine/*.test.ts'`).

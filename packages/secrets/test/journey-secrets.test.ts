@@ -1,33 +1,37 @@
 // Consumer journeys for the published @byokit/secrets surface, driven the way a host app uses it:
-// `keyringStore`, `fileStore`, `overrideStore` and `osKeyring` are the stores a host passes around,
-// `osKeyringSeal`/`hostKeySeal`/`hostKeyFileSeal` are the sealing adapters, and `@byokit/secrets/web` /
-// `@byokit/secrets/native` are the browser and phone entries. Every import is a published entry — none from
-// src or internals. The security and correctness contracts the old unit/mock-heavy cases held survive as
-// assertions inside a journey: keyring lookup and label scoping, keystore read/write/delete, sealing and
-// unsealing with wrong key / tampered / truncated input refused, process-env isolation, and the rule that a
-// secret value never reaches argv, env, storage, logs or error text. Keyring tests stay isolated from the
-// owner's real keyring by driving only the fake CLIs.
+// `keyringStore`, `fileStore`, `overrideStore`, `osKeyringStore`, and the sealing adapters
+// (`osKeyringSeal`, `hostKeySeal`, `hostKeyFileSeal`) are what a host passes around; `@byokit/secrets/web` and
+// `@byokit/secrets/native` are the browser and phone entries; `@byokit/accounts` is the accounts file a sealing
+// adapter protects. Every import is a published entry, never src or internals. Each journey folds the security and
+// correctness contracts it covers into its assertions. The journeys never touch the owner's keyring: keyring work
+// drives fake CLIs, or a private D-Bus session started for the test.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { webcrypto } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import fs, { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+import { webcrypto, randomBytes } from 'node:crypto';
+import { spawn, spawnSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
+import { runInNewContext } from 'node:vm';
 import { build } from 'esbuild';
 import { IDBFactory } from 'fake-indexeddb';
+import { openSecretBox } from '@byokit/seal';
+import { fileStore as accountFileStore } from '@byokit/accounts';
 import {
   KeystoreError, keyringEnv, keyringStore, fileStore, overrideStore, writeFileAtomic,
-  osKeyringSeal, hostKeySeal, hostKeyFileSeal, type KeyringBackend,
+  osKeyring, osKeyringStore, osKeyringSeal, hostKeySeal, hostKeyFileSeal, type KeyringBackend,
 } from '@byokit/secrets';
 import { webStore } from '@byokit/secrets/web';
 import { nativeStore, type SecureStoreLike } from '@byokit/secrets/native';
 import { scratchDir } from '../../test-support.ts';
 import { writeFakeCli, type FakeTool } from './fake-cli.ts';
+import { assertPrivateKeyringSession } from './private-session.ts';
 
 const CANARY = 'sk-canary-secrets-6b1f';
 // A canary never appears in an error's text, and the code is the typed one the caller branches on.
 const code = (want: string) => (e: unknown) => e instanceof KeystoreError && e.code === want && !String((e as Error).message).includes(CANARY);
 const key32 = (seed: number) => Uint8Array.from({ length: 32 }, (_, i) => (seed * 31 + i) & 0xff);
+const distIndex = new URL('../dist/index.js', import.meta.url).href;
 
 function bench(tool: FakeTool, extra: Record<string, string> = {}) {
   const dir = scratchDir(`secrets-${tool}`);
@@ -43,27 +47,27 @@ function bench(tool: FakeTool, extra: Record<string, string> = {}) {
   return { dir, bin, tool, env, make, calls };
 }
 
+function walk(dir: string, visit: (path: string, name: string) => void): void {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) walk(path, visit); else visit(path, entry.name);
+  }
+}
+
 function snapshot(home: string): Map<string, Buffer> {
   const files = new Map<string, Buffer>();
-  const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) walk(full); else files.set(full, readFileSync(full));
-    }
-  };
-  walk(home);
+  walk(home, (path) => files.set(path, readFileSync(path)));
   return files;
 }
 
-function onlyKey(root: string): string {
+function keyFiles(root: string): string[] {
   const found: string[] = [];
-  const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) walk(full); else if (entry.name.endsWith('.key')) found.push(full);
-    }
-  };
-  walk(root);
+  walk(root, (path, name) => { if (name.endsWith('.key')) found.push(path); });
+  return found;
+}
+
+function onlyKey(root: string): string {
+  const found = keyFiles(root);
   assert.equal(found.length, 1, `expected exactly one key under ${root}`);
   return found[0];
 }
@@ -141,6 +145,56 @@ test('an app keeps one secret per name in the OS keyring, with the value only ev
   const plain = join(bad.dir, 'plain.txt');
   writeFileSync(plain, 'x');
   assert.throws(() => keyringStore({ bin: plain, tool: 'secret-tool' }), code('unavailable'));
+
+  // The native backend forces persistent Secret Service on every call and never reports entry text in errors.
+  const nativeCalls: { service: string; name: string; options: unknown }[] = [];
+  const nativeData = new Map<string, string>();
+  const native = osKeyringStore({ service: 'Umer', entry(service, name, options) {
+    nativeCalls.push({ service, name, options });
+    return {
+      getPassword: () => nativeData.get(name) ?? null,
+      setPassword: (secret) => { nativeData.set(name, secret); },
+      deleteCredential: () => nativeData.delete(name),
+    };
+  } });
+  assert.equal(await native.get('api'), null);
+  assert.equal(await native.delete('api'), false);
+  await native.set('api', CANARY);
+  assert.equal(await native.get('api'), CANARY);
+  assert.equal(await native.delete('api'), true);
+  for (const call of nativeCalls) assert.deepEqual(call, { service: 'Umer', name: 'api', options: { linux: { store: 'secret-service' } } });
+  assert.ok(!JSON.stringify(nativeCalls).includes(CANARY));
+  const unavailable = osKeyring({ service: 'Umer', entry() { throw new Error(CANARY); } });
+  assert.throws(() => unavailable.get('api'), code('unavailable'));
+  assert.throws(() => unavailable.set('api', CANARY), code('unavailable'));
+  assert.throws(() => unavailable.delete('api'), code('unavailable'));
+  assert.throws(() => unavailable.get(''), code('invalid'));
+
+  // The real-keyring guard refuses the owner's bus and inherited desktop settings before any native call.
+  const root = '/tmp/ks.Umer01';
+  const bus = 'unix:path=/tmp/dbus-Umer123,guid=abcdef';
+  const isolated = {
+    BYOKIT_KEYRING_TEST_ROOT: root, DBUS_SESSION_BUS_ADDRESS: bus, BYOKIT_KEYRING_TEST_BUS: bus,
+    BYOKIT_KEYRING_OWNER_BUS: 'unix:path=/run/user/1000/bus',
+    XDG_RUNTIME_DIR: `${root}/runtime`, XDG_DATA_HOME: `${root}/data`,
+    XDG_CONFIG_HOME: `${root}/config`, XDG_CACHE_HOME: `${root}/cache`,
+  };
+  assert.doesNotThrow(() => assertPrivateKeyringSession(isolated));
+  for (const change of [
+    { BYOKIT_KEYRING_TEST_BUS: undefined },
+    { DBUS_SESSION_BUS_ADDRESS: isolated.BYOKIT_KEYRING_OWNER_BUS },
+    { BYOKIT_KEYRING_OWNER_BUS: bus },
+    { GNOME_KEYRING_CONTROL: '/run/user/1000/keyring' },
+    { DBUS_STARTER_ADDRESS: isolated.BYOKIT_KEYRING_OWNER_BUS },
+    { XDG_DATA_HOME: '/owner/data' },
+    { XDG_CONFIG_HOME: '/owner/config' },
+    { XDG_CACHE_HOME: '/owner/cache' },
+    { XDG_RUNTIME_DIR: '/run/user/1000' },
+    { BYOKIT_KEYRING_TEST_ROOT: '/owner/home' },
+  ]) assert.throws(() => assertPrivateKeyringSession({ ...isolated, ...change }), /private OS session/);
+  assert.throws(() => assertPrivateKeyringSession({ BYOKIT_REAL_KEYRING: '1' }), /private OS session/);
+
+  if (process.platform === 'linux' && spawnSync('dbus-run-session', ['--version']).status === 0) await privateSecretService();
 });
 
 test('a poisoned environment changes nothing: no secret is read from it and no spawn inherits it', async () => {
@@ -258,7 +312,7 @@ test('secrets live in a passphrase-sealed file or a host override; a wrong passp
   assert.throws(() => writeFileAtomic('relative.json', 'x'), code('invalid'));
 });
 
-test('sealing keeps credentials encrypted and refuses a wrong key, tampering and truncation', async () => {
+test('sealing keeps credentials encrypted and fails closed: wrong, tampered, missing or locked keys never expose or replace data', async () => {
   // An explicit host key: fresh nonce each time, wrong key and tampered/truncated input refused.
   const key = key32(7);
   const host = hostKeySeal({ key, service: 'byokit-test' });
@@ -275,8 +329,22 @@ test('sealing keeps credentials encrypted and refuses a wrong key, tampering and
   assert.throws(() => hostKeySeal({ key, service: 'other' }).decryptString(first), code('auth-failed'));
   for (const bad of [new Uint8Array(31), new Uint8Array(33), 'secret', undefined]) {
     assert.throws(() => hostKeySeal({ key: bad as never }), code('invalid'));
+    assert.throws(() => hostKeySeal({ key: () => bad as never }).encryptString(CANARY), code('invalid'));
   }
   assert.throws(() => hostKeySeal({ key: () => { throw new Error('gone'); } }).encryptString(CANARY), code('unavailable'));
+  // The host's key is only borrowed: the adapter never zeroes bytes it was handed.
+  const owned = randomBytes(32);
+  const ownedCopy = Buffer.from(owned);
+  hostKeySeal({ key: owned, service: 'byokit-test' }).encryptString(CANARY);
+  assert.deepEqual(owned, ownedCopy, 'host-owned key was zeroed');
+  // A host key seals an accounts file at rest; a wrong key cannot delete or rewrite it.
+  const hostAccounts = join(scratchDir('host-seal'), 'private', 'accounts.bin');
+  await accountFileStore(hostAccounts, hostKeySeal({ key: owned, service: 'Umer' })).modify('provider', async () => ({ type: 'api_key', key: CANARY }));
+  const hostBytes = readFileSync(hostAccounts);
+  assert.ok(!hostBytes.includes(Buffer.from(CANARY)));
+  assert.equal((await accountFileStore(hostAccounts, hostKeySeal({ key: owned, service: 'Umer' })).read('provider'))?.type, 'api_key');
+  await assert.rejects(accountFileStore(hostAccounts, hostKeySeal({ key: randomBytes(32), service: 'Umer' })).delete('provider'), code('auth-failed'));
+  assert.deepEqual(readFileSync(hostAccounts), hostBytes);
 
   // Automatic selection falls back to a private host key file when no keyring is available.
   const unavailable: KeyringBackend = { get() { throw new Error('none'); }, set() { throw new Error('none'); }, delete() { throw new Error('none'); } };
@@ -303,7 +371,7 @@ test('sealing keeps credentials encrypted and refuses a wrong key, tampering and
   writeFileAtomic(storePath, fileSeal.encryptString(CANARY));
   fileSeal.rotate([storePath]);
   assert.equal(hostKeyFileSeal(o).decryptString(readFileSync(storePath)), CANARY);
-  assert.equal(readdirSync(dirname(keyPath)).filter((f) => f.endsWith('.key')).length, 1);
+  assert.equal(keyFiles(stateDir).length, 1);
   assert.throws(() => fileSeal.decryptString(ciphertext), code('unavailable'));
   // Insecure key permissions and a symlinked key are refused.
   const currentKey = onlyKey(stateDir);
@@ -316,10 +384,72 @@ test('sealing keeps credentials encrypted and refuses a wrong key, tampering and
   symlinkSync(target, currentKey);
   assert.throws(() => hostKeyFileSeal(o), code('invalid'));
 
+  if (process.platform !== 'win32') {
+    // Insecure key or directory modes, and a key owned by another user, are refused on every use.
+    const perm = { service: 'byokit-perm', stateDir: scratchDir('secrets-perm') };
+    const permSeal = hostKeyFileSeal(perm);
+    const permKey = onlyKey(perm.stateDir);
+    for (const mode of [0o640, 0o604, 0o666]) {
+      chmodSync(permKey, mode);
+      assert.throws(() => hostKeyFileSeal(perm), code('invalid'));
+      assert.throws(() => permSeal.encryptString(CANARY), code('invalid'));
+    }
+    chmodSync(permKey, 0o600);
+    chmodSync(dirname(permKey), 0o750);
+    assert.throws(() => hostKeyFileSeal(perm), code('invalid'));
+    chmodSync(dirname(permKey), 0o700);
+    const originalFstat = fs.fstatSync;
+    fs.fstatSync = ((...args: Parameters<typeof fs.fstatSync>) => ({ ...originalFstat(...args), uid: process.getuid!() + 1, isFile: () => true })) as typeof fs.fstatSync;
+    syncBuiltinESMExports();
+    try { assert.throws(() => hostKeyFileSeal(perm), code('invalid')); }
+    finally { fs.fstatSync = originalFstat; syncBuiltinESMExports(); }
+  }
+
+  // Eight processes racing on first use publish one complete key, and each opens the others' envelopes.
+  const race = { service: 'byokit-race', stateDir: scratchDir('secrets-race') };
+  const program = `import { hostKeyFileSeal } from ${JSON.stringify(distIndex)}; const s = hostKeyFileSeal(${JSON.stringify(race)}); process.stdout.write(Buffer.from(s.encryptString('race')).toString('base64'));`;
+  const outputs = await Promise.all(Array.from({ length: 8 }, () => new Promise<Buffer>((resolveRun, reject) => {
+    const child = spawn(process.execPath, ['--input-type=module', '-e', program]);
+    const output: Buffer[] = [], errors: Buffer[] = [];
+    child.stdout.on('data', (b) => output.push(b)); child.stderr.on('data', (b) => errors.push(b));
+    child.on('error', reject);
+    child.on('exit', (status) => status === 0 ? resolveRun(Buffer.from(Buffer.concat(output).toString(), 'base64')) : reject(new Error(Buffer.concat(errors).toString())));
+  })));
+  const raceSeal = hostKeyFileSeal(race);
+  for (const output of outputs) assert.equal(raceSeal.decryptString(output), 'race');
+  assert.equal(keyFiles(race.stateDir).length, 1);
+
+  // Rotation resumes after an interrupted second replacement: the old key stays until every store is rewritten.
+  const rot = { service: 'byokit-rotate', stateDir: scratchDir('secrets-rotate') };
+  const rotating = hostKeyFileSeal(rot);
+  const retired = onlyKey(rot.stateDir);
+  const retiredBytes = Buffer.from(rotating.encryptString(CANARY));
+  const rotPaths = ['store', 'archive'].map((name) => join(rot.stateDir, name));
+  for (const path of rotPaths) writeFileAtomic(path, retiredBytes);
+  const originalRename = fs.renameSync;
+  fs.renameSync = ((from, to) => { if (to === rotPaths[1]) throw new Error(CANARY); return originalRename(from, to); }) as typeof fs.renameSync;
+  syncBuiltinESMExports();
+  try { assert.throws(() => rotating.rotate(rotPaths), code('unavailable')); }
+  finally { fs.renameSync = originalRename; syncBuiltinESMExports(); }
+  assert.ok(existsSync(retired), 'the old key stays until every store is rewritten');
+  const resumed = hostKeyFileSeal(rot);
+  for (const path of rotPaths) assert.equal(resumed.decryptString(readFileSync(path)), CANARY, 'a mixed-generation store stays readable');
+  assert.throws(() => resumed.encryptString('new write'), code('unavailable'), 'writes wait for the rotation to finish');
+  resumed.rotate();
+  assert.equal(existsSync(retired), false, 'the old key is retired on completion');
+  for (const path of rotPaths) assert.equal(rotating.decryptString(readFileSync(path)), CANARY);
+  assert.throws(() => rotating.decryptString(retiredBytes), code('unavailable'));
+  assert.equal(keyFiles(rot.stateDir).length, 1);
+  rotating.rotate(rotPaths);
+  for (const path of rotPaths) assert.equal(resumed.decryptString(readFileSync(path)), CANARY);
+
   // The OS keyring seal encrypts, rotates and refuses a wrong service, tampering and truncation.
   const ring = fakeRing();
   const ringDir = scratchDir('secrets-ring');
   const ro = { service: 'byokit-test', stateDir: ringDir, keyring: ring.backend };
+  const idle = fakeRing();
+  osKeyringSeal({ service: 'byokit-idle', stateDir: scratchDir('secrets-idle'), keyring: idle.backend });
+  assert.equal(idle.data.size, 0, 'construction probes availability without creating a key');
   const seal = osKeyringSeal(ro);
   assert.equal(seal.mode, 'keyring');
   const sealed = Buffer.from(seal.encryptString(CANARY));
@@ -337,6 +467,58 @@ test('sealing keeps credentials encrypted and refuses a wrong key, tampering and
   assert.equal(seal.decryptString(sealed), CANARY, 'rotation retains old keys');
   assert.notDeepEqual(Buffer.from(seal.encryptString(CANARY)), sealed);
 
+  // Wrong, missing or corrupt data keys fail closed: the accounts file is preserved and no replacement key is generated.
+  const wrongDir = scratchDir('secrets-wrong');
+  const wrongPath = join(wrongDir, 'private', 'accounts.bin');
+  const wrongRing = fakeRing();
+  const wrongSeal = osKeyringSeal({ service: 'byokit-wrong', stateDir: wrongDir, keyring: wrongRing.backend });
+  await accountFileStore(wrongPath, wrongSeal).modify('provider', async () => ({ type: 'api_key', key: CANARY }));
+  const original = readFileSync(wrongPath);
+  for (const at of [0, 4, 5, 21, 45, original.length - 1]) {
+    const t = Buffer.from(original);
+    t[at] ^= 1;
+    assert.throws(() => wrongSeal.decryptString(t), code('auth-failed'));
+  }
+  for (const length of [0, 20, 60]) assert.throws(() => wrongSeal.decryptString(original.subarray(0, length)), code('auth-failed'));
+  assert.throws(() => osKeyringSeal({ service: 'another-service', stateDir: wrongDir, keyring: wrongRing.backend }).decryptString(original), code('auth-failed'));
+  const dataKeyName = `byokit-seal-key-v1-${original.subarray(5, 21).toString('hex')}`;
+  const realKey = wrongRing.data.get(dataKeyName)!;
+  for (const wrong of [randomBytes(32).toString('hex'), 'corrupt', null]) {
+    if (wrong === null) wrongRing.data.delete(dataKeyName); else wrongRing.data.set(dataKeyName, wrong);
+    await assert.rejects(accountFileStore(wrongPath, wrongSeal).read('provider'), code('auth-failed'));
+    await assert.rejects(accountFileStore(wrongPath, wrongSeal).modify('provider', async () => ({ type: 'api_key', key: 'replace' })), code('auth-failed'));
+    assert.deepEqual(readFileSync(wrongPath), original);
+    assert.equal(wrongRing.data.get(dataKeyName), wrong ?? undefined, 'no replacement key is generated');
+  }
+  wrongRing.data.set(dataKeyName, realKey);
+  assert.equal(JSON.parse(wrongSeal.decryptString(original)).provider.key, CANARY);
+
+  // A failed activation leaves old keys usable; competing initialization cannot orphan ciphertext;
+  // a keyring that drops writes fails the read-back.
+  const activate = fakeRing();
+  const activeOptions = { service: 'byokit-activate', stateDir: scratchDir('secrets-activate'), keyring: activate.backend };
+  const a = osKeyringSeal(activeOptions);
+  const old = Buffer.from(a.encryptString(CANARY));
+  const active = activate.data.get('byokit-seal-active-v1');
+  const originalSet = activate.backend.set;
+  activate.backend.set = (name, value) => {
+    if (name === 'byokit-seal-active-v1') throw new Error(CANARY);
+    originalSet(name, value);
+  };
+  assert.throws(() => a.rotateKey(), code('unavailable'));
+  assert.equal(activate.data.get('byokit-seal-active-v1'), active);
+  assert.equal(a.decryptString(old), CANARY);
+  activate.backend.set = originalSet;
+  const b = osKeyringSeal(activeOptions);
+  const saved = b.rotateKey();
+  const bFile = Buffer.from(b.encryptString('other process'));
+  a.rotateKey();
+  assert.equal(a.decryptString(bFile), 'other process');
+  assert.ok(activate.data.has(`byokit-seal-key-v1-${saved}`));
+  assert.equal(b.decryptString(old), CANARY);
+  activate.backend.set = () => {};
+  assert.throws(() => a.rotateKey(), code('auth-failed'), 'read-back rejects a keyring that drops writes');
+
   // Dual wrapping opens while the keyring is locked; a keyring-only store is bounded and fails closed.
   const strict = osKeyringSeal({ ...ro, fallback: false });
   const dual = osKeyringSeal({ ...ro, dualWrap: true });
@@ -353,6 +535,80 @@ test('sealing keeps credentials encrypted and refuses a wrong key, tampering and
   } finally {
     ring.state.locked = false;
   }
+
+  // Locked keyring: a store read or delete fails with keyring-locked and leaves its bytes unchanged.
+  const lockedDir = scratchDir('locked-open');
+  const lockedPath = join(lockedDir, 'private', 'accounts.bin');
+  const lockedRing = fakeRing();
+  const lockedOptions = { service: 'locked-open', stateDir: lockedDir, keyring: lockedRing.backend };
+  await accountFileStore(lockedPath, osKeyringSeal(lockedOptions)).modify('provider', async () => ({ type: 'api_key', key: CANARY }));
+  const lockedBytes = readFileSync(lockedPath);
+  lockedRing.state.locked = true;
+  const reopened = accountFileStore(lockedPath, osKeyringSeal(lockedOptions));
+  await assert.rejects(reopened.read('provider'), code('keyring-locked'));
+  await assert.rejects(reopened.delete('provider'), code('keyring-locked'));
+  assert.deepEqual(readFileSync(lockedPath), lockedBytes);
+  lockedRing.state.locked = false;
+  assert.equal((await reopened.read('provider'))?.type, 'api_key');
+  assert.equal((await accountFileStore(lockedPath, osKeyringSeal(lockedOptions)).read('provider'))?.type, 'api_key', 'a fallback cannot override a mode-1 header');
+  assert.deepEqual(readFileSync(lockedPath), lockedBytes);
+
+  // Dual wrap: a failed atomic rename during the upgrade leaves the store retryable; mode-2 stores are not upgraded;
+  // tampering with the inaccessible keyring wrap is rejected.
+  const upgradeRing = fakeRing();
+  const upgradeOptions = { service: 'dual-test', stateDir: scratchDir('dual-wrap'), keyring: upgradeRing.backend };
+  const upgradePath = join(upgradeOptions.stateDir, 'private', 'accounts.bin');
+  await accountFileStore(upgradePath, osKeyringSeal(upgradeOptions)).modify('provider', async () => ({ type: 'api_key', key: CANARY }));
+  const modeOne = readFileSync(upgradePath);
+  assert.equal(modeOne[4], 1);
+  const dualOptions = osKeyringSeal({ ...upgradeOptions, dualWrap: true });
+  const upgraded = accountFileStore(upgradePath, dualOptions);
+  const originalUpgradeRename = fs.renameSync;
+  fs.renameSync = ((from, to) => { if (to === upgradePath) throw new Error('interrupted'); return originalUpgradeRename(from, to); }) as typeof fs.renameSync;
+  syncBuiltinESMExports();
+  try { await assert.rejects(upgraded.read('provider'), /interrupted/); }
+  finally { fs.renameSync = originalUpgradeRename; syncBuiltinESMExports(); }
+  assert.deepEqual(readFileSync(upgradePath), modeOne);
+  assert.equal((await upgraded.read('provider'))?.type, 'api_key');
+  const upgradedBytes = readFileSync(upgradePath);
+  assert.equal(upgradedBytes[4], 3);
+  assert.ok(!upgradedBytes.includes(Buffer.from(CANARY)));
+  const hostPath = join(upgradeOptions.stateDir, 'private', 'host.bin');
+  await accountFileStore(hostPath, hostKeyFileSeal(upgradeOptions)).modify('provider', async () => ({ type: 'api_key', key: CANARY }));
+  const hostFileBytes = readFileSync(hostPath);
+  const directlySealed = Buffer.from(dualOptions.encryptString(CANARY));
+  upgradeRing.state.locked = true;
+  const locked = osKeyringSeal({ ...upgradeOptions, dualWrap: true });
+  assert.equal(locked.decryptString(directlySealed), CANARY);
+  assert.equal((await accountFileStore(hostPath, locked).read('provider'))?.type, 'api_key');
+  assert.deepEqual(readFileSync(hostPath), hostFileBytes, 'mode-2 stores are not upgraded');
+  assert.equal((await accountFileStore(upgradePath, locked).read('provider'))?.type, 'api_key');
+  assert.deepEqual(readFileSync(upgradePath), upgradedBytes);
+  // Even the inaccessible keyring wrap is bound into the payload authentication.
+  for (const at of [0, 4, 5, 21, 25, 29, 55, 29 + upgradedBytes.readUInt32BE(21) + 50, upgradedBytes.length - 1]) {
+    const tamperedDual = Buffer.from(upgradedBytes);
+    tamperedDual[at] ^= at === 4 ? 128 : 1;
+    assert.throws(() => locked.decryptString(tamperedDual), code('auth-failed'));
+  }
+  upgradeRing.state.locked = false;
+  assert.equal(osKeyringSeal(upgradeOptions).decryptString(upgradedBytes), dualOptions.decryptString(upgradedBytes));
+  assert.equal(dualOptions.decryptString(modeOne), osKeyringSeal(upgradeOptions).decryptString(modeOne));
+  assert.throws(() => osKeyringSeal({ ...upgradeOptions, dualWrap: true, fallback: false }), code('invalid'));
+
+  // The envelope past the 1 MiB chunk boundary: a surrogate pair straddling the boundary, with quotes,
+  // backslashes and control characters, seals to exactly the JSON.stringify envelope and round-trips.
+  const CHUNK = 1 << 20;
+  const envelopeService = 'byokit-host-key';
+  const envelopeKey = Buffer.alloc(32, 5);
+  const envelopeSeal = hostKeySeal({ key: envelopeKey, service: envelopeService });
+  const head = '"\\\n\u0001\u0007 quoted   tail';
+  const text = head + 'y'.repeat(CHUNK - 1 - head.length) + '😀' + '"\\\u0002' + 'z'.repeat(CHUNK + 4096) + '\ud83d';
+  assert.equal(text.charCodeAt(CHUNK - 1), 0xd83d, 'a surrogate pair starts at the last unit of the first chunk');
+  const sealedText = Buffer.from(envelopeSeal.encryptString(text));
+  const plain = openSecretBox(sealedText.subarray(21), envelopeKey);
+  assert.ok(plain, 'the envelope authenticates under the key');
+  assert.deepEqual(Buffer.from(plain.subarray(21)), Buffer.from(JSON.stringify({ service: envelopeService, text })));
+  assert.equal(envelopeSeal.decryptString(sealedText), text);
 });
 
 test('the browser and phone entries keep secrets at rest, and the published entry bundles with no Node code', async () => {
@@ -385,6 +641,54 @@ test('the browser and phone entries keep secrets at rest, and the published entr
   await assert.rejects(web.get(''), code('invalid'));
   await assert.rejects(web.set('x', '😀'.repeat(262145)), code('invalid'));
 
+  // A fresh store never races into two device keys: eight concurrent first writes share one persisted key.
+  const raced = new IDBFactory();
+  const racers = Array.from({ length: 8 }, () => webStore({ indexedDB: raced, crypto, isSecureContext: true }));
+  await Promise.all(racers.map((store, i) => store.set(`provider-${i}`, `${CANARY}${i}`)));
+  for (let i = 0; i < racers.length; i++) assert.equal(await webStore({ indexedDB: raced, crypto, isSecureContext: true }).get(`provider-${i}`), `${CANARY}${i}`);
+  assert.deepEqual(await Promise.all(racers.map((store) => store.delete('provider-0'))), [true, ...Array(7).fill(false)]);
+
+  // Name binding: a ciphertext copied to another item name fails authentication, and a failed write keeps the stored record.
+  const bound = new IDBFactory();
+  const boundWeb = webStore({ indexedDB: bound, crypto, isSecureContext: true });
+  await boundWeb.set('original', CANARY);
+  await boundWeb.set('other', 'other-value');
+  const copied = await idbRead(bound, 'item:original');
+  await idbRead(bound, 'item:other', () => copied);
+  await assert.rejects(boundWeb.get('other'), code('auth-failed'));
+  assert.equal(await boundWeb.get('original'), CANARY);
+  const broken = new IDBFactory();
+  const brokenWeb = webStore({ indexedDB: broken, crypto, isSecureContext: true });
+  await brokenWeb.set('original', CANARY);
+  const storedRecord = await idbRead(broken, 'item:original');
+  await idbRead(broken, 'device-wrap-key', () => ({ extractable: true }));
+  await assert.rejects(brokenWeb.set('original', 'replacement'), code('auth-failed'));
+  assert.deepEqual(await idbRead(broken, 'item:original'), storedRecord);
+  await idbRead(broken, 'item:original', () => ({ v: 2 }));
+  await assert.rejects(brokenWeb.get('original'), code('auth-failed'));
+
+  // Unavailable APIs, aborted transactions and crypto failures map to typed codes without exposing the secret.
+  const failing = webStore({ indexedDB: idb, crypto: { subtle: { generateKey: async () => { throw new Error(CANARY); } } } as unknown as Crypto, isSecureContext: true });
+  await assert.rejects(failing.set('x', CANARY), code('failed'));
+  const base = new IDBFactory();
+  const aborting = {
+    open(name: string, version?: number) {
+      const request = base.open(name, version);
+      request.addEventListener('success', () => {
+        const db = request.result;
+        const original = db.transaction.bind(db);
+        db.transaction = (names, mode, options) => {
+          const tx = original(names, mode, options);
+          queueMicrotask(() => tx.abort());
+          return tx;
+        };
+      });
+      return request;
+    },
+  } as IDBFactory;
+  await assert.rejects(webStore({ indexedDB: aborting, crypto, isSecureContext: true }).set('x', CANARY), code('failed'));
+  assert.throws(() => webStore({ database: '' }), code('invalid'));
+
   // Phone: SecureStore receives only safe, collision-free keys and the host's options.
   const entries = new Map<string, string>();
   const calls: { key: string; options: unknown }[] = [];
@@ -402,27 +706,55 @@ test('the browser and phone entries keep secrets at rest, and the published entr
   assert.equal(await phone.get('provider/🔑'), CANARY);
   assert.equal(await phone.get('provider_🔑'), '');
   assert.equal(await phone.delete('provider/🔑'), true);
+  assert.equal(await phone.delete('provider/🔑'), false);
   for (const call of calls) {
     assert.match(call.key, /^[A-Za-z0-9._-]+$/);
     assert.deepEqual(call.options, secureOptions);
   }
   assert.throws(() => nativeStore({ prefix: 'bad/prefix' }), code('invalid'));
   await assert.rejects(phone.set('x', 'a'.repeat(1024 * 1024 + 1)), code('invalid'));
+  await assert.rejects(phone.get('x\0y'), code('invalid'));
+  // The UTF-8 size cap matches Node's byte count, including unmatched surrogates.
+  for (const unit of ['a', 'é', '字', '😀', '\ud800', '\udc00']) {
+    const limit = Math.floor(1024 * 1024 / Buffer.byteLength(unit));
+    await assert.doesNotReject(phone.set('size', unit.repeat(limit)));
+    await assert.rejects(phone.set('size', unit.repeat(limit + 1)), code('invalid'));
+  }
+  // A failing SecureStore write reports a typed failure and never echoes the secret.
+  fake.setItemAsync = async () => { throw new Error(CANARY); };
+  await assert.rejects(phone.set('x', CANARY), code('failed'));
 
-  // Both published cross-platform entries bundle for a phone and a browser with no Node code.
+  // Both published cross-platform entries bundle for a phone and a browser with no Node code, and run in a fresh VM.
   for (const condition of ['browser', 'react-native']) {
     const bundle = await build({
       stdin: { contents: "import * as kit from '@byokit/secrets'; globalThis.kit = kit;", resolveDir: import.meta.dirname },
       bundle: true, platform: 'browser', format: 'iife', conditions: [condition], write: false, metafile: true, logLevel: 'silent',
       plugins: [{ name: 'fake-secure-store', setup(b) {
         b.onResolve({ filter: /^expo-secure-store$/ }, () => ({ path: 'expo-secure-store', namespace: 'fake' }));
-        b.onLoad({ filter: /.*/, namespace: 'fake' }, () => ({ contents: 'export async function getItemAsync() { return null; } export async function setItemAsync() {} export async function deleteItemAsync() {}' }));
+        b.onLoad({ filter: /.*/, namespace: 'fake' }, () => ({ contents: 'export async function getItemAsync() { return "fake-device-secret"; } export async function setItemAsync() {} export async function deleteItemAsync() {}' }));
       } }],
     });
     const inputs = Object.keys(bundle.metafile!.inputs);
     assert.deepEqual(inputs.filter((file) => /^node:/.test(file)), [], `Node module in the ${condition} bundle`);
     assert.ok(!inputs.some((file) => /secrets\/dist\/(index|file|keyring|atomic|os-keyring|sealing|host-key-file)\.js$/.test(file)), `Node-only code in the ${condition} bundle`);
-    assert.ok(bundle.outputFiles[0].text.length > 0);
+    const context: Record<string, unknown> = condition === 'browser'
+      ? { indexedDB: new IDBFactory(), crypto, isSecureContext: true, TextEncoder, TextDecoder, Uint8Array, ArrayBuffer }
+      : {};
+    runInNewContext(bundle.outputFiles[0].text, context);
+    assert.equal(runInNewContext('typeof Buffer + ":" + typeof process + ":" + typeof require', context), 'undefined:undefined:undefined');
+    const kit = context.kit as { overrideStore: typeof overrideStore; nativeStore: typeof nativeStore; webStore: typeof webStore };
+    assert.equal(await kit.overrideStore({ token: CANARY }).get('token'), CANARY);
+    if (condition === 'react-native') {
+      assert.equal(runInNewContext('typeof TextEncoder', context), 'undefined');
+      const bundled = kit.nativeStore();
+      assert.equal(await bundled.get('token'), 'fake-device-secret');
+      await bundled.set('unicode/🔑', CANARY);
+    } else {
+      const bundled = kit.webStore({ indexedDB: new IDBFactory(), crypto, isSecureContext: true });
+      await bundled.set('token', CANARY);
+      assert.equal(await bundled.get('token'), CANARY);
+      assert.equal(await bundled.delete('token'), true);
+    }
   }
 });
 
@@ -498,6 +830,97 @@ test('a keystore run under a locked-down permission set never touches anyone els
   assert.deepEqual([...after.keys()].sort(), [...before.keys()].sort(), 'the decoy gained or lost files');
   for (const [path, bytes] of before) assert.deepEqual(after.get(path), bytes, `decoy file changed: ${path}`);
 });
+
+// A private Secret Service on a throwaway D-Bus session: a locked or hung collection is probed within a bound and is
+// never unlocked, prompted or created, and a sealed file written while unlocked opens again once the keyring is back.
+async function privateSecretService(): Promise<void> {
+  const root = scratchDir('private-bus');
+  const childProgram = `
+    import assert from 'node:assert/strict';
+    import { osKeyringSeal } from ${JSON.stringify(distIndex)};
+    import { readFileSync, writeFileSync } from 'node:fs';
+    import { join } from 'node:path';
+    const [mode, stateDir, operation] = process.argv.slice(1);
+    const start = Date.now();
+    const seal = osKeyringSeal({ service: 'fake-service', stateDir, timeoutMs: 500 });
+    const rawFile = join(stateDir, 'probe.sealed');
+    if (operation === 'open') {
+      const original = readFileSync(rawFile);
+      if (mode === 'unlocked') assert.equal(seal.decryptString(original), 'key-canary');
+      else assert.throws(() => seal.decryptString(original), (e) => e.code === 'keyring-locked');
+      assert.deepEqual(readFileSync(rawFile), original);
+    } else {
+      assert.equal(seal.mode, mode === 'unlocked' ? 'keyring' : 'host-key-file');
+      assert.ok(Date.now() - start < 2000, 'probe is bounded');
+      const ciphertext = Buffer.from(seal.encryptString('key-canary'));
+      assert.equal(seal.decryptString(ciphertext), 'key-canary');
+      assert.equal(ciphertext.includes('key-canary'), false);
+      writeFileSync(rawFile, ciphertext, { mode: 0o600 });
+    }
+    process.exit(0);
+  `;
+  const runner = join(root, 'runner.mjs');
+  writeFileSync(runner, `
+    import { createRequire } from 'node:module';
+    import { spawn } from 'node:child_process';
+    import { mkdirSync } from 'node:fs';
+    import assert from 'node:assert/strict';
+    const require = createRequire(${JSON.stringify(import.meta.url)});
+    const dbus = require('@homebridge/dbus-native');
+    const bus = dbus.sessionBus();
+    let mode = 'locked', prompts = 0;
+    const keys = new Map();
+    const rootPath = '/org/freedesktop/secrets', col = rootPath + '/collection/default';
+    const service = 'org.freedesktop.Secret.Service', item = 'org.freedesktop.Secret.Item';
+    const register = (path, iface, member, signature, handler) => { const exported = bus.exportedObjects[path]?.[iface]; if (exported) { exported[0].methods[member] = ['', signature]; exported[1][member] = handler; } else bus.setMethodCallHandler(path, iface, member, [handler, signature]); };
+    register(rootPath, service, 'ReadAlias', 'o', () => mode === 'hung' ? new Promise(() => {}) : col);
+    bus.exportInterface({ get Locked() { return mode === 'locked'; } }, col, { name: 'org.freedesktop.Secret.Collection', methods: {}, properties: { Locked: 'b' } });
+    register(rootPath, service, 'SearchItems', 'aoao', (attrs) => {
+      const username = attrs.find(([name]) => name === 'username')[1];
+      return [keys.has(username) ? [rootPath + '/item/' + Buffer.from(username).toString('hex')] : [], []];
+    });
+    register(rootPath, service, 'OpenSession', 'vo', () => [['s', ''], rootPath + '/session/test']);
+    register(col, 'org.freedesktop.Secret.Collection', 'CreateItem', 'oo', (props, value) => {
+      const attrs = props.find(([name]) => name.endsWith('.Attributes'))[1][1][0];
+      const username = attrs.find(([name]) => name === 'username')[1];
+      const path = rootPath + '/item/' + Buffer.from(username).toString('hex');
+      keys.set(username, Buffer.from(value[2]));
+      register(path, item, 'GetSecret', '(oayays)', () => [rootPath + '/session/test', Buffer.alloc(0), keys.get(username), 'text/plain']);
+      register(path, item, 'Delete', 'o', () => { keys.delete(username); return '/'; });
+      return [path, '/'];
+    });
+    register(rootPath, service, 'Unlock', 'aoo', () => { prompts++; throw new Error('unlock requested'); });
+    bus.connection.on('message', (message) => { if (message.member === 'Prompt' || message.member === 'Unlock' || message.member === 'CreateCollection') prompts++; });
+    await new Promise((resolve, reject) => bus.requestName('org.freedesktop.secrets', 0, (error) => error ? reject(error) : resolve()));
+    const run = (phase, stateDir, operation) => new Promise((resolve, reject) => {
+      mode = phase;
+      const child = spawn(process.execPath, ['--input-type=module', '-e', ${JSON.stringify(childProgram)}, phase, stateDir, operation], { stdio: ['ignore', 'pipe', 'pipe'] });
+      let output = ''; child.stdout.on('data', b => output += b); child.stderr.on('data', b => output += b);
+      child.on('error', reject); child.on('exit', code => code === 0 ? resolve() : reject(new Error(output)));
+    });
+    for (const phase of ['locked', 'hung', 'unlocked']) {
+      const stateDir = ${JSON.stringify(root)} + '/' + phase;
+      mkdirSync(stateDir, { mode: 0o700 });
+      await run(phase, stateDir, 'seal');
+    }
+    const recoveryDir = ${JSON.stringify(root)} + '/recovery';
+    mkdirSync(recoveryDir, { mode: 0o700 });
+    await run('unlocked', recoveryDir, 'seal');
+    for (const phase of ['locked', 'hung', 'unlocked']) await run(phase, recoveryDir, 'open');
+    assert.equal(prompts, 0);
+    bus.connection.stream.end();
+    process.exit(0);
+  `);
+  await new Promise<void>((resolve, reject) => {
+    // Inherited owner bus/control/XDG data are absent; dbus-run-session creates the only bus.
+    const child = spawn('dbus-run-session', ['--', process.execPath, runner], { env: { PATH: '/usr/bin:/bin', HOME: root, TMPDIR: root, NODE_OPTIONS: process.env.NODE_OPTIONS } });
+    let output = ''; child.stdout.on('data', b => output += b); child.stderr.on('data', b => output += b);
+    child.on('error', reject); child.on('exit', status => {
+      assert.ok(!output.includes(CANARY));
+      status === 0 ? resolve() : reject(new Error(output));
+    });
+  });
+}
 
 async function idbRead(idb: IDBFactory, key: string, change?: (value: any) => any): Promise<any> {
   const db = await new Promise<IDBDatabase>((resolveDb, reject) => {

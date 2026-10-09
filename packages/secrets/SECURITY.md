@@ -74,17 +74,14 @@ Apps hold API keys. The store must make sure that:
 ## Review checklist
 
 - [ ] OS placement/session environment reads stay on the sealing allowlist; no credential variables are read; spawns pass `env` explicitly.
-- [ ] The fake-CLI tests assert the canary is absent from the recorded argv and env for set, get and delete.
-- [ ] The poisoned-env test leaves behaviour unchanged and the fake's env holds exactly base plus host extras.
+- [ ] The OS keyring journey asserts the canary is absent from the recorded argv and env for set, get and delete.
+- [ ] The poisoned-environment journey leaves behaviour unchanged and the fake's env holds exactly base plus host extras.
 - [ ] A wrong passphrase rejects `auth-failed`; the sealed file holds no plaintext canary.
 - [ ] `writeFileAtomic` creates 0700 folders and a 0600 file and replaces atomically (rename).
 - [ ] Error messages name entries, never secrets; stderr tails never reach messages.
 - [ ] Browser/React Native entries bundle and run without Node imports or globals; Expo is an optional peer.
-- [ ] Fake IndexedDB tests prove encrypted storage, non-extractability, fresh IVs, tamper rejection and atomic key initialization.
-- [ ] Fake SecureStore tests prove all methods use the same options and native errors cannot expose secrets.
-- [ ] Accounts sealing tests prove fileStore integration, wrong-key/tamper failure without overwrite,
-  retained keyring rotation keys, key read-back, automatic headless keys, private permissions,
-  concurrent first use, resumable file-key rotation and locked/hung private D-Bus probes without prompts.
+- [ ] The browser and phone journey proves encrypted IndexedDB storage, non-extractable keys, name binding, tamper rejection, one persisted device key under concurrent first use, and that a SecureStore failure never exposes the secret.
+- [ ] The sealing and OS keyring journeys (`packages/secrets/test/journey-secrets.test.ts`) prove accounts `fileStore` integration, wrong-key and tamper failure without overwrite, retained keyring rotation keys, key read-back, automatic headless keys, private permissions, concurrent first use, resumable file-key rotation, and locked or hung private D-Bus probes that never unlock or prompt (the D-Bus probe runs where `dbus-run-session` exists).
 - [ ] Real Secret Service testing clears inherited desktop settings, creates a private HOME/XDG/control
   tree, and asserts the private D-Bus address before native calls; opt-in alone refuses the user bus.
   Ordinary tests use injected fakes.
