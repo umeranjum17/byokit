@@ -7,7 +7,8 @@ export const REST_MS: Record<Kind, number> = { rate_limit: 60 * 60_000, overload
 export type Failure = { kind: Kind; until: number };
 /** Pure when the host passes its clock. REST_MS supplies the fallback rest duration. */
 export function classifyFailure(error: string, nowMs: number = Date.now()): Failure | null {
-  const m = /try again in ~?(\d+)\s*(min|h)/i.exec(error);
+  // Kept in step with @byokit/openclaw's classify: both read the retry delay from either wording.
+  const m = /(?:try again in|next reset in)\s*~?(\d+)\s*(min|h)/i.exec(error);
   const until = m ? nowMs + Number(m[1]) * (m[2].toLowerCase() === 'h' ? 3_600_000 : 60_000) : 0;
   if (/your plan doesn't include/i.test(error)) return { kind: 'not_included', until };
   if (/usage limit|rate.?limit|quota|too many requests|\b429\b/i.test(error)) return { kind: 'rate_limit', until };

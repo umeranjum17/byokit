@@ -129,6 +129,30 @@ test('a usage-limit wait error rests with an until about five minutes out', asyn
   assert.ok(end.until !== undefined && Math.abs(end.until - (before + 300_000)) < 5_000, `until ${end.until}`);
 });
 
+test('the Codex "Next reset in N min/hours" wording carries its stated deadline; no number keeps the fallback', async () => {
+  for (const [message, ms] of [
+    ["You've reached your Codex subscription usage limit. Next reset in 4 hours, 3:00 PM.", 4 * 3_600_000],
+    ['You have hit your ChatGPT usage limit. Next reset in 45 minutes.', 45 * 60_000],
+    ['You have hit your ChatGPT usage limit. Next reset in 1 hour.', 3_600_000],
+    ['usage limit, try again in 5 min', 300_000],
+  ] as const) {
+    const h = harness();
+    h.fake.failNext('agent.wait', message);
+    const before = Date.now();
+    const end = await h.runs.run({ member: 'm1', sessionKey: 'agent:m1:rest', message: 'hello' });
+    assert.ok(!end.ok && 'kind' in end, JSON.stringify(end));
+    assert.equal(end.kind, 'resting', message);
+    assert.ok(end.until !== undefined && Math.abs(end.until - (before + ms)) < 5_000, `${message}: until ${end.until}`);
+  }
+  // A rate limit that names no reset keeps the fallback: no until on RunEnd.
+  const h = harness();
+  h.fake.failNext('agent.wait', 'You have hit your usage limit (plus plan).');
+  const end = await h.runs.run({ member: 'm1', sessionKey: 'agent:m1:rest', message: 'hello' });
+  assert.ok(!end.ok && 'kind' in end, JSON.stringify(end));
+  assert.equal(end.kind, 'resting');
+  assert.equal('until' in end, false);
+});
+
 test('steer and abort address the session key', async () => {
   const h = harness();
   await h.runs.steer('agent:m1:s', 'go faster');
