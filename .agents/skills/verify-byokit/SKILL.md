@@ -120,6 +120,7 @@ From `constraint-driven-development`, applies to this skill and every change ver
 
 ## Helpers
 
-One helper ships: `capture/review-evidence.ts`, the review-evidence capture above (add a screen by adding a row to its `SCREENS` table, with its real themes, form factors and before route — never a hand-written capture path).
+Review-evidence helper: `capture/review-evidence.ts`, the capture above (add a screen by adding a row to its `SCREENS` table, with its real themes, form factors and before route — never a hand-written capture path).
 
-Every other drive is a plain `node "$scratch_dir/<file>.mjs"` grounded in the package READMEs (`packages/accounts/README.md` quickstart) and existing fixtures (`packages/accounts/src/testing/mock-openai.ts`, `examples/usage-demo.ts`, `scripts/pack-smoke.ts`). Write the consumer from the feature file, do not reverse-engineer one.
+Other maintained captures and scratch-consumer recipes are indexed in [the feature map](features/README.md).
+Use the feature file's drive command; write a scratch consumer only when that recipe calls for one.

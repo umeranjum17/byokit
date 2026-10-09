@@ -48,6 +48,8 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 
 ## Features
 
+- [openclaw-abort](./openclaw-abort.md) — healthy real-engine cancellation, engine-drop and already-gone catchable failures, invalid key mapping, no unhandled rejection in the handled consumer journey.
+
 - [accounts-signin](./accounts-signin.md) — device-code sign-in, status, streamed ask, and the error paths.
 - [accounts-device](./accounts-device.md) — the provider picker and a catalogue-driven device sign-in, refresh and decline.
 - [accounts-claude-refresh](./accounts-claude-refresh.md) — transient refresh (no answer, 5xx, passing 401) keeps the sign-in, retry rotates the same grant, invalid_grant signs out.
