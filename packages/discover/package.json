@@ -41,7 +41,7 @@
   "dependencies": {
     "@byokit/ui-core": "0.6.0",
     "bonjour-service": "^1.4.4",
-    "react-native-zeroconf": "0.14.0"
+    "react-native-zeroconf": "0.17.3"
   },
   "publishConfig": {
     "access": "public"

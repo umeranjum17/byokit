@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { build } from 'esbuild';
 import { browse, scan, type BrowseService, type ZeroconfLike } from '../src/browse.ts';
 
@@ -229,6 +230,7 @@ test('the Node entry never pulls react-native-zeroconf; the react-native conditi
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   assert.deepEqual(pkg.exports['.']['react-native'], { types: './dist/rn.d.ts', default: './dist/rn.js' });
   assert.deepEqual(pkg.exports['.'].default, './dist/index.js');
-  assert.equal(pkg.dependencies['react-native-zeroconf'], '0.14.0');
+  const installed = JSON.parse(readFileSync(createRequire(import.meta.url).resolve('react-native-zeroconf/package.json'), 'utf8'));
+  assert.equal(pkg.dependencies['react-native-zeroconf'], installed.version);
   assert.equal(pkg.peerDependencies?.['react-native-zeroconf'], undefined);
 });
