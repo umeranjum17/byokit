@@ -1,12 +1,32 @@
 import { strict as assert } from "node:assert";
-import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { cleanStaleScratch } from "../packages/test-support.ts";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+
+test("cleanStaleScratch removes only scratch roots whose recorded pid is dead", () => {
+  const parent = mkdtempSync(join(tmpdir(), "runner-stale-"));
+  try {
+    const dead = spawnSync(process.execPath, ["-e", ""], { stdio: "ignore" }).pid!;
+    const deadDir = join(parent, `byokit-test-${dead}-dead`);
+    const liveDir = join(parent, `byokit-test-${process.pid}-live`);
+    const otherDir = join(parent, "byokit-guard-keep");
+    mkdirSync(deadDir);
+    mkdirSync(liveDir);
+    mkdirSync(otherDir);
+    cleanStaleScratch(parent);
+    assert.equal(existsSync(deadDir), false, "scratch root of a dead pid is removed");
+    assert.equal(existsSync(liveDir), true, "scratch root of a live pid survives");
+    assert.equal(existsSync(otherDir), true, "a directory other than this project's scratch survives");
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
 
 test("concurrent test runners own their scratch; genuine leaks still fail; default TMPDIR is isolated", async () => {
   const parent = mkdtempSync(join(tmpdir(), "runner-guard-"));
