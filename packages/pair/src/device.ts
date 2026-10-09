@@ -3,7 +3,7 @@
 // its requests survive a reconnect: each carries a key, so a retried tap runs once. Uses only the platform's
 // WebSocket, so the same code runs in browsers, React Native and Node.
 import { Handshake, b64, b64url, keyPair, keyPairFrom, random, unb64url, type KeyPair, type Mode } from './channel.ts';
-import { cleanName, codeKey, decodeCompactOffer, parseCode, parseOffer, shortKey, COMPACT_TAG } from './pairing.ts';
+import { cleanName, codeKey, decodeCompactOffer, parseCode, parseOffer, parseV1Offer, shortKey, COMPACT_TAG } from './pairing.ts';
 import type { Role } from './host.ts';
 import { Streams, type LinkStream } from './stream.ts';
 
@@ -62,12 +62,16 @@ export class PublicLinkError extends LinkError {
 const known = (why: unknown): why is LinkProblem => typeof why === 'string' && Object.hasOwn(LINK_WORDS, why);
 const problem = (why: unknown): LinkProblem => (known(why) ? why : 'unreachable');
 const later = (ms: number, fn: () => void) => { const t: any = setTimeout(fn, ms); t.unref?.(); return t; };
+const within = <T>(ms: number, work: Promise<T>): Promise<T> => new Promise((resolve, reject) => {
+  const t = later(ms, () => reject(new LinkError('timeout')));
+  work.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+});
 
 type Open = { ready: any; hostKey: Uint8Array; send: (m: unknown) => void; data: (s: number, d: Uint8Array) => void; close: () => void };
-type Hello = { t: 'auth'; session: string; ack: number; fresh: boolean } | { t: 'pair'; ticket: string; name: string } | { t: 'code'; name: string };
+type Hello = { t: 'auth'; session: string; ack: number; fresh: boolean } | { t: 'pair'; ticket: string; name: string; pending?: 1 } | { t: 'code'; name: string; pending?: 1 };
 
 /** One socket: the handshake, the first request (`auth` or `pair`), and the host's `ready`. */
-async function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Uint8Array; commitment?: string }, hello: Hello, o: Dial & { onWords?: (w: string) => void },
+async function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Uint8Array; commitment?: string; pin?: (key: Uint8Array) => void | Promise<void> }, hello: Hello, o: Dial & { onWords?: (w: string) => void },
   on: { message: (m: any) => void; close: (e: LinkError) => void } = { message: () => {}, close: () => {} }): Promise<Open> {
   let target = url;
   try { if (o.resolve) target = await o.resolve(url); } catch { throw new LinkError('unreachable'); }
@@ -80,9 +84,9 @@ async function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Ui
     let up = false;
     let settled = false;
     let ws: WebSocketLike;
-    const fail = (e: LinkError) => {
+    const fail = (e: Error) => { // a LinkError, or the app's own `pin` failure before anything is disclosed
       clearTimeout(timer);
-      if (up) on.close(e);
+      if (up) on.close(e as LinkError);
       else if (!settled) reject(e);
       up = false;
       settled = true;
@@ -103,14 +107,24 @@ async function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Ui
         if (!ch) {
           try { if (typeof ev.data !== 'string') throw new Error('binary'); hs.read(ev.data); } catch { return fail(new LinkError('wrong-host')); } // only the right host can answer
           if (host.commitment && shortKey(hs.remoteKey) !== host.commitment) return fail(new LinkError('wrong-host'));
-          if (hello.t === 'code') ws.send(hs.write({ name: hello.name }));
-          ch = hs.channel();
-          if (hello.t !== 'code') send(hello);
-          if (pairing) { // now a person at the host decides; give them time
-            o.onWords?.(hs.words);
-            clearTimeout(timer);
-            timer = later(6 * 60_000, () => fail(new LinkError('timeout')));
-          }
+          const go = () => {
+            if (hello.t === 'code') ws.send(hs.write({ name: hello.name, ...(hello.pending ? { pending: 1 } : {}) }));
+            ch = hs.channel();
+            if (hello.t !== 'code') send(hello);
+            if (pairing) { // now a person at the host decides; give them time
+              o.onWords?.(hs.words);
+              clearTimeout(timer);
+              timer = later(6 * 60_000, () => fail(new LinkError('timeout')));
+            }
+          };
+          if (!host.pin) return go();
+          // The host proved it holds the code; the app keeps its key before this device is disclosed in message 3. A save
+          // that never settles times out, or ends sooner when the host drops the socket.
+          clearTimeout(timer);
+          within(o.timeoutMs ?? 8000, Promise.resolve().then(() => host.pin!(hs.remoteKey))).then(() => {
+            if (settled) return;
+            try { go(); } catch { fail(new LinkError('unreachable')); }
+          }, fail);
           return;
         }
         const m = ch.open(typeof ev.data === 'string' ? ev.data : new Uint8Array(ev.data)); // throws unless it is the host's next authentic frame
@@ -140,45 +154,67 @@ type PairOptions = Dial & { name: string; onWords: (w: string) => void; key?: Ke
 
 /** The grant a scanned code will become, to keep in secure storage *before* pairing. If the app dies while the person
  *  at the host decides, a `DeviceLink` made from it later connects once the host has said yes (or learns it said no),
- *  instead of leaving the host holding a grant for a key nobody has. Pass its key to `pairWithOffer`. */
-export function pendingGrant(scanned: string, o: { name: string; key?: KeyPair }): DeviceGrant {
+ *  instead of leaving the host holding a grant for a key nobody has. Pass its key to `pairWithOffer`, or let
+ *  `pairWithOffer`'s `onPending` hand it over. A compact offer carries no host key: it needs `host`, the key the code
+ *  handshake authenticated (`onPending` passes it). For a version 1 offer, a different `host` is refused. */
+export function pendingGrant(scanned: string, o: { name: string; key?: KeyPair; host?: string }): DeviceGrant {
   const offer = parseOffer(scanned);
+  let host = 'host' in offer ? offer.host : undefined;
+  if (o.host !== undefined) {
+    let given: Uint8Array;
+    try { given = unb64url(o.host); } catch { throw new LinkError('wrong-host'); }
+    if (given.length !== 32 || (host !== undefined && host !== b64url(given))) throw new LinkError('wrong-host');
+    host = b64url(given);
+  }
+  if (host === undefined) throw new Error("A compact pairing code doesn't carry the computer's key: use pairWithOffer's onPending.");
   const me = o.key ?? keyPair();
-  return { v: 1, secretKey: b64url(me.secretKey), pendingUntil: offer.expires + 300_000, host: offer.host, hostName: offer.name, urls: offer.urls,
+  return { v: 1, secretKey: b64url(me.secretKey), pendingUntil: offer.expires + 300_000, host, hostName: offer.name, urls: offer.urls,
     device: { id: '', name: cleanName(o.name, 'Device'), role: offer.role ?? 'view' } };
 }
 
+type OfferOptions = PairOptions & {
+  /** Keep this pending grant before the host can approve this device (see `pendingGrant`). A compact offer calls it
+   *  once the host proved it holds the code, before this device's key and name reach it; a throw stops pairing there. */
+  onPending?: (g: DeviceGrant) => void | Promise<void>;
+};
+
 /** A scanned QR (or opened pairing link) in, a grant out, once the person at the host says yes. `onWords` gets the
  *  two words to show while they decide. Tries each address in the code until one answers. A compact offer pairs
- *  like a typed code over the packed addresses: same single use, life, words and approval, no host key pinned. */
-export async function pairWithOffer(scanned: string, o: PairOptions): Promise<DeviceGrant> {
+ *  like a typed code over the packed addresses: same single use, life, words and approval; the host key it pins is
+ *  the one the code handshake authenticated, handed to `onPending` before the host learns this device. */
+export async function pairWithOffer(scanned: string, o: OfferOptions): Promise<DeviceGrant> {
+  let taken = false; // the host has the code (it read the ticket or the code's first message): no other address can answer
+  const words = { ...o, onWords: (w: string) => { taken = true; o.onWords(w); } };
   if (scanned.indexOf(COMPACT_TAG) >= 0) {
     const compact = decodeCompactOffer(scanned);
     const me = o.key ?? keyPair();
+    const pin = o.onPending && ((key: Uint8Array) => { taken = true; return o.onPending!(pendingGrant(scanned, { name: o.name, key: me, host: b64url(key) })); });
     let last = new LinkError('unreachable');
     for (const url of compact.urls) {
       try {
-        const l = await dial(url, me, { psk: codeKey(compact.code) }, { t: 'code', name: o.name }, o);
+        const l = await dial(url, me, { psk: codeKey(compact.code), pin }, { t: 'code', name: o.name, ...(pin ? { pending: 1 as const } : {}) }, words);
         l.close();
         return granted(me, b64url(l.hostKey), url, compact.urls, l.ready);
       } catch (e: unknown) {
-        last = e instanceof LinkError ? e : new LinkError('unreachable');
-        if (last.code !== 'unreachable' && last.code !== 'timeout' && last.code !== 'wrong-host') break;
+        if (!(e instanceof LinkError)) throw e; // the app's own onPending failure, as it said it
+        last = e;
+        if (taken || (last.code !== 'unreachable' && last.code !== 'timeout' && last.code !== 'wrong-host')) break;
       }
     }
     throw last;
   }
-  const offer = parseOffer(scanned);
+  const offer = parseV1Offer(scanned);
   const me = o.key ?? keyPair();
+  if (o.onPending) await within(o.timeoutMs ?? 8000, Promise.resolve(o.onPending(pendingGrant(scanned, { name: o.name, key: me }))));
   let last = new LinkError('unreachable');
   for (const url of offer.urls) {
     try {
-      const l = await dial(url, me, { key: unb64url(offer.host) }, { t: 'pair', ticket: offer.ticket, name: o.name }, o);
+      const l = await dial(url, me, { key: unb64url(offer.host) }, { t: 'pair', ticket: offer.ticket, name: o.name, ...(o.onPending ? { pending: 1 as const } : {}) }, words);
       l.close();
       return granted(me, offer.host, url, offer.urls, l.ready);
     } catch (e: any) {
       last = e instanceof LinkError ? e : new LinkError('unreachable');
-      if (last.code !== 'unreachable' && last.code !== 'timeout' && last.code !== 'wrong-host') break;
+      if (taken || (last.code !== 'unreachable' && last.code !== 'timeout' && last.code !== 'wrong-host')) break;
     }
   }
   throw last;

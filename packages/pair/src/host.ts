@@ -454,7 +454,7 @@ export class Host {
     const end = (c: number, why: string) => { if (!gone) conn.close(c, why); };
     const refuse = (why: string) => { this.sealed(conn, ch!, { t: 'refused', why }); later(1000, () => end(4401, why)); };
 
-    const pair = async (key: Uint8Array, name: unknown, p: Pending, how: 'scan' | 'code') => {
+    const pair = async (key: Uint8Array, name: unknown, p: Pending, how: 'scan' | 'code', kept: unknown) => {
       const k = b64url(key);
       busy = true;
       clearTimeout(timer);
@@ -464,8 +464,10 @@ export class Host {
         Promise.resolve().then(() => this.opts.confirm(req)).catch(() => false),
         new Promise<false>((r) => later(this.pairMs, () => r(false))),
       ]);
-      if (gone) return;
-      if (!yes) return refuse('declined');
+      // A device that said it kept a pending grant resumes from it after being killed while the person decided, so
+      // its yes outlives the socket; any other gone device could never use the grant, so it gets none.
+      if (gone && kept !== 1) return;
+      if (!yes) { if (!gone) refuse('declined'); return; }
       try {
         const added = await this.grant(k, req.name, p, p.expires);
         if (gone) return;
@@ -559,7 +561,7 @@ export class Host {
       }
       const hello = hs.read(text); // the typed-code handshake's last message: the device's key and name
       ch = hs.channel();
-      void pair(hs.remoteKey, hello.name, code!, 'code');
+      void pair(hs.remoteKey, hello.name, code!, 'code', hello.pending);
     };
 
     const inner = (d: Grant, m: any) => {
@@ -624,7 +626,7 @@ export class Host {
           if (m.t === 'pair' && hs!.mode === 'ik') {
             const p = typeof m.ticket === 'string' ? this.take(this.tickets, m.ticket) : undefined;
             if (!p) { this.wrong(); return refuse('expired'); }
-            return void pair(hs!.remoteKey, m.name, p, 'scan');
+            return void pair(hs!.remoteKey, m.name, p, 'scan', m.pending);
           }
           end(4400, 'unexpected');
         } catch {

@@ -84,7 +84,7 @@ test('compact QR pairs like a typed code, and the old QR still scans', async () 
   const quick = await startHost({ pairMs: 150 });
   const late = quick.host.compactOffer({ role: 'view', urls: [quick.url] }).text;
   await sleep(200);
-  assert.throws(() => parseOffer(late), /isn't a pairing code/, 'not a version 1 offer');
+  assert.deepEqual(parseOffer(late, 0).urls, [quick.url], 'a compact offer inspects like a version 1 one; minutes of expiry outlast the host ticket');
   await assert.rejects(pairWithOffer(late, { name: 'Late' }), (e: LinkError) => e.code === 'wrong-code');
 });
 

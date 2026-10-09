@@ -1,5 +1,5 @@
 // Open host.offer({ role: 'view', base: '<this origin>/pair.html', ... }) or paste an offline envelope.
-import { browserDeviceStore, decodeOffer, DeviceLink, offerText, pairWithOffer, parseOffer } from '@byokit/link';
+import { browserDeviceStore, decodeOffer, DeviceLink, offerText, pairWithOffer, parseV1Offer } from '@byokit/link';
 
 const $ = (id: string) => document.getElementById(id)!;
 const store = browserDeviceStore('pwa-example');
@@ -28,7 +28,7 @@ $('pair').onsubmit = async (e) => {
   button.disabled = true;
   try {
     const text = ($('offer') as HTMLTextAreaElement).value;
-    const offer = text.includes('byokit-link:1:') ? parseOffer(text) : decodeOffer(text);
+    const offer = text.includes('byokit-link:1:') ? parseV1Offer(text) : decodeOffer(text);
     // Host-side policy is authoritative. This example also refuses offers that don't explicitly say view-only.
     if (offer.role !== 'view') throw new Error('Ask your computer for an invitation to read here.');
     const grant = await pairWithOffer(offerText(offer), { name: 'My browser', onWords: (words) => {

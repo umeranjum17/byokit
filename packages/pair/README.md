@@ -152,11 +152,13 @@ const { text } = host.offer({
 console.log(text); // terminal-to-browser deep link; the offer stays after #
 ```
 
-`offerText(parseOffer(text), 'https://app.example/pair.html')` makes the same deep link from an existing offer.
+`offerText(parseV1Offer(text), 'https://app.example/pair.html')` makes the same deep link from an existing version 1 offer.
 There is no separate `offerLink`. Use `parseOffer(text, 0)` to inspect an expired offer; this does not renew it,
-and pairing still refuses an expired ticket.
+and pairing still refuses an expired ticket. `parseOffer` reads a compact QR too, returning a `CompactOffer` (expiry,
+addresses, name, role) with no `host` or `ticket`: narrow with `'host' in offer` before reading a version 1 offer's
+fields. `parseV1Offer` is the old version 1-only parse, for `offerText` and `encodeOffer`, which take a `PairOffer`.
 
-For an offline, typeable alternative, `encodeOffer(parseOffer(text))` holds the **entire offer**, including
+For an offline, typeable alternative, `encodeOffer(parseV1Offer(text))` holds the **entire offer**, including
 all direct and relay addresses. `decodeOffer` also reads old compact direct codes for migration, preserving
 their key, ticket, role and second-resolution expiry; re-encoding uses the current complete format.
 `decodeOffer(typed)` returns a `PairOffer` and checks expiry without contacting
@@ -279,10 +281,17 @@ await link.request('send.message', { text: 'hi' });  // waits through reconnects
 await link.request('send.message', { text: 'hi' }, { timeoutMs: 20_000, notValidAfter: Date.now() + 60_000 });
 ```
 
-- For crash-safe pairing, make a `keyPair()`, save `pendingGrant(scanned, { name, key })` before pairing, then pass
-  that same `key` to `pairWithOffer(scanned, { name, key, onWords })`. If the app dies while the person decides,
-  a `DeviceLink` made from the saved pending grant retries until approval (up to five minutes after the offer expires),
-  then forgets it if the host still has not approved.
+- For crash-safe pairing, pass `onPending: (g) => secureStore.save(g)` to `pairWithOffer`. It gets the pending grant
+  before the host can approve this device: for a compact offer, once the host proved it holds the code and before
+  this device's key and name reach it (so the grant pins the host key the handshake authenticated); for a version 1
+  offer, before dialling. If the app dies while the person decides, a `DeviceLink` made from the saved pending grant
+  retries until approval (up to five minutes after the offer expires), then forgets it if the host still has not
+  approved; a host with another key there is `refused`. Because the device tells the host it kept a pending grant, a yes
+  given after it went away still counts; a device that kept none gets no grant it could never use. So when
+  `pairWithOffer` rejects after `onPending` ran without a sealed refusal (`e.sealed` false, e.g. `unreachable` once the
+  computer has taken the code), keep the pending grant and make a `DeviceLink` from it: it comes online on a yes and forgets
+  itself on a no.
+  `pendingGrant(scanned, { name, key, host })` builds the same grant; a compact offer needs `host`.
 - `resolve: (url) => …` runs before each dial (e.g. open an SSH tunnel and return `ws://127.0.0.1:<port>/…`);
   `link.addUrl(url)` adds an address found later (a wrong host there just fails its handshake).
 - A quiet connection is pinged (`pingMs`, default 20 s) and redialled when the host stops answering; at most

@@ -23,8 +23,14 @@ export function offerText(offer: PairOffer, base?: string): string {
 }
 
 /** Scan (or pasted link) in, offer out; throws a plain sentence for anything that is not a live byokit pairing code.
+ * A compact offer comes back without `host` or `ticket` (it has neither: `pairWithOffer` learns the host key).
  * Pass `0` as `now` to inspect an expired offer without connecting. */
-export function parseOffer(scanned: string, now = Date.now()): PairOffer {
+export function parseOffer(scanned: string, now = Date.now()): PairOffer | CompactOffer {
+  return scanned.indexOf(COMPACT_TAG) >= 0 ? decodeCompactOffer(scanned, now) : parseV1Offer(scanned, now);
+}
+
+/** A version 1 offer only; `parseOffer` for anything else. */
+export function parseV1Offer(scanned: string, now = Date.now()): PairOffer {
   const at = scanned.indexOf(TAG);
   let o: any;
   try {
@@ -70,7 +76,7 @@ function checksum(bytes: Uint8Array): number {
 /** A complete offline offer in groups of five base32 characters, with a transcription checksum. This carries the
  * same single-use ticket as the QR; it neither extends expiry nor replaces host approval. */
 export function encodeOffer(offer: PairOffer): string {
-  const checked = parseOffer(offerText(offer), 0);
+  const checked = parseV1Offer(offerText(offer), 0);
   const body = b4a.from(JSON.stringify(checked));
   const bytes = new Uint8Array(1 + body.length + 4);
   bytes[0] = 1;
@@ -88,7 +94,7 @@ export function encodeOffer(offer: PairOffer): string {
 
 /** Read an offline offer without network access. Case, spaces and dashes are ignored; O means 0 and I/L mean 1.
  * Old compact direct offers remain readable for migration; new offers always use the current format.
- * Other typos fail the checksum. Expiry and addresses follow `parseOffer`; `now = 0` permits inspection only. */
+ * Other typos fail the checksum. Expiry and addresses follow `parseV1Offer`; `now = 0` permits inspection only. */
 export function decodeOffer(text: string, now = Date.now()): PairOffer {
   if (text.length > MAX_TYPED_OFFER) throw badOffer();
   const compact = text.toUpperCase().replace(/[\s-]/g, '');
@@ -107,7 +113,7 @@ export function decodeOffer(text: string, now = Date.now()): PairOffer {
   if (s.length !== Math.ceil(bytes.length * 8 / 5) || (bits && (value & ((1 << bits) - 1)))) throw badOffer();
   const b = Uint8Array.from(bytes);
   if (b.length < 6 || b[0] !== 1 || checksum(b.subarray(0, -4)) !== new DataView(b.buffer).getUint32(b.length - 4)) throw badOffer();
-  return parseOffer(TAG + b64url(b.subarray(1, -4)), now);
+  return parseV1Offer(TAG + b64url(b.subarray(1, -4)), now);
 }
 
 // Migration read path only. The old direct envelope used seconds, a role byte and no name/lifetime.
@@ -148,7 +154,7 @@ function decodeLegacyOffer(s: string, now: number): PairOffer {
     }
   }
   if (at !== end || urls.some((url) => !url.startsWith('ws:') || !wsUrl(url))) throw badOffer();
-  return parseOffer(offerText({
+  return parseV1Offer(offerText({
     v: 1, host: b64url(b.subarray(2, 34)), ticket: b64url(b.subarray(34, 50)),
     expires: view.getUint32(50) * 1000, name: 'your computer', role: b[1] ? 'control' : 'view', urls,
   }), now);
