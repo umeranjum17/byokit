@@ -354,10 +354,10 @@ values only). The pinned `react-native-zeroconf` dependency (`0.17.3`) is suppli
 
 ## Tests
 
-`test/reach.test.ts` ports muxr's `checkTailscaleIngress` and uses a fake tailscale CLI that logs every call. The real
-binary never runs, and no packet goes out: mDNS advertise is tested with a fake publisher, and the React Native
-browse API with a fake zeroconf module. `test/recommend.test.ts` covers the recommendation order with injected
-state, Serve-root and interface fakes, plus one live-probe run against the fake CLI.
+`test/journey-reach.test.ts` drives the built package as a host app does: `reach`, `serve`/`unserve`, `recommend`,
+`advertise`, `routes`/`directRoutes` and `tailscaleState` against a fake `tailscale` CLI that logs every call. The real
+binary never runs, and no packet goes out: mDNS advertise uses a fake publisher, and the React Native browse API
+(`test/browse.test.ts`) uses a fake zeroconf module.
 
 ## Links
 
