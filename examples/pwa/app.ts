@@ -303,7 +303,7 @@ function card(key: string) {
       for (const a of rows) rooms.set(a.id, roomCache.get(a.id)?.room ?? { left: 'unknown' });
       void readRooms(rows); // the next run's rooms, never this one's delay
       const want = q<HTMLSelectElement>('pick').value;
-      const pick = resolveSelection(rows, await accounts.defaults(ME), { account: want, provider: key },(a) => rooms.get(a.id) ?? { left: 'unknown' }, Date.now());
+      const pick = resolveSelection(rows, await accounts.defaults(ME), { account: want, provider: key }, (a) => rooms.get(a.id) ?? { left: 'unknown' }, Date.now());
       if (mine !== asking) return;
       // A default that cannot answer is refused by respond itself, so its reason is shown there, not a label for another account.
       const answerable = pick.ok && (want !== 'default' || pick.how === 'default');

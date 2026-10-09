@@ -339,7 +339,7 @@ const accounts = new Accounts({
 
 ## Asking
 
-`respond(member, { instructions, input, model?, onText?, signal? })` asks ChatGPT's own answers endpoint with the
+`respond(member, { instructions, input, model?, onText?, signal?, select? })` asks ChatGPT's own answers endpoint with the
 member's sign-in, refreshed first when due, and returns the whole text (`onText` gets each piece as it streams; the
 returned completion is authoritative). Pass `result: true` to receive `{ text, output, usage? }` even without tools.
 `usage` retains provider-reported `input_tokens`, `output_tokens` and native details in the same shape as the
@@ -681,7 +681,8 @@ Both are read-only: neither writes the defaults nor the account index. An id tha
 `ok: false` with `code: 'unknown_account'`; `models` refuses it. A `room` source that is absent or throws leaves
 every reading unknown, so list order decides.
 
-Call `pick` first to learn Auto's choice, then hand that account to `respond` (which does not return it): the run
+`selection.provider` (for example `'chatgpt'`) limits the choice to one provider; omitted, it follows the saved default's
+provider. Call `pick` first to learn Auto's choice, then hand that account to `respond` (which does not return it): the run
 answers through the chosen account's own sign-in and never through the default.
 
 ```ts
