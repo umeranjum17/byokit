@@ -2,7 +2,7 @@ import { InferError } from './types.ts';
 import { modelName, type LocalModel } from './model.ts';
 import { NanoModel } from './nano.ts';
 
-/** Same shape as @byokit/decide's GenerationBackend (pinned by test/backend.test.ts); infer does not depend on decide.
+/** Same shape as @byokit/decide's GenerationBackend (pinned by test/journey-infer.test.ts); infer does not depend on decide.
  * Without `schema` the answer is free text and `data` is null. */
 export type InferGenerationBackend = {
   name: string; model: string; leaves: false; supportsImages: false; cacheIdentity: string;
