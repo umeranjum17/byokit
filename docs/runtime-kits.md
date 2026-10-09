@@ -1614,10 +1614,17 @@ signalled or waited for.
 - **Build** (only when no verifying set exists): in `<sets>/.tmp-<pid>-<startTime>-<random>` on the same device. The
   stock set (`files: []`) is installed by 5.4's `npm ci`; every other set is copied from a verified stock set (never
   from `engineDir/node_modules`) with `cpSync(…, { recursive: true, verbatimSymlinks: true, mode: COPYFILE_FICLONE })`,
-  no hardlinks. Verify version and commit and every `before`, apply the edits, verify every `after`, then write the
-  manifest `.byokit-set.json` (`{ v: 1, id, integrity, entries }`, every entry's path, type, mode, size, sha256 or
-  symlink target, sorted), set files 0444 and directories 0555, `fsync` every file and directory, rename the
-  temporary directory onto the final name and `fsync` the sets directory. A rename that loses to another kit
+  no hardlinks. Verify version and commit and every `before`, apply the edits, verify every `after`, then derive
+  the manifest `.byokit-set.json` (`{ v: 1, id, integrity, entries }`, every entry's path, type, mode, size, sha256
+  or symlink target, sorted) from the verified stock tree plus the hash-checked edits — a freshly installed stock
+  set reads its own tree, a clone derives without re-reading the copy — set files 0444 and directories 0555, flush
+  once (Linux: one filesystem-wide syncfs through `sync -f`; elsewhere no flush), write the manifests durably
+  (write, `fsync`, rename, `fsync` the parent), verify the whole tree against the manifest, rename the temporary
+  directory onto the final name and `fsync` the sets directory. Per-entry `fsync`s are not taken: the derived
+  manifest is a claim the pre-publication verification proves against every byte on disk, and after a power loss a
+  published set may be torn, but the adopt rule's full verification detects any torn entry as drift and rebuilds,
+  so a torn set is never launched (macOS `fsync` never flushed to permanent storage, so verification was already
+  the only power-loss guarantee there). A rename that loses to another kit
   (`ENOTEMPTY`/`EEXIST`, `EPERM` on Windows) removes only its own temporary directory and adopts the winner after
   verification; any other error fails, never copy-over or remove-and-retry. A kit removes its own temporary directory
   on failure; another kit's is removed only when its `<pid>-<startTime>` is provably dead on Linux, and left

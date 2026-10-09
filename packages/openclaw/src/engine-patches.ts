@@ -1,4 +1,5 @@
 // Internal artifact seam. Published patch semantics live only in engine/patches.json.
+import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, constants, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { chmod, cp, open, readdir, rm } from 'node:fs/promises';
@@ -133,15 +134,30 @@ async function removeTemp(dir: string): Promise<void> {
   };
   await walk(dir); await rm(dir, { recursive: true, force: true });
 }
-async function freeze(dir: string): Promise<void> {
-  const entries = tree(dir);
-  // Bound descriptors/I/O while yielding the host event loop. Every regular file and directory is fsynced.
-  const paths = [...entries.filter(e => e.kind === 'file'), ...entries.filter(e => e.kind === 'dir').reverse()];
+const flushFs = (dir: string): Promise<void> => new Promise(resolve => {
+  // One filesystem-wide syncfs through coreutils `sync -f`: per-file fsync transactions cost ~110 s per set on
+  // the reference btrfs host (37,999 fsyncs), one syncfs ~2 s. A performance flush only — it also keeps the
+  // reflink clone below cheap — so a missing sync binary or a non-Linux host degrades to a slower copy, never an error.
+  if (process.platform !== 'linux') return resolve();
+  const child = spawn('sync', ['-f', dir], { stdio: 'ignore' });
+  child.once('error', () => resolve());
+  child.once('exit', () => resolve());
+});
+// Freeze makes the tree read-only and returns the manifest entries with their frozen modes. The caller owns the
+// manifest and re-verifies before publishing. Durability: one bulk flush, no per-entry fsyncs — crash safety is
+// verifyEngineSet's whole-tree check at every reuse/launch (any torn or missing entry mismatches .byokit-tree and
+// rebuilds as drift, never launches), plus atomic()'s manifest fsyncs and the fsynced publication rename below.
+// macOS fsync never flushed to permanent storage, so verification was already the power-loss guarantee there.
+async function freeze(dir: string, entries: TreeEntry[]): Promise<TreeEntry[]> {
+  // Bound I/O while yielding the host event loop: chmod only, in batches. Links are left untouched (and keep
+  // their recorded mode); every file becomes 0444 and every directory 0555, exactly what the manifest records.
+  const frozen = entries.map(entry => entry.kind === 'link' ? entry : { ...entry, mode: entry.kind === 'dir' ? 0o555 : 0o444 });
+  const paths = [...frozen.filter(e => e.kind === 'file'), ...frozen.filter(e => e.kind === 'dir').reverse()];
   for (let i = 0; i < paths.length; i += 16) await Promise.all(paths.slice(i, i + 16).map(async entry => {
-    const path = join(dir, entry.path);
-    await chmod(path, entry.kind === 'dir' ? 0o555 : 0o444);
-    const fd = await open(path, 'r'); try { await fd.sync(); } finally { await fd.close(); }
+    await chmod(join(dir, entry.path), entry.mode);
   }));
+  await flushFs(dir);
+  return frozen;
 }
 export function engineSetName(set: PatchSet): string { return `${sha256(set.upstream.integrity).slice(0, 16)}-${set.id}`; }
 export async function prepareEngineSet(engineDir: string, set: PatchSet, install: (dir: string) => void | Promise<void>, installMatches: (dir: string) => boolean): Promise<string> {
@@ -174,6 +190,7 @@ export async function prepareEngineSet(engineDir: string, set: PatchSet, install
     } else { mkdirSync(tmp, { mode: 0o700 }); await install(tmp); }
     if (!installMatches(tmp)) throw new EnginePatchError('drift-after-build', tmp);
     const root = join(tmp, 'node_modules/openclaw');
+    const edited = new Map<string, { size: number; hash: string }>();
     for (const file of set.files) {
       const path = join(root, file.path);
       if (!inside(realpathSync(root), realpathSync(path)) || lstatSync(path).isSymbolicLink()) throw new EnginePatchError('spec', file.path);
@@ -182,10 +199,16 @@ export async function prepareEngineSet(engineDir: string, set: PatchSet, install
       const after = editText(before, file);
       if (sha256(after) !== file.after) throw new EnginePatchError('spec', file.path);
       atomic(path, after);
+      edited.set(`node_modules/openclaw/${file.path}`, { size: Buffer.byteLength(after), hash: file.after });
     }
     metadata(tmp, set);
-    await freeze(tmp);
-    const bytes = JSON.stringify(tree(tmp));
+    // The manifest comes from the verified stock tree plus the edits hash-checked above — no cold re-read of the
+    // ~831 MB reflink copy. verifyEngineSet below still re-reads every byte of tmp against it before publishing,
+    // so a copy that deviated in any entry is caught as drift-after-build and never published.
+    const entries = await freeze(tmp, stockDir
+      ? tree(stockDir).map(entry => { const edit = edited.get(entry.path); return edit ? { ...entry, ...edit } : entry; })
+      : tree(tmp));
+    const bytes = JSON.stringify(entries);
     // Root alone is writable while publishing metadata, then made read-only too.
     await chmod(tmp, 0o700);
     atomic(join(tmp, '.byokit-tree'), bytes);
