@@ -85,23 +85,21 @@ export class AuthStoreUnreadableError extends Error {
   }
 }
 
-/** Total raw credential bytes one snapshot may seal. The sealed payload is one runtime string, so a
- *  snapshot beyond this bound cannot be sealed at all: instead of aborting the process deep inside the
- *  sealer (a 364,927,687-character snapshot once hit the runtime string limit and killed Node), collect()
- *  checks the size before any write, so a refusal leaves the store intact. Credential state is normally a few MiB; the
- *  cap leaves several times that headroom. */
+/** Total raw credential bytes one snapshot may seal. The sealed payload is one runtime string, so collect()
+ *  refuses a larger snapshot before reading it and the process never aborts inside the sealer. Credential
+ *  state is normally a few MiB; the cap leaves several times that headroom. */
 export const SEAL_CAP_BYTES = 128 * 1024 * 1024;
 
-/** The saved sign-in data is over `SEAL_CAP_BYTES`. Refused before any write: the sealed snapshot, the live
- *  `state` and `home` trees and their modes are exactly as they were. `size` is a lower bound: the running
- *  total when the cap was crossed. */
+/** The saved sign-in data is over `SEAL_CAP_BYTES`. On a refusal the last good saved store is kept as it
+ *  was and no live file is deleted. `size` is a lower bound: the running total when the cap was crossed. */
 export class AuthStoreSealSizeError extends Error {
   readonly code = 'auth-store-seal-size';
   readonly size: number;
   readonly cap: number;
   constructor(size: number, cap: number) {
-    super(`Your saved sign-in data is too large to keep safely (at least ${size} bytes; the limit is ${cap} bytes). ` +
-      'Your sign-ins were left as they were.');
+    const MiB = 1024 * 1024;
+    super(`Your saved sign-in data is too large to keep safely (about ${Math.ceil(size / MiB)} MB; the limit is ${cap / MiB} MB). ` +
+      'Your sign-ins were kept.');
     this.name = 'AuthStoreSealSizeError';
     this.size = size;
     this.cap = cap;
@@ -302,7 +300,6 @@ export class AuthStore {
   prepare(): Promise<void> {
     return this.serial(async () => {
       if (this.active) return;
-      if (this.o.seal) this.inventory();
       this.acquire();
       try {
         await this.read();
@@ -322,7 +319,6 @@ export class AuthStore {
     return this.serial(async () => {
       if (!this.owned) return;
       try {
-        if (this.o.seal) this.inventory();
         await this.archives();
         await this.persist();
       } finally {
@@ -338,7 +334,7 @@ export class AuthStore {
       try {
         await this.restore();
         try { return await task(); }
-        finally { if (this.o.seal) this.inventory(); await this.archives(); await this.persist(); }
+        finally { await this.archives(); await this.persist(); }
       } finally { this.release(); }
     });
   }

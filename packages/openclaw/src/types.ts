@@ -126,6 +126,7 @@ export type KitState = {
   phase: 'stopped' | 'installing' | 'starting' | 'repairing' | 'ready' | 'restarting' | 'failed' | 'needs-update' | 'locked';
   why?: 'install' | 'handshake' | 'exited' | 'port' | 'version' | 'engine-already-running' | 'engine-patch' | 'sign-in-reset' | 'auth-store-unreadable' | 'auth-store-seal-size';
   retryAt?: number;
+  sealSize?: { size: number; cap: number }; // bytes; with why 'auth-store-seal-size', size is a lower bound
   patchSet?: string | null; // verified bundled set; null = unknown provenance
 };
 

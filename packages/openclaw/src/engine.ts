@@ -70,7 +70,7 @@ function installMatches(dir: string): boolean {
   }
 }
 
-const exitReason = (refused: unknown) => refused instanceof AuthStoreSealSizeError ? 'auth-store-seal-size' : 'exited';
+const refusedOnly = (error: unknown) => { if (error instanceof AuthStoreSealSizeError) return error; throw error; };
 export class Engine {
   readonly root: string;
   readonly bridgeSock: string;
@@ -101,7 +101,7 @@ export class Engine {
     this.paramPrefix = bridge.paramPrefix;
     this.authStore = new AuthStore({ root: this.root, stateDir: o.stateDir, engineDir: this.dir, seal: o.authSeal, log: o.log });
   }
-  private state(phase: KitState['phase'], why?: KitState['why'], retryAt?: number) { this.o.onState({ phase, ...(why ? { why } : {}), ...(retryAt ? { retryAt } : {}), ...(this.patchSet !== undefined ? { patchSet: this.patchSet } : {}) }); }
+  private state(phase: KitState['phase'], why?: KitState['why'], retryAt?: number, sealSize?: KitState['sealSize']) { this.o.onState({ phase, ...(why ? { why } : {}), ...(retryAt ? { retryAt } : {}), ...(sealSize ? { sealSize } : {}), ...(this.patchSet !== undefined ? { patchSet: this.patchSet } : {}) }); }
   // Retained at <stateDir>/logs/engine-install-drift.json (overwritten per failure) after the failed
   // temporary set is deleted: the first failed check, the npm identity and the npm stderr tail.
   // Bounded fields, no environment values or secrets; diagnostics never mask the failure they describe.
@@ -119,6 +119,10 @@ export class Engine {
         npmStderrTail: npmStderrTail.slice(0, 500),
       }), { mode: 0o600 });
     } catch { /* diagnostics must never mask the failure being diagnosed */ }
+  }
+  private exitedState(refused?: unknown): void {
+    if (refused instanceof AuthStoreSealSizeError) this.state('failed', 'auth-store-seal-size', undefined, { size: refused.size, cap: refused.cap });
+    else this.state('failed', 'exited');
   }
   private get entry() {
     if (this.o.spawnEngine && !this.setDir) throw new EnginePatchError('spec', 'engine-set');
@@ -338,7 +342,7 @@ export class Engine {
       if (!child.pid && env.BYOKIT_ENGINE_BOOT) { try { appendUsageBoot(usageDir, { bootId, failedAt: Date.now(), spawned: false }); } catch { /* unclosed boot remains incomplete */ } }
       if (this.child !== child || this.stopping) return;
       this.child = undefined;
-      void this.authStore.stop().then(() => undefined, (error: unknown) => error).then((refused) => { this.state('failed', exitReason(refused)); this.o.onExit(null); });
+      void this.authStore.stop().then(() => undefined, refusedOnly).then((refused) => { this.exitedState(refused); this.o.onExit(null); }, () => this.state('failed', 'exited'));
     });
     if (!child.pid) { this.state('failed', 'exited'); throw new Error('engine spawn failed'); }
     if (process.platform === 'linux') {
@@ -351,7 +355,7 @@ export class Engine {
       this.child = undefined;
       this.removeOwnedPid(child.pid);
       void (async () => {
-        const refused = await this.authStore.stop().then(() => undefined, (error: unknown) => error);
+        const refused = await this.authStore.stop().then(() => undefined, refusedOnly);
         if (this.stopping) return;
         if (!refused && code === 78 && !this.repaired) {
           this.repaired = true;
@@ -359,7 +363,7 @@ export class Engine {
           const result = await this.withAuthStore(async () => this.doctor(60_000));
           if (result.status === 0 && !this.stopping) { await this.start(); return; }
         }
-        this.state('failed', exitReason(refused));
+        this.exitedState(refused);
         this.o.onExit(code);
       })().catch(() => this.state('failed', 'exited'));
     });

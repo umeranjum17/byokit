@@ -447,12 +447,12 @@ and cache subtrees of the CLIs the engine runs (`home/.codex` sessions/log/cache
 `home/.claude` projects/todos/shell-snapshots/statsig/file-history/`history.jsonl`). Those stay on disk unsealed, so
 however large a killed home's tool caches are, they never reach the sealer. Unknown `home` paths are still sealed
 (credential locations the kit does not know about must fail loudly, never drop silently), and one snapshot is
-bounded: if the collected credential files together pass a fixed limit, `prepare()`, `start()` and `stop()` reject with
-exported `AuthStoreSealSizeError` (`code: 'auth-store-seal-size'`, fields `size` and `cap`) before any write, so the
-sealed snapshot, the live `state`/`home` trees and their modes stay as they were, and a refused `stop()` still
-releases the lock. Its `size` is a lower bound (the running total at the refusal). Do not move or delete files under
-`state/` or `home/` to get under the limit: the next successful seal would drop them. If your app hits this, report
-the error's size and cap to the byokit maintainers; the limit was reached in real use.
+bounded: if the collected credential files together pass a fixed limit, `prepare()`, `start()`, `stop()` and an engine
+exit reject with exported `AuthStoreSealSizeError` (`code: 'auth-store-seal-size'`, fields `size` and `cap`). On that
+refusal the last good saved store is kept as it was and no live file is deleted; nothing else is promised. A refused
+`stop()` still releases the lock. Its `size` is a lower bound (the running total at the refusal). Do not move or delete
+files under `state/` or `home/` to get under the limit: the next successful seal would drop them. If your app hits
+this, report the error's size and cap to the byokit maintainers; the limit was reached in real use.
 
 ## App-owned task recovery
 
@@ -568,10 +568,10 @@ damaged or tampered bytes) or whose payload is not a credential snapshot stays u
 (`code: 'auth-store-unreadable'`, `reason: 'auth-failed' | 'invalid-snapshot'`). The kit reports
 `{ phase: 'failed', why: 'auth-store-unreadable' }`; show `stateWords(kit.state)`, not a sign-in prompt.
 Saved sign-in data over the limit instead rejects with exported `AuthStoreSealSizeError` (`code: 'auth-store-seal-size'`,
-fields `size` and `cap`) before any write, leaving the sealed snapshot and the live trees unchanged; the kit reports
-`{ phase: 'failed', why: 'auth-store-seal-size' }` on start, and an engine exit that hits it reports the same. Do not
-move or delete files to get under the limit; report it to the byokit maintainers. The seal encrypts its
-payload without building a second copy of it, so the seal path holds one snapshot-sized string, not two.
+fields `size` and `cap`); the kit reports `{ phase: 'failed', why: 'auth-store-seal-size', sealSize: { size, cap } }`
+on start, and an engine exit that hits it reports the same. On that refusal the last good saved store is kept as it was
+and no live file is deleted. Do not move or delete files to get under the limit; report it to the byokit maintainers.
+`encrypt()` builds its envelope without a second full-size copy, so the envelope step holds one snapshot-sized string, not two.
 Restore access to the original seal/key (and the original service/stateDir binding if the adapter uses
 one), then retry `start()` with that adapter. Do not generate/rotate a key to repair an unreadable store.
 If the bytes are damaged, stop all writers, acquire the host writer lock, and restore an authentic

@@ -1,12 +1,12 @@
 # OpenClaw auth-store seal bound
 
-Verification recipe for the [auth-store seal bound](../../../../packages/openclaw/README.md#retained-home-killed-without-stop): a large engine home can never abort the process at seal time. Regenerable tool caches never reach the sealer however large they are (including across a host killed without `stop()`), the sealed snapshot holds only credential files bounded by a fixed cap, and an over-cap store refuses with a typed error that carries the size and the cap before any write, leaving `auth-store.sealed` and the live trees unchanged.
+Verification recipe for the [auth-store seal bound](../../../../packages/openclaw/README.md#retained-home-killed-without-stop): a large engine home can never abort the process at seal time. Regenerable tool caches never reach the sealer however large they are (including across a host killed without `stop()`), the sealed snapshot holds only credential files bounded by a fixed cap, and an over-cap store refuses with a typed error that carries the size and the cap before any write, keeping the last good saved store as it was and deleting no live file.
 
 ## Sub-features
 
 - A host killed without `stop()` leaves live plaintext trees plus a stale lock; the next `start()` reseals only credential state ( caches on disk are left in place, never sealed, never read).
 - A credential file larger than the 1 MiB envelope chunk round-trips byte for byte (single-pass seal envelope).
-- Credential state over the fixed cap rejects with exported `AuthStoreSealSizeError` (`code: 'auth-store-seal-size'`, fields `size`, `cap`), `{ phase: 'failed', why: 'auth-store-seal-size' }` and recovery words; the sealed snapshot, live trees and modes are unchanged, and nothing is read or chmodded before the refusal.
+- Credential state over the fixed cap rejects with exported `AuthStoreSealSizeError` (`code: 'auth-store-seal-size'`, fields `size`, `cap`), `{ phase: 'failed', why: 'auth-store-seal-size', sealSize }` and recovery words giving the size and limit in MB; the last good saved store is kept as it was, no live file is deleted, and nothing is read or chmodded before the refusal.
 
 ## How to get to it (user POV)
 
@@ -26,4 +26,4 @@ Use SKILL.md's Evidence capture block after allocating `evidence_dir`. The consu
 
 ## Gotchas
 
-The killed-host leg spawns a child that must resolve the same built packages as the parent: the consumer writes the child script into the evidence directory (inside the worktree) so bare `@byokit/*` imports resolve, and passes the synthetic seal key inline. Caches are created with `ftruncate` holes; asserting they still exist with their full sizes after stop proves they were never read or removed. The over-cap leg needs a file larger than the 128 MiB limit (129 MiB sparse): sparse creation keeps it cheap because the collector refuses by `stat` size before any read. No changed app screen, theme or device UI; the typed error and words are public SDK output.
+The killed-host leg spawns a child that must resolve the same built packages as the parent: the consumer writes the child script into the evidence directory (inside the worktree) so bare `@byokit/*` imports resolve, and passes the synthetic seal key inline. Caches are created with `ftruncate` holes; asserting they still exist with their full sizes after stop proves they were never read or removed. The over-cap leg writes a 1 GiB sparse credential file, past the 128 MiB limit, and reads the limit from the typed error: sparse creation keeps it cheap because the collector refuses by `stat` size before any read. No changed app screen, theme or device UI; the typed error and words are public SDK output.

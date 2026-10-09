@@ -5,7 +5,6 @@ import { dirname, join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { AuthStoreSealSizeError, OpenClawKit, stateWords } from '@byokit/openclaw';
-const SEAL_CAP_BYTES = 128 * 1024 * 1024;
 import { fakeGateway } from '@byokit/openclaw/testing';
 import { hostKeySeal } from '@byokit/secrets';
 
@@ -89,21 +88,20 @@ setInterval(() => {}, 1000);
   console.log(JSON.stringify({ leg: 'killed host without stop()', cacheBytesOnDisk: cacheBytes, credentialBytesSealed: credentialBytes, sealedFiles: sealedPaths.length, payloadChars: seal.decryptString(readFileSync(file)).length }));
   await recovering.stop();
   for (const [name, size] of caches) assert.equal(statSync(join(root, name)).size, size, `cache left at rest untouched: ${name}`);
-  // Over-cap: a credential file past SEAL_CAP_BYTES refuses with the typed error before it is read.
+  // Over-cap: a 1 GiB sparse credential file is past any cap, so it refuses with the typed error before it is read.
   const before = readFileSync(file);
   mkdirSync(join(root, 'state'), { recursive: true });
   const huge = join(root, 'state', 'huge.sqlite');
   const fd = openSync(huge, 'w');
-  ftruncateSync(fd, SEAL_CAP_BYTES + 1024 * 1024);
+  ftruncateSync(fd, 1024 * 1024 * 1024);
   closeSync(fd);
   const over = kit();
   let failure;
   try { await over.start(); } catch (error) { failure = error; }
   assert.ok(failure instanceof AuthStoreSealSizeError, `expected AuthStoreSealSizeError, got ${failure?.name}`);
   assert.equal(failure.code, 'auth-store-seal-size');
-  assert.equal(failure.cap, SEAL_CAP_BYTES);
-  assert.ok(failure.size > failure.cap);
-  assert.ok(failure.message.includes(String(failure.size)) && failure.message.includes(String(failure.cap)), 'the error names the size and the cap');
+  assert.ok(failure.cap > 0 && failure.size > failure.cap);
+  assert.ok(failure.message.includes(`about ${Math.ceil(failure.size / 1024 / 1024)} MB`) && failure.message.includes(`the limit is ${failure.cap / 1024 / 1024} MB`), 'the error names the size and the cap in MB');
   assert.deepEqual(readFileSync(file), before, 'the refused store is unchanged');
   assert.equal(existsSync(huge), true, 'the over-cap live file is unchanged');
   console.log(JSON.stringify({ leg: 'over-cap store', error: failure.name, code: failure.code, size: failure.size, cap: failure.cap, state: over.state, words: stateWords(over.state), sealedFileUnchanged: true, processContinued: true }));

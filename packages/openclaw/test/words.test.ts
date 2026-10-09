@@ -14,7 +14,7 @@ const TABLE: Record<string, string> = {
   'engine.repairing': 'Fixing a small problem with the setup. This takes a moment.',
   'engine.locked': 'Your saved sign-in is locked. Unlock your password storage, then try again.',
   'engine.authStoreUnreadable': "Your saved sign-in couldn't be opened. It is unchanged. Restore its original key or a working backup, then retry.",
-  'engine.authStoreSealSize': 'Your saved sign-in data is too large to keep safely. Your sign-ins were left as they were.',
+  'engine.authStoreSealSize': 'Your saved sign-in data is too large to keep safely (about {size} MB; the limit is {limit} MB). Your sign-ins were kept.',
   'engine.signInAgain': "Your saved sign-in couldn't be opened, so it was kept aside. Sign in again.",
   'engine.ready': 'Ready.',
   'engine.restarting': 'Something stopped. Starting it again by itself.',
