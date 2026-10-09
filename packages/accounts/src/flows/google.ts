@@ -39,7 +39,6 @@ export type GoogleOptions = {
   fetch?: typeof fetch;
   /** A stand-in base for offline tests and demos (`mockGoogle()` from @byokit/accounts/testing). */
   base?: string;
-  now?: () => number;
   /** The loopback port the kit listens on; the redirect address names it, so the browser returns to the listener. */
   callbackPort: number;
 };
@@ -74,9 +73,10 @@ export function googleCode(paste: string, state: string) {
   if (!text) throw new Error('Paste the address the Google page returned to.');
   if (!/\?|code=|state=/.test(text)) return text;
   const params = new URLSearchParams(text.includes('?') ? text.slice(text.indexOf('?') + 1) : text);
+  if (params.get('state') !== state) throw new Error('The Google sign-in code does not match this sign-in. Try signing in again.');
   if (params.get('error')) throw new Error(params.get('error')!);
   const code = params.get('code');
-  if (!code || params.get('state') !== state) throw new Error('The Google sign-in code does not match this sign-in. Try signing in again.');
+  if (!code) throw new Error('The Google sign-in code does not match this sign-in. Try signing in again.');
   return code;
 }
 
@@ -90,7 +90,6 @@ const credential = (j: any, now: number, previous?: string): OAuthCredential => 
 
 /** Adds only BYOKit's own Google routes; every other provider still belongs to the supplied engine. */
 export function withGoogle(engine: AuthHost, credentials: CredentialStore, options: GoogleOptions): AuthHost {
-  const now = options.now ?? Date.now;
   const isGoogle = (id: string): id is GoogleClient => id in GOOGLE_CLIENTS;
   const post = async (url: string, body: Record<string, string>, signal?: AbortSignal) => {
     let res: Response;
@@ -117,7 +116,7 @@ export function withGoogle(engine: AuthHost, credentials: CredentialStore, optio
     const token = await post(at(client.token, options.base), { grant_type: 'authorization_code', client_id: client.clientId,
       code, code_verifier: pending.verifier, redirect_uri: pending.redirect }, signal);
     if (signal?.aborted) throw new Error('Login cancelled');
-    const grant = credential(token, now());
+    const grant = credential(token, Date.now());
     // The email is display metadata: a failed lookup leaves the account without one rather than failing the sign-in.
     const info = await (options.fetch ?? fetch)(at(client.userinfo, options.base), { headers: { authorization: `Bearer ${grant.access}`, accept: 'application/json' }, signal: bounded(signal) }).catch(() => undefined);
     const email = info?.ok ? String((await info.json().catch(() => null) as { email?: string } | null)?.email ?? '') : '';
@@ -131,12 +130,12 @@ export function withGoogle(engine: AuthHost, credentials: CredentialStore, optio
   const access = async (id: GoogleClient, minOAuthValidityMs = 0) => {
     const client = GOOGLE_CLIENTS[id];
     const min = Math.max(300_000, minOAuthValidityMs);
-    const due = (c: OAuthCredential) => now() + min >= c.expires;
+    const due = (c: OAuthCredential) => Date.now() + min >= c.expires;
     const c = await credentials.read(id);
     if (c?.type !== 'oauth') return undefined;
     return refreshCredential(credentials, id, due, async (current) => {
       if (!current.refresh) throw new RefreshRequiredError();
-      const next = credential(await post(at(client.token, options.base), { grant_type: 'refresh_token', client_id: client.clientId, refresh_token: current.refresh }), now(), current.refresh);
+      const next = credential(await post(at(client.token, options.base), { grant_type: 'refresh_token', client_id: client.clientId, refresh_token: current.refresh }), Date.now(), current.refresh);
       // The account identity is non-secret metadata; a rotation keeps it, so the same person is not a new account.
       return { ...next, ...(current.accountId ? { accountId: current.accountId } : {}), ...(current.email ? { email: current.email } : {}) };
     });

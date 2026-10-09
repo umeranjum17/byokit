@@ -248,6 +248,21 @@ test('paste: a pasted error return is a declined sign-in that keeps nothing', as
   }
 });
 
+test('paste: an error return for another sign-in is out of date, not declined', async () => {
+  const { google, accounts } = await journey();
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:paste');
+    await callbackAddress(signIn!.url!);
+    accounts.paste(OWNER, id, 'http://127.0.0.1:8085/oauth2callback?error=access_denied&state=some-other-sign-in');
+    await accounts.finished(OWNER, id);
+    assert.notEqual(accounts.view(OWNER, id)?.why, 'declined');
+    assert.deepEqual(await accounts.list(OWNER), []);
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
 test('paste: a late paste after the browser redirect window still completes', async () => {
   const google = await mockGoogle();
   const accounts = new Accounts({ store: () => memoryStore(), authBase: google.base, app: 'byokit journey', redirectMs: 100 });
