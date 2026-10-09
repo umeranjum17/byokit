@@ -306,6 +306,8 @@ conditions pointing at the same file), `./link` → `dist/link.js`, `./testing` 
 import type { AccountId, AccountRef, Considered, PickWhy } from '@byokit/accounts';
 import type { OutputSchema } from '@byokit/openclaw';
 export type Member = string;                                   // D9 rule, = the member agent's OpenClaw agentId
+export type LearningMode = 'off' | 'propose' | 'auto';        // skills.workshop.autonomous.mode (5.6)
+export type LearningCapture = { present: false } | { present: true; mode: LearningMode };  // absence is a value
 export interface ToolSpec { name: string; description: string; parameters: object }   // JSON Schema object
 export interface RunRef { sessionKey: string; member: Member; meta?: unknown }
 export type GateResult =
@@ -407,8 +409,8 @@ and all usage RPCs remain available; no new engine API or patch build seam is cr
 ```ts
 import type { Account, AccountId, AccountPick, AccountRef, Defaults, ModelInfo, Room, RunSelection } from '@byokit/accounts';
 import type { Approval, CallOptions, Decision, GatewayEventName, GatewayEventPayload, GatewayMethod, GatewayParams,
-  GatewayResult, GatewayTransport, Hello, KitState, Member, OutputSchema, Route, RunEnd, RunEvent, RunRef, RunSpec,
-  SchemaOutput, SignInView, ToolHost, ToolSpec } from '@byokit/openclaw';
+  GatewayResult, GatewayTransport, Hello, KitState, LearningCapture, LearningMode, Member, OutputSchema, Route, RunEnd,
+  RunEvent, RunRef, RunSpec, SchemaOutput, SignInView, ToolHost, ToolSpec } from '@byokit/openclaw';
 import type { SealingAdapter } from '@byokit/secrets';
 type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
@@ -492,6 +494,9 @@ export declare class OpenClawKit {
   getConfigKey(key: string): unknown;             // one dotted key out of openclaw.json, no full config read
   setConfigKey(key: string, value: unknown): unknown;  // one key in; returns what it replaced (undefined removes)
   memoryLimited(member: Member): boolean;
+  learning(): LearningCapture;                    // the engine learning mode, file-backed (5.6 "Engine learning state")
+  setLearning(mode: LearningMode | 'default'): LearningCapture;  // 'default' removes the key; returns what it replaced
+  restoreLearning(captured: LearningCapture): LearningCapture;   // lands the capture, reads back, throws on mismatch
   doctorContext(): { entry: string; env: Record<string, string> };
 }
 export type RetainedLogin = { path: string } | { record: Record<string, unknown> };
@@ -622,6 +627,45 @@ engine loads at boot (`OPENCLAW_CONFIG_PATH`), with no Gateway round trip and no
 - Precedence stays 5.6's: `KitOptions.config` is merged over the saved file on every `prepare()`, so a key the app
   also passes in `config` belongs to that option, and the invariants above are re-forced at every boot. Narrow a
   key the app does not pass in `config`.
+
+#### Engine learning state (`learning` / `setLearning` / `restoreLearning`)
+
+The engine's learning switch is the config key `skills.workshop.autonomous.mode` (`'off' | 'propose' | 'auto'`;
+engine default `'auto'` when the key is absent). `off` keeps only the suggestion nudge, `propose` creates pending
+proposals, `auto` applies captured proposals and runs the scanner-gated cleanup that can rewrite or drop eligible
+skills. The pinned engine hot-applies changes to it (reload-plan entry `skills.workshop.autonomous.mode`, action
+`reconcile-skill-review-jobs`) and projects a system-owned cron job `skill-collection-review-<agentId>` per
+workspace agent, enabled only while the mode is `auto`. Proposal records live in the engine state tree the kit
+seals; applied skills live as files in `workspaces/<member>/skills/`, outside the seal.
+
+The kit surface is a typed, validated veneer over `getConfigKey`/`setConfigKey` — the same file-backed narrow pair,
+no Gateway round trip, valid before boot and after `stop()`. Types `LearningMode` (`'off' | 'propose' | 'auto'`)
+and `LearningCapture` (`{ present: false } | { present: true; mode }`) are exported from `.`: absence is a value,
+not "probably default".
+
+- `learning(): LearningCapture` — `{ present: false }` when the key is absent, else `{ present: true; mode }`.
+- `setLearning(mode: LearningMode | 'default'): LearningCapture` — writes the mode and returns the state it
+  replaced; `'default'` removes the key, so the engine default (`auto`) applies again.
+- `restoreLearning(captured: LearningCapture): LearningCapture` — writes the captured state (absence restores
+  absence), reads the file back, returns `learning()`; a readback that differs from `captured` throws.
+
+Error cases, all plain `Error`s carrying the real cause:
+
+- `setLearning`/`restoreLearning` refuse a mode outside the enum, listing the accepted values (`off|propose|auto`
+  plus `default` for `setLearning`): the engine itself falls back silently on an invalid stored value, so the kit
+  must not let a typo quietly flip learning.
+- `learning()` throws when the stored value is outside `off|propose|auto`, naming the actual value: corruption
+  surfaces instead of silently meaning "default".
+- Both writers throw at call time when the app also passes a `skills` key in `KitOptions.config`: that option is
+  merged over the saved file at every `prepare()` and wins (the precedence rule above), so a narrow write here
+  would be silently overwritten at the next boot. The key belongs to `config`, not to these methods.
+- A state dir that was never prepared (`openclaw.json` absent) surfaces `setConfigKey`'s ENOENT: `prepare()`
+  (or a first `start()`) once first.
+
+A capture is one small value object; no config copy leaves the kit, and a restore writes exactly one key, so the
+narrow pair's byte-exactness holds for every other key (and writes no bytes when nothing changes). Flipping
+learning on a **running** home is out of scope here: `patchConfig` remains the whole-config writer, and the engine
+hot-applies this key through it.
 
 #### App-owned restart recovery (R1, binding 5.16)
 

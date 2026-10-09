@@ -391,6 +391,57 @@ back out), the write is atomic in `prepare()`'s exact shape, and the engine appl
 your app does **not** also pass in `KitOptions.config`: that option is merged over the saved file on every boot and
 wins. Don't interleave a narrow set with `patchConfig`, which rewrites the whole config through the Gateway.
 
+## Engine learning state
+
+The engine's learning switch is the config key `skills.workshop.autonomous.mode` (`off | propose | auto`; engine
+default `auto` when absent). `off` keeps only the suggestion nudge, `propose` creates pending proposals, `auto`
+applies captured proposals and runs the scanner-gated cleanup; the engine projects a system-owned cron job
+`skill-collection-review-<agentId>` per workspace agent, enabled only on `auto`. The kit names it — file-backed like
+the pair above, so it works on a stopped home, before boot and after `stop()`:
+
+```ts
+import { OpenClawKit } from '@byokit/openclaw';
+
+const kit = new OpenClawKit({ stateDir: './openclaw-state' });
+
+kit.learning();                                  // { present: false } | { present: true, mode: 'off' | 'propose' | 'auto' }
+const before = kit.learning();                   // capture before maintenance
+kit.setLearning('off');                          // returns the state it replaced
+kit.setLearning('default');                      // remove the key: the engine default (auto) applies again
+kit.restoreLearning(before);                     // writes the capture, reads it back, throws on mismatch
+```
+
+Absence is a value (`{ present: false }`), never "probably default". An unknown mode throws listing the accepted
+values (`off|propose|auto`, plus `default` for `setLearning`), a stored value outside the enum makes `learning()`
+throw naming it, and both writers throw when the app also passes a `skills` key in `KitOptions.config` (that option
+wins at every boot). A home that was never prepared surfaces the file read's ENOENT: `prepare()` once first.
+
+## Retained home killed without stop()
+
+A host crash or `kill -9` skips `stop()` cleanup. The next `prepare()` (the next `start()`) repairs the home
+itself — no manual file surgery:
+
+- It stops a leftover Gateway only after verifying it is a same-user orphan of this root (matching pid, identity,
+  start time, exe/cwd and env), and only when the auth-store lock's owner is dead; then it seals the leftover live
+  `state/` and `home/` trees back into the store under the acquired lock. Anything ambiguous (a live lock owner, an
+  unverifiable pid, another writer alive, shutdown timeout) fails closed with `EngineAlreadyRunningError` instead.
+- A stale `auth-store.lock/` with a dead owner is recovered through a `recovery/` marker; interrupted
+  `cleanup`/`restoring` transitions are completed from the authenticated snapshot; empty live trees are treated as
+debris.
+- An engine exit code 78 means the engine asked for repair: the kit's own repair path runs
+  `doctor --fix --yes` with `doctorContext()`'s exact env.
+
+What a killed home leaves behind: live plaintext `state/` and `home/` (never resealed), `auth-store.lock/` with a
+dead owner pid, `gateway.pid` and `gateway.identity` (a still-live orphan Gateway is the dangerous case),
+`openclaw.json` with its `.bak.*` journal, `engine-set`, `plugin/`, `workspaces/`, `usage/`, `tmp/`, `npm-cache/`
+and `install-home/`. None of these is safe to edit by hand, and `auth-store.sealed` above all: never hand-edit it —
+restore an authentic backup under the lock instead (see the credential sealing section). Keep backups before any
+manual intervention.
+
+If a leftover `home/` carries large regenerable tool caches, resealing can exceed the runtime string bound and
+abort; that seal size bound is a separate, known limitation (tracked as the auth-store seal size demand), not
+fixed by the recovery path — move only regenerable cache trees aside (keeping backups) and retry `start()`.
+
 ## App-owned task recovery
 
 If your app requeues interrupted tasks itself, declare their namespaces **before starting the kit**:
