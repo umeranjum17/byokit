@@ -18,9 +18,9 @@ every reuse/launch (a set torn by power loss mismatches `.byokit-tree` and rebui
 From a built worktree, run a clean `Engine.prepare()` with an isolated stateDir/engineDir under a short scratch
 path (Unix socket limits), through the home's memory gate, and time it. The task's evidence
 (`data/byk-install-freeze-cheap/evidence/measure-*.log` in the dispatching home) used a `node:module`
-`registerHooks` probe wrapping `async function freeze(dir: string): Promise<void> {` in
-`packages/openclaw/src/engine-patches.ts` to split freeze wall time from total prepare; the same anchor works
-against the built `dist/engine-patches.js`. Offline, the whole journey (clone, patch, freeze, publish, drift
+`registerHooks` probe wrapping `async function freeze(dir: string, entries: TreeEntry[]): Promise<TreeEntry[]> {` in
+`packages/openclaw/src/engine-patches.ts` to split freeze wall time from total prepare. The probe wraps the source
+form only; the built `dist/engine-patches.js` has no type annotations, so it does not match that anchor. Offline, the whole journey (clone, patch, freeze, publish, drift
 rebuild, fault refusal) is covered by the existing engine-patch tests; no new unit test belongs here.
 
 ## Gotchas

@@ -1623,8 +1623,9 @@ signalled or waited for.
   directory onto the final name and `fsync` the sets directory. Per-entry `fsync`s are not taken: the derived
   manifest is a claim the pre-publication verification proves against every byte on disk, and after a power loss a
   published set may be torn, but the adopt rule's full verification detects any torn entry as drift and rebuilds,
-  so a torn set is never launched (macOS `fsync` never flushed to permanent storage, so verification was already
-  the only power-loss guarantee there). A rename that loses to another kit
+  so a torn set is never launched. On every non-Linux platform (macOS, Windows and BSD included) there is no bulk
+  flush at all, so durability there rests on the same next-launch whole-tree verification: a set torn by power loss
+  is detected as drift and rebuilt, never launched, and the worst case is a full reinstall. A rename that loses to another kit
   (`ENOTEMPTY`/`EEXIST`, `EPERM` on Windows) removes only its own temporary directory and adopts the winner after
   verification; any other error fails, never copy-over or remove-and-retry. A kit removes its own temporary directory
   on failure; another kit's is removed only when its `<pid>-<startTime>` is provably dead on Linux, and left
