@@ -93,14 +93,15 @@ export class AuthStoreUnreadableError extends Error {
 export const SEAL_CAP_BYTES = 128 * 1024 * 1024;
 
 /** Credential state exceeded `SEAL_CAP_BYTES`; nothing was read beyond the refusing file, nothing was
- *  sealed and nothing was removed — `auth-store.sealed` and the live trees are unchanged. */
+ *  sealed or removed, and the sealed snapshot and the live trees' contents are unchanged (file and
+ *  directory modes may already be tightened). `size` is a lower bound: the running total at the refusal. */
 export class AuthStoreSealSizeError extends Error {
   readonly code = 'auth-store-seal-size';
   readonly size: number;
   readonly cap: number;
   constructor(size: number, cap: number) {
-    super(`Credential state is ${size} bytes and cannot be sealed: the seal cap is ${cap} bytes. ` +
-      'Move regenerable data (tool caches are already skipped) out of the engine state and home trees, then retry.');
+    super(`Credential state is at least ${size} bytes and cannot be sealed: the seal cap is ${cap} bytes. ` +
+      'Move large files out of the engine state and home folders, other than tool caches, then try again.');
     this.name = 'AuthStoreSealSizeError';
     this.size = size;
     this.cap = cap;
@@ -214,11 +215,11 @@ export class AuthStore {
         target = lstatSync(file);
       }
       if (!target.isFile()) return;
-      // Read the checked target, but save the link's path: restore materializes a regular file there.
-      chmodSync(file, 0o600);
-      // Refuse by size before reading: an over-cap file must never reach memory or the sealer.
+      // Refuse by size before touching modes or reading: an over-cap file must never reach memory or the sealer.
       total += target.size;
       if (total > SEAL_CAP_BYTES) throw new AuthStoreSealSizeError(total, SEAL_CAP_BYTES);
+      // Read the checked target, but save the link's path: restore materializes a regular file there.
+      chmodSync(file, 0o600);
       s.files.push([name, readFileSync(file).toString('base64')]);
     };
     for (const dir of ['state', 'home']) if (existsSync(join(this.o.root, dir))) walk(join(this.o.root, dir));
@@ -314,10 +315,13 @@ export class AuthStore {
   stop(): Promise<void> {
     return this.serial(async () => {
       if (!this.owned) return;
-      await this.archives();
-      await this.persist();
-      this.active = false;
-      this.release();
+      try {
+        await this.archives();
+        await this.persist();
+      } finally {
+        this.active = false;
+        this.release();
+      }
     });
   }
   offline<T>(task: () => Promise<T>): Promise<T> {

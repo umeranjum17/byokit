@@ -447,10 +447,12 @@ and cache subtrees of the CLIs the engine runs (`home/.codex` sessions/log/cache
 `home/.claude` projects/todos/shell-snapshots/statsig/file-history/`history.jsonl`). Those stay on disk unsealed, so
 however large a killed home's tool caches are, they never reach the sealer. Unknown `home` paths are still sealed
 (credential locations the kit does not know about must fail loudly, never drop silently), and one snapshot is
-bounded: if the collected credential files together exceed `SEAL_CAP_BYTES` (128 MiB), `prepare()`/`start()` reject
-with exported `AuthStoreSealSizeError` (`code: 'auth-store-seal-size'`, naming the size and the cap) instead of
-building a string the runtime cannot hold; the sealed snapshot and the live trees are unchanged, so moving
-regenerable data aside and retrying is always safe.
+bounded: if the collected credential files together exceed `SEAL_CAP_BYTES` (128 MiB), `prepare()`, `start()` and
+`stop()` reject with exported `AuthStoreSealSizeError` (`code: 'auth-store-seal-size'`, naming the size and the cap)
+instead of building a string the runtime cannot hold. Its `size` is a lower bound (the running total at the refusal).
+The sealed snapshot and the live trees' contents are unchanged (modes may be tightened), so moving large non-cache
+files out of `state/` and `home/` and retrying is safe; a refused `stop()` still releases the lock, so a later
+`start()` works.
 
 ## App-owned task recovery
 
@@ -567,7 +569,7 @@ damaged or tampered bytes) or whose payload is not a credential snapshot stays u
 `{ phase: 'failed', why: 'auth-store-unreadable' }`; show `stateWords(kit.state)`, not a sign-in prompt.
 Credential state larger than the seal cap (raw file bytes, `SEAL_CAP_BYTES` = 128 MiB) instead rejects with exported
 `AuthStoreSealSizeError` (`code: 'auth-store-seal-size'`, fields `size` and `cap`), leaving the sealed snapshot and
-live trees unchanged; the kit reports `{ phase: 'failed', why: 'auth-store-seal-size' }`. The seal encrypts its
+the live trees' contents unchanged; the kit reports `{ phase: 'failed', why: 'auth-store-seal-size' }`. The seal encrypts its
 payload without building a second copy of it, so the seal path holds one snapshot-sized string, not two.
 Restore access to the original seal/key (and the original service/stateDir binding if the adapter uses
 one), then retry `start()` with that adapter. Do not generate/rotate a key to repair an unreadable store.

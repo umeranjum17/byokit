@@ -10,7 +10,7 @@ Verification recipe for the [auth-store seal bound](../../../../packages/opencla
 
 ## How to get to it (user POV)
 
-Start the kit against a home whose engine tool caches grew large; if a host crash skipped `stop()`, the next start recovers the sign-in itself. A home whose credential state itself exceeds the cap fails with a clear error naming the size and cap instead of aborting; moving regenerable data aside and retrying is always safe.
+Start the kit against a home whose engine tool caches grew large; if a host crash skipped `stop()`, the next start recovers the sign-in itself. A home whose credential state itself exceeds the cap fails with a clear error naming the size and cap instead of aborting; moving large non-cache files out of `state/` and `home/` and retrying is safe.
 
 ## Driving it with node scratch consumers
 

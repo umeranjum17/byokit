@@ -853,7 +853,7 @@ setInterval(() => {}, 1000);
 // process at seal time. Tool caches stay off the sealer — however large — across a host kill without
 // stop(), the sealed payload holds only credential files, and a store over SEAL_CAP_BYTES refuses with
 // AuthStoreSealSizeError (naming size and cap) leaving the seal and live trees unchanged.
-test('a large cache home never reaches the sealer across a host kill, and an over-cap store refuses with a typed error', { skip: process.platform !== 'linux', timeout: 120_000 }, async () => {
+test('a large cache home never reaches the sealer across a host kill, and an over-cap store refuses start and stop with a typed error', { skip: process.platform !== 'linux', timeout: 120_000 }, async () => {
   const dir = scratchDir('seal-bound');
   const engineDir = join(dir, 'engine');
   const root = join(dir, 'openclaw');
@@ -971,7 +971,7 @@ setInterval(() => {}, 1000);
     sealed.length = 0;
     await assert.rejects(kit.start(), (e: unknown): e is AuthStoreSealSizeError =>
       e instanceof AuthStoreSealSizeError && e.size > e.cap && e.cap === SEAL_CAP_BYTES
-      && e.message.includes(String(e.size)) && e.message.includes(String(e.cap)));
+      && e.message.includes(`at least ${e.size} bytes`) && e.message.includes(String(e.cap)));
     assert.equal(sealed.length, 0, 'an over-cap store never reaches the sealer');
     assert.equal(kit.state.phase, 'failed');
     assert.equal(kit.state.why, 'auth-store-seal-size');
@@ -980,6 +980,24 @@ setInterval(() => {}, 1000);
     assert.equal(existsSync(huge), true, 'the over-cap live file is unchanged');
     assert.equal(pidAlive(gateway), false, 'no gateway survived the refused start');
     console.log(`[seal-bound] over-cap store (${SEAL_CAP_BYTES + 1024 * 1024} bytes) refused with AuthStoreSealSizeError; process continued`);
+    rmSync(huge);
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready', 'a start after the refused start works');
+    const stopFd = fs.openSync(huge, 'w');
+    fs.ftruncateSync(stopFd, SEAL_CAP_BYTES + 1024 * 1024);
+    fs.closeSync(stopFd);
+    const beforeStop = readFileSync(storeFile);
+    sealed.length = 0;
+    await assert.rejects(kit.stop(), (e: unknown) => e instanceof AuthStoreSealSizeError);
+    assert.equal(sealed.length, 0, 'an over-cap stop never reaches the sealer');
+    assert.deepEqual(readFileSync(storeFile), beforeStop, 'the refused stop leaves the sealed store unchanged');
+    assert.equal(existsSync(huge), true, 'the over-cap live file survives the refused stop');
+    assert.equal(existsSync(join(root, 'auth-store.lock')), false, 'the refused stop releases the store lock');
+    rmSync(huge);
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready', 'a start after the refused stop works');
+    assert.equal(readFileSync(join(root, 'state', 'auth.json'), 'utf8'), 'refreshed-login');
+    await kit.stop();
   } finally {
     if (gateway && pidAlive(gateway)) { try { process.kill(gateway, 'SIGKILL'); } catch {} }
     await kit.stop();

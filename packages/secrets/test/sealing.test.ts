@@ -7,7 +7,9 @@ import { spawn, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileStore } from '../../accounts/src/node-stores.ts';
 import { scratchDir } from '../../test-support.ts';
+import { openSecretBox } from '@byokit/seal';
 import { hostKeyFileDirectory } from '../src/host-key-file.ts';
+import { decrypt, encrypt, makeHeader } from '../src/sealing.ts';
 import { hostKeyFileSeal, hostKeySeal, osKeyring, osKeyringSeal, osKeyringStore, type KeyringBackend } from '../src/index.ts';
 import { assertPrivateKeyringSession } from './private-session.ts';
 
@@ -474,4 +476,19 @@ test('private Secret Service: locked/hung probes never unlock or prompt; opencla
       status === 0 ? resolve() : reject(new Error(output));
     });
   });
+});
+
+test('a payload past the envelope chunk seals to the exact JSON envelope and round-trips across the chunk boundary', () => {
+  const CHUNK = 1 << 20;
+  const service = 'byokit-host-key';
+  const key = Buffer.alloc(32, 5);
+  const header = makeHeader(0, Buffer.alloc(16));
+  const head = '"\\\n\u0001\u0007 quoted   tail';
+  const text = head + 'y'.repeat(CHUNK - 1 - head.length) + '😀' + '"\\\u0002' + 'z'.repeat(CHUNK + 4096) + '\ud83d';
+  assert.equal(text.charCodeAt(CHUNK - 1), 0xd83d, 'a surrogate pair starts at the last unit of the first chunk');
+  const sealed = Buffer.from(encrypt(text, key, header, service));
+  const plain = openSecretBox(sealed.subarray(header.length), key);
+  assert.ok(plain, 'the envelope authenticates under the key');
+  assert.deepEqual(Buffer.from(plain.subarray(header.length)), Buffer.from(JSON.stringify({ service, text })));
+  assert.equal(decrypt(sealed, key, header, service), text);
 });

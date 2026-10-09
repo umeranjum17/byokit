@@ -806,8 +806,8 @@ export class OpenClawKit {
   async stop(): Promise<void> {
     this.stopping = true;
     await this.disconnect();
-    await this.engine.stop();
-    await this.closeBrowsers();
+    try { await this.engine.stop(); }
+    finally { await this.closeBrowsers(); }
   }
 
   private async closeBrowsers(): Promise<void> {
