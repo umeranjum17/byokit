@@ -307,7 +307,10 @@ jobs:
           target: google_apis
           profile: pixel_7
           disable-animations: true
-          script: cd examples/expo/android && ./gradlew :app:installDebug -PreactNativeArchitectures=x86_64 && ./gradlew :byokit-bubble:connectedDebugAndroidTest :a11y-demo:connectedDebugAndroidTest -PreactNativeArchitectures=x86_64 && cd .. && ./e2e-screen-frame.sh emulator-5554 .screen-captures
+          # The Chromium WebView focus journey (WebFocusedFieldTest, @FlakyTest) flakes on CI renderer
+          # accessibility races, so this required job excludes it with notAnnotation; overlay-android-webview
+          # still runs it on every PR and reports it. Everything else here stays required.
+          script: cd examples/expo/android && ./gradlew :app:installDebug -PreactNativeArchitectures=x86_64 && ./gradlew :byokit-bubble:connectedDebugAndroidTest :a11y-demo:connectedDebugAndroidTest -PreactNativeArchitectures=x86_64 -Pandroid.testInstrumentationRunnerArguments.notAnnotation=androidx.test.filters.FlakyTest && cd .. && ./e2e-screen-frame.sh emulator-5554 .screen-captures
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -317,6 +320,48 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: overlay-webview-test-reports
+          path: examples/expo/modules/a11y-demo/android/build/outputs/androidTest-results/
+
+  # Non-required companion to overlay-android. The real Chromium WebView focus journey
+  # (WebFocusedFieldTest, @FlakyTest) flakes on CI renderer accessibility races, so the required
+  # overlay-android job filters it out with notAnnotation. This job still runs the whole a11y-demo
+  # suite (including that test) on every PR and reports, so the flake stays visible without blocking
+  # the required check. Never make this job required and never delete the test.
+  overlay-android-webview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: examples/expo/package-lock.json
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - run: npm ci --no-audit --no-fund
+        working-directory: examples/expo
+      - run: CI=1 npx expo prebuild -p android --no-install
+        working-directory: examples/expo
+      - run: |
+          sudo chmod 666 /dev/kvm
+      - uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 36
+          arch: x86_64
+          target: google_apis
+          profile: pixel_7
+          disable-animations: true
+          script: cd examples/expo/android && ./gradlew :app:installDebug -PreactNativeArchitectures=x86_64 && ./gradlew :a11y-demo:connectedDebugAndroidTest -PreactNativeArchitectures=x86_64
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: overlay-android-webview-reports
           path: examples/expo/modules/a11y-demo/android/build/outputs/androidTest-results/
 
   share-android:
