@@ -328,7 +328,7 @@ test('each MiniMax code step carries its own random state', async () => {
   }
 });
 
-test('an expired MiniMax sign-in ends signed out in the instance that signed in, on the next refresh', async () => {
+test('an expired MiniMax sign-in ends signed out in the instance that signed in, on the next status', async () => {
   const m = await mockDevice({ dialect: 'minimax' });
   const { store } = stored();
   const accounts = new Accounts<any, number>({ deviceBase: m.base, app: 'byokit journey', offer: ['minimax'], store: () => store }, portable);
@@ -337,12 +337,12 @@ test('an expired MiniMax sign-in ends signed out in the instance that signed in,
   await accounts.finished(1, id);
   const realNow = Date.now;
   try {
-    await accounts.keepFresh([1]);
     assert.equal((await accounts.status(1, id)).state, 'ready', 'ready before the token runs out');
     // The stand-in's token lasts 3600 seconds.
     Date.now = () => realNow() + 3_601_000;
-    await accounts.keepFresh([1]);
-    assert.equal((await accounts.status(1, id)).state, 'needs_again', 'needs signing in again once the token has run out');
+    // No keepFresh: a plain status must not trust a cached ready for a sign-in that has no way to refresh itself.
+    assert.equal((await accounts.status(1, id)).state, 'signed_out', 'signed out once the token has run out');
+    assert.deepEqual((await accounts.list(1)).map((r) => r.state), ['signed_out'], 'list agrees');
     assert.ok(m.state.requests.every((r) => new URLSearchParams(r.body).get('grant_type') !== 'refresh_token'), 'no refresh was sent');
   } finally {
     Date.now = realNow;

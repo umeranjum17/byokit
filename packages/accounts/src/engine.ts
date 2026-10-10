@@ -77,6 +77,9 @@ export type EngineOptions = {
   deviceBase?: string;
   /** Which region's device endpoints a provider with regions uses (`minimax` on the cn host). */
   region?: 'global' | 'cn';
+  /** Secure random bytes and SHA-256 for a device sign-in that needs PKCE (MiniMax). Defaults to the platform's
+   *  `globalThis.crypto`; a React Native app injects one, the same shape the Claude flow takes. */
+  crypto?: Pick<Crypto, 'getRandomValues' | 'subtle'>;
 };
 
 /** RFC 8628 device authorization, one implementation for every provider the catalogue gives data for: the person
@@ -152,11 +155,12 @@ function minimaxAnswer(r: { status: number; body: string }, name: string): Answe
 /** RFC 8628 device authorization, plus the catalogue's data for a provider whose client differs: `pkce` adds the S256
  *  challenge, `grant` overrides the token grant, and `dialect: 'minimax'` polls by user code with the verifier, reads a
  *  status-field answer and takes the code's absolute expiry. */
-async function deviceLogin(pi: string, flow: DeviceFlow, name: string, base: string | undefined, credentials: CredentialStore, { signal, notify }: AuthInteraction): Promise<Credential> {
+async function deviceLogin(pi: string, flow: DeviceFlow, name: string, base: string | undefined, credentials: CredentialStore, { signal, notify }: AuthInteraction, webcrypto?: Pick<Crypto, 'getRandomValues' | 'subtle'>): Promise<Credential> {
   const minimax = flow.dialect === 'minimax';
-  const pk = flow.pkce ? await pkce() : undefined;
+  const crypto = webcrypto ?? globalThis.crypto;
+  const pk = flow.pkce ? await pkce(crypto) : undefined;
   const asked = await form(at(flow.authorization, base), { client_id: flow.clientId, ...(flow.scope ? { scope: flow.scope } : {}),
-    ...(pk ? { code_challenge: pk.challenge, code_challenge_method: 'S256' } : {}), ...(minimax ? { state: base64url(globalThis.crypto.getRandomValues(new Uint8Array(16))) } : {}), ...flow.form }, signal);
+    ...(pk ? { code_challenge: pk.challenge, code_challenge_method: 'S256' } : {}), ...(minimax ? { state: base64url(crypto.getRandomValues(new Uint8Array(16))) } : {}), ...flow.form }, signal);
   if (asked.status < 200 || asked.status > 299) throw new Error(`${name} did not start a device sign-in (${asked.status}).`);
   const device = deviceAsked(json(asked.body), name, minimax);
   notify({ type: 'device_code', userCode: device.userCode, verificationUri: device.verificationUri, intervalSeconds: device.intervalSeconds, expiresInSeconds: device.expiresInSeconds } as AuthEvent);
@@ -180,8 +184,7 @@ async function deviceLogin(pi: string, flow: DeviceFlow, name: string, base: str
 
 /** A PKCE verifier and its S256 challenge, for a provider whose device client asks for them. */
 const base64url = (bytes: Uint8Array) => btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-async function pkce() {
-  const crypto = globalThis.crypto;
+async function pkce(crypto: Pick<Crypto, 'getRandomValues' | 'subtle'> | undefined) {
   if (!crypto?.getRandomValues || !crypto.subtle?.digest) throw new Error('This sign-in needs secure random bytes and SHA-256 on this device.');
   const verifier = base64url(crypto.getRandomValues(new Uint8Array(32)));
   const challenge = base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
@@ -215,7 +218,7 @@ const deviceRefresh = (flow: DeviceFlow, name: string, base?: string) => async (
 };
 
 /** A member's engine on phones and in browsers: ChatGPT's device-code sign-in, refresh and sign-out, into `credentials`. */
-export function portableEngine(credentials: CredentialStore, { base = 'https://auth.openai.com', deviceBase, region }: EngineOptions = {}): AuthHost {
+export function portableEngine(credentials: CredentialStore, { base = 'https://auth.openai.com', deviceBase, region, crypto }: EngineOptions = {}): AuthHost {
   const post = async (path: string, body: object, form = false, signal?: AbortSignal) => {
     try {
       const res = await fetch(base + path, {
@@ -258,7 +261,7 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
     async login(id: string, _type: string, io: AuthInteraction): Promise<Credential> {
       known(id);
       const flow = deviceFlow(id, region);
-      if (flow) return deviceLogin(id, flow, nameOf(id), deviceBase, credentials, io);
+      if (flow) return deviceLogin(id, flow, nameOf(id), deviceBase, credentials, io, crypto);
       const { signal, notify } = io;
       const asked = await post('/api/accounts/deviceauth/usercode', { client_id: CLIENT_ID }, false, signal);
       const start = deviceStart(asked.status, asked.body);

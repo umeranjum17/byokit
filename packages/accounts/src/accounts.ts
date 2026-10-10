@@ -9,7 +9,7 @@ import type { AiBinding } from '@earendil-works/pi-ai/api/cloudflare-ai-binding'
 import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfile, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
 import { googleProject, googleRevoke, googleRevokeUrl, isGoogleClient, withGoogle } from './flows/google.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
-import { offered, provider, route, routes, PROVIDERS, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
+import { deviceFlow, offered, provider, route, routes, PROVIDERS, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
 import { checkKeyModel, keyRespond, KeyRouteError, type KeyAsk, type KeyRuntime } from './key-routes.ts';
 import { claims, PORTABLE, portableEngine, signable, withDevice } from './engine.ts';
@@ -29,7 +29,9 @@ export type Member = string | number;
  *  (`via: 'code'`), never the engine's own prompts. `why` names how a failed one failed, for apps that word it themselves. */
 /** Explicit method selection; Claude defaults to paste. Enterprise domains apply only to Copilot.
  *  OpenRouter authorization creates an API-billed key: billedPerUse explicitly selects that billing. */
-export type SignInOptions = { via?: 'browser' | 'code' | 'paste'; fresh?: boolean; enterpriseDomain?: string; billedPerUse?: true; region?: 'global' | 'cn' };
+export type SignInOptions = { via?: 'browser' | 'code' | 'paste'; fresh?: boolean; enterpriseDomain?: string; billedPerUse?: true };
+/** `add`'s options: the public sign-in options plus the internal `region` the MiniMax route ids select. */
+type AddOptions = Omit<SignInOptions, 'via'> & { via?: Via; key?: string; region?: 'global' | 'cn' };
 export type SignIn = { id?: string; state: 'waiting' | 'done' | 'failed'; via?: 'browser' | 'code'; url?: string; code?: string; expiresAt?: number; error?: string; why?: Why };
 export type Status = { id: string; provider: string; account: string; name: string; state: 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included'; until?: number; words: string };
 type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text: string) => void; refuse?: (e: Error) => void; timedOut?: boolean; toCode?: boolean;
@@ -87,6 +89,8 @@ export type AccountsOptions<M extends Member = Member> = {
   anthropicBase?: string;
   /** Claude PKCE transport and Web Crypto supplied by the app (React Native). */
   claudePlan?: ClaudePlanOptions;
+  /** Web Crypto supplied by the app (React Native) for device sign-ins that need PKCE, such as MiniMax. */
+  crypto?: Pick<Crypto, 'getRandomValues' | 'subtle'>;
   /** The client value the Claude plan route sends as its User-Agent. The host's own value; this kit sends none. */
   claudeUserAgent?: string;
   /** The fetch `respond` asks with: one that streams on a phone (Expo's `expo/fetch`). Default: the platform's. */
@@ -333,10 +337,10 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       await this.resolveKey(member, this.providerKey(id));
     }
   }
-  async add(member: M, key: string, options: (Omit<SignInOptions, 'via'> & { via?: Via; key?: string }) | CloudOptions = {}): Promise<{ id: string; signIn?: SignIn }> {
+  async add(member: M, key: string, options: AddOptions | CloudOptions = {}): Promise<{ id: string; signIn?: SignIn }> {
     if ('route' in options) return this.addCloud(member, key, options);
     // A MiniMax device route id (`minimax:code`, `minimax:code:cn`) selects the provider's catalogue device flow,
-    // and `:cn` its China host.
+    // and `:cn` its China host. `region` is internal: the route ids are the only public selector.
     if (key === 'minimax:code' || key === 'minimax:code:cn')
       return this.add(member, 'minimax', { ...options, via: 'code', region: key.endsWith(':cn') ? 'cn' : 'global' });
     // A Google sign-in route id (`google-gemini-cli:browser`, `:paste`) selects that flow for the provider.
@@ -353,10 +357,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       await this.saveKey(member, id, options.key, { billedPerUse: true });
       return { id, signIn: { id, state: 'done' } };
     }
+    const { region, ...body } = options;
     const p = this.offer(key);
-    if (p.auth === 'api-key' || options.via === 'session') throw new Error('This sign-in method is not available here.');
+    if (p.auth === 'api-key' || body.via === 'session') throw new Error('This sign-in method is not available here.');
     if (key !== p.key) throw new Error('Choose a provider to add an account.');
-    this.signInReady(p, { ...options, via: options.via as SignInOptions['via'] });
+    this.signInReady(p, { ...body, via: body.via as SignInOptions['via'] });
     await this.store(member).index(() => {}); // Validate the storage seam before starting a flow.
     const bytes = new Uint8Array(4);
     let id: string;
@@ -367,8 +372,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       id = `${key}.${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
     } while (this.additions.has(`${member}:${id}`) || await this.store(member).read(id));
     this.additions.set(`${member}:${id}`, memoryStore());
-    if ((options as SignInOptions).region) this.deviceRegions.set(`${member}:${id}`, (options as SignInOptions).region!);
-    const signIn = await this.login(member, id, { ...options, via: options.via as SignInOptions['via'], fresh: true });
+    if (region) this.deviceRegions.set(`${member}:${id}`, region);
+    const signIn = await this.login(member, id, { ...body, via: body.via as SignInOptions['via'], fresh: true });
     return { id, ...(signIn ? { signIn } : {}) };
   }
   /** Explicit Node-only cloud account. Saving never resolves SDK credentials, reads paths or sends a request. */
@@ -586,14 +591,23 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   protected async engine(member: M, raw: CredentialStore, accountId?: string): Promise<R> {
     const credentials = this.boundStore(member, raw, accountId);
-    // A sign-in in progress carries its region; a saved account keeps it in the index, so it survives a restart.
-    const region = accountId ? this.deviceRegions.get(`${member}:${accountId}`) ?? (await this.index(member)).accounts?.[accountId]?.region as 'global' | 'cn' | undefined : undefined;
-    const host = withDevice(this.platform.engine(credentials, this.opts.authBase, this.opts.deviceBase), credentials, { deviceBase: this.opts.deviceBase, region });
+    // A sign-in in progress carries its region; a saved account keeps it in the index, so it survives a restart. Only a
+    // provider whose catalogue device row has regions (MiniMax) reads the index; every other provider skips that read.
+    const region = accountId ? this.deviceRegions.get(`${member}:${accountId}`) ?? await this.regionOf(member, accountId) : undefined;
+    const host = withDevice(this.platform.engine(credentials, this.opts.authBase, this.opts.deviceBase), credentials, { deviceBase: this.opts.deviceBase, region, crypto: this.opts.crypto });
     const engine = withClaudePlan(host, credentials, accountId ? raw : this.baseStores.get(String(member)) ?? raw, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch });
     const callbackPort = this.opts.callbackPort ?? provider('google-gemini-cli').callbackPort!;
     return Object.assign(withGoogle(engine, credentials, { base: this.opts.googleBase, fetch: this.opts.fetch, callbackPort }), {
       credentialStore: credentials, readCredential: (id: string) => credentials.read(id),
     }) as R;
+  }
+
+  /** A saved account's device region, read from the index only for a provider whose device row has regions (MiniMax). */
+  private async regionOf(member: M, accountId: string): Promise<'global' | 'cn' | undefined> {
+    let pi: string;
+    try { pi = this.offer(accountId).pi; } catch { return undefined; }
+    if (!deviceFlow(pi)?.regions) return undefined;
+    return (await this.index(member)).accounts?.[accountId]?.region as 'global' | 'cn' | undefined;
   }
 
   /** A member's engine, holding only their own sign-ins (`store(member)`). Override to use another engine with the same seam. */
@@ -609,12 +623,19 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         const p = this.offer(accountId);
         const staged = this.additions.get(id);
         const raw = staged ?? viewStore(this.store(member), p.pi, this.storageKey(accountId));
-        this.runtimes.set(id, r = this.engine(member, raw, accountId));
+        r = this.engine(member, raw, accountId);
+        // A transient engine failure (a locked store, for one) must not be cached: a later call rebuilds it.
+        r.catch(() => { if (this.runtimes.get(id) === r) this.runtimes.delete(id); });
+        this.runtimes.set(id, r);
       }
       return r;
     }
     let r = this.runtimes.get(String(member));
-    if (!r) this.runtimes.set(String(member), r = this.open(member));
+    if (!r) {
+      r = this.open(member);
+      r.catch(() => { if (this.runtimes.get(String(member)) === r) this.runtimes.delete(String(member)); });
+      this.runtimes.set(String(member), r);
+    }
     return r;
   }
 
@@ -948,13 +969,20 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   private async accountStatus(member: M, key: string): Promise<Status> {
     if (await this.endpointRecord(member, key)) return this.endpointStatus(member, key);
     if ((await this.index(member)).accounts?.[key]?.cloud) return this.cloudStatus(member, key);
-    const { name } = this.offer(key);
+    const p = this.offer(key);
+    const { name } = p;
     const id = `${member}:${key}`;
     const s = (state: Status['state'], w: WordKey, until?: number): Status => ({ id: key, provider: this.providerKey(key), account: key, name, state, until, words: say(w, { name, until: until ? clock(until) : '' }) });
     if (this.flows.get(id)?.state === 'waiting') return s('signing', 'status.signing');
     const until = this.accountRestingUntil(member, key);
     if (until) return s('resting', this.rests.get(id)!.kind === 'rate_limit' ? 'status.resting' : 'status.busy', until);
-    if (!(this.ready.get(id) ?? await this.checked(member, key))) return this.lapsed.has(id) ? s('needs_again', 'status.needsAgain') : s('signed_out', 'status.signedOut');
+    let ready = this.ready.get(id);
+    // A MiniMax sign-in cannot refresh itself: once its token has run out, ask the engine rather than trust a cached yes.
+    if (ready === true && deviceFlow(p.pi)?.dialect === 'minimax') {
+      const c = await (await this.runtime(member, key)).readCredential(p.pi).catch(() => undefined);
+      if (c?.type === 'oauth' && c.expires <= Date.now()) ready = await this.checked(member, key);
+    }
+    if (!(ready ?? await this.checked(member, key))) return this.lapsed.has(id) ? s('needs_again', 'status.needsAgain') : s('signed_out', 'status.signedOut');
     return this.without.has(id) ? s('not_included', 'status.notIncluded') : s('ready', 'status.ready');
   }
 
