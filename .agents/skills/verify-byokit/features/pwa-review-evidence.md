@@ -7,7 +7,7 @@ A person opens the byokit example PWA on a phone or a desktop browser, in the th
 - `screen-frames`: `before__<theme>__<form>.png` and `after__<theme>__<form>.png` for each screen, theme and form factor the app has.
 - `screen-motion`: `motion__<interaction>__<theme>__<form>.webm`, recorded from the running app through Playwright's own screen recording.
 - `screen-skips`: any theme, form factor or screen the app does not have, written into `manifest.json` with the reason, never silently dropped.
-- `screen-before`: the before frame is the example app of `--base <ref>` (default `origin/main`), served from that ref's own copy of the files; a screen that ships its own before route (`usage.html?before`) uses that instead.
+- `screen-before`: the before frame is the example app of `--base <ref>` (default `origin/main`), served from that ref's own copy of the files; a screen that ships its own before route (`usage.html?before`) uses that instead. A screen whose state exists only after an interaction sets `beforeDrive`, so the before page runs the same `drive` and both frames show one state (e.g. `signin-connected`, whose before frame is the connected card, not the signed-out list).
 
 ## How to get to it (user POV)
 
