@@ -256,9 +256,13 @@ test('a poisoned environment changes nothing: no secret is read from it and no s
     const hostSeal = hostKeyFileSeal(hostOpts);
     assert.equal(hostSeal.mode, 'host-key-file');
     const hostBytes = Buffer.from(hostSeal.encryptString('round-trip'));
+    const reopen = () => {
+      assert.equal(osKeyringSeal(auto).decryptString(autoBytes), 'round-trip');
+      assert.equal(hostKeyFileSeal(hostOpts).decryptString(hostBytes), 'round-trip');
+    };
+    reopen();
     for (const name of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY']) delete process.env[name];
-    assert.equal(osKeyringSeal(auto).decryptString(autoBytes), 'round-trip');
-    assert.equal(hostKeyFileSeal(hostOpts).decryptString(hostBytes), 'round-trip');
+    reopen();
     for (const bytes of [...snapshot(auto.stateDir).values(), ...snapshot(hostOpts.stateDir).values()]) {
       assert.ok(!bytes.includes(Buffer.from(CANARY)), 'a credential variable reached a sealed file');
     }
