@@ -1,0 +1,1 @@
+- FIX: A managed CLI account now carries `addedAt` (epoch milliseconds), persisted with its roster row and exposed on `CliAccount` and `add`'s returned account, so two logins that share one email are distinguishable; older rows without it stay readable.

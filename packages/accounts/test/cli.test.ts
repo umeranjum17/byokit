@@ -316,3 +316,25 @@ test('explicit adoption maps found metadata to new empty managed folders, idempo
   const roster = JSON.parse(readFileSync(join(stateDir, 'accounts-v1.json'), 'utf8'));
   assert.deepEqual(roster.accounts, found);
 });
+
+test('two CLI logins with the same email stay distinguishable by addedAt', async () => {
+  const root = scratchDir('cli-distinct'); const stateDir = join(root, 'plans');
+  const claude = fake(join(root, 'bins'), 'claude');
+  const env = { HOME: join(root, 'home'), PATH: '/unused' };
+  const kit = cliAccounts({ stateDir, bins: { claude: claude.bin }, env });
+  const first = await kit.add('claude'); writeFileSync(first.signIn.completion, 'complete', { mode: 0o600 });
+  const second = await kit.add('claude'); writeFileSync(second.signIn.completion, 'complete', { mode: 0o600 });
+  assert.equal(typeof first.account.addedAt, 'number');
+  assert.notEqual(first.account.addedAt, second.account.addedAt);
+  const rows = await kit.list();
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every((r) => r.email === 'alice.work@example.test'), 'both logins carry the same email');
+  const at = rows.map((r) => r.addedAt);
+  assert.ok(at.every((v) => typeof v === 'number' && Number.isSafeInteger(v) && v > 0), 'every managed row exposes a millisecond addedAt');
+  assert.notEqual(at[0], at[1]);
+  // The stamp is persisted, so a restart still tells the two apart.
+  const restarted = cliAccounts({ stateDir, bins: { claude: claude.bin }, env });
+  const again = (await restarted.list()).map((r) => r.addedAt).sort((a, b) => a! - b!);
+  assert.deepEqual(again, at.slice().sort((a, b) => a! - b!));
+  assert.deepEqual(JSON.parse(readFileSync(join(stateDir, 'accounts-v1.json'), 'utf8')).accounts.map((r: { addedAt: number }) => r.addedAt), at);
+});
