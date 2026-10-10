@@ -4,7 +4,7 @@ import { signedInProviders, USABLE } from './runs.ts';
 import type { GatewayTransport } from './types.ts';
 
 export type AuthStatus = { providers?: (string | {
-  provider?: unknown; status?: unknown; profiles?: { status?: unknown; expiresAt?: unknown }[]; usage?: unknown;
+  provider?: unknown; status?: unknown; profiles?: { profileId?: unknown; status?: unknown; expiresAt?: unknown }[]; usage?: unknown;
 })[]; unavailable?: { message?: unknown } };
 
 /** Native Claude login stays in Claude Code. The pin's profile status does not include this synthetic auth;

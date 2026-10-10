@@ -330,7 +330,7 @@ test('ready runs reuse only witnessed, bounded member auth; mutations, expiry an
     fake.failNext('agent', '401 Unauthorized: your sign-in has expired');
     const revoked = await run();
     assert.ok(!revoked.ok && 'kind' in revoked && revoked.kind === 'signed-out', JSON.stringify(revoked));
-    await kit.signOut('umer', 'claude-cli');
+    await kit.call('models.authLogout', { agentId: 'umer', provider: 'claude-cli' }); // an auth mutation through the kit
     assert.ok(!(await run()).ok);
     await kit.stop();
     await assert.rejects(run(), /gateway not ready/);

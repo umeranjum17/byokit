@@ -73,6 +73,10 @@ test('fresh and adversarial config force isolation and no paid memory fallback',
   assert.equal(c.memory.search.provider, 'none');
   assert.equal(c.memory.search.fallback, 'none');
   assert.equal(c.agents.defaults.models['openai/*'].agentRuntime.id, 'openclaw');
+  // 5.15: the inherited auth base is a reserved id the kit never creates, whatever the saved config named.
+  assert.deepEqual(c.agents.defaults.authInheritance, { agentId: 'byokit-base' });
+  assert.deepEqual((reconcileConfig({ agents: { defaults: { authInheritance: { agentId: 'm1' } } } }, opts(root)) as any)
+    .agents.defaults.authInheritance, { agentId: 'byokit-base' });
   assert.equal(c.security.installPolicy.enabled, true);
   const providerPlugins = [...new Set(routes().filter((route) => route.offerPolicy === 'default' && !route.needs?.plugin).map((route) => route.plugin))];
   assert.deepEqual(c.plugins.allow, ['byokit', ...providerPlugins]);

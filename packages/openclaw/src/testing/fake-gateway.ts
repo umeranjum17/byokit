@@ -255,11 +255,17 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       else ensureAgent(id, workspace);
       return { id };
     },
+    // One profile per signed-in provider, `<provider>:default`, as the pin lists an agent's own profiles.
     'models.authStatus': (p) => ({
-      providers: (agents.get(String(p?.agentId ?? 'main'))?.providers ?? []).map((provider) => ({ provider })),
+      providers: (agents.get(String(p?.agentId ?? 'main'))?.providers ?? []).map((provider) => ({ provider,
+        profiles: [{ profileId: `${provider}:default`, type: 'oauth', status: 'ok' }] })),
     }),
     'models.authLogout': (p) => {
       const agent = agents.get(String(p?.agentId ?? 'main'));
+      // The pin refuses a profileIds list naming a profile the agent does not hold.
+      if (p.profileIds !== undefined && (!Array.isArray(p.profileIds) || !p.profileIds.length
+        || p.profileIds.some((id: unknown) => id !== `${p.provider}:default` || !agent?.providers.includes(String(p.provider)))))
+        throw new Error('profileIds contain unavailable auth profiles');
       if (agent) agent.providers = agent.providers.filter((provider) => provider !== p.provider);
       if (keys.get(String(p.agentId))?.provider === p.provider) keys.delete(String(p.agentId));
       return {};

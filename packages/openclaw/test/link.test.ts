@@ -194,9 +194,11 @@ test('signOut signs out the device member only', async () => {
   const w = await world();
   const logouts: unknown[] = [];
   w.fake.handle('models.authLogout', (p) => { logouts.push(p); return {}; });
+  w.fake.handle('models.authStatus', (p) => ({ providers: p.agentId === 'a'
+    ? [{ provider: 'openai', profiles: [{ profileId: 'openai:default', type: 'oauth', status: 'ok' }] }] : [] }));
   const a = await device(w, 'a');
   await a.oc.signOut('openai');
-  assert.deepEqual(logouts, [{ provider: 'openai', agentId: 'a' }]);
+  assert.deepEqual(logouts, [{ provider: 'openai', agentId: 'a', profileIds: ['openai:default'] }]);
   const nobody = await device(w, undefined);
   await rejectsNotAllowed(nobody.oc.signOut('openai'));
   assert.equal(logouts.length, 1);
