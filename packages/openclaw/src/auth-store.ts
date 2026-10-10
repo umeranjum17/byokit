@@ -38,7 +38,9 @@ function put(path: string, bytes: Uint8Array): void {
   } finally { rmSync(tmp, { force: true }); }
 }
 // Always written as `v: 1`: released readers through 0.6.1 reject any other tag, so 0.6.2's `v: 2` locked a host
-// rolled back to an earlier kit out of its sign-in. `v: 2` stays readable and re-seals as `v: 1`.
+// rolled back to an earlier kit out of its sign-in. `v: 2` stays readable and re-seals as `v: 1`. The engine
+// databases are objects, not blob entries, so a host rolled back to an earlier kit keeps the blob's credentials
+// but not its databases, and signs in again.
 type Snapshot = { v: 1 | 2; dirs: string[]; files: [string, string][] };
 type Entry = { name: string; file: string; size: number };
 // Credential state is what restores a working signed-in session. Regenerable tool caches, transcripts
@@ -125,13 +127,15 @@ export class AuthStoreSealSizeError extends Error {
   readonly code = 'auth-store-seal-size';
   readonly size: number;
   readonly cap: number;
+  readonly file?: string;
   constructor(size: number, cap: number, file?: string) {
     const MiB = 1024 * 1024;
-    super(`${file ? `${file} is` : 'Your saved sign-in data is'} too large to keep safely (more than ${Math.floor(size / MiB)} MB; the limit is ${cap / MiB} MB). ` +
+    super(`${file ? `Engine data ${file}` : 'Your saved sign-in data'} is too large to keep safely (more than ${Math.floor(size / MiB)} MB; the limit is ${cap / MiB} MB). ` +
       'Your sign-ins were kept.');
     this.name = 'AuthStoreSealSizeError';
     this.size = size;
     this.cap = cap;
+    this.file = file;
   }
 }
 

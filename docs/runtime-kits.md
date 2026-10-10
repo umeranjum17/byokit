@@ -368,7 +368,7 @@ export type KitState = {
   phase: 'stopped' | 'installing' | 'starting' | 'repairing' | 'ready' | 'restarting' | 'failed' | 'needs-update' | 'locked';
   why?: 'install' | 'handshake' | 'exited' | 'port' | 'version' | 'engine-already-running' | 'engine-patch' | 'sign-in-reset' | 'auth-store-unreadable' | 'auth-store-seal-size';
   retryAt?: number;
-  sealSize?: { size: number; cap: number };                    // with 'auth-store-seal-size'; size is a lower bound
+  sealSize?: { size: number; cap: number; file?: string };     // with 'auth-store-seal-size'; size is a lower bound; file names an over-cap engine store
   patchSet?: string | null;                                    // bundled engine patch set id after prepare (5.16)
 };
 export type Hello = { protocol: number; server: { version: string }; methods: string[]; events: string[] };
@@ -775,7 +775,8 @@ sealed. Stop writes the blob and every object, then removes the live `state` tre
 copy of a sealed `state` file survives a stop or a remove. An object whose file is absent from the live tree at a stop is deleted. A v1 blob written before
 this layout restores its engine stores and reseals them as objects at the next persist. The sealed payload is built exactly once and
 verified by decrypting the sealed bytes. Snapshots are always written as `v: 1`, the only tag released readers through 0.6.1
-accept, so a host rolled back to an earlier kit still opens them; `v: 2` snapshots (written by 0.6.2) restore and re-seal as `v: 1`.
+accept, so a host rolled back to an earlier kit still opens its credentials; `v: 2` snapshots (written by 0.6.2) restore and re-seal as `v: 1`.
+The engine databases are objects outside the blob, so a rollback to a kit older than this layout keeps the blob credentials but not the engine databases, and the user signs in again.
 Pre-caches snapshots (whole trees) restore completely and re-seal once without their caches, with a log line; nothing is dropped. File symlinks are included only when their fully resolved
 targets are regular files inside the isolated engine root; they restore as regular files at the link paths.
 Outside-root, dangling and directory symlinks (including loops), sockets, FIFOs and devices are skipped.

@@ -766,7 +766,7 @@ export class OpenClawKit {
       await this.closeBrowsers();
       const sealRefusal = refused ?? (error instanceof AuthStoreSealSizeError ? error : undefined);
       if (sealRefusal) {
-        this.setState({ phase: 'failed', why: 'auth-store-seal-size', sealSize: { size: sealRefusal.size, cap: sealRefusal.cap } });
+        this.setState({ phase: 'failed', why: 'auth-store-seal-size', sealSize: { size: sealRefusal.size, cap: sealRefusal.cap, file: sealRefusal.file } });
         throw sealRefusal;
       }
       if (error instanceof Error && 'code' in error && error.code === 'engine-already-running') {

@@ -582,7 +582,7 @@ damaged or tampered bytes) or whose payload is not a credential snapshot stays u
 (`code: 'auth-store-unreadable'`, `reason: 'auth-failed' | 'invalid-snapshot'`). The kit reports
 `{ phase: 'failed', why: 'auth-store-unreadable' }`; show `stateWords(kit.state)`, not a sign-in prompt.
 Saved sign-in data over the cap rejects with `AuthStoreSealSizeError`, and the kit reports
-`{ phase: 'failed', why: 'auth-store-seal-size', sealSize: { size, cap } }`; the refusal rules are in
+`{ phase: 'failed', why: 'auth-store-seal-size', sealSize: { size, cap, file? } }` (`file` is set when an engine store is the one over the cap); the refusal rules are in
 [Retained home killed without stop()](#retained-home-killed-without-stop).
 Restore access to the original seal/key (and the original service/stateDir binding if the adapter uses
 one), then retry `start()` with that adapter. Do not generate/rotate a key to repair an unreadable store.
