@@ -12,6 +12,8 @@ export type AccountMetadata = {
   route: string; billing: Billing; baseUrl?: string; compat?: 'openai' | 'anthropic'; region?: string;
   profile?: string; keyFile?: string; accountId?: string; gatewayId?: string; endpoint?: EndpointRecord;
   cloud?: CloudAccount;
+  /** The Cloud Code Assist project a Google sign-in discovered: non-secret, never a token, never in a log or error. */
+  project?: string;
 };
 export type AccountsIndex = { accounts?: { [id: string]: AccountMetadata }; names: { [id: string]: string }; emails: { [id: string]: string }; plans: { [id: string]: string }; addedAt: { [id: string]: number }; defaults: Defaults };
 export const emptyIndex = (): AccountsIndex => ({ names: {}, emails: {}, plans: {}, addedAt: {}, defaults: {} });

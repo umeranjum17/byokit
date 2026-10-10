@@ -110,6 +110,11 @@ test('browser sign-in: Google’s page, the return to :8085, list() ready with t
     const rows = await accounts.list(OWNER);
     assert.equal(rows.length, 1);
     assert.deepEqual([rows[0].provider, rows[0].state, rows[0].email], ['google-gemini-cli', 'ready', 'umer@example.com']);
+    // The Code Assist project the sign-in discovered is non-secret account metadata, beside the email and plan: it
+    // never enters the credential, and no token is inside it.
+    const metadata = (await store.index()).accounts?.[rows[0].id];
+    assert.equal(metadata?.project, 'recorded-project', 'the eligible project is kept as account metadata');
+    assert.ok(metadata && !/recorded-(access|refresh)/.test(JSON.stringify(metadata)), 'the project metadata holds no token');
     // The canary: no access or refresh token reaches list, status, the stored index or a status word.
     const status = await accounts.status(OWNER, 'google-gemini-cli');
     const index = JSON.stringify(await store.index());
@@ -127,6 +132,42 @@ test('browser sign-in: Google’s page, the return to :8085, list() ready with t
     await accounts.logout(OWNER, 'google-gemini-cli');
     assert.equal(await store.read('google-gemini-cli'), undefined);
     assert.deepEqual(await accounts.list(OWNER), []);
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('provisioning: no project yet goes through onboardUser and keeps the provisioned project', async () => {
+  const { google, store, accounts } = await journey();
+  google.state.provision = true;
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:paste');
+    accounts.paste(OWNER, id, await callbackAddress(signIn!.url!));
+    await accounts.finished(OWNER, id);
+    const [account] = await accounts.list(OWNER);
+    assert.equal((await store.index()).accounts?.[account.id]?.project, 'recorded-project', 'the provisioned project is kept');
+    const calls = google.state.requests.map((r) => `${r.method} ${r.path}`);
+    assert.ok(calls.includes('POST /v1internal:onboardUser'), 'onboardUser provisions the default tier');
+    assert.ok(calls.includes('GET /v1internal/operations/recorded-onboard'), 'the operation is polled until done');
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('ineligible: an individual account with no Code Assist tier is refused and keeps nothing', async () => {
+  const { google, store, accounts } = await journey();
+  google.state.ineligible = true;
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:paste');
+    accounts.paste(OWNER, id, await callbackAddress(signIn!.url!));
+    await accounts.finished(OWNER, id);
+    assert.equal(accounts.view(OWNER, id)?.state, 'failed', 'the sign-in ends');
+    assert.equal(accounts.view(OWNER, id)?.why, 'notIncluded', 'a typed refusal, not a generic failure');
+    assert.equal(await store.read('google-gemini-cli'), undefined, 'no credential is kept');
+    assert.deepEqual(await accounts.list(OWNER), [], 'no account row is kept');
+    assert.deepEqual((await store.index()).accounts ?? {}, {}, 'no account metadata is kept');
   } finally {
     accounts.stop();
     await google.close();
@@ -203,6 +244,7 @@ test('an app that sets authBase still sends Google’s sign-in to Google’s own
     sent.push(url);
     if (url.startsWith('https://oauth2.googleapis.com/token')) return Response.json({ access_token: 'a1', refresh_token: 'r1', expires_in: 3600 });
     if (url.startsWith('https://www.googleapis.com/oauth2/v1/userinfo')) return Response.json({ email: 'umer@example.com' });
+    if (url.startsWith('https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist')) return Response.json({ cloudaicompanionProject: 'recorded-project' });
     if (url === 'https://oauth2.googleapis.com/revoke') return new Response('', { status: 200 });
     return new Response('not stubbed', { status: 599 });
   }) as typeof fetch;
@@ -219,7 +261,8 @@ test('an app that sets authBase still sends Google’s sign-in to Google’s own
     // Sign-out revokes at Google's own host too, never at authBase.
     await accounts.logout(OWNER, 'google-gemini-cli');
     assert.equal(sent.at(-1), 'https://oauth2.googleapis.com/revoke');
-    assert.deepEqual(sent.map((u) => new URL(u).origin), ['https://oauth2.googleapis.com', 'https://www.googleapis.com', 'https://oauth2.googleapis.com', 'https://oauth2.googleapis.com']);
+    // The Code Assist project discovery also goes to Google's own host, never authBase.
+    assert.deepEqual(sent.map((u) => new URL(u).origin), ['https://oauth2.googleapis.com', 'https://www.googleapis.com', 'https://cloudcode-pa.googleapis.com', 'https://oauth2.googleapis.com', 'https://oauth2.googleapis.com']);
     assert.ok(!sent.some((u) => u.startsWith('http://127.0.0.1:9')), 'authBase never receives a Google call');
   } finally {
     accounts.stop();

@@ -10,6 +10,7 @@
   "signIn.deviceCodeOff": "{name} needs device sign-in turned on first: in {name}, Settings, Security, turn on device code sign-in, then try again.",
   "signIn.tooLong": "The sign-in took too long. Tap Sign in with {name} to start again.",
   "signIn.busy": "Something else on this computer is signing in to {name}. Try again in a minute.",
+  "signIn.notIncluded": "Your {name} plan doesn't include this yet. Try another account.",
   "signIn.failed": "{name} didn't finish the sign-in. Tap Sign in with {name} to try again.",
   "status.ready": "{name} is connected.",
   "status.signing": "Signing in to {name}\u2026",
