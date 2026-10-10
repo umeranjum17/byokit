@@ -114,6 +114,8 @@ jobs:
       - run: sh scripts/test.sh examples/herdr-kit/e2e.test.ts
       # The OpenClaw kit example the same way, against the kit's fake Gateway.
       - run: sh scripts/test.sh examples/openclaw-kit/e2e.test.ts
+      # The voice proof page offline: a stand-in sign-in and a stand-in voice peer over loopback WebRTC.
+      - run: sh scripts/test.sh examples/realtime-voice/e2e.test.ts
 
   openclaw-engine:
     runs-on: ubuntu-latest

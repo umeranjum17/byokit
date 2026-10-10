@@ -50,6 +50,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [Herdr task-owned HOME](./herdr-task-home.md) — `@byokit/herdr` `startAgent` with a task HOME on a real, isolated Herdr lab session (needs the environment's Herdr lab helper; never the person's own Herdr).
 - [Pair compact QR crash-resume](./pair-compact-resume.md) — a phone killed during approval resumes from its pending grant against the pinned computer (compact and v1 QRs); an impostor at the same address is refused; the compact token stays 109 characters.
 - [Relay notification action replies](./relay-action-reply.md) — the built `@byokit/relay` action route forwards a bounded opaque sealed reply to the host unchanged, refuses malformed or oversized replies without spending the token, and stores nothing.
+- [Realtime voice offline](./realtime-voice-offline.md) — the voice proof page with `BYOKIT_EXAMPLE_FAKE=1`: a stand-in sign-in and a stand-in voice peer on loopback WebRTC complete a call with one user and one agent turn in headless Chromium; without the flag the stand-in routes return 403.
 - [PWA review evidence](./pwa-review-evidence.md) — frames and motion for a user-visible change, in every theme and form factor the app has.
 - [Dictation long-take windows](./dictation-whisper-windows.md) — the built `@byokit/dictation` whisper.rn engine steps long-take windows from where the decoder stopped and joins the overlap once, driven by a stubbed decoder over synthetic WAV audio.
 
