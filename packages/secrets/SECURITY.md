@@ -75,7 +75,7 @@ Apps hold API keys. The store must make sure that:
 
 - [ ] OS placement/session environment reads stay on the sealing allowlist; no credential variables are read; spawns pass `env` explicitly.
 - [ ] The OS keyring journey asserts the canary is absent from the recorded argv and env for set, get and delete.
-- [ ] The poisoned-environment journey leaves behaviour unchanged and the fake's env holds exactly base plus host extras.
+- [ ] The poisoned-environment journey leaves behaviour unchanged and no spawn inherits the poisoned variables; the OS keyring journey asserts the fake's env holds exactly base plus host extras.
 - [ ] A wrong passphrase rejects `auth-failed`; the sealed file holds no plaintext canary.
 - [ ] `writeFileAtomic` creates 0700 folders and a 0600 file and replaces atomically (rename).
 - [ ] Error messages name entries, never secrets; stderr tails never reach messages.

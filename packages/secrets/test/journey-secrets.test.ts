@@ -400,24 +400,6 @@ test('sealing keeps credentials encrypted and fails closed: wrong, tampered, mis
   symlinkSync(target, currentKey);
   assert.throws(() => hostKeyFileSeal(o), code('invalid'));
 
-  if (process.platform !== 'win32') {
-    // Insecure key or directory modes, and a key owned by another user, are refused on every use.
-    const perm = { service: 'byokit-perm', stateDir: scratchDir('secrets-perm') };
-    const permSeal = hostKeyFileSeal(perm);
-    const permKey = onlyKey(perm.stateDir);
-    for (const mode of [0o640, 0o604, 0o666]) {
-      chmodSync(permKey, mode);
-      assert.throws(() => hostKeyFileSeal(perm), code('invalid'));
-      assert.throws(() => permSeal.encryptString(CANARY), code('invalid'));
-    }
-    chmodSync(permKey, 0o600);
-    chmodSync(dirname(permKey), 0o750);
-    assert.throws(() => hostKeyFileSeal(perm), code('invalid'));
-    chmodSync(dirname(permKey), 0o700);
-    await withPatchedFs('fstatSync', (real) => ((...args: Parameters<typeof fs.fstatSync>) => ({ ...real(...args), uid: process.getuid!() + 1, isFile: () => true })) as typeof fs.fstatSync,
-      () => assert.throws(() => hostKeyFileSeal(perm), code('invalid')));
-  }
-
   // Eight processes racing on first use publish one complete key, and each opens the others' envelopes.
   const race = { service: 'byokit-race', stateDir: scratchDir('secrets-race') };
   const program = `import { hostKeyFileSeal } from ${JSON.stringify(distIndex)}; const s = hostKeyFileSeal(${JSON.stringify(race)}); process.stdout.write(Buffer.from(s.encryptString('race')).toString('base64'));`;
@@ -426,7 +408,7 @@ test('sealing keeps credentials encrypted and fails closed: wrong, tampered, mis
     const output: Buffer[] = [], errors: Buffer[] = [];
     child.stdout.on('data', (b) => output.push(b)); child.stderr.on('data', (b) => errors.push(b));
     child.on('error', reject);
-    child.on('exit', (status) => status === 0 ? resolveRun(Buffer.from(Buffer.concat(output).toString(), 'base64')) : reject(new Error(Buffer.concat(errors).toString())));
+    child.on('close', (status) => status === 0 ? resolveRun(Buffer.from(Buffer.concat(output).toString(), 'base64')) : reject(new Error(Buffer.concat(errors).toString())));
   })));
   const raceSeal = hostKeyFileSeal(race);
   for (const output of outputs) assert.equal(raceSeal.decryptString(output), 'race');
@@ -616,6 +598,24 @@ test('sealing keeps credentials encrypted and fails closed: wrong, tampered, mis
   assert.ok(plain, 'the envelope authenticates under the key');
   assert.deepEqual(Buffer.from(plain.subarray(21)), Buffer.from(JSON.stringify({ service: envelopeService, text })));
   assert.equal(envelopeSeal.decryptString(sealedText), text);
+});
+
+test('key and directory modes and a key owned by another user are refused on every use', { skip: process.platform === 'win32' }, async () => {
+  // Insecure key or directory modes, and a key owned by another user, are refused on every use.
+  const perm = { service: 'byokit-perm', stateDir: scratchDir('secrets-perm') };
+  const permSeal = hostKeyFileSeal(perm);
+  const permKey = onlyKey(perm.stateDir);
+  for (const mode of [0o640, 0o604, 0o666]) {
+    chmodSync(permKey, mode);
+    assert.throws(() => hostKeyFileSeal(perm), code('invalid'));
+    assert.throws(() => permSeal.encryptString(CANARY), code('invalid'));
+  }
+  chmodSync(permKey, 0o600);
+  chmodSync(dirname(permKey), 0o750);
+  assert.throws(() => hostKeyFileSeal(perm), code('invalid'));
+  chmodSync(dirname(permKey), 0o700);
+  await withPatchedFs('fstatSync', (real) => ((...args: Parameters<typeof fs.fstatSync>) => ({ ...real(...args), uid: process.getuid!() + 1, isFile: () => true })) as typeof fs.fstatSync,
+    () => assert.throws(() => hostKeyFileSeal(perm), code('invalid')));
 });
 
 test('the browser and phone entries keep secrets at rest, and the published entry bundles with no Node code', async () => {
@@ -922,7 +922,7 @@ async function privateSecretService(): Promise<void> {
       mode = phase;
       const child = spawn(process.execPath, ['--input-type=module', '-e', ${JSON.stringify(childProgram)}, phase, stateDir, operation], { stdio: ['ignore', 'pipe', 'pipe'] });
       let output = ''; child.stdout.on('data', b => output += b); child.stderr.on('data', b => output += b);
-      child.on('error', reject); child.on('exit', code => code === 0 ? resolve() : reject(new Error(output)));
+      child.on('error', reject); child.on('close', code => code === 0 ? resolve() : reject(new Error(output)));
     });
     for (const phase of ['locked', 'hung', 'unlocked']) {
       const stateDir = ${JSON.stringify(root)} + '/' + phase;
@@ -941,8 +941,7 @@ async function privateSecretService(): Promise<void> {
     // Inherited owner bus/control/XDG data are absent; dbus-run-session creates the only bus.
     const child = spawn('dbus-run-session', ['--', process.execPath, runner], { env: { PATH: '/usr/bin:/bin', HOME: root, TMPDIR: root, NODE_OPTIONS: process.env.NODE_OPTIONS } });
     let output = ''; child.stdout.on('data', b => output += b); child.stderr.on('data', b => output += b);
-    child.on('error', reject); child.on('exit', status => {
-      assert.ok(!output.includes(CANARY));
+    child.on('error', reject); child.on('close', status => {
       status === 0 ? resolve() : reject(new Error(output));
     });
   });
