@@ -41,7 +41,7 @@ for the public error and host repair procedure. Other sealing failures still rej
 | Gateway token | `openclaw/token` | Random 32-byte bearer secret; newly created file is 0600. Treat it as operator access. |
 | Device identity | `openclaw/device.json` | Ed25519 private key stored as **unencrypted PKCS#8 PEM** in JSON, newly created 0600. The transport accepts both kit and legacy paired shapes without rewriting. Theft can impersonate the operator identity. |
 | Provider profiles | `openclaw/state/` and `openclaw/home/`, including agent/shared SQLite databases, journals and migration JSON | Access/refresh tokens or API keys are **plaintext while running**; without `authSeal` they also remain plaintext while stopped. Migration stages `auth-profiles.json` at 0600 in a newly created 0700 directory. Theft may authorize provider calls and refresh. |
-| Sealed credential snapshot | `openclaw/auth-store.sealed` and retired `*.sealed` archives | With host-injected `authSeal`, authenticates and encrypts credential state (the complete `state` tree plus config/credential paths under `home`) while stopped; regenerable caches stay on disk unsealed. Key security belongs to the adapter/host; an older authentic snapshot can be replayed. |
+| Sealed credential snapshot | `openclaw/auth-store.sealed` and retired `*.sealed` archives | With host-injected `authSeal`, authenticates and encrypts credential state (credential paths under `state` plus config/credential paths under `home`) while stopped; other engine `state` stores are sealed as objects under `auth-store.objects/`; regenerable caches stay on disk unsealed. Key security belongs to the adapter/host; an older authentic snapshot can be replayed. |
 | Saved configuration, logs and sessions | `openclaw/openclaw.json`, `logs/`, engine state | May contain app-supplied keys, prompts, tool inputs, sign-in URLs/codes or provider diagnostics. Treat the whole tree as secret. Engine stdout/stderr is appended to a newly created 0600 log; it is not a guaranteed credential-redaction layer. |
 | Notice seed and decrypted approvals | Device app storage and memory | The app stores the 32-byte seed; the kit receives it only for key derivation/decryption. Seed theft exposes notices for its box key. |
 
@@ -52,8 +52,8 @@ collects regular files and file symlinks whose fully resolved targets are regula
 files within the isolated engine root; links restore as regular files at the link
 paths. Outside-root, dangling and directory links, sockets, FIFOs and devices are
 skipped without reading their contents. Collected POSIX modes are normalized;
-other paths still need host protection. Excluded caches are not preserved in the
-snapshot and stay on disk unsealed after successful sealing; other skipped entries are not preserved in the snapshot. Never use a shared/writable tree or point
+other paths still need host protection. Regenerable caches under `home` stay on disk
+unsealed after successful sealing; other skipped entries are not preserved in the snapshot or the objects. Never use a shared/writable tree or point
 the kit at another product's state. Review existing permissions before adopting a
 tree; use an OS-protected app directory, encrypted disk and restricted backups.
 Do not log `doctorContext().env`, transport arguments, auth records or sign-in
@@ -61,8 +61,9 @@ callbacks. JavaScript strings and engine memory are not reliably zeroized.
 
 The engine needs plaintext credentials and PEM during operation. With `authSeal`
 (a host-injected `SealingAdapter` from `@byokit/secrets`), `src/auth-store.ts` seals
-credential state — the complete `state` tree plus config/credential paths under `home`, including SQLite journals — on successful `prepare()` and after
-the engine exits on `stop()`, while regenerable caches stay on disk unsealed. It verifies the adapter round-trip, writes via an
+credential state — credential paths under `state` plus config/credential paths under `home`, including SQLite journals — into one bounded blob,
+and every other engine `state` store into its own object under `auth-store.objects/`, on successful `prepare()` and after
+the engine exits on `stop()`; regenerable caches stay on disk unsealed. The scope is defined in [credential sealing](README.md#credential-sealing-and-threat-model). It verifies the adapter round-trip, writes via an
 exclusive temporary file, fsyncs/renames the snapshot and verifies it again before
 removing live plaintext. `start()` authenticates and validates snapshot paths before
 restoring files. Missing/wrong keys or tampering reject without plaintext fallback.

@@ -532,8 +532,8 @@ path under the isolated `state` tree — in one bounded blob, `auth-store.sealed
 `state/agents/<agentId>/agent/openclaw-agent.sqlite`, which mix credentials with transcript rows, plus transcripts,
 media, logs, caches and session stores) is sealed as its own file under `auth-store.objects/`, outside the bound, so
 a long-used host's total history never makes `start()` or `stop()` refuse; only a single file over the cap does. Regenerable tool caches in `home` stay on disk
-unsealed. Only a credential blob over the cap still refuses `start()` and `stop()` with the typed size error instead of
-aborting the process. It uses the injected `SealingAdapter` from `@byokit/secrets`. `osKeyringSeal()` automatically
+unsealed. Only a credential blob, or a single engine store file, over the cap still refuses `start()` and `stop()` with
+the typed size error instead of aborting the process. It uses the injected `SealingAdapter` from `@byokit/secrets`. `osKeyringSeal()` automatically
 uses a persistent private file key for new stores when no non-interactive keyring is available.
 Opening follows the saved envelope's mode. A locked or unresponsive keyring-only store leaves
 `kit.state.phase === 'locked'`: `prepare()` and `start()` resolve, show `stateWords(kit.state)` for
