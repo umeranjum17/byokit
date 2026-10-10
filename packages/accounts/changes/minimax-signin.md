@@ -1,0 +1,1 @@
+- Sign in to a MiniMax plan with a user code: `accounts.add(member, 'minimax:code')` (or `accounts.login(member, 'minimax')`) shows the code and MiniMax's page, `minimax:code:cn` selects the China host, and the account lists as a ready subscription.
