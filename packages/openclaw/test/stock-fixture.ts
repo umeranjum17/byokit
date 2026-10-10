@@ -6,7 +6,7 @@ import type { TestContext } from 'node:test';
 import { editText, patchId, readPatchSet, sha256, type PatchFile } from '../src/engine-patches.ts';
 
 const manifest = fileURLToPath(new URL('../engine/patches.json', import.meta.url));
-const preparePath = 'dist/prepare.runtime-y2eXKhY3.js';
+const preparePath = 'dist/prepare.runtime-BUjESFb4.js';
 
 // Fake installs need only the shipped edit's input, not the entire upstream bundle.
 export function stockBytes(file: PatchFile): Buffer {
@@ -19,7 +19,7 @@ export function stockBytes(file: PatchFile): Buffer {
 export function useSyntheticStock(t: TestContext): void {
   syncBuiltinESMExports();
   const lock = JSON.parse(fs.readFileSync(new URL('../engine/package-lock.json', import.meta.url), 'utf8'));
-  const set = readPatchSet(manifest, '2026.8.1', lock.packages['node_modules/openclaw'].integrity);
+  const set = readPatchSet(manifest, '2026.8.35', lock.packages['node_modules/openclaw'].integrity);
   const files = set.files.map(file => {
     const bytes = stockBytes(file);
     if (file.path !== preparePath) {

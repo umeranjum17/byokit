@@ -117,7 +117,6 @@ try {
     env: { PATH: process.env.PATH, HOME: env.HOME, npm_config_cache: join(cwd, 's/openclaw/npm-cache') }, encoding: 'utf8', timeout: 300_000,
   });
   assert.equal(installed.status, 0, installed.stderr);
-  const baseBefore = snapshot(base);
   await attached(kit, 'after-old-way-base-install');
   await old.prepare();
   const oldEnv = old.doctorContext().env;
@@ -125,11 +124,20 @@ try {
   try { oldChild = spawn(process.execPath, [join(base, 'node_modules/openclaw/openclaw.mjs'), 'gateway', '--port', readFileSync(join(cwd, 'o/openclaw/port'), 'utf8')], { cwd: oldEnv.HOME, env: oldEnv, stdio: ['ignore', fd, fd] }); }
   finally { closeSync(fd); }
   await old.start(); await health(old);
+  // 2026.8.3x leaves a `.openclaw-lifecycle-pending` marker after `npm ci --ignore-scripts`; the stock Gateway consumes
+  // it (running upstream's own postinstall) on first boot, a one-time mutation of the raw base no set clone causes. So
+  // snapshot base only after that completion; the immutability checks below still guard that sets A and B never touch it.
+  const pending = join(base, 'node_modules/openclaw/.openclaw-lifecycle-pending');
+  const legacyGuard = join(base, 'node_modules/openclaw/dist/openclaw-install-guard');
+  const deadline = Date.now() + 120_000;
+  while ((existsSync(pending) || existsSync(legacyGuard)) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+  assert.equal(existsSync(pending), false, 'the stock Gateway completed its package-lifecycle marker');
+  const baseBefore = snapshot(base);
   const oldIdentity = { pid: oldChild.pid, startTime: processStartTime(oldChild.pid) };
   assert.equal(readFileSync(`/proc/${oldChild.pid}/cmdline`, 'utf8').replaceAll('\0', '').trim(), 'openclaw-gateway');
   writeFileSync(join(cwd, 'o/openclaw/gateway.pid'), String(oldChild.pid));
   writeFileSync(join(cwd, 'o/openclaw/gateway.identity'), JSON.stringify({ pid: oldChild.pid, startTime: processStartTime(oldChild.pid) }));
-  const path = 'dist/main-session-recovery-state-BWIrIyi_.js';
+  const path = 'dist/main-session-recovery-state-BP_2EuhB.js';
   const before = readFileSync(join(emptyDir, 'node_modules/openclaw', path), 'utf8');
   const find = 'function isMainRestartRecoveryCandidate(entry, sessionKey) {';
   assert.equal(before.split(find).length, 2);

@@ -65,8 +65,8 @@
     "@byokit/discover": "0.6.0",
     "@byokit/seal": "0.3.0",
     "@byokit/secrets": "0.5.0",
-    "@openclaw/gateway-client": "2026.9.6",
-    "@openclaw/gateway-protocol": "2026.8.1",
+    "@openclaw/gateway-client": "2026.8.35",
+    "@openclaw/gateway-protocol": "2026.8.35",
     "ws": "8.22.0"
   },
   "devDependencies": {

@@ -23,5 +23,6 @@
   "openclaw.setup.detect": { "params": "SystemAgentSetupDetectParams", "result": "SystemAgentSetupDetectResult" },
   "openclaw.setup.verify": { "params": "SystemAgentSetupVerifyParams", "result": "SystemAgentSetupVerifyResult" },
   "openclaw.setup.activate": { "params": "SystemAgentSetupActivateParams", "result": "SystemAgentSetupActivateResult" },
+  "openclaw.setup.activate.start": { "params": "SystemAgentSetupActivateStartParams", "result": "SystemAgentSetupActivateStartResult" },
   "push.web.test": { "params": "WebPushTestParams", "result": "WebPushTestResult" }
 }

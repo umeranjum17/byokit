@@ -1,16 +1,16 @@
-import { l as normalizeOptionalString } from "./string-coerce-CIXf7egm.js";
 import { s as asFiniteNumber } from "./number-coercion-CLj0HTDM.js";
-import { w as resolveStateDir } from "./paths-BBSTUjD5.js";
-import { t as createSubsystemLogger } from "./subsystem-CT-8ly4J.js";
-import { a as isSubagentSessionKey, i as isCronSessionKey, n as isAcpSessionKey } from "./session-key-utils-dXMHZk48.js";
-import { o as resolveSessionStorePathCore } from "./paths-DVAvlIOc.js";
-import { n as hasSessionEntriesByStatusReadOnly } from "./session-accessor.sqlite-entry-CoLie3L_.js";
-import "./session-accessor-Dwfzn6Ej.js";
+import { l as normalizeOptionalString } from "./string-coerce-CIXf7egm.js";
+import { w as resolveStateDir } from "./paths-BpCGp0t4.js";
+import { S as isAcpSessionKey, T as isSubagentSessionKey, w as isCronSessionKey } from "./session-key-B7l68kdL.js";
+import { t as createSubsystemLogger } from "./subsystem-SZm5Y_gF.js";
+import { o as resolveSessionStorePathCore } from "./paths-DZWB4OkV.js";
+import { n as hasSessionEntriesByStatusReadOnly } from "./session-accessor.sqlite-entry-DKo4_L4T.js";
+import "./session-accessor-BFuIWHmX.js";
 import { t as resolveAgentSessionDirs } from "./session-dirs-SATsXf4g.js";
-import { n as listConfiguredSessionStoreAgentIds, o as resolveAllAgentSessionStoreTargetsSync } from "./targets-UQqmco4C.js";
-import { a as hasRestartRecoveryTerminalRun } from "./restart-recovery-state-BEjD4-DW.js";
-import "./sessions-DXJlwlTq.js";
-import { o as sanitizePendingFinalDeliveryText, t as PENDING_FINAL_DELIVERY_CLEAR_PATCH } from "./pending-final-delivery-CW5E5BwH.js";
+import { n as listConfiguredSessionStoreAgentIds, o as resolveAllAgentSessionStoreTargetsSync } from "./targets-Bbj5bUrA.js";
+import { a as hasRestartRecoveryTerminalRun } from "./restart-recovery-state-CQMqllgk.js";
+import "./sessions-Dt40c9gi.js";
+import { o as sanitizePendingFinalDeliveryText, t as PENDING_FINAL_DELIVERY_CLEAR_PATCH } from "./pending-final-delivery-D0P3b_NM.js";
 import { n as buildMainSessionRecoveryClearPatch } from "./main-session-recovery-clear-H7IP1700.js";
 import path from "node:path";
 //#region src/agents/main-session-recovery/main-session-restart-recovery-shared.ts
@@ -228,10 +228,12 @@ function transitionMainSessionRecovery(entry, command) {
 		case "observe": {
 			if (entry.status === "running" && entry.abortedLastRun === true && isMainRestartRecoveryCandidate(entry, command.sessionKey) && !entry.mainRestartRecovery) entry.mainRestartRecovery = createCycle(command.cycleId);
 			let state = entry.mainRestartRecovery;
-			if (state?.foregroundClaims && state.foregroundClaims.lifecycleGeneration !== command.lifecycleGeneration) if (entry.abortedLastRun !== true) {
-				Object.assign(entry, buildMainSessionRecoveryClearPatch(entry));
-				state = void 0;
-			} else state = updateRecoveryState(entry, state, { foregroundClaims: void 0 });
+			if (state?.foregroundClaims && state.foregroundClaims.lifecycleGeneration !== command.lifecycleGeneration) {
+				if (entry.abortedLastRun !== true) {
+					Object.assign(entry, buildMainSessionRecoveryClearPatch(entry));
+					state = void 0;
+				} else state = updateRecoveryState(entry, state, { foregroundClaims: void 0 });
+			}
 			if (state?.reservation && state.reservation.lifecycleGeneration !== command.lifecycleGeneration) updateRecoveryState(entry, state, { reservation: void 0 });
 			if (entry.abortedLastRun !== true && isMainRestartRecoveryAggregateTerminalOnly(entry)) Object.assign(entry, buildMainSessionRecoveryClearPatch(entry));
 			return {

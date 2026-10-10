@@ -231,9 +231,15 @@ test('away from home: a phone pairs through the relay, gets an approval sealed, 
   for (let i = 0; i < 200 && !(await oc.signIn.view('openai')).ready; i++) await new Promise((r) => setTimeout(r, 50));
   const ask = 'Note this: [tool demo_note {"text":"from away"}]';
   const reply = (async () => { for await (const e of oc.run(ask)) if (e.type === 'end') return e; })();
-  for (let i = 0; i < 300 && !pushed.length; i++) await new Promise((r) => setTimeout(r, 50));
+  // The run raises the approval, the kit pushes it, and the relay hands it to the recorder: a full boot and stream on a
+  // loaded runner. Wait for the approval to exist before bounding the wait for its push, so a slow run is not mistaken
+  // for a missing push.
+  const approvalDeadline = Date.now() + 60_000;
+  while ((await oc.approvals()).length === 0 && Date.now() < approvalDeadline) await new Promise((r) => setTimeout(r, 50));
+  const pushDeadline = Date.now() + 30_000;
+  while (!pushed.length && Date.now() < pushDeadline) await new Promise((r) => setTimeout(r, 50));
   const [notice] = pushed;
-  assert.ok(notice, `the relay sent no push; approvals waiting: ${(await oc.approvals()).length}`);
+  assert.ok(notice, `the relay sent no push; approvals waiting: ${(await oc.approvals()).length}\nhost said:\n${said}`);
   const wire = JSON.stringify(notice);
   if (shots) writeFileSync(join(shots, 'relay-wire.json'), `${JSON.stringify(notice, null, 2)}\n`);
 

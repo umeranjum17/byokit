@@ -144,7 +144,7 @@ test('O16 real Workshop, cold cache, failed writes, crash interruption and bound
     releaseReview?.(); await kit.stop(); await new Promise<void>(resolve => server.close(() => resolve()));
     if (process.env.BYOKIT_O16_EVIDENCE_DIR) {
       mkdirSync(process.env.BYOKIT_O16_EVIDENCE_DIR, { recursive: true });
-      writeFileSync(join(process.env.BYOKIT_O16_EVIDENCE_DIR, 'workshop.json'), JSON.stringify({ stateDir, source: 'real kit; immutable patched openclaw 2026.8.1',
+      writeFileSync(join(process.env.BYOKIT_O16_EVIDENCE_DIR, 'workshop.json'), JSON.stringify({ stateDir, source: 'real kit; immutable patched openclaw 2026.8.35',
         foreground, reviews, cold, first, second, receipts, boots: existsSync(join(stateDir, 'openclaw/usage/boots.jsonl')) ? readFileSync(join(stateDir, 'openclaw/usage/boots.jsonl'), 'utf8') : undefined }, null, 2) + '\n');
     }
   }

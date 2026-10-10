@@ -1,5 +1,5 @@
-// O2 acceptance (docs/runtime-kits.md 11.2 O2): the generated tables carry exactly 382 operator and 11 node
-// methods (393 total) and 55 events, the kit's methods and approval resolvers are present, node-role names are
+// O2 acceptance (docs/runtime-kits.md 11.2 O2): the generated tables carry exactly 383 operator and 11 node
+// methods (394 total) and 55 events, the kit's methods and approval resolvers are present, node-role names are
 // excluded from GatewayMethod, and the typed pass-through compiles (checked by tsc in `npm run check`).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -33,15 +33,15 @@ const EVENT = /^  '([^']+)': (.+);$/gm;
 const events = new Map<string, string>();
 for (const [, name, payload] of eventsTs.matchAll(EVENT)) events.set(name, payload.trim());
 
-test('the pinned table has exactly 382 operator and 11 node methods (393 total) and 55 events, recorded in report.json (D6)', () => {
-  assert.equal(operator.size, 382);
+test('the pinned table has exactly 383 operator and 11 node methods (394 total) and 55 events, recorded in report.json (D6)', () => {
+  assert.equal(operator.size, 383);
   assert.equal(nodeMethods.size, 11);
-  assert.equal(operator.size + nodeMethods.size, 393);
+  assert.equal(operator.size + nodeMethods.size, 394);
   assert.equal(events.size, 55);
-  assert.equal(report.engine, '2026.8.1');
+  assert.equal(report.engine, '2026.8.35');
   assert.equal(report.protocol, 4);
-  assert.equal(report.methods, 393);
-  assert.equal(report.operatorMethods, 382);
+  assert.equal(report.methods, 394);
+  assert.equal(report.operatorMethods, 383);
   assert.equal(report.nodeMethods, 11);
   assert.equal(report.events, 55);
 });
@@ -94,7 +94,7 @@ test('report.json matches the tables it summarizes (5.10)', () => {
   assert.equal(report.matchedEvents, matchedEvents);
   assert.equal(
     report.unmatched.length,
-    393 * 2 - matchedParams - matchedResults + 55 - matchedEvents,
+    394 * 2 - matchedParams - matchedResults + 55 - matchedEvents,
   );
   for (const entry of report.unmatched) {
     if (entry.method) assert.ok(operator.has(entry.method) || nodeMethods.has(entry.method), entry.method);
