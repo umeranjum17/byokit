@@ -8,6 +8,7 @@ import { cloudSelection, CloudAccountError, type CloudOptions, type CloudStream 
 import type { AiBinding } from '@earendil-works/pi-ai/api/cloudflare-ai-binding';
 import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfile, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
 import { googleProject, googleRevoke, googleRevokeUrl, isGoogleClient, withGoogle } from './flows/google.ts';
+import { CODE_ASSIST_HOSTS, CodeAssistSignedOutError, CodeAssistTierError, CodeAssistUnauthorizedError, codeAssistStream } from './flows/google-stream.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
 import { offered, provider, route, routes, PROVIDERS, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
@@ -880,6 +881,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** Full typed pinned Models request, bound to one selected member/account for the whole response. */
   async respondKey<T extends Api>(member: M, ask: KeyAsk<T>): Promise<AssistantMessage> {
+    if (isGoogleClient(this.providerKey(ask.account))) return this.respondGoogle(member, ask);
     const p = this.keyRoute(ask.account);
     const r = route(p.key.includes(':') ? p.key : routes().find((r) => r.upstream.id === p.pi && r.via === 'key')?.id ?? 'missing');
     if (ask.options?.signal?.aborted) throw new KeyRouteError('aborted');
@@ -889,6 +891,50 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     checkKeyModel(r, ask.model, this.platform.kind ?? 'browser', runtime.supported);
     const secret = await this.key(member, ask.account);
     return keyRespond(r, secret, ask, this.opts.fetch, runtime);
+  }
+
+  /** A selected Google Code Assist account answers through the kit-owned v1internal adapter, with the project the
+   *  sign-in stored. A 403 tier refusal is typed and marks the account not_included; a 401 refreshes the sign-in once
+   *  through the existing Google refresh path and retries, and a second 401 reports the account signed out. The token
+   *  is only ever the request's bearer header. */
+  private async respondGoogle<T extends Api>(member: M, ask: KeyAsk<T>): Promise<AssistantMessage> {
+    const provider = this.providerKey(ask.account);
+    const r = routes().find((x) => x.provider === provider);
+    if (!r) throw new KeyRouteError('provider');
+    if (r.upstream.flow === 'absent') throw new KeyRouteError('no_upstream_flow');
+    if (r.platforms[this.platform.kind ?? 'browser'] === 'no') throw new KeyRouteError('unsupported_platform');
+    if (ask.options && 'client' in ask.options && ask.options.client !== undefined) throw new KeyRouteError('auth_override');
+    const key = this.accountKey(member, ask.account);
+    const project = (await this.index(member)).accounts?.[key]?.project;
+    if (!project) throw new ResponseError('This Google account has no Code Assist project yet. Sign in again.', 'not_included');
+    const base = (this.opts.googleBase ?? CODE_ASSIST_HOSTS[provider] ?? '').replace(/\/+$/, '');
+    if (!base) throw new KeyRouteError('provider');
+    const rt = await this.runtime(member);
+    const attempt = async (minOAuthValidityMs: number) => {
+      const access = (await rt.getAuth(provider, { minOAuthValidityMs }))?.auth?.apiKey;
+      if (!access) throw new CodeAssistSignedOutError();
+      return codeAssistStream({ access, project, model: ask.model, context: ask.context, base, fetch: this.opts.fetch,
+        signal: ask.options?.signal, onText: ask.onText, onEvent: ask.onEvent });
+    };
+    try {
+      return await attempt(0);
+    } catch (e) {
+      if (e instanceof CodeAssistTierError) {
+        const refused = new ResponseError(e.message, 'not_included');
+        await this.failed(member, key, refused, true);
+        throw refused;
+      }
+      if (!(e instanceof CodeAssistUnauthorizedError)) throw e;
+      // One refresh, one retry: getAuth with a large minimum forces the due check.
+      try { return await attempt(10 ** 9); }
+      catch (again) {
+        if (!(again instanceof CodeAssistUnauthorizedError)) throw again;
+        await this.logout(member, key).catch(() => {});
+        this.forget(member, key);
+        this.onExpired?.(member, key);
+        throw new CodeAssistSignedOutError();
+      }
+    }
   }
 
   /** Bind this member's existing ChatGPT subscription login for consumers such as decide. Each request uses
