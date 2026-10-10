@@ -227,11 +227,11 @@ awaits both and builds the same rows; `@byokit/accounts` `list()` and a room rea
 (deduped case-insensitively against `taken`), falling back to the provider's name; the email itself is never offered.
 
 ```ts
-import { accountRows, nameSuggestions, type AccountsSource } from '@byokit/ui/accounts';
+import { accountRows, nameSuggestions, type Account, type Room } from '@byokit/ui/accounts';
 
-declare const list: () => Promise<readonly Account[]>;
+declare const list: () => readonly Account[];
 declare const reading: (account: Account) => Room;
-const rows = accountRows(await list(), reading, Date.now());
+const rows = accountRows(list(), reading, Date.now());
 // rows → [{ title: 'ChatGPT · Work', detail: 'Plus · 72% left this week', state: 'ready', low: false, ... }]
 console.log(nameSuggestions('umer@example.com', rows.map((r) => r.title)));
 ```
