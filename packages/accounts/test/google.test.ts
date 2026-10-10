@@ -577,6 +577,78 @@ test('respond: a 403 tier refusal is the typed not_included error, without the t
   }
 });
 
+// The Antigravity client runs the same journey as Gemini Code Assist on its own client data: the loopback return is on
+// :51121 /oauth-callback, the project is discovered the same way, and the identity rule (same person replaces, a new
+// person adds) and the refusal rule (nothing kept) hold. Offline, against the same stand-in.
+const antigravity = async () => {
+  const google = await mockGoogle({ client: 'google-antigravity' });
+  const store = memoryStore();
+  const accounts = new Accounts({ store: () => store, googleBase: google.base, app: 'byokit journey' });
+  return { google, store, accounts };
+};
+/** Answer userinfo with another identity, so a second sign-in is a different person on the same provider. */
+const emailing = (email: () => string) => {
+  const realFetch = globalThis.fetch;
+  return (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = String(input instanceof Request ? input.url : input);
+    return url.includes('/oauth2/v1/userinfo') ? Response.json({ email: email(), verified_email: true }) : realFetch(input, init);
+  }) as typeof fetch;
+};
+
+test('antigravity browser sign-in: Google’s page, the return to :51121, list() ready with the project', async () => {
+  const { google, store, accounts } = await antigravity();
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-antigravity:browser');
+    assert.equal(signIn?.state, 'waiting');
+    const url = new URL(signIn!.url!);
+    assert.equal(url.searchParams.get('redirect_uri'), 'http://127.0.0.1:51121/oauth-callback', 'the client’s own loopback port and path');
+    assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
+    const address = await callbackAddress(signIn!.url!);
+    assert.match(address, /^http:\/\/127\.0\.0\.1:51121\/oauth-callback\?/);
+    assert.equal((await fetch(address)).status, 200, 'the app’s listener on the Antigravity port answers');
+    await accounts.finished(OWNER, id);
+    const rows = await accounts.list(OWNER);
+    assert.deepEqual([rows.length, rows[0].provider, rows[0].state, rows[0].email], [1, 'google-antigravity', 'ready', 'umer@example.com']);
+    const metadata = (await store.index()).accounts?.[rows[0].id];
+    assert.equal(metadata?.project, 'recorded-project', 'the eligible project is kept as account metadata');
+    assert.ok(metadata && !/recorded-(access|refresh)/.test(JSON.stringify(metadata)), 'the project metadata holds no token');
+    // The canary: no access or refresh token reaches list, status or the stored index.
+    const status = await accounts.status(OWNER, 'google-antigravity');
+    const index = JSON.stringify(await store.index());
+    for (const canary of ['recorded-access', 'recorded-refresh']) {
+      assert.ok(!JSON.stringify([rows, status]).includes(canary), `${canary} is absent from list and status`);
+      assert.ok(!index.includes(canary), `${canary} is absent from the stored index`);
+    }
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('respond: an Antigravity account answers from its own Code Assist host without a googleBase', async () => {
+  const { google, store, accounts } = await antigravity();
+  const { id, signIn } = await accounts.add(OWNER, 'google-antigravity:paste');
+  accounts.paste(OWNER, id, await callbackAddress(signIn!.url!));
+  await accounts.finished(OWNER, id);
+  const [row] = await accounts.list(OWNER);
+  accounts.stop();
+  const sent: string[] = [];
+  const toStandIn = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes(':streamGenerateContent')) sent.push(url);
+    return fetch(url.replace(/^https:\/\/[^/]+/, google.base), init);
+  }) as typeof fetch;
+  const answering = new Accounts({ store: () => store, fetch: toStandIn, app: 'byokit respond' });
+  try {
+    const result = await answering.respond(OWNER, { account: row.id, model: respondModel(), context });
+    assert.equal(result.stopReason, 'stop');
+    assert.deepEqual(sent.map((url) => new URL(url).origin + new URL(url).pathname), ['https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent'], 'the Antigravity client’s own host');
+  } finally {
+    answering.stop();
+    await google.close();
+  }
+});
+
 test('respond: a 401 refreshes the sign-in exactly once, then answers', async () => {
   const { google, accounts, id } = await respondJourney();
   try {
@@ -595,6 +667,39 @@ test('respond: a 401 refreshes the sign-in exactly once, then answers', async ()
   }
 });
 
+test('antigravity paste: the same identity replaces the account and a different identity adds a second', async () => {
+  const google = await mockGoogle({ client: 'google-antigravity' });
+  const store = memoryStore();
+  let email = 'umer@example.com';
+  const accounts = new Accounts({ store: () => store, googleBase: google.base, app: 'byokit journey', fetch: emailing(() => email) });
+  const paste = async () => {
+    const { id, signIn } = await accounts.add(OWNER, 'google-antigravity:paste');
+    accounts.paste(OWNER, id, await callbackAddress(signIn!.url!));
+    await accounts.finished(OWNER, id);
+    return id;
+  };
+  try {
+    await paste();
+    const [firstRow] = await accounts.list(OWNER);
+    assert.equal(firstRow.provider, 'google-antigravity', 'the first sign-in adds one account');
+    // The same person signs in again: the existing account is replaced, not added.
+    await paste();
+    const replaced = await accounts.list(OWNER);
+    assert.equal(replaced.length, 1, 'the same identity replaces the account');
+    assert.equal(replaced[0].id, firstRow.id, 'the account keeps its id');
+    // A different person on the same provider is a second account.
+    email = 'other@example.com';
+    const second = await paste();
+    const rows = await accounts.list(OWNER);
+    assert.equal(rows.length, 2, 'a different identity adds a second account');
+    assert.deepEqual(rows.map((r) => r.email).sort(), ['other@example.com', 'umer@example.com']);
+    assert.equal((await store.index()).accounts?.[second]?.project, 'recorded-project', 'the second account keeps its own project');
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
 test('respond: a 401 twice reports the account signed out, after one refresh, without the token', async () => {
   const { google, store, accounts, id } = await respondJourney();
   try {
@@ -605,6 +710,45 @@ test('respond: a 401 twice reports the account signed out, after one refresh, wi
     assert.equal(refreshes(google), 1, 'a second 401 does not refresh again');
     assert.equal(await store.read('google-gemini-cli'), undefined, 'the sign-in is deleted');
     assert.equal(await accounts.signedIn(OWNER, 'google-gemini-cli'), false);
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('antigravity ineligible: a refused sign-in keeps nothing and its error names no token', async () => {
+  const { google, store, accounts } = await antigravity();
+  google.state.ineligible = true;
+  const originalConsole = { log: console.log, warn: console.warn, error: console.error };
+  const logged: string[] = [];
+  console.log = console.warn = console.error = (...args) => { logged.push(args.map(String).join(' ')); };
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-antigravity:paste');
+    accounts.paste(OWNER, id, await callbackAddress(signIn!.url!));
+    await accounts.finished(OWNER, id);
+    assert.equal(accounts.view(OWNER, id)?.state, 'failed', 'the sign-in ends');
+    assert.equal(accounts.view(OWNER, id)?.why, 'notIncluded', 'a typed refusal, not a generic failure');
+    assert.equal(await store.read('google-antigravity'), undefined, 'no credential is kept');
+    assert.deepEqual(await accounts.list(OWNER), [], 'no account row is kept');
+    assert.deepEqual((await store.index()).accounts ?? {}, {}, 'no account metadata is kept');
+    for (const leak of [accounts.view(OWNER, id)?.error ?? '', ...logged])
+      assert.ok(!/recorded-(access|refresh)/.test(leak), 'the token never reaches an error or a log');
+  } finally {
+    accounts.stop();
+    Object.assign(console, originalConsole);
+    await google.close();
+  }
+});
+
+test('antigravity paste: a declined error return keeps nothing', async () => {
+  const { google, accounts } = await antigravity();
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-antigravity:paste');
+    const state = new URL(await callbackAddress(signIn!.url!)).searchParams.get('state');
+    accounts.paste(OWNER, id, `http://127.0.0.1:51121/oauth-callback?error=access_denied&state=${state}`);
+    await accounts.finished(OWNER, id);
+    assert.equal(accounts.view(OWNER, id)?.why, 'declined');
+    assert.deepEqual(await accounts.list(OWNER), []);
   } finally {
     accounts.stop();
     await google.close();

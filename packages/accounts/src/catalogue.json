@@ -253,5 +253,24 @@
       "why": "This source does not explicitly document choosing between several accounts of this service in another app.",
       "source": "https://github.com/google-gemini/gemini-cli"
     }
+  },
+  "google-antigravity": {
+    "pi": "google-antigravity",
+    "name": "Antigravity",
+    "company": "Google",
+    "models": {
+      "strong": "gemini-3-pro"
+    },
+    "callbackPort": 51121,
+    "billing": "subscription",
+    "auth": "oauth",
+    "revoke": "https://oauth2.googleapis.com/revoke",
+    "routes": ["google-antigravity:browser", "google-antigravity:paste"],
+    "source": "https://antigravity.google",
+    "multiAccount": {
+      "terms": "grey",
+      "why": "Antigravity's terms name third-party OAuth use as grounds for suspension; the Antigravity CLI's own sign-in stays the supported path.",
+      "source": "https://antigravity.google/terms"
+    }
   }
 }

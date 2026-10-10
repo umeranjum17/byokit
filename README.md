@@ -97,7 +97,7 @@ when an app chooses to offer them.
 
 ### Sign in with the plan you already pay for
 
-`@byokit/accounts` signs a person in by device code in a browser or on a phone (ChatGPT on its own flow; Grok and Kimi from catalogue device data), and with ChatGPT's and Gemini Code Assist's own pages
+`@byokit/accounts` signs a person in by device code in a browser or on a phone (ChatGPT on its own flow; Grok and Kimi from catalogue device data), and with ChatGPT's, Gemini Code Assist's and Antigravity's own pages
 on a computer. Every state is one plain sentence your app can show.
 
 <p align="center">

@@ -113,8 +113,9 @@ export function generateRoutes(): Route[] {
   add('minimax', 'MiniMax', 'code', 'subscription', 'device', undefined, { offer: 'explicit', platforms: { node: 'yes', browser: 'host', rn: 'host' } });
   add('minimax-cn', 'MiniMax CN', 'code', 'subscription', 'device', 'cn', { offer: 'explicit', platforms: { node: 'yes', browser: 'host', rn: 'host' } });
   // The Google Code Assist clients are not pi-ai providers; their flows live in packages/accounts/src/flows/google.ts.
-  for (const via of ['browser', 'paste'] as const)
-    add('google-gemini-cli', 'Gemini Code Assist', via, 'subscription', 'oauth', undefined, { company: 'Google', platforms: node });
+  for (const [id, name] of [['google-gemini-cli', 'Gemini Code Assist'], ['google-antigravity', 'Antigravity']] as const)
+    for (const via of ['browser', 'paste'] as const)
+      add(id, name, via, 'subscription', 'oauth', undefined, { company: 'Google', platforms: node });
   if (new Set(result.map((r) => r.id)).size !== result.length) throw new Error('Duplicate route id');
   return result.sort((a, b) => a.id.localeCompare(b.id, 'en'));
 }

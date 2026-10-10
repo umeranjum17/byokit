@@ -1,0 +1,1 @@
+- Add the Antigravity (Google Cloud Code Assist, subscription) browser and paste sign-in to `@byokit/accounts` on a computer, with the `google-antigravity:browser` and `:paste` routes on the client's own loopback port 51121; it reuses the Gemini Code Assist flow, project discovery and `googleBase` stand-in, and signs in with Antigravity's client id and scopes.
