@@ -183,7 +183,7 @@ for (const p of offered(['chatgpt', 'openrouter'])) console.log(`${p.name}: ${bi
 ```
 
 ```text
-[ 'chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta', 'google-gemini-cli' ]
+[ 'chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta', 'google-gemini-cli', 'google-antigravity' ]
 ChatGPT: Uses your ChatGPT plan.
 OpenRouter: Charged per use to your OpenRouter account, not a plan.
 ```
