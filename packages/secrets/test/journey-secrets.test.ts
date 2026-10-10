@@ -636,6 +636,9 @@ test('the browser and phone entries keep secrets at rest, and the published entr
   assert.equal(await web.delete('empty'), false);
   const record = await idbRead(idb, 'item:provider/🔑');
   assert.equal(record.iv.byteLength, 12);
+  // A fresh IV per write: rewriting the same entry never reuses the first IV (AES-GCM).
+  await web.set('provider/🔑', CANARY);
+  assert.notDeepEqual((await idbRead(idb, 'item:provider/🔑')).iv, record.iv, 'IV reuse across writes');
   assert.ok(!new TextDecoder().decode(record.ciphertext).includes(CANARY), 'plaintext in IndexedDB');
   const wrapKey = await idbRead(idb, 'device-wrap-key');
   assert.equal(wrapKey.extractable, false);
