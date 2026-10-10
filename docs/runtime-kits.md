@@ -2369,7 +2369,7 @@ folder variable and resume support, under the transaction above and the main-own
 guards; a folder, a passing readiness check or a fixture never declares a native move proven. Kinds without a folder
 variable are tab only, labelled one sign-in per computer user, and the kit never reads the person's default CLI
 credentials for them. Readiness probes run only with the managed folder's explicit env (D13) and otherwise report
-unknown. Today's `agentStatus` probe spawns without an explicit env, contrary to D13; B9 corrects it.
+unknown.
 
 ### 6.7 Generation (`scripts/gen-types.ts`, H2)
 

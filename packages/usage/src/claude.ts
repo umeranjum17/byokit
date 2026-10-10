@@ -6,16 +6,22 @@ import { providerHttp, type Answer } from './providers.ts';
 import type { Source } from './types.ts';
 
 type ClaudeSource = Extract<Source, { folder: string }>;
+const DEFAULT_LOGIN_SEGMENTS = ['.claude', '.codex', '.pi'];
+/** True when a path sits inside one of the person's own agent setups, lexically or once links are resolved. */
+export function defaultLoginPath(path: string): boolean {
+  if (resolve(path).split(sep).some((part) => DEFAULT_LOGIN_SEGMENTS.includes(part))) return true;
+  try { return realpathSync(path).split(sep).some((part) => DEFAULT_LOGIN_SEGMENTS.includes(part)); } catch { return false; }
+}
 /** No ambient HOME discovery. Both the lexical and real folder must be managed by this root. */
 export function managedClaudeFolder(folder: string, stateDir: string): boolean {
   const root = resolve(stateDir); const candidate = resolve(folder);
-  if (root.split(sep).some((part) => ['.claude', '.codex', '.pi'].includes(part))) return false;
+  if (defaultLoginPath(root)) return false;
   const parent = join(root, 'claude');
   if (!candidate.startsWith(parent + sep) || !/^[a-f0-9]+$/.test(candidate.slice(parent.length + 1))) return false;
   try {
     if (![root, parent, candidate].every((path) => { const s = lstatSync(path); return s.isDirectory() && !s.isSymbolicLink(); })) return false;
     const realRoot = realpathSync(root);
-    if (realRoot.split(sep).some((part) => ['.claude', '.codex', '.pi'].includes(part))) return false;
+    if (defaultLoginPath(realRoot)) return false;
     const realFolder = realpathSync(candidate);
     return realFolder.startsWith(join(realRoot, 'claude') + sep);
   } catch { return false; }

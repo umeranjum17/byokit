@@ -39,6 +39,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [ChatGPT refresh refusal](./accounts-refresh-refusal.md) — a phone/browser ChatGPT sign-in kept through a passing 401 at a due or forced refresh, ended only by a revoked grant.
 - [Usage plan view](./usage-planview.md) — `@byokit/usage` selectors over fixture call records via `examples/usage-demo.ts`.
 - [Usage preflight](./usage-preflight.md) — `@byokit/usage` reports a call's cost ceiling from the app's own prices and the remaining allowance before it is sent, declining a costly call and refusing to guess on unknown cases.
+- [Usage Claude explicit-file guard](./usage-claude-file-guard.md) — `@byokit/usage` refuses a Claude `credentialsFile`/`configFile`/`statuslineFile` that carries a `.claude`/`.codex`/`.pi` segment, lexically or through a symlink, before any open, while an app-owned file still reads.
 - [Dictation live preview](./dictation-live-preview.md) — `@byokit/dictation`'s live preview drops a shown silence sentinel as soon as words arrive, keeps a silence-only take's sentinel, and never retracts real shown words.
 - [Dictation live preview decode](./dictation-preview-decode.md) — a live preview decodes greedily over a bounded recent window; a final keeps the host's beam and whole-recording windows.
 - [Fresh-project pack gate](./pack-fresh-project.md) — `npm run smoke:pack`: install packed tarballs into a scratch app and import them.
@@ -76,6 +77,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [accounts-machine-store](./accounts-machine-store.md) — one sign-in reused by a second app through `machineStore`, wrong-seal and no-store refusals.
 - [usage-planview](./usage-planview.md) — plan/quota view rendered from call records.
 - [usage-preflight](./usage-preflight.md) — preflight cost ceiling, remaining allowance, declined costly call, and explicit-unknown cases.
+- [usage-claude-file-guard](./usage-claude-file-guard.md) — a default-login `.claude`/`.codex`/`.pi` segment (lexically or via symlink) is refused with `UsageError` before any open; an app-owned file still reads.
 - [dictation-live-preview](./dictation-live-preview.md) — a shown silence sentinel drops when words arrive, a silence-only take keeps it, and real shown words are never retracted.
 - [dictation-preview-decode](./dictation-preview-decode.md) — previews decode greedily over a bounded recent window, finals keep the host beam and whole recording.
 - [pack-fresh-project](./pack-fresh-project.md) — the packed-tarball fresh-consumer gate.

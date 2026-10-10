@@ -28,7 +28,10 @@ Sources:
 - `{ provider: 'codex', bin, home, env? }` retains the explicit local app-server source.
 - `{ provider: 'claude', credentialsFile, configFile?, statuslineFile? }` is a
   read-only adapter for files the app explicitly supplies. It reads `claudeAiOauth`
-  and optionally `oauthAccount.accountUuid`. A statusline snapshot uses its body `fetched_at` (epoch milliseconds or ISO date),
+  and optionally `oauthAccount.accountUuid`. A path carrying a `.claude`, `.codex`
+  or `.pi` segment, lexically or through a symlink, is refused with `UsageError`
+  before any file is opened, so the person's own default sign-in is never read.
+  A statusline snapshot uses its body `fetched_at` (epoch milliseconds or ISO date),
   never file mtime. Known snapshots younger than five minutes precede the endpoint;
   undated/future snapshots remain visible with unknown/future age. An expired token is never sent.
 - `{ provider: 'claude', accountUuid, read, origin?, connected? }` delegates to the app's
