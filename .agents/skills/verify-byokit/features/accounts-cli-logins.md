@@ -18,10 +18,11 @@ A host app driving the built `@byokit/accounts/cli` adds two managed Claude logi
 
 Preconditions: baseline (features/README.md); no process of a previous drive is running.
 
-- **Write the consumer.** Create `"$scratch_dir/verify-accounts-cli-addedat.mjs"` importing `cliAccounts` from `@byokit/accounts/cli`. Build a fake `claude` binary (a Node script that answers `auth status` with `{ loggedIn: true, email: 'umer.work@example.test', planType: 'plus', subscriptionType: 'pro' }`) in a `chmod 755` file. `mkdir` the state dir's parent first (the kit refuses a missing parent). Add `claude` twice, write each `signIn.completion` at `0o600`, then `list()`. Assert one shared email, numeric `addedAt > 0`, and two different values; a fresh `cliAccounts` on the same state dir sees the same values.
+- **Write the consumer.** Create `"$scratch_dir/verify-accounts-cli-addedat.mjs"` importing `cliAccounts` from `@byokit/accounts/cli`. Build a fake `claude` binary (a Node script that answers `auth status` with `{ loggedIn: true, email: 'umer.work@example.test', planType: 'plus', subscriptionType: 'pro' }`) in a `chmod 755` file. `mkdir` the state dir's parent first (the kit refuses a missing parent). Add `claude` twice, write each `signIn.completion` at `0o600`, then `list()`. Assert one shared email, numeric `addedAt > 0`, and two different values; a fresh `cliAccounts` on the same state dir sees the same values. Then, in a second state dir, hand-write an `accounts-v1.json` holding two pre-existing `claude` rows that share the email and carry no `addedAt`, creating their `<stateDir>/claude/<hex>` folders in order: assert every `list()` row gets a numeric derived `addedAt`, the two derived values differ, and the roster bytes are unchanged. Finally catch `CliAccountError` from `status('pa_absent')` and print its `code`.
 - **Run and capture.** `feature=cli-account-addedAt; entry=@byokit/accounts/cli; drive=(node "$scratch_dir/verify-accounts-cli-addedat.mjs")`, then run SKILL.md Evidence's capture block. Exit code `0`.
 - **Happy path shows.** `add first addedAt:`/`add second addedAt:` differ by at least one; `rows:` lists two ready rows with the same email and different `addedAt`; `distinct same-email logins: OK`.
-- **Proof.** The captured artifact contains the two add values, the listed rows and the final assertion line.
+- **Missing and error cases show.** `derived addedAt:` values differ, `roster untouched: true` for the pre-existing rows; `absent account code: unknown-account`.
+- **Proof.** The captured artifact contains the two add values, the listed rows, the derived legacy values with the unchanged roster bytes, the caught error code, and the final assertion line.
 
 ## Gotchas
 
