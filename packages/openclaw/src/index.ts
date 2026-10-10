@@ -2,9 +2,22 @@
 // `./device` (portable), `./link` (Node host-side adapter), `./testing` (fakes and contract suite).
 export { ENGINE_VERSION, OPERATOR_SCOPES, PROTOCOL_VERSION } from './constants.ts';
 export type {
+  Account,
+  AccountId,
+  AccountPick,
+  AccountRef,
   Approval,
   CallOptions,
+  Considered,
   Decision,
+  Defaults,
+  ModelInfo,
+  MoveResult,
+  PickWhy,
+  Room,
+  RoomSpan,
+  RunSelection,
+  SignInState,
   GatewayEventName,
   GatewayEventPayload,
   GatewayMethod,

@@ -193,3 +193,42 @@ export type KitEventPayload<E extends KitEventName> = E extends 'byokit.browser'
 // frozen by 5.3).
 export type { GatewayMethod, GatewayParams, GatewayResult } from './generated/methods.ts';
 export type { GatewayEventName, GatewayEventPayload } from './generated/events.ts';
+
+// Account types (5.15), restated structurally from `@byokit/accounts` `multi.ts`, never imported (D3). `AccountPick`
+// is `@byokit/accounts`' `Pick`, renamed here because this kit's modules use TypeScript's `Pick<T, K>`.
+export type AccountId = string;      // '<provider>': the member agent's sign-in; '<provider>.<hex6>': agent '<member>--<hex6>'
+export type AccountRef = AccountId;  // always starts with a provider id, so never 'default' or 'auto'
+export type SignInState = 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included';
+export type Account = { id: AccountId; provider: string; route: string;        // route = Route.choice it signed in with
+  name: string;                      // the person's name for it ("Work"); renameAccount sets it
+  label: string;                     // the provider's display name ("ChatGPT")
+  email?: string; plan?: string;     // live from models.authStatus usage when reported; never stored by the kit
+  billing: 'subscription' | 'api'; state: SignInState; until?: number; addedAt: number };
+export type RoomSpan = 'session' | 'week' | 'month' | 'tightest';
+export type Room = { left: number; span: RoomSpan; resetsAt?: number; at?: number } | { left: 'unknown'; at?: number };
+                                     // left: percent of the tightest applying window left, 0-100; times epoch ms;
+                                     // at: when the source read it; absent = age unknown, never a receipt time
+export type ModelInfo = { id: string; name: string; tier?: 'strong' | 'fast'; available: boolean;
+  why?: 'plan' | 'resting' | 'signed_out'; until?: number };                   // id = 'provider/model'
+export type RunSelection = { account: AccountRef | 'default' | 'auto'; model?: string;
+  needs?: string[];                  // every other 'provider/model' the run may call (subagents, fallbacks)
+  provider?: string };               // limits the choice to one provider; absent = the saved default's provider
+export type Defaults = { account?: AccountId; model?: string; auto?: boolean };
+export type Considered = { id: AccountId;
+  out?: 'state' | 'resting' | 'billing' | 'model' | 'provider' | 'bound';   // why it is not a candidate; absent = one
+  until?: number;                                      // out 'resting': until when
+  missing?: string;                                    // out 'model': the first demanded 'provider/model' it lacks
+  tier?: 'room' | 'unknown' | 'exhausted';            // candidates only: Choosing's tier A, B or C
+  left: number | 'unknown'; span?: RoomSpan; resetsAt?: number;
+  age: number | 'unknown';                            // ms from the reading's `at` to nowMs
+  confidence: 'known' | 'stale' | 'unknown';             // known timestamp, older than 24h, or unmeasured/undated
+  reason: PickWhy | 'state' | 'resting' | 'billing' | 'model' | 'provider' | 'bound' };
+export type PickWhy = 'chosen' | 'default' | 'first_ready' | 'only' | 'most_room' | 'earlier_reset' | 'list_order' |
+  'no_reading' | 'refills_first';
+export type AccountPick =
+  | { ok: true; account: Account; model: string; how: 'chosen' | 'default' | 'auto'; why: PickWhy; reason: string;
+      considered: Considered[] }
+  | { ok: false; code: 'none' | 'not_included' | 'unknown_account' | 'bound' | 'paid'; reason: string;
+      considered: Considered[] };        // bound/paid: Runs step 2's refusals, reason its `account.*` words
+export type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
+  'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // shared with @byokit/herdr

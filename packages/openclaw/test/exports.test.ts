@@ -34,6 +34,10 @@ import { OpenClawKit, type RetainedLogin } from '../src/kit.ts';
 import type { OpenClawDevice, DeviceEndFrame } from '../src/device.ts';
 import type { OpenClawLinkHost, OpenClawLinkOptions, OpenClawServeHandle, OpenClawServeOptions } from '../src/link.ts';
 import type { FakeGateway, FakeHandler, FakeParams, StubCall, StubRequest } from '../src/testing/index.ts';
+// The restated account types and words are checked on the *built* published entry, the way a consumer app sees them
+// (5.15, D3): a type-only import resolves `./dist/index.d.ts`, and `words` loads `./dist/index.js`.
+import { words as builtWords } from '@byokit/openclaw';
+import type { Account, AccountPick, Considered, MoveResult, RunSelection } from '@byokit/openclaw';
 
 test('the `.` entry exports the kit, the pins and the operator scopes (5.3, D4, D6)', () => {
   assert.equal(typeof kit.OpenClawKit, 'function');
@@ -65,6 +69,21 @@ test('the documented type names compile from the `.` entry (5.2, 5.3)', () => {
   const anyMethod = 'health' as GatewayMethod;
   const anyEvent = 'agent' as GatewayEventName;
   assert.ok([options, retained, state, hello, member, tool, host, spec, event, end, view, approval, decision, route, transport, call, anyMethod, anyEvent]);
+});
+
+test('the built `.` entry restates the §5.15 account types and returns its account words (5.15, D3)', () => {
+  // Type-level: these compile only when the built entry publishes the restated shapes, including the kit-only
+  // 'bound'/'paid' members that @byokit/accounts never returns.
+  const considered: Considered = { id: 'openai', left: 'unknown', age: 'unknown', confidence: 'unknown', reason: 'state' };
+  const selection: RunSelection = { account: 'auto', needs: ['openai/gpt-5.1'], provider: 'openai' };
+  const account: Account = { id: 'openai', provider: 'openai', route: 'openai:browser', name: 'Work', label: 'ChatGPT', billing: 'subscription', state: 'ready', addedAt: 0 };
+  const chosen: AccountPick = { ok: true, account, model: 'gpt-5.1', how: 'chosen', why: 'chosen', reason: 'You chose it.', considered: [considered] };
+  const refused: AccountPick = { ok: false, code: 'paid', reason: builtWords('account.paid', { name: 'Work' }), considered: [considered] };
+  const move: MoveResult = { ok: false, code: 'busy', message: 'A run is live.', live: 'agent:me:main' };
+  assert.ok([considered, selection, account, chosen, refused, move]);
+  // Words journey through the built export: the §5.15 sentences are on the published surface.
+  assert.equal(builtWords('account.bound', { name: 'Work' }), 'This conversation uses Work. Move it to switch accounts.');
+  assert.equal(builtWords('account.paid', { name: 'Work' }), 'This conversation uses Work, which is billed per use. Choose Work to keep going.');
 });
 
 test('the `./device` entry exports the device client and the portable notice opener (7.2, 7.3)', () => {
