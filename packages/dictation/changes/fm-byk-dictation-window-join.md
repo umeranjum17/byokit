@@ -1,0 +1,1 @@
+- FIX: A dictation take longer than 30 s no longer skips the speech after a pause or repeats a passage where its automatic windows overlap: each window now steps from where Whisper actually stopped (a fixed step dropped the speech between an early end and the next window), and an agreed overlap is joined once instead of appended in full.
