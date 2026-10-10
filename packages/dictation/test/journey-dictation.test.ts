@@ -22,7 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { build } from 'esbuild';
 import fixture from '../../../fixtures/conformance/dictation-typescript.json' with { type: 'json' };
-import { Dictation, DictateError, settleWords, applyWordReplacements, routes, systemEngine, whisperRnEngine, whisperSettings, installModel, type WhisperRnContext, type WhisperRnDecodeOptions } from '@byokit/dictation';
+import { Dictation, DictateError, settleWords, applyWordReplacements, routes, systemEngine, whisperRnEngine, whisperSettings, installModel, PREVIEW_WINDOW_SECONDS, type WhisperRnContext, type WhisperRnDecodeOptions } from '@byokit/dictation';
 import { chatgptEngine, openaiEngine, openrouterEngine, whisperEngine } from '@byokit/dictation/node';
 import { fakeEngine, fakeMic } from '@byokit/dictation/testing';
 import { createVad, VAD_STATE, VAD_WINDOW, type VadSession } from '@byokit/audio';
@@ -225,7 +225,7 @@ test('a long dictation is reread over the whole recording; previews never become
 
   // Tuned Whisper keeps quiet audio across pauses, rereads the whole recording for finals, and never uses previews as final.
   const reads: { bytes: number; decode: WhisperRnDecodeOptions }[] = [];
-  const tuned = whisperRnEngine({ model: '/app/ggml-base.en-q5_1.bin', settings: { vocabulary: ['AppWord'] },
+  const tuned = whisperRnEngine({ model: '/app/ggml-base.en-q5_1.bin', settings: { vocabulary: ['AppWord'], beamSize: 5 },
     async initWhisper() { return { release: async () => {}, transcribeData(data, decode) {
       reads.push({ bytes: data.byteLength, decode });
       const text = decode.prompt ? 'complete recording' : 'preview guess';
@@ -238,11 +238,16 @@ test('a long dictation is reread over the whole recording; previews never become
   mic.push({ data: new Int16Array(16000).fill(150), at: 0 }); await until(() => reads.length === 1);
   mic.push({ data: new Int16Array(31 * 16000), at: 1000 }); await until(() => levels === 2);
   assert.equal(finals, 0);
-  mic.push({ data: new Int16Array(16000).fill(150), at: 32000 }); await until(() => reads.length === 3);
+  mic.push({ data: new Int16Array(16000).fill(150), at: 32000 }); await until(() => reads.length === 2);
   assert.equal(reads[0].decode.prompt, ''); assert.equal(reads[1].decode.prompt, '');
+  // A preview never inherits the host's final beam or window: greedy, recent audio only.
+  assert.equal(reads[0].decode.beamSize, undefined); assert.equal(reads[1].decode.beamSize, undefined);
+  assert.equal(reads[1].bytes, PREVIEW_WINDOW_SECONDS * 16000 * 2);
   const tunedResult = await tunedHandle.finish();
-  assert.equal(reads.length, 5); assert.equal(reads[3].bytes, 30 * 16000 * 2); assert.equal(reads[4].bytes, 8 * 16000 * 2);
-  assert.equal(reads[3].decode.prompt, 'AppWord Context ExtraWord'); assert.equal(reads[3].decode.language, 'en');
+  // A final keeps the host's beam and reads the whole recording, split into its windows.
+  assert.equal(reads.length, 4); assert.equal(reads[2].bytes, 30 * 16000 * 2); assert.equal(reads[3].bytes, 8 * 16000 * 2);
+  assert.equal(reads[2].decode.beamSize, 5); assert.equal(reads[3].decode.beamSize, 5);
+  assert.equal(reads[2].decode.prompt, 'AppWord Context ExtraWord'); assert.equal(reads[2].decode.language, 'en');
   assert.equal(tunedResult.text, 'complete recording'); assert.equal(tunedResult.durationMs, 33000); assert.equal(finals, 1);
   await tuned.release();
 

@@ -5,6 +5,10 @@ import { mergeOverlap } from './text.ts';
 /** Recommended model identity; the host still supplies its file/asset, never a discovered path. */
 export const DEFAULT_WHISPER_MODEL = 'base.en-q5_1';
 
+/** Live previews are throwaway readings. Decoding greedily over only the most recent
+ * audio keeps them close to the speaker; finals keep the host's full beam and window. */
+export const PREVIEW_WINDOW_SECONDS = 10;
+
 /** Pinned Silero VAD graph for whisper.rn's `initWhisperVad`, fetched by the host with
  * `installModel` (which checks size and SHA-256). The kit itself downloads nothing. */
 export const WHISPER_VAD_MODEL = {
@@ -161,15 +165,17 @@ function pcm16le(pcm: Int16Array): ArrayBuffer {
 }
 
 /** Shared segmentation, gain, energy VAD, prompting and timestamp offsets. `hasSpeech`
- * gates the whole decode: Whisper turns room noise into made-up sentences. */
+ * gates the whole decode: Whisper turns room noise into made-up sentences. A supplied
+ * `windowSamples` keeps only that many trailing samples, for bounded live previews. */
 export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperSettings, o: DictateOptions,
   run: (pcm: Int16Array, options: WhisperRnDecodeOptions) => Promise<WhisperRnResult>, session?: VadSession,
-  hasSpeech?: (pcm: Int16Array) => Promise<boolean>): Promise<Omit<DictateTranscript, 'engine'>> {
-  let pcm: Int16Array, speech = true;
+  hasSpeech?: (pcm: Int16Array) => Promise<boolean>, windowSamples?: number): Promise<Omit<DictateTranscript, 'engine'> & { windowed?: boolean }> {
+  let pcm: Int16Array, speech = true, windowed = false;
   try {
     checkAbort(o.signal);
     if (o.timestamps === 'word') throw new DictateError('unsupported'); // RN returns segments, not word offsets.
     pcm = await whisperPcm(input, s.gain);
+    if (windowSamples && pcm.length > windowSamples) { pcm = pcm.slice(pcm.length - windowSamples); windowed = true; }
     checkAbort(o.signal);
     if (hasSpeech) speech = pcm.length > 0 && await hasSpeech(pcm);
     checkAbort(o.signal);
@@ -177,7 +183,7 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
   const usage = { audioMs: pcm.length / 16, basis: 'free' } as const;
   if (!speech) {
     await session?.release?.();
-    return { text: '', segments: [], durationMs: pcm.length / 16, usage };
+    return { text: '', segments: [], durationMs: pcm.length / 16, usage, windowed };
   }
   const segments: DictateSegment[] = [];
   let text = '', language: string | undefined;
@@ -227,7 +233,7 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
     }
   }
   text = segments.map(segment => segment.text).join(' ').trim();
-  return { text, segments, language, durationMs: pcm.length / 16, usage };
+  return { text, segments, language, durationMs: pcm.length / 16, usage, windowed };
 }
 
 /** Host injects initWhisper; one cached context, serialized inference, explicit disposal.
@@ -236,7 +242,10 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
  * `vad` makes the live turn gate neural at once, while offline segmentation still
  * follows `settings.vad.enabled`: left false, transcribe keeps the whole file and
  * the factory changes nothing offline. `speech` runs whisper.rn's Silero VAD over every
- * final and file reading and skips the decode when it finds no speech; previews are not gated. */
+ * final and file reading and skips the decode when it finds no speech; previews are not gated.
+ * Live previews always decode greedily over only the last `PREVIEW_WINDOW_SECONDS` of the
+ * turn and merge onto the turn's decoded prefix, so they do not inherit the host's final
+ * beam and every preview decode stays bounded; a preview reading never becomes final text. */
 export function whisperRnEngine(o: { model: string | number; multilingual?: boolean; initWhisper(options: { filePath: string | number }): Promise<WhisperRnContext>; settings?: WhisperSettings; vad?: () => VadSession | Promise<VadSession>;
   speech?: { model: string | number; initWhisperVad(options: { filePath: string | number }): Promise<WhisperRnVadContext> } }): DictateEngine & { release(): Promise<void> } {
   const local = (model: string | number) => typeof model === 'string' && model.trim() && !/^[a-z]+:\/\//i.test(model.replace(/^file:\/\//, ''))
@@ -259,10 +268,13 @@ export function whisperRnEngine(o: { model: string | number; multilingual?: bool
     try { return (await vad.detectSpeechData(pcm16le(pcm))).length > 0; }
     catch (cause) { throw new DictateError('bad-model', { cause }); }
   });
+  /** Text decoded for the current live turn. A bounded preview window drops the
+   * turn's oldest audio, so its reading is merged onto this prefix; finals replace it. */
+  let previewText = '';
   const transcribe = (input: DictateInput, options: DictateOptions, preview = false) => enqueue(async () => {
     const session = o.vad && settings.vad.enabled ? await o.vad() : undefined;
-    return await transcribeWhisper(input,
-      preview ? { ...settings, initialPrompt: '', vocabulary: [] } : settings,
+    const result = await transcribeWhisper(input,
+      preview ? { ...settings, initialPrompt: '', vocabulary: [], beamSize: -1, temperature: 0, temperatureInc: 0 } : settings,
       preview ? { ...options, prompt: undefined, keywords: undefined } : options, async (pcm, decode) => {
       const native = await acquire();
       checkAbort(options.signal);
@@ -273,7 +285,11 @@ export function whisperRnEngine(o: { model: string | number; multilingual?: bool
       try { return await job.promise; }
       catch (cause) { checkAbort(options.signal); throw new DictateError('bad-model', { cause }); }
       finally { options.signal?.removeEventListener('abort', abort); }
-    }, session, preview ? undefined : hasSpeech);
+    }, session, preview ? undefined : hasSpeech, preview ? PREVIEW_WINDOW_SECONDS * 16_000 : undefined);
+    const { windowed, ...rest } = result;
+    if (!preview) { previewText = ''; return rest; }
+    previewText = !windowed ? result.text : previewText ? mergeOverlap(previewText, result.text) : result.text;
+    return { ...rest, text: previewText };
   });
   return {
     info: { id: 'whisper', model: String(o.model), onDevice: true, streaming: 'reread', account: 'none' },
@@ -282,6 +298,7 @@ export function whisperRnEngine(o: { model: string | number; multilingual?: bool
     transcribe: (input, options) => transcribe(input, options),
     preview: (input, options) => transcribe(input, options, true),
     release: () => enqueue(async () => {
+      previewText = '';
       const current = [context, vadContext]; context = vadContext = undefined;
       await Promise.all(current.map(async c => (await c)?.release()));
     }),

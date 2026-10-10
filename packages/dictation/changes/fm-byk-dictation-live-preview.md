@@ -1,0 +1,1 @@
+- Live Whisper previews decode greedily (never the host's final beam) over only the most recent `PREVIEW_WINDOW_SECONDS` (10 s) of the current turn, merging onto the turn's decoded prefix, so live text keeps up with speech instead of trailing it by tens of seconds. Finals and file readings are unchanged: they keep the host's beam and read the whole recording.
