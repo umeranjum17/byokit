@@ -7,10 +7,11 @@ type Case = {
   name: string; accounts: AccountLike[]; rooms: Record<string, Room>; defaults: Defaults; selection: RunSelection;
   models?: Record<string, { id: string; available: boolean }[]>;
   expected: { ok: boolean; id?: string; why?: string; how?: string; model?: string; code?: string };
-  considered?: Record<string, Record<string, unknown>>; reason?: string; reasonContains?: string;
+  considered?: Record<string, Record<string, unknown>>; reason?: string; reasonContains?: string; kitOnly?: boolean;
 };
 const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/auto-pick-typescript.json', import.meta.url), 'utf8')) as { now: number; cases: Case[] };
-for (const c of fixture.cases) test(`Auto conformance: ${c.name}`, () => {
+// Rows marked `kitOnly` exercise the kit-only `bound` list and are run by @byokit/openclaw's pick.test.ts.
+for (const c of fixture.cases.filter((row) => !row.kitOnly)) test(`Auto conformance: ${c.name}`, () => {
   const calls: { id: string; demand: readonly string[] }[] = [];
   const rooms = (a: AccountLike, demand: readonly string[]) => { calls.push({ id: a.id, demand }); return c.rooms[a.id] ?? { left: 'unknown' }; };
   const models = (a: AccountLike) => c.models?.[a.id] ?? [{ id: `${a.provider}/m`, available: true }];

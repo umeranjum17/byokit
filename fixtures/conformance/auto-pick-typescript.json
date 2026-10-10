@@ -1599,6 +1599,72 @@
         }
       },
       "reasonContains": "out of room"
+    },
+    {
+      "name": "bound explicit signed-out id is chosen, never replaced",
+      "kitOnly": true,
+      "accounts": [{ "id": "a", "provider": "p", "name": "A", "state": "signed_out", "billing": "subscription" }, { "id": "b", "provider": "p", "name": "B", "state": "ready", "billing": "subscription" }],
+      "rooms": {},
+      "bound": ["a"],
+      "defaults": {},
+      "selection": { "account": "a" },
+      "expected": { "ok": true, "id": "a", "why": "chosen", "how": "chosen", "model": "p/m" },
+      "considered": { "a": { "out": null } }
+    },
+    {
+      "name": "bound default outside bound falls back to Auto",
+      "kitOnly": true,
+      "accounts": [{ "id": "a", "provider": "p", "name": "A", "state": "ready", "billing": "subscription" }, { "id": "b", "provider": "p", "name": "B", "state": "ready", "billing": "subscription" }],
+      "rooms": {},
+      "bound": ["a"],
+      "defaults": { "account": "b" },
+      "selection": { "account": "default" },
+      "expected": { "ok": true, "id": "a", "why": "only", "how": "auto", "model": "p/m" },
+      "considered": { "b": { "out": "bound" } }
+    },
+    {
+      "name": "bound default outside bound with Auto off takes first ready in bound",
+      "kitOnly": true,
+      "accounts": [{ "id": "a", "provider": "p", "name": "A", "state": "ready", "billing": "subscription" }, { "id": "b", "provider": "p", "name": "B", "state": "ready", "billing": "subscription" }],
+      "rooms": {},
+      "bound": ["a"],
+      "defaults": { "account": "b", "auto": false },
+      "selection": { "account": "default" },
+      "expected": { "ok": true, "id": "a", "why": "first_ready", "how": "default", "model": "p/m" },
+      "considered": { "b": { "out": "bound" } }
+    },
+    {
+      "name": "bound Auto considers only bound accounts",
+      "kitOnly": true,
+      "accounts": [{ "id": "a", "provider": "p", "name": "A", "state": "ready", "billing": "subscription" }, { "id": "b", "provider": "p", "name": "B", "state": "ready", "billing": "subscription" }],
+      "rooms": {},
+      "bound": ["b"],
+      "defaults": {},
+      "selection": { "account": "auto" },
+      "expected": { "ok": true, "id": "b", "why": "only", "how": "auto", "model": "p/m" },
+      "considered": { "a": { "out": "bound" } }
+    },
+    {
+      "name": "bound explicit id outside bound is refused",
+      "kitOnly": true,
+      "accounts": [{ "id": "a", "provider": "p", "name": "A", "state": "ready", "billing": "subscription" }, { "id": "b", "provider": "p", "name": "B", "state": "ready", "billing": "subscription" }],
+      "rooms": {},
+      "bound": ["b"],
+      "defaults": {},
+      "selection": { "account": "a" },
+      "expected": { "ok": false, "code": "not_included" },
+      "considered": { "a": { "out": "bound" } }
+    },
+    {
+      "name": "bound resting account is excluded from Auto",
+      "kitOnly": true,
+      "accounts": [{ "id": "a", "provider": "p", "name": "A", "state": "resting", "billing": "subscription", "until": 2000000 }, { "id": "b", "provider": "p", "name": "B", "state": "ready", "billing": "subscription" }],
+      "rooms": {},
+      "bound": ["a", "b"],
+      "defaults": {},
+      "selection": { "account": "auto" },
+      "expected": { "ok": true, "id": "b", "why": "only", "how": "auto", "model": "p/m" },
+      "considered": { "a": { "out": "resting", "until": 2000000 } }
     }
   ]
 }
