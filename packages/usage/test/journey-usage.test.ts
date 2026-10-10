@@ -19,7 +19,7 @@ import { build } from 'esbuild';
 import { scratchDir } from '../../test-support.ts';
 import {
   usage, identity, fingerprint, fileUsageStore, memoryUsageStore, memoryBackoffPolicy, retryAfterMs, backoffDelayMs,
-  roomOf, tokenLedger, callLedger, normalizeTokens, priceCall, memoryTokenLedgerStore, TokenLedgerError, UsageError,
+  roomOf, preflight, tokenLedger, callLedger, normalizeTokens, priceCall, memoryTokenLedgerStore, TokenLedgerError, UsageError,
   claudeWindows, codexWindows, goWindows, zaiWindows, WORDS, usageWords,
   type Source, type Window, type Reading, type UsageOptions, type StoredReading, type BackoffState,
 } from '@byokit/usage';
@@ -664,6 +664,66 @@ test('a host records runtime calls and measured tokens with honest billing label
   assert.throws(() => restarted.queryRun('alice', 'run-one', nowMs + 5, nowMs), TokenLedgerError);
   assert.equal(requests, 1);
   assert.equal(decisions, 1);
+  }
+
+  // A preflight check reports a costly call's ceiling and remaining allowance before anything is sent.
+  {
+  const store = memoryTokenLedgerStore();
+  const prices = { anthropic: { 'model-one': { billing: 'api' as const, currency: 'USD', inputPerMillion: 3, outputPerMillion: 15, cachedInputPerMillion: 0.3, cacheWritePerMillion: 3.75 } } };
+  const ledger = callLedger({ store, prices });
+  const limits = tokenLedger({ store, cap: 1000 });
+  const base = { provider: 'anthropic', account: 'host-account', model: 'model-one', runId: 'run-one', billing: 'api' as const };
+  ledger.record('alice', { ...base, time: nowMs - 1, usage: { input: 200, output: 100 } });
+  let requests = 0;
+  const account = anthropic({ key: 'fixture-key', fetch: async () => {
+    requests++;
+    return Response.json({ id: 'message-one', type: 'message', role: 'assistant', model: 'model-one',
+      content: [{ type: 'text', text: 'answer' }], stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 100, output_tokens: 40 } });
+  } });
+  const room = roomOf({ provider: 'claude', at: nowMs, windows: payloads.claude.windows as Window[] }, nowMs);
+  const ask = async (max_tokens: number) => {
+    const check = preflight({ provider: 'anthropic', model: 'model-one', billing: 'api', inputTokens: 100, maxOutputTokens: max_tokens },
+      { prices, allowance: limits.query('alice', nowMs, nowMs + 1).week, room });
+    // The host shows `check` to the person; this caller declines anything that could pass the allowance.
+    if (check.exceeds !== false) return check;
+    const result = await account.respond({ model: 'model-one', max_tokens, messages: [{ role: 'user', content: 'Umer asks' }], result: true });
+    ledger.record('alice', { ...base, time: nowMs, usage: result });
+    return check;
+  };
+  const costly = await ask(800);
+  // Every input token is priced at the dearest input rate (cache write), and output at its full ceiling.
+  assert.deepEqual(costly.cost, { amount: 0.012375, currency: 'USD', billing: 'api', label: "Person's API bill", basis: 'app-prices', estimated: true, ceiling: true });
+  assert.deepEqual(costly.tokens, { input: 100, maxOutput: 800, max: 900 });
+  assert.deepEqual(costly.allowance, { remaining: 700, cap: 1000, from: limits.query('alice', nowMs, nowMs + 1).week.from, to: nowMs + 1 });
+  assert.equal(costly.exceeds, true); assert.equal(costly.billingLabel, "Person's API bill");
+  assert.equal(costly.plan, undefined); // An API-billed call never draws on plan room.
+  assert.equal(requests, 0); // Preflight never sends; declining leaves nothing billed or recorded.
+  assert.equal(ledger.query('alice', nowMs - 1, nowMs + 1).calls.length, 1);
+  assert.equal((await ask(500)).exceeds, false);
+  assert.equal(requests, 1); assert.equal(limits.query('alice', nowMs, nowMs + 1).week.remaining, 560);
+
+  // Unknown is explicit and never falls back to a default price.
+  const call = { provider: 'anthropic', model: 'model-one', inputTokens: 100, maxOutputTokens: 500 };
+  const unpriced = preflight({ ...call, provider: 'kimi', billing: 'api' }, { prices });
+  assert.deepEqual(unpriced.cost, { amount: 'unknown', reason: 'no-price' });
+  assert.deepEqual(unpriced.allowance, { remaining: 'unknown', reason: 'not-supplied' }); assert.equal(unpriced.exceeds, 'unknown');
+  // A plan-backed call is never priced with an API row, and keeps its own label and plan room.
+  const plan = preflight(call, { prices, room, allowance: tokenLedger({ store }).query('alice', nowMs, nowMs + 1).week });
+  assert.deepEqual(plan.cost, { amount: 'unknown', reason: 'billing-mismatch' });
+  assert.equal(plan.billing, 'subscription'); assert.equal(plan.billingLabel, "Person's own plan");
+  assert.deepEqual(plan.plan, room); assert.deepEqual(plan.allowance, { remaining: 'uncapped' }); assert.equal(plan.exceeds, false);
+  const unbounded = preflight({ ...call, billing: 'api', maxOutputTokens: undefined }, { prices, allowance: limits.query('alice', nowMs, nowMs + 1).week });
+  assert.deepEqual(unbounded.cost, { amount: 'unknown', reason: 'output-unbounded' }); assert.equal(unbounded.exceeds, 'unknown');
+  assert.equal(preflight({ ...call, billing: 'api' }, { prices: { anthropic: { 'model-one': { ...prices.anthropic['model-one'], outputPerMillion: -1 } } } }).cost.amount, 'unknown');
+  assert.deepEqual(preflight({ ...call, billing: 'api' }, { prices: { anthropic: { 'model-one': { ...prices.anthropic['model-one'], inputPerMillion: -2 } } } }).cost, { amount: 'unknown', reason: 'invalid-price' });
+  // A call without reported counts makes the remaining allowance unknown, not larger.
+  ledger.record('alice', { ...base, time: nowMs, state: 'failed' });
+  const unrecorded = preflight({ ...call, billing: 'api' }, { prices, allowance: limits.query('alice', nowMs, nowMs + 1).week });
+  assert.deepEqual(unrecorded.allowance, { remaining: 'unknown', reason: 'unrecorded-usage' }); assert.equal(unrecorded.exceeds, 'unknown');
+  assert.equal(typeof unrecorded.cost.amount, 'number');
+  assert.throws(() => preflight({ ...call, inputTokens: -1 }), TokenLedgerError);
+  assert.throws(() => preflight({ ...call, billing: 'free' as 'api' }), TokenLedgerError);
+  assert.equal(requests, 1);
   }
 });
 

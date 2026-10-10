@@ -3,7 +3,7 @@
 Read subscription quota windows per provider and per account on Node 22.18 or later.
 React Native also supports local call/token accounting and pure quota parsing.
 The app owns sign-in, token renewal, account labels and selection. The kit reads room
-left, estimates no cost and never rotates an account.
+left, estimates cost only from app-supplied prices and never rotates an account.
 
 ```ts
 import { usage, roomOf } from '@byokit/usage';
@@ -313,6 +313,24 @@ Retries and multiple routes/models are added under the app's run id. Members rem
 separate even when run ids match. Missing counts stay unknown in run totals, and
 the shared member ledger continues to withhold remaining allowance when needed.
 
+`preflight(call, { prices?, allowance?, room? })` reports before a call; it never
+sends one, and the caller decides whether to proceed. `call` is `{ provider, model,
+billing?, inputTokens, maxOutputTokens? }`: the app counts the request's input and
+passes its output ceiling (such as Messages `max_tokens`). It returns `billing`,
+`billingLabel`, `tokens: { input, maxOutput?, max? }`, `cost`, `allowance`, `plan?`
+and `exceeds`. `cost` is a ceiling from the app's price row (`basis: 'app-prices'`,
+`ceiling: true`): every input token at the dearest input or cache rate and output at
+its full ceiling, so the real call usually costs less. It is
+`{ amount: 'unknown', reason }` for `no-price`, `billing-mismatch` (a plan-backed
+call is never priced with an API row, or the reverse), `output-unbounded` or
+`invalid-price`; there is no default rate. The estimate is wrong when the app's
+input count or price row is wrong, and it cannot know cache hits or actual output.
+`allowance` comes from `tokenLedger().query(...).week`: `{ remaining, cap, from, to }`,
+`{ remaining: 'uncapped' }`, or unknown when not supplied or a recorded call lacks
+counts. `plan` is `roomOf`'s room for subscription calls only. `exceeds` compares
+the token ceiling with the remaining allowance and is `'unknown'` when either is;
+treat unknown as needing the person's decision, not as room.
+
 Pass a result with a `usage` field directly, or pass just its usage. For accounts'
 Messages result and decide's reported answer usage, the default provider format
 handles native `input_tokens`/`output_tokens` counts. For OpenClaw `RunEnd`, pass
@@ -499,9 +517,9 @@ const run = calls.queryRun('member-1', 'run-1', time, time + 1);
 ```
 
 This entry exports `callLedger`, `tokenLedger`, `memoryTokenLedgerStore`,
-`TokenLedgerError`, `normalizeTokens`, `priceCall`, all quota parsers listed above,
+`TokenLedgerError`, `normalizeTokens`, `priceCall`, `preflight`, all quota parsers listed above,
 `codexHardLimit`, `roomOf` and the words helpers, with their corresponding types
-(including `RunQuery`). `callLedger` supports the same `runs`/`queryRun` methods and
+(including `RunQuery`, `Preflight`, `PreflightCall`, `PreflightUnknown`). `callLedger` supports the same `runs`/`queryRun` methods and
 host-supplied lane/route attribution as the Node entry.
 The app supplies provider usage and quota payloads; `usage()`, credential/file
 adapters, `identity()`, fingerprints and disk quota stores remain Node-only.

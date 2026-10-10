@@ -1,0 +1,1 @@
+- NEW: `preflight(call, { prices, allowance, room })` reports a call's cost ceiling from the app's prices, its billing label, the remaining seven-day token allowance and plan room before the call; it never sends the call, and missing prices, mismatched billing, unbounded output or an invalid price row return an explicit unknown instead of a default rate.
