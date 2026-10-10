@@ -100,16 +100,18 @@ Proof standard: drive the real consumer path against the built SDK; capture the 
 
 ### Credential-touching proof
 
-When a proof handles a real key, token or sign-in, read the value into a variable and print only a mask: length plus first 4 and last 4 characters, or a sha256 prefix. A value shorter than 16 characters gets only its length and a sha256 prefix (first 8 hex characters), never any of its characters. Never `cat`, `grep -r`, `rg` or `secret-tool search` a credential store; never snapshot or screenshot a revealed value (DOM, accessibility tree, pixels); never let the value reach argv (the capture block prints argv) or any log.
+When a proof handles a real key, token or sign-in, read the value into a variable and print only a mask: at 16 or more characters, length plus the first 4 and last 4 characters; below 16 characters, only the length and the first 8 hex characters of its sha256, never any characters of the value. Never `cat`, `grep -r`, `rg` or `secret-tool search` a credential store; never snapshot or screenshot a revealed value (DOM, accessibility tree, pixels); never let the value reach argv (the capture block prints argv) or any log.
 
 ```bash
 v=$(secret-tool lookup service byokit account demo) # any read of the real value, into a variable
 if [ "${#v}" -lt 16 ]; then
-  printf 'sha256:%s (%d chars)\n' "$(printf '%s' "$v" | sha256sum | cut -c1-8)" "${#v}"
+printf 'sha256:%s (%d chars)\n' "$(printf '%s' "$v" | sha256sum | cut -c1-8)" "${#v}"
 else
-  printf '%s...%s (%d chars)\n' "${v:0:4}" "${v: -4}" "${#v}"
+printf '%s...%s (%d chars)\n' "${v:0:4}" "${v: -4}" "${#v}"
 fi
-grep -rqF -- "$v" ".verify-artifacts/$feature/" || printf 'no credential value in evidence\n'
+if [ -n "$v" ] && grep -rqF -f <(printf '%s' "$v") ".verify-artifacts/$feature/"; then
+printf 'LEAK: credential value found in evidence\n' >&2; exit 1
+fi
 unset v
 ```
 
@@ -117,12 +119,12 @@ unset v
 import { createHash } from 'node:crypto';
 const v = process.env.BYOKIT_KEY ?? ''; // read once, into a variable
 const mask = v.length < 16
-  ? `sha256:${createHash('sha256').update(v).digest('hex').slice(0, 8)} (${v.length} chars)`
-  : `${v.slice(0, 4)}...${v.slice(-4)} (${v.length} chars)`;
+? `sha256:${createHash('sha256').update(v).digest('hex').slice(0, 8)} (${v.length} chars)`
+: `${v.slice(0, 4)}...${v.slice(-4)} (${v.length} chars)`;
 console.log(mask);
 ```
 
-Prefer a synthetic canary over a real value. Before the run ends, `grep -rqF -- "$v" ".verify-artifacts/$feature/"` must find nothing; the match is reported through its exit status only, so the value never reaches stdout.
+Prefer a synthetic canary over a real value. Before the run ends run the same leak check — `grep -rqF -f <(printf '%s' "$v") ".verify-artifacts/$feature/"`, fired only when `[ -n "$v" ]` — and require exit 1; the value reaches grep on stdin, never argv.
 
 ## Cleanup
 
@@ -141,7 +143,7 @@ From `constraint-driven-development`, applies to this skill and every change ver
 - No unimplemented stubs: `throw new Error("Not implemented")`, empty `catch {}`.
 - No skipped tests without a reason in the commit message.
 - No secrets in source.
-- Credential values never appear in evidence: before the run ends, `grep -rqF -- "$v" ".verify-artifacts/$feature/"` must find nothing.
+- Credential values never appear in evidence: grep the evidence folder for the value (`grep -rqF -f <(printf '%s' "$v") ".verify-artifacts/$feature/"`, fired only when `[ -n "$v" ]`) before the run ends and require exit 1; the pattern reaches grep on stdin, never argv.
 - Deliberate test deletion (a test diet) is allowed only when BOTH hold: the commit message names the test-diet task, and the removed journey remains covered by an existing integration/e2e test. A deletion failing either condition is rejected. This is the only Floor rule that may permit a deletion: skips, stripped assertions, suppression comments, secrets and the security/crypto/data-loss guards are never loosened for any change.
 - This Floor and this skill's proof bar are never weakened to make a change pass: a declared-unavailable surface stays unavailable until it is really driven.
 
