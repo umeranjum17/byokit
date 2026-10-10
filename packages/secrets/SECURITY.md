@@ -21,7 +21,7 @@ Apps hold API keys. The store must make sure that:
 | Passphrase file | `{ v: 1, kdf: 'scrypt-16384-8-1', salt: 16 fresh random bytes per save, box: sealSecretBox(JSON { entries }) }`. Atomic write: 0700 folders, 0600 temp file, rename. `openSecretBox` null → `auth-failed`, fail closed. Derived keys zeroed after use. |
 | Phone | Optional Expo SecureStore peer; encoded names under an app prefix, consistent host-passed options on all calls; no plaintext simulator fallback. Platform errors are sanitized. |
 | Web | IndexedDB persists a non-extractable AES-256-GCM key and versioned ciphertext with a fresh 96-bit IV. Entry names are authenticated as AAD. Key initialization is atomic across tabs; operations finish on transaction commit. |
-| Override | A validated copy of the host's map. Credential environment variables are never read; a static test restricts OS placement/session reads to the automatic sealing helpers. |
+| Override | A validated copy of the host's map. Credential environment variables are never read; the poisoned-environment journey proves the automatic sealing helpers keep their mode and round-trip under poisoned credential variables. |
 | Errors | `KeystoreError` codes `invalid` / `auth-failed` / `keyring-locked` / `unsupported` / `unavailable` / `failed`. Messages name the entry, never the secret. Missing entries resolve null/false, not errors. |
 
 ## Adversaries and what stops them
@@ -74,17 +74,14 @@ Apps hold API keys. The store must make sure that:
 ## Review checklist
 
 - [ ] OS placement/session environment reads stay on the sealing allowlist; no credential variables are read; spawns pass `env` explicitly.
-- [ ] The fake-CLI tests assert the canary is absent from the recorded argv and env for set, get and delete.
-- [ ] The poisoned-env test leaves behaviour unchanged and the fake's env holds exactly base plus host extras.
+- [ ] The OS keyring journey asserts the canary is absent from the recorded argv and env for set, get and delete.
+- [ ] The poisoned-environment journey leaves behaviour unchanged and no spawn inherits the poisoned variables; the OS keyring journey asserts the fake's env holds exactly base plus host extras.
 - [ ] A wrong passphrase rejects `auth-failed`; the sealed file holds no plaintext canary.
 - [ ] `writeFileAtomic` creates 0700 folders and a 0600 file and replaces atomically (rename).
 - [ ] Error messages name entries, never secrets; stderr tails never reach messages.
 - [ ] Browser/React Native entries bundle and run without Node imports or globals; Expo is an optional peer.
-- [ ] Fake IndexedDB tests prove encrypted storage, non-extractability, fresh IVs, tamper rejection and atomic key initialization.
-- [ ] Fake SecureStore tests prove all methods use the same options and native errors cannot expose secrets.
-- [ ] Accounts sealing tests prove fileStore integration, wrong-key/tamper failure without overwrite,
-  retained keyring rotation keys, key read-back, automatic headless keys, private permissions,
-  concurrent first use, resumable file-key rotation and locked/hung private D-Bus probes without prompts.
+- [ ] The browser and phone journey proves encrypted IndexedDB storage with fresh IVs per write, non-extractable keys, name binding, tamper rejection, one persisted device key under concurrent first use, and that a SecureStore failure never exposes the secret.
+- [ ] The sealing and OS keyring journeys (`packages/secrets/test/journey-secrets.test.ts`) prove accounts `fileStore` integration, wrong-key and tamper failure without overwrite, retained keyring rotation keys, key read-back, automatic headless keys, private permissions, concurrent first use, resumable file-key rotation, and locked or hung private D-Bus probes that never unlock or prompt (the D-Bus probe runs where `dbus-run-session` exists).
 - [ ] Real Secret Service testing clears inherited desktop settings, creates a private HOME/XDG/control
   tree, and asserts the private D-Bus address before native calls; opt-in alone refuses the user bus.
   Ordinary tests use injected fakes.
