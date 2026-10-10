@@ -12,7 +12,7 @@ export function mergeOverlap(previous: string, next: string): string {
   for (let count = 1; count <= Math.min(a.length, b.length); count++) {
     if (a.slice(-count).every((word, i) => word && word === b[i])) exact = count;
   }
-  if (exact >= 3) return [...before, ...after.slice(exact)].join(' ');
+  if (exact >= 2) return [...before, ...after.slice(exact)].join(' ');
   // Semi-global word alignment: only a suffix of the earlier reading can
   // overlap a prefix of the later one. Penalize substitutions and skipped words
   // so a repeated phrase in the middle cannot swallow unrelated trailing text.
@@ -39,7 +39,7 @@ export function mergeOverlap(previous: string, next: string): string {
     } else if (step === 1) i--;
     else j--;
   }
-  if (matches.length >= 3 && scores[a.length][end] >= matches.length * 1.5) {
+  if (matches.length >= 2 && scores[a.length][end] >= matches.length) {
     // Join inside the agreed overlap, away from either clipped audio edge.
     const [left, right] = matches[Math.floor(matches.length / 2)];
     return [...before.slice(0, left + 1), ...after.slice(right + 1)].join(' ');
