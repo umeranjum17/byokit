@@ -1,9 +1,11 @@
 // The pin persists OAuth JSON in both shared and agent SQLite. There is no public persistence hook.
-// Seal only credential state — the engine's complete `state` tree plus every config/credential path in
-// `home` — never the regenerable tool caches, transcripts and logs a signed-in home accumulates.
-// Sealing those too once produced a snapshot past the runtime string limit and aborted boot; the collector is
-// narrowed to credential state and capped (SEAL_CAP_BYTES), refusing with a typed error instead.
+// Credential state under `home` and `state` is sealed as one bounded blob (`auth-store.sealed`, capped at
+// SEAL_CAP_BYTES, refusing with a typed error). Every other file under `state` — the SQLite databases, which mix
+// credentials with transcript rows, and the regenerable caches, transcripts, media, logs and session stores beside
+// them — is sealed as its own file under `auth-store.objects/`. Each such file is capped individually at
+// SEAL_CAP_BYTES; the total across objects is not, so growth in aggregate never refuses.
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, rmdirSync, writeFileSync, closeSync, fsyncSync, openSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { SealingAdapter } from '@byokit/secrets';
 import { EngineAlreadyRunningError, pidAlive as live } from './engine-status.ts';
@@ -36,22 +38,49 @@ function put(path: string, bytes: Uint8Array): void {
   } finally { rmSync(tmp, { force: true }); }
 }
 // Always written as `v: 1`: released readers through 0.6.1 reject any other tag, so 0.6.2's `v: 2` locked a host
-// rolled back to an earlier kit out of its sign-in. `v: 2` stays readable and re-seals as `v: 1`.
+// rolled back to an earlier kit out of its sign-in. `v: 2` stays readable and re-seals as `v: 1`. The engine
+// databases are objects, not blob entries, so a host rolled back to an earlier kit keeps the blob's credentials
+// but not its databases, and signs in again.
 type Snapshot = { v: 1 | 2; dirs: string[]; files: [string, string][] };
+type Entry = { name: string; file: string; size: number };
 // Credential state is what restores a working signed-in session. Regenerable tool caches, transcripts
-// and logs never do: the XDG cache and npm cache homes the kit's engine environment pins, plus the
-// transcript/log/cache subtrees of the Codex and Claude Code CLIs it runs in `home`. Unknown paths stay
+// and logs never do. In `home`: the XDG cache and npm cache homes the kit's engine environment pins, plus
+// the transcript/log/cache subtrees of the Codex and Claude Code CLIs it runs; those stay on disk unsealed.
+// In the isolated engine `state` tree the pinned engine (2026.8.1, `resolveStateDatabasePath`/`resolveOpenClawAgentSqlitePath`/
+// `resolveOAuthDir`) keeps credentials in the shared and per-agent SQLite databases and `credentials/`, and
+// writes non-credential data beside them: the caches (`cache/` control-UI assets, shell snapshots and
+// worker bundles, `completions/`), exported transcript artifacts (`transcripts/`), legacy session stores
+// (`sessions/`, `agents/<agentId>/sessions/`), the media stores (`media/`, `delivery-queue-media/`),
+// logs (`logs/`) and gateway temp/lock files (`tmp/`). Unknown paths stay
 // sealed — a credential location we do not know about must fail loudly, never drop silently.
 const HOME_CACHES: Record<string, readonly string[]> = {
   home: ['.cache', '.npm'],
   'home/.codex': ['sessions', 'log', 'cache', '.tmp', 'history.jsonl'],
   'home/.claude': ['projects', 'todos', 'shell-snapshots', 'statsig', 'file-history', 'history.jsonl'],
 };
-/** True for the regenerable cache paths the collector never seals; tests assert these are all that stay at rest. */
-export function cached(name: string): boolean {
-  const parent = name.includes('/') ? name.slice(0, name.lastIndexOf('/')) : '';
-  return (HOME_CACHES[parent] ?? []).includes(name.slice(name.lastIndexOf('/') + 1));
+// Positively non-credential subtrees directly under the isolated engine `state` tree. They are sealed as
+// separate objects, never in the credential blob.
+const STATE_NON_CREDENTIAL = new Set(['cache', 'completions', 'transcripts', 'sessions', 'media', 'delivery-queue-media', 'logs', 'tmp']);
+// Legacy per-agent session migration sources and archives.
+const AGENT_SESSIONS = /^state\/agents\/[^/]+\/sessions(\/|$)/;
+// The engine's SQLite databases and their journal/WAL sidecars.
+const DATABASE = /\.sqlite(-wal|-shm|-journal)?$/;
+/** True for the non-credential paths: under `home` they are never sealed; under `state` they are sealed as objects. */
+export function nonCredential(name: string): boolean {
+  if (AGENT_SESSIONS.test(name)) return true;
+  const slash = name.lastIndexOf('/');
+  const parent = slash === -1 ? '' : name.slice(0, slash);
+  if (parent === 'state') return STATE_NON_CREDENTIAL.has(name.slice(slash + 1));
+  return (HOME_CACHES[parent] ?? []).includes(name.slice(slash + 1));
 }
+// A file under `state` that is sealed as its own object: the SQLite databases and anything in a non-credential subtree.
+function apart(name: string): boolean {
+  if (!name.startsWith('state/')) return false;
+  if (DATABASE.test(name)) return true;
+  const parts = name.split('/');
+  return parts.some((_, i) => nonCredential(parts.slice(0, i + 1).join('/')));
+}
+const objectName = (name: string) => `${createHash('sha256').update(name).digest('hex')}.sealed`;
 function safePath(path: unknown): path is string {
   return typeof path === 'string' && /^(state|home)(\/[^/]+)*$/.test(path)
     && !path.split('/').some((part) => part === '.' || part === '..' || part.includes('\\') || part.includes('\0'));
@@ -87,22 +116,26 @@ export class AuthStoreUnreadableError extends Error {
 
 /** Total raw credential bytes one snapshot may seal. The sealed payload is one runtime string, so collect()
  *  refuses a larger snapshot before reading it and the process never aborts inside the sealer. Credential
- *  state is normally a few MiB; the cap leaves several times that headroom. */
+ *  state is normally a few MiB; the cap leaves several times that headroom. The same bound applies to each
+ *  non-credential engine store under `state` sealed as its own object; their total is not bounded. */
 export const SEAL_CAP_BYTES = 128 * 1024 * 1024;
 
-/** The saved sign-in data is over `SEAL_CAP_BYTES`. On a refusal the last good saved store is kept as it
- *  was and no live file is deleted. `size` is a lower bound: the running total when the cap was crossed. */
+/** The saved sign-in data (or one object file, when `file` names it) is over `SEAL_CAP_BYTES`. On a refusal the
+ *  last good saved store is kept as it was and no live file is deleted. `size` is a lower bound for the whole
+ *  store (the running total when the cap was crossed) and the exact size when `file` is set. */
 export class AuthStoreSealSizeError extends Error {
   readonly code = 'auth-store-seal-size';
   readonly size: number;
   readonly cap: number;
-  constructor(size: number, cap: number) {
+  readonly file?: string;
+  constructor(size: number, cap: number, file?: string) {
     const MiB = 1024 * 1024;
-    super(`Your saved sign-in data is too large to keep safely (more than ${Math.floor(size / MiB)} MB; the limit is ${cap / MiB} MB). ` +
+    super(`${file ? `Engine data ${file}` : 'Your saved sign-in data'} is too large to keep safely (more than ${Math.floor(size / MiB)} MB; the limit is ${cap / MiB} MB). ` +
       'Your sign-ins were kept.');
     this.name = 'AuthStoreSealSizeError';
     this.size = size;
     this.cap = cap;
+    this.file = file;
   }
 }
 
@@ -111,12 +144,14 @@ export class AuthStore {
   private owned = false;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly file: string;
+  private readonly objects: string;
   private readonly lock: string;
   private readonly cleanup: string;
   private readonly restoring: string;
   constructor(privateOptions: { root: string; stateDir: string; engineDir: string; seal?: SealingAdapter; log?: (line: string) => void }) {
     this.o = privateOptions;
     this.file = join(this.o.root, 'auth-store.sealed');
+    this.objects = join(this.o.root, 'auth-store.objects');
     this.lock = join(this.o.root, 'auth-store.lock');
     this.cleanup = join(this.o.root, 'auth-store.cleanup');
     this.restoring = join(this.o.root, 'auth-store.restoring');
@@ -167,17 +202,26 @@ export class AuthStore {
     rmSync(this.lock, { recursive: true });
     this.owned = false;
   }
+  private open(bytes: Buffer): string {
+    try { return this.o.seal!.decryptString(bytes); }
+    catch (error) {
+      if ((error as { code?: unknown })?.code !== 'auth-failed') throw error;
+      throw new AuthStoreUnreadableError('auth-failed');
+    }
+  }
+  private seal(path: string, payload: string): void {
+    const seal = this.o.seal!;
+    const sealed = seal.encryptString(payload);
+    if (seal.decryptString(Buffer.from(sealed)) !== payload) throw new Error('credential seal verification failed');
+    put(path, sealed);
+    if (seal.decryptString(readFileSync(path)) !== payload) throw new Error('credential seal verification failed');
+  }
   private async read(): Promise<Snapshot | undefined> {
     if (!existsSync(this.file)) return undefined;
     regular(this.file);
     const seal = this.o.seal!;
     const bytes = readFileSync(this.file);
-    let text: string;
-    try { text = seal.decryptString(bytes); }
-    catch (error) {
-      if ((error as { code?: unknown })?.code !== 'auth-failed') throw error;
-      throw new AuthStoreUnreadableError('auth-failed');
-    }
+    const text = this.open(bytes);
     let saved: Snapshot;
     try { saved = snapshot(text); } catch { throw new AuthStoreUnreadableError('invalid-snapshot'); }
     const upgraded = seal.upgrade?.(bytes);
@@ -187,17 +231,32 @@ export class AuthStore {
     }
     return saved;
   }
-  private inventory(): { dirs: string[]; files: { name: string; file: string; size: number }[] } {
+  private readObject(file: string): [string, string] {
+    let entry: { path?: unknown; data?: unknown } | null;
+    try { entry = JSON.parse(this.open(readFileSync(file))); }
+    catch (error) {
+      if (error instanceof AuthStoreUnreadableError) throw error;
+      throw new AuthStoreUnreadableError('invalid-snapshot');
+    }
+    const path = entry?.path;
+    const data = entry?.data;
+    if (!safePath(path) || !apart(path) || typeof data !== 'string' || Buffer.from(data, 'base64').toString('base64') !== data) {
+      throw new AuthStoreUnreadableError('invalid-snapshot');
+    }
+    return [path, data];
+  }
+  private inventory(): { dirs: string[]; files: Entry[]; objects: Entry[] } {
     const dirs: string[] = [];
-    const files: { name: string; file: string; size: number }[] = [];
+    const files: Entry[] = [];
+    const objects: Entry[] = [];
     let total = 0;
     const root = realpathSync(this.o.root);
     const walk = (path: string) => {
       const name = relative(this.o.root, path).split('\\').join('/');
-      if (cached(name)) return; // tool caches are never credential state; skipping a directory skips its subtree
+      if (name.startsWith('home/') && nonCredential(name)) return; // regenerable home caches stay on disk; skipping a directory skips its subtree
       const stat = lstatSync(path);
       if (stat.isDirectory()) {
-        dirs.push(name);
+        if (!apart(name)) dirs.push(name);
         for (const child of readdirSync(path).sort()) walk(join(path, child));
         return;
       }
@@ -213,24 +272,31 @@ export class AuthStore {
         target = lstatSync(file);
       }
       if (!target.isFile()) return;
+      if (apart(name)) {
+        if (target.size > SEAL_CAP_BYTES) throw new AuthStoreSealSizeError(target.size, SEAL_CAP_BYTES, name);
+        objects.push({ name, file, size: target.size });
+        return;
+      }
       // Refuse by size before any file is touched or read: an over-cap file must never reach memory or the sealer.
       total += target.size;
       if (total > SEAL_CAP_BYTES) throw new AuthStoreSealSizeError(total, SEAL_CAP_BYTES);
       files.push({ name, file, size: target.size });
     };
     for (const dir of ['state', 'home']) if (existsSync(join(this.o.root, dir))) walk(join(this.o.root, dir));
-    return { dirs, files };
+    return { dirs, files, objects };
   }
-  private collect(): Snapshot {
-    const { dirs, files } = this.inventory();
+  private collect(): { saved: Snapshot; objects: Entry[] } {
+    const { dirs, files, objects } = this.inventory();
     for (const dir of dirs) chmodSync(join(this.o.root, dir), 0o700);
     // Read the checked target, but save the link's path: restore materializes a regular file there.
-    for (const { file } of files) chmodSync(file, 0o600);
-    return { v: 1, dirs, files: files.map(({ name, file }): [string, string] => [name, readFileSync(file).toString('base64')]) };
+    for (const { file } of [...files, ...objects]) chmodSync(file, 0o600);
+    return {
+      saved: { v: 1, dirs, files: files.map(({ name, file }): [string, string] => [name, readFileSync(file).toString('base64')]) },
+      objects,
+    };
   }
-  /** Remove the live credential trees: `state` entirely (it is all credential state, including the
-   *  runtime entries the collector skips), and in `home` exactly the sealed paths — regenerable caches
-   *  and the directories still holding them are left in place. */
+  /** Remove the live sealed trees: all of `state` (every file there is sealed, as a blob entry or an object),
+   *  and in `home` exactly the sealed paths — regenerable caches and the directories still holding them are left in place. */
   private remove(s: Snapshot): void {
     rmSync(join(this.o.root, 'state'), { recursive: true, force: true });
     for (const [path] of s.files) if (path.startsWith('home/')) rmSync(join(this.o.root, path), { force: true });
@@ -243,6 +309,16 @@ export class AuthStore {
       }
     }
   }
+  private sealObjects(objects: Entry[]): void {
+    mkdirSync(this.objects, { recursive: true, mode: 0o700 });
+    const keep = new Set<string>();
+    for (const { name, file } of objects) {
+      const object = objectName(name);
+      keep.add(object);
+      this.seal(join(this.objects, object), JSON.stringify({ path: name, data: readFileSync(file).toString('base64') }));
+    }
+    for (const entry of readdirSync(this.objects)) if (!keep.has(entry)) rmSync(join(this.objects, entry), { force: true });
+  }
   private async persist(): Promise<void> {
     if (!this.o.seal) return;
     // Always authenticate an earlier snapshot before considering a leftover live store after a crash.
@@ -253,18 +329,15 @@ export class AuthStore {
       removeMarker(this.restoring);
       this.o.log?.('interrupted credential transition recovered');
     }
-    const saved = this.collect();
+    const { saved, objects } = this.collect();
     // Live trees with nothing sealable are debris (crash leftovers, or only the caches a previous stop
     // left in place) — keep the sealed credentials instead of replacing them with an empty snapshot.
     // A running engine always leaves files behind (its SQLite stores), so a genuine sign-out still re-seals.
-    if (!saved.files.length && previous) return;
+    if (!saved.files.length && !objects.length && previous) return;
     // The payload is built exactly once; verification decrypts the sealed bytes and compares to it.
-    const payload = JSON.stringify(saved);
-    const sealed = this.o.seal.encryptString(payload);
-    if (this.o.seal.decryptString(Buffer.from(sealed)) !== payload) throw new Error('credential seal verification failed');
-    put(this.file, sealed);
-    if (this.o.seal.decryptString(readFileSync(this.file)) !== payload) throw new Error('credential seal verification failed');
-    if (previous?.dirs.some(cached)) this.o.log?.('sealed credential store re-sealed: tool caches no longer sealed');
+    this.seal(this.file, JSON.stringify(saved));
+    if (previous?.dirs.some(nonCredential)) this.o.log?.('sealed credential store re-sealed: tool caches no longer sealed');
+    this.sealObjects(objects);
     put(this.cleanup, encoder.encode('1'));
     this.remove(saved);
     removeMarker(this.cleanup);
@@ -279,6 +352,12 @@ export class AuthStore {
       for (const dir of saved.dirs.sort((a, b) => a.split('/').length - b.split('/').length))
         mkdirSync(join(this.o.root, dir), { recursive: true, mode: 0o700 });
       for (const [path, data] of saved.files) put(join(this.o.root, path), Buffer.from(data, 'base64'));
+    }
+    if (existsSync(this.objects)) {
+      for (const entry of readdirSync(this.objects)) {
+        const [path, data] = this.readObject(join(this.objects, entry));
+        put(join(this.o.root, path), Buffer.from(data, 'base64'));
+      }
     }
     for (const dir of ['state', 'home']) mkdirSync(join(this.o.root, dir), { recursive: true, mode: 0o700 });
     removeMarker(this.restoring);

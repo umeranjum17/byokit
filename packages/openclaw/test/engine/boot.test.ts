@@ -13,7 +13,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { hostKeySeal } from '@byokit/secrets';
 import { join, relative } from 'node:path';
 import { OpenClawKit } from '../../src/kit.ts';
-import { cached } from '../../src/auth-store.ts';
+import { nonCredential } from '../../src/auth-store.ts';
 import { Engine } from '../../src/engine.ts';
 import { pidAlive } from '../../src/engine-status.ts';
 import { gatewayTransport } from '../../src/transport.ts';
@@ -77,10 +77,9 @@ setInterval(() => {}, 1000);
     assert.equal(existsSync(join(root, 'state')), false);
     if (existsSync(join(root, 'home'))) {
       for (const entry of readdirSync(join(root, 'home'), { recursive: true, withFileTypes: true })) {
-        if (entry.isFile()) {
-          const name = relative(join(root, 'home'), join(entry.parentPath, entry.name)).split('\\').join('/');
-          assert.equal(cached(`home/${name}`) || name.split('/').slice(0, -1).some((_, i) => cached(`home/${name.split('/').slice(0, i + 1).join('/')}`)), true, `only caches stay at rest: ${name}`);
-        }
+        if (!entry.isFile()) continue;
+        const name = relative(join(root, 'home'), join(entry.parentPath, entry.name)).split('\\').join('/');
+        assert.equal(nonCredential(`home/${name}`) || name.split('/').slice(0, -1).some((_, i) => nonCredential(`home/${name.split('/').slice(0, i + 1).join('/')}`)), true, `only non-credential state stays at rest: home/${name}`);
       }
     }
     assert.equal(existsSync(join(root, 'gateway.pid')), false);

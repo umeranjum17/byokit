@@ -368,7 +368,7 @@ export type KitState = {
   phase: 'stopped' | 'installing' | 'starting' | 'repairing' | 'ready' | 'restarting' | 'failed' | 'needs-update' | 'locked';
   why?: 'install' | 'handshake' | 'exited' | 'port' | 'version' | 'engine-already-running' | 'engine-patch' | 'sign-in-reset' | 'auth-store-unreadable' | 'auth-store-seal-size';
   retryAt?: number;
-  sealSize?: { size: number; cap: number };                    // with 'auth-store-seal-size'; size is a lower bound
+  sealSize?: { size: number; cap: number; file?: string };     // with 'auth-store-seal-size'; size is a lower bound; file names an over-cap engine store
   patchSet?: string | null;                                    // bundled engine patch set id after prepare (5.16)
 };
 export type Hello = { protocol: number; server: { version: string }; methods: string[]; events: string[] };
@@ -418,7 +418,7 @@ type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early'
 
 export type KitOptions = {
   stateDir: string;
-  authSeal?: SealingAdapter;                       // @byokit/secrets seal: credential state (state tree + home config/credentials) sealed while stopped
+  authSeal?: SealingAdapter;                       // @byokit/secrets seal: credential state (credential paths under state + home config/credentials) sealed while stopped; other state stores sealed as objects
   engineDir?: string;                    // default join(stateDir, 'openclaw', 'engine')
   npmPath?: string;                      // default: 'npm' found on PATH (the only env read, D13)
   enginePath?: string[];                 // extra dirs appended to the engine's PATH ('/usr/bin:/bin')
@@ -764,12 +764,19 @@ replacement decrypts to the same text, then atomically replace under their write
 on, reading a keyring-only store while unlocked upgrades it; failure leaves the previous store usable.
 Successful reads adopt the store mode for writes. Locked dual updates reuse authenticated encrypted
 wrapping metadata with fresh payload nonces; plaintext keys are not cached. The pinned engine has no supported OAuth persistence hook: it stores JSON in both
-agent SQLite and the shared state SQLite database. The kit seals credential state only: the complete isolated `state` tree plus every
-config/credential path under `home`, excluding regenerable tool caches, transcripts and logs (the `home/.cache` and `home/.npm` subtrees the
-engine environment pins, and the `sessions`/`log`/`cache`/`.tmp`/`history.jsonl` subtrees of `.codex` and `projects`/`todos`/`shell-snapshots`/`statsig`/`file-history`/`history.jsonl`
-of `.claude`); excluded caches stay on disk unsealed across stops, unknown `home` paths stay sealed, and the sealed payload is built exactly once and
+agent SQLite and the shared state SQLite database. The kit seals credential state into one bounded blob, `auth-store.sealed`, which is the only
+store the cap applies to: every credential path under the isolated `state` tree and every config/credential path under `home`. Every other file under
+`state` is sealed as its own file under `auth-store.objects/` (named by a hash of its path; the payload carries the path and the bytes) with the same
+adapter and key; each object is capped individually at the same size, and their total is not capped: the shared and per-agent SQLite databases with their `-wal`/`-shm`/`-journal` sidecars (they mix credentials with
+transcript rows), and the regenerable caches, exported transcripts, media, logs and legacy session stores beside them. Regenerable caches in `home`
+(the `home/.cache` and `home/.npm` subtrees the engine environment pins, and the `sessions`/`log`/`cache`/`.tmp`/`history.jsonl` subtrees of `.codex` and
+`projects`/`todos`/`shell-snapshots`/`statsig`/`file-history`/`history.jsonl` of `.claude`) stay on disk unsealed across stops; unknown `home` paths stay
+sealed. Stop writes the blob and every object, then removes the live `state` tree; start restores the blob, then the objects, byte for byte; no plaintext
+copy of a sealed `state` file survives a stop or a remove. An object whose file is absent from the live tree at a stop is deleted. A v1 blob written before
+this layout restores its engine stores and reseals them as objects at the next persist. The sealed payload is built exactly once and
 verified by decrypting the sealed bytes. Snapshots are always written as `v: 1`, the only tag released readers through 0.6.1
-accept, so a host rolled back to an earlier kit still opens them; `v: 2` snapshots (written by 0.6.2) restore and re-seal as `v: 1`.
+accept, so a host rolled back to an earlier kit still opens its credentials; `v: 2` snapshots (written by 0.6.2) restore and re-seal as `v: 1`.
+The engine databases are objects outside the blob, so a rollback to a kit older than this layout keeps the blob credentials but not the engine databases, and the user signs in again.
 Pre-caches snapshots (whole trees) restore completely and re-seal once without their caches, with a log line; nothing is dropped. File symlinks are included only when their fully resolved
 targets are regular files inside the isolated engine root; they restore as regular files at the link paths.
 Outside-root, dangling and directory symlinks (including loops), sockets, FIFOs and devices are skipped.

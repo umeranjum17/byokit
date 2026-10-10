@@ -57,7 +57,7 @@ import type {
 
 export type KitOptions = {
   stateDir: string;
-  authSeal?: SealingAdapter; // host-injected OS-keyring or host-owned-key seal; credential state (engine state tree + home config/credentials) at rest
+  authSeal?: SealingAdapter; // host-injected OS-keyring or host-owned-key seal; credential state (credential paths under state + home config/credentials) at rest, other engine state stores as objects
   engineDir?: string; // default join(stateDir, 'openclaw', 'engine')
   npmPath?: string; // default: 'npm' found on PATH (the only env read, D13)
   enginePath?: string[]; // extra dirs appended to the engine's PATH ('/usr/bin:/bin')
@@ -766,7 +766,7 @@ export class OpenClawKit {
       await this.closeBrowsers();
       const sealRefusal = refused ?? (error instanceof AuthStoreSealSizeError ? error : undefined);
       if (sealRefusal) {
-        this.setState({ phase: 'failed', why: 'auth-store-seal-size', sealSize: { size: sealRefusal.size, cap: sealRefusal.cap } });
+        this.setState({ phase: 'failed', why: 'auth-store-seal-size', sealSize: { size: sealRefusal.size, cap: sealRefusal.cap, file: sealRefusal.file } });
         throw sealRefusal;
       }
       if (error instanceof Error && 'code' in error && error.code === 'engine-already-running') {

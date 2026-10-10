@@ -11,7 +11,7 @@ import childProcess, { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../src/engine.ts';
 import { pidAlive } from '../src/engine-status.ts';
-import { AuthStoreSealSizeError, SEAL_CAP_BYTES, cached } from '../src/auth-store.ts';
+import { AuthStore, AuthStoreSealSizeError, SEAL_CAP_BYTES, nonCredential } from '../src/auth-store.ts';
 import { stateWords } from '../src/words.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import type { KitState } from '../src/types.ts';
@@ -344,7 +344,7 @@ test('a refused seal during the exit-78 repair reports the seal-size state and s
   seedInstall(engineDir);
   writeFileSync(join(entryDir, 'package.json'), JSON.stringify({ version: '2026.8.1' }));
   const marker = join(engineDir, 'marker');
-  const grown = join(dir, 'openclaw', 'state', 'grown.sqlite');
+  const grown = join(dir, 'openclaw', 'state', 'grown.json');
   writeFileSync(join(entryDir, 'openclaw.mjs'), `import {existsSync,writeFileSync,truncateSync} from 'node:fs';
 if (process.argv[2] === 'doctor') { writeFileSync(${JSON.stringify(grown)}, ''); truncateSync(${JSON.stringify(grown)}, ${SEAL_CAP_BYTES + 1024 * 1024}); process.exit(0); }
 if (!existsSync(${JSON.stringify(marker)})) { writeFileSync(${JSON.stringify(marker)}, '1'); }
@@ -966,7 +966,7 @@ await engine.start();
 setInterval(() => {}, 1000);
 `);
   await seedSet(engineDir);
-  // Credential state: a sign-in plus a >1 MiB ledger whose base64 crosses the sealer's chunk boundary.
+  // Credential state: a sign-in, plus a >1 MiB state database whose base64 crosses the sealer's chunk boundary.
   mkdirSync(join(root, 'state'), { recursive: true });
   writeFileSync(join(root, 'state', 'auth.json'), 'saved-login');
   const ledger = randomBytes(1536 * 1024);
@@ -991,10 +991,29 @@ setInterval(() => {}, 1000);
     fs.closeSync(fd);
     cacheBytes += size;
   }
+  // Engine state beside the credentials: exported transcripts, legacy session logs, the control-UI cache and
+  // undelivered media. Each is sealed as its own object, never in the credential blob, and returns intact.
+  const transcripts: [string, number][] = [
+    ['state/transcripts/2026/10/04/standup/transcript.jsonl', 2 * 1024 * 1024],
+    ['state/transcripts/2026/10/04/standup/summary.md', 64 * 1024],
+    ['state/agents/main/sessions/legacy-session.jsonl', 1024 * 1024],
+    ['state/sessions/legacy-usage-cost.jsonl', 64 * 1024],
+    ['state/cache/control-ui-assets/deadbeef/app.js', 1024 * 1024],
+    ['state/delivery-queue-media/undelivered-attachment.bin', 1024 * 1024],
+  ];
+  let transcriptBytes = 0;
+  for (const [name, size] of transcripts) {
+    const path = join(root, name);
+    mkdirSync(dirname(path), { recursive: true });
+    const fd = fs.openSync(path, 'w');
+    fs.ftruncateSync(fd, size);
+    fs.closeSync(fd);
+    transcriptBytes += size;
+  }
   const kit = new OpenClawKit({ stateDir: dir, engineDir, authSeal: spySeal, transport: fakeGateway().factory });
   let gateway = 0;
-  const cacheSealed = (path: string) => cached(path)
-    || path.split('/').slice(0, -1).some((_, i) => cached(path.split('/').slice(0, i + 1).join('/')));
+  const cacheSealed = (path: string) => nonCredential(path)
+    || path.split('/').slice(0, -1).some((_, i) => nonCredential(path.split('/').slice(0, i + 1).join('/')));
   try {
     const host = spawn(process.execPath, [hostFile], { stdio: ['ignore', 'ignore', 'pipe'] });
     let hostError = '';
@@ -1013,30 +1032,41 @@ setInterval(() => {}, 1000);
     assert.ok(sealed.length > 0, 'the reseal after the host kill reached the sealer');
     let credentialBytes = 0;
     for (const text of sealed) {
+      if (text.startsWith('{"path":')) {
+        const { path } = JSON.parse(text) as { path: string };
+        assert.ok(path.startsWith('state/'), `a separately sealed object lies outside state: ${path}`);
+        continue;
+      }
       const snap = JSON.parse(text) as { files: [string, string][] };
       for (const [path, data] of snap.files) {
-        assert.equal(cacheSealed(path), false, `a regenerable cache reached the sealer: ${path}`);
+        assert.equal(cacheSealed(path), false, `a non-credential path reached the sealer: ${path}`);
         credentialBytes += Buffer.from(data, 'base64').length;
       }
     }
     assert.ok(credentialBytes < 4 * 1024 * 1024, `only credential files were sealed (${credentialBytes} bytes)`);
     const payloadChars = Math.max(...sealed.map(text => text.length));
-    console.log(`[seal-bound] killed home carried ${cacheBytes} bytes (${(cacheBytes / 2 ** 20).toFixed(0)} MiB) of regenerable caches; ` +
+    console.log(`[seal-bound] killed home carried ${cacheBytes} bytes (${(cacheBytes / 2 ** 20).toFixed(0)} MiB) of regenerable caches ` +
+      `and ${transcriptBytes} bytes (${(transcriptBytes / 2 ** 20).toFixed(0)} MiB) of state transcripts; ` +
       `recovery sealed ${credentialBytes} credential bytes into a ${payloadChars}-character snapshot`);
     for (const [name] of caches) assert.equal(existsSync(join(root, name)), true, `cache left at rest: ${name}`);
+    for (const [name, size] of transcripts) assert.equal(fs.statSync(join(root, name)).size, size, `transcript store restored from its object: ${name}`);
     await kit.stop();
+    for (const [name] of transcripts) assert.equal(existsSync(join(root, name)), false, `transcript store sealed off the disk after stop: ${name}`);
     // Restore proves the single-pass envelope round-trips: the >1 MiB ledger is byte-identical, and
     // its base64 crossed the sealer's chunk boundary on the way in.
     await kit.start();
     assert.equal(readFileSync(join(root, 'state', 'auth.json'), 'utf8'), 'refreshed-login');
-    assert.ok(readFileSync(join(root, 'state', 'ledger.sqlite')).equals(ledger), 'large credential file restored byte-identical');
+    assert.ok(readFileSync(join(root, 'state', 'ledger.sqlite')).equals(ledger), 'large state database restored byte-identical');
     assert.equal(readFileSync(join(root, 'home', '.claude', 'settings.json'), 'utf8'), '{"model":"opus"}');
+    await kit.stop();
+    await kit.start();
+    for (const [name, size] of transcripts) assert.equal(fs.statSync(join(root, name)).size, size, `transcript store survives every stop: ${name}`);
     await kit.stop();
     // A credential file over the cap refuses with a typed error before it is read; the process continues.
     const storeFile = join(root, 'auth-store.sealed');
     const before = readFileSync(storeFile);
     mkdirSync(join(root, 'state'), { recursive: true });
-    const huge = join(root, 'state', 'huge.sqlite');
+    const huge = join(root, 'state', 'huge-credential.json');
     const fd = fs.openSync(huge, 'w');
     fs.ftruncateSync(fd, SEAL_CAP_BYTES + 1024 * 1024);
     fs.closeSync(fd);
@@ -1111,4 +1141,115 @@ setInterval(() => {}, 1000);
     await kit.stop();
     removeScratch(dir);
   }
+});
+
+// Every file under `root`, sealed or not, read in full: true when any holds `needle` as plaintext.
+function holdsPlaintext(root: string, needle: Buffer): boolean {
+  const walk = (path: string): boolean => {
+    const stat = lstatSync(path);
+    if (stat.isDirectory()) return fs.readdirSync(path).some((child) => walk(join(path, child)));
+    return stat.isFile() && readFileSync(path).includes(needle);
+  };
+  return walk(root);
+}
+const digestOf = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
+
+// A host whose engine stores alone pass the seal cap: each store is sealed as its own object, so start and stop never
+// refuse with AuthStoreSealSizeError, every byte reopens intact, and no plaintext canary survives a stop.
+test('a host past the seal cap of transcripts, media and a state database seals per store and reopens every byte', { timeout: 300_000 }, async () => {
+  const dir = scratchDir('seal-objects');
+  const root = join(dir, 'openclaw');
+  const base = hostKeySeal({ key: new Uint8Array(32).fill(7) });
+  const sealed: string[] = [];
+  const seal = {
+    encryptString: (text: string) => {
+      sealed.push(text.length > 1024 * 1024 ? text.slice(0, 256) : text);
+      return base.encryptString(text);
+    },
+    decryptString: (data: Buffer) => base.decryptString(data),
+  };
+  const canary = Buffer.from('byokit-canary-transcript-row');
+  const stores: [string, number][] = [
+    ['state/transcripts/2026/10/10/long-run/transcript.jsonl', 70 * 1024 * 1024],
+    ['state/media/attachments/recording.bin', 60 * 1024 * 1024],
+    ['state/state/openclaw.sqlite', 2 * 1024 * 1024],
+  ];
+  assert.ok(stores.reduce((sum, [, size]) => sum + size, 0) > SEAL_CAP_BYTES, 'the engine stores alone pass the seal cap');
+  const digests = new Map<string, string>();
+  for (const [name, size] of stores) {
+    const bytes = randomBytes(size);
+    if (name.endsWith('.sqlite')) Buffer.from('SQLite format 3\0').copy(bytes, 0);
+    canary.copy(bytes, 4096);
+    mkdirSync(dirname(join(root, name)), { recursive: true });
+    writeFileSync(join(root, name), bytes);
+    digests.set(name, createHash('sha256').update(bytes).digest('hex'));
+  }
+  mkdirSync(join(root, 'state'), { recursive: true });
+  writeFileSync(join(root, 'state', 'auth.json'), 'saved-login');
+  mkdirSync(join(root, 'home', '.claude'), { recursive: true });
+  writeFileSync(join(root, 'home', '.claude', 'settings.json'), '{"model":"opus"}');
+  const open = () => new AuthStore({ root, stateDir: dir, engineDir: join(dir, 'engine'), seal });
+
+  const store = open();
+  await store.prepare();
+  for (const [name] of stores) assert.equal(existsSync(join(root, name)), false, `sealed off the disk by prepare: ${name}`);
+  await store.start();
+  for (const [name, digest] of digests) assert.equal(digestOf(join(root, name)), digest, `restored byte-identical: ${name}`);
+  await store.stop();
+  assert.equal(holdsPlaintext(root, canary), false, 'no plaintext canary survives stop');
+
+  const reopened = open();
+  await reopened.start();
+  for (const [name, digest] of digests) assert.equal(digestOf(join(root, name)), digest, `reopened byte-identical: ${name}`);
+  await reopened.stop();
+  assert.equal(holdsPlaintext(root, canary), false, 'no plaintext canary survives the reopened stop');
+
+  const blobs = sealed.filter((text) => text.startsWith('{"v":1')).map((text) => JSON.parse(text) as { files: [string, string][] });
+  assert.deepEqual(blobs.at(-1)!.files.map(([name]) => name).sort(), ['home/.claude/settings.json', 'state/auth.json'], 'the credential blob holds credentials only');
+  for (const [name] of stores) assert.ok(sealed.some((text) => text.startsWith(`{"path":${JSON.stringify(name)}`)), `sealed as its own object: ${name}`);
+  const oversized = 'state/transcripts/oversized/transcript.jsonl';
+  mkdirSync(dirname(join(root, oversized)), { recursive: true });
+  const oversizedFd = fs.openSync(join(root, oversized), 'w');
+  fs.ftruncateSync(oversizedFd, SEAL_CAP_BYTES + 1024 * 1024);
+  fs.closeSync(oversizedFd);
+  sealed.length = 0;
+  await assert.rejects(open().prepare(), (e: unknown): e is AuthStoreSealSizeError =>
+    e instanceof AuthStoreSealSizeError && e.message.includes(oversized) && e.size === SEAL_CAP_BYTES + 1024 * 1024);
+  assert.equal(sealed.length, 0, 'an over-cap object never reaches the sealer');
+  assert.equal(existsSync(join(root, oversized)), true, 'the refused object is left in place');
+  removeScratch(dir);
+});
+
+// A v1 snapshot written before engine stores were sealed apart still opens, and the next stop reseals it in the new layout.
+test('a v1 snapshot holding engine stores opens and reseals them as separate objects', { timeout: 120_000 }, async () => {
+  const dir = scratchDir('seal-legacy');
+  const root = join(dir, 'openclaw');
+  mkdirSync(root, { recursive: true });
+  const base = hostKeySeal({ key: new Uint8Array(32).fill(7) });
+  const b64 = (text: string) => Buffer.from(text).toString('base64');
+  const legacy = {
+    v: 1,
+    dirs: ['state', 'state/transcripts', 'state/transcripts/2026', 'state/state', 'home', 'home/.claude'],
+    files: [
+      ['state/auth.json', b64('saved-login')],
+      ['state/transcripts/2026/legacy.jsonl', b64('legacy-transcript-row')],
+      ['state/state/openclaw.sqlite', b64('legacy-database-row')],
+      ['home/.claude/settings.json', b64('{"model":"opus"}')],
+    ],
+  };
+  writeFileSync(join(root, 'auth-store.sealed'), base.encryptString(JSON.stringify(legacy)));
+  try {
+    const store = new AuthStore({ root, stateDir: dir, engineDir: join(dir, 'engine'), seal: base });
+    await store.start();
+    assert.equal(readFileSync(join(root, 'state/transcripts/2026/legacy.jsonl'), 'utf8'), 'legacy-transcript-row');
+    await store.stop();
+    const blob = JSON.parse(base.decryptString(readFileSync(join(root, 'auth-store.sealed')))) as { files: [string, string][] };
+    assert.deepEqual(blob.files.map(([name]) => name).sort(), ['home/.claude/settings.json', 'state/auth.json'], 'the resealed blob holds credentials only');
+    const reopened = new AuthStore({ root, stateDir: dir, engineDir: join(dir, 'engine'), seal: base });
+    await reopened.start();
+    assert.equal(readFileSync(join(root, 'state/state/openclaw.sqlite'), 'utf8'), 'legacy-database-row');
+    assert.equal(readFileSync(join(root, 'state/transcripts/2026/legacy.jsonl'), 'utf8'), 'legacy-transcript-row');
+    await reopened.stop();
+    assert.equal(holdsPlaintext(root, Buffer.from('legacy-transcript-row')), false, 'no plaintext transcript survives the reseal');
+  } finally { removeScratch(dir); }
 });
