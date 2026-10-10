@@ -26,9 +26,19 @@ const safeMemory = (memory: unknown): void => {
   s.fallback = 'none';
 };
 
+/** The plugin of every route an app offers by name (5.6). A consumer names its offered accounts; each is the engine
+ * provider, the auth choice or an alias a route carries. Routes nobody names stay out. */
+function offeredPlugins(offered: readonly string[] | undefined): string[] {
+  if (!Array.isArray(offered) || !offered.length) return [];
+  const named = new Set(offered);
+  return routes().filter(route => route.plugin && !route.needs?.plugin
+    && (named.has(route.provider) || named.has(route.choice) || (route.aliases ?? []).some(alias => named.has(alias))))
+    .map(route => route.plugin);
+}
+
 export function reconcileConfig(saved: object | undefined, o: {
   root: string; stateDir: string; port: number; pluginId: string; pluginDir: string; policyPath: string;
-  app?: object; installPolicy?: KitOptions['installPolicy'];
+  app?: object; installPolicy?: KitOptions['installPolicy']; offered?: readonly string[];
   browser?: { profiles: Record<string, { cdpUrl: string; attachOnly: true }>; tools: string[] };
 }): object {
   const c: Obj = merge(merge({}, object(saved) ? saved : {}), object(o.app) ? o.app : {});
@@ -60,7 +70,9 @@ export function reconcileConfig(saved: object | undefined, o: {
     // Every default-eligible bundled route, not only the ready ones: anthropic-cli waits on its binary and
     // shares its plugin with the explicit apiKey route, so neither may depend on another route being offered.
     ...routes().filter(route => route.offerPolicy === 'default' && !route.needs?.plugin && route.plugin)
-      .map(route => route.plugin)])];
+      .map(route => route.plugin),
+    // Plus every explicitly offered route the app names, so an opted-in sign-in (OpenRouter) is not blocked.
+    ...offeredPlugins(o.offered)])];
   c.plugins.entries ??= {};
   c.plugins.entries[o.pluginId] = merge(c.plugins.entries[o.pluginId] ?? {}, { hooks: { timeouts: { before_tool_call: 200_000 } } });
   if (o.browser) {

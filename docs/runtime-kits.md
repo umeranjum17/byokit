@@ -586,17 +586,21 @@ writing only if bytes change (0600):
   `provider` stays only if in `none|local|ollama|lmstudio|github-copilot` and, for ollama/lmstudio, `remote.baseUrl`
   host is loopback with no `remote.apiKey`; else `'none'`; `fallback: 'none'` always.
 - Plugins: `plugins.load.paths` contains `<root>/plugin` (and no stale kit plugin path); `plugins.allow` contains the
-  plugin id and the `plugin` id of every default-eligible bundled route in `routes.json` (`offerPolicy: 'default'`,
-  no `needs.plugin`, so a route waiting only on its CLI and the explicit routes sharing its plugin work) (D17), and the kit adds no other id; `plugins.entries[id].hooks.timeouts.before_tool_call = 200_000`. The pinned
+  plugin id, the `plugin` id of every default-eligible bundled route in `routes.json` (`offerPolicy: 'default'`,
+  no `needs.plugin`, so a route waiting only on its CLI and the explicit routes sharing its plugin work) (D17), and the
+  `plugin` id of every route the app offers by name in `KitOptions.offered` (the provider, auth choice or alias a route
+  carries — e.g. `openrouter`; a route nobody offers stays out); the kit adds no other id;
+  `plugins.entries[id].hooks.timeouts.before_tool_call = 200_000`. The pinned
   engine treats a non-empty `plugins.allow` as a restrictive allowlist: a provider sign-in, and that provider's runs,
   need the bundled plugin that owns the route's auth choice (`Route.plugin`) in it, else the wizard ends
-  `<label> is disabled (blocked by allowlist)`. Those plugins are always present (`anthropic` for `anthropic-cli` and `apiKey`); an app adds the
-  `plugin` id of any other route it signs in with (an unlisted plugin's route passed explicitly) through
-  `config.plugins.allow` (merged with the kit's ids; 2026.8.1: `openai` for `openai`/`openai-device-code`,
-  `xai` for `xai-oauth`, `github-copilot` for `github-copilot`/`github-copilot-enterprise`, `openrouter` for
-  `openrouter-oauth`, `minimax` for `minimax-global-oauth`/`minimax-cn-oauth`); Crewhouse passes
-  `['crewhouse', 'memory-core', 'openai']`. The kit never writes an empty list, nor one wider than app ids ∪ kit id ∪
-  those routes' plugins. A provider plugin also
+  `<label> is disabled (blocked by allowlist)`. Those plugins are always present (`anthropic` for `anthropic-cli` and `apiKey`); an app names the
+  `plugin` id of any other route it signs in with (an unlisted plugin's route passed explicitly) in `KitOptions.offered`
+  or directly through `config.plugins.allow` (merged with the kit's ids; 2026.8.1: `openai` for
+  `openai`/`openai-device-code`, `xai` for `xai-oauth`, `github-copilot` for
+  `github-copilot`/`github-copilot-enterprise`, `openrouter` for `openrouter-oauth`, `minimax` for
+  `minimax-global-oauth`/`minimax-cn-oauth`); Crewhouse passes `offered(['chatgpt', 'grok', 'copilot', 'openrouter'])`
+  and `plugins.allow: ['crewhouse', 'memory-core', 'openai']`. The kit never writes an empty list, nor one wider than
+  app ids ∪ kit id ∪ those routes' plugins. A provider plugin also
   carries that provider's key-entry choices; the Gateway's `openclaw.setup.auth.start` refuses those in 2026.8.1, and
   the memory-search invariant above keeps the plugin from billing embeddings.
 - Install policy when `installPolicy` is given: `security.installPolicy = { enabled: true, exec: { source: 'exec',

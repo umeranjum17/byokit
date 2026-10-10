@@ -113,6 +113,27 @@ test('call before start rejects instead of throwing synchronously', async () => 
   finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
+test('a consumer that offers OpenRouter boots with its plugin allowed; defaults-only does not', async () => {
+  const defaultsDir = scratchDir('o4-offered-defaults');
+  const offeredDir = scratchDir('o4-offered');
+  const allow = (dir: string) => (JSON.parse(readFileSync(join(dir, 'openclaw', 'openclaw.json'), 'utf8')) as
+    { plugins: { allow: string[] } }).plugins.allow;
+  const defaults = new OpenClawKit({ stateDir: defaultsDir, spawnEngine: false, transport: fakeGateway().factory });
+  const offered = new OpenClawKit({ stateDir: offeredDir, spawnEngine: false, transport: fakeGateway().factory,
+    offered: ['chatgpt', 'grok', 'copilot', 'openrouter'] });
+  try {
+    await defaults.start();
+    await offered.start();
+    assert.equal(defaults.state.phase, 'ready');
+    assert.equal(offered.state.phase, 'ready');
+    assert.ok(!allow(defaultsDir).includes('openrouter'), 'a defaults-only consumer never allows OpenRouter');
+    assert.ok(allow(offeredDir).includes('openrouter'), 'the offered OpenRouter sign-in is allowed at boot');
+  } finally {
+    await defaults.stop(); await offered.stop();
+    rmSync(defaultsDir, { recursive: true, force: true }); rmSync(offeredDir, { recursive: true, force: true });
+  }
+});
+
 test('typed pass-through, dynamic refusal, events and hello', async () => withKit(async (kit, fake) => {
   assert.equal(kit.state.phase, 'ready');
   assert.equal(kit.hello?.protocol, 4);

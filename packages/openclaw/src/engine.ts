@@ -15,7 +15,7 @@ import { writePlugin, resolveBridge } from './bridge.ts';
 import type { KitOptions } from './kit.ts';
 import type { KitState, ToolSpec } from './types.ts';
 
-export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'appOwnedSessions' | 'installPolicy' | 'log' | 'bridge' | 'authSeal'> & {
+export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'offered' | 'appOwnedSessions' | 'installPolicy' | 'log' | 'bridge' | 'authSeal'> & {
   pluginId: string; tools: ToolSpec[]; gateBuiltins?: boolean; spawnEngine: boolean;
   browserConfig?: () => { profiles: Record<string, { cdpUrl: string; attachOnly: true }>; tools: string[] };
   onState(s: KitState): void; onExit(code: number | null): void;
@@ -216,8 +216,8 @@ export class Engine {
     const path = join(this.root, 'openclaw.json');
     const saved = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined;
     const config = reconcileConfig(saved, { root: this.root, stateDir: this.o.stateDir, port: this.port, pluginId: this.o.pluginId,
-      pluginDir, policyPath: join(kitDir, 'policy', 'policy.mjs'), app: this.o.config, installPolicy: this.o.installPolicy,
-      browser: this.o.browserConfig?.() });
+      pluginDir, policyPath: join(kitDir, 'policy', 'policy.mjs'), app: this.o.config, offered: this.o.offered,
+      installPolicy: this.o.installPolicy, browser: this.o.browserConfig?.() });
     putChanged(path, JSON.stringify(config, null, 2) + '\n');
   }
   doctorContext(): { entry: string; env: Record<string, string> } {
