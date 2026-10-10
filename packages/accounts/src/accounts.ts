@@ -12,7 +12,7 @@ import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool 
 import { offered, provider, route, routes, PROVIDERS, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
 import { checkKeyModel, keyRespond, KeyRouteError, type KeyAsk, type KeyRuntime } from './key-routes.ts';
-import { claims, PORTABLE, portableEngine, signable } from './engine.ts';
+import { claims, PORTABLE, portableEngine, signable, withDevice } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
 import type { ChatGPTRespondAccount } from './chatgpt-plan.ts';
@@ -29,7 +29,7 @@ export type Member = string | number;
  *  (`via: 'code'`), never the engine's own prompts. `why` names how a failed one failed, for apps that word it themselves. */
 /** Explicit method selection; Claude defaults to paste. Enterprise domains apply only to Copilot.
  *  OpenRouter authorization creates an API-billed key: billedPerUse explicitly selects that billing. */
-export type SignInOptions = { via?: 'browser' | 'code' | 'paste'; fresh?: boolean; enterpriseDomain?: string; billedPerUse?: true };
+export type SignInOptions = { via?: 'browser' | 'code' | 'paste'; fresh?: boolean; enterpriseDomain?: string; billedPerUse?: true; region?: 'global' | 'cn' };
 export type SignIn = { id?: string; state: 'waiting' | 'done' | 'failed'; via?: 'browser' | 'code'; url?: string; code?: string; expiresAt?: number; error?: string; why?: Why };
 export type Status = { id: string; provider: string; account: string; name: string; state: 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included'; until?: number; words: string };
 type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text: string) => void; refuse?: (e: Error) => void; timedOut?: boolean; toCode?: boolean;
@@ -144,6 +144,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   private additions = new Map<string, EndingStore>();
   private aliases = new Map<string, string>();
   private preferred = new Map<string, string>();
+  /** Which region a device sign-in uses, by the id it was added under (`minimax:code:cn`). */
+  private deviceRegions = new Map<string, 'global' | 'cn'>();
   private accountKey(member: M, key: string) { return this.aliases.get(`${member}:${key}`) ?? key; }
   private stateKey(member: M, key: string) { return this.accountKey(member, this.preferred.get(`${member}:${key}`) ?? key); }
   private providerKey(key: string) { return key.split('.')[0]; }
@@ -333,6 +335,10 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
   async add(member: M, key: string, options: (Omit<SignInOptions, 'via'> & { via?: Via; key?: string }) | CloudOptions = {}): Promise<{ id: string; signIn?: SignIn }> {
     if ('route' in options) return this.addCloud(member, key, options);
+    // A MiniMax device route id (`minimax:code`, `minimax:code:cn`) selects the provider's catalogue device flow,
+    // and `:cn` its China host.
+    if (key === 'minimax:code' || key === 'minimax:code:cn')
+      return this.add(member, 'minimax', { ...options, via: 'code', region: key.endsWith(':cn') ? 'cn' : 'global' });
     // A Google sign-in route id (`google-gemini-cli:browser`, `:paste`) selects that flow for the provider.
     if (key.startsWith('google-gemini-cli:')) {
       const via = key.slice('google-gemini-cli:'.length);
@@ -361,6 +367,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       id = `${key}.${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
     } while (this.additions.has(`${member}:${id}`) || await this.store(member).read(id));
     this.additions.set(`${member}:${id}`, memoryStore());
+    if ((options as SignInOptions).region) this.deviceRegions.set(`${member}:${id}`, (options as SignInOptions).region!);
     const signIn = await this.login(member, id, { ...options, via: options.via as SignInOptions['via'], fresh: true });
     return { id, ...(signIn ? { signIn } : {}) };
   }
@@ -568,7 +575,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   protected engine(member: M, raw: CredentialStore, accountId?: string): Promise<R> {
     const credentials = this.boundStore(member, raw, accountId);
-    const engine = withClaudePlan(this.platform.engine(credentials, this.opts.authBase, this.opts.deviceBase), credentials, accountId ? raw : this.baseStores.get(String(member)) ?? raw, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch });
+    const region = accountId ? this.deviceRegions.get(`${member}:${accountId}`) : undefined;
+    const host = withDevice(this.platform.engine(credentials, this.opts.authBase, this.opts.deviceBase), credentials, { deviceBase: this.opts.deviceBase, region });
+    const engine = withClaudePlan(host, credentials, accountId ? raw : this.baseStores.get(String(member)) ?? raw, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch });
     const callbackPort = this.opts.callbackPort ?? provider('google-gemini-cli').callbackPort!;
     return Promise.resolve(Object.assign(withGoogle(engine, credentials, { base: this.opts.googleBase, fetch: this.opts.fetch, callbackPort }), {
       credentialStore: credentials, readCredential: (id: string) => credentials.read(id),

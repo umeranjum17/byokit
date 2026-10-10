@@ -940,6 +940,56 @@
     }
   },
   {
+    "id": "minimax:code",
+    "provider": "minimax",
+    "name": "MiniMax",
+    "company": "MiniMax",
+    "label": "Uses your MiniMax plan",
+    "aliases": [],
+    "via": "code",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "minimax",
+      "method": "device",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "minimax:code:cn",
+    "provider": "minimax",
+    "name": "MiniMax CN",
+    "company": "MiniMax CN",
+    "label": "Uses your MiniMax CN plan",
+    "aliases": [
+      "minimax-cn"
+    ],
+    "via": "code",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "minimax-cn",
+      "method": "device",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
     "id": "minimax:key",
     "provider": "minimax",
     "name": "MiniMax",

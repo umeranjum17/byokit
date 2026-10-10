@@ -34,7 +34,7 @@ test('portable entry bundles for a browser and can be imported', async () => {
   assert.ok(!Object.keys(keyed.metafile.inputs).some((path) => path.startsWith('node:') || path.includes('node_modules/@earendil-works/pi-ai/')));
   assert.doesNotMatch(result.outputFiles[0].text, /\bimport\s*\(\s*[^'"`]/, 'no non-literal dynamic imports');
   const portable = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString('base64')}`);
-  assert.equal(portable.routes({ platform: 'rn' }).length, 68);
+  assert.equal(portable.routes({ platform: 'rn' }).length, 70);
   assert.equal(portable.route('openai:code', { platform: 'rn' }).readiness, 'ready');
   assert.ok(portable.offered({ platform: 'rn' }).every((r: { billing: string; readiness: string }) => r.billing === 'subscription' && r.readiness === 'ready'));
   const store = portable.memoryStore();
@@ -98,7 +98,7 @@ test('device and token errors never expose response bodies', async () => {
 
 test('sign in with ChatGPT by device code: the code and page to show, approved there, kept, plan read', async () => {
   const a = kit();
-  assert.deepEqual(a.providers.map((p) => p.key), ['chatgpt', 'grok', 'claude', 'kimi'], 'only what a phone or browser can sign in to, the device ones from catalogue data');
+  assert.deepEqual(a.providers.map((p) => p.key), ['chatgpt', 'grok', 'claude', 'kimi', 'minimax'], 'only what a phone or browser can sign in to, the device ones from catalogue data');
   const v = (await a.login(1, 'chatgpt'))!;
   assert.deepEqual([v.state, v.via, v.url], ['waiting', 'code', `${openai.base}/codex/device`]);
   assert.match(v.code!, /^MOCK-/);
@@ -126,7 +126,7 @@ test("a poll that can't get through (a backgrounded phone) waits for the next in
 
 test('any provider the catalogue gives device data signs in on the phone, with no provider of its own', async () => {
   // The picker offers what the catalogue says; nothing here names a provider in code.
-  assert.deepEqual(signInChoices().map((p) => p.key), ['grok', 'kimi']);
+  assert.deepEqual(signInChoices().map((p) => p.key), ['grok', 'kimi', 'minimax']);
   for (const key of ['grok', 'kimi']) {
     const a = phoneKit(device.base);
     const v = (await a.login(1, key))!;
