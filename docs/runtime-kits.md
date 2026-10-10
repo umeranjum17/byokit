@@ -771,7 +771,7 @@ adapter and key; each object is capped individually at the same size, and their 
 transcript rows), and the regenerable caches, exported transcripts, media, logs and legacy session stores beside them. Regenerable caches in `home`
 (the `home/.cache` and `home/.npm` subtrees the engine environment pins, and the `sessions`/`log`/`cache`/`.tmp`/`history.jsonl` subtrees of `.codex` and
 `projects`/`todos`/`shell-snapshots`/`statsig`/`file-history`/`history.jsonl` of `.claude`) stay on disk unsealed across stops; unknown `home` paths stay
-sealed. Stop writes the blob and every object, then removes the live `state` tree; start restores the blob, then the objects, byte for byte; no plaintext
+sealed. Stop writes the blob and every object whose bytes changed since this process last sealed or restored it (an unchanged object keeps its sealed file), then removes the live `state` tree; start restores the blob, then the objects, byte for byte; no plaintext
 copy of a sealed `state` file survives a stop or a remove. An object whose file is absent from the live tree at a stop is deleted. A v1 blob written before
 this layout restores its engine stores and reseals them as objects at the next persist. The sealed payload is built exactly once and
 verified by decrypting the sealed bytes. Snapshots are always written as `v: 1`, the only tag released readers through 0.6.1
