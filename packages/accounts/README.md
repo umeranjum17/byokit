@@ -166,7 +166,7 @@ doesn't answer other web pages), so a PWA's model calls go through the app's own
 All subscription rows are offered by default on platforms that support their sign-in. API-billed rows
 are offered only when the app names them. An explicit `offer` list is not platform-filtered.
 The `Provider` shape no longer has `terms`, `hidden` or `why`, and `Terms` is no longer exported.
-Qwen and MiniMax have subscription catalogue rows; their paste and portal sign-in flows follow in later work packages.
+Qwen and MiniMax have subscription catalogue rows. MiniMax signs in with a user code on its own page (`minimax:code`, or `minimax:code:cn` for the China host) only when an app names `minimax` in its `offer` list; Qwen's portal sign-in follows in later work packages.
 Each provider's own terms apply to how you use your plan.
 `routes()` lists every pinned pi-ai provider and sign-in method, including unavailable rows with typed readiness, using D18 in [`docs/runtime-kits.md`](../../docs/runtime-kits.md#21-account-routes-d18). `offered({ platform })` returns ready subscription routes, including plan keys. The legacy `providers`/`offered()` calls keep their provider IDs; Qwen and MiniMax's unavailable plan flows are not defaults. Radius has `unknown` billing: it is visible in discovery but never offered or chosen automatically. Computer device fixtures do not qualify phone/browser device runtime.
 Anthropic Messages uses an app-passed API key (billed per use); authentication is separate from the Messages request.

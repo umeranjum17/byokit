@@ -3,7 +3,7 @@
 // to a fixed address on the computer (localhost:1455), which a phone or a web page can't listen on. Same credential
 // shape, error wording and store seam as Pi; the rules are the shared fixtures (device-code.json, token-responses.json).
 // OpenAI's sign-in endpoints answer any web page (CORS), so a PWA signs in directly.
-import type { AuthEvent, AuthInteraction, Credential, CredentialStore, OAuthCredential } from '@earendil-works/pi-ai';
+import type { Api, AuthEvent, AuthInteraction, Credential, CredentialStore, Model, OAuthCredential } from '@earendil-works/pi-ai';
 import type { AuthHost } from './accounts.ts';
 import { deviceFlow, PROVIDERS, type DeviceFlow } from './catalogue.ts';
 import { RefreshRequiredError, refreshCredential, revoked } from './stores.ts';
@@ -75,6 +75,11 @@ export type EngineOptions = {
   base?: string;
   /** Where every catalogue device sign-in lives instead of each provider's own host; a stand-in for tests and demos. */
   deviceBase?: string;
+  /** Which region's device endpoints a provider with regions uses (`minimax` on the cn host). */
+  region?: 'global' | 'cn';
+  /** Secure random bytes and SHA-256 for a device sign-in that needs PKCE (MiniMax). Defaults to the platform's
+   *  `globalThis.crypto`; a React Native app injects one, the same shape the Claude flow takes. */
+  crypto?: Pick<Crypto, 'getRandomValues' | 'subtle'>;
 };
 
 /** RFC 8628 device authorization, one implementation for every provider the catalogue gives data for: the person
@@ -92,15 +97,16 @@ const form = async (url: string, fields: Record<string, string>, signal?: AbortS
 const at = (url: string, base?: string) => !base ? url : new URL(url.substring(url.indexOf('/', url.indexOf('//') + 2)), base.endsWith('/') ? base : `${base}/`).href;
 const number = (j: any, field: string, fallback: number) => typeof j?.[field] === 'number' && Number.isFinite(j[field]) && j[field] > 0 ? j[field] : fallback;
 
-/** What the person must type, and where; only http(s) the provider itself chose. */
-function deviceAsked(j: any, name: string) {
+/** What the person must type, and where, and the field the poll is keyed by; only http(s) the provider itself chose. */
+function deviceAsked(j: any, name: string, minimax: boolean) {
   const uri = typeof j?.verification_uri === 'string' ? j.verification_uri : typeof j?.verification_uri_complete === 'string' ? j.verification_uri_complete : '';
   let url: URL | undefined;
   try { url = new URL(uri); } catch {}
-  if (!url || !['https:', 'http:'].includes(url.protocol) || typeof j?.device_code !== 'string' || typeof j?.user_code !== 'string')
+  if (!url || !['https:', 'http:'].includes(url.protocol) || typeof j?.user_code !== 'string' || (!minimax && typeof j?.device_code !== 'string'))
     throw new Error(`${name} did not send a device code to type.`);
-  return { deviceCode: j.device_code, userCode: j.user_code, verificationUri: url.href,
-    intervalSeconds: number(j, 'interval', 5), expiresInSeconds: number(j, 'expires_in', CODE_LIVES_S) };
+  const handle: Record<string, string> = minimax ? { user_code: j.user_code } : { device_code: j.device_code };
+  return { handle, userCode: j.user_code as string, verificationUri: url.href,
+    intervalSeconds: number(j, 'interval', 5), expiresInSeconds: minimax ? minimaxSeconds(j.expired_in, name) : number(j, 'expires_in', CODE_LIVES_S) };
 }
 
 /** A token response as the stored credential, the same shape Pi keeps for every provider. */
@@ -125,31 +131,79 @@ async function keep(credentials: CredentialStore, id: string, c: OAuthCredential
   }
 }
 
-async function deviceLogin(pi: string, flow: DeviceFlow, name: string, base: string | undefined, credentials: CredentialStore, { signal, notify }: AuthInteraction): Promise<Credential> {
-  const asked = await form(at(flow.authorization, base), { client_id: flow.clientId, ...(flow.scope ? { scope: flow.scope } : {}), ...flow.form }, signal);
+/** A token step's answer: the credential, a wait for the next poll, or how the sign-in ended. */
+type Answer = { credential: OAuthCredential } | { wait: 'pending' | 'slow_down' } | { ended: string };
+/** RFC 8628's token answers. */
+function rfcAnswer(r: { status: number; body: string }, name: string): Answer {
+  if (r.status >= 200 && r.status <= 299) return { credential: deviceCredential(json(r.body), name) };
+  const error = json(r.body)?.error;
+  if (r.status === 0 || error === 'authorization_pending') return { wait: 'pending' };
+  if (error === 'slow_down') return { wait: 'slow_down' };
+  return { ended: `${name} device sign-in ${error === 'access_denied' ? 'was declined' : error === 'expired_token' ? 'expired' : `failed (${r.status || 'no answer'})`}.` };
+}
+/** MiniMax's token answers: a 2xx body whose status is 'success' (the token) or 'error' (a refusal); any other 2xx body
+ *  keeps polling. A non-2xx answer ends the sign-in, 400 as the code's expiry, except no answer, which keeps polling. */
+function minimaxAnswer(r: { status: number; body: string }, name: string): Answer {
+  const ok = r.status >= 200 && r.status <= 299;
+  const status = ok ? json(r.body)?.status : undefined;
+  if (ok && status === 'success') return { credential: minimaxCredential(json(r.body), name) };
+  if (ok && status === 'error') return { ended: `${name} device sign-in was declined.` };
+  if (ok || r.status === 0) return { wait: 'pending' };
+  return { ended: `${name} device sign-in ${r.status === 400 ? 'expired' : `failed (${r.status})`}.` };
+}
+
+/** RFC 8628 device authorization, plus the catalogue's data for a provider whose client differs: `pkce` adds the S256
+ *  challenge, `grant` overrides the token grant, and `dialect: 'minimax'` polls by user code with the verifier, reads a
+ *  status-field answer and takes the code's absolute expiry. */
+async function deviceLogin(pi: string, flow: DeviceFlow, name: string, base: string | undefined, credentials: CredentialStore, { signal, notify }: AuthInteraction, webcrypto?: Pick<Crypto, 'getRandomValues' | 'subtle'>): Promise<Credential> {
+  const minimax = flow.dialect === 'minimax';
+  const crypto = webcrypto ?? globalThis.crypto;
+  const pk = flow.pkce ? await pkce(crypto) : undefined;
+  const asked = await form(at(flow.authorization, base), { client_id: flow.clientId, ...(flow.scope ? { scope: flow.scope } : {}),
+    ...(pk ? { code_challenge: pk.challenge, code_challenge_method: 'S256' } : {}), ...(minimax ? { state: base64url(crypto.getRandomValues(new Uint8Array(16))) } : {}), ...flow.form }, signal);
   if (asked.status < 200 || asked.status > 299) throw new Error(`${name} did not start a device sign-in (${asked.status}).`);
-  const device = deviceAsked(json(asked.body), name);
+  const device = deviceAsked(json(asked.body), name, minimax);
   notify({ type: 'device_code', userCode: device.userCode, verificationUri: device.verificationUri, intervalSeconds: device.intervalSeconds, expiresInSeconds: device.expiresInSeconds } as AuthEvent);
   let interval = Math.max(1000, device.intervalSeconds * 1000);
   for (const deadline = Date.now() + device.expiresInSeconds * 1000; ;) {
     if (Date.now() >= deadline) throw new Error('Device flow timed out');
     // A poll that can't get through waits for the next, as a phone cuts a backgrounded app's network while the
     // person is typing the code on the provider's page.
-    const r = await form(at(flow.token, base), { grant_type: 'urn:ietf:params:oauth:grant-type:device_code', client_id: flow.clientId, device_code: device.deviceCode }, signal)
+    const r = await form(at(flow.token, base), { grant_type: flow.grant ?? 'urn:ietf:params:oauth:grant-type:device_code', client_id: flow.clientId, ...device.handle, ...(pk ? { code_verifier: pk.verifier } : {}) }, signal)
       .catch((e) => { if (signal?.aborted) throw e; return { status: 0, body: '' }; });
-    if (r.status >= 200 && r.status <= 299) {
-      const c = deviceCredential(json(r.body), name);
-      await keep(credentials, pi, c, signal);
-      return c;
+    const answer = minimax ? minimaxAnswer(r, name) : rfcAnswer(r, name);
+    if ('credential' in answer) {
+      await keep(credentials, pi, answer.credential, signal);
+      return answer.credential;
     }
-    const error = json(r.body)?.error;
-    if (r.status === 0 || error === 'authorization_pending' || error === 'slow_down') {
-      if (error === 'slow_down') interval += 5000;
-      await sleep(interval, signal);
-      continue;
-    }
-      throw new Error(`${name} device sign-in ${error === 'access_denied' ? 'was declined' : error === 'expired_token' ? 'expired' : `failed (${r.status || 'no answer'})`}.`);
+    if ('ended' in answer) throw new Error(answer.ended);
+    if (answer.wait === 'slow_down') interval += 5000;
+    await sleep(interval, signal);
   }
+}
+
+/** A PKCE verifier and its S256 challenge, for a provider whose device client asks for them. */
+const base64url = (bytes: Uint8Array) => btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+async function pkce(crypto: Pick<Crypto, 'getRandomValues' | 'subtle'> | undefined) {
+  if (!crypto?.getRandomValues || !crypto.subtle?.digest) throw new Error('This sign-in needs secure random bytes and SHA-256 on this device.');
+  const verifier = base64url(crypto.getRandomValues(new Uint8Array(32)));
+  const challenge = base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
+  return { verifier, challenge };
+}
+
+/** How long a MiniMax `expired_in` lasts, in seconds: a relative count below the threshold, else an absolute epoch-ms
+ *  time (the code step's own shape). */
+const MINIMAX_RELATIVE_SECONDS_THRESHOLD = 1e9;
+function minimaxSeconds(value: unknown, name: string): number {
+  const n = typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+  if (n === undefined) throw new Error(`${name} did not say when the sign-in expires.`);
+  return n >= MINIMAX_RELATIVE_SECONDS_THRESHOLD ? Math.max(1, Math.ceil((n - Date.now()) / 1000)) : n;
+}
+/** The pinned upstream engine's token answer as the stored credential (no account id in the token: the row's own id). */
+function minimaxCredential(j: any, name: string): OAuthCredential {
+  if (typeof j?.access_token !== 'string' || typeof j?.refresh_token !== 'string')
+    throw new Error(`${name} did not return a token for this sign-in.`);
+  return { type: 'oauth', access: j.access_token, refresh: j.refresh_token, expires: Date.now() + minimaxSeconds(j.expired_in, name) * 1000 };
 }
 
 const deviceRefresh = (flow: DeviceFlow, name: string, base?: string) => async (c: OAuthCredential) => {
@@ -164,7 +218,7 @@ const deviceRefresh = (flow: DeviceFlow, name: string, base?: string) => async (
 };
 
 /** A member's engine on phones and in browsers: ChatGPT's device-code sign-in, refresh and sign-out, into `credentials`. */
-export function portableEngine(credentials: CredentialStore, { base = 'https://auth.openai.com', deviceBase }: EngineOptions = {}): AuthHost {
+export function portableEngine(credentials: CredentialStore, { base = 'https://auth.openai.com', deviceBase, region, crypto }: EngineOptions = {}): AuthHost {
   const post = async (path: string, body: object, form = false, signal?: AbortSignal) => {
     try {
       const res = await fetch(base + path, {
@@ -184,7 +238,7 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
   };
   /** Each provider refreshes at its own token endpoint; a failure never reaches the person as anything but a reason. */
   const refreshOf = (id: string) => {
-    const flow = deviceFlow(id);
+    const flow = deviceFlow(id, region);
     if (!flow) return async (c: OAuthCredential) => {
       const stop = new AbortController();
       const t = setTimeout(() => stop.abort(), 15_000);
@@ -193,17 +247,21 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
       finally { clearTimeout(t); }
     };
     const name = nameOf(id);
+    // The pinned MiniMax engine has no refresh grant: nothing is sent, and the grant ends so the account needs signing in.
+    if (flow.dialect === 'minimax') return async () => { throw Object.assign(new Error(`OAuth refresh failed for ${id}`), { revoked: true }); };
     return async (c: OAuthCredential) => {
       try { return await deviceRefresh(flow, name, deviceBase)(c); }
       catch (e: any) { throw Object.assign(new Error(`OAuth refresh failed for ${id}: ${e?.message ?? e}`), { status: e?.status, revoked: e?.revoked }); }
     };
   };
   const known = (id: string) => { if (!signable(id)) throw new Error(`${id} can't be signed in to on this device`); };
+  /** MiniMax has no refresh: its sign-in is due only once the access token has run out. */
+  const fixed = (id: string) => deviceFlow(id, region)?.dialect === 'minimax';
   const engine = {
     async login(id: string, _type: string, io: AuthInteraction): Promise<Credential> {
       known(id);
-      const flow = deviceFlow(id);
-      if (flow) return deviceLogin(id, flow, nameOf(id), deviceBase, credentials, io);
+      const flow = deviceFlow(id, region);
+      if (flow) return deviceLogin(id, flow, nameOf(id), deviceBase, credentials, io, crypto);
       const { signal, notify } = io;
       const asked = await post('/api/accounts/deviceauth/usercode', { client_id: CLIENT_ID }, false, signal);
       const start = deviceStart(asked.status, asked.body);
@@ -232,8 +290,9 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
       if (!signable(id)) return undefined;
       try {
         // Wait for a live transaction rather than mistake its before-send marker for a failed sign-in.
-        // A false due predicate only reads under the lock; it never sends or saves.
-        const c = await refreshCredential(credentials, id, () => false, refreshOf(id));
+        // A false due predicate only reads under the lock; it never sends or saves. A MiniMax sign-in is due only once
+        // its token has run out, and then ends without a send.
+        const c = await refreshCredential(credentials, id, (current) => fixed(id) && current.expires <= Date.now(), refreshOf(id));
         return c?.type === 'oauth' ? { source: 'OAuth', type: 'oauth' as const } : undefined;
       } catch (e) {
         if (e instanceof RefreshRequiredError) return undefined;
@@ -244,7 +303,7 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
      *  so a sign-out or another refresh in between wins; undefined once signed out. */
     async getAuth(id: string, { minOAuthValidityMs }: { minOAuthValidityMs?: number } = {}) {
       if (!signable(id)) return undefined;
-      const min = Math.max(5 * 60_000, minOAuthValidityMs ?? 0);
+      const min = fixed(id) ? 0 : Math.max(5 * 60_000, minOAuthValidityMs ?? 0);
       const soon = (c: OAuthCredential) => Date.now() + min >= c.expires;
       // Even a still-valid access token must not bypass quarantine, including a forced refresh after a refusal.
       const c = await refreshCredential(credentials, id, soon, refreshOf(id));
@@ -254,4 +313,17 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
     logout: (id: string) => credentials.delete(id),
   };
   return engine as unknown as AuthHost;
+}
+
+/** Adds the kit's portable device sign-in for a catalogue row the host engine cannot sign in to itself (MiniMax's
+ *  user-code flow, which Pi's computer engine has no module for). Every other provider still belongs to `engine`. */
+export function withDevice(engine: AuthHost, credentials: CredentialStore, options: EngineOptions = {}): AuthHost {
+  const portable = portableEngine(credentials, options);
+  const mine = (id: string | Model<Api>) => typeof id === 'string' && deviceFlow(id, options.region)?.dialect !== undefined;
+  return {
+    login: (id, type, io) => (mine(id) ? portable.login(id, type, io) : engine.login(id, type, io)),
+    checkAuth: (id) => (mine(id) ? portable.checkAuth(id) : engine.checkAuth(id)),
+    getAuth: (id, opts) => (mine(id) ? portable.getAuth(id as string, opts) : engine.getAuth(id as string, opts)),
+    logout: (id) => (mine(id) ? portable.logout(id) : engine.logout(id)),
+  } as AuthHost;
 }

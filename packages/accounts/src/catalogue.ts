@@ -52,8 +52,12 @@ export type MultiAccountTerms = { terms: 'allowed' | 'grey' | 'partner' | 'forbi
 /** `callbackPort`: where the provider sends the browser back after its own sign-in page, fixed for the client Pi signs in as.
  *  `revoke`: where signing out ends the sign-in on the provider's side too, for the client `clientId`. */
 /** RFC 8628 device authorization, exactly as the provider's pinned client sends it: `form` carries any extra
- *  authorization-request fields that client sends. Data only; the engine is one implementation for every provider. */
-export type DeviceFlow = { authorization: string; token: string; clientId: string; scope?: string; form?: Record<string, string>; source: string };
+ *  authorization-request fields that client sends. Data only; the engine is one implementation for every provider.
+ *  `pkce` adds a code_challenge (S256) and its code_verifier; `grant` overrides the token-step grant_type; `dialect`
+ *  names a provider whose answer shape differs (`minimax`: an absolute code expiry and a status-field token body);
+ *  `regions` holds another region's same-client endpoints (MiniMax's cn host), chosen by the route. */
+export type DeviceFlow = { authorization: string; token: string; clientId: string; scope?: string; form?: Record<string, string>; source: string;
+  pkce?: boolean; grant?: string; dialect?: 'minimax'; regions?: Record<string, { authorization: string; token: string }> };
 export type Provider = { key: string; pi: string; name: string; company: string; models: { strong: string; fast?: string }; fresh?: { param: string; value: string }; callbackPort?: number; clientId?: string; revoke?: string; billing: Billing; auth?: 'api-key' | 'oauth'; label?: string; offer?: boolean; readiness?: Readiness; routes?: string[]; device?: DeviceFlow; source: string; multiAccount: MultiAccountTerms };
 
 export const PROVIDERS: Record<string, Provider> = Object.fromEntries(Object.entries(CATALOGUE).map(([key, p]) => [key, { key, ...p } as Provider]));
@@ -64,10 +68,15 @@ PROVIDERS.radius = {
   source: 'https://radius.pi.dev', multiAccount: { terms: 'grey', why: 'Billing and account terms are set by the gateway.', source: 'https://radius.pi.dev' },
 };
 
-/** ChatGPT's own device flow is not RFC 8628; only catalogue device data takes this engine. */
-export const deviceFlow = (pi: string): DeviceFlow | undefined => Object.values(PROVIDERS).find((p) => p.pi === pi)?.device;
+/** ChatGPT's own device flow is not RFC 8628; only catalogue device data takes this engine.
+ *  `region` picks a second region's endpoints the same client uses (`minimax` on the cn host). */
+export const deviceFlow = (pi: string, region?: 'global' | 'cn'): DeviceFlow | undefined => {
+  const d = Object.values(PROVIDERS).find((p) => p.pi === pi)?.device;
+  const endpoints = d && region && region !== 'global' ? d.regions?.[region] : undefined;
+  return d && endpoints ? { ...d, authorization: endpoints.authorization, token: endpoints.token } : d;
+};
 /** What the picker offers: the provider rows a phone or browser can sign in to, in catalogue order. */
-export const signInChoices = (): Provider[] => Object.values(PROVIDERS).filter((p) => p.auth !== 'api-key' && !!p.device && p.billing === 'subscription');
+export const signInChoices = (): Provider[] => Object.values(PROVIDERS).filter((p) => p.auth !== 'api-key' && p.offer !== false && !!p.device && p.billing === 'subscription');
 
 export function provider(key: string) {
   const p = PROVIDERS[key];

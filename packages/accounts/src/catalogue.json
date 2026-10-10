@@ -175,7 +175,23 @@
     "billing": "subscription",
     "source": "https://www.minimax.io",
     "offer": false,
-    "readiness": "no_upstream_flow",
+    "device": {
+      "authorization": "https://account.minimax.io/oauth2/device/code",
+      "token": "https://account.minimax.io/oauth2/token",
+      "clientId": "78257093-7e40-4613-99e0-527b14b39113",
+      "scope": "group_id profile model.completion",
+      "form": { "response_type": "code" },
+      "pkce": true,
+      "grant": "urn:ietf:params:oauth:grant-type:user_code",
+      "dialect": "minimax",
+      "regions": {
+        "cn": {
+          "authorization": "https://account.minimaxi.com/oauth2/device/code",
+          "token": "https://account.minimaxi.com/oauth2/token"
+        }
+      },
+      "source": "the upstream engine minimax/oauth.ts at 2026.8.1"
+    },
     "routes": ["minimax:key", "minimax:plan_key"],
     "multiAccount": {
       "terms": "grey",

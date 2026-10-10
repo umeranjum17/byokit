@@ -10,14 +10,14 @@ import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfi
 import { googleProject, googleRevoke, googleRevokeUrl, isGoogleClient, withGoogle } from './flows/google.ts';
 import { CODE_ASSIST_HOSTS, CodeAssistSignedOutError, CodeAssistTierError, CodeAssistUnauthorizedError, codeAssistStream } from './flows/google-stream.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
-import { offered, provider, route, routes, PROVIDERS, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
+import { deviceFlow, offered, provider, route, routes, PROVIDERS, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
 import { checkKeyModel, keyRespond, KeyRouteError, type KeyAsk, type KeyRuntime } from './key-routes.ts';
-import { claims, PORTABLE, portableEngine, signable } from './engine.ts';
+import { claims, PORTABLE, portableEngine, signable, withDevice } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
 import type { ChatGPTRespondAccount } from './chatgpt-plan.ts';
-import { emptyIndex, viewStore, memoryStore, refreshCredential, type AccountMetadata, type EndingStore, type RefreshStore } from './stores.ts';
+import { emptyIndex, viewStore, memoryStore, RefreshRequiredError, refreshCredential, type AccountMetadata, type EndingStore, type RefreshStore } from './stores.ts';
 import { resolveSelection, type Account, type AccountPick, type Defaults, type ModelInfo, type Room, type RunSelection, type Via } from './multi.ts';
 import type { Credential } from '@earendil-works/pi-ai';
 import { callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';
@@ -31,6 +31,8 @@ export type Member = string | number;
 /** Explicit method selection; Claude defaults to paste. Enterprise domains apply only to Copilot.
  *  OpenRouter authorization creates an API-billed key: billedPerUse explicitly selects that billing. */
 export type SignInOptions = { via?: 'browser' | 'code' | 'paste'; fresh?: boolean; enterpriseDomain?: string; billedPerUse?: true };
+/** `add`'s options: the public sign-in options plus the internal `region` the MiniMax route ids select. */
+type AddOptions = Omit<SignInOptions, 'via'> & { via?: Via; key?: string; region?: 'global' | 'cn' };
 export type SignIn = { id?: string; state: 'waiting' | 'done' | 'failed'; via?: 'browser' | 'code'; url?: string; code?: string; expiresAt?: number; error?: string; why?: Why };
 export type Status = { id: string; provider: string; account: string; name: string; state: 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included'; until?: number; words: string };
 type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text: string) => void; refuse?: (e: Error) => void; timedOut?: boolean; toCode?: boolean;
@@ -88,6 +90,8 @@ export type AccountsOptions<M extends Member = Member> = {
   anthropicBase?: string;
   /** Claude PKCE transport and Web Crypto supplied by the app (React Native). */
   claudePlan?: ClaudePlanOptions;
+  /** Web Crypto supplied by the app (React Native) for device sign-ins that need PKCE, such as MiniMax. */
+  crypto?: Pick<Crypto, 'getRandomValues' | 'subtle'>;
   /** The client value the Claude plan route sends as its User-Agent. The host's own value; this kit sends none. */
   claudeUserAgent?: string;
   /** The fetch `respond` asks with: one that streams on a phone (Expo's `expo/fetch`). Default: the platform's. */
@@ -145,6 +149,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   private additions = new Map<string, EndingStore>();
   private aliases = new Map<string, string>();
   private preferred = new Map<string, string>();
+  /** Which region a device sign-in in progress uses, by the id it was added under (`minimax:code:cn`); a saved account keeps it in the index. */
+  private deviceRegions = new Map<string, 'global' | 'cn'>();
   private accountKey(member: M, key: string) { return this.aliases.get(`${member}:${key}`) ?? key; }
   private stateKey(member: M, key: string) { return this.accountKey(member, this.preferred.get(`${member}:${key}`) ?? key); }
   private providerKey(key: string) { return key.split('.')[0]; }
@@ -152,7 +158,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   private async resolveKey(member: M, key: string) {
     if (key.includes('.')) return this.accountKey(member, key);
     const index = await this.index(member);
-    const ids = (await this.store(member).list()).map((c) => this.publicKey(c.providerId)).filter((id) => this.providerKey(id) === key);
+    const ids = (await this.store(member).list()).map((c) => this.publicKey(c.providerId)).filter((id) => this.providerKey(id) === key && (index.accounts?.[id]?.region ?? 'global') === 'global');
     const chosen = ids.includes(index.defaults.account ?? '') ? index.defaults.account! : ids[0] ?? key;
     this.preferred.set(`${member}:${key}`, chosen);
     return chosen;
@@ -332,8 +338,12 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       await this.resolveKey(member, this.providerKey(id));
     }
   }
-  async add(member: M, key: string, options: (Omit<SignInOptions, 'via'> & { via?: Via; key?: string }) | CloudOptions = {}): Promise<{ id: string; signIn?: SignIn }> {
+  async add(member: M, key: string, options: AddOptions | CloudOptions = {}): Promise<{ id: string; signIn?: SignIn }> {
     if ('route' in options) return this.addCloud(member, key, options);
+    // A MiniMax device route id (`minimax:code`, `minimax:code:cn`) selects the provider's catalogue device flow,
+    // and `:cn` its China host. `region` is internal: the route ids are the only public selector.
+    if (key === 'minimax:code' || key === 'minimax:code:cn')
+      return this.add(member, 'minimax', { ...options, via: 'code', region: key.endsWith(':cn') ? 'cn' : 'global' });
     // A Google sign-in route id (`google-gemini-cli:browser`, `:paste`) selects that flow for the provider.
     if (key.startsWith('google-gemini-cli:')) {
       const via = key.slice('google-gemini-cli:'.length);
@@ -348,10 +358,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       await this.saveKey(member, id, options.key, { billedPerUse: true });
       return { id, signIn: { id, state: 'done' } };
     }
+    const { region, ...body } = options;
     const p = this.offer(key);
-    if (p.auth === 'api-key' || options.via === 'session') throw new Error('This sign-in method is not available here.');
+    if (p.auth === 'api-key' || body.via === 'session') throw new Error('This sign-in method is not available here.');
     if (key !== p.key) throw new Error('Choose a provider to add an account.');
-    this.signInReady(p, { ...options, via: options.via as SignInOptions['via'] });
+    this.signInReady(p, { ...body, via: body.via as SignInOptions['via'] });
     await this.store(member).index(() => {}); // Validate the storage seam before starting a flow.
     const bytes = new Uint8Array(4);
     let id: string;
@@ -362,7 +373,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       id = `${key}.${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
     } while (this.additions.has(`${member}:${id}`) || await this.store(member).read(id));
     this.additions.set(`${member}:${id}`, memoryStore());
-    const signIn = await this.login(member, id, { ...options, via: options.via as SignInOptions['via'], fresh: true });
+    if (region) this.deviceRegions.set(`${member}:${id}`, region);
+    const signIn = await this.login(member, id, { ...body, via: body.via as SignInOptions['via'], fresh: true });
     return { id, ...(signIn ? { signIn } : {}) };
   }
   /** Explicit Node-only cloud account. Saving never resolves SDK credentials, reads paths or sends a request. */
@@ -432,16 +444,22 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     // A Google sign-in's discovered Code Assist project is non-secret account metadata: it goes in the index beside
     // the email and plan, never into the credential itself.
     const project = googleProject(c);
+    // MiniMax gives no identity, so its region is the identity: one sign-in per region, signing in again replaces it.
+    const region = this.deviceRegions.get(`${member}:${key}`);
     let canonical = key;
     await this.store(member).index((index, data) => {
       if (flow.state !== 'waiting' || flow.abort.signal.aborted) throw new Error('Login cancelled');
       const identity = this.identity(c);
       const entries = Object.entries(data).filter(([id]) => !id.startsWith('.') && this.providerKey(this.publicKey(id)) === p.key);
-      const match = identity && entries.find(([, old]) => this.identity(old as Credential) === identity);
-      canonical = match ? this.publicKey(match[0]) : entries.length ? key : p.key;
+      const match = region ? entries.find(([id]) => (index.accounts?.[id]?.region ?? 'global') === region)
+        : identity && entries.find(([, old]) => this.identity(old as Credential) === identity);
+      // A MiniMax sign-in with no recorded region is the global one: `login` records none, and that was the only form before regions.
+      // A region's account always gets its own id, so its engine can find its region after a restart.
+      canonical = match ? this.publicKey(match[0]) : entries.length || region ? key : p.key;
       data[this.storageKey(canonical)] = c;
       index.addedAt[canonical] ??= Date.now();
-      if (project) (index.accounts ??= {})[canonical] = { ...(index.accounts?.[canonical] ?? {}), route: p.pi, billing: p.billing, project };
+      if (project || region) (index.accounts ??= {})[canonical] = { ...(index.accounts?.[canonical] ?? {}), route: p.pi, billing: p.billing,
+        ...(project ? { project } : {}), ...(region ? { region } : {}) };
       const info = c.type === 'oauth' ? planOf(c.access) : undefined;
       const email = info?.email || (c.type === 'oauth' && typeof c.email === 'string' ? c.email : '');
       if (email) index.emails[canonical] = email;
@@ -450,6 +468,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     this.aliases.set(`${member}:${key}`, canonical);
     flow.id = canonical;
     this.additions.delete(`${member}:${key}`);
+    this.deviceRegions.delete(`${member}:${key}`);
     this.runtimes.delete(`${member}:${key}`);
     return canonical;
   }
@@ -571,13 +590,25 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     };
   }
 
-  protected engine(member: M, raw: CredentialStore, accountId?: string): Promise<R> {
+  protected async engine(member: M, raw: CredentialStore, accountId?: string): Promise<R> {
     const credentials = this.boundStore(member, raw, accountId);
-    const engine = withClaudePlan(this.platform.engine(credentials, this.opts.authBase, this.opts.deviceBase), credentials, accountId ? raw : this.baseStores.get(String(member)) ?? raw, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch });
+    // A sign-in in progress carries its region; a saved account keeps it in the index, so it survives a restart. Only a
+    // provider whose catalogue device row has regions (MiniMax) reads the index; every other provider skips that read.
+    const region = accountId ? this.deviceRegions.get(`${member}:${accountId}`) ?? await this.regionOf(member, accountId) : undefined;
+    const host = withDevice(this.platform.engine(credentials, this.opts.authBase, this.opts.deviceBase), credentials, { deviceBase: this.opts.deviceBase, region, crypto: this.opts.crypto });
+    const engine = withClaudePlan(host, credentials, accountId ? raw : this.baseStores.get(String(member)) ?? raw, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch });
     const callbackPort = this.opts.callbackPort ?? provider('google-gemini-cli').callbackPort!;
-    return Promise.resolve(Object.assign(withGoogle(engine, credentials, { base: this.opts.googleBase, fetch: this.opts.fetch, callbackPort }), {
+    return Object.assign(withGoogle(engine, credentials, { base: this.opts.googleBase, fetch: this.opts.fetch, callbackPort }), {
       credentialStore: credentials, readCredential: (id: string) => credentials.read(id),
-    }) as R);
+    }) as R;
+  }
+
+  /** A saved account's device region, read from the index only for a provider whose device row has regions (MiniMax). */
+  private async regionOf(member: M, accountId: string): Promise<'global' | 'cn' | undefined> {
+    let pi: string;
+    try { pi = this.offer(accountId).pi; } catch { return undefined; }
+    if (!deviceFlow(pi)?.regions) return undefined;
+    return (await this.index(member)).accounts?.[accountId]?.region as 'global' | 'cn' | undefined;
   }
 
   /** A member's engine, holding only their own sign-ins (`store(member)`). Override to use another engine with the same seam. */
@@ -593,12 +624,19 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         const p = this.offer(accountId);
         const staged = this.additions.get(id);
         const raw = staged ?? viewStore(this.store(member), p.pi, this.storageKey(accountId));
-        this.runtimes.set(id, r = this.engine(member, raw, accountId));
+        r = this.engine(member, raw, accountId);
+        // A transient engine failure (a locked store, for one) must not be cached: a later call rebuilds it.
+        r.catch(() => { if (this.runtimes.get(id) === r) this.runtimes.delete(id); });
+        this.runtimes.set(id, r);
       }
       return r;
     }
     let r = this.runtimes.get(String(member));
-    if (!r) this.runtimes.set(String(member), r = this.open(member));
+    if (!r) {
+      r = this.open(member);
+      r.catch(() => { if (this.runtimes.get(String(member)) === r) this.runtimes.delete(String(member)); });
+      this.runtimes.set(String(member), r);
+    }
     return r;
   }
 
@@ -975,13 +1013,20 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   private async accountStatus(member: M, key: string): Promise<Status> {
     if (await this.endpointRecord(member, key)) return this.endpointStatus(member, key);
     if ((await this.index(member)).accounts?.[key]?.cloud) return this.cloudStatus(member, key);
-    const { name } = this.offer(key);
+    const p = this.offer(key);
+    const { name } = p;
     const id = `${member}:${key}`;
     const s = (state: Status['state'], w: WordKey, until?: number): Status => ({ id: key, provider: this.providerKey(key), account: key, name, state, until, words: say(w, { name, until: until ? clock(until) : '' }) });
     if (this.flows.get(id)?.state === 'waiting') return s('signing', 'status.signing');
     const until = this.accountRestingUntil(member, key);
     if (until) return s('resting', this.rests.get(id)!.kind === 'rate_limit' ? 'status.resting' : 'status.busy', until);
-    if (!(this.ready.get(id) ?? await this.checked(member, key))) return this.lapsed.has(id) ? s('needs_again', 'status.needsAgain') : s('signed_out', 'status.signedOut');
+    let ready = this.ready.get(id);
+    // A MiniMax sign-in cannot refresh itself: once its token has run out, ask the engine rather than trust a cached yes.
+    if (ready === true && deviceFlow(p.pi)?.dialect === 'minimax') {
+      const c = await (await this.runtime(member, key)).readCredential(p.pi).catch(() => undefined);
+      if (c?.type === 'oauth' && c.expires <= Date.now()) ready = await this.checked(member, key);
+    }
+    if (!(ready ?? await this.checked(member, key))) return this.lapsed.has(id) ? s('needs_again', 'status.needsAgain') : s('signed_out', 'status.signedOut');
     return this.without.has(id) ? s('not_included', 'status.notIncluded') : s('ready', 'status.ready');
   }
 
@@ -1193,7 +1238,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       waiting.abort();
       if (acquiring) { try { (await acquiring)?.close(); } catch {} }
       close();
-      if (flow.state !== 'done') { this.additions.delete(id); this.runtimes.delete(id); }
+      if (flow.state !== 'done') { this.additions.delete(id); this.deviceRegions.delete(id); this.runtimes.delete(id); }
       this.onChange?.(member, flow.id ?? key);
     }
   }
@@ -1274,6 +1319,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       }
       // A revoked (invalid_grant) or quarantined refresh requires sign-in again. A lost answer, any other refusal (a
       // passing 401 included), a server error or a read failure before sending (a locked keychain) is unknown: try later.
+      if (e instanceof RefreshRequiredError || (e as any)?.revoked === true) return false;
       const status = (e as any)?.status;
       return typeof status !== 'number' || status < 400 || status > 403;
     });

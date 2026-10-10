@@ -84,6 +84,8 @@ export async function mockDevice({ port = 0, host = '127.0.0.1', expiresIn = 360
           // A code_verifier that does not hash to the code step's challenge is refused, as a wrong PKCE verifier is.
           if (form.get('grant_type') !== MINIMAX_GRANT_TYPE || !c || challengeOf(form.get('code_verifier') ?? '') !== c.challenge)
             return send(cases.error.status, cases.error.body);
+          // A code the person refused on the page answers the provider's own error status, and keeps no token.
+          if (c.denied) return send(cases.error.status, cases.error.body);
           if (c.approved) { codes.delete(form.get('user_code')!); return send(cases.success.status, cases.success.body); }
           return send(cases.pending.status, cases.pending.body);
         }
