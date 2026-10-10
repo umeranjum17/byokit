@@ -123,11 +123,12 @@ export function useChatGptSheet() {
 | `useRun`, `useApprovals`, `useHerdrTree`, `useBlocked` | React hooks over those stores |
 | `connectView(routes, step?)`, `connectStep(step, action)` | Every account route the kits list, grouped by how the person pays, with the picked row and its key card |
 | `signInFor(view, { read, start?, cancel })`, `useConnect({ routes, read, start?, cancel })` | `useSignIn`'s options for the picked sign-in row; the hook holds the step |
-| Types | `Phase`, `SignInView`, `AccountView`, `UseSignIn`, `Route`, `RouteChoice`, `RouteCode`, `PairPhase`, `Role`, `DeviceKind`, `LinkStatus`; `RouteKind` from `@byokit/ui/route` |
+| `accountRows(accounts, room, now)`, `rowsOf(source, now)`, `nameSuggestions(email, taken, provider?)` | One plain-words row per account (`ChatGPT · Work` / `Plus · 72% left this week`), the honest words for every sign-in state, and untaken account-name suggestions |
+| Types | `Phase`, `SignInView`, `AccountView`, `UseSignIn`, `Route`, `RouteChoice`, `RouteCode`, `PairPhase`, `Role`, `DeviceKind`, `LinkStatus`; `RouteKind` from `@byokit/ui/route`; `Account`, `AccountRow`, `AccountAction`, `AccountsSource`, `Billing`, `Room`, `RoomSpan`, `SignInState` from `@byokit/ui/accounts` |
 
 Entry points: `@byokit/ui` (everything, including the React hooks), `@byokit/ui/phase`,
-`@byokit/ui/route`, `@byokit/ui/link`, `@byokit/ui/kits`, `@byokit/ui/steps` and
-`@byokit/ui/connect` (no React dependency).
+`@byokit/ui/route`, `@byokit/ui/link`, `@byokit/ui/kits`, `@byokit/ui/steps`,
+`@byokit/ui/connect` and `@byokit/ui/accounts` (no React dependency).
 
 ## Sign-in phases
 
@@ -209,6 +210,31 @@ A key route's `chosen.key` is the existing `keyView` card, labelled for its bill
 (charged per use)"); submit the input straight to the kit and dispatch only `{ type: 'result', result }`.
 `useConnect({ routes, read, start?, cancel })` holds the step in React and returns the view with `pick`, `back`,
 `act` and `signIn`, the options to pass to `useSignIn` in a sheet keyed by `chosen.row.key`.
+
+## Account rows
+
+`accountRows(accounts, room, now)` (also `@byokit/ui/accounts`, no React) turns a list of accounts and a room reading
+into one plain row each: the provider and the person's own name for the account (`ChatGPT · Work`), then the plan and
+the room left (`Plus · 72% left this week`). A row also carries `state`, `billing`, `low` (room left at or below 20%,
+exactly 20 included, never true for an unknown room) and, when it helps, an `action`: `sign_in` for a signed-out or
+lapsed account, `wait` plus the `until` refill time for a resting one. `accountRows` reads only the fields it names,
+so a credential on an account never reaches a row. A row that is not ready shows its own honest words ("Checking…",
+"Cooling down", "Not signed in", "Sign in again", "Not in your plan") instead of the room.
+
+`AccountsSource` is the shape an app fills from its own back end — `accounts()` and `room(account)` — and `rowsOf(source, now)`
+awaits both and builds the same rows; `@byokit/accounts` `list()` and a room reading fit it with one line per member.
+`nameSuggestions(email, taken, provider?)` offers up to three untaken account names from an email's local part
+(deduped case-insensitively against `taken`), falling back to the provider's name; the email itself is never offered.
+
+```ts
+import { accountRows, nameSuggestions, type Account, type Room } from '@byokit/ui/accounts';
+
+declare const list: () => readonly Account[];
+declare const reading: (account: Account) => Room;
+const rows = accountRows(list(), reading, Date.now());
+// rows → [{ title: 'ChatGPT · Work', detail: 'Plus · 72% left this week', state: 'ready', low: false, ... }]
+console.log(nameSuggestions('umer@example.com', rows.map((r) => r.title)));
+```
 
 ## Pairing words
 

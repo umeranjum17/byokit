@@ -7,3 +7,4 @@ export * from './kits.ts';
 export { useApprovals, useBlocked, useHerdrTree, useRun } from './useKits.ts';
 export { connectStep, connectView, signInFor, type ConnectAction, type ConnectDoes, type ConnectGroup, type ConnectGroupId, type ConnectRoute, type ConnectRow, type ConnectStep, type ConnectView, type ConnectWords, type UseConnectSignIn } from './connect.ts';
 export { useConnect, type UseConnect } from './useConnect.ts';
+export { accountRows, nameSuggestions, rowsOf, type Account, type AccountAction, type AccountRow, type AccountsSource, type Billing, type Room, type RoomSpan, type SignInState } from './accounts.ts';

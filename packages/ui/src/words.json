@@ -48,5 +48,16 @@
   "key.checking": "Checking your key…",
   "key.ok": "Your key is ready. It is used only when you choose this option.",
   "key.invalid": "This key could not be saved. Check it and try again.",
-  "key.notIncluded": "This option is not available here."
+  "key.notIncluded": "This option is not available here.",
+
+  "account.signing": "Checking…",
+  "account.resting": "Cooling down",
+  "account.signed_out": "Not signed in",
+  "account.needs_again": "Sign in again",
+  "account.not_included": "Not in your plan",
+  "account.room.unknown": "Room left unknown",
+  "account.room.session": "{left} left this session",
+  "account.room.week": "{left} left this week",
+  "account.room.month": "{left} left this month",
+  "account.room.tightest": "{left} left for now"
 }
