@@ -1334,7 +1334,7 @@ app. `app.plugin.js` adds nothing to the manifest.
   `expo-modules-core` external. It fails on
   any `node:*` import, and on any `expo-modules-core` import outside `rn.ts` and `focused-field.rn.ts`. The JVM tests
   run in the `overlay-android` job.
-- **secrets, isolation.** The `keystore run under a locked-down permission set` journey in
+- **secrets, isolation.** The journey "a keystore run under a locked-down permission set" in
   `test/journey-secrets.test.ts` puts a decoy HOME beside the throwaway one and runs a
   child `node --permission --allow-fs-read=<repo> --allow-fs-write=<scratch> --allow-child-process` that stores a
   canary through the fake keyring CLIs (both tools) and the passphrase file under scratch. A control read of the
@@ -1772,8 +1772,8 @@ Explicit headless selection uses `hostKeySeal` with a separately provisioned 32-
 resolver. It creates no key, saves no key and has no plaintext fallback. The host owns key rotation and
 old-key backup retention; the mode-0 wire has a zero id and no key version. Resolver failures are sanitized.
 
-Acceptance: fake-only native/keyring journeys (`test/journey-secrets.test.ts`) exercise accounts' real fileStore, rotation, tamper/wrong
-key rejection with no overwrite, dropped/failed key writes, unavailable storage and explicit headless
+Acceptance: fake-only native/keyring journeys (`test/journey-secrets.test.ts`) exercise accounts' real fileStore,
+rotation, tamper/wrong key rejection with no overwrite, dropped/failed key writes, unavailable storage and explicit headless
 sealing. Opt-in real Linux tests run in CI's own disposable D-Bus/Secret Service session, skipping when
 unavailable unless CI requires the provisioned service. `scripts/test-keyring.sh` clears inherited desktop
 settings and creates private HOME/XDG/control directories; the test asserts the private bus before any

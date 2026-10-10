@@ -219,12 +219,12 @@ closed (automatic selection falls back to the file key); hosts must bundle its p
   cannot reliably be erased. Never log keys, credentials or decrypted content.
 
 Tests drive the built package the way a host app does: `test/journey-secrets.test.ts` imports the published
-entries `@byokit/secrets`, `@byokit/secrets/web`, `@byokit/secrets/native` and `@byokit/accounts`, plus three test
-helpers (fake keyring CLIs, the real-keyring guard and scratch dirs), and cross-process cases run the built
-`dist/index.js`. Fake keyring CLIs keep the owner's keyring untouched. A real Linux test is opt-in through
-`sh scripts/test-keyring.sh`, which clears the environment and creates a private HOME, XDG tree, D-Bus
-and daemon control directory. The test asserts the bus is the private one and refuses inherited desktop
-settings before any native call. Setting `BYOKIT_REAL_KEYRING` alone cannot authorize a real test.
+entries `@byokit/secrets`, `@byokit/secrets/web`, `@byokit/secrets/native`, `@byokit/accounts` and `@byokit/seal`,
+the dev-only `esbuild` and `fake-indexeddb`, plus three test helpers (fake keyring CLIs, the real-keyring guard and
+scratch dirs), and cross-process cases run the built `dist/index.js`. Fake keyring CLIs keep the owner's keyring
+untouched. A real Linux test is opt-in through `sh scripts/test-keyring.sh`, which clears the environment and
+creates a private HOME, XDG tree, D-Bus and daemon control directory. The test asserts the bus is the private
+one and refuses inherited desktop settings before any native call. Setting `BYOKIT_REAL_KEYRING` alone cannot authorize a real test.
 Without an available Secret Service the opt-in test skips, unless CI requires the provisioned service.
 CI runs the same isolated harness. The journeys cover keyring lookup and label scoping, keystore
 read/write/delete, sealing and unsealing with wrong-key, tampered and truncated input refused,

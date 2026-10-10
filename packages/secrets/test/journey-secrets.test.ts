@@ -2,9 +2,9 @@
 // `keyringStore`, `fileStore`, `overrideStore`, `osKeyringStore`, and the sealing adapters
 // (`osKeyringSeal`, `hostKeySeal`, `hostKeyFileSeal`) are what a host passes around; `@byokit/secrets/web` and
 // `@byokit/secrets/native` are the browser and phone entries; `@byokit/accounts` is the accounts file a sealing
-// adapter protects. The journeys import those published entries plus three test helpers: `fake-cli.ts` (fake keyring
-// tools), `private-session.ts` (the real-keyring guard) and `scratchDir` from test-support. Cross-process cases spawn
-// the built `dist/index.js`. Each journey folds the security and correctness contracts it covers into its assertions.
+// adapter protects; `@byokit/seal` opens a raw envelope. The journeys also import the dev-only `esbuild` and
+// `fake-indexeddb`, plus three test helpers: `fake-cli.ts` (fake keyring tools), `private-session.ts` (the real-keyring
+// guard) and `scratchDir` from test-support. Cross-process cases spawn the built `dist/index.js`. Each journey folds the security and correctness contracts it covers into its assertions.
 // The journeys never touch the owner's keyring: keyring work drives fake CLIs, or a private D-Bus session started
 // for the test.
 import { test } from 'node:test';
