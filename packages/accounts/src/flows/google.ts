@@ -20,6 +20,9 @@ export type GoogleProtocol = {
   /** The upstream fresh-sign-in parameters the client sends (the C3 decision: whichever the parity snapshot uses). */
   authorizeParams: Record<string, string>;
   callback: { hostname: string; path: string };
+  /** Cloud Code Assist: the service that holds the account's project, and the client metadata its calls carry. */
+  codeAssist: string;
+  metadata: Record<string, string>;
 };
 
 /** Public client id, reused from the open-source upstream CLI as the upstream implementation does. No secret. */
@@ -32,6 +35,8 @@ export const GOOGLE_CLIENTS: Record<GoogleClient, GoogleProtocol> = {
     scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile'],
     authorizeParams: { access_type: 'offline', prompt: 'consent' },
     callback: { hostname: '127.0.0.1', path: '/oauth2callback' },
+    codeAssist: 'https://cloudcode-pa.googleapis.com',
+    metadata: { ideType: 'IDE_UNSPECIFIED', platform: 'PLATFORM_UNSPECIFIED', pluginType: 'GEMINI' },
   },
 };
 
@@ -95,6 +100,58 @@ export function googleCode(paste: string, state: string) {
   return code;
 }
 
+/** An individual Google account with no allowed Code Assist tier (the sunset): the sign-in is refused, and the caller
+ *  keeps nothing. The message is only read for the person's plain sentence; the tier answer never reaches a log. */
+export class CodeAssistIneligibleError extends Error {
+  readonly status = 403;
+  constructor() { super('This Google account is not eligible for Gemini Code Assist. Try another account.'); this.name = 'CodeAssistIneligibleError'; }
+}
+
+/** The project each freshly signed-in credential discovered, keyed by the credential object itself. It is non-secret
+ *  account metadata: it never enters the credential, a log or an error, and the accounts index records it by account id. */
+const projects = new WeakMap<object, string>();
+export const googleProject = (c: unknown): string | undefined => typeof c === 'object' && c ? projects.get(c as object) : undefined;
+
+/** Cloud Code Assist host, or the app's stand-in (`googleBase`) in tests. */
+const codeAssistHost = (client: GoogleProtocol, base?: string) => base ? base.replace(/\/+$/, '') : client.codeAssist;
+
+/** The account's Code Assist project id after a fresh sign-in: the one it already has, or the default tier's onboardUser
+ *  result, whose operation is polled until done. An account with no allowed tier ends the sign-in typed, and nothing is
+ *  kept. The id is returned, never logged or thrown; only the plain refusal is. */
+async function codeAssistProject(client: GoogleProtocol, access: string, doFetch: typeof fetch, base: string | undefined, signal?: AbortSignal): Promise<string> {
+  const headers = { 'content-type': 'application/json', accept: 'application/json', authorization: `Bearer ${access}` };
+  const call = async (method: string, body?: Record<string, unknown>) => {
+    let res: Response;
+    try { res = await doFetch(`${codeAssistHost(client, base)}/v1internal:${method}`, { method: 'POST', signal: bounded(signal), headers, ...(body ? { body: JSON.stringify(body) } : {}) }); }
+    catch { throw Object.assign(new Error('Google could not set up Code Assist on this connection.'), { status: 0 }); }
+    const text = await res.text().catch(() => '');
+    if (!res.ok) throw Object.assign(new Error('Google could not set up Code Assist for this account.'), { status: res.status });
+    try { return JSON.parse(text); } catch { throw new Error('Google could not set up Code Assist for this account.'); }
+  };
+  const idOf = (value: any): string | undefined => typeof value === 'string' ? value : typeof value?.id === 'string' ? value.id : undefined;
+  const loaded = await call('loadCodeAssist', { metadata: client.metadata });
+  // An account can carry an ineligible free tier beside the project it already has or a paid tier it is allowed: take
+  // the project it has first; only an account with no project and no allowed tier to onboard is refused.
+  const existing = idOf(loaded?.cloudaicompanionProject);
+  if (existing) return existing;
+  const tiers: any[] = Array.isArray(loaded?.allowedTiers) ? loaded.allowedTiers : [];
+  const tier = tiers.find((t) => t?.isDefault) ?? tiers[0];
+  if (!tier) throw new CodeAssistIneligibleError();
+  let operation = await call('onboardUser', { ...(tier?.id ? { tierId: String(tier.id) } : {}), metadata: client.metadata });
+  for (let tries = 0; !operation?.done && operation?.name && tries < 20; tries++) {
+    if (signal?.aborted) throw new Error('Login cancelled');
+    await new Promise((r) => setTimeout(r, 500));
+    let res: Response;
+    try { res = await doFetch(`${codeAssistHost(client, base)}/v1internal/${operation.name}`, { signal: bounded(signal), headers }); }
+    catch { throw Object.assign(new Error('Google could not set up Code Assist on this connection.'), { status: 0 }); }
+    if (!res.ok) throw Object.assign(new Error('Google could not set up Code Assist for this account.'), { status: res.status });
+    operation = await res.json().catch(() => ({}));
+  }
+  const provisioned = idOf(operation?.response?.cloudaicompanionProject);
+  if (!provisioned) throw new Error('Google could not set up Code Assist for this account.');
+  return provisioned;
+}
+
 const credential = (j: any, now: number, previous?: string): OAuthCredential => {
   if (typeof j?.access_token !== 'string' || !j.access_token || typeof j.expires_in !== 'number' || !Number.isFinite(j.expires_in) || j.expires_in <= 0)
     throw new Error('Google could not complete the sign-in. Try signing in again.');
@@ -135,7 +192,12 @@ export function withGoogle(engine: AuthHost, credentials: CredentialStore, optio
     // The email is display metadata: a failed lookup leaves the account without one rather than failing the sign-in.
     const info = await (options.fetch ?? fetch)(at(client.userinfo, options.base), { headers: { authorization: `Bearer ${grant.access}`, accept: 'application/json' }, signal: bounded(signal) }).catch(() => undefined);
     const email = info?.ok ? String((await info.json().catch(() => null) as { email?: string } | null)?.email ?? '') : '';
+    // Code Assist discovery runs before the sign-in is saved, so a refused account keeps no credential at all. The
+    // project id is held beside the credential (non-secret metadata) and never written into it.
+    const project = await codeAssistProject(client, grant.access, options.fetch ?? fetch, options.base, signal);
+    if (signal?.aborted) throw new Error('Login cancelled');
     const c = { ...grant, ...(email ? { accountId: email, email } : {}) } as OAuthCredential;
+    projects.set(c, project);
     if (signal?.aborted) throw new Error('Login cancelled');
     try { await credentials.modify(id, async () => c, { signal }); }
     catch { throw new Error('Google sign-in could not be saved on this device. Try signing in again.'); }

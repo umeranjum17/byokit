@@ -14,8 +14,9 @@ export const clock = (t: number) => (new Date(t).toDateString() === new Date().t
   new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).toLowerCase();
 
 /** Why a sign-in failed, from the engine's own error. */
-export type Why = 'expired' | 'declined' | 'offline' | 'deviceCodeOff' | 'busy' | 'tooLong' | 'failed';
+export type Why = 'expired' | 'declined' | 'offline' | 'deviceCodeOff' | 'busy' | 'tooLong' | 'notIncluded' | 'failed';
 export function failure(error: string): Why {
+  if (/not eligible|ineligible|no .*tier/i.test(error)) return 'notIncluded'; // the account's plan has no such use
   if (/token exchange failed|missing fields|accountId/i.test(error)) return 'failed'; // said yes on the page, refused after
   if (/expired|expire/i.test(error)) return 'expired';
   if (/denied|declined|access_denied|rejected|cancel/i.test(error)) return 'declined';

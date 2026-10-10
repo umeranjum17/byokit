@@ -7,7 +7,7 @@ import type { Api, ApiStreamOptions, AssistantMessage, AssistantMessageEventStre
 import { cloudSelection, CloudAccountError, type CloudOptions, type CloudStream } from './cloud.ts';
 import type { AiBinding } from '@earendil-works/pi-ai/api/cloudflare-ai-binding';
 import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfile, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
-import { googleRevoke, googleRevokeUrl, isGoogleClient, withGoogle } from './flows/google.ts';
+import { googleProject, googleRevoke, googleRevokeUrl, isGoogleClient, withGoogle } from './flows/google.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
 import { offered, provider, route, routes, PROVIDERS, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
@@ -428,6 +428,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const p = this.offer(key);
     const c = await staged.read(p.pi);
     if (!c) throw new Error('No usable sign-in.');
+    // A Google sign-in's discovered Code Assist project is non-secret account metadata: it goes in the index beside
+    // the email and plan, never into the credential itself.
+    const project = googleProject(c);
     let canonical = key;
     await this.store(member).index((index, data) => {
       if (flow.state !== 'waiting' || flow.abort.signal.aborted) throw new Error('Login cancelled');
@@ -437,6 +440,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       canonical = match ? this.publicKey(match[0]) : entries.length ? key : p.key;
       data[this.storageKey(canonical)] = c;
       index.addedAt[canonical] ??= Date.now();
+      if (project) (index.accounts ??= {})[canonical] = { ...(index.accounts?.[canonical] ?? {}), route: p.pi, billing: p.billing, project };
       const info = c.type === 'oauth' ? planOf(c.access) : undefined;
       const email = info?.email || (c.type === 'oauth' && typeof c.email === 'string' ? c.email : '');
       if (email) index.emails[canonical] = email;
