@@ -1,0 +1,1 @@
+- The README's managed CLI section now states the planned signed-out launch contract (MS-S2): `launch(id)` gates on `status`, refuses with `signed_out` ("Sign in to {name} first.") or `not_included`, and never falls back to the default login. Docs only; no typed surface changed.
