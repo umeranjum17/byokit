@@ -37,6 +37,21 @@ function put(path: string, bytes: Uint8Array): void {
     syncDir(dirname(path));
   } finally { rmSync(tmp, { force: true }); }
 }
+// Restore-only variant of put(): the same temp write, file fsync and atomic rename, but it records the
+// containing directory in `changed` instead of fsyncing it now. restore() fsyncs each distinct directory
+// once after every file is written, so a restore still makes each rename durable before it removes the
+// restoring marker, without one directory fsync per object. seal() and the stop path keep put().
+function putRestore(path: string, bytes: Uint8Array, changed: Set<string>): void {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const tmp = `${path}.sealing-${process.pid}`;
+  try {
+    writeFileSync(tmp, bytes, { mode: 0o600, flag: 'wx' });
+    const fd = openSync(tmp, 'r');
+    try { fsyncSync(fd); } finally { closeSync(fd); }
+    renameSync(tmp, path);
+    changed.add(dirname(path));
+  } finally { rmSync(tmp, { force: true }); }
+}
 // Always written as `v: 1`: released readers through 0.6.1 reject any other tag, so 0.6.2's `v: 2` locked a host
 // rolled back to an earlier kit out of its sign-in. `v: 2` stays readable and re-seals as `v: 1`. The engine
 // databases are objects, not blob entries, so a host rolled back to an earlier kit keeps the blob's credentials
@@ -360,24 +375,36 @@ export class AuthStore {
     removeMarker(this.cleanup);
   }
 
+  /** `mkdir -p` for a restore target that records the parent of every directory it creates: a new directory
+   *  changes its parent's entries, so the parent needs a directory fsync too. Stops at the store root (it exists)
+   *  and never fsyncs now; restore() fsyncs the collected directories once after all files are written. */
+  private ensureRestoreDirs(dir: string, changed: Set<string>): void {
+    const created: string[] = [];
+    for (let d = dir; d !== this.o.root && d !== dirname(d) && !existsSync(d); d = dirname(d)) created.push(d);
+    for (const d of created.reverse()) { mkdirSync(d, { mode: 0o700 }); changed.add(dirname(d)); }
+  }
   private async restore(): Promise<void> {
     if (!this.o.seal) return;
     const saved = await this.read();
     // A crashed host may leave a newer live state; prepare seals that before restore.
     put(this.restoring, encoder.encode('1'));
+    const changed = new Set<string>();
     if (saved) {
       for (const dir of saved.dirs.sort((a, b) => a.split('/').length - b.split('/').length))
-        mkdirSync(join(this.o.root, dir), { recursive: true, mode: 0o700 });
-      for (const [path, data] of saved.files) put(join(this.o.root, path), Buffer.from(data, 'base64'));
+        this.ensureRestoreDirs(join(this.o.root, dir), changed);
+      for (const [path, data] of saved.files) putRestore(join(this.o.root, path), Buffer.from(data, 'base64'), changed);
     }
     if (existsSync(this.objects)) {
       for (const entry of readdirSync(this.objects)) {
         const [path, data, payload] = this.readObject(join(this.objects, entry));
         this.objectHashes.set(entry, objectHash(payload));
-        put(join(this.o.root, path), Buffer.from(data, 'base64'));
+        putRestore(join(this.o.root, path), Buffer.from(data, 'base64'), changed);
       }
     }
-    for (const dir of ['state', 'home']) mkdirSync(join(this.o.root, dir), { recursive: true, mode: 0o700 });
+    for (const dir of ['state', 'home']) this.ensureRestoreDirs(join(this.o.root, dir), changed);
+    // Each restored file's content is durable already (putRestore fsyncs it); every rename and every new
+    // directory entry is made durable here, once per distinct directory, before the marker is removed.
+    for (const dir of changed) syncDir(dir);
     removeMarker(this.restoring);
   }
   async archives(): Promise<void> {

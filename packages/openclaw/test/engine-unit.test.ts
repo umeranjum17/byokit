@@ -1365,3 +1365,60 @@ test('a failed post-write seal verify leaves no hash claim, so the next stop res
     assert.equal(holdsPlaintext(root, Buffer.from('transcript row one')), false, 'no plaintext transcript survives the retry');
   } finally { removeScratch(dir); }
 });
+
+// Restore writes many objects with one file fsync each and then one directory fsync per distinct directory
+// (including every ancestor created), all before the restoring marker is removed. A crash after the last rename
+// but before those directory fsyncs and the marker removal must keep the sealed store intact: a fresh
+// prepare()+start() restores every object byte-identical and no plaintext survives the recovery stop.
+test('restore of many objects keeps every byte and recovers byte-identically after a crash before the marker removal', { timeout: 120_000 }, async (t) => {
+  const dir = scratchDir('seal-restore-batch');
+  const root = join(dir, 'openclaw');
+  const seal = hostKeySeal({ key: new Uint8Array(32).fill(11) });
+  const canary = Buffer.from('byokit-restore-batch-canary');
+  const stores: [string, Buffer][] = [];
+  for (let i = 0; i < 40; i++) {
+    const isMedia = (i + 1) % 4 === 0;
+    const name = isMedia ? `state/media/attachments/clip-${i}.bin` : `state/transcripts/run-${i}/transcript.jsonl`;
+    const bytes = randomBytes(isMedia ? 200 * 1024 : 2048);
+    canary.copy(bytes, 0);
+    stores.push([name, bytes]);
+  }
+  const digests = new Map(stores.map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
+  const open = () => new AuthStore({ root, stateDir: dir, engineDir: join(dir, 'engine'), seal });
+  const objectCount = () => fs.readdirSync(join(root, 'auth-store.objects')).length;
+  try {
+    for (const [name, bytes] of stores) { mkdirSync(dirname(join(root, name)), { recursive: true }); writeFileSync(join(root, name), bytes); }
+    mkdirSync(join(root, 'state'), { recursive: true });
+    writeFileSync(join(root, 'state', 'auth.json'), 'saved-login');
+    const store = open();
+    await store.prepare();
+    assert.equal(objectCount(), stores.length, 'every store is sealed as its own object');
+    await store.start();
+    for (const [name, digest] of digests) assert.equal(digestOf(join(root, name)), digest, `restored byte-identical: ${name}`);
+    await store.stop();
+    assert.equal(holdsPlaintext(root, canary), false, 'no plaintext survives an ordinary stop');
+    assert.equal(objectCount(), stores.length, 'the ordinary stop kept every sealed object');
+
+    // Crash injection: fail once on the restoring marker, i.e. after every file is written, fsynced and renamed
+    // but before the directory fsyncs and the marker removal.
+    const originalRm = fs.rmSync;
+    t.mock.method(fs, 'rmSync', (...args: Parameters<typeof fs.rmSync>) => {
+      if (String(args[0]).endsWith('auth-store.restoring')) throw new Error('unit crash before marker removal');
+      return originalRm(...args);
+    });
+    syncBuiltinESMExports();
+    await assert.rejects(open().start(), /unit crash before marker removal/, 'the mid-restore crash surfaces');
+    assert.equal(existsSync(join(root, 'auth-store.restoring')), true, 'the restoring marker survived the crash');
+    for (const [name, digest] of digests) assert.equal(digestOf(join(root, name)), digest, `a file written before the crash is complete: ${name}`);
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+
+    const recovered = open();
+    await recovered.prepare();
+    await recovered.start();
+    for (const [name, digest] of digests) assert.equal(digestOf(join(root, name)), digest, `a fresh prepare+start restores byte-identical: ${name}`);
+    assert.equal(objectCount(), stores.length, 'every sealed object survived the mid-restore crash');
+    await recovered.stop();
+    assert.equal(holdsPlaintext(root, canary), false, 'no plaintext survives the recovery stop');
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports(); removeScratch(dir); }
+});
