@@ -249,7 +249,8 @@ kit listens there itself, so the tab shows your app's words (`new Accounts({ app
 true. If another process holds the fixed callback port, `login` waits before starting OAuth or returning a page to
 open; it starts automatically when the port is free, without restarting the ceremony. The wait respects `cancel`
 and the overall `signInMs` deadline (15 minutes by default), and is not FIFO. Within one process, a second flow
-using the same port takes the code route instead (or paste for providers without device code).
+using the same port takes the code route instead; a provider with no device code (Google) waits for the same port
+the holder uses and offers its pasted-address view at once, and serves the browser return if the port frees.
 
 A code takes over when asked ("Having trouble?") or when the page never comes back. The `redirectMs` fallback
 clock starts after acquiring the callback port, so waiting for another process does not consume it.
