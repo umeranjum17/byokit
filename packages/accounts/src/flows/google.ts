@@ -8,8 +8,8 @@ import type { AuthInteraction, CredentialStore, OAuthCredential } from '@earendi
 import type { AuthHost } from '../accounts.ts';
 import { RefreshRequiredError, refreshCredential, revoked } from '../stores.ts';
 
-/** The Pi provider id this flow signs in to. */
-export type GoogleClient = 'google-gemini-cli';
+/** The Pi provider id this flow signs in to. Both Google clients reuse the one flow; they differ in data only. */
+export type GoogleClient = 'google-gemini-cli' | 'google-antigravity';
 
 export type GoogleProtocol = {
   authorize: string;
@@ -19,13 +19,14 @@ export type GoogleProtocol = {
   scopes: string[];
   /** The upstream fresh-sign-in parameters the client sends (the C3 decision: whichever the parity snapshot uses). */
   authorizeParams: Record<string, string>;
-  callback: { hostname: string; path: string };
+  /** The loopback host, path and the fixed port the client registers; the port comes from here unless an app moves it. */
+  callback: { hostname: string; path: string; port: number };
   /** Cloud Code Assist: the service that holds the account's project, and the client metadata its calls carry. */
   codeAssist: string;
   metadata: Record<string, string>;
 };
 
-/** Public client id, reused from the open-source upstream CLI as the upstream implementation does. No secret. */
+/** Public client id, reused from the open-source upstream as the upstream implementations do. No secret. */
 export const GOOGLE_CLIENTS: Record<GoogleClient, GoogleProtocol> = {
   'google-gemini-cli': {
     authorize: 'https://accounts.google.com/o/oauth2/v2/auth',
@@ -34,9 +35,20 @@ export const GOOGLE_CLIENTS: Record<GoogleClient, GoogleProtocol> = {
     clientId: '681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com',
     scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile'],
     authorizeParams: { access_type: 'offline', prompt: 'consent' },
-    callback: { hostname: '127.0.0.1', path: '/oauth2callback' },
+    callback: { hostname: '127.0.0.1', path: '/oauth2callback', port: 8085 },
     codeAssist: 'https://cloudcode-pa.googleapis.com',
     metadata: { ideType: 'IDE_UNSPECIFIED', platform: 'PLATFORM_UNSPECIFIED', pluginType: 'GEMINI' },
+  },
+  'google-antigravity': {
+    authorize: 'https://accounts.google.com/o/oauth2/v2/auth',
+    token: 'https://oauth2.googleapis.com/token',
+    userinfo: 'https://www.googleapis.com/oauth2/v1/userinfo?alt=json',
+    clientId: '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com',
+    scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile', 'https://www.googleapis.com/auth/cclog', 'https://www.googleapis.com/auth/experimentsandconfigs'],
+    authorizeParams: { access_type: 'offline', prompt: 'consent' },
+    callback: { hostname: '127.0.0.1', path: '/oauth-callback', port: 51121 },
+    codeAssist: 'https://daily-cloudcode-pa.googleapis.com',
+    metadata: { ideType: 'ANTIGRAVITY' },
   },
 };
 
@@ -44,8 +56,8 @@ export type GoogleOptions = {
   fetch?: typeof fetch;
   /** A stand-in base for offline tests and demos (`mockGoogle()` from @byokit/accounts/testing). */
   base?: string;
-  /** The loopback port the kit listens on; the redirect address names it, so the browser returns to the listener. */
-  callbackPort: number;
+  /** An app-set loopback port, moved off the client's fixed one; the redirect address and the listener move together. */
+  callbackPort?: number;
 };
 
 const base64url = (bytes: Uint8Array) => btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -59,6 +71,9 @@ export const googleRedirect = (client: GoogleProtocol, port: number) => `http://
 
 /** Whether a Pi provider id is a Google client this flow signs in. */
 export const isGoogleClient = (pi: string): pi is GoogleClient => pi in GOOGLE_CLIENTS;
+
+/** The Google client a `google-...:<via>` route id names, so the kit routes both clients to this one flow. */
+export const googleRouteClient = (id: string): GoogleClient | undefined => (Object.keys(GOOGLE_CLIENTS) as GoogleClient[]).find((client) => id.startsWith(`${client}:`));
 
 /** Google's documented OAuth revoke endpoint, on the `googleBase` stand-in when an app sets one. The refresh token goes
  *  only to Google's own host (or its stand-in); `authBase` is OpenAI's and never receives a Google call. */
@@ -80,7 +95,7 @@ export async function googleAuthorization(id: GoogleClient, options: GoogleOptio
   const verifier = base64url(crypto.getRandomValues(new Uint8Array(32)));
   const state = base64url(crypto.getRandomValues(new Uint8Array(32)));
   const challenge = base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
-  const redirect = googleRedirect(client, options.callbackPort);
+  const redirect = googleRedirect(client, options.callbackPort ?? client.callback.port);
   const url = new URL(at(client.authorize, options.base));
   url.search = new URLSearchParams({ response_type: 'code', client_id: client.clientId, redirect_uri: redirect,
     scope: client.scopes.join(' '), state, code_challenge: challenge, code_challenge_method: 'S256', ...client.authorizeParams }).toString();
@@ -104,7 +119,7 @@ export function googleCode(paste: string, state: string) {
  *  keeps nothing. The message is only read for the person's plain sentence; the tier answer never reaches a log. */
 export class CodeAssistIneligibleError extends Error {
   readonly status = 403;
-  constructor() { super('This Google account is not eligible for Gemini Code Assist. Try another account.'); this.name = 'CodeAssistIneligibleError'; }
+  constructor() { super('This Google account is not eligible for Code Assist. Try another account.'); this.name = 'CodeAssistIneligibleError'; }
 }
 
 /** The project each freshly signed-in credential discovered, keyed by the credential object itself. It is non-secret

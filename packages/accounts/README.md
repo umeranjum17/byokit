@@ -151,6 +151,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | OpenRouter (API billing) | Pi's browser callback or paste; explicit API selection and device-owned `keyStore` required | Not yet | Not yet |
 | Radius (billing set by gateway) | Pi's browser callback (1456) or device code; explicit-only | Not yet | Not yet |
 | Gemini Code Assist (subscription) | Google's own page, back to this computer's port 8085, or paste the address it lands on | Not yet | Not yet |
+| Antigravity (subscription) | Google's own page, back to this computer's port 51121, or paste the address it lands on | Not yet | Not yet |
 | Grok, Kimi | Pi's device flows; the same RFC 8628 flow from their catalogue `device` rows | Device code | Device code |
 | Copilot, Meta | Pi's device flows; Copilot accepts an Enterprise domain | No | No |
 | Where sign-ins are kept | `machineStore(member, seal)`, shared by every app on the computer; or `fileStore(path, seal)` | `browserStore(name)` (IndexedDB) | `secureStore(SecureStore, name)` (Keychain, Keystore) |
@@ -426,8 +427,8 @@ tests and demos sign in and ask end to end with no account. Point the kit at it 
 polling and refresh on that provider's own documented endpoints. Point the kit at it with
 `new Accounts({ deviceBase, store: () => memoryStore() })`.
 
-`mockGoogle()` stands in for Gemini Code Assist's sign-in on a computer: its authorize page, the loopback return, the
-token exchange, refresh, userinfo, sign-out revoke and project answers. Point the kit at it with
+`mockGoogle()` stands in for the Gemini Code Assist and Antigravity sign-ins on a computer: their authorize page, the
+loopback return, the token exchange, refresh, userinfo, sign-out revoke and project answers. Point the kit at it with
 `new Accounts({ googleBase, store: () => memoryStore() })`.
 
 ## Links

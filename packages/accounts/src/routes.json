@@ -672,6 +672,54 @@
     }
   },
   {
+    "id": "google-antigravity:browser",
+    "provider": "google-antigravity",
+    "name": "Antigravity",
+    "company": "Google",
+    "label": "Uses your Antigravity plan",
+    "aliases": [],
+    "via": "browser",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "google-antigravity",
+      "method": "oauth",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
+    "id": "google-antigravity:paste",
+    "provider": "google-antigravity",
+    "name": "Antigravity",
+    "company": "Google",
+    "label": "Uses your Antigravity plan",
+    "aliases": [],
+    "via": "paste",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "no",
+      "rn": "no"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "google-antigravity",
+      "method": "oauth",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
     "id": "google-gemini-cli:browser",
     "provider": "google-gemini-cli",
     "name": "Gemini Code Assist",

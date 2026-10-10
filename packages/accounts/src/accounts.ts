@@ -7,7 +7,7 @@ import type { Api, ApiStreamOptions, AssistantMessage, AssistantMessageEventStre
 import { cloudSelection, CloudAccountError, type CloudOptions, type CloudStream } from './cloud.ts';
 import type { AiBinding } from '@earendil-works/pi-ai/api/cloudflare-ai-binding';
 import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfile, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
-import { googleProject, googleRevoke, googleRevokeUrl, isGoogleClient, withGoogle } from './flows/google.ts';
+import { googleProject, googleRevoke, googleRevokeUrl, googleRouteClient, isGoogleClient, withGoogle } from './flows/google.ts';
 import { CODE_ASSIST_HOSTS, CodeAssistSignedOutError, CodeAssistTierError, CodeAssistUnauthorizedError, codeAssistStream } from './flows/google-stream.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
 import { deviceFlow, offered, provider, route, routes, PROVIDERS, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
@@ -344,11 +344,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     // and `:cn` its China host. `region` is internal: the route ids are the only public selector.
     if (key === 'minimax:code' || key === 'minimax:code:cn')
       return this.add(member, 'minimax', { ...options, via: 'code', region: key.endsWith(':cn') ? 'cn' : 'global' });
-    // A Google sign-in route id (`google-gemini-cli:browser`, `:paste`) selects that flow for the provider.
-    if (key.startsWith('google-gemini-cli:')) {
-      const via = key.slice('google-gemini-cli:'.length);
-      return this.add(member, 'google-gemini-cli', { ...options, via: via as Via });
-    }
+    // A Google sign-in route id (`google-gemini-cli:browser`, `google-antigravity:paste`) selects that client's flow.
+    const google = googleRouteClient(key);
+    if (google) return this.add(member, google, { ...options, via: key.slice(google.length + 1) as Via });
     if (key.includes(':') || options.via === 'key' || options.via === 'plan_key' || options.key !== undefined) {
       const r = key.includes(':') ? route(key) : routes().find((r) => (r.provider === key || r.aliases?.includes(key)) && r.via === (options.via ?? 'key'));
       if (!r || !['key', 'plan_key'].includes(r.via)) throw new Error('Choose a key route to add an account.');
@@ -597,8 +595,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const region = accountId ? this.deviceRegions.get(`${member}:${accountId}`) ?? await this.regionOf(member, accountId) : undefined;
     const host = withDevice(this.platform.engine(credentials, this.opts.authBase, this.opts.deviceBase), credentials, { deviceBase: this.opts.deviceBase, region, crypto: this.opts.crypto });
     const engine = withClaudePlan(host, credentials, accountId ? raw : this.baseStores.get(String(member)) ?? raw, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch });
-    const callbackPort = this.opts.callbackPort ?? provider('google-gemini-cli').callbackPort!;
-    return Object.assign(withGoogle(engine, credentials, { base: this.opts.googleBase, fetch: this.opts.fetch, callbackPort }), {
+    // The client's own fixed callback port, unless the app moved every Google sign-in off it.
+    return Object.assign(withGoogle(engine, credentials, { base: this.opts.googleBase, fetch: this.opts.fetch, callbackPort: this.opts.callbackPort }), {
       credentialStore: credentials, readCredential: (id: string) => credentials.read(id),
     }) as R;
   }
@@ -1087,8 +1085,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         throw new Error('Enter a GitHub Enterprise domain, without a path or credentials.');
     }
     if (p.key === 'claude' && body.via === 'code') throw new Error('Claude uses a browser or a pasted code, not a device code.');
-    if (p.key === 'google-gemini-cli' && body.via && !['browser', 'paste'].includes(body.via)) throw googleViaError();
-    if (body.via === 'paste' && !['claude', 'chatgpt', 'openrouter', 'google-gemini-cli'].includes(p.key))
+    if (isGoogleClient(p.key) && body.via && !['browser', 'paste'].includes(body.via)) throw googleViaError();
+    if (body.via === 'paste' && !isGoogleClient(p.key) && !['claude', 'chatgpt', 'openrouter'].includes(p.key))
       throw Object.assign(new Error('This provider has no paste sign-in flow.'), { readiness: 'no_upstream_flow' });
     if (p.key === 'openrouter') {
       if (body.via === 'code') throw new Error('OpenRouter uses a browser or a pasted code, not a device code.');
@@ -1098,7 +1096,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const selected = p.key === 'claude' && body.via === 'browser' ? 'anthropic:browser'
       : p.key === 'radius' ? `radius:${body.via ?? 'browser'}`
       : p.key === 'openrouter' ? `openrouter:${body.via ?? 'browser'}`
-      : p.key === 'google-gemini-cli' ? `${p.key}:${body.via ?? 'browser'}` : undefined;
+      : isGoogleClient(p.key) ? `${p.key}:${body.via ?? 'browser'}` : undefined;
     if (selected) {
       const r = route(selected, { platform: this.platform.loopback ? 'node' : 'rn' });
       if (r.readiness !== 'ready') throw Object.assign(new Error(r.why), { readiness: r.readiness });
@@ -1163,11 +1161,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     let stuck: ReturnType<typeof setTimeout> | undefined;
     // Listen where the provider sends the browser back (the engine then finds the port taken and waits to be handed the address).
     const port = p.callbackPort && (this.opts.callbackPort ?? p.callbackPort);
-    const googlePaste = p.key === 'google-gemini-cli' && body.via === 'paste';
+    const googlePaste = isGoogleClient(p.key) && body.via === 'paste';
     // Google never runs a device code and never binds the port itself, so its listener is the only way back: a second
     // Google sign-in on a port this process already holds waits on the same OS lock another process does, instead of
     // skipping the wait and publishing a URL the holder's listener answers out of date.
-    const googleBrowser = p.key === 'google-gemini-cli' && body.via !== 'code' && !googlePaste && !!this.platform.loopback;
+    const googleBrowser = isGoogleClient(p.key) && body.via !== 'code' && !googlePaste && !!this.platform.loopback;
     let reserved = !!port && body.via !== 'code' && !googlePaste && !!this.platform.loopback && (googleBrowser || !ports.has(port));
     if (reserved) ports.add(port!);
     let catcher: Awaited<ReturnType<Loopback>> | undefined;
@@ -1196,7 +1194,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         }
       }
       if (flow.abort.signal.aborted) throw new Error('Login cancelled');
-      stuck = p.key === 'claude' || googlePaste ? undefined : setTimeout(() => p.key === 'google-gemini-cli' ? this.offerCode(member, key, flow) : this.toCode(flow), this.opts.redirectMs ?? 3 * 60_000);
+      stuck = p.key === 'claude' || googlePaste ? undefined : setTimeout(() => isGoogleClient(p.key) ? this.offerCode(member, key, flow) : this.toCode(flow), this.opts.redirectMs ?? 3 * 60_000);
       try { await attempt(port && !reserved && body.via !== 'code' && !googlePaste ? 'code' : body.via ?? (catcher ? 'browser' : undefined)); } catch (e) {
         // The code instead: asked for, or the page never came back. Also when a browser sign-in could not return here at all.
         if (!flow.toCode && (catcher || body.via === 'code' || !codeOffered || flow.abort.signal.aborted)) throw e;
