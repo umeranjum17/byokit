@@ -31,6 +31,31 @@ test('plugin allowlist merges caller ids, the bridge and only default-eligible b
   assert.deepEqual(app.plugins.allow, ['custom', 'openai', 'custom', 'bridge']);
 });
 
+test('an explicitly offered route (OpenRouter) is allowed; defaults-only stays unchanged', () => {
+  const root = '/tmp/byokit-config-offered';
+  // Defaults-only consumers are unchanged: no explicit route plugin is added.
+  const defaults = reconcileConfig(undefined, opts(root)) as any;
+  assert.ok(!defaults.plugins.allow.includes('openrouter'));
+  for (const choice of ['openrouter-oauth', 'openrouter-api-key']) {
+    const route = routes().find(route => route.choice === choice)!;
+    assert.equal(route.offer, false);
+    assert.ok(!defaults.plugins.allow.includes(route.plugin), `${choice} stays out unless offered`);
+  }
+  // A consumer's offered set (Crewhouse's offered(['chatgpt','grok','copilot','openrouter']), #402) carries the
+  // openrouter plugin; the account keys that differ from the engine id are already default-allowed.
+  const crewhouse = reconcileConfig(undefined, { ...opts(root), offered: ['chatgpt', 'grok', 'copilot', 'openrouter'] }) as any;
+  assert.ok(crewhouse.plugins.allow.includes('openrouter'), 'the offered OpenRouter sign-in must be allowed');
+  // Only routes the consumer names join; routes nobody offers stay out.
+  for (const proxy of ['litellm', 'clawrouter', 'copilot-proxy', 'fal', 'amazon-bedrock']) {
+    assert.ok(!crewhouse.plugins.allow.includes(proxy), `${proxy} stays out`);
+  }
+  // A caller id already naming the plugin is kept once; the offered set never duplicates.
+  const merged = reconcileConfig({ plugins: { allow: ['memory-core', 'openrouter'] } },
+    { ...opts(root), pluginId: 'bridge', offered: ['openrouter', 'openrouter'] }) as any;
+  assert.equal(merged.plugins.allow.filter((p: string) => p === 'openrouter').length, 1);
+  assert.ok(merged.plugins.allow.includes('bridge') && merged.plugins.allow.includes('memory-core'));
+});
+
 test('fresh and adversarial config force isolation and no paid memory fallback', () => {
   const root = '/tmp/byokit-config-check';
   const c = reconcileConfig(undefined, opts(root)) as any;

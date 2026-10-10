@@ -328,8 +328,7 @@ streams, [`examples/openclaw-kit`](../../examples/openclaw-kit) for a whole app,
 
 Subscription sign-ins are offered by default. API-billed routes remain in `kit.routes()` with `offer: false`;
 apps can offer them when the app or person opts in, labelled API key (billed per use). Each `Route` carries `billing` (`subscription`, `api` or
-`local`) so the app can label what is billed. Proxy routes, compatibility aliases, local runtimes stay off. Native Claude Code sign-in is offered by default. The pinned Gateway guides only some routes; other choices need manual paste or key entry. For an opted-in route, allow its `plugin` id
-in the app configuration and pass its `choice` explicitly to `kit.signIn()`.
+`local`) so the app can label what is billed. Proxy routes, compatibility aliases, local runtimes stay off. Native Claude Code sign-in is offered by default. The pinned Gateway guides only some routes; other choices need manual paste or key entry. Pass the accounts the app offers in `KitOptions.offered` (the provider, auth choice or alias each route carries, e.g. `'openrouter'`); the kit allow-lists the plugin of every route those name, so an opted-in sign-in is not blocked. An app can still name a plugin directly in `config.plugins.allow`, and pass the route's `choice` explicitly to `kit.signIn()`.
 Offered provider plugins are allowed by default alongside the app's plugin ids.
 
 ## API at a glance

@@ -69,6 +69,8 @@ export type KitOptions = {
   gateBuiltins?: boolean; // default true: every tool call, engine builtins included, goes through host.gate (no host:
   // every call is blocked); false gates only the app's tools and lets builtins run ungated
   config?: object; // app OpenClaw config, deep-merged UNDER the invariants (5.6)
+  offered?: readonly string[]; // the accounts this app offers (5.6): each named route's plugin joins plugins.allow,
+  // so an opted-in sign-in such as OpenRouter is no longer blocked by the engine allow list
   appOwnedSessions?: { keyPrefixes: string[] }; // caller-owned task prefixes; omitted/empty preserves stock recovery (5.16)
   browser?: BrowserOptions; // explicit, private Chromium; handoff remains unprotected until recovery qualification
   installPolicy?: { trustedSkills: string; ownRoots: string[] }; // trusted-skills JSON path, own content roots
@@ -1013,7 +1015,7 @@ export class OpenClawKit {
     const safe = reconcileConfig(response.config, { root: this.engine.root, stateDir: this.o.stateDir,
       port: Number(readFileSync(join(this.engine.root, 'port'), 'utf8')), pluginId: this.o.plugin?.id ?? 'byokit',
       pluginDir: join(this.engine.root, 'plugin'), policyPath: fileURLToPath(new URL('../policy/policy.mjs', import.meta.url)), app: patch,
-      installPolicy: this.o.installPolicy, ...(this.o.browser ? { browser: this.browserConfig() } : {}) });
+      offered: this.o.offered, installPolicy: this.o.installPolicy, ...(this.o.browser ? { browser: this.browserConfig() } : {}) });
     if (this.o.browser && !browserToolPolicySafe(safe, this.toolNames())) throw new Error('browser tool policy refused');
     if (this.o.browser) { this.browserSafe = false; for (const broker of this.brokers.values()) await broker.fence(true); }
     await this.request()('config.patch', { raw: JSON.stringify(safe), baseHash: response.hash, ...(o?.agentId ? { agentId: o.agentId } : {}) });
