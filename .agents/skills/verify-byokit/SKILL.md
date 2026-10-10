@@ -98,6 +98,23 @@ The artifact contains the invoked command, stdout, stderr and the consumer's act
 
 Proof standard: drive the real consumer path against the built SDK; capture the action and resulting output, not a summary; the error case must show the actual typed error and message.
 
+### Credential-touching proof
+
+When a proof handles a real key, token or sign-in, read the value into a variable and print only a mask: length plus first 4 and last 4 characters, or a sha256 prefix. Never `cat`, `grep -r`, `rg` or `secret-tool search` a credential store; never snapshot or screenshot a revealed value (DOM, accessibility tree, pixels); never let the value reach argv (the capture block prints argv) or any log.
+
+```bash
+v=$(secret-tool lookup service byokit account demo)   # any read of the real value, into a variable
+printf '%s...%s (%d chars)\n' "${v:0:4}" "${v: -4}" "${#v}"
+unset v
+```
+
+```js
+const v = process.env.BYOKIT_KEY ?? '';              // read once, into a variable
+console.log(`${v.slice(0, 4)}...${v.slice(-4)} (${v.length} chars)`);
+```
+
+Prefer a synthetic canary over a real value. Before the run ends, `grep -rF "$v" ".verify-artifacts/$feature/"` must find nothing.
+
 ## Cleanup
 
 ```bash
@@ -115,6 +132,7 @@ From `constraint-driven-development`, applies to this skill and every change ver
 - No unimplemented stubs: `throw new Error("Not implemented")`, empty `catch {}`.
 - No skipped tests without a reason in the commit message.
 - No secrets in source.
+- Credential values never appear in evidence: grep the evidence folder for the value before the run ends and require no match.
 - Deliberate test deletion (a test diet) is allowed only when BOTH hold: the commit message names the test-diet task, and the removed journey remains covered by an existing integration/e2e test. A deletion failing either condition is rejected. This is the only Floor rule that may permit a deletion: skips, stripped assertions, suppression comments, secrets and the security/crypto/data-loss guards are never loosened for any change.
 - This Floor and this skill's proof bar are never weakened to make a change pass: a declared-unavailable surface stays unavailable until it is really driven.
 
