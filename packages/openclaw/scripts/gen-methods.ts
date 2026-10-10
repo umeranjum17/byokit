@@ -1,5 +1,5 @@
 // O2 generator (docs/runtime-kits.md 5.10): builds src/generated/methods.ts, events.ts and report.json from the
-// pinned openclaw@2026.8.1 tarball (npm pack + extract; network at generation time only) and the installed
+// pinned openclaw@2026.8.35 tarball (npm pack + extract; network at generation time only) and the installed
 // @openclaw/gateway-protocol types. Run with `npm run gen:openclaw`. Output is committed and deterministic
 // (sorted); it is never hand-edited. Environment: explicit env only, a throwaway HOME and npm cache (D13) —
 // the person's ~, credentials and caches are never touched.
@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, wr
 import { join, dirname, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 
-const ENGINE_VERSION = '2026.8.1';
+const ENGINE_VERSION = '2026.8.35';
 const PROTOCOL_VERSION = 4;
 const PACKAGE = 'openclaw';
 

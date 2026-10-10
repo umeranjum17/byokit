@@ -1,19 +1,19 @@
-import { n as getRuntimeConfig } from "./io.runtime-CNGn9TXj.js";
-import { t as createSubsystemLogger } from "./subsystem-CT-8ly4J.js";
-import "./config-D_ojUgx2.js";
-import { h as registerAgentRunContext, i as clearAgentRunContext } from "./agent-run-registry-CK9EkEg0.js";
-import { j as resolveInternalSessionEffectsIdentity } from "./session-accessor.sqlite-entry-CoLie3L_.js";
-import { v as runWithGatewayIndependentRootWorkAdmission } from "./gateway-work-admission-Cq7eCT39.js";
-import "./sessions-DI996Ow5.js";
-import { t as SessionManager } from "./session-manager-DFVGmI34.js";
+import { n as getRuntimeConfig } from "./io.runtime-CtTka6W_.js";
+import { t as createSubsystemLogger } from "./subsystem-SZm5Y_gF.js";
+import "./config-BVKQM2A3.js";
+import { a as clearAgentRunContext, h as registerAgentRunContext } from "./agent-run-registry-DMd5mSmZ.js";
+import { k as resolveInternalSessionEffectsIdentity } from "./session-accessor.sqlite-entry-DKo4_L4T.js";
+import { y as runWithGatewayIndependentRootWorkAdmission } from "./gateway-work-admission-C8SYUaG1.js";
+import "./sessions--VnJm5Us.js";
+import { t as SessionManager } from "./session-manager-DCbkP9MV.js";
 import { r as runOutsidePreparedModelRuntimePluginGenerationScope } from "./prepared-model-runtime-generation-scope-o4umnoSw.js";
-import { o as prepareSystemAgentRunAdmission } from "./admitted-run-context-CFmFMyb8.js";
+import { o as prepareSystemAgentRunAdmission } from "./admitted-run-context-VcPQ56q1.js";
 import { t as resolveSkillWorkshopConfig } from "./config-Cjp42tXL.js";
-import { i as runWithCronCreatorAuthorityCapability, r as createCronCreatorAuthorityCapability } from "./cron-creator-authority-context-DyHDsAFP.js";
-import { n as getCanonicalSkillWorkspace, t as applyAutonomousSkillProposal } from "./autonomous-apply-nwSb9JQP.js";
-import { a as recordSkillExperienceReviewOutcome } from "./collection-review-state-BQAbRwgD.js";
-import { n as resolveAgentRunSessionTarget } from "./run-session-target-BpzX6z1b.js";
-import { i as assertSkillReviewRunSucceeded, n as countSkillModelIterations, r as selectCurrentSkillTurnMessages, t as buildSkillExperienceReviewPrompt } from "./experience-review-prompt-lBCuWpkw.js";
+import { i as runWithCronCreatorAuthorityCapability, r as createCronCreatorAuthorityCapability } from "./cron-creator-authority-context-C0TLfYJR.js";
+import { n as getCanonicalSkillWorkspace, t as applyAutonomousSkillProposal } from "./autonomous-apply-BAD_LrHk.js";
+import { a as recordSkillExperienceReviewOutcome } from "./collection-review-state-BWgkh12Q.js";
+import { n as resolveAgentRunSessionTarget } from "./run-session-target-CJUKBnPJ.js";
+import { i as assertSkillReviewRunSucceeded, n as countSkillModelIterations, r as selectCurrentSkillTurnMessages, t as buildSkillExperienceReviewPrompt } from "./experience-review-prompt-BQx_HkYg.js";
 import { randomUUID } from "node:crypto";
 //#region src/skills/workshop/experience-review.ts
 const EXPERIENCE_REVIEW_MIN_MODEL_ITERATIONS = 10;
@@ -45,14 +45,15 @@ function isEligibleContext(ctx) {
 async function prepareSkillExperienceReviewCandidate(candidate, config) {
 	if (resolveSkillWorkshopConfig(config).autonomous.mode === "off") return;
 	const { resolveConversationCapabilityProfile } = await import("./agents/conversation-capability-profile.js");
-	const { resolveSandboxRuntimeStatus } = await import("./sandbox-BPviYeVG.js");
-	const { isToolAllowedByPolicies } = await import("./tool-policy-match-J4OF6cEH.js");
-	const { mergeAlsoAllowPolicy } = await import("./tool-policy-BlOdYedo.js");
+	const { resolveSandboxRuntimeStatus } = await import("./sandbox-Bn95fpa1.js");
+	const { isToolAllowedByPolicies } = await import("./tool-policy-match-BKTxaTvX.js");
+	const { mergeAlsoAllowPolicy } = await import("./tool-policy-DXlTtsKO.js");
 	const foreground = candidate.ctx.foregroundPromptContext;
 	const sessionKey = candidate.ctx.sessionKey;
 	if (!sessionKey || resolveSandboxRuntimeStatus({
 		cfg: config,
-		sessionKey
+		sessionKey,
+		agentId: foreground.agentId
 	}).sandboxed) return;
 	const capabilityProfile = resolveConversationCapabilityProfile({
 		config,
@@ -99,25 +100,21 @@ function createSkillExperienceReviewScheduler(deps) {
 	let reviewInFlight = false;
 	const setTimer = deps.setTimer ?? ((callback, delayMs) => setTimeout(callback, delayMs));
 	const clearTimer = deps.clearTimer ?? clearTimeout;
-	const arm = (sessionKey, pending, delayMs) => {
+	const arm = (key, pending, delayMs) => {
 		if (pending.timer) clearTimer(pending.timer);
 		const generation = ++pending.generation;
 		const timerCallback = () => {
-			if (pendingBySession.get(sessionKey) !== pending || pending.generation !== generation) return;
+			if (pendingBySession.get(key) !== pending || pending.generation !== generation) return;
 			pending.timer = void 0;
 			Promise.resolve(deps.isSystemActive()).then(async (active) => {
-				if (pendingBySession.get(sessionKey) !== pending || pending.generation !== generation) return;
-				if (active) {
-					arm(sessionKey, pending, EXPERIENCE_REVIEW_RETRY_IDLE_MS);
-					return;
-				}
-				if (reviewInFlight) {
-					arm(sessionKey, pending, EXPERIENCE_REVIEW_RETRY_IDLE_MS);
+				if (pendingBySession.get(key) !== pending || pending.generation !== generation) return;
+				if (active || reviewInFlight) {
+					arm(key, pending, EXPERIENCE_REVIEW_RETRY_IDLE_MS);
 					return;
 				}
 				reviewInFlight = true;
 				try {
-					pendingBySession.delete(sessionKey);
+					pendingBySession.delete(key);
 					const candidate = deps.prepareReview ? await deps.prepareReview(pending.candidate) : pending.candidate;
 					if (!candidate) return;
 					await deps.runReview(candidate);
@@ -126,7 +123,7 @@ function createSkillExperienceReviewScheduler(deps) {
 				}
 			}).catch((error) => {
 				log.warn(`skill experience review failed: ${String(error)}`);
-				if (pendingBySession.get(sessionKey) === pending && pending.generation === generation) pendingBySession.delete(sessionKey);
+				if (pendingBySession.get(key) === pending && pending.generation === generation) pendingBySession.delete(key);
 			});
 		};
 		const timer = runOutsidePreparedModelRuntimePluginGenerationScope(() => setTimer(timerCallback, delayMs));
@@ -137,14 +134,15 @@ function createSkillExperienceReviewScheduler(deps) {
 		schedule(params) {
 			const sessionKey = params.ctx.sessionKey?.trim();
 			if (!sessionKey) return;
-			const existing = pendingBySession.get(sessionKey);
+			const key = JSON.stringify([params.ctx.foregroundPromptContext.agentId, sessionKey]);
+			const existing = pendingBySession.get(key);
 			const errored = typeof params.event.error === "string" && params.event.error.trim() !== "";
 			if (existing && errored && params.ctx.runId?.trim() && params.ctx.runId === existing.candidate.ctx.runId) {
 				if (existing.timer) clearTimer(existing.timer);
-				pendingBySession.delete(sessionKey);
+				pendingBySession.delete(key);
 				return;
 			}
-			if (existing) arm(sessionKey, existing, EXPERIENCE_REVIEW_IDLE_MS);
+			if (existing) arm(key, existing, EXPERIENCE_REVIEW_IDLE_MS);
 			if (errored) {
 				log.debug(`experience review skipped: reason=errored-completion session=${sessionKey}`);
 				return;
@@ -198,8 +196,8 @@ function createSkillExperienceReviewScheduler(deps) {
 					generation: 0
 				};
 				pending.candidate = candidate;
-				pendingBySession.set(sessionKey, pending);
-				arm(sessionKey, pending, EXPERIENCE_REVIEW_IDLE_MS);
+				pendingBySession.set(key, pending);
+				arm(key, pending, EXPERIENCE_REVIEW_IDLE_MS);
 				log.debug(`experience review scheduled: session=${sessionKey} iterations=${modelIterations} aborted=${!params.event.success}`);
 			}
 		},
@@ -210,7 +208,7 @@ function createSkillExperienceReviewScheduler(deps) {
 	};
 }
 async function runSkillExperienceReview(candidate, deps = {}) {
-	await runWithGatewayIndependentRootWorkAdmission(() => runSkillExperienceReviewInner(candidate, deps));
+	await runWithGatewayIndependentRootWorkAdmission(() => runSkillExperienceReviewInner(candidate, deps), "skills:experience-review");
 }
 async function runSkillExperienceReviewInner(candidate, deps) {
 	const foregroundPromptContext = candidate.ctx.foregroundPromptContext;
@@ -232,22 +230,6 @@ async function runSkillExperienceReviewInner(candidate, deps) {
 		remaining: 1,
 		readSkillHashes: /* @__PURE__ */ new Map()
 	};
-	const foregroundSessionTarget = await resolveAgentRunSessionTarget({
-		agentId: foregroundPromptContext.agentId,
-		config,
-		sessionId: foregroundSessionId,
-		sessionKey: foregroundSessionKey,
-		missingSessionKey: "resolve-existing"
-	});
-	const foregroundSession = SessionManager.open(foregroundSessionTarget, workspaceDir);
-	const detachedSession = SessionManager.fromEntries(foregroundSession.getEntries(), workspaceDir);
-	const { listWritableWorkspaceSkillSummaries } = await import("./workspace-skill-read-C4mD3qFj.js");
-	const existingSkills = listWritableWorkspaceSkillSummaries(workspaceDir, {
-		config,
-		agentId: foregroundPromptContext.agentId
-	});
-	const { runEmbeddedAgent } = await import("./embedded-agent-BCppEu3L.js");
-	const preparedRunAdmission = prepareSystemAgentRunAdmission(config, runId, foregroundPromptContext.agentId, "skill-workshop.experience");
 	const attemptedAtMs = Date.now();
 	let outcome;
 	let proposalId;
@@ -262,6 +244,21 @@ async function runSkillExperienceReviewInner(candidate, deps) {
 		projectSessionMessages: false
 	});
 	try {
+		const foregroundSessionTarget = await resolveAgentRunSessionTarget({
+			agentId: foregroundPromptContext.agentId,
+			config,
+			sessionId: foregroundSessionId,
+			sessionKey: foregroundSessionKey,
+			missingSessionKey: "resolve-existing"
+		});
+		const detachedSession = SessionManager.openModelContext(foregroundSessionTarget, { cwd: workspaceDir });
+		const { listWritableWorkspaceSkillSummaries } = await import("./workspace-skill-read-Chv_AVYP.js");
+		const existingSkills = listWritableWorkspaceSkillSummaries(workspaceDir, {
+			config,
+			agentId: foregroundPromptContext.agentId
+		});
+		const { runEmbeddedAgent } = await import("./embedded-agent-eYcX0o4c.js");
+		const preparedRunAdmission = prepareSystemAgentRunAdmission(config, runId, foregroundPromptContext.agentId, "skill-workshop.experience");
 		let embeddedResult;
 		try {
 			const run = () => runEmbeddedAgent({
@@ -320,7 +317,7 @@ async function runSkillExperienceReviewInner(candidate, deps) {
 		outcome = proposalIds.length === 0 ? "nothing" : "proposed";
 		const currentConfig = deps.getCurrentConfig ? await deps.getCurrentConfig() : (await import("./config/config.js")).getRuntimeConfig();
 		if (resolveSkillWorkshopConfig(currentConfig).autonomous.mode === "auto") {
-			const { inspectSkillProposal } = await import("./service-BtvFzWZa.js");
+			const { inspectSkillProposal } = await import("./service-KLclSs2k.js");
 			for (const mutatedProposalId of proposalIds) {
 				const proposal = await inspectSkillProposal(mutatedProposalId, {
 					workspaceDir,
@@ -363,7 +360,7 @@ async function runSkillExperienceReviewInner(candidate, deps) {
 //#region src/skills/workshop/experience-review-default.ts
 const defaultScheduler = createSkillExperienceReviewScheduler({
 	isSystemActive: async () => {
-		const [{ getActiveEmbeddedRunCount }, { getActiveReplyRunCount }] = await Promise.all([import("./active-run-projections-D2c68KeF.js"), import("./reply-run-registry-DFIEZOuY.js")]);
+		const [{ getActiveEmbeddedRunCount }, { getActiveReplyRunCount }] = await Promise.all([import("./active-run-projections-BefVjjes.js"), import("./reply-run-registry-BAYkK55t.js")]);
 		return getActiveEmbeddedRunCount() > 0 || getActiveReplyRunCount() > 0;
 	},
 	prepareReview: async (candidate) => {

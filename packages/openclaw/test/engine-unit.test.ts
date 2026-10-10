@@ -77,7 +77,7 @@ test('immutable sets validate all bytes, clone offline, roll back by selection a
 // Claude route must equal the Claude wire catalog names (mcp__openclaw__-prefixed); every other
 // route stays byte-identical and already-prefixed names are never prefixed again.
 test('claude route prints wire names in Tooling; other routes keep the stock prompt', async () => {
-  const file = shippedSet().files.find((f) => f.path === 'dist/prepare.runtime-y2eXKhY3.js');
+  const file = shippedSet().files.find((f) => f.path === 'dist/prepare.runtime-BUjESFb4.js');
   assert.ok(file, 'patches.json carries the Claude Tooling-names entry');
   const stock = stockBytes(file).toString();
   assert.equal(sha256(stock), file.before, 'stock byte fixture drift');
@@ -147,7 +147,7 @@ function seedInstall(engineDir: string) {
   }
   writeFileSync(join(engineDir, 'node_modules/openclaw/openclaw.mjs'), '');
   mkdirSync(join(engineDir, 'node_modules/openclaw/dist'), { recursive: true });
-  writeFileSync(join(engineDir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.8.1', commit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b' }));
+  writeFileSync(join(engineDir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.8.35', commit: '713ba5785d72d6ed1cec971e21307f16cc4234a6' }));
   for (const file of shippedSet().files) {
     const bytes = stockBytes(file);
     assert.equal(sha256(bytes), file.before, `stock byte fixture drift: ${file.path}`);
@@ -158,7 +158,7 @@ function seedInstall(engineDir: string) {
 }
 
 function shippedSet(): PatchSet {
-  return readPatchSet(join(shippedEngine, 'patches.json'), '2026.8.1', JSON.parse(readFileSync(join(shippedEngine, 'package-lock.json'), 'utf8')).packages['node_modules/openclaw'].integrity);
+  return readPatchSet(join(shippedEngine, 'patches.json'), '2026.8.35', JSON.parse(readFileSync(join(shippedEngine, 'package-lock.json'), 'utf8')).packages['node_modules/openclaw'].integrity);
 }
 function seedSet(engineDir: string): Promise<string> {
   return prepareEngineSet(engineDir, shippedSet(), tmp => fs.cpSync(engineDir, tmp, { recursive: true }), () => true);
@@ -217,11 +217,11 @@ for (const [path, pkg] of Object.entries(lock.packages)) {
 }
 writeFileSync(join(dir, 'node_modules/openclaw/openclaw.mjs'), '');
 mkdirSync(join(dir, 'node_modules/openclaw/dist'), { recursive: true });
-writeFileSync(join(dir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.8.1', commit: ${JSON.stringify(build.commit)} }));
+writeFileSync(join(dir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.8.35', commit: ${JSON.stringify(build.commit)} }));
 console.error('npm warn fixture install noise');
 appendFileSync(${JSON.stringify(calls)}, '1');
 `;
-  writeFileSync(npmPath, npmScript({ commit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b' }), { mode: 0o700 });
+  writeFileSync(npmPath, npmScript({ commit: '713ba5785d72d6ed1cec971e21307f16cc4234a6' }), { mode: 0o700 });
   const engine = new Engine({ stateDir: dir, engineDir, npmPath, pluginId: 'byokit', tools: [],
     spawnEngine: true, onState() {}, onExit() {} });
   try {
@@ -284,7 +284,7 @@ appendFileSync(${JSON.stringify(calls)}, '1');
     // The diagnosis is retained before the failed temp is deleted, naming the first failed package,
     // expected vs actual version, the npm path and version, and the capped npm stderr tail.
     const driftPackage = 'node_modules/@agentclientprotocol/sdk';
-    writeFileSync(npmPath, npmScript({ commit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b', driftPath: driftPackage }), { mode: 0o700 });
+    writeFileSync(npmPath, npmScript({ commit: '713ba5785d72d6ed1cec971e21307f16cc4234a6', driftPath: driftPackage }), { mode: 0o700 });
     await assert.rejects(kit.prepare(), (e: unknown) => e instanceof EnginePatchError && e.cause === 'drift-after-build');
     const record = JSON.parse(readFileSync(diagnosticsPath, 'utf8')) as {
       at: string; failedDir: string; firstFailedCheck: { check: string; path: string; expected: string; actual: string; readError: string | null };
@@ -309,7 +309,7 @@ test('repair once after exit 78, leave unrelated stale pid alone', async () => {
   const engineDir = join(dir, 'engine');
   const entryDir = join(engineDir, 'node_modules', 'openclaw');
   seedInstall(engineDir);
-  writeFileSync(join(entryDir, 'package.json'), JSON.stringify({ version: '2026.8.1' }));
+  writeFileSync(join(entryDir, 'package.json'), JSON.stringify({ version: '2026.8.35' }));
   writeFileSync(join(entryDir, 'openclaw.mjs'), `import {existsSync,writeFileSync,appendFileSync} from 'node:fs';
 const marker = ${JSON.stringify(join(engineDir, 'marker'))};
 if (process.argv[2] === 'doctor') { appendFileSync(${JSON.stringify(join(engineDir, 'doctors'))}, '1'); process.exit(0); }
@@ -342,7 +342,7 @@ test('a refused seal during the exit-78 repair reports the seal-size state and s
   const engineDir = join(dir, 'engine');
   const entryDir = join(engineDir, 'node_modules', 'openclaw');
   seedInstall(engineDir);
-  writeFileSync(join(entryDir, 'package.json'), JSON.stringify({ version: '2026.8.1' }));
+  writeFileSync(join(entryDir, 'package.json'), JSON.stringify({ version: '2026.8.35' }));
   const marker = join(engineDir, 'marker');
   const grown = join(dir, 'openclaw', 'state', 'grown.json');
   writeFileSync(join(entryDir, 'openclaw.mjs'), `import {existsSync,writeFileSync,truncateSync} from 'node:fs';

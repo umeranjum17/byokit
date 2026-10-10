@@ -1,22 +1,22 @@
 {
   "v": 1,
-  "id": "ee8913bf172b63b2",
+  "id": "a32effe777006347",
   "upstream": {
     "name": "openclaw",
-    "version": "2026.8.1",
-    "integrity": "sha512-bSaFeaDFnQH/bU1vgKMac6eHkHHPHG0C/uwduXGI3eIS3lyiYSwmDU5ehhBUUhlPeV85tL5/KVwmoH48nX1tWw==",
-    "commit": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
+    "version": "2026.8.35",
+    "integrity": "sha512-7Bk/IeHTk04gfR4rW2SEVwwmGiXg2CcRxL3K1U2JzTgwbSSSlbX/yoLEbkiiSMOLtOuAi1ZfVbgmSsSlOA/E6g==",
+    "commit": "713ba5785d72d6ed1cec971e21307f16cc4234a6",
     "license": "MIT"
   },
   "files": [
     {
-      "path": "dist/experience-review-default-6DPIIJds.js",
-      "before": "30f43da07b2520dd785df42ba417737a0f2cc0286922fe2189f06ecbafc1ab9c",
-      "after": "e9448c45a2d7f5e8ab7f1996269a4291d2453aac7641ea82cb82cc238e93cb43",
+      "path": "dist/experience-review-default-Cs48zOMl.js",
+      "before": "7babe3e9a8553f935f81fd519b1c4a9673da6cdf92760373eb6245fe0a7ccf6d",
+      "after": "d4119d7bf85d1e9b3b37a8727852a722c839f0f48472b266051904c85f2347b4",
       "edits": [
         {
-          "find": "import { n as getRuntimeConfig } from \"./io.runtime-CNGn9TXj.js\";\n",
-          "replace": "import { n as getRuntimeConfig } from \"./io.runtime-CNGn9TXj.js\";\nimport { openSync as byokitOpen, writeSync as byokitWrite, fsyncSync as byokitFsync, closeSync as byokitClose } from \"node:fs\";\nimport { join as byokitJoin } from \"node:path\";\n"
+          "find": "import { n as getRuntimeConfig } from \"./io.runtime-CtTka6W_.js\";\n",
+          "replace": "import { n as getRuntimeConfig } from \"./io.runtime-CtTka6W_.js\";\nimport { openSync as byokitOpen, writeSync as byokitWrite, fsyncSync as byokitFsync, closeSync as byokitClose } from \"node:fs\";\nimport { join as byokitJoin } from \"node:path\";\n"
         },
         {
           "find": "async function runSkillExperienceReviewInner(candidate, deps) {\n",
@@ -27,8 +27,8 @@
           "replace": "\tlet outcome;\n\tlet proposalId;\n\tlet usage;\n\tlet byokitRunUsage;\n\tconst byokitFact = { chargeId: runId, agentId: foregroundPromptContext.agentId, kind: \"workshop-review\", provider: modelProviderId, model: modelId, ...candidate.ctx.authProfileId ? { authProfileId: candidate.ctx.authProfileId } : {}, startedAt: attemptedAtMs, origin: { sessionKey: foregroundSessionKey, ...candidate.ctx.runId ? { runId: candidate.ctx.runId } : {} } };\n"
         },
         {
-          "find": "\ttry {\n\t\tlet embeddedResult;\n",
-          "replace": "\tbyokitUsageFact({ ...byokitFact, phase: \"started\", at: attemptedAtMs });\n\ttry {\n\t\tlet embeddedResult;\n"
+          "find": "\t\tlet embeddedResult;\n\t\ttry {\n",
+          "replace": "\t\tbyokitUsageFact({ ...byokitFact, phase: \"started\", at: attemptedAtMs });\n\t\tlet embeddedResult;\n\t\ttry {\n"
         },
         {
           "find": "\t\t} finally {\n\t\t\tpreparedRunAdmission.close();\n\t\t}\n\t\tassertSkillReviewRunSucceeded(embeddedResult);\n",
@@ -45,9 +45,9 @@
       ]
     },
     {
-      "path": "dist/main-session-recovery-state-BWIrIyi_.js",
-      "before": "418a957496786dd7ed28df4a7a02e31e9567020e1be5804545e785baf965f225",
-      "after": "f1afea642c78d7979ed40ce43c102c41f790c5dbedaec0e6e7eb8d6f47bc0032",
+      "path": "dist/main-session-recovery-state-BP_2EuhB.js",
+      "before": "87456f122a4b40fbff2ffa0b8c28befcc8a6cd0dd44d991ed30045282e7581aa",
+      "after": "fbae8840c2ebd76706f952c24592c1bd6f21648ebc84ce3cf062d1c47e587fce",
       "edits": [
         {
           "find": "function isMainRestartRecoveryCandidate(entry, sessionKey) {",
@@ -56,9 +56,9 @@
       ]
     },
     {
-      "path": "dist/prepare.runtime-y2eXKhY3.js",
-      "before": "001ebad506ae9550984e3256eb1a632daa2e3ad2b6e76e2ff903979eed3d04fc",
-      "after": "f9955de9dbdc30a6675802e940015ad77db3016e84c22a7e282cc5ed4ee350f8",
+      "path": "dist/prepare.runtime-BUjESFb4.js",
+      "before": "0d625345179325e791ffa85ad25eeeddb52e55147abee1417f12459525c7a343",
+      "after": "c0ddee6fa3ac7794ea79c41e3b143a50545370d9b51fb8bb195435bb44039f9c",
       "edits": [
         {
           "find": "let systemPrompt = !skipsTurnPreparation ? backendResolved.transformSystemPrompt?.({\n\t\t\tconfig: params.config,\n\t\t\tworkspaceDir,\n\t\t\tprovider: params.provider,\n\t\t\tmodelId,\n\t\t\tmodelDisplay,\n\t\t\tagentId: sessionAgentId,\n\t\t\tsystemPrompt: builtSystemPrompt\n\t\t}) ?? builtSystemPrompt : builtSystemPrompt;\n",

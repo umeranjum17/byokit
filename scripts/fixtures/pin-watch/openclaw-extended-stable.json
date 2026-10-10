@@ -1,6 +1,6 @@
 {
  "source": "@openclaw/gateway-protocol",
- "version": "2026.8.33",
+ "version": "2026.8.35",
  "methods": [
   "agent",
   "agent.identity.get",

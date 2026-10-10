@@ -241,6 +241,7 @@ const operatorMethods = new Set<string>([
   'openclaw.chat',
   'openclaw.chat.history',
   'openclaw.setup.activate',
+  'openclaw.setup.activate.start',
   'openclaw.setup.auth.start',
   'openclaw.setup.detect',
   'openclaw.setup.prepare.start',

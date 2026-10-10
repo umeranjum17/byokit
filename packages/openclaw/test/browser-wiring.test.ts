@@ -53,7 +53,7 @@ test('native fixture negatives dispatch and wait through actual facade/transport
     socket.on('message', raw => {
       const request = JSON.parse(String(raw));
       const reply = (payload: unknown) => socket.send(JSON.stringify({ type: 'res', id: request.id, ok: true, payload }));
-      if (request.method === 'connect') return reply({ type: 'hello-ok', protocol: PROTOCOL_VERSION, server: { version: '2026.8.1' },
+      if (request.method === 'connect') return reply({ type: 'hello-ok', protocol: PROTOCOL_VERSION, server: { version: '2026.8.35' },
         features: { methods: ['agent', 'agent.wait'], events: ['agent'] }, policy: { tickIntervalMs: 30_000 } });
       if (request.method === 'config.get') return reply({ config: JSON.parse(readFileSync(join(stateDir, 'openclaw/openclaw.json'), 'utf8')),
         configRevisionHash: 'source-revision', appliedConfigHash: 'source-revision' });

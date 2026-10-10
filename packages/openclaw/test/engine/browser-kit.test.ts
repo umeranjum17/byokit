@@ -35,8 +35,8 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
   assert.ok(entry && existsSync(entry), 'explicit stock entry required; no install or discovery in the test');
   assert.ok(existsSync(executable), 'explicit fixture Chromium required; no browser download in the test');
   const stock = dirname(entry);
-  assert.equal(JSON.parse(readFileSync(join(stock, 'package.json'), 'utf8')).version, '2026.8.1');
-  assert.equal(JSON.parse(readFileSync(join(stock, 'dist/build-info.json'), 'utf8')).commit, 'ea806575e6450e4d1efdfc72c19f04be982a1b9b');
+  assert.equal(JSON.parse(readFileSync(join(stock, 'package.json'), 'utf8')).version, '2026.8.35');
+  assert.equal(JSON.parse(readFileSync(join(stock, 'dist/build-info.json'), 'utf8')).commit, '713ba5785d72d6ed1cec971e21307f16cc4234a6');
   const before = hash(entry);
   const stateDir = mkdtempSync(join(tmpdir(), 'k-'));
   const wrapper = join(stateDir, 'chromium-fixture');
@@ -152,7 +152,7 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
   try {
     await step('launch-kit', () => kit.start(), 90_000); captureCapabilities();
     assert.equal(capabilities.size, 2, 'record both authoritative initial broker capabilities before model submission');
-    assert.equal(kit.hello?.server.version, '2026.8.1');
+    assert.equal(kit.hello?.server.version, '2026.8.35');
     if (observationOnly) {
       const host = (kit as unknown as { browserHost?: BrowserHostController }).browserHost;
       const local = JSON.parse(readFileSync(join(stateDir, 'openclaw/openclaw.json'), 'utf8'));
@@ -305,7 +305,7 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
     await step('cleanup-site-close', () => new Promise<void>(resolve => site.close(() => resolve())));
     await step('cleanup-model-close', () => model.close());
     assert.equal(hash(entry), before, 'stock executable untouched');
-    const receipt = { engine: '2026.8.1', upstreamCommit: 'ea806575e6450e4d1efdfc72c19f04be982a1b9b', stockEntry: before,
+    const receipt = { engine: '2026.8.35', upstreamCommit: '713ba5785d72d6ed1cec971e21307f16cc4234a6', stockEntry: before,
       shippedPlugin: hash(new URL('../../plugin/index.js', import.meta.url).pathname), requests, outputs, toolEvents,
       providerRequests: model.calls.length, modelCalls: model.calls, brokerTokenDigests: brokerTokens,
       brokerCapabilityHistory: [...capabilities.values()], privacyChecks,

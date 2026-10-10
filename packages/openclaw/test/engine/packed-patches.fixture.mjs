@@ -129,7 +129,7 @@ try {
   assert.equal(readFileSync(`/proc/${oldChild.pid}/cmdline`, 'utf8').replaceAll('\0', '').trim(), 'openclaw-gateway');
   writeFileSync(join(cwd, 'o/openclaw/gateway.pid'), String(oldChild.pid));
   writeFileSync(join(cwd, 'o/openclaw/gateway.identity'), JSON.stringify({ pid: oldChild.pid, startTime: processStartTime(oldChild.pid) }));
-  const path = 'dist/main-session-recovery-state-BWIrIyi_.js';
+  const path = 'dist/main-session-recovery-state-BP_2EuhB.js';
   const before = readFileSync(join(emptyDir, 'node_modules/openclaw', path), 'utf8');
   const find = 'function isMainRestartRecoveryCandidate(entry, sessionKey) {';
   assert.equal(before.split(find).length, 2);
