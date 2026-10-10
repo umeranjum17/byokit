@@ -221,7 +221,7 @@ test('a poisoned environment changes nothing: no secret is read from it and no s
     process.env.PATH = `/nonexistent-${MARKER}`;
     process.env.HOME = join(dir, 'decoy-home');
     process.env.VICTIM_NAME = CANARY;
-    process.env.OPENAI_API_KEY = `${MARKER}-should-never-be-read`;
+    for (const name of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY']) process.env[name] = CANARY;
     process.env.DBUS_SESSION_BUS_ADDRESS = `${MARKER}-bus`;
 
     // The override backend consults only the map the host passes, never the environment.
@@ -244,6 +244,23 @@ test('a poisoned environment changes nothing: no secret is read from it and no s
     for (const call of seen) {
       assert.ok(!('VICTIM_NAME' in call.env) && !('OPENAI_API_KEY' in call.env), 'process.env leaked into the spawn');
       assert.ok(!Object.values(call.env).some((v) => String(v).includes(MARKER)), 'poison value in spawn env');
+    }
+
+    // The automatic helpers keep their mode and round-trip under credential variables, and no credential reaches a file.
+    const offline = osKeyring({ service: 'byokit-env', entry() { throw new Error(CANARY); } });
+    const auto = { service: 'byokit-env', stateDir: join(dir, 'auto'), keyring: offline };
+    const autoSeal = osKeyringSeal(auto);
+    assert.equal(autoSeal.mode, 'host-key-file');
+    const autoBytes = Buffer.from(autoSeal.encryptString('round-trip'));
+    const hostOpts = { service: 'byokit-env', stateDir: join(dir, 'host') };
+    const hostSeal = hostKeyFileSeal(hostOpts);
+    assert.equal(hostSeal.mode, 'host-key-file');
+    const hostBytes = Buffer.from(hostSeal.encryptString('round-trip'));
+    for (const name of ['OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY']) delete process.env[name];
+    assert.equal(osKeyringSeal(auto).decryptString(autoBytes), 'round-trip');
+    assert.equal(hostKeyFileSeal(hostOpts).decryptString(hostBytes), 'round-trip');
+    for (const bytes of [...snapshot(auto.stateDir).values(), ...snapshot(hostOpts.stateDir).values()]) {
+      assert.ok(!bytes.includes(Buffer.from(CANARY)), 'a credential variable reached a sealed file');
     }
   } finally {
     for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];

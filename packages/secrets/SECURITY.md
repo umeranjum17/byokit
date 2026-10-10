@@ -21,7 +21,7 @@ Apps hold API keys. The store must make sure that:
 | Passphrase file | `{ v: 1, kdf: 'scrypt-16384-8-1', salt: 16 fresh random bytes per save, box: sealSecretBox(JSON { entries }) }`. Atomic write: 0700 folders, 0600 temp file, rename. `openSecretBox` null → `auth-failed`, fail closed. Derived keys zeroed after use. |
 | Phone | Optional Expo SecureStore peer; encoded names under an app prefix, consistent host-passed options on all calls; no plaintext simulator fallback. Platform errors are sanitized. |
 | Web | IndexedDB persists a non-extractable AES-256-GCM key and versioned ciphertext with a fresh 96-bit IV. Entry names are authenticated as AAD. Key initialization is atomic across tabs; operations finish on transaction commit. |
-| Override | A validated copy of the host's map. Credential environment variables are never read; a static test restricts OS placement/session reads to the automatic sealing helpers. |
+| Override | A validated copy of the host's map. Credential environment variables are never read; the poisoned-environment journey proves the automatic sealing helpers keep their mode and round-trip under poisoned credential variables. |
 | Errors | `KeystoreError` codes `invalid` / `auth-failed` / `keyring-locked` / `unsupported` / `unavailable` / `failed`. Messages name the entry, never the secret. Missing entries resolve null/false, not errors. |
 
 ## Adversaries and what stops them
