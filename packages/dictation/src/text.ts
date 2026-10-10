@@ -46,13 +46,19 @@ export function mergeOverlap(previous: string, next: string): string {
   }
   return [...before, ...after.slice(exact)].join(' ');
 }
+/** Whisper's no-speech marker; a shown sentinel is never a committed word. */
+const isSilenceSentinel = (word: string) => /^\[blank_audio\]$/i.test(word);
 /** Lifted from muxr: expose only agreeing words without retracting the prefix. */
 export function settleWords(shown: string, previous: string, next: string): string {
   const before = previous.split(/\s+/).filter(Boolean);
   const after = next.split(/\s+/).filter(Boolean);
+  const kept = shown.split(/\s+/).filter(Boolean);
+  // A shown silence sentinel is not committed speech: drop it the moment a
+  // reading carries real words. Real shown words keep today's policy, and a
+  // silence-only take keeps its sentinel.
+  if (kept.length && kept.every(isSilenceSentinel) && after.some(word => !isSilenceSentinel(word))) return '';
   let agreed = 0;
   while (agreed < before.length && agreed < after.length && wordKey(before[agreed]) === wordKey(after[agreed])) agreed++;
-  const kept = shown.split(/\s+/).filter(Boolean);
   if (agreed <= kept.length || kept.some((word, i) => wordKey(word) !== wordKey(after[i] ?? ''))) return shown;
   return after.slice(0, agreed).join(' ');
 }
