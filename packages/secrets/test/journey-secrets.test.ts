@@ -99,7 +99,7 @@ function fakeRing() {
   return { backend, data, state, calls };
 }
 
-test('an app keeps one secret per name in the OS keyring, with the value only ever on stdin', async () => {
+test('an app keeps one secret per name in the OS keyring, with the value only ever on stdin', async (ctx) => {
   for (const tool of ['secret-tool', 'security'] as const) {
     const { make, calls } = bench(tool);
     const store = make();
@@ -208,10 +208,9 @@ test('an app keeps one secret per name in the OS keyring, with the value only ev
     { BYOKIT_KEYRING_TEST_ROOT: '/owner/home' },
   ]) assert.throws(() => assertPrivateKeyringSession({ ...isolated, ...change }), /private OS session/);
   assert.throws(() => assertPrivateKeyringSession({ BYOKIT_REAL_KEYRING: '1' }), /private OS session/);
-
+  if (process.platform !== 'linux' || spawnSync('dbus-run-session', ['--version']).status !== 0) ctx.diagnostic('skipped: the private Secret Service probe needs Linux and dbus-run-session');
+  else await privateSecretService();
 });
-
-test('private Secret Service: locked and hung probes never unlock or prompt, and recover once unlocked', { skip: process.platform !== 'linux' || spawnSync('dbus-run-session', ['--version']).status !== 0 }, privateSecretService);
 
 test('a poisoned environment changes nothing: no secret is read from it and no spawn inherits it', async () => {
   const dir = scratchDir('secrets-env');
@@ -349,7 +348,7 @@ test('secrets live in a passphrase-sealed file or a host override; a wrong passp
   assert.throws(() => writeFileAtomic('relative.json', 'x'), code('invalid'));
 });
 
-test('sealing keeps credentials encrypted and fails closed: wrong, tampered, missing or locked keys never expose or replace data', async () => {
+test('sealing keeps credentials encrypted and fails closed: wrong, tampered, missing or locked keys never expose or replace data', async (ctx) => {
   // An explicit host key: fresh nonce each time, wrong key and tampered/truncated input refused.
   const key = key32(7);
   const host = hostKeySeal({ key, service: 'byokit-test' });
@@ -626,9 +625,11 @@ test('sealing keeps credentials encrypted and fails closed: wrong, tampered, mis
   assert.ok(plain, 'the envelope authenticates under the key');
   assert.deepEqual(Buffer.from(plain.subarray(21)), Buffer.from(JSON.stringify({ service: envelopeService, text })));
   assert.equal(envelopeSeal.decryptString(sealedText), text);
+  if (process.platform === 'win32') ctx.diagnostic('skipped: POSIX key and directory modes do not apply on win32');
+  else await permissionModes();
 });
 
-test('key and directory modes and a key owned by another user are refused on every use', { skip: process.platform === 'win32' }, async () => {
+async function permissionModes(): Promise<void> {
   // Insecure key or directory modes, and a key owned by another user, are refused on every use.
   const perm = { service: 'byokit-perm', stateDir: scratchDir('secrets-perm') };
   const permSeal = hostKeyFileSeal(perm);
@@ -644,7 +645,7 @@ test('key and directory modes and a key owned by another user are refused on eve
   chmodSync(dirname(permKey), 0o700);
   await withPatchedFs('fstatSync', (real) => ((...args: Parameters<typeof fs.fstatSync>) => ({ ...real(...args), uid: process.getuid!() + 1, isFile: () => true })) as typeof fs.fstatSync,
     () => assert.throws(() => hostKeyFileSeal(perm), code('invalid')));
-});
+}
 
 test('the browser and phone entries keep secrets at rest, and the published entry bundles with no Node code', async () => {
   // Browser: IndexedDB holds a non-extractable AES-256 key and authenticated ciphertext.
