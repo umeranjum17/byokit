@@ -54,6 +54,17 @@ function invocations(log: string): Invocation[] {
   return readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line) as Invocation);
 }
 
+function runChild(file: string, args: string[], env?: NodeJS.ProcessEnv): Promise<{ status: number | null; stdout: Buffer; output: string }> {
+  return new Promise((resolveRun, reject) => {
+    const child = spawn(file, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const stdout: Buffer[] = [], all: Buffer[] = [];
+    child.stdout.on('data', (b) => { stdout.push(b); all.push(b); });
+    child.stderr.on('data', (b) => all.push(b));
+    child.on('error', reject);
+    child.on('close', (status) => resolveRun({ status, stdout: Buffer.concat(stdout), output: Buffer.concat(all).toString() }));
+  });
+}
+
 async function withPatchedFs<K extends 'fstatSync' | 'renameSync'>(name: K, patch: (real: (typeof fs)[K]) => (typeof fs)[K], run: () => unknown): Promise<void> {
   const real = fs[name];
   fs[name] = patch(real);
@@ -378,10 +389,17 @@ test('sealing keeps credentials encrypted and fails closed: wrong, tampered, mis
   await accountFileStore(hostAccounts, hostKeySeal({ key: owned, service: 'Umer' })).modify('provider', async () => ({ type: 'api_key', key: CANARY }));
   const hostBytes = readFileSync(hostAccounts);
   assert.ok(!hostBytes.includes(Buffer.from(CANARY)));
+  assert.ok(!hostBytes.includes(owned), 'the host key never lands in the accounts file');
   assert.equal((await accountFileStore(hostAccounts, hostKeySeal({ key: owned, service: 'Umer' })).read('provider'))?.type, 'api_key');
   await assert.rejects(accountFileStore(hostAccounts, hostKeySeal({ key: randomBytes(32), service: 'Umer' })).delete('provider'), code('auth-failed'));
   assert.deepEqual(readFileSync(hostAccounts), hostBytes);
   assert.deepEqual(await accountFileStore(hostAccounts, hostKeySeal({ key: owned, service: 'Umer' })).list(), [{ providerId: 'provider', type: 'api_key' }]);
+  let resolverCalls = 0;
+  const resolved = hostKeySeal({ key: () => { resolverCalls++; return owned; }, service: 'byokit-test' });
+  const resolvedPath = join(scratchDir('host-resolver'), 'private', 'accounts.bin');
+  await accountFileStore(resolvedPath, resolved).modify('provider', async () => ({ type: 'api_key', key: CANARY }));
+  assert.equal((await accountFileStore(resolvedPath, resolved).read('provider'))?.type, 'api_key');
+  assert.ok(resolverCalls > 0, 'the resolver supplies the key on every use');
 
   // Automatic selection falls back to a private host key file when no keyring is available.
   const unavailable: KeyringBackend = { get() { throw new Error('none'); }, set() { throw new Error('none'); }, delete() { throw new Error('none'); } };
@@ -430,13 +448,11 @@ test('sealing keeps credentials encrypted and fails closed: wrong, tampered, mis
   // Eight processes racing on first use publish one complete key, and each opens the others' envelopes.
   const race = { service: 'byokit-race', stateDir: scratchDir('secrets-race') };
   const program = `import { hostKeyFileSeal } from ${JSON.stringify(distIndex)}; const s = hostKeyFileSeal(${JSON.stringify(race)}); process.stdout.write(Buffer.from(s.encryptString('race')).toString('base64'));`;
-  const outputs = await Promise.all(Array.from({ length: 8 }, () => new Promise<Buffer>((resolveRun, reject) => {
-    const child = spawn(process.execPath, ['--input-type=module', '-e', program]);
-    const output: Buffer[] = [], errors: Buffer[] = [];
-    child.stdout.on('data', (b) => output.push(b)); child.stderr.on('data', (b) => errors.push(b));
-    child.on('error', reject);
-    child.on('close', (status) => status === 0 ? resolveRun(Buffer.from(Buffer.concat(output).toString(), 'base64')) : reject(new Error(Buffer.concat(errors).toString())));
-  })));
+  const outputs = await Promise.all(Array.from({ length: 8 }, async () => {
+    const { status, stdout, output } = await runChild(process.execPath, ['--input-type=module', '-e', program]);
+    if (status !== 0) throw new Error(output);
+    return Buffer.from(stdout.toString(), 'base64');
+  }));
   const raceSeal = hostKeyFileSeal(race);
   for (const output of outputs) assert.equal(raceSeal.decryptString(output), 'race');
   assert.equal(keyFiles(race.stateDir).length, 1);
@@ -474,6 +490,7 @@ test('sealing keeps credentials encrypted and fails closed: wrong, tampered, mis
   const sealed = Buffer.from(seal.encryptString(CANARY));
   assert.equal(seal.decryptString(sealed), CANARY);
   assert.ok(!sealed.includes(Buffer.from(CANARY)));
+  assert.ok(!JSON.stringify([...ring.data.values()]).includes(CANARY), 'the keyring holds data keys, never the secret');
   assert.throws(() => osKeyringSeal({ ...ro, service: 'other' }).decryptString(sealed), code('auth-failed'));
   for (const at of [0, 4, 5, sealed.length - 1]) {
     const t = Buffer.from(sealed);
@@ -484,7 +501,9 @@ test('sealing keeps credentials encrypted and fails closed: wrong, tampered, mis
   const id = seal.rotateKey();
   assert.match(id, /^[a-f0-9]{32}$/);
   assert.equal(seal.decryptString(sealed), CANARY, 'rotation retains old keys');
-  assert.notDeepEqual(Buffer.from(seal.encryptString(CANARY)), sealed);
+  const rotated = Buffer.from(seal.encryptString(CANARY));
+  assert.notDeepEqual(rotated, sealed);
+  assert.equal(rotated.subarray(5, 21).toString('hex'), id, 'writes after rotation carry the new active key id');
 
   // Wrong, missing or corrupt data keys fail closed: the accounts file is preserved and no replacement key is generated.
   const wrongDir = scratchDir('secrets-wrong');
@@ -745,6 +764,7 @@ test('the browser and phone entries keep secrets at rest, and the published entr
   await phone.set('provider_🔑', '');
   assert.equal(await phone.get('provider/🔑'), CANARY);
   assert.equal(await phone.get('provider_🔑'), '');
+  assert.equal(await nativeStore({ secureStore: fake, prefix: 'other', options: secureOptions }).get('provider/🔑'), null, 'another app prefix cannot read the secret');
   assert.equal(await phone.delete('provider/🔑'), true);
   assert.equal(await phone.delete('provider/🔑'), false);
   for (const call of calls) {
@@ -967,14 +987,9 @@ async function privateSecretService(): Promise<void> {
     bus.connection.stream.end();
     process.exit(0);
   `);
-  await new Promise<void>((resolve, reject) => {
-    // Inherited owner bus/control/XDG data are absent; dbus-run-session creates the only bus.
-    const child = spawn('dbus-run-session', ['--', process.execPath, runner], { env: { PATH: '/usr/bin:/bin', HOME: root, TMPDIR: root, NODE_OPTIONS: process.env.NODE_OPTIONS } });
-    let output = ''; child.stdout.on('data', b => output += b); child.stderr.on('data', b => output += b);
-    child.on('error', reject); child.on('close', status => {
-      status === 0 ? resolve() : reject(new Error(output));
-    });
-  });
+  // Inherited owner bus/control/XDG data are absent; dbus-run-session creates the only bus.
+  const { status, output } = await runChild('dbus-run-session', ['--', process.execPath, runner], { PATH: '/usr/bin:/bin', HOME: root, TMPDIR: root, NODE_OPTIONS: process.env.NODE_OPTIONS });
+  if (status !== 0) throw new Error(output);
 }
 
 async function idbRead(idb: IDBFactory, key: string, change?: (value: any) => any): Promise<any> {
