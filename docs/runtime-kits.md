@@ -767,7 +767,7 @@ wrapping metadata with fresh payload nonces; plaintext keys are not cached. The 
 agent SQLite and the shared state SQLite database. The kit seals credential state into one bounded blob, `auth-store.sealed`, which is the only
 store the cap applies to: every credential path under the isolated `state` tree and every config/credential path under `home`. Every other file under
 `state` is sealed as its own file under `auth-store.objects/` (named by a hash of its path; the payload carries the path and the bytes) with the same
-adapter and key, outside the cap: the shared and per-agent SQLite databases with their `-wal`/`-shm`/`-journal` sidecars (they mix credentials with
+adapter and key; each object is capped individually at the same size, and their total is not capped: the shared and per-agent SQLite databases with their `-wal`/`-shm`/`-journal` sidecars (they mix credentials with
 transcript rows), and the regenerable caches, exported transcripts, media, logs and legacy session stores beside them. Regenerable caches in `home`
 (the `home/.cache` and `home/.npm` subtrees the engine environment pins, and the `sessions`/`log`/`cache`/`.tmp`/`history.jsonl` subtrees of `.codex` and
 `projects`/`todos`/`shell-snapshots`/`statsig`/`file-history`/`history.jsonl` of `.claude`) stay on disk unsealed across stops; unknown `home` paths stay

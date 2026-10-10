@@ -72,15 +72,14 @@ setInterval(() => {}, 1000);
     assert.match(readFileSync(join(stateDir, 'logs', 'openclaw.log'), 'utf8'), /SIGTERM/, 'the real engine handled graceful termination');
     assert.equal(readFileSync(marker, 'utf8'), 'retained-store');
     await kit.stop();
-    // At rest only regenerable, non-credential paths may remain under `state` and `home`; the sealed canary itself is gone.
+    // At rest only regenerable caches may remain under `home`; the sealed canary itself is gone.
     assert.equal(existsSync(marker), false);
-    for (const tree of ['state', 'home']) {
-      const base = join(root, tree);
-      if (!existsSync(base)) continue;
-      for (const entry of readdirSync(base, { recursive: true, withFileTypes: true })) {
+    assert.equal(existsSync(join(root, 'state')), false);
+    if (existsSync(join(root, 'home'))) {
+      for (const entry of readdirSync(join(root, 'home'), { recursive: true, withFileTypes: true })) {
         if (!entry.isFile()) continue;
-        const name = relative(base, join(entry.parentPath, entry.name)).split('\\').join('/');
-        assert.equal(nonCredential(`${tree}/${name}`) || name.split('/').slice(0, -1).some((_, i) => nonCredential(`${tree}/${name.split('/').slice(0, i + 1).join('/')}`)), true, `only non-credential state stays at rest: ${tree}/${name}`);
+        const name = relative(join(root, 'home'), join(entry.parentPath, entry.name)).split('\\').join('/');
+        assert.equal(nonCredential(`home/${name}`) || name.split('/').slice(0, -1).some((_, i) => nonCredential(`home/${name.split('/').slice(0, i + 1).join('/')}`)), true, `only non-credential state stays at rest: home/${name}`);
       }
     }
     assert.equal(existsSync(join(root, 'gateway.pid')), false);

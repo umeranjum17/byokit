@@ -449,7 +449,8 @@ sealed as its own object under `auth-store.objects/`, outside that bound: the sh
 transcript artifacts (`state/transcripts`), legacy session stores (`state/sessions`, `state/agents/<agentId>/sessions`),
 the media stores (`state/media`, `state/delivery-queue-media`), the control-UI and other caches (`state/cache`,
 `state/completions`), logs (`state/logs`) and gateway temp/lock files (`state/tmp`). However large a long-used host's
-transcripts and media grow, they never count toward the bound. In `home` the XDG cache and npm cache homes
+transcripts and media grow in total, they never count toward the bound; each such file is capped individually at the same
+limit (below). In `home` the XDG cache and npm cache homes
 (`home/.cache`, `home/.npm`) and the transcript, log and cache subtrees of the CLIs the engine runs (`home/.codex`
 sessions/log/cache/`.tmp`/`history.jsonl`, `home/.claude` projects/todos/shell-snapshots/statsig/file-history/`history.jsonl`)
 stay on disk unsealed. Unknown paths are still sealed in the blob (a credential location we do not know about must
@@ -457,7 +458,8 @@ fail loudly, never drop silently). The blob is bounded: if the collected credent
 limit, `prepare()`, `start()`, `stop()` and an engine exit reject with exported `AuthStoreSealSizeError`
 (`code: 'auth-store-seal-size'`, fields `size` and `cap`). On that refusal the last good saved store is kept as it
 was and no live file is deleted; nothing else is promised. A refused `stop()` still releases the lock. Its `size` is a
-lower bound (the running total at the refusal). Do not move or delete files under `state/` or `home/` to get under the
+lower bound (the running total at the refusal). A single object file over the same limit refuses the same way, naming
+the file in the error message, before any file is removed. Do not move or delete files under `state/` or `home/` to get under the
 limit: the next successful seal would drop them. If your app hits this, report the error's size and cap to the byokit
 maintainers; the limit was reached in real use.
 
@@ -529,7 +531,7 @@ path under the isolated `state` tree — in one bounded blob, `auth-store.sealed
 (the shared state database `state/state/openclaw.sqlite` and the per-agent databases
 `state/agents/<agentId>/agent/openclaw-agent.sqlite`, which mix credentials with transcript rows, plus transcripts,
 media, logs, caches and session stores) is sealed as its own file under `auth-store.objects/`, outside the bound, so
-a long-used host's history never makes `start()` or `stop()` refuse. Regenerable tool caches in `home` stay on disk
+a long-used host's total history never makes `start()` or `stop()` refuse; only a single file over the cap does. Regenerable tool caches in `home` stay on disk
 unsealed. Only a credential blob over the cap still refuses `start()` and `stop()` with the typed size error instead of
 aborting the process. It uses the injected `SealingAdapter` from `@byokit/secrets`. `osKeyringSeal()` automatically
 uses a persistent private file key for new stores when no non-interactive keyring is available.

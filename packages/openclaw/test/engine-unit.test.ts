@@ -1207,6 +1207,16 @@ test('a host past the seal cap of transcripts, media and a state database seals 
   const blobs = sealed.filter((text) => text.startsWith('{"v":1')).map((text) => JSON.parse(text) as { files: [string, string][] });
   assert.deepEqual(blobs.at(-1)!.files.map(([name]) => name).sort(), ['home/.claude/settings.json', 'state/auth.json'], 'the credential blob holds credentials only');
   for (const [name] of stores) assert.ok(sealed.some((text) => text.startsWith(`{"path":${JSON.stringify(name)}`)), `sealed as its own object: ${name}`);
+  const oversized = 'state/transcripts/oversized/transcript.jsonl';
+  mkdirSync(dirname(join(root, oversized)), { recursive: true });
+  const oversizedFd = fs.openSync(join(root, oversized), 'w');
+  fs.ftruncateSync(oversizedFd, SEAL_CAP_BYTES + 1024 * 1024);
+  fs.closeSync(oversizedFd);
+  sealed.length = 0;
+  await assert.rejects(open().prepare(), (e: unknown): e is AuthStoreSealSizeError =>
+    e instanceof AuthStoreSealSizeError && e.message.includes(oversized) && e.size === SEAL_CAP_BYTES + 1024 * 1024);
+  assert.equal(sealed.length, 0, 'an over-cap object never reaches the sealer');
+  assert.equal(existsSync(join(root, oversized)), true, 'the refused object is left in place');
   removeScratch(dir);
 });
 

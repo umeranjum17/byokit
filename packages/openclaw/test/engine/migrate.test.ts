@@ -95,7 +95,8 @@ test('a sealed preserved sign-in survives doctor, gateway, stop and restart with
     assert.equal(existsSync(`${home.legacy}.moved-to-engine.canonicalized`), true);
     assert.ok((await providers(ctx, 'm1')).includes('openai'), 'the canonical provider is signed in — no second login asked');
     await stop(home);
-    // At rest only regenerable, non-credential paths may remain under `state` and `home`; every sealed credential path is gone.
+    assert.equal(existsSync(join(home.engine.root, 'state')), false);
+    // At rest only regenerable, non-credential paths may remain under `home`; every sealed credential path is gone.
     const remaining = (dir: string): string[] => {
       if (!existsSync(dir)) return [];
       return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -103,7 +104,7 @@ test('a sealed preserved sign-in survives doctor, gateway, stop and restart with
         return entry.isDirectory() ? remaining(path) : [relative(home.engine.root, path).split('\\').join('/')];
       });
     };
-    for (const name of [...remaining(join(home.engine.root, 'state')), ...remaining(join(home.engine.root, 'home'))]) {
+    for (const name of remaining(join(home.engine.root, 'home'))) {
       const parts = name.split('/');
       const excluded = nonCredential(name) || parts.slice(0, -1).some((_, i) => nonCredential(parts.slice(0, i + 1).join('/')));
       assert.equal(excluded, true, `only non-credential state stays at rest: ${name}`);

@@ -2,7 +2,8 @@
 // Credential state under `home` and `state` is sealed as one bounded blob (`auth-store.sealed`, capped at
 // SEAL_CAP_BYTES, refusing with a typed error). Every other file under `state` — the SQLite databases, which mix
 // credentials with transcript rows, and the regenerable caches, transcripts, media, logs and session stores beside
-// them — is sealed as its own file under `auth-store.objects/`, outside that cap, so a long-used host never refuses.
+// them — is sealed as its own file under `auth-store.objects/`. Each such file is capped individually at
+// SEAL_CAP_BYTES; the total across objects is not, so growth in aggregate never refuses.
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, rmdirSync, writeFileSync, closeSync, fsyncSync, openSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -113,19 +114,20 @@ export class AuthStoreUnreadableError extends Error {
 
 /** Total raw credential bytes one snapshot may seal. The sealed payload is one runtime string, so collect()
  *  refuses a larger snapshot before reading it and the process never aborts inside the sealer. Credential
- *  state is normally a few MiB; the cap leaves several times that headroom. Engine stores under `state` that
- *  are not credentials are sealed as separate objects and never count toward it. */
+ *  state is normally a few MiB; the cap leaves several times that headroom. The same bound applies to each
+ *  non-credential engine store under `state` sealed as its own object; their total is not bounded. */
 export const SEAL_CAP_BYTES = 128 * 1024 * 1024;
 
-/** The saved sign-in data is over `SEAL_CAP_BYTES`. On a refusal the last good saved store is kept as it
- *  was and no live file is deleted. `size` is a lower bound: the running total when the cap was crossed. */
+/** The saved sign-in data (or one object file, when `file` names it) is over `SEAL_CAP_BYTES`. On a refusal the
+ *  last good saved store is kept as it was and no live file is deleted. `size` is a lower bound for the whole
+ *  store (the running total when the cap was crossed) and the exact size when `file` is set. */
 export class AuthStoreSealSizeError extends Error {
   readonly code = 'auth-store-seal-size';
   readonly size: number;
   readonly cap: number;
-  constructor(size: number, cap: number) {
+  constructor(size: number, cap: number, file?: string) {
     const MiB = 1024 * 1024;
-    super(`Your saved sign-in data is too large to keep safely (more than ${Math.floor(size / MiB)} MB; the limit is ${cap / MiB} MB). ` +
+    super(`${file ? `${file} is` : 'Your saved sign-in data is'} too large to keep safely (more than ${Math.floor(size / MiB)} MB; the limit is ${cap / MiB} MB). ` +
       'Your sign-ins were kept.');
     this.name = 'AuthStoreSealSizeError';
     this.size = size;
@@ -266,7 +268,11 @@ export class AuthStore {
         target = lstatSync(file);
       }
       if (!target.isFile()) return;
-      if (apart(name)) { objects.push({ name, file, size: target.size }); return; }
+      if (apart(name)) {
+        if (target.size > SEAL_CAP_BYTES) throw new AuthStoreSealSizeError(target.size, SEAL_CAP_BYTES, name);
+        objects.push({ name, file, size: target.size });
+        return;
+      }
       // Refuse by size before any file is touched or read: an over-cap file must never reach memory or the sealer.
       total += target.size;
       if (total > SEAL_CAP_BYTES) throw new AuthStoreSealSizeError(total, SEAL_CAP_BYTES);
