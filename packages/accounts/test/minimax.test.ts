@@ -157,3 +157,97 @@ test("the provider entry is login(member, 'minimax'); a decline, an expiry or a 
     }
   }
 });
+
+test('signing in again to a MiniMax region replaces that region\'s account; the other region adds one', async () => {
+  const m = await mockDevice({ dialect: 'minimax' });
+  const { store } = stored();
+  const accounts = new Accounts<any, number>({ deviceBase: m.base, app: 'byokit journey', store: () => store }, portable);
+  try {
+    const signIn = async (key: string) => {
+      const { id } = await accounts.add(1, key);
+      assert.equal(m.approve(accounts.view(1, id)!.code!), true, `${key}: approving the code`);
+      await accounts.finished(1, id);
+    };
+    const rows = async () => (await accounts.list(1)).map((r) => r.id);
+    await signIn('minimax:code');
+    const [global] = await rows();
+    await signIn('minimax:code');
+    assert.deepEqual(await rows(), [global], 'the same region replaces its account');
+    await signIn('minimax:code:cn');
+    const both = await accounts.list(1);
+    assert.equal(both.length, 2, 'the other region adds one');
+    assert.ok(both.some((r) => r.id === global), 'the global account is still there');
+    assert.deepEqual(both.map((r) => r.state), ['ready', 'ready'], 'two accounts, both ready');
+  } finally {
+    accounts.stop();
+    await m.close();
+  }
+});
+
+test('a China MiniMax account signs in on the China host after a restart', async () => {
+  const m = await mockDevice({ dialect: 'minimax', region: 'cn' });
+  const { store } = stored();
+  // The requests the app makes go to the real hosts, which are never reached: the stand-in answers them, and the
+  // hosts the app asked for are recorded.
+  const sent: string[] = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = ((input: string | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    sent.push(`${url.host}${url.pathname}`);
+    return real(new URL(url.pathname, m.base), init);
+  }) as typeof fetch;
+  const open = () => new Accounts<any, number>({ app: 'byokit journey', store: () => store }, portable);
+  try {
+    const first = open();
+    const { id } = await first.add(1, 'minimax:code:cn');
+    assert.equal(first.view(1, id)!.url, 'https://account.minimaxi.com/activate', 'the China page to open');
+    assert.equal(m.approve(first.view(1, id)!.code!), true, 'approving the code');
+    await first.finished(1, id);
+    first.stop();
+
+    // A fresh Accounts on the same store knows nothing from this process: the region is the saved account's.
+    const restarted = open();
+    try {
+      sent.length = 0;
+      await restarted.login(1, id);
+      assert.equal(sent[0], 'account.minimaxi.com/oauth2/device/code', 'the China host after a restart');
+    } finally {
+      restarted.cancel(1, id);
+      await restarted.finished(1, id);
+      restarted.stop();
+    }
+  } finally {
+    globalThis.fetch = real;
+    await m.close();
+  }
+});
+
+test('a MiniMax sign-in whose token has run out needs signing in again, and nothing is sent to refresh it', async () => {
+  const m = await mockDevice({ dialect: 'minimax' });
+  const { store } = stored();
+  const open = () => new Accounts<any, number>({ deviceBase: m.base, app: 'byokit journey', store: () => store }, portable);
+  const first = open();
+  const { id } = await first.add(1, 'minimax:code');
+  assert.equal(m.approve(first.view(1, id)!.code!), true, 'approving the code');
+  await first.finished(1, id);
+  first.stop();
+  const realNow = Date.now;
+  try {
+    const before = open();
+    assert.equal((await before.status(1, id)).state, 'ready', 'ready before the token runs out');
+    before.stop();
+
+    // The stand-in's token lasts 3600 seconds.
+    Date.now = () => realNow() + 3_601_000;
+    const after = open();
+    try {
+      assert.equal((await after.status(1, id)).state, 'signed_out', 'signed out once the token has run out');
+    } finally {
+      after.stop();
+    }
+  } finally {
+    Date.now = realNow;
+    await m.close();
+  }
+  assert.ok(m.state.requests.every((r) => new URLSearchParams(r.body).get('grant_type') !== 'refresh_token'), 'no refresh was sent');
+});

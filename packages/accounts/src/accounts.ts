@@ -144,7 +144,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   private additions = new Map<string, EndingStore>();
   private aliases = new Map<string, string>();
   private preferred = new Map<string, string>();
-  /** Which region a device sign-in uses, by the id it was added under (`minimax:code:cn`). */
+  /** Which region a device sign-in in progress uses, by the id it was added under (`minimax:code:cn`); a saved account keeps it in the index. */
   private deviceRegions = new Map<string, 'global' | 'cn'>();
   private accountKey(member: M, key: string) { return this.aliases.get(`${member}:${key}`) ?? key; }
   private stateKey(member: M, key: string) { return this.accountKey(member, this.preferred.get(`${member}:${key}`) ?? key); }
@@ -438,16 +438,21 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     // A Google sign-in's discovered Code Assist project is non-secret account metadata: it goes in the index beside
     // the email and plan, never into the credential itself.
     const project = googleProject(c);
+    // MiniMax gives no identity, so its region is the identity: one sign-in per region, signing in again replaces it.
+    const region = this.deviceRegions.get(`${member}:${key}`);
     let canonical = key;
     await this.store(member).index((index, data) => {
       if (flow.state !== 'waiting' || flow.abort.signal.aborted) throw new Error('Login cancelled');
       const identity = this.identity(c);
       const entries = Object.entries(data).filter(([id]) => !id.startsWith('.') && this.providerKey(this.publicKey(id)) === p.key);
-      const match = identity && entries.find(([, old]) => this.identity(old as Credential) === identity);
-      canonical = match ? this.publicKey(match[0]) : entries.length ? key : p.key;
+      const match = region ? entries.find(([id]) => index.accounts?.[id]?.region === region)
+        : identity && entries.find(([, old]) => this.identity(old as Credential) === identity);
+      // A region's account always gets its own id, so its engine can find its region after a restart.
+      canonical = match ? this.publicKey(match[0]) : entries.length || region ? key : p.key;
       data[this.storageKey(canonical)] = c;
       index.addedAt[canonical] ??= Date.now();
-      if (project) (index.accounts ??= {})[canonical] = { ...(index.accounts?.[canonical] ?? {}), route: p.pi, billing: p.billing, project };
+      if (project || region) (index.accounts ??= {})[canonical] = { ...(index.accounts?.[canonical] ?? {}), route: p.pi, billing: p.billing,
+        ...(project ? { project } : {}), ...(region ? { region } : {}) };
       const info = c.type === 'oauth' ? planOf(c.access) : undefined;
       const email = info?.email || (c.type === 'oauth' && typeof c.email === 'string' ? c.email : '');
       if (email) index.emails[canonical] = email;
@@ -456,6 +461,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     this.aliases.set(`${member}:${key}`, canonical);
     flow.id = canonical;
     this.additions.delete(`${member}:${key}`);
+    this.deviceRegions.delete(`${member}:${key}`);
     this.runtimes.delete(`${member}:${key}`);
     return canonical;
   }
@@ -577,15 +583,16 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     };
   }
 
-  protected engine(member: M, raw: CredentialStore, accountId?: string): Promise<R> {
+  protected async engine(member: M, raw: CredentialStore, accountId?: string): Promise<R> {
     const credentials = this.boundStore(member, raw, accountId);
-    const region = accountId ? this.deviceRegions.get(`${member}:${accountId}`) : undefined;
+    // A sign-in in progress carries its region; a saved account keeps it in the index, so it survives a restart.
+    const region = accountId ? this.deviceRegions.get(`${member}:${accountId}`) ?? (await this.index(member)).accounts?.[accountId]?.region as 'global' | 'cn' | undefined : undefined;
     const host = withDevice(this.platform.engine(credentials, this.opts.authBase, this.opts.deviceBase), credentials, { deviceBase: this.opts.deviceBase, region });
     const engine = withClaudePlan(host, credentials, accountId ? raw : this.baseStores.get(String(member)) ?? raw, { ...this.opts.claudePlan, fetch: this.opts.claudePlan?.fetch ?? this.opts.fetch });
     const callbackPort = this.opts.callbackPort ?? provider('google-gemini-cli').callbackPort!;
-    return Promise.resolve(Object.assign(withGoogle(engine, credentials, { base: this.opts.googleBase, fetch: this.opts.fetch, callbackPort }), {
+    return Object.assign(withGoogle(engine, credentials, { base: this.opts.googleBase, fetch: this.opts.fetch, callbackPort }), {
       credentialStore: credentials, readCredential: (id: string) => credentials.read(id),
-    }) as R);
+    }) as R;
   }
 
   /** A member's engine, holding only their own sign-ins (`store(member)`). Override to use another engine with the same seam. */
@@ -1158,7 +1165,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       waiting.abort();
       if (acquiring) { try { (await acquiring)?.close(); } catch {} }
       close();
-      if (flow.state !== 'done') { this.additions.delete(id); this.runtimes.delete(id); }
+      if (flow.state !== 'done') { this.additions.delete(id); this.deviceRegions.delete(id); this.runtimes.delete(id); }
       this.onChange?.(member, flow.id ?? key);
     }
   }
