@@ -86,7 +86,9 @@ async function fakeSignIn() {
       return { done: true, status: 'done' };
     },
     'wizard.cancel': (p: { sessionId: string }) => { answered.delete(p.sessionId); return { status: 'cancelled' }; },
-    'models.authStatus': () => ({ providers: signedIn ? [{ provider: 'openai' }] : [] }),
+    // The pin lists each signed-in provider with its profiles (5.15): signOut passes those profileIds.
+    'models.authStatus': () => ({ providers: signedIn ? [{ provider: 'openai',
+      profiles: [{ profileId: 'openai:default', type: 'oauth', status: 'ok' }] }] : [] }),
     'models.authLogout': () => { signedIn = false; return {}; },
   });
 }

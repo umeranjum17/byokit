@@ -3,7 +3,7 @@ import type { KitOptions } from './kit.ts';
 import type { Member } from './types.ts';
 import type { NeedSignIn } from './browser.ts';
 import { routes } from './routes.ts';
-import { MEMBER_ID, KEY_PREFIX, keyAgentId } from './members.ts';
+import { MEMBER_ID, KEY_PREFIX, BASE_AGENT, keyAgentId } from './members.ts';
 
 type Obj = Record<string, any>;
 const object = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -51,6 +51,9 @@ export function reconcileConfig(saved: object | undefined, o: {
   c.channels ??= {};
   c.agents ??= {};
   c.agents.defaults ??= {};
+  // Auth isolation (5.15): left unset, the pin makes the first agent the inherited owner once the roster grows, and
+  // every later agent (other members too) reads its sign-ins. The base is an id the kit never creates.
+  c.agents.defaults.authInheritance = { agentId: BASE_AGENT };
   c.agents.defaults.models ??= {};
   c.agents.defaults.models['openai/*'] = { ...c.agents.defaults.models['openai/*'], agentRuntime: { id: 'openclaw' } };
   const allow = c.agents.defaults.modelPolicy?.allow;

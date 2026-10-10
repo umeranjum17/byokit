@@ -596,12 +596,12 @@ test('sign-in: a failure is said in at most 200 characters', async () => {
   assert.equal(end.error?.length, 200);
 });
 
-test('providers reads both entry shapes, dedupes, and signOut names the provider and agent', async () => {
+test('providers reads both entry shapes, dedupes, and signOut names the provider, agent and its own profiles', async () => {
   const fake = scripted({
     'models.authStatus': (params: any) => ({
       providers: params.refresh
         ? ['openai', { provider: 'xai' }, { provider: 'openai' }, '', { nothing: true }]
-        : [{ provider: 'openai' }],
+        : [{ provider: 'openai', profiles: [{ profileId: 'openai:default', type: 'oauth', status: 'ok' }] }],
     }),
     'models.authLogout': () => ({}),
   });
@@ -609,7 +609,7 @@ test('providers reads both entry shapes, dedupes, and signOut names the provider
   assert.deepEqual(await providers(ctx(fake), 'm1', true), ['openai', 'xai']);
   assert.deepEqual(fake.calls.filter((call) => call.method === 'models.authStatus')[1]!.params, { agentId: 'm1', refresh: true });
   await signOut(ctx(fake), 'm1', 'openai');
-  assert.deepEqual(fake.calls.at(-1), { method: 'models.authLogout', params: { provider: 'openai', agentId: 'm1' } });
+  assert.deepEqual(fake.calls.at(-1), { method: 'models.authLogout', params: { provider: 'openai', agentId: 'm1', profileIds: ['openai:default'] } });
 });
 
 test('providers does not invent a sign-in when the engine refuses to answer', async () => {
