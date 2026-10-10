@@ -352,8 +352,9 @@ A limit or a lapsed sign-in is acted on as `failed()` does, then thrown as a
 Pass `select: { account: 'auto' | 'default' | id }` to answer from a chosen ChatGPT account instead of the saved
 default. The selection is resolved once, before any request, through the same `pick` a UI can call first; `respond`
 does not return the chosen account. An explicit id whose sign-in is gone is refused with a `ResponseError` kind
-`signed_out` before any request, an explicit id never falls back to the default, and a limit or lapsed sign-in rests
-only the account that ran (so the next Auto skips it) while the saved default is left unchanged. `select: { account: 'default' }`
+`signed_out` before any request, an id naming another service is refused with `not_included` before any request, an
+explicit id never falls back to the default, and a limit or lapsed sign-in rests only the account that ran (so the
+next Auto skips it) while the saved default is left unchanged. `select: { account: 'default' }`
 answers only from the saved default: when it is signed out or not ready, `respond` refuses with `signed_out`, and while it
 rests with `rate_limit` and its `until`, before any request and never from another account. An explicit id is sent even while that
 account rests: it is the person's own choice, and a real limit rests it again with its `until`. Auto and default
