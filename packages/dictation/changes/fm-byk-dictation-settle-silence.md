@@ -1,0 +1,1 @@
+- FIX: A live preview stuck on Whisper's silence sentinel (`[BLANK_AUDIO]`) now drops it as soon as a reading carries real words, so live text leaves the sentinel in front of the speech; a silence-only take keeps the sentinel and real shown words keep the existing agree-only, never-retract policy.

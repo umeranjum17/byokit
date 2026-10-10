@@ -52,6 +52,14 @@ const stubContext = () => ({ transcribeData: () => ({ stop: async () => {}, prom
 test('a person dictates and the app finalizes exactly the words shown; a local-only request reads no credential', async () => {
   // The shared conformance fixture owns partial stability and whole-word final replacements.
   for (const f of fixture.partials) assert.equal(settleWords(f.shown, f.previous, f.next), f.want);
+  // A live take that starts silent then speaks: two silence readings show the sentinel, then it drops when words
+  // arrive; a sentinel between two spoken parts never sticks, and a silence-only take keeps showing it.
+  const silentThenSpeech = settleWords(settleWords('', '', '[BLANK_AUDIO]'), '[BLANK_AUDIO]', '[BLANK_AUDIO]');
+  assert.equal(silentThenSpeech, '[BLANK_AUDIO]');
+  assert.equal(settleWords(silentThenSpeech, '[BLANK_AUDIO]', 'Okay so the dictation'), '');
+  const spoken = settleWords('', 'Okay so the dictation quality', 'Okay so the dictation quality');
+  assert.equal(spoken, 'Okay so the dictation quality');
+  assert.equal(settleWords(spoken, 'Okay so the dictation quality', '[BLANK_AUDIO]'), 'Okay so the dictation quality');
   assert.equal(applyWordReplacements(fixture.replacements.text, fixture.replacements.map), fixture.replacements.want);
   assert.equal(applyWordReplacements('c++ is useful, ac++b', { 'c++': 'C Plus Plus' }), 'C Plus Plus is useful, ac++b');
   assert.deepEqual(routes().filter(r => r.offer).map(r => r.id), ['system', 'whisper', 'chatgpt']);
