@@ -27,7 +27,7 @@ test('Claude is a default subscription route; API key remains separate and expli
   assert.ok(offered().some((p) => p.key === 'claude'));
   assert.ok(!offered().some((p) => p.billing === 'api'));
   assert.equal(PROVIDERS.claude.billing, 'subscription');
-  assert.deepEqual(new Accounts().providers.map((p) => p.key), ['chatgpt', 'grok', 'claude', 'kimi', 'minimax'], 'every subscription route the computer can drive; the phone ones came from catalogue device data');
+  assert.deepEqual(new Accounts().providers.map((p) => p.key), ['chatgpt', 'grok', 'claude', 'kimi'], 'every subscription route the computer can drive; the phone ones came from catalogue device data');
 });
 
 test('offline authorization URL, independent random state and PKCE S256 verifier/challenge', async () => {

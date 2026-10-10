@@ -110,8 +110,8 @@ export function generateRoutes(): Route[] {
   add('minimax', 'MiniMax', 'plan_key', 'subscription', 'plan-key', undefined, { upstream: { surface: 'accounts', id: 'minimax', method: 'plan-key', revision, flow: 'absent' } });
   // MiniMax's own user-code device sign-in, from its catalogue device data: the pinned pi-ai provider has no OAuth
   // module, so the kit's portable engine signs it in. Both regions share a client; `:cn` picks the China host.
-  add('minimax', 'MiniMax', 'code', 'subscription', 'device', undefined, { platforms: { node: 'yes', browser: 'host', rn: 'host' } });
-  add('minimax-cn', 'MiniMax CN', 'code', 'subscription', 'device', 'cn', { platforms: { node: 'yes', browser: 'host', rn: 'host' } });
+  add('minimax', 'MiniMax', 'code', 'subscription', 'device', undefined, { offer: 'explicit', platforms: { node: 'yes', browser: 'host', rn: 'host' } });
+  add('minimax-cn', 'MiniMax CN', 'code', 'subscription', 'device', 'cn', { offer: 'explicit', platforms: { node: 'yes', browser: 'host', rn: 'host' } });
   // The Google Code Assist clients are not pi-ai providers; their flows live in packages/accounts/src/flows/google.ts.
   for (const via of ['browser', 'paste'] as const)
     add('google-gemini-cli', 'Gemini Code Assist', via, 'subscription', 'oauth', undefined, { company: 'Google', platforms: node });

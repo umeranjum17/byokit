@@ -156,7 +156,7 @@ async function deviceLogin(pi: string, flow: DeviceFlow, name: string, base: str
   const minimax = flow.dialect === 'minimax';
   const pk = flow.pkce ? await pkce() : undefined;
   const asked = await form(at(flow.authorization, base), { client_id: flow.clientId, ...(flow.scope ? { scope: flow.scope } : {}),
-    ...(pk ? { code_challenge: pk.challenge, code_challenge_method: 'S256' } : {}), ...flow.form }, signal);
+    ...(pk ? { code_challenge: pk.challenge, code_challenge_method: 'S256' } : {}), ...(minimax ? { state: base64url(globalThis.crypto.getRandomValues(new Uint8Array(16))) } : {}), ...flow.form }, signal);
   if (asked.status < 200 || asked.status > 299) throw new Error(`${name} did not start a device sign-in (${asked.status}).`);
   const device = deviceAsked(json(asked.body), name, minimax);
   notify({ type: 'device_code', userCode: device.userCode, verificationUri: device.verificationUri, intervalSeconds: device.intervalSeconds, expiresInSeconds: device.expiresInSeconds } as AuthEvent);

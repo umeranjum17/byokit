@@ -98,7 +98,7 @@ test('device and token errors never expose response bodies', async () => {
 
 test('sign in with ChatGPT by device code: the code and page to show, approved there, kept, plan read', async () => {
   const a = kit();
-  assert.deepEqual(a.providers.map((p) => p.key), ['chatgpt', 'grok', 'claude', 'kimi', 'minimax'], 'only what a phone or browser can sign in to, the device ones from catalogue data');
+  assert.deepEqual(a.providers.map((p) => p.key), ['chatgpt', 'grok', 'claude', 'kimi'], 'only what a phone or browser can sign in to, the device ones from catalogue data');
   const v = (await a.login(1, 'chatgpt'))!;
   assert.deepEqual([v.state, v.via, v.url], ['waiting', 'code', `${openai.base}/codex/device`]);
   assert.match(v.code!, /^MOCK-/);
@@ -126,7 +126,7 @@ test("a poll that can't get through (a backgrounded phone) waits for the next in
 
 test('any provider the catalogue gives device data signs in on the phone, with no provider of its own', async () => {
   // The picker offers what the catalogue says; nothing here names a provider in code.
-  assert.deepEqual(signInChoices().map((p) => p.key), ['grok', 'kimi', 'minimax']);
+  assert.deepEqual(signInChoices().map((p) => p.key), ['grok', 'kimi']);
   for (const key of ['grok', 'kimi']) {
     const a = phoneKit(device.base);
     const v = (await a.login(1, key))!;

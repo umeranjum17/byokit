@@ -18,7 +18,7 @@ test('checked-in route snapshot covers the installed pin: 41 providers, 57 tuple
   for (const r of generated) {
     assert.ok(fixture.vocabulary.via.includes(r.via), r.id);
     assert.ok(fixture.vocabulary.billing.includes(r.billing), r.id);
-    assert.equal(r.offer, r.billing === 'subscription' ? 'default' : 'explicit', r.id);
+    assert.equal(r.offer, r.billing === 'subscription' && !(r.provider === 'minimax' && r.via === 'code') ? 'default' : 'explicit', r.id);
     assert.equal(r.billingFrom, r.via === 'endpoint' ? 'host' : 'source', r.id);
     assert.equal(r.upstream.revision, '@earendil-works/pi-ai@0.87.1');
     assert.deepEqual(Object.keys(r.platforms).sort(), ['browser', 'node', 'rn']);
@@ -39,8 +39,8 @@ test('discovery keeps every row on every platform; host offers only ready subscr
     const host = { platform };
     const listed = routes(host);
     assert.equal(listed.length, 70);
-    assert.deepEqual(offered(host), listed.filter((r) => r.readiness === 'ready' && r.billing === 'subscription'));
-    assert.ok(!offered(host).some((r) => r.provider === 'qwen'));
+    assert.deepEqual(offered(host), listed.filter((r) => r.offer === 'default' && r.readiness === 'ready' && r.billing === 'subscription'));
+    assert.ok(!offered(host).some((r) => r.provider === 'minimax' || r.provider === 'qwen'));
     for (const r of listed) if (r.readiness !== 'ready') assert.ok(r.why);
   }
   assert.equal(route('openai:code', { platform: 'rn' }).readiness, 'ready', 'phone ChatGPT unchanged');
@@ -58,7 +58,7 @@ test('discovery keeps every row on every platform; host offers only ready subscr
     assert.equal(route(id).readiness, 'ready');
     assert.ok(offered({ platform: 'node' }).some((r) => r.id === id));
   }
-  assert.equal(offered({ platform: 'node' }).length, 25);
+  assert.equal(offered({ platform: 'node' }).length, 23);
   assert.ok(offered({ platform: 'node' }).every((r) => r.billing === 'subscription'));
 });
 
@@ -82,6 +82,6 @@ test('legacy provider IDs and explicit lists stay compatible; two dead defaults 
   assert.equal(provider('qwen').pi, 'qwen-portal');
   assert.equal(provider('minimax').pi, 'minimax');
   assert.deepEqual(provider('minimax').routes, ['minimax:key', 'minimax:plan_key']);
-  assert.deepEqual(offered().map((p) => p.key), ['chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta', 'minimax', 'google-gemini-cli']);
+  assert.deepEqual(offered().map((p) => p.key), ['chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta', 'google-gemini-cli']);
   assert.deepEqual(offered(['qwen', 'minimax', 'openai']).map((p) => p.key), ['qwen', 'minimax', 'openai']);
 });

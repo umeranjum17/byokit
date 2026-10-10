@@ -95,7 +95,7 @@ test('a person signs in to their MiniMax plan by user code through the built kit
       const where = platform ? 'portable' : 'computer';
       const m = await mockDevice({ dialect: 'minimax', region });
       const { store, index } = stored();
-      const accounts = new Accounts<any, number>({ deviceBase: m.base, app: 'byokit journey', store: () => store }, platform as Platform | undefined);
+      const accounts = new Accounts<any, number>({ deviceBase: m.base, app: 'byokit journey', offer: ['minimax'], store: () => store }, platform as Platform | undefined);
       const at = (what: string) => `${where} ${key}: ${what}`;
       try {
         // add -> the code shows and the MiniMax page opens on the region's own host.
@@ -130,7 +130,7 @@ test("the provider entry is login(member, 'minimax'); a decline, an expiry or a 
   for (const what of ['decline', 'expiry', 'cancel'] as const) {
     const m = await mockDevice({ dialect: 'minimax' });
     const { store } = stored();
-    const accounts = new Accounts<any, number>({ deviceBase: m.base, app: 'byokit journey', store: () => store }, portable);
+    const accounts = new Accounts<any, number>({ deviceBase: m.base, app: 'byokit journey', offer: ['minimax'], store: () => store }, portable);
     try {
       // The provider entry point, exactly as the README names it.
       const shown = (await accounts.login(1, 'minimax'))!;
@@ -161,7 +161,7 @@ test("the provider entry is login(member, 'minimax'); a decline, an expiry or a 
 test('signing in again to a MiniMax region replaces that region\'s account; the other region adds one', async () => {
   const m = await mockDevice({ dialect: 'minimax' });
   const { store } = stored();
-  const accounts = new Accounts<any, number>({ deviceBase: m.base, app: 'byokit journey', store: () => store }, portable);
+  const accounts = new Accounts<any, number>({ deviceBase: m.base, app: 'byokit journey', offer: ['minimax'], store: () => store }, portable);
   try {
     const signIn = async (key: string) => {
       const { id } = await accounts.add(1, key);
@@ -196,7 +196,7 @@ test('a China MiniMax account signs in on the China host after a restart', async
     sent.push(`${url.host}${url.pathname}`);
     return real(new URL(url.pathname, m.base), init);
   }) as typeof fetch;
-  const open = () => new Accounts<any, number>({ app: 'byokit journey', store: () => store }, portable);
+  const open = () => new Accounts<any, number>({ app: 'byokit journey', offer: ['minimax'], store: () => store }, portable);
   try {
     const first = open();
     const { id } = await first.add(1, 'minimax:code:cn');
@@ -225,7 +225,7 @@ test('a China MiniMax account signs in on the China host after a restart', async
 test('a MiniMax sign-in whose token has run out needs signing in again, and nothing is sent to refresh it', async () => {
   const m = await mockDevice({ dialect: 'minimax' });
   const { store } = stored();
-  const open = () => new Accounts<any, number>({ deviceBase: m.base, app: 'byokit journey', store: () => store }, portable);
+  const open = () => new Accounts<any, number>({ deviceBase: m.base, app: 'byokit journey', offer: ['minimax'], store: () => store }, portable);
   const first = open();
   const { id } = await first.add(1, 'minimax:code');
   assert.equal(m.approve(first.view(1, id)!.code!), true, 'approving the code');
@@ -250,4 +250,65 @@ test('a MiniMax sign-in whose token has run out needs signing in again, and noth
     await m.close();
   }
   assert.ok(m.state.requests.every((r) => new URLSearchParams(r.body).get('grant_type') !== 'refresh_token'), 'no refresh was sent');
+});
+
+test('login and then add to the global region leave one MiniMax account', async () => {
+  const m = await mockDevice({ dialect: 'minimax' });
+  const { store } = stored();
+  const accounts = new Accounts<any, number>({ deviceBase: m.base, app: 'byokit journey', offer: ['minimax'], store: () => store }, portable);
+  try {
+    const shown = (await accounts.login(1, 'minimax'))!;
+    assert.equal(m.approve(shown.code!), true, 'approving the login code');
+    await accounts.finished(1, 'minimax');
+    const { id } = await accounts.add(1, 'minimax:code');
+    assert.equal(m.approve(accounts.view(1, id)!.code!), true, 'approving the added code');
+    await accounts.finished(1, id);
+    assert.deepEqual((await accounts.list(1)).map((r) => r.state), ['ready'], 'one ready account');
+  } finally {
+    accounts.stop();
+    await m.close();
+  }
+});
+
+test('each MiniMax code step carries its own random state', async () => {
+  const m = await mockDevice({ dialect: 'minimax' });
+  const { store } = stored();
+  const accounts = new Accounts<any, number>({ deviceBase: m.base, app: 'byokit journey', offer: ['minimax'], store: () => store }, portable);
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const { id } = await accounts.add(1, 'minimax:code');
+      assert.equal(m.approve(accounts.view(1, id)!.code!), true, 'approving the code');
+      await accounts.finished(1, id);
+    }
+    const states = m.state.requests.filter((r) => r.path === '/oauth2/device/code').map((r) => new URLSearchParams(r.body).get('state'));
+    assert.equal(states.length, 2, 'one code step per sign-in');
+    assert.ok(states.every((state) => state && state.length >= 16), 'a state on every code step');
+    assert.notEqual(states[0], states[1], 'a fresh state each time');
+  } finally {
+    accounts.stop();
+    await m.close();
+  }
+});
+
+test('an expired MiniMax sign-in ends signed out in the instance that signed in, on the next refresh', async () => {
+  const m = await mockDevice({ dialect: 'minimax' });
+  const { store } = stored();
+  const accounts = new Accounts<any, number>({ deviceBase: m.base, app: 'byokit journey', offer: ['minimax'], store: () => store }, portable);
+  const { id } = await accounts.add(1, 'minimax:code');
+  assert.equal(m.approve(accounts.view(1, id)!.code!), true, 'approving the code');
+  await accounts.finished(1, id);
+  const realNow = Date.now;
+  try {
+    await accounts.keepFresh([1]);
+    assert.equal((await accounts.status(1, id)).state, 'ready', 'ready before the token runs out');
+    // The stand-in's token lasts 3600 seconds.
+    Date.now = () => realNow() + 3_601_000;
+    await accounts.keepFresh([1]);
+    assert.equal((await accounts.status(1, id)).state, 'needs_again', 'needs signing in again once the token has run out');
+    assert.ok(m.state.requests.every((r) => new URLSearchParams(r.body).get('grant_type') !== 'refresh_token'), 'no refresh was sent');
+  } finally {
+    Date.now = realNow;
+    accounts.stop();
+    await m.close();
+  }
 });

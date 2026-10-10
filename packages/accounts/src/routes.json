@@ -949,7 +949,7 @@
     "via": "code",
     "billing": "subscription",
     "billingFrom": "source",
-    "offer": "default",
+    "offer": "explicit",
     "platforms": {
       "node": "yes",
       "browser": "host",
@@ -975,7 +975,7 @@
     "via": "code",
     "billing": "subscription",
     "billingFrom": "source",
-    "offer": "default",
+    "offer": "explicit",
     "platforms": {
       "node": "yes",
       "browser": "host",

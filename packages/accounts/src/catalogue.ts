@@ -76,7 +76,7 @@ export const deviceFlow = (pi: string, region?: 'global' | 'cn'): DeviceFlow | u
   return d && endpoints ? { ...d, authorization: endpoints.authorization, token: endpoints.token } : d;
 };
 /** What the picker offers: the provider rows a phone or browser can sign in to, in catalogue order. */
-export const signInChoices = (): Provider[] => Object.values(PROVIDERS).filter((p) => p.auth !== 'api-key' && !!p.device && p.billing === 'subscription');
+export const signInChoices = (): Provider[] => Object.values(PROVIDERS).filter((p) => p.auth !== 'api-key' && p.offer !== false && !!p.device && p.billing === 'subscription');
 
 export function provider(key: string) {
   const p = PROVIDERS[key];

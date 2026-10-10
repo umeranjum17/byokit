@@ -445,8 +445,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       if (flow.state !== 'waiting' || flow.abort.signal.aborted) throw new Error('Login cancelled');
       const identity = this.identity(c);
       const entries = Object.entries(data).filter(([id]) => !id.startsWith('.') && this.providerKey(this.publicKey(id)) === p.key);
-      const match = region ? entries.find(([id]) => index.accounts?.[id]?.region === region)
+      const match = region ? entries.find(([id]) => (index.accounts?.[id]?.region ?? 'global') === region)
         : identity && entries.find(([, old]) => this.identity(old as Credential) === identity);
+      // A MiniMax sign-in with no recorded region is the global one: `login` records none, and that was the only form before regions.
       // A region's account always gets its own id, so its engine can find its region after a restart.
       canonical = match ? this.publicKey(match[0]) : entries.length || region ? key : p.key;
       data[this.storageKey(canonical)] = c;
