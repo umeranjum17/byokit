@@ -88,6 +88,8 @@ export async function mockGoogle({ client = 'google-gemini-cli', port = 0, host 
     unauthorized: 0,
     /** Answer streamGenerateContent with a 403 tier refusal. */
     tierRefusal: false,
+    /** Wait this long between streamed frames, to prove each delta lands before the answer ends. */
+    frameDelayMs: 0,
   };
 
   const server = createServer(async (req, res) => {
@@ -150,7 +152,11 @@ export async function mockGoogle({ client = 'google-gemini-cli', port = 0, host 
         if (state.unauthorized > 0) { state.unauthorized--; return send(401, UNAUTHORIZED); }
         if (state.tierRefusal) return send(403, TIER_REFUSAL);
         res.writeHead(200, { 'content-type': 'text/event-stream', 'access-control-allow-origin': '*' });
-        return res.end(CODE_ASSIST_STREAM.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join(''));
+        for (const frame of CODE_ASSIST_STREAM) {
+          res.write(`data: ${JSON.stringify(frame)}\n\n`);
+          if (state.frameDelayMs) await new Promise((r) => setTimeout(r, state.frameDelayMs));
+        }
+        return res.end();
       }
       default:
         if (url.pathname.startsWith('/v1internal/')) return send(200, PROVISION.operation);

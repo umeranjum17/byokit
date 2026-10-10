@@ -893,10 +893,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     return keyRespond(r, secret, ask, this.opts.fetch, runtime);
   }
 
-  /** A selected Google Code Assist account answers through the kit-owned v1internal adapter, with the project the
-   *  sign-in stored. A 403 tier refusal is typed and marks the account not_included; a 401 refreshes the sign-in once
-   *  through the existing Google refresh path and retries, and a second 401 reports the account signed out. The token
-   *  is only ever the request's bearer header. */
+  /** A selected Google Code Assist account answers through the kit-owned v1internal adapter with the project the
+   *  sign-in stored. A 403 is typed not_included; a 401 refreshes once and retries, and a second 401 signs it out. */
   private async respondGoogle<T extends Api>(member: M, ask: KeyAsk<T>): Promise<AssistantMessage> {
     const provider = this.providerKey(ask.account);
     const r = routes().find((x) => x.provider === provider);

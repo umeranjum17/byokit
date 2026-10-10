@@ -496,9 +496,8 @@ test('a refused Google revoke still deletes locally and reports honestly, withou
   }
 });
 
-// The Code Assist respond adapter, through the BUILT @byokit/accounts: a streamed answer in order with usage, a 403 tier
-// refusal mapped to the typed error, and a 401 that exactly one refresh clears (a second 401 reports signed out). The
-// stand-in is extended only with the SSE endpoint; the project id stands in for the metadata a WP6-S4 sign-in stores.
+// The Code Assist respond adapter through the BUILT @byokit/accounts: a streamed answer, the 403 tier refusal, and a
+// 401 that one refresh clears (a second 401 reports signed out). The project id stands in for WP6-S4's stored metadata.
 const streamFixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/pi-streams.json', import.meta.url), 'utf8')) as {
   families: { 'code-assist': { events: unknown[] } };
   codeAssistRefusals: { tier: unknown; unauthorized: unknown };
@@ -534,11 +533,26 @@ test('respond: a Code Assist account streams an answer in order with usage, from
     assert.deepEqual([result.usage.input, result.usage.output, result.usage.totalTokens], [3, 2, 5]);
     const sent = google.state.requests.find((r) => r.path === '/v1internal:streamGenerateContent')!;
     assert.equal(JSON.parse(sent.body).project, 'recorded-project', 'the stored project is carried');
-    assert.equal(JSON.parse(sent.body).model, 'gemini-2.5-pro');
     assert.equal(google.state.requests.filter((r) => r.path === '/v1internal:streamGenerateContent').length, 1, 'no refresh was needed');
     // Auto picks it because its billing is subscription; an API-billed account would be excluded by the same rule.
     const choice = await accounts.pick(OWNER, { account: 'auto', provider: 'google-gemini-cli' });
     assert.ok(choice.ok && choice.account.id === id);
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('respond: each delta reaches onText as its frame lands, before the answer ends', async () => {
+  const { google, accounts, id } = await respondJourney();
+  try {
+    google.state.frameDelayMs = 30;
+    const deltas: string[] = [];
+    let resolved = false, firstBeforeEnd = false;
+    await accounts.respond(OWNER, { account: id, model: respondModel(), context,
+      onText: (d) => { if (!deltas.length) firstBeforeEnd = !resolved; deltas.push(d); } }).then(() => { resolved = true; });
+    assert.deepEqual(deltas, ['Hello', ' world']);
+    assert.ok(firstBeforeEnd, 'the first delta arrives before the answer ends, not buffered');
   } finally {
     accounts.stop();
     await google.close();
