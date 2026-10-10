@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BYOKit voice stand-in</title>
+<body><main><h1>Stand-in voice peer</h1><p>Offline run only: this page approves the stand-in sign-in and answers the call in place of ChatGPT. It is not a live pass.</p>
+<output id="status">Signed in. Waiting for Start voice.</output></main>
+<script type="module">
+// Plays the provider's side over loopback WebRTC: an SDP answer, a tone, and one user and one agent turn on the data channel.
+const status = document.querySelector('#status');
+await fetch('/stand-in/approve', { method: 'POST' });
+let offer;
+while (!(offer = await fetch('/stand-in/offer').then(response => response.status === 200 ? response.text() : undefined))) await new Promise(resolve => setTimeout(resolve, 200));
+const peer = new RTCPeerConnection();
+const tone = new AudioContext(), output = tone.createMediaStreamDestination(), oscillator = tone.createOscillator();
+oscillator.connect(output); oscillator.start();
+peer.addTrack(output.stream.getAudioTracks()[0], output.stream);
+peer.ondatachannel = ({ channel }) => channel.onopen = () => {
+  for (const event of [{ type: 'session.started' }, { type: 'turn.done', turn: { role: 'user', transcript: 'Hello from BYOKit.' } },
+    { type: 'output_audio.delta' }, { type: 'turn.done', turn: { role: 'assistant', transcript: 'Hello from BYOKit.' } }]) channel.send(JSON.stringify(event));
+  status.value = 'Answered with one user turn and one agent turn.';
+};
+await peer.setRemoteDescription({ type: 'offer', sdp: offer });
+await peer.setLocalDescription(await peer.createAnswer());
+if (peer.iceGatheringState !== 'complete') await new Promise(resolve => peer.onicegatheringstatechange = () => peer.iceGatheringState === 'complete' && resolve());
+await fetch('/stand-in/answer', { method: 'POST', body: peer.localDescription.sdp });
+status.value = 'Answered. Connecting.';
+</script></body></html>

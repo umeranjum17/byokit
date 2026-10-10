@@ -95,8 +95,8 @@ jobs:
       - name: Native Secret Service round trip and rotation
         run: sh scripts/test-keyring.sh
 
-  # Real browsers (headless Chromium): the PWA example's sign-in against a stand-in OpenAI, and the Herdr and OpenClaw
-  # kit examples.
+  # Real browsers (headless Chromium): the PWA example's sign-in against a stand-in OpenAI, the Herdr and OpenClaw
+  # kit examples, and the realtime-voice proof page offline.
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -114,6 +114,8 @@ jobs:
       - run: sh scripts/test.sh examples/herdr-kit/e2e.test.ts
       # The OpenClaw kit example the same way, against the kit's fake Gateway.
       - run: sh scripts/test.sh examples/openclaw-kit/e2e.test.ts
+      # The voice proof page offline: a stand-in sign-in and a stand-in voice peer over loopback WebRTC.
+      - run: sh scripts/test.sh examples/realtime-voice/e2e.test.ts
 
   openclaw-engine:
     runs-on: ubuntu-latest
