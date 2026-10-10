@@ -51,6 +51,13 @@ const PROVISION = {
   operation: { name: 'operations/recorded-onboard', done: true, response: { cloudaicompanionProject: { id: 'recorded-project' } } },
 };
 const INELIGIBLE = { ineligibleTiers: [{ tierId: 'free-tier', reasonMessage: 'This account is not eligible for Code Assist.', validationUrl: 'https://accounts.google.com/signin' }] };
+const CODE_ASSIST_STREAM = [
+  { response: { candidates: [{ index: 0, content: { role: 'model', parts: [{ text: 'Hello' }] } }] } },
+  { response: { candidates: [{ index: 0, content: { role: 'model', parts: [{ text: ' world' }] } }] } },
+  { response: { candidates: [{ index: 0, content: { role: 'model', parts: [] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 2, totalTokenCount: 5 } } },
+];
+const TIER_REFUSAL = { error: { code: 403, message: 'The caller does not have permission.' } };
+const UNAUTHORIZED = { error: { code: 401, message: 'Request had invalid authentication credentials.' } };
 
 const base64url = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const challengeOf = (verifier: string) => base64url(createHash('sha256').update(verifier).digest());
@@ -77,6 +84,14 @@ export async function mockGoogle({ client = 'google-gemini-cli', port = 0, host 
     ineligible: false,
     /** Answer loadCodeAssist with no project, so onboardUser provisions one. */
     provision: false,
+    /** Answer the next streamGenerateContent calls with 401 (a count), to drive the refresh-once path. */
+    unauthorized: 0,
+    /** Answer streamGenerateContent with a 403 tier refusal. */
+    tierRefusal: false,
+    /** Wait this long between streamed frames, to prove each delta lands before the answer ends. */
+    frameDelayMs: 0,
+    /** Separate streamed frames with CRLF instead of LF. */
+    crlf: false,
   };
 
   const server = createServer(async (req, res) => {
@@ -135,6 +150,17 @@ export async function mockGoogle({ client = 'google-gemini-cli', port = 0, host 
         return send(200, state.ineligible ? INELIGIBLE : state.provision ? PROVISION.loadCodeAssist : ELIGIBLE);
       case '/v1internal:onboardUser':
         return send(200, PROVISION.onboardUser);
+      case '/v1internal:streamGenerateContent': {
+        if (state.unauthorized > 0) { state.unauthorized--; return send(401, UNAUTHORIZED); }
+        if (state.tierRefusal) return send(403, TIER_REFUSAL);
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'access-control-allow-origin': '*' });
+        const eol = state.crlf ? '\r\n' : '\n';
+        for (const frame of CODE_ASSIST_STREAM) {
+          res.write(`data: ${JSON.stringify(frame)}${eol}${eol}`);
+          if (state.frameDelayMs) await new Promise((r) => setTimeout(r, state.frameDelayMs));
+        }
+        return res.end();
+      }
       default:
         if (url.pathname.startsWith('/v1internal/')) return send(200, PROVISION.operation);
         return send(404, { error: 'not_found' });
@@ -145,7 +171,8 @@ export async function mockGoogle({ client = 'google-gemini-cli', port = 0, host 
   return {
     client, base, state,
     protocol: PROTOCOLS[client],
-    answers: { exchange: EXCHANGE, rotation: ROTATION, invalidGrant: INVALID_GRANT, userinfo: USERINFO, eligible: ELIGIBLE, provision: PROVISION, ineligible: INELIGIBLE },
+    answers: { exchange: EXCHANGE, rotation: ROTATION, invalidGrant: INVALID_GRANT, userinfo: USERINFO, eligible: ELIGIBLE, provision: PROVISION, ineligible: INELIGIBLE,
+      codeAssistStream: CODE_ASSIST_STREAM, tierRefusal: TIER_REFUSAL, unauthorized: UNAUTHORIZED },
     /** The provider page to open, with the client's recorded authorize parameters and the caller's PKCE values. */
     authorizeUrl: ({ redirectUri, state: authState, codeChallenge }: { redirectUri: string; state?: string; codeChallenge: string }) => {
       const u = new URL(`${base}/o/oauth2/v2/auth`);

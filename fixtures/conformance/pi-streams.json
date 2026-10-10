@@ -41,7 +41,16 @@
       { "type": "toolcall_delta", "contentIndex": 1, "delta": "{\"q\":\"x\"}" },
       { "type": "toolcall_end", "contentIndex": 1, "toolCall": { "type": "toolCall", "id": "call_1", "name": "lookup", "arguments": { "q": "x" } } },
       { "type": "done", "reason": "toolUse", "usage": { "input": 3, "output": 2, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 5, "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0 } } }
+    ] },
+    "code-assist": { "named": false, "done": false, "events": [
+      { "response": { "candidates": [{ "index": 0, "content": { "role": "model", "parts": [{ "text": "Hello" }] } }] } },
+      { "response": { "candidates": [{ "index": 0, "content": { "role": "model", "parts": [{ "text": " world" }] } }] } },
+      { "response": { "candidates": [{ "index": 0, "content": { "role": "model", "parts": [] }, "finishReason": "STOP" }], "usageMetadata": { "promptTokenCount": 3, "candidatesTokenCount": 2, "totalTokenCount": 5 } } }
     ] }
+  },
+  "codeAssistRefusals": {
+    "tier": { "error": { "code": 403, "message": "The caller does not have permission." } },
+    "unauthorized": { "error": { "code": 401, "message": "Request had invalid authentication credentials." } }
   },
   "adapters": {
     "openai-completions": "completions",

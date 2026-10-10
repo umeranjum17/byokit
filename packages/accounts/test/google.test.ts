@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
-import { Accounts, memoryStore } from '@byokit/accounts';
+import { Accounts, memoryStore, type Api, type Context, type Model } from '@byokit/accounts';
 import { mockGoogle, type MockGoogleClient } from '@byokit/accounts/testing';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/google-oauth-typescript.json', import.meta.url), 'utf8')) as {
@@ -492,6 +492,121 @@ test('a refused Google revoke still deletes locally and reports honestly, withou
   } finally {
     accounts.stop();
     Object.assign(console, originalConsole);
+    await google.close();
+  }
+});
+
+// The Code Assist respond adapter through the BUILT @byokit/accounts: a streamed answer, the 403 tier refusal, and a
+// 401 that one refresh clears (a second 401 reports signed out). The project id stands in for WP6-S4's stored metadata.
+const streamFixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/pi-streams.json', import.meta.url), 'utf8')) as {
+  families: { 'code-assist': { events: unknown[] } };
+  codeAssistRefusals: { tier: unknown; unauthorized: unknown };
+};
+const respondModel = (): Model<Api> => ({ id: 'gemini-2.5-pro', name: 'Gemini', provider: 'google-gemini-cli',
+  api: 'google-generative-ai', baseUrl: 'https://cloudcode-pa.googleapis.com', reasoning: false, input: ['text'],
+  cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 128 });
+const context: Context = { messages: [{ role: 'user', content: 'Hello', timestamp: 0 }] };
+const TOKEN_CANARY = /recorded-(access|refresh)|rotated-(access|refresh)/;
+/** Sign in a Google account; the sign-in discovers and stores the Code Assist project the adapter answers with. */
+const respondJourney = async () => {
+  const google = await mockGoogle();
+  const store = memoryStore();
+  const accounts = new Accounts({ store: () => store, googleBase: google.base, app: 'byokit respond' });
+  const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:paste');
+  accounts.paste(OWNER, id, await callbackAddress(signIn!.url!));
+  await accounts.finished(OWNER, id);
+  const [row] = await accounts.list(OWNER);
+  return { google, store, accounts, id: row.id };
+};
+const refreshes = (google: Awaited<ReturnType<typeof mockGoogle>>) =>
+  google.state.requests.filter((r) => r.path === '/token' && r.body.includes('grant_type=refresh_token')).length;
+
+test('respond: a Code Assist account streams an answer in order with usage, from the stored project', async () => {
+  const { google, accounts, id } = await respondJourney();
+  try {
+    assert.deepEqual(google.answers.codeAssistStream, streamFixture.families['code-assist'].events, 'the SSE answer is the recorded one');
+    const deltas: string[] = [];
+    const result = await accounts.respond(OWNER, { account: id, model: respondModel(), context, onText: (d) => { deltas.push(d); } });
+    assert.equal(result.stopReason, 'stop');
+    assert.equal(result.content.filter((c) => c.type === 'text').map((c: any) => c.text).join(''), 'Hello world');
+    assert.deepEqual(deltas, ['Hello', ' world'], 'the answer arrives in order');
+    assert.deepEqual([result.usage.input, result.usage.output, result.usage.totalTokens], [3, 2, 5]);
+    const sent = google.state.requests.find((r) => r.path === '/v1internal:streamGenerateContent')!;
+    assert.equal(JSON.parse(sent.body).project, 'recorded-project', 'the stored project is carried');
+    assert.equal(google.state.requests.filter((r) => r.path === '/v1internal:streamGenerateContent').length, 1, 'no refresh was needed');
+    // Auto picks it because its billing is subscription; an API-billed account would be excluded by the same rule.
+    const choice = await accounts.pick(OWNER, { account: 'auto', provider: 'google-gemini-cli' });
+    assert.ok(choice.ok && choice.account.id === id);
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('respond: each delta reaches onText as its frame lands (LF and CRLF), before the answer ends', async () => {
+  for (const crlf of [false, true]) {
+    const { google, accounts, id } = await respondJourney();
+    try {
+      google.state.frameDelayMs = 30;
+      google.state.crlf = crlf;
+      const deltas: string[] = [];
+      let resolved = false, firstBeforeEnd = false;
+      await accounts.respond(OWNER, { account: id, model: respondModel(), context,
+        onText: (d) => { if (!deltas.length) firstBeforeEnd = !resolved; deltas.push(d); } }).then(() => { resolved = true; });
+      assert.deepEqual(deltas, ['Hello', ' world'], `crlf=${crlf}`);
+      assert.ok(firstBeforeEnd, `the first delta arrives before the answer ends, not buffered (crlf=${crlf})`);
+    } finally {
+      accounts.stop();
+      await google.close();
+    }
+  }
+});
+
+test('respond: a 403 tier refusal is the typed not_included error, without the token', async () => {
+  const { google, accounts, id } = await respondJourney();
+  try {
+    assert.deepEqual(google.answers.tierRefusal, streamFixture.codeAssistRefusals.tier);
+    google.state.tierRefusal = true;
+    const failure = await accounts.respond(OWNER, { account: id, model: respondModel(), context }).then(() => undefined, (e: any) => e);
+    assert.equal(failure?.kind, 'not_included', 'a tier refusal is a typed error, not a generic one');
+    assert.ok(!TOKEN_CANARY.test(failure?.message ?? ''), 'the token is absent from the error');
+    assert.equal((await accounts.status(OWNER, id)).state, 'not_included');
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('respond: a 401 refreshes the sign-in exactly once, then answers', async () => {
+  const { google, accounts, id } = await respondJourney();
+  try {
+    assert.deepEqual(google.answers.unauthorized, streamFixture.codeAssistRefusals.unauthorized);
+    google.state.unauthorized = 1;
+    const deltas: string[] = [];
+    const result = await accounts.respond(OWNER, { account: id, model: respondModel(), context, onText: (d) => { deltas.push(d); } });
+    assert.equal(result.stopReason, 'stop');
+    assert.deepEqual(deltas, ['Hello', ' world']);
+    assert.equal(refreshes(google), 1, 'exactly one refresh');
+    assert.equal(google.state.requests.filter((r) => r.path === '/v1internal:streamGenerateContent').length, 2, 'one refused call, one good one');
+    assert.equal((await accounts.list(OWNER))[0].state, 'ready');
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
+test('respond: a 401 twice reports the account signed out, after one refresh, without the token', async () => {
+  const { google, store, accounts, id } = await respondJourney();
+  try {
+    google.state.unauthorized = 2;
+    const failure = await accounts.respond(OWNER, { account: id, model: respondModel(), context }).then(() => undefined, (e: any) => e);
+    assert.equal(failure?.kind, 'signed_out');
+    assert.ok(!TOKEN_CANARY.test(failure?.message ?? ''), 'the token is absent from the error');
+    assert.equal(refreshes(google), 1, 'a second 401 does not refresh again');
+    assert.equal(await store.read('google-gemini-cli'), undefined, 'the sign-in is deleted');
+    assert.equal(await accounts.signedIn(OWNER, 'google-gemini-cli'), false);
+  } finally {
+    accounts.stop();
     await google.close();
   }
 });
