@@ -16,6 +16,8 @@ No upstream runtime code or credential discovery is included.
 @byokit/accounts' Google Cloud Code Assist sign-in is an independent implementation
 of the protocol the Apache-2.0 Gemini CLI client uses; it reuses that client's
 public OAuth client id only, with no client secret and no upstream code.
+Its Antigravity sign-in likewise reuses the public OAuth client id and scopes of
+Google's Antigravity client only, with no client secret and no upstream code.
 
 @byokit/accounts' MiniMax user-code sign-in follows the device flow of the
 upstream engine's MiniMax extension at 2026.8.1 (MIT-licensed). byokit ships an
