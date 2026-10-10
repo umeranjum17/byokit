@@ -543,19 +543,22 @@ test('respond: a Code Assist account streams an answer in order with usage, from
   }
 });
 
-test('respond: each delta reaches onText as its frame lands, before the answer ends', async () => {
-  const { google, accounts, id } = await respondJourney();
-  try {
-    google.state.frameDelayMs = 30;
-    const deltas: string[] = [];
-    let resolved = false, firstBeforeEnd = false;
-    await accounts.respond(OWNER, { account: id, model: respondModel(), context,
-      onText: (d) => { if (!deltas.length) firstBeforeEnd = !resolved; deltas.push(d); } }).then(() => { resolved = true; });
-    assert.deepEqual(deltas, ['Hello', ' world']);
-    assert.ok(firstBeforeEnd, 'the first delta arrives before the answer ends, not buffered');
-  } finally {
-    accounts.stop();
-    await google.close();
+test('respond: each delta reaches onText as its frame lands (LF and CRLF), before the answer ends', async () => {
+  for (const crlf of [false, true]) {
+    const { google, accounts, id } = await respondJourney();
+    try {
+      google.state.frameDelayMs = 30;
+      google.state.crlf = crlf;
+      const deltas: string[] = [];
+      let resolved = false, firstBeforeEnd = false;
+      await accounts.respond(OWNER, { account: id, model: respondModel(), context,
+        onText: (d) => { if (!deltas.length) firstBeforeEnd = !resolved; deltas.push(d); } }).then(() => { resolved = true; });
+      assert.deepEqual(deltas, ['Hello', ' world'], `crlf=${crlf}`);
+      assert.ok(firstBeforeEnd, `the first delta arrives before the answer ends, not buffered (crlf=${crlf})`);
+    } finally {
+      accounts.stop();
+      await google.close();
+    }
   }
 });
 

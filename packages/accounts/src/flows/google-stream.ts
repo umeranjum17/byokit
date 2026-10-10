@@ -63,8 +63,11 @@ export async function codeAssistStream(ask: CodeAssistAsk): Promise<AssistantMes
     if (meta) message.usage = usageOf(meta);
   };
   const drain = (final: boolean) => {
-    const blocks = buffer.split(/\n\n/);
-    buffer = final ? '' : blocks.pop()!;
+    // Hold a trailing CR: a bare-CR line ending, or half of a chunk-split CRLF that the next chunk finishes.
+    let tail = '';
+    if (!final && buffer.endsWith('\r')) { tail = '\r'; buffer = buffer.slice(0, -1); }
+    const blocks = buffer.replace(/\r\n?/g, '\n').split('\n\n');
+    buffer = (final ? '' : blocks.pop()!) + tail;
     for (const block of blocks) {
       const data = block.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).replace(/^\s/, '')).join('');
       if (!data || data === '[DONE]') continue;
