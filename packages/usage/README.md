@@ -574,6 +574,24 @@ inferred from recorded tokens. Failed polls do not imply exhaustion. `room`
 retains the observation age, scope and reset timestamp for a meter or reset label.
 Use `modelLabel(id)` for model names; unknown ids display “AI model”.
 
+`windowsView(reading, nowMs)` from the same entry lists both usage windows per
+account for a two-line meter. It returns `windows` tightest first — every
+normalized window with its unchanged millisecond `resetsAt`, a `text` line such as
+“Week: 58% left” and a `resetText` line such as “resets in 4h 40m”. A window
+without a used percent reads “amount unknown”. The age comes only from
+`Reading.at`: `ageText` is “Read {ago} ago”, “Reading time unknown” when the
+reading is undated, and absent when `at` is in the future. `freshness` mirrors
+`roomOf` and `stale` is true past 24 hours, keeping the numbers as measured.
+
+```ts
+import { windowsView } from '@byokit/usage/view';
+import type { Reading } from '@byokit/usage';
+const reading: Reading = { provider: 'codex', at: Date.now(), windows: [] };
+const windows = windowsView(reading, Date.now());
+for (const line of windows.windows) console.log(line.kind, line.text, line.resetText);
+console.log(windows.ageText, windows.stale);
+```
+
 Run `node examples/pwa/serve.ts` and open `/usage.html` for the shared Umer
 fixture ledger. In Expo, set `EXPO_PUBLIC_USAGE_DEMO=1`. These examples are
 explicitly labelled sample activity and never read a real sign-in.

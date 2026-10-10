@@ -1,5 +1,5 @@
 {
-  "rule": "Hard blocks override positive room without changing reported usage; scoped limits take precedence over legacy rows; unknown usage and age stay unknown. Poll failures retain figures without changing account health. Auto consumes Room and keeps its existing most-room policy, with conservative scope and 24h numeric eligibility.",
+  "rule": "Hard blocks override positive room without changing reported usage; scoped limits take precedence over legacy rows; unknown usage and age stay unknown. Poll failures retain figures without changing account health. Auto consumes Room and keeps its existing most-room policy, with conservative scope and 24h numeric eligibility. A windows view lists every window tightest first with its millisecond reset and a line, and adds an age taken only from Reading.at: 'Read {ago} ago', or 'Reading time unknown' without one, and no age for a future one.",
   "now": 1788600000000,
   "codex": [
     {
@@ -96,5 +96,87 @@
     "refresh-failed",
     "unavailable",
     "incomplete"
-  ]
+  ],
+  "windowsView": {
+    "wording": {
+      "left": "{label}: {left} left",
+      "unknown": "{label}: amount unknown",
+      "reset": "resets in {time}",
+      "resetUnknown": "reset time unknown",
+      "age": "Read {ago} ago",
+      "ageUnknown": "Reading time unknown"
+    },
+    "age": [
+      {
+        "now": 1788600000000,
+        "at": 1788600000000,
+        "freshness": "fresh",
+        "stale": false,
+        "ageText": "Read a moment ago"
+      },
+      {
+        "now": 1788603600000,
+        "at": 1788600000000,
+        "freshness": "fresh",
+        "stale": false,
+        "ageText": "Read 1 hour ago"
+      },
+      {
+        "now": 1788600000000,
+        "freshness": "unknown",
+        "stale": false,
+        "ageText": "Reading time unknown"
+      },
+      {
+        "now": 1788600000000,
+        "at": 1788600000001,
+        "freshness": "future",
+        "stale": false
+      },
+      {
+        "now": 1788600000000,
+        "at": 1788513599999,
+        "freshness": "stale",
+        "stale": true,
+        "ageText": "Read 1 day ago"
+      }
+    ],
+    "claude": [
+      {
+        "kind": "weekly",
+        "usedPercent": 42,
+        "resetsAt": 1788616800000,
+        "text": "Week: 58% left",
+        "resetText": "resets in 4h 40m"
+      },
+      {
+        "kind": "session",
+        "usedPercent": 21,
+        "resetsAt": 1788616800000,
+        "text": "Session: 79% left",
+        "resetText": "resets in 4h 40m"
+      }
+    ],
+    "codex": [
+      {
+        "kind": "weekly",
+        "usedPercent": 90,
+        "resetsAt": 1788616800000,
+        "text": "Week: 10% left",
+        "resetText": "resets in 4h 40m"
+      },
+      {
+        "kind": "session",
+        "usedPercent": 25,
+        "resetsAt": 1788616800000,
+        "text": "Session: 75% left",
+        "resetText": "resets in 4h 40m"
+      }
+    ],
+    "unknownWindow": {
+      "kind": "weekly",
+      "text": "Week: amount unknown",
+      "resetText": "reset time unknown"
+    }
+  }
 }
