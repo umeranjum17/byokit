@@ -1253,3 +1253,115 @@ test('a v1 snapshot holding engine stores opens and reseals them as separate obj
     assert.equal(holdsPlaintext(root, Buffer.from('legacy-transcript-row')), false, 'no plaintext transcript survives the reseal');
   } finally { removeScratch(dir); }
 });
+
+// A stop inside one process must not reseal an engine store whose bytes did not change: its plaintext hash is the
+// same and its sealed file is still on disk, so the encrypt + verify + fsyncs are skipped. A changed store, a new
+// one, and a fresh AuthStore (empty in-memory hashes) all reseal; no plaintext is left in the clear.
+test('an unchanged engine store is not resealed on stop in the same process; changed, new and fresh-process stores are', { timeout: 120_000 }, async () => {
+  const dir = scratchDir('seal-skip');
+  const root = join(dir, 'openclaw');
+  const base = hostKeySeal({ key: new Uint8Array(32).fill(9) });
+  const objectSeals: string[] = [];
+  const seal = {
+    encryptString: (text: string) => {
+      if (text.startsWith('{"path":')) objectSeals.push(text.slice(0, 64));
+      return base.encryptString(text);
+    },
+    decryptString: (data: Buffer) => base.decryptString(data),
+  };
+  const open = () => new AuthStore({ root, stateDir: dir, engineDir: join(dir, 'engine'), seal });
+  const canary = Buffer.from('byokit-seal-skip-canary');
+  const stores: [string, Buffer][] = [
+    ['state/transcripts/run/transcript.jsonl', Buffer.concat([canary, Buffer.from(' transcript row one\n')])],
+    ['state/media/attachments/recording.bin', randomBytes(4096)],
+    ['state/state/openclaw.sqlite', Buffer.concat([Buffer.from('SQLite format 3\0'), randomBytes(4096)])],
+  ];
+  const digests = new Map(stores.map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
+  const seedLive = () => {
+    for (const [name, bytes] of stores) { mkdirSync(dirname(join(root, name)), { recursive: true }); writeFileSync(join(root, name), bytes); }
+    mkdirSync(join(root, 'state'), { recursive: true });
+    writeFileSync(join(root, 'state', 'auth.json'), 'saved-login');
+  };
+  const transcript = join(root, stores[0][0]);
+  try {
+    seedLive();
+    const store = open();
+    await store.prepare();
+    assert.equal(objectSeals.length, stores.length, 'a fresh store seals every object');
+    await store.start();
+    await store.stop();
+    assert.equal(objectSeals.length, stores.length, 'an unchanged stop in the same process reseals no object');
+    assert.equal(holdsPlaintext(root, canary), false, 'no plaintext canary survives the unchanged stop');
+
+    const reopened = open();
+    await reopened.start();
+    for (const [name, digest] of digests) assert.equal(digestOf(join(root, name)), digest, `a skipped object still decrypts byte-identical: ${name}`);
+    writeFileSync(transcript, Buffer.concat([canary, Buffer.from(' transcript row two\n')]));
+    await reopened.stop();
+    assert.equal(objectSeals.length, stores.length + 1, 'a changed object is resealed on stop');
+
+    const verify = open();
+    await verify.start();
+    assert.equal(readFileSync(transcript, 'utf8').includes('transcript row two'), true, 'the changed object reopens with its new bytes');
+    for (const [name, digest] of digests) if (name !== stores[0][0]) assert.equal(digestOf(join(root, name)), digest, `an unchanged object beside the changed one is intact: ${name}`);
+    await verify.stop();
+    assert.equal(objectSeals.length, stores.length + 1, 'the resealed store is not resealed again while it is unchanged');
+    assert.equal(holdsPlaintext(root, canary), false, 'no plaintext canary survives the changed stop');
+
+    seedLive();
+    const extra = 'state/logs/fresh.log';
+    mkdirSync(dirname(join(root, extra)), { recursive: true });
+    writeFileSync(join(root, extra), 'fresh log line');
+    const fresh = open();
+    await fresh.prepare();
+    assert.equal(objectSeals.length, (stores.length + 1) * 2, 'a fresh process (empty hashes) seals every object, including a new one');
+  } finally { removeScratch(dir); }
+});
+
+// A seal whose post-write verify throws has already put the new ciphertext on disk, so the process must not keep
+// claiming the old plaintext hash for that object. The next stop reseals it; the restored store is the live bytes.
+test('a failed post-write seal verify leaves no hash claim, so the next stop reseals the object', { timeout: 120_000 }, async () => {
+  const dir = scratchDir('seal-failed-verify');
+  const root = join(dir, 'openclaw');
+  const base = hostKeySeal({ key: new Uint8Array(32).fill(7) });
+  // seal() decrypts the new payload in memory, then decrypts the file after put(); fail only that second read, once.
+  let decryptsSinceEncrypt = 0;
+  let armed = false;
+  let failPostWrite = false;
+  const seal = {
+    encryptString: (text: string) => {
+      decryptsSinceEncrypt = 0;
+      failPostWrite = armed && text.startsWith('{"path":"state/transcripts/');
+      return base.encryptString(text);
+    },
+    decryptString: (data: Buffer) => {
+      decryptsSinceEncrypt += 1;
+      if (failPostWrite && decryptsSinceEncrypt === 2) { failPostWrite = false; armed = false; throw new Error('post-write verify failed'); }
+      return base.decryptString(data);
+    },
+  };
+  const open = () => new AuthStore({ root, stateDir: dir, engineDir: join(dir, 'engine'), seal });
+  const transcriptName = 'state/transcripts/run/transcript.jsonl';
+  const transcript = join(root, transcriptName);
+  const c1 = Buffer.from('transcript row one\n');
+  const c2 = Buffer.from('transcript row two, written by the engine\n');
+  try {
+    mkdirSync(dirname(transcript), { recursive: true });
+    writeFileSync(transcript, c1);
+    mkdirSync(join(root, 'state'), { recursive: true });
+    writeFileSync(join(root, 'state', 'auth.json'), 'saved-login');
+    const store = open();
+    await store.prepare();
+    await store.start();
+    writeFileSync(transcript, c2);
+    armed = true;
+    await assert.rejects(store.stop(), /post-write verify failed/, 'the failed seal surfaces to stop()');
+    writeFileSync(transcript, c1);
+    await store.stop();
+    const verify = open();
+    await verify.start();
+    assert.equal(readFileSync(transcript).equals(c1), true, 'the next stop reseals the object: the restored store is the live bytes, not the failed write');
+    await verify.stop();
+    assert.equal(holdsPlaintext(root, Buffer.from('transcript row one')), false, 'no plaintext transcript survives the retry');
+  } finally { removeScratch(dir); }
+});

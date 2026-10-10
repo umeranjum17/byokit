@@ -81,6 +81,7 @@ function apart(name: string): boolean {
   return parts.some((_, i) => nonCredential(parts.slice(0, i + 1).join('/')));
 }
 const objectName = (name: string) => `${createHash('sha256').update(name).digest('hex')}.sealed`;
+const objectHash = (payload: string) => createHash('sha256').update(payload).digest('hex');
 function safePath(path: unknown): path is string {
   return typeof path === 'string' && /^(state|home)(\/[^/]+)*$/.test(path)
     && !path.split('/').some((part) => part === '.' || part === '..' || part.includes('\\') || part.includes('\0'));
@@ -148,6 +149,10 @@ export class AuthStore {
   private readonly lock: string;
   private readonly cleanup: string;
   private readonly restoring: string;
+  // Object file name -> sha256 of the plaintext payload currently sealed at that file. Kept only in memory: it
+  // never becomes on-disk metadata. Filled by restore() from what is decrypted, refreshed after each successful
+  // seal. A process that never restored starts with an empty map and reseals every object, as before.
+  private readonly objectHashes = new Map<string, string>();
   constructor(privateOptions: { root: string; stateDir: string; engineDir: string; seal?: SealingAdapter; log?: (line: string) => void }) {
     this.o = privateOptions;
     this.file = join(this.o.root, 'auth-store.sealed');
@@ -231,10 +236,13 @@ export class AuthStore {
     }
     return saved;
   }
-  private readObject(file: string): [string, string] {
-    let entry: { path?: unknown; data?: unknown } | null;
-    try { entry = JSON.parse(this.open(readFileSync(file))); }
-    catch (error) {
+  private readObject(file: string): [string, string, string] {
+    let text = '';
+    let entry: { path?: unknown; data?: unknown } | null = null;
+    try {
+      text = this.open(readFileSync(file));
+      entry = JSON.parse(text);
+    } catch (error) {
       if (error instanceof AuthStoreUnreadableError) throw error;
       throw new AuthStoreUnreadableError('invalid-snapshot');
     }
@@ -243,7 +251,7 @@ export class AuthStore {
     if (!safePath(path) || !apart(path) || typeof data !== 'string' || Buffer.from(data, 'base64').toString('base64') !== data) {
       throw new AuthStoreUnreadableError('invalid-snapshot');
     }
-    return [path, data];
+    return [path, data, text];
   }
   private inventory(): { dirs: string[]; files: Entry[]; objects: Entry[] } {
     const dirs: string[] = [];
@@ -315,7 +323,16 @@ export class AuthStore {
     for (const { name, file } of objects) {
       const object = objectName(name);
       keep.add(object);
-      this.seal(join(this.objects, object), JSON.stringify({ path: name, data: readFileSync(file).toString('base64') }));
+      const target = join(this.objects, object);
+      const payload = JSON.stringify({ path: name, data: readFileSync(file).toString('base64') });
+      // An object this process already sealed (or restored) unchanged is not resealed: its plaintext hash is
+      // the same and its sealed file is still on disk, so the encrypt + verify + fsyncs are skipped. A changed
+      // file, a new one, or one whose sealed file vanished falls through to the normal seal.
+      const hash = objectHash(payload);
+      if (this.objectHashes.get(object) === hash && existsSync(target)) continue;
+      this.objectHashes.delete(object);
+      this.seal(target, payload);
+      this.objectHashes.set(object, hash);
     }
     for (const entry of readdirSync(this.objects)) if (!keep.has(entry)) rmSync(join(this.objects, entry), { force: true });
   }
@@ -355,7 +372,8 @@ export class AuthStore {
     }
     if (existsSync(this.objects)) {
       for (const entry of readdirSync(this.objects)) {
-        const [path, data] = this.readObject(join(this.objects, entry));
+        const [path, data, payload] = this.readObject(join(this.objects, entry));
+        this.objectHashes.set(entry, objectHash(payload));
         put(join(this.o.root, path), Buffer.from(data, 'base64'));
       }
     }
