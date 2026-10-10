@@ -63,6 +63,8 @@
   .primary[data-quiet]:hover { text-decoration: underline; }
   .quiet { font: inherit; font-size: .9em; background: none; border: 0; color: var(--soft); padding: .5em 0; margin-top: .5em; cursor: pointer; text-decoration: underline; }
   .quiet:hover { color: var(--err); }
+  .card-actions { display: flex; align-items: center; gap: 1.5em; margin-top: .5em; }
+  .card-actions .quiet { margin-top: 0; }
   input, textarea, select { font: inherit; box-sizing: border-box; width: 100%; padding: .7em .8em; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--ink); margin-top: .7em; }
   .answer { white-space: pre-wrap; margin: .8em 0 0; }
   [hidden] { display: none !important; }
@@ -105,8 +107,10 @@
       <button class="primary" data-ask>Ask</button>
       <button class="secondary" data-stop hidden>Stop</button>
       <p class="answer" data-answer hidden></p>
-      <button class="quiet" data-signout>Sign out</button>
-      <button class="quiet" data-add hidden></button>
+      <div class="card-actions">
+        <button class="quiet" data-signout>Sign out</button>
+        <button class="quiet" data-add hidden></button>
+      </div>
     </div>
   </section>
 </template>
