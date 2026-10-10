@@ -32,11 +32,11 @@ surface (OpenClaw Gateway operator protocol; Herdr socket API and CLI), so no co
 They share connection adapters (`link`, `relay`, `discover`, `seal`, `ui`) and conventions, never a
 lowest-common-denominator interface. `@byokit/accounts` keeps serving direct-provider apps (including Ownvoice); its
 multi-account shapes (`Account`, `Room`, `RunSelection`, `Pick` as `AccountPick`) are restated structurally by this kit (5.15), never
-imported. CLI sign-in status lives in `@byokit/herdr` `agentStatus` (B5); `@byokit/accounts` stays app-owned OAuth only and reports no CLI sign-in (B7).
+imported. CLI sign-in status lives in `@byokit/herdr` `agentStatus` (B5) and, for its managed Claude/Codex/Pi folders, `@byokit/accounts/cli` `status`; 6.6 names which one gates a move (MS-S2).
 
 Out of scope for the build phase: releasing (firstmate/owner runs `release.yml`), muxr adoption (section 10), any
 operated service, and any change to `@byokit/accounts`, `link`, `relay`, `discover`, `seal`, `decide` or `ui`
-source.
+source, except `@byokit/accounts/cli` `launch` (MS-S2, 6.6).
 
 ## 2. Decisions
 
@@ -2071,12 +2071,12 @@ export type BusyHandoff =
   | { busy: 'wait'; confirmed: { session: string; terminalId: string }; waitMs: number }
   | { busy: 'interrupt'; confirmed: { session: string; terminalId: string; seq: number } };
 export type MoveToAccount = {
-  provider: string; folder: string; env?: Record<string, string>;
+  provider: string; folder: string; env?: Record<string, string>; name?: string;   // name: words only (MS-S2)
   direction?: 'right' | 'down'; timeoutMs?: number; whenBusy?: BusyHandoff;
 };
 export type MoveToAccountResult = { ok: true; session: string } | {
   ok: false; code: 'too_early' | 'busy' | 'unsupported' | 'env_mismatch' | 'close_failed' | 'start_failed'
-    | 'blocked' | 'changed' | 'interrupt_unsupported';
+    | 'blocked' | 'changed' | 'interrupt_unsupported' | 'signed_out';   // signed_out: moveToAccount only (6.6)
   message: string; live?: string;
 };
 export type Move = {
@@ -2295,11 +2295,28 @@ fail closed. Created panes roll back on preparation failure; caller-owned panes 
 removed after preparation, including failure. Runtime errors on this path are replaced with generic words.
 `openSignInTab` accepts the same result. No credential values enter commands, argv or kit logs.
 
-`moveToAccount(target, { provider, folder, env?, direction?, timeoutMs?, whenBusy? })` accepts mapped
+`moveToAccount(target, { provider, folder, env?, name?, direction?, timeoutMs?, whenBusy? })` accepts mapped
 managed kinds, including Claude (`CLAUDE_CONFIG_DIR`, `--resume <id>`), Codex (`CODEX_HOME`, `resume <id>`)
 and Pi (`PI_CODING_AGENT_DIR`, `--session <id|absolute path>`). Hosts own cross-account history sharing.
 Absent/launch-pending conversation → `too_early`; default working/blocked or concurrent move → `busy`;
 unsupported agent/session kind → `unsupported`. The source account is never inspected.
+
+**Signed-out target (MS-S2).** `moveToAccount` owns the target's readiness check; `move` has none and never returns
+`signed_out` (its caller owns readiness: an `@byokit/accounts` host calls `cliAccounts.launch(id)` and passes its
+`set`/`unset`), although its `MoveResult` type still carries the code through the shared union. The account helpers
+receive `agentStatus`; the check runs once, after the refusals that need no wait and before any `whenBusy` wait or the
+split: `agentStatus([kind], { folders: { [kind]: folder }, env })` for the kind mapped from `provider`, on the kit's
+launch PATH, with the probe's own HOME/XDG confinement to the folder (B9), stricter than the replacement shell.
+`signedIn: 'no'` returns `{ ok: false, code: 'signed_out' }` with words `move.signed_out` ("Sign in to {name} first.",
+`{name}` from `MoveToAccount.name`, else "this account"); nothing is split and `live` names the untouched source.
+`'unknown'` proceeds: at 0.9.1 only Claude and Codex have a status probe, so a Pi target (or a timed-out probe) is
+never refused here; a host gates Pi with `cliAccounts.launch` and `move`. The check is not a lock and only picks the
+words: an account that signs out between the check and the split still never reaches the default login through the
+kit, because the replacement starts only after step 2 verifies the target folder variable (plus the caller's `env`;
+`moveToAccount` has no `unset`, so a host that must drop inherited provider keys uses `move` with `launch`'s `unset`).
+The CLI then shows its own sign-in in the replacement or fails step 3 (`start_failed`, replacement closed); whether a
+kind honours its folder variable stays its own behaviour, proven per kind (B9). No path retries without the folder or
+falls back to the person's own sign-in.
 
 Both move APIs accept `whenBusy: { busy: 'wait', confirmed: { session, terminalId }, waitMs }`.
 Confirmation must match the current published conversation and terminal exactly, and the source must publish
@@ -2366,7 +2383,8 @@ env mismatch (including prefix/echo cases), unsupported/too-early/busy and expli
 environment table, resume table): 24 kinds at v0.9.1, 12 with an account-folder variable. `openSignInTab` sets the
 kind's folder variable when the host passes a folder. `moveToAccount` and `move` extend only to kinds with both a
 folder variable and resume support, under the transaction above and the main-owned native-session and confirmed-move
-guards; a folder, a passing readiness check or a fixture never declares a native move proven. Kinds without a folder
+guards; a folder, a passing readiness check or a fixture never declares a native move proven. That readiness check
+is also `moveToAccount`'s signed-out gate (6.6). Kinds without a folder
 variable are tab only, labelled one sign-in per computer user, and the kit never reads the person's default CLI
 credentials for them. Readiness probes run only with the managed folder's explicit env (D13) and otherwise report
 unknown.
@@ -2440,6 +2458,7 @@ sorted, deterministic; a test regenerates and compares.
 | `move.blocked` | This conversation is waiting for your answer. Answer it, then move it. |
 | `move.changed` | This conversation changed while moving, so it was not moved. Check your panes, then try again. |
 | `move.interrupt_unsupported` | Stopping a step is not available for this agent. Move it when the step finishes. |
+| `move.signed_out` | Sign in to {name} first. |
 | `turn.failed` | This turn could not be confirmed. Check the helper before trying again. |
 
 ## 7. Connection adapters
