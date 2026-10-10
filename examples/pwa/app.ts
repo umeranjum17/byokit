@@ -322,9 +322,10 @@ function card(key: string) {
       const signal = mine.signal;
       const onText = (d: string) => { if (mine === asking) out.textContent += d; };
       try {
+        const select = { account: want === 'default' || !pick.ok ? want : pick.account.id };
         const text = key === 'claude'
-          ? await accounts.respond(ME, { provider: 'claude', model: PROVIDERS.claude.models.strong, max_tokens: 1024, system: 'Answer in a few short sentences.', messages: [{ role: 'user', content: input }], onText, signal })
-          : await accounts.respond(ME, { instructions: 'Answer in a few short sentences.', input, onText, signal, select: { account: want === 'default' || !pick.ok ? want : pick.account.id } });
+          ? await accounts.respond(ME, { provider: 'claude', model: PROVIDERS.claude.models.strong, max_tokens: 1024, system: 'Answer in a few short sentences.', messages: [{ role: 'user', content: input }], onText, signal, select })
+          : await accounts.respond(ME, { instructions: 'Answer in a few short sentences.', input, onText, signal, select });
         if (mine === asking) out.textContent = text;
       } catch (e: any) { if (mine === asking) out.textContent = e.message; }
       settle(mine);

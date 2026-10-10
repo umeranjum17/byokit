@@ -580,6 +580,11 @@ const text = await accounts.respond(member, {
 });
 ```
 
+Pass `select: { account: 'auto' | 'default' | id }` to answer from a chosen signed-in Claude plan instead of the
+primary slot, with the same shape and rules as the ChatGPT `select`: resolved once before any request through `pick`,
+an explicit id never falls back to another account, and a limit or a lapsed sign-in rests or signs out only the account
+that ran (the primary is left ready). Omitting `select` keeps the primary Claude plan, exactly as before.
+
 The manual HTTPS callback works without a local listener or an installed CLI. It uses PKCE (secure random verifier,
 SHA-256 challenge), independent state, strict `code#state` validation, and direct JSON exchange/refresh at
 `platform.claude.com/v1/oauth/token`. Refresh is single-flight for one store, saves an attempt before sending and commits the rotated credentials before

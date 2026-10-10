@@ -46,7 +46,10 @@ export type Platform = { kind?: 'node' | 'browser' | 'rn'; keys?: () => Promise<
  *  listener. Key routes answer once `withKeys` from `@byokit/accounts/keys` adds their runtime, which this entry never imports. */
 export const portable: Platform = { kind: 'browser', engine: (c, base, deviceBase) => portableEngine(c, { base, deviceBase }), signsIn: (pi) => pi === CLAUDE_PLAN_ID || signable(pi) };
 
-export type ClaudePlanAsk = AnthropicAsk & { provider: 'claude' };
+export type ClaudePlanAsk = AnthropicAsk & { provider: 'claude';
+  /** Which signed-in Claude account answers, resolved once before any request: `{ account: 'auto' | 'default' | id }`,
+   *  the same shape as ChatGPT's. Omitting it keeps today's primary Claude plan, exactly as before. */
+  select?: { account: string } };
 
 export type AnthropicAccountAsk = AnthropicAsk & { provider: 'anthropic'; key: string };
 
@@ -846,24 +849,37 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const ask = query as Ask;
     if ('provider' in query && query.provider === 'claude') {
       this.offer('claude');
-      const rt = await this.runtime(member);
-      const { provider: _provider, ...request } = query as ClaudePlanAsk;
+      const { provider: _provider, select, ...request } = query as ClaudePlanAsk;
+      // Select once, before any request, exactly as the ChatGPT branch does. The selected account's own runtime
+      // supplies access, and every act on a failure (forget, logout, failed, onExpired) names that account, never
+      // the primary: a selected account's expiry signs out only it, with no retry on another account. No select
+      // keeps today's primary slot, byte for byte.
+      const picked = select ? await this.resolveRespondAccount(member, 'claude', select) : undefined;
+      const account = picked ?? 'claude';
+      const rt = await this.runtime(member, picked);
       let access: string | undefined;
       try { access = (await rt.getAuth(CLAUDE_PLAN_ID))?.auth?.apiKey; }
       catch (e) {
-        if (e instanceof ClaudePlanExpiredError) { this.forget(member, 'claude'); this.onExpired?.(member, 'claude'); }
+        if (e instanceof ClaudePlanExpiredError) { this.forget(member, account); this.onExpired?.(member, account); }
         throw e;
       }
       if (!access) throw new ClaudePlanExpiredError();
       try { return await claudePlanMessages(access, { fetch: this.opts.fetch, userAgent: this.opts.claudeUserAgent }).respond(request); }
       catch (e) {
         if (e instanceof ResponseError && e.kind === 'signed_out') {
-          await this.logout(member, 'claude').catch(() => {});
-          this.forget(member, 'claude');
-          this.onExpired?.(member, 'claude');
+          await this.logout(member, account).catch(() => {});
+          this.forget(member, account);
+          this.onExpired?.(member, account);
           throw new ClaudePlanExpiredError();
         }
-        if (e instanceof ResponseError && e.kind) await this.failed(member, 'claude', e);
+        if (e instanceof ResponseError && e.kind) {
+          // Mirror the ChatGPT branch: the exact account that ran rests or is marked, and a selected account's answer
+          // carries its until. With no select the rethrow only fires when the acted kind differs, so the primary
+          // path stays byte-identical.
+          const acted = await this.failed(member, account, e, picked !== undefined);
+          if (acted && (picked !== undefined || acted.kind !== e.kind)) throw new ResponseError(e.message, acted.kind, acted.until,
+            e.status !== undefined ? { status: e.status, retryAfter: e.retryAfter } : undefined);
+        }
         throw e;
       }
     }
@@ -874,33 +890,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     }
     const key = 'chatgpt';
     const p = this.offer(key);
-    // Select once, before any request. Auto/default go through the same pick the caller can read first; an explicit id
-    // is taken as named, so a signed-out one reaches `access` and is refused typed rather than silently swapped.
-    let picked: string | undefined;
-    if (ask.select && ask.select.account !== 'auto' && ask.select.account !== 'default') picked = this.accountKey(member, ask.select.account);
-    else if (ask.select) {
-      const choice = await this.pick(member, { account: ask.select.account, provider: 'chatgpt' });
-      if (ask.select.account === 'default') {
-        // The saved default is the only account a default answers from: anything else pick chose is refused, not used.
-        const saved = (await this.defaults(member)).account;
-        if (!choice.ok || choice.how !== 'default' || choice.account.id !== saved) {
-          const s = saved ? await this.accountStatus(member, saved) : undefined;
-          if (s?.state === 'resting') throw new ResponseError(s.words, 'rate_limit', s.until);
-          throw new ResponseError(s && s.state !== 'ready' ? s.words : say('pick.out.state'), 'signed_out');
-        }
-        picked = choice.account.id;
-      }
-      else if (choice.ok) picked = choice.account.id;
-      else {
-        const signedIn = choice.considered.filter((r) => this.providerKey(r.id) === 'chatgpt' && r.out !== 'state');
-        const resting = signedIn.filter((r) => r.out === 'resting');
-        if (signedIn.length && resting.length === signedIn.length) {
-          const until = Math.min(...resting.map((r) => r.until!));
-          throw new ResponseError(say('pick.out.resting', { time: clock(until) }), 'rate_limit', until);
-        }
-        throw new ResponseError(choice.reason, 'signed_out');
-      }
-    }
+    // Select once, before any request, through the same helper the Claude branch uses.
+    const picked = ask.select ? await this.resolveRespondAccount(member, 'chatgpt', ask.select) : undefined;
     const { access, accountId } = await this.access(member, ask.signal, picked);
     try {
       const base = { ...ask, access, accountId, model: ask.model ?? p.models.strong, base: this.opts.apiBase, fetch: this.opts.fetch, originator: ask.originator ?? this.opts.originator };
@@ -915,6 +906,33 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       }
       throw e;
     }
+  }
+
+  /** Resolve a `select` once before any request, shared by the ChatGPT and Claude subscription branches. An explicit
+   *  id is taken as named, so a signed-out one reaches its access check and is refused typed rather than silently
+   *  swapped. Auto and default go through the same `pick` a UI can call first; a default that cannot answer is
+   *  refused, never answered from another account. */
+  private async resolveRespondAccount(member: M, provider: string, select: { account: string }): Promise<string | undefined> {
+    if (select.account !== 'auto' && select.account !== 'default') return this.accountKey(member, select.account);
+    const choice = await this.pick(member, { account: select.account, provider });
+    if (select.account === 'default') {
+      // The saved default is the only account a default answers from: anything else pick chose is refused, not used.
+      const saved = (await this.defaults(member)).account;
+      if (!choice.ok || choice.how !== 'default' || choice.account.id !== saved) {
+        const s = saved ? await this.accountStatus(member, saved) : undefined;
+        if (s?.state === 'resting') throw new ResponseError(s.words, 'rate_limit', s.until);
+        throw new ResponseError(s && s.state !== 'ready' ? s.words : say('pick.out.state'), 'signed_out');
+      }
+      return choice.account.id;
+    }
+    if (choice.ok) return choice.account.id;
+    const signedIn = choice.considered.filter((r) => this.providerKey(r.id) === provider && r.out !== 'state');
+    const resting = signedIn.filter((r) => r.out === 'resting');
+    if (signedIn.length && resting.length === signedIn.length) {
+      const until = Math.min(...resting.map((r) => r.until!));
+      throw new ResponseError(say('pick.out.resting', { time: clock(until) }), 'rate_limit', until);
+    }
+    throw new ResponseError(choice.reason, 'signed_out');
   }
 
   /** Full typed pinned Models request, bound to one selected member/account for the whole response. */
