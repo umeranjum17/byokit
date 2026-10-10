@@ -1,8 +1,8 @@
-import { accessSync, constants, statSync } from 'node:fs';
+import { accessSync, constants, lstatSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { isAbsolute, join } from 'node:path';
 import { claudeAuth, claudeUsage, codexUsage, customClaude, providerGet, type Answer } from './providers.ts';
-import { fingerprint, readJson, store, memoryUsageStore, safeWindows, safePoll } from './store.ts';
+import { fingerprint, store, memoryUsageStore, safeWindows, safePoll } from './store.ts';
 import { claudeWindows, codexWindows, goWindows, record, zaiWindows, type CodexRateLimitResult } from './windows.ts';
 import { codexHardLimit, codexTokenWindows, copilotWindows, grokWindows, minimaxWindows, geminiWindows, kimiWindows } from './quota.ts';
 import { UsageError, type Reading, type ReadOptions, type Source, type Usage, type UsageOptions, type Poll } from './types.ts';
@@ -62,6 +62,13 @@ function subject(access: string): string | undefined {
     return record(claims) && validText(claims.sub) && claims.sub ? claims.sub : undefined;
   } catch { return undefined; }
 }
+/** Metadata only, so a Codex sign-in keys the cache without loading a token. */
+function codexCredential(home: string) {
+  try {
+    const stat = lstatSync(join(home, 'auth.json'));
+    return stat.isFile() && !stat.isSymbolicLink() && stat.size <= 64 * 1024 ? stat : undefined;
+  } catch { return undefined; }
+}
 /** One reader owns per-account backoff and concurrent-read deduplication. */
 export function usage(options: UsageOptions): Usage {
   if (options.stateDir !== undefined && (!validText(options.stateDir) || !isAbsolute(options.stateDir))) throw new UsageError();
@@ -89,9 +96,8 @@ export function usage(options: UsageOptions): Usage {
     } else if ('credentialsFile' in source) id = claudeAuth(source)?.account;
     else if ('read' in source) id = 'ephemeral' in source ? undefined : source.accountUuid;
     else if ('bin' in source) {
-      const raw = readJson(join(source.home, 'auth.json'), 64 * 1024);
-      const tokens = record(raw) && record(raw.tokens) ? raw.tokens : undefined;
-      id = typeof tokens?.account_id === 'string' ? tokens.account_id : `codex-home\0${source.home}`;
+      const stat = codexCredential(source.home);
+      id = stat ? `${source.home}\0${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}` : `codex-home\0${source.home}`;
     } else id = source.accountId ?? (source.provider === 'claude' ? source.accountUuid : undefined) ?? ('access' in source ? subject(source.access) : undefined);
     return id && id.length <= 16384 ? fp(source.provider, id) : undefined;
   }
