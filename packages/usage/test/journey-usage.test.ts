@@ -870,6 +870,44 @@ test('a built consumer touches only the sign-in it was handed', () => {
   assert.doesNotMatch(readFileSync(join(managedState, 'plans-v2.json'), 'utf8'), new RegExp(CANARY));
   assert.ok(managedBefore.includes(CANARY), 'the request exercised a real managed canary credential');
 
+  // An explicit credentials file may not point at a default login, lexically or through a link; an app-owned file still reads.
+  const guardRoot = scratchDir('claude-file-guard'); const guardDecoy = decoy(join(guardRoot, 'decoy'));
+  const guardApp = join(guardRoot, 'app'); mkdirSync(guardApp);
+  const guardState = join(guardRoot, 'state'); mkdirSync(guardState);
+  const guardAppFile = join(guardApp, 'credentials.json');
+  writeFileSync(guardAppFile, JSON.stringify({ claudeAiOauth: { accessToken: 'synthetic-app-token', accountUuid: 'app-account' } }));
+  const guardDecoyFile = join(guardDecoy.home, '.claude', '.credentials.json');
+  const guardLink = join(guardApp, 'link.json'); symlinkSync(guardDecoyFile, guardLink);
+  const guardTrace = join(guardRoot, 'trace'); writeFileSync(guardTrace, '');
+  const guardChild = spawnSync(process.execPath, ['--import', traceFs, '--input-type=module', '-e', `
+    const { usage, UsageError } = await import('@byokit/usage');
+    let calls=0;
+    const reader=usage({stateDir:${JSON.stringify(guardState)},fetch:async()=>{calls++;return new Response(JSON.stringify({five_hour:{utilization:12}}));}});
+    const good=await reader.read({provider:'claude',credentialsFile:${JSON.stringify(guardAppFile)}});
+    if(good.windows.length!==1)throw new Error('app-owned file not read');
+    if(calls!==1)throw new Error('unexpected provider calls');
+    for(const credentialsFile of [${JSON.stringify(guardDecoyFile)},${JSON.stringify(guardLink)}]){
+      for(const method of ['read','connected','account','lastKnown']){
+        try{await reader[method]({provider:'claude',credentialsFile});throw new Error('accepted default login');}
+        catch(e){if(!(e instanceof UsageError))throw e;}
+      }
+    }
+    for(const field of ['configFile','statuslineFile']){
+      try{await reader.read({provider:'claude',credentialsFile:${JSON.stringify(guardAppFile)},[field]:${JSON.stringify(guardDecoyFile)}});throw new Error('accepted default login');}
+      catch(e){if(!(e instanceof UsageError))throw e;}
+    }
+    if(calls!==1)throw new Error('a refused source reached the provider');
+    console.log('guarded');
+  `], { encoding: 'utf8', timeout: 20_000, env: { ...process.env, ...guardDecoy.env, TRACE_ROOTS: [...guardDecoy.roots, guardApp, guardState].join(':'), TRACE_LOG: guardTrace } });
+  assert.equal(guardChild.status, 0, guardChild.stderr);
+  assert.match(guardChild.stdout, /guarded/);
+  assert.doesNotMatch(guardChild.stdout + guardChild.stderr, new RegExp(CANARY));
+  const guardTouches = readFileSync(guardTrace, 'utf8').trim().split('\n').filter(Boolean);
+  assert.ok(!guardTouches.includes(guardDecoyFile), 'the decoy default login was opened');
+  assert.ok(guardTouches.every((p) => p === guardApp || p.startsWith(guardApp + '/') || p === guardState || p.startsWith(guardState + '/')), guardTouches.join('\n'));
+  assert.deepEqual(guardDecoy.changed(), []); assert.deepEqual(guardDecoy.ran(), []);
+  assert.doesNotMatch(readFileSync(join(guardState, 'plans-v2.json'), 'utf8'), new RegExp(CANARY));
+
   // An ephemeral snapshot reads no credentials, ambient login or persistent state.
   const ephemeralRoot = scratchDir('usage-ephemeral'); const ephemeralDecoy = decoy(join(ephemeralRoot, 'decoy'));
   const ephemeralState = join(ephemeralRoot, 'state'); mkdirSync(ephemeralState);

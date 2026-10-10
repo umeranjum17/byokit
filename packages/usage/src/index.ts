@@ -7,7 +7,7 @@ import { claudeWindows, codexWindows, goWindows, record, zaiWindows, type CodexR
 import { codexHardLimit, codexTokenWindows, copilotWindows, grokWindows, minimaxWindows, geminiWindows, kimiWindows } from './quota.ts';
 import { UsageError, type Reading, type ReadOptions, type Source, type Usage, type UsageOptions, type Poll } from './types.ts';
 import { codexIdentity, type Identity } from './identity.ts';
-import { claudeUsage as managedClaudeUsage, claudeCredential, managedClaudeFolder } from './claude.ts';
+import { claudeUsage as managedClaudeUsage, claudeCredential, managedClaudeFolder, defaultLoginPath } from './claude.ts';
 import { ephemeralClaude } from './ephemeral.ts';
 export * from './types.ts';
 export { harnessLog, HarnessLogError, type HarnessLog, type HarnessLogFile, type HarnessLogFormat, type HarnessLogEntry, type HarnessLogOptions, type HarnessLogReadOptions, type HarnessLogPage, type HarnessLogWork } from './log.ts';
@@ -36,7 +36,7 @@ function validate(source: Source, stateDir?: string): void {
     if (source.provider !== 'claude' || !validText(source.folder) || !isAbsolute(source.folder) || !stateDir || !managedClaudeFolder(source.folder, stateDir)) throw new UsageError();
     if (!record(source.headers) || !['anthropic-beta', 'User-Agent'].every((key) => validText(source.headers[key as keyof typeof source.headers]) && source.headers[key as keyof typeof source.headers].length <= 1024)) throw new UsageError();
   } else if ('credentialsFile' in source) {
-    if (source.provider !== 'claude' || ![source.credentialsFile, ...[source.configFile, source.statuslineFile].filter((v) => v !== undefined)].every((v) => validText(v) && isAbsolute(v))) throw new UsageError();
+    if (source.provider !== 'claude' || ![source.credentialsFile, ...[source.configFile, source.statuslineFile].filter((v) => v !== undefined)].every((v) => validText(v) && isAbsolute(v) && !defaultLoginPath(v))) throw new UsageError();
   } else if ('read' in source) {
     if (source.provider !== 'claude' || typeof source.read !== 'function' || !('ephemeral' in source) && (!validText(source.accountUuid) || !source.accountUuid) || source.connected !== undefined && typeof source.connected !== 'function') throw new UsageError();
   } else if ('bin' in source) {
