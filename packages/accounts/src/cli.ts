@@ -73,6 +73,14 @@ function directory(path: string, create = false): boolean {
     return false;
   }
 }
+function folderAddedAt(folder: string): number | undefined {
+  try {
+    const s = lstatSync(folder);
+    if (Number.isFinite(s.birthtimeMs) && s.birthtimeMs > 0) return Math.floor(s.birthtimeMs);
+    const times = [s.ctimeMs, s.mtimeMs].filter((v) => Number.isFinite(v) && v > 0);
+    return times.length ? Math.floor(Math.min(...times)) : undefined;
+  } catch { return undefined; }
+}
 export type NativePiAccount = {
   kind: 'pi'; bin: string;
   launch: { set: { PI_CODING_AGENT_DIR: string }; unset: string[] };
@@ -147,6 +155,7 @@ export function cliAccounts(options: CliOptions) {
         } else if (path !== file) continue;
         // Host-owned rows remain byte-compatible in the roster, without touching their folder.
         if (!r.found && !r.id.startsWith('found-') && !safe(r)) continue;
+        if (!r.found && !r.id.startsWith('found-') && r.addedAt === undefined) r.addedAt = folderAddedAt(r.folder);
         seen.add(r.id); rows.push(r);
       }
     }

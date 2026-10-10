@@ -7,6 +7,7 @@ A host app driving the built `@byokit/accounts/cli` adds two managed Claude logi
 - `cli-addedAt-present`: `add` returns a `signing` account whose `addedAt` is an epoch-millisecond number, and `list`/`status` expose the same value on every managed row.
 - `cli-addedAt-distinct`: two logins added back to back, even in the same millisecond, come back with different `addedAt`, so two same-email logins are distinguishable.
 - `cli-addedAt-persists`: the value is written to `accounts-v1.json` and survives a fresh `cliAccounts` instance.
+- `cli-addedAt-derived`: a pre-existing roster row with no stored `addedAt` still exposes a numeric value derived from its folder metadata at read time, so it too is distinguishable and the roster bytes are left untouched.
 
 ## How to get to it (user POV)
 
@@ -27,4 +28,4 @@ Preconditions: baseline (features/README.md); no process of a previous drive is 
 - The kit never reads a real `~/.claude`, `~/.codex` or `~/.pi`, and status spawns only the supplied absolute `bins` path; the fake binary must handle `auth status` and exit 0 otherwise.
 - `stateDir` must be absolute with an existing real parent directory (not a symlink); create that parent before `cliAccounts`.
 - A login reads `ready` only after its `.byokit-signin-complete` marker exists; without it the row stays `signing` and the identity is not read.
-- `addedAt` is monotonic per instance, so two adds in the same millisecond still differ by one; a legacy roster row without `addedAt` stays readable and simply omits the field.
+- `addedAt` is monotonic per instance, so two adds in the same millisecond still differ by one. A legacy roster row without `addedAt` derives one from its folder's `birthtimeMs` (or the earliest of `ctimeMs`/`mtimeMs`), so it stays distinguishable and the roster is not rewritten on load.
