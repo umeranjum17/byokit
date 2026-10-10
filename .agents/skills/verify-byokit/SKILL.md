@@ -98,6 +98,35 @@ The artifact contains the invoked command, stdout, stderr and the consumer's act
 
 Proof standard: drive the real consumer path against the built SDK; capture the action and resulting output, not a summary; the error case must show the actual typed error and message.
 
+### Credential-touching proof
+
+A proof that handles a real key, token or sign-in reads the value into a variable and prints only a mask: at 16 or more characters, length plus the first 4 and last 4 characters; below 16, only the length, e.g. `(12 chars, too short to mask)` — never any characters or a hash. Never `cat`, `grep -r`, `rg` or `secret-tool search` a credential store; never snapshot or screenshot a revealed value (DOM, accessibility tree, pixels); never let the value reach argv (the capture block prints argv) or any log.
+
+Define the leak check once:
+
+```bash
+leak_check() { [ -n "$1" ] || { echo 'no value to check' >&2; return 1; }; grep -rqF -f <(printf '%s' "$1") ".verify-artifacts/$feature/"; [ $? -eq 1 ]; }
+```
+
+Read and mask the value (this runs inside the drive):
+
+```bash
+v=$(secret-tool lookup service byokit account demo) # any read of the real value, into a variable
+[ -n "$v" ] || { printf 'no value read\n' >&2; exit 1; }
+if [ "${#v}" -lt 16 ]; then printf '(%d chars, too short to mask)\n' "${#v}"
+else printf '%s...%s (%d chars)\n' "${v:0:4}" "${v: -4}" "${#v}"; fi
+```
+
+```js
+const v = process.env.BYOKIT_KEY ?? ''; // read once, into a variable
+if (!v) { console.error('no value read'); process.exit(1); }
+console.log(v.length < 16
+? `(${v.length} chars, too short to mask)`
+: `${v.slice(0, 4)}...${v.slice(-4)} (${v.length} chars)`);
+```
+
+After the Evidence capture block finishes, run the check as its own step and fail unless it passes, e.g. `leak_check "$canary"` (or the real value variable).
+
 ## Cleanup
 
 ```bash
@@ -115,6 +144,7 @@ From `constraint-driven-development`, applies to this skill and every change ver
 - No unimplemented stubs: `throw new Error("Not implemented")`, empty `catch {}`.
 - No skipped tests without a reason in the commit message.
 - No secrets in source.
+- Credential values never appear in evidence: run the section's `leak_check` on the evidence folder before the run ends and require exit 1, so a missing or unreadable folder also fails.
 - Deliberate test deletion (a test diet) is allowed only when BOTH hold: the commit message names the test-diet task, and the removed journey remains covered by an existing integration/e2e test. A deletion failing either condition is rejected. This is the only Floor rule that may permit a deletion: skips, stripped assertions, suppression comments, secrets and the security/crypto/data-loss guards are never loosened for any change.
 - This Floor and this skill's proof bar are never weakened to make a change pass: a declared-unavailable surface stays unavailable until it is really driven.
 
