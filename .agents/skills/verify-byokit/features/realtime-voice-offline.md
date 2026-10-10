@@ -11,7 +11,7 @@ A person runs the voice proof page with `BYOKIT_EXAMPLE_FAKE=1` and gets a whole
 
 - `BYOKIT_EXAMPLE_FAKE=1 node examples/realtime-voice/server.ts`, open the printed URL, Sign in, Approve sign-in (the stand-in page opens), Start voice, Stop (examples/realtime-voice/README.md).
 
-## Driving it
+## Driving it with node scratch consumers
 
 Preconditions: `npm ci`; heavy-job lock held (a Chromium launch); a Chromium for Playwright, its own download else the system's. The page imports `packages/*/src` directly, so no build is needed.
 
