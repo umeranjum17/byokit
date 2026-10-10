@@ -330,6 +330,7 @@ export class AuthStore {
       // file, a new one, or one whose sealed file vanished falls through to the normal seal.
       const hash = objectHash(payload);
       if (this.objectHashes.get(object) === hash && existsSync(target)) continue;
+      this.objectHashes.delete(object);
       this.seal(target, payload);
       this.objectHashes.set(object, hash);
     }
