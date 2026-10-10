@@ -30,7 +30,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/hero.png" alt="Four phone screens: a browser showing a ChatGPT sign-in code, a phone showing two words to compare while pairing, a list of agents ready for you, and an agent's question with Enter, y, n and Esc buttons" width="960" /><br/>
+  <img src="docs/images/hero.png" alt="Four phone screens: a browser showing a ChatGPT sign-in code, a phone showing two words to compare while pairing, a list of agents ready for you, and an agent's question with Allow, Deny and Skip buttons" width="960" /><br/>
   <sub>Captured with headless Chromium from <a href="examples/pwa"><code>examples/pwa</code></a> and <a href="examples/herdr-kit"><code>examples/herdr-kit</code></a>, against the kit's stand-in OpenAI and Herdr.</sub>
 </p>
 
@@ -45,10 +45,15 @@ latest first, so neither goes stale.
 | `@byokit/accounts` | `npm install @byokit/accounts` | [![npm](https://img.shields.io/npm/v/@byokit/accounts?style=flat&label=)](https://www.npmjs.com/package/@byokit/accounts) | [accounts-v releases](https://github.com/umeranjum17/byokit/releases?q=accounts-v) |
 | `@byokit/ui` | `npm install @byokit/ui` | [![npm](https://img.shields.io/npm/v/@byokit/ui?style=flat&label=)](https://www.npmjs.com/package/@byokit/ui) | [ui-v releases](https://github.com/umeranjum17/byokit/releases?q=ui-v) |
 | `@byokit/seal` | `npm install @byokit/seal` | [![npm](https://img.shields.io/npm/v/@byokit/seal?style=flat&label=)](https://www.npmjs.com/package/@byokit/seal) | [seal-v releases](https://github.com/umeranjum17/byokit/releases?q=seal-v) |
-| `@byokit/link` | `npm install @byokit/link` | [![npm](https://img.shields.io/npm/v/@byokit/link?style=flat&label=)](https://www.npmjs.com/package/@byokit/link) | [link-v releases](https://github.com/umeranjum17/byokit/releases?q=link-v) |
-| `@byokit/relay` | `npm install @byokit/relay @byokit/link` | [![npm](https://img.shields.io/npm/v/@byokit/relay?style=flat&label=)](https://www.npmjs.com/package/@byokit/relay) | [relay-v releases](https://github.com/umeranjum17/byokit/releases?q=relay-v) |
+| `@byokit/pair` | `npm install @byokit/pair` | [![npm](https://img.shields.io/npm/v/@byokit/pair?style=flat&label=)](https://www.npmjs.com/package/@byokit/pair) | [pair-v releases](https://github.com/umeranjum17/byokit/releases?q=pair-v) |
+| `@byokit/link` | deprecated, renamed to `@byokit/pair` | [![npm](https://img.shields.io/npm/v/@byokit/link?style=flat&label=)](https://www.npmjs.com/package/@byokit/link) | [link-v releases](https://github.com/umeranjum17/byokit/releases?q=link-v) |
+| `@byokit/relay` | `npm install @byokit/relay @byokit/pair` | [![npm](https://img.shields.io/npm/v/@byokit/relay?style=flat&label=)](https://www.npmjs.com/package/@byokit/relay) | [relay-v releases](https://github.com/umeranjum17/byokit/releases?q=relay-v) |
 | `@byokit/discover` | `npm install @byokit/discover` | [![npm](https://img.shields.io/npm/v/@byokit/discover?style=flat&label=)](https://www.npmjs.com/package/@byokit/discover) | [discover-v releases](https://github.com/umeranjum17/byokit/releases?q=discover-v) |
 | `@byokit/decide` | `npm install @byokit/decide` | [![npm](https://img.shields.io/npm/v/@byokit/decide?style=flat&label=)](https://www.npmjs.com/package/@byokit/decide) | [decide-v releases](https://github.com/umeranjum17/byokit/releases?q=decide-v) |
+| `@byokit/connect` | `npm install @byokit/connect` | [![npm](https://img.shields.io/npm/v/@byokit/connect?style=flat&label=)](https://www.npmjs.com/package/@byokit/connect) | [connect-v releases](https://github.com/umeranjum17/byokit/releases?q=connect-v) |
+| `@byokit/secrets` | `npm install @byokit/secrets` | [![npm](https://img.shields.io/npm/v/@byokit/secrets?style=flat&label=)](https://www.npmjs.com/package/@byokit/secrets) | [secrets-v releases](https://github.com/umeranjum17/byokit/releases?q=secrets-v) |
+| `@byokit/mcp` | `npm install @byokit/mcp` | [![npm](https://img.shields.io/npm/v/@byokit/mcp?style=flat&label=)](https://www.npmjs.com/package/@byokit/mcp) | [mcp-v releases](https://github.com/umeranjum17/byokit/releases?q=mcp-v) |
+| `@byokit/realtime` | `npm install @byokit/realtime` | [![npm](https://img.shields.io/npm/v/@byokit/realtime?style=flat&label=)](https://www.npmjs.com/package/@byokit/realtime) | [realtime-v releases](https://github.com/umeranjum17/byokit/releases?q=realtime-v) |
 | `@byokit/infer` | `npm install @byokit/infer` | [![npm](https://img.shields.io/npm/v/@byokit/infer?style=flat&label=)](https://www.npmjs.com/package/@byokit/infer) | [infer-v releases](https://github.com/umeranjum17/byokit/releases?q=infer-v) |
 | `@byokit/herdr` | `npm install @byokit/herdr` | [![npm](https://img.shields.io/npm/v/@byokit/herdr?style=flat&label=)](https://www.npmjs.com/package/@byokit/herdr) | [herdr-v releases](https://github.com/umeranjum17/byokit/releases?q=herdr-v) |
 | `@byokit/openclaw` | `npm install @byokit/openclaw` | [![npm](https://img.shields.io/npm/v/@byokit/openclaw?style=flat&label=)](https://www.npmjs.com/package/@byokit/openclaw) | [openclaw-v releases](https://github.com/umeranjum17/byokit/releases?q=openclaw-v) |
@@ -65,11 +70,14 @@ latest first, so neither goes stale.
 | `@byokit/audio` | `npm install @byokit/audio` | [![npm](https://img.shields.io/npm/v/@byokit/audio?style=flat&label=)](https://www.npmjs.com/package/@byokit/audio) | [audio-v releases](https://github.com/umeranjum17/byokit/releases?q=audio-v) |
 | `@byokit/usage` | `npm install @byokit/usage` | [![npm](https://img.shields.io/npm/v/@byokit/usage?style=flat&label=)](https://www.npmjs.com/package/@byokit/usage) | [usage-v releases](https://github.com/umeranjum17/byokit/releases?q=usage-v) |
 | `@byokit/browser` | `npm install @byokit/browser` | [![npm](https://img.shields.io/npm/v/@byokit/browser?style=flat&label=)](https://www.npmjs.com/package/@byokit/browser) | [browser-v releases](https://github.com/umeranjum17/byokit/releases?q=browser-v) |
+| `@byokit/ui-core` | deprecated, renamed to `@byokit/ui` | [![npm](https://img.shields.io/npm/v/@byokit/ui-core?style=flat&label=)](https://www.npmjs.com/package/@byokit/ui-core) | [ui-core-v releases](https://github.com/umeranjum17/byokit/releases?q=ui-core-v) |
+| `@byokit/reach` | deprecated, renamed to `@byokit/discover` | [![npm](https://img.shields.io/npm/v/@byokit/reach?style=flat&label=)](https://www.npmjs.com/package/@byokit/reach) | [reach-v releases](https://github.com/umeranjum17/byokit/releases?q=reach-v) |
+| `@byokit/overlay` | deprecated, renamed to `@byokit/bubble` | [![npm](https://img.shields.io/npm/v/@byokit/overlay?style=flat&label=)](https://www.npmjs.com/package/@byokit/overlay) | [overlay-v releases](https://github.com/umeranjum17/byokit/releases?q=overlay-v) |
 
-Unpacked sizes as of accounts 0.18.0, decide 0.6.1, herdr 0.7.0, link 0.7.0, reach 0.6.0, relay 0.5.2, seal 0.3.0,
-ui-core 0.6.0 (npm `dist.unpackedSize`): accounts ~1.3 MB, decide ~193 kB, herdr ~426 kB, link ~222 kB,
-reach ~102 kB, relay ~145 kB, seal ~50 kB, ui-core ~77 kB. Each tarball's sha512 integrity is published with the
-release on npm — see its npm page, or run `npm view @byokit/<pkg> dist.integrity dist.tarball`.
+Unpacked sizes as of accounts 0.20.0, decide 0.6.4, herdr 0.7.2, pair 0.9.0, relay 0.6.0, seal 0.3.0,
+ui-core 0.6.0 (npm `dist.unpackedSize`): accounts ~1.3 MB, decide ~200 kB, herdr ~432 kB, pair ~240 kB,
+relay ~151 kB, seal ~49 kB, ui-core ~75 kB. Each tarball's sha512 integrity is published with the
+release on npm — see its npm page, or run `npm view @byokit/<pkg> dist.unpackedSize dist.integrity dist.tarball`.
 
 The [`examples/`](examples) apps are not published artifacts: run them from a clone (see
 [Quickstart](#quickstart)). For every release across packages, see
@@ -93,14 +101,14 @@ when an app chooses to offer them.
 on a computer. Every state is one plain sentence your app can show.
 
 <p align="center">
-  <img src="docs/images/pwa-1-signed-out.png" alt="byokit in a browser: ChatGPT isn't signed in yet, with a Sign in with ChatGPT button" width="240" />
-  <img src="docs/images/pwa-3-connected.png" alt="ChatGPT is connected, umer@example.com, plus plan, with Check the sign-in and Sign out" width="240" /><br/>
+  <img src="docs/images/pwa-1-signed-out.png" alt="Umer's AI plans, signed out: the ChatGPT card with a Plan chip, &quot;ChatGPT isn't signed in yet.&quot; and a Sign in with ChatGPT button" width="240" />
+  <img src="docs/images/pwa-3-connected.png" alt="The same page signed in: &quot;ChatGPT is connected.&quot;, umer@example.com, a ChatGPT Plus chip, an Auto (most room) selector, an Ask ChatGPT something box and Sign out / Add another ChatGPT" width="240" /><br/>
   <sub><a href="examples/pwa"><code>examples/pwa</code></a> in headless Chromium, signed in against the stand-in OpenAI (<code>mockOpenAI()</code>).</sub>
 </p>
 
 ### Pair a phone with one scan
 
-`@byokit/link` pairs a phone or browser with the computer from a QR code or a typed code, then carries requests and
+`@byokit/pair` pairs a phone or browser with the computer from a QR code or a typed code, then carries requests and
 streams over one end-to-end encrypted link. Both screens show the same two words before the person says yes.
 
 <p align="center">
@@ -114,7 +122,7 @@ streams over one end-to-end encrypted link. Both screens show the same two words
 to ask. Each agent keeps its own subscription sign-in; the kit never sees a credential.
 
 <p align="center">
-  <img src="examples/herdr-kit/docs/5-answered.png" alt="Answered with y: the question is gone, the agent's screen ends in y and npm test: 42 passing, and both pi agents are Ready for you again" width="240" /><br/>
+  <img src="examples/herdr-kit/docs/5-answered.png" alt="Answered: the question is gone, the agent's screen ends in y and npm test: 42 passing, and both agents are Ready for you again" width="240" /><br/>
   <sub>After answering the question in the last screen at the top: <a href="examples/herdr-kit"><code>examples/herdr-kit</code></a>'s end-to-end test in a phone-sized headless Chromium, against the kit's stand-in Herdr.</sub>
 </p>
 
@@ -135,14 +143,17 @@ to ask. Each agent keeps its own subscription sign-in; the kit never sees a cred
 | [`@byokit/accounts`](packages/accounts) | Sign in with the AI plan you already pay for, into your app's own store; limits, refresh, plain words. Node, Electron, browsers and PWAs, React Native on iOS and Android | [![npm](https://img.shields.io/npm/v/@byokit/accounts?style=flat&label=)](https://www.npmjs.com/package/@byokit/accounts) |
 | [`@byokit/ui`](packages/ui) | Headless sign-in and pairing state for any UI (React, React Native, or none): phases, QR, consent, link words, route labels | [![npm](https://img.shields.io/npm/v/@byokit/ui?style=flat&label=)](https://www.npmjs.com/package/@byokit/ui) |
 | [`@byokit/signaling`](packages/signaling) | Portable bridge WebSocket requests, typed session events and fresh authorization sockets | [![npm](https://img.shields.io/npm/v/@byokit/signaling?style=flat&label=)](https://www.npmjs.com/package/@byokit/signaling) |
+| [`@byokit/mcp`](packages/mcp) | Hosted streamable HTTP tools and resources, with device sign-in and authenticated sessions | [![npm](https://img.shields.io/npm/v/@byokit/mcp?style=flat&label=)](https://www.npmjs.com/package/@byokit/mcp) |
+| [`@byokit/realtime`](packages/realtime) | Realtime voice sessions against the engine endpoint the app selects, with host-held credentials and injected audio (Node, browsers, React Native) ([contract](docs/realtime-kit.md)) | [![npm](https://img.shields.io/npm/v/@byokit/realtime?style=flat&label=)](https://www.npmjs.com/package/@byokit/realtime) |
 | [`@byokit/approve`](packages/approve) | Exact-action approval: a grant binds to the one request naming its action, button label, app and reason, and refuses any other or mutated request | ready for first release |
 | [`@byokit/seal`](packages/seal) | Portable NaCl-compatible box and secretbox for data at rest, plus Ed25519 signatures | [![npm](https://img.shields.io/npm/v/@byokit/seal?style=flat&label=)](https://www.npmjs.com/package/@byokit/seal) |
 | [`@byokit/connect`](packages/connect) | Per-person third-party sign-in with PKCE, refresh and typed remote MCP; host-supplied keystore and redirects | [![npm](https://img.shields.io/npm/v/@byokit/connect?style=flat&label=)](https://www.npmjs.com/package/@byokit/connect) |
 | [`@byokit/secrets`](packages/secrets) | One secret per name: OS keyring, sealed file, phone SecureStore, encrypted web storage or CI override ([spec](docs/capability-kits.md)) | [![npm](https://img.shields.io/npm/v/@byokit/secrets?style=flat&label=)](https://www.npmjs.com/package/@byokit/secrets) |
-| [`@byokit/link`](packages/link) | Scan a code to pair a phone or browser with the home computer over one encrypted link, with device stores for phones, browsers and computers; muxr parity tracked separately | [![npm](https://img.shields.io/npm/v/@byokit/link?style=flat&label=)](https://www.npmjs.com/package/@byokit/link) |
+| [`@byokit/pair`](packages/pair) | Scan a code to pair a phone or browser with the home computer over one encrypted link, with device stores for phones, browsers and computers; published as `@byokit/link` through 0.8.x | [![npm](https://img.shields.io/npm/v/@byokit/pair?style=flat&label=)](https://www.npmjs.com/package/@byokit/pair) |
 | [`@byokit/relay`](packages/relay) | Routes encrypted link frames; enrolment, typed-code lookup, push ([security boundary](packages/relay/SECURITY.md)) | [![npm](https://img.shields.io/npm/v/@byokit/relay?style=flat&label=)](https://www.npmjs.com/package/@byokit/relay) |
 | [`@byokit/discover`](packages/discover) | The addresses a phone dials the home computer on (Tailscale Serve, direct tailnet, LAN) plus mDNS advertising (Node) and browsing (React Native) | [![npm](https://img.shields.io/npm/v/@byokit/discover?style=flat&label=)](https://www.npmjs.com/package/@byokit/discover) |
 | [`@byokit/decide`](packages/decide) | Typed questions in, a typed answer with confidence out, abstaining below a floor; rules, Jev (API-billed) or any model (the person's own ChatGPT on a phone), evals | [![npm](https://img.shields.io/npm/v/@byokit/decide?style=flat&label=)](https://www.npmjs.com/package/@byokit/decide) |
+| [`@byokit/infer`](packages/infer) | Text generation on the phone itself (Gemini Nano where present, else a verified downloaded model); nothing sent anywhere | [![npm](https://img.shields.io/npm/v/@byokit/infer?style=flat&label=)](https://www.npmjs.com/package/@byokit/infer) |
 | [`@byokit/openclaw`](packages/openclaw) | The OpenClaw runtime kit: the pinned engine's full operator surface as typed pass-through calls, plus plain-words helpers for members, sign-in, runs and approvals, for apps where the aggregator holds the subscriptions ([spec](docs/runtime-kits.md)) | [![npm](https://img.shields.io/npm/v/@byokit/openclaw?style=flat&label=)](https://www.npmjs.com/package/@byokit/openclaw) |
 | [`@byokit/herdr`](packages/herdr) | Drive the Herdr on this computer — workspaces, panes, agents, blocked-approval answers — from an app, or hand it to a phone over a link, for apps where the aggregator holds the subscriptions ([spec](docs/runtime-kits.md)) | [![npm](https://img.shields.io/npm/v/@byokit/herdr?style=flat&label=)](https://www.npmjs.com/package/@byokit/herdr) |
 | [`@byokit/write`](packages/write) | Drafting in a person's voice with no model call: voice rules, platform limits, draft checks (fits, voice, kept the facts) and thread splits over a pinned writing engine, plus an agent CLI ([spec](docs/capability-kits.md)) | [![npm](https://img.shields.io/npm/v/@byokit/write?style=flat&label=)](https://www.npmjs.com/package/@byokit/write) |
@@ -156,6 +167,16 @@ to ask. Each agent keeps its own subscription sign-in; the kit never sees a cred
 | [`@byokit/audio`](packages/audio) | Shared on-device speech detection over one pinned neural graph, for Node, React Native and browsers | [![npm](https://img.shields.io/npm/v/@byokit/audio?style=flat&label=)](https://www.npmjs.com/package/@byokit/audio) |
 | [`@byokit/usage`](packages/usage) | Subscription usage windows and remaining room per provider and account (Node only) | [![npm](https://img.shields.io/npm/v/@byokit/usage?style=flat&label=)](https://www.npmjs.com/package/@byokit/usage) |
 | [`@byokit/browser`](packages/browser) | PNG screenshots of URLs or local HTML through an app-selected installed Chromium, with private temporary profiles | [![npm](https://img.shields.io/npm/v/@byokit/browser?style=flat&label=)](https://www.npmjs.com/package/@byokit/browser) |
+
+Renamed packages still ship as thin re-exports so existing imports keep working, and are removed at the version their
+README names:
+
+| Package | Renamed to | Kept through |
+|---|---|---|
+| [`@byokit/link`](packages/link) | [`@byokit/pair`](packages/pair) | 0.8.x |
+| [`@byokit/ui-core`](packages/ui-core) | [`@byokit/ui`](packages/ui) | 0.7.x |
+| [`@byokit/reach`](packages/reach) | [`@byokit/discover`](packages/discover) | 0.7.x |
+| [`@byokit/overlay`](packages/overlay) | [`@byokit/bubble`](packages/bubble) | 0.3.x |
 
 ## Quickstart
 
@@ -177,7 +198,7 @@ await accounts.finished(1, 'chatgpt');
 ```
 
 A web page can't call ChatGPT's model endpoint itself, so a PWA asks through your own server or over
-[`@byokit/link`](packages/link). On a computer, on a phone and for asking, see [`@byokit/accounts`](packages/accounts).
+[`@byokit/pair`](packages/pair). On a computer, on a phone and for asking, see [`@byokit/accounts`](packages/accounts).
 
 ### Try it with no account
 

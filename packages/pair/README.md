@@ -1,7 +1,7 @@
-<h1 align="center">@byokit/link</h1>
+<h1 align="center">@byokit/pair</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@byokit/link"><img alt="npm" src="https://img.shields.io/npm/v/@byokit/link?style=flat&label=npm" /></a>
+  <a href="https://www.npmjs.com/package/@byokit/pair"><img alt="npm" src="https://img.shields.io/npm/v/@byokit/pair?style=flat&label=npm" /></a>
   <a href="https://github.com/umeranjum17/byokit/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/umeranjum17/byokit/ci.yml?style=flat&branch=main" /></a>
   <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-666?style=flat" /></a>
   <img alt="Node | browsers | React Native" src="https://img.shields.io/badge/platform-Node%20%7C%20browsers%20%7C%20React%20Native-666?style=flat" />
@@ -12,8 +12,11 @@ One encrypted link between the two. The computer (the <strong>host</strong>) kee
 only its own key and a grant, and asks the host to do things. For apps that reach a person's own computer from their
 phone or browser.</p>
 
+This package was published as `@byokit/link` up to 0.8.x. `@byokit/link` still re-exports it unchanged through
+0.8.x and is removed in 0.9.0; new installs use `@byokit/pair`.
+
 <p align="center">
-  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/herdr-kit-host.png" width="420" alt="A terminal running npm start -- --herdr &quot;$(command -v herdr)&quot; --via lan --name 'Kitchen computer', showing a large pairing QR code, then: On the phone, scan this. If its page is already open there, type K3J8-CJZ7-SE4R instead. Codes last five minutes. Press Enter for new ones. Connecting to Herdr… Connected to Herdr. (stand-in Herdr)" />
+  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/herdr-kit-host.png" width="420" alt="A terminal running npm start -- --herdr &quot;$(command -v herdr)&quot; --via lan --name 'Kitchen computer', showing a large pairing QR code, then: On the phone, scan this, or open http://192.168.1.144:7310/ and type K3J8-CJZ7-SE4R. Codes last five minutes. Press Enter for new ones. Connecting to Herdr… Connected to Herdr. (stand-in Herdr)" />
   <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/2-compare.png" width="240" alt="A phone page titled Agents, under Pair this phone: Check your computer shows these two words, then say yes there. The words are coast comet." />
 </p>
 <p align="center"><sub>Left: the host terminal of <a href="https://github.com/umeranjum17/byokit/tree/main/examples/herdr-kit">examples/herdr-kit</a> (<code>npm start -- --herdr "$(command -v herdr)" --via lan --name 'Kitchen computer'</code>, pictured against the kit's stand-in Herdr, <code>BYOKIT_EXAMPLE_FAKE=1</code>) showing the QR and the typed code. Right: the phone in the same example showing the two words to compare.</sub></p>
@@ -27,26 +30,26 @@ Host policy and streams are available; relay routing is in [`@byokit/relay`](../
 ## Install
 
 ```sh
-npm install @byokit/link
+npm install @byokit/pair
 ```
 
-[![npm](https://img.shields.io/npm/v/@byokit/link?style=flat&label=)](https://www.npmjs.com/package/@byokit/link) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=link-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
+[![npm](https://img.shields.io/npm/v/@byokit/pair?style=flat&label=)](https://www.npmjs.com/package/@byokit/pair) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=pair-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
 
 ## Quickstart
 
 ```sh
-npm install @byokit/link ws
+npm install @byokit/pair ws
 ```
 
 `ws` is only the WebSocket server for this example; any server works. A host and a device in one file, on loopback:
 
 ```ts
 import { WebSocketServer } from 'ws';
-import { DeviceLink, Host, keyPair, pairWithOffer } from '@byokit/link';
+import { DeviceLink, Host, keyPair, pairWithOffer } from '@byokit/pair';
 
 // The computer: it keeps the credentials and answers requests.
 const host = await Host.open({
-  keys: keyPair(),                       // keep it with hostKeyFile() from '@byokit/link/node' in a real app
+  keys: keyPair(),                       // keep it with hostKeyFile() from '@byokit/pair/node' in a real app
   name: 'Kitchen computer',
   confirm: ({ name, words }) => { console.log(`host: pair ${name}? it shows "${words}"`); return true; },
   handle: (req, device) => ({ echo: req.args, from: device.name }),
@@ -89,13 +92,13 @@ answer: { echo: { text: 'hi' }, from: 'Pixel 9' }
 | `LinkError`, `PublicLinkError`, `LINK_WORDS` | Failures with a plain `message` and a `code`; a handler error safe to show; the plain message for each failure code |
 | `secureDeviceStore`, `browserDeviceStore` | Where a device keeps its grant on a phone or in a browser |
 | `keyPair`, `keyPairFrom`, `hostId`, `b64url`, `unb64url`, `normalizeCode` | Keys, the host id, base64url and typed-code helpers |
-| `hostKeyFile`, `fileDeviceStore` (`@byokit/link/node`) | Node only: the host's key file, and a computer's device store |
+| `hostKeyFile`, `fileDeviceStore` (`@byokit/pair/node`) | Node only: the host's key file, and a computer's device store |
 
 ## Host
 
 ```ts
-import { Host } from '@byokit/link';
-import { hostKeyFile } from '@byokit/link/node';
+import { Host } from '@byokit/pair';
+import { hostKeyFile } from '@byokit/pair/node';
 
 const host = await Host.open({
   keys: hostKeyFile('./link-secret/host.key'), // made once in its own 0700 folder; or use your keychain
@@ -112,7 +115,7 @@ const { code } = host.code({ role: 'view' });     // or a code to type: "7KQ4-M2
 host.devices(); await host.revoke(id); host.broadcast(event);
 ```
 
-`hostKeyFile(path)` from `@byokit/link/node` wants a path in its own private (`0700`) folder; it refuses an
+`hostKeyFile(path)` from `@byokit/pair/node` wants a path in its own private (`0700`) folder; it refuses an
 existing folder with another mode rather than changing its permissions.
 
 More host policy, all optional:
@@ -127,6 +130,9 @@ More host policy, all optional:
   handlers with transactional effects can store it alongside the effect to avoid repeating work after a crash between
   the handler and `answers.put`.
 - `handshakes: { perMinute, perPeer }` limits new handshakes; pass `host.accept(ws, { peer: ip })` to count per source.
+- `onGrantRemoved(grant, why)` runs at the one boundary where a grant is durably gone — `revoked`, `expired` or
+  `changed` — so an app can delete its copy. Access is already withdrawn when it runs, a socket drop does not
+  trigger it, and a failing cleanup never restores access.
 
 `compactOffer` is the QR text: the same secret a typed code carries (same single use, life, words and
 approval) plus the addresses to try, packed binary, so a standard offer fits a QR version 4 or lower.
@@ -186,7 +192,7 @@ old connections, and changed expiry reschedules access. A failed load rejects an
 A `GrantStore` may provide `subscribe(changed): unsubscribe`; the host reloads automatically on notification,
 reports reload failures through `onError`, and unsubscribes on `close()`.
 
-Node apps can use `fileGrantStore(path)` from `@byokit/link/node`. It touches the app's chosen file, temporary
+Node apps can use `fileGrantStore(path)` from `@byokit/pair/node`. It touches the app's chosen file, temporary
 files and a sibling `.lock` only, writes atomically at 0600 in a 0700 folder, rejects symlinks/nonprivate files on read, and polls
 for cross-process replace/remove (default 100 ms; second argument changes the interval). Cooperating writers
 use an exclusive lock and reject a stale loaded snapshot instead of overwriting an external revoke. Load again
@@ -207,7 +213,7 @@ The **handle** step authorizes the already-paired inviter, **offer** records the
 then **confirm** checks that metadata before approving the new peer:
 
 ```ts
-import { Host, keyPair, PublicLinkError } from '@byokit/link';
+import { Host, keyPair, PublicLinkError } from '@byokit/pair';
 
 // Supply the app's human approval UI.
 declare const ui: { ask(message: string): Promise<boolean> };
@@ -235,7 +241,7 @@ const host: Host = await Host.open({
 });
 ```
 
-Import `Host`, `keyPair` and `PublicLinkError` from `@byokit/link`; `ui.ask` is the app's approval UI. The app
+Import `Host`, `keyPair` and `PublicLinkError` from `@byokit/pair`; `ui.ask` is the app's approval UI. The app
 chooses metadata on the host, never from an untrusted invitee. This composition is delegated pairing:
 the approved control device requests a constrained invitation; a peer cannot widen its terms. Check the
 inviter's current grant, including expiry, in both `handle` and `confirm`. Apply capability scope in `allow`
@@ -247,7 +253,7 @@ long-lived or host-offline signed invitation.
 ## Device
 
 To keep several paired computers, use `secureDeviceStores(secureStore, prefix?)` or
-`browserDeviceStores(databaseName?)` from `@byokit/link`. Both offer `list()` (entry names), `load(name)`,
+`browserDeviceStores(databaseName?)` from `@byokit/pair`. Both offer `list()` (entry names), `load(name)`,
 `save(name, grant)`, `remove(name)`, and `store(name)` (the one-entry adapter for `DeviceLink`). Names use
 letters, digits, dots, underscores and dashes, up to 120 characters. A secure collection uses
 `<prefix>.index` and `<prefix>.grant.<name>`; existing single-entry stores stay independent. Calls sharing
@@ -257,7 +263,7 @@ The browser collection enumerates existing `browserDeviceStore` entries in its d
 non-extractable wrapping keys and forgotten-grant protection; removed tombstones stay out of `list()`.
 
 ```ts
-import { DeviceLink, secureDeviceStores, type DeviceGrant, type SecureStoreLike } from '@byokit/link';
+import { DeviceLink, secureDeviceStores, type DeviceGrant, type SecureStoreLike } from '@byokit/pair';
 
 // Supply the platform secure-storage module and a grant returned by pairing.
 declare const SecureStore: SecureStoreLike;
@@ -271,7 +277,7 @@ await computers.remove('kitchen');
 ```
 
 ```ts
-import { DeviceLink, pairWithOffer, pairWithCode } from '@byokit/link';
+import { DeviceLink, pairWithOffer, pairWithCode } from '@byokit/pair';
 
 const grant = await pairWithOffer(scanned, { name: 'Pixel 9', onWords: (w) => show(w) });
 // Or pairWithCode(url, typed, { name: 'Pixel 9', onWords: (w) => show(w) });
@@ -317,7 +323,7 @@ One store per paired computer, each with `load()` for the next start:
 |---|---|---|
 | Phone | `secureDeviceStore(SecureStore, 'byokit.link.home')` with `expo-secure-store` | Keychain on iOS, Keystore on Android; the grant is about 300 bytes, one value. |
 | Browser or PWA | `browserDeviceStore('home')` | IndexedDB, sealed with AES-GCM by a non-extractable browser key. The stored record alone opens nothing, but scripts running on the same origin can still use the key to decrypt it; keep untrusted scripts off the page. |
-| Computer (Node, Electron's main process) | `fileDeviceStore(path, safeStorage?)` from `@byokit/link/node` | A 0600 file in a newly created 0700 folder (an existing folder keeps its permissions), sealed with Electron's `safeStorage` when given. Without `safeStorage`, the file contains the grant in plaintext. |
+| Computer (Node, Electron's main process) | `fileDeviceStore(path, safeStorage?)` from `@byokit/pair/node` | A 0600 file in a newly created 0700 folder (an existing folder keeps its permissions), sealed with Electron's `safeStorage` when given. Without `safeStorage`, the file contains the grant in plaintext. |
 
 ```ts
 const store = secureDeviceStore(SecureStore, 'byokit.link.home');
@@ -329,7 +335,7 @@ const link = new DeviceLink(grant, { store, onStatus });
 ### React Native
 
 Install a `crypto.getRandomValues` polyfill such as `react-native-get-random-values` (or use `expo-crypto`) and
-import it **before** `@byokit/link`. Metro resolves `sodium-universal` to `sodium-javascript` through its browser
+import it **before** `@byokit/pair`. Metro resolves `sodium-universal` to `sodium-javascript` through its browser
 field. The device uses the platform's WebSocket and needs no Node globals. See [`examples/expo`](../../examples/expo).
 
 ## Streams
@@ -376,7 +382,7 @@ Frames are the same bytes on every path; a relay only routes them and cannot rea
 - The relay authenticates the host's socket and limits abuse its own way. Link routing needs no device id: the host
   checks devices itself on every handshake.
 
-`@byokit/link` does not include a relay server; use [`@byokit/relay`](../relay) for the standalone server,
+`@byokit/pair` does not include a relay server; use [`@byokit/relay`](../relay) for the standalone server,
 reconnecting host client and device code lookup.
 
 ## Migrating pre-kit phone pairings
@@ -415,7 +421,7 @@ share one key across machines. Muxr parity beyond this migration is tracked sepa
 ## Checking reachability before pairing
 
 ```ts
-import { check, parseOffer } from '@byokit/link';
+import { check, parseOffer } from '@byokit/pair';
 
 // Before asking the person to approve, the phone probes the offer's URLs (the host probes its own advertised
 // URLs the same way, as a self-check only). Results come back in input order.
@@ -479,13 +485,13 @@ untrusted address, never a trusted machine key. A malicious lookup pointing at a
 fails the commitment check. QR offers and legacy `host.code()` remain compatible; callers of
 the latter do not get this additional machine-key pinning.
 
-Runnable loopback example (Node 22.18+, `npm install @byokit/link ws`; save as `pair.ts`, run
+Runnable loopback example (Node 22.18+, `npm install @byokit/pair ws`; save as `pair.ts`, run
 `node pair.ts`). In an app, show the code on the computer and let the phone type it:
 
 ```ts
 import { createInterface } from 'node:readline/promises';
 import { WebSocketServer } from 'ws';
-import { DeviceLink, Host, keyPair, pairWithCode } from '@byokit/link';
+import { DeviceLink, Host, keyPair, pairWithCode } from '@byokit/pair';
 
 const terminal = createInterface({ input: process.stdin, output: process.stdout });
 const host = await Host.open({

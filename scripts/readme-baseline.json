@@ -31,12 +31,6 @@
   },
   {
     "readme": "packages/decide/README.md",
-    "block": 5,
-    "snapshot": "73580d97c9732b5ccafd4c1cb2d7cfb37a34254be0281db2dfe47f733609bd27",
-    "reason": "Plan-discovery fragment uses host-supplied accounts and member context."
-  },
-  {
-    "readme": "packages/decide/README.md",
     "block": 6,
     "snapshot": "22607d677c6b58f8ee522c730d22707cec94ebf6cdd813469c8bb24d2fd882de",
     "reason": "Model-selection fragment omits hostConfig, state and questions context."
@@ -62,7 +56,7 @@
   {
     "readme": "packages/pair/README.md",
     "block": 2,
-    "snapshot": "0ceae67c38a7a048c4f6a25cb296612c8d95f8270f80ccae9f2816be95958584",
+    "snapshot": "720697d62a4ffa95dad45078630c23115a3ee05a4a29ee0ed0e494d97a60e80b",
     "reason": "Host fragment omits app database, confirmation UI, sockets, device id and broadcast event context."
   },
   {
@@ -74,7 +68,7 @@
   {
     "readme": "packages/pair/README.md",
     "block": 6,
-    "snapshot": "d02faa7e333b55d99925215ad9b3fb76199b7536f9ab3dff137885127addd211",
+    "snapshot": "7c3c2c9fff6794c92f84f7a67d0ee40b560745f801193ff5372641855c0556e1",
     "reason": "Device fragment omits scanned offer, UI callbacks and host-provided secure storage."
   },
   {
@@ -128,7 +122,7 @@
   {
     "readme": "packages/relay/README.md",
     "block": 6,
-    "snapshot": "75b45be91c6ef8bfce950235adaf7044740b0fcb24548544ca23d523845cc0e6",
+    "snapshot": "6dcbcb08050d8430136164a99d5b20068b5477351b3d6b45c780e6b5827254e9",
     "reason": "Pairing fragment omits short code, full code and host id context."
   },
   {

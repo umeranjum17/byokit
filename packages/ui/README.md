@@ -12,7 +12,7 @@ pairing sheet, the link's status, the route a phone takes home, and a runtime ki
 app keeps its own look. Everything except the React hooks is framework-free.</p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/pwa-2-code.png" width="240" alt="A phone-width page titled 'byokit in a browser' reading 'Signing in to ChatGPT…' and 'On the ChatGPT page, type this code:', the code WDJB-MJHT in large letters, an 'Open ChatGPT' link and a Cancel button." />
+  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/pwa-2-code.png" width="240" alt="A phone-width page titled Umer's AI plans, with the ChatGPT card reading 'Signing in to ChatGPT…' and 'On the ChatGPT page, type this code:', the code MOCK-10001 in large letters, 'Code expires in 14:59', and Open ChatGPT and Cancel buttons." />
   <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/2-compare.png" width="240" alt="A phone-width page titled 'Agents' with a 'Pair this phone' card reading 'Check your computer shows these two words, then say yes there.' above the words 'coast comet'." />
 </p>
 
@@ -152,14 +152,14 @@ into the phase to draw:
 ## Routes
 
 `describeRoute(url, kind?)` (also `@byokit/ui/route`, no React) names the route a dial address takes, for a
-pairing or settings screen. Pass `tailscale`, `direct`, `private`, or `lan` when known (map reach's `tailscale-direct`
-to `direct`); without provenance, 100.64/10 reads as a private network rather than assumed to be Tailscale, and the
-other home ranges read as same Wi-Fi.
+pairing or settings screen. Pass `tailscale`, `direct`, `private`, or `lan` when known (map
+[`@byokit/discover`](../discover)'s `tailscale-direct` to `direct`); without provenance, 100.64/10 reads as a private
+network rather than assumed to be Tailscale, and the other home ranges read as same Wi-Fi.
 
 `routeChoices()` (same entry, no React) is the one word table for the onboarding route list: `{ code, title,
-sentence, needs }` per route in recommendation order, a superset of reach's `Via` (it also covers the temporary
-public link and your own server, which reach does not probe). Reach's `recommend()` takes `sentence` and
-`needs` from here and only adds availability.
+sentence, needs }` per route in recommendation order, a superset of `@byokit/discover`'s `Via` (it also covers the
+temporary public link and your own server, which `reach()` there does not probe). `recommend()` from the same package
+takes `sentence` and `needs` from here and only adds availability.
 
 `connectedWords(hostName, url?, kind?)` (same entry) is the connected line a consumer renders: the computer with
 the route just dialled (`Connected to Kitchen computer - same Wi-Fi.`), or plain (`Connected to Kitchen computer.`)
@@ -212,7 +212,7 @@ A key route's `chosen.key` is the existing `keyView` card, labelled for its bill
 
 ## Pairing words
 
-Pairing with `@byokit/link`, from `@byokit/ui/link` (no React either):
+Pairing with `@byokit/pair` (published as `@byokit/link` up to 0.8.x), from `@byokit/ui/link` (no React either):
 
 - `qrMatrix(offer.text, { border }?)`: the pairing QR as rows of dark and light modules, with its quiet border
   (2 unless given), to draw in any UI.
@@ -293,7 +293,7 @@ with the device client made once (`useMemo(() => herdrDevice(link), [link])`).
 ## Links
 
 - [byokit](../../README.md): the monorepo and its other packages, including
-  [`@byokit/accounts`](../accounts) and [`@byokit/link`](../link).
+  [`@byokit/accounts`](../accounts) and [`@byokit/pair`](../pair).
 - Examples: [`examples/pwa`](../../examples/pwa) (sign-in phases in a browser),
   [`examples/herdr-kit`](../../examples/herdr-kit) (pairing words and `herdrStore` from a phone browser),
   [`examples/expo`](../../examples/expo) (React Native).
