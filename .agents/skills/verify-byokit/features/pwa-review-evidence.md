@@ -7,7 +7,7 @@ A person opens the byokit example PWA on a phone or a desktop browser, in the th
 - `screen-frames`: `before__<theme>__<form>.png` and `after__<theme>__<form>.png` for each screen, theme and form factor the app has.
 - `screen-motion`: `motion__<interaction>__<theme>__<form>.webm`, recorded from the running app through Playwright's own screen recording.
 - `screen-skips`: any theme, form factor or screen the app does not have, written into `manifest.json` with the reason, never silently dropped.
-- `screen-before`: the before frame is the example app of `--base <ref>` (default `origin/main`), served from that ref's own copy of the files; a screen that ships its own before route (`usage.html?before`) uses that instead.
+- `screen-before`: the before frame is the example app of `--base <ref>` (default `origin/main`), served from that ref's own copy of the files; a screen that ships its own before route (`usage.html?before`) uses that instead. A screen whose state exists only after an interaction sets `beforeDrive`, so the before page runs the same `drive` and both frames show one state (e.g. `signin-connected`, whose before frame is the connected card, not the signed-out list).
 
 ## How to get to it (user POV)
 
@@ -21,7 +21,7 @@ Preconditions: baseline (features/README.md); heavy-job lock held for the whole 
 - **What it writes.** `.verify-artifacts/review/<slug>/manifest.json` plus, per screen, `before`/`after` frames and one `motion__<interaction>__<theme>__<form>.webm` per theme and form factor. `signin` has light and dark (`index.html` themes on `prefers-color-scheme`); `usage` is light only, and the dark skip is written down with the reason.
 - **Account selection.** `ask-select-work` and `ask-select-personal` sign in two ChatGPT accounts through the stand-in (Work first, then Personal) with a per-account usage answer, so Auto names Work by room and answers from it; `ask-select-personal` then hits Work with a 429 and shows the next Auto naming Personal. They exist because `respond`'s account selection is a user-visible change in `examples/pwa/app.ts`.
 - **Form factors.** `phone` = 390×844 at 2×, `desktop` = 1280×800 — the widths `examples/pwa` lays out for (`usage.html` breaks at 700px; `index.html` is one column capped at 30em).
-- **Proof.** The frames show the real screen with its real state (`signin` after: the stand-in's `MOCK-…` code on the card; `signin-list` after: the signed-out provider rows; `signin-connected` after: the plan badge and quiet Sign out; `signin-expired` after: the expired banner over a fresh Sign in; `usage` before/after: the old independent selectors and the fixed plan view on the same ledger), and the motion file is a recording of the interaction, not a screenshot series.
+- **Proof.** The frames show the real screen with its real state (`signin` after: the stand-in's `MOCK-…` code on the card; `signin-list` after: the signed-out provider rows; `signin-connected` after: the plan badge and the two bottom actions shown as separate tappable actions; `signin-expired` after: the expired banner over a fresh Sign in; `usage` before/after: the old independent selectors and the fixed plan view on the same ledger), and the motion file is a recording of the interaction, not a screenshot series.
 
 ## Gotchas
 

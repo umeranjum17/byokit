@@ -40,6 +40,12 @@ type Screen = {
   interaction: string;
   /** How the before frame is reached: the base ref's build, or the before route the screen ships. */
   before: { via: 'ref' } | { via: 'url'; path: string };
+  /**
+   * Reach the screen's state on the before page too, by running the same `drive`. Off by default (the before frame is
+   * the base app's initial paint). Screens whose state only exists after an interaction opt in, so before and after
+   * compare one state instead of initial paint against driven.
+   */
+  beforeDrive?: boolean;
   drive: Drive;
 };
 
@@ -57,6 +63,7 @@ async function connectChatGPT(page: Page, identity: { accountId: string; email: 
   const [provider] = await Promise.all([page.context().waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
   await provider.fill('#code', code.trim());
   await provider.click('#continue');
+  await provider.locator('#words').filter({ hasText: /Signed in/ }).waitFor(); // let the page land: closing mid-navigation wedges close(), which has no timeout
   await provider.close();
   await part(page, 'chatgpt', 'status').filter({ hasText: /is connected/ }).waitFor();
   await page.locator('#chatgpt [data-account]', { hasText: identity.email }).waitFor();
@@ -120,10 +127,11 @@ const SCREENS: Screen[] = [
   {
     id: 'signin-connected',
     path: '',
-    what: 'Connected card with plan badge and quiet Sign out',
+    what: 'Connected card with plan badge and the two quiet bottom actions, kept apart',
     themes: [...themes],
     formFactors: ['phone', 'desktop'],
     interaction: 'signin-connect',
+    beforeDrive: true, // the connected state exists only after signing in: drive the before page too, or it shows signed-out
     before: { via: 'ref' },
     async drive(page) {
       await part(page, 'chatgpt', 'signin').click();
@@ -131,6 +139,7 @@ const SCREENS: Screen[] = [
       const [provider] = await Promise.all([page.context().waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
       await provider.fill('#code', code.trim());
       await provider.click('#continue');
+      await provider.locator('#words').filter({ hasText: /Signed in/ }).waitFor(); // let the page land: closing mid-navigation wedges close(), which has no timeout
       await provider.close();
       await part(page, 'chatgpt', 'status').filter({ hasText: /is connected/ }).waitFor();
       await part(page, 'chatgpt', 'badge').filter({ hasText: /ChatGPT/ }).waitFor();
@@ -296,7 +305,8 @@ try {
         if (beforeHref) {
           const frames = await open();
           await frames.page.goto(beforeHref, { waitUntil: 'load' });
-          await frames.page.waitForTimeout(500); // the cards draw from IndexedDB and the sign-in status
+          if (screen.beforeDrive) await screen.drive(frames.page); // one state on both sides, not initial paint vs driven
+          else await frames.page.waitForTimeout(500); // the cards draw from IndexedDB and the sign-in status
           await shot(frames.page, join(screen.id, `before__${theme}__${form}.png`));
           await frames.context.close();
         }
