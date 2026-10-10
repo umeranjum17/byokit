@@ -205,9 +205,11 @@ test('legacy bytes, host-owned rows, rollback, cancellation and folder escape re
   writeFileSync(join(stateDir, 'accounts-v1.json'), body);
   const kit = cliAccounts({ stateDir, env, bins: { claude: claude.bin } });
   assert.equal((await kit.list()).length, 1); assert.equal(readFileSync(join(stateDir, 'accounts-v1.json'), 'utf8'), body);
-  assert.equal((await kit.status(managed.id)).state, 'ready', 'migration retains completed native sign-ins');
+  const managedStatus = await kit.status(managed.id);
+  assert.equal(managedStatus.state, 'ready', 'migration retains completed native sign-ins');
+  assert.ok(typeof managedStatus.addedAt === 'number' && Number.isSafeInteger(managedStatus.addedAt) && managedStatus.addedAt > 0, 'a legacy row derives addedAt from its folder');
   await kit.rename(managed.id, 'Personal');
-  assert.equal(readFileSync(join(stateDir, 'accounts-v1.json'), 'utf8'), JSON.stringify({ version: 1, accounts: [found, { ...managed, name: 'Personal' }] }));
+  assert.equal(readFileSync(join(stateDir, 'accounts-v1.json'), 'utf8'), JSON.stringify({ version: 1, accounts: [found, { ...managed, name: 'Personal', addedAt: managedStatus.addedAt }] }));
   await assert.rejects(kit.remove(found.id), CliAccountError);
   const added = await kit.add('claude'); const folder = kit.launchEnv(added.account.id).set.CLAUDE_CONFIG_DIR;
   assert.deepEqual(await kit.cancel(added.account.id), { removed: true }); assert.equal(existsSync(folder), false);
@@ -315,4 +317,44 @@ test('explicit adoption maps found metadata to new empty managed folders, idempo
   await assert.rejects(kit.adopt('found-missing'), e => e instanceof CliAccountError && e.code === 'unknown-account');
   const roster = JSON.parse(readFileSync(join(stateDir, 'accounts-v1.json'), 'utf8'));
   assert.deepEqual(roster.accounts, found);
+});
+
+test('two CLI logins with the same email stay distinguishable by addedAt', async () => {
+  const root = scratchDir('cli-distinct'); const stateDir = join(root, 'plans');
+  const claude = fake(join(root, 'bins'), 'claude');
+  const env = { HOME: join(root, 'home'), PATH: '/unused' };
+  const kit = cliAccounts({ stateDir, bins: { claude: claude.bin }, env });
+  const first = await kit.add('claude'); writeFileSync(first.signIn.completion, 'complete', { mode: 0o600 });
+  const second = await kit.add('claude'); writeFileSync(second.signIn.completion, 'complete', { mode: 0o600 });
+  assert.equal(typeof first.account.addedAt, 'number');
+  assert.notEqual(first.account.addedAt, second.account.addedAt);
+  const rows = await kit.list();
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every((r) => r.email === 'alice.work@example.test'), 'both logins carry the same email');
+  const at = rows.map((r) => r.addedAt);
+  assert.ok(at.every((v) => typeof v === 'number' && Number.isSafeInteger(v) && v > 0), 'every managed row exposes a millisecond addedAt');
+  assert.notEqual(at[0], at[1]);
+  // The stamp is persisted, so a restart still tells the two apart.
+  const restarted = cliAccounts({ stateDir, bins: { claude: claude.bin }, env });
+  const again = (await restarted.list()).map((r) => r.addedAt).sort((a, b) => a! - b!);
+  assert.deepEqual(again, at.slice().sort((a, b) => a! - b!));
+  assert.deepEqual(JSON.parse(readFileSync(join(stateDir, 'accounts-v1.json'), 'utf8')).accounts.map((r: { addedAt: number }) => r.addedAt), at);
+});
+
+test('pre-existing same-email rows stay distinguishable through derived addedAt', async () => {
+  const root = scratchDir('cli-legacy-distinct'); const stateDir = join(root, 'plans');
+  const claude = fake(join(root, 'bins'), 'claude'); const env = { HOME: join(root, 'home'), PATH: '/unused' };
+  const first = { id: 'pa_one', provider: 'claude', name: 'Work', folder: join(stateDir, 'claude', 'abcdef'), found: false };
+  const second = { id: 'pa_two', provider: 'claude', name: 'Work', folder: join(stateDir, 'claude', 'fedcba'), found: false };
+  mkdirSync(first.folder, { recursive: true });
+  await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  mkdirSync(second.folder, { recursive: true });
+  const body = JSON.stringify({ version: 1, accounts: [first, second] });
+  writeFileSync(join(stateDir, 'accounts-v1.json'), body);
+  const rows = await cliAccounts({ stateDir, bins: { claude: claude.bin }, env }).list();
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every((r) => r.email === 'alice.work@example.test'), 'both pre-existing logins carry the same email');
+  assert.ok(rows.every((r) => typeof r.addedAt === 'number' && Number.isSafeInteger(r.addedAt) && r.addedAt > 0), 'every legacy managed row derives a millisecond addedAt');
+  assert.notEqual(rows[0].addedAt, rows[1].addedAt, 'derived values separate the two same-email rows');
+  assert.equal(readFileSync(join(stateDir, 'accounts-v1.json'), 'utf8'), body, 'deriving at read time never rewrites the roster');
 });

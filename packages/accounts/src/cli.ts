@@ -12,7 +12,7 @@ export type CliProvider = 'claude' | 'codex' | 'pi';
 /** Published Pi subscription OAuth provider id, validated against the route catalogue. */
 export type PiProvider = string;
 /** Shared selection surface; the CLI entry remains Node-only. */
-export type CliAccount = AccountLike & { provider: CliProvider; billing: 'subscription'; email?: string; plan?: string; piProvider?: PiProvider; adoptedFrom?: string; why?: 'api_key' | 'unknown' };
+export type CliAccount = AccountLike & { provider: CliProvider; billing: 'subscription'; email?: string; plan?: string; piProvider?: PiProvider; adoptedFrom?: string; why?: 'api_key' | 'unknown'; addedAt?: number };
 export type CliOptions = {
   stateDir: string;
   bins: Partial<Record<CliProvider, string>>;
@@ -32,7 +32,7 @@ export class CliAccountError extends Error {
     this.code = code;
   }
 }
-type Row = { id: string; provider: CliProvider; name: string; folder: string; found: boolean; piProvider?: PiProvider; adoptedFrom?: string };
+type Row = { id: string; provider: CliProvider; name: string; folder: string; found: boolean; piProvider?: PiProvider; adoptedFrom?: string; addedAt?: number };
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === 'string' && !v.includes('\0');
 const providers: CliProvider[] = ['claude', 'codex', 'pi'];
@@ -72,6 +72,14 @@ function directory(path: string, create = false): boolean {
     if (create && (error as NodeJS.ErrnoException).code === 'ENOENT') { mkdirSync(path, { mode: 0o700 }); return true; }
     return false;
   }
+}
+function folderAddedAt(folder: string): number | undefined {
+  try {
+    const s = lstatSync(folder);
+    if (Number.isFinite(s.birthtimeMs) && s.birthtimeMs > 0) return Math.floor(s.birthtimeMs);
+    const times = [s.ctimeMs, s.mtimeMs].filter((v) => Number.isFinite(v) && v > 0);
+    return times.length ? Math.floor(Math.min(...times)) : undefined;
+  } catch { return undefined; }
 }
 export type NativePiAccount = {
   kind: 'pi'; bin: string;
@@ -120,6 +128,9 @@ export function cliAccounts(options: CliOptions) {
   chmodSync(stateDir, 0o700);
   const file = join(stateDir, 'accounts-v1.json');
   const created = new Set<string>(); const operations = new Map<string, Promise<unknown>>();
+  // Monotonic so two logins added in the same millisecond still come back with different `addedAt`.
+  let lastAddedAt = 0;
+  const stampAddedAt = () => { const now = Date.now(); lastAddedAt = now > lastAddedAt ? now : lastAddedAt + 1; return lastAddedAt; };
   function safe(r: Row): boolean {
     const parent = join(stateDir, r.provider);
     return resolve(r.folder) === r.folder && r.folder.startsWith(parent + '/') && /^[a-f0-9]+$/.test(r.folder.slice(parent.length + 1)) && directory(stateDir) && realpathSync(stateDir) === stateDir && directory(parent) && directory(r.folder);
@@ -136,6 +147,7 @@ export function cliAccounts(options: CliOptions) {
           if (!text(candidate.adoptedFrom) || !candidate.adoptedFrom.startsWith('found-') || candidate.adoptedFrom.length > 128) continue;
           r.adoptedFrom = candidate.adoptedFrom;
         }
+        if (typeof candidate.addedAt === 'number' && Number.isSafeInteger(candidate.addedAt) && candidate.addedAt >= 0) r.addedAt = candidate.addedAt;
         if (r.provider === 'pi') {
           if (validPiProvider(candidate.piProvider)) r.piProvider = candidate.piProvider;
           else if (!r.found && !r.id.startsWith('found-')) continue;
@@ -143,6 +155,7 @@ export function cliAccounts(options: CliOptions) {
         } else if (path !== file) continue;
         // Host-owned rows remain byte-compatible in the roster, without touching their folder.
         if (!r.found && !r.id.startsWith('found-') && !safe(r)) continue;
+        if (!r.found && !r.id.startsWith('found-') && r.addedAt === undefined) r.addedAt = folderAddedAt(r.folder);
         seen.add(r.id); rows.push(r);
       }
     }
@@ -242,7 +255,7 @@ export function cliAccounts(options: CliOptions) {
     return serial(id, async () => {
       const r = row(id);
       const account = { id: r.id, provider: r.provider, name: r.name.trim() || (r.provider === 'pi' ? piRoutes.find(v => v.upstream.id === r.piProvider)!.name : suggestName(undefined, r.provider)), billing: 'subscription' as const,
-        ...(r.piProvider ? { piProvider: r.piProvider } : {}), ...(r.adoptedFrom ? { adoptedFrom: r.adoptedFrom } : {}) };
+        ...(r.piProvider ? { piProvider: r.piProvider } : {}), ...(r.adoptedFrom ? { adoptedFrom: r.adoptedFrom } : {}), ...(r.addedAt !== undefined ? { addedAt: r.addedAt } : {}) };
       if (!bins[r.provider]) return { ...account, state: 'not_included' };
       const signing = marker(pending(r)) && !marker(complete(r));
       if (signing && r.provider !== 'pi') return { ...account, state: 'signing' };
@@ -264,7 +277,7 @@ export function cliAccounts(options: CliOptions) {
     binary(provider);
     const parent = join(stateDir, provider); if (!directory(stateDir) || !directory(parent, true)) throw new CliAccountError('bad-option');
     chmodSync(parent, 0o700);
-    const r: Row = { id: `pa_${randomBytes(9).toString('hex')}`, provider, name: adopted?.name ?? '', folder: join(parent, randomBytes(8).toString('hex')), found: false,
+    const r: Row = { id: `pa_${randomBytes(9).toString('hex')}`, provider, name: adopted?.name ?? '', folder: join(parent, randomBytes(8).toString('hex')), found: false, addedAt: stampAddedAt(),
       ...(provider === 'pi' ? { piProvider: metadata!.piProvider } : {}), ...(adopted ? { adoptedFrom: adopted.id } : {}) };
     mkdirSync(r.folder, { mode: 0o700 });
     try {
@@ -273,7 +286,7 @@ export function cliAccounts(options: CliOptions) {
       await options.prepare?.(r.folder, provider);
       if (!safe(r)) throw new CliAccountError('prepare-failed');
       save([...load(), r], provider); created.add(r.id);
-      return { account: { id: r.id, provider, name: r.name || (provider === 'pi' ? piRoutes.find(v => v.upstream.id === r.piProvider)!.name : suggestName(undefined, provider)), billing: 'subscription', state: 'signing', ...(r.piProvider ? { piProvider: r.piProvider } : {}), ...(r.adoptedFrom ? { adoptedFrom: r.adoptedFrom } : {}) }, signIn };
+      return { account: { id: r.id, provider, name: r.name || (provider === 'pi' ? piRoutes.find(v => v.upstream.id === r.piProvider)!.name : suggestName(undefined, provider)), billing: 'subscription', state: 'signing', ...(r.piProvider ? { piProvider: r.piProvider } : {}), ...(r.adoptedFrom ? { adoptedFrom: r.adoptedFrom } : {}), addedAt: r.addedAt }, signIn };
     } catch { rmSync(r.folder, { recursive: true, force: true }); throw new CliAccountError('prepare-failed'); }
   }
   return {
