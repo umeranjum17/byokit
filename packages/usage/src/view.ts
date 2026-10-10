@@ -1,7 +1,7 @@
 import type { CallRecord } from './calls.ts';
-import type { Provider, Reading, Room } from './types.ts';
+import type { Freshness, Kind, Provider, Reading, Room, Scope } from './types.ts';
 import { roomOf } from './room.ts';
-import { words } from './words.ts';
+import { words, type WordKey } from './words.ts';
 
 const plans: Record<Provider, string> = {
   codex: 'ChatGPT', claude: 'Claude', copilot: 'GitHub Copilot', grok: 'Grok',
@@ -74,4 +74,72 @@ export function planView(input: {
     people: groups((call) => call.payer ?? '').map(({ name, ...count }) => ({ member: name, ...count })),
     models: groups((call) => modelLabel(call.model)).map(({ name, ...count }) => ({ label: name, ...count })),
   };
+}
+const windowLabels: Record<Kind, WordKey> = {
+  session: 'windows.session', weekly: 'windows.week', monthly: 'windows.month', rolling: 'windows.rolling', custom: 'windows.limit',
+};
+/** One normalized window with its display line, reset line and unchanged millisecond reset. */
+export interface WindowLine {
+  provider: Provider;
+  kind: Kind;
+  scope?: Scope;
+  limit?: string;
+  usedPercent?: number;
+  limited?: boolean;
+  resetsAt?: number;
+  text: string;
+  resetText: string;
+}
+export interface WindowsView {
+  /** Every window, tightest first; an unknown window keeps its place after the measured ones. */
+  windows: WindowLine[];
+  at?: number;
+  ageMs?: number;
+  ageText?: string;
+  freshness: Freshness;
+  stale: boolean;
+}
+function agoText(agoMs: number): string {
+  const minutes = Math.floor(agoMs / 60_000);
+  if (minutes < 1) return words('windows.agoMoment');
+  if (minutes < 60) return words(minutes === 1 ? 'windows.agoMinute' : 'windows.agoMinutes', { n: String(minutes) });
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return words(hours === 1 ? 'windows.agoHour' : 'windows.agoHours', { n: String(hours) });
+  const days = Math.floor(hours / 24);
+  return words(days === 1 ? 'windows.agoDay' : 'windows.agoDays', { n: String(days) });
+}
+function resetText(resetsAt: number | undefined, nowMs: number): string {
+  if (resetsAt === undefined || !Number.isFinite(resetsAt) || !Number.isFinite(nowMs)) return words('windows.resetUnknown');
+  const minutes = Math.max(0, Math.ceil((resetsAt - nowMs) / 60_000));
+  if (minutes < 60) return words('windows.reset', { time: `${minutes}m` });
+  const hours = Math.floor(minutes / 60); const rest = minutes % 60;
+  if (hours < 24) return words('windows.reset', { time: rest ? `${hours}h ${rest}m` : `${hours}h` });
+  const days = Math.floor(hours / 24); const rem = hours % 24;
+  return words('windows.reset', { time: rem ? `${days}d ${rem}h` : `${days}d` });
+}
+function lineText(kind: Kind, usedPercent: number | undefined): string {
+  const label = words(windowLabels[kind]);
+  if (usedPercent === undefined || !Number.isFinite(usedPercent)) return words('windows.unknown', { label });
+  const left = Math.round(Math.max(0, Math.min(100, 100 - usedPercent)));
+  return words('windows.left', { label, left: `${left}%` });
+}
+const measured = (window: Reading['windows'][number]): number => typeof window.usedPercent === 'number' && Number.isFinite(window.usedPercent) ? window.usedPercent : Number.NEGATIVE_INFINITY;
+/** Both usage windows, tightest first, each with its millisecond reset and an age taken only from Reading.at. */
+export function windowsView(reading: Reading, nowMs: number): WindowsView {
+  const at = reading.at;
+  const validNow = Number.isFinite(nowMs);
+  const ageMs = at !== undefined && Number.isFinite(at) && validNow && nowMs >= at ? nowMs - at : undefined;
+  const freshness: Freshness = at === undefined || !Number.isFinite(at) || !validNow ? 'unknown' : nowMs < at ? 'future' : ageMs! > 86_400_000 ? 'stale' : 'fresh';
+  const ageText = freshness === 'future' ? undefined : freshness === 'unknown' ? words('windows.ageUnknown') : words('windows.age', { ago: agoText(ageMs!) });
+  const windows = reading.windows.map((window, ordinal) => ({ window, ordinal }))
+    .sort((a, b) => measured(b.window) - measured(a.window) || a.ordinal - b.ordinal)
+    .map(({ window }): WindowLine => ({
+      provider: window.provider, kind: window.kind,
+      ...(window.scope ? { scope: window.scope } : {}), ...(window.limit ? { limit: window.limit } : {}),
+      ...(window.usedPercent !== undefined ? { usedPercent: window.usedPercent } : {}),
+      ...(window.limited ? { limited: true } : {}), ...(window.resetsAt !== undefined ? { resetsAt: window.resetsAt } : {}),
+      text: lineText(window.kind, window.usedPercent), resetText: resetText(window.resetsAt, nowMs),
+    }));
+  return { windows, ...(at !== undefined ? { at } : {}), ...(ageMs !== undefined ? { ageMs } : {}),
+    ...(ageText !== undefined ? { ageText } : {}), freshness, stale: freshness === 'stale' };
 }
