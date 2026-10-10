@@ -103,7 +103,7 @@ Proof standard: drive the real consumer path against the built SDK; capture the 
 A proof that handles a real key, token or sign-in reads the value into a variable and prints only a mask: at 16 or more characters, length plus the first 4 and last 4 characters; below 16, only the length, e.g. `(12 chars, too short to mask)` — never any characters or a hash. Never `cat`, `grep -r`, `rg` or `secret-tool search` a credential store; never snapshot or screenshot a revealed value (DOM, accessibility tree, pixels); never let the value reach argv (the capture block prints argv) or any log.
 
 ```bash
-leak_check() { grep -rqF -f <(printf '%s' "$1") ".verify-artifacts/$feature/"; [ $? -eq 1 ]; }
+leak_check() { [ -n "$1" ] || { echo 'no value to check' >&2; return 1; }; grep -rqF -f <(printf '%s' "$1") ".verify-artifacts/$feature/"; [ $? -eq 1 ]; }
 v=$(secret-tool lookup service byokit account demo) # any read of the real value, into a variable
 [ -n "$v" ] || { printf 'no value read\n' >&2; exit 1; }
 if [ "${#v}" -lt 16 ]; then printf '(%d chars, too short to mask)\n' "${#v}"
@@ -114,6 +114,7 @@ unset v
 
 ```js
 const v = process.env.BYOKIT_KEY ?? ''; // read once, into a variable
+if (!v) { console.error('no value read'); process.exit(1); }
 console.log(v.length < 16
 ? `(${v.length} chars, too short to mask)`
 : `${v.slice(0, 4)}...${v.slice(-4)} (${v.length} chars)`);
