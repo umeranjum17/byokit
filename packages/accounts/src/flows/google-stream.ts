@@ -3,8 +3,6 @@
 import { ResponseError } from '../responses.ts';
 import type { Api, AssistantMessage, AssistantMessageEvent, Context, Model } from '@earendil-works/pi-ai';
 
-/** Cloud Code Assist hosts, keyed by Pi provider id. */
-export const CODE_ASSIST_HOSTS: Record<string, string> = { 'google-gemini-cli': 'https://cloudcode-pa.googleapis.com' };
 /** A 403 tier refusal: this account's plan does not include the requested Code Assist use. */
 export class CodeAssistTierError extends Error { readonly code = 'not_included' as const; constructor() { super('This Google account’s plan does not include Code Assist for this request. Try another account.'); this.name = 'CodeAssistTierError'; } }
 /** A 401 that a fresh access token did not clear: the sign-in is no longer valid. */

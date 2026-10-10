@@ -625,6 +625,30 @@ test('antigravity browser sign-in: Google’s page, the return to :51121, list()
   }
 });
 
+test('respond: an Antigravity account answers from its own Code Assist host without a googleBase', async () => {
+  const { google, store, accounts } = await antigravity();
+  const { id, signIn } = await accounts.add(OWNER, 'google-antigravity:paste');
+  accounts.paste(OWNER, id, await callbackAddress(signIn!.url!));
+  await accounts.finished(OWNER, id);
+  const [row] = await accounts.list(OWNER);
+  accounts.stop();
+  const sent: string[] = [];
+  const toStandIn = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.includes(':streamGenerateContent')) sent.push(url);
+    return fetch(url.replace(/^https:\/\/[^/]+/, google.base), init);
+  }) as typeof fetch;
+  const answering = new Accounts({ store: () => store, fetch: toStandIn, app: 'byokit respond' });
+  try {
+    const result = await answering.respond(OWNER, { account: row.id, model: respondModel(), context });
+    assert.equal(result.stopReason, 'stop');
+    assert.deepEqual(sent.map((url) => new URL(url).origin + new URL(url).pathname), ['https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent'], 'the Antigravity client’s own host');
+  } finally {
+    answering.stop();
+    await google.close();
+  }
+});
+
 test('respond: a 401 refreshes the sign-in exactly once, then answers', async () => {
   const { google, accounts, id } = await respondJourney();
   try {

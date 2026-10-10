@@ -7,8 +7,8 @@ import type { Api, ApiStreamOptions, AssistantMessage, AssistantMessageEventStre
 import { cloudSelection, CloudAccountError, type CloudOptions, type CloudStream } from './cloud.ts';
 import type { AiBinding } from '@earendil-works/pi-ai/api/cloudflare-ai-binding';
 import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfile, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
-import { googleProject, googleRevoke, googleRevokeUrl, googleRouteClient, isGoogleClient, withGoogle } from './flows/google.ts';
-import { CODE_ASSIST_HOSTS, CodeAssistSignedOutError, CodeAssistTierError, CodeAssistUnauthorizedError, codeAssistStream } from './flows/google-stream.ts';
+import { GOOGLE_CLIENTS, googleProject, googleRevoke, googleRevokeUrl, googleRouteClient, isGoogleClient, withGoogle } from './flows/google.ts';
+import { CodeAssistSignedOutError, CodeAssistTierError, CodeAssistUnauthorizedError, codeAssistStream } from './flows/google-stream.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
 import { deviceFlow, offered, provider, route, routes, PROVIDERS, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
@@ -941,7 +941,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const key = this.accountKey(member, ask.account);
     const project = (await this.index(member)).accounts?.[key]?.project;
     if (!project) throw new ResponseError('This Google account has no Code Assist project yet. Sign in again.', 'not_included');
-    const base = (this.opts.googleBase ?? CODE_ASSIST_HOSTS[provider] ?? '').replace(/\/+$/, '');
+    const base = (this.opts.googleBase ?? (isGoogleClient(provider) ? GOOGLE_CLIENTS[provider].codeAssist : '')).replace(/\/+$/, '');
     if (!base) throw new KeyRouteError('provider');
     const rt = await this.runtime(member);
     const attempt = async (minOAuthValidityMs: number) => {
