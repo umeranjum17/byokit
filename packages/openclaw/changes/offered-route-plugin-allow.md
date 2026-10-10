@@ -1,1 +1,0 @@
-- FIX: explicitly offered sign-ins such as OpenRouter are no longer blocked by the engine plugin allow list. `KitOptions.offered` names the accounts an app offers; the kit adds the plugin of every route those name to `plugins.allow`, so an opted-in sign-in is not a dead end.

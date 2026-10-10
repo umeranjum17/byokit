@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.6.5 (2026-10-10)
+
+- Dependency update: pins @byokit/accounts 0.21.0.
+- FIX: (from @byokit/accounts 0.21.0) ChatGPT `respond` answered from the saved default (or the first account) whatever account the caller had picked, so a two-account pick could stream from the wrong sign-in and a failure rested the wrong account; a selected account's refusal now rests only that account, and an explicit signed-out id is refused with `ResponseError` kind `signed_out` before any request.
+- FIX: (from @byokit/accounts 0.21.0) A second Google browser sign-in on a callback port this process already holds (another member's sign-in, or another app process) no longer publishes a URL whose redirect the holder's listener answers out of date and then waits for the `redirectMs` timer; it waits for the same port the holder uses and offers its pasted-address view at once, while the wait still serves the browser return if the port frees.
+- SECURITY: (from @byokit/accounts 0.21.0) The Google refresh token is sent only to Google's own revoke host (or its `googleBase` stand-in), never to `authBase`, and it never appears in a thrown message or a log; a failed revoke still deletes the local sign-in.
+- FIX: (from @byokit/accounts 0.21.0) `classifyFailure`/`classify` now read the ChatGPT/Codex "Next reset in N min/minutes/hour/hours" wording as well as "try again in ~N min/h", so a subscription refusal rests the account until the stated reset instead of the 60-minute fallback; a rate limit that names no reset still falls back.
+
 ## 0.6.4 (2026-10-09)
 
 - Dependency update: pins @byokit/link 0.8.0.
