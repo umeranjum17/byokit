@@ -120,7 +120,7 @@ const SCREENS: Screen[] = [
   {
     id: 'signin-connected',
     path: '',
-    what: 'Connected card with plan badge and the two quiet bottom actions (Sign out / Add another ChatGPT), kept apart',
+    what: 'Connected card with plan badge and the two quiet bottom actions, kept apart',
     themes: [...themes],
     formFactors: ['phone', 'desktop'],
     interaction: 'signin-connect',
