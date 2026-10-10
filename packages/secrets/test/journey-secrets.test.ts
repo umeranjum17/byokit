@@ -382,6 +382,7 @@ test('sealing keeps credentials encrypted and fails closed: wrong, tampered, mis
   assert.equal((await accountFileStore(hostAccounts, hostKeySeal({ key: owned, service: 'Umer' })).read('provider'))?.type, 'api_key');
   await assert.rejects(accountFileStore(hostAccounts, hostKeySeal({ key: randomBytes(32), service: 'Umer' })).delete('provider'), code('auth-failed'));
   assert.deepEqual(readFileSync(hostAccounts), hostBytes);
+  assert.deepEqual(await accountFileStore(hostAccounts, hostKeySeal({ key: owned, service: 'Umer' })).list(), [{ providerId: 'provider', type: 'api_key' }]);
 
   // Automatic selection falls back to a private host key file when no keyring is available.
   const unavailable: KeyringBackend = { get() { throw new Error('none'); }, set() { throw new Error('none'); }, delete() { throw new Error('none'); } };
@@ -389,7 +390,13 @@ test('sealing keeps credentials encrypted and fails closed: wrong, tampered, mis
   const fb = osKeyringSeal({ service: 'byokit-fallback', stateDir: fbDir, keyring: unavailable });
   assert.equal(fb.mode, 'host-key-file');
   const fbSealed = Buffer.from(fb.encryptString(CANARY));
-  assert.equal(osKeyringSeal({ service: 'byokit-fallback', stateDir: fbDir, keyring: unavailable }).decryptString(fbSealed), CANARY);
+  const fbKey = readFileSync(onlyKey(fbDir));
+  const late = osKeyringSeal({ service: 'byokit-fallback', stateDir: fbDir, keyring: fakeRing().backend });
+  assert.equal(late.mode, 'host-key-file', 'mode cannot flip when a keyring becomes available');
+  assert.equal(late.decryptString(fbSealed), CANARY);
+  assert.deepEqual(readFileSync(onlyKey(fbDir)), fbKey, 'the host key file is unchanged across instances');
+  assert.equal(fbKey.length, 32);
+  assert.ok(!JSON.stringify(fb).includes(fbKey.toString('hex')) && !JSON.stringify(fb).includes(fbKey.toString('base64')));
   assert.throws(() => osKeyringSeal({ service: 'x', stateDir: scratchDir('secrets-mandatory'), keyring: unavailable, fallback: false }), code('unavailable'));
 
   // The automatic host-key file is private on disk, survives restart and never exposes key bytes.
@@ -670,6 +677,7 @@ test('the browser and phone entries keep secrets at rest, and the published entr
   await assert.rejects(web.get('provider/🔑'), code('auth-failed'));
   await assert.rejects(webStore({ indexedDB: idb, crypto, isSecureContext: false }).set('x', CANARY), code('unavailable'));
   await assert.rejects(web.get(''), code('invalid'));
+  await assert.rejects(web.delete('a\0b'), code('invalid'));
   await assert.rejects(web.set('x', '😀'.repeat(262145)), code('invalid'));
 
   // A fresh store never races into two device keys: eight concurrent first writes share one persisted key.
