@@ -398,7 +398,14 @@ export class AuthStore {
       for (const entry of readdirSync(this.objects)) {
         const [path, data, payload] = this.readObject(join(this.objects, entry));
         this.objectHashes.set(entry, objectHash(payload));
-        putRestore(join(this.o.root, path), Buffer.from(data, 'base64'), changed);
+        // An object path can be several directories below an existing one, and those directories are not in
+        // `saved.dirs` (they sit in a non-credential subtree). Create them through ensureRestoreDirs so the
+        // parent of every directory this restore creates — not just each object's own directory — is fsynced
+        // before the marker goes; otherwise a crash after marker removal could lose a directory entry and the
+        // next prepare() would seal the now-incomplete live tree over the good sealed objects.
+        const target = join(this.o.root, path);
+        this.ensureRestoreDirs(dirname(target), changed);
+        putRestore(target, Buffer.from(data, 'base64'), changed);
       }
     }
     for (const dir of ['state', 'home']) this.ensureRestoreDirs(join(this.o.root, dir), changed);
