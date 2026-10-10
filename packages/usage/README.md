@@ -585,9 +585,11 @@ reading is undated, and absent when `at` is in the future. `freshness` mirrors
 
 ```ts
 import { windowsView } from '@byokit/usage/view';
+import type { Reading } from '@byokit/usage';
+const reading: Reading = { provider: 'codex', at: Date.now(), windows: [] };
 const windows = windowsView(reading, Date.now());
-for (const line of windows.windows) render(line.kind, line.text, line.resetText);
-renderAge(windows.ageText, windows.stale);
+for (const line of windows.windows) console.log(line.kind, line.text, line.resetText);
+console.log(windows.ageText, windows.stale);
 ```
 
 Run `node examples/pwa/serve.ts` and open `/usage.html` for the shared Umer
