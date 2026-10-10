@@ -222,6 +222,44 @@ test('a China MiniMax account signs in on the China host after a restart', async
   }
 });
 
+test('with only a China MiniMax account saved, login(member, \'minimax\') signs in the global account and leaves the China one', async () => {
+  const cn = await mockDevice({ dialect: 'minimax', region: 'cn' });
+  const global = await mockDevice({ dialect: 'minimax' });
+  const { store } = stored();
+  const sent: string[] = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = ((input: string | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    sent.push(url.host);
+    return real(new URL(url.pathname, url.host.endsWith('minimaxi.com') ? cn.base : global.base), init);
+  }) as typeof fetch;
+  const open = () => new Accounts<any, number>({ app: 'byokit journey', offer: ['minimax'], store: () => store }, portable);
+  try {
+    const first = open();
+    const { id } = await first.add(1, 'minimax:code:cn');
+    assert.equal(cn.approve(first.view(1, id)!.code!), true, 'approving the China code');
+    await first.finished(1, id);
+    first.stop();
+
+    const accounts = open();
+    try {
+      sent.length = 0;
+      const shown = (await accounts.login(1, 'minimax'))!;
+      assert.equal(sent[0], 'account.minimax.io', 'the global host, not the China one');
+      assert.equal(global.approve(shown.code!), true, 'approving the global code');
+      await accounts.finished(1, 'minimax');
+      assert.deepEqual((await accounts.list(1)).map((r) => r.state), ['ready', 'ready'], 'two rows, both ready');
+      assert.ok((await accounts.list(1)).some((r) => r.id === id), 'the China account is still there');
+    } finally {
+      accounts.stop();
+    }
+  } finally {
+    globalThis.fetch = real;
+    await cn.close();
+    await global.close();
+  }
+});
+
 test('a MiniMax sign-in whose token has run out needs signing in again, and nothing is sent to refresh it', async () => {
   const m = await mockDevice({ dialect: 'minimax' });
   const { store } = stored();

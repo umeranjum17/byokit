@@ -16,7 +16,7 @@ import { claims, PORTABLE, portableEngine, signable, withDevice } from './engine
 import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
 import type { ChatGPTRespondAccount } from './chatgpt-plan.ts';
-import { emptyIndex, viewStore, memoryStore, refreshCredential, type AccountMetadata, type EndingStore, type RefreshStore } from './stores.ts';
+import { emptyIndex, viewStore, memoryStore, RefreshRequiredError, refreshCredential, type AccountMetadata, type EndingStore, type RefreshStore } from './stores.ts';
 import { resolveSelection, type Account, type AccountPick, type Defaults, type ModelInfo, type Room, type RunSelection, type Via } from './multi.ts';
 import type { Credential } from '@earendil-works/pi-ai';
 import { callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';
@@ -153,7 +153,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   private async resolveKey(member: M, key: string) {
     if (key.includes('.')) return this.accountKey(member, key);
     const index = await this.index(member);
-    const ids = (await this.store(member).list()).map((c) => this.publicKey(c.providerId)).filter((id) => this.providerKey(id) === key);
+    const ids = (await this.store(member).list()).map((c) => this.publicKey(c.providerId)).filter((id) => this.providerKey(id) === key && (index.accounts?.[id]?.region ?? 'global') === 'global');
     const chosen = ids.includes(index.defaults.account ?? '') ? index.defaults.account! : ids[0] ?? key;
     this.preferred.set(`${member}:${key}`, chosen);
     return chosen;
@@ -1247,6 +1247,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       }
       // A revoked (invalid_grant) or quarantined refresh requires sign-in again. A lost answer, any other refusal (a
       // passing 401 included), a server error or a read failure before sending (a locked keychain) is unknown: try later.
+      if (e instanceof RefreshRequiredError || (e as any)?.revoked === true) return false;
       const status = (e as any)?.status;
       return typeof status !== 'number' || status < 400 || status > 403;
     });
