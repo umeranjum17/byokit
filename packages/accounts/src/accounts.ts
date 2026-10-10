@@ -913,7 +913,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    *  swapped. Auto and default go through the same `pick` a UI can call first; a default that cannot answer is
    *  refused, never answered from another account. */
   private async resolveRespondAccount(member: M, provider: string, select: { account: string }): Promise<string | undefined> {
-    if (select.account !== 'auto' && select.account !== 'default') return this.accountKey(member, select.account);
+    const checked = (picked: string) => {
+      if (this.providerKey(picked) !== provider) throw new ResponseError(say('pick.out.provider'), 'not_included');
+      return picked;
+    };
+    if (select.account !== 'auto' && select.account !== 'default') return checked(this.accountKey(member, select.account));
     const choice = await this.pick(member, { account: select.account, provider });
     if (select.account === 'default') {
       // The saved default is the only account a default answers from: anything else pick chose is refused, not used.
@@ -923,9 +927,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         if (s?.state === 'resting') throw new ResponseError(s.words, 'rate_limit', s.until);
         throw new ResponseError(s && s.state !== 'ready' ? s.words : say('pick.out.state'), 'signed_out');
       }
-      return choice.account.id;
+      return checked(choice.account.id);
     }
-    if (choice.ok) return choice.account.id;
+    if (choice.ok) return checked(choice.account.id);
     const signedIn = choice.considered.filter((r) => this.providerKey(r.id) === provider && r.out !== 'state');
     const resting = signedIn.filter((r) => r.out === 'resting');
     if (signedIn.length && resting.length === signedIn.length) {

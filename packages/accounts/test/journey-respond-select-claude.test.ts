@@ -102,6 +102,14 @@ test('Claude respond answers from the selected account; expiry signs out only th
     assert.equal('select' in stand.requests.at(-1)!.body, false);
     assert.equal('provider' in stand.requests.at(-1)!.body, false);
 
+    // A select naming another provider is refused typed, never answered by this branch's primary engine.
+    const beforeCross = stand.requests.length;
+    await assert.rejects(
+      accounts.respond(1, ask({ account: 'chatgpt' })),
+      (e: any) => e instanceof ResponseError && e.kind === 'not_included',
+    );
+    assert.equal(stand.requests.length, beforeCross, 'a cross-provider select sends no request');
+
     // A 429 on the selected account rests only it: one request, no retry on the primary, which stays ready.
     stand.state.fail = { status: 429, body: { type: 'error', error: { type: 'rate_limit_error', message: 'You have hit your usage limit' } } };
     const before = stand.requests.length;
