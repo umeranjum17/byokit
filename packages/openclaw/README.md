@@ -30,7 +30,7 @@ phone page that pairs, signs in with ChatGPT, runs and answers approvals, see
 `engine/patches.json` declares the exact upstream tarball integrity, commit, unique edits and before/after file
 hashes. The Gateway Workshop review patch writes content-free, durable usage facts only when the kit sets its
 accounting environment. The separately bundled worker and all other detached kinds remain uncovered.
-The Claude CLI route also uses the bundled [Tooling-name correction](../../docs/runtime-kits.md#516-bundled-engine-patches-and-engine-started-usage);
+The Claude CLI route also uses the bundled [Tooling-name correction](../../docs/runtime-kits.md#516-bundled-engine-patches-and-engine-started-usage-d19);
 apps do not need consumer tool aliases.
 The full upstream MIT notice ships in [engine/OPENCLAW-LICENSE](engine/OPENCLAW-LICENSE).
 
@@ -337,7 +337,7 @@ Entries:
 
 - `.` is the host side: `OpenClawKit`, engine supervision, config invariants, approvals (Node).
 - `./device` is the portable client for phones and browsers (no Node imports).
-- `./link` is the host-side `@byokit/link` adapter: member-checked ops, sealed approval push (Node).
+- `./link` is the host-side `@byokit/pair` adapter: member-checked ops, sealed approval push (Node).
 - `./testing` holds `fakeGateway`, the `openclawContract` suite and the scripted model stub.
 
 | Export | What it does |
@@ -350,7 +350,7 @@ Entries:
 | `openclawDevice(link)` (`./device`) | Portable client: state, routes, sign-in, runs, steer, abort, approvals, events, sealed notices, pass-through `call`. `OpenClawDevice` and `DeviceEndFrame` name what it returns |
 | `LinkRefused`, `openNotice` (`./device`) | The host's own refusal as an error; opens a sealed approval notice |
 | `words`, `stateWords`, `toAccountView` (`.`, `./device`) | The kit's sentences, so a phone shows the words the computer does; `toAccountView` feeds [`@byokit/ui`](../ui/README.md)'s `phaseOf` |
-| `openclawLink(kit, o)` (`./link`) | `handle` / `stream` / `allow` for a `@byokit/link` `Host`, checked per member, plus `onAction` for relay push actions. `OpenClawLinkOptions` / `OpenClawLinkHost` name both sides |
+| `openclawLink(kit, o)` (`./link`) | `handle` / `stream` / `allow` for a `@byokit/pair` `Host`, checked per member, plus `onAction` for relay push actions. `OpenClawLinkOptions` / `OpenClawLinkHost` name both sides |
 | `serve(o)` (`./link`) | Binds the link host per reach and returns its URLs (`OpenClawServeOptions` / `OpenClawServeHandle`) |
 | `fakeGateway`, `openclawContract`, `startModelStub`, `useModelStub` (`./testing`) | In-memory Gateway, the contract suite and the scripted model for tests. `fakeGateway`'s script is typed per method (`FakeScript`, `FakeHandler`), and a recorded `StubCall` carries a typed `StubRequest` |
 
@@ -486,15 +486,17 @@ that decision. It needs the published kit's bundled engine patch, not a separate
 
 ## Phones and browsers
 
-The host side serves member-checked ops over `@byokit/link`; the phone or browser uses the portable client:
+The host side serves member-checked ops over `@byokit/pair`; the phone or browser uses the portable client.
+(This kit depends on `@byokit/link`, the deprecated name of [`@byokit/pair`](../pair), and its examples import from
+there. Both packages resolve to the same module and the same API, so `@byokit/pair` works unchanged in a new app.)
 
 ```ts
-import { Host, keyPair, type DeviceLink } from '@byokit/link';
+import { Host, keyPair, type DeviceLink } from '@byokit/pair';
 import { OpenClawKit } from '@byokit/openclaw';
 import { openclawLink, serve } from '@byokit/openclaw/link';
 import { openclawDevice } from '@byokit/openclaw/device';
 
-// On the computer (Node): member-checked ops over @byokit/link, served per reach.
+// On the computer (Node): member-checked ops over @byokit/pair, served per reach.
 declare const kit: OpenClawKit;
 declare const ask: (question: string) => Promise<boolean>; // your own prompt
 const api = openclawLink(kit, { memberOf: (grant) => (grant.meta as { member?: string } | undefined)?.member });

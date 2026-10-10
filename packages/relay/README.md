@@ -7,7 +7,7 @@
   <img alt="Node | device side anywhere" src="https://img.shields.io/badge/platform-Node%20%7C%20device%20side%20anywhere-666?style=flat" />
 </p>
 
-<p align="center"><strong>A blind relay for <a href="../link"><code>@byokit/link</code></a>: the home computer dials out, phones reach it through the relay.</strong><br/>
+<p align="center"><strong>A blind relay for <a href="../pair"><code>@byokit/pair</code></a>: the home computer dials out, phones reach it through the relay.</strong><br/>
 The home computer (the <b>host</b>) needs no open port. The relay routes link's encrypted frames by host address and cannot
 read them. It also keeps what a sleeping phone needs (push notifications), a short code a person can type to find a host,
 and the owner's list of which hosts may use it. For apps that pair a phone or browser with a computer over link and want
@@ -17,12 +17,14 @@ The one exception to "cannot read": push notification text. The relay can read t
 explicitly includes.
 
 Node only (the device side, `@byokit/relay/device`, runs anywhere: no Node APIs, so browsers and React Native too).
-Depends on `@byokit/link` (see [package.json](package.json) for the version) and doesn't change its wire format or crypto.
+Depends on `@byokit/link`, the deprecated name of [`@byokit/pair`](../pair) it re-exports as is (see
+[package.json](package.json) for the version); both resolve to the same module and API, and it doesn't change its wire
+format or crypto.
 
 ## Install
 
 ```sh
-npm install @byokit/relay @byokit/link
+npm install @byokit/relay @byokit/pair
 ```
 
 [![npm](https://img.shields.io/npm/v/@byokit/relay?style=flat&label=)](https://www.npmjs.com/package/@byokit/relay) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=relay-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
@@ -30,7 +32,7 @@ npm install @byokit/relay @byokit/link
 ## Quickstart
 
 ```sh
-npm install @byokit/relay @byokit/link
+npm install @byokit/relay @byokit/pair
 ```
 
 A relay on loopback with its state in memory, a link host registering through `RelayClient`, and a device that finds the
@@ -38,7 +40,7 @@ host by short code and pairs with it:
 
 ```ts
 import { createServer } from 'node:http';
-import { Host, keyPair, pairWithCode, DeviceLink } from '@byokit/link';
+import { Host, keyPair, pairWithCode, DeviceLink } from '@byokit/pair';
 import { Relay, RelayClient, type RelayState } from '@byokit/relay';
 import { findHost } from '@byokit/relay/device';
 
@@ -189,7 +191,7 @@ const { code } = host.code({ role: 'control' });  // e.g. 7KQ4-M2XP-9RTH, for li
 
 ```ts
 import { findHost, linkUrl } from '@byokit/relay/device';
-import { pairWithCode } from '@byokit/link';
+import { pairWithCode } from '@byokit/pair';
 const url = await findHost('https://relay.example', short);   // wss://relay.example/link/v1/<host id>
 const grant = await pairWithCode(url, code, { name: 'Pixel 9', onWords: (words) => console.log('Verify on host:', words) });
 // With a host id already known, no lookup is needed:
@@ -282,7 +284,7 @@ Per client address, per minute, as in muxr's relay: 60 WebSocket connections, 10
 ## Links
 
 - [byokit](../../README.md): the other packages
-- [`@byokit/link`](../link): pairing and the encrypted link this relay carries
+- [`@byokit/pair`](../pair): pairing and the encrypted link this relay carries
 - [SECURITY.md](SECURITY.md): what the relay can and cannot see
 - [CHANGELOG.md](CHANGELOG.md)
 
@@ -335,7 +337,7 @@ The owner can attach up to 4096 UTF-8 bytes of JSON to an enrolment through `rel
 `ownerClient(url, token).enrolment({ meta })`. The kit treats it as opaque data; URL meanings belong to the app:
 
 ```ts
-import type { Host } from '@byokit/link';
+import type { Host } from '@byokit/pair';
 import { ownerClient, RelayClient, type RelayClientStore } from '@byokit/relay';
 
 async function relayExample(host: Host, ownerToken: string, pendingStore: RelayClientStore) {
@@ -378,7 +380,7 @@ record supplied by the runtime, such as `{ inputTokens, outputTokens }`; the cha
 Host integration (pass this host to `RelayClient` as in the quickstart):
 
 ```ts
-import { Host, type KeyPair, type PairRequest } from '@byokit/link';
+import { Host, type KeyPair, type PairRequest } from '@byokit/pair';
 import { JobChannel, type JobPart, type JobWriter, type JobCursor } from '@byokit/relay';
 
 type Output = Exclude<JobPart, { type: 'end' }>;
@@ -420,7 +422,7 @@ The device starts a job with an app-generated id, then opens a follower while li
 works in a browser or React Native; import the reader from `@byokit/relay/device`, avoiding the Node server entry:
 
 ```ts
-import type { DeviceLink } from '@byokit/link';
+import type { DeviceLink } from '@byokit/pair';
 import { readJobStream, type JobFrame } from '@byokit/relay/device';
 
 async function startJob(link: DeviceLink, job: string, input: unknown) {

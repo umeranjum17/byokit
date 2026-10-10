@@ -8,13 +8,17 @@
 
 <p align="center"><strong>Drive the Herdr already on this computer from an app, or from a phone.</strong><br/>
 Workspaces, tabs, panes, coding agents and blocked-approval answers, from a Node app or handed to a phone over
-<a href="../link"><code>@byokit/link</code></a>. Each agent inside Herdr keeps its own subscription login; the kit
+<a href="../pair"><code>@byokit/pair</code></a>. Each agent inside Herdr keeps its own subscription login; the kit
 never sees a credential.</p>
 
+<p align="center"><sub>This kit depends on <code>@byokit/link</code>, the deprecated name of
+<a href="../pair"><code>@byokit/pair</code></a>, and its examples import from there. Both packages resolve to the same
+module and the same API, so <code>@byokit/pair</code> works unchanged in a new app.</sub></p>
+
 <p align="center">
-  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/3-agent.png" width="240" alt="Phone page titled Agents, Connected to Kitchen computer and Connected to Herdr: two pi agents marked Ready for you, and under Talk to it the agent's screen reading '> Add a --json flag to export', 'Read src/cli/export.ts', 'Edited src/cli/export.ts +18 -3' and 'export --json now prints JSON.' above a Message box, a Send button and Sent." />
-  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/4-question.png" width="240" alt="Phone page with Questions for you at the top: pi, Waiting for your answer., the question 'Allow this? (y/n)' and buttons Enter, y, n and Esc; below, the second pi agent marked Waiting for your answer." />
-  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/5-answered.png" width="240" alt="Phone page after the answer: no Questions for you section, both pi agents marked Ready for you, and the agent's screen ending in 'Allow this? (y/n)', 'y' and 'npm test: 42 passing'" />
+  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/3-agent.png" width="240" alt="Phone page titled Agents, Connected to Kitchen computer - same Wi-Fi.: two Pi agents marked Ready for you, and under Talk to it the agent's screen reading '> Add a --json flag to export', 'Read src/cli/export.ts', 'Edited src/cli/export.ts +18 -3' and 'export --json now prints JSON.' above a Message box, a Send button and Waiting for the reply below." />
+  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/4-question.png" width="240" alt="Phone page with Questions for you at the top: Pi, Waiting for your answer., the question 'Allow this? (y/n)' and buttons Allow, Deny and Skip; below, the second Pi agent marked Waiting for your answer." />
+  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/5-answered.png" width="240" alt="Phone page after the answer: no Questions for you section, both Pi agents marked Ready for you, and the agent's screen ending in 'Allow this? (y/n)', 'y' and 'npm test: 42 passing'" />
 </p>
 <p align="center"><sub>The <a href="../../examples/herdr-kit">herdr-kit example</a>'s phone page: an agent at work, its
 question, answered. Captured by the example's e2e in a phone-sized headless Chromium, against the kit's stand-in
@@ -90,7 +94,7 @@ Waiting for your answer. | Allow this? (y/n)
 idle
 ```
 
-To hand Herdr to a phone, spread `herdrLink` into a `@byokit/link` host and serve it; the phone calls the same
+To hand Herdr to a phone, spread `herdrLink` into a `@byokit/pair` host and serve it; the phone calls the same
 things through `herdrDevice`:
 
 ```ts
@@ -106,8 +110,8 @@ const own = new HerdrKit({ mode: 'own', bin, stateDir: './.state' });
 ```ts
 import { HerdrKit } from '@byokit/herdr';
 import { herdrLink, serve } from '@byokit/herdr/link';
-import { Host, type Grant } from '@byokit/link';
-import { hostKeyFile } from '@byokit/link/node';
+import { Host, type Grant } from '@byokit/pair';
+import { hostKeyFile } from '@byokit/pair/node';
 
 const kit = new HerdrKit({ mode: 'own', bin: '/usr/local/bin/herdr', stateDir: './.state' });
 const grants: Grant[] = [];
@@ -128,7 +132,7 @@ kit.start().catch(() => {});        // non-fatal: retry later while Herdr is dow
 ```
 
 ```ts
-import type { DeviceLink } from '@byokit/link';
+import type { DeviceLink } from '@byokit/pair';
 import { agentWords, herdrDevice } from '@byokit/herdr/device';
 
 declare const link: DeviceLink;     // from pairing (pairWithCode / pairWithOffer)

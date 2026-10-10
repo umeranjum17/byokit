@@ -2,7 +2,7 @@
 
 <p align="center"><strong>Deprecated: renamed to <a href="../pair"><code>@byokit/pair</code></a>.</strong></p>
 
-This package re-exports `@byokit/pair` as is, so it carries pair's changes, including the breaking `parseOffer` type in 0.8.0 (see CHANGELOG): narrow with `'host' in offer`, or call `parseV1Offer`. Import from `@byokit/pair` instead. It is removed in 0.9.0.
+This package re-exports `@byokit/pair` as is, so it carries pair's changes, including the breaking `parseOffer` type since `@byokit/pair` 0.9.0 (see CHANGELOG): narrow with `'host' in offer`, or call `parseV1Offer`. Import from `@byokit/pair` instead. It is removed in 0.9.0.
 
 ## Migrate
 

@@ -14,11 +14,11 @@ OpenRouter and Anthropic API keys are billed per use and require explicit app op
 the platform's side (`package.json`'s `react-native` and `browser` conditions).</p>
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/pwa-1-signed-out.png" width="240" alt="The page &quot;byokit in a browser&quot;, signed out: &quot;ChatGPT isn't signed in yet.&quot; above a Sign in with ChatGPT button" />
-  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/pwa-2-code.png" width="240" alt="The same page signing in: &quot;Signing in to ChatGPT…&quot;, &quot;On the ChatGPT page, type this code:&quot; WDJB-MJHT, an Open ChatGPT link and a Cancel button" />
-  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/pwa-3-connected.png" width="240" alt="The same page signed in: &quot;ChatGPT is connected.&quot;, umer@example.com, plus plan, with Check the sign-in and Sign out buttons" />
+  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/pwa-1-signed-out.png" width="240" alt="The page &quot;Umer's AI plans&quot;, signed out: the ChatGPT card with a Plan chip, &quot;ChatGPT isn't signed in yet.&quot; and a Sign in with ChatGPT button" />
+  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/pwa-2-code.png" width="240" alt="The same page signing in: &quot;Signing in to ChatGPT…&quot;, &quot;On the ChatGPT page, type this code:&quot; MOCK-10001 with a Copy button, &quot;Code expires in 14:59&quot;, and Open ChatGPT and Cancel buttons" />
+  <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/docs/images/pwa-3-connected.png" width="240" alt="The same page signed in: &quot;ChatGPT is connected.&quot;, umer@example.com, a ChatGPT Plus chip, an Auto (most room) selector, an Ask ChatGPT something box and Sign out / Add another ChatGPT" />
 </p>
-<p align="center"><sub><a href="../../examples/pwa"><code>examples/pwa</code></a> signing in by device code in headless Chromium (Playwright), against the kit's stand-in OpenAI (<code>mockOpenAI()</code>), not the real one; the pictured code is in OpenAI's format.</sub></p>
+<p align="center"><sub><a href="../../examples/pwa"><code>examples/pwa</code></a> signing in by device code in headless Chromium (Playwright), against the kit's stand-in OpenAI (<code>mockOpenAI()</code>), not the real one; the pictured code is the stand-in's own <code>MOCK-…</code> shape.</sub></p>
 
 ## Install
 
@@ -182,7 +182,7 @@ for (const p of offered(['chatgpt', 'openrouter'])) console.log(`${p.name}: ${bi
 ```
 
 ```text
-[ 'chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta' ]
+[ 'chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta', 'google-gemini-cli' ]
 ChatGPT: Uses your ChatGPT plan.
 OpenRouter: Charged per use to your OpenRouter account, not a plan.
 ```
@@ -401,7 +401,7 @@ if (isFunctionCall(result.output[0])) {
 ```
 
 A web page can't call this endpoint itself (it answers no other web page): ask from the app's own server or over
-`@byokit/link`.
+`@byokit/pair` (published as `@byokit/link` up to 0.8.x).
 
 ## Limits
 
