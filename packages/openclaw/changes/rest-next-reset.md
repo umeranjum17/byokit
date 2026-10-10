@@ -1,1 +1,0 @@
-- FIX: the kit's `classify` now reads the ChatGPT/Codex "Next reset in N min/minutes/hour/hours" wording as well as "try again in ~N min/h", so `RunEnd.until` carries the stated reset for a subscription refusal instead of being empty; wording with no number stays without an `until` for the app's fallback.
