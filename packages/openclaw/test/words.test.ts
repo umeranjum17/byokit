@@ -7,7 +7,7 @@ import { stateWords, toAccountView, words, type WordKey } from '../src/words.ts'
 import type { KitState, SignInView } from '../src/types.ts';
 import wordsJson from '../src/words.json' with { type: 'json' };
 
-// 5.14 and 5.17's tables, verbatim — the data file and this copy must stay identical.
+// 5.14, 5.15 and 5.17's tables, verbatim — the data file and this copy must stay identical.
 const TABLE: Record<string, string> = {
   'engine.installing': 'Getting things ready on this computer. The first time takes a few minutes.',
   'engine.starting': 'Starting up…',
@@ -85,9 +85,43 @@ const TABLE: Record<string, string> = {
   'key.invalid': 'This key could not be saved. Check it and try again.',
   'key.notIncluded': 'This option is not available here.',
   'key.missing': 'Add an API key to use this option.',
+  'auto.room': "Right now that's {name}: {room}",
+  'auto.unknown': "Right now that's {name} (no recent reading)",
+  'auto.refills': 'All {provider} accounts are out of room until {time}. {name} refills first.',
+  'auto.refillsNoTime': 'All {provider} accounts are out of room. {name} refills first.',
+  'auto.terms': "Auto may use either of a provider's accounts.",
+  'auto.none': 'No signed-in {provider} account.',
+  'room.unknown': 'Room left unknown',
+  'room.session': '{left} left this session',
+  'room.week': '{left} left this week',
+  'room.month': '{left} left this month',
+  'room.tightest': '{left} left for now',
+  'pick.out.state': 'Not signed in right now',
+  'pick.out.resting': 'Taking a break until {time}',
+  'pick.out.billing': 'Billed per use, so used only when you choose it',
+  'pick.out.model': "Doesn't include {model}",
+  'pick.out.provider': 'A different service',
+  'pick.out.bound': 'This conversation uses another account',
+  'pick.why.chosen': 'You chose {name}.',
+  'pick.why.default': '{name} is your default.',
+  'pick.why.first_ready': "Your default isn't ready, so {name}, the first ready account.",
+  'pick.why.only': '{name} is the only account that can take this.',
+  'pick.why.most_room': '{name} has the most room left.',
+  'pick.why.earlier_reset': '{name} has as much room left and refills sooner.',
+  'pick.why.list_order': '{name} is tied for room and comes first in your list.',
+  'pick.why.no_reading': 'No account has a recent reading, so {name}, first in your list.',
+  'pick.why.refills_first': 'All accounts are out of room; {name} refills first.',
+  'pick.age': 'Read {ago} ago',
+  'pick.ageUnknown': 'Reading time unknown',
+  'ago.minutes': '{n} min',
+  'ago.hours': '{n} h',
+  'account.bound': 'This conversation uses {name}. Move it to switch accounts.',
+  'account.paid': 'This conversation uses {name}, which is billed per use. Choose {name} to keep going.',
+  'account.signOutFirst': 'To add a different {provider} account, sign out of {provider} in your browser first.',
+  'account.legacyMember': 'This person needs a new profile before adding more accounts.',
 };
 
-test('every 5.14/5.17 key is present with the exact sentence, and nothing else', () => {
+test('every 5.14/5.15/5.17 key is present with the exact sentence, and nothing else', () => {
   assert.deepEqual(Object.keys(wordsJson).sort(), Object.keys(TABLE).sort());
   for (const [key, sentence] of Object.entries(TABLE)) assert.equal(words(key as WordKey), sentence, key);
 });
