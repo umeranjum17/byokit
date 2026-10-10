@@ -40,6 +40,10 @@
     "./connect": {
       "types": "./dist/connect.d.ts",
       "default": "./dist/connect.js"
+    },
+    "./accounts": {
+      "types": "./dist/accounts.d.ts",
+      "default": "./dist/accounts.js"
     }
   },
   "files": [
@@ -58,6 +62,7 @@
     }
   },
   "devDependencies": {
+    "@byokit/accounts": "0.20.0",
     "@types/react": "^19.3.0",
     "react": "^19.3.0"
   },
