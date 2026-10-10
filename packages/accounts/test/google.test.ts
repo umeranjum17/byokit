@@ -174,6 +174,29 @@ test('ineligible: an individual account with no Code Assist tier is refused and 
   }
 });
 
+test('an ineligible tier beside an existing project keeps the project and signs in', async () => {
+  const { google, store } = await journey();
+  const realFetch = globalThis.fetch;
+  // Real accounts can carry an ineligible free tier beside the paid tier or project they already have: the project is
+  // taken first, and only an account with no project and no allowed tier is refused. The stand-in answers the rest.
+  const accounts = new Accounts({ store: () => store, googleBase: google.base, app: 'byokit journey',
+    fetch: async (input, init) => String(input instanceof Request ? input.url : input).includes('/v1internal:loadCodeAssist')
+      ? Response.json({ cloudaicompanionProject: 'recorded-project', ineligibleTiers: [{ tierId: 'free-tier', reasonMessage: 'This account is not eligible for Code Assist.' }] })
+      : realFetch(input, init) });
+  try {
+    const { id, signIn } = await accounts.add(OWNER, 'google-gemini-cli:paste');
+    accounts.paste(OWNER, id, await callbackAddress(signIn!.url!));
+    await accounts.finished(OWNER, id);
+    const [row] = await accounts.list(OWNER);
+    assert.equal(row?.state, 'ready', 'the sign-in completes');
+    assert.equal((await store.index()).accounts?.[row.id]?.project, 'recorded-project', 'the existing project is kept');
+    assert.ok(!google.state.requests.some((r) => r.path === '/v1internal:onboardUser'), 'no onboarding when a project already exists');
+  } finally {
+    accounts.stop();
+    await google.close();
+  }
+});
+
 test('an app-set callbackPort moves the listener and the redirect address together', async () => {
   const google = await mockGoogle();
   const store = memoryStore();

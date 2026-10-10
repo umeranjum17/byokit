@@ -130,11 +130,13 @@ async function codeAssistProject(client: GoogleProtocol, access: string, doFetch
   };
   const idOf = (value: any): string | undefined => typeof value === 'string' ? value : typeof value?.id === 'string' ? value.id : undefined;
   const loaded = await call('loadCodeAssist', { metadata: client.metadata });
-  if (Array.isArray(loaded?.ineligibleTiers) && loaded.ineligibleTiers.length) throw new CodeAssistIneligibleError();
+  // An account can carry an ineligible free tier beside the project it already has or a paid tier it is allowed: take
+  // the project it has first; only an account with no project and no allowed tier to onboard is refused.
   const existing = idOf(loaded?.cloudaicompanionProject);
   if (existing) return existing;
   const tiers: any[] = Array.isArray(loaded?.allowedTiers) ? loaded.allowedTiers : [];
   const tier = tiers.find((t) => t?.isDefault) ?? tiers[0];
+  if (!tier) throw new CodeAssistIneligibleError();
   let operation = await call('onboardUser', { ...(tier?.id ? { tierId: String(tier.id) } : {}), metadata: client.metadata });
   for (let tries = 0; !operation?.done && operation?.name && tries < 20; tries++) {
     if (signal?.aborted) throw new Error('Login cancelled');
