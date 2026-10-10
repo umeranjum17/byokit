@@ -8,7 +8,7 @@
 </p>
 
 <p align="center"><strong>Sign in with the AI plan you already pay for, inside your own app.</strong><br/>
-ChatGPT and Claude Pro/Max on every platform (Claude needs Web Crypto); Gemini Code Assist, Grok, GitHub Copilot, Kimi and Meta on computers.
+ChatGPT and Claude Pro/Max on every platform (Claude needs Web Crypto); Gemini Code Assist, Antigravity, Grok, GitHub Copilot, Kimi and Meta on computers.
 OpenRouter and Anthropic API keys are billed per use and require explicit app opt-in. Sign-ins go into your app's own store: on a computer (Node, Electron), in a browser
 (a PWA, Electron's renderer) and on a phone (React Native and Expo, iOS and Android). One import; your bundler picks
 the platform's side (`package.json`'s `react-native` and `browser` conditions).</p>
@@ -263,7 +263,7 @@ sign-in from Claude's profile, an empty plan when it doesn't say), and `planLabe
 ## Sign-out
 
 `logout(member, key)` attempts to revoke the sign-in at the provider (`POST auth.openai.com/oauth/revoke` for ChatGPT;
-Google's revoke endpoint for Gemini Code Assist), then deletes the local sign-in even if the revoke fails. A failed
+Google's revoke endpoint for Gemini Code Assist and Antigravity), then deletes the local sign-in even if the revoke fails. A failed
 revoke rejects after local deletion; report it because the remote sign-in may remain active.
 
 Within one store instance, a refresh already in progress finishes first, so sign-out uses its rotated token. If a
