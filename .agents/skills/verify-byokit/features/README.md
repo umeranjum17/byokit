@@ -37,6 +37,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [Usage plan view](./usage-planview.md) — `@byokit/usage` selectors over fixture call records via `examples/usage-demo.ts`.
 - [Usage preflight](./usage-preflight.md) — `@byokit/usage` reports a call's cost ceiling from the app's own prices and the remaining allowance before it is sent, declining a costly call and refusing to guess on unknown cases.
 - [Dictation live preview](./dictation-live-preview.md) — `@byokit/dictation`'s live preview drops a shown silence sentinel as soon as words arrive, keeps a silence-only take's sentinel, and never retracts real shown words.
+- [Dictation live preview decode](./dictation-preview-decode.md) — a live preview decodes greedily over a bounded recent window; a final keeps the host's beam and whole-recording windows.
 - [Fresh-project pack gate](./pack-fresh-project.md) — `npm run smoke:pack`: install packed tarballs into a scratch app and import them.
 - [Gmail send](./connect-mail-send.md) — `@byokit/connect` `MailSender` with fixture OAuth and a canned Gmail transport: approved, denied and missing-scope legs.
 - [House Google client file](./connect-house-client.md) — `googleClientFile` from `@byokit/connect/node` feeding a loopback Gmail sign-in and send: missing, refused, consent approved/denied and send approved/denied legs.
@@ -72,6 +73,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [usage-planview](./usage-planview.md) — plan/quota view rendered from call records.
 - [usage-preflight](./usage-preflight.md) — preflight cost ceiling, remaining allowance, declined costly call, and explicit-unknown cases.
 - [dictation-live-preview](./dictation-live-preview.md) — a shown silence sentinel drops when words arrive, a silence-only take keeps it, and real shown words are never retracted.
+- [dictation-preview-decode](./dictation-preview-decode.md) — previews decode greedily over a bounded recent window, finals keep the host beam and whole recording.
 - [pack-fresh-project](./pack-fresh-project.md) — the packed-tarball fresh-consumer gate.
 - [connect-mail-send](./connect-mail-send.md) — one approval per message, denial without a request, `gmail.send` scope refusal.
 - [connect-house-client](./connect-house-client.md) — the house Google client file: missing/refused files, consent approve/deny, send approve/deny.
