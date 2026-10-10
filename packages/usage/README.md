@@ -26,6 +26,9 @@ Sources:
   Without a project, the kit discovers it through `loadCodeAssist` first.
 - `{ provider: 'opencode' | 'zai', key, accountId? }` reads plan-key quota.
 - `{ provider: 'codex', bin, home, env? }` retains the explicit local app-server source.
+  The account cache is keyed from the sign-in file's metadata only, never its contents, so
+  usage never opens or reads `<home>/auth.json`. A re-login or a refresh-only rewrite of that
+  file changes its metadata and drops the last-good reading.
 - `{ provider: 'claude', credentialsFile, configFile?, statuslineFile? }` is a
   read-only adapter for files the app explicitly supplies. It reads `claudeAiOauth`
   and optionally `oauthAccount.accountUuid`. A statusline snapshot uses its body `fetched_at` (epoch milliseconds or ISO date),

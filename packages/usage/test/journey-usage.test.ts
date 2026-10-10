@@ -13,7 +13,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { build } from 'esbuild';
 import { scratchDir } from '../../test-support.ts';
@@ -796,10 +796,13 @@ test('a built consumer touches only the sign-in it was handed', () => {
   assert.ok(logTouches.includes(logPath)); assert.ok(logTouches.every((p) => p === logPath), logTouches.join('\n'));
   assert.deepEqual(logDecoy.changed(), []); assert.deepEqual(logDecoy.ran(), []);
 
-  // Only the passed Codex sign-in folder is read; ambient sign-ins and keys are untouched.
+  // Only the passed Codex sign-in folder's file metadata is read; the token file is never opened, so its content
+  // (a canary behind mode 0o000) cannot be loaded, while ambient sign-ins and keys are untouched.
   const codexRoot = scratchDir('usage-isolation'); const codexDecoy = decoy(join(codexRoot, 'decoy'));
   const codexHome = join(codexRoot, 'passed'); mkdirSync(codexHome);
-  writeFileSync(join(codexHome, 'auth.json'), JSON.stringify({ tokens: { account_id: 'passed-account' } }));
+  const codexAuth = join(codexHome, 'auth.json');
+  writeFileSync(codexAuth, JSON.stringify({ tokens: { account_id: 'passed-account', access_token: CANARY } }));
+  chmodSync(codexAuth, 0o000);
   const codexState = join(codexRoot, 'state');
   const codexFake = fakeCodex({ dir: join(codexRoot, 'fake'), raw: payloads.codex.raw });
   const codexTrace = join(codexRoot, 'trace'); writeFileSync(codexTrace, '');
@@ -807,18 +810,29 @@ test('a built consumer touches only the sign-in it was handed', () => {
     const { usage } = await import('@byokit/usage');
     const reader = usage({ stateDir: ${JSON.stringify(codexState)} });
     const source = ${JSON.stringify({ provider: 'codex', bin: codexFake.bin, home: codexHome })};
-    if ((await reader.read(source)).windows.length !== 2) throw new Error('missing fake reading');
-    reader.account(source); reader.connected(source); reader.lastKnown(source);
+    const reading = await reader.read(source);
+    if (reading.windows.length !== 2) throw new Error('missing fake reading');
+    reader.connected(source); reader.lastKnown(source);
+    console.log(JSON.stringify({ account: reader.account(source) }));
   `], { encoding: 'utf8', env: { ...process.env, ...codexDecoy.env, TRACE_ROOTS: [...codexDecoy.roots, codexHome, codexState].join(':'), TRACE_LOG: codexTrace } });
   assert.equal(codexChild.status, 0, codexChild.stderr);
+  // The account key comes from file metadata, not the token: an open of the 0o000 file would fail and fall back.
+  const authStat = statSync(codexAuth);
+  const metadataKey = `${codexHome}\0${authStat.dev}:${authStat.ino}:${authStat.size}:${authStat.mtimeMs}:${authStat.ctimeMs}`;
+  const { account: childAccount } = JSON.parse(codexChild.stdout) as { account?: string };
+  assert.equal(childAccount, fingerprint('byokit/usage/account')('codex', metadataKey));
+  assert.notEqual(childAccount, fingerprint('byokit/usage/account')('codex', 'passed-account'));
+  assert.notEqual(childAccount, fingerprint('byokit/usage/account')('codex', `codex-home\0${codexHome}`));
   const codexTouches = readFileSync(codexTrace, 'utf8').trim().split('\n');
-  assert.ok(codexTouches.includes(join(codexHome, 'auth.json')));
+  assert.ok(codexTouches.includes(codexAuth));
   assert.ok(codexTouches.some((p) => p.startsWith(codexState)));
-  assert.ok(codexTouches.every((p) => p === join(codexHome, 'auth.json') || p === codexState || p.startsWith(codexState + '/')), codexTouches.join('\n'));
+  assert.ok(codexTouches.every((p) => p === codexAuth || p === codexState || p.startsWith(codexState + '/')), codexTouches.join('\n'));
   assert.deepEqual(codexDecoy.changed(), []); assert.deepEqual(codexDecoy.ran(), []); assert.deepEqual(codexDecoy.leaks(codexState), []);
+  assert.doesNotMatch(codexChild.stdout + codexChild.stderr, new RegExp(CANARY));
   const codexInvocation = codexFake.invocations()[0]; assert.deepEqual(codexInvocation.env, { CODEX_HOME: codexHome });
   assert.doesNotMatch(JSON.stringify(codexInvocation), new RegExp(CANARY));
   assert.doesNotMatch(JSON.stringify(codexInvocation), new RegExp(codexDecoy.home));
+  chmodSync(codexAuth, 0o600);
 
   // A managed Claude folder never opens a default login, never escapes its root and never leaks a canary token.
   const managedRoot = scratchDir('claude-source-isolation'); const managedDecoy = decoy(join(managedRoot, 'decoy'));
