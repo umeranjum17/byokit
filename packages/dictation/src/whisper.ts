@@ -185,10 +185,12 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
   for (const [start, end] of await segmentRanges(pcm, s, session)) {
     const prefix = segments.map(segment => segment.text).join(' ');
     const overlap = !s.chunkMs && end - start > chunkSamples ? 5_000 * 16 : 0;
+    const stepSamples = chunkSamples - overlap;
     let rangeText = '';
-    for (let at = start; at < end; at += chunkSamples - overlap) {
+    for (let at = start; at < end;) {
       checkAbort(o.signal);
-      const chunk = pcm.slice(at, Math.min(end, at + chunkSamples));
+      const chunkEnd = Math.min(end, at + chunkSamples);
+      const chunk = pcm.slice(at, chunkEnd);
       // Automatic overlapping windows are fresh final readings. Feeding their
       // overlap back as a prompt makes Whisper suppress it as already-known text.
       const result = await run(chunk, whisperDecodeOptions(s, o, s.chunkMs ? text : ''));
@@ -197,20 +199,31 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
       language = result.language ?? language;
       rangeText = overlap && at > start ? mergeOverlap(rangeText, result.result) : [rangeText, result.result.trim()].filter(Boolean).join(' ');
       text = [prefix, rangeText].filter(Boolean).join(' ');
+      const nativeSegments = result.segments.length ? result.segments : [{ text: result.result, t0: 0, t1: chunk.length / 160 }];
       if (overlap) {
         // A merged range has range-level offsets, not fabricated word cuts from
         // native segment metadata. Its text must agree with transcript.text.
-        if (at + chunkSamples >= end) {
+        if (chunkEnd >= end) {
           segments.push({ id: String(segments.length), text: rangeText, final: true, language, startMs: start / 16, endMs: end / 16 });
           break;
         }
+        // Step from where the decoder actually stopped. Whisper can end an
+        // automatic window early at a pause, and a fixed step would then skip
+        // the speech between that end and the next window. A full window keeps
+        // exactly the unmodified fixed step; an early end that reaches past the
+        // overlap advances to just before the uncovered audio; an end inside the
+        // overlap (nothing useful decoded) also keeps the fixed step, so a
+        // silent or hallucinating decoder still advances by whole windows.
+        const reached = Math.min(chunk.length, Math.max(...nativeSegments.map(segment => segment.t1 * 160)));
+        at += reached >= stepSamples || reached <= overlap ? stepSamples : reached - overlap;
         continue;
       }
-      const nativeSegments = result.segments.length ? result.segments : [{ text: result.result, t0: 0, t1: chunk.length / 160 }];
       for (const segment of nativeSegments) {
         segments.push({ id: String(segments.length), text: segment.text.trim(), final: true, language,
           startMs: at / 16 + segment.t0 * 10, endMs: at / 16 + segment.t1 * 10 });
       }
+      // No overlap here (an explicit chunkMs): the unchanged fixed step.
+      at += stepSamples;
     }
   }
   text = segments.map(segment => segment.text).join(' ').trim();

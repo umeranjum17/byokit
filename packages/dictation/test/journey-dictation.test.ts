@@ -457,3 +457,63 @@ test('the installed WER CLI measures the committed fixtures against their commit
     await assert.rejects(exec([cli, '--binary', binary, '--model', model, '--manifest', tampered]), /checksum mismatch/);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('a long reading steps its automatic windows from where the decoder stopped, joining the overlap once', async () => {
+  // A synthetic 60 s take; each second is filled with its index so the first
+  // sample of every window tells us where that window began. The only stub is
+  // the native decoder, the documented seam; PCM transport and the windowing
+  // under test are the kit's own.
+  const pcm = new Int16Array(60 * 16000);
+  for (let second = 0; second < 60; second++) pcm.fill(second + 1, second * 16000, (second + 1) * 16000);
+  const windows: { startSecond: number; seconds: number }[] = [];
+  const engineOf = (readings: { result: string; t1: number }[]) => {
+    let reading = 0;
+    return whisperRnEngine({ model: 1, initWhisper: async () => ({ release: async () => {}, transcribeData(data) {
+      const view = new DataView(data);
+      windows.push({ startSecond: view.getInt16(0, true), seconds: data.byteLength / 32000 });
+      const { result, t1 } = readings[Math.min(reading++, readings.length - 1)];
+      return { stop: async () => {}, promise: Promise.resolve({ result, language: 'en', segments: [{ text: result, t0: 0, t1 }] }) };
+    } }) });
+  };
+
+  // Skip shape: the 25 s window's decoder ends at 13 s (a pause), so a fixed 25 s
+  // step would jump to 50 s and drop the 38-50 s speech. Stepping from the decoded
+  // tail (13 s minus the 5 s overlap) puts the next window at 33 s instead.
+  windows.length = 0;
+  const skip = engineOf([
+    { result: 'one two three four five six seven eight nine ten', t1: 3000 },
+    { result: 'eleven twelve thirteen', t1: 1300 },
+    { result: 'fourteen fifteen sixteen seventeen', t1: 3000 },
+  ]);
+  const skipResult = await skip.transcribe(wav([pcm]), {});
+  assert.deepEqual(windows.map(w => w.startSecond), [1, 26, 34], 'the window after an early end starts before the skipped speech');
+  assert.match(skipResult.text, /fourteen fifteen sixteen seventeen/, 'no speech is skipped');
+  assert.equal(skipResult.segments.map(s => s.text).join(' '), skipResult.text);
+  await skip.release();
+
+  // Duplicate shape: the overlapping readings agree on two words but disagree on a
+  // third, so the exact suffix/prefix check misses and the old fallback would
+  // append both readings in full; the aligned join keeps a single copy.
+  windows.length = 0;
+  const duplicate = engineOf([
+    { result: 'review the quarterly budget', t1: 3000 },
+    { result: 'the quarterly estimate is approved', t1: 3000 },
+    { result: 'and the invoice is sent', t1: 3000 },
+  ]);
+  const duplicateResult = await duplicate.transcribe(wav([pcm]), {});
+  assert.equal(duplicateResult.text, 'review the quarterly estimate is approved and the invoice is sent', 'the overlap is joined once');
+  await duplicate.release();
+
+  // Extreme cases: a take of 30 s or less is a single unchanged window, and a long
+  // silent gap still advances: a decoder that reads nothing yields the full-window
+  // offset fallback, so the fixed step keeps moving and the loop terminates.
+  const quiet = engineOf([{ result: '', t1: 0 }]);
+  assert.equal((await quiet.transcribe(wav([new Int16Array(15 * 16000).fill(9)]), {})).text, '');
+  await quiet.release();
+  windows.length = 0;
+  const silent = engineOf([{ result: 'only speech', t1: 100 }]);
+  const silentResult = await silent.transcribe(wav([pcm]), {});
+  assert.equal(silentResult.text, 'only speech');
+  assert.ok(windows.length >= 3 && windows.every((w, i) => i === 0 || w.startSecond > windows[i - 1].startSecond), 'a long gap still advances and terminates');
+  await silent.release();
+});
