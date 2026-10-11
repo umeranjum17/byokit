@@ -21,6 +21,7 @@ a Messages backend to the frozen Kotlin runtime.
 | `conformance/token-responses.json` | A token response → the stored credential (same shape as pi-ai's `{type:"oauth",access,refresh,expires,accountId}`). |
 | `conformance/refresh-typescript.json` | TypeScript portable refresh: before-send attempt state, committed rotation or kept grant, the kept grant retried after a lost answer, a server error or a refusal that does not prove revocation, and no replay after uncertainty or a proven revocation (invalid_grant). |
 | `conformance/device-code.json` | Device-code start and poll responses → parsed result. |
+| `conformance/device-code-rfc8628-typescript.json` | TypeScript-only RFC 8628 device sign-in data for Grok, Kimi and Copilot: start, poll, refresh and decline. Copilot adds the `api.{host}/copilot_internal/v2/token` exchange (the intermediate GitHub token as the bearer, re-minted on every refresh) with GHE `{host}` templating; a 401 or 403 on the exchange is signed out, never a retry. Replayed offline by `mockDevice({ dialect: 'copilot', domain })` and the generic `mockDevice()`; checked by `packages/accounts/test/device-rfc8628.test.ts`. |
 | `conformance/paste.json` | What a person pastes back ("Having trouble?") → code and state. |
 | `conformance/revoke.json` | Signing out → the one revoke request sent to ChatGPT (or none), and the sign-in deleted whatever it answers. |
 | `conformance/sse.json` | Shared streamed ChatGPT answer → its text, or the error it ended with. |

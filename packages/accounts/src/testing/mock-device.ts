@@ -4,6 +4,10 @@
 // Point a provider's catalogue `device` data at this with `deviceBase` (`Accounts`' `deviceBase` option):
 //   node packages/accounts/src/testing/mock-device.ts [port]      (21555 by default)
 // `dialect: 'minimax'` replays the pinned engine's MiniMax user-code shape instead (see below).
+// `dialect: 'copilot'` replays GitHub Copilot: the device grant answers an intermediate GitHub token, and a GET of
+// /copilot_internal/v2/token with that token as `Authorization: Bearer` answers the credential, re-minted by that same
+// GET on every refresh. `domain` names the GitHub host (github.com by default, or an enterprise domain), separate from
+// `host`, the bind address.
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -14,12 +18,18 @@ import { fileURLToPath } from 'node:url';
  *  `dialect: 'minimax'` replays the pinned engine's MiniMax user-code sign-in for one region (`region`, global by
  *  default): an absolute `expired_in` at the code step and pending/success/error token bodies. Every answer equals
  *  fixtures/conformance/minimax-oauth-typescript.json; the minimax journey asserts that stays true. */
-export type MockDeviceOptions = { port?: number; host?: string; expiresIn?: number; rotate?: boolean; dialect?: 'minimax'; region?: 'global' | 'cn'; log?: (line: string) => void };
+export type MockDeviceOptions = { port?: number; host?: string; expiresIn?: number; rotate?: boolean; dialect?: 'minimax' | 'copilot'; region?: 'global' | 'cn'; domain?: string; log?: (line: string) => void };
 const CODE_LIVES_S = 900;
 
 /** Each provider's own documented device endpoints, answered under whatever base the kit is given. */
 const AUTHORIZATIONS = ['/oauth2/device/code', '/api/oauth/device_authorization'];
 const TOKENS = ['/oauth2/token', '/api/oauth/token'];
+/** GitHub Copilot's own endpoints (`pi-ai github-copilot.js`): the device and token steps on the named GitHub host, the
+ *  credential exchange on its `api.` sibling. */
+const COPILOT_DEVICE = '/login/device/code';
+const COPILOT_ACCESS = '/login/oauth/access_token';
+const COPILOT_EXCHANGE = '/copilot_internal/v2/token';
+const COPILOT_CODE = 'FIXTURE-COPILOT-CODE';
 
 /** The pinned engine's MiniMax facts (extensions/minimax/oauth.ts): two regions share one client id and the same
  *  /oauth2 paths. Mirrors fixtures/conformance/minimax-oauth-typescript.json. */
@@ -38,12 +48,24 @@ const MINIMAX_CASES = (region: MiniMaxRegion) => ({
   error: { status: 200, body: { status: 'error' } },
   expired: { status: 400, body: { base_resp: { status_msg: 'the user code is invalid or has expired' } } },
 });
+/** GitHub Copilot's recorded answers (`pi-ai github-copilot.js`). Mirrors the `cases` of
+ *  fixtures/conformance/device-code-rfc8628-typescript.json, with `{host}` rendered as `domain`. */
+const COPILOT_CASES = (domain: string) => ({
+  start: { status: 200, body: { device_code: 'FIXTURE-COPILOT-DEVICE', user_code: COPILOT_CODE, verification_uri: `https://${domain}/login/device`, interval: 2, expires_in: CODE_LIVES_S } },
+  pending: { status: 200, body: { error: 'authorization_pending' } },
+  success: { status: 200, body: { access_token: 'FIXTURE-GITHUB-TOKEN', token_type: 'bearer', scope: 'read:user' } },
+  decline: { status: 200, body: { error: 'access_denied' } },
+  exchange: { method: 'GET', status: 200, body: { token: 'FIXTURE-COPILOT-TOKEN', expires_at: 4102444800 } },
+  refresh: { method: 'GET', status: 200, body: { token: 'FIXTURE-COPILOT-TOKEN', expires_at: 4102444800 } },
+  unauthorized: { status: 401, body: { error: 'unauthorized' } },
+});
 const challengeOf = (verifier: string) => Buffer.from(createHash('sha256').update(verifier).digest()).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-export async function mockDevice({ port = 0, host = '127.0.0.1', expiresIn = 3600, rotate = true, dialect, region = 'global', log }: MockDeviceOptions = {}) {
+export async function mockDevice({ port = 0, host = '127.0.0.1', expiresIn = 3600, rotate = true, dialect, region = 'global', domain = 'github.com', log }: MockDeviceOptions = {}) {
   const codes = new Map<string, { device: string; approved?: boolean; denied?: boolean; challenge?: string }>();
   let asked = 0, issued = 0;
-  const state = { live: new Set<string>(), requests: [] as { path: string; body: string }[], /** Drop this many polls, as a phone cuts a backgrounded app's network. */ dropPolls: 0, /** Answer the minimax token step as an expired user code. */ expire: false };
+  const state = { live: new Set<string>(), requests: [] as { method: string; path: string; body: string }[], /** Drop this many polls, as a phone cuts a backgrounded app's network. */ dropPolls: 0, /** Answer the minimax token step as an expired user code. */ expire: false,
+    /** Refuse the next Copilot exchange with this status (401 by default), as a revoked GitHub grant does. */ refuse: false, refuseStatus: 401 };
   const accessOf = new Map<string, string>(); // refresh token → the access token issued with it
   // Every sign-in issues a new refresh token; a rotating refresh spends the grant it replaces.
   const issue = () => {
@@ -58,7 +80,7 @@ export async function mockDevice({ port = 0, host = '127.0.0.1', expiresIn = 360
     for await (const chunk of req) body += chunk;
     const url = new URL(req.url ?? '/', 'http://x');
     const form = new URLSearchParams(body);
-    state.requests.push({ path: url.pathname, body });
+    state.requests.push({ method: req.method ?? 'GET', path: url.pathname, body });
     log?.(`${req.method} ${url.pathname} ${form.get('grant_type') ?? ''}`.trim());
     const send = (status: number, data: unknown) => {
       res.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'POST, GET, OPTIONS' });
@@ -104,6 +126,28 @@ export async function mockDevice({ port = 0, host = '127.0.0.1', expiresIn = 360
         if (c.approved) { codes.delete([...codes.keys()].find((k) => codes.get(k) === c)!); return send(200, issue()); }
         return send(400, { error: 'authorization_pending' });
       }
+      case COPILOT_DEVICE: {
+        codes.set(COPILOT_CODE, { device: 'FIXTURE-COPILOT-DEVICE' });
+        const { status, body } = COPILOT_CASES(domain).start;
+        return send(status, body);
+      }
+      case COPILOT_ACCESS: {
+        const c = [...codes.values()].find((c) => c.device === form.get('device_code'));
+        if (!c) return send(400, { error: 'invalid_grant' });
+        if (c.denied) { const { status, body } = COPILOT_CASES(domain).decline; return send(status, body); }
+        // An approved code is spent once and lets its intermediate GitHub token through the exchange.
+        if (c.approved) { codes.delete([...codes.keys()].find((k) => codes.get(k) === c)!); state.live.add('FIXTURE-GITHUB-TOKEN'); const { status, body } = COPILOT_CASES(domain).success; return send(status, body); }
+        const { status, body } = COPILOT_CASES(domain).pending;
+        return send(status, body);
+      }
+      case COPILOT_EXCHANGE: {
+        const cases = COPILOT_CASES(domain);
+        if (req.method !== 'GET') return send(405, { error: 'method_not_allowed' });
+        const bearer = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+        // A revoked grant (or a token this stand-in never issued) is refused: signed out, not a retry.
+        if (state.refuse || !state.live.has(bearer)) return send(state.refuse ? state.refuseStatus : 401, cases.unauthorized.body);
+        return send(cases.exchange.status, cases.exchange.body);
+      }
       default:
         return send(404, { error: 'not_found' });
     }
@@ -114,8 +158,9 @@ export async function mockDevice({ port = 0, host = '127.0.0.1', expiresIn = 360
     /** The `deviceBase` to hand `Accounts`: every provider's device sign-in lands here. */
     base: base(),
     state,
-    /** With `dialect: 'minimax'`, the exact start/pending/success/error/expired answers this stand-in replays. */
-    answers: dialect === 'minimax' ? MINIMAX_CASES(region) : undefined,
+    /** With `dialect: 'minimax'`, the exact start/pending/success/error/expired answers this stand-in replays;
+     *  with `dialect: 'copilot'`, its start/pending/success/decline/exchange/refresh/unauthorized answers. */
+    answers: dialect === 'minimax' ? MINIMAX_CASES(region) : dialect === 'copilot' ? COPILOT_CASES(domain) : undefined,
     /** The provider's page where the person types the code; true once the code is a real one. */
     approve: (userCode: string, deny = false) => {
       const c = codes.get(userCode.trim().toUpperCase());
