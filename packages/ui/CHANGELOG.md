@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Dependency update: pins @byokit/accounts 0.21.0.
+
 - Run views accept structured-output failures and display the kit’s plain validation message.
 
 ## 0.6.0 (2026-10-01)

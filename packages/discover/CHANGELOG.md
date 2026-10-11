@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.7.0 (2026-10-11)
+
+- Expo config plugin (`./app.plugin.js`): `["@byokit/discover", { services: ["_byokit._tcp"], localNetwork? }]` writes `NSBonjourServices` and `NSLocalNetworkUsageDescription` into iOS `Info.plist` so `browse()` finds the computer; a missing or empty `services` list fails prebuild by name. Android needs no plugin (`react-native-zeroconf`'s manifest merges `CHANGE_WIFI_MULTICAST_STATE`).
+- `@byokit/reach` is now published as `@byokit/discover`, with the same API (`reach()`, `routes()`, `advertise()`, `browse()`, the `./react-native` entry and the `react-native` export condition) and the same `ByokitReach` native module; its earlier versions are the `@byokit/reach` releases below. **Deprecated:** the `@byokit/reach` name; it stays published as a shim that re-exports this package through 0.7.x and is removed in 0.8.0.
+- Dependency update: depend on `@byokit/ui` instead of its deprecated `@byokit/ui-core` shim.
+
 ## 0.6.0 (2026-10-01)
 
 - Dependency update: pins @byokit/ui-core 0.6.0.

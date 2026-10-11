@@ -1,1 +1,0 @@
-- Add the offline Google Cloud Code Assist stand-in (`mockGoogle`) and its conformance fixture for the two Google routes; a testing helper with no runtime behavior change.
