@@ -18,7 +18,7 @@ const sha256 = (bytes: string | Uint8Array) => createHash('sha256').update(bytes
 // one place Pi is bundled (here); a Pi pin bump re-runs this transform over the new sources.
 export const patchName = 'hermes-throwIfAborted';
 const throwIfAbortedGuard = 'function __byokitPiThrowIfAborted(signal) {\n  if (signal == null || !signal.aborted) return;\n  throw signal.reason !== void 0 ? signal.reason : Object.assign(new Error("The operation was aborted"), { name: "AbortError" });\n}\n';
-const throwIfAbortedCall = /([A-Za-z_$][\w$]*(?:\s*\??\.\s*[A-Za-z_$][\w$]*)*)\s*\??\.throwIfAborted\s*(?:\?\.)?\s*\(\s*\)/g;
+const throwIfAbortedCall = /(?<![\w$.)\]])([A-Za-z_$][\w$]*(?:\s*\??\.\s*[A-Za-z_$][\w$]*)*)\s*\??\.throwIfAborted\s*(?:\?\.)?\s*\(\s*\)/g;
 export function patchBundledThrowIfAborted(text: string): string {
   if (!text.includes('.throwIfAborted')) return text;
   const patched = text.replace(throwIfAbortedCall, '__byokitPiThrowIfAborted($1)');

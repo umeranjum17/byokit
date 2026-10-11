@@ -1,7 +1,8 @@
 // Hermes (React Native) ships AbortSignal.any/timeout/fetch but not AbortSignal.prototype.throwIfAborted, so every
 // bundled Pi auth resolution used to throw TypeError before any fetch and key routes answered KeyRouteError('request').
 // This drives the BUILT portable/browser entry with that method removed — the only difference from a Node host — over a
-// local OpenAI-compatible stand-in, and proves the answer streams and an aborted signal still rejects as aborted.
+// local OpenAI-compatible stand-in, and proves the answer streams on Hermes. The aborted case is the Accounts pre-check
+// (an already-aborted signal is refused before the portable runtime loads), not the bundled guard.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -71,7 +72,7 @@ test('built key route streams on a runtime without AbortSignal.prototype.throwIf
   }
 });
 
-test('a runtime without throwIfAborted still rejects an aborted key route as aborted, before any request', async () => {
+test('an already-aborted key route is refused before any request on a runtime without throwIfAborted', async () => {
   const server = await openaiCompatible();
   try {
     const secrets = fakeSecrets();
