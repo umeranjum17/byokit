@@ -3,14 +3,15 @@
 import { randomBytes } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import type { Call } from './agents.ts';
-import type { AgentRef, Move, MoveResult, MoveToAccount, MoveToAccountResult, OpenSignInTab, StartAgent } from './types.ts';
+import type { AgentReadiness, AgentStatusOptions, AgentRef, Move, MoveResult, MoveToAccount, MoveToAccountResult, OpenSignInTab, StartAgent } from './types.ts';
 import { words } from './words.ts';
 import { accountKind } from './kinds.ts';
 
 type Raw = Record<string, any>;
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent): Promise<AgentRef> }) {
+export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent): Promise<AgentRef>;
+  agentStatus(kinds: readonly string[], o?: AgentStatusOptions): Promise<AgentReadiness[]> }) {
   const moving = new Set<string>();
   const call = ctx.call;
 
@@ -76,7 +77,7 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
 
   async function perform(target: AgentRef, o: MoveToAccount, request?: Move): Promise<MoveToAccountResult> {
     const failed = (code: Extract<MoveToAccountResult, { ok: false }>['code'], live: string | null = target.paneId): MoveToAccountResult =>
-      ({ ok: false, code, message: words(`move.${code}`), ...(live === null ? {} : { live }) });
+      ({ ok: false, code, message: words(`move.${code}`, { name: o.name ?? 'this account' }), ...(live === null ? {} : { live }) });
     if (moving.has(target.paneId)) return failed('busy');
     moving.add(target.paneId);
     try {
@@ -100,23 +101,6 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
         }
         if (!Number.isFinite(handoff.waitMs) || handoff.waitMs <= 0 || handoff.waitMs > 300_000
           || !Number.isSafeInteger(agent.state_change_seq) || agent.state_change_seq < 0) return failed('unsupported');
-        if (agent.agent_status === 'working') {
-          try {
-            await call('agent.wait', { target: target.paneId, until: ['idle', 'done', 'blocked'],
-              timeout_ms: handoff.waitMs }, handoff.waitMs + 5000);
-          } catch { return failed('busy'); }
-          let current: Raw;
-          try { current = (await call('agent.get', { target: target.paneId }) as Raw)?.agent; }
-          catch { return failed('changed', null); }
-          if (!current || current.launch_pending === true || current.agent !== agent.agent
-            || current.terminal_id !== agent.terminal_id || current.agent_session?.agent !== session.agent
-            || current.agent_session?.kind !== session.kind || current.agent_session?.value !== session.value) return failed('changed', null);
-          if (current.agent_status === 'blocked') return failed('blocked');
-          if (!['idle', 'done'].includes(current.agent_status)) return failed('busy');
-          if (!Number.isSafeInteger(current.state_change_seq) || current.state_change_seq < 0) return failed('unsupported');
-          agent = current;
-          session = current.agent_session;
-        }
       }
       const kind = agent.agent;
       const metadata = accountKind(o.provider);
@@ -131,6 +115,27 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
       const timeout = o.timeoutMs ?? 60_000;
       if (!Number.isFinite(timeout) || timeout <= 0) return failed('start_failed');
       const variable = metadata.folderVar;
+      if (request === undefined) {
+        const [status] = await ctx.agentStatus([kind], { folders: { [kind]: o.folder }, env: o.env });
+        if (status?.signedIn === 'no') return failed('signed_out');
+      }
+      if (handoff?.busy === 'wait' && agent.agent_status === 'working') {
+        try {
+          await call('agent.wait', { target: target.paneId, until: ['idle', 'done', 'blocked'],
+            timeout_ms: handoff.waitMs }, handoff.waitMs + 5000);
+        } catch { return failed('busy'); }
+        let current: Raw;
+        try { current = (await call('agent.get', { target: target.paneId }) as Raw)?.agent; }
+        catch { return failed('changed', null); }
+        if (!current || current.launch_pending === true || current.agent !== agent.agent
+          || current.terminal_id !== agent.terminal_id || current.agent_session?.agent !== session.agent
+          || current.agent_session?.kind !== session.kind || current.agent_session?.value !== session.value) return failed('changed', null);
+        if (current.agent_status === 'blocked') return failed('blocked');
+        if (!['idle', 'done'].includes(current.agent_status)) return failed('busy');
+        if (!Number.isSafeInteger(current.state_change_seq) || current.state_change_seq < 0) return failed('unsupported');
+        agent = current;
+        session = current.agent_session;
+      }
       let paneId: string;
       let replacement: Raw;
       try {

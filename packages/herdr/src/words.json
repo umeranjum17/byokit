@@ -20,6 +20,7 @@
   "approval.stale": "That question already changed. Look again before answering.",
   "close.wouldWiden": "Closing this would close more than you picked. Close the bigger one instead.",
   "link.notAllowed": "This device can't do that. Ask the person at the computer.",
+  "move.signed_out": "Sign in to {name} first.",
   "move.too_early": "This conversation has not started yet. Try again in a moment.",
   "move.busy": "Wait for this conversation to finish before moving it.",
   "move.unsupported": "This conversation cannot move between these accounts.",

@@ -16,6 +16,8 @@
   "status.signing": "Signing in to {name}\u2026",
   "status.resting": "{name} is resting until {until}.",
   "status.busy": "{name} is busy right now.",
+  "cli.signedOut": "Sign in to {name} first.",
+  "cli.notIncluded": "{name} can't start on this computer yet.",
   "status.signedOut": "{name} isn't signed in yet.",
   "status.needsAgain": "{name} needs you to sign in again.",
   "terms.grey": "Uses your {name} plan. {company} may change this at any time.",

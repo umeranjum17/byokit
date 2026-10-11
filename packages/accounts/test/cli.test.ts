@@ -31,7 +31,7 @@ if (process.argv[2] === 'app-server') {
 } else if (process.argv[2] === 'auth' && process.argv[3] === 'status') {
  if (process.env.STATUS_MODE === 'hang') setInterval(()=>{},1000);
  else if (process.env.STATUS_MODE === 'flood') console.log('x'.repeat(256*1024+1));
- else console.log(JSON.stringify({loggedIn:true,...account}));
+ else console.log(JSON.stringify({loggedIn:process.env.STATUS_MODE !== 'out',...account}));
 }
 `, { mode: 0o755 });
   return { bin, calls: () => readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)) };
@@ -51,6 +51,10 @@ test('managed CLI flow: add, marker-gated status, native sign-in, rename, launch
     const { account, signIn } = await kit.add(provider);
     const folder = kit.launchEnv(account.id).set[provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME'];
     assert.equal(account.state, 'signing');
+    const signing = await kit.launch(account.id);
+    assert.equal(signing.ok, false);
+    if (!signing.ok) { assert.equal(signing.code, 'signed_out'); assert.equal(signing.message, `Sign in to ${account.name} first.`); }
+    assert.ok(!('set' in signing) && !('unset' in signing));
     assert.equal(readlinkSync(join(folder, provider === 'claude' ? 'projects' : 'sessions')), history);
     assert.equal((await kit.status(account.id)).state, 'signing', 'native true is not enough before the marker');
     assert.equal((await cliAccounts({ stateDir, bins: { claude: claude.bin, codex: codex.bin }, env }).status(account.id)).state, 'signing', 'pending survives host restart');
@@ -67,7 +71,15 @@ test('managed CLI flow: add, marker-gated status, native sign-in, rename, launch
     if (pick.ok) assert.equal(pick.account.id, ready.id);
     assert.equal(pick.considered[0].resetsAt, nowMs + 300_000, 'normalized usage milliseconds reach shared account selection unchanged');
     assert.equal((await kit.rename(account.id, ' Work ')).name, 'Work');
-    const launch = kit.launchEnv(account.id);
+    const launch = await kit.launch(account.id);
+    assert.equal(launch.ok, true);
+    assert.equal(launch.account.id, account.id);
+    if (provider === 'claude') {
+      const signedOut = await cliAccounts({ stateDir, bins: { claude: claude.bin }, env: { ...env, STATUS_MODE: 'out' } }).launch(account.id);
+      assert.equal(signedOut.ok, false);
+      if (!signedOut.ok) { assert.equal(signedOut.code, 'signed_out'); assert.equal(signedOut.message, 'Sign in to Work first.'); }
+      assert.ok(!('set' in signedOut) && !('unset' in signedOut));
+    }
     assert.deepEqual(launch.set, { [provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME']: folder });
     assert.ok(launch.unset.includes(provider === 'claude' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'));
     const source = kit.usageSource(account.id);
@@ -78,7 +90,7 @@ test('managed CLI flow: add, marker-gated status, native sign-in, rename, launch
     const calls = (provider === 'claude' ? claude : codex).calls();
     const login = calls.find((c) => c.argv.includes(provider === 'claude' ? 'login' : '--device-auth'));
     assert.deepEqual(login.argv, provider === 'claude' ? ['auth', 'login', '--claudeai'] : ['login', '--device-auth']);
-    for (const call of calls) assert.deepEqual(call.env, signIn.env, 'status and login get exactly the passed environment plus the folder');
+    for (const call of calls) assert.deepEqual(call.env, { ...signIn.env, ...(call.env.STATUS_MODE === 'out' ? { STATUS_MODE: 'out' } : {}) }, 'status and login get exactly the passed environment plus the folder');
     const reading = kit.status(account.id);
     assert.throws(() => kit.signInAgain(account.id), CliAccountError, 'a synchronous sign-in cannot race an in-flight identity read');
     assert.equal((await reading).state, 'ready');
@@ -124,6 +136,10 @@ test('missing provider binary keeps list and Auto isolated without consuming pen
   const rows = await kit.list();
   assert.deepEqual(rows.map(r => r.state), ['not_included', 'ready']);
   assert.equal((await kit.status(unavailable.id)).state, 'not_included');
+  const refused = await kit.launch(unavailable.id);
+  assert.equal(refused.ok, false);
+  if (!refused.ok) { assert.equal(refused.code, 'not_included'); assert.equal(refused.message, "Umer can't start on this computer yet."); }
+  assert.ok(!('set' in refused) && !('unset' in refused));
   assert.equal(readFileSync(pending, 'utf8'), 'pending');
   assert.equal(readFileSync(join(stateDir, 'accounts-v1.json'), 'utf8'), roster);
   const pick = resolveSelection(rows, {}, { account: 'auto', model: 'passed-model' }, () => ({ left: 'unknown' }), Date.now());
