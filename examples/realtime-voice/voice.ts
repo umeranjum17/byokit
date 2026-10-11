@@ -40,10 +40,14 @@ const end = (error: boolean) => {
   calling = connected = pending = mic = awaiting = cancelled = false; voice = 'connected'; failed = error; render();
 };
 const attach = async () => {
-  cancelled = false; pending = true; render();
-  try { await client?.attachMic(); mic = !!client && !cancelled; } catch { client?.stop('Microphone is unavailable.'); }
+  const current = client; if (!current) return;
+  cancelled = false; awaiting = false; pending = true; render();
+  let attached = true;
+  try { await current.attachMic(); } catch { attached = false; if (client === current) current.stop('Microphone is unavailable.'); }
+  if (client !== current) return;
+  mic = attached && !cancelled;
   const released = cancelled; pending = false; cancelled = false; render();
-  if (released) void client?.releaseMic().catch(() => client?.stop('Microphone could not be released.'));
+  if (released) void current.releaseMic().catch(() => { if (client === current) current.stop('Microphone could not be released.'); });
 };
 const call = () => {
   calling = true; pending = true; cancelled = false;
@@ -95,7 +99,8 @@ talk.onclick = () => {
   if (mic) {
     mic = false; awaiting = true; clearTimeout(wait);
     wait = setTimeout(() => { awaiting = false; render(); }, 10000); // Nothing was heard: back to idle.
-    render(); void client?.releaseMic().catch(() => client?.stop('Microphone could not be released.')); return;
+    render(); const current = client;
+    void current?.releaseMic().catch(() => { if (client === current) current?.stop('Microphone could not be released.'); }); return;
   }
   failed = false;
   if (!client) call(); else if (pending) cancelled = true; else if (connected) void attach();

@@ -161,6 +161,23 @@ test('a tap while attaching releases the microphone once it resolves', async () 
   assert.deepEqual(await voiceTracks(page), ['audio:ended', 'audio:ended']);
 });
 
+test('a re-attach before the reply reads Listening with a live track', async () => {
+  const origin = await start({ BYOKIT_EXAMPLE_FAKE: '1' });
+  const page = await openVoicePage(origin);
+  await page.click('#talk');
+  await voiceState(page, 'listening');
+  await page.click('#talk');
+  await voiceState(page, 'thinking');
+  await page.click('#talk');
+  // A live microphone must read Listening at once, not after the idle fallback timer.
+  await page.waitForFunction(() => document.getElementById('screen')?.dataset.state === 'listening', undefined, { timeout: 3000 });
+  assert.equal(await page.locator('#talk').getAttribute('aria-pressed'), 'true');
+  assert.deepEqual(await voiceTracks(page), ['audio:ended', 'audio:live']);
+  await page.click('#talk');
+  await page.waitForFunction(() => { const tracks = (window as unknown as { tracks: MediaStreamTrack[] }).tracks; return tracks.length === 2 && tracks.every((track) => track.readyState === 'ended'); }, undefined, { timeout: 30000 });
+  assert.deepEqual(await voiceTracks(page), ['audio:ended', 'audio:ended']);
+});
+
 test('without the flag the stand-in routes do not exist', async () => {
   const origin = await start({ BYOKIT_EXAMPLE_FAKE: '' });
   for (const [method, path] of [['GET', '/stand-in.html'], ['POST', '/stand-in/approve'], ['GET', '/stand-in/offer'], ['POST', '/stand-in/offer'], ['POST', '/stand-in/answer']]) {
