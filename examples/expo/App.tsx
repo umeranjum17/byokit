@@ -1,57 +1,65 @@
-// byokit on a phone (iOS and Android): "Sign in with ChatGPT" (@byokit/accounts' device code) and "Sign in with Claude"
-// (its own page, whose code the person pastes back), kept in the phone's secure storage, @byokit/ui's sheet
+// byokit on a phone (iOS and Android): every phone sign-in the catalogue offers, grouped by @byokit/ui's useConnect
+// ("Sign in with ChatGPT" via @byokit/accounts' device code, "Sign in with Claude" on its own page, whose code the
+// person pastes back), kept in the phone's secure storage, @byokit/ui's sheet
 // phases; asking either with the answer streaming in (expo/fetch), a decision
 // with @byokit/decide's answerer, pairing with a computer over @byokit/pair, and sealing data with @byokit/seal. For a demo with no account, point it
 // at the stand-in OpenAI and a link host on this computer (see e2e-android.sh):
 //   EXPO_PUBLIC_OPENAI_BASE=http://10.0.2.2:21455 npx expo run:android   (after `npm run mock` in this folder)
+//   EXPO_PUBLIC_DEVICE_BASE / EXPO_PUBLIC_CLAUDE_BASE override the device-flow and Claude plan endpoints; unset uses the real providers.
 import { useEffect, useRef, useState } from 'react';
 import { UsageDemo } from './UsageDemo.tsx';
 import { ScreenDemo } from './ScreenDemo.tsx';
 import { ShareDemo } from './ShareDemo.tsx';
 import { InferDemo } from './InferDemo.tsx';
-import { Linking, PermissionsAndroid, Platform, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, PermissionsAndroid, Platform, Pressable, SafeAreaView, ScrollView, StatusBar as NativeStatusBar, StyleSheet, Text, TextInput, useColorScheme, View } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import * as SecureStore from 'expo-secure-store';
 import { CryptoDigestAlgorithm, digest, getRandomValues } from 'expo-crypto';
 import { fetch as streamingFetch } from 'expo/fetch';
-import { Accounts, PROVIDERS, planLabel, say, secureStore, type Status } from '@byokit/accounts';
+import { Accounts, PROVIDERS, planLabel, routeReadiness, say, secureStore, type Status } from '@byokit/accounts';
 import { answerer, decide } from '@byokit/decide';
 import { DeviceLink, secureDeviceStore, type LinkStatus } from '@byokit/pair';
 import { boxKeyPairFromSeed, openBox, openSecretBox, sealBox, sealSecretBox, signDetached, signingKeyPairFromSeed, verifyDetached } from '@byokit/seal';
 import { forgettableStore, pairInput, pairingGeneration } from './pairing.ts';
-import { linkWords, pairingView, useSignIn, type PairPhase } from '@byokit/ui';
+import { linkWords, pairingView, useConnect, useSignIn, type PairPhase, type UseSignIn } from '@byokit/ui';
 import { overlay, stateWords, type OverlayState } from '@byokit/bubble';
 import { stateWords as chipWords, status as chip } from '@byokit/statusbar';
 import { focusedField } from '@byokit/bubble/focused-field';
 
 const ME = 1;
+const claudeBase = process.env.EXPO_PUBLIC_CLAUDE_BASE;
 const accounts = new Accounts<any, number>({
   app: 'byokit example',
   store: (member) => secureStore(SecureStore, `byokit.${member}`),
   authBase: process.env.EXPO_PUBLIC_OPENAI_BASE, // unset: the real OpenAI
   apiBase: process.env.EXPO_PUBLIC_OPENAI_BASE,
+  deviceBase: process.env.EXPO_PUBLIC_DEVICE_BASE,
   fetch: streamingFetch as unknown as typeof fetch, // streams; React Native's own fetch answers all at once
   // Claude's sign-in needs SHA-256, which React Native doesn't have; expo-crypto supplies it.
-  claudePlan: { crypto: { getRandomValues, subtle: { digest: (_: unknown, data: BufferSource) => digest(CryptoDigestAlgorithm.SHA256, data) } } as unknown as Crypto },
+  claudePlan: { ...(claudeBase ? {
+    authorizeUrl: `${claudeBase}/oauth/authorize`, tokenUrl: `${claudeBase}/v1/oauth/token`, profileUrl: `${claudeBase}/api/oauth/profile`,
+  } : {}), crypto: { getRandomValues, subtle: { digest: (_: unknown, data: BufferSource) => digest(CryptoDigestAlgorithm.SHA256, data) } } as unknown as Crypto },
 });
-type Key = 'chatgpt' | 'claude';
-/** The ChatGPT card keeps its first testIDs (e2e-android.sh); Claude's carry a prefix. */
-const tid = (key: Key, id: string) => key === 'chatgpt' ? id : `${key}-${id}`;
+/** Phone sign-ins use the offered provider identities; route metadata supplies the method and billing. */
+const phoneRoutes = accounts.providers.flatMap((p) => {
+  const r = accounts.routes().find((r) => r.platforms.rn === 'yes' && (r.via === 'code' || r.via === 'paste')
+    && (r.upstream.id === p.pi || r.name === p.name));
+  return r ? [{ ...routeReadiness(r, { platform: 'rn' }), id: p.key, provider: p.key, name: p.name }] : [];
+});
+/** ChatGPT keeps its first testIDs (e2e-android.sh); other providers carry a prefix. */
+const tid = (key: string, id: string) => key === 'chatgpt' ? id : `${key}-${id}`;
 const deviceStore = secureDeviceStore(SecureStore, 'byokit.link.home');
 
 function Button({ id, label, onPress }: { id: string; label: string; onPress: () => void }) {
+  const s = useStyles();
   return <Pressable testID={id} accessibilityRole="button" onPress={onPress} style={s.button}><Text style={s.buttonText}>{label}</Text></Pressable>;
 }
 
-function SignInSheet({ k, onClose }: { k: Key; onClose: () => void }) {
+function SignInSheet({ k, options, onClose }: { k: string; options: UseSignIn; onClose: () => void }) {
+  const s = useStyles();
   const { name } = PROVIDERS[k];
   const [pasted, setPasted] = useState('');
-  const sheet = useSignIn({
-    read: async () => ({ ready: await accounts.signedIn(ME, k), work: (await accounts.plan(ME, k))?.work, signIn: accounts.view(ME, k) }),
-    start: (body) => accounts.login(ME, k, body),
-    cancel: async () => accounts.cancel(ME, k),
-    offline: () => false,
-    ms: 500,
-  });
+  const sheet = useSignIn(options);
   useEffect(() => { if (sheet.phase === 'done' || sheet.phase === 'work') onClose(); }, [sheet.phase]);
   const failed = accounts.view(ME, k)?.error;
   return (
@@ -82,7 +90,8 @@ function SignInSheet({ k, onClose }: { k: Key; onClose: () => void }) {
 }
 
 /** Ask the signed-in plan, the answer streaming in; then (ChatGPT) a yes/no decision on the same question. */
-function Ask({ k }: { k: Key }) {
+function Ask({ k }: { k: string }) {
+  const s = useStyles();
   const { name } = PROVIDERS[k];
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
@@ -116,11 +125,11 @@ function Ask({ k }: { k: Key }) {
 }
 
 /** One plan: signed out, signing in, or a connected card naming the plan ("Claude Max"), with Ask and a quiet sign-out. */
-function Plan({ k }: { k: Key }) {
+function Plan({ k, options, onPick, onClose }: { k: string; options?: UseSignIn; onPick: () => void; onClose: () => void }) {
+  const s = useStyles();
   const { name } = PROVIDERS[k];
   const [status, setStatus] = useState<Status | null>(null);
   const [plan, setPlan] = useState<{ plan: string; email: string } | null>(null);
-  const [signing, setSigning] = useState(false);
   const [note, setNote] = useState('');
   const drawing = useRef(0);
   const refresh = async () => {
@@ -140,9 +149,9 @@ function Plan({ k }: { k: Key }) {
       <Text testID={tid(k, 'status')} style={s.small}>{status?.words ?? '…'}</Text>
       {!!plan?.email && <Text testID={tid(k, 'who')} style={s.small}>Signed in as {plan.email}</Text>}
       {!!note && <Text testID={tid(k, 'note')} style={s.small}>{note}</Text>}
-      {signing ? <SignInSheet k={k} onClose={() => { setSigning(false); refresh(); }} />
+      {options ? <SignInSheet key={k} k={k} options={options} onClose={() => { onClose(); refresh(); }} />
         : signedIn(status) ? <>
-          <Ask k={k} />
+          {(k === 'chatgpt' || k === 'claude') && <Ask k={k} />}
           {k === 'chatgpt' && <Button id="recheck" label="Check the sign-in" onPress={async () => {
             // Forces a refresh (the token rotates): what the app does when ChatGPT turns a request away.
             setNote((await accounts.recheck(ME, k)) ? 'Still signed in: the sign-in was refreshed.' : 'Signed out.');
@@ -151,16 +160,17 @@ function Plan({ k }: { k: Key }) {
           <Pressable testID={tid(k, 'signout')} accessibilityRole="button" onPress={async () => { await accounts.logout(ME, k); setNote(''); refresh(); }}>
             <Text style={s.quiet}>Sign out</Text>
           </Pressable>
-        </> : <Button id={tid(k, 'signin')} label={`Sign in with ${name}`} onPress={() => setSigning(true)} />}
+        </> : <Button id={tid(k, 'signin')} label={`Sign in with ${name}`} onPress={onPick} />}
     </View>
   );
 }
-const refreshers = new Map<Key, () => void>();
+const refreshers = new Map<string, () => void>();
 /** Signed in, even while resting or when the plan lacks something: Ask says why, and Sign out stays. */
 const signedIn = (s: Status | null) => s?.state === 'ready' || s?.state === 'resting' || s?.state === 'not_included';
 
 /** Pair with a computer from its pairing code (scanned or pasted), compare the two words, then use the link. */
 function Pair() {
+  const s = useStyles();
   const [offer, setOffer] = useState('');
   const [hostUrl, setHostUrl] = useState(process.env.EXPO_PUBLIC_LINK_URL ?? '');
   const [phase, setPhase] = useState<PairPhase>('scan');
@@ -240,6 +250,7 @@ function Pair() {
  * reads it in any app.
  */
 function Bubble() {
+  const s = useStyles();
   const [state, setState] = useState<OverlayState>('off');
   const [taps, setTaps] = useState('');
   const [typed, setTyped] = useState('');
@@ -293,6 +304,7 @@ export function BubblePanel() {
 
 /** One ongoing job as a status-bar chip (@byokit/statusbar): show with three actions, clear, and what came back. */
 function Chip() {
+  const s = useStyles();
   const [said, setSaid] = useState('');
   const [n, setN] = useState(1);
   useEffect(() => {
@@ -326,6 +338,14 @@ export default function App() {
 }
 
 function KitDemo() {
+  const s = useStyles();
+  const connect = useConnect({
+    routes: phoneRoutes,
+    read: async ({ provider: k }) => ({ ready: await accounts.signedIn(ME, k), work: (await accounts.plan(ME, k))?.work, signIn: accounts.view(ME, k) }),
+    start: ({ provider: k }, body) => accounts.login(ME, k, body),
+    cancel: async ({ provider: k }) => accounts.cancel(ME, k),
+    offline: () => false, ms: 500,
+  });
   const [sealed, setSealed] = useState('');
   const trySeal = () => {
     try {
@@ -340,15 +360,23 @@ function KitDemo() {
     } catch (e) { setSealed(`Seal failed: ${String(e)}`); }
   };
   useEffect(() => {
-    accounts.onChange = (_member, key) => { refreshers.get(key as Key)?.(); };
-    Promise.all([accounts.signedIn(ME, 'chatgpt'), accounts.signedIn(ME, 'claude')]).then(() => accounts.keepFresh([ME]));
+    accounts.onChange = (_member, key) => { refreshers.get(key)?.(); };
+    Promise.all(accounts.providers.map((p) => accounts.signedIn(ME, p.key))).then(() => accounts.keepFresh([ME]));
   }, []);
   return (
-    <SafeAreaView style={{ flex: 1 }}><ScrollView contentContainerStyle={s.screen} keyboardShouldPersistTaps="handled">
+    <SafeAreaView style={{ flex: 1, backgroundColor: s.screen.backgroundColor,
+      paddingTop: Platform.OS === 'android' ? NativeStatusBar.currentHeight : 0, paddingBottom: Platform.OS === 'android' ? 24 : 0 }}><StatusBar style={useColorScheme() === 'dark' ? 'light' : 'dark'} /><ScrollView contentContainerStyle={s.screen} keyboardShouldPersistTaps="handled">
       <Text style={s.title}>Umer's AI plans</Text>
       <Text style={s.small}>Sign in with a plan you already pay for. Your sign-ins stay on this phone.</Text>
-      <Plan k="chatgpt" />
-      <Plan k="claude" />
+      {connect.groups.map((group) => <View key={group.id} testID={`connect-${group.id}`} style={s.sheet}>
+        <Text style={s.name}>{group.title}</Text>
+        <Text style={s.small}>{group.note}</Text>
+        {group.rows.map((row) => <View key={row.key}>
+          <Text style={s.small}>{row.billingWords} · {row.method}</Text>
+          <Plan k={row.provider} options={connect.chosen?.row.key === row.key ? connect.signIn : undefined}
+            onPick={() => connect.pick(row.key)} onClose={connect.back} />
+        </View>)}
+      </View>)}
       <Pair />
       <Bubble />
       <Chip />
@@ -363,7 +391,7 @@ const s = StyleSheet.create({
   input: { fontSize: 17, borderWidth: 1, borderColor: '#bbb', borderRadius: 8, padding: 10, backgroundColor: '#fff' },
   title: { fontSize: 24, fontWeight: '600' },
   card: { gap: 10, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: '#e4e2dc', backgroundColor: '#fff' },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
   name: { fontSize: 19, fontWeight: '600' },
   badge: { fontSize: 13, fontWeight: '600', backgroundColor: '#ecebe6', borderRadius: 99, paddingHorizontal: 10, paddingVertical: 3, overflow: 'hidden' },
   quiet: { fontSize: 15, color: '#6b6a66', textDecorationLine: 'underline', paddingVertical: 6 },
@@ -375,3 +403,14 @@ const s = StyleSheet.create({
   button: { backgroundColor: '#111', borderRadius: 10, padding: 14, alignItems: 'center' },
   buttonText: { color: '#fff', fontSize: 17 },
 });
+const dark = StyleSheet.create({
+  ...s,
+  screen: { ...s.screen, backgroundColor: '#161616' },
+  card: { ...s.card, backgroundColor: '#161616', borderColor: '#444' },
+  sheet: { ...s.sheet, backgroundColor: '#252525' },
+  input: { ...s.input, backgroundColor: '#161616', color: '#eee' },
+  title: { ...s.title, color: '#eee' }, name: { ...s.name, color: '#eee' },
+  words: { ...s.words, color: '#eee' }, code: { ...s.code, color: '#eee' },
+  small: { ...s.small, color: '#bbb' }, quiet: { ...s.quiet, color: '#bbb' },
+});
+const useStyles = () => useColorScheme() === 'dark' ? dark : s;

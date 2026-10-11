@@ -13,23 +13,41 @@ apk=android/app/build/outputs/apk/release/app-release.apk
 a() { adb -s "$serial" "$@"; }
 
 log=$(mktemp)
-node ../../packages/accounts/src/testing/mock-openai.ts "$port" >"$log" 2>&1 &
-mock=$!
 hostlog=$(mktemp)
-node e2e-host.mts "$((port + 1))" >"$hostlog" 2>&1 &
-host=$!
-cleanup() { kill "$mock" "$host" 2>/dev/null || true; rm -f "$log" "$hostlog"; }
+mock=''; host=''
+cleanup() { [ -z "$mock" ] || kill "$mock" 2>/dev/null || true; [ -z "$host" ] || kill "$host" 2>/dev/null || true; rm -f "$log" "$hostlog"; }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 [ -d android ] || CI=1 npx expo prebuild --platform android --no-install
 (cd android && EXPO_PUBLIC_OPENAI_BASE="http://10.0.2.2:$port" NODE_ENV=production ./gradlew assembleRelease --rerun-tasks -q)
 
+node ../../packages/accounts/src/testing/mock-openai.ts "$port" >"$log" 2>&1 &
+mock=$!
+
 # What the screen says, and a tap on the element with this testID.
 screen() { a shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1; a exec-out cat /sdcard/ui.xml; }
 # uiautomator quotes a text holding " with ' instead.
 words() { screen | grep -oE "text=(\"[^\"]*\"|'[^']*')" | sed "s/^text=.//; s/.\$//" | paste -sd'|'; }
+# The text one named field itself currently holds (not the whole screen).
+value() { screen | tr '>' '\n' | grep "resource-id=\"$1\"" | grep -o 'text="[^"]*"' | head -1 | sed 's/^text="//; s/"$//'; }
+scroll() {
+  size=$(a shell wm size | tail -1 | grep -oE '[0-9]+x[0-9]+')
+  w=${size%x*}; h=${size#*x}
+  if [ "$1" = down ]; then from=$((h * 3 / 4)); to=$((h / 4)); else from=$((h / 4)); to=$((h * 3 / 4)); fi
+  a shell input swipe "$((w / 2))" "$from" "$((w / 2))" "$to" 300
+}
+seek() {
+  for direction in up down; do
+    for _ in $(seq 16); do
+      screen | grep -q "resource-id=\"$1\"" && return
+      scroll "$direction"
+    done
+  done
+  echo "no $1 on screen: $(words)" >&2; exit 1
+}
 tap() {
+  seek "$1"
   xy=$(screen | grep -o "resource-id=\"$1\"[^>]*bounds=\"[^\"]*\"" | sed 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]"/\1 \2 \3 \4/' | awk '{print int(($1+$3)/2), int(($2+$4)/2)}')
   [ -n "$xy" ] || { echo "no $1 on screen: $(words)" >&2; exit 1; }
   a shell input tap $xy
@@ -45,7 +63,31 @@ a shell pm clear $app >/dev/null
 start
 expect "ChatGPT isn't signed in yet."
 
-# Pair with the computer: its code pasted in, the two words shown on both, then the link used.
+# verify-byokit owns native captures; a browser is not proof of this phone screen.
+if [ -n "${EXPO_CONNECT_EVIDENCE:-}" ]; then
+  mkdir -p "$EXPO_CONNECT_EVIDENCE"
+  stage=${EXPO_CONNECT_STAGE:-after}
+  for theme in light dark; do
+    case "$theme" in light) night=no;; dark) night=yes;; esac
+    a shell cmd uimode night "$night"
+    start
+    expect "ChatGPT isn't signed in yet."
+    if [ "$stage" = after ]; then expect 'Plans'; fi
+    a exec-out screencap -p > "$EXPO_CONNECT_EVIDENCE/${stage}__${theme}__top.png"
+    for id in ${EXPO_CONNECT_ROWS:-claude}; do
+      seek "${id}-signin"
+      a exec-out screencap -p > "$EXPO_CONNECT_EVIDENCE/${stage}__${theme}__${id}.png"
+    done
+  done
+  a shell cmd uimode night no
+  start
+  expect "ChatGPT isn't signed in yet."
+  if [ "${EXPO_CONNECT_CAPTURE_ONLY:-0}" = 1 ]; then exit 0; fi
+fi
+
+# Pair with the computer: issue its short-lived code after the build and captures, not before them.
+node e2e-host.mts "$((port + 1))" >"$hostlog" 2>&1 &
+host=$!
 for _ in $(seq 20); do grep -q '^offer ' "$hostlog" && break; sleep 1; done
 tap offer
 a shell input text "$(sed -n 's/^offer //p' "$hostlog")"
@@ -56,30 +98,58 @@ expect "Connected to Kitchen computer."
 tap ping
 expect '"from":"Kitchen computer"' # the computer's answer, over the link
 start
+seek link
 expect "Connected to Kitchen computer." # the grant kept in secure storage across a restart
 tap unpair
 expect "Scan the code on your computer"
 
 tap signin
+seek code
 expect "type this code"
+[ -z "${EXPO_CONNECT_EVIDENCE:-}" ] || a exec-out screencap -p > "$EXPO_CONNECT_EVIDENCE/journey__code.png"
 code=$(words | tr '|' '\n' | grep -E '^MOCK-[0-9]+$')
 echo "the app shows $code"
 # The person types the code on the provider's page.
 curl -fsS -o /dev/null --data "user_code=$code" "http://127.0.0.1:$port/codex/device"
+seek status
 expect "ChatGPT is connected."
+# The grouped list puts the plan badge above the status; scroll it into view before asserting it.
+seek plan
 expect "ChatGPT Plus"
+seek who
 expect "Signed in as umer@example.com"
+[ -z "${EXPO_CONNECT_EVIDENCE:-}" ] || a exec-out screencap -p > "$EXPO_CONNECT_EVIDENCE/journey__connected.png"
 start
+seek status
 expect "ChatGPT is connected." # kept in secure storage across a restart
 tap recheck
+seek note
 expect "the sign-in was refreshed"
 tap question
 a shell input text "is%sthe%sroof%sleaking"
 a shell input keyevent 111
+# Android applies the field's sentence capitalisation, so bind the oracle to the field's real value, then require its whole echo.
+asked=''
+for _ in $(seq 20); do
+  held=$(value question)
+  case "$held" in "is the roof leaking" | "Is the roof leaking") asked=$held; break;; esac
+  sleep 1
+done
+[ -n "$asked" ] || { echo "FAILED, the question field holds \"$(value question)\", screen: $(words)" >&2; exit 1; }
+echo "the question field holds: $asked"
 tap ask
-expect "You said: is the roof leaking"
+seek answer
+got=''
+for _ in $(seq 20); do
+  got=$(value answer)
+  [ "$got" = "You said: $asked" ] && break
+  sleep 1
+done
+[ "$got" = "You said: $asked" ] || { echo "FAILED, expected \"You said: $asked\", the answer field holds \"$got\", screen: $(words)" >&2; exit 1; }
+seek decision
 expect "Not sure if it needs doing today." # the stand-in only echoes, so the decision abstains
 tap signout
+seek status
 expect "ChatGPT isn't signed in yet."
 start
 expect "ChatGPT isn't signed in yet."
