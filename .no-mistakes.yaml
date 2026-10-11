@@ -2,6 +2,9 @@
 # test.instructions is read from the trusted default branch once merged.
 test:
   instructions: |
+    Run tests only through `npm test` / `sh scripts/test.sh` — never bare `node --test`
+    and never `--experimental-test-coverage` or any other coverage flag; run a heavy
+    suite through the host memory gate when one exists.
     Prove changes against the real built SDK, not summaries.
     Read .agents/skills/verify-byokit/SKILL.md first, then the matching file in
     .agents/skills/verify-byokit/features/ (index: features/README.md).
