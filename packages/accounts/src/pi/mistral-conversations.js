@@ -1,7 +1,7 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled unmodified by @byokit/accounts; see NOTICE.
+// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   shortHash
-} from "./chunk-2Q6VVASW.js";
+} from "./chunk-QJQ5SDE2.js";
 import {
   buildBaseOptions,
   getJsonSchemaToolParameters,
@@ -9,7 +9,7 @@ import {
   resolveJsonSchemaStrictSampling,
   sanitizeSurrogates,
   transformMessages
-} from "./chunk-6OHM536L.js";
+} from "./chunk-VUCNMX7O.js";
 import {
   calculateCost,
   clampThinkingLevel,
@@ -17,17 +17,17 @@ import {
   getSystemMessageText,
   renderSystemMessageUpdate,
   resolveTranscript
-} from "./chunk-FF2CZYAY.js";
+} from "./chunk-PDUG4NYC.js";
 import {
   parseStreamingJson
-} from "./chunk-HKHK62PD.js";
+} from "./chunk-FHNSO4GF.js";
 import {
   headersToRecord
-} from "./chunk-5CS55XCW.js";
+} from "./chunk-MIDDHJH2.js";
 import {
   AssistantMessageEventStream
-} from "./chunk-NO6FHOUY.js";
-import "./chunk-3ZIKFYRY.js";
+} from "./chunk-JTGIYXAQ.js";
+import "./chunk-XD4THNNI.js";
 
 // node_modules/@earendil-works/pi-ai/dist/api/mistral-conversations.js
 var MISTRAL_TOOL_CALL_ID_LENGTH = 9;

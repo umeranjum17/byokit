@@ -1,4 +1,4 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled unmodified by @byokit/accounts; see NOTICE.
+// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   ModelsError,
   calculateCost,
@@ -8,9 +8,9 @@ import {
   getSupportedThinkingLevels,
   hasApi,
   modelsAreEqual
-} from "./chunk-FF2CZYAY.js";
-import "./chunk-NO6FHOUY.js";
-import "./chunk-3ZIKFYRY.js";
+} from "./chunk-PDUG4NYC.js";
+import "./chunk-JTGIYXAQ.js";
+import "./chunk-XD4THNNI.js";
 export {
   ModelsError,
   calculateCost,

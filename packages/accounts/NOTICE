@@ -11,8 +11,12 @@ packages/catalog/src/compat/rules/auth/anthropic.kdl, packages/ai/src/registry/e
 These references are MIT licensed. No reference project's installed credential store or CLI is used.
 The following MIT notice is retained for protocol adaptations, including constants and request construction.
 
-The portable key runtime in dist/pi/ additionally bundles unmodified published code from
-@earendil-works/pi-ai 0.87.1, Copyright (c) 2025 Mario Zechner, under the same MIT notice below.
+The portable key runtime in dist/pi/ additionally bundles published code from
+@earendil-works/pi-ai 0.87.1, Copyright (c) 2025 Mario Zechner, under the same MIT notice below,
+with one deliberate build-time patch recorded in PROVENANCE.json (`patch`): Pi's
+`signal.throwIfAborted()` calls are rewritten to a local guard with the same semantics, because
+Hermes (React Native) does not ship `AbortSignal.prototype.throwIfAborted` and the unconditional
+call otherwise throws before any key request. No other source change is made.
 https://github.com/earendil-works/pi/tree/f07218c4d4bbc12bef056a7058c3dd49dfe41abe
 Regenerate src/pi/ with `node scripts/gen-accounts-pi.ts` from the repository's exact installed pins.
 The standard esbuild split build lowers dynamic-import syntax only; SDKs remain external at exact pins.

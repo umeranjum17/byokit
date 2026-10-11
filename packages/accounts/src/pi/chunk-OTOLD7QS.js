@@ -1,4 +1,4 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled unmodified by @byokit/accounts; see NOTICE.
+// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 
 // node_modules/@earendil-works/pi-ai/dist/api/openai-prompt-cache.js
 var OPENAI_PROMPT_CACHE_KEY_MAX_LENGTH = 64;
@@ -14,4 +14,4 @@ function clampOpenAIPromptCacheKey(key) {
 export {
   clampOpenAIPromptCacheKey
 };
-//# sourceMappingURL=chunk-EDLR4U3Z.js.map
+//# sourceMappingURL=chunk-OTOLD7QS.js.map

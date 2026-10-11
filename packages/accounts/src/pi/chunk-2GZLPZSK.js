@@ -1,7 +1,7 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled unmodified by @byokit/accounts; see NOTICE.
+// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   shortHash
-} from "./chunk-2Q6VVASW.js";
+} from "./chunk-QJQ5SDE2.js";
 import {
   appendGrammarToolInputJsonDelta,
   getGrammarToolInput,
@@ -10,17 +10,17 @@ import {
   resolveJsonSchemaStrictSampling,
   sanitizeSurrogates,
   transformMessages
-} from "./chunk-6OHM536L.js";
+} from "./chunk-VUCNMX7O.js";
 import {
   calculateCost,
   getSystemMessageText,
   renderSystemMessageUpdate,
   resolveTranscript,
   resolveTranscriptTools
-} from "./chunk-FF2CZYAY.js";
+} from "./chunk-PDUG4NYC.js";
 import {
   parseStreamingJson
-} from "./chunk-HKHK62PD.js";
+} from "./chunk-FHNSO4GF.js";
 
 // node_modules/@earendil-works/pi-ai/dist/api/openai-responses-shared.js
 function encodeTextSignatureV1(id, phase) {
@@ -643,4 +643,4 @@ export {
   convertResponsesTools,
   processResponsesStream
 };
-//# sourceMappingURL=chunk-TF2BCWAX.js.map
+//# sourceMappingURL=chunk-2GZLPZSK.js.map

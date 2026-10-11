@@ -6,6 +6,12 @@
   "gitHead": "f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
   "license": "MIT",
   "copyright": "Copyright (c) 2025 Mario Zechner",
+  "patch": {
+    "name": "hermes-throwIfAborted",
+    "helper": "__byokitPiThrowIfAborted",
+    "sites": 15,
+    "reason": "Hermes (React Native) lacks AbortSignal.prototype.throwIfAborted; every bundled call is rewritten to a local guard that throws the abort reason (else AbortError) when the signal is aborted. Re-applied on every regenerate, so a Pi pin bump keeps it."
+  },
   "esbuild": "0.28.2",
   "options": {
     "entryPoints": {
@@ -53,7 +59,7 @@
     "sourcesContent": true,
     "legalComments": "eof",
     "banner": {
-      "js": "// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled unmodified by @byokit/accounts; see NOTICE."
+      "js": "// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE."
     }
   },
   "externals": [
@@ -212,7 +218,7 @@
     },
     {
       "path": "anthropic-messages.js",
-      "sha256": "192808fd6b5bfc0d4af173a2ab61d2512ef4057ea3ada25962850636f46a2265"
+      "sha256": "6d0d70db64ae129df60f528226fff92d67f7c4aa0662b623a5f28e6f8fc0f159"
     },
     {
       "path": "anthropic-messages.js.map",
@@ -224,115 +230,115 @@
     },
     {
       "path": "azure-openai-responses.js",
-      "sha256": "ff01d145023640c000f8adf8295238764e20e3344bf3c4b193639be7682509b1"
+      "sha256": "1df162c6f322c0777ce1f6a98ae2310f2c2698b1e00df33b8f6f75fe16b3ef7a"
     },
     {
       "path": "azure-openai-responses.js.map",
       "sha256": "f3582c6e6ef26ed6ecf2bf0a7e6c66ce7d27f88c1c8f42dbfb26fb01b59bc72a"
     },
     {
-      "path": "chunk-22W7NBDD.js",
-      "sha256": "cda199505894ab2ab60cad25661c53473e1a414bbad950d4d99609d018b2d2cb"
+      "path": "chunk-2GZLPZSK.js",
+      "sha256": "717a78c7e364fd038c5a5e190ecd31aa9c23c62f9173fb4ed7c3aad261b47d07"
     },
     {
-      "path": "chunk-22W7NBDD.js.map",
-      "sha256": "a75ac0fcbe89b64d752b158c0cf03c8c5e4f0e945611bfbb459342af06de4707"
+      "path": "chunk-2GZLPZSK.js.map",
+      "sha256": "8db842e54a9a0e408932924b404b97f4f830554ede103582df280fb250250eb6"
     },
     {
-      "path": "chunk-2Q6VVASW.js",
-      "sha256": "b0e532f474c3ebc728305d38d1caaec95a4211b79244586a552b41759ed4a620"
+      "path": "chunk-3TVGBGLJ.js",
+      "sha256": "6234ef8f455d7b5d24847d309b7130a8a286b5b8ba7956fc7f7e0bc097e61971"
     },
     {
-      "path": "chunk-2Q6VVASW.js.map",
-      "sha256": "2d3ebec75b64bffb1fd511716e40feb9629a9d509e7bc03fdfaa455e2de5cab2"
-    },
-    {
-      "path": "chunk-3ZIKFYRY.js",
-      "sha256": "f720f98a72f98678fb1a79c96045ac9660e7ead387c250759b3040c9ae800dc1"
-    },
-    {
-      "path": "chunk-3ZIKFYRY.js.map",
-      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9"
-    },
-    {
-      "path": "chunk-5CS55XCW.js",
-      "sha256": "b8efe5c5d227fa65394999d87ab924b033b3194b5f6d4ad14cd46dfa9f675003"
-    },
-    {
-      "path": "chunk-5CS55XCW.js.map",
-      "sha256": "23cc0c01f2ccc6cdd009c10062c3d60248ed33bc8c3a26018b97e4b466f3b5db"
-    },
-    {
-      "path": "chunk-66TZXFZR.js",
-      "sha256": "e52e9795aaae1515ba08248cdaa080688c38dad93a6a2ddb507d46c3dab17ae7"
-    },
-    {
-      "path": "chunk-66TZXFZR.js.map",
+      "path": "chunk-3TVGBGLJ.js.map",
       "sha256": "dfd72719c6e6f293e3f8fc0511846da9075c07aebcde35cf5b02a6e7614f50f3"
     },
     {
-      "path": "chunk-6OHM536L.js",
-      "sha256": "41fee3f154c9254313973811760f9a017784cf49d748d96f21b1d03f559ca2e2"
+      "path": "chunk-FHNSO4GF.js",
+      "sha256": "706dd0a31686f0057c5a9ddb6f01355886f6065979d027454a712533079cbdd7"
     },
     {
-      "path": "chunk-6OHM536L.js.map",
-      "sha256": "72db5a42ada68e2e812f5d154e46ac1ec31966c0b02693bd0d4694a65c2e42cc"
-    },
-    {
-      "path": "chunk-77WG7L4R.js",
-      "sha256": "2e715c053b3fc0f4766db6f355f201cb1b69d63cf64c277548fafddfe7adac7a"
-    },
-    {
-      "path": "chunk-77WG7L4R.js.map",
-      "sha256": "0e3577730f6114ac3085bf0180b253e39f70caa5d217f9d50c3984bb6d7bc1ce"
-    },
-    {
-      "path": "chunk-EDLR4U3Z.js",
-      "sha256": "14a8845721101ee57a565f149733da9a5caab75b9eb675476af8f8ca2ba97a28"
-    },
-    {
-      "path": "chunk-EDLR4U3Z.js.map",
-      "sha256": "a210e6794828d6eaa4d504dfb0a4d7d30a8efbe5c8cdaf4540dcb7a0436eb68c"
-    },
-    {
-      "path": "chunk-FF2CZYAY.js",
-      "sha256": "e587dbfb234d86238e7268a365f69ccfa77ef202a66d76f503bd505d6c093e92"
-    },
-    {
-      "path": "chunk-FF2CZYAY.js.map",
-      "sha256": "126550cd0a3554f49c126cda436d8f521b64e956c22419eaa95c22c7ed4c8d25"
-    },
-    {
-      "path": "chunk-HKHK62PD.js",
-      "sha256": "1fb765a381ed85ed66491bedebf48578fa2f7de80c7c4ad86b0109150258c571"
-    },
-    {
-      "path": "chunk-HKHK62PD.js.map",
+      "path": "chunk-FHNSO4GF.js.map",
       "sha256": "5493f89ab2614ec048e2cef946b4d9bbc6600602dfe54e9a02766dac401c0b09"
     },
     {
-      "path": "chunk-NO6FHOUY.js",
-      "sha256": "09eae204b7d35c91bd30669eda5ebade0d1f494618eb62744e1ada5202559012"
+      "path": "chunk-FJMJCJSO.js",
+      "sha256": "ecc7fded37b76a8d3d26a364a896bd9432e24c6618c7f592183392968c01974e"
     },
     {
-      "path": "chunk-NO6FHOUY.js.map",
+      "path": "chunk-FJMJCJSO.js.map",
+      "sha256": "0e3577730f6114ac3085bf0180b253e39f70caa5d217f9d50c3984bb6d7bc1ce"
+    },
+    {
+      "path": "chunk-JTGIYXAQ.js",
+      "sha256": "6ee9bd7a7c4c92e83f08059b1ecc4e073e5e5fd2698ab104ce6c6efea703707c"
+    },
+    {
+      "path": "chunk-JTGIYXAQ.js.map",
       "sha256": "2c26c455bdfbc25d7ab8319814aa2eafbfb1f1b6e6de58b0c4a521bd152b1ff2"
     },
     {
-      "path": "chunk-PMCJDLVU.js",
-      "sha256": "8b7ffca037b23974a9fa25de698e82e0c29206db5e089172131d63264cf8dfd5"
+      "path": "chunk-MIDDHJH2.js",
+      "sha256": "a60ed04742a4ff0fd5b5edaa6c5705eeb6b7be85bf3561ea1bb7df3997b90cfc"
     },
     {
-      "path": "chunk-PMCJDLVU.js.map",
+      "path": "chunk-MIDDHJH2.js.map",
+      "sha256": "23cc0c01f2ccc6cdd009c10062c3d60248ed33bc8c3a26018b97e4b466f3b5db"
+    },
+    {
+      "path": "chunk-OTOLD7QS.js",
+      "sha256": "e004fe23b37c82b4f14803a220db201409dd85c0d78ce5e885300262a3910334"
+    },
+    {
+      "path": "chunk-OTOLD7QS.js.map",
+      "sha256": "a210e6794828d6eaa4d504dfb0a4d7d30a8efbe5c8cdaf4540dcb7a0436eb68c"
+    },
+    {
+      "path": "chunk-PDUG4NYC.js",
+      "sha256": "4abf8683e0e67b978d44fd23085c9baa3f844bb19c78f36388493e9ef7999043"
+    },
+    {
+      "path": "chunk-PDUG4NYC.js.map",
+      "sha256": "126550cd0a3554f49c126cda436d8f521b64e956c22419eaa95c22c7ed4c8d25"
+    },
+    {
+      "path": "chunk-QJQ5SDE2.js",
+      "sha256": "8ede3238b07e842c49447aecc3fa3d91c7a1a27ea6c477e65cf80c81c26ff012"
+    },
+    {
+      "path": "chunk-QJQ5SDE2.js.map",
+      "sha256": "2d3ebec75b64bffb1fd511716e40feb9629a9d509e7bc03fdfaa455e2de5cab2"
+    },
+    {
+      "path": "chunk-RGJXTNZI.js",
+      "sha256": "c21eb9c2c5c58449719061e93274797be604ef575553821b10ddf20116cac865"
+    },
+    {
+      "path": "chunk-RGJXTNZI.js.map",
       "sha256": "25231324480effb51f24d0ce81f913bb8f5cb39a30140e1cadf644502a41f4f8"
     },
     {
-      "path": "chunk-TF2BCWAX.js",
-      "sha256": "e08472e6e77f345fdf1ff50d535db47fa455cab0a039b952e2e69b66dbee26d8"
+      "path": "chunk-VUCNMX7O.js",
+      "sha256": "157d73e9dbfeef12162946c1612b5f2c90287130783edbe0aa953333112e5c0b"
     },
     {
-      "path": "chunk-TF2BCWAX.js.map",
-      "sha256": "8db842e54a9a0e408932924b404b97f4f830554ede103582df280fb250250eb6"
+      "path": "chunk-VUCNMX7O.js.map",
+      "sha256": "72db5a42ada68e2e812f5d154e46ac1ec31966c0b02693bd0d4694a65c2e42cc"
+    },
+    {
+      "path": "chunk-W3IKEFGN.js",
+      "sha256": "741591c841f39cc33bea82260cd4bb0cdb8a56f2f9675c8cbbcde13e7f0b6983"
+    },
+    {
+      "path": "chunk-W3IKEFGN.js.map",
+      "sha256": "a75ac0fcbe89b64d752b158c0cf03c8c5e4f0e945611bfbb459342af06de4707"
+    },
+    {
+      "path": "chunk-XD4THNNI.js",
+      "sha256": "c9d067cff84cc6509df38945753a12d9e8f96dbd629137f8cb020cf7f629ed90"
+    },
+    {
+      "path": "chunk-XD4THNNI.js.map",
+      "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9"
     },
     {
       "path": "cloudflare-stream.d.ts",
@@ -340,7 +346,7 @@
     },
     {
       "path": "cloudflare-stream.js",
-      "sha256": "9859bcc64092d1517ffb07eed6234d05c93e9e48711fbf67c1bd2d2819d9f2c8"
+      "sha256": "8af3704861307fba62b35b61be7f411bf290d4f78d41b6c2313912f35996a39f"
     },
     {
       "path": "cloudflare-stream.js.map",
@@ -352,7 +358,7 @@
     },
     {
       "path": "core.js",
-      "sha256": "0dcaa46925bab7bc44e5e233f1c78ee77aae927da28249c28cb75cba1510b13e"
+      "sha256": "40afd5a5bf72aed07bd4cb144139c93e8518cfb49fee784b64f76b320ce24593"
     },
     {
       "path": "core.js.map",
@@ -364,7 +370,7 @@
     },
     {
       "path": "google-generative-ai.js",
-      "sha256": "33c6656c2853790eb46a1dc6a633763fba3156e26626f5afde4d138e7bc71f31"
+      "sha256": "bb4bd867ff44663649893a90e8700c8b2661ade1ccd04c8161d574b7bbc4dee0"
     },
     {
       "path": "google-generative-ai.js.map",
@@ -376,7 +382,7 @@
     },
     {
       "path": "mistral-conversations.js",
-      "sha256": "ec1ecfab453a40967bd1e26a1c2713f49e499a72f40ee6a79d41a70b001a0404"
+      "sha256": "afb463d6614b74f5b78ed7309943fb95ceae16ddd27cc3b3b6322d217cfa4409"
     },
     {
       "path": "mistral-conversations.js.map",
@@ -388,7 +394,7 @@
     },
     {
       "path": "openai-completions.js",
-      "sha256": "561d071ece7f9e9a876dd351f1e9f48194f3a8141644add30127da9c75cbec6e"
+      "sha256": "13d31d7e01e9400e5a85630a636b1c88b28540fb5edbd58969cbd99a7bac78e8"
     },
     {
       "path": "openai-completions.js.map",
@@ -400,7 +406,7 @@
     },
     {
       "path": "openai-responses.js",
-      "sha256": "2af2166ca254e687e19da17d0f223616a77f808c150ee378cadb3d9bc2657234"
+      "sha256": "15800afc8ea67343b1a1b40a8955780b550ee84a4f5c29e3162f9a9abeb0838d"
     },
     {
       "path": "openai-responses.js.map",
@@ -412,7 +418,7 @@
     },
     {
       "path": "pi-messages.js",
-      "sha256": "147c22490939734b67c696e08a50130d838bd854f40f83f771ff6a91d0d769af"
+      "sha256": "6a114a8feba946da3e80a50d522cb65ef92d9ba85d1652ee88b01b89037b0b01"
     },
     {
       "path": "pi-messages.js.map",
