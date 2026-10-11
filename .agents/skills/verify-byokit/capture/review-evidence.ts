@@ -3,10 +3,12 @@
 // recording per changed interaction. The skill owns this file: a reviewer runs it, never hand-captures around it.
 //
 //   node .agents/skills/verify-byokit/capture/review-evidence.ts [--base <ref>] [--slug <name>] [--out <dir>] [--screens a,b]
+//       [--font-scale <n>]
 //
 // `--base` (default origin/main) is the "before" the change is measured against; each screen says how its before frame is
 // reached: at that ref (`via: 'ref'`), or through the before route the screen itself ships (`via: 'url'`). A screen that
 // does not exist at the base ref, a theme or form factor the app does not have, is recorded as a skip with its reason.
+// `--font-scale` (default 1) sets the page's body text to `17 × n` px, for a larger-text capture in its own output dir.
 // Output is one stable, predictable folder (default `.verify-artifacts/review/<slug>`), gitignored, never committed.
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
