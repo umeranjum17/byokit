@@ -81,12 +81,16 @@ const { token } = await relay.enrolment({ name: 'Test computer' });
 const port = await new Promise<number>((resolve) => {
   const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address() as { port: number }; s.close(() => resolve(port)); });
 });
-const host = trackChild(spawn(process.execPath, ['host.ts', '--herdr', fakeHerdr, '--via', 'lan', '--port', String(port),
-  '--name', NAME, '--folder', dir, '--relay', relayAt, `--enrol=${token}`], // `=` form: the token is b64url and may start with `-`
-  { cwd: app, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
-after(async () => { await browser.close(); host.kill('SIGTERM'); relay.close(); relayServer.closeAllConnections(); relayServer.close(); });
 let said = '';
-host.stdout.on('data', (b: Buffer) => { said += b.toString(); });
+const startHost = (enrol = false) => {
+  const child = trackChild(spawn(process.execPath, ['host.ts', '--herdr', fakeHerdr, '--via', 'lan', '--port', String(port),
+    '--name', NAME, '--folder', dir, '--relay', relayAt, ...(enrol ? [`--enrol=${token}`] : [])],
+    { cwd: app, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
+  child.stdout.on('data', (b: Buffer) => { said += b.toString(); });
+  return child;
+};
+let host = startHost(true);
+after(async () => { await browser.close(); host.kill('SIGTERM'); relay.close(); relayServer.closeAllConnections(); relayServer.close(); });
 /** The host's first line matching `pattern` after `from` characters of what it said. */
 const heard = async (pattern: RegExp, from = 0) => {
   for (let i = 0; i < 300 && !pattern.test(said.slice(from)); i++) await new Promise((r) => setTimeout(r, 50));
@@ -117,6 +121,7 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
   await shot(page, '1-pair');
 
   // The phone and the computer show the same two words; the person says yes at the computer.
+  const enteredAt = performance.now();
   await page.fill('#pair-input', code.toLowerCase());
   await page.click('#pair-go');
   const words = (await heard(/Check it shows these two words: (\w+ \w+)/))[1];
@@ -127,6 +132,9 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
   host.stdin.write('y\n');
 
   await text(page, '#link', `Connected to ${NAME} - same Wi-Fi.`);
+  const pairMs = performance.now() - enteredAt;
+  assert.ok(pairMs < 10_000, `first code-entry-to-connected took ${pairMs} ms (limit 10000)`);
+  console.log(`First code-entry-to-connected: ${Math.round(pairMs)} ms`);
   assert.equal(await page.locator('#herdr').count(), 0, 'one connection line, not two');
   await text(page, '#tree .agent .who', 'project');
   assert.match((await page.locator('#tree .agent .sub').first().textContent()) ?? '',
@@ -170,6 +178,54 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
   assert.equal(await page.locator('#questions').isHidden(), true);
   await text(page, '#agent-status', WORDS['agent.idle'].replace(/\.$/, ''));
   await shot(page, '5-answered');
+
+  // Keep this very page open while its own host stops and reopens the same port and state.
+  const grantsBefore = readFileSync(join(app, '.state/grants.json'));
+  const ingressBefore = readFileSync(join(app, '.state/ingress.json'));
+  assert.equal(JSON.parse(ingressBefore.toString()), null, 'LAN saves null: no Tailscale Serve mapping');
+  await page.evaluate(() => {
+    const pair = document.getElementById('pair')!;
+    const seen: boolean[] = [];
+    Object.assign(window, { restartPairScreens: seen });
+    new MutationObserver((changes) => {
+      if (changes.some((c) => c.oldValue !== null) || !pair.hidden) seen.push(true);
+    }).observe(pair, { attributes: true, attributeFilter: ['hidden'], attributeOldValue: true });
+  });
+  const exited = new Promise<void>((resolve) => host.once('exit', () => resolve()));
+  host.kill('SIGTERM');
+  await exited;
+  await page.waitForFunction((connected) => document.getElementById('link')?.textContent !== connected,
+    `Connected to ${NAME} - same Wi-Fi.`);
+  said = '';
+  host = startHost(); // no --enrol: the original host identity and ingress are on disk
+  await heard(/Connected to Herdr\./);
+  await heard(/Away from home: online/);
+  await text(page, '#link', `Connected to ${NAME} - same Wi-Fi.`);
+  assert.equal(await page.locator('#pair').isHidden(), true, 'no new pairing screen');
+  const pairScreens = await page.evaluate(() =>
+    (window as unknown as { restartPairScreens: boolean[] }).restartPairScreens);
+  assert.deepEqual(pairScreens, [], 'pairing screen never reappeared during restart');
+  assert.doesNotMatch(said, /Pair .*\? \(y\/n\)/, 'restart asks no pairing approval');
+  const grantsAfter = readFileSync(join(app, '.state/grants.json'));
+  const ingressAfter = readFileSync(join(app, '.state/ingress.json'));
+  const grantsUnchanged = grantsAfter.equals(grantsBefore);
+  const ingressUnchanged = ingressAfter.equals(ingressBefore);
+  const proof = process.env.BYOKIT_EXAMPLE_RESTART_PROOF;
+  if (proof) {
+    mkdirSync(proof, { recursive: true });
+    await page.screenshot({ path: join(proof, 'restart-connected.png'), fullPage: true });
+    writeFileSync(join(proof, 'restart-state.json'), JSON.stringify({
+      url: page.url(), link: await page.locator('#link').textContent(), pairMs,
+      pairingHidden: await page.locator('#pair').isHidden(), pairScreens,
+      grantsUnchanged, ingressUnchanged, restartedWithoutEnrol: true,
+      changedGrantFields: Object.keys(JSON.parse(grantsBefore.toString())[0]).filter((key) =>
+        JSON.stringify(JSON.parse(grantsBefore.toString())[0][key]) !== JSON.stringify(JSON.parse(grantsAfter.toString())[0][key])),
+      approvalAsked: false, hostOutput: said,
+    }, null, 2));
+  }
+  assert.ok(grantsUnchanged, 'grant bytes unchanged');
+  assert.ok(ingressUnchanged, 'saved ingress reused');
+  console.log('Restart: same page connected; no re-pair, no approval, grant and ingress bytes unchanged.');
 
   assert.deepEqual(errors, []);
   await context.close();
