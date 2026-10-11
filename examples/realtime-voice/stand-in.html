@@ -1,25 +1,49 @@
 <!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BYOKit voice stand-in</title>
-<body><main><h1>Stand-in voice peer</h1><p>Offline run only: this page approves the stand-in sign-in and answers the call in place of ChatGPT. It is not a live pass.</p>
-<output id="status">Signed in. Waiting for Start voice.</output></main>
+<body><main><h1>Stand-in voice peer</h1><p>Offline run only: this page approves the stand-in sign-in and answers each call in place of ChatGPT. It is not a live pass.</p>
+<output id="status">Signed in. Waiting for a tap.</output></main>
 <script type="module">
-// Plays the provider's side over loopback WebRTC: an SDP answer, a tone, and one user and one agent turn on the data channel.
+// Plays the provider's side over loopback WebRTC: an SDP answer, then for each stretch of microphone audio it hears,
+// one user turn, a tone while it speaks, and one agent turn on the data channel.
 const status = document.querySelector('#status');
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 await fetch('/stand-in/approve', { method: 'POST' });
-let offer;
-while (!(offer = await fetch('/stand-in/offer').then(response => response.status === 200 ? response.text() : undefined))) await new Promise(resolve => setTimeout(resolve, 200));
-const peer = new RTCPeerConnection();
 const tone = new AudioContext(), output = tone.createMediaStreamDestination(), oscillator = tone.createOscillator();
 oscillator.connect(output); oscillator.start();
-peer.addTrack(output.stream.getAudioTracks()[0], output.stream);
-peer.ondatachannel = ({ channel }) => channel.onopen = () => {
-  for (const event of [{ type: 'session.started' }, { type: 'turn.done', turn: { role: 'user', transcript: 'Hello from BYOKit.' } },
-    { type: 'output_audio.delta' }, { type: 'turn.done', turn: { role: 'assistant', transcript: 'Hello from BYOKit.' } }]) channel.send(JSON.stringify(event));
-  status.value = 'Answered with one user turn and one agent turn.';
+const voice = output.stream.getAudioTracks()[0];
+const answer = async (offer) => {
+  const peer = new RTCPeerConnection();
+  let channel;
+  const send = event => channel?.readyState === 'open' && channel.send(JSON.stringify(event));
+  peer.ondatachannel = event => { channel = event.channel; channel.onopen = () => send({ type: 'session.started' }); };
+  await peer.setRemoteDescription({ type: 'offer', sdp: offer });
+  const [transceiver] = peer.getTransceivers(); transceiver.direction = 'sendrecv'; // Silent (no track) until it replies.
+  await peer.setLocalDescription(await peer.createAnswer());
+  if (peer.iceGatheringState !== 'complete') await new Promise(resolve => peer.onicegatheringstatechange = () => peer.iceGatheringState === 'complete' && resolve());
+  await fetch('/stand-in/answer', { method: 'POST', body: peer.localDescription.sdp });
+  status.value = 'Answered. Waiting for speech.';
+  // A turn is microphone packets arriving, then none for 400 ms: the page released its microphone.
+  let last = 0, heard = false, quiet = 0;
+  while (!['closed', 'failed'].includes(peer.connectionState)) {
+    await sleep(200);
+    let packets = 0; (await peer.getStats()).forEach(report => { if (report.type === 'inbound-rtp' && report.kind === 'audio') packets = report.packetsReceived; });
+    if (packets > last) { heard = true; quiet = 0; } else if (heard && ++quiet >= 2) {
+      heard = false; status.value = 'Heard a turn. Replying.';
+      send({ type: 'turn.done', turn: { role: 'user', transcript: 'Hello from BYOKit.' } });
+      await sleep(900);
+      await transceiver.sender.replaceTrack(voice); send({ type: 'output_audio.delta' });
+      await sleep(1500);
+      send({ type: 'turn.done', turn: { role: 'assistant', transcript: 'Hello from BYOKit.' } });
+      await transceiver.sender.replaceTrack(null);
+      status.value = 'Replied. Waiting for speech.';
+    }
+    last = packets;
+  }
 };
-await peer.setRemoteDescription({ type: 'offer', sdp: offer });
-await peer.setLocalDescription(await peer.createAnswer());
-if (peer.iceGatheringState !== 'complete') await new Promise(resolve => peer.onicegatheringstatechange = () => peer.iceGatheringState === 'complete' && resolve());
-await fetch('/stand-in/answer', { method: 'POST', body: peer.localDescription.sdp });
-status.value = 'Answered. Connecting.';
+// The offer stays posted until its answer lands, so each one is answered once.
+for (let answered; ;) {
+  const offer = await fetch('/stand-in/offer').then(response => response.status === 200 ? response.text() : undefined);
+  if (offer && offer !== answered) { answered = offer; void answer(offer); }
+  await sleep(200);
+}
 </script></body></html>

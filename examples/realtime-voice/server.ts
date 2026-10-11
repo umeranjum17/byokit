@@ -14,6 +14,7 @@ const fake = process.env.BYOKIT_EXAMPLE_FAKE === '1';
 const accounts = fake ? undefined : new Accounts<any, number>({ store: (m) => machineStore(m, osKeyringSeal({ service: 'byokit' })) });
 const bundle = await build({ entryPoints: [new URL('./voice.ts', import.meta.url).pathname], bundle: true, write: false, platform: 'browser', format: 'esm' });
 const page = await readFile(new URL('./index.html', import.meta.url));
+const style = await readFile(new URL('./voice.css', import.meta.url));
 const standIn = fake ? await readFile(new URL('./stand-in.html', import.meta.url)) : undefined;
 // Stand-in signaling: the engine posts its offer with this throwaway token; stand-in.html answers it.
 const standInToken = randomBytes(16).toString('hex');
@@ -30,6 +31,7 @@ const server = createServer(async (request, response) => {
   try {
     if (request.method === 'GET' && request.url === '/') { response.setHeader('Content-Type', 'text/html'); response.end(page); }
     else if (request.method === 'GET' && request.url === '/voice.js') { response.setHeader('Content-Type', 'application/javascript'); response.end(bundle.outputFiles[0].text); }
+    else if (request.method === 'GET' && request.url === '/voice.css') { response.setHeader('Content-Type', 'text/css'); response.end(style); }
     else if (request.method === 'GET' && request.url === '/proof') { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(proof)); }
     else if (standIn && request.method === 'POST' && request.url === '/login' && request.headers.origin === origin) {
       response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ url: '/stand-in.html', code: 'STAND-IN' }));
