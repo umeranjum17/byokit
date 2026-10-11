@@ -16,7 +16,7 @@ import {
   pairWithOffer,
   type DeviceGrant,
   type Grant,
-} from '@byokit/link';
+} from '@byokit/pair';
 import type { PushAction, RelayClient } from '@byokit/relay';
 import { OpenClawKit } from '../src/kit.ts';
 import { openclawLink, serve } from '../src/link.ts';
@@ -25,7 +25,7 @@ import { openNotice } from '../src/notices.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import { words } from '../src/words.ts';
 import type { RunEvent } from '../src/types.ts';
-import { phaseOf } from '@byokit/ui-core';
+import { phaseOf } from '@byokit/ui';
 
 const NOT_ALLOWED = words('link.notAllowed');
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

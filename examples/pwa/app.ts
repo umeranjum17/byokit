@@ -1,9 +1,9 @@
 // "Sign in with ChatGPT" and "Sign in with Claude" in a web page: @byokit/accounts' browser side (ChatGPT by device
 // code; Claude by its own page, whose code the person pastes back), kept in this browser's IndexedDB, with
-// @byokit/ui-core's phases. Every connected plan and key lists first, each with its billing and room; the Add rows
+// @byokit/ui's phases. Every connected plan and key lists first, each with its billing and room; the Add rows
 // come after. Ask runs on one account chosen at the start: Auto takes the most room and says which one and why.
 import { Accounts, billingWords, browserStore, clock, planLabel, resolveSelection, roomOf, roomWords, say, signInError, PROVIDERS, type Account, type Room } from '@byokit/accounts';
-import { phaseOf } from '@byokit/ui-core/phase';
+import { phaseOf } from '@byokit/ui/phase';
 
 declare const __BYOKIT_AUTH_BASE__: string | undefined;
 // ChatGPT's model endpoint and Claude's sign-in endpoints don't answer other web pages, so this page asks them through

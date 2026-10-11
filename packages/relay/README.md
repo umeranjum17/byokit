@@ -17,8 +17,7 @@ The one exception to "cannot read": push notification text. The relay can read t
 explicitly includes.
 
 Node only (the device side, `@byokit/relay/device`, runs anywhere: no Node APIs, so browsers and React Native too).
-Depends on `@byokit/link`, the deprecated name of [`@byokit/pair`](../pair) it re-exports as is (see
-[package.json](package.json) for the version); both resolve to the same module and API, and it doesn't change its wire
+Depends on [`@byokit/pair`](../pair) (see [package.json](package.json) for the version); it doesn't change its wire
 format or crypto.
 
 ## Install

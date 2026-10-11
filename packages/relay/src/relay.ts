@@ -1,4 +1,4 @@
-// The relay: a server both sides dial out to, so a host needs no inbound port. It routes @byokit/link frames by host
+// The relay: a server both sides dial out to, so a host needs no inbound port. It routes @byokit/pair frames by host
 // address and never reads them: devices dial /link/v1/<host id> and speak bare link frames; each host keeps one socket
 // at /relay/v1/host, proves it holds its key, and gets every device's frames wrapped as {c, f}. Devices are never
 // authenticated here, because the host checks each one itself on every handshake.
@@ -10,7 +10,7 @@ import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { b64url, hostId, unb64url } from '@byokit/link';
+import { b64url, hostId, unb64url } from '@byokit/pair';
 import { CLOSE, challenge } from './proof.ts';
 import { deliver, isActionReply, MAX_ACTION_REPLY, parseNotification, parseSubscription, pushHosts, vapidKeys, type Notification, type PushRecord, type Vapid } from './push.ts';
 

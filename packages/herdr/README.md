@@ -11,9 +11,8 @@ Workspaces, tabs, panes, coding agents and blocked-approval answers, from a Node
 <a href="../pair"><code>@byokit/pair</code></a>. Each agent inside Herdr keeps its own subscription login; the kit
 never sees a credential.</p>
 
-<p align="center"><sub>This kit depends on <code>@byokit/link</code>, the deprecated name of
-<a href="../pair"><code>@byokit/pair</code></a>, and its examples import from there. Both packages resolve to the same
-module and the same API, so <code>@byokit/pair</code> works unchanged in a new app.</sub></p>
+<p align="center"><sub>This kit depends on <a href="../pair"><code>@byokit/pair</code></a>, and its examples
+import from there.</sub></p>
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/3-agent.png" width="240" alt="Phone page titled Agents, Connected to Kitchen computer - same Wi-Fi.: two Pi agents marked Ready for you, and under Talk to it the agent's screen reading '> Add a --json flag to export', 'Read src/cli/export.ts', 'Edited src/cli/export.ts +18 -3' and 'export --json now prints JSON.' above a Message box, a Send button and Waiting for the reply below." />

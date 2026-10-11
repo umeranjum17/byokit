@@ -1,8 +1,8 @@
 // The device side (7.2): portable — browsers, React Native, Node; no node:* or Node-only imports may reach here
-// (test/portable.test.ts guards it). Only type imports from @byokit/link; the seal crypto bundles cleanly.
+// (test/portable.test.ts guards it). Only type imports from @byokit/pair; the seal crypto bundles cleanly.
 import type { BrowserDevice, BrowserState, NeedSignIn, TakeoverLease, LiveSource, LiveFrame, LiveViewState, ThumbnailResult, SignInRefusedWhy } from './browser.ts';
 import { openBoxFromSeed, boxKeyPairFromSeed } from '@byokit/seal';
-import type { DeviceLink, LinkStream } from '@byokit/link';
+import type { DeviceLink, LinkStream } from '@byokit/pair';
 import type { RouteView } from './routes.ts';
 import { toAccountView, type AccountView } from './words.ts';
 import { b64urlDecode, b64urlEncode, openNotice } from './notices.ts';

@@ -11,12 +11,12 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { OpenClawKit, stateWords, type KitOptions, type ToolHost } from '@byokit/openclaw';
 import { openclawLink, serve } from '@byokit/openclaw/link';
-import { Host, type Grant, type GrantStore } from '@byokit/link';
-import { hostKeyFile } from '@byokit/link/node';
+import { Host, type Grant, type GrantStore } from '@byokit/pair';
+import { hostKeyFile } from '@byokit/pair/node';
 import { RelayClient, type Subscription } from '@byokit/relay';
 import { linkUrl } from '@byokit/relay/device';
 import type { ServeIngress, Via } from '@byokit/discover';
-import { qrMatrix } from '@byokit/ui-core/link';
+import { qrMatrix } from '@byokit/ui/link';
 
 const { values: flags } = parseArgs({ options: {
   port: { type: 'string', default: '7310' },

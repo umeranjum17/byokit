@@ -1,6 +1,6 @@
 // The phone and browser side (portable: no Node import anywhere in it): typed calls to a host running this kit's
 // link adapter (docs/runtime-kits.md 7.2).
-import type { DeviceLink, LinkStream } from '@byokit/link';
+import type { DeviceLink, LinkStream } from '@byokit/pair';
 import type {
   AgentRef, AgentStatus, BlockedAgent, HerdrEventName, HerdrEventOf, HerdrMethod, HerdrParams, HerdrResult,
   HerdrSnapshot, HerdrState, HerdrSubscription, PromptReceipt, StartAgent,

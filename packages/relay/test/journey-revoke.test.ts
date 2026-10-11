@@ -1,5 +1,5 @@
 // Consumer journeys for @byokit/relay's revocation path. Every import is a published entry
-// (`@byokit/relay`, `@byokit/link`): a real relay on a loopback port, a real host and phone link, and a
+// (`@byokit/relay`, `@byokit/pair`): a real relay on a loopback port, a real host and phone link, and a
 // fake push provider (the only stand-in, because FCM/Expo are not reachable offline). They carry the
 // contracts a host app depends on: a revoked phone stops getting push even if the relay was away when it
 // happened, and a revoke that cannot be saved never half-removes the phone.
@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { Host, keyPair, pairWithOffer, type DeviceGrant, type Grant } from '@byokit/link';
+import { Host, keyPair, pairWithOffer, type DeviceGrant, type Grant } from '@byokit/pair';
 import { Relay, RelayClient, type RelayClientOptions, type RelayClientStore, type RelayOptions, type RelayState } from '@byokit/relay';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

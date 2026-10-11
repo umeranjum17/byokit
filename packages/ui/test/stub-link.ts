@@ -1,6 +1,6 @@
 // A scripted link for the kits' real device clients: requests answer from a function, and each stream the device
 // opens is handed to the test to feed lines into, end, and check whether the device ended it.
-import type { DeviceLink, LinkStream } from '@byokit/link';
+import type { DeviceLink, LinkStream } from '@byokit/pair';
 
 export type Opened = { op: string; args: unknown; line(frame: unknown): void; end(error?: string): void; ended: boolean };
 

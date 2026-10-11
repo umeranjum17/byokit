@@ -3,7 +3,7 @@
 // from. Only a proof of the host's key counts, and each proof is good for one socket.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hostId, keyPair } from '@byokit/link';
+import { hostId, keyPair } from '@byokit/pair';
 import { CLOSE } from '../src/index.ts';
 import { prove, type Challenge } from '../src/proof.ts';
 import { closed, startRelay } from './helpers.ts';

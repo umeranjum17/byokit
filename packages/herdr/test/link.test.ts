@@ -11,7 +11,7 @@ import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import {
   DeviceLink, Host, keyPair, pairWithOffer,
   type DeviceGrant, type Grant,
-} from '@byokit/link';
+} from '@byokit/pair';
 import type { RelayClient } from '@byokit/relay';
 import { scratchDir } from '../../test-support.ts';
 import { HERDR_PROTOCOL, HERDR_VERSION } from '../src/constants.ts';

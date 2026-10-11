@@ -14,12 +14,12 @@
     "test": "node --test e2e.test.ts"
   },
   "dependencies": {
-    "@byokit/link": "0.8.0",
+    "@byokit/pair": "0.9.0",
     "@byokit/openclaw": "0.9.0",
     "@byokit/discover": "0.6.0",
     "@byokit/relay": "0.6.0",
     "@byokit/seal": "0.3.0",
-    "@byokit/ui-core": "0.6.0"
+    "@byokit/ui": "0.6.0"
   },
   "devDependencies": {
     "esbuild": "0.28.2"

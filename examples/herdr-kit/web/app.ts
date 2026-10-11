@@ -1,11 +1,11 @@
 // The phone side: pair with the computer, then see its Herdr agents, start one, talk to it and answer its questions.
-// Plain DOM over @byokit/ui-core's view state (the live tree and questions); every status a person reads is a sentence
-// from @byokit/herdr's or @byokit/ui-core's words.
-import { DeviceLink, browserDeviceStore, normalizeCode, pairWithCode, pairWithOffer, type DeviceGrant, type KeptDevice } from '@byokit/link';
+// Plain DOM over @byokit/ui's view state (the live tree and questions); every status a person reads is a sentence
+// from @byokit/herdr's or @byokit/ui's words.
+import { DeviceLink, browserDeviceStore, normalizeCode, pairWithCode, pairWithOffer, type DeviceGrant, type KeptDevice } from '@byokit/pair';
 import { agentWords, herdrDevice } from '@byokit/herdr/device';
-import { consentWords, linkWords, pairErrorWords, pairingView, type PairPhase } from '@byokit/ui-core/link';
-import { connectedWords } from '@byokit/ui-core/route';
-import { HERDR_EMPTY, agentIn, blockedView, herdrStore, herdrTreeView, type HerdrState } from '@byokit/ui-core/kits';
+import { consentWords, linkWords, pairErrorWords, pairingView, type PairPhase } from '@byokit/ui/link';
+import { connectedWords } from '@byokit/ui/route';
+import { HERDR_EMPTY, agentIn, blockedView, herdrStore, herdrTreeView, type HerdrState } from '@byokit/ui/kits';
 
 type Device = ReturnType<typeof herdrDevice>;
 

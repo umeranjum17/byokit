@@ -1,5 +1,5 @@
 // Open host.offer({ role: 'view', base: '<this origin>/pair.html', ... }) or paste an offline envelope.
-import { browserDeviceStore, decodeOffer, DeviceLink, offerText, pairWithOffer, parseV1Offer } from '@byokit/link';
+import { browserDeviceStore, decodeOffer, DeviceLink, offerText, pairWithOffer, parseV1Offer } from '@byokit/pair';
 
 const $ = (id: string) => document.getElementById(id)!;
 const store = browserDeviceStore('pwa-example');

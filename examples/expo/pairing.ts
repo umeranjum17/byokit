@@ -1,4 +1,4 @@
-import { normalizeCode, pairWithCode, pairWithOffer, type KeptDevice } from '@byokit/link';
+import { normalizeCode, pairWithCode, pairWithOffer, type KeptDevice } from '@byokit/pair';
 
 export function pairInput(input: string, hostUrl: string, options: Parameters<typeof pairWithOffer>[1]) {
   const code = normalizeCode(input.trim());

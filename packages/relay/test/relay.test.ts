@@ -1,8 +1,8 @@
-// Routing @byokit/link through the relay end to end: blind frames, a host replaced by a newer copy of itself, a
+// Routing @byokit/pair through the relay end to end: blind frames, a host replaced by a newer copy of itself, a
 // reconnect that sends the queued requests, typed pairing through a short code, and the per-address limits.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hostId, keyPair, pairWithCode } from '@byokit/link';
+import { hostId, keyPair, pairWithCode } from '@byokit/pair';
 import { CLOSE, LIMITS, RelayClient, findHost } from '../src/index.ts';
 import { closed, device, hostClient, paired, sleep, startHost, startRelay, until } from './helpers.ts';
 import { linkUrl } from '../src/device.ts';

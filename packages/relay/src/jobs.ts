@@ -1,5 +1,5 @@
 // Job history belongs to the host, never the blind relay. Link handles authentication, encryption and backpressure.
-import { b64url, unb64url, PublicLinkError, type LinkStream } from '@byokit/link';
+import { b64url, unb64url, PublicLinkError, type LinkStream } from '@byokit/pair';
 
 export type JobPart =
   | { type: 'text'; text: string }

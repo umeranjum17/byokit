@@ -662,7 +662,7 @@ its confidence estimates are self-reported and still go through decide's ordinar
 
 ## Jev from a paired phone
 
-`pairedJev()` sends questions through an existing `@byokit/link` DeviceLink to the user's
+`pairedJev()` sends questions through an existing `@byokit/pair` DeviceLink to the user's
 computer. The computer holds the API key (billed per use) and calls Jev; the phone receives
 only probabilities and token usage. Pairing does not enable paid decisions. The host app
 must ask for billing consent before constructing `jevHost()` with the explicit billing label.
@@ -672,7 +672,7 @@ an app-owned, passphrase-sealed `@byokit/secrets` store. The passphrase and key 
 through the host app, never a phone bundle or ambient credential lookup.
 
 ```ts
-import { Host, keyPair, type HostOptions } from '@byokit/link';
+import { Host, keyPair, type HostOptions } from '@byokit/pair';
 import { fileStore } from '@byokit/secrets';
 import { jevHost, PAIRED_JEV_OP } from '@byokit/decide';
 
@@ -696,7 +696,7 @@ async function enablePaidDecisions(passphrase: Uint8Array, consent: boolean, con
 On the phone, pass the existing paired link (or `null` before pairing):
 
 ```ts
-import type { DeviceLink } from '@byokit/link';
+import type { DeviceLink } from '@byokit/pair';
 import { decide, pairedJev, PairedHostError } from '@byokit/decide';
 
 async function askFromPhone(link: DeviceLink | null) {

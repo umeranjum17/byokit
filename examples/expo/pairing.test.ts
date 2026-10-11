@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import ws from 'ws';
-import { Host, keyPair, type DeviceGrant } from '@byokit/link';
+import { Host, keyPair, type DeviceGrant } from '@byokit/pair';
 import { forgettableStore, pairInput, pairingGeneration } from './pairing.ts';
 
 test('typed code and offer both pair with the computer', async () => {

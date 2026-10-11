@@ -1,6 +1,6 @@
-// The addresses a phone can dial the home computer on, for @byokit/link's `offer({ urls })`. Node only.
+// The addresses a phone can dial the home computer on, for @byokit/pair's `offer({ urls })`. Node only.
 import { hostname, networkInterfaces, type NetworkInterfaceInfo } from 'node:os';
-import { routeChoices } from '@byokit/ui-core/route';
+import { routeChoices } from '@byokit/ui/route';
 import { FUNNEL_ERROR, inspectServe, serve, tailscaleState, tailscaleStatus, unserve, type ServeIngress, type ServeRoot, type TailscaleOptions, type TailscaleState } from './tailscale.ts';
 
 export * from './tailscale.ts';

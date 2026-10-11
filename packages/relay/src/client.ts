@@ -2,7 +2,7 @@
 // `host.relay`, and reconnects with backoff when it drops. Requests to the relay itself (a short code, push
 // subscriptions, notifications) wait in a queue of 64 while the socket is down and go out once it is back. A revoked
 // device's unsubscribe is kept apart, in `store`: it is resent on every socket until the relay confirms it.
-import type { Host, Socket } from '@byokit/link';
+import type { Host, Socket } from '@byokit/pair';
 import { CLOSE, prove, type Challenge } from './proof.ts';
 import type { RelaySelf } from './relay.ts';
 import type { Notification, Subscription } from './push.ts';

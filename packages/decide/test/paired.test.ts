@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { LinkError, type Grant, type LinkRequest } from '@byokit/link';
+import { LinkError, type Grant, type LinkRequest } from '@byokit/pair';
 import { decide, jevHost, pairedJev, PairedHostError, UnsupportedImagesError, PAIRED_JEV_OP, type Question, type PairedJevLink } from '../src/index.ts';
 import { startHost, connect, pairWithOffer, until } from '../../pair/test/helpers.ts';
 

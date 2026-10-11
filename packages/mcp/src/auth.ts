@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomInt } from 'node:crypto';
-import { cleanName, normalizeCode } from '@byokit/link';
+import { cleanName, normalizeCode } from '@byokit/pair';
 import type { Keystore } from '@byokit/secrets';
 import { McpError, publicError } from './errors.ts';
 

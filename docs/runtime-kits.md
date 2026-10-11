@@ -222,7 +222,7 @@ app (niche workflow + UI)
 @byokit/openclaw  or  @byokit/herdr        ← runtime kit: aggregator's full power + helpers
   │ ./link adapter (host)      ▲ ./device client (phone/web)
   ▼                            │
-@byokit/link · relay · discover · seal · ui   ← unchanged connection kits
+@byokit/pair · relay · discover · seal · ui   ← unchanged connection kits
 ```
 
 ### 4.2 State and isolation
@@ -230,7 +230,7 @@ app (niche workflow + UI)
 - The app passes `stateDir`. OpenClaw kit writes only under `join(stateDir, 'openclaw')` and `join(stateDir, 'logs')`
   (Crewhouse's existing layout, so its state carries over byte-for-byte). Herdr kit in `own` mode writes only under
   `join(stateDir, 'herdr')`; in `adopt` mode it writes nothing.
-- Folders 0700, secret files 0600, atomic writes (temp + rename), as `@byokit/link/node` does.
+- Folders 0700, secret files 0600, atomic writes (temp + rename), as `@byokit/pair/node` does.
 - Never read or write `~/.pi`, `~/.openclaw`, `~/.clawdbot`, `~/.codex`, `~/.claude`, `~/.config/herdr` or any
   person-level path; `adopt` mode talks only to the socket path the app passes.
 - Spawned processes: explicit env only (D13).
@@ -296,8 +296,8 @@ packages/openclaw/
 `package.json`: `exports` `.` → `dist/index.js`, `./device` → `dist/device.js` (with `react-native` and `browser`
 conditions pointing at the same file), `./link` → `dist/link.js`, `./testing` → `dist/testing/index.js`; `files`:
 `dist`, `engine`, `plugin`, `policy`, `README.md`, `LICENSE`. Dependencies (exact): `@openclaw/gateway-client`
-`2026.8.35`, `@openclaw/gateway-protocol` `2026.8.35`, `@byokit/link` (current `0.3.1`), `@byokit/relay` (current
-`0.1.3`), `@byokit/discover` (current `0.2.0`), `@byokit/seal` (current `0.1.0`), `ws` `8.21.3`. Dev: `@byokit/ui-core`
+`2026.8.35`, `@openclaw/gateway-protocol` `2026.8.35`, `@byokit/pair` (current `0.3.1`), `@byokit/relay` (current
+`0.1.3`), `@byokit/discover` (current `0.2.0`), `@byokit/seal` (current `0.1.0`), `ws` `8.21.3`. Dev: `@byokit/ui`
 (assignability test only).
 
 ### 5.2 Public types (`src/types.ts`)
@@ -1980,7 +1980,7 @@ packages/herdr/
   test/*.test.ts
 ```
 
-Exports as D2 (`./device` with `react-native`/`browser` conditions, plus a Node-only `./binary`). Dependencies (exact): `@byokit/link`,
+Exports as D2 (`./device` with `react-native`/`browser` conditions, plus a Node-only `./binary`). Dependencies (exact): `@byokit/pair`,
 `@byokit/relay`, `@byokit/discover`, `@byokit/seal` (current versions as 5.1), `ws` `8.21.3`. Dev (root):
 `json-schema-to-typescript` pinned exactly (used by `gen-types.ts` only). Herdr itself is **not** an npm dependency
 (a native binary); the app installs it (README: `https://herdr.dev/install.sh` or the GitHub release) and passes `bin`.
@@ -2469,7 +2469,7 @@ Same shape in both kits; names below use `oc`/`hd`.
 
 ```ts
 import type { Member, OpenClawKit } from '@byokit/openclaw';
-import type { Grant, Host, HostOptions } from '@byokit/link';
+import type { Grant, Host, HostOptions } from '@byokit/pair';
 import type { RelayClient } from '@byokit/relay';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 type Via = 'auto' | 'tailscale' | 'tailscale-direct' | 'private' | 'lan';   // @byokit/discover
@@ -2546,7 +2546,7 @@ re-exports them with the frame types below.
 import type { Account, AccountId, AccountPick, AccountRef, Defaults, ModelInfo, Room, RunSelection } from '@byokit/accounts';
 import type { AccountView, Approval, Decision, GatewayEventName, GatewayEventPayload, GatewayMethod, GatewayParams,
   GatewayResult, KitState, OutputSchema, Route, RunEnd, RunEvent, SchemaOutput, SignInView } from '@byokit/openclaw';
-import type { DeviceLink } from '@byokit/link';
+import type { DeviceLink } from '@byokit/pair';
 import type { AgentRef, AgentStatus, BlockedAgent, HerdrEventName, HerdrEventOf, HerdrMethod, HerdrParams, HerdrResult,
   HerdrSnapshot, HerdrState, HerdrSubscription, PromptReceipt, StartAgent } from '@byokit/herdr';
 type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
@@ -2646,8 +2646,8 @@ examples/openclaw-kit/  package.json  host.ts  web/index.html  web/app.ts  READM
 examples/herdr-kit/     package.json  host.ts  web/index.html  web/app.ts  README.md  e2e.test.ts  LIVE.md
 ```
 
-- `package.json`: `"private": true`, dependencies on the kit and `@byokit/link`, `@byokit/discover`, `@byokit/relay`,
-  `@byokit/ui-core`, `@byokit/seal` at exact published versions, `esbuild` (dev) to bundle `web/app.ts`. Scripts: `start` (`node
+- `package.json`: `"private": true`, dependencies on the kit and `@byokit/pair`, `@byokit/discover`, `@byokit/relay`,
+  `@byokit/ui`, `@byokit/seal` at exact published versions, `esbuild` (dev) to bundle `web/app.ts`. Scripts: `start` (`node
   host.ts`), `build:web`, `test` (`node --test e2e.test.ts`). Not part of the root workspaces.
 - `host.ts` (OpenClaw): `new OpenClawKit({ stateDir: './.state', tools: [demo_note], host,
   config: { plugins: { allow: ['openai'] } } })` where `demo_note`
