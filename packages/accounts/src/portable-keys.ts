@@ -1,4 +1,4 @@
-// Only loaded on the first key request. Unmodified published adapters, transformed for Metro by the kit.
+// Only loaded on the first key request. Published adapters, transformed for Metro by the kit with one recorded Hermes throwIfAborted guard.
 import { createModels, createProvider } from './pi/core.js';
 import type { ProviderStreams } from '@earendil-works/pi-ai';
 import type { KeyRuntime } from './key-routes.ts';
