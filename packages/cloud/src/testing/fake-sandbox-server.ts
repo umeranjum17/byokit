@@ -1,32 +1,30 @@
 // Fake sandbox API server bench (docs/cloud-kit.md M4): a loopback `node:http` server on
-// `127.0.0.1:0` answering the 6.1 routes, a state machine per id, a request log, and
-// command execution delegated to `fakeMachine()` — so this bench runs the same machine as
+// `127.0.0.1:0` answering the public boat-v1 routes, a state machine per id, a request log,
+// and command execution delegated to `fakeMachine()` — so this bench runs the same machine as
 // the fake provider and the SSH bench (13.3).
 //
-// This server defines the fixture document both sides agree on (15.1, 6.1): field names
-// here are fixture choices for Boat, with no real provider host —
-// fixtures use `http://boat.test`, mapped to the loopback port through the `fetch`
-// option (M4). Fields:
-//   GET /me -> { accountId }
-//   POST /sandboxes { type, ttlSeconds, noEnv, snapshots } + Idempotency-Key -> { id, state }
-//   GET /sandboxes/{id} -> { id, state, stopReason }
-//   POST /sandboxes/{id}/resume { ttlSeconds } -> { state }
-//   POST /sandboxes/{id}/stop -> {}
-//   POST /named-snapshots { sandboxId, name } -> { name }
-//   GET /named-snapshots/{name} -> { name, ready }
-//   POST /sandboxes/{id}/fork { ttlSeconds } + Idempotency-Key -> { id, state }
-//   DELETE /sandboxes/{id} + X-Delete-Confirmation: <id> -> { operationId }
-//   GET /deletion-operations/{op} -> { done }
-//   GET /named-snapshots -> { snapshots: [{ name }] }
-//   DELETE /named-snapshots/{name} -> {}
-//   POST /sandboxes/{id}/commands { command, timeoutSeconds, detached } -> { stdout, stderr, exitCode } | { id }
-//   GET /sandboxes/{id}/commands/{pid} -> { done, stdout, stderr, exitCode }
-//   PUT /sandboxes/{id}/files { path, content } -> {} (content is base64)
-//   POST /sandboxes/{id}/host { port, public } -> { url }
-//   GET /sandboxes/{id}/usage?since=<since> -> { seconds, dollars, running }
-//   GET /limits -> { balance, trialActive, trialEndsAt, canStayOn, checkoutUrl }
-//   GET /api-keys/current -> { expiresAt, scopes }
-// Wire stop reasons: 'user' | 'idle' | 'balance' | 'trial' | anything else.
+// This server serves the public boat-v1 API document (`docs.boat.dev/openapi/boat-v1.yaml`)
+// so the adapter and this bench agree on the real wire shapes (15.1, 6.1) — every response
+// nests its sandbox/operation/snapshot object and uses the document's field names. Routes:
+//   GET /me -> { ok, type: user.info, user: { id } }
+//   POST /sandboxes { type, ttlSeconds, noEnv, snapshots } + Idempotency-Key -> { ok, type, status, ttlSeconds, sandbox: { id, state } }
+//   GET /sandboxes/{id} -> { ok, type: sandbox.info, sandbox: { id, state } }
+//   POST /sandboxes/{id}/resume { ttlSeconds } -> { ok, type, id, status, sandbox: { id, state } }
+//   POST /sandboxes/{id}/stop -> { ok, type, id, status, sandbox: { id, state } }
+//   POST /named-snapshots { sandboxId, name } -> { ok, type, status, snapshot: { name } }
+//   GET /named-snapshots/{name} -> { ok, type, snapshot: { name, status } }
+//   POST /sandboxes/{id}/fork { ttlSeconds } + Idempotency-Key -> { ok, type, id, status, sandbox: { id, state } }
+//   DELETE /sandboxes/{id} + X-Ascii-Confirm-Delete: <id> -> { ok, type, operation: { id, status } }
+//   GET /deletion-operations/{op} -> { ok, type, operation: { id, status } }
+//   GET /named-snapshots -> { ok, type, snapshots: [{ name }] }
+//   DELETE /named-snapshots/{name} -> { ok, type, name, status }
+//   POST /sandboxes/{id}/commands { command, timeoutSeconds, detached } -> { ok, type, exitCode, stdout, stderr, timedOut } | { ok, type, processId, pid, ... }
+//   GET /sandboxes/{id}/commands/{processId} -> { ok, type, processId, running, status, exitCode, stdout, stderr }
+//   PUT /sandboxes/{id}/files { path, content, encoding } -> { ok, type, path, encoding, size } (content base64 when encoding=base64)
+//   POST /sandboxes/{id}/host { port, public } -> { ok, type, port, url }
+//   GET /sandboxes/{id}/usage?since=<since> -> { ok, type, seconds, dollars, running }
+//   GET /limits -> { ok, type, canStart, activeSandboxes, maxActiveSandboxes, billingStatus, creditBalanceSeconds, packBalanceSeconds, packBalanceDollars, unlimited, sandboxPlanKey, subscriptionTrialEndsAt }
+// Sandbox states are the document's enum; there is no stop-reason field, so `why` is absent.
 import http from 'node:http';
 import { FakeMachine, fakeMachine, parseCommand } from './fake-machine.ts';
 
@@ -43,15 +41,14 @@ export type SandboxServerOptions = {
   key?: string;
   accountId?: string;
   trial?: boolean;
+  /** Remaining `creditBalanceSeconds`; null (default) means a funded account. */
   balance?: number | null;
   trialEndsAt?: string | null;
-  canStayOn?: boolean;
-  checkoutUrl?: string | null;
-  stopReason?: string | null;
+  planKey?: string;
+  canStart?: boolean;
+  unlimited?: boolean;
   /** Resume leaves the machine provisioning for this many status reads (default 0). */
   slowWakeReads?: number;
-  keyExpiresAt?: string | null;
-  keyScopes?: readonly string[];
 };
 
 export type SandboxServer = {
@@ -64,8 +61,7 @@ export type SandboxServer = {
   setState(id: string, raw: string): void;
   setTrial(on: boolean): void;
   setBalance(n: number | null): void;
-  setStopReason(r: string | null): void;
-  setPlan(p: { trialEndsAt?: string | null; canStayOn?: boolean; checkoutUrl?: string | null }): void;
+  setPlan(p: { planKey?: string; subscriptionTrialEndsAt?: string | null; canStart?: boolean }): void;
   /** Destroy the next n connections without answering (a dropped connection). */
   dropNext(n: number): void;
   /** Answer the next request(s) with these one-shot failures first. */
@@ -76,7 +72,6 @@ export type SandboxServer = {
 type Sandbox = {
   id: string;
   raw: string;
-  stopReason: string | null;
   wakeReads: number;
   commands: Map<string, { stdout: string; stderr: string; exitCode: number }>;
 };
@@ -92,16 +87,17 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
   const snapshots = new Map<string, string>();
   const createdByKey = new Map<string, string>();
   const forkedByKey = new Map<string, string>();
-  const deletions = new Set<string>();
+  const deletions = new Map<string, 'processing' | 'completed'>();
   let seq = 0;
   let opSeq = 0;
   let cmdSeq = 0;
   let trial = o.trial ?? false;
-  let balance: number | null = o.balance ?? null;
-  let trialEndsAt: string | null = o.trialEndsAt ?? null;
-  let canStayOn = o.canStayOn ?? true;
-  let checkoutUrl: string | null = o.checkoutUrl ?? null;
-  let stopReason: string | null = o.stopReason ?? null;
+  let creditBalanceSeconds = o.balance === undefined || o.balance === null ? 7200 : o.balance;
+  let packBalanceSeconds = 0;
+  let unlimited = o.unlimited ?? false;
+  let canStart = o.canStart ?? true;
+  let planKey = o.planKey ?? (trial ? 'trial' : 'box_20');
+  let subscriptionTrialEndsAt: string | null = o.trialEndsAt ?? null;
   let slowWakeReads = o.slowWakeReads ?? 0;
   let drop = 0;
   const failures: { status: number; body?: unknown }[] = [];
@@ -111,6 +107,8 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
     res.writeHead(status, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(text) });
     res.end(text);
   };
+
+  const sandboxBody = (sb: Sandbox, name: string): Record<string, unknown> => ({ id: sb.id, name, state: sb.raw });
 
   // The 6.4 stdin wrapper verbatim (`<command> < <path>; r=$?; rm -f <path>; exit $r`):
   // the shell keeps `;` glued to the path token, so this is recognised here and the
@@ -191,7 +189,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
       const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
       const b = (body ?? {}) as Record<string, unknown>;
 
-      if (route === 'GET /me') return send(res, 200, { accountId });
+      if (route === 'GET /me') return send(res, 200, { ok: true, type: 'user.info', user: { id: accountId } });
 
       if (route === 'POST /sandboxes') {
         if (b['noEnv'] !== true) return send(res, 400, { error: 'noEnv must be true' });
@@ -199,15 +197,17 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
         const idemKey = typeof idem === 'string' ? idem : '';
         if (idemKey !== '' && createdByKey.has(idemKey)) {
           const id = createdByKey.get(idemKey) as string;
-          return send(res, 200, { id, state: sandboxes.get(id)?.raw ?? 'ready' });
+          const sb = sandboxes.get(id) as Sandbox;
+          return send(res, 202, { ok: true, type: 'sandbox.created', status: 'ready', ttlSeconds: b['ttlSeconds'] ?? null, sandbox: sandboxBody(sb, 'Sandbox') });
         }
         if (trial && b['ttlSeconds'] === null) {
           return send(res, 422, { error: 'trial_auto_stop_required', message: 'the trial caps auto-stop at 2 hours' });
         }
         const id = `sb-${++seq}`;
-        sandboxes.set(id, { id, raw: 'ready', stopReason: null, wakeReads: 0, commands: new Map() });
+        const sb: Sandbox = { id, raw: 'ready', wakeReads: 0, commands: new Map() };
+        sandboxes.set(id, sb);
         if (idemKey !== '') createdByKey.set(idemKey, id);
-        return send(res, 201, { id, state: 'ready' });
+        return send(res, 202, { ok: true, type: 'sandbox.created', status: 'provisioning', ttlSeconds: b['ttlSeconds'] ?? null, sandbox: sandboxBody(sb, 'Sandbox') });
       }
 
       const sbMatch = /^\/sandboxes\/([^/]+)(\/.*)?$/.exec(path);
@@ -221,7 +221,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
             sb.wakeReads -= 1;
             if (sb.wakeReads === 0) sb.raw = 'ready';
           }
-          return send(res, 200, { id, state: sb.raw, stopReason: sb.stopReason });
+          return send(res, 200, { ok: true, type: 'sandbox.info', sandbox: sandboxBody(sb, 'Sandbox') });
         }
         if (sb === undefined) return send(res, 404, { error: 'not found' });
         if (rest === '/resume' && req.method === 'POST') {
@@ -232,69 +232,74 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
           if ('noEnv' in b || 'env' in b) return send(res, 400, { error: 'noEnv and env are create-only' });
           sb.raw = slowWakeReads > 0 ? 'provisioning' : 'ready';
           sb.wakeReads = slowWakeReads;
-          return send(res, 200, { state: sb.raw });
+          return send(res, 202, { ok: true, type: 'sandbox.resuming', id, status: 'resuming', sandbox: sandboxBody(sb, 'Sandbox') });
         }
         if (rest === '/stop' && req.method === 'POST') {
           sb.raw = 'archived';
-          sb.stopReason = stopReason;
-          return send(res, 200, {});
+          return send(res, 202, { ok: true, type: 'sandbox.stopping', id, status: 'archiving', sandbox: sandboxBody(sb, 'Sandbox') });
         }
         if (rest === '/fork' && req.method === 'POST') {
           if ('noEnv' in b || 'env' in b) return send(res, 400, { error: 'noEnv and env are create-only' });
           const idem = req.headers['idempotency-key'];
           const idemKey = typeof idem === 'string' ? idem : '';
           if (idemKey !== '' && forkedByKey.has(idemKey)) {
-            return send(res, 200, { id: forkedByKey.get(idemKey) as string, state: 'ready' });
+            const forkId = forkedByKey.get(idemKey) as string;
+            const forked = sandboxes.get(forkId) as Sandbox;
+            return send(res, 202, { ok: true, type: 'sandbox.forking', id: forkId, status: 'forking', sandbox: sandboxBody(forked, 'Fork') });
           }
           if (trial && b['ttlSeconds'] === null) {
             return send(res, 422, { error: 'trial_auto_stop_required', message: 'the trial caps auto-stop at 2 hours' });
           }
           const forkId = `sb-${++seq}`;
-          sandboxes.set(forkId, { id: forkId, raw: 'ready', stopReason: null, wakeReads: 0, commands: new Map() });
+          const forked: Sandbox = { id: forkId, raw: 'ready', wakeReads: 0, commands: new Map() };
+          sandboxes.set(forkId, forked);
           if (idemKey !== '') forkedByKey.set(idemKey, forkId);
-          return send(res, 201, { id: forkId, state: 'ready' });
+          return send(res, 202, { ok: true, type: 'sandbox.forking', id: forkId, status: 'forking', sandbox: sandboxBody(forked, 'Fork') });
         }
         if (rest === '' && req.method === 'DELETE') {
-          if (req.headers['x-delete-confirmation'] !== id) {
-            return send(res, 400, { error: 'the delete-confirmation header must equal the id' });
+          if (req.headers['x-ascii-confirm-delete'] !== id) {
+            return send(res, 409, { error: 'the delete-confirmation header must equal the id' });
           }
           sandboxes.delete(id);
-          const op = `del-${++opSeq}`;
-          deletions.add(op);
-          return send(res, 202, { operationId: op });
+          const op = `bdop_${(++opSeq).toString(16).padStart(32, '0')}`;
+          deletions.set(op, 'completed');
+          return send(res, 202, { ok: true, type: 'sandbox.deleting', operation: { id: op, kind: 'sandbox', targetId: id, reason: 'explicit', status: 'processing', attemptCount: 0, requestedAt: new Date().toISOString(), completedAt: null } });
         }
         if (rest === '/commands' && req.method === 'POST') {
           const command = str(b['command']);
           if (command === null) return send(res, 400, { error: 'command is required' });
           const result = runCommand(command);
           if (b['detached'] === true) {
-            const pid = `cmd-${++cmdSeq}`;
-            sb.commands.set(pid, result);
-            return send(res, 202, { id: pid });
+            const pid = ++cmdSeq;
+            sb.commands.set(String(pid), result);
+            return send(res, 200, { ok: true, type: 'command.started', success: true, processId: pid, pid, command, cwd: '/home/user', startedAt: new Date().toISOString() });
           }
-          return send(res, 200, { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode });
+          return send(res, 200, { ok: true, type: 'command.finished', success: result.exitCode === 0, commandId: `cmd-${++cmdSeq}`, exitCode: result.exitCode, signal: null, oomKilled: false, stdout: result.stdout, stderr: result.stderr, stdoutTruncated: false, stderrTruncated: false, timedOut: result.exitCode === 124 || result.exitCode === 137, cwd: '/home/user', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString() });
         }
         const cmdMatch = /^\/commands\/([^/]+)$/.exec(rest);
         if (cmdMatch !== null && req.method === 'GET') {
-          const pid = decodeURIComponent(cmdMatch[1]);
-          const result = sb.commands.get(pid);
+          const pidStr = decodeURIComponent(cmdMatch[1]);
+          const result = sb.commands.get(pidStr);
           if (result === undefined) return send(res, 404, { error: 'not found' });
-          return send(res, 200, { done: true, stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode });
+          const pid = Number.parseInt(pidStr, 10);
+          return send(res, 200, { ok: true, type: 'command.status', success: true, processId: pid, pid, status: 'exited', known: true, running: false, exitCode: result.exitCode, signal: null, oomKilled: false, stdout: result.stdout, stderr: result.stderr, stdoutTruncated: false, stderrTruncated: false });
         }
         if (rest === '/files' && req.method === 'PUT') {
           const filePath = str(b['path']);
           const content = str(b['content']);
           if (filePath === null || content === null) return send(res, 400, { error: 'path and content are required' });
-          machine.writeFile(filePath, fromBase64(content), 0o600);
-          return send(res, 200, {});
+          const encoding = str(b['encoding']) ?? 'utf8';
+          const bytes = encoding === 'base64' ? fromBase64(content) : new TextEncoder().encode(content);
+          machine.writeFile(filePath, bytes, 0o600);
+          return send(res, 200, { ok: true, type: 'file.written', success: true, path: filePath, encoding, size: bytes.length });
         }
         if (rest === '/host' && req.method === 'POST') {
           const port = num(b['port']);
           if (port === null) return send(res, 400, { error: 'port is required' });
-          return send(res, 200, { url: `https://${id}-${port}.boat.test` });
+          return send(res, 200, { ok: true, type: 'port.hosted', success: true, port, url: `https://${id}-${port}.boat.test`, isProtected: false, access: 'public' });
         }
         if (rest === '/usage' && req.method === 'GET') {
-          return send(res, 200, { seconds: 86400, dollars: 0.5, running: true });
+          return send(res, 200, { ok: true, type: 'sandbox.usage', sandboxId: id, sandboxType: 'small', billingMultiplier: 0.5, since: u.searchParams.get('since'), until: new Date().toISOString(), seconds: 86400, dollars: 0.5, secondsPerDollar: 100000, running: true });
         }
         return send(res, 404, { error: 'not found' });
       }
@@ -307,39 +312,45 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
           return send(res, 409, { error: 'at most 10 named snapshots per account' });
         }
         snapshots.set(name, sandboxId);
-        return send(res, 201, { name });
+        return send(res, 202, { ok: true, type: 'snapshot.named.saving', status: 'saving', snapshot: { name, status: 'saving', sourceSandboxId: sandboxId, createdAt: new Date().toISOString() } });
       }
       const namedGet = /^\/named-snapshots\/([^/]+)$/.exec(path);
       if (namedGet !== null && req.method === 'GET') {
         const name = decodeURIComponent(namedGet[1]);
         if (!snapshots.has(name)) return send(res, 404, { error: 'not found' });
-        return send(res, 200, { name, ready: true });
+        return send(res, 200, { ok: true, type: 'snapshot.named.info', snapshot: { name, status: 'ready', sourceSandboxId: snapshots.get(name), createdAt: new Date().toISOString() } });
       }
       if (namedGet !== null && req.method === 'DELETE') {
-        snapshots.delete(decodeURIComponent(namedGet[1]));
-        return send(res, 200, {});
+        const name = decodeURIComponent(namedGet[1]);
+        snapshots.delete(name);
+        return send(res, 200, { ok: true, type: 'snapshot.named.deleted', name, status: 'deleted' });
       }
       if (route === 'GET /named-snapshots') {
-        return send(res, 200, { snapshots: [...snapshots.keys()].map((name) => ({ name })) });
+        return send(res, 200, { ok: true, type: 'snapshot.named.list', snapshots: [...snapshots.keys()].map((name) => ({ name, status: 'ready' })) });
       }
 
       const delMatch = /^\/deletion-operations\/([^/]+)$/.exec(path);
       if (delMatch !== null && req.method === 'GET') {
-        if (!deletions.has(decodeURIComponent(delMatch[1]))) return send(res, 404, { error: 'not found' });
-        return send(res, 200, { done: true });
+        const op = decodeURIComponent(delMatch[1]);
+        if (!deletions.has(op)) return send(res, 404, { error: 'not found' });
+        return send(res, 200, { ok: true, type: 'deletion.operation', operation: { id: op, kind: 'sandbox', targetId: '', reason: 'explicit', status: deletions.get(op), attemptCount: 1, requestedAt: new Date().toISOString(), completedAt: deletions.get(op) === 'completed' ? new Date().toISOString() : null } });
       }
 
       if (route === 'GET /limits') {
         return send(res, 200, {
-          balance,
-          trialActive: trial,
-          trialEndsAt,
-          canStayOn,
-          checkoutUrl,
+          ok: true,
+          type: 'limits.info',
+          canStart,
+          activeSandboxes: sandboxes.size,
+          maxActiveSandboxes: 100,
+          billingStatus: 'active',
+          creditBalanceSeconds,
+          packBalanceSeconds,
+          packBalanceDollars: 0,
+          unlimited,
+          sandboxPlanKey: planKey,
+          subscriptionTrialEndsAt,
         });
-      }
-      if (route === 'GET /api-keys/current') {
-        return send(res, 200, { expiresAt: o.keyExpiresAt ?? null, scopes: [...(o.keyScopes ?? [])] });
       }
       return send(res, 404, { error: 'not found' });
     });
@@ -360,17 +371,16 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
     },
     setTrial: (on) => {
       trial = on;
+      planKey = on ? 'trial' : 'box_20';
     },
     setBalance: (n) => {
-      balance = n;
-    },
-    setStopReason: (r) => {
-      stopReason = r;
+      creditBalanceSeconds = n === null ? 7200 : n;
+      packBalanceSeconds = 0;
     },
     setPlan: (p) => {
-      if (p.trialEndsAt !== undefined) trialEndsAt = p.trialEndsAt;
-      if (p.canStayOn !== undefined) canStayOn = p.canStayOn;
-      if (p.checkoutUrl !== undefined) checkoutUrl = p.checkoutUrl;
+      if (p.planKey !== undefined) planKey = p.planKey;
+      if (p.subscriptionTrialEndsAt !== undefined) subscriptionTrialEndsAt = p.subscriptionTrialEndsAt;
+      if (p.canStart !== undefined) canStart = p.canStart;
     },
     dropNext: (n) => {
       drop += n;

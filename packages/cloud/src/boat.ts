@@ -2,15 +2,15 @@
 // so browsers and PWAs can bundle `.` (D-6); the adapter itself does not run from a web
 // page (15.1), so setup happens from the phone app or a desktop app.
 //
-// Wire-field note: the public API document's exact route and field names arrive with the
-// M4 brief (15.1); the loopback bench (`src/testing/fake-sandbox-server.ts`) defines the
-// fixture document used here, and both sides agree on it. Boat is named under D-2;
-// fixtures use the host `boat.test`, mapped to loopback.
+// Wire-field note: every route, header and field here is the public boat-v1 API
+// (`docs.boat.dev/openapi/boat-v1.yaml`, confirmed in M4); the loopback bench
+// (`src/testing/fake-sandbox-server.ts`) serves those same public shapes, and both sides
+// agree on them. Boat is named under D-2; fixtures use the host `boat.test`, mapped to
+// loopback. Where the public document has no equivalent (a current-key route, a
+// stop-reason field), the method is absent rather than guessed (docs/cloud-kit.md 6.1).
 import { MachineError } from './errors.ts';
 import type {
-  AsleepWhy,
   ExecResult,
-  KeyInfo,
   MachineRef,
   MachineState,
   Plan,
@@ -30,9 +30,10 @@ const SIZES: readonly Size[] = [
 const TRIAL_ERROR = 'trial_auto_stop_required';
 const TRIAL_TTL_SECONDS = 7200;
 
-// The provider's delete-confirmation header (6.1); its name comes from the API document
-// and the fixture document fixes it here.
-const DELETE_CONFIRM_HEADER = 'X-Delete-Confirmation';
+// The provider's delete-confirmation header (6.1). The public API document names it
+// `X-Ascii-Confirm-Delete` and requires its value to equal the sandbox id
+// (boat-v1.yaml:106-107).
+const DELETE_CONFIRM_HEADER = 'X-Ascii-Confirm-Delete';
 
 const RETRY_WAITS_MS = [1000, 2000, 4000];
 const POLL_EVERY_MS = 2000;
@@ -137,12 +138,16 @@ export function boat(o: {
   const field = (json: unknown, name: string): unknown =>
     typeof json === 'object' && json !== null ? (json as Record<string, unknown>)[name] : undefined;
 
+  // A sandbox object is nested under `sandbox` in every boat-v1 response that returns one
+  // (`sandbox.created`, `sandbox.info`); the fields inside it are flat.
+  const sandboxField = (json: unknown, name: string): unknown => field(field(json, 'sandbox'), name);
+
   const account = async (): Promise<string> => {
     if (accountCache === null) {
       const { json } = await checked('GET', '/me');
-      const id = field(json, 'accountId');
+      const id = field(field(json, 'user'), 'id');
       if (typeof id !== 'string' || id.length === 0) {
-        throw new MachineError('provider', 'the provider answered /me without an accountId');
+        throw new MachineError('provider', 'the provider answered /me without a user.id');
       }
       accountCache = id;
     }
@@ -221,7 +226,7 @@ export function boat(o: {
     // A request that failed after retries leaves the state unknown, never failed (6.2).
     if (res.status === 429 || res.status >= 500) return 'unknown';
     if (res.status < 200 || res.status >= 300) fail(res.status, text);
-    return mapState(m.id, field(json, 'state'));
+    return mapState(m.id, sandboxField(json, 'state'));
   };
 
   const exec = async (
@@ -246,11 +251,13 @@ export function boat(o: {
       const { json } = await checked('POST', `/sandboxes/${encodeURIComponent(m.id)}/commands`, {
         body: { command, detached: true },
       });
-      const pid = field(json, 'id');
-      if (typeof pid !== 'string') fail(200, 'the provider answered a command without an id');
+      // The public detached start answers `processId` (an integer), not `id`.
+      const pid = field(json, 'processId');
+      if (typeof pid !== 'number') fail(200, 'the provider answered a command without a processId');
       for (;;) {
-        const polled = await checked('GET', `/sandboxes/${encodeURIComponent(m.id)}/commands/${encodeURIComponent(pid as string)}`);
-        if (field(polled.json, 'done') === true) {
+        const polled = await checked('GET', `/sandboxes/${encodeURIComponent(m.id)}/commands/${encodeURIComponent(String(pid))}`);
+        // `command.status` has no `done`; it carries `running` (false once exited or lost).
+        if (field(polled.json, 'running') === false) {
           return finish(polled.json);
         }
         if (Date.now() - started > execOpts.timeoutMs + 30_000) {
@@ -279,7 +286,8 @@ export function boat(o: {
       throw new MachineError('bad-recipe', `path: must be under /home/user/ or /tmp/, got ${JSON.stringify(path)}`);
     }
     await checked('PUT', `/sandboxes/${encodeURIComponent(m.id)}/files`, {
-      body: { path, content: toBase64(bytes) },
+      // The public file API defaults `encoding` to `utf8`; the content is base64.
+      body: { path, content: toBase64(bytes), encoding: 'base64' },
     });
     // `Machine` writes files through `exec` with `input`, so root never reads a staged
     // path; only this 6.4 `input` path stages one.
@@ -305,7 +313,7 @@ export function boat(o: {
         });
         const { text, json } = await read(res);
         if (res.status < 200 || res.status >= 300) trialOrFail(res.status, text);
-        const created = field(json, 'id');
+        const created = sandboxField(json, 'id');
         if (typeof created !== 'string' || created.length === 0) fail(res.status, text);
         return created as string;
       });
@@ -350,14 +358,18 @@ export function boat(o: {
 
     snapshot: async (m: MachineRef, name: string) => {
       const full = `byokit-${m.name}-${name}`;
-      const { status: code, text, json } = await checked('POST', '/named-snapshots', {
+      const { status: code, text } = await checked('POST', '/named-snapshots', {
         body: { sandboxId: m.id, name: full },
       });
       if (code < 200 || code >= 300) fail(code, text);
-      void json;
       for (;;) {
         const polled = await checked('GET', `/named-snapshots/${encodeURIComponent(full)}`);
-        if (field(polled.json, 'ready') === true) return { name: full };
+        // `snapshot.named.info` nests the snapshot; it carries `status`, not `ready`.
+        const state = field(field(polled.json, 'snapshot'), 'status');
+        if (state === 'ready') return { name: full };
+        if (state === 'failed') {
+          throw new MachineError('provider', 'the provider could not save the named snapshot');
+        }
         await sleep(POLL_EVERY_MS);
       }
     },
@@ -389,14 +401,16 @@ export function boat(o: {
       if (res.status !== 404) {
         const { text, json } = await read(res);
         if (res.status < 200 || res.status >= 300) trialOrFail(res.status, text);
-        const op = field(json, 'operationId');
+        // `sandbox.deleting` nests the operation; it carries `id` and `status`, not
+        // `operationId`/`done`.
+        const op = field(field(json, 'operation'), 'id');
         if (typeof op === 'string' && op.length > 0) {
           for (;;) {
             const polled = await send('GET', `/deletion-operations/${encodeURIComponent(op)}`);
             if (polled.status === 404) break;
             const body = await read(polled);
             if (polled.status < 200 || polled.status >= 300) trialOrFail(polled.status, body.text);
-            if (field(body.json, 'done') === true) break;
+            if (field(field(body.json, 'operation'), 'status') === 'completed') break;
             await sleep(POLL_EVERY_MS);
           }
         }
@@ -439,62 +453,39 @@ export function boat(o: {
       if (typeof seconds !== 'number' || typeof dollars !== 'number') {
         throw new MachineError('provider', 'the provider answered usage without seconds and dollars');
       }
-      // Then `GET /limits` for the balance (6.1).
+      // Then `GET /limits` for the balance (6.1). The public response has no single
+      // `balance`; remaining machine time is `creditBalanceSeconds` plus
+      // `packBalanceSeconds`, and an `unlimited` account never runs out.
       const limits = await checked('GET', '/limits');
-      const balance = field(limits.json, 'balance');
-      if (typeof balance === 'number' && balance <= 0) {
+      const credit = field(limits.json, 'creditBalanceSeconds');
+      const pack = field(limits.json, 'packBalanceSeconds');
+      const known = typeof credit === 'number' || typeof pack === 'number';
+      const secondsLeft = (typeof credit === 'number' ? credit : 0) + (typeof pack === 'number' ? pack : 0);
+      if (field(limits.json, 'unlimited') !== true && known && secondsLeft <= 0) {
         throw new MachineError('balance', 'the account balance is spent');
       }
       return { from: since, to, hours: seconds / 3600, amount: dollars, currency: 'USD' as const };
     },
 
-    key: async () => {
-      const { json } = await checked('GET', '/api-keys/current');
-      const expiresAt = field(json, 'expiresAt');
-      const scopes = field(json, 'scopes');
-      const info: KeyInfo = {
-        expires: typeof expiresAt === 'string' ? expiresAt : null,
-        scopes: Array.isArray(scopes) ? scopes.filter((s): s is string => typeof s === 'string') : [],
-      };
-      return info;
-    },
-
     // G2: display only (5.7); no other call depends on it. Not cached.
     plan: async () => {
       const { json } = await checked('GET', '/limits');
-      const trialActive = field(json, 'trialActive');
-      const trialEndsAt = field(json, 'trialEndsAt');
-      const canStayOn = field(json, 'canStayOn');
-      const checkoutUrl = field(json, 'checkoutUrl');
+      // The public limits response marks a trial with `sandboxPlanKey: 'trial'` and the
+      // trial end as `subscriptionTrialEndsAt`; it carries no checkout URL.
+      const inTrial = field(json, 'sandboxPlanKey') === 'trial';
+      const trialEndsAt = field(json, 'subscriptionTrialEndsAt');
       const plan: Plan = {
-        inTrial: trialActive === true,
+        inTrial,
         trialEndsAt: typeof trialEndsAt === 'string' ? trialEndsAt : null,
-        canStayOn: canStayOn !== false,
-        checkoutUrl: typeof checkoutUrl === 'string' ? checkoutUrl : null,
+        canStayOn: !inTrial,
+        checkoutUrl: null,
       };
       return plan;
     },
 
-    // G3: the fixture document carries a stop reason, so the method ships. A sandbox
-    // without one resolves null and 5.7's fallbacks apply — the same outcome as absent.
-    why: async (m: MachineRef) => {
-      const res = await send('GET', `/sandboxes/${encodeURIComponent(m.id)}`);
-      if (res.status === 404) return null;
-      const { text, json } = await read(res);
-      if (res.status === 401 || res.status === 403) {
-        throw new MachineError('unauthorized', 'the provider did not accept the key');
-      }
-      if (res.status < 200 || res.status >= 300) fail(res.status, text);
-      const reason = field(json, 'stopReason');
-      if (reason === null || reason === undefined) return null;
-      const why: Record<string, AsleepWhy> = {
-        user: 'you',
-        balance: 'out-of-credit',
-        trial: 'trial-limit',
-        idle: 'idle',
-      };
-      return typeof reason === 'string' && reason in why ? why[reason] : 'provider';
-    },
+    // `key` and `why` are absent: the public API has no current-key route (`GET /api-keys`
+    // only lists an account's keys) and no sandbox stop-reason field, so 6.1's rule applies
+    // and 5.7's fallbacks are used instead of a guessed name.
   };
 
   return provider;

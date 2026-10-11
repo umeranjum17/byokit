@@ -303,30 +303,23 @@ test('an app cleans up on Boat and every failure stays honest: no key leak, no l
       { from: used.from, hours: used.hours, amount: used.amount, currency: used.currency },
       { from: '2026-09-01T00:00:00.000Z', hours: 24, amount: 0.5, currency: 'USD' },
     );
-    assert.deepEqual(await provider.key!(), { expires: null, scopes: [] });
+    // The public API has no current-key route, so the adapter exposes no key().
+    assert.equal(provider.key, undefined);
     server.setBalance(0);
     await assert.rejects(provider.usage!(ref, '2026-09-01T00:00:00.000Z'), /balance/);
 
-    // plan maps the trial answer, and why maps every stop reason (or null without one).
-    server.setPlan({ trialEndsAt: '2026-10-06', canStayOn: false, checkoutUrl: 'http://boat.test/checkout' });
-    assert.deepEqual(await provider.plan!(), { inTrial: false, trialEndsAt: '2026-10-06', canStayOn: false, checkoutUrl: 'http://boat.test/checkout' });
-    const reasons: Array<[string, string]> = [['user', 'you'], ['balance', 'out-of-credit'], ['trial', 'trial-limit'], ['idle', 'idle'], ['strange', 'provider']];
-    for (const [raw, mapped] of reasons) {
-      server.setStopReason(raw);
-      server.setState(ref.id, 'ready');
-      await provider.sleep!(ref);
-      assert.equal(await provider.why!(ref), mapped, raw);
-    }
-    server.setStopReason(null);
-    server.setState(ref.id, 'ready');
-    await provider.sleep!(ref);
-    assert.equal(await provider.why!(ref), null);
+    // plan maps the public trial fields; the public sandbox has no stop reason, so why is absent.
+    server.setPlan({ planKey: 'trial', subscriptionTrialEndsAt: '2026-10-06' });
+    assert.deepEqual(await provider.plan!(), { inTrial: true, trialEndsAt: '2026-10-06', canStayOn: false, checkoutUrl: null });
+    server.setPlan({ planKey: 'box_20', subscriptionTrialEndsAt: null });
+    assert.deepEqual(await provider.plan!(), { inTrial: false, trialEndsAt: null, canStayOn: true, checkoutUrl: null });
+    assert.equal(provider.why, undefined);
 
     // remove confirms with the id header, waits out the deletion, and deletes only the kit's snapshots.
     await provider.snapshot!(ref, 'a');
     await provider.snapshot!({ ...ref, name: 'other' }, 'x');
     await m.remove(ref.id);
-    assert.equal(server.requests.find((r) => r.method === 'DELETE' && r.path === `/sandboxes/${ref.id}`)?.headers['x-delete-confirmation'], ref.id);
+    assert.equal(server.requests.find((r) => r.method === 'DELETE' && r.path === `/sandboxes/${ref.id}`)?.headers['x-ascii-confirm-delete'], ref.id);
     assert.ok(server.requests.some((r) => r.method === 'GET' && r.path.startsWith('/deletion-operations/')));
     const snapDeletes = server.requests.filter((r) => r.method === 'DELETE' && r.path.startsWith('/named-snapshots/'));
     assert.deepEqual(snapDeletes.map((r) => r.path), ['/named-snapshots/byokit-web-a']);
@@ -354,15 +347,6 @@ test('an app cleans up on Boat and every failure stays honest: no key leak, no l
     assert.equal((await exhausted.account().then(() => null, (e) => e as MachineError))?.code, 'provider');
   } finally {
     await failing.close();
-  }
-
-  // A key that expires soon is mapped from the provider route.
-  const keyed = await startFakeSandboxServer({ keyExpiresAt: '2027-01-01', keyScopes: ['read', 'resume'] });
-  try {
-    const provider = boat({ baseUrl: keyed.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
-    assert.deepEqual(await provider.key!(), { expires: '2027-01-01', scopes: ['read', 'resume'] });
-  } finally {
-    await keyed.close();
   }
 });
 
