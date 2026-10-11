@@ -23,6 +23,7 @@ import { words } from '../src/words.ts';
 import { startFakeHerdr, type FakeHerdr } from '../src/testing/index.ts';
 
 const NOT_ALLOWED = words('link.notAllowed');
+const WIDEN = words('close.wouldWiden');
 
 const until = async <T>(probe: () => T | Promise<T>, ok: (value: T) => boolean, ms = 5000): Promise<T> => {
   const deadline = Date.now() + ms;
@@ -126,10 +127,25 @@ test('every op round-trips for a control device with full scope', async () => {
     fake.emit({ type: 'workspace.created', workspace_id: 'w2' });
     const grown = await until(() => hd.tree(), (t) => t.workspaces.length === 2);
     assert.deepEqual(grown.workspaces.map((w) => w.id).sort(), ['w1', 'w2']);
-    await assert.rejects(hd.close({ tab: 'w1:t1' }));
+    await assert.rejects(hd.close({ tab: 'w1:t1' }), (e: Error) => e.message === WIDEN,
+      'the refused widening close reaches the device in plain words');
     assert.equal(kit.snapshot().workspaces.length, 2, 'the refused close changed nothing');
     // Pass-through is denied by default (D8).
     await assert.rejects(hd.call('ping', {}), (e: Error) => e.message === NOT_ALLOWED);
+  } });
+});
+
+test('a control device closing the only pane of a tab hears the close.wouldWiden words', async () => {
+  await withBench({ run: async ({ kit, fake, pair }) => {
+    const { hd } = await pair('control', ALL, 'desk');
+    // A fresh workspace holds one tab with one pane: closing that pane would widen to the tab.
+    const placed = await hd.startAgent({ kind: 'pi', cwd: '/tmp', place: { workspace: 'new', label: 'side' } });
+    fake.emit({ type: 'workspace.created', workspace_id: placed.paneId.split(':')[0] });
+    await until(() => hd.tree(), (t) => t.workspaces.some((w) =>
+      w.tabs.some((tab) => tab.panes.some((p) => p.id === placed.paneId))));
+    await assert.rejects(hd.close({ pane: placed.paneId }), (e: Error) => e.message === WIDEN,
+      'the device hears the kit\'s words, not a bare failed');
+    assert.equal(kit.snapshot().workspaces.length, 2, 'the refused close changed nothing');
   } });
 });
 

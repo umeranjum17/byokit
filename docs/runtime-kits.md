@@ -2266,7 +2266,12 @@ no new link/device operation; apps forward the result through their authorized j
   `result.read`. `sendKeys` → `agent.send_keys { target, keys }`.
 - Close guards = muxr `closeExactPane`/`closeExactTab`/`closeExactWorkspace`: look up the parent counts first and
   refuse with codes `pane-close-would-widen`, `tab-close-would-widen`, `workspace-close-would-widen`; not-found →
-  `pane-unavailable`/`tab-unavailable`/`workspace-unavailable`.
+  `pane-unavailable`/`tab-unavailable`/`workspace-unavailable`. A would-widen refusal also carries the wider target
+  as `{ scope: 'tab' | 'workspace', id, label }`, so the app can offer the bigger close instead: closing a pane
+  widens to its tab (scope `tab`, the tab's id and label); closing a tab widens to its workspace (scope `workspace`,
+  the workspace's id and label); closing a worktree-group root widens to its group, named by that root (scope
+  `workspace`, its id and label). `hd.close` maps all three codes to `PublicLinkError` with the `close.wouldWiden`
+  words (6.9), so a device hears plain words instead of a bare failure.
 - Blocked approvals: when an agent's status becomes `blocked`, read `pane.read { source: 'detection' }` (plain text,
   last 40 lines) as `prompt` and add a `BlockedAgent` with the pane's current `revision`; leaving `blocked` resolves
   it. `answer(paneId, keys, { revision })`: `pane.get`; refuse unless still `blocked` and `revision` equals the

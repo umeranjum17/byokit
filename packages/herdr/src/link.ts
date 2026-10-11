@@ -26,6 +26,11 @@ const deny = (): never => {
   throw new PublicLinkError(words('link.notAllowed'));
 };
 
+// A refused widening close is the kit's plain sentence for the device, not a bare failure (6.4, 6.9).
+const WIDEN_CODES = new Set(['pane-close-would-widen', 'tab-close-would-widen', 'workspace-close-would-widen']);
+const widenError = (e: unknown): PublicLinkError | undefined =>
+  WIDEN_CODES.has((e as { code?: string } | undefined)?.code ?? '') ? new PublicLinkError(words('close.wouldWiden')) : undefined;
+
 type PaneWhere = { workspaceId: string; tabId: string };
 
 const findPane = (snap: HerdrSnapshot, paneId: string): PaneWhere | undefined => {
@@ -228,17 +233,17 @@ export function herdrLink(kit: HerdrKit, o: {
         if (paneId !== undefined) {
           const where = findPane(snap, paneId);
           if (!where || !inScope(scope, where.workspaceId)) deny();
-          await kit.closePane(paneId);
+          try { await kit.closePane(paneId); } catch (e) { throw widenError(e) ?? e; }
           return null;
         }
         if (tabId !== undefined) {
           const owner = snap.workspaces.find((w) => w.tabs.some((t) => t.id === tabId));
           if (!owner || !inScope(scope, owner.id)) deny();
-          await kit.closeTab(tabId);
+          try { await kit.closeTab(tabId); } catch (e) { throw widenError(e) ?? e; }
           return null;
         }
         if (!snap.workspaces.some((w) => w.id === workspaceId && inScope(scope, w.id))) deny();
-        await kit.closeWorkspace(workspaceId!);
+        try { await kit.closeWorkspace(workspaceId!); } catch (e) { throw widenError(e) ?? e; }
         return null;
       }
       case 'hd.notices.register': {

@@ -415,26 +415,29 @@ export function herdrContract(
     await bench(async ({ kit }) => {
       await kit.start();
       // A fresh workspace holds exactly one tab with exactly one pane: the widening cases.
-      const made = (await kit.call('workspace.create', { cwd: '/tmp/h6-other' })) as { workspace?: { workspace_id?: string } };
+      const made = (await kit.call('workspace.create', { cwd: '/tmp/h6-other', label: 'other' })) as { workspace?: { workspace_id?: string } };
       const w2 = made.workspace?.workspace_id;
       assert.equal(typeof w2, 'string');
-      await assert.rejects(
-        kit.closePane(`${w2}:p1`),
-        (e: { code?: string }) => e.code === 'pane-close-would-widen',
-        'closing the last pane would close the tab',
-      );
-      await assert.rejects(
-        kit.closeTab(`${w2}:t1`),
-        (e: { code?: string }) => e.code === 'tab-close-would-widen',
-        'closing the only tab would close the workspace',
-      );
+      // A refusal carries the wider target (scope, id, label) the app would close instead (6.4).
+      const widen = async (work: Promise<unknown>): Promise<{ scope?: string; id?: string; label?: string; code?: string }> => {
+        try { await work; } catch (e) {
+          const { scope, id, label, code } = e as { scope?: string; id?: string; label?: string; code?: string };
+          return { scope, id, label, code };
+        }
+        assert.fail('expected a would-widen refusal');
+      };
+      assert.deepEqual(await widen(kit.closePane(`${w2}:p1`)),
+        { scope: 'tab', id: `${w2}:t1`, label: 'main', code: 'pane-close-would-widen' },
+        'closing the last pane widens to its tab');
+      assert.deepEqual(await widen(kit.closeTab(`${w2}:t1`)),
+        { scope: 'workspace', id: w2, label: 'other', code: 'tab-close-would-widen' },
+        'closing the only tab widens to its workspace');
       // worktree.create links a checkout into w1's group: the root now widens on close.
+      const w1Label = kit.snapshot().workspaces.find((w) => w.id === 'w1')?.label;
       await kit.startAgent({ kind: 'pi', cwd: '/tmp/h6', place: { workspace: 'new' }, worktree: { branch: 'h6' } });
-      await assert.rejects(
-        kit.closeWorkspace('w1'),
-        (e: { code?: string }) => e.code === 'workspace-close-would-widen',
-        'closing a worktree group parent would close the group',
-      );
+      assert.deepEqual(await widen(kit.closeWorkspace('w1')),
+        { scope: 'workspace', id: 'w1', label: w1Label, code: 'workspace-close-would-widen' },
+        'closing a worktree group parent widens to the group, named by its root');
       // The exact closes still go through.
       await kit.call('pane.split', { target_pane_id: `${w2}:p1`, direction: 'right' });
       await kit.closePane(`${w2}:p1`);
