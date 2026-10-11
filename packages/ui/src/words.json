@@ -59,5 +59,14 @@
   "account.room.session": "{left} left this session",
   "account.room.week": "{left} left this week",
   "account.room.month": "{left} left this month",
-  "account.room.tightest": "{left} left for now"
+  "account.room.tightest": "{left} left for now",
+
+  "picker.auto": "Auto — most room left",
+  "picker.out.state": "Sign in first",
+  "picker.out.resting": "Taking a break",
+  "picker.out.billing": "Pay per use, so picked only when you choose it",
+  "picker.out.model": "Doesn't include this run's model",
+  "picker.out.provider": "A different service",
+  "move.to": "Move to {name}",
+  "move.failed": "Couldn't move to {name}"
 }

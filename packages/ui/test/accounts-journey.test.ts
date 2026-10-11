@@ -5,11 +5,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { build } from 'esbuild';
-import { Accounts, fileStore, portable } from '@byokit/accounts';
+import { Accounts, fileStore, portable, resolveSelection } from '@byokit/accounts';
 import { mockOpenAI } from '@byokit/accounts/testing';
-import { accountRows, nameSuggestions, rowsOf, type Account, type AccountRow, type Room } from '@byokit/ui/accounts';
+import { accountRows, bestMoveTarget, modelPicker, moveWords, nameSuggestions, rowsOf, type Account, type AccountRow, type ModelInfo, type Pick, type Room, type RunSelection, type SignInState } from '@byokit/ui/accounts';
 import { scratchDir } from '../../test-support.ts';
 
 // The test's own authenticated seal: an app's OS keychain seal stands in as AES-256-GCM. The key never leaves the run.
@@ -131,4 +132,133 @@ test('the accounts entry bundles for react-native with nothing from Node or Reac
   assert.deepEqual(inputs.filter((f) => /(^|\/)node:/.test(f)), [], 'no Node module');
   const imports = Object.values(bundle.metafile!.outputs).flatMap((o) => o.imports.map((i) => i.path));
   assert.deepEqual(imports, [], 'nothing left to import, React included');
+});
+
+// ---- The run picker and the Move target (WP10-S2) ----------------------------------------------------------
+// The picker and `bestMoveTarget` are proven against the shared parity table the accounts and openclaw choosers
+// already run: the built `@byokit/ui/accounts` and the built `@byokit/accounts` `resolveSelection` see the same
+// rows, and every row of the table that Auto can act on must agree.
+
+type FixtureAccount = { id: string; provider: string; name: string; state: SignInState; billing: Account['billing']; until?: number };
+type FixtureCase = {
+  name: string; accounts: FixtureAccount[]; rooms: Record<string, Room>; defaults: { account?: string; model?: string; auto?: boolean };
+  selection: RunSelection; models?: Record<string, { id: string; available: boolean }[]>;
+  expected: { ok: boolean; id?: string; why?: string; how?: string; model?: string; code?: string };
+  considered?: Record<string, { out?: string; until?: number }>; kitOnly?: boolean;
+};
+const FIXTURE = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/auto-pick-typescript.json', import.meta.url), 'utf8')) as { now: number; cases: FixtureCase[] };
+
+const toAccounts = (c: FixtureCase): Account[] =>
+  c.accounts.map((a) => ({ id: a.id, provider: a.provider, name: a.name, state: a.state, billing: a.billing, ...(a.until !== undefined ? { until: a.until } : {}) }));
+const toModels = (c: FixtureCase): Record<string, ModelInfo[]> => Object.fromEntries(c.accounts.map((a) => [a.id,
+  (c.models?.[a.id] ?? [{ id: `${a.provider}/m`, available: true }]).map((m) => ({ id: m.id, name: m.id, available: m.available }))]));
+const roomsOf = (c: FixtureCase) => (a: Account): Room => c.rooms[a.id] ?? { left: 'unknown' };
+const modelsOf = (models: Record<string, ModelInfo[]>) => (a: Account): readonly ModelInfo[] => models[a.id] ?? [];
+
+test('the picker names Auto and its reason, lists each account’s models, and marks the selection', () => {
+  for (const c of FIXTURE.cases) {
+    if (c.kitOnly || c.selection.account !== 'auto') continue;
+    const accounts = toAccounts(c);
+    const models = toModels(c);
+    const pick = resolveSelection(accounts, c.defaults, c.selection, roomsOf(c), FIXTURE.now, modelsOf(models));
+    const view = modelPicker(accounts, models, c.selection, pick, FIXTURE.now);
+    assert.equal(view.rows[0].key, 'auto', c.name);
+    assert.equal(view.rows[0].title, 'Auto — most room left', c.name);
+    assert.equal(view.rows[0].detail, pick.reason, `${c.name}: the Auto row carries Pick.reason`);
+    assert.equal(view.rows[0].selected, true, `${c.name}: Auto is the marked selection`);
+    assert.equal(view.ok, pick.ok, `${c.name}: ok matches the pick`);
+    if (pick.ok) {
+      assert.equal(view.account, pick.account.id, c.name);
+      assert.equal(view.model, pick.model, c.name);
+      const row = view.rows.find((r) => r.key === pick.account.id)!;
+      assert.deepEqual(row.models.filter((m) => m.selected).map((m) => m.id), [pick.model], `${c.name}: the run's model is marked`);
+    } else {
+      assert.equal(view.rows[0].disabled, true, c.name);
+      assert.equal(view.rows[0].disabledReason, pick.code, `${c.name}: a typed reason`);
+    }
+    // An unavailable row carries Auto's own why and until, taken from the same explanation the chooser produced.
+    for (const [id, expected] of Object.entries(c.considered ?? {})) {
+      const row = view.rows.find((r) => r.key === id)!;
+      assert.equal(row.out ?? null, expected.out ?? null, `${c.name}: ${id} why`);
+      if (expected.until !== undefined) assert.equal(row.until, expected.until, `${c.name}: ${id} until`);
+    }
+    // One row per account, each with that account's own model rows.
+    for (const a of accounts) {
+      const row = view.rows.find((r) => r.key === a.id)!;
+      assert.deepEqual(row.models.map((m) => m.id), (models[a.id] ?? []).map((m) => m.id), `${c.name}: ${a.id} models`);
+    }
+  }
+});
+
+test('a signed-out explicit pick says Sign in first and never falls back; all signed out disables Auto', () => {
+  const models: Record<string, ModelInfo[]> = { a: [], b: [{ id: 'gpt-6-sol', name: 'Sol', available: true }] };
+  const accounts: Account[] = [
+    { id: 'a', provider: 'chatgpt', name: 'Personal', state: 'signed_out', billing: 'subscription' },
+    { id: 'b', provider: 'chatgpt', name: 'Work', state: 'ready', billing: 'subscription' },
+  ];
+  const auto = resolveSelection(accounts, {}, { account: 'auto' }, () => ({ left: 'unknown' }), 1000, modelsOf(models));
+  assert.equal(auto.ok, true, 'Auto itself can name the ready account');
+  const view = modelPicker(accounts, models, { account: 'a' }, auto, 1000);
+  assert.equal(view.rows.find((r) => r.key === 'a')!.selected, true, 'the explicit pick is marked');
+  assert.equal(view.rows.find((r) => r.key === 'a')!.detail, 'Sign in first', 'it says to sign in first');
+  assert.equal(view.rows.find((r) => r.key === 'b')!.selected, false, 'it never falls back to Work');
+  assert.equal(view.rows[0].selected, false, 'Auto is not the marked selection');
+  assert.equal(view.ok, false, 'a signed-out pick is never usable');
+  assert.equal(view.account, undefined);
+
+  // Every account signed out: Auto is disabled, with the pick's own typed reason.
+  const signedOut = accounts.map((a) => ({ ...a, state: 'signed_out' as const }));
+  const none = resolveSelection(signedOut, {}, { account: 'auto' }, () => ({ left: 'unknown' }), 1000, modelsOf(models));
+  const disabled = modelPicker(signedOut, models, { account: 'auto' }, none, 1000);
+  assert.equal(disabled.rows[0].disabled, true);
+  assert.equal(disabled.rows[0].disabledReason, 'none');
+  assert.equal(disabled.rows[0].selected, true);
+});
+
+test('a resting account row and its models carry why and until; a ready pick marks its model', () => {
+  const until = 5_000_000;
+  const resting: Account[] = [{ id: 'work', provider: 'chatgpt', name: 'Work', state: 'resting', billing: 'subscription', until }];
+  const restingModels: Record<string, ModelInfo[]> = { work: [
+    { id: 'sol', name: 'Sol', available: false, why: 'resting', until },
+    { id: 'luna', name: 'Luna', available: false, why: 'resting', until },
+  ] };
+  const auto = resolveSelection(resting, {}, { account: 'auto' }, () => ({ left: 'unknown' }), 1000, modelsOf(restingModels));
+  const view = modelPicker(resting, restingModels, { account: 'work' }, auto, 1000);
+  const row = view.rows.find((r) => r.key === 'work')!;
+  assert.equal(row.out, 'resting');
+  assert.equal(row.until, until);
+  assert.deepEqual(row.models.map((m) => [m.id, m.available, m.why, m.until]),
+    [['sol', false, 'resting', until], ['luna', false, 'resting', until]]);
+  assert.equal(view.ok, false, 'a resting pick is not usable yet');
+
+  // A ready pick marks exactly the run's model, not the first one.
+  const ready: Account[] = [{ id: 'p', provider: 'chatgpt', name: 'Personal', state: 'ready', billing: 'subscription' }];
+  const readyModels: Record<string, ModelInfo[]> = { p: [{ id: 'sol', name: 'Sol', available: true }, { id: 'luna', name: 'Luna', available: true }] };
+  const autoReady = resolveSelection(ready, {}, { account: 'auto' }, () => ({ left: 'unknown' }), 1000, modelsOf(readyModels));
+  const picked = modelPicker(ready, readyModels, { account: 'p', model: 'luna' }, autoReady, 1000);
+  assert.deepEqual(picked.rows.find((r) => r.key === 'p')!.models.filter((m) => m.selected).map((m) => m.id), ['luna']);
+  assert.equal(picked.model, 'luna');
+});
+
+test('bestMoveTarget names Auto’s own winner, and stays undefined with nowhere to move', () => {
+  for (const c of FIXTURE.cases) {
+    if (c.kitOnly) continue;
+    const accounts = toAccounts(c);
+    const pick = resolveSelection(accounts, {}, { account: 'auto' }, roomsOf(c), FIXTURE.now, modelsOf(toModels(c)));
+    if (!pick.ok) continue;
+    const other = accounts.find((a) => a.id !== pick.account.id);
+    if (!other) continue; // one account: nothing to move to
+    const r = c.rooms[pick.account.id];
+    if (r && r.left !== 'unknown' && r.left <= 0 && !(typeof r.resetsAt === 'number' && r.resetsAt <= FIXTURE.now)) continue; // no room
+    assert.equal(bestMoveTarget(accounts, c.rooms, other.id, FIXTURE.now), pick.account.id, `${c.name}: agrees with Auto`);
+  }
+
+  const sub = (over: Partial<Account> = {}): Account => ({ id: 'a', provider: 'p', name: 'A', state: 'ready', billing: 'subscription', ...over });
+  assert.equal(bestMoveTarget([sub()], {}, 'a'), undefined, 'one account');
+  assert.equal(bestMoveTarget([sub(), sub({ id: 'b', state: 'signed_out' })], {}, 'a'), undefined, 'only signed-out peers');
+  assert.equal(bestMoveTarget([sub(), sub({ id: 'b' })], { a: { left: 0, span: 'week' }, b: { left: 0, span: 'week' } }, 'a', 1000), undefined, 'no room left');
+  assert.equal(bestMoveTarget([sub({ billing: 'api' }), sub({ id: 'b', billing: 'api' })], {}, ''), undefined, 'API keys only');
+
+  assert.equal(moveWords('Work'), 'Move to Work');
+  assert.equal(moveWords('Work', false), "Couldn't move to Work");
 });
