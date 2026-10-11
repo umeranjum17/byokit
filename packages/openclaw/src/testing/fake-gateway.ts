@@ -2,7 +2,7 @@
 // `new OpenClawKit({ transport: fake.factory, spawnEngine: false, ... })` or drive `fake.transport.request`
 // directly. No engine, no network, no account.
 import { connect } from 'node:net';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { ENGINE_VERSION, PROTOCOL_VERSION } from '../constants.ts';
@@ -135,6 +135,12 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
   const handlers = new Map<string, Handler>();
   const agents = new Map<string, { id: string; workspace?: string; providers: string[] }>();
   const keys = new Map<string, { provider: string; key: string; sealed: boolean; model: string }>();
+  // The account sealing method's own view: each agent's profile store, its per-provider order, and its model
+  // primary (`provider/model@<profileId>`, as a real sign-in writes it), so `byokit.accounts` behaves like the pin.
+  type FakeProfile = { provider: string; type: string; status?: string; accountId?: string; email?: string; expires?: number } & Record<string, unknown>;
+  const profiles = new Map<string, Record<string, FakeProfile>>();
+  const orders = new Map<string, Record<string, string[]>>();
+  const models = new Map<string, string>();
   const wizards = new Map<string, WizardSession>();
   const runs = new Map<string, Run>();
   const configBox = { hash: 'hash-1', config: {} as Record<string, unknown> };
@@ -148,9 +154,24 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     } else if (workspace) agent.workspace = workspace;
     return agent;
   };
-  const signInAgent = (id: string, provider: string) => {
+  const storeOf = (id: string): Record<string, FakeProfile> => {
+    let store = profiles.get(id);
+    if (!store) { store = {}; profiles.set(id, store); }
+    return store;
+  };
+  const orderOf = (id: string): Record<string, string[]> => {
+    let order = orders.get(id);
+    if (!order) { order = {}; orders.set(id, order); }
+    return order;
+  };
+  const whoOf = (credential: FakeProfile): string | undefined => credential.accountId
+    ? createHash('sha256').update(`${credential.provider}\n${credential.accountId}`).digest('hex').slice(0, 16) : undefined;
+  const signInAgent = (id: string, provider: string, extra?: Partial<FakeProfile>) => {
     const agent = ensureAgent(id);
     if (!agent.providers.includes(provider)) agent.providers.push(provider);
+    // The pin names the first profile of a provider `<provider>:default` and points the agent's model at it.
+    storeOf(id)[`${provider}:default`] = { provider, type: 'oauth', status: 'ok', ...extra };
+    models.set(id, `${provider}/default@${provider}:default`);
   };
 
   // Every transport the factory made; events fan out to all of them, drop() closes all of them.
@@ -267,6 +288,10 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
         || p.profileIds.some((id: unknown) => id !== `${p.provider}:default` || !agent?.providers.includes(String(p.provider)))))
         throw new Error('profileIds contain unavailable auth profiles');
       if (agent) agent.providers = agent.providers.filter((provider) => provider !== p.provider);
+      const store = profiles.get(String(p.agentId ?? 'main'));
+      if (store) for (const profileId of Object.keys(store)) if (store[profileId].provider === p.provider) delete store[profileId];
+      const order = orders.get(String(p.agentId ?? 'main'));
+      if (order) delete order[String(p.provider)];
       if (keys.get(String(p.agentId))?.provider === p.provider) keys.delete(String(p.agentId));
       return {};
     },
@@ -277,6 +302,53 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       if (!key) return { ok: false };
       if (p.action === 'seal') { key.sealed = true; return { ok: true }; }
       return { ok: key.sealed, ...(key.sealed ? { model: key.model } : {}) };
+    },
+    // Account sealing (5.15): the same five actions the shipped plugin method serves, over a per-agent store.
+    'byokit.accounts': (p) => {
+      const id = String(p.agentId ?? '');
+      const store = storeOf(id), order = orderOf(id);
+      const action = String(p.action ?? '');
+      if (action === 'list')
+        return { ok: true, profiles: Object.entries(store).map(([profileId, credential]) => ({ provider: credential.provider,
+          profileId, type: credential.type, status: credential.status, ...(whoOf(credential) ? { who: whoOf(credential) } : {}) })) };
+      if (action === 'clear') { profiles.set(id, {}); orders.set(id, {}); return { ok: true }; }
+      if (action === 'ready') {
+        const named = order[String(p.provider)] ?? [];
+        const credential = named.length === 1 ? store[named[0]] : undefined;
+        if (!credential) return { ok: false };
+        return { ok: true, type: credential.type, ...(typeof credential.expires === 'number' ? { expiresAt: credential.expires } : {}),
+          ...(whoOf(credential) ? { who: whoOf(credential) } : {}) };
+      }
+      if (action === 'seal') {
+        const primary = models.get(id) ?? '';
+        const at = primary.lastIndexOf('@');
+        if (at < 1) return { ok: false };
+        const profileId = primary.slice(at + 1);
+        const credential = store[profileId];
+        if (!credential || credential.provider !== p.provider) return { ok: false };
+        for (const [otherId, other] of Object.entries(store))
+          if (/--[0-9a-f]{6}$/.test(id) ? otherId !== profileId : other.provider === p.provider && otherId !== profileId) delete store[otherId];
+        order[String(p.provider)] = [profileId];
+        return { ok: true, ...(whoOf(credential) ? { who: whoOf(credential) } : {}) };
+      }
+      if (action === 'adopt') {
+        const from = String(p.from), to = String(p.to), provider = String(p.provider);
+        const fromOrder = orderOf(from), named = fromOrder[provider] ?? [];
+        const fromId = named.length === 1 ? named[0] : undefined;
+        const credential = fromId ? storeOf(from)[fromId] : undefined;
+        if (!fromId || !credential || credential.provider !== provider || whoOf(credential) !== p.who) return { ok: false };
+        const toStore = storeOf(to), toOrder = orderOf(to);
+        for (const [otherId, other] of Object.entries(toStore))
+          if (/--[0-9a-f]{6}$/.test(to) ? otherId !== fromId : other.provider === provider && otherId !== fromId) delete toStore[otherId];
+        toStore[fromId] = credential;
+        toOrder[provider] = [fromId];
+        delete storeOf(from)[fromId];
+        if (fromOrder[provider]) { fromOrder[provider] = fromOrder[provider].filter((x) => x !== fromId); if (!fromOrder[provider].length) delete fromOrder[provider]; }
+        const target = models.get(to);
+        if (typeof target === 'string') models.set(to, `${target.lastIndexOf('@') > 0 ? target.slice(0, target.lastIndexOf('@')) : target}@${fromId}`);
+        return { ok: true };
+      }
+      return { ok: false };
     },
     'openclaw.setup.activate': (p) => {
       if (p.kind !== 'api-key') throw new Error('only the API-key setup path is simulated');
