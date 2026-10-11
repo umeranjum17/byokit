@@ -57,6 +57,12 @@
         }
       ],
       [
+        "@byokit/discover",
+        {
+          "services": ["_byokit._tcp"]
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "android": {
