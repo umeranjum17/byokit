@@ -39,7 +39,7 @@ jobs:
       - id: areas
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
-        run: node scripts/ci-changes.ts $BASE | tee -a "$GITHUB_OUTPUT"
+        run: node scripts/ci-changes.ts ${BASE:+"$BASE"} | tee -a "$GITHUB_OUTPUT"
 
   check:
     runs-on: ubuntu-latest
@@ -146,11 +146,18 @@ jobs:
       # The voice screen offline: a stand-in sign-in and a stand-in voice peer over loopback WebRTC.
       - run: sh scripts/test.sh examples/realtime-voice/e2e.test.ts
 
+  # The real-engine journeys, split into parallel parts by measured duration (the whole set ran ~18 min in one job).
+  # The last part runs every engine test file the others do not name, so a new file is never left out.
   openclaw-engine:
+    name: openclaw-engine (${{ matrix.part }})
     needs: changes
     if: needs.changes.outputs.openclaw == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [day-usage, contract-signin, generated-learning-migrate, rest, packed]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -161,10 +168,24 @@ jobs:
       - run: npm run build
       # Hosted Ubuntu restricts unprivileged user namespaces, which Chromium's sandbox needs; this runner is ephemeral.
       - run: if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
-      - run: npm run test:engine
+      - if: matrix.part != 'packed'
+        env:
+          PART: ${{ matrix.part }}
+        run: |
+          dir=packages/openclaw/test/engine
+          case "$PART" in
+            day-usage) files="$dir/day-usage.test.ts" ;;
+            contract-signin) files="$dir/contract.test.ts $dir/signin.test.ts" ;;
+            generated-learning-migrate) files="$dir/generated.test.ts $dir/learning.test.ts $dir/migrate.test.ts" ;;
+            rest) files=$(find "$dir" -name '*.test.ts' ! -name 'browser-*.test.ts' ! -name day-usage.test.ts ! -name contract.test.ts \
+              ! -name signin.test.ts ! -name generated.test.ts ! -name learning.test.ts ! -name migrate.test.ts | sort) ;;
+          esac
+          # shellcheck disable=SC2086
+          sh scripts/test.sh $files
       # Exact candidate internal runtime closure; external registry pins, real old/new Gateways, no accounts/models.
       # Source qualification, not proof that public consumers adopted these candidate package versions.
-      - run: |
+      - if: matrix.part == 'packed'
+        run: |
           scratch=$(mktemp -d /tmp/oc.XXXX)
           trap 'rm -rf "$scratch"' EXIT
           mkdir "$scratch/home" "$scratch/t"
