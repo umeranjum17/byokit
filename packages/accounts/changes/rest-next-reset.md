@@ -1,1 +1,0 @@
-- FIX: `classifyFailure`/`classify` now read the ChatGPT/Codex "Next reset in N min/minutes/hour/hours" wording as well as "try again in ~N min/h", so a subscription refusal rests the account until the stated reset instead of the 60-minute fallback; a rate limit that names no reset still falls back.

@@ -1,3 +1,0 @@
-- Sign in to a MiniMax plan with a user code: `accounts.add(member, 'minimax:code')` (or `accounts.login(member, 'minimax')`) shows the code and MiniMax's page, `minimax:code:cn` selects the China host, and the account lists as a ready subscription.
-- MiniMax keeps one sign-in per region: a MiniMax token carries no identity, so the region is the identity and signing in again to the same region replaces that account. MiniMax does not refresh, so a sign-in whose token has run out needs signing in again.
-- MiniMax is not a default offer: an app offers the sign-in by naming `minimax` in its own `offer` list.

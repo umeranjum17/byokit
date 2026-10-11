@@ -1,1 +1,0 @@
-- Add the MiniMax user-code stand-in to `mockDevice` (`mockDevice({ dialect: 'minimax', region })`) and its offline conformance fixture, so the device sign-in can be built and proven with no network; a testing helper with no runtime behavior change.

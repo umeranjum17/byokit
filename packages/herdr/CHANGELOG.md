@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.7.3 (2026-10-11)
+
+- Dependency update: pins @byokit/discover 0.7.0.
+
+- `@byokit/herdr` exports `isPromptable(agent)`, the single readiness gate `prompt` already used, and adds
+  `kit.waitPromptable(target, { timeoutMs })`: it waits until a just-started agent can take a prompt instead of the
+  host polling `prompt` and catching `agent-not-ready`. It resolves once the kit's snapshot is promptable, rejects
+  `agent-not-ready` at the deadline, and rejects `pane-unavailable` when the pane closes mid-wait.
+- The README's rename note and examples now point at `@byokit/pair` (the phone hand-off host) and the
+  example screenshots were re-captured from today's herdr-kit phone page. Docs only; no typed surface changed.
+- Dependency update: depend on `@byokit/pair` 0.9.0 instead of its deprecated `@byokit/link` shim.
+
 ## 0.7.2 (2026-10-09)
 
 - Dependency update: pins @byokit/relay 0.6.0.

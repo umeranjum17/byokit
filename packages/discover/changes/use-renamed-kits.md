@@ -1,1 +1,0 @@
-- Dependency update: depend on `@byokit/ui` instead of its deprecated `@byokit/ui-core` shim.

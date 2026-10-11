@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.6.1 (2026-10-11)
+
+- Dependency update: pins @byokit/discover 0.7.0.
+
+- **Deprecated:** `@byokit/reach` is renamed to `@byokit/discover`. This package is now a shim that re-exports `@byokit/discover` (`@byokit/reach` and `@byokit/reach/react-native` alike), so existing imports keep working unchanged through 0.7.x; it is removed in 0.8.0. Install `@byokit/discover` and change the import specifier; the API, the `react-native` export condition and the native module are the same.
+
 ## 0.6.0 (2026-10-01)
 
 - Dependency update: pins @byokit/ui-core 0.6.0.

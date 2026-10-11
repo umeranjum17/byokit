@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.6.5 (2026-10-11)
+
+- Dependency update: pins @byokit/accounts 0.21.0.
+- FIX: (from @byokit/accounts 0.21.0) ChatGPT `respond` answered from the saved default (or the first account) whatever account the caller had picked, so a two-account pick could stream from the wrong sign-in and a failure rested the wrong account; a selected account's refusal now rests only that account, and an explicit signed-out id is refused with `ResponseError` kind `signed_out` before any request.
+- FIX: (from @byokit/accounts 0.21.0) Claude plan `respond` answered from the primary slot whatever account the caller had picked, so a two-account pick could stream from the wrong sign-in and a failure rested or signed out the wrong account; a selected account's 429 now rests only it and its expiry signs out only it, the primary stays ready, and there is no retry on another account.
+- FIX: (from @byokit/accounts 0.21.0) A managed CLI account now carries `addedAt` (epoch milliseconds), persisted with its roster row and exposed on `CliAccount` and `add`'s returned account; a pre-existing row without one derives it at read time from its folder's `birthtimeMs` (or the earliest of `ctimeMs`/`mtimeMs`), so two logins that share one email are distinguishable.
+- FIX: (from @byokit/accounts 0.21.0) A second Google browser sign-in on a callback port this process already holds (another member's sign-in, or another app process) no longer publishes a URL whose redirect the holder's listener answers out of date and then waits for the `redirectMs` timer; it waits for the same port the holder uses and offers its pasted-address view at once, while the wait still serves the browser return if the port frees.
+- SECURITY: (from @byokit/accounts 0.21.0) The Google refresh token is sent only to Google's own revoke host (or its `googleBase` stand-in), never to `authBase`, and it never appears in a thrown message or a log; a failed revoke still deletes the local sign-in.
+- FIX: (from @byokit/accounts 0.21.0) Key routes (`respondKey`, e.g. `openrouter:key`) failed with `KeyRouteError('request')` on React Native / Hermes. Pi calls `signal.throwIfAborted()` before any fetch, and Hermes does not ship `AbortSignal.prototype.throwIfAborted`, so the call threw `TypeError` and the route never reached the network. The bundled portable Pi now rewrites every `throwIfAborted` call to a local guard with the same semantics (throws the signal's reason, else an `AbortError`), so a key route streams normally and an aborted signal still rejects as aborted; no host global (`AbortSignal.prototype`) is touched.
+- FIX: (from @byokit/accounts 0.21.0) `classifyFailure`/`classify` now read the ChatGPT/Codex "Next reset in N min/minutes/hour/hours" wording as well as "try again in ~N min/h", so a subscription refusal rests the account until the stated reset instead of the 60-minute fallback; a rate limit that names no reset still falls back.
+
+- Dependency update: depend on `@byokit/pair` 0.9.0 instead of its deprecated `@byokit/link` shim.
+
 ## 0.6.4 (2026-10-09)
 
 - Dependency update: pins @byokit/link 0.8.0.
