@@ -9,8 +9,12 @@ import { HerdrKit } from '../src/kit.ts';
 import { HERDR_PROTOCOL } from '../src/constants.ts';
 import type { HerdrSubscribeStop, HerdrTransport } from '../src/types.ts';
 
-// All fixture moves see an empty task-owned PATH, never the owner's native CLIs.
-process.env.PATH = scratchDir('account-panes-path');
+// Fixture moves see only a task-owned PATH of silent probe stubs: moveToAccount's sign-in
+// check appends the host's fixed install dirs past PATH, so an empty PATH alone would still
+// reach the owner's native CLIs.
+const probePath = scratchDir('account-panes-path');
+process.env.PATH = probePath;
+for (const kind of ['claude', 'codex']) writeFileSync(join(probePath, kind), '#!/bin/sh\n', { mode: 0o700 });
 type Raw = Record<string, any>;
 function harness(t: TestContext) {
   const calls: { method: string; params: Raw }[] = [];
