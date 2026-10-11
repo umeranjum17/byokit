@@ -338,10 +338,10 @@ try {
           const frames = await open();
           await frames.page.goto(beforeHref, { waitUntil: 'load' });
           if (screen.beforeDrive) await screen.drive(frames.page); // one state on both sides, not initial paint vs driven
-          else {
+          else if (screen.path === '') {
             await part(frames.page, 'chatgpt', 'signin').waitFor();
             if (screen.id.startsWith('grok-')) await frames.page.locator('#grok').scrollIntoViewIfNeeded();
-          }
+          } else await frames.page.waitForTimeout(500); // a non-app page; give it a bounded moment to paint
           await shot(frames.page, join(screen.id, `before__${theme}__${form}.png`));
           await frames.context.close();
         }
