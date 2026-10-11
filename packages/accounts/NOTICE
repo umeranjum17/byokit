@@ -19,7 +19,7 @@ Hermes (React Native) does not ship `AbortSignal.prototype.throwIfAborted` and t
 call otherwise throws before any key request. No other source change is made.
 https://github.com/earendil-works/pi/tree/f07218c4d4bbc12bef056a7058c3dd49dfe41abe
 Regenerate src/pi/ with `node scripts/gen-accounts-pi.ts` from the repository's exact installed pins.
-The standard esbuild split build lowers dynamic-import syntax only; SDKs remain external at exact pins.
+The standard esbuild split build lowers dynamic-import syntax and applies the one guard patch above; SDKs remain external at exact pins.
 PROVENANCE.json records registry integrity, input/output hashes and build options; linked sourcemaps
 embed the published sources. The re-export declarations preserve the pinned upstream types.
 
