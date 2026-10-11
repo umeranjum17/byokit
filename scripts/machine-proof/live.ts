@@ -24,11 +24,9 @@ function track(
   provider: Provider,
   refs: MachineRef[],
   save: (ref: MachineRef) => Promise<void>,
-  onReady?: (seconds: number, ref: MachineRef) => Promise<void>,
 ): Provider {
   const p = { ...provider };
   if (provider.create) p.create = async opts => {
-    const started = Date.now();
     const ref = await provider.create!(opts);
     refs.push(ref); await save(ref);
     const deadline = Date.now() + 300_000;
@@ -36,7 +34,6 @@ function track(
       assert.ok(Date.now() < deadline, 'lab machine did not become ready within five minutes');
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
-    if (onReady !== undefined) await onReady((Date.now() - started) / 1000, ref);
     return ref;
   };
   return p;
@@ -63,16 +60,6 @@ export async function liveRun(config: LiveConfig, record: (r: Report) => Promise
   const sandbox = track(rawSandbox, [], async ref => {
     resources.push({ adapter: rawSandbox.id, id: ref.id, name: ref.name });
     await writeFile(config.resourcesFile, JSON.stringify(resources, null, 2), { mode: 0o600 });
-  }, async (seconds, ref) => {
-    at(rawSandbox.id, 'create->on', seconds);
-    const kvmStarted = Date.now();
-    let present = false;
-    try {
-      present = (await rawSandbox.exec(ref, ['sh', '-c', '[ -c /dev/kvm ]'], { timeoutMs: 30_000 })).code === 0;
-    } catch {
-      present = false;
-    }
-    at(rawSandbox.id, 'kvm', (Date.now() - kvmStarted) / 1000, present ? 'present' : 'absent');
   });
   const saveResource = async (s: Session) => {
     resources.push({ adapter: s.provider.id, id: s.ref.id, name: s.ref.name });
@@ -84,6 +71,14 @@ export async function liveRun(config: LiveConfig, record: (r: Report) => Promise
     const contractProvider = track(provider, refs, async () => {});
     // Time resume->on by wrapping the app provider's wake (the VM uses the console power cycle).
     const timed: Provider = { ...provider };
+    let appCreateStarted: number | undefined;
+    if (provider.create !== undefined) {
+      const create = provider.create;
+      timed.create = async opts => {
+        appCreateStarted = Date.now();
+        return create(opts);
+      };
+    }
     if (provider.wake !== undefined) {
       const wake = provider.wake;
       timed.wake = async ref => {
@@ -101,7 +96,22 @@ export async function liveRun(config: LiveConfig, record: (r: Report) => Promise
     };
     targets.push({
       provider: timed, app,
-      prepare: async s => { await saveResource(s); await config.prepare(s); },
+      prepare: async s => {
+        await saveResource(s);
+        if (appCreateStarted !== undefined) {
+          at(provider.id, 'create->on', (Date.now() - appCreateStarted) / 1000);
+          const kvmStarted = Date.now();
+          let present = false;
+          try {
+            present = (await rawSandbox.exec(s.ref, ['sh', '-c', '[ -c /dev/kvm ]'], { timeoutMs: 30_000 })).code === 0;
+          } catch {
+            present = false;
+          }
+          at(provider.id, 'kvm', (Date.now() - kvmStarted) / 1000, present ? 'present' : 'absent');
+          appCreateStarted = undefined;
+        }
+        await config.prepare(s);
+      },
       onInstall: seconds => at(provider.id, 'install', seconds),
       contractRecipe: name => ({ ...fixture, name }),
       bench: async () => ({ provider: contractProvider, store: memoryStore(), installs: true }),
