@@ -6,6 +6,7 @@ import { Accounts, billingWords, browserStore, clock, planLabel, resolveSelectio
 import { phaseOf } from '@byokit/ui/phase';
 
 declare const __BYOKIT_AUTH_BASE__: string | undefined;
+declare const __BYOKIT_DEVICE_BASE__: string | undefined;
 // ChatGPT's model endpoint and Claude's sign-in endpoints don't answer other web pages, so this page asks them through
 // its own server (serve.ts), which passes each request on unchanged and keeps nothing.
 const FORWARD: Record<string, string> = { 'https://chatgpt.com/': 'fwd/chatgpt/', 'https://platform.claude.com/': 'fwd/claude/', 'https://api.anthropic.com/': 'fwd/anthropic/' };
@@ -20,6 +21,7 @@ const accounts = new Accounts<any, number>({
   app: 'byokit example',
   store: (member) => browserStore(`person-${member}`),
   authBase: __BYOKIT_AUTH_BASE__,
+  deviceBase: __BYOKIT_DEVICE_BASE__,
   fetch: forwarded,
 });
 
