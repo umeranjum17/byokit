@@ -156,8 +156,8 @@ kit does not have yet, and [Two ways in](#two-ways-in) plus
 
 | Export | What it does |
 |---|---|
-| `HerdrKit` (`@byokit/herdr`) | The host-side kit, in `adopt` or `own` mode: `start`/`stop`, `state`, `snapshot`/`onChange`, `startAgent`, `openSignInTab`, `move`, `moveToAccount`, `onStartAgent`, `prompt`, `sendKeys`, `wait`, `read`, `blocked`/`onBlocked`/`answer`, `closePane`/`closeTab`/`closeWorkspace`, `agentKinds`, `installedAgentKinds`, `agentStatus`, `agentInstallState`, `terminal`, `onEvent`, `statusWatchReady`, and the pass-throughs `call`, `subscribe` and `cli` |
-| `agentStatus`, `agentInstallState`, `agentProbePath`, `extraPathDirs`, `runStatusCommand`, `isAutoInstallShim`, `resolveAgentBinary` (`@byokit/herdr`) | Onboarding readiness: per-kind install + CLI sign-in without a Herdr connection (see below) |
+| `HerdrKit` (`@byokit/herdr`) | The host-side kit, in `adopt` or `own` mode: `start`/`stop`, `state`, `snapshot`/`onChange`, `startAgent`, `openSignInTab`, `move`, `moveToAccount`, `onStartAgent`, `prompt`, `waitPromptable`, `sendKeys`, `wait`, `read`, `blocked`/`onBlocked`/`answer`, `closePane`/`closeTab`/`closeWorkspace`, `agentKinds`, `installedAgentKinds`, `agentStatus`, `agentInstallState`, `terminal`, `onEvent`, `statusWatchReady`, and the pass-throughs `call`, `subscribe` and `cli` |
+| `isPromptable`, `agentStatus`, `agentInstallState`, `agentProbePath`, `extraPathDirs`, `runStatusCommand`, `isAutoInstallShim`, `resolveAgentBinary` (`@byokit/herdr`) | `isPromptable(agent)` is the readiness rule `prompt` and `waitPromptable` share; the rest is onboarding readiness: per-kind install + CLI sign-in without a Herdr connection (see below) |
 | `HERDR_VERSION`, `HERDR_PROTOCOL` | The pinned Herdr release (`0.9.1`) and the protocol the kit speaks (`22`) |
 | `words`, `agentWords`, `stateWords`, `WORDS` | Plain sentences for agent statuses and kit states |
 | `herdrLink` (`@byokit/herdr/link`) | The host side of the `hd.*` link ops, spread into `Host.open`; scopes each grant to its workspaces and can push sealed approval notices through a relay |
@@ -176,6 +176,12 @@ null), `agentSession` is absent; callers can fall back to their existing checks.
 
 Types (`HerdrKitOptions`, `HerdrState`, `StartAgent`, `PromptReceipt`, `BlockedAgent`, `HerdrSnapshot`,
 `HerdrMethod`/`HerdrParams`/`HerdrResult`, `HerdrEventName`/`HerdrEventOf`, ...) come from the main entry.
+
+A just-started agent is not promptable until its launch settles. Instead of polling `prompt` and catching
+`agent-not-ready`, wait once: `await kit.waitPromptable(agent, { timeoutMs: 30_000 })` resolves the moment the
+kit's snapshot is promptable — the same gate (`isPromptable`: not `launch_pending` and status idle/working/blocked/done)
+`prompt` itself uses. At the deadline it rejects with code `agent-not-ready`; a pane that closes while waiting rejects
+with code `pane-unavailable`, so the wait never hangs.
 
 ## Account-specific sign-ins and moves
 

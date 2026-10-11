@@ -51,6 +51,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [Gmail send](./connect-mail-send.md) — `@byokit/connect` `MailSender` with fixture OAuth and a canned Gmail transport: approved, denied and missing-scope legs.
 - [House Google client file](./connect-house-client.md) — `googleClientFile` from `@byokit/connect/node` feeding a loopback Gmail sign-in and send: missing, refused, consent approved/denied and send approved/denied legs.
 - [Herdr task-owned HOME](./herdr-task-home.md) — `@byokit/herdr` `startAgent` with a task HOME on a real, isolated Herdr lab session (needs the environment's Herdr lab helper; never the person's own Herdr).
+- [Herdr waitPromptable](./herdr-wait-promptable.md) — the built `@byokit/herdr` `waitPromptable` against its stand-in Herdr: a still-pending launch rejects `agent-not-ready` at the deadline, a flipped launch resolves, and a pane closed mid-wait rejects `pane-unavailable`.
 - [Pair compact QR crash-resume](./pair-compact-resume.md) — a phone killed during approval resumes from its pending grant against the pinned computer (compact and v1 QRs); an impostor at the same address is refused; the compact token stays 109 characters.
 - [Relay notification action replies](./relay-action-reply.md) — the built `@byokit/relay` action route forwards a bounded opaque sealed reply to the host unchanged, refuses malformed or oversized replies without spending the token, and stores nothing.
 - [Realtime voice offline](./realtime-voice-offline.md) — the voice proof page with `BYOKIT_EXAMPLE_FAKE=1`: a stand-in sign-in and a stand-in voice peer on loopback WebRTC complete a call with one user and one agent turn in headless Chromium; without the flag the stand-in routes return 403.
@@ -95,6 +96,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [connect-mail-send](./connect-mail-send.md) — one approval per message, denial without a request, `gmail.send` scope refusal.
 - [connect-house-client](./connect-house-client.md) — the house Google client file: missing/refused files, consent approve/deny, send approve/deny.
 - [herdr-task-home](./herdr-task-home.md) — an agent pane under a task-owned HOME, read from the agent process and from inside the pane.
+- [herdr-wait-promptable](./herdr-wait-promptable.md) — `waitPromptable` on the built `@byokit/herdr`: pending launch times out `agent-not-ready`, a flipped launch resolves, a mid-wait pane close rejects `pane-unavailable`.
 - [pair-compact-resume](./pair-compact-resume.md) — compact/v1 QR kill-during-approval resume, impostor refusal, compact token size and terminal QR.
 - [relay-action-reply](./relay-action-reply.md) — the relay action route carries a bounded opaque sealed reply to the host callback, refuses bad replies and stores nothing.
 - [dictation-whisper-windows](./dictation-whisper-windows.md) — long-take automatic windows step from the decoded end (no skip at a pause) and the overlap is joined once (no repeated passage), plus the 30 s-or-shorter and silent-gap extremes.

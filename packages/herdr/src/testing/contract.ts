@@ -444,6 +444,39 @@ export function herdrContract(
     });
   });
 
+  test('contract: waitPromptable waits through a launch-pending agent and resolves', async () => {
+    await bench(async ({ kit, fake }) => {
+      if (!fake) return;
+      const paneId = 'w1:p2';
+      const agent = fake.world.agents.find((row) => row.pane_id === paneId);
+      assert.ok(agent, 'the fake seeds w1:p2');
+      agent.launch_pending = true;
+      await kit.start();
+      // A still-pending launch is not promptable: the deadline rejects agent-not-ready.
+      await assert.rejects(kit.waitPromptable({ paneId }, { timeoutMs: 120 }),
+        (e: { code?: string }) => e.code === 'agent-not-ready',
+        'a launch that stays pending rejects with agent-not-ready');
+      // Flip the fake ready: the next read clears launch_pending and the wait resolves.
+      const waiting = kit.waitPromptable({ paneId }, { timeoutMs: 2000 });
+      agent.launch_pending = false;
+      await waiting;
+      assert.equal(agentStatusOf(kit.snapshot(), paneId).status, 'idle');
+    });
+  });
+
+  test('contract: waitPromptable rejects pane-unavailable when the pane closes mid-wait', async () => {
+    await bench(async ({ kit, fake }) => {
+      if (!fake) return;
+      const paneId = 'w1:p2';
+      fake.world.agents.find((row) => row.pane_id === paneId)!.launch_pending = true;
+      await kit.start();
+      const waiting = kit.waitPromptable({ paneId }, { timeoutMs: 2000 });
+      await kit.closePane(paneId);
+      await assert.rejects(waiting, (e: { code?: string }) => e.code === 'pane-unavailable',
+        'a pane closed while waiting rejects pane-unavailable instead of hanging');
+    });
+  });
+
   test('contract: the cli answers --version and the terminal echoes', async () => {
     await bench(async ({ kit }) => {
       await kit.start();

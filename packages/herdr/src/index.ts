@@ -7,7 +7,7 @@ export { HERDR_VERSION, HERDR_PROTOCOL } from './constants.ts';
 export { accountKinds, accountKind, type AccountKind } from './kinds.ts';
 export { HerdrKit } from './kit.ts';
 export { agentWords, stateWords, words, WORDS, type WordKey } from './words.ts';
-export { agentProbePath, extraPathDirs, runStatusCommand, agentInstallState, isAutoInstallShim, resolveAgentBinary, classifyStartFailure } from './agents.ts';
+export { agentProbePath, extraPathDirs, runStatusCommand, agentInstallState, isAutoInstallShim, resolveAgentBinary, classifyStartFailure, isPromptable } from './agents.ts';
 export type {
   AgentCliSignIn, AgentInstallProbe, AgentInstallState, AgentLaunchFailureReason, AgentReadiness, AgentStartEvent, AgentStatusOptions, AgentStatusRunner,
   AgentRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,

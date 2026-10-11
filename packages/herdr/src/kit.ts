@@ -409,6 +409,7 @@ export class HerdrKit {
     return () => { this.startListeners.delete(fn); };
   }
   prompt(target: AgentRef, text: string, o?: { wait?: { until?: AgentStatus[]; timeoutMs: number } }): Promise<PromptReceipt> { return this.agents.prompt(target, text, o); }
+  waitPromptable(target: AgentRef, o: { timeoutMs: number }): Promise<void> { return this.agents.waitPromptable(target, o); }
   runTurn<T = unknown>(target: AgentRef, o: AgentTurnOptions<T>): Promise<AgentTurnEnd<T>> { return this.turns.runTurn(target, o); }
   onTurnEnd(fn: (end: AgentTurnEnd) => void): () => void { return this.turns.onTurnEnd(fn); }
   sendKeys(target: AgentRef, keys: string[]): Promise<void> { return this.agents.sendKeys(target, keys); }

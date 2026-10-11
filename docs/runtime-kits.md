@@ -2256,6 +2256,12 @@ no new link/device operation; apps forward the result through their authorized j
   `agent_status`, `workspace_id`, `tab_id`, `pane_id === target`, boolean `focused`, non-negative safe-integer
   `revision`; else throw `Herdr did not queue the prompt.` (muxr `promptHerdrAgent`). `agent_blocked` → error code
   `agent-blocked`.
+- `isPromptable(agent)` is that readiness rule as one exported gate (`agent !== undefined && launch_pending !== true &&
+  status in idle/working/blocked/done`); `prompt` uses it and so does `waitPromptable`. `waitPromptable(target, { timeoutMs })`
+  waits until a just-started agent can take a prompt: it checks the kit's own snapshot, re-reads (`agent.get`, since
+  `launch_pending` rides reads only) and polls until `isPromptable` holds, then resolves. At the deadline it rejects with
+  code `agent-not-ready`; when the pane is gone (the snapshot no longer holds it and `agent.get` answers `agent_not_found`)
+  it rejects with code `pane-unavailable`, so a wait never hangs.
 - `wait` → `agent.wait { target, until, timeout_ms }` (always a timeout). `read` → `pane.read` and unwrap
   `result.read`. `sendKeys` → `agent.send_keys { target, keys }`.
 - Close guards = muxr `closeExactPane`/`closeExactTab`/`closeExactWorkspace`: look up the parent counts first and

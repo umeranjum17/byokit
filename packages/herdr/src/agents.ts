@@ -9,7 +9,7 @@ import { delimiter, isAbsolute, join } from 'node:path';
 import type { HerdrKit } from './kit.ts';
 import type { AgentCliSignIn, AgentInstallProbe, AgentInstallState, AgentLaunchFailureReason,
   AgentReadiness, AgentStartEvent, AgentStatusOptions,
-  AgentStatusRunner, AgentRef, AgentStatus, HerdrSnapshot, PromptReceipt, StartAgent } from './types.ts';
+  AgentStatusRunner, AgentRef, AgentStatus, HerdrSnapshot, HerdrSnapshotAgent, PromptReceipt, StartAgent } from './types.ts';
 import { words } from './words.ts';
 import { accountKind } from './kinds.ts';
 import { prepareLaunchEnv, type LaunchEnvironment } from './launch-env.ts';
@@ -22,6 +22,7 @@ type AgentRecord = HerdrSnapshot['workspaces'][number]['tabs'][number]['panes'][
 
 const PROMPTABLE: readonly AgentStatus[] = ['idle', 'working', 'blocked', 'done'];
 const DEFAULT_TIMEOUT_MS = 60_000;
+const WAIT_PROMPTABLE_POLL_MS = 50;
 
 // `agent.start` lands while the fresh pane is still at its shell prompt: the server answers
 // `agent_pane_busy`/`agent_pane_unavailable` until the pane is ready. The kit retries those for a
@@ -46,6 +47,13 @@ function agentOf(snapshot: HerdrSnapshot, paneId: string): AgentRecord {
   return undefined;
 }
 
+// The one readiness gate (6.4): an agent record is promptable when it exists, is not mid-launch and
+// its status is one Herdr accepts a prompt in. `prompt` refuses with `agent-not-ready` and
+// `waitPromptable` waits, both through this single rule.
+export function isPromptable(agent: HerdrSnapshotAgent | undefined): boolean {
+  return agent !== undefined && agent.launchPending !== true && PROMPTABLE.includes(agent.status);
+}
+
 // `agent.start` requires a name matching /^[a-z][a-z0-9_-]{0,31}$/; derive one from the kind when absent.
 function agentName(o: StartAgent): string {
   const slug = (o.name ?? o.kind).toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[-_0-9]+/, '').slice(0, 32);
@@ -58,7 +66,7 @@ function rootPaneOf(result: unknown): string | undefined {
 }
 
 export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; reread(paneId: string): Promise<void>; emitStart?(e: AgentStartEvent): void; launchEnv?(): Record<string, string> | undefined }): Pick<HerdrKit,
-  'startAgent' | 'prompt' | 'sendKeys' | 'wait' | 'read' | 'agentKinds' | 'installedAgentKinds' | 'agentStatus'> {
+  'startAgent' | 'prompt' | 'waitPromptable' | 'sendKeys' | 'wait' | 'read' | 'agentKinds' | 'installedAgentKinds' | 'agentStatus'> {
   const call = ctx.call;
   const emitStart = (e: AgentStartEvent): void => {
     try { ctx.emitStart?.(e); } catch { /* a listener never breaks a start */ }
@@ -189,10 +197,7 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
     // rides reads only, so a snapshot taken mid-launch goes stale. `interactive_ready` is not gated:
     // Herdr sets it only for agents its own `agent.start` settled, and its `agent.prompt` accepts the
     // rest. A refusal never sends `agent.prompt`.
-    const ready = (): boolean => {
-      const agent = agentOf(ctx.snapshot(), target.paneId);
-      return agent !== undefined && agent.launchPending !== true && PROMPTABLE.includes(agent.status);
-    };
+    const ready = (): boolean => isPromptable(agentOf(ctx.snapshot(), target.paneId));
     if (!ready()) {
       await ctx.reread(target.paneId);
       if (!ready()) throw fail('agent-not-ready', 'That agent is not ready for a prompt yet.');
@@ -230,6 +235,30 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       ? { source: session.source, agent: session.agent, kind: session.kind, value: session.value } : undefined;
     return { paneId: a.pane_id, terminalId: a.terminal_id, revision: a.revision, status: a.agent_status as AgentStatus,
       ...(agentSession === undefined ? {} : { agentSession }) };
+  }
+
+  // Wait until a just-started agent can take a prompt, instead of the host polling `prompt` and
+  // catching `agent-not-ready`. Resolves on the kit's own snapshot once `isPromptable` holds; the
+  // snapshot is re-read each pass because `launch_pending` rides `agent.get` reads only. A pane that
+  // closed while waiting rejects `pane-unavailable` (confirmed by an `agent_not_found` read); the
+  // deadline rejects `agent-not-ready`. Either way the wait never hangs.
+  async function waitPromptable(target: AgentRef, o: { timeoutMs: number }): Promise<void> {
+    const deadline = Date.now() + o.timeoutMs;
+    const agent = (): AgentRecord => agentOf(ctx.snapshot(), target.paneId);
+    for (;;) {
+      if (isPromptable(agent())) return;
+      if (agent() === undefined) {
+        try { await call('agent.get', { target: target.paneId }); }
+        catch (error) {
+          if (codeOf(error) === 'agent_not_found') throw fail('pane-unavailable', 'That pane is no longer available.');
+          throw error;
+        }
+      }
+      if (Date.now() >= deadline) throw fail('agent-not-ready', 'That agent is not ready for a prompt yet.');
+      await ctx.reread(target.paneId);
+      if (isPromptable(agent())) return;
+      await sleep(WAIT_PROMPTABLE_POLL_MS);
+    }
   }
 
   async function wait(target: AgentRef, o: { until?: AgentStatus[]; timeoutMs: number }): Promise<AgentStatus> {
@@ -297,7 +326,7 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
     }));
   }
 
-  return { startAgent, prompt, sendKeys, wait, read, agentKinds, installedAgentKinds, agentStatus };
+  return { startAgent, prompt, waitPromptable, sendKeys, wait, read, agentKinds, installedAgentKinds, agentStatus };
 }
 
 // One source of truth for install detection (B5's probe plus the shim layer below): the first
