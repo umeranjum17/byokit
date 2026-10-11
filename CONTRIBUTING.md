@@ -17,7 +17,7 @@ npm run test:browser   # the PWA example in headless Chromium (npx playwright in
 # installed Chromium. Unset, the first Chromium on PATH is used; with none, the browser tests skip.
 sh scripts/test.sh examples/herdr-kit/e2e.test.ts   # the Herdr kit example, packed, against the fake Herdr
 sh scripts/test.sh examples/openclaw-kit/e2e.test.ts   # the OpenClaw kit example, packed, against the fake Gateway
-sh scripts/test.sh examples/realtime-voice/e2e.test.ts   # the voice proof page offline, in headless Chromium
+sh scripts/test.sh examples/realtime-voice/e2e.test.ts   # the tap-to-talk voice screen offline, in headless Chromium
 ```
 
 Phones: `examples/expo` (`npm ci`, `npm run typecheck`, `npm run bundle` for the iOS and Android bundles, and
