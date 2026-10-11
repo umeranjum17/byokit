@@ -142,14 +142,15 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
   x.on('error', () => {});
   t.after(async () => { if (x.pid && x.exitCode === null && x.signalCode === null) { x.kill('SIGTERM'); await once(x, 'exit'); } });
   let broker: Broker | undefined, chromePids: number[] = [], stage = 'setup';
-  const posts: string[] = []; let downloads = 0, instrumented = 0;
+  const posts: string[] = []; let downloads = 0, instrumented = 0, idpParsed = 0;
   const idp = createServer((req, res) => {
     res.setHeader('cache-control', 'no-store');
+    if (req.url === '/parsed') { idpParsed++; res.end(); return; }
     if (req.url === '/submit') {
       let body = ''; req.on('data', data => body += data); req.on('end', () => { posts.push(body); res.end('OK'); }); return;
     }
     res.setHeader('content-type', 'text/html');
-    res.end('<form action="/submit" method="post"><input name="value" style="position:absolute;left:20px;top:20px;width:250px;height:35px"><button style="position:absolute;left:20px;top:80px;width:200px;height:40px">Submit</button></form>');
+    res.end('<form action="/submit" method="post"><input name="value" style="position:absolute;left:20px;top:20px;width:250px;height:35px"><button style="position:absolute;left:20px;top:80px;width:200px;height:40px">Submit</button></form><script>fetch("/parsed")</script>');
   });
   await new Promise<void>(resolve => idp.listen(0, '127.0.0.1', resolve));
   const idpOrigin = `http://127.0.0.1:${(idp.address() as { port: number }).port}`;
@@ -308,6 +309,8 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
     await until(() => broker!.privateState()?.origin === siteOrigin && !broker!.privateState()?.offOrigin);
     await point(100, 115); // held popup on distinct exact loopback origin
     await until(() => broker!.privateState()?.origin === idpOrigin);
+    // The origin flips at commit, before the form exists; a click then focuses nothing. Wait for the parsed form.
+    await until(() => idpParsed > 0);
     assert.equal(broker.privateState()!.offOrigin, true);
     const popup = (await denied.send('Byokit.claimTakeover', lease)).result.targetId;
     privateSid = (await denied.send('Target.attachToTarget', { targetId: popup, flatten: true })).result.sessionId;

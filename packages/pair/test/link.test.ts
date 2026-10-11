@@ -85,9 +85,12 @@ test('compact QR pairs like a typed code, and the old QR still scans', async () 
   assert.equal(h.asked.length, 1, 'the person is never asked about a spent code');
 
   // A compact offer that ran out says so before dialling, and the host refuses it too.
-  const quick = await startHost({ pairMs: 150 });
+  // The host ticket runs out on the host's own clock. A real sleep past a short pairMs flaked: the offer's
+  // minute-rounded expiry could land on the very minute boundary the sleep crossed, so the device said "run out" first.
+  let now = Date.now();
+  const quick = await startHost({ now: () => now, pairMs: 60_000 });
   const late = quick.host.compactOffer({ role: 'view', urls: [quick.url] }).text;
-  await sleep(200);
+  now += 60_001;
   assert.deepEqual(parseOffer(late, 0).urls, [quick.url], 'a compact offer inspects like a version 1 one; minutes of expiry outlast the host ticket');
   await assert.rejects(pairWithOffer(late, { name: 'Late' }), (e: LinkError) => e.code === 'wrong-code');
 });

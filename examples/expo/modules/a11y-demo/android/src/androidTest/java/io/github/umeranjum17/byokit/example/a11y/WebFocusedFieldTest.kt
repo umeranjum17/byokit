@@ -229,9 +229,17 @@ class WebFocusedFieldTest {
     try {
       prepareDevice()
       val component = "${context.packageName}/${WebFieldService::class.java.name}"
+      val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60)
+      // ForegroundAppTest's instance unbinds asynchronously after its settings restore. Enabling before it goes handed
+      // this test that dying instance (CI: "same=false", raw nodes [], editors=0 for the whole focus wait).
+      if (component !in previous) {
+        while (WebFieldService.connected != null) {
+          assertTrue("Previous fixture service unbound", System.nanoTime() < deadline)
+          Thread.sleep(50)
+        }
+      }
       shell("settings put secure enabled_accessibility_services $component")
       shell("settings put secure accessibility_enabled 1")
-      val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60)
       while (WebFieldService.connected == null && System.nanoTime() < deadline) Thread.sleep(50)
       val service = WebFieldService.connected ?: error("Test accessibility service did not connect")
       val page = instrumentation.startActivitySync(Intent(context, WebFieldActivity::class.java)

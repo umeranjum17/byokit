@@ -228,7 +228,8 @@ test('Ask on both cards: one question at a time, Stop, and an older answer never
     // A rapid double Ask is one question; Stop gives the controls back.
     await part(page, key, 'question').fill('First');
     await ask.evaluate((b: HTMLButtonElement) => { b.click(); b.click(); });
-    await page.waitForTimeout(300);
+    await asked(1);
+    await page.waitForTimeout(300); // negative window: a second request from the double click would land here
     assert.equal(held.length, 1, `${key}: one question asked`);
     assert.equal(await ask.isDisabled(), true);
     await stop.click();
@@ -241,7 +242,7 @@ test('Ask on both cards: one question at a time, Stop, and an older answer never
     await answer(1, key);
     await out.filter({ hasText: 'Second final' }).waitFor();
     await answer(0, key);
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(300); // negative window: the stopped answer must not replace the newer one
     assert.equal(await out.textContent(), 'Second final', `${key}: the newest answer stays`);
     await idle();
 
