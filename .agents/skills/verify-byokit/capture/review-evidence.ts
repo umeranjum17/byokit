@@ -13,7 +13,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium, type Page } from 'playwright';
-import { mockOpenAI } from '@byokit/accounts/testing';
+import { mockDevice, mockOpenAI } from '@byokit/accounts/testing';
 import { serve } from '../../../../examples/pwa/serve.ts';
 
 const themes = ['light', 'dark'] as const;
@@ -99,6 +99,33 @@ async function askAuto(page: Page, question: string, answer: string | RegExp = `
 }
 
 const SCREENS: Screen[] = [
+  ...(['code', 'connected', 'reloaded', 'signed-out'] as const).map((state): Screen => ({
+    id: `grok-${state}`, path: '', what: `Grok local mockDevice journey: ${state}`,
+    themes: [...themes], formFactors: ['phone', 'desktop'], interaction: `grok-${state}`,
+    before: { via: 'ref' },
+    async drive(page) {
+      await part(page, 'grok', 'signin').click();
+      const code = part(page, 'grok', 'code').filter({ hasText: /^FIXTURE-/ });
+      await code.waitFor();
+      if (state !== 'code') {
+        device.state.dropPolls = 1;
+        if (!device.approve((await code.textContent())!)) throw new Error('mockDevice refused its issued code');
+        await part(page, 'grok', 'status').filter({ hasText: /is connected/ }).waitFor();
+        if (device.state.dropPolls !== 0) throw new Error('dropped poll was not exercised');
+        if (state !== 'connected') {
+          await page.reload();
+          await part(page, 'grok', 'status').filter({ hasText: /is connected/ }).waitFor();
+          if (state === 'signed-out') {
+            await part(page, 'grok', 'signout').click();
+            await part(page, 'grok', 'signin').waitFor();
+            if (await part(page, 'grok', 'sheet').isVisible()) throw new Error('code remains after sign-out');
+          }
+        }
+      }
+      await page.locator('#grok').scrollIntoViewIfNeeded();
+    },
+  })),
+
   {
     id: 'signin-list',
     path: '',
@@ -243,6 +270,7 @@ const existsAt = (ref: string, path: string) => { try { git('cat-file', '-e', `$
 const base = arg('base', 'origin/main')!;
 const slug = arg('slug', 'local')!;
 const out = arg('out', `.verify-artifacts/review/${slug}`)!;
+const fontScale = Number(arg('font-scale', '1'));
 const wanted = arg('screens', SCREENS.map((s) => s.id).join(','))!.split(',').map((s) => s.trim()).filter(Boolean);
 const screens = SCREENS.filter((s) => wanted.includes(s.id));
 if (!screens.length) throw new Error(`no screens matched --screens ${wanted.join(',')}`);
@@ -265,7 +293,8 @@ if (screens.some((s) => s.before.via === 'ref')) {
 }
 
 const openai = await mockOpenAI();
-const head = await serve(0, openai.base);
+const device = await mockDevice();
+const head = await serve(0, openai.base, device.base);
 const baseServe = existsSync(baseDir) ? await (async () => {
   const module = await import(pathToFileURL(join(baseDir, 'examples/pwa/serve.ts')).href);
   return (module.serve as typeof serve)(0, openai.base);
@@ -297,6 +326,9 @@ try {
             deviceScaleFactor: video ? 1 : size.deviceScaleFactor, serviceWorkers: 'block', // a cached shell would serve a stale screen
             ...(video ? { recordVideo: { dir: join(scratch, 'video'), size } } : {}) });
           const page = await context.newPage();
+          if (fontScale !== 1) await page.addInitScript((scale) => {
+            document.addEventListener('DOMContentLoaded', () => { document.body.style.fontSize = `${17 * scale}px`; });
+          }, fontScale);
           page.on('pageerror', (e) => errors.push(`${screen.id} ${theme} ${form}: ${e}`));
           return { context, page };
         };
@@ -306,7 +338,10 @@ try {
           const frames = await open();
           await frames.page.goto(beforeHref, { waitUntil: 'load' });
           if (screen.beforeDrive) await screen.drive(frames.page); // one state on both sides, not initial paint vs driven
-          else await frames.page.waitForTimeout(500); // the cards draw from IndexedDB and the sign-in status
+          else {
+            await part(frames.page, 'chatgpt', 'signin').waitFor();
+            if (screen.id.startsWith('grok-')) await frames.page.locator('#grok').scrollIntoViewIfNeeded();
+          }
           await shot(frames.page, join(screen.id, `before__${theme}__${form}.png`));
           await frames.context.close();
         }
@@ -335,11 +370,12 @@ try {
   baseServe?.close();
   head.close();
   await openai.close();
+  await device.close();
   rmSync(scratch, { recursive: true, force: true });
 }
 
 if (errors.length) console.error(`page errors:\n${errors.join('\n')}`);
-const manifest = { base, head: 'worktree', out, screens: screens.map((s) => ({ id: s.id, what: s.what, interaction: s.interaction, themes: s.themes, formFactors: s.formFactors })), files: written, skips, pageErrors: errors };
+const manifest = { base, head: 'worktree', out, fontScale, screens: screens.map((s) => ({ id: s.id, what: s.what, interaction: s.interaction, themes: s.themes, formFactors: s.formFactors })), files: written, skips, pageErrors: errors };
 writeFileSync(join(out, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 console.log(`\nEvidence: ${out}/manifest.json (${written.length} files, ${skips.length} skips, ${errors.length} page errors)`);
 if (errors.length) process.exitCode = 1;

@@ -13,15 +13,16 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { build } from 'esbuild';
 import type { Page, Route } from 'playwright';
-import { mockOpenAI } from '../../packages/accounts/src/testing/index.ts';
+import { mockDevice, mockOpenAI } from '@byokit/accounts/testing';
 import { serve } from './serve.ts';
 
 // Playwright's own Chromium (CI installs it); else the system's, for a machine without Playwright's download.
 const executablePath = existsSync(chromium.executablePath()) ? undefined : process.env.BYOKIT_CHROME ?? '/usr/bin/chromium';
 const openai = await mockOpenAI();
-const site = await serve(0, openai.base);
+const device = await mockDevice();
+const site = await serve(0, openai.base, device.base);
 const browser = await chromium.launch({ executablePath });
-after(async () => { await browser.close(); site.close(); await openai.close(); });
+after(async () => { await browser.close(); site.close(); await openai.close(); await device.close(); });
 /** A part of one provider's card. */
 const part = (page: Page, key: string, name: string) => page.locator(`#${key} [data-${name}]`);
 
@@ -62,6 +63,65 @@ test('sign in with ChatGPT in a browser: device code, the plan named, kept acros
   await part(page, 'chatgpt', 'signin').waitFor();
   assert.deepEqual(errors, []);
   await context.close();
+});
+
+test('Grok in the built browser app: a dropped poll, approval, reload, sign-out; host-only SDK rejection', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext({ serviceWorkers: 'block' });
+  try {
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.goto(`${site.url}?device=https://attacker.example`);
+    await part(page, 'grok', 'signin').waitFor();
+    assert.equal(await part(page, 'grok', 'billing').textContent(), 'Plan');
+    assert.equal(await page.locator('#anthropic').count(), 0, 'a billed API key is not offered as a plan');
+    device.state.dropPolls = 1;
+    await part(page, 'grok', 'signin').click();
+    const codeAt = part(page, 'grok', 'code').filter({ hasText: /^FIXTURE-/ });
+    await codeAt.waitFor();
+    assert.equal(await part(page, 'grok', 'open').getAttribute('href'), `${device.base}/activate`);
+    assert.equal(await part(page, 'grok', 'paste').isVisible(), false);
+    // mockDevice is a local HTTP service, not a live vendor or a provider-page fixture.
+    assert.equal(device.approve((await codeAt.textContent())!), true);
+    await part(page, 'grok', 'status').filter({ hasText: /is connected/ }).waitFor();
+    assert.equal(device.state.dropPolls, 0, 'the dropped poll was consumed before connecting');
+    assert.ok(device.state.requests.filter((r) => r.path === '/oauth2/token').length >= 2);
+    assert.equal(await part(page, 'grok', 'billing').textContent(), 'Plan', 'no invented paid tier');
+    await page.reload();
+    await part(page, 'grok', 'status').filter({ hasText: /is connected/ }).waitFor();
+    await part(page, 'grok', 'signout').click();
+    await part(page, 'grok', 'signin').waitFor();
+    assert.equal(await part(page, 'grok', 'sheet').isVisible(), false);
+    await page.reload();
+    await part(page, 'grok', 'signin').waitFor();
+
+    // Separate SDK/browser-API negative, not a host-card journey: built browser exports only.
+    const bundle = await build({ stdin: { contents: "export * from '@byokit/accounts';", resolveDir: process.cwd() },
+      bundle: true, platform: 'browser', format: 'esm', write: false });
+    const before = device.state.requests.length;
+    const hostRequests: string[] = [];
+    page.on('request', (r) => { if (/^https?:/.test(r.url())) hostRequests.push(r.url()); });
+    const negative = await page.evaluate(async (source) => {
+      const sdk = await import(URL.createObjectURL(new Blob([source], { type: 'text/javascript' })));
+      const route = sdk.route('custom:endpoint', { platform: 'browser' });
+      const kit = new sdk.Accounts({ store: () => sdk.memoryStore() });
+      try {
+        await kit.endpoint(1, { baseUrl: 'http://127.0.0.1:1/v1', compat: 'openai', billing: 'api' });
+        throw new Error('host-only endpoint was accepted');
+      } catch (e: any) {
+        return { readiness: route.readiness, words: route.why, error: e.readiness, message: e.message, code: kit.view(1, 'custom:endpoint')?.code };
+      }
+    }, bundle.outputFiles[0].text);
+    assert.equal(negative.readiness, 'needs_host');
+    assert.equal(negative.words, "This sign-in method needs the app's host side.");
+    assert.equal(negative.error, 'needs_host');
+    assert.equal(negative.message, 'This endpoint needs the app’s host side.');
+    assert.equal(negative.code, undefined);
+    assert.equal(device.state.requests.length, before, 'host-only rejection never asks the device provider');
+    assert.deepEqual(hostRequests, [], 'host-only rejection makes no HTTP request');
+    assert.deepEqual(errors, []);
+    console.log('SDK/browser-API negative:', negative);
+  } finally { await context.close(); }
 });
 
 test('sign in with Claude in a browser: its page, the code pasted back, the plan named, an answer streamed', { timeout: 120_000 }, async () => {

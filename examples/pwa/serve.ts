@@ -20,9 +20,9 @@ const body = (req: import('node:http').IncomingMessage) => new Promise<Buffer>((
 });
 const headers = (h: IncomingHttpHeaders) => Object.entries(h).filter(([k, v]) => !DROP.test(k) && typeof v === 'string') as [string, string][];
 
-export async function serve(port = 0, authBase?: string) {
+export async function serve(port = 0, authBase?: string, deviceBase?: string) {
   const bundle = await build({ entryPoints: [here('app.ts'), here('pair.ts'), here('usage.ts')], outdir: 'out', bundle: true, platform: 'browser', format: 'esm', write: false, logLevel: 'silent',
-    define: { __BYOKIT_AUTH_BASE__: JSON.stringify(authBase) ?? 'undefined' } });
+    define: { __BYOKIT_AUTH_BASE__: JSON.stringify(authBase) ?? 'undefined', __BYOKIT_DEVICE_BASE__: JSON.stringify(deviceBase) ?? 'undefined' } });
   const apps = new Map(bundle.outputFiles.map((f) => [f.path.split('/').pop()!, f.text]));
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');

@@ -106,4 +106,4 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [pair-compact-resume](./pair-compact-resume.md) — compact/v1 QR kill-during-approval resume, impostor refusal, compact token size and terminal QR.
 - [relay-action-reply](./relay-action-reply.md) — the relay action route carries a bounded opaque sealed reply to the host callback, refuses bad replies and stores nothing.
 - [dictation-whisper-windows](./dictation-whisper-windows.md) — long-take automatic windows step from the decoded end (no skip at a pause) and the overlap is joined once (no repeated passage), plus the 30 s-or-shorter and silent-gap extremes.
-- [pwa-review-evidence](./pwa-review-evidence.md) — the review-evidence capture: before/after frames per theme and form factor, one motion recording per changed interaction.
+- [pwa-review-evidence](./pwa-review-evidence.md) — before/after frames and motion per theme/form factor, including Grok device code, one dropped poll, approval, reload and sign-out; the separate built browser-API host-only negative is covered by the PWA journey test.
