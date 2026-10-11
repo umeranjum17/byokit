@@ -75,8 +75,15 @@ export const deviceFlow = (pi: string, region?: 'global' | 'cn'): DeviceFlow | u
   const endpoints = d && region && region !== 'global' ? d.regions?.[region] : undefined;
   return d && endpoints ? { ...d, authorization: endpoints.authorization, token: endpoints.token } : d;
 };
-/** What the picker offers: the provider rows a phone or browser can sign in to, in catalogue order. */
-export const signInChoices = (): Provider[] => Object.values(PROVIDERS).filter((p) => p.auth !== 'api-key' && p.offer !== false && !!p.device && p.billing === 'subscription');
+/** What the picker offers: the provider rows a phone or browser can sign in to, in catalogue order.
+ *  The app's own `offer` list (the same `readonly string[]` as `offered` and `AccountsOptions.offer`), when passed,
+ *  decides membership: a provider it names is included even when the catalogue marks it explicit (`offer: false`),
+ *  such as MiniMax, and one it does not name is left out. Omitting it keeps the catalogue's default offer. */
+export const signInChoices = (offer?: readonly string[]): Provider[] => {
+  const named = offer && new Set(offer);
+  return Object.values(PROVIDERS).filter((p) => p.auth !== 'api-key' && !!p.device && p.billing === 'subscription'
+    && (named ? named.has(p.key) : p.offer !== false));
+};
 
 export function provider(key: string) {
   const p = PROVIDERS[key];

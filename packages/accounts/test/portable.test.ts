@@ -127,6 +127,10 @@ test("a poll that can't get through (a backgrounded phone) waits for the next in
 test('any provider the catalogue gives device data signs in on the phone, with no provider of its own', async () => {
   // The picker offers what the catalogue says; nothing here names a provider in code.
   assert.deepEqual(signInChoices().map((p) => p.key), ['grok', 'kimi']);
+  // An app's own offer list reaches the picker: naming MiniMax adds its card even though the catalogue keeps it explicit,
+  // and the default call still leaves it out.
+  assert.ok(!signInChoices().some((p) => p.key === 'minimax'), 'the default picker leaves MiniMax out');
+  assert.deepEqual(signInChoices(['minimax']).map((p) => p.key), ['minimax'], "an app's own offer list adds MiniMax");
   for (const key of ['grok', 'kimi']) {
     const a = phoneKit(device.base);
     const v = (await a.login(1, key))!;
