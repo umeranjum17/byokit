@@ -15,7 +15,7 @@ const root = new URL('../../../', import.meta.url).pathname;
 const json = (path: string) => JSON.parse(readFileSync(resolve(root, path), 'utf8'));
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 
-test('portable Pi artifact is byte-reproducible, pinned, unmodified, typed and source-mapped', async () => {
+test('portable Pi artifact is byte-reproducible, pinned, Hermes-safe, typed and source-mapped', async () => {
   const generated = await generatePi();
   assert.deepEqual(readdirSync(piDir).sort(), [...generated.keys()].sort());
   for (const [name, text] of generated) assert.equal(readFileSync(resolve(piDir, name), 'utf8'), text, name);
@@ -53,6 +53,10 @@ test('portable Pi artifact is byte-reproducible, pinned, unmodified, typed and s
   assert.equal(generated.get('core.d.ts'), "export { createModels, createProvider } from '@earendil-works/pi-ai';\n");
   assert.equal(generated.get('cloudflare-stream.d.ts'), "export * from '@earendil-works/pi-ai/providers/cloudflare-stream';\n");
   const text = [...generated].filter(([name]) => name.endsWith('.js')).map(([, text]) => text).join('\n');
+  assert.doesNotMatch(text, /\.throwIfAborted\b/, 'every bundled throwIfAborted access is rewritten to the Hermes guard');
+  const guardCalls = [...text.matchAll(/__byokitPiThrowIfAborted\(/g)].length;
+  assert.ok(guardCalls > 1, 'the guard is defined and covers the bundled abort checks');
+  assert.equal(provenance.patch.sites, guardCalls);
   assert.doesNotMatch(text, /\bimport\s*\(/);
   assert.equal([...text.matchAll(/\b__require\(/g)].length, 2, 'only lowered auth/context and Bun-only provider-env');
   assert.match(text, /__require\("node:fs"\)/);

@@ -1,7 +1,7 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled unmodified by @byokit/accounts; see NOTICE.
+// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   getSystemMessageText
-} from "./chunk-FF2CZYAY.js";
+} from "./chunk-PDUG4NYC.js";
 
 // node_modules/@earendil-works/pi-ai/dist/utils/pi-user-agent.js
 function loadNodeOs() {
@@ -561,4 +561,4 @@ export {
   adjustMaxTokensForThinking,
   transformMessages
 };
-//# sourceMappingURL=chunk-6OHM536L.js.map
+//# sourceMappingURL=chunk-VUCNMX7O.js.map

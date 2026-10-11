@@ -4,7 +4,7 @@ import type { Platform } from './accounts.ts';
 import type { KeyRuntime } from './key-routes.ts';
 
 export type { KeyRuntime } from './key-routes.ts';
-/** The unmodified typed Pi factories and adapters, for explicit native (client-owned) use too. */
+/** The typed Pi factories and adapters (one recorded Hermes `throwIfAborted` guard), for explicit native (client-owned) use too. */
 export const keys = (): Promise<KeyRuntime> => import('./portable-keys.ts').then((m) => m.runtime);
 /** That platform, able to answer key routes: `new Accounts(options, withKeys(portable))`. */
 export const withKeys = (platform: Platform): Platform => ({ ...platform, keys });

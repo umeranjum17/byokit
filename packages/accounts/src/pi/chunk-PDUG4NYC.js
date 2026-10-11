@@ -1,12 +1,12 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled unmodified by @byokit/accounts; see NOTICE.
+// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   AssistantMessageEventStream,
   formatThrownValue
-} from "./chunk-NO6FHOUY.js";
+} from "./chunk-JTGIYXAQ.js";
 import {
   __require,
   __toESM
-} from "./chunk-3ZIKFYRY.js";
+} from "./chunk-XD4THNNI.js";
 
 // node_modules/@earendil-works/pi-ai/dist/api/lazy.js
 function createSetupErrorMessage(model, error) {
@@ -142,7 +142,7 @@ var InMemoryCredentialStore = class {
     const queued = (async () => {
       await previous.catch(() => {
       });
-      signal.throwIfAborted();
+      __byokitPiThrowIfAborted(signal);
       return task();
     })();
     const tail = queued.catch(() => {
@@ -155,18 +155,18 @@ var InMemoryCredentialStore = class {
     return raceWithAbortSignal(queued, signal);
   }
   async read(providerId, options) {
-    options?.signal?.throwIfAborted();
+    __byokitPiThrowIfAborted(options?.signal);
     return this.credentials.get(providerId);
   }
   async list(options) {
-    options?.signal?.throwIfAborted();
+    __byokitPiThrowIfAborted(options?.signal);
     return [...this.credentials].map(([providerId, credential]) => ({ providerId, type: credential.type }));
   }
   modify(providerId, fn, options) {
     return this.enqueue(providerId, async () => {
       const current = this.credentials.get(providerId);
       const next = await fn(current);
-      options?.signal?.throwIfAborted();
+      __byokitPiThrowIfAborted(options?.signal);
       if (next !== void 0)
         this.credentials.set(providerId, next);
       return next ?? current;
@@ -201,7 +201,7 @@ function resolveProviderAuth(provider, credentials, authContext, overrides) {
   return raceWithAbortSignal(resolveProviderAuthWithSignal(provider, credentials, authContext, overrides, signal), signal);
 }
 async function resolveProviderAuthWithSignal(provider, credentials, authContext, overrides, signal) {
-  signal.throwIfAborted();
+  __byokitPiThrowIfAborted(signal);
   const requestAuthContext = overrides?.env ? overlayEnvAuthContext(authContext, overrides.env) : authContext;
   if (overrides?.apiKey !== void 0 && provider.auth.apiKey) {
     return resolveApiKey(requestAuthContext, provider.auth.apiKey, provider.id, {
@@ -290,16 +290,16 @@ async function readCredential(credentials, providerId, signal) {
 var InMemoryModelsStore = class {
   entries = /* @__PURE__ */ new Map();
   async read(providerId, options) {
-    options?.signal?.throwIfAborted();
+    __byokitPiThrowIfAborted(options?.signal);
     const entry = this.entries.get(providerId);
     return entry ? structuredClone(entry) : void 0;
   }
   async write(providerId, entry, options) {
-    options?.signal?.throwIfAborted();
+    __byokitPiThrowIfAborted(options?.signal);
     this.entries.set(providerId, structuredClone(entry));
   }
   async delete(providerId, options) {
-    options?.signal?.throwIfAborted();
+    __byokitPiThrowIfAborted(options?.signal);
     this.entries.delete(providerId);
   }
 };
@@ -695,7 +695,7 @@ var ModelsImpl = class {
   checkAuth(providerId, options) {
     const signal = operationSignal(options?.signal);
     const check = (async () => {
-      signal.throwIfAborted();
+      __byokitPiThrowIfAborted(signal);
       const provider = this.providers.get(providerId);
       if (!provider)
         return void 0;
@@ -706,7 +706,7 @@ var ModelsImpl = class {
   getAvailable(providerId, options) {
     const signal = operationSignal(options?.signal);
     const available = (async () => {
-      signal.throwIfAborted();
+      __byokitPiThrowIfAborted(signal);
       const providers = providerId ? [this.providers.get(providerId)].filter((entry) => entry !== void 0) : this.getProviders();
       const checks = await Promise.all(providers.map(async (provider) => {
         const credential = await this.readCredential(provider.id, signal);
@@ -740,7 +740,7 @@ var ModelsImpl = class {
   }
   async login(providerId, type, interaction) {
     const signal = operationSignal(interaction.signal);
-    signal.throwIfAborted();
+    __byokitPiThrowIfAborted(signal);
     const provider = this.providers.get(providerId);
     if (!provider)
       throw new ModelsError("provider", `Unknown provider: ${providerId}`);
@@ -781,18 +781,18 @@ var ModelsImpl = class {
       });
       await mutation;
     } catch (error) {
-      signal.throwIfAborted();
+      __byokitPiThrowIfAborted(signal);
       throw new ModelsError("auth", `Credential store modify failed for ${providerId}`, { cause: error });
     }
     return credential;
   }
   async logout(providerId, options) {
     const signal = operationSignal(options?.signal);
-    signal.throwIfAborted();
+    __byokitPiThrowIfAborted(signal);
     try {
       await this.credentials.delete(providerId, { signal });
     } catch (error) {
-      signal.throwIfAborted();
+      __byokitPiThrowIfAborted(signal);
       throw new ModelsError("auth", `Credential store delete failed for ${providerId}`, { cause: error });
     }
   }
@@ -1033,4 +1033,8 @@ export {
   clampThinkingLevel,
   modelsAreEqual
 };
-//# sourceMappingURL=chunk-FF2CZYAY.js.map
+function __byokitPiThrowIfAborted(signal) {
+  if (signal == null || !signal.aborted) return;
+  throw signal.reason !== void 0 ? signal.reason : Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
+}
+//# sourceMappingURL=chunk-PDUG4NYC.js.map

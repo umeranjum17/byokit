@@ -1,4 +1,4 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled unmodified by @byokit/accounts; see NOTICE.
+// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 
 // node_modules/@earendil-works/pi-ai/dist/utils/headers.js
 function headersToRecord(headers) {
@@ -23,4 +23,4 @@ export {
   headersToRecord,
   providerHeadersToRecord
 };
-//# sourceMappingURL=chunk-5CS55XCW.js.map
+//# sourceMappingURL=chunk-MIDDHJH2.js.map

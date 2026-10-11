@@ -1,46 +1,46 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled unmodified by @byokit/accounts; see NOTICE.
+// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   convertResponsesMessages,
   convertResponsesTools,
   processResponsesStream
-} from "./chunk-TF2BCWAX.js";
+} from "./chunk-2GZLPZSK.js";
 import {
   clampOpenAIPromptCacheKey
-} from "./chunk-EDLR4U3Z.js";
+} from "./chunk-OTOLD7QS.js";
 import {
   buildCopilotDynamicHeaders,
   hasCopilotVisionInput
-} from "./chunk-77WG7L4R.js";
+} from "./chunk-FJMJCJSO.js";
 import {
   formatProviderError,
   normalizeProviderError
-} from "./chunk-22W7NBDD.js";
+} from "./chunk-W3IKEFGN.js";
 import {
   retryProviderRequest
-} from "./chunk-66TZXFZR.js";
-import "./chunk-2Q6VVASW.js";
+} from "./chunk-3TVGBGLJ.js";
+import "./chunk-QJQ5SDE2.js";
 import {
   buildBaseOptions,
   createGrammarToolInputProperties,
   getPiUserAgent
-} from "./chunk-6OHM536L.js";
+} from "./chunk-VUCNMX7O.js";
 import {
   clampThinkingLevel,
   getDeclaredTools,
   resolveTranscript,
   resolveTranscriptTools
-} from "./chunk-FF2CZYAY.js";
+} from "./chunk-PDUG4NYC.js";
 import {
   getProviderEnvValue
-} from "./chunk-PMCJDLVU.js";
-import "./chunk-HKHK62PD.js";
+} from "./chunk-RGJXTNZI.js";
+import "./chunk-FHNSO4GF.js";
 import {
   headersToRecord
-} from "./chunk-5CS55XCW.js";
+} from "./chunk-MIDDHJH2.js";
 import {
   AssistantMessageEventStream
-} from "./chunk-NO6FHOUY.js";
-import "./chunk-3ZIKFYRY.js";
+} from "./chunk-JTGIYXAQ.js";
+import "./chunk-XD4THNNI.js";
 
 // node_modules/@earendil-works/pi-ai/dist/api/openai-responses.js
 import OpenAI from "openai";
