@@ -6,7 +6,7 @@ import { sshVm, sshHostKey, type SshVmOptions } from '../../packages/cloud/src/s
 import { memoryStore } from '../../packages/cloud/src/testing/fake-provider.ts';
 import type { HostRecipe, MachineRef, Price, Provider } from '../../packages/cloud/src/types.ts';
 import type { AppRecipe } from './recipes.ts';
-import { runProof, type ProofHooks, type ProofTarget, type Report, type Session } from './proof.ts';
+import { runProof, type ProofHooks, type ProofTarget, type Report, type Session, type Timing } from './proof.ts';
 
 export type LiveConfig = {
   providerUrl: string; providerLabel: string; apiKeyFile: string; prices: readonly Price[];
@@ -20,7 +20,11 @@ export type LiveConfig = {
   resourcesFile: string;
 };
 
-function track(provider: Provider, refs: MachineRef[], save: (ref: MachineRef) => Promise<void>): Provider {
+function track(
+  provider: Provider,
+  refs: MachineRef[],
+  save: (ref: MachineRef) => Promise<void>,
+): Provider {
   const p = { ...provider };
   if (provider.create) p.create = async opts => {
     const ref = await provider.create!(opts);
@@ -41,6 +45,12 @@ export async function liveRun(config: LiveConfig, record: (r: Report) => Promise
   const fingerprint = await sshHostKey(config.vm);
   assert.equal(fingerprint.fingerprint, config.vm.fingerprint, 'SSH fingerprint differs from the app-verified fingerprint');
   await fingerprint.confirm();
+  // M6 comparison timings (scout report §6 step 4): create->on, resume->on, install duration and
+  // a timed /dev/kvm probe. Recorded per adapter; never a transport URL or key.
+  const timings: Timing[] = [];
+  const at = (adapter: string, phase: Timing['phase'], seconds: number, detail?: string): void => {
+    timings.push({ adapter, phase, seconds, ...(detail === undefined ? {} : { detail }) });
+  };
   const rawSandbox = boat({ baseUrl: config.providerUrl, label: config.providerLabel, prices: config.prices, key: async () => key });
   const vm = sshVm(config.vm);
   let resources: { adapter: string; id: string; name: string }[] = [];
@@ -59,6 +69,24 @@ export async function liveRun(config: LiveConfig, record: (r: Report) => Promise
   for (const [provider, home, app] of [[sandbox, config.sandboxHome, config.sandboxApp], [vm, config.vm.home, config.vmApp]] as const) {
     const refs: MachineRef[] = [];
     const contractProvider = track(provider, refs, async () => {});
+    // Time resume->on by wrapping the app provider's wake (the VM uses the console power cycle).
+    const timed: Provider = { ...provider };
+    let appCreateStarted: number | undefined;
+    if (provider.create !== undefined) {
+      const create = provider.create;
+      timed.create = async opts => {
+        appCreateStarted = Date.now();
+        return create(opts);
+      };
+    }
+    if (provider.wake !== undefined) {
+      const wake = provider.wake;
+      timed.wake = async ref => {
+        const started = Date.now();
+        await wake(ref);
+        at(provider.id, 'resume->on', (Date.now() - started) / 1000);
+      };
+    }
     const fixtureDir = `${home}/app`;
     // Real contract installs a harmless Node fixture, rather than the fake's nonexistent package.
     const fixture: HostRecipe = {
@@ -67,8 +95,24 @@ export async function liveRun(config: LiveConfig, record: (r: Report) => Promise
       run: { argv: ['node', `${fixtureDir}/server.mjs`], env: { PORT: '7310' } },
     };
     targets.push({
-      provider, app,
-      prepare: async s => { await saveResource(s); await config.prepare(s); },
+      provider: timed, app,
+      prepare: async s => {
+        await saveResource(s);
+        if (appCreateStarted !== undefined) {
+          at(provider.id, 'create->on', (Date.now() - appCreateStarted) / 1000);
+          const kvmStarted = Date.now();
+          let present = false;
+          try {
+            present = (await rawSandbox.exec(s.ref, ['sh', '-c', '[ -c /dev/kvm ]'], { timeoutMs: 30_000 })).code === 0;
+          } catch {
+            present = false;
+          }
+          at(provider.id, 'kvm', (Date.now() - kvmStarted) / 1000, present ? 'present' : 'absent');
+          appCreateStarted = undefined;
+        }
+        await config.prepare(s);
+      },
+      onInstall: seconds => at(provider.id, 'install', seconds),
       contractRecipe: name => ({ ...fixture, name }),
       bench: async () => ({ provider: contractProvider, store: memoryStore(), installs: true }),
       cleanupContract: async () => {
@@ -89,6 +133,7 @@ export async function liveRun(config: LiveConfig, record: (r: Report) => Promise
   // Never print provider errors, transport addresses, keys or model credentials.
   return runProof({ targets, hooks: config.hooks, mode: 'live', record: async report => {
     for (const result of report.results) result.detail = result.detail.split(key).join('[redacted]');
+    report.timings = [...timings].sort((a, b) => a.adapter.localeCompare(b.adapter) || a.phase.localeCompare(b.phase));
     await record(report);
   } });
 }

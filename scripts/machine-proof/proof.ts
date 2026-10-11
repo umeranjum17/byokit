@@ -14,7 +14,10 @@ export const checks = [
 ] as const;
 export type Check = typeof checks[number];
 export type Result = { adapter: string; check: Check; status: 'pass' | 'fail' | 'observed' | 'unavailable'; detail: string };
-export type Report = { date: string; mode: 'live' | 'dry-run'; complete: boolean; results: Result[] };
+// Measured durations the live run adds for the M6 comparison (create/resume to `on`, install,
+// and a timed `/dev/kvm` presence probe). Dry runs leave `timings` absent.
+export type Timing = { adapter: string; phase: 'create->on' | 'resume->on' | 'install' | 'kvm'; seconds: number; detail?: string };
+export type Report = { date: string; mode: 'live' | 'dry-run'; complete: boolean; results: Result[]; timings?: Timing[] };
 export type Session = { provider: Provider; ref: MachineRef; app: AppRecipe; url: string | null };
 export type Observation = { status: Result['status']; detail: string };
 export type ProofHooks = {
@@ -33,6 +36,8 @@ export type ProofTarget = {
   // Called before install: upload a clean release archive and lab-owned files only.
   prepare(session: Session): Promise<void>;
   contractRecipe(name: string): HostRecipe;
+  // Called with the install duration in seconds once `installApp` returns (live timings).
+  onInstall?(seconds: number): void;
   // Disposable contract benches, independent stores; no owner production machines.
   bench(): Promise<MachineBench>;
   cleanupContract(): Promise<void>;
@@ -92,7 +97,9 @@ export async function runProof(o: {
       const ref = await m.create({ name: target.app.host.name, size: 'small', keepCopies: provider.create !== undefined });
       session = { provider, ref, app: target.app, url: null };
       await target.prepare(session);
+      const installStarted = Date.now();
       await installApp(provider, ref, target.app);
+      target.onInstall?.((Date.now() - installStarted) / 1000);
       assert.equal(await m.host(), 'running');
       session.url = await m.url(target.app.exposure.port);
       const s = session;
@@ -166,8 +173,13 @@ export async function runProof(o: {
 /** Report is provider-neutral and contains only app-reviewed evidence, never transport URLs/keys. */
 export function markdown(report: Report): string {
   const cell = (s: string) => s.replace(/[\r\n|]/g, ' ').replace(/https?:\/\/\S+/g, '[address omitted]');
+  const timings = report.timings === undefined || report.timings.length === 0
+    ? ''
+    : '\n### M6 measured timings (seconds)\n\n' +
+      '| Adapter | Phase | Seconds | Evidence |\n|---|---|---|---|\n' +
+      report.timings.map(t => `| ${cell(t.adapter)} | ${t.phase} | ${t.seconds.toFixed(1)} | ${cell(t.detail ?? '')} |`).join('\n') + '\n';
   return `\n### M6 recorded run — ${report.mode} — ${report.date}\n\n` +
     `Qualification: **${report.complete ? 'complete real proof' : 'NOT qualified'}**. Dry-run results describe fakes only.\n\n` +
     '| Adapter | Check | Result | Evidence |\n|---|---|---|---|\n' +
-    report.results.map(r => `| ${cell(r.adapter)} | ${r.check} | ${r.status} | ${cell(r.detail)} |`).join('\n') + '\n';
+    report.results.map(r => `| ${cell(r.adapter)} | ${r.check} | ${r.status} | ${cell(r.detail)} |`).join('\n') + '\n' + timings;
 }

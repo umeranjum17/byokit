@@ -43,6 +43,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [Machine store shared across apps](./accounts-machine-store.md) — a second app process is signed in already from the computer's machine store; a wrong seal and a missing store are refused.
 - [ChatGPT refresh refusal](./accounts-refresh-refusal.md) — a phone/browser ChatGPT sign-in kept through a passing 401 at a due or forced refresh, ended only by a revoked grant.
 - [Usage plan view](./usage-planview.md) — `@byokit/usage` selectors over fixture call records via `examples/usage-demo.ts`.
+- [Cloud boat adapter](./cloud-boat-v1.md) — the built `@byokit/cloud` `boat()` against the loopback bench speaks the public boat-v1 names: `user.id`, nested `sandbox`/`operation`/`snapshot`, `X-Ascii-Confirm-Delete`, `encoding: 'base64'`, `plan` over `limits.info`, and no guessed `key`/`why`.
 - [Usage preflight](./usage-preflight.md) — `@byokit/usage` reports a call's cost ceiling from the app's own prices and the remaining allowance before it is sent, declining a costly call and refusing to guess on unknown cases.
 - [Usage Claude explicit-file guard](./usage-claude-file-guard.md) — `@byokit/usage` refuses a Claude `credentialsFile`/`configFile`/`statuslineFile` that carries a `.claude`/`.codex`/`.pi` segment, lexically or through a symlink, before any open, while an app-owned file still reads.
 - [Usage windows view](./usage-windows-view.md) — `@byokit/usage/view` `windowsView` lists both windows per account tightest first with their millisecond reset, usage/reset lines and an age taken only from `Reading.at` (unknown without one, stale past 24h keeping its numbers).
@@ -89,6 +90,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [openclaw-install-drift-diagnostics](./openclaw-install-drift-diagnostics.md) — forced fixture-package drift through the built kit's `prepare()` retains every diagnostics field.
 - [accounts-machine-store](./accounts-machine-store.md) — one sign-in reused by a second app through `machineStore`, wrong-seal and no-store refusals.
 - [usage-planview](./usage-planview.md) — plan/quota view rendered from call records.
+- [cloud-boat-v1](./cloud-boat-v1.md) — the boat adapter's public boat-v1 names against the loopback bench.
 - [usage-preflight](./usage-preflight.md) — preflight cost ceiling, remaining allowance, declined costly call, and explicit-unknown cases.
 - [usage-claude-file-guard](./usage-claude-file-guard.md) — a default-login `.claude`/`.codex`/`.pi` segment (lexically or via symlink) is refused with `UsageError` before any open; an app-owned file still reads.
 - [usage-windows-view](./usage-windows-view.md) — both windows per account tightest first with their millisecond reset and lines, plus an age from `Reading.at` only (unknown without one, stale past 24h keeping its numbers).

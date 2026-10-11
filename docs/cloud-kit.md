@@ -412,21 +412,20 @@ recovery. It is the only write `Machine` offers; anything else goes in the recip
 
 | Kit | Request | Rules |
 |---|---|---|
-| `account` | `GET /me` (15.1) | Returns the account id; cached for the adapter's life. |
-| `create` | `POST /sandboxes` `{type: size, ttlSeconds: null, noEnv: true, snapshots: keepCopies}` + header `Idempotency-Key` | `ttlSeconds: null` disables the provider's auto-stop. Resolves once the returned id exists; it does not wait for `on`. The returned ref's `name` is the kit's `name`. |
-| `status` | `GET /sandboxes/{id}` | Mapping in 6.2. |
+| `account` | `GET /me` (15.1) | Returns the public `user.id`; cached for the adapter's life. |
+| `create` | `POST /sandboxes` `{type: size, ttlSeconds: null, noEnv: true, snapshots: keepCopies}` + header `Idempotency-Key` | `ttlSeconds: null` disables the provider's auto-stop. The public `sandbox.created` response nests the sandbox; the id is `sandbox.id`. Resolves once that id exists; it does not wait for `on`. The returned ref's `name` is the kit's `name`. |
+| `status` | `GET /sandboxes/{id}` | `sandbox.info` nests the sandbox; the state is `sandbox.state`. Mapping in 6.2. |
 | `wake` | `POST /sandboxes/{id}/resume` `{ttlSeconds: null}` | **No `noEnv` field** (6.3). Then polls `status` every 2 s until `on` (resolve), `failed` or `gone` (reject `provider`), or 5 minutes (reject `timeout`). |
-| `sleep` | `POST /sandboxes/{id}/stop` | The provider takes a final snapshot; if that fails the stop aborts and the machine keeps running, which the kit reports as the `provider` error it returns. |
-| `snapshot` | `POST /named-snapshots` `{sandboxId, name}`, then poll `GET /named-snapshots/{name}` every 2 s until ready | The kit names copies `byokit-<ref.name>-<name>`. At most 10 exist per account; an 11th rejects `provider`. |
-| `fork` | `POST /sandboxes/{id}/fork` `{ttlSeconds: null}` + `Idempotency-Key` | A fork does not inherit the source's TTL: without `ttlSeconds: null` it stops after 1 h. A fork of a no-env source is always no-env, so no `noEnv` field. |
-| `remove` | `DELETE /sandboxes/{id}` + the provider's delete-confirmation header set to `<id>` (its name is in the API document, 15.1); poll `GET /deletion-operations/{op}` every 2 s until done; then `GET /named-snapshots` and `DELETE /named-snapshots/{name}` for every name starting `byokit-<ref.name>-` | Named snapshots survive a sandbox delete; without the second step the sign-ins inside them outlive it. A 404 on the sandbox counts as already deleted and the snapshot step still runs. |
-| `exec` | `POST /sandboxes/{id}/commands` `{command, timeoutSeconds, detached}`, and for a detached command poll `GET /sandboxes/{id}/commands/{pid}` every 1 s; a non-detached POST's response carries stdout, stderr and the exit code (field names per 15.1) | 6.4. |
-| `write` | `PUT /sandboxes/{id}/files` | Only paths under `/home/user/` or `/tmp/`; anything else rejects `bad-recipe` before any request. After the PUT, `exec` `chmod <mode, octal> <path>`. Only 6.4's `input` uses it; `Machine` writes files through `exec` with `input` (8.3), so root never reads a staged path. |
+| `sleep` | `POST /sandboxes/{id}/stop` | The provider takes a final snapshot; if that fails the stop aborts and the machine keeps running, which the kit reports as the `provider` error it returns. The stop is asynchronous, so it then polls `status` every 2 s until `asleep` or `gone` (`failed` rejects `provider`), or 5 minutes (reject `timeout`). |
+| `snapshot` | `POST /named-snapshots` `{sandboxId, name}`, then poll `GET /named-snapshots/{name}` every 2 s until `snapshot.status` is `ready` (`failed` rejects `provider`), or 5 minutes (reject `timeout`) | The kit names copies `byokit-<ref.name>-<name>`. At most 10 exist per account; an 11th rejects `provider`. |
+| `fork` | `POST /sandboxes/{id}/fork` `{ttlSeconds: null}` + `Idempotency-Key` | The public `sandbox.forking` response carries the new id at the top level. A fork does not inherit the source's TTL: without `ttlSeconds: null` it stops after 1 h. A fork of a no-env source is always no-env, so no `noEnv` field. |
+| `remove` | `DELETE /sandboxes/{id}` + header `X-Ascii-Confirm-Delete: <id>`; poll `GET /deletion-operations/{op}` every 2 s until `operation.status` is `completed` or `blocked`, or 5 minutes (reject `timeout`); then `GET /named-snapshots` and `DELETE /named-snapshots/{name}` for every name starting `byokit-<ref.name>-` | Named snapshots survive a sandbox delete; without the second step the sign-ins inside them outlive it. A 404 on the sandbox counts as already deleted and the snapshot step still runs. `blocked` is terminal for the adapter: the operation is accepted and the sandbox is gone from every list, while a blocked stage can persist by design. |
+| `exec` | `POST /sandboxes/{id}/commands` `{command, timeoutSeconds, detached}`, and for a detached command poll `GET /sandboxes/{id}/commands/{processId}` every 1 s until `running` is false; a non-detached POST's `command.finished` response carries `stdout`, `stderr` and `exitCode` | 6.4. |
+| `write` | `PUT /sandboxes/{id}/files` `{path, content, encoding: 'base64'}` | The public file API defaults `encoding` to `utf8`, so the adapter sends `base64` explicitly. Only paths under `/home/user/` or `/tmp/`; anything else rejects `bad-recipe` before any request. After the PUT, `exec` `chmod <mode, octal> <path>`. Only 6.4's `input` uses it; `Machine` writes files through `exec` with `input` (8.3), so root never reads a staged path. |
 | `url` | `POST /sandboxes/{id}/host` `{port, public: true}` → the returned HTTPS URL | The app's process must bind `0.0.0.0`. Hosting also opens the machine firewall for that port. Re-hosting the same port returns the same URL. |
-| `usage` | `GET /sandboxes/{id}/usage?since=<since>` → `{seconds, dollars, running}`; then `GET /limits` for the balance | `hours = seconds / 3600`, `amount = dollars`, `currency: 'USD'`, `from = since`, `to` = the request time (ISO). A balance at or below 0 rejects `balance`. |
-| `key` | `GET /api-keys/current` (15.1) → `{expiresAt, scopes}` | `expires` is `expiresAt` or `null`. |
-| `plan` (G2) | `GET /limits` (15.1) | Maps the plan's trial flag, trial end, whether auto-stop may be disabled (`canStayOn`) and the checkout URL the provider gives. Not cached. Used for display only (5.7); no other call depends on it. |
-| `why` (G3) | `GET /sandboxes/{id}` stop reason, if the API document has one (15.1) | Maps a stop the person made to `you`, a stop by M7's stop-only key to `idle`, balance to `out-of-credit`, trial auto-stop to `trial-limit`, anything else to `provider`. No stop reason in the document: `why` is absent and 5.7's fallbacks apply. |
+| `usage` | `GET /sandboxes/{id}/usage?since=<since>` → `{seconds, dollars, running}`; then `GET /limits` for the balance | `hours = seconds / 3600`, `amount = dollars`, `currency: 'USD'`, `from = since`, `to` = the request time (ISO). The public limits response has no single `balance`: remaining machine time is `creditBalanceSeconds` + `packBalanceSeconds`, and an `unlimited` account never runs out; zero (or below) rejects `balance`. |
+| `plan` (G2) | `GET /limits` (15.1) | The public response marks a trial with `sandboxPlanKey: 'trial'` and the trial end as `subscriptionTrialEndsAt`; `canStayOn` is false during a trial. It carries no checkout URL, so `checkoutUrl` is null. Not cached. Used for display only (5.7); no other call depends on it. |
+| `key`, `why` | absent | The public document has no current-key route (`GET /api-keys` only lists an account's keys) and no sandbox stop-reason field, so per 6.1's rule both are absent and 5.7's fallbacks apply. |
 | `selfId` (G4) | argv fixed by M6 (15.1) | Absent until M6 finds how a machine reads its own id. |
 | `wakeKey`, `stopKey` (M7) | the provider's key-mint route, with a label and scopes limited to `ref.id` | Wake: read, resume and host. Stop: stop only. Route and scope names are confirmed against the API document in M7's brief. |
 | `revokeKey` (M7) | the provider's key-revoke route | Same source. |
@@ -480,6 +479,8 @@ wiping Herdr pane logins. So no request other than `create` carries a `noEnv` ke
 - Larger: `detached: true` with no provider timeout; the adapter polls the command route every 1 s until the provider
   reports it finished, and reads `stdout`, `stderr` and the exit code from that route (field names in 15.1). A poll
   that outlives `timeoutMs` + 30 s rejects `timeout`.
+- A command the provider reports as `lost`, or any response whose `exitCode` is not a number or whose `status` is
+  present and not `exited`, rejects `provider`: a lost or signal-killed command never reads as exit 0.
 - The result's `stdout` and `stderr` are each capped at 8 MB (the tail is kept).
 
 ### 6.5 Sleep semantics (for M7)
@@ -1161,13 +1162,14 @@ the `installs` switch on the sandbox bench.
   - `exec`: single-quote quoting; `root` → `sudo -n`; emulated stdin writes a random-named 0600 file, runs, removes it
     and keeps the command's exit code; every command is wrapped in `timeout -k 10 <s>` (inside
     `sudo -n` for root) and exit 124 gives `timedOut`; `timeoutMs` > 590 000 runs detached and reads the result from
-    the command route.
+    the command route; a lost command or a response without a numeric `exitCode` rejects `provider`.
   - `write` outside `/home/user/` and `/tmp/` rejects before any request.
   - `create` retries with the same `Idempotency-Key` after a dropped connection.
   - `remove` sends the delete-confirmation header with the id, polls the deletion, then deletes every
     `byokit-<name>-` named snapshot and no other.
   - 401 → `unauthorized`; 429 and 5xx retry three times; the key never appears in any error message.
-  - `usage` maps to `Usage`; a zero balance rejects `balance`; `key()` maps expiry.
+  - `usage` maps to `Usage`; a zero balance rejects `balance`; with no current-key route in the API document, `key` is
+    absent from the adapter.
   - G2: `plan()` maps the fake's trial answer; with the trial on, create, resume and fork each end with a `7200`
     request; after the fake ends the trial the next resume is accepted with `null`.
   - G3: every stop reason the API document lists maps to its `AsleepWhy`; with no reason field, `why` is absent from
@@ -1219,6 +1221,8 @@ the `installs` switch on the sandbox bench.
   - G1: whether a key from the provider's app sign-in can create, install into and host a machine;
   - G2: the trial's auto-stop cap and the plan fields `GET /limits` returns on a new account;
   - whether the relay port is reachable on the machine's public address without the provider's proxy (9);
+  - measured `create->on`, `resume->on` and install durations, and whether `/dev/kvm` is present, for
+    the capacity comparison;
   - G4: how a machine reads its own provider id (hostname, a metadata route or a file), recorded as `selfId`'s argv
     in 15.1.
 - **Acceptance:** the recorded run in this document with every check's result; the kit leaves `private` only after
@@ -1327,13 +1331,17 @@ BYOKit waits on it.
   create over the REST API is not stated (M6).
 - Keys: every key expires, 365 days at most; an unscoped key is admin with 90 days; only a browser session or an
   admin key can mint keys; id- and action-scoped keys with default deny exist.
-- The account-id and current-key routes (`GET /me`, `GET /api-keys/current` in 6.1), the plan and trial fields of
-  `GET /limits` (G2), any stop-reason field on a sandbox (G3), the command route's output and exit-code fields (6.4),
-  the delete-confirmation header's name (6.1), the trial error's shape, and every response field name are confirmed
-  against the public API document in M4's brief. The key-mint and revoke routes (M7) are confirmed the same way in
-  M7's brief. The app sign-in's routes (G1) are confirmed the same way in M8's brief, and
-  `selfId`'s argv (G4) comes from M6's recorded run. A different route or field there is a spec fix to 6.1 and
-  this list, made before M4 builds, not a builder choice.
+- Confirmed against the public API document (`docs.boat.dev/openapi/boat-v1.yaml`, M4, 2026-10-11):
+  `GET /me` returns the account id as `user.id`; there is no current-key route (`GET /api-keys`
+  only lists keys), so `key` is absent; `GET /limits` marks a trial with `sandboxPlanKey: 'trial'`
+  and carries `subscriptionTrialEndsAt` (no `checkoutUrl`), so `plan` maps those and `canStayOn`
+  is false in a trial; a sandbox has no stop-reason field, so `why` is absent (6.1); the
+  delete-confirmation header is `X-Ascii-Confirm-Delete`; the command routes answer `processId`
+  and `running`/`exitCode`/`stdout`/`stderr`; the file route needs `encoding: 'base64'`; and
+  every response nests its `sandbox`, `operation` or `snapshot` object. The key-mint and revoke
+  routes (M7) are confirmed the same way in M7's brief. The app sign-in's routes (G1) are
+  confirmed the same way in M8's brief, and `selfId`'s argv (G4) comes from M6's recorded run.
+  A different route or field there is a spec fix to 6.1 and this list, not a builder choice.
 - CORS allows only localhost origins and omits `Idempotency-Key`, so the adapter does not run from a web page.
 
 ### 15.2 Machine facts
