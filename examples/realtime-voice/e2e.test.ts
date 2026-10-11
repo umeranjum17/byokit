@@ -38,10 +38,10 @@ const openVoicePage = async (origin: string) => {
     navigator.mediaDevices.getUserMedia = async (constraints) => { seen.captures++; if (seen.slow) await new Promise((resolve) => setTimeout(resolve, seen.slow)); const stream = await capture(constraints); seen.tracks.push(...stream.getTracks()); return stream; };
   });
   await page.goto(origin);
-  await page.waitForFunction(() => document.getElementById('screen')?.dataset.state === 'signed-out');
+  await page.waitForFunction(() => document.getElementById('screen')?.dataset.state === 'signed-out', undefined, { timeout: 30000 });
   await page.click('#sign-in');
   await Promise.all([context.waitForEvent('page'), page.click('#authorize')]);
-  await page.waitForFunction(() => document.getElementById('screen')?.dataset.state === 'idle');
+  await page.waitForFunction(() => document.getElementById('screen')?.dataset.state === 'idle', undefined, { timeout: 30000 });
   return page;
 };
 const voiceTracks = (page: Page) => page.evaluate(() => (window as unknown as { tracks: MediaStreamTrack[] }).tracks.map((track) => `${track.kind}:${track.readyState}`));
@@ -149,7 +149,7 @@ test('a tap while attaching releases the microphone once it resolves', async () 
   const page = await openVoicePage(origin);
   await page.evaluate(() => { (window as unknown as { slow: number }).slow = 800; });
   await page.click('#talk');
-  await page.waitForFunction(() => (window as unknown as { captures: number }).captures === 1);
+  await page.waitForFunction(() => (window as unknown as { captures: number }).captures === 1, undefined, { timeout: 30000 });
   await page.click('#talk');
   await voiceEnded(page);
   await voiceState(page, 'idle');
@@ -161,21 +161,24 @@ test('a tap while attaching releases the microphone once it resolves', async () 
   assert.deepEqual(await voiceTracks(page), ['audio:ended', 'audio:ended']);
 });
 
-test('a re-attach before the reply reads Listening with a live track', async () => {
+test('a re-attach always reads Listening while its track is live', async () => {
   const origin = await start({ BYOKIT_EXAMPLE_FAKE: '1' });
   const page = await openVoicePage(origin);
+  // Reads the screen at the render that makes the microphone live, so a masked state cannot slip past.
+  const listenAtAttach = () => page.waitForFunction(() => document.getElementById('talk')?.getAttribute('aria-pressed') === 'true' ? document.getElementById('screen')!.dataset.state : false, undefined, { timeout: 30000 }).then((handle) => handle.jsonValue()); // a string, never a JSHandle, for assert
   await page.click('#talk');
   await voiceState(page, 'listening');
   await page.click('#talk');
-  await voiceState(page, 'thinking');
+  await page.locator('#transcript li.user').waitFor({ timeout: 30000 }); // The engine's user turn has moved it to thinking.
   await page.click('#talk');
-  // A live microphone must read Listening at once, not after the idle fallback timer.
-  await page.waitForFunction(() => document.getElementById('screen')?.dataset.state === 'listening', undefined, { timeout: 3000 });
-  assert.equal(await page.locator('#talk').getAttribute('aria-pressed'), 'true');
-  assert.deepEqual(await voiceTracks(page), ['audio:ended', 'audio:live']);
+  assert.equal(await listenAtAttach(), 'listening');
   await page.click('#talk');
-  await page.waitForFunction(() => { const tracks = (window as unknown as { tracks: MediaStreamTrack[] }).tracks; return tracks.length === 2 && tracks.every((track) => track.readyState === 'ended'); }, undefined, { timeout: 30000 });
-  assert.deepEqual(await voiceTracks(page), ['audio:ended', 'audio:ended']);
+  await voiceState(page, 'speaking');
+  await page.click('#talk');
+  assert.equal(await listenAtAttach(), 'listening');
+  await page.click('#talk');
+  await page.waitForFunction(() => { const tracks = (window as unknown as { tracks: MediaStreamTrack[] }).tracks; return tracks.length === 3 && tracks.every((track) => track.readyState === 'ended'); }, undefined, { timeout: 30000 });
+  assert.deepEqual(await voiceTracks(page), ['audio:ended', 'audio:ended', 'audio:ended']);
 });
 
 test('without the flag the stand-in routes do not exist', async () => {

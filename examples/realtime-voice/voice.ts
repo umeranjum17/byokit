@@ -9,8 +9,8 @@ let context: AudioContext | undefined, wait: ReturnType<typeof setTimeout> | und
 let calling = false, connected = false, pending = false, mic = false, awaiting = false, failed = false, cancelled = false;
 let voice: 'connected' | 'thinking' | 'speaking' = 'connected';
 const render = () => {
-  const state = failed ? 'error' : calling && (!connected || pending) ? 'connecting' : voice === 'speaking' ? 'speaking'
-    : voice === 'thinking' || awaiting ? 'thinking' : mic ? 'listening' : 'idle';
+  const state = failed ? 'error' : mic ? 'listening' : voice === 'speaking' ? 'speaking'
+    : voice === 'thinking' || awaiting ? 'thinking' : calling && (!connected || pending) ? 'connecting' : 'idle';
   screen.dataset.state = state;
   status.value = state === 'error' ? errorWords(undefined) : state === 'idle' ? 'Tap to talk' : stateWords({ phase: state === 'listening' ? 'connected' : state });
   talk.setAttribute('aria-pressed', String(mic)); talk.setAttribute('aria-label', mic ? 'Stop talking' : 'Talk');
@@ -41,7 +41,7 @@ const end = (error: boolean) => {
 };
 const attach = async () => {
   const current = client; if (!current) return;
-  cancelled = false; awaiting = false; pending = true; render();
+  cancelled = false; pending = true; render();
   let attached = true;
   try { await current.attachMic(); } catch { attached = false; if (client === current) current.stop('Microphone is unavailable.'); }
   if (client !== current) return;

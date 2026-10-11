@@ -9,7 +9,7 @@ A person runs the tap-to-talk voice screen with `BYOKIT_EXAMPLE_FAKE=1` and gets
 - `mic-released`: after each release every captured track's `readyState` is `ended`.
 - `cancel-before-attach`: a second tap while the call is still connecting cancels the pending attach, so no capture is ever started and the screen settles on `idle`.
 - `release-during-attach`: a tap while a capture is in flight releases it once it resolves; the captured track ends while the call stays up, and a later tap attaches a fresh track.
-- `relisten-while-awaiting`: tap, tap, tap before the reply; the third tap reads `listening` with a `live` track even though the earlier wait for a reply is still open.
+- `relisten-while-awaiting`: tap, tap, tap before the reply; a re-attach during `thinking` and during `speaking` each reads `listening` at the render that makes its track live, never the masked engine state.
 - `transcript-and-copy`: four transcript lines (`You` / `Assistant`) show on the page; the page text names `ChatGPT plan` and matches none of `gpt-`, `codex`, `realtime`, `webrtc`, `sdp`.
 - `no-flag-403`: without the flag every stand-in route (`/stand-in.html`, `/stand-in/approve`, `/stand-in/offer`, `/stand-in/answer`) returns 403, so sign-in stays the real `accounts.login`.
 
