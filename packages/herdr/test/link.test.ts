@@ -272,6 +272,17 @@ test('hd.rename, hd.focus and hd.layout are scoped typed edits, never hd.call', 
     assert.deepEqual(fake.world.panes.find((p) => p.pane_id === `${other}:p1`)?.rect, before, 'the refused layout changed nothing');
     assert.equal(kit.snapshot().workspaces.length, 2, 'the refusals changed nothing');
 
+    // A layout naming both a tab and a workspace is refused, even when the tab is in scope.
+    await assert.rejects(narrow.hd.layout({ tabId: 'w1:t1', workspaceId: other, root: { type: 'pane', pane_id: 'w1:p1' } }));
+    // A layout naming an out-of-scope pane leaf (or an unknown one) is refused with the kit's sentence
+    // before any call; the in-scope pane's rect is untouched.
+    const w1p1 = fake.world.panes.find((p) => p.pane_id === 'w1:p1')?.rect;
+    await assert.rejects(narrow.hd.layout({ tabId: 'w1:t1', root: { type: 'pane', pane_id: `${other}:p1` } }),
+      (e: Error) => e.message === NOT_ALLOWED);
+    await assert.rejects(wide.hd.layout({ tabId: 'w1:t1', root: { type: 'pane', pane_id: 'w9:p9' } }),
+      (e: Error) => e.message === NOT_ALLOWED);
+    assert.deepEqual(fake.world.panes.find((p) => p.pane_id === 'w1:p1')?.rect, w1p1, 'the refused layouts changed nothing');
+
     // A view grant is refused on all three, even fully in scope.
     await assert.rejects(viewer.hd.rename({ workspace: 'w1', label: 'x' }), (e: Error) => e.message === NOT_ALLOWED);
     await assert.rejects(viewer.hd.focus({ pane: 'w1:p1' }), (e: Error) => e.message === NOT_ALLOWED);

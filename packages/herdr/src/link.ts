@@ -308,14 +308,24 @@ export function herdrLink(kit: HerdrKit, o: {
         const snap = kit.snapshot();
         const tabId = asString(args.tabId);
         const workspaceId = asString(args.workspaceId);
-        // The layout must name the tab or workspace it applies to, in scope, before any call.
+        // The layout picks exactly one tab or workspace, in scope, before any call.
+        if ([tabId, workspaceId].filter((v) => v !== undefined).length !== 1) {
+          throw new Error('herdr: hd.layout picks exactly one of tabId or workspaceId');
+        }
         if (tabId !== undefined) {
           const owner = snap.workspaces.find((w) => w.tabs.some((t) => t.id === tabId));
           if (!owner || !inScope(scope, owner.id)) deny();
-        } else if (workspaceId !== undefined) {
-          if (!snap.workspaces.some((w) => w.id === workspaceId && inScope(scope, w.id))) deny();
-        } else {
-          throw new Error('herdr: hd.layout needs a tabId or workspaceId');
+        } else if (!snap.workspaces.some((w) => w.id === workspaceId && inScope(scope, w.id))) deny();
+        // Every named pane leaf must be known and in scope before any call; an unnamed leaf is a new pane.
+        const pending: unknown[] = [root];
+        while (pending.length > 0) {
+          const node = asRecord(pending.pop());
+          if (typeof node.pane_id === 'string') {
+            const where = findPane(snap, node.pane_id);
+            if (!where || !inScope(scope, where.workspaceId)) deny();
+          }
+          if (node.first !== undefined) pending.push(node.first);
+          if (node.second !== undefined) pending.push(node.second);
         }
         const tabLabel = asString(args.tabLabel);
         return kit.call('layout.apply', {
