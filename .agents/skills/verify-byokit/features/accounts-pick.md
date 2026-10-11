@@ -11,6 +11,8 @@ A consumer app with two signed-in ChatGPT accounts asks `Accounts.pick` which ac
 - `models-resting`: for the resting account, every model is `available: false`, `why: 'resting'`, with `until`.
 - `pick-unknown-id`: an id not in the list returns `ok: false`, `code: 'unknown_account'`; `models` refuses it.
 - `pick-no-reading`: a `room` source absent leaves every reading unknown, so list order decides.
+- `agent-kind-defaults`: Pi and Codex keep different selected accounts/models after a separate consumer process restarts; removing an account clears every reference and model, without credential properties in preferences.
+- `agent-kind-refusal`: missing, signed-out and unavailable scoped selections never admit a launch or silently use a ready account; host route/model capabilities reject unsupported or stale defaults. Explicit Auto remains a separate action.
 
 ## How to get to it (user POV)
 
@@ -24,6 +26,7 @@ Preconditions: baseline (features/README.md); no process of a previous drive is 
 - **Run and capture.** `feature=accounts-pick; entry=@byokit/accounts; drive=(node "$scratch_dir/verify-accounts-pick.mjs")`, then run SKILL.md Evidence's capture block. Exit code `0`.
 - **Happy path shows.** `pick: Work gpt-6-sol - Right now that's Work: 60% left this week`, and `models ready: [["gpt-6-sol","strong",true],["gpt-6-luna","fast",true]]`.
 - **Rest and error cases show.** `after limit: Personal`; `next reset: +240min, future=true`; `resting models: gpt-6-sol:resting:true, gpt-6-luna:resting:true`; `unknown id: unknown_account`; `no readings: Personal`; `models unknown id error: No such account.`.
+- **Per-kind journey.** After building, run `sh scripts/test.sh packages/accounts/test/journey-pick.test.ts`. It imports the built public package, signs in two loopback identities into an encrypted file store, starts a separate Node consumer to resolve Pi/Codex preferences, then drives removal, secret-field exclusion and missing/signed-out/unavailable/stale-model refusals. Capture its TAP output outside the repository; expect both journeys to pass, with `consumer restart`, `launch refused` and `removal` receipts. No native CLI is launched: the unsuccessful `AccountPick` is the admission boundary; native adapters and real provider qualification are not claimed.
 - **Proof.** The captured artifact contains command output for the action and resulting state of every sub-feature above.
 
 ## Gotchas

@@ -15,7 +15,7 @@ export type AccountMetadata = {
   /** The Cloud Code Assist project a Google sign-in discovered: non-secret, never a token, never in a log or error. */
   project?: string;
 };
-export type AccountsIndex = { accounts?: { [id: string]: AccountMetadata }; names: { [id: string]: string }; emails: { [id: string]: string }; plans: { [id: string]: string }; addedAt: { [id: string]: number }; defaults: Defaults };
+export type AccountsIndex = { accounts?: { [id: string]: AccountMetadata }; names: { [id: string]: string }; emails: { [id: string]: string }; plans: { [id: string]: string }; addedAt: { [id: string]: number }; defaults: Defaults; byAgent?: { [kind: string]: Defaults } };
 export const emptyIndex = (): AccountsIndex => ({ names: {}, emails: {}, plans: {}, addedAt: {}, defaults: {} });
 export type Record = { [providerId: string]: Credential | AccountsIndex };
 export type IndexStore = { index(fn?: (index: AccountsIndex, data: Record) => void, options?: { signal?: AbortSignal }): Promise<AccountsIndex> };
@@ -75,7 +75,7 @@ export function recordStore(load: () => Promise<Record>, save: (data: Record) =>
       const data = { ...await load() };
       const before = fn && options?.signal ? JSON.parse(JSON.stringify(data)) as Record : undefined;
       const stored = data['.accounts'] as AccountsIndex | undefined;
-      const index: AccountsIndex = stored ? { names: { ...stored.names }, emails: { ...stored.emails }, plans: { ...stored.plans }, addedAt: { ...stored.addedAt }, defaults: { ...stored.defaults }, ...(stored.accounts ? { accounts: JSON.parse(JSON.stringify(stored.accounts)) } : {}) } : emptyIndex();
+      const index: AccountsIndex = stored ? { names: { ...stored.names }, emails: { ...stored.emails }, plans: { ...stored.plans }, addedAt: { ...stored.addedAt }, defaults: { ...stored.defaults }, ...(stored.byAgent ? { byAgent: Object.fromEntries(Object.entries(stored.byAgent).map(([kind, value]) => [kind, { ...value }])) } : {}), ...(stored.accounts ? { accounts: JSON.parse(JSON.stringify(stored.accounts)) } : {}) } : emptyIndex();
       if (options?.signal?.aborted) throw new Error('Login cancelled');
       if (fn) {
         fn(index, data);

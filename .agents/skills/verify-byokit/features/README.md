@@ -80,7 +80,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 
 - [accounts-signin](./accounts-signin.md) — device-code sign-in, status, streamed ask, and the error paths.
 - [accounts-hermes-throwifaborted](./accounts-hermes-throwifaborted.md) — the built portable key route streams and still aborts when `AbortSignal.prototype.throwIfAborted` is missing.
-- [accounts-pick](./accounts-pick.md) — `pick`/`models` over two real accounts: roomier winner with reason, a rest moving the pick, per-account model availability, and the unknown-id and no-reading cases.
+- [accounts-pick](./accounts-pick.md) — `pick`/`models` over two real accounts, plus persisted Pi/Codex defaults across a separate consumer restart, removal cleanup, credential-free preferences and fail-closed scoped route/model readiness.
 - [ui-account-rows](./ui-account-rows.md) — `accountRows`/`rowsOf`/`nameSuggestions` over a real two-account ChatGPT `list()`: plain rows, state words, the 20% low boundary, untaken suggestions, and no credential in a row.
 - [ui-model-picker](./ui-model-picker.md) — `modelPicker`/`bestMoveTarget` over the shared parity table: the Auto row and its reason, per-account models, `Sign in first` without fallback, typed Auto-disabled, and the Auto-ordered move target.
 - [accounts-device](./accounts-device.md) — the provider picker and a catalogue-driven device sign-in, refresh and decline.

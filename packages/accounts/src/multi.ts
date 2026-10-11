@@ -13,7 +13,9 @@ export type AccountLike = { id: string; provider: string; name: string; state: S
 export type RoomSpan = 'session' | 'week' | 'month' | 'tightest';
 /** Every time here is epoch milliseconds; `at` is the source measurement time, never its receipt time. */
 export type Room = { left: number; span: RoomSpan; resetsAt?: number; at?: number } | { left: 'unknown'; at?: number };
-export type RunSelection = { account: string | 'default' | 'auto'; model?: string; needs?: string[]; provider?: string };
+export type RunSelection = { account: string | 'default' | 'auto'; model?: string; needs?: string[]; provider?: string; agentKind?: string };
+/** Host-qualified routes and models for a kind; never stored with preferences. */
+export type AgentCapabilities = { routes: readonly string[]; models: (account: Account) => readonly { id: string; available: boolean }[] };
 export type Defaults = { account?: string; model?: string; auto?: boolean };
 export type PickWhy = 'chosen' | 'default' | 'first_ready' | 'only' | 'most_room' | 'earlier_reset' | 'list_order' | 'no_reading' | 'refills_first';
 export type Considered = {
