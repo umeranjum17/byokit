@@ -39,6 +39,7 @@ const RETRY_WAITS_MS = [1000, 2000, 4000];
 const POLL_EVERY_MS = 2000;
 const EXEC_POLL_EVERY_MS = 1000;
 const WAKE_TIMEOUT_MS = 5 * 60 * 1000;
+const OPERATION_TIMEOUT_MS = 5 * 60 * 1000;
 const NON_DETACHED_LIMIT_MS = 590_000;
 const STREAM_CAP = 8 * 1024 * 1024;
 const ERROR_BODY_CAP = 200;
@@ -360,6 +361,18 @@ export function boat(o: {
       // machine keeps running, reported as the `provider` error it returns (6.1).
       const { status: code, text } = await checked('POST', `/sandboxes/${encodeURIComponent(m.id)}/stop`);
       if (code < 200 || code >= 300) fail(code, text);
+      // The stop is an operation: the 202 only starts archiving, so poll until the
+      // sandbox is archived (or gone) before reporting the machine asleep (6.1).
+      const started = Date.now();
+      for (;;) {
+        const s = await status(m);
+        if (s === 'asleep' || s === 'gone') return;
+        if (s === 'failed') throw new MachineError('provider', 'the machine failed while sleeping');
+        if (Date.now() - started > OPERATION_TIMEOUT_MS) {
+          throw new MachineError('timeout', 'the machine took too long to sleep');
+        }
+        await sleep(POLL_EVERY_MS);
+      }
     },
 
     snapshot: async (m: MachineRef, name: string) => {
@@ -368,6 +381,7 @@ export function boat(o: {
         body: { sandboxId: m.id, name: full },
       });
       if (code < 200 || code >= 300) fail(code, text);
+      const started = Date.now();
       for (;;) {
         const polled = await checked('GET', `/named-snapshots/${encodeURIComponent(full)}`);
         // `snapshot.named.info` nests the snapshot; it carries `status`, not `ready`.
@@ -375,6 +389,9 @@ export function boat(o: {
         if (state === 'ready') return { name: full };
         if (state === 'failed') {
           throw new MachineError('provider', 'the provider could not save the named snapshot');
+        }
+        if (Date.now() - started > OPERATION_TIMEOUT_MS) {
+          throw new MachineError('timeout', 'the named snapshot took too long to save');
         }
         await sleep(POLL_EVERY_MS);
       }
@@ -411,12 +428,19 @@ export function boat(o: {
         // `operationId`/`done`.
         const op = field(field(json, 'operation'), 'id');
         if (typeof op === 'string' && op.length > 0) {
+          const started = Date.now();
           for (;;) {
             const polled = await send('GET', `/deletion-operations/${encodeURIComponent(op)}`);
             if (polled.status === 404) break;
             const body = await read(polled);
             if (polled.status < 200 || polled.status >= 300) trialOrFail(polled.status, body.text);
-            if (field(field(body.json, 'operation'), 'status') === 'completed') break;
+            // `blocked` is terminal for the adapter: the operation is accepted and the
+            // sandbox is gone from every list, and blocked stages can persist by design.
+            const state = field(field(body.json, 'operation'), 'status');
+            if (state === 'completed' || state === 'blocked') break;
+            if (Date.now() - started > OPERATION_TIMEOUT_MS) {
+              throw new MachineError('timeout', 'the provider took too long to delete the machine');
+            }
             await sleep(POLL_EVERY_MS);
           }
         }

@@ -323,6 +323,9 @@ test('an app cleans up on Boat and every failure stays honest: no key leak, no l
     // remove confirms with the id header, waits out the deletion, and deletes only the kit's snapshots.
     await provider.snapshot!(ref, 'a');
     await provider.snapshot!({ ...ref, name: 'other' }, 'x');
+    // The public stop is asynchronous: sleep resolves only once the sandbox is archived.
+    await provider.sleep!(ref);
+    assert.equal(await provider.status(ref), 'asleep');
     await m.remove(ref.id);
     assert.equal(server.requests.find((r) => r.method === 'DELETE' && r.path === `/sandboxes/${ref.id}`)?.headers['x-ascii-confirm-delete'], ref.id);
     assert.ok(server.requests.some((r) => r.method === 'GET' && r.path.startsWith('/deletion-operations/')));

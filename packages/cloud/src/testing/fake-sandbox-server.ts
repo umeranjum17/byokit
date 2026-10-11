@@ -224,6 +224,11 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
             sb.wakeReads -= 1;
             if (sb.wakeReads === 0) sb.raw = 'ready';
           }
+          if (sb.raw === 'archiving') {
+            const archiving = sandboxBody(sb, 'Sandbox');
+            sb.raw = 'archived';
+            return send(res, 200, { ok: true, type: 'sandbox.info', sandbox: archiving });
+          }
           return send(res, 200, { ok: true, type: 'sandbox.info', sandbox: sandboxBody(sb, 'Sandbox') });
         }
         if (sb === undefined) return send(res, 404, { error: 'not found' });
@@ -238,7 +243,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
           return send(res, 202, { ok: true, type: 'sandbox.resuming', id, status: 'resuming', sandbox: sandboxBody(sb, 'Sandbox') });
         }
         if (rest === '/stop' && req.method === 'POST') {
-          sb.raw = 'archived';
+          sb.raw = 'archiving';
           return send(res, 202, { ok: true, type: 'sandbox.stopping', id, status: 'archiving', sandbox: sandboxBody(sb, 'Sandbox') });
         }
         if (rest === '/fork' && req.method === 'POST') {
