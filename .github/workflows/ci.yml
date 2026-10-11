@@ -448,10 +448,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
       - run: npm ci --no-audit --no-fund
       - run: node scripts/share-expo-smoke.ts --android-only --build --out /tmp/bks-android
-      - run: npm ci --no-audit --no-fund
-        working-directory: examples/expo
-      - run: CI=1 npx expo prebuild -p android --no-install && (cd android && ./gradlew assembleDebug :byokit-share:testDebugUnitTest --no-daemon --stacktrace)
-        working-directory: examples/expo
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -463,6 +459,29 @@ jobs:
             /tmp/bks-android/result.json
             /tmp/bks-android/failure.txt
             /tmp/bks-android/app/node_modules/@byokit/share/android/build/test-results/
+
+  # The example app build and the kit's JVM tests, in parallel with the packed-kit smoke above.
+  share-android-app:
+    needs: changes
+    if: needs.changes.outputs.expo == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - run: npm ci --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+        working-directory: examples/expo
+      - run: CI=1 npx expo prebuild -p android --no-install && (cd android && ./gradlew assembleDebug :byokit-share:testDebugUnitTest --no-daemon --stacktrace)
+        working-directory: examples/expo
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
