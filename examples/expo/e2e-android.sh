@@ -111,7 +111,10 @@ echo "the app shows $code"
 curl -fsS -o /dev/null --data "user_code=$code" "http://127.0.0.1:$port/codex/device"
 seek status
 expect "ChatGPT is connected."
+# The grouped list puts the plan badge above the status; scroll it into view before asserting it.
+seek plan
 expect "ChatGPT Plus"
+seek who
 expect "Signed in as umer@example.com"
 [ -z "${EXPO_CONNECT_EVIDENCE:-}" ] || a exec-out screencap -p > "$EXPO_CONNECT_EVIDENCE/journey__connected.png"
 start
