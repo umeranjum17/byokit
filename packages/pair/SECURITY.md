@@ -1,4 +1,4 @@
-# @byokit/link: threat model and review checklist
+# @byokit/pair: threat model and review checklist
 
 Muxr parity is tracked separately.
 
@@ -132,7 +132,7 @@ A home computer (the **host**) holds AI sign-ins and other credentials. Phones, 
       authenticates with it.
 - [x] The handshake limiter runs before any Diffie-Hellman.
 - [x] Nothing in the main entry reads or writes files, environment variables or other programs.
-      `@byokit/link/node` `hostKeyFile(path)` touches only that path: 0600 in 0700, atomic, never replaces a file it
+      `@byokit/pair/node` `hostKeyFile(path)` touches only that path: 0600 in 0700, atomic, never replaces a file it
       can't read, refuses symlinks.
 
 - [ ] Presence fires once on first/last sockets, including failed/successful unpair, reload, expiry and close.
