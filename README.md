@@ -5,17 +5,19 @@ Small TypeScript kits for apps that feel like yours.</p>
 
 <p align="center">
   <a href="https://www.npmjs.com/org/byokit"><img alt="Packages" src="https://img.shields.io/npm/v/@byokit/accounts?style=flat&label=packages&color=42745a" /></a>
-  <a href="https://github.com/umeranjum17/byokit/actions/workflows/ci.yml"><img alt="Build checks" src="https://img.shields.io/github/actions/workflow/status/umeranjum17/byokit/ci.yml?style=flat&branch=main&label=checks" /></a>
+  <a href="CONTRIBUTING.md"><img alt="Web, mobile and desktop" src="https://img.shields.io/badge/platforms-web%20%7C%20mobile%20%7C%20desktop-686d68?style=flat" /></a>
   <a href="LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache%202.0-686d68?style=flat" /></a>
 </p>
 
 <p align="center">
   <picture>
+    <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="docs/readme/talk-dark.png" />
+    <source media="(max-width: 600px) and (prefers-color-scheme: light)" srcset="docs/readme/talk-light.png" />
     <source media="(prefers-color-scheme: dark)" srcset="docs/readme/hero-dark.png" />
     <source media="(prefers-color-scheme: light)" srcset="docs/readme/hero-light.png" />
     <img src="docs/readme/hero-light.png" alt="Real example screens: a tap-to-talk microphone listening, and a phone comparing two words before pairing with a computer." width="960" />
   </picture><br />
-  <sub>Real example screens, fresh from this checkout. Demo data. Cropped for clarity.</sub>
+  <sub>Real example screens. Demo data. Cropped for clarity.</sub>
 </p>
 
 <p align="center">
