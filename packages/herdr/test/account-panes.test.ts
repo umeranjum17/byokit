@@ -1,10 +1,20 @@
 // WP11 fake ports: shell-effective env, resume ordering and rollback, never a real Herdr.
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { scratchDir } from '../../test-support.ts';
+import { startFakeHerdr } from '../src/testing/index.ts';
 import { HerdrKit } from '../src/kit.ts';
 import { HERDR_PROTOCOL } from '../src/constants.ts';
 import type { HerdrSubscribeStop, HerdrTransport } from '../src/types.ts';
 
+// Fixture moves see only a task-owned PATH of silent probe stubs: moveToAccount's sign-in
+// check appends the host's fixed install dirs past PATH, so an empty PATH alone would still
+// reach the owner's native CLIs.
+const probePath = scratchDir('account-panes-path');
+process.env.PATH = probePath;
+for (const kind of ['claude', 'codex']) writeFileSync(join(probePath, kind), '#!/bin/sh\n', { mode: 0o700 });
 type Raw = Record<string, any>;
 function harness(t: TestContext) {
   const calls: { method: string; params: Raw }[] = [];
@@ -88,6 +98,37 @@ function harness(t: TestContext) {
   const move = async () => { await ready; return kit.moveToAccount({ paneId: 'old' }, { provider: 'claude', folder: '/new/claude', timeoutMs: 250 }); };
   return { kit, ready, move, calls, state, agents, panes };
 }
+
+test('MS-S3: native target status refuses before waiting or splitting; generic move stays caller-gated', async (t) => {
+  const root = scratchDir('move-signed-out'); const folder = join(root, 'account'); mkdirSync(folder);
+  const log = join(root, 'probes.jsonl'); const bin = join(root, 'claude');
+  writeFileSync(bin, `#!${process.execPath}
+const fs = require('node:fs');
+fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({home:process.env.HOME,folder:process.env.CLAUDE_CONFIG_DIR})+'\\n');
+console.log('{"loggedIn":false}');
+`, { mode: 0o700 });
+  const path = process.env.PATH; process.env.PATH = root;
+  t.after(() => { process.env.PATH = path; });
+  const fake = await startFakeHerdr({ dir: join(root, 'fake'), world: { kinds: ['claude'] } });
+  const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath });
+  t.after(async () => { await kit.stop(); await fake.stop(); }); await kit.start();
+  const source = fake.world.agents.find(a => a.pane_id === 'w1:p2')!;
+  const panes = structuredClone(fake.world.panes);
+  for (const working of [false, true]) {
+    source.agent_status = working ? 'working' : 'idle';
+    Object.assign(source, { state_change_seq: 1 });
+    const before = structuredClone(source);
+    const result = await kit.moveToAccount({ paneId: source.pane_id }, { provider: 'claude', folder, name: 'Umer',
+      ...(working ? { whenBusy: { busy: 'wait', waitMs: 500, confirmed: { session: source.agent_session.value, terminalId: source.terminal_id } } } : {}) });
+    assert.deepEqual(result, { ok: false, code: 'signed_out', message: 'Sign in to Umer first.', live: source.pane_id });
+    assert.deepEqual(fake.world.panes, panes); assert.deepEqual(source, before);
+  }
+  const probes = readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.deepEqual(probes, [{ home: folder, folder }, { home: folder, folder }]);
+  source.agent_status = 'idle';
+  const result = await kit.move({ paneId: source.pane_id, kind: 'claude', args: ['--resume', source.agent_session.value], set: { CLAUDE_CONFIG_DIR: folder }, timeoutMs: 500 });
+  assert.equal(result.ok, true); assert.equal(readFileSync(log, 'utf8').trim().split('\n').length, 2);
+});
 
 test('B9: new managed kind uses pinned folder and resume args under the existing move transaction', async (t) => {
   for (const callerArgs of [false, true]) {

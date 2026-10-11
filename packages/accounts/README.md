@@ -726,7 +726,7 @@ contain no credentials. This does not connect native CLI account stores or quali
 
 ## Managed CLI accounts (Node only)
 
-`@byokit/accounts/cli` exports `cliAccounts`, `CliAccountError`, `CliProvider`, `PiProvider`, `CliAccount`, `CliOptions` and `SignInCommand`. Accounts use subscription billing. The portable entries and the `Accounts` class retain their existing sign-in flows.
+`@byokit/accounts/cli` exports `cliAccounts`, `CliAccountError`, `CliProvider`, `PiProvider`, `CliAccount`, `CliOptions`, `CliLaunchResult` and `SignInCommand`. Accounts use subscription billing. The portable entries and the `Accounts` class retain their existing sign-in flows.
 
 `CliAccount` extends the portable chooser's `AccountLike`. Pass normalized usage through `@byokit/usage`'s `roomOf(reading, nowMs)` when selecting an account, preserving millisecond reset times and the original measurement time. Managed rows also carry `addedAt` (the epoch-millisecond time the login was added), so two logins that share an email stay distinguishable.
 
@@ -743,13 +743,16 @@ const { account, signIn } = await accounts.add('claude');
 // Run signIn.shell in the app's sign-in tab, or run signIn.argv with signIn.env
 // and create signIn.completion privately only after that command succeeds.
 const current = await accounts.status(account.id);
-const { set, unset } = accounts.launchEnv(account.id);
-// Apply unset to the launch environment, then apply set, before starting the agent.
+const launch = await accounts.launch(account.id);
+if (launch.ok) {
+  const { set, unset } = launch;
+  // Apply unset, then set, before starting the agent. A refusal starts nothing.
+} else console.log(launch.code, launch.message);
 ```
 
 `stateDir` must be an absolute app-owned directory with an existing parent. The kit creates it at 0700 and creates private `<provider>/<hex>` account folders below it. `bins` are absolute paths; PATH is never used to find the CLI. Status and login use an environment built from nothing plus the app's `env`, after removing provider credential overrides and adding the managed-folder variable. Pass proxy or temporary-directory settings explicitly if needed. `launchEnv` returns the folder variable in `set` and the provider overrides in `unset`; hosts must apply both so a stray API key (billed per use) cannot override the chosen subscription.
 
-**Signed-out launch (spec, MS-S2; not yet shipped).** `launchEnv(id)` returns an env for any account. Agent starts move to `launch(id): Promise<{ ok: true; account; set; unset } | { ok: false; code: 'signed_out' | 'not_included'; account; message }>`, which owns launch readiness: it runs `status(id)` (serialized per account) and returns the env only for `ready`. `signed_out` and `signing` refuse with `code: 'signed_out'` and words `cli.signedOut` "Sign in to {name} first." (the account's name); `not_included` (no executable supplied) refuses with `code: 'not_included'` and words `cli.notIncluded` "{name} can't start on this computer yet."; a refusal carries no env. A refused launch starts nothing: the host never retries without the env or on the computer's own sign-in. The check is not a lock and only picks the words: an account that signs out between `launch` and the agent start still never reaches the default login through the kit, because that start carries the same env as a ready one (managed folder variable set, provider overrides unset), so the CLI looks for its login in that folder and shows its own sign-in there. Herdr `moveToAccount` gates on herdr's `agentStatus` instead (Claude and Codex only, [runtime-kits 6.6](../../docs/runtime-kits.md)); herdr `move` has no check of its own, so the host calls `launch` and passes its `set`/`unset`.
+**Signed-out launch (MS-S3).** `launchEnv(id)` remains a low-level env descriptor for any account, not a readiness check. Agent starts use `launch(id): Promise<{ ok: true; account; set; unset } | { ok: false; code: 'signed_out' | 'not_included'; account; message }>`, which owns launch readiness: it runs `status(id)` (serialized per account) and returns the env only for `ready`. `signed_out` and `signing` refuse with `code: 'signed_out'` and words `cli.signedOut` "Sign in to {name} first." (the account's name); `not_included` (no executable supplied) refuses with `code: 'not_included'` and words `cli.notIncluded` "{name} can't start on this computer yet."; a refusal carries no env. A refused launch starts nothing: the host never retries without the env or on the computer's own sign-in. The check is not a lock and only picks the words: an account that signs out between `launch` and the agent start still never reaches the default login through the kit, because that start carries the same env as a ready one (managed folder variable set, provider overrides unset), so the CLI looks for its login in that folder and shows its own sign-in there. Herdr `moveToAccount` gates on herdr's `agentStatus` instead (Claude and Codex only, [runtime-kits 6.6](../../docs/runtime-kits.md)); herdr `move` has no check of its own, so the host calls `launch` and passes its `set`/`unset`.
 
 `add` returns a `signing` account and the native login command. For Claude/Codex, `status` stays `signing` until the completion marker exists, including after a host restart, and does not run a second native client during pending sign-in. Pi uses an auth-check probe instead (below). The shell uses a private per-folder lock and marks completion only after successful login. Stop the app's sign-in tab before `cancel` or `remove`; the kit does not supervise that tab. `signInAgain` reuses a pending command or starts a new completion cycle; if an account operation is already in flight it throws `prepare-failed`, so await that operation before retrying. Native CLIs own their refresh transactions; the kit neither copies credentials nor refreshes grants. A crashed sign-in shell can leave its lock; the host should stop that process and remove only that managed lock before retrying.
 
@@ -787,7 +790,8 @@ const { account, signIn } = await plans.add('pi', { piProvider: 'openai-codex' }
 // Display signIn.instruction: the person types /login openai-codex in Pi's TUI.
 // NEVER pass /login as an initial message: Pi would send it to the model.
 const current = await plans.status(account.id);
-const launch = plans.launchEnv(account.id); // PI_CODING_AGENT_DIR; unset other CLI/session folders
+const launch = await plans.launch(account.id); // ready: PI_CODING_AGENT_DIR; unset other CLI/session folders
+if (!launch.ok) console.log(launch.code, launch.message); // do not start or retry on a default login
 const providerArgs = plans.launchArgs(account.id); // ['--provider', 'openai-codex']
 ```
 

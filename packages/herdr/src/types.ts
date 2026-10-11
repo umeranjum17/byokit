@@ -98,12 +98,12 @@ export type BusyHandoff =
   | { busy: 'wait'; confirmed: { session: string; terminalId: string }; waitMs: number }
   | { busy: 'interrupt'; confirmed: { session: string; terminalId: string; seq: number } };
 export type MoveToAccount = {
-  provider: string; folder: string; env?: Record<string, string>;
+  provider: string; folder: string; env?: Record<string, string>; name?: string;
   direction?: 'right' | 'down'; timeoutMs?: number; whenBusy?: BusyHandoff;
 };
 export type MoveToAccountResult = { ok: true; session: string } | {
   ok: false; code: 'too_early' | 'busy' | 'unsupported' | 'env_mismatch' | 'close_failed' | 'start_failed'
-    | 'blocked' | 'changed' | 'interrupt_unsupported';
+    | 'blocked' | 'changed' | 'interrupt_unsupported' | 'signed_out';
   message: string; live?: string;
 };
 export type Move = {

@@ -139,7 +139,8 @@ export class HerdrKit {
   constructor(o: HerdrKitOptions) {
     this.o = o;
     this.supervisor = new Supervisor(o, (s) => { this.current = s; o.onState?.(s); });
-    this.accountPanes = createAccountPanes({ call: this.callAny, startAgent: (o) => this.startAgent(o) });
+    this.accountPanes = createAccountPanes({ call: this.callAny, startAgent: (o) => this.startAgent(o),
+      agentStatus: (kinds, options) => this.agentStatus(kinds, options) });
     this.agents = createAgents({ call: this.callAny, snapshot: () => this.snapshot(),
       reread: (paneId) => this.reread(paneId),
       launchEnv: () => o.mode === 'own' ? this.supervisor.env() : undefined,

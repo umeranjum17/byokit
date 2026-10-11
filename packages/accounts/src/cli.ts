@@ -20,6 +20,9 @@ export type CliOptions = {
   historyFrom?: Partial<Record<CliProvider, string>>;
   prepare?: (folder: string, provider: CliProvider) => Promise<void>;
 };
+export type CliLaunchResult =
+  | { ok: true; account: CliAccount; set: Record<string, string>; unset: string[] }
+  | { ok: false; code: 'signed_out' | 'not_included'; account: CliAccount; message: string };
 export type SignInCommand = { argv: string[]; env: Record<string, string>; completion: string; shell: string;
   /** Display in the TUI; never pass this as an initial model message. */
   instruction?: { words: 'cli.piLogin'; command: `/login ${string}` };
@@ -320,6 +323,12 @@ export function cliAccounts(options: CliOptions) {
       return status(id);
     },
     remove,
+    async launch(id: string): Promise<CliLaunchResult> {
+      const account = await status(id);
+      if (account.state === 'ready') return { ok: true, account, ...launch(row(id)) };
+      const code = account.state === 'not_included' ? 'not_included' : 'signed_out';
+      return { ok: false, code, account, message: say(code === 'not_included' ? 'cli.notIncluded' : 'cli.signedOut', { name: account.name }) };
+    },
     launchEnv: (id: string) => launch(row(id)),
     launchArgs: (id: string): string[] => { const r = row(id); return r.provider === 'pi' ? ['--provider', r.piProvider!] : []; },
     kinds: (provider: CliProvider): string[] => providers.includes(provider) ? [provider] : [],

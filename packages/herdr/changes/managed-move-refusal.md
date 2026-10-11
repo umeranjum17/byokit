@@ -1,0 +1,1 @@
+- FIX: `moveToAccount` refuses signed-out managed targets before waiting or creating a pane, preserving the source; generic `move` remains caller-gated and unknown readiness still proceeds.
