@@ -5,6 +5,7 @@
   "dependencies": {
     "@byokit/accounts": "file:../../packages/accounts",
     "@byokit/decide": "file:../../packages/decide",
+    "@byokit/discover": "file:../../packages/discover",
     "@byokit/link": "file:../../packages/link",
     "@byokit/bubble": "file:../../packages/bubble",
     "@byokit/seal": "file:../../packages/seal",
