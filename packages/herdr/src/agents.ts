@@ -364,7 +364,7 @@ export function isAutoInstallShim(file: string,
   readFile: (file: string) => string | undefined = readHead): boolean {
   let head: string | undefined;
   try { head = readFile(file); } catch { return false; }
-  return head !== undefined && head.startsWith('#!') && head.includes('mise');
+  return head !== undefined && head.startsWith('#!') && /(?:^|[\s/])mise(?:\s|$)/m.test(head);
 }
 
 // Muse has no absent-CLI auto-installer in stock Herdr. Its official launcher needs the
