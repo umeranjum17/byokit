@@ -6,7 +6,7 @@ const remote = $<HTMLAudioElement>('audio'), code = $('code'), signIn = $<HTMLBu
 let client: ReturnType<typeof realtimeClient> | undefined, socket: WebSocket | undefined, timer: ReturnType<typeof setTimeout> | undefined;
 let context: AudioContext | undefined, wait: ReturnType<typeof setTimeout> | undefined;
 // The call connects on the first tap with no microphone; each tap then attaches or releases it.
-let calling = false, connected = false, pending = false, mic = false, awaiting = false, failed = false;
+let calling = false, connected = false, pending = false, mic = false, awaiting = false, failed = false, cancelled = false;
 let voice: 'connected' | 'thinking' | 'speaking' = 'connected';
 const render = () => {
   const state = failed ? 'error' : calling && (!connected || pending) ? 'connecting' : voice === 'speaking' ? 'speaking'
@@ -37,15 +37,16 @@ signIn.onclick = async () => {
 };
 const end = (error: boolean) => {
   clearTimeout(timer); clearTimeout(wait); client = undefined;
-  calling = connected = pending = mic = awaiting = false; voice = 'connected'; failed = error; render();
+  calling = connected = pending = mic = awaiting = cancelled = false; voice = 'connected'; failed = error; render();
 };
 const attach = async () => {
-  pending = true; render();
-  try { await client?.attachMic(); mic = !!client; } catch { client?.stop('Microphone is unavailable.'); }
-  pending = false; render();
+  cancelled = false; pending = true; render();
+  try { await client?.attachMic(); mic = !!client && !cancelled; } catch { client?.stop('Microphone is unavailable.'); }
+  const released = cancelled; pending = false; cancelled = false; render();
+  if (released) void client?.releaseMic().catch(() => client?.stop('Microphone could not be released.'));
 };
 const call = () => {
-  calling = true; pending = true;
+  calling = true; pending = true; cancelled = false;
   client = realtimeClient({ audio, capture: 'lazy',
     retryableClose: () => false, // One bounded call; the next tap starts a fresh one.
     open: () => new Promise<RealtimeStream>((resolve, reject) => {
@@ -76,7 +77,7 @@ const call = () => {
     onStatus(value, reason) {
       if (value === 'disconnected') { end(reason !== undefined); return; }
       if (value === 'connecting') { render(); return; } // A muted input reads as connecting; the call itself is unchanged.
-      if (!connected) { connected = true; if (pending) void attach(); }
+      if (!connected) { connected = true; if (pending && !cancelled) void attach(); else { pending = false; cancelled = false; } }
       if (value === 'speaking') awaiting = false;
       voice = value; render();
     },
@@ -97,7 +98,7 @@ talk.onclick = () => {
     render(); void client?.releaseMic().catch(() => client?.stop('Microphone could not be released.')); return;
   }
   failed = false;
-  if (!client) call(); else if (connected && !pending) void attach();
+  if (!client) call(); else if (pending) cancelled = true; else if (connected) void attach();
   render();
 };
 window.addEventListener('pagehide', () => client?.stop());

@@ -8,7 +8,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromium } from 'playwright';
+import { chromium, type Page } from 'playwright';
 import { trackChild } from '../../packages/test-support.ts';
 
 const server = fileURLToPath(new URL('./server.ts', import.meta.url));
@@ -27,6 +27,26 @@ const start = async (env: NodeJS.ProcessEnv) => {
 const executablePath = existsSync(chromium.executablePath()) ? undefined : process.env.BYOKIT_CHROME ?? '/usr/bin/chromium';
 const browser = await chromium.launch({ executablePath, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
 after(async () => { await browser.close(); for (const child of started) child.kill('SIGTERM'); });
+// A signed-in voice page that records every microphone capture; `slow` delays one capture so a mid-attach tap is reachable.
+const openVoicePage = async (origin: string) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  await page.addInitScript(() => {
+    const seen = window as unknown as { tracks: MediaStreamTrack[]; captures: number; slow: number };
+    seen.tracks = []; seen.captures = 0; seen.slow = 0;
+    const capture = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async (constraints) => { seen.captures++; if (seen.slow) await new Promise((resolve) => setTimeout(resolve, seen.slow)); const stream = await capture(constraints); seen.tracks.push(...stream.getTracks()); return stream; };
+  });
+  await page.goto(origin);
+  await page.waitForFunction(() => document.getElementById('screen')?.dataset.state === 'signed-out');
+  await page.click('#sign-in');
+  await Promise.all([context.waitForEvent('page'), page.click('#authorize')]);
+  await page.waitForFunction(() => document.getElementById('screen')?.dataset.state === 'idle');
+  return page;
+};
+const voiceTracks = (page: Page) => page.evaluate(() => (window as unknown as { tracks: MediaStreamTrack[] }).tracks.map((track) => `${track.kind}:${track.readyState}`));
+const voiceEnded = (page: Page) => page.waitForFunction(() => { const tracks = (window as unknown as { tracks: MediaStreamTrack[] }).tracks; return tracks.length > 0 && tracks.every((track) => track.readyState === 'ended'); }, undefined, { timeout: 30000 });
+const voiceState = (page: Page, state: string) => page.waitForFunction((want) => document.getElementById('screen')?.dataset.state === want, state, { timeout: 30000 });
 
 test('offline voice: stand-in sign-in, tap to talk twice, then a blocked microphone', async () => {
   const origin = await start({ BYOKIT_EXAMPLE_FAKE: '1' });
@@ -107,6 +127,38 @@ test('offline voice: stand-in sign-in, tap to talk twice, then a blocked microph
   assert.equal(final.error, false);
   assert.deepEqual(Object.values(final).filter((v) => typeof v === 'string'), [], '/proof keeps counts, never text');
   assert.deepEqual(errors, []);
+});
+
+test('a tap while connecting cancels before the microphone opens', async () => {
+  const origin = await start({ BYOKIT_EXAMPLE_FAKE: '1' });
+  const page = await openVoicePage(origin);
+  // Both taps land in one task, before the peer can connect: the second is a cancel, not a drop.
+  await page.evaluate(() => { const talk = document.getElementById('talk')!; talk.click(); talk.click(); });
+  await voiceState(page, 'idle');
+  assert.equal(await page.evaluate(() => (window as unknown as { captures: number }).captures), 0, 'the cancelled call never opened a microphone');
+  assert.deepEqual(await voiceTracks(page), []);
+  await page.click('#talk');
+  await voiceState(page, 'listening');
+  await page.click('#talk');
+  await voiceEnded(page);
+  assert.deepEqual(await voiceTracks(page), ['audio:ended']);
+});
+
+test('a tap while attaching releases the microphone once it resolves', async () => {
+  const origin = await start({ BYOKIT_EXAMPLE_FAKE: '1' });
+  const page = await openVoicePage(origin);
+  await page.evaluate(() => { (window as unknown as { slow: number }).slow = 800; });
+  await page.click('#talk');
+  await page.waitForFunction(() => (window as unknown as { captures: number }).captures === 1);
+  await page.click('#talk');
+  await voiceEnded(page);
+  await voiceState(page, 'idle');
+  await page.evaluate(() => { (window as unknown as { slow: number }).slow = 0; });
+  await page.click('#talk');
+  await voiceState(page, 'listening');
+  await page.click('#talk');
+  await page.waitForFunction(() => { const tracks = (window as unknown as { tracks: MediaStreamTrack[] }).tracks; return tracks.length === 2 && tracks.every((track) => track.readyState === 'ended'); }, undefined, { timeout: 30000 });
+  assert.deepEqual(await voiceTracks(page), ['audio:ended', 'audio:ended']);
 });
 
 test('without the flag the stand-in routes do not exist', async () => {
