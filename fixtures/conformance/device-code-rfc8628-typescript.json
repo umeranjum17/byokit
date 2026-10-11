@@ -137,7 +137,7 @@
           }
         },
         "pending": {
-          "status": 400,
+          "status": 200,
           "body": {
             "error": "authorization_pending"
           }
@@ -151,7 +151,7 @@
           }
         },
         "decline": {
-          "status": 400,
+          "status": 200,
           "body": {
             "error": "access_denied"
           }

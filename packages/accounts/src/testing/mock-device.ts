@@ -52,9 +52,9 @@ const MINIMAX_CASES = (region: MiniMaxRegion) => ({
  *  fixtures/conformance/device-code-rfc8628-typescript.json, with `{host}` rendered as `domain`. */
 const COPILOT_CASES = (domain: string) => ({
   start: { status: 200, body: { device_code: 'FIXTURE-COPILOT-DEVICE', user_code: COPILOT_CODE, verification_uri: `https://${domain}/login/device`, interval: 2, expires_in: CODE_LIVES_S } },
-  pending: { status: 400, body: { error: 'authorization_pending' } },
+  pending: { status: 200, body: { error: 'authorization_pending' } },
   success: { status: 200, body: { access_token: 'FIXTURE-GITHUB-TOKEN', token_type: 'bearer', scope: 'read:user' } },
-  decline: { status: 400, body: { error: 'access_denied' } },
+  decline: { status: 200, body: { error: 'access_denied' } },
   exchange: { method: 'GET', status: 200, body: { token: 'FIXTURE-COPILOT-TOKEN', expires_at: 4102444800 } },
   refresh: { method: 'GET', status: 200, body: { token: 'FIXTURE-COPILOT-TOKEN', expires_at: 4102444800 } },
   unauthorized: { status: 401, body: { error: 'unauthorized' } },
