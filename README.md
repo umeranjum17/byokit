@@ -71,7 +71,8 @@ npm run build
 **3. Open the offline voice demo.**
 
 ```sh
-BYOKIT_EXAMPLE_FAKE=1 node examples/realtime-voice/server.ts
+BYOKIT_EXAMPLE_FAKE=1 \
+  node examples/realtime-voice/server.ts
 ```
 
 Open the loopback URL printed in your terminal. Choose **Sign in**, then **Approve sign-in**. Back on the voice screen, tap to talk and tap again to finish. Allow microphone access if asked. Stop the server with **Ctrl+C** when you're done.
@@ -81,7 +82,8 @@ No account, API key or paid call is needed. The demo signs in locally and replie
 Ready to build your own app? Install only what you use:
 
 ```sh
-npm install @byokit/accounts @byokit/pair
+npm install \
+  @byokit/accounts @byokit/pair
 ```
 
 [Sign-in guide](packages/accounts) · [Pairing guide](packages/pair) · [All packages](packages)
