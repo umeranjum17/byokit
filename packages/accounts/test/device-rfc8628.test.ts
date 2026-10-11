@@ -122,7 +122,9 @@ test('Copilot replays its fixture on github.com and an Enterprise host: exchange
       const reminted = await get(m.base, exchange, { authorization: `Bearer ${github.access_token}` });
       assert.equal(reminted.status, cases.refresh.status, at('refresh status'));
       assert.deepEqual(await reminted.json(), cases.refresh.body, at('refresh body: the re-minted credential'));
-      assert.ok(m.state.requests.every((r) => new URLSearchParams(r.body).get('grant_type') !== 'refresh_token'), at('refresh never rotates the intermediate at GitHub'));
+      const rotated = await post(m.base, token, { grant_type: 'refresh_token', client_id: spec.clientId, refresh_token: github.access_token });
+      assert.equal(rotated.status, 400, at('the stand-in refuses a GitHub refresh_token rotation'));
+      assert.deepEqual(await rotated.json(), { error: 'invalid_grant' }, at('the intermediate is re-minted, never rotated at GitHub'));
 
       // A refused exchange is signed out, not retried: both 401 and 403 read the same way.
       for (const status of spec.unauthorized) {
