@@ -57,8 +57,11 @@ pi_state() {
 before=$(pi_state)
 throwaway=$(mktemp -d "$run_tmp/home.XXXXXX")
 # Tests are offline by contract; the guard makes an outbound dial fail loudly instead of leaving the machine.
+# Cap every node in the run (the runner and each per-file child) so a runaway test dies fast with a heap error
+# naming its file, instead of growing to tens of GB and starving the host. A caller overrides the cap with
+# BYOKIT_TEST_HEAP_MB; raise the default only with a measured reason.
 root=$(CDPATH="" cd -- "$(dirname -- "$0")/.." && pwd)
-export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $root/scripts/test-egress-guard.cjs"
+export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $root/scripts/test-egress-guard.cjs --max-old-space-size=${BYOKIT_TEST_HEAP_MB:-3072}"
 [ $# -gt 0 ] || set -- 'packages/*/test/*.test.ts' 'scripts/*.test.ts'
 # Before node:test starts, remove scratch roots a killed or crashed test process left behind in the
 # shared scratch parent. A root whose recorded pid is still alive (a parallel run in another
