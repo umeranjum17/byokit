@@ -85,17 +85,17 @@ or if another key opens it. This web page takes no push notices itself; a phone 
 
 ## What's where
 
-- `host.ts`: `new HerdrKit({ mode: 'own', bin, stateDir: './.state' })`; a `@byokit/link` host (key in
+- `host.ts`: `new HerdrKit({ mode: 'own', bin, stateDir: './.state' })`; a `@byokit/pair` host (key in
   `.state/link-key.json`, paired phones in `.state/grants.json`, each with `meta.scope = { workspaces: 'all' }`);
   `herdrLink` answers the phone; `serve` finds the address (`@byokit/discover`) and serves the page on the same port.
   One op of its own, `example.setup`, tells the phone which agents Herdr knows (`kit.agentKinds()`) and the folder.
   With `--relay`, a `RelayClient` made once the host is open carries the kit's sealed notices, and `example.push`
   hands a phone's push address to it.
 - `web/app.ts`: plain DOM. Pairs with `pairWithCode`/`pairWithOffer` and keeps the pairing in this browser
-  (`browserDeviceStore`); then `herdrDevice(link)`. `@byokit/ui-core/kits`' `herdrStore(hd)` keeps the agents
+  (`browserDeviceStore`); then `herdrDevice(link)`. `@byokit/ui/kits`' `herdrStore(hd)` keeps the agents
   (`herdrTreeView`) and their questions (`blockedView`) live from the kit's events; `startAgent`, `prompt`, `read`
   for the agent's screen (refreshed on every change) and `answer` for questions. Every status is a sentence from the
-  kit (`agentWords`, `hd.state().words`) or `@byokit/ui-core` (`pairingView`, `linkWords`).
+  kit (`agentWords`, `hd.state().words`) or `@byokit/ui` (`pairingView`, `linkWords`).
 - `e2e.test.ts`: packs the packages, installs them into a copy of this folder, runs `host.ts` against the kit's fake
   Herdr and drives a phone-sized headless Chromium through all of the above; then, through a loopback relay whose
   push service is a recorder, a phone in plain Node gets an agent's question sealed. From the repo:

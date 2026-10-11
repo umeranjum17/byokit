@@ -81,16 +81,16 @@ only. This web page takes no push notices itself; a phone app does.
 
 - `host.ts`: `new OpenClawKit({ stateDir: './.state', tools: [demo_note], host, config: { plugins: { allow:
   ['openai'] } } })`. `demo_note` (`{ text }`) is gated `{ ask: { summary: 'save a note' } }` and appends to
-  `.state/notes.txt`; the engine's own tools ask too. A `@byokit/link` host (key in `.state/link-key.json`, paired
+  `.state/notes.txt`; the engine's own tools ask too. A `@byokit/pair` host (key in `.state/link-key.json`, paired
   phones in `.state/grants.json`) answers the phone with `openclawLink(kit, { memberOf: () => 'me' })`: every paired
   phone acts for this app's one member. `serve` finds the address (`@byokit/discover`) and serves the page on the same
   port. With `--relay`, a `RelayClient` made once the host is open carries the kit's sealed notices and brings
   their buttons back (`onAction`), and `example.push` hands a phone's push address to it.
 - `web/app.ts`: plain DOM. Pairs with `pairWithCode`/`pairWithOffer` and keeps the pairing in this browser
   (`browserDeviceStore`); then `openclawDevice(link)`: `signIn.start('openai', 'code')` and `signIn.view` through
-  `@byokit/ui-core`'s `phaseOf` for the sign-in card, `run` for the streamed reply, `approvals`/`events`/`decide` for
-  what waits for a yes. Every status is a sentence from the kit (`words`, `oc.state().words`) or `@byokit/ui-core`
-  (`pairingView`, `linkWords`). Sign-ins for the helper's browser: `@byokit/ui-core/kits`' `signInsStore` over
+  `@byokit/ui`'s `phaseOf` for the sign-in card, `run` for the streamed reply, `approvals`/`events`/`decide` for
+  what waits for a yes. Every status is a sentence from the kit (`words`, `oc.state().words`) or `@byokit/ui`
+  (`pairingView`, `linkWords`). Sign-ins for the helper's browser: `@byokit/ui/kits`' `signInsStore` over
   `oc.browser.signIns` and `oc.events`, each request drawn from `signInSheetView`, takeover into
   `oc.browser.live(source, { lease })` drawn from `livePanelView` (`web/browser.ts`).
 - `e2e.test.ts`: packs the packages, installs them into a copy of this folder, runs `host.ts` against the kit's fake

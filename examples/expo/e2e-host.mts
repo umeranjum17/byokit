@@ -1,4 +1,4 @@
-// A computer for the emulator to pair with: a @byokit/link host on this machine, saying yes to every pairing, printing
+// A computer for the emulator to pair with: a @byokit/pair host on this machine, saying yes to every pairing, printing
 // its pairing code for the phone at 10.0.2.2 (the emulator's name for this computer). Used by e2e-android.sh.
 import { createServer } from 'node:http';
 import ws from 'ws'; // this app's own copy (React Native's), older: the server is ws.Server
