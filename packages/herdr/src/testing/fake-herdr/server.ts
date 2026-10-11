@@ -8,8 +8,8 @@ import { createServer, type Socket } from 'node:net';
 import { join } from 'node:path';
 import { HERDR_PROTOCOL, HERDR_VERSION } from '../../constants.ts';
 import { writeBinShim } from './bin.ts';
-import { agentRecord, createWorld, paneScroll, relayoutTab,
-  type FakeAgent, type FakePane, type FakePluginSeed, type FakeWorld, type FakeWorkspace } from './world.ts';
+import { COLS, ROWS, agentRecord, createWorld, paneScroll, relayoutTab,
+  type FakeAgent, type FakePane, type FakePluginSeed, type FakeRect, type FakeWorld, type FakeWorkspace } from './world.ts';
 
 const PROMPT_SETTLE_MS = 50;   // 6.8: the agent settles 50 ms after a prompt
 const WAIT_POLL_MS = 5;
@@ -22,6 +22,37 @@ const WAIT_POLL_MS = 5;
 const FILTERED = new Set(['pane_agent_status_changed', 'pane_output_matched', 'pane_scroll_changed']);
 
 const AGENT_NAME = /^[a-z][a-z0-9_-]{0,31}$/;
+
+// A `layout.apply` root (pinned LayoutNode): a pane leaf or a split of two subtrees. The fake only
+// needs the shape it reads back for `layout.updated`, so the fields are read defensively.
+type LayoutNode = {
+  type?: string;
+  pane_id?: string | null;
+  direction?: string;
+  ratio?: number;
+  first?: LayoutNode;
+  second?: LayoutNode;
+};
+
+// Position every pane leaf of a layout tree inside the tab's area: a split divides its rect at its
+// ratio, a pane leaf lands where the recursion left it. Leaves in tree order, so `focus` can pick
+// the first one.
+function layoutLeaves(node: LayoutNode, rect: FakeRect, out: { paneId: string; rect: FakeRect }[]): void {
+  if (node.type === 'split' && node.first !== undefined && node.second !== undefined) {
+    const ratio = typeof node.ratio === 'number' ? Math.min(1, Math.max(0, node.ratio)) : 0.5;
+    if (node.direction === 'down') {
+      const top = Math.max(1, Math.round(rect.height * ratio));
+      layoutLeaves(node.first, { x: rect.x, y: rect.y, width: rect.width, height: top }, out);
+      layoutLeaves(node.second, { x: rect.x, y: rect.y + top, width: rect.width, height: Math.max(1, rect.height - top) }, out);
+    } else {
+      const left = Math.max(1, Math.round(rect.width * ratio));
+      layoutLeaves(node.first, { x: rect.x, y: rect.y, width: left, height: rect.height }, out);
+      layoutLeaves(node.second, { x: rect.x + left, y: rect.y, width: Math.max(1, rect.width - left), height: rect.height }, out);
+    }
+    return;
+  }
+  if (typeof node.pane_id === 'string') out.push({ paneId: node.pane_id, rect });
+}
 
 export type FakeHerdrOptions = {
   dir: string;                        // test-owned scratch dir; the fake writes nothing outside it
@@ -361,6 +392,41 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       return { zoom: { changed, zoomed: live.zoomed } };
     },
     'pane.layout': (p) => ({ layout: tabLayout(paneOf(p.pane_id).tab_id) }),
+
+    'layout.apply': (p) => {
+      const root = p.root as LayoutNode | undefined;
+      if (typeof root !== 'object' || root === null || Array.isArray(root)) {
+        throw fail('invalid_layout', 'a root layout is required');
+      }
+      // The target tab: an explicit tab_id, else the workspace's first tab (the pinned server needs one).
+      let tab: FakeWorld['tabs'][number] | undefined;
+      if (typeof p.tab_id === 'string') {
+        tab = live.tabs.find((row) => row.tab_id === p.tab_id);
+        if (tab === undefined) throw fail('tab_not_found', 'tab not found');
+      } else if (typeof p.workspace_id === 'string') {
+        if (!live.workspaces.some((row) => row.workspace_id === p.workspace_id)) {
+          throw fail('workspace_not_found', 'workspace not found');
+        }
+        tab = live.tabs.find((row) => row.workspace_id === p.workspace_id);
+        if (tab === undefined) throw fail('tab_not_found', 'tab not found');
+      } else {
+        throw fail('invalid_target', 'layout.apply needs a tab_id or workspace_id');
+      }
+      // Every leaf must be a pane of the target tab; the layout repositions exactly those panes.
+      const leaves: { paneId: string; rect: FakeRect }[] = [];
+      layoutLeaves(root, { x: 0, y: 0, width: COLS, height: ROWS }, leaves);
+      for (const leaf of leaves) {
+        const pane = live.panes.find((row) => row.pane_id === leaf.paneId);
+        if (pane === undefined || pane.tab_id !== tab.tab_id) {
+          throw fail('pane_not_found', `pane not found in tab: ${leaf.paneId}`);
+        }
+        pane.rect = leaf.rect;
+      }
+      if (p.focus === true && leaves[0] !== undefined) focusPane(leaves[0].paneId);
+      const layout = tabLayout(tab.tab_id);
+      emitEvent('layout.updated', { layout });
+      return { type: 'layout_apply', layout: { ...layout, root } };
+    },
 
     'agent.start': (p) => {
       const fault = agentStartFaults.shift();
