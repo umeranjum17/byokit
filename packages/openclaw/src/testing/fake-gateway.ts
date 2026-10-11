@@ -42,6 +42,12 @@ const EVENTS = [
 /** Window between a run's last event and its completion, so an abort issued on the text event still lands. */
 const ABORT_WINDOW_MS = 25;
 const BRIDGE_TIMEOUT_MS = 30_000;
+// The plugin's accounts.js status thresholds: auth selection's refresh margin and auth-health's oauth warn window.
+const EXPIRING_MS = 300_000;
+const OAUTH_WARN_MS = 86_400_000;
+// The plugin's account agent shape (D9) and agent id shape, as plugin/accounts.js tests them.
+const ACCOUNT_AGENT = /--[0-9a-f]{6}$/;
+const AGENT_ID = /^[a-z][a-z0-9-]{0,31}$/;
 
 type Run = {
   runId: string;
@@ -165,17 +171,33 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     return order;
   };
   // As the plugin's accounts.js: `who` only exists for an OAuth profile that stores a provider account id.
-  const whoOf = (credential: FakeProfile): string | undefined => credential.type === 'oauth' && credential.accountId
+  const whoOf = (credential: FakeProfile): string | undefined => credential.type === 'oauth' && typeof credential.accountId === 'string' && credential.accountId.length > 0
     ? createHash('sha256').update(`${credential.provider}\n${credential.accountId}`).digest('hex').slice(0, 16) : undefined;
-  // The plugin's token expiry state; a profile with no expiry is static (never expired).
+  const hasSecret = (value: unknown, ref: unknown): boolean =>
+    (typeof value === 'string' && value.length > 0) || (!!ref && typeof ref === 'object' && !Array.isArray(ref));
+  // The plugin's token expiry state (credential-state.ts): missing, invalid, expired, or valid.
   const expiryState = (expires: number | undefined, now: number): string => {
     if (expires === undefined) return 'missing';
     if (typeof expires !== 'number' || !Number.isFinite(expires) || expires <= 0 || expires > 8.64e13) return 'invalid';
     return expires <= now ? 'expired' : 'valid';
   };
+  // The plugin's profile status (auth-health.ts) from the credential alone: static, ok, expiring, expired or missing.
   const statusOf = (credential: FakeProfile, now: number): string => {
-    if (credential.type === 'api_key') return 'static';
-    return expiryState(credential.expires, now) === 'expired' ? 'expired' : 'ok';
+    if (credential.type === 'api_key') return hasSecret(credential.key, credential.keyRef) ? 'static' : 'missing';
+    if (credential.type === 'token') {
+      if (!hasSecret(credential.token, credential.tokenRef)) return 'missing';
+      const state = expiryState(credential.expires, now);
+      if (state === 'invalid') return 'missing';
+      if (state === 'expired') return 'expired';
+      if (credential.expires === undefined) return 'static';
+      return credential.expires - now <= EXPIRING_MS ? 'expiring' : 'ok';
+    }
+    if (!hasSecret(credential.access, undefined) && !hasSecret(credential.refresh, undefined)) return 'missing';
+    const expires = credential.expires;
+    const state = expiryState(expires, now);
+    if (state === 'invalid' || state === 'missing') return 'missing';
+    if (state === 'expired') return 'expired';
+    return (expires as number) - now <= OAUTH_WARN_MS ? 'expiring' : 'ok';
   };
   const signInAgent = (id: string, provider: string, extra?: Partial<FakeProfile>) => {
     const agent = ensureAgent(id);
@@ -318,10 +340,11 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     'byokit.accounts': (p) => {
       const action = String(p.action ?? '');
       const entries = (configBox.config.agents as { entries?: Record<string, unknown> } | undefined)?.entries;
-      const known = (id: string) => Boolean(id) && Boolean(entries) && id in entries!;
+      const known = (id: string) => Boolean(id) && AGENT_ID.test(id) && Boolean(entries) && id in entries!;
       if (action === 'adopt') {
         const from = String(p.from), to = String(p.to), provider = String(p.provider);
         if (from === to || !known(from) || !known(to)) return { ok: false };
+        if (typeof p.who !== 'string' || !p.who) return { ok: false };
         const fromOrder = orderOf(from), named = fromOrder[provider] ?? [];
         const fromId = named.length === 1 ? named[0] : undefined;
         const credential = fromId ? storeOf(from)[fromId] : undefined;
@@ -330,7 +353,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
         if (typeof target !== 'string') return { ok: false };
         const toStore = storeOf(to), toOrder = orderOf(to);
         for (const [otherId, other] of Object.entries(toStore))
-          if (/--[0-9a-f]{6}$/.test(to) ? otherId !== fromId : other.provider === provider && otherId !== fromId) delete toStore[otherId];
+          if (ACCOUNT_AGENT.test(to) ? otherId !== fromId : other.provider === provider && otherId !== fromId) delete toStore[otherId];
         toStore[fromId] = credential;
         toOrder[provider] = [fromId];
         delete storeOf(from)[fromId];
@@ -362,10 +385,14 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
         if (at < 1) return { ok: false };
         const profileId = primary.slice(at + 1);
         const credential = store[profileId];
-        if (!credential || credential.provider !== p.provider || (!/--[0-9a-f]{6}$/.test(id) && credential.type === 'api_key')) return { ok: false };
+        const account = ACCOUNT_AGENT.test(id);
+        if (!credential || credential.provider !== p.provider || (!account && credential.type === 'api_key')) return { ok: false };
         for (const [otherId, other] of Object.entries(store))
-          if (/--[0-9a-f]{6}$/.test(id) ? otherId !== profileId : other.provider === p.provider && otherId !== profileId) delete store[otherId];
-        order[String(p.provider)] = [profileId];
+          if (account ? otherId !== profileId : other.provider === p.provider && otherId !== profileId) delete store[otherId];
+        // An account agent's whole order is replaced; a member's keeps its other providers, as plugin/accounts.js does.
+        const provider = String(p.provider);
+        if (account) orders.set(id, { [provider]: [profileId] });
+        else order[provider] = [profileId];
         return { ok: true, ...(whoOf(credential) ? { who: whoOf(credential) } : {}) };
       }
       return { ok: false };
