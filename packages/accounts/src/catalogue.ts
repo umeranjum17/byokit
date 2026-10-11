@@ -55,9 +55,14 @@ export type MultiAccountTerms = { terms: 'allowed' | 'grey' | 'partner' | 'forbi
  *  authorization-request fields that client sends. Data only; the engine is one implementation for every provider.
  *  `pkce` adds a code_challenge (S256) and its code_verifier; `grant` overrides the token-step grant_type; `dialect`
  *  names a provider whose answer shape differs (`minimax`: an absolute code expiry and a status-field token body);
- *  `regions` holds another region's same-client endpoints (MiniMax's cn host), chosen by the route. */
+ *  `regions` holds another region's same-client endpoints (MiniMax's cn host), chosen by the route.
+ *  `exchange` is a second token step for a provider whose device grant answers an intermediate token, not the credential
+ *  (Copilot): the intermediate is POSTed as `Authorization: Bearer` to `exchange`, its `{token,expires_at}` answer is the
+ *  access token, and the intermediate is kept as `refresh` and re-minted there on every refresh. A 401 or 403 on the
+ *  exchange is a refused grant: signed out, never retried. Any of these URLs may carry `{host}`, the person's own
+ *  domain (their GitHub Enterprise host, blank for the provider's default), so one row serves public and enterprise. */
 export type DeviceFlow = { authorization: string; token: string; clientId: string; scope?: string; form?: Record<string, string>; source: string;
-  pkce?: boolean; grant?: string; dialect?: 'minimax'; regions?: Record<string, { authorization: string; token: string }> };
+  pkce?: boolean; grant?: string; dialect?: 'minimax'; exchange?: string; regions?: Record<string, { authorization: string; token: string }> };
 export type Provider = { key: string; pi: string; name: string; company: string; models: { strong: string; fast?: string }; fresh?: { param: string; value: string }; callbackPort?: number; clientId?: string; revoke?: string; billing: Billing; auth?: 'api-key' | 'oauth'; label?: string; offer?: boolean; readiness?: Readiness; routes?: string[]; device?: DeviceFlow; source: string; multiAccount: MultiAccountTerms };
 
 export const PROVIDERS: Record<string, Provider> = Object.fromEntries(Object.entries(CATALOGUE).map(([key, p]) => [key, { key, ...p } as Provider]));

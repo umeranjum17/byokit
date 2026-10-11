@@ -1,0 +1,175 @@
+{
+  "rule": "Three providers' RFC 8628 device sign-in as data (TypeScript only). Grok and Kimi are one grant: start answers device_code, user_code, verification_uri, interval and expires_in; poll answers authorization_pending (continue), slow_down (wait longer), a token (complete) or access_denied/expired_token (failed); refresh re-issues the token. Copilot is the same grant against a host the person names (github.com by default, else their GitHub Enterprise domain), but its device grant answers an intermediate GitHub token, not the credential: a second exchange POSTs that token as `Authorization: Bearer` to api.{host}/copilot_internal/v2/token and its {token,expires_at} answer is the credential (the intermediate is kept as the refresh and re-minted the same way). A 401 or 403 on that exchange is a refused grant: signed out, never a retry. Every host is templated with {host}. Replayed offline by mockDevice({ dialect: 'copilot', domain }) and the generic mockDevice(); checked by packages/accounts/test/device-rfc8628.test.ts.",
+  "grantType": "urn:ietf:params:oauth:grant-type:device_code",
+  "providers": {
+    "grok": {
+      "pi": "xai",
+      "authorization": "https://auth.x.ai/oauth2/device/code",
+      "token": "https://auth.x.ai/oauth2/token",
+      "clientId": "b1a00492-073a-47ea-816f-4c329264a828",
+      "scope": "openid profile email offline_access grok-cli:access api:access",
+      "form": {
+        "referrer": "pi"
+      },
+      "start": {
+        "status": 200,
+        "keys": [
+          "device_code",
+          "user_code",
+          "verification_uri",
+          "interval",
+          "expires_in"
+        ]
+      },
+      "poll": [
+        {
+          "name": "pending",
+          "status": 400,
+          "error": "authorization_pending",
+          "result": "pending"
+        },
+        {
+          "name": "success",
+          "status": 200,
+          "approve": true,
+          "keys": [
+            "access_token",
+            "refresh_token",
+            "expires_in",
+            "token_type"
+          ],
+          "result": "complete"
+        },
+        {
+          "name": "decline",
+          "status": 400,
+          "deny": true,
+          "error": "access_denied",
+          "result": "failed"
+        }
+      ],
+      "refresh": {
+        "status": 200,
+        "keys": [
+          "access_token",
+          "refresh_token",
+          "expires_in",
+          "token_type"
+        ]
+      }
+    },
+    "kimi": {
+      "pi": "kimi-coding",
+      "authorization": "https://auth.kimi.com/api/oauth/device_authorization",
+      "token": "https://auth.kimi.com/api/oauth/token",
+      "clientId": "17e5f671-d194-4dfb-9706-5516cb48c098",
+      "start": {
+        "status": 200,
+        "keys": [
+          "device_code",
+          "user_code",
+          "verification_uri",
+          "interval",
+          "expires_in"
+        ]
+      },
+      "poll": [
+        {
+          "name": "pending",
+          "status": 400,
+          "error": "authorization_pending",
+          "result": "pending"
+        },
+        {
+          "name": "success",
+          "status": 200,
+          "approve": true,
+          "keys": [
+            "access_token",
+            "refresh_token",
+            "expires_in",
+            "token_type"
+          ],
+          "result": "complete"
+        },
+        {
+          "name": "decline",
+          "status": 400,
+          "deny": true,
+          "error": "access_denied",
+          "result": "failed"
+        }
+      ],
+      "refresh": {
+        "status": 200,
+        "keys": [
+          "access_token",
+          "refresh_token",
+          "expires_in",
+          "token_type"
+        ]
+      }
+    },
+    "copilot": {
+      "pi": "github-copilot",
+      "authorization": "https://{host}/login/device/code",
+      "token": "https://{host}/login/oauth/access_token",
+      "exchange": "https://api.{host}/copilot_internal/v2/token",
+      "clientId": "Iv1.b507a08c87ecfe98",
+      "scope": "read:user",
+      "hosts": [
+        "github.com",
+        "company.ghe.com"
+      ],
+      "unauthorized": [
+        401,
+        403
+      ],
+      "cases": {
+        "start": {
+          "status": 200,
+          "body": {
+            "device_code": "FIXTURE-COPILOT-DEVICE",
+            "user_code": "FIXTURE-COPILOT-CODE",
+            "verification_uri": "https://{host}/login/device",
+            "interval": 2,
+            "expires_in": 900
+          }
+        },
+        "pending": {
+          "status": 400,
+          "body": {
+            "error": "authorization_pending"
+          }
+        },
+        "success": {
+          "status": 200,
+          "body": {
+            "access_token": "FIXTURE-GITHUB-TOKEN",
+            "token_type": "bearer",
+            "scope": "read:user"
+          }
+        },
+        "decline": {
+          "status": 400,
+          "body": {
+            "error": "access_denied"
+          }
+        },
+        "exchange": {
+          "status": 200,
+          "body": {
+            "token": "FIXTURE-COPILOT-TOKEN",
+            "expires_at": 4102444800
+          }
+        },
+        "unauthorized": {
+          "status": 401,
+          "body": {
+            "error": "unauthorized"
+          }
+        }
+      }
+    }
+  }
+}

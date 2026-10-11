@@ -3204,7 +3204,7 @@ upstreams, 218 from other open agent projects' catalogues) has a home: 24 are co
 | B7 | explicit install of external provider plugins at the versions the pin names | `packages/openclaw/src/{engine.ts,plugins.ts}` | B6 |
 | B8 | sensitive wizard steps | `packages/openclaw/src/signin.ts` | B6 |
 | B9 | herdr kind table, folder per kind, managed-folder readiness | `packages/herdr/src/{kinds.json,accounts.ts,agents.ts}` | F0 |
-| B10 | portable device-code engine for every device route; missing client ids are `needs_client` | `packages/accounts/src/device.ts`, a device-code fixture | B1, B5 |
+| B10 | portable device-code engine for every device route; missing client ids are `needs_client`. A provider whose device grant yields an intermediate token (Copilot) is one more exchange step as data, not code: `copilot_internal/v2/token` with the intermediate as the bearer, re-minted on every refresh; a 401 or 403 there is signed out, never a retry. The portable sign-in stops at the credential and never replicates Pi's best-effort model-policy enable step. | `packages/accounts/src/device.ts`, `fixtures/conformance/device-code-rfc8628-typescript.json` | B1, B5 |
 | X3 | usage reads a credentials file only inside a managed folder | `packages/usage/src/providers.ts` | — |
 | C1 | named catalogue import: key, plan-key, local, endpoint and cloud rows from exact release snapshots | `scripts/gen-parity-routes.ts`, `packages/accounts/src/routes.json` | B2, B3, B4 |
 | C2 | further device-code flows | `packages/accounts/src/flows/*` | B5, B10 |
@@ -3215,6 +3215,23 @@ upstreams, 218 from other open agent projects' catalogues) has a home: 24 are co
 | U2 | examples list every route; no hardcoded provider | `examples/*` | U1 |
 
 Acceptance for every package: its fixture rows, mocks and fakes in `npm test`; no live vendor sign-in is required.
+
+**B10 in detail (the exchange step, `needs_client`, and the model-policy question).**
+- *Exchange step.* Copilot's RFC 8628 device grant answers an intermediate GitHub token (`/login/oauth/access_token`, grant
+  `urn:ietf:params:oauth:grant-type:device_code`), not the credential. The credential is one more request to
+  `https://api.{host}/copilot_internal/v2/token` with that intermediate as `Authorization: Bearer`; its answer `{ token,
+  expires_at }` becomes the access token, the intermediate is kept as the credential's `refresh`, and every refresh re-mints
+  it the same way (`pi-ai github-copilot.js:244-284`). This is `DeviceFlow.exchange` — a URL on the catalogue row, so the
+  portable engine needs no Copilot branch. A 401 or 403 on the exchange is a refused grant: signed out, never retried.
+- *`needs_client`.* A device route only signs in when its descriptor carries a `clientId`; a partner-only flow (Grok) ships
+  no client id and is therefore `needs_client` until an app supplies its own registration. The rule already lives in
+  `routeReadiness` (`packages/accounts/src/catalogue.ts`); this lane is what makes it reachable for a device row.
+- *Model policy: not replicated.* Pi, after login, fetches the Copilot model catalog and best-effort POSTs
+  `/models/{id}/policy {state:'enabled'}` for `unconfigured` models (`github-copilot.js:289-334`). That is a model-catalog
+  step, not a sign-in step, and it is best-effort (a refused policy enable still leaves a usable credential). The portable
+  path stops at the credential and makes no policy call; the catalogue's model list stays `pi-ai`'s static table.
+- *GHE host templating.* Copilot's `authorization`, `token` and `exchange` URLs carry `{host}`: the person's GitHub domain
+  (their GitHub Enterprise domain, blank for `github.com`), so one data row serves both public and enterprise.
 
 ## 12. Known facts builders must not re-derive
 
