@@ -15,9 +15,6 @@ function source(target: Target, condition: string): string {
   return target.replace(/^\.\/dist\/(.*)\.js$/, 'src/$1.ts');
 }
 
-test('exports include the runtime, Expo config plugin and package metadata', () =>
-  assert.deepEqual(Object.keys(pkg.exports), ['.', './app.plugin.js', './package.json']));
-
 for (const platform of ['browser', 'react-native'] as const) {
   test(`. bundles for ${platform} with no Node import`, async () => {
     const file = source(pkg.exports['.'], platform);

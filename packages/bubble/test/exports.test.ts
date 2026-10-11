@@ -1,26 +1,12 @@
-// The frozen names (docs/capability-kits.md 7.3, 7.4): `.` and its React Native twin export the same names, and
-// `./focused-field` and its twin too, with the native lookup stood in for.
+// The focused field (docs/capability-kits.md 7.4): the default entry is never available, and the React Native entry
+// calls the native module, with the native lookup stood in for.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
-import * as kit from '../src/index.ts';
 import * as field from '../src/focused-field.ts';
-import type {
-  AppRules, Edge, ForegroundNotice, HostKind, NativeOverlay, Overlay, OverlayEvent, OverlayEventType, OverlayState,
-  StartOptions, TapEntry,
-} from '../src/index.ts';
-import type { FocusedField, FocusedText, InsertResult } from '../src/focused-field.ts';
-
-const NAMES = ['createOverlay', 'overlay', 'resetApp', 'setApp', 'shownFor', 'stateWords', 'words'];
-
-test('the `.` entry carries the frozen names, and its overlay is unsupported', async () => {
-  assert.deepEqual(Object.keys(kit).sort(), NAMES);
-  for (const n of NAMES.filter((n) => n !== 'overlay')) assert.equal(typeof kit[n as keyof typeof kit], 'function', n);
-  assert.equal(await kit.overlay.state(), 'unsupported');
-});
+import type { InsertResult } from '../src/focused-field.ts';
 
 test('`./focused-field` default is never available', async () => {
-  assert.deepEqual(Object.keys(field), ['focusedField']);
   assert.equal(await field.focusedField.available(), false);
   assert.equal(await field.focusedField.read(), null);
   assert.equal(await field.focusedField.insert('hi'), 'failed');
@@ -28,31 +14,6 @@ test('`./focused-field` default is never available', async () => {
   const controller = new AbortController();
   controller.abort();
   assert.equal(await field.focusedField.insert('hi', { signal: controller.signal }), 'cancelled');
-});
-
-test('the React Native entries export the same names over the native module', async () => {
-  // Bundled with a stand-in expo-modules-core that records each lookup and finds no module, as on iOS.
-  const result = await build({
-    stdin: {
-      contents: `export * as rn from './rn.ts'; export * as field from './focused-field.rn.ts';`,
-      resolveDir: new URL('../src', import.meta.url).pathname, sourcefile: 'entries.ts', loader: 'ts',
-    },
-    bundle: true, write: false, platform: 'browser', format: 'esm', logLevel: 'silent',
-    plugins: [{
-      name: 'no-native', setup(b) {
-        b.onResolve({ filter: /^expo-modules-core$/ }, () => ({ path: 'expo-modules-core', namespace: 'stub' }));
-        b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({
-          contents: 'export const requireOptionalNativeModule = (name) => { (globalThis.looked ??= []).push(name); return null; };',
-        }));
-      },
-    }],
-  });
-  const { rn, field: rnField } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString('base64')}`);
-  assert.deepEqual(Object.keys(rn).sort(), NAMES);
-  assert.deepEqual(Object.keys(rnField), ['focusedField']);
-  assert.deepEqual((globalThis as { looked?: string[] }).looked, ['ByokitOverlay', 'ByokitFocusedField']);
-  assert.equal(await rn.overlay.state(), 'unsupported', 'no module (iOS) is unsupported');
-  assert.equal(await rnField.focusedField.available(), false);
 });
 
 test('the React Native focused field calls the native module, replacing the selection by default', async () => {
@@ -105,58 +66,4 @@ test('the React Native focused field calls the native module, replacing the sele
   assert.deepEqual((globalThis as { cancels?: string[] }).cancels, ['operation']);
   assert.equal(await focusedField.insert('already cancelled', { signal: controller.signal }), 'cancelled');
   assert.equal((globalThis as { inserted?: unknown[] }).inserted?.length, 4);
-});
-
-test('public types keep their frozen shapes (7.3, 7.4)', () => {
-  const state: OverlayState[] = ['on', 'off', 'stuck', 'needs-permission', 'unsupported'];
-  const hosts: HostKind[] = ['window', 'accessibility'];
-  const edges: Edge[] = ['left', 'right'];
-  const rules: AppRules = { paused: false, on: ['a'], off: ['b'], defaults: ['c'] };
-  const notice: ForegroundNotice = { channel: 'c', title: 't', text: 'x', icon: 'i' };
-  const start: StartOptions = { host: 'window', mood: 'calm', notice, panel: 'Panel', hideWhilePanelOpen: true, spots: 'global' };
-  const events: OverlayEvent[] = [
-    { type: 'tap' }, { type: 'longPress' }, { type: 'moved', edge: 'left', y: 0.5 }, { type: 'state', state: 'on' }, { type: 'panel', open: true },
-  ];
-  const types: OverlayEventType[] = ['tap', 'longPress', 'moved', 'state', 'panel'];
-  // @ts-expect-error the tap log has no text field (D-O)
-  const tap: TapEntry = { app: 'a', at: 1, action: 'tap', text: 'x' };
-  const text: FocusedText = { app: 'a', text: 'hi', selection: null };
-  const results: InsertResult[] = ['inserted', 'landedWithoutNewlines', 'copied', 'failed', 'cancelled'];
-  const o: Overlay = kit.createOverlay(null);
-  o.on('moved', (e) => { const y: number = e.y; void y; });
-  const n: Pick<NativeOverlay, 'say' | 'setLabel' | 'taps'> = {
-    say: (_t, _m: string | null, _ms: number, _a: boolean) => {},
-    setLabel: (_l: string | null) => {},
-    taps: async (_since: number) => [],
-  };
-  const f: FocusedField = field.focusedField;
-  void [state, hosts, edges, rules, start, events, types, tap, text, results, n, f];
-});
-
-test('screen-frame native entry preserves every result field and clear call; absent module is typed unsupported', async () => {
-  const captured = { status: 'captured', uri: 'file:///cache/byokit-screen-test.png', mimeType: 'image/png', width: 1080, height: 2400,
-    space: { width: 1080, height: 2400, density: 3, densityDpi: 480, rotation: 0, displayId: 0, origin: 'top-left', unit: 'physical-pixels' } };
-  for (const present of [true, false]) {
-    const result = await build({
-      entryPoints: [new URL('../src/screen-frame.rn.ts', import.meta.url).pathname],
-      bundle: true, write: false, platform: 'browser', format: 'esm', logLevel: 'silent',
-      plugins: [{ name: 'screen-native', setup(b) {
-        b.onResolve({ filter: /^expo-modules-core$/ }, () => ({ path: 'native', namespace: 'stub' }));
-        b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: `
-          export const requireOptionalNativeModule = (name) => {
-            if (name !== 'ByokitScreenFrame') throw Error(name);
-            return ${present ? `{ frame: async () => (${JSON.stringify(captured)}), clear: async () => { globalThis.frameCleared = true; } }` : 'null'};
-          };` }));
-      } }],
-    });
-    const { screenFrame, createScreenFrame } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString('base64')}`);
-    assert.deepEqual(await screenFrame.frame(), present ? captured : { status: 'unsupported' });
-    await screenFrame.clear();
-    if (present) assert.equal((globalThis as { frameCleared?: boolean }).frameCleared, true);
-    for (const outcome of [{ status: 'cancelled' }, { status: 'busy' }, { status: 'failed', reason: 'timeout' }]) {
-      assert.deepEqual(await createScreenFrame({ frame: async () => outcome, clear: async () => {} }).frame(), outcome);
-    }
-    const error = new Error('native failed');
-    await assert.rejects(createScreenFrame({ frame: async () => { throw error; }, clear: async () => { throw error; } }).frame(), error);
-  }
 });

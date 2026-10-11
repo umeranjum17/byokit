@@ -407,8 +407,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
   const hello = (): Hello => ({
     protocol: PROTOCOL_VERSION,
     server: { version: ENGINE_VERSION },
-    // The methods the fake serves. The generated tables are type-only until O2 ships runtime names; O11's
-    // generated.test.ts cross-checks the real engine's hello against the committed tables.
+    // The methods the fake serves. The generated tables are type-only until O2 ships runtime names.
     methods: [...handlers.keys()].sort(),
     events: [...EVENTS],
   });

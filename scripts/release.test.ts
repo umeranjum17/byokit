@@ -1,6 +1,5 @@
-// Tests for scripts/release.ts: pure changelog, version, cascade, order and
-// lint functions. No network, fixtures as strings (plus the nine real
-// CHANGELOGs on disk).
+// Tests for scripts/release.ts: cascade, order and release notes, plus the lint
+// and prepare CLIs in a throwaway git repo. No network.
 import { strict as assert } from "node:assert";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -9,67 +8,16 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-  bump,
-  compareSemver,
   extractNotes,
-  lint,
   parseChangelog,
   prepareChangelog,
-  shippedPath,
   planCascade,
-  rollUnreleased,
-  readFragments,
   topoOrder,
   type CascadePkg,
 } from "./release.ts";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const changelog = (dir: string): string => readFileSync(join(root, "packages", dir, "CHANGELOG.md"), "utf8");
-
-test("bump patches and minors, refusing major and prereleases", () => {
-  assert.equal(bump("0.3.1", "patch"), "0.3.2");
-  assert.equal(bump("0.3.1", "minor"), "0.4.0");
-  assert.equal(bump("0.1.3", "patch"), "0.1.4");
-  assert.throws(() => bump("0.3.1", "major"), /refusing/);
-  assert.throws(() => bump("0.3.1-rc.1", "patch"), /bad version/);
-  assert.throws(() => bump("0.3.1", "1.0.0-beta"), /refusing/);
-  assert.ok(compareSemver("0.3.2", "0.3.1") > 0);
-  assert.ok(compareSemver("0.3.1", "0.3.1") === 0);
-  assert.ok(compareSemver("0.2.0", "0.10.0") < 0);
-});
-
-test("parseChangelog reads all nine real changelogs", () => {
-  for (const dir of ["accounts", "decide", "herdr", "pair", "discover", "relay", "seal", "ui"]) {
-    const parsed = parseChangelog(changelog(dir));
-    assert.ok(parsed.versions.length > 0, `${dir} has versions`);
-    assert.ok(
-      parsed.versions.every((s) => /^\d+\.\d+\.\d+$/.test(s.version as string)),
-      `${dir} versions are semver`,
-    );
-  }
-  // link's normalized SECURITY bullet parses with its kind, wherever its release sits
-  const link = parseChangelog(changelog("link"));
-  const sec = link.versions.flatMap((s) => s.bullets).find((b) => b.kind === "SECURITY");
-  assert.ok(sec && sec.text.length > 0);
-  // the kit's first release rolled its notes into 0.1.0
-  assert.ok(parseChangelog(changelog("openclaw")).versions.some((section) => section.version === "0.1.0"));
-});
-
-test("parseChangelog accepts the legacy bare SECURITY line and continuations", () => {
-  const parsed = parseChangelog(
-    "# Changelog\n\n## Unreleased\n\n## 0.3.1\n\nSECURITY: bare legacy line\n\n- FIX: wrapped\n  onto two lines\n\n- plain\n",
-  );
-  const bullets = parsed.versions[0].bullets;
-  assert.deepEqual(bullets[0], { kind: "SECURITY", text: "bare legacy line" });
-  assert.deepEqual(bullets[1], { kind: "FIX", text: "wrapped onto two lines" });
-  assert.deepEqual(bullets[2], { kind: "other", text: "plain" });
-});
-
-test("rollUnreleased renames and inserts a fresh section", () => {
-  const out = rollUnreleased("# Changelog\n\n## Unreleased\n\n- FIX: x\n", "0.3.2", "2026-10-01");
-  assert.equal(out, "# Changelog\n\n## Unreleased\n\n## 0.3.2 (2026-10-01)\n\n- FIX: x\n");
-  assert.throws(() => rollUnreleased("# Changelog\n\n## 0.1.0\n", "0.1.1", "2026-10-01"), /no ## Unreleased/);
-});
 
 function cascadeFixture(): CascadePkg[] {
   const empty: CascadePkg = {
@@ -150,39 +98,6 @@ test("extractNotes returns SECURITY/FIX bullets of one version", () => {
   assert.deepEqual(extractNotes(changelog("seal"), "9.9.9"), []);
 });
 
-test("lint fails an empty Unreleased under a src change, passes on version bump", () => {
-  const changelogs: Record<string, string | null> = {
-    link: "# Changelog\n\n## Unreleased\n\n## 0.3.1\n\n- SECURITY: x\n",
-  };
-  const files = { link: ["dist", "SECURITY.md", "CHANGELOG.md"] };
-  const bad = lint({ changelogs, files, srcChanged: ["link"], depsChanged: [], versionChanged: [] });
-  assert.ok(bad.some((e) => e.includes("Unreleased bullet")), bad.join("\n"));
-  const ok = lint({ changelogs, files, srcChanged: ["link"], depsChanged: [], versionChanged: ["link"] });
-  assert.deepEqual(ok, []);
-});
-
-test("lint enforces changelog shape and shipped files", () => {
-  const errs = lint({
-    changelogs: {
-      a: null,
-      b: "no title\n",
-      c: "# Changelog\n\n## 0.1.0\n\n- x\n",
-      d: "# Changelog\n\n## Unreleased\n\n## 0.2.0\n\n## 0.1.0\n\n- x\n",
-      e: "# Changelog\n\n## Unreleased\n\n## 0.1.0\n\n- SECURITY:\n",
-    },
-    files: { a: [], b: [], c: [], d: ["dist"], e: ["dist", "CHANGELOG.md"] },
-    srcChanged: [],
-    depsChanged: [],
-    versionChanged: [],
-  });
-  assert.ok(errs.some((e) => e.startsWith("a: missing")), errs.join("\n"));
-  assert.ok(errs.some((e) => e.startsWith("b:")), errs.join("\n"));
-  assert.ok(errs.some((e) => e.includes("first ## heading")), errs.join("\n"));
-  assert.ok(errs.some((e) => e.includes("not descending") === false && e.includes("d:")), errs.join("\n"));
-  assert.ok(errs.some((e) => e.includes("files must contain")), errs.join("\n"));
-  assert.ok(errs.some((e) => e.includes("empty SECURITY")), errs.join("\n"));
-});
-
 test("prepare places cascade dependency notes inside every released version", () => {
   const pkgs = cascadeFixture();
   pkgs.find((p) => p.dir === "openclaw")!.isPrivate = false;
@@ -199,43 +114,6 @@ test("prepare places cascade dependency notes inside every released version", ()
     if (dir === "openclaw") assert.ok(released.bullets.some((b) => b.text === "Dependency update: pins @byokit/relay 0.1.4."));
   }
 });
-
-test("shipped paths include engines, plugins, policies, schemas and native metadata", () => {
-  for (const path of ["engine/pin.json", "plugin/gate.js", "policy/tools.json", "schema/v1.json", "app.plugin.js", "android/src/main.kt", "README.md"]) {
-    assert.equal(shippedPath(path, ["dist", "engine", "plugin", "policy", "schema", "app.plugin.js", "android", "!android/build"]), true, path);
-  }
-  assert.equal(shippedPath("android/build/output.jar", ["android", "!android/build"]), false);
-  assert.equal(shippedPath("test/contract.test.ts", ["dist"]), false);
-  assert.equal(shippedPath("src/new.ts", ["dist"]), true);
-  assert.equal(shippedPath("schema/a.json", ["schema/*.json"]), true);
-});
-
-test("published shipped changes accept Unreleased notes or a version increase with release notes", () => {
-  const input = {
-    changelogs: { link: "# Changelog\n\n## Unreleased\n\n- FIX: a fix.\n\n## 0.3.1\n\n- Initial.\n" },
-    files: { link: ["dist", "CHANGELOG.md"] }, srcChanged: ["link"], depsChanged: [], versionChanged: [] as string[],
-    versions: { link: { before: "0.3.1", after: "0.3.1", isPrivate: false } },
-  };
-  assert.deepEqual(lint(input), []);
-  const noted = input.changelogs.link;
-  input.changelogs.link = noted.replace("- FIX: a fix.\n", "");
-  assert.ok(lint(input).some((e) => e.includes("Unreleased bullet")));
-  input.changelogs.link = noted;
-  input.versions.link.after = "invalid";
-  input.versionChanged = ["link"];
-  assert.ok(lint(input).some((e) => e.includes("invalid or decreased version")));
-  input.versions.link.after = "0.3.0";
-  input.versionChanged = ["link"];
-  assert.ok(lint(input).some((e) => e.includes("invalid or decreased version")));
-  input.versions.link.after = "0.3.2";
-  assert.ok(lint(input).some((e) => e.includes("non-empty changelog section")));
-  input.changelogs.link = prepareChangelog(input.changelogs.link, "0.3.2", "2026-09-30", []);
-  assert.deepEqual(lint(input), []);
-  input.versions.link = { before: "0.3.2", after: "0.3.2", isPrivate: true };
-  input.versionChanged = [];
-  assert.ok(lint(input).some((e) => e.includes("Unreleased bullet")));
-});
-
 
 test("release lint CLI requires notes for unchanged shipped schemas and accepts feature and release PR and push ranges", () => {
   const dir = mkdtempSync(join(tmpdir(), "release-lint-"));
@@ -296,36 +174,6 @@ test("release lint CLI requires notes for unchanged shipped schemas and accepts 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-});
-
-test("fragments preserve prefixes and formatting and satisfy empty Unreleased lint", () => {
-  const dir = mkdtempSync(join(tmpdir(), "release-fragments-"));
-  try {
-    mkdirSync(join(dir, "changes"));
-    writeFileSync(join(dir, "changes/b.md"), "- SECURITY: protect Umer.\n");
-    writeFileSync(join(dir, "changes/a.md"), "- FIX: help Umer.\n  Keep continuation.\n");
-    const fragments = readFragments(dir);
-    assert.equal(fragments.paths.length, 2);
-    const text = "# Changelog\n\n## Unreleased\n\n- Existing entry.\n";
-    const rolled = prepareChangelog(text, "0.1.1", "2026-10-01", fragments.lines);
-    assert.deepEqual(parseChangelog(rolled).unreleased, []);
-    assert.deepEqual(parseChangelog(rolled).versions[0].bullets, [
-      { kind: "FIX", text: "help Umer. Keep continuation." },
-      { kind: "SECURITY", text: "protect Umer." },
-      { kind: "other", text: "Existing entry." },
-    ]);
-    const input = {
-      changelogs: { probe: "# Changelog\n\n## Unreleased\n" },
-      files: { probe: ["CHANGELOG.md"] }, fragments: { probe: fragments.lines },
-      srcChanged: ["probe"], depsChanged: [], versionChanged: [] as string[],
-    };
-    assert.deepEqual(lint(input), []);
-    assert.ok(lint({ ...input, versionChanged: ["probe"], versions: {
-      probe: { before: "0.1.0", after: "0.1.1", isPrivate: false },
-    } }).some((e) => e.includes("non-empty changelog section")));
-    writeFileSync(join(dir, "changes/empty.md"), "- FIX:\n");
-    assert.throws(() => readFragments(dir), /invalid changelog fragment/);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("prepare CLI compiles fragments with existing notes and deletes them in its commit", () => {

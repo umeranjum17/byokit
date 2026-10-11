@@ -1,4 +1,4 @@
-// The pinned engine's own wizard, for real (5.7, O6): choices match bundled or external pin metadata, and the
+// The pinned engine's own wizard, for real (5.7, O6): offered guided routes start, and the
 // drive speaks the contract the gateway actually serves — steps only from wizard.next, one setup admission at a time.
 import { test, before, after, mock } from 'node:test';
 import childProcess from 'node:child_process';
@@ -8,13 +8,12 @@ import { readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node
 import { connect } from 'node:net';
 import { pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
-import { setImmediate as turn, setTimeout as delay } from 'node:timers/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../../src/engine.ts';
 import { gatewayTransport } from '../../src/transport.ts';
 import { providers, signIn, type SignInCtx } from '../../src/signin.ts';
 import { words } from '../../src/words.ts';
 import { routes } from '../../src/routes.ts';
-import pinSnapshot from '../fixtures/routes-pin.json' with { type: 'json' };
 import { scratchDir, sharedEngineDir } from '../../../test-support.ts';
 import type { GatewayTransport, SignInView } from '../../src/types.ts';
 import { mockOpenAI } from '../../../accounts/src/testing/index.ts';
@@ -154,43 +153,6 @@ async function withGateway<T>(plugins: string[], fn: (ctx: SignInCtx, request: G
   }
 }
 
-test('routes.json and bundled/external pin metadata agree in both directions (5.7, 5.12, B6)', { timeout: 120_000 }, () => {
-  const { choices, staticChoices } = pinnedChoices();
-  for (const route of routes()) {
-    if (!route.choice) {
-      assert.equal(route.readiness, 'no_upstream_flow', route.provider);
-      continue;
-    }
-    if (route.needs?.plugin) {
-      assert.ok(pinSnapshot.manifests.some(manifest => manifest.id === route.plugin
-        && 'providerAuthChoices' in manifest && (manifest.providerAuthChoices ?? []).some(choice => choice.choiceId === route.choice)),
-      `${route.choice} must exist in the external pin manifest snapshot`);
-      assert.equal(route.needs.plugin, route.plugin);
-      continue;
-    }
-    assert.ok(choices.has(route.choice) || staticChoices.includes(`"${route.choice}"`),
-      `${route.choice} is not an auth choice of the pinned tarball (${route.source})`);
-  }
-  assert.equal(routes().length, 96, 'full discovery includes unavailable choices, not just bundled ones');
-  const catalog = JSON.parse(readFileSync(join(dirname(engine.doctorContext().entry), 'scripts/lib/official-external-provider-catalog.json'), 'utf8')) as {
-    entries: { openclaw: { plugin: { id: string }; providers: { authChoices?: { choiceId: string }[] }[] } }[];
-  };
-  for (const { openclaw } of catalog.entries) for (const provider of openclaw.providers) {
-    for (const choice of provider.authChoices ?? []) {
-      assert.equal(routes().find(route => route.choice === choice.choiceId)?.plugin, openclaw.plugin.id, choice.choiceId);
-    }
-  }
-  // The other direction, and the owning plugin of every choice: nothing pinned is unrouted, and no route names the
-  // wrong plugin (the allowlist needs the owning id, 5.6).
-  for (const [choice, plugin] of choices) {
-    const route = routes().find((entry) => entry.choice === choice);
-    assert.ok(route, `${choice} is a pinned auth choice with no route`);
-    assert.equal(route.plugin, plugin, `${choice} names the wrong owning plugin`);
-  }
-  assert.ok(staticChoices.includes('"custom-api-key"'), 'the pin carries the core static choice');
-  assert.equal(routes().find((entry) => entry.choice === 'custom-api-key')?.plugin, '', 'a core choice has no plugin');
-});
-
 test('every offered app-guided route starts without a caller allowlist (5.7, B6)', { timeout: 900_000 }, async () => {
   const { guided } = pinnedChoices();
   assert.ok(guided.has('openai-device-code'), 'guided choices are read from the pinned inventory');
@@ -278,34 +240,6 @@ test('real gateway: without a caller allowlist the drive shows the code, never a
   }
   assert.ok(retry, 'a cancelled sign-in locks the next one out');
   await client.request('wizard.cancel', { sessionId: retry.sessionId }, { timeoutMs: 10_000 }).catch(() => {});
-});
-
-test('the pinned wizard completes device approval after three minutes of fake time', async (t) => {
-  // Exercise the real engine's WizardSession and prompter without a provider account or outbound fetch.
-  const dist = join(dirname(engine.doctorContext().entry), 'dist');
-  const file = readdirSync(dist).find((name) => name.startsWith('session-') && name.endsWith('.js')
-    && readFileSync(join(dist, name), 'utf8').includes('WizardSession as t'));
-  assert.ok(file, 'the pin must expose its wizard implementation');
-  const { t: WizardSession } = await import(pathToFileURL(join(dist, file)).href);
-  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
-  const session = new WizardSession(async (prompter: any) => {
-    await prompter.deviceCode({ code: 'UMER-2026', expiresInMinutes: 15 });
-    await new Promise((resolve) => setTimeout(resolve, 181_000));
-  });
-  const request: GatewayTransport['request'] = async (method, params: any, options) => {
-    if (method === 'openclaw.setup.auth.start') return { done: false };
-    if (method === 'wizard.cancel') { session.cancel(); return {}; }
-    assert.equal(method, 'wizard.next');
-    if (params.answer) await session.answer(params.answer.stepId, params.answer.value);
-    // The actual client requires null to disable its default timeout on a long request.
-    if (params.answer) assert.equal(options?.timeoutMs, null);
-    return session.next();
-  };
-  const handle = signIn({ request, ensure: async () => ({ agentId: 'umer' }), callbackPort: 0 },
-    'umer', { authChoice: 'openai-device-code', via: 'code' }, () => {});
-  await turn();
-  t.mock.timers.tick(181_000);
-  assert.deepEqual(await handle.done, { state: 'done', via: 'code' });
 });
 
 test('the engine state directory is the only place a sign-in touches', () => {

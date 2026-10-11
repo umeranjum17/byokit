@@ -4,8 +4,7 @@
 //         v0.9.1 release (provenance in schema/SOURCE.md).
 // Output: src/generated/methods.ts, src/generated/events.ts, src/generated/report.json.
 //
-// Deterministic: same snapshot in, byte-identical files out. test/generated.test.ts
-// regenerates and compares against the committed output. Run via `npm run gen:herdr`.
+// Deterministic: same snapshot in, byte-identical files out. Run via `npm run gen:herdr`.
 import { compile } from 'json-schema-to-typescript';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

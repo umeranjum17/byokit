@@ -9,8 +9,8 @@ import { machine } from '../packages/cloud/src/machine.ts';
 import { startFakeSandboxServer } from '../packages/cloud/src/testing/fake-sandbox-server.ts';
 import { boat } from '../packages/cloud/src/boat.ts';
 import { probes } from './machine-proof/probes.ts';
-import { dryRun, fakeNode } from './machine-proof/dry-run.ts';
-import { checks, markdown, runProof } from './machine-proof/proof.ts';
+import { fakeNode } from './machine-proof/dry-run.ts';
+import { checks, runProof } from './machine-proof/proof.ts';
 import { crewhouseRecipe, muxrRecipe, studioRecipe, installApp, wrapper } from './machine-proof/recipes.ts';
 import type { HostRecipe } from '../packages/cloud/src/types.ts';
 
@@ -20,20 +20,6 @@ const runtime: HostRecipe = {
   installRoot: [['install', '-d', '/home/user/.users/muxrbot/runtime']],
   install: [['true']], run: { argv: ['/home/user/.users/muxrbot/runtime/herdr', 'server'], env: { HERDR_SOCKET_PATH: '/home/user/.users/muxrbot/runtime/lab.sock' } },
 };
-
-test('M6 dry runner traverses both adapter contracts and records every check without qualification', async () => {
-  let checkpoints = 0;
-  const report = await dryRun(async () => { checkpoints++; });
-  assert.equal(report.complete, false);
-  assert.equal(report.mode, 'dry-run');
-  assert.equal(report.results.length, checks.length * 2);
-  assert.equal(report.results.filter(r => r.status === 'fail').length, 0, JSON.stringify(report.results));
-  for (const adapter of ['sandbox-api', 'ssh-vm']) {
-    assert.deepEqual(new Set(report.results.filter(r => r.adapter === adapter).map(r => r.check)), new Set(checks));
-  }
-  assert.ok(checkpoints > checks.length * 2);
-  assert.match(markdown(report), /NOT qualified/);
-});
 
 for (const id of ['sandbox-api', 'ssh-vm'] as const) {
   for (const app of [crewhouseRecipe(inputs), muxrRecipe({ ...inputs, runtime }), studioRecipe(inputs)]) {

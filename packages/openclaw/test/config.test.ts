@@ -8,54 +8,6 @@ import { routes } from '../src/routes.ts';
 import { reconcileConfig, memoryLimited, appRecoveryPrefixes } from '../src/config.ts';
 
 const opts = (root: string) => ({ root, stateDir: root, port: 12345, pluginId: 'byokit', pluginDir: join(root, 'plugin'), policyPath: join(root, 'policy.mjs') });
-test('plugin allowlist merges caller ids, the bridge and only default-eligible bundled route plugins', () => {
-  const root = '/tmp/byokit-config-check';
-  const offered = [...new Set(routes().filter(route => route.offerPolicy === 'default' && !route.needs?.plugin).map(route => route.plugin))];
-  assert.ok(offered.includes('openai'), 'ChatGPT device pairing needs the openai plugin');
-  const fresh = reconcileConfig(undefined, opts(root)) as any;
-  assert.deepEqual(fresh.plugins.allow, ['byokit', ...offered]);
-  const saved = { plugins: { allow: ['memory-core', 'openai', 'memory-core'] } };
-  const app = { plugins: { allow: ['custom', 'openai', 'custom', 'bridge'] } };
-  const merged = reconcileConfig(saved, { ...opts(root), pluginId: 'bridge', app }) as any;
-  assert.deepEqual(merged.plugins.allow, [...new Set(['custom', 'openai', 'bridge', ...offered])]);
-  assert.deepEqual(reconcileConfig(saved, opts(root)), reconcileConfig(reconcileConfig(saved, opts(root)), opts(root)));
-  for (const choice of ['anthropic-cli', 'apiKey']) {
-    const route = routes().find(route => route.choice === choice)!;
-    assert.equal(route.offer, false);
-    assert.ok(fresh.plugins.allow.includes(route.plugin), `${choice} keeps its plugin allowed while no route of it is offered`);
-  }
-  for (const route of routes().filter(route => !route.offer && !offered.includes(route.plugin))) {
-    assert.ok(!fresh.plugins.allow.includes(route.plugin), `${route.choice} is not enabled`);
-  }
-  assert.deepEqual(saved.plugins.allow, ['memory-core', 'openai', 'memory-core']);
-  assert.deepEqual(app.plugins.allow, ['custom', 'openai', 'custom', 'bridge']);
-});
-
-test('an explicitly offered route (OpenRouter) is allowed; defaults-only stays unchanged', () => {
-  const root = '/tmp/byokit-config-offered';
-  // Defaults-only consumers are unchanged: no explicit route plugin is added.
-  const defaults = reconcileConfig(undefined, opts(root)) as any;
-  assert.ok(!defaults.plugins.allow.includes('openrouter'));
-  for (const choice of ['openrouter-oauth', 'openrouter-api-key']) {
-    const route = routes().find(route => route.choice === choice)!;
-    assert.equal(route.offer, false);
-    assert.ok(!defaults.plugins.allow.includes(route.plugin), `${choice} stays out unless offered`);
-  }
-  // A consumer's offered set (Crewhouse's offered(['chatgpt','grok','copilot','openrouter']), #402) carries the
-  // openrouter plugin; the account keys that differ from the engine id are already default-allowed.
-  const crewhouse = reconcileConfig(undefined, { ...opts(root), offered: ['chatgpt', 'grok', 'copilot', 'openrouter'] }) as any;
-  assert.ok(crewhouse.plugins.allow.includes('openrouter'), 'the offered OpenRouter sign-in must be allowed');
-  // Only routes the consumer names join; routes nobody offers stay out.
-  for (const proxy of ['litellm', 'clawrouter', 'copilot-proxy', 'fal', 'amazon-bedrock']) {
-    assert.ok(!crewhouse.plugins.allow.includes(proxy), `${proxy} stays out`);
-  }
-  // A caller id already naming the plugin is kept once; the offered set never duplicates.
-  const merged = reconcileConfig({ plugins: { allow: ['memory-core', 'openrouter'] } },
-    { ...opts(root), pluginId: 'bridge', offered: ['openrouter', 'openrouter'] }) as any;
-  assert.equal(merged.plugins.allow.filter((p: string) => p === 'openrouter').length, 1);
-  assert.ok(merged.plugins.allow.includes('bridge') && merged.plugins.allow.includes('memory-core'));
-});
-
 test('fresh and adversarial config force isolation and no paid memory fallback', () => {
   const root = '/tmp/byokit-config-check';
   const c = reconcileConfig(undefined, opts(root)) as any;

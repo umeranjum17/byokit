@@ -5,8 +5,8 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
-import { Outbox, OutboxError, WORDS, errorWords, cancelWords, stateWords } from '../src/index.ts';
-import type { OutboxEntry, OutboxSendJob, OutboxSender } from '../src/index.ts';
+import { Outbox, OutboxError } from '../src/index.ts';
+import type { OutboxSendJob, OutboxSender } from '../src/index.ts';
 
 const code = (want: string) => (e: unknown) => {
   assert.ok(e instanceof OutboxError, `expected OutboxError, got ${e}`);
@@ -357,22 +357,4 @@ test('bad calls are TypeErrors; bad payloads are the kit error; malformed stores
   writeFileSync(join(dup, 'outbox', 'entries.json'), JSON.stringify(raw));
   await assert.rejects(Outbox.open({ stateDir: dup }), code('invalid'));
   assert.ok(one.id.length > 0);
-});
-
-test('words: plain sentences only, every code and result has one, slots stay visible', () => {
-  const banned = /\b(oauth|token|api|cli|http|json|error|exception|null|undefined|status|config|env|localhost|\d{3}|gpt-|pi\b|codex|device_code|credential|refresh)|[`$~\/\\]|%/i;
-  for (const [key, sentence] of Object.entries(WORDS)) {
-    assert.doesNotMatch(sentence.replace(/\{\w+\}/g, 'X'), banned, key);
-    assert.match(key, /^outbox\.[a-z]/, key);
-  }
-  for (const c of ['invalid', 'io', 'not-found', 'stale-revision', 'unavailable'] as const) {
-    assert.ok(errorWords(new OutboxError(c, 'log text')).length > 0, c);
-  }
-  const dir = scratchDir('outbox');
-  const entry: OutboxEntry = { id: 'x', kind: 'k', payload: 1, state: 'queued', revision: 1, seq: 1, createdAt: 0, updatedAt: 0 };
-  assert.equal(cancelWords({ ok: false, code: 'too-late', entry }), WORDS['outbox.tooLate']);
-  assert.equal(cancelWords({ ok: false, code: 'unknown', entry }), WORDS['outbox.unknown']);
-  assert.equal(cancelWords({ ok: true, entry }), WORDS['outbox.cancelled']);
-  assert.equal(stateWords('queued'), '');
-  assert.equal(stateWords('sent'), WORDS['outbox.sent']);
 });

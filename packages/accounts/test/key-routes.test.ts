@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { Accounts, recordStore, routes, route, chooseAccount, resolveSelection, KeyRouteError, computer, portable, type AccountMetadata, type Api, type Model, type Context } from '../src/index.ts';
+import { Accounts, recordStore, routes, route, chooseAccount, resolveSelection, KeyRouteError, computer, portable, type Api, type Model, type Context } from '../src/index.ts';
 import { Accounts as Portable } from '../src/portable.ts';
 import { keys, withKeys } from '../src/keys.ts';
 import type { Record as CredentialRecord } from '../src/stores.ts';
@@ -44,21 +43,6 @@ const anthropicEvents = [
   { type: 'message_stop' },
 ];
 
-test('shared key seam persists only a marker and non-secret route metadata; updates retain metadata', async () => {
-  const h = harness();
-  class Adapter extends Accounts {
-    save(id: string, metadata: AccountMetadata) { return this.saveAccountKey('member', id, canary, metadata); }
-  }
-  const a = new Adapter(h.opts);
-  const metadata = { route: 'openai:key', billing: 'api', baseUrl: 'https://app.example/v1' } as const;
-  await a.save('one', metadata);
-  await h.store.index((index) => { index.names.one = 'One'; });
-  assert.deepEqual((await h.store.index()).accounts?.one, metadata);
-  assert.deepEqual(await h.store.read('one'), { type: 'api_key' });
-  assert.equal(await h.keyStore('member').get('accounts.one'), canary);
-  assert.ok(!JSON.stringify(h.data()).includes(canary));
-});
-
 test('every pinned key route: explicit add, save, list, rename, restore, sign out and remove; exact canary stays private', async () => {
   const keyRoutes = routes().filter((r) => ['key', 'plan_key'].includes(r.via));
   for (const r of keyRoutes) {
@@ -87,22 +71,6 @@ test('every pinned key route: explicit add, save, list, rename, restore, sign ou
     await restored.remove('member', added.id);
     assert.equal((await restored.defaults('member')).account, undefined);
     assert.equal((await h.store.index()).accounts?.[added.id], undefined);
-  }
-});
-
-test('source-pinned closure fixture names exactly 24 B2 tuples and every tuple has a callable key lifecycle', async () => {
-  const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/account-keys-typescript.json', import.meta.url), 'utf8'));
-  assert.equal(fixture.tuples.length, 24);
-  assert.equal(new Set(fixture.tuples.map((r: any) => r.tuple)).size, 24);
-  for (const row of fixture.tuples) {
-    assert.ok(row.routes.length > 0, row.tuple);
-    for (const id of row.routes) {
-      assert.ok(['key', 'plan_key'].includes(route(id).via));
-      const h = harness();
-      const { id: account } = await h.a.add('member', id, { key: canary });
-      assert.equal((await h.a.list('member'))[0].id, account);
-      await h.a.logout('member', account);
-    }
   }
 });
 

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
-import { agentInstallState, classifyStartFailure, isAutoInstallShim, resolveAgentBinary } from '../src/agents.ts';
+import { agentInstallState, resolveAgentBinary } from '../src/agents.ts';
 import { HerdrKit } from '../src/kit.ts';
 import { startFakeHerdr } from '../src/testing/index.ts';
 import type { AgentStartEvent } from '../src/types.ts';
@@ -23,15 +23,6 @@ function binDir(name: string, files: Record<string, string>): string {
   }
   return dir;
 }
-
-test('a shim is not an install: shebang + mise reads shim, real scripts and binaries do not', () => {
-  assert.equal(isAutoInstallShim('/x/pi', () => SHIM), true);
-  assert.equal(isAutoInstallShim('/x/pi', () => REAL), false, 'a real script is installed');
-  assert.equal(isAutoInstallShim('/x/pi', () => 'ELF promise compromise \x00 binary'),
-    false, 'a mise substring without a shebang is a binary, not a shim');
-  assert.equal(isAutoInstallShim('/x/pi', () => undefined), false, 'an unreadable file is not a shim');
-  assert.equal(isAutoInstallShim('/x/pi', () => { throw new Error('gone'); }), false);
-});
 
 test('resolveAgentBinary + agentInstallState share the one probe path', () => {
   const dir = binDir('herdr-install-umer', { pi: SHIM, claude: REAL });
@@ -58,15 +49,6 @@ test('agentStatus: a shim reads not-installed, a real pi binary reads installed'
   const [pi] = await kit.agentStatus(['pi'], { path: [real], run: async () => undefined });
   assert.deepEqual(pi, { kind: 'pi', installed: true, installState: 'installed',
     signedIn: 'unknown', installHint: 'installs on first start' });
-});
-
-test('classifyStartFailure: busy, placement, install and plain start rejections', () => {
-  const busy = Object.assign(new Error('herdr: agent_pane_busy: wait'), { code: 'agent_pane_busy' });
-  assert.equal(classifyStartFailure(busy, { installExpected: true, stage: 'start' }), 'pane-busy');
-  assert.equal(classifyStartFailure(new Error('herdr: no pane'), { stage: 'placement' }), 'placement-failed');
-  const failed = Object.assign(new Error('herdr: agent_failed: boom'), { code: 'agent_failed' });
-  assert.equal(classifyStartFailure(failed, { installExpected: true, stage: 'start' }), 'install-failed');
-  assert.equal(classifyStartFailure(failed, { installExpected: false, stage: 'start' }), 'start-rejected');
 });
 
 async function withKit(

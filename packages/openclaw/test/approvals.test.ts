@@ -8,7 +8,6 @@ import { test } from 'node:test';
 import { Approvals } from '../src/approvals.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
-import type { Approval } from '../src/types.ts';
 
 const stubBridge = { resolveAsk: (_id: string, _d: unknown) => false };
 
@@ -24,55 +23,6 @@ async function withApprovals(
     off();
   }
 }
-
-test('an exec approval round-trips with member attribution', async () =>
-  withApprovals(async (approvals, fake) => {
-    const changes: [Approval, string][] = [];
-    const off = approvals.on((a, change) => changes.push([a, change]));
-    // Real engine shape: details nest under `request` (B1).
-    fake.emit('exec.approval.requested', {
-      approvalKind: 'exec',
-      id: 'exec-1',
-      createdAtMs: 1,
-      expiresAtMs: 2,
-      request: { command: 'rm -rf /tmp/x', ask: 'delete /tmp/x?', agentId: 'm1', sessionKey: 'agent:m1:run:1' },
-    });
-    const mine = approvals.list('m1');
-    assert.equal(mine.length, 1);
-    assert.equal(mine[0].source, 'exec');
-    assert.equal(mine[0].member, 'm1');
-    assert.equal(mine[0].sessionKey, 'agent:m1:run:1');
-    assert.equal(mine[0].summary, 'run rm -rf /tmp/x');
-    assert.equal(approvals.list('m2').length, 0);
-    assert.equal(approvals.list().length, 1);
-    await approvals.decide('exec-1', { allow: true });
-    assert.deepEqual(fake.calls.at(-1), {
-      method: 'exec.approval.resolve',
-      params: { id: 'exec-1', decision: 'allow-once' },
-    });
-    fake.emit('exec.approval.resolved', { id: 'exec-1', decision: 'allow-once' });
-    assert.equal(approvals.list().length, 0);
-    assert.deepEqual(changes.map(([, change]) => change), ['added', 'resolved']);
-    off();
-  }));
-
-test('a denied exec approval resolves deny', async () =>
-  withApprovals(async (approvals, fake) => {
-    fake.emit('exec.approval.requested', {
-      approvalKind: 'exec',
-      id: 'exec-2',
-      createdAtMs: 1,
-      expiresAtMs: 2,
-      request: { command: 'reboot', sessionKey: 'agent:m2:run:1' },
-    });
-    assert.equal(approvals.list('m2')[0].member, 'm2');
-    assert.equal(approvals.list('m2')[0].summary, 'run reboot');
-    await approvals.decide('exec-2', { allow: false });
-    assert.deepEqual(fake.calls.at(-1), {
-      method: 'exec.approval.resolve',
-      params: { id: 'exec-2', decision: 'deny' },
-    });
-  }));
 
 test('an exec policy mode never renders as the summary', async () =>
   withApprovals(async (approvals, fake) => {

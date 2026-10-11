@@ -1,4 +1,4 @@
-// Minimal stand-in for the 'react' module, aliased in place of the real one by useSignIn.test.ts so hook unit
+// Minimal stand-in for the 'react' module, aliased in place of the real one by connect.test.ts so hook unit
 // tests can mount one hook synchronously: just enough useState/useEffect for a single renderHook() at a time.
 type Setter<S> = (v: S | ((prev: S) => S)) => void;
 type Effect = { fn: () => void | (() => void); deps: unknown[] | undefined; cleanup: unknown; prev: unknown[] | undefined };

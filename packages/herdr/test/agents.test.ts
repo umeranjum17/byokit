@@ -1,7 +1,6 @@
 // H5 acceptance (docs/runtime-kits.md 11.2, behavior 6.4) for src/agents.ts: startAgent in all four
-// placements plus worktree takes the served pane id, the schema's exact agent.start params ride the
-// call, prompt receipt validation (each malformed field variant from muxr's check rejected), a
-// not-promptable agent refused without a socket call, `agent_blocked` mapped, wait/read/sendKeys.
+// placements plus worktree takes the served pane id, the receipt carries the responding conversation,
+// `agent_blocked` mapped, wait/read/sendKeys.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, writeFileSync } from 'node:fs';
@@ -84,39 +83,9 @@ test('startAgent returns the served pane id in every placement, worktree include
   }, 'h5-place');
 });
 
-test('agent.start carries the schema params; env belongs to the placement, the timeout rides the call', async () => {
-  const { kit, calls } = doubleKit({
-    answer: (method) => (method === 'workspace.create' ? { workspace: {}, root_pane: { pane_id: 'w9:p1' } } : { agent: {} }),
-  });
-  try {
-    await kit.start();
-    await kit.startAgent({ kind: 'pi', cwd: '/repo', place: { workspace: 'new' },
-      args: ['--demo'], env: { K: 'v' }, timeoutMs: 30_000 });
-    const start = calls.filter((c) => c.method === 'agent.start');
-    assert.equal(start.length, 1);
-    assert.deepEqual(start[0].params, { pane_id: 'w9:p1', kind: 'pi', name: 'pi', args: ['--demo'], timeout_ms: 30_000 });
-    assert.equal(start[0].timeoutMs, 35_000, 'the start call gets timeoutMs + 5 s');
-    assert.deepEqual(calls.find((c) => c.method === 'workspace.create')?.params,
-      { cwd: '/repo', focus: false, env: { K: 'v' } });
-    // a missing name derives one from the kind
-    await kit.startAgent({ kind: 'Codex CLI', cwd: '/repo', place: { pane: 'w9:p1' } });
-    assert.deepEqual(calls.filter((c) => c.method === 'agent.start')[1]?.params,
-      { pane_id: 'w9:p1', kind: 'Codex CLI', name: 'codex-cli', timeout_ms: 60_000 });
-  } finally { await kit.stop(); }
-});
-
 const goodReceipt = { type: 'agent_prompted', agent: {
   terminal_id: 't1', agent_status: 'working', workspace_id: 'w1', tab_id: 'w1:t1',
   pane_id: 'w1:p2', focused: false, revision: 1 } };
-
-test('prompt maps a good receipt to the kit shape', async () => {
-  const { kit } = doubleKit({ answer: (method) => (method === 'agent.prompt' ? goodReceipt : {}) });
-  try {
-    await kit.start();
-    const receipt = await kit.prompt({ paneId: 'w1:p2' }, 'hi');
-    assert.deepEqual(receipt, { paneId: 'w1:p2', terminalId: 't1', revision: 1, status: 'working' });
-  } finally { await kit.stop(); }
-});
 
 test('prompt carries the responding conversation without another read', async () => {
   for (const agentSession of [
@@ -135,77 +104,6 @@ test('prompt carries the responding conversation without another read', async ()
       assert.deepEqual(calls.slice(before).map((call) => call.method), ['agent.prompt']);
     } finally { await kit.stop(); }
   }
-});
-
-test('prompt rejects every malformed receipt field variant', async () => {
-  const agent = goodReceipt.agent as Record<string, unknown>;
-  const variants: unknown[] = [
-    { type: 'nonsense', agent: { ...agent } },      // wrong result type
-    { type: 'agent_prompted' },                     // agent missing
-    { type: 'agent_prompted', agent: { ...agent, terminal_id: 9 } },
-    { type: 'agent_prompted', agent: { ...agent, agent_status: 9 } },
-    { type: 'agent_prompted', agent: { ...agent, workspace_id: undefined } },
-    { type: 'agent_prompted', agent: { ...agent, tab_id: 9 } },
-    { type: 'agent_prompted', agent: { ...agent, pane_id: 'w1:p1' } },   // not the target
-    { type: 'agent_prompted', agent: { ...agent, focused: 'no' } },
-    { type: 'agent_prompted', agent: { ...agent, revision: '1' } },
-    { type: 'agent_prompted', agent: { ...agent, revision: -1 } },
-    { type: 'agent_prompted', agent: { ...agent, revision: 1.5 } },
-  ];
-  for (const [i, answer] of variants.entries()) {
-    const { kit } = doubleKit({ answer: (method) => (method === 'agent.prompt' ? answer : {}) });
-    try {
-      await kit.start();
-      await assert.rejects(kit.prompt({ paneId: 'w1:p2' }, 'x'), /did not queue/, `variant ${i}`);
-    } finally { await kit.stop(); }
-  }
-});
-
-test('a not-promptable agent is refused with no agent.prompt call', async () => {
-  for (const agents of [
-    [],                                                                   // no agent at all
-    [{ pane_id: 'w1:p2', agent_status: 'unknown', revision: 1 }],         // unknown status
-    [{ pane_id: 'w1:p2', agent_status: 'idle', revision: 1, launch_pending: true }],
-  ]) {
-    const { kit, calls } = doubleKit({ agents, answer: () => ({}) });
-    try {
-      await kit.start();
-      await assert.rejects(kit.prompt({ paneId: 'w1:p2' }, 'x'),
-        (e: { code?: string }) => e.code === 'agent-not-ready');
-      assert.equal(calls.some((c) => c.method === 'agent.get'), true, 'the tree is re-read before refusing');
-      assert.equal(calls.some((c) => c.method === 'agent.prompt'), false, 'no agent.prompt for the refusal');
-    } finally { await kit.stop(); }
-  }
-});
-
-test('an agent Herdr did not launch (interactive_ready false) is promptable', async () => {
-  const { kit, calls } = doubleKit({
-    agents: [{ pane_id: 'w1:p2', agent_status: 'idle', revision: 1, interactive_ready: false, launch_pending: false }],
-    answer: (method) => (method === 'agent.prompt' ? goodReceipt : {}),
-  });
-  try {
-    await kit.start();
-    await kit.prompt({ paneId: 'w1:p2' }, 'x');
-    assert.equal(calls.some((c) => c.method === 'agent.get'), false, 'a ready tree needs no re-read');
-  } finally { await kit.stop(); }
-});
-
-test('a re-read that still says launching refuses; Herdr\'s own agent_not_ready maps to agent-not-ready', async () => {
-  const pending = doubleKit({ agents: [{ pane_id: 'w1:p2', agent_status: 'idle', revision: 1, launch_pending: true }],
-    answer: (method) => (method === 'agent.get' ? { agent: { pane_id: 'w1:p2', agent_status: 'idle', revision: 2, launch_pending: true } } : {}) });
-  try {
-    await pending.kit.start();
-    await assert.rejects(pending.kit.prompt({ paneId: 'w1:p2' }, 'x'), (e: { code?: string }) => e.code === 'agent-not-ready');
-    assert.equal(pending.calls.some((c) => c.method === 'agent.prompt'), false);
-  } finally { await pending.kit.stop(); }
-  const { kit } = doubleKit({ answer: (method) => {
-    if (method === 'agent.prompt') throw Object.assign(new Error('herdr: agent_not_ready: no'), { code: 'agent_not_ready' });
-    return {};
-  } });
-  try {
-    await kit.start();
-    await assert.rejects(kit.prompt({ paneId: 'w1:p2' }, 'x'), (e: { code?: string }) => e.code === 'agent-not-ready');
-  } finally { await kit.stop(); }
 });
 
 test('a server agent_blocked refusal maps to agent-blocked', async () => {

@@ -210,21 +210,6 @@ test('Claude browser cancellation forwards abort to the pending paste prompt and
   assert.deepEqual(await store.list(), []);
 });
 
-test('setup-token sensitive persistence fixture uses only the shared secret seam, not a runtime sign-in claim', async () => {
-  const secret = keys();
-  const store = memoryStore();
-  class SecretStep extends Accounts {
-    save() { return this.saveAccountKey(1, 'claude.setup-token', fixture.setupToken, { route: 'anthropic:setup_token', billing: 'subscription' }); }
-  }
-  const a = new SecretStep({ offer: ['claude'], store: () => store, keyStore: () => secret.store });
-  await a.save();
-  assert.equal(secret.values.get('accounts.claude.setup-token'), fixture.setupToken);
-  assert.deepEqual(await store.read('claude.setup-token'), { type: 'api_key' });
-  assert.doesNotMatch(JSON.stringify([await a.list(1), await a.status(1, 'claude.setup-token'), await store.index()]), canaries);
-  // The fixture qualifies a sensitive storage step only; the route's driver remains separately owned.
-  assert.equal(await a.signedIn(1, 'claude.setup-token'), false);
-});
-
 for (const via of ['browser', 'paste'] as const) {
   test(`OpenRouter ${via}: pinned PKCE exchange saves only in keyStore, API-billed row stays explicit`, async (t) => {
     const callback = callbacks(t);

@@ -19,6 +19,7 @@ test('boot records use one 0600 append, single write and fsync before returning'
     assert.equal(fs.readFileSync(join(dir, 'boots.jsonl'), 'utf8'), '{"bootId":"launch-uuid","startedAt":100}\n');
   } finally { t.mock.restoreAll(); syncBuiltinESMExports(); removeScratch(dir); }
 });
+
 test('open, short-write and fsync failures reject without disclosing the underlying error', t => {
   const dir = scratchDir('usage-boot-failure');
   try {

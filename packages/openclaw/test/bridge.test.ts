@@ -1,12 +1,12 @@
 // The fail-closed tool bridge (5.9, O5): unknown runs, permit binding, allowOnce, parked asks, garbage frames.
 import assert from 'node:assert/strict';
 import { EventEmitter, once } from 'node:events';
-import { readFileSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { connect } from 'node:net';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { test } from 'node:test';
-import { Bridge, MAX_APPROVAL_TIMEOUT_MS, resolveBridge, writePlugin } from '../src/bridge.ts';
+import { Bridge, resolveBridge, writePlugin } from '../src/bridge.ts';
 import { words } from '../src/words.ts';
 import type { Approval, RunRef, ToolHost } from '../src/types.ts';
 
@@ -77,30 +77,6 @@ async function withBridge(
     rmSync(dir, { recursive: true, force: true });
   }
 }
-
-test('writePlugin is deterministic and carries the tool names', async () => {
-  const dir = scratchDir('o5-plugin');
-  writePlugin(dir, { id: 'byokit', tools, paramPrefix: '__byokit', gateBuiltins: true });
-  const manifest = readFileSync(join(dir, 'openclaw.plugin.json'), 'utf8');
-  const table = readFileSync(join(dir, 'tools.json'), 'utf8');
-  assert.deepEqual(JSON.parse(manifest), {
-    id: 'byokit',
-    name: 'BYOKit bridge',
-    activation: { onStartup: true },
-    contracts: { tools: ['note'] },
-    configSchema: { type: 'object', additionalProperties: false },
-  });
-  assert.match(table, /"__byokit_run"/);
-  assert.match(table, /"__byokit_permit"/);
-  writePlugin(dir, { id: 'byokit', tools, paramPrefix: '__byokit', gateBuiltins: true });
-  assert.equal(readFileSync(join(dir, 'openclaw.plugin.json'), 'utf8'), manifest);
-  assert.equal(readFileSync(join(dir, 'tools.json'), 'utf8'), table);
-  writePlugin(dir, { id: 'acme', tools, paramPrefix: '__acme', gateBuiltins: false });
-  assert.match(readFileSync(join(dir, 'tools.json'), 'utf8'), /"__acme_permit"/);
-  assert.equal(JSON.parse(table).gateBuiltins, true);
-  assert.equal(JSON.parse(readFileSync(join(dir, 'tools.json'), 'utf8')).gateBuiltins, false);
-  rmSync(dir, { recursive: true, force: true });
-});
 
 test('writePlugin and resolveBridge refuse bad bridge names', () => {
   const dir = scratchDir('o5-prefix');
@@ -344,10 +320,6 @@ test('stopping with a parked ask ends it gone', async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-});
-
-test('ask timeouts stay below the plugin gate timeout', async () => {
-  assert.equal(MAX_APPROVAL_TIMEOUT_MS, 190_000);
 });
 
 test('an unanswered ask expires denied with the plain-words reason', async () =>

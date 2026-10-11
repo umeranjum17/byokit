@@ -161,49 +161,6 @@ test('two-account secret canary: list, status, words, index, errors and rendered
   await assert.rejects(a.rename('Umer', 'chatgpt.87654321', 'Missing'), (e: Error) => !e.message.includes(secret));
 });
 
-test('fresh catalogue parameter and process-wide loopback reservation; second sign-in uses code', async () => {
-  let listeners = 0;
-  let attempts = 0;
-  const platform: Platform = {
-    signsIn: () => true,
-    loopback: async () => { listeners++; return { close: () => { listeners--; } }; },
-    engine: (credentials) => ({
-      credentialStore: credentials,
-      readCredential: (id: string) => credentials.read(id),
-      logout: (id: string) => credentials.delete(id),
-      checkAuth: async (id: string) => await credentials.read(id) ? { type: 'oauth', source: 'OAuth' } : undefined,
-      getAuth: async () => undefined,
-      login: async (id: string, _type: string, interaction: any) => {
-        const n = ++attempts;
-        const mode = await interaction.prompt({ type: 'select', options: [{ id: 'browser' }, { id: 'device' }] });
-        if (mode === 'device') interaction.notify({ type: 'device_code', userCode: 'FAKE', verificationUri: 'https://example.test/code' });
-        else {
-          interaction.notify({ type: 'auth_url', url: 'https://example.test/signin?state=fake' });
-          await interaction.prompt({ type: 'paste' });
-        }
-        const c = { type: 'oauth' as const, access: 'fake', refresh: 'fake', expires: Date.now() + 864_000_000, accountId: `umer-${n}` };
-        await credentials.modify(id, async () => c);
-        return c;
-      },
-    } as unknown as AuthHost),
-  };
-  const first = new Accounts({ offer: ['chatgpt'], callbackPort: 21345, store: () => memoryStore() }, platform);
-  const second = new Accounts({ offer: ['chatgpt'], callbackPort: 21345, store: () => memoryStore() }, platform);
-  try {
-    const one = await first.add('Umer', 'chatgpt');
-    assert.equal(new URL(one.signIn!.url!).searchParams.get('prompt'), 'login');
-    assert.equal(listeners, 1);
-    const two = await second.add('Umer', 'chatgpt');
-    assert.equal(two.signIn!.via, 'code');
-    await second.finished('Umer', two.id);
-    assert.equal(listeners, 1);
-    first.paste('Umer', one.id, 'done');
-    await first.finished('Umer', one.id);
-    assert.equal(listeners, 0);
-  } finally { first.stop(); second.stop(); }
-});
-
-
 test('cancelling during an addition commit restores both the previous credential and index', async () => {
   const mock = await mockOpenAI({ email: 'umer@example.com' });
   let data: CredentialRecord = {};

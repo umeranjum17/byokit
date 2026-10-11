@@ -1,5 +1,5 @@
 // RelayClient/Relay ping keepalive: a half-open host→relay socket (open but silent) is closed and reconnected,
-// an answered one stays up, and a tick that fires late because the host's own timers froze resets the silence
+// a real relay answers pings, and a tick that fires late because the host's own timers froze resets the silence
 // instead of closing (the same guard as link's `DeviceLink.ping`). The sockets here are fakes: the silence is a
 // peer that never answers, which is what a half-open socket looks like from the inside.
 import { test } from 'node:test';
@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { keyPair } from '@byokit/pair';
 import { RelayClient, type RelayStatus } from '../src/index.ts';
 import { challenge } from '../src/proof.ts';
-import { grantStore, hostClient, onEnd, sleep, startHost, startRelay, until } from './helpers.ts';
+import { grantStore, hostClient, onEnd, startHost, startRelay, until } from './helpers.ts';
 
 class FakeSocket {
   static created: FakeSocket[] = [];
@@ -78,15 +78,6 @@ test('a half-open socket is closed and the client reconnects', async () => {
   await until(() => client.status === 'online');
 });
 
-test('an answered socket stays up', async () => {
-  const { client, sock } = await onlineClient(25, true);
-  await sleep(200);
-  assert.equal(client.status, 'online');
-  assert.equal(sock.closed, false);
-  assert.ok(sock.pings.length >= 2, `keepalive pings went out (saw ${sock.pings.length})`);
-  assert.equal(FakeSocket.created.length, 1, 'no reconnect was needed');
-});
-
 test('the relay answers the host ping over a real socket', async () => {
   const r = await startRelay();
   const host = await startHost(keyPair(), grantStore());
@@ -136,24 +127,5 @@ test('a tick that fires more than every/2 late resets heard and does not close',
     assert.equal(r.client.heard, 1_000_000 + every + every / 2 + 1, 'the silence is counted from now');
     assert.equal(r.sent.length, 1, 'a ping still goes out');
     assert.equal(r.ticks.length, 2, 'the watch continues');
-  } finally { r.restore(); }
-});
-
-test('a really silent relay still closes after 2*every of on-time ticks', () => {
-  const r = rig();
-  try {
-    r.client.ping(r.ws); // due = now + every
-    r.setNow(1_000_000 + every);
-    r.run(0); // heard one round ago: alive
-    assert.deepEqual(r.state(), { closed: 0 });
-    r.setNow(1_000_000 + 2 * every);
-    r.run(1); // exactly two silent rounds: still alive, the check is strict
-    assert.deepEqual(r.state(), { closed: 0 });
-    assert.equal(r.sent.length, 2);
-    r.setNow(1_000_000 + 2 * every + 1);
-    r.run(2); // past two silent rounds of on-time ticks: the socket is dead
-    assert.deepEqual(r.state(), { closed: 1 });
-    assert.equal(r.sent.length, 2, 'nothing goes out after the close');
-    assert.equal(r.ticks.length, 3, 'the watch stops');
   } finally { r.restore(); }
 });

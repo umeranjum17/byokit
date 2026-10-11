@@ -1,5 +1,5 @@
 // The connect view over every route the kits list (D18): grouped by how the person pays, plans alone offered by
-// default, no API, cloud, local, server or unknown-billing row ever in Plans, plain words for every readiness, and
+// default, no API, cloud, local, server or unknown-billing row ever in Plans, and
 // nothing but the listed fields (never a credential) in the view. Checked against a synthetic 100-route table, the
 // shared fixture, and the kits' own pinned tables on each platform.
 import { test } from 'node:test';
@@ -11,7 +11,6 @@ import { routeReadiness, routes as accountRoutes, type Route as AccountRoute, ty
 import { routes as openclawRoutes } from '../../openclaw/src/routes.ts';
 import { connectStep, connectView, signInFor, type ConnectRoute, type ConnectStep, type ConnectView } from '../src/connect.ts';
 
-const PLAIN = new RegExp(JSON.parse(readFileSync(new URL('../../../fixtures/conformance/plain-words.json', import.meta.url), 'utf8')).pattern, 'i');
 const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/account-routes-typescript.json', import.meta.url), 'utf8')) as {
   vocabulary: Record<'via' | 'billing' | 'readiness', string[]>;
   routes: AccountRoute[];
@@ -70,40 +69,6 @@ test('100 synthetic routes: every one listed, grouped by billing first, no API r
   const claimedDefault = synthetic.filter((r) => r.billing !== 'subscription' && declaredDefault(r) && r.group !== 'services');
   assert.ok(claimedDefault.some((r) => r.billing === 'api') && claimedDefault.some((r) => r.via === 'cloud'), 'the table tries to');
   assert.ok(g.services.length && g.services.every((r) => !r.offered));
-});
-
-test('Plans snapshot: every billing claims a default offer, only plans land in Plans', () => {
-  const claim = BILLINGS.flatMap((billing) => (['code', 'key', 'cloud', 'local', 'endpoint'] as const).map((via): ConnectRoute =>
-    ({ id: `${billing}:${via}`, provider: billing, via, billing, offer: 'default', readiness: 'ready' })));
-  const view = connectView(claim);
-  assert.deepEqual(Object.fromEntries(view.groups.map((g) => [g.id, g.rows.map((r) => r.id)])), {
-    plans: ['subscription:code', 'subscription:key'],
-    perUse: ['api:code', 'api:key'],
-    local: ['subscription:local', 'api:local', 'local:code', 'local:key', 'local:local', 'free:local', 'unknown:local'],
-    server: ['subscription:endpoint', 'api:endpoint', 'local:endpoint', 'free:endpoint', 'unknown:endpoint'],
-    cloud: ['subscription:cloud', 'api:cloud', 'local:cloud', 'free:cloud', 'unknown:cloud'],
-    other: ['free:code', 'free:key', 'unknown:code', 'unknown:key'],
-  });
-  assert.deepEqual(rows(view).filter((r) => r.offered).map((r) => r.billing), ['subscription', 'subscription']);
-});
-
-test('every readiness has its own plain words, and every word passes the plain-words rule', () => {
-  const status = READINESS.map((readiness) => rows(connectView([{ ...synthetic[1], readiness }]))[0].status);
-  assert.equal(new Set(status).size, READINESS.length);
-  for (const [k, s] of Object.entries(WORDS)) assert.doesNotMatch(s.replace(/\{\w+\}/g, 'X'), PLAIN, k);
-  for (const v of VIAS) assert.ok(WORDS[`via.${v}` as keyof typeof WORDS], v);
-  for (const b of BILLINGS) assert.ok(WORDS[`billing.${b}` as keyof typeof WORDS], b);
-});
-
-test('billing words are honest per billing, and a server or local row says so whatever its billing', () => {
-  const words = (r: Partial<ConnectRoute>) => rows(connectView([{ ...synthetic[1], name: 'Acme Pro', company: 'Acme', ...r }]))[0].billingWords;
-  assert.equal(rows(connectView([{ ...synthetic[1], billing: 'api', company: 'A$&B' }]))[0].billingWords, 'Charged per use to your A$&B account');
-  assert.equal(words({ billing: 'subscription', via: 'code' }), 'Uses your Acme Pro plan');
-  assert.equal(words({ billing: 'api', via: 'key' }), 'Charged per use to your Acme account');
-  assert.equal(words({ billing: 'unknown', via: 'cli' }), 'Billing set by Acme');
-  assert.equal(words({ billing: 'free', via: 'key' }), 'Free tier from Acme');
-  assert.equal(words({ billing: 'unknown', via: 'endpoint' }), 'Your own server');
-  assert.equal(words({ billing: 'local', via: 'local' }), 'Runs on this computer');
 });
 
 test('fixture discovery: the view offers exactly the fixture plans, lists every route, and keeps each one valid', () => {

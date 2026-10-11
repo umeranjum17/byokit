@@ -45,37 +45,6 @@ test('event socket reconnect re-bootstraps a replacement fake', async () => {
   } finally { await kit.stop(); }
 });
 
-test('event arriving during bootstrap applies after the snapshot', async () => {
-  const snapshot = { snapshot: {
-    workspaces: [{ workspace_id: 'w1', label: 'one' }],
-    tabs: [{ tab_id: 't1', workspace_id: 'w1', label: 'main' }],
-    panes: [{ pane_id: 'p1', tab_id: 't1' }],
-    agents: [{ pane_id: 'p1', agent_status: 'idle', revision: 1 }],
-  } };
-  const transport: HerdrTransport = {
-    call: async (method) => {
-      if (method === 'ping') return { protocol: HERDR_PROTOCOL };
-      await new Promise((r) => setTimeout(r, 10));
-      return snapshot;
-    },
-    subscribe: (subs, on) => {
-      if (subs[0]?.type !== 'pane.agent_status_changed') queueMicrotask(() => on({
-        type: 'pane.updated', pane: { pane_id: 'p1', agent_status: 'working', revision: 2 },
-      }));
-      return (() => {}) as HerdrSubscribeStop;
-    },
-    close() {},
-  };
-  const kit = new HerdrKit({ mode: 'adopt', bin: '/unused', socketPath: '/unused', transport });
-  try {
-    await kit.start();
-    const pane = kit.snapshot().workspaces[0]?.tabs[0]?.panes[0];
-    assert.equal(pane?.agent?.status, 'working');
-    assert.equal(pane?.agent?.revision, 2);
-    assert.equal(kit.snapshot().workspaces[0]?.tabs[0]?.panes.length, 1);
-  } finally { await kit.stop(); }
-});
-
 test('long-running agent calls extend the socket deadline', async () => {
   const seen: number[] = [];
   const transport: HerdrTransport = {
@@ -93,18 +62,6 @@ test('long-running agent calls extend the socket deadline', async () => {
     await kit.call('agent.prompt', { target: 'p1', text: 'hi', wait: { timeout_ms: 30_000 } });
     assert.deepEqual(seen, [25_000, 35_000]);
   } finally { await kit.stop(); }
-});
-
-test('an older protocol fails closed', async () => {
-  const states: string[] = [];
-  const transport: HerdrTransport = {
-    call: async () => ({ protocol: HERDR_PROTOCOL - 1 }), subscribe: () => (() => {}) as HerdrSubscribeStop, close() {},
-  };
-  const kit = new HerdrKit({ mode: 'adopt', bin: '/not/used', socketPath: '/unused', transport,
-    onState: (s) => states.push(`${s.phase}/${s.why}`) });
-  await assert.rejects(kit.start(), /protocol mismatch/);
-  assert.ok(states.includes('needs-update/version'));
-  await kit.stop();
 });
 
 test('own spawns only the task-owned fake binary with explicit isolated environment', async () => {

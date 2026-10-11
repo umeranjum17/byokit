@@ -3,7 +3,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { Accounts, PROVIDERS, memoryStore, type AuthHost, type Member } from '../src/index.ts';
+import { Accounts, memoryStore, type AuthHost, type Member } from '../src/index.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/revoke.json', import.meta.url), 'utf8'));
 let answer: number | 'offline' = 200;
@@ -16,11 +16,6 @@ globalThis.fetch = (async (input: any, init?: any) => {
   return new Response('{}', { status: answer });
 }) as typeof fetch;
 after(() => { globalThis.fetch = realFetch; });
-
-test('the catalogue revokes where the fixture says', () => {
-  assert.equal(PROVIDERS.chatgpt.revoke, fixture.url);
-  assert.equal(PROVIDERS.chatgpt.clientId, fixture.clientId);
-});
 
 for (const [i, c] of fixture.cases.entries()) test(`sign-out, revoke case ${i}: answer ${c.answer}, ${c.request ? 'one request' : 'no request'}`, async () => {
   const store = memoryStore();

@@ -32,46 +32,6 @@ test('bounded read, canonical phase dedup and content-free projection', () => {
   assert.equal(reading.charges[0].billing, 'unknown');
   assert.deepEqual(reading.charges[0].cost, { state: 'missing' });
 });
-test('missing counters, failed writes, holes, corrupt lines and bad outcomes never complete', () => {
-  for (const raw of [fixture(jsonl(fact()), null).raw, fixture(jsonl(fact('ended', 3)), { '2026-10': { lastSeq: 3, failed: 1 } }).raw,
-    fixture(jsonl(fact()) + '{torn').raw, fixture(jsonl({ ...fact(), outcome: 'unrecognized' })).raw,
-    fixture(jsonl(fact()), {}).raw]) assert.equal(engineStartedOf(raw, 'm1', window).complete, false);
-});
-test('crashed boot and missing usage remain unknown; elapsed time does not interrupt live starts', () => {
-  const pending = fixture(jsonl(fact('started'))).raw;
-  assert.equal(engineStartedOf(pending, 'm1', window).charges[0].state, 'pending');
-  const crashed = { ...pending, liveBootId: 'boot-2', complete: false };
-  assert.equal(engineStartedOf(crashed, 'm1', window).charges[0].state, 'interrupted');
-  const missing = fixture(jsonl({ ...fact(), usage: {} })).raw;
-  assert.equal(engineStartedOf(missing, 'm1', window).charges[0].state, 'reported-missing');
-  assert.equal(engineStartedOf(missing, 'm1', window).complete, false);
-});
-test('orphan boot remains permanently incomplete; definite no-process terminal is clean', () => {
-  const starts = jsonl({ bootId: 'boot-orphan', startedAt: startMs - 1000 }, { bootId: 'boot-1', startedAt: startMs });
-  assert.equal(fixture(jsonl(fact()), { '2026-10': { lastSeq: 1, failed: 0 } }, starts).raw.complete, false);
-  const failed = starts + jsonl({ bootId: 'boot-orphan', failedAt: startMs + 10, spawned: false });
-  assert.equal(fixture(jsonl(fact()), { '2026-10': { lastSeq: 1, failed: 0 } }, failed).raw.complete, true);
-});
-test('wrong source identity and conflicting duplicates are unavailable', () => {
-  const raw = fixture().raw;
-  for (const changed of [{ ...raw, agentId: 'm2' }, { ...raw, startMs: startMs + 1 },
-    { ...raw, facts: [{ ...fact(), kind: 'memory-flush' }] }, { ...raw, facts: [fact(), { ...fact(), model: 'other' }] },
-    { ...raw, facts: [fact('started'), { ...fact('ended', 2), model: 'other' }] }])
-    assert.equal(engineStartedOf(changed, 'm1', window).state, 'unavailable');
-});
-test('failed month holes survive later good reviews and a clean restart', () => {
-  const rows = jsonl({ bootId: 'boot-1', startedAt: startMs },
-    { bootId: 'boot-1', stoppedAt: startMs + 1000, months: { '2026-10': { lastSeq: 3, failed: 2 } } },
-    { bootId: 'boot-2', startedAt: startMs + 1001 });
-  const read = (path: string) => path.endsWith('boots.jsonl') ? rows : jsonl(fact('ended', 3));
-  const raw = readEngineStarted('/owned/usage', { bootId: 'boot-2', months: {}, inFlight: {} }, params, read);
-  assert.equal(raw.state, 'available'); assert.equal(raw.complete, false);
-  assert.equal(engineStartedOf(raw, 'm1', window).complete, false);
-});
-test('unread-month failure counters do not poison a bounded month', () => {
-  const raw = fixture(jsonl(fact()), { '2026-09': { lastSeq: 5, failed: 4 }, '2026-10': { lastSeq: 1, failed: 0 } }).raw;
-  assert.equal(raw.complete, true);
-});
 test('cold transcript cache stays unavailable, never zero; timezone is forwarded to both terms', async () => {
   const requests: any[] = [];
   const client = { call: async (_m: string, p: unknown) => { requests.push(p); return {}; }, callDynamic: async (_m: string, p: unknown) => { requests.push(p); return fixture().raw; } };

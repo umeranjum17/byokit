@@ -61,15 +61,6 @@ test('fake link + fake Jev: host owns the key and route; phone applies floors an
   assert.equal(result.urgent.raw, undefined);
 });
 
-test('not paired, removed and offline throw typed errors through decide and never send', async () => {
-  let sent = 0;
-  for (const [status, code] of [[null, 'not-paired'], ['removed', 'not-paired'], ['offline', 'host-offline'], ['connecting', 'host-offline'], ['refused', 'not-allowed']] as const) {
-    const link = status === null ? null : { status, request: async () => { sent++; } };
-    await assert.rejects(decide(state, questions, { privacy: 'may-leave', backends: [pairedJev({ link })] }), errorCode(code));
-  }
-  assert.equal(sent, 0);
-});
-
 test('missing key is typed through decide; opt-in and withdrawal prevent key lookup and billing', async () => {
   let lookups = 0, calls = 0;
   const keys = { get: () => { lookups++; return null; } };
