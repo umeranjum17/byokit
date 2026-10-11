@@ -29,6 +29,8 @@ mock=$!
 screen() { a shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1; a exec-out cat /sdcard/ui.xml; }
 # uiautomator quotes a text holding " with ' instead.
 words() { screen | grep -oE "text=(\"[^\"]*\"|'[^']*')" | sed "s/^text=.//; s/.\$//" | paste -sd'|'; }
+# The text one named field itself currently holds (not the whole screen).
+value() { screen | tr '>' '\n' | grep "resource-id=\"$1\"" | grep -o 'text="[^"]*"' | head -1 | sed 's/^text="//; s/"$//'; }
 scroll() {
   size=$(a shell wm size | tail -1 | grep -oE '[0-9]+x[0-9]+')
   w=${size%x*}; h=${size#*x}
@@ -126,9 +128,24 @@ expect "the sign-in was refreshed"
 tap question
 a shell input text "is%sthe%sroof%sleaking"
 a shell input keyevent 111
+# Android applies the field's sentence capitalisation, so bind the oracle to the field's real value, then require its whole echo.
+asked=''
+for _ in $(seq 20); do
+  held=$(value question)
+  case "$held" in "is the roof leaking" | "Is the roof leaking") asked=$held; break;; esac
+  sleep 1
+done
+[ -n "$asked" ] || { echo "FAILED, the question field holds \"$(value question)\", screen: $(words)" >&2; exit 1; }
+echo "the question field holds: $asked"
 tap ask
 seek answer
-expect "You said: is the roof leaking"
+got=''
+for _ in $(seq 20); do
+  got=$(value answer)
+  [ "$got" = "You said: $asked" ] && break
+  sleep 1
+done
+[ "$got" = "You said: $asked" ] || { echo "FAILED, expected \"You said: $asked\", the answer field holds \"$got\", screen: $(words)" >&2; exit 1; }
 seek decision
 expect "Not sure if it needs doing today." # the stand-in only echoes, so the decision abstains
 tap signout
