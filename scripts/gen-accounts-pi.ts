@@ -12,10 +12,11 @@ const json = (path: string) => JSON.parse(readFileSync(resolve(root, path), 'utf
 const sha256 = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 
 // Hermes (React Native) ships AbortSignal.any/timeout/fetch but not AbortSignal.prototype.throwIfAborted, so Pi's
-// unconditional `signal.throwIfAborted()` throws TypeError before any fetch on a key route. Every bundled site is
-// rewritten at build time to a local guard with the same semantics (throw the reason, else AbortError), so an
+// unconditional `signal.throwIfAborted()` throws TypeError before any fetch on a key route. Every bundled site the
+// anchored pattern can rewrite becomes a local guard with the same semantics (throw the reason, else AbortError); a
+// shape it cannot anchor (a call/index receiver) is left for the artifact gate to reject, never mis-rewritten. An
 // aborted signal still rejects as aborted and the host app's globals are never touched. This keeps the fix at the
-// one place Pi is bundled (here); a Pi pin bump re-runs this transform over the new sources.
+// one place Pi is bundled (here); a Pi bump re-runs this transform over the new sources.
 export const patchName = 'hermes-throwIfAborted';
 const throwIfAbortedGuard = 'function __byokitPiThrowIfAborted(signal) {\n  if (signal == null || !signal.aborted) return;\n  throw signal.reason !== void 0 ? signal.reason : Object.assign(new Error("The operation was aborted"), { name: "AbortError" });\n}\n';
 const throwIfAbortedCall = /(?<![\w$.)\]])([A-Za-z_$][\w$]*(?:\s*\??\.\s*[A-Za-z_$][\w$]*)*)\s*\??\.throwIfAborted\s*(?:\?\.)?\s*\(\s*\)/g;
