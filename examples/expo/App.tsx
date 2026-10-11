@@ -1,9 +1,11 @@
-// byokit on a phone (iOS and Android): "Sign in with ChatGPT" (@byokit/accounts' device code) and "Sign in with Claude"
-// (its own page, whose code the person pastes back), kept in the phone's secure storage, @byokit/ui's sheet
+// byokit on a phone (iOS and Android): every phone sign-in the catalogue offers, grouped by @byokit/ui's useConnect
+// ("Sign in with ChatGPT" via @byokit/accounts' device code, "Sign in with Claude" on its own page, whose code the
+// person pastes back), kept in the phone's secure storage, @byokit/ui's sheet
 // phases; asking either with the answer streaming in (expo/fetch), a decision
 // with @byokit/decide's answerer, pairing with a computer over @byokit/pair, and sealing data with @byokit/seal. For a demo with no account, point it
 // at the stand-in OpenAI and a link host on this computer (see e2e-android.sh):
 //   EXPO_PUBLIC_OPENAI_BASE=http://10.0.2.2:21455 npx expo run:android   (after `npm run mock` in this folder)
+//   EXPO_PUBLIC_DEVICE_BASE / EXPO_PUBLIC_CLAUDE_BASE override the device-flow and Claude plan endpoints; unset uses the real providers.
 import { useEffect, useRef, useState } from 'react';
 import { UsageDemo } from './UsageDemo.tsx';
 import { ScreenDemo } from './ScreenDemo.tsx';
