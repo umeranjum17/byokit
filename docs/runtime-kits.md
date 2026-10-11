@@ -2546,9 +2546,8 @@ pane, tab or workspace they name must be in `scopeOf(grant)` or the op is `link.
 made), and mapped only to the typed calls in the generated table, never through `hd.call`: `hd.rename` to
 `pane.rename`/`tab.rename`/`workspace.rename` (a tab through its owning workspace, a workspace through itself),
 `hd.focus` to `pane.focus`/`tab.focus`/`workspace.focus`, and `hd.layout` to `layout.apply` with exactly one of its
-`tabId`
-(checked through its owning workspace) or `workspaceId` as the scope target — every `pane_id` leaf the layout names
-must be in `scopeOf(grant)` too (an unnamed leaf is a new pane and needs no check) — a `view` grant is refused.
+`tabId` (checked through its owning workspace) or `workspaceId` as the scope target — every `pane_id` leaf the layout
+names must be in `scopeOf(grant)` too (an unnamed leaf is a new pane and needs no check) — a `view` grant is refused.
 `hd.events` (stream) *view* (frames
 `HerdrLinkEvent`: `{ type: 'snapshot', snapshot }` in scope + `{ type: 'blocked', change, blocked }`),
 `hd.subscribe` (stream) *view* `{ subs: HerdrSubscription[] }` (`kit.subscribe` over the link, one frame per
@@ -2625,6 +2624,10 @@ export declare function herdrDevice(link: DeviceLink): {
   blocked(): Promise<BlockedAgent[]>;
   answer(paneId: string, keys: string[], revision: number): Promise<void>;
   close(o: { pane?: string; tab?: string; workspace?: string }): Promise<void>;
+  rename(o: { pane?: string; tab?: string; workspace?: string; label: string }): Promise<void>;
+  focus(o: { pane?: string; tab?: string; workspace?: string }): Promise<void>;
+  layout(o: { root: HerdrParams<'layout.apply'>['root']; focus?: boolean; tabId?: string; tabLabel?: string;
+    workspaceId?: string }): Promise<HerdrResult<'layout.apply'>>;   // exactly one of tabId/workspaceId
   events(): AsyncIterable<HerdrLinkEvent>;
   subscribe<E extends HerdrEventName>(subs: HerdrSubscription<E>[], on: (e: HerdrEventOf<E>) => void,
     onError?: (message: string) => void): () => void;       // hd.subscribe; the returned function stops it

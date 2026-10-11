@@ -14,7 +14,9 @@ sentence and makes no Herdr call; a `view` grant is refused. Each maps to the ty
 - `layout`: `hd.layout({ root, focus?, tabId?, tabLabel?, workspaceId? })` reaches `layout.apply` for the tab or
   workspace it names; the returned layout names that target.
 - `refusals`: an out-of-scope anchor (a valid pane/tab in another workspace) and a `view` grant each reject with
-  the `link.notAllowed` words and change nothing; a missing target is refused before any Herdr call.
+  the `link.notAllowed` words and change nothing; a missing target, or a `layout` naming both a `tabId` and a
+  `workspaceId`, is refused before any Herdr call; a `layout` naming an out-of-scope or unknown `pane_id` leaf
+  rejects with the `link.notAllowed` words and changes nothing.
 
 ## How to get to it (user POV)
 
@@ -44,8 +46,11 @@ serves a real Unix socket under the scratch directory and answers the pinned pro
     `layout.tab_id === 'w2:t1'` and `layout.workspace_id === 'w2'`.
   - `refusals`: the narrow grant's `hd.rename`/`hd.focus` on `w2`'s valid pane, tab and workspace, and its
     `hd.layout` on `w2:t1`, each reject with a message equal to `words('link.notAllowed')`, and the fake's
-    `w2` label, focus and pane rect are unchanged; a `view` all-scope grant rejects all three in scope; a
-    `rename` with no target, a `focus` with no target and a `layout` with no target all reject.
+    `w2` label, focus and pane rect are unchanged; `hd.layout` naming both `w1:t1` and `w2` rejects before any
+    call; `hd.layout({ tabId: 'w1:t1', root: { type: 'pane', pane_id: 'w2:p1' } })` (and an unknown `w9:p9` leaf)
+    rejects with `words('link.notAllowed')` and leaves the in-scope pane's rect unchanged; a `view` all-scope grant
+    rejects all three in scope; a `rename` with no target, a `focus` with no target and a `layout` with no target
+    all reject.
   It exits non-zero on any mismatch, then closes the link, host, server, kit and fake.
 - **Run and capture.** `feature=herdr-scoped-edit; entry=@byokit/herdr; drive=(node "$scratch_dir/verify-herdr-scoped-edit.mjs")`;
   then run SKILL.md Evidence's capture block. Exit code `0`.
@@ -60,8 +65,8 @@ serves a real Unix socket under the scratch directory and answers the pinned pro
 - The fake does not emit an event for `pane.rename`, so a pane rename is proved through the fake's world (its
   recorded label), not the next `hd.tree`; workspace and tab renames do emit and refresh the tree.
 - The fake does not emit focus events either, so `hd.focus` is proved through the fake's focused flags.
-- A missing target fails `handle` with a host-side validation error, which pair surfaces to the device with its
-  own generic words (not the `link.notAllowed` sentence); only the scope/role refusals carry that sentence.
+- A missing or dual target fails `handle` with a host-side validation error, which pair surfaces to the device
+  with its own generic words (not the `link.notAllowed` sentence); only the scope/role refusals carry that sentence.
 - Create `w2` with an all-scope grant and surface it with `fake.emit({ type: 'workspace.created', workspace_id })`
   (the fake does not broadcast creates), then wait for the wide grant's tree to hold it before narrowing.
 - `await kit.stop()`; adopt mode never stops the stand-in server, so also `await fake.stop()`, and close
