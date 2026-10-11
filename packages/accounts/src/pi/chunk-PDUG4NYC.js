@@ -1,7 +1,3 @@
-function __byokitPiThrowIfAborted(signal) {
-  if (signal == null || !signal.aborted) return;
-  throw signal.reason !== void 0 ? signal.reason : Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
-}
 // @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   AssistantMessageEventStream,
@@ -1037,4 +1033,8 @@ export {
   clampThinkingLevel,
   modelsAreEqual
 };
+function __byokitPiThrowIfAborted(signal) {
+  if (signal == null || !signal.aborted) return;
+  throw signal.reason !== void 0 ? signal.reason : Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
+}
 //# sourceMappingURL=chunk-PDUG4NYC.js.map

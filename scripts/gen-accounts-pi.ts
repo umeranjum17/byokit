@@ -1,4 +1,4 @@
-// Reproducible Metro syntax lowering of the unmodified, published accounts pin. No SDK bundling or source patch.
+// Reproducible Metro syntax lowering of the published accounts pin plus one recorded Hermes throwIfAborted guard. No SDK bundling.
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, relative, dirname } from 'node:path';
@@ -18,10 +18,13 @@ const sha256 = (bytes: string | Uint8Array) => createHash('sha256').update(bytes
 // one place Pi is bundled (here); a Pi pin bump re-runs this transform over the new sources.
 export const patchName = 'hermes-throwIfAborted';
 const throwIfAbortedGuard = 'function __byokitPiThrowIfAborted(signal) {\n  if (signal == null || !signal.aborted) return;\n  throw signal.reason !== void 0 ? signal.reason : Object.assign(new Error("The operation was aborted"), { name: "AbortError" });\n}\n';
-const throwIfAbortedCall = /([A-Za-z_$][\w$]*(?:\s*\??\.\s*[A-Za-z_$][\w$]*)*)\s*\??\.throwIfAborted\s*\(\s*\)/g;
+const throwIfAbortedCall = /([A-Za-z_$][\w$]*(?:\s*\??\.\s*[A-Za-z_$][\w$]*)*)\s*\??\.throwIfAborted\s*(?:\?\.)?\s*\(\s*\)/g;
 export function patchBundledThrowIfAborted(text: string): string {
-  if (!text.includes('.throwIfAborted(')) return text;
-  return throwIfAbortedGuard + text.replace(throwIfAbortedCall, '__byokitPiThrowIfAborted($1)');
+  if (!text.includes('.throwIfAborted')) return text;
+  const patched = text.replace(throwIfAbortedCall, '__byokitPiThrowIfAborted($1)');
+  const marker = '//# sourceMappingURL=';
+  const at = patched.lastIndexOf(marker);
+  return at < 0 ? patched + throwIfAbortedGuard : patched.slice(0, at) + throwIfAbortedGuard + patched.slice(at);
 }
 // Verified published registry record; this repo's lock entry can omit resolved/integrity.
 // A pin bump must verify this record again, not silently label new inputs with old provenance.

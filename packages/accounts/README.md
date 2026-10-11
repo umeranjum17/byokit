@@ -218,7 +218,7 @@ Cloudflare Gateway uses its pinned `cf-aig-authorization`-only auth; pasted Anth
 An explicit prebuilt SDK `client` is refused with `KeyRouteError.code === 'auth_override'` **before** opening
 saved-account secrets: its opaque authentication cannot be verified as this account. It is not silently
 ignored or relabelled. For explicit native/client-owned authentication, `keys()` from `@byokit/accounts/keys`
-(also `computer.keys()` on Node) exposes the unmodified typed Pi factories and adapters, including complete `Models`
+(also `computer.keys()` on Node) exposes the typed Pi factories and adapters (with the one recorded Hermes `throwIfAborted` guard), including complete `Models`
 stream/complete/simple/deferred operations and stock options/hooks. Supply an explicit app-owned auth
 context (required on Metro), register your own provider and own that authentication/billing; do not
 attribute native/client-owned requests to a saved account. The selected-key helper is not a restriction
@@ -1027,9 +1027,10 @@ plans never fall back to a cloud/API account.
 ### Portable adapter artifact
 
 Portable key loaders lazily use `src/pi/` (published as `dist/pi/`), a deterministic split bundle of the
-**unmodified** published Pi pin, not another inference engine. Node keeps using the published Pi modules.
+published Pi pin with one recorded Hermes `throwIfAborted` guard patch (see `PROVENANCE.json`), not another
+inference engine. Node keeps using the published Pi modules.
 After installing the exact pins, regenerate with `node scripts/gen-accounts-pi.ts`; a pin change also requires
-verified registry provenance. Esbuild’s standard dynamic-import lowering is the sole transform; the four
+verified registry provenance. Esbuild’s standard dynamic-import lowering plus that guard are the only transforms; the four
 SDK dependencies remain external at Pi’s exact pins. Exact MCP SDK and `undici-types` dependencies close
 Google’s published declaration imports, including strict nested consumers; neither adds an inference path.
 `PROVENANCE.json`, source-content maps, published-type re-exports and [NOTICE](NOTICE) travel with the
