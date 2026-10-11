@@ -13,14 +13,16 @@ import { mockDevice } from '@byokit/accounts/testing';
 type Case = { name: string; status: number; error?: string; keys?: string[]; approve?: boolean; deny?: boolean; result?: string };
 type Provider = { pi: string; authorization: string; token: string; clientId: string; scope?: string; form?: Record<string, string>;
   start: { status: number; keys: string[] }; poll: Case[]; refresh: { status: number; keys: string[] } };
+type CopilotCase = { method?: string; status: number; body: Record<string, unknown> };
 type Copilot = { pi: string; authorization: string; token: string; exchange: string; clientId: string; scope: string; hosts: string[]; unauthorized: number[];
-  cases: Record<'start' | 'pending' | 'success' | 'decline' | 'exchange' | 'unauthorized', { status: number; body: Record<string, unknown> }> };
+  cases: Record<'start' | 'pending' | 'success' | 'decline' | 'exchange' | 'refresh' | 'unauthorized', CopilotCase> };
 const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/device-code-rfc8628-typescript.json', import.meta.url), 'utf8')) as {
   grantType: string; providers: { grok: Provider; kimi: Provider; copilot: Copilot } };
 const render = (value: unknown, host: string): any => JSON.parse(JSON.stringify(value).replaceAll('{host}', host));
 const path = (url: string) => new URL(url).pathname;
 const post = (base: string, url: string, form: Record<string, string>, headers: Record<string, string> = {}) =>
   fetch(`${base}${path(url)}`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers }, body: new URLSearchParams(form) });
+const get = (base: string, url: string, headers: Record<string, string> = {}) => fetch(`${base}${path(url)}`, { method: 'GET', headers });
 const keys = (body: Record<string, unknown>) => Object.keys(body).sort();
 
 test('the fixture data is the runtime catalogue data for Grok and Kimi; the four existing providers are unchanged', () => {
@@ -112,23 +114,21 @@ test('Copilot replays its fixture on github.com and an Enterprise host: exchange
       assert.deepEqual(github, cases.success.body, at('success: the intermediate GitHub token'));
 
       // The exchange: the intermediate token as the bearer becomes the credential.
-      const minted = await post(m.base, exchange, {}, { authorization: `Bearer ${github.access_token}` });
+      const minted = await get(m.base, exchange, { authorization: `Bearer ${github.access_token}` });
       assert.equal(minted.status, cases.exchange.status, at('exchange status'));
       assert.deepEqual(await minted.json(), cases.exchange.body, at('exchange body: the credential token'));
 
-      // Refresh re-mints the credential from a freshly issued intermediate token, the same way.
-      const rotated = await post(m.base, token, { grant_type: 'refresh_token', client_id: spec.clientId, refresh_token: github.access_token });
-      assert.equal(rotated.status, 200, at('refresh status'));
-      const next = await rotated.json() as { access_token: string };
-      const reminted = await post(m.base, exchange, {}, { authorization: `Bearer ${next.access_token}` });
-      assert.equal(reminted.status, cases.exchange.status, at('re-mint status'));
-      assert.deepEqual(await reminted.json(), cases.exchange.body, at('re-mint body'));
+      // Refresh re-mints the credential with the same GET and the same stored intermediate: no GitHub token call.
+      const reminted = await get(m.base, exchange, { authorization: `Bearer ${github.access_token}` });
+      assert.equal(reminted.status, cases.refresh.status, at('refresh status'));
+      assert.deepEqual(await reminted.json(), cases.refresh.body, at('refresh body: the re-minted credential'));
+      assert.ok(m.state.requests.every((r) => new URLSearchParams(r.body).get('grant_type') !== 'refresh_token'), at('refresh never rotates the intermediate at GitHub'));
 
       // A refused exchange is signed out, not retried: both 401 and 403 read the same way.
       for (const status of spec.unauthorized) {
         m.state.refuse = true;
         m.state.refuseStatus = status;
-        const refused = await post(m.base, exchange, {}, { authorization: `Bearer ${github.access_token}` });
+        const refused = await get(m.base, exchange, { authorization: `Bearer ${github.access_token}` });
         assert.equal(refused.status, status, at(`exchange ${status} status`));
         assert.deepEqual(await refused.json(), cases.unauthorized.body, at(`exchange ${status} body`));
       }
@@ -142,8 +142,9 @@ test('Copilot replays its fixture on github.com and an Enterprise host: exchange
       assert.equal(denied.status, cases.decline.status, at('decline status'));
       assert.deepEqual(await denied.json(), cases.decline.body, at('decline body'));
 
-      // Only the three documented paths were ever reached.
+      // Only the three documented paths were ever reached, and the exchange is the pin's GET.
       assert.deepEqual([...new Set(m.state.requests.map((r) => r.path))].sort(), [path(auth), path(token), path(exchange)].sort(), at('only the documented paths'));
+      assert.deepEqual([...new Set(m.state.requests.filter((r) => r.path === path(exchange)).map((r) => r.method))], [cases.exchange.method], at('the exchange is a GET'));
     } finally {
       await m.close();
     }

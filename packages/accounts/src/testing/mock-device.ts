@@ -4,9 +4,10 @@
 // Point a provider's catalogue `device` data at this with `deviceBase` (`Accounts`' `deviceBase` option):
 //   node packages/accounts/src/testing/mock-device.ts [port]      (21555 by default)
 // `dialect: 'minimax'` replays the pinned engine's MiniMax user-code shape instead (see below).
-// `dialect: 'copilot'` replays GitHub Copilot: the device grant answers an intermediate GitHub token, which an exchange
-// POSTs as `Authorization: Bearer` to /copilot_internal/v2/token for the credential. `domain` names the GitHub host
-// (github.com by default, or an enterprise domain), separate from `host`, the bind address.
+// `dialect: 'copilot'` replays GitHub Copilot: the device grant answers an intermediate GitHub token, and a GET of
+// /copilot_internal/v2/token with that token as `Authorization: Bearer` answers the credential, re-minted by that same
+// GET on every refresh. `domain` names the GitHub host (github.com by default, or an enterprise domain), separate from
+// `host`, the bind address.
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -54,7 +55,8 @@ const COPILOT_CASES = (domain: string) => ({
   pending: { status: 400, body: { error: 'authorization_pending' } },
   success: { status: 200, body: { access_token: 'FIXTURE-GITHUB-TOKEN', token_type: 'bearer', scope: 'read:user' } },
   decline: { status: 400, body: { error: 'access_denied' } },
-  exchange: { status: 200, body: { token: 'FIXTURE-COPILOT-TOKEN', expires_at: 4102444800 } },
+  exchange: { method: 'GET', status: 200, body: { token: 'FIXTURE-COPILOT-TOKEN', expires_at: 4102444800 } },
+  refresh: { method: 'GET', status: 200, body: { token: 'FIXTURE-COPILOT-TOKEN', expires_at: 4102444800 } },
   unauthorized: { status: 401, body: { error: 'unauthorized' } },
 });
 const challengeOf = (verifier: string) => Buffer.from(createHash('sha256').update(verifier).digest()).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -62,7 +64,7 @@ const challengeOf = (verifier: string) => Buffer.from(createHash('sha256').updat
 export async function mockDevice({ port = 0, host = '127.0.0.1', expiresIn = 3600, rotate = true, dialect, region = 'global', domain = 'github.com', log }: MockDeviceOptions = {}) {
   const codes = new Map<string, { device: string; approved?: boolean; denied?: boolean; challenge?: string }>();
   let asked = 0, issued = 0;
-  const state = { live: new Set<string>(), requests: [] as { path: string; body: string }[], /** Drop this many polls, as a phone cuts a backgrounded app's network. */ dropPolls: 0, /** Answer the minimax token step as an expired user code. */ expire: false,
+  const state = { live: new Set<string>(), requests: [] as { method: string; path: string; body: string }[], /** Drop this many polls, as a phone cuts a backgrounded app's network. */ dropPolls: 0, /** Answer the minimax token step as an expired user code. */ expire: false,
     /** Refuse the next Copilot exchange with this status (401 by default), as a revoked GitHub grant does. */ refuse: false, refuseStatus: 401 };
   const accessOf = new Map<string, string>(); // refresh token → the access token issued with it
   // Every sign-in issues a new refresh token; a rotating refresh spends the grant it replaces.
@@ -78,7 +80,7 @@ export async function mockDevice({ port = 0, host = '127.0.0.1', expiresIn = 360
     for await (const chunk of req) body += chunk;
     const url = new URL(req.url ?? '/', 'http://x');
     const form = new URLSearchParams(body);
-    state.requests.push({ path: url.pathname, body });
+    state.requests.push({ method: req.method ?? 'GET', path: url.pathname, body });
     log?.(`${req.method} ${url.pathname} ${form.get('grant_type') ?? ''}`.trim());
     const send = (status: number, data: unknown) => {
       res.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'POST, GET, OPTIONS' });
@@ -130,13 +132,6 @@ export async function mockDevice({ port = 0, host = '127.0.0.1', expiresIn = 360
         return send(status, body);
       }
       case COPILOT_ACCESS: {
-        if (form.get('grant_type') === 'refresh_token') {
-          const grant = form.get('refresh_token') ?? '';
-          if (!state.live.has(grant)) return send(400, { error: 'invalid_grant' });
-          const rotated = `gho_${++issued}`;
-          state.live.add(rotated);
-          return send(200, { access_token: rotated, token_type: 'bearer', scope: 'read:user' });
-        }
         const c = [...codes.values()].find((c) => c.device === form.get('device_code'));
         if (!c) return send(400, { error: 'invalid_grant' });
         if (c.denied) { const { status, body } = COPILOT_CASES(domain).decline; return send(status, body); }
@@ -147,6 +142,7 @@ export async function mockDevice({ port = 0, host = '127.0.0.1', expiresIn = 360
       }
       case COPILOT_EXCHANGE: {
         const cases = COPILOT_CASES(domain);
+        if (req.method !== 'GET') return send(405, { error: 'method_not_allowed' });
         const bearer = String(req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
         // A revoked grant (or a token this stand-in never issued) is refused: signed out, not a retry.
         if (state.refuse || !state.live.has(bearer)) return send(state.refuse ? state.refuseStatus : 401, cases.unauthorized.body);
@@ -163,7 +159,7 @@ export async function mockDevice({ port = 0, host = '127.0.0.1', expiresIn = 360
     base: base(),
     state,
     /** With `dialect: 'minimax'`, the exact start/pending/success/error/expired answers this stand-in replays;
-     *  with `dialect: 'copilot'`, its start/pending/success/decline/exchange/unauthorized answers. */
+     *  with `dialect: 'copilot'`, its start/pending/success/decline/exchange/refresh/unauthorized answers. */
     answers: dialect === 'minimax' ? MINIMAX_CASES(region) : dialect === 'copilot' ? COPILOT_CASES(domain) : undefined,
     /** The provider's page where the person types the code; true once the code is a real one. */
     approve: (userCode: string, deny = false) => {
