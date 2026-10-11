@@ -1,4 +1,4 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled unmodified by @byokit/accounts; see NOTICE.
+// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 
 // node_modules/@earendil-works/pi-ai/dist/utils/event-stream.js
 var FifoQueue = class {
@@ -121,4 +121,4 @@ export {
   createAssistantMessageDiagnostic,
   appendAssistantMessageDiagnostic
 };
-//# sourceMappingURL=chunk-NO6FHOUY.js.map
+//# sourceMappingURL=chunk-JTGIYXAQ.js.map

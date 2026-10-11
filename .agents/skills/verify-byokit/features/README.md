@@ -22,6 +22,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 ## Available on this host
 
 - [Accounts sign-in and ask](./accounts-signin.md) — the README quickstart against the built `@byokit/accounts` with `mockOpenAI()`.
+- [Accounts key route on a Hermes runtime](./accounts-hermes-throwifaborted.md) — the built portable entry answers `openrouter:key` with `AbortSignal.prototype.throwIfAborted` deleted (Hermes), and an aborted signal still rejects as aborted.
 - [Accounts pick and models](./accounts-pick.md) — two signed-in ChatGPT accounts: `Accounts.pick` names the roomier one with its reason, `Accounts.models` lists each account's models, and a resting account's models say why and until when.
 - [UI account rows and name suggestions](./ui-account-rows.md) — the built `@byokit/ui/accounts` turns a real two-account ChatGPT `list()` and room readings into plain rows (`ChatGPT · Work` / `Plus · 72% left this week`), honest words per sign-in state, `low` at exactly 20, untaken name suggestions, and no credential in a row.
 - [Catalogue device sign-in and the picker](./accounts-device.md) — RFC 8628 device sign-in for any provider the catalogue gives device data, with `mockDevice()`.
@@ -73,6 +74,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [openclaw-abort](./openclaw-abort.md) — healthy real-engine cancellation, engine-drop and already-gone catchable failures, invalid key mapping, no unhandled rejection in the handled consumer journey.
 
 - [accounts-signin](./accounts-signin.md) — device-code sign-in, status, streamed ask, and the error paths.
+- [accounts-hermes-throwifaborted](./accounts-hermes-throwifaborted.md) — the built portable key route streams and still aborts when `AbortSignal.prototype.throwIfAborted` is missing.
 - [accounts-pick](./accounts-pick.md) — `pick`/`models` over two real accounts: roomier winner with reason, a rest moving the pick, per-account model availability, and the unknown-id and no-reading cases.
 - [ui-account-rows](./ui-account-rows.md) — `accountRows`/`rowsOf`/`nameSuggestions` over a real two-account ChatGPT `list()`: plain rows, state words, the 20% low boundary, untaken suggestions, and no credential in a row.
 - [accounts-device](./accounts-device.md) — the provider picker and a catalogue-driven device sign-in, refresh and decline.

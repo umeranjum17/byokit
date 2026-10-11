@@ -1,4 +1,4 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled unmodified by @byokit/accounts; see NOTICE.
+// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 
 // node_modules/@earendil-works/pi-ai/dist/api/github-copilot-headers.js
 function inferCopilotInitiator(messages) {
@@ -31,4 +31,4 @@ export {
   hasCopilotVisionInput,
   buildCopilotDynamicHeaders
 };
-//# sourceMappingURL=chunk-77WG7L4R.js.map
+//# sourceMappingURL=chunk-FJMJCJSO.js.map

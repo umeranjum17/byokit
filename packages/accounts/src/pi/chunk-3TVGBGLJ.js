@@ -1,4 +1,4 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled unmodified by @byokit/accounts; see NOTICE.
+// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 
 // node_modules/@earendil-works/pi-ai/dist/utils/provider-retry.js
 var DEFAULT_MAX_RETRY_DELAY_MS = 6e4;
@@ -83,4 +83,4 @@ async function retryProviderRequest(request, options = {}) {
 export {
   retryProviderRequest
 };
-//# sourceMappingURL=chunk-66TZXFZR.js.map
+//# sourceMappingURL=chunk-3TVGBGLJ.js.map
