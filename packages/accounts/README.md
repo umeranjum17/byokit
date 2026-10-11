@@ -135,7 +135,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | `planOf`, `claims` | The ChatGPT plan and email behind a sign-in, from its own token |
 | `planLabel`, `claudeProfile` | A plan as a person says it ("ChatGPT Plus", "Claude Max"); the Claude plan and email from Claude's profile |
 | `deviceStart`, `devicePoll`, `credentialOf`, `portableEngine`, `PORTABLE` | ChatGPT's own device-code flow, the sign-in built from a token answer, and the engine under `portable` |
-| `deviceFlow`, `signable`, `signInChoices`, `DeviceFlow` | A provider's RFC 8628 device data from the catalogue, which providers this engine signs in to, and the picker rows a phone or browser offers |
+| `deviceFlow`, `signable`, `signInChoices`, `DeviceFlow` | A provider's RFC 8628 device data from the catalogue, which providers this engine signs in to, and the picker rows a phone or browser offers (`signInChoices()` uses the catalogue's default offer; pass the app's own `offer` list so a provider it names, such as MiniMax, is included) |
 | `isolate`, `launchEnv`, `INHERITED`, `emptyAuthContext` (`/isolate`) | Prepare app folders; copy and scrub child environments; ambient discovery off |
 | `mockOpenAI`, `mockJwt`, `decoy`, `traceFs`, `CANARY` (`/testing`) | A stand-in OpenAI, and the decoy-HOME harness and fs tracer for isolation tests |
 
