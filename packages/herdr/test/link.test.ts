@@ -219,6 +219,75 @@ test('scope is enforced per workspace list', async () => {
   } });
 });
 
+test('hd.rename, hd.focus and hd.layout are scoped typed edits, never hd.call', async () => {
+  await withBench({ run: async ({ kit, fake, pair }) => {
+    const narrow = await pair('control', { workspaces: ['w1'] }, 'narrow');
+    const wide = await pair('control', ALL, 'wide');
+    const viewer = await pair('view', ALL, 'viewer');
+    // A second workspace outside the narrow grant's scope, surfaced the way a live server would.
+    const placed = await wide.hd.startAgent({ kind: 'pi', cwd: '/tmp', place: { workspace: 'new', label: 'other' } });
+    const other = placed.paneId.split(':')[0];
+    fake.emit({ type: 'workspace.created', workspace_id: other });
+    await until(() => wide.hd.tree(), (t) => t.workspaces.some((w) => w.id === other));
+    const longLabel = 'L'.repeat(200);
+
+    // In-scope workspace and tab renames land in the next hd.tree, the long label intact.
+    await narrow.hd.rename({ workspace: 'w1', label: longLabel });
+    await until(() => narrow.hd.tree(), (t) => t.workspaces.find((w) => w.id === 'w1')?.label === longLabel);
+    await narrow.hd.rename({ tab: 'w1:t1', label: longLabel });
+    await until(() => narrow.hd.tree(), (t) => t.workspaces[0]?.tabs[0]?.label === longLabel);
+    // An in-scope pane rename reaches the typed pane.rename (the fake records its exact label).
+    await narrow.hd.rename({ pane: 'w1:p1', label: longLabel });
+    assert.equal(fake.world.panes.find((p) => p.pane_id === 'w1:p1')?.label, longLabel);
+
+    // hd.focus takes the typed intended target for each anchor (the fake's world records focus).
+    await narrow.hd.focus({ pane: 'w1:p2' });
+    assert.equal(fake.world.panes.find((p) => p.focused)?.pane_id, 'w1:p2');
+    await narrow.hd.focus({ tab: 'w1:t1' });
+    assert.equal(fake.world.panes.find((p) => p.focused)?.tab_id, 'w1:t1');
+    await narrow.hd.focus({ workspace: 'w1' });
+    assert.equal(fake.world.workspaces.find((w) => w.focused)?.workspace_id, 'w1');
+
+    // Out-of-scope edits name a real, valid target but are refused with the kit's sentence before any
+    // call: the target's label and focus are untouched (no Herdr call took effect).
+    await assert.rejects(narrow.hd.rename({ pane: `${other}:p1`, label: 'nope' }), (e: Error) => e.message === NOT_ALLOWED);
+    assert.equal(fake.world.panes.find((p) => p.pane_id === `${other}:p1`)?.label, 'pi', 'the refused pane rename changed nothing');
+    await assert.rejects(narrow.hd.focus({ pane: `${other}:p1` }), (e: Error) => e.message === NOT_ALLOWED);
+    assert.equal(fake.world.panes.find((p) => p.pane_id === `${other}:p1`)?.focused, false, 'the refused focus changed nothing');
+    assert.equal(fake.world.panes.find((p) => p.focused)?.workspace_id, 'w1');
+    await assert.rejects(narrow.hd.rename({ workspace: other, label: 'nope' }), (e: Error) => e.message === NOT_ALLOWED);
+    assert.equal(fake.world.workspaces.find((w) => w.workspace_id === other)?.label, 'other');
+    await assert.rejects(narrow.hd.focus({ tab: `${other}:t1` }), (e: Error) => e.message === NOT_ALLOWED);
+    await assert.rejects(narrow.hd.rename({ tab: `${other}:t1`, label: 'nope' }), (e: Error) => e.message === NOT_ALLOWED);
+
+    // hd.layout maps to the typed layout.apply for the tab it names (checked through its workspace).
+    const applied = await wide.hd.layout({ tabId: `${other}:t1`, root: { type: 'pane', pane_id: `${other}:p1` }, focus: true });
+    assert.equal(applied.type, 'layout_apply');
+    assert.equal(applied.layout.tab_id, `${other}:t1`);
+    assert.equal(applied.layout.workspace_id, other);
+    // An out-of-scope layout is refused before any call: the target pane's rect is unchanged.
+    const before = fake.world.panes.find((p) => p.pane_id === `${other}:p1`)?.rect;
+    await assert.rejects(narrow.hd.layout({ tabId: `${other}:t1`, root: { type: 'pane', pane_id: `${other}:p1` } }),
+      (e: Error) => e.message === NOT_ALLOWED);
+    assert.deepEqual(fake.world.panes.find((p) => p.pane_id === `${other}:p1`)?.rect, before, 'the refused layout changed nothing');
+    assert.equal(kit.snapshot().workspaces.length, 2, 'the refusals changed nothing');
+
+    // A view grant is refused on all three, even fully in scope.
+    await assert.rejects(viewer.hd.rename({ workspace: 'w1', label: 'x' }), (e: Error) => e.message === NOT_ALLOWED);
+    await assert.rejects(viewer.hd.focus({ pane: 'w1:p1' }), (e: Error) => e.message === NOT_ALLOWED);
+    await assert.rejects(viewer.hd.layout({ tabId: 'w1:t1', root: { type: 'pane', pane_id: 'w1:p1' } }),
+      (e: Error) => e.message === NOT_ALLOWED);
+
+    // Missing targets and an unknown id are refused, never forwarded to Herdr (pair's generic words
+    // hide the host-side validation detail, exactly as hd.wait's own arg checks do).
+    await assert.rejects(narrow.hd.rename({ label: 'x' }));
+    await assert.rejects(narrow.hd.focus({}));
+    await assert.rejects(wide.hd.layout({ root: { type: 'pane', pane_id: 'w1:p1' } }));
+    await assert.rejects(narrow.hd.rename({ pane: 'w9:p9', label: 'x' }), (e: Error) => e.message === NOT_ALLOWED);
+    await assert.rejects(narrow.hd.focus({ workspace: 'w9' }), (e: Error) => e.message === NOT_ALLOWED);
+  } });
+});
+
 test('hd.terminal round-trips frames both ways against the fake bin', async () => {
   await withBench({ run: async ({ pair }) => {
     const { hd } = await pair('control', ALL, 'desk');

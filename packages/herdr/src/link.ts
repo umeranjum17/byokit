@@ -246,6 +246,86 @@ export function herdrLink(kit: HerdrKit, o: {
         try { await kit.closeWorkspace(workspaceId!); } catch (e) { throw widenError(e) ?? e; }
         return null;
       }
+      // The typed edit ops copy hd.close's shape (7.1): exactly one target, control only, and the
+      // target's owning workspace checked against scope before any Herdr call is made (a tab through
+      // its workspace, a workspace through itself). Out of scope — or unknown — is link.notAllowed.
+      case 'hd.rename': {
+        if (grant.role !== 'control') deny();
+        const snap = kit.snapshot();
+        const paneId = asString(args.pane);
+        const tabId = asString(args.tab);
+        const workspaceId = asString(args.workspace);
+        const label = asString(args.label);
+        const picked = [paneId, tabId, workspaceId].filter((v) => v !== undefined);
+        if (picked.length !== 1) throw new Error('herdr: hd.rename picks exactly one of pane, tab or workspace');
+        if (label === undefined || label.length === 0) throw new Error('herdr: hd.rename needs a label');
+        if (paneId !== undefined) {
+          const where = findPane(snap, paneId);
+          if (!where || !inScope(scope, where.workspaceId)) deny();
+          await kit.call('pane.rename', { pane_id: paneId, label });
+          return null;
+        }
+        if (tabId !== undefined) {
+          const owner = snap.workspaces.find((w) => w.tabs.some((t) => t.id === tabId));
+          if (!owner || !inScope(scope, owner.id)) deny();
+          await kit.call('tab.rename', { tab_id: tabId, label });
+          return null;
+        }
+        if (!snap.workspaces.some((w) => w.id === workspaceId && inScope(scope, w.id))) deny();
+        await kit.call('workspace.rename', { workspace_id: workspaceId!, label });
+        return null;
+      }
+      case 'hd.focus': {
+        if (grant.role !== 'control') deny();
+        const snap = kit.snapshot();
+        const paneId = asString(args.pane);
+        const tabId = asString(args.tab);
+        const workspaceId = asString(args.workspace);
+        const picked = [paneId, tabId, workspaceId].filter((v) => v !== undefined);
+        if (picked.length !== 1) throw new Error('herdr: hd.focus picks exactly one of pane, tab or workspace');
+        if (paneId !== undefined) {
+          const where = findPane(snap, paneId);
+          if (!where || !inScope(scope, where.workspaceId)) deny();
+          await kit.call('pane.focus', { pane_id: paneId });
+          return null;
+        }
+        if (tabId !== undefined) {
+          const owner = snap.workspaces.find((w) => w.tabs.some((t) => t.id === tabId));
+          if (!owner || !inScope(scope, owner.id)) deny();
+          await kit.call('tab.focus', { tab_id: tabId });
+          return null;
+        }
+        if (!snap.workspaces.some((w) => w.id === workspaceId && inScope(scope, w.id))) deny();
+        await kit.call('workspace.focus', { workspace_id: workspaceId! });
+        return null;
+      }
+      case 'hd.layout': {
+        if (grant.role !== 'control') deny();
+        const root = args.root;
+        if (typeof root !== 'object' || root === null || Array.isArray(root)) {
+          throw new Error('herdr: hd.layout needs a root');
+        }
+        const snap = kit.snapshot();
+        const tabId = asString(args.tabId);
+        const workspaceId = asString(args.workspaceId);
+        // The layout must name the tab or workspace it applies to, in scope, before any call.
+        if (tabId !== undefined) {
+          const owner = snap.workspaces.find((w) => w.tabs.some((t) => t.id === tabId));
+          if (!owner || !inScope(scope, owner.id)) deny();
+        } else if (workspaceId !== undefined) {
+          if (!snap.workspaces.some((w) => w.id === workspaceId && inScope(scope, w.id))) deny();
+        } else {
+          throw new Error('herdr: hd.layout needs a tabId or workspaceId');
+        }
+        const tabLabel = asString(args.tabLabel);
+        return kit.call('layout.apply', {
+          root: root as never,
+          ...(args.focus === true ? { focus: true } : {}),
+          ...(tabId !== undefined ? { tab_id: tabId } : {}),
+          ...(workspaceId !== undefined ? { workspace_id: workspaceId } : {}),
+          ...(tabLabel !== undefined ? { tab_label: tabLabel } : {}),
+        });
+      }
       case 'hd.notices.register': {
         if (grant.role !== 'control') deny();
         const box = decodeB64Url(asString(args.boxPublicKey) ?? '');
