@@ -1,0 +1,45 @@
+:root { color-scheme: light dark; --bg: #f6f5f2; --ink: #1d1d1f; --muted: #6b6b70; --line: #dedcd6; --card: #fff;
+  --idle: #3a3a40; --listening: #d23a3a; --thinking: #c98a12; --speaking: #2d6fd6; --error: #b3261e; }
+@media (prefers-color-scheme: dark) { :root { --bg: #121214; --ink: #f2f2f4; --muted: #9a9aa2; --line: #2c2c31; --card: #1c1c20;
+  --idle: #d8d8de; --listening: #ff6b6b; --thinking: #f2b84b; --speaking: #6aa1ff; --error: #ff8a80; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 480px; min-height: 100dvh; margin: 0 auto; padding: 24px 16px; display: flex; flex-direction: column; gap: 24px; }
+header h1 { margin: 0; font-size: 22px; }
+header p, footer, .hint, #sign-in-panel p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+section { display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; }
+section[hidden], a[hidden] { display: none; }
+.pill { font: inherit; font-weight: 600; padding: 12px 22px; border-radius: 999px; border: 0; background: var(--ink); color: var(--bg); text-decoration: none; cursor: pointer; }
+.pill:disabled { opacity: .5; }
+#code { font: 600 24px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--ink); }
+#code:empty { display: none; }
+#talk { --c: var(--idle); width: min(176px, 52vw); aspect-ratio: 1; border-radius: 50%; border: 3px solid var(--c); background: var(--card); color: var(--c);
+  display: grid; place-items: center; cursor: pointer; position: relative; transition: border-color .2s, color .2s, background .2s, transform .1s; -webkit-tap-highlight-color: transparent; }
+#talk:active { transform: scale(.97); }
+#talk:focus-visible { outline: 3px solid var(--speaking); outline-offset: 4px; }
+#talk svg { width: 40%; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+#talk svg rect { fill: currentColor; }
+#talk::after { content: ""; position: absolute; inset: -12px; border-radius: 50%; border: 2px solid var(--c); opacity: 0; }
+#status { font-size: 20px; font-weight: 600; min-height: 1.45em; color: var(--ink); }
+[data-state="connecting"] #talk { --c: var(--muted); }
+[data-state="connecting"] #talk::after { opacity: .5; border-style: dotted; animation: spin 2.4s linear infinite; }
+[data-state="listening"] #talk { --c: var(--listening); background: var(--listening); color: var(--card); }
+[data-state="listening"] #talk::after { opacity: .5; animation: pulse 1.2s ease-out infinite; }
+[data-state="thinking"] #talk { --c: var(--thinking); }
+[data-state="thinking"] #talk::after { opacity: .9; border-style: dashed; animation: spin 1.6s linear infinite; }
+[data-state="speaking"] #talk { --c: var(--speaking); }
+[data-state="speaking"] #talk::after { opacity: .5; animation: pulse .8s ease-out infinite; }
+[data-state="error"] #talk { --c: var(--error); }
+[data-state="connecting"] #status { color: var(--muted); }
+[data-state="listening"] #status { color: var(--listening); }
+[data-state="thinking"] #status { color: var(--thinking); }
+[data-state="speaking"] #status { color: var(--speaking); }
+[data-state="error"] #status { color: var(--error); font-size: 16px; }
+#transcript { list-style: none; margin: 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 8px; text-align: left; }
+#transcript li { padding: 10px 14px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); max-width: 85%; overflow-wrap: anywhere; }
+#transcript li.user { align-self: flex-end; background: var(--ink); color: var(--bg); border-color: transparent; }
+#transcript li b { display: block; font-size: 12px; font-weight: 600; opacity: .7; }
+footer { margin-top: auto; text-align: center; }
+@keyframes pulse { from { opacity: .7; transform: scale(.94); } to { opacity: 0; transform: scale(1.12); } }
+@keyframes spin { to { transform: rotate(1turn); } }
+@media (prefers-reduced-motion: reduce) { #talk::after { animation: none !important; } }

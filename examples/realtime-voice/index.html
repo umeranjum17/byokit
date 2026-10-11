@@ -1,7 +1,12 @@
 <!doctype html>
-<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BYOKit voice proof</title>
-<body><main><h1>Voice demonstration</h1><p>This live demo uses your ChatGPT subscription. It keeps sign-in only in memory and stops after forty seconds.</p>
-<p>Use only the demo words: “Hello from BYOKit.” No audio is recorded. Proof retains counts and connection facts.</p>
-<button id="sign-in">Sign in with ChatGPT</button><p id="code"></p><a id="authorize" hidden target="_blank" rel="noopener">Approve sign-in</a>
-<p><button id="start">Start voice</button> <button id="interrupt">Interrupt</button> <button id="stop">Stop</button></p>
-<output id="status">Ready to sign in</output><audio id="audio" autoplay></audio></main><script type="module" src="/voice.js"></script></body></html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Voice</title><link rel="stylesheet" href="/voice.css">
+<body><main id="screen" data-state="signed-out">
+<header><h1>Voice</h1><p>Runs on your ChatGPT plan.</p></header>
+<section id="sign-in-panel"><p>Sign in once with your ChatGPT account to start talking.</p>
+<button id="sign-in" class="pill">Sign in with ChatGPT</button><p id="code"></p><a id="authorize" class="pill" hidden target="_blank" rel="noopener">Approve sign-in</a></section>
+<section id="talk-panel" hidden>
+<button id="talk" aria-pressed="false" aria-label="Talk" aria-describedby="status"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+<output id="status" aria-live="polite"></output><p class="hint">Tap, say “Hello from BYOKit.”, then tap again.</p>
+<ol id="transcript" aria-label="Conversation"></ol></section>
+<footer>Nothing is recorded. Each conversation ends after 40 seconds.</footer>
+<audio id="audio" autoplay></audio></main><script type="module" src="/voice.js"></script></body></html>
