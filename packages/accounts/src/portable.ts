@@ -19,4 +19,4 @@ export { anthropic, anthropicSseReader, AnthropicIncompleteError, type Anthropic
 
 export { ClaudePlanExpiredError, ClaudePlanPlatformError, claudeAuthorization, claudeCode, claudeProfile, type ClaudePlanOptions } from './claude-plan.ts';
 
-export { chooseAccount, resolveSelection, roomOf, roomWords, type AccountId, type AccountRef, type Account, type Via, type ProviderInfo, type ModelInfo, type AccountLike, type AccountPick, type Considered, type Defaults, type PickWhy, type Room, type RoomSpan, type RunSelection, type SignInState } from './multi.ts';
+export { chooseAccount, resolveSelection, roomOf, roomWords, type AccountId, type AccountRef, type AgentCapabilities, type Account, type Via, type ProviderInfo, type ModelInfo, type AccountLike, type AccountPick, type Considered, type Defaults, type PickWhy, type Room, type RoomSpan, type RunSelection, type SignInState } from './multi.ts';

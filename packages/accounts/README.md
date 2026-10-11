@@ -716,6 +716,14 @@ if (picked.ok) {
 }
 ```
 
+For independent agent preferences, use `setDefaults(member, { account, model }, 'pi')` and
+`defaults(member, 'pi')` (likewise `'codex'` or any app-defined kind). Pick with
+`{ agentKind: 'pi', account: 'default' }`: missing, signed-out, unavailable or resting selections and
+stale models refuse without fallback. Removing an account clears every referencing selection and model.
+The optional fourth `pick` argument, `AgentCapabilities`, supplies supported `Account.route` values and a
+per-account model reader for a qualified host adapter; without it, catalogue models apply. Preferences
+contain no credentials. This does not connect native CLI account stores or qualify new agent adapters.
+
 ## Managed CLI accounts (Node only)
 
 `@byokit/accounts/cli` exports `cliAccounts`, `CliAccountError`, `CliProvider`, `PiProvider`, `CliAccount`, `CliOptions` and `SignInCommand`. Accounts use subscription billing. The portable entries and the `Accounts` class retain their existing sign-in flows.

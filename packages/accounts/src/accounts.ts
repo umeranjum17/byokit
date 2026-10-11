@@ -18,7 +18,7 @@ import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
 import type { ChatGPTRespondAccount } from './chatgpt-plan.ts';
 import { emptyIndex, viewStore, memoryStore, RefreshRequiredError, refreshCredential, type AccountMetadata, type EndingStore, type RefreshStore } from './stores.ts';
-import { resolveSelection, type Account, type AccountPick, type Defaults, type ModelInfo, type Room, type RunSelection, type Via } from './multi.ts';
+import { resolveSelection, type Account, type AccountPick, type AgentCapabilities, type Defaults, type ModelInfo, type Room, type RunSelection, type Via } from './multi.ts';
 import type { Credential } from '@earendil-works/pi-ai';
 import { callbackPage, clock, failure, say, signInError, type WordKey, type Why } from './words.ts';
 
@@ -265,11 +265,28 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     });
   }
 
-  async defaults(member: M): Promise<Defaults> { return (await this.index(member)).defaults; }
-  async setDefaults(member: M, defaults: Defaults): Promise<void> {
+  async defaults(member: M, agentKind?: string): Promise<Defaults> {
+    const index = await this.index(member);
+    if (agentKind === undefined) return index.defaults;
+    if (!agentKind.trim()) throw new Error('Give this agent kind a name.');
+    return index.byAgent && Object.prototype.hasOwnProperty.call(index.byAgent, agentKind) ? index.byAgent[agentKind]! : {};
+  }
+  async setDefaults(member: M, defaults: Defaults, agentKind?: string): Promise<void> {
+    if (agentKind !== undefined && !agentKind.trim()) throw new Error('Give this agent kind a name.');
+    for (const value of [defaults.account, defaults.model])
+      if (value !== undefined && (typeof value !== 'string' || !value.trim())) throw new Error('Choose an account or model id.');
+    if (defaults.auto !== undefined && typeof defaults.auto !== 'boolean') throw new Error('Choose whether Auto is enabled.');
     const accounts = await this.list(member);
     if (defaults.account && !accounts.some((a) => a.id === defaults.account)) throw new Error('No such account.');
-    await this.store(member).index((i) => { i.defaults = { ...defaults }; });
+    // Copy only preference fields, even for JavaScript callers passing extra credential properties.
+    const saved: Defaults = { ...(defaults.account !== undefined ? { account: defaults.account } : {}),
+      ...(defaults.model !== undefined ? { model: defaults.model } : {}), ...(defaults.auto !== undefined ? { auto: defaults.auto } : {}) };
+    await this.store(member).index((i, data) => {
+      if (saved.account && !data[this.storageKey(saved.account)] && !i.accounts?.[saved.account]) throw new Error('No such account.');
+      if (agentKind === undefined) i.defaults = saved;
+      else i.byAgent = { ...i.byAgent, [agentKind]: saved };
+    });
+    if (agentKind !== undefined) return;
     for (const p of this.providers) {
       const rows = accounts.filter((a) => a.provider === p.key);
       const chosen = rows.find((a) => a.id === defaults.account) ?? rows[0];
@@ -281,9 +298,19 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    *  account, then the same pure chooser the portable entry exports. Read-only: it never writes defaults or the index.
    *  `room` reads an account once (sync or a Promise); absent or throwing, every row reads unknown and list order decides. */
   async pick(member: M, sel: RunSelection = { account: 'auto' },
-    room?: (account: Account, demand: readonly string[]) => Room | Promise<Room>): Promise<AccountPick<Account>> {
-    const accounts = await this.list(member);
-    const defaults = await this.defaults(member);
+    room?: (account: Account, demand: readonly string[]) => Room | Promise<Room>, capabilities?: AgentCapabilities): Promise<AccountPick<Account>> {
+    let accounts = await this.list(member);
+    const defaults = await this.defaults(member, sel.agentKind);
+    if (sel.agentKind !== undefined && sel.account !== 'auto') {
+      const id = sel.account === 'default' ? defaults.account : sel.account;
+      const chosen = accounts.find((a) => a.id === id);
+      if (!chosen || chosen.state !== 'ready' || capabilities && !capabilities.routes.includes(chosen.route) ||
+        sel.account === 'default' && !(chosen.billing === 'subscription' || chosen.billing === 'api' && chosen.provider !== 'custom'))
+        return { ok: false, code: !chosen ? id ? 'unknown_account' : 'none' : 'not_included',
+          reason: !chosen && id ? say('pick.unknownAccount') : say('auto.none', { provider: chosen?.provider ?? sel.provider ?? '' }), considered: [] };
+      if (sel.account === 'default' && sel.model === undefined && defaults.model) sel = { ...sel, model: defaults.model };
+    }
+    if (capabilities) accounts = accounts.filter((a) => capabilities.routes.includes(a.route));
     const demand = [...new Set([...(sel.model ? [sel.model] : []), ...(sel.needs ?? [])])];
     const rooms = new Map<string, Room>();
     for (const account of accounts) {
@@ -291,7 +318,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       try { if (room) read = await room(account, demand); } catch { read = { left: 'unknown' }; }
       rooms.set(account.id, read);
     }
-    const models = new Map(accounts.map((account) => [account.id, this.modelsOf(account)]));
+    const models = new Map(accounts.map((account) => [account.id, capabilities ? capabilities.models(account) : this.modelsOf(account)]));
     return resolveSelection(accounts, defaults, sel, (account) => rooms.get(account.id) ?? { left: 'unknown' }, Date.now(),
       (account) => models.get(account.id) ?? []);
   }
@@ -335,7 +362,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       await this.store(member).index((i) => {
         for (const map of [i.names, i.emails, i.plans, i.addedAt]) delete map[id];
         if (i.accounts) delete i.accounts[id];
-        if (i.defaults.account === id) delete i.defaults.account;
+        for (const defaults of [i.defaults, ...Object.values(i.byAgent ?? {})]) {
+          if (defaults.account === id) { delete defaults.account; delete defaults.model; }
+        }
       });
       this.preferred.delete(`${member}:${this.providerKey(id)}`);
       await this.resolveKey(member, this.providerKey(id));
@@ -1404,7 +1433,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         await this.store(member).index((index, data) => {
           delete data[key]; delete index.accounts?.[key];
           for (const map of [index.names, index.emails, index.plans, index.addedAt]) delete map[key];
-          if (index.defaults.account === key) delete index.defaults.account;
+          if (index.defaults.account === key) { delete index.defaults.account; delete index.defaults.model; }
         });
       });
       this.onChange?.(member, key);

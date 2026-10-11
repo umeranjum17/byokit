@@ -1,0 +1,1 @@
+- Keep independent selected accounts and default models per app-defined agent kind in the existing account index. Scoped picks refuse missing, signed-out, unavailable accounts and stale models without fallback; removing an account clears all referencing selections and models. Hosts may supply qualified routes and model choices.
