@@ -1,4 +1,9 @@
-<h1 align="center">byokit</h1>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/readme/wordmark-dark.svg" />
+    <img src="docs/readme/wordmark-light.svg" alt="byokit" width="280" />
+  </picture>
+</p>
 
 <p align="center"><strong>Bring your own AI plan and devices.</strong><br />
 Small TypeScript kits for apps that feel like yours.</p>
@@ -37,12 +42,12 @@ byokit gives you the parts: sign-in, encrypted pairing, voice, usage and more. B
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/readme/talk-dark.png" />
-    <img src="docs/readme/talk-light.png" alt="Voice demo: one microphone button and a clear Listening state." width="350" />
+    <source media="(prefers-color-scheme: dark)" srcset="docs/readme/reply-dark.png" />
+    <img src="docs/readme/reply-light.png" alt="Voice demo after a turn: You and Assistant each say Hello from BYOKit in writing." width="350" />
   </picture>
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/readme/pair-dark.png" />
-    <img src="docs/readme/pair-light.png" alt="Pairing demo: the phone shows sled meteor and waits for approval on the computer." width="350" />
+    <source media="(prefers-color-scheme: dark)" srcset="docs/readme/pair-invitation-dark.png" />
+    <img src="docs/readme/pair-invitation-light.png" alt="Pairing demo before connecting: enter the code from your computer, then choose Pair." width="350" />
   </picture>
 </p>
 
