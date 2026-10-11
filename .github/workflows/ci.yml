@@ -16,6 +16,31 @@ permissions:
   contents: read
 
 jobs:
+  # Slow jobs below run on a pull request only when it changes their area (scripts/ci-changes.ts); a push to main runs
+  # them all. A skipped job reports as skipped, which does not block a merge.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      openclaw: ${{ steps.areas.outputs.openclaw }}
+      write: ${{ steps.areas.outputs.write }}
+      record: ${{ steps.areas.outputs.record }}
+      seal: ${{ steps.areas.outputs.seal }}
+      secrets: ${{ steps.areas.outputs.secrets }}
+      android: ${{ steps.areas.outputs.android }}
+      expo: ${{ steps.areas.outputs.expo }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+      - id: areas
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/ci-changes.ts ${BASE:+"$BASE"} | tee -a "$GITHUB_OUTPUT"
+
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -71,6 +96,8 @@ jobs:
 
   # Linux byte parity only: this does not compile the Apple Security path or run an iOS extension.
   seal-swift:
+    needs: changes
+    if: needs.changes.outputs.seal == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     container:
@@ -82,6 +109,8 @@ jobs:
 
   # Disposable Secret Service session: no user's desktop/keyring and no outbound network in tests.
   secrets-keyring:
+    needs: changes
+    if: needs.changes.outputs.secrets == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -117,9 +146,18 @@ jobs:
       # The voice screen offline: a stand-in sign-in and a stand-in voice peer over loopback WebRTC.
       - run: sh scripts/test.sh examples/realtime-voice/e2e.test.ts
 
+  # The real-engine journeys, split into parallel parts by measured duration (the whole set ran ~18 min in one job).
+  # The last part runs every engine test file the others do not name, so a new file is never left out.
   openclaw-engine:
+    name: openclaw-engine (${{ matrix.part }})
+    needs: changes
+    if: needs.changes.outputs.openclaw == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [day-usage, contract-signin, generated-learning-migrate, rest, packed]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -130,10 +168,24 @@ jobs:
       - run: npm run build
       # Hosted Ubuntu restricts unprivileged user namespaces, which Chromium's sandbox needs; this runner is ephemeral.
       - run: if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
-      - run: npm run test:engine
+      - if: matrix.part != 'packed'
+        env:
+          PART: ${{ matrix.part }}
+        run: |
+          dir=packages/openclaw/test/engine
+          case "$PART" in
+            day-usage) files="$dir/day-usage.test.ts" ;;
+            contract-signin) files="$dir/contract.test.ts $dir/signin.test.ts" ;;
+            generated-learning-migrate) files="$dir/generated.test.ts $dir/learning.test.ts $dir/migrate.test.ts" ;;
+            rest) files=$(find "$dir" -name '*.test.ts' ! -name 'browser-*.test.ts' ! -name day-usage.test.ts ! -name contract.test.ts \
+              ! -name signin.test.ts ! -name generated.test.ts ! -name learning.test.ts ! -name migrate.test.ts | sort) ;;
+          esac
+          # shellcheck disable=SC2086
+          sh scripts/test.sh $files
       # Exact candidate internal runtime closure; external registry pins, real old/new Gateways, no accounts/models.
       # Source qualification, not proof that public consumers adopted these candidate package versions.
-      - run: |
+      - if: matrix.part == 'packed'
+        run: |
           scratch=$(mktemp -d /tmp/oc.XXXX)
           trap 'rm -rf "$scratch"' EXIT
           mkdir "$scratch/home" "$scratch/t"
@@ -141,6 +193,8 @@ jobs:
 
   # Stock published Gateway + kit-owned pipe Chromium. No accounts, personal browser, engine patch or real site.
   openclaw-browser:
+    needs: changes
+    if: needs.changes.outputs.openclaw == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -175,6 +229,8 @@ jobs:
 
   # @byokit/write against its exactly pinned npm engine, in process and through the engine bin.
   write-engine:
+    needs: changes
+    if: needs.changes.outputs.write == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -189,6 +245,8 @@ jobs:
 
   # A real screen recorder on a private X display; no owner's display or account.
   record-recorder:
+    needs: changes
+    if: needs.changes.outputs.record == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -229,6 +287,8 @@ jobs:
 
   # Frozen Kotlin mirror JVM tests, dictation, and real RN lazy microphone privacy on a disposable emulator.
   android:
+    needs: changes
+    if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -276,6 +336,8 @@ jobs:
   # @byokit/bubble's Expo module: the example prebuilds with the kit's config plugin and assembles with its Kotlin,
   # then JVM tests, consent/point-marker proof and real Chromium WebView focus/insertion run on an emulator.
   overlay-android:
+    needs: changes
+    if: needs.changes.outputs.expo == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -330,6 +392,8 @@ jobs:
   # suite (including that test) on every PR and reports, so the flake stays visible without blocking
   # the required check. Never make this job required and never delete the test.
   overlay-android-webview:
+    needs: changes
+    if: needs.changes.outputs.expo == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -367,6 +431,8 @@ jobs:
           path: examples/expo/modules/a11y-demo/android/build/outputs/androidTest-results/
 
   share-android:
+    needs: changes
+    if: needs.changes.outputs.expo == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -382,10 +448,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
       - run: npm ci --no-audit --no-fund
       - run: node scripts/share-expo-smoke.ts --android-only --build --out /tmp/bks-android
-      - run: npm ci --no-audit --no-fund
-        working-directory: examples/expo
-      - run: CI=1 npx expo prebuild -p android --no-install && (cd android && ./gradlew assembleDebug :byokit-share:testDebugUnitTest --no-daemon --stacktrace)
-        working-directory: examples/expo
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -397,6 +459,29 @@ jobs:
             /tmp/bks-android/result.json
             /tmp/bks-android/failure.txt
             /tmp/bks-android/app/node_modules/@byokit/share/android/build/test-results/
+
+  # The example app build and the kit's JVM tests, in parallel with the packed-kit smoke above.
+  share-android-app:
+    needs: changes
+    if: needs.changes.outputs.expo == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+      - run: npm ci --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+        working-directory: examples/expo
+      - run: CI=1 npx expo prebuild -p android --no-install && (cd android && ./gradlew assembleDebug :byokit-share:testDebugUnitTest --no-daemon --stacktrace)
+        working-directory: examples/expo
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
@@ -406,6 +491,8 @@ jobs:
             examples/expo/android/app/build/reports/
 
   share-ios-prebuild:
+    needs: changes
+    if: needs.changes.outputs.expo == 'true'
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
@@ -430,6 +517,8 @@ jobs:
   # @byokit/statusbar's Expo module, in the overlay-android shape: the example prebuilds with the kit's config plugin and
   # assembles with its Kotlin, then StatusRules' JVM tests run. The emulator proof is recorded in the PR (BK-S1).
   statusbar-android:
+    needs: changes
+    if: needs.changes.outputs.expo == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -465,6 +554,8 @@ jobs:
         working-directory: examples/expo
 
   push-android:
+    needs: changes
+    if: needs.changes.outputs.expo == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -485,6 +576,8 @@ jobs:
         working-directory: examples/expo
 
   push-ios:
+    needs: changes
+    if: needs.changes.outputs.expo == 'true'
     runs-on: macos-26
     env:
       # Expo 57 requires Xcode 26.4+; match its supported SDK 57 build image's Xcode 26.6.

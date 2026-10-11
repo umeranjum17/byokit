@@ -34,7 +34,6 @@ const REQUIRED_METHODS = [
   'plugin.approval.resolve', 'question.resolve', 'wizard.cancel', 'wizard.next',
 ];
 // Driven by the kit but not advertised in hello (O11 probe, e.g. sessions.steer): routable, just not listed.
-// The engine job's generated.test.ts audits the full generated table against hello instead of asserting it here.
 const REQUIRED_EVENTS = [
   'agent',
   'exec.approval.requested', 'exec.approval.resolved',

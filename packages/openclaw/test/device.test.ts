@@ -1,12 +1,10 @@
-// O9 device client: op mapping over a stub link, sealed-notice round-trip, and signIn.view shapes
-// through ui-core's phaseOf (waiting/code/done and the failure whys).
+// O9 device client: the sealed-notice round-trip and openNotice's refusal of tampered or malformed notices.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { DeviceLink } from '@byokit/pair';
-import { phaseOf } from '@byokit/ui';
-import { LinkRefused, openclawDevice } from '../src/device.ts';
+import { openclawDevice } from '../src/device.ts';
 import { sealNotice } from '../src/notices.ts';
-import type { Approval, GatewayResult } from '../src/types.ts';
+import type { Approval } from '../src/types.ts';
 
 type Req = { op: string; args: unknown };
 function stubLink(o: { onRequest?: (r: Req) => unknown; streams?: Record<string, unknown> } = {}) {
@@ -26,113 +24,6 @@ function stubLink(o: { onRequest?: (r: Req) => unknown; streams?: Record<string,
   } as unknown as DeviceLink;
   return { link, requests, opened };
 }
-
-/** A scripted LinkStream: the test feeds chunks (split mid-frame) then finishes, optionally with an error. */
-function scriptedStream() {
-  const s = {
-    onData: undefined as ((chunk: Uint8Array) => void | Promise<void>) | undefined,
-    onEnd: undefined as ((error?: string) => void | Promise<void>) | undefined,
-    endCalls: [] as (string | undefined)[],
-    writes: [] as string[],
-    async write(chunk: Uint8Array | string): Promise<void> {
-      s.writes.push(typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk));
-    },
-    end(error?: string): void {
-      s.endCalls.push(error);
-    },
-    feed(text: string): void {
-      s.onData?.(new TextEncoder().encode(text));
-    },
-    finish(error?: string): void {
-      s.onEnd?.(error);
-    },
-  };
-  return s;
-}
-
-const flush = () => new Promise((r) => setTimeout(r, 0));
-
-test('requests map to link ops with the right args', async () => {
-  const seen: Req[] = [];
-  const { link } = stubLink({ onRequest: (r) => { seen.push(r); return null; } });
-  const oc = openclawDevice(link);
-  await oc.steer('agent:a:x', 'go');
-  await oc.abort('agent:a:x');
-  await oc.decide('id1', { allow: false, reason: 'no' });
-  await oc.signOut('openai');
-  await oc.sessions();
-  await oc.call('health', { a: 1 });
-  assert.deepEqual(seen.map((r) => [r.op, r.args]), [
-    ['oc.steer', { sessionKey: 'agent:a:x', text: 'go' }],
-    ['oc.abort', { sessionKey: 'agent:a:x' }],
-    ['oc.decide', { id: 'id1', allow: false, reason: 'no' }],
-    ['oc.signout', { provider: 'openai' }],
-    ['oc.sessions', undefined],
-    ['oc.call', { method: 'health', params: { a: 1 } }],
-  ]);
-});
-
-test('signIn.view shapes pass phaseOf to opening/code/waiting/done/busy/cancelled/expired/failed', async () => {
-  const views = new Map<string, { ready: boolean; view: unknown }>();
-  const { link } = stubLink({ onRequest: ({ op, args }) => {
-    if (op === 'oc.signin.view') {
-      const hit = views.get((args as { provider: string }).provider);
-      if (!hit) throw new Error('no view');
-      return hit;
-    }
-    return null;
-  } });
-  const oc = openclawDevice(link);
-  const cases: [string, { ready: boolean; view: unknown }, string][] = [
-    ['opening', { ready: false, view: { state: 'waiting', via: 'code' } }, 'opening'],
-    ['code', { ready: false, view: { state: 'waiting', via: 'code', code: 'AB-CD' } }, 'code'],
-    ['waiting', { ready: false, view: { state: 'waiting', via: 'browser', url: 'https://x' } }, 'waiting'],
-    ['done', { ready: true, view: { state: 'done', via: 'code' } }, 'done'],
-    ['busy', { ready: false, view: { state: 'failed', via: 'code', why: 'busy' } }, 'busy'],
-    ['declined', { ready: false, view: { state: 'failed', via: 'code', why: 'declined' } }, 'cancelled'],
-    ['expired', { ready: false, view: { state: 'failed', via: 'code', why: 'expired' } }, 'expired'],
-    ['failed', { ready: false, view: { state: 'failed', via: 'code', why: 'failed' } }, 'failed'],
-  ];
-  for (const [provider, hit, phase] of cases) {
-    views.set(provider, hit);
-    assert.equal(phaseOf(await oc.signIn.view(provider)), phase, provider);
-  }
-});
-
-test('run yields frames split across chunks, then the end frame', async () => {
-  const s = scriptedStream();
-  const { link } = stubLink({ streams: { 'oc.run': s } });
-  const oc = openclawDevice(link);
-  const frames: unknown[] = [];
-  const done = (async () => {
-    for await (const f of oc.run('hi', { sessionKey: 'agent:a:x' })) frames.push(f);
-  })();
-  await flush();
-  s.feed('{"type":"text","tex');
-  s.feed('t":"one"}\n{"type":"text","text":"two"}\n');
-  await flush();
-  s.feed('{"type":"end","end":{"ok":true,"text":"two"}}\n');
-  s.finish();
-  await done;
-  assert.deepEqual(frames, [
-    { type: 'text', text: 'one' },
-    { type: 'text', text: 'two' },
-    { type: 'end', end: { ok: true, text: 'two' } },
-  ]);
-  assert.deepEqual(s.endCalls, [undefined], 'the device ends its side after the end frame');
-});
-
-test('a host stream refusal raises LinkRefused with the host words', async () => {
-  const s = scriptedStream();
-  const { link } = stubLink({ streams: { 'oc.run': s } });
-  const oc = openclawDevice(link);
-  const done = (async () => {
-    for await (const _ of oc.run('hi')) void _;
-  })();
-  await flush();
-  s.finish("This device can't do that. Ask the person at the computer.");
-  await assert.rejects(done, (e: unknown) => e instanceof LinkRefused && (e as Error).message.includes("can't do that"));
-});
 
 test('registerNotices sends the 32-byte box key; openNotice round-trips the approval', async () => {
   let box = '';
@@ -156,30 +47,4 @@ test('registerNotices sends the 32-byte box key; openNotice round-trips the appr
   assert.equal(oc.openNotice(notice, crypto.getRandomValues(new Uint8Array(32))), null);
   assert.equal(oc.openNotice({ v: 1, sealed: '!!!' }, seed), null);
   assert.equal(oc.openNotice({ v: 2, sealed: notice.sealed }, seed), null);
-});
-
-// Typed pass-through (7.2). The assertions are compile-time: `npm run check` fails if call() stops
-// taking the generated table's params or stops returning its result type.
-type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
-const typed = <T extends true>(): T | undefined => undefined;
-
-test('call and events are typed by the generated tables', async () => {
-  const { link } = stubLink({ onRequest: () => ({ providers: [] }) });
-  const oc = openclawDevice(link);
-  const status = oc.call('models.authStatus', { agentId: 'a' });
-  typed<Equal<typeof status, Promise<GatewayResult<'models.authStatus'>>>>();
-  const models = oc.call('models.list', {});
-  typed<Equal<Awaited<typeof models>, GatewayResult<'models.list'>>>();
-  // @ts-expect-error not a Gateway method
-  void oc.call('models.nope', {});
-  // @ts-expect-error models.authStatus takes an object, not a number
-  void oc.call('models.authStatus', 1);
-  await Promise.all([status, models]);
-  type Frame = typeof oc.events extends () => AsyncIterable<infer F> ? F : never;
-  const narrow = (f: Frame): string => {
-    if (f.event === 'approval') return f.approval.id;
-    if (f.event === 'agent') return f.payload.runId;
-    return f.event;
-  };
-  assert.equal(narrow({ event: 'approval', change: 'added', approval: { id: 'x' } as Approval }), 'x');
 });

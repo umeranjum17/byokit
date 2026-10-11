@@ -8,8 +8,9 @@ import java.util.concurrent.TimeUnit
 /**
  * A cold CI emulator can start with the platform's "Application Not Responding" dialog for another app (SystemUI,
  * the launcher) owning focus. The fixture window then never gets focus and the dialog stays the active window, so
- * every fixture fails behind it. This precondition gives each such app's exact dialog one platform Wait; an ANR of
- * our own apps is a defect and fails instead.
+ * every fixture fails behind it. This precondition gives each such app's exact dialog one platform Wait, then holds
+ * until that app's input is responsive again so the same ANR cannot re-show mid-test; an ANR of our own apps is a
+ * defect and fails instead.
  */
 internal class PlatformAnr(private val automation: UiAutomation, private val ours: Set<String>,
   private val shell: (String) -> String, private val trace: (String) -> Unit = {}) {
@@ -54,15 +55,47 @@ internal class PlatformAnr(private val automation: UiAutomation, private val our
       assertFalse("Only one ANR Wait per app is permitted: $app", app in waited)
       trace("before single $app ANR Wait")
       waitOnce(window, app)
-      // The platform dismisses the dialog asynchronously; the next owner must be a different window.
-      val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
-      while (focus().let { (windows, input) -> (windows + input).any { "{$window " in it || "'$window " in it } }) {
-        assertTrue("$app ANR dialog closes after its Wait", System.nanoTime() < deadline)
-        Thread.sleep(100)
-      }
+      awaitClosed(window, app)
+      awaitResponsive(app)
       trace("after single $app ANR Wait")
     }
     if (waited.isEmpty()) println("Platform ANR Wait: unexercised; no exact focused dialog")
+  }
+
+  /** The platform dismisses the dialog asynchronously; the next owner must be a different window. */
+  private fun awaitClosed(window: String, app: String) {
+    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+    while (focus().let { (windows, input) -> (windows + input).any { "{$window " in it || "'$window " in it } }) {
+      assertTrue("$app ANR dialog closes after its Wait", System.nanoTime() < deadline)
+      Thread.sleep(100)
+    }
+  }
+
+  /**
+   * Wait only closes this dialog. While the app's input channel stays unresponsive the platform re-shows the same
+   * continuous ANR every dispatch timeout (CI: a fresh launcher dialog ~5.3s after each Wait), which then takes focus
+   * from the fixture mid-test. Hold until input reports the app responsive; a re-shown dialog of that same ANR gets the
+   * same Wait. Bounded, and it fails rather than loops when the app never recovers.
+   */
+  private fun awaitResponsive(app: String) {
+    val started = System.nanoTime()
+    val deadline = started + TimeUnit.SECONDS.toNanos(90)
+    while (shell("dumpsys input").lineSequence().any { "responsive=false" in it && app in it }) {
+      assertTrue("$app input stays unresponsive after its ANR Wait", System.nanoTime() < deadline)
+      // Act only once window manager, input and accessibility all show the re-shown dialog: owner() and waitOnce()
+      // assert they agree, and polling can land mid-show while one of them still lags.
+      val title = "Application Not Responding: $app"
+      if (focus().let { (windows, input) -> windows.any { title in it } && input.any { title in it } } &&
+        automation.rootInActiveWindow?.let { root -> (root.packageName?.toString() == "android").also { root.recycle() } } == true) {
+        val (window, shown) = owner() ?: continue
+        assertEquals("Re-shown ANR belongs to the app that got the Wait", app, shown)
+        trace("before re-shown $app ANR Wait")
+        waitOnce(window, app)
+        awaitClosed(window, app)
+      }
+      Thread.sleep(250)
+    }
+    println("$app input responsive after its ANR Wait: ${TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)}ms")
   }
 
   private fun waitOnce(window: String, app: String) {

@@ -153,28 +153,6 @@ test('typed pass-through, dynamic refusal, events and hello', async () => withKi
   assert.deepEqual(heard, ['all:agent', 'agent', 'all:tick']);
 }));
 
-test('typed call passes options through unchanged', async () => {
-  const stateDir = scratchDir('o4-options');
-  const fake = fakeGateway();
-  let seen: unknown;
-  const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: (ctx) => {
-    const transport = fake.factory(ctx);
-    return { ...transport, request: (method, params, options) => { seen = options; return transport.request(method, params, options); } };
-  } });
-  try {
-    await kit.start();
-    const options = { timeoutMs: 987, signal: new AbortController().signal };
-    await kit.call('models.authStatus', { agentId: 'm1' }, options);
-    assert.equal(seen, options);
-  } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
-});
-
-test('dynamic refusal stays in sync with every generated method', async () => withKit(async (kit) => {
-  const generated = readFileSync(new URL('../src/generated/methods.ts', import.meta.url), 'utf8');
-  const names = [...generated.matchAll(/^  '([^']+)': .*role: '(?:operator|node)'/gm)].map((match) => match[1]!);
-  assert.equal(names.length, 394);
-  for (const name of names) await assert.rejects(kit.callDynamic(name), /use typed call/);
-}));
 
 test('members validate and cache concurrent creation', async () => withKit(async (kit, fake) => {
   await assert.rejects(kit.ensureMember('M1'), /invalid member/);

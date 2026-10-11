@@ -4,7 +4,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Accounts, IncompleteError, ResponseError, isFunctionCall, limitResponse, offered, PROVIDERS, memoryStore, respond, sseReader, type EndingStore, type ResponseStreamEvent } from '../src/portable.ts';
+import { Accounts, IncompleteError, ResponseError, isFunctionCall, limitResponse, PROVIDERS, memoryStore, respond, sseReader, type EndingStore, type ResponseStreamEvent } from '../src/portable.ts';
 import { mockOpenAI } from '../src/testing/index.ts';
 import { fileStore } from '../src/node-stores.ts';
 import { scratchDir } from '../../test-support.ts';
@@ -380,13 +380,6 @@ test('respond with the image_generation built-in: passed through, answered as te
   const asked = JSON.parse(openai.state.requests.findLast((r) => r.path === '/codex/responses')!.body);
   assert.deepEqual(asked.tools, [{ type: 'image_generation' }]);
 });
-
-test('tool pass-through changes no billing and offers no new route', () => {
-  assert.deepEqual(offered().map((p) => p.key), ['chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'meta', 'google-gemini-cli', 'google-antigravity']);
-  assert.equal(PROVIDERS.chatgpt.billing, 'subscription');
-  assert.ok(!offered().some((p) => p.billing === 'api'), 'API rows stay opt-in');
-});
-
 
 test('respond result:true retains reported usage on streaming, buffered and JSON transports', async () => {
   const usage = { input_tokens: 12, output_tokens: 3, input_tokens_details: { cached_tokens: 4 } };

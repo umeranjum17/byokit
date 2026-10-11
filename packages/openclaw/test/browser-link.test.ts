@@ -85,7 +85,7 @@ async function world(o: { cleanup?: Promise<void>; protected?: boolean } = {}) {
   };
   return { host, api, browser, rows, viewers, lease, device, notices, sockets, removed,
     emit: () => events.forEach(e => e({ member: 'a', kind: 'signin' }, 'byokit.browser')),
-    calls: () => calls, inputs: () => inputs, closed: () => closed, durable: () => durable };
+    listeners: () => events.size, calls: () => calls, inputs: () => inputs, closed: () => closed, durable: () => durable };
 }
 
 test('O22: all browser actions and request states round-trip transiently; roles and members are guarded', async () => {
@@ -158,7 +158,7 @@ test('O22: one browser stream supplies thumbnail/full view; slow readers drop fr
   const w = await world(); const a = await w.device('a');
   const events = openclawDevice(a.link).events()[Symbol.asyncIterator]();
   const ping = events.next();
-  await sleep(30); w.emit();
+  await until(() => w.listeners() === 2); w.emit(); // the relay's listener plus this stream's
   assert.deepEqual((await ping).value, { event: 'byokit.browser', payload: { member: 'a', kind: 'signin' } });
   await events.return?.();
   w.rows[0].state = 'settled';
@@ -236,7 +236,7 @@ test('O22: ordinary keydown/keyup queue behind credit without closing; cancellat
   live.input({ kind: 'text', text: 'synthetic-secret-input' });
   assert.equal(ended, 0, 'ordinary typing must not close the stream');
   assert.equal(writes.length, 1);
-  releases.shift()!(); await sleep(0);
+  releases.shift()!(); await until(() => writes.length === 2);
   assert.equal(JSON.parse(writes[1]).type, 'up', 'input order survives backpressure');
   live.close(); releases.shift()!(); await sleep(0);
   assert.equal(writes.length, 2, 'queued text was discarded, never sent after cancellation');

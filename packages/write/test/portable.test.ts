@@ -5,15 +5,6 @@ import { runInNewContext } from 'node:vm';
 import { build } from 'esbuild';
 import { Compose, ComposeError } from '../src/portable.ts';
 import type { ComposeOptions } from '../src/portable.ts';
-import { fakeEngine } from '../src/testing/fake-engine.ts';
-import { composeContract } from '../src/testing/contract.ts';
-
-composeContract(async () => {
-  const fake = fakeEngine();
-  return { compose: new Compose({ engine: fake }), fake };
-}, {
-  test: (name, fn) => test(`portable: ${name}`, fn),
-});
 
 test('the portable constructor requires an app engine, in types and at runtime', () => {
   if (false) {

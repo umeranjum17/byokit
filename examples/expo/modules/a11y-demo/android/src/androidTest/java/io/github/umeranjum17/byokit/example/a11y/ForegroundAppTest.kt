@@ -76,6 +76,9 @@ class ForegroundAppTest {
       // A foreign app's platform ANR dialog would keep focus, and so the active window, from every fixture below.
       PlatformAnr(automation, setOf(context.packageName, fixture), ::shell).clear()
       val component = "${context.packageName}/${WebFieldService::class.java.name}"
+      // A previous test's instance unbinds asynchronously after its settings restore; enabling again first would
+      // hand back that dying instance, whose reads all come back empty.
+      if (component !in previous) await("Previous fixture service unbound") { WebFieldService.connected == null }
       shell("settings put secure enabled_accessibility_services $component")
       shell("settings put secure accessibility_enabled 1")
       await("Fixture service connects") { WebFieldService.connected != null }

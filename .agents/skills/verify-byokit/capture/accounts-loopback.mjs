@@ -36,18 +36,30 @@ if (process.argv[2] === 'child') {
 } else {
   const { mockOpenAI } = await import(testing);
   const home = await mkdtemp(join(tmpdir(), 'byk-loopback-'));
-  const reserve = createServer().listen(0, '127.0.0.1');
-  await once(reserve, 'listening');
-  const port = reserve.address().port;
-  await new Promise(resolve => reserve.close(resolve));
+  // A free port below every OS's ephemeral range (Linux 32768+, macOS/Windows 49152+). A listen(0) port flaked: once
+  // released, a concurrent test's outgoing connection or listen(0) could take it, and both apps then waited out signInMs.
+  let port;
+  for (let tries = 0; ; tries++) {
+    if (tries === 50) throw new Error('No free callback port in 20000-31999 after 50 tries');
+    const reserve = createServer().listen(20000 + Math.floor(Math.random() * 12000), '127.0.0.1');
+    try { await once(reserve, 'listening'); } catch { continue; }
+    port = reserve.address().port;
+    await new Promise(resolve => reserve.close(resolve));
+    break;
+  }
   const providers = [], children = [];
-  const wait = (child, type) => new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => { cleanup(); reject(new Error(`Timed out waiting for ${type}`)); }, 12000);
-    const handler = message => { if (message.type === type) { cleanup(); resolve(message); } };
-    const exited = code => { cleanup(); reject(new Error(`Child exited ${code}`)); };
-    const cleanup = () => { clearTimeout(timeout); child.off('message', handler); child.off('exit', exited); };
-    child.on('message', handler); child.on('exit', exited);
-  });
+  const wait = (child, type) => {
+    const waiting = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => { cleanup(); reject(new Error(`Timed out waiting for ${type}`)); }, 12000);
+      const handler = message => { if (message.type === type) { cleanup(); resolve(message); } };
+      const exited = code => { cleanup(); reject(new Error(`Child exited ${code}`)); };
+      const cleanup = () => { clearTimeout(timeout); child.off('message', handler); child.off('exit', exited); };
+      child.on('message', handler); child.on('exit', exited);
+    });
+    // A wait still pending when a failure kills the children must not crash as an unhandled rejection and hide that failure.
+    waiting.catch(() => {});
+    return waiting;
+  };
   const start = async email => {
     const provider = await mockOpenAI({ email }); providers.push(provider);
     const child = fork(fileURLToPath(import.meta.url), ['child'], {

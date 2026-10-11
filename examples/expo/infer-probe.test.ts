@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { URL } from 'node:url';
-import { REALISTIC_PANE } from './infer-pane-fixture.ts';
-import { LocalModel, InferError, paneText, model, summaryWords, errorWords, words } from '../../packages/infer/src/index.ts';
+import { LocalModel, InferError, model, summaryWords, errorWords, words } from '../../packages/infer/src/index.ts';
 import { memoryModelStore } from '../../packages/infer/src/testing.ts';
 import { fakeLlama } from '../../packages/infer/src/testing.ts';
 import { completionProbe, completionReceiptText } from './infer-probe.ts';
@@ -24,13 +23,6 @@ test('validation refusal and runtime failure have distinct truthful copy; raw re
   assert.ok(view.includes('summaryWords(summary.code)'));
   assert.ok(view.includes('completionReceiptText(PROBE, __DEV__, completionText)'));
   assert.ok(view.includes('{!!debugCompletionText && <Text testID="infer-completion-receipt" style={s.small}>{debugCompletionText}</Text>}'));
-});
-
-test('fixed realistic pane fits unchanged line/character preparation limits without dropping lines', () => {
-  assert.ok(REALISTIC_PANE.length <= 80);
-  assert.ok(REALISTIC_PANE.join('\n').length <= 6000);
-  assert.deepEqual(paneText(REALISTIC_PANE), REALISTIC_PANE.map(line => line.replace(/</g, '‹').replace(/>/g, '›')),
-    'normal chat-token neutralization only; no dropped, truncated or redacted lines');
 });
 
 test('own-lab completion observer preserves options/context/output and records before the caller parses', async () => {

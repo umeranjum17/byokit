@@ -5,7 +5,7 @@
 // Output: src/generated/protocol.ts — each verb's flat wire request (the schema's `oneOf` branches), the shared defs,
 //         and each verb's result keys read from the schema's `$comment` (the schema types requests only).
 //
-// Deterministic: test/generated.test.ts regenerates and compares. Run via `npm run gen:write`.
+// Deterministic. Run via `npm run gen:write`.
 import { compile } from 'json-schema-to-typescript';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

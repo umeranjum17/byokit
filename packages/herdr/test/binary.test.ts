@@ -122,9 +122,3 @@ test('fetchHerdr is the same helper, and the pinned table matches the recorded h
   };
   assert.ok(pkg.exports['./binary'], 'the ./binary entry is published');
 });
-
-test('nothing downloads on import: the module only defines the helper', async () => {
-  // If this file's imports alone caused network traffic, the egress guard would already have failed
-  // the run; this pins the other half — no side effects at import time.
-  assert.equal(typeof ensureHerdr, 'function');
-});

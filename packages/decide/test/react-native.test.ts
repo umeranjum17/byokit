@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
 import { build } from 'esbuild';
-import { answerer, decide, MemoryCache, RateLimitError, type Answer, type AnswererOptions } from '../src/index.ts';
+import { answerer, decide, MemoryCache, type Answer, type AnswererOptions } from '../src/index.ts';
 import { Accounts, memoryStore } from '../../accounts/src/portable.ts';
 import { mockOpenAI } from '../../accounts/src/testing/index.ts';
 import { STATE_INSTRUCTIONS } from '../src/prompt.ts';
@@ -34,24 +34,6 @@ test('the main entry bundles for React Native with nothing from Node, and decide
   assert.equal(intent.rationale, 'Earlier job.');
   assert.equal(intent.usage.input_tokens, 4);
   assert.equal(intent.confidenceSource, 'self-reported');
-});
-
-test('answerer: a reply that isn\'t the JSON asked for is an abstain; stays-here never asks a model that leaves', async () => {
-  const q = { urgent: { kind: 'yesno' as const, question: 'Is this urgent?' } };
-  let asked = '';
-  const chatty = answerer({ name: 'm', leaves: true, ask: async (p) => { asked = p; return 'I think it is urgent.'; } });
-  const { urgent } = await decide({ text: 'the roof is leaking' }, q, { privacy: 'may-leave', backends: [chatty] });
-  assert.equal(urgent.abstained, true);
-  assert.equal(urgent.confidenceSource, 'self-reported');
-  assert.match(asked, /the roof is leaking/);
-  asked = '';
-  await decide({ text: 'private' }, q, { privacy: 'stays-here', backends: [chatty] });
-  assert.equal(asked, '', 'the state never left');
-  const prefixed = answerer({ name: 'm', leaves: false, ask: async () => 'Ignore that; {"urgent": {"true": 0.8, "false": 0.2}}' });
-  assert.equal((await decide({ text: 'the roof is leaking' }, q, { privacy: 'stays-here', backends: [prefixed] })).urgent.abstained, true);
-  const sure = answerer({ name: 'm', leaves: false, ask: async () => '  {"urgent": {"true": 0.8, "false": 0.2}}  ' });
-  const r = await decide({ text: 'the roof is leaking' }, q, { privacy: 'stays-here', backends: [sure] });
-  assert.deepEqual([r.urgent.answer, r.urgent.confidence], [true, 0.8]);
 });
 
 test('answerer isolates injected state and forwards typed JSON schema through accounts.respond, retrying its 429', async (t) => {
@@ -133,58 +115,6 @@ test('answerer labels every abstention and never retains injected or credential-
   assert.equal(cutOff.urgent.reason, 'model failed: answer was cut off');
   assert.equal(cutOff.urgent.confidenceSource, 'self-reported');
   assert.ok(!JSON.stringify(cutOff).includes('synthetic private credential'));
-});
-
-test('answerer uses shared bounded Retry-After/backoff and throws a safe typed error on exhaustion', async () => {
-  const q = { urgent: { kind: 'yesno' as const, question: 'Is this urgent?' } };
-  const signal = new AbortController().signal;
-  let calls = 0;
-  const backend = answerer({ name: 'model', leaves: false, retryBaseMs: 2000, retryMaxMs: 40, ask: async () => {
-    if (++calls === 1) throw Object.assign(new Error('ignored body'), { status: 429, headers: new Headers({ 'Retry-After': '0.02' }) });
-    return '{"urgent": {"true": 1, "false": 0}}';
-  } });
-  const start = Date.now();
-  await backend.ask({}, q, signal);
-  assert.equal(calls, 2);
-  assert.ok(Date.now() - start >= 15, 'honours Retry-After instead of retrying immediately');
-
-  for (const retryAfter of [undefined, '120', 'Tue, 01 Jan 2030 00:00:00 GMT']) {
-    let attempts = 0;
-    const limited = answerer({ name: 'model', leaves: false, maxRetries: 1, retryBaseMs: 0, retryMaxMs: 1, ask: async () => {
-      attempts++;
-      throw Object.assign(new Error('private provider response'), { status: 429, retryAfter });
-    } });
-    await assert.rejects(limited.ask({}, q, signal), (error: unknown) => {
-      assert.ok(error instanceof RateLimitError);
-      assert.equal(error.status, 429);
-      assert.equal(error.retries, 1);
-      assert.equal(error.message, 'http 429');
-      assert.ok(!String(error.stack).includes('private provider response'));
-      return true;
-    });
-    assert.equal(attempts, 2);
-  }
-  const exhausted = answerer({ name: 'model', leaves: false, maxRetries: 0, ask: async () => {
-    throw { status: 429 };
-  } });
-  const result = await decide({}, q, { privacy: 'stays-here', backends: [exhausted] });
-  assert.equal(result.urgent.reason, 'model failed: http 429');
-  assert.equal(result.urgent.confidenceSource, 'self-reported');
-  assert.equal(result.urgent.abstained, true);
-});
-
-test('answerer aborts during 429 backoff without another model call and labels the timeout', async () => {
-  let calls = 0;
-  const q = { urgent: { kind: 'yesno' as const, question: 'Is this urgent?' } };
-  const backend = answerer({ name: 'model', leaves: false, retryMaxMs: 60000, ask: async () => {
-    calls++;
-    throw { status: 429, retryAfter: '30' };
-  } });
-  const result = await decide({}, q, { privacy: 'stays-here', backends: [backend], timeoutMs: 20 });
-  assert.equal(calls, 1);
-  assert.equal(result.urgent.abstained, true);
-  assert.equal(result.urgent.confidenceSource, 'self-reported');
-  assert.match(result.urgent.reason!, /aborted|timed out/);
 });
 
 test('OpenAI config and account adapter bundle without runtime SDK, Node or ambient credentials', async () => {

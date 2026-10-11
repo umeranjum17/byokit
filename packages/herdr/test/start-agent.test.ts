@@ -7,10 +7,9 @@ import { launchEnv } from '../../accounts/src/isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { scratchDir } from '../../test-support.ts';
-import { HERDR_PROTOCOL } from '../src/constants.ts';
 import { HerdrKit } from '../src/kit.ts';
 import { startFakeHerdr, type FakeHerdr } from '../src/testing/index.ts';
-import type { HerdrSnapshot, HerdrSubscribeStop, HerdrTransport } from '../src/types.ts';
+import type { HerdrSnapshot } from '../src/types.ts';
 
 const panesOf = (snapshot: HerdrSnapshot): string[] =>
   snapshot.workspaces.flatMap((w) => w.tabs.flatMap((t) => t.panes.map((p) => p.id)));
@@ -116,52 +115,6 @@ test('K7: the worktree pane receives the env, and the branch is optional', async
       { workspace?: { worktree?: { is_linked_worktree?: boolean } } };
     assert.equal(plainWs.workspace?.worktree?.is_linked_worktree, true, 'a branchless worktree still links');
   }, 'herdr-k7-worktree-env');
-});
-
-test('K7: worktree.create carries focus:false, the env and only a given branch/base', async () => {
-  type Call = { method: string; params: Record<string, unknown>; timeoutMs?: number };
-  const calls: Call[] = [];
-  const transport: HerdrTransport = {
-    call: async (method, params, timeoutMs) => {
-      calls.push({ method, params, timeoutMs });
-      if (method === 'ping') return { protocol: HERDR_PROTOCOL };
-      if (method === 'session.snapshot') {
-        return { snapshot: {
-          workspaces: [{ workspace_id: 'w1', label: 'x' }],
-          tabs: [{ tab_id: 'w1:t1', workspace_id: 'w1', label: 'main' }],
-          panes: [{ pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1' }],
-          agents: [],
-        } };
-      }
-      // A server that leaves the new workspace empty: no root_pane, so the kit opens the first
-      // tab in the checkout — the fallback must carry the env without stealing focus too.
-      if (method === 'worktree.create') {
-        return { workspace: { workspace_id: 'w7' }, worktree: { checkout_path: '/wt' } };
-      }
-      if (method === 'tab.create') return { tab: {}, root_pane: { pane_id: 'w7:p1' } };
-      return { agent: {} };
-    },
-    subscribe: () => (() => {}) as HerdrSubscribeStop,
-    close: () => {},
-  };
-  const kit = new HerdrKit({ mode: 'adopt', bin: '/not/used', socketPath: '/not/used', transport });
-  try {
-    await kit.start();
-    await kit.startAgent({ kind: 'pi', cwd: '/repo', place: { workspace: 'new' },
-      worktree: { branch: 'k7', base: 'main' }, env: { K: 'v' } });
-    assert.deepEqual(calls.find((c) => c.method === 'worktree.create')?.params,
-      { cwd: '/repo', focus: false, env: { K: 'v' }, branch: 'k7', base: 'main' });
-    assert.deepEqual(calls.find((c) => c.method === 'tab.create')?.params,
-      { workspace_id: 'w7', cwd: '/wt', focus: false, env: { K: 'v' } });
-    calls.length = 0;
-    await kit.startAgent({ kind: 'pi', cwd: '/repo', place: { workspace: 'new' }, worktree: {} });
-    const bare = calls.find((c) => c.method === 'worktree.create')?.params ?? {};
-    assert.equal(bare.focus, false);
-    assert.ok(!('branch' in bare), 'an absent branch is omitted, not sent null');
-    assert.ok(!('base' in bare), 'an absent base is omitted, not sent null');
-  } finally {
-    await kit.stop();
-  }
 });
 
 

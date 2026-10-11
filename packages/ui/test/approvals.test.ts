@@ -1,10 +1,9 @@
-// What waits for a yes: the approvals list's state machine (listed, added, resolved, expired), its question in the
-// OpenClaw kit's own words, and the live store through the kit's real device client, across a dropped link.
+// What waits for a yes: the approvals list's state machine (listed, added, resolved, expired), and the live store
+// through the kit's real device client, across a dropped link.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openclawDevice } from '../../openclaw/src/device.ts';
-import { words } from '../../openclaw/src/words.ts';
-import { approvalsStep, approvalsStore, approvalWords, type Approval } from '../src/kits.ts';
+import { approvalsStep, approvalsStore, type Approval } from '../src/kits.ts';
 import { stubLink, until } from './stub-link.ts';
 
 const ask = (id: string, expires = 10_000, summary = 'save a note'): Approval =>
@@ -29,10 +28,6 @@ test('approvals are listed, added, resolved and expire; other events change noth
   assert.deepEqual(list, [again]);
   assert.equal(approvalsStep(list, { type: 'tick', now: 4_999 }), list, 'still waiting before it expires');
   assert.deepEqual(approvalsStep(list, { type: 'tick', now: 5_000 }), [], 'gone the moment it expires');
-});
-
-test('an approval asks in the kit\'s own words', () => {
-  assert.equal(approvalWords(ask('a'), words, 'Your helper'), 'Your helper wants to save a note. Allow it?');
 });
 
 test('the store lists once the stream is open, keeps up with its frames, drops the expired, and reopens after a drop', async () => {

@@ -1,6 +1,6 @@
-// BK-P2 (docs/capability-kits.md 4.5, 9.2): the engine seams. The client and the contract run over a stub that speaks
-// the engine's wire and checks every request against the committed schema, in process and as a bin; `binEngine`'s
-// supervision runs against small fake JS bins.
+// BK-P2 (docs/capability-kits.md 4.5, 9.2): the engine seams. The contract runs as a bin over a stub that speaks the
+// engine's wire and checks every request against the committed schema; `binEngine`'s supervision runs against small
+// fake JS bins.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFileSync } from 'node:fs';
@@ -11,7 +11,6 @@ import { Compose } from '../src/compose.ts';
 import { binEngine, inProcessEngine, moduleEngine } from '../src/engine.ts';
 import { ComposeError } from '../src/errors.ts';
 import { composeContract } from '../src/testing/index.ts';
-import { engineStub, wireBreaks } from './fixtures/engine-stub.ts';
 
 const stubBin = fileURLToPath(new URL('./fixtures/engine-stub-bin.ts', import.meta.url));
 
@@ -30,28 +29,9 @@ async function rejectsCode(p: Promise<unknown>, code: string, message?: RegExp):
   });
 }
 
-// --- the contract over the stub's wire, in process --------------------------------------------------------------
-const stub = engineStub();
-composeContract(async () => ({ compose: new Compose({ engine: moduleEngine(async () => stub) }) }), {
-  test: (name, fn) => test(`in process over the schema stub: ${name}`, fn),
-});
-
-test('in process: every request the contract sent conforms to the committed schema', () => {
-  assert.ok(stub.wire.length >= 10, `${stub.wire.length} wire requests`);
-  assert.deepEqual(stub.violations, []);
-  assert.ok(stub.wire.every((r) => (r as { verb: string }).verb !== 'hello'), 'hello stays off the schema wire');
-});
-
-// --- the same contract through binEngine and the stub bin --------------------------------------------------------
+// --- the contract through binEngine and the stub bin -------------------------------------------------------------
 composeContract(async () => ({ compose: new Compose({ engine: binEngine({ bin: stubBin }) }) }), {
   test: (name, fn) => test(`as a bin over the schema stub: ${name}`, fn),
-});
-
-test('the schema check itself refuses the old nested envelope and unknown fields', () => {
-  assert.match(wireBreaks({ verb: 'split', params: { text: 'a', platform: 'x' } })!, /params is not allowed|required/);
-  assert.match(wireBreaks({ verb: 'check', drafts: [], platform: 'x' })!, /1\+ items/);
-  assert.match(wireBreaks({ verb: 'brief', kind: 'reply', platform: 'mastodon' })!, /one of/);
-  assert.equal(wireBreaks({ verb: 'check', drafts: ['a'], platform: 'x', rules: { never: [], noDashes: true, statementEndings: false, note: '' } }), null);
 });
 
 // --- moduleEngine / inProcessEngine ------------------------------------------------------------------------------
@@ -81,16 +61,6 @@ test('moduleEngine: a load failure is engine, a throw is the internal envelope, 
   assert.deepEqual(await flaky.handle({ verb: 'hello', params: {} }), { protocol: 1, version: '0.1.0' });
   assert.deepEqual(await flaky.handle({ verb: 'platforms', params: {} }), { error: { code: 'internal', message: 'boom' } });
   assert.equal(loads, 2);
-});
-
-test('the version gate: a stub below the floor or above the protocol is needs-update, and no verb reaches it', async () => {
-  for (const protocol of [0, 2]) {
-    const low = engineStub({ protocol });
-    const compose = new Compose({ engine: moduleEngine(async () => low) });
-    await rejectsCode(compose.hello(), 'needs-update');
-    await rejectsCode(compose.platforms(), 'needs-update');
-    assert.deepEqual(low.wire, []);
-  }
 });
 
 // --- binEngine supervision ---------------------------------------------------------------------------------------

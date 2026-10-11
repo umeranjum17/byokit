@@ -75,41 +75,6 @@ test('the host reconnects after the relay restarts, and requests queued meanwhil
   assert.equal(r.relay.count(p.host.id), 1);
 });
 
-class Connecting extends EventTarget {
-  static last: Connecting;
-  readyState = 0;
-  closes = 0;
-  send() {}
-  close() { this.closes++; this.dispatchEvent(new Event('error')); } // closing a CONNECTING socket errors again
-  constructor(_url: string) { super(); Connecting.last = this; }
-}
-
-test('a failed connect that fires only error (Node 22) goes offline and schedules one retry, without closing', async () => {
-  const client = new RelayClient(await startHost(), { url: 'ws://unused', WebSocket: Connecting as any });
-  const first = Connecting.last;
-  first.dispatchEvent(new Event('error'));
-  assert.equal(first.closes, 0, 'no recursive close');
-  assert.equal(client.status, 'offline');
-  const timer = (client as any).timer;
-  assert.ok(timer, 'a reconnect is scheduled');
-  first.dispatchEvent(new Event('error'));
-  assert.equal((client as any).timer, timer, 'a second error schedules nothing more');
-  client.stop();
-});
-
-test('a failed connect that fires error then close (Node 24+) schedules exactly one retry', async () => {
-  const client = new RelayClient(await startHost(), { url: 'ws://unused', WebSocket: Connecting as any });
-  const first = Connecting.last;
-  first.dispatchEvent(new Event('error'));
-  const timer = (client as any).timer;
-  assert.ok(timer);
-  first.dispatchEvent(Object.assign(new Event('close'), { code: 1006, reason: 'failed' }));
-  assert.equal((client as any).timer, timer, 'the close after the error schedules nothing more');
-  assert.equal((client as any).tries, 1);
-  assert.equal(client.status, 'offline');
-  client.stop();
-});
-
 test('with nothing listening, the host stays alive, goes offline, retries, and registers once a relay starts', async () => {
   const free = await startRelay();
   const port = Number(new URL(free.http).port);

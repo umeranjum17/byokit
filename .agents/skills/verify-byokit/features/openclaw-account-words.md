@@ -36,6 +36,6 @@ console.log('DRIVE OK');
 
 ## Gotchas
 
-- The words live in `src/words.json`; `test/words.test.ts` holds a verbatim copy, so a new key changes both files together.
+- The words live in `src/words.json`.
 - `%` is banned in `words.json`; the kit appends the sign when it renders `{left}`.
 - No `@byokit/accounts` import (D3): the shapes are restated, so a change there does not flow through automatically.

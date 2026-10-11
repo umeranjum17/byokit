@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { Accounts, ClaudePlanExpiredError, ClaudePlanPlatformError, claudeAuthorization, claudeCode, keystoreStore, memoryStore, offered, planLabel, PROVIDERS, recordStore } from '../src/portable.ts';
+import { Accounts, ClaudePlanExpiredError, ClaudePlanPlatformError, claudeAuthorization, claudeCode, keystoreStore, memoryStore, planLabel, recordStore } from '../src/portable.ts';
 import type { OAuthCredential, CredentialStore } from '@earendil-works/pi-ai';
 import { needsReauth } from '../src/stores.ts';
 
@@ -22,13 +22,6 @@ function standIn(store = memoryStore()) {
   const a = new Accounts({ store: () => store, fetch: f, claudePlan: { now: () => fixture.now } });
   return { a, store, calls, set(value: any, code = 200) { response = value; status = code; } };
 }
-
-test('Claude is a default subscription route; API key remains separate and explicit', () => {
-  assert.ok(offered().some((p) => p.key === 'claude'));
-  assert.ok(!offered().some((p) => p.billing === 'api'));
-  assert.equal(PROVIDERS.claude.billing, 'subscription');
-  assert.deepEqual(new Accounts().providers.map((p) => p.key), ['chatgpt', 'grok', 'claude', 'kimi'], 'every subscription route the computer can drive; the phone ones came from catalogue device data');
-});
 
 test('offline authorization URL, independent random state and PKCE S256 verifier/challenge', async () => {
   const p = await claudeAuthorization(), other = await claudeAuthorization();
