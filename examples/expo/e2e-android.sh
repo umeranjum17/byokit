@@ -1,7 +1,7 @@
 #!/bin/sh
 # Sign in with ChatGPT on an Android emulator, end to end against the stand-in OpenAI: device code shown in the app,
 # typed on the stand-in's page, kept in secure storage across a restart, refreshed, asked (the answer streaming in, then
-# a decision), signed out (revoked there); and paired with a @byokit/link host on this computer (e2e-host.mts), the
+# a decision), signed out (revoked there); and paired with a @byokit/pair host on this computer (e2e-host.mts), the
 # grant kept in secure storage across a restart.
 #   ./e2e-android.sh <emulator-serial>     (builds the stand-in release APK)
 set -eu

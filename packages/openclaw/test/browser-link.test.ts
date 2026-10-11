@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { Host, DeviceLink, keyPair, pairWithOffer, type Grant } from '@byokit/link';
+import { Host, DeviceLink, keyPair, pairWithOffer, type Grant } from '@byokit/pair';
 import type { OpenClawKit } from '../src/kit.ts';
 import { openclawLink } from '../src/link.ts';
 import { browserDevice, openclawDevice, openSignInNotice } from '../src/device.ts';

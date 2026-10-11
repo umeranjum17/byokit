@@ -1,4 +1,4 @@
-// Host-side link adapter (7.1): typed, member-checked ops over @byokit/link, sealed approval push
+// Host-side link adapter (7.1): typed, member-checked ops over @byokit/pair, sealed approval push
 // via the relay (7.3). Node only.
 import { randomUUID } from 'node:crypto';
 import { sealBox } from '@byokit/seal';
@@ -13,7 +13,7 @@ import {
   type HostOptions,
   type LinkRequest,
   type LinkStream,
-} from '@byokit/link';
+} from '@byokit/pair';
 import { reach, type ServeIngress, type Via } from '@byokit/discover';
 import type { PushAction, RelayClient } from '@byokit/relay';
 import { ENGINE_VERSION } from './constants.ts';
@@ -255,7 +255,7 @@ export function openclawLink(
     if (grant.role === 'view' && !VIEW_OPS.has(req.op)) throw refused();
     const args = isRecord(req.args) ? req.args : {};
     if (req.op.startsWith('oc.browser.')) {
-      // Keyed answers may be persisted by @byokit/link. Lease nonces and JPEGs are transient only.
+      // Keyed answers may be persisted by @byokit/pair. Lease nonces and JPEGs are transient only.
       if (req.key !== undefined) throw refused();
       const host = browser();
       const action = req.op.slice('oc.browser.'.length);

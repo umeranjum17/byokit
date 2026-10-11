@@ -1,4 +1,4 @@
-import type { DeviceLink, Grant, LinkRequest } from '@byokit/link';
+import type { DeviceLink, Grant, LinkRequest } from '@byokit/pair';
 import type { Backend, Question, Raw } from './index.ts';
 import { jev } from './jev.ts';
 import { UnsupportedImagesError } from './images.ts';

@@ -1,7 +1,7 @@
 // The helper's browser on the phone: the "Sign in to {site}" sheet, the chip in the chat, and the live panel. Plain
-// DOM, drawn only from @byokit/ui-core's views; `say` is the kit's own `words`. Nothing here keeps what the person
+// DOM, drawn only from @byokit/ui's views; `say` is the kit's own `words`. Nothing here keeps what the person
 // types: keys and text go straight to `send`, which hands them to the lease-holding live stream.
-import type { LivePanel, SignInAction, SignInSheet, SignInVars } from '@byokit/ui-core/kits';
+import type { LivePanel, SignInAction, SignInSheet, SignInVars } from '@byokit/ui/kits';
 
 export type Say = (key: string, vars?: Partial<SignInVars> & { note?: string }) => string;
 

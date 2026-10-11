@@ -16,7 +16,7 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Page } from 'playwright';
-import { DeviceLink, pairWithCode } from '@byokit/link';
+import { DeviceLink, pairWithCode } from '@byokit/pair';
 import { openclawDevice } from '@byokit/openclaw/device';
 import { Relay } from '@byokit/relay';
 import { findHost } from '@byokit/relay/device';

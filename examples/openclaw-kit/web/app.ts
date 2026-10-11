@@ -1,13 +1,13 @@
 // The phone side: pair with the computer, sign in with ChatGPT there (a device code typed on ChatGPT's own page), send
 // the helper a message and watch its reply arrive, and allow or deny what it asks first. Plain DOM; every status a
-// person reads is a sentence from @byokit/openclaw's or @byokit/ui-core's words.
-import { DeviceLink, browserDeviceStore, normalizeCode, pairWithCode, pairWithOffer, type DeviceGrant, type KeptDevice } from '@byokit/link';
+// person reads is a sentence from @byokit/openclaw's or @byokit/ui's words.
+import { DeviceLink, browserDeviceStore, normalizeCode, pairWithCode, pairWithOffer, type DeviceGrant, type KeptDevice } from '@byokit/pair';
 import { openclawDevice, words, type AccountView, type Approval, type RunEnd } from '@byokit/openclaw/device';
-import { phaseOf } from '@byokit/ui-core';
-import { livePanelView, signInSheetView, signInsStore, type SignInAction, type SignInRequest } from '@byokit/ui-core/kits';
+import { phaseOf } from '@byokit/ui';
+import { livePanelView, signInSheetView, signInsStore, type SignInAction, type SignInRequest } from '@byokit/ui/kits';
 import type { TakeoverLease } from '@byokit/openclaw/device';
 import { livePanel, signInCard, signInChip, type Say } from './browser.ts';
-import { consentWords, linkWords, pairingView, type PairPhase } from '@byokit/ui-core/link';
+import { consentWords, linkWords, pairingView, type PairPhase } from '@byokit/ui/link';
 
 type Device = ReturnType<typeof openclawDevice>;
 

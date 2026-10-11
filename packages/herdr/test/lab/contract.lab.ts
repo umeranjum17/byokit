@@ -30,7 +30,7 @@ import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import {
   DeviceLink, Host, keyPair, pairWithOffer,
   type DeviceGrant, type Grant,
-} from '@byokit/link';
+} from '@byokit/pair';
 import { HERDR_PROTOCOL, HERDR_VERSION } from '../../src/constants.ts';
 import { HerdrKit } from '../../src/kit.ts';
 import { herdrLink, serve, type HerdrScope } from '../../src/link.ts';

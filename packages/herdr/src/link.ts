@@ -1,4 +1,4 @@
-// Host-side link adapter: the hd.* ops over @byokit/link, and the serve() wiring (duplicated per kit by design,
+// Host-side link adapter: the hd.* ops over @byokit/pair, and the serve() wiring (duplicated per kit by design,
 // D3) — built in H7 (docs/runtime-kits.md 7.1-7.3).
 //
 // Permission shape: `allow` lets every request through and `handle`/`stream` refuse with the `link.notAllowed`
@@ -9,7 +9,7 @@ import { WebSocketServer } from 'ws';
 import {
   PublicLinkError,
   type Grant, type Host, type HostOptions, type LinkRequest, type LinkStream, type Socket,
-} from '@byokit/link';
+} from '@byokit/pair';
 import { reach, type ServeIngress, type Via } from '@byokit/discover';
 import type { RelayClient } from '@byokit/relay';
 import type { HerdrKit } from './kit.ts';

@@ -2,8 +2,8 @@
 // through ui-core's phaseOf (waiting/code/done and the failure whys).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { DeviceLink } from '@byokit/link';
-import { phaseOf } from '@byokit/ui-core';
+import type { DeviceLink } from '@byokit/pair';
+import { phaseOf } from '@byokit/ui';
 import { LinkRefused, openclawDevice } from '../src/device.ts';
 import { sealNotice } from '../src/notices.ts';
 import type { Approval, GatewayResult } from '../src/types.ts';

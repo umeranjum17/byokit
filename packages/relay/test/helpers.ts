@@ -3,7 +3,7 @@
 import { after } from 'node:test';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { DeviceLink, Host, keyPair, pairWithOffer, type DeviceGrant, type Grant, type KeyPair, type LinkStatus } from '@byokit/link';
+import { DeviceLink, Host, keyPair, pairWithOffer, type DeviceGrant, type Grant, type KeyPair, type LinkStatus } from '@byokit/pair';
 import { Relay, RelayClient, type RelayClientOptions, type RelayOptions, type RelayState, type RelayStatus } from '../src/index.ts';
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

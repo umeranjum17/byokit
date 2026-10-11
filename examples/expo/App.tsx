@@ -1,7 +1,7 @@
 // byokit on a phone (iOS and Android): "Sign in with ChatGPT" (@byokit/accounts' device code) and "Sign in with Claude"
 // (its own page, whose code the person pastes back), kept in the phone's secure storage, @byokit/ui's sheet
 // phases; asking either with the answer streaming in (expo/fetch), a decision
-// with @byokit/decide's answerer, pairing with a computer over @byokit/link, and sealing data with @byokit/seal. For a demo with no account, point it
+// with @byokit/decide's answerer, pairing with a computer over @byokit/pair, and sealing data with @byokit/seal. For a demo with no account, point it
 // at the stand-in OpenAI and a link host on this computer (see e2e-android.sh):
 //   EXPO_PUBLIC_OPENAI_BASE=http://10.0.2.2:21455 npx expo run:android   (after `npm run mock` in this folder)
 import { useEffect, useRef, useState } from 'react';
@@ -15,7 +15,7 @@ import { CryptoDigestAlgorithm, digest, getRandomValues } from 'expo-crypto';
 import { fetch as streamingFetch } from 'expo/fetch';
 import { Accounts, PROVIDERS, planLabel, say, secureStore, type Status } from '@byokit/accounts';
 import { answerer, decide } from '@byokit/decide';
-import { DeviceLink, secureDeviceStore, type LinkStatus } from '@byokit/link';
+import { DeviceLink, secureDeviceStore, type LinkStatus } from '@byokit/pair';
 import { boxKeyPairFromSeed, openBox, openSecretBox, sealBox, sealSecretBox, signDetached, signingKeyPairFromSeed, verifyDetached } from '@byokit/seal';
 import { forgettableStore, pairInput, pairingGeneration } from './pairing.ts';
 import { linkWords, pairingView, useSignIn, type PairPhase } from '@byokit/ui';

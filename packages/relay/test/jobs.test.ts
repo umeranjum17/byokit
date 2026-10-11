@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
 import { build } from 'esbuild';
-import { Host, keyPair, pairWithOffer, LinkStream } from '@byokit/link';
+import { Host, keyPair, pairWithOffer, LinkStream } from '@byokit/pair';
 import { JobChannel, readJobStream, type JobFrame, type JobWriter } from '../src/index.ts';
 import { readJobStream as deviceReader } from '../src/device.ts';
 import { device, hostClient, onEnd, startRelay, until } from './helpers.ts';
@@ -142,7 +142,7 @@ test('reader handles fragmented UTF-8, rejects reordered frames and waits for ap
 test('device reader bundles and reads text and image without Node globals or TextDecoder (React Native)', async () => {
   const bundle = await build({
     stdin: { contents: `import { readJobStream } from '@byokit/relay/device';
-      import { LinkStream } from '@byokit/link';
+      import { LinkStream } from '@byokit/pair';
       const s = new LinkStream(1, 'job.follow', {}, { send() {}, data() {} }, () => {});
       const frames = [];
       globalThis.result = readJobStream(s, { job: 'j' }, f => frames.push(f)).then(seq => ({ seq, frames }));

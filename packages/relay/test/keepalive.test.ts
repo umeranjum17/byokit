@@ -4,7 +4,7 @@
 // peer that never answers, which is what a half-open socket looks like from the inside.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { keyPair } from '@byokit/link';
+import { keyPair } from '@byokit/pair';
 import { RelayClient, type RelayStatus } from '../src/index.ts';
 import { challenge } from '../src/proof.ts';
 import { grantStore, hostClient, onEnd, sleep, startHost, startRelay, until } from './helpers.ts';

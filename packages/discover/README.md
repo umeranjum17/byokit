@@ -8,7 +8,7 @@
 </p>
 
 <p align="center"><strong>The addresses a phone can dial the home computer on.</strong><br/>
-For <code>@byokit/link</code>'s <code>offer({ urls })</code>: Tailscale Serve, direct Tailscale, a private overlay
+For <code>@byokit/pair</code>'s <code>offer({ urls })</code>: Tailscale Serve, direct Tailscale, a private overlay
 network or the LAN. On Node it can also advertise the computer over mDNS; on a phone (React Native) it browses the
 mDNS services around it.</p>
 
@@ -362,7 +362,7 @@ binary never runs, and no packet goes out: mDNS advertise uses a fake publisher,
 ## Links
 
 - [byokit](../../README.md): the other packages and the examples
-- [`@byokit/link`](../link): pairing and the encrypted link these addresses are for
+- [`@byokit/pair`](../pair): pairing and the encrypted link these addresses are for
 - [`examples/herdr-kit`](../../examples/herdr-kit): a Herdr host that picks a `via` route and persists the Serve `ingress`
 - [CHANGELOG.md](CHANGELOG.md)
 

@@ -487,8 +487,7 @@ that decision. It needs the published kit's bundled engine patch, not a separate
 ## Phones and browsers
 
 The host side serves member-checked ops over `@byokit/pair`; the phone or browser uses the portable client.
-(This kit depends on `@byokit/link`, the deprecated name of [`@byokit/pair`](../pair), and its examples import from
-there. Both packages resolve to the same module and the same API, so `@byokit/pair` works unchanged in a new app.)
+(This kit depends on [`@byokit/pair`](../pair), and its examples import from there.)
 
 ```ts
 import { Host, keyPair, type DeviceLink } from '@byokit/pair';

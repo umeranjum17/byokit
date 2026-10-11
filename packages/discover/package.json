@@ -39,7 +39,7 @@
     "prepack": "tsc -b"
   },
   "dependencies": {
-    "@byokit/ui-core": "0.6.0",
+    "@byokit/ui": "0.6.0",
     "bonjour-service": "^1.4.4",
     "react-native-zeroconf": "0.17.3"
   },

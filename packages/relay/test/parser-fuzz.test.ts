@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { keyPair } from '@byokit/link';
+import { keyPair } from '@byokit/pair';
 import { challenge, prove } from '../src/proof.ts';
 import { DEFAULT_PUSH_HOSTS, isAllowedEndpoint, parseNotification, parseSubscription } from '../src/push.ts';
 

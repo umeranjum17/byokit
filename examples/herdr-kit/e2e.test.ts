@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium, type Page } from 'playwright';
 import { herdrDevice } from '@byokit/herdr/device';
-import { DeviceLink, pairWithCode } from '@byokit/link';
+import { DeviceLink, pairWithCode } from '@byokit/pair';
 import { Relay } from '@byokit/relay';
 import { findHost } from '@byokit/relay/device';
 import { scratchDir, trackChild } from '../../packages/test-support.ts';

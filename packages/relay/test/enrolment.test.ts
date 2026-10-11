@@ -3,7 +3,7 @@
 // machine without touching another.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hostId, keyPair, pairWithOffer, DeviceLink } from '@byokit/link';
+import { hostId, keyPair, pairWithOffer, DeviceLink } from '@byokit/pair';
 import { CLOSE, MAX_ENROLMENT_META_BYTES, ownerClient, RelayOwnerError } from '../src/index.ts';
 import { closed, grantStore, hostClient, paired, startHost, startRelay, until } from './helpers.ts';
 

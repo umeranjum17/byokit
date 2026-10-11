@@ -2,7 +2,7 @@
 // KitState.phase covered, and toAccountView flowing through ui-core's phaseOf unchanged.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { phaseOf, type AccountView as UiCoreAccountView } from '@byokit/ui-core';
+import { phaseOf, type AccountView as UiCoreAccountView } from '@byokit/ui';
 import { stateWords, toAccountView, words, type WordKey } from '../src/words.ts';
 import type { KitState, SignInView } from '../src/types.ts';
 import wordsJson from '../src/words.json' with { type: 'json' };

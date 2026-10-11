@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { boxKeyPairFromSeed } from '@byokit/seal';
-import type { DeviceLink, LinkStream } from '@byokit/link';
+import type { DeviceLink, LinkStream } from '@byokit/pair';
 import { herdrDevice } from '../src/device.ts';
 import { boxPublicKeyB64, openNotice, sealNotice } from '../src/notices.ts';
 import type { BlockedAgent, HerdrResult } from '../src/types.ts';
