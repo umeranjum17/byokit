@@ -503,6 +503,12 @@ jobs:
         working-directory: examples/expo
       - run: CI=1 npx expo prebuild -p ios --no-install
         working-directory: examples/expo
+      - name: Assert the discover plugin wrote the iOS Bonjour keys
+        working-directory: examples/expo
+        run: |
+          grep -A3 NSBonjourServices ios/*/Info.plist
+          grep -q '_byokit._tcp' ios/*/Info.plist
+          grep -q 'NSLocalNetworkUsageDescription' ios/*/Info.plist
       - run: pod install
         working-directory: examples/expo/ios
       - run: xcodebuild -workspace byokitexample.xcworkspace -scheme byokitexample -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
