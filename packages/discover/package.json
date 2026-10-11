@@ -24,7 +24,9 @@
     "./react-native": {
       "types": "./dist/native.d.ts",
       "default": "./dist/native.js"
-    }
+    },
+    "./app.plugin.js": "./app.plugin.js",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -33,7 +35,8 @@
     "android",
     "!android/build",
     "ios",
-    "expo-module.config.json"
+    "expo-module.config.json",
+    "app.plugin.js"
   ],
   "scripts": {
     "prepack": "tsc -b"

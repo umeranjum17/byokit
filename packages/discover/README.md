@@ -23,6 +23,25 @@ npm install @byokit/discover
 
 [![npm](https://img.shields.io/npm/v/@byokit/discover?style=flat&label=)](https://www.npmjs.com/package/@byokit/discover) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=discover-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
 
+## iOS setup (Expo)
+
+iOS only returns local-network mDNS results when the app declares the Bonjour service types it browses and
+a usage description. Add the config plugin and list the types you pass to `browse()`:
+
+```json
+{
+  "expo": {
+    "plugins": [["@byokit/discover", { "services": ["_byokit._tcp"] }]]
+  }
+}
+```
+
+`services` is required and must be non-empty; an empty list fails prebuild by name instead of writing an
+empty Bonjour list. `localNetwork` overrides the usage string shown in the iOS prompt (a sensible default
+is used when omitted). Prebuild writes `NSBonjourServices` and `NSLocalNetworkUsageDescription` into
+`Info.plist`; rebuild the native binary after adding the plugin. Android needs no plugin:
+`react-native-zeroconf`'s own manifest already merges `CHANGE_WIFI_MULTICAST_STATE`.
+
 ## Quickstart
 
 ```sh
