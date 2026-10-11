@@ -234,6 +234,11 @@ test('an app rents on Boat and drives the real HTTP machine: no-env, status, exe
     assert.equal((posts.at(-1)?.body as Record<string, unknown>)['detached'], true);
     assert.ok(server.requests.some((r) => r.method === 'GET' && r.path.startsWith(`/sandboxes/${ref.id}/commands/`)));
 
+    // A lost command read (running false, exitCode null) is a provider failure, never exit 0.
+    server.machine.script('lost', { code: 0, stdout: '', stderr: '', timedOut: false });
+    server.loseNextCommand();
+    await rejects(provider.exec(ref, ['lost'], { timeoutMs: 600_000 }), 'provider');
+
     // write outside /home/user/ and /tmp/ rejects before any request; an allowed path lands at its mode.
     const before = server.requests.length;
     const bad = await provider.write(ref, '/etc/evil', new Uint8Array([1]), 0o644).then(() => null, (e) => e as MachineError);

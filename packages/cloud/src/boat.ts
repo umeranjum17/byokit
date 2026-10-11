@@ -275,7 +275,13 @@ export function boat(o: {
   const finish = (json: unknown): ExecResult => {
     const stdout = typeof field(json, 'stdout') === 'string' ? field(json, 'stdout') as string : '';
     const stderr = typeof field(json, 'stderr') === 'string' ? field(json, 'stderr') as string : '';
-    const code = typeof field(json, 'exitCode') === 'number' ? field(json, 'exitCode') as number : 0;
+    const code = field(json, 'exitCode');
+    // boat-v1 declares `exitCode` nullable and a command `status` of `running`, `exited`
+    // or `lost`; a lost or signal-killed command must never read as exit 0.
+    const state = field(json, 'status');
+    if (typeof code !== 'number' || (typeof state === 'string' && state !== 'exited')) {
+      throw new MachineError('provider', `the provider command did not exit${typeof state === 'string' ? ` (${state})` : ''}`);
+    }
     // Exit 124 or 137 from `timeout` resolves `timedOut: true` (6.4).
     return { code, stdout: tail(stdout), stderr: tail(stderr), timedOut: code === 124 || code === 137 };
   };

@@ -1166,7 +1166,8 @@ the `installs` switch on the sandbox bench.
   - `remove` sends the delete-confirmation header with the id, polls the deletion, then deletes every
     `byokit-<name>-` named snapshot and no other.
   - 401 → `unauthorized`; 429 and 5xx retry three times; the key never appears in any error message.
-  - `usage` maps to `Usage`; a zero balance rejects `balance`; `key()` maps expiry.
+  - `usage` maps to `Usage`; a zero balance rejects `balance`; with no current-key route in the API document, `key` is
+    absent from the adapter.
   - G2: `plan()` maps the fake's trial answer; with the trial on, create, resume and fork each end with a `7200`
     request; after the fake ends the trial the next resume is accepted with `null`.
   - G3: every stop reason the API document lists maps to its `AsleepWhy`; with no reason field, `why` is absent from

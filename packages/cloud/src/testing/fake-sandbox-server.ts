@@ -66,6 +66,8 @@ export type SandboxServer = {
   dropNext(n: number): void;
   /** Answer the next request(s) with these one-shot failures first. */
   failNext(failures: readonly { status: number; body?: unknown }[]): void;
+  /** Make the next detached command's status read report a lost command. */
+  loseNextCommand(): void;
   close(): Promise<void>;
 };
 
@@ -100,6 +102,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
   let subscriptionTrialEndsAt: string | null = o.trialEndsAt ?? null;
   let slowWakeReads = o.slowWakeReads ?? 0;
   let drop = 0;
+  let loseCommand = false;
   const failures: { status: number; body?: unknown }[] = [];
 
   const send = (res: http.ServerResponse, status: number, body: unknown): void => {
@@ -282,6 +285,10 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
           const result = sb.commands.get(pidStr);
           if (result === undefined) return send(res, 404, { error: 'not found' });
           const pid = Number.parseInt(pidStr, 10);
+          if (loseCommand) {
+            loseCommand = false;
+            return send(res, 200, { ok: true, type: 'command.status', success: false, processId: pid, pid, status: 'lost', known: false, running: false, exitCode: null, signal: null, oomKilled: false, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false });
+          }
           return send(res, 200, { ok: true, type: 'command.status', success: true, processId: pid, pid, status: 'exited', known: true, running: false, exitCode: result.exitCode, signal: null, oomKilled: false, stdout: result.stdout, stderr: result.stderr, stdoutTruncated: false, stderrTruncated: false });
         }
         if (rest === '/files' && req.method === 'PUT') {
@@ -387,6 +394,9 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
     },
     failNext: (list) => {
       failures.push(...list);
+    },
+    loseNextCommand: () => {
+      loseCommand = true;
     },
     close: () => new Promise<void>((resolve, reject) => {
       server.close((e) => (e !== undefined ? reject(e) : resolve()));
