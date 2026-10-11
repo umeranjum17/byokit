@@ -164,8 +164,19 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     if (!order) { order = {}; orders.set(id, order); }
     return order;
   };
-  const whoOf = (credential: FakeProfile): string | undefined => credential.accountId
+  // As the plugin's accounts.js: `who` only exists for an OAuth profile that stores a provider account id.
+  const whoOf = (credential: FakeProfile): string | undefined => credential.type === 'oauth' && credential.accountId
     ? createHash('sha256').update(`${credential.provider}\n${credential.accountId}`).digest('hex').slice(0, 16) : undefined;
+  // The plugin's token expiry state; a profile with no expiry is static (never expired).
+  const expiryState = (expires: number | undefined, now: number): string => {
+    if (expires === undefined) return 'missing';
+    if (typeof expires !== 'number' || !Number.isFinite(expires) || expires <= 0 || expires > 8.64e13) return 'invalid';
+    return expires <= now ? 'expired' : 'valid';
+  };
+  const statusOf = (credential: FakeProfile, now: number): string => {
+    if (credential.type === 'api_key') return 'static';
+    return expiryState(credential.expires, now) === 'expired' ? 'expired' : 'ok';
+  };
   const signInAgent = (id: string, provider: string, extra?: Partial<FakeProfile>) => {
     const agent = ensureAgent(id);
     if (!agent.providers.includes(provider)) agent.providers.push(provider);
@@ -303,19 +314,45 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       if (p.action === 'seal') { key.sealed = true; return { ok: true }; }
       return { ok: key.sealed, ...(key.sealed ? { model: key.model } : {}) };
     },
-    // Account sealing (5.15): the same five actions the shipped plugin method serves, over a per-agent store.
+    // Account sealing (5.15): the same five actions, branches and refusals the shipped plugin method serves.
     'byokit.accounts': (p) => {
-      const id = String(p.agentId ?? '');
-      const store = storeOf(id), order = orderOf(id);
       const action = String(p.action ?? '');
+      const entries = (configBox.config.agents as { entries?: Record<string, unknown> } | undefined)?.entries;
+      const known = (id: string) => Boolean(id) && Boolean(entries) && id in entries!;
+      if (action === 'adopt') {
+        const from = String(p.from), to = String(p.to), provider = String(p.provider);
+        if (from === to || !known(from) || !known(to)) return { ok: false };
+        const fromOrder = orderOf(from), named = fromOrder[provider] ?? [];
+        const fromId = named.length === 1 ? named[0] : undefined;
+        const credential = fromId ? storeOf(from)[fromId] : undefined;
+        if (!fromId || !credential || credential.provider !== provider || whoOf(credential) !== p.who) return { ok: false };
+        const target = models.get(to);
+        if (typeof target !== 'string') return { ok: false };
+        const toStore = storeOf(to), toOrder = orderOf(to);
+        for (const [otherId, other] of Object.entries(toStore))
+          if (/--[0-9a-f]{6}$/.test(to) ? otherId !== fromId : other.provider === provider && otherId !== fromId) delete toStore[otherId];
+        toStore[fromId] = credential;
+        toOrder[provider] = [fromId];
+        delete storeOf(from)[fromId];
+        if (fromOrder[provider]) { fromOrder[provider] = fromOrder[provider].filter((x) => x !== fromId); if (!fromOrder[provider].length) delete fromOrder[provider]; }
+        const cut = target.lastIndexOf('@');
+        models.set(to, `${cut > 0 ? target.slice(0, cut) : target}@${fromId}`);
+        return { ok: true };
+      }
+      const id = String(p.agentId ?? '');
+      if (!known(id)) return { ok: false };
+      const store = storeOf(id), order = orderOf(id);
       if (action === 'list')
         return { ok: true, profiles: Object.entries(store).map(([profileId, credential]) => ({ provider: credential.provider,
-          profileId, type: credential.type, status: credential.status, ...(whoOf(credential) ? { who: whoOf(credential) } : {}) })) };
+          profileId, type: credential.type, status: statusOf(credential, Date.now()), ...(whoOf(credential) ? { who: whoOf(credential) } : {}) })) };
       if (action === 'clear') { profiles.set(id, {}); orders.set(id, {}); return { ok: true }; }
       if (action === 'ready') {
-        const named = order[String(p.provider)] ?? [];
+        const provider = String(p.provider ?? '');
+        const named = order[provider] ?? [];
         const credential = named.length === 1 ? store[named[0]] : undefined;
-        if (!credential) return { ok: false };
+        if (!provider || !credential || credential.provider !== provider) return { ok: false };
+        const state = credential.type === 'api_key' ? 'valid' : expiryState(credential.expires, Date.now());
+        if (state === 'expired' || state === 'invalid') return { ok: false };
         return { ok: true, type: credential.type, ...(typeof credential.expires === 'number' ? { expiresAt: credential.expires } : {}),
           ...(whoOf(credential) ? { who: whoOf(credential) } : {}) };
       }
@@ -325,28 +362,11 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
         if (at < 1) return { ok: false };
         const profileId = primary.slice(at + 1);
         const credential = store[profileId];
-        if (!credential || credential.provider !== p.provider) return { ok: false };
+        if (!credential || credential.provider !== p.provider || (!/--[0-9a-f]{6}$/.test(id) && credential.type === 'api_key')) return { ok: false };
         for (const [otherId, other] of Object.entries(store))
           if (/--[0-9a-f]{6}$/.test(id) ? otherId !== profileId : other.provider === p.provider && otherId !== profileId) delete store[otherId];
         order[String(p.provider)] = [profileId];
         return { ok: true, ...(whoOf(credential) ? { who: whoOf(credential) } : {}) };
-      }
-      if (action === 'adopt') {
-        const from = String(p.from), to = String(p.to), provider = String(p.provider);
-        const fromOrder = orderOf(from), named = fromOrder[provider] ?? [];
-        const fromId = named.length === 1 ? named[0] : undefined;
-        const credential = fromId ? storeOf(from)[fromId] : undefined;
-        if (!fromId || !credential || credential.provider !== provider || whoOf(credential) !== p.who) return { ok: false };
-        const toStore = storeOf(to), toOrder = orderOf(to);
-        for (const [otherId, other] of Object.entries(toStore))
-          if (/--[0-9a-f]{6}$/.test(to) ? otherId !== fromId : other.provider === provider && otherId !== fromId) delete toStore[otherId];
-        toStore[fromId] = credential;
-        toOrder[provider] = [fromId];
-        delete storeOf(from)[fromId];
-        if (fromOrder[provider]) { fromOrder[provider] = fromOrder[provider].filter((x) => x !== fromId); if (!fromOrder[provider].length) delete fromOrder[provider]; }
-        const target = models.get(to);
-        if (typeof target === 'string') models.set(to, `${target.lastIndexOf('@') > 0 ? target.slice(0, target.lastIndexOf('@')) : target}@${fromId}`);
-        return { ok: true };
       }
       return { ok: false };
     },

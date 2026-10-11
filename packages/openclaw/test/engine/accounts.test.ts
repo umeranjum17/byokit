@@ -31,6 +31,14 @@ const stored = (stateDir: string, agent: string): string => {
   finally { db.close(); }
 };
 
+/** Hold the agent's auth-profile store under a write lock until `release()`, as a refresh during a run would. */
+const holdStoreLock = (stateDir: string, agent: string) => {
+  const db = new DatabaseSync(join(stateDir, 'openclaw', 'state', 'agents', agent, 'agent', 'openclaw-agent.sqlite'));
+  db.exec('PRAGMA busy_timeout = 5000;');
+  db.exec('BEGIN IMMEDIATE;');
+  return () => { db.exec('ROLLBACK;'); db.close(); };
+};
+
 test('a pre-O14 two-member state: m2 never runs on m1\'s sign-in, and m2\'s sign-out leaves m1 intact', { timeout: 900_000 }, async () => {
   const dir = scratchDir('o14-accounts');
   const stateDir = join(dir, 'state');
@@ -187,6 +195,30 @@ test('byokit.accounts lists, seals, adopts and clears an agent\'s own profile st
     assert.deepEqual(await accounts({ action: 'adopt', from: a, to: b, provider: 'openai', who: whoB }), { ok: false });
     assert.equal(stored(stateDir, a), aStore);
     assert.equal(stored(stateDir, b), bStore);
+
+    // adopt from an agent into itself is refused before any write: the record would otherwise be copied and deleted
+    // from the same store, answering success over a deleted profile and a model pinned to a profile no store holds.
+    assert.deepEqual(await accounts({ action: 'adopt', from: a, to: a, provider: 'openai', who: whoA }), { ok: false });
+    assert.equal(stored(stateDir, a), aStore);
+    const modelOfB = (): unknown => JSON.parse(readFileSync(configPath, 'utf8')).agents.entries[b].model;
+    const bModel = modelOfB();
+
+    // Target lock contention, mid-operation: config is rewritten first, so a to-store write that cannot take the
+    // engine's own lock must roll the model back and leave neither store touched.
+    const releaseTo = holdStoreLock(stateDir, b);
+    try { assert.deepEqual(await accounts({ action: 'adopt', from: a, to: b, provider: 'openai', who: whoA }), { ok: false }); }
+    finally { releaseTo(); }
+    assert.equal(stored(stateDir, a), aStore, 'from is unchanged when to cannot be written');
+    assert.equal(stored(stateDir, b), bStore, 'to is unchanged when its lock is held');
+    assert.deepEqual(modelOfB(), bModel, 'to\'s model is rolled back when the to-store write fails');
+
+    // Source lock contention: the from read cannot take the lock, so nothing is written anywhere.
+    const releaseFrom = holdStoreLock(stateDir, a);
+    try { assert.deepEqual(await accounts({ action: 'adopt', from: a, to: b, provider: 'openai', who: whoA }), { ok: false }); }
+    finally { releaseFrom(); }
+    assert.equal(stored(stateDir, a), aStore, 'from is unchanged when its lock is held');
+    assert.equal(stored(stateDir, b), bStore, 'to is unchanged when from cannot be read');
+    assert.deepEqual(modelOfB(), bModel, 'to\'s model is untouched when from cannot be read');
 
     // adopt with the matching who: the whole record moves into b unchanged (every field the pin stored, the longest
     // set included), a is cleared, and b's model points at the moved profile.

@@ -145,11 +145,14 @@ async function handle(params) {
   return { ok: false };
 }
 
-/** Move `from`'s sealed profile of `provider` into `to` and point `to`'s model at it, or change nothing. */
+/** Move `from`'s sealed profile of `provider` into `to` and point `to`'s model at it, or answer { ok: false } with both
+ * stores and the model as they were. The three writes are separate transactions, so any failure after the first is
+ * undone in reverse: a partial move (or a model pin to a profile no store holds) must never outlive the answer. */
 async function adopt(params, config, resolveAgentDir, updateAuthProfileStoreWithLock) {
   const { from, to, provider, who } = params;
   if (typeof from !== 'string' || !AGENT_ID.test(from) || typeof to !== 'string' || !AGENT_ID.test(to)
     || typeof provider !== 'string' || !provider || typeof who !== 'string' || !who) return { ok: false };
+  if (from === to) return { ok: false };
   if (!config.agents?.entries?.[from] || !config.agents?.entries?.[to]) return { ok: false };
   const fromDir = resolveAgentDir(config, from);
   const toDir = resolveAgentDir(config, to);
@@ -163,32 +166,52 @@ async function adopt(params, config, resolveAgentDir, updateAuthProfileStoreWith
     if (credential && credential.provider === provider && whoOf(credential) === who) moved = credential;
   });
   if (!moved) return { ok: false };
-  // Rewrite to's model primary @ suffix to from's sealed id before any store move: the pin would otherwise keep
-  // pinning the profile we are about to delete.
+  // The model's current primary names the shape (string or object) and the base ref the new pin keeps.
   const target = primaryOf(config.agents.entries[to]);
   if (typeof target !== 'string') return { ok: false };
   const cut = target.lastIndexOf('@');
   const base = cut > 0 ? target.slice(0, cut) : target;
   const { updateConfig } = await import('openclaw/plugin-sdk/config-runtime');
   const { setAgentEffectiveModelPrimary } = await import('openclaw/plugin-sdk/agent-runtime');
-  await updateConfig((cfg) => { setAgentEffectiveModelPrimary(cfg, to, `${base}@${fromId}`, { forceAgent: true }); return cfg; });
-  // Move the record unchanged into to's store, sealed to it (dropping to's old profile of provider), then clear it
-  // from from. The grant stays shared; each agent holds only its own view (D11).
+  const pin = (primary) => updateConfig((cfg) => { setAgentEffectiveModelPrimary(cfg, to, primary, { forceAgent: true }); return cfg; });
+
   const account = ACCOUNT_AGENT.test(to);
-  const sealed = await updateAuthProfileStoreWithLock({ agentDir: toDir, saveOptions: LOCAL, updater(s) {
-    s.profiles = { ...sealProfiles(s.profiles, provider, fromId, account), [fromId]: moved };
-    s.order = { ...(s.order ?? {}), [provider]: [fromId] };
-    if (object(s.lastGood) && provider in s.lastGood) delete s.lastGood[provider];
+  let pre;
+  const restoreTo = () => updateAuthProfileStoreWithLock({ agentDir: toDir, saveOptions: LOCAL, updater(s) {
+    s.profiles = pre.profiles;
+    if (pre.order === undefined) delete s.order; else s.order = pre.order;
+    if (pre.lastGood === undefined) delete s.lastGood; else s.lastGood = pre.lastGood;
     return true;
   } });
-  if (!sealed) return { ok: false };
-  const cleared = await updateAuthProfileStoreWithLock({ agentDir: fromDir, saveOptions: LOCAL, updater(s) {
-    if (s.profiles) delete s.profiles[fromId];
-    if (s.order?.[provider]) {
-      s.order[provider] = s.order[provider].filter((id) => id !== fromId);
-      if (!s.order[provider].length) delete s.order[provider];
-    }
-    return true;
-  } });
-  return cleared ? { ok: true } : { ok: false };
+  try {
+    // Rewrite to's model primary @ suffix to from's sealed id before any store move: the pin would otherwise keep
+    // pinning the profile we are about to delete.
+    await pin(`${base}@${fromId}`);
+    // Move the record unchanged into to's store, sealed to it (dropping to's old profile of provider), then clear it
+    // from from. The grant stays shared; each agent holds only its own view (D11).
+    const sealed = await updateAuthProfileStoreWithLock({ agentDir: toDir, saveOptions: LOCAL, updater(s) {
+      pre = { profiles: s.profiles, order: s.order, lastGood: object(s.lastGood) ? { ...s.lastGood } : s.lastGood };
+      s.profiles = { ...sealProfiles(s.profiles, provider, fromId, account), [fromId]: moved };
+      s.order = { ...(s.order ?? {}), [provider]: [fromId] };
+      if (object(s.lastGood) && provider in s.lastGood) delete s.lastGood[provider];
+      return true;
+    } });
+    if (!sealed) { await pin(target); return { ok: false }; }
+    const cleared = await updateAuthProfileStoreWithLock({ agentDir: fromDir, saveOptions: LOCAL, updater(s) {
+      if (s.profiles) delete s.profiles[fromId];
+      if (s.order?.[provider]) {
+        s.order[provider] = s.order[provider].filter((id) => id !== fromId);
+        if (!s.order[provider].length) delete s.order[provider];
+      }
+      return true;
+    } });
+    if (cleared) return { ok: true };
+    await restoreTo();
+    await pin(target);
+    return { ok: false };
+  } catch {
+    await pin(target).catch(() => {});
+    if (pre) await restoreTo().catch(() => {});
+    return { ok: false };
+  }
 }
