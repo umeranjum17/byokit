@@ -343,7 +343,10 @@ try {
           else if (screen.path === '') {
             await part(frames.page, 'chatgpt', 'signin').waitFor();
             if (screen.id.startsWith('grok-')) await frames.page.locator('#grok').scrollIntoViewIfNeeded();
-          } else await frames.page.waitForTimeout(500); // a non-app page; give it a bounded moment to paint
+          } else {
+            // The only non-app screen is usage.html; its own rendered plan view is the readiness, never a fixed delay.
+            await frames.page.locator('#view h2').waitFor();
+          }
           await shot(frames.page, join(screen.id, `before__${theme}__${form}.png`));
           await frames.context.close();
         }
