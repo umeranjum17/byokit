@@ -99,7 +99,10 @@ export default {
 } satisfies LiveConfig;
 ```
 
-A checkpoint writes atomically after each row. `--record-doc` inserts the final table in
+A checkpoint writes atomically after each row. The live run also records measured
+timings (`create->on`, `resume->on` and `install` in seconds, plus a timed `/dev/kvm` presence
+probe) and `--record-doc` appends them as their own table; a dry run leaves them absent.
+`--record-doc` inserts the final tables in
 `docs/cloud-kit.md` immediately before M7, even for a failed run, explicitly labelled
 **NOT qualified**. The key is redacted from live evidence and errors omit raw transport
 text. Review app-provided evidence before committing a recorded run. No script removes

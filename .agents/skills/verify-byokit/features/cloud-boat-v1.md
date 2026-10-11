@@ -8,7 +8,7 @@ A consumer app rents and drives a Boat cloud computer through the built `@byokit
 - `boat-create-status`: create reads `sandbox.id`; status maps nested `sandbox.state`.
 - `boat-exec`: a synchronous command returns `exitCode`/`stdout`/`stderr`; a detached one polls `processId` until `running` is false.
 - `boat-write`: a file write is byte-identical and sends `encoding: 'base64'`.
-- `boat-remove`: delete sends `X-Ascii-Confirm-Delete: <id>` and waits for `operation.status` `completed`.
+- `boat-remove`: delete sends `X-Ascii-Confirm-Delete: <id>` and waits for `operation.status` `completed` or `blocked`.
 - `boat-plan`: `plan` maps `sandboxPlanKey`/`subscriptionTrialEndsAt` (`key`/`why` are absent — no public route/field).
 - `boat-error`: a wrong key is a typed `unauthorized` and the key never appears in the message.
 

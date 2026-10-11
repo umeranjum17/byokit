@@ -53,8 +53,8 @@ export function connect(options: Parameters<typeof boat>[0], store: MachineStore
 
 `sandboxApi()` remains a deprecated alias of `boat()` with the same typed options.
 The stored provider id stays `sandbox-api`, so existing machine records continue to
-work. Request shapes, credentials, cost rules and the M6 spending and publication
-gates are unchanged ([provider contract](../../docs/cloud-kit.md#6-boat-adapter-srcboatts)).
+work. Credentials, cost rules and the M6 spending and publication gates are
+unchanged ([provider contract](../../docs/cloud-kit.md#6-boat-adapter-srcboatts)).
 
 ## Recipes
 

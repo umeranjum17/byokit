@@ -479,6 +479,8 @@ wiping Herdr pane logins. So no request other than `create` carries a `noEnv` ke
 - Larger: `detached: true` with no provider timeout; the adapter polls the command route every 1 s until the provider
   reports it finished, and reads `stdout`, `stderr` and the exit code from that route (field names in 15.1). A poll
   that outlives `timeoutMs` + 30 s rejects `timeout`.
+- A command the provider reports as `lost`, or any response whose `exitCode` is not a number or whose `status` is
+  present and not `exited`, rejects `provider`: a lost or signal-killed command never reads as exit 0.
 - The result's `stdout` and `stderr` are each capped at 8 MB (the tail is kept).
 
 ### 6.5 Sleep semantics (for M7)
@@ -1160,7 +1162,7 @@ the `installs` switch on the sandbox bench.
   - `exec`: single-quote quoting; `root` → `sudo -n`; emulated stdin writes a random-named 0600 file, runs, removes it
     and keeps the command's exit code; every command is wrapped in `timeout -k 10 <s>` (inside
     `sudo -n` for root) and exit 124 gives `timedOut`; `timeoutMs` > 590 000 runs detached and reads the result from
-    the command route.
+    the command route; a lost command or a response without a numeric `exitCode` rejects `provider`.
   - `write` outside `/home/user/` and `/tmp/` rejects before any request.
   - `create` retries with the same `Idempotency-Key` after a dropped connection.
   - `remove` sends the delete-confirmation header with the id, polls the deletion, then deletes every
@@ -1219,6 +1221,8 @@ the `installs` switch on the sandbox bench.
   - G1: whether a key from the provider's app sign-in can create, install into and host a machine;
   - G2: the trial's auto-stop cap and the plan fields `GET /limits` returns on a new account;
   - whether the relay port is reachable on the machine's public address without the provider's proxy (9);
+  - measured `create->on`, `resume->on` and install durations, and whether `/dev/kvm` is present, for
+    the capacity comparison;
   - G4: how a machine reads its own provider id (hostname, a metadata route or a file), recorded as `selfId`'s argv
     in 15.1.
 - **Acceptance:** the recorded run in this document with every check's result; the kit leaves `private` only after
