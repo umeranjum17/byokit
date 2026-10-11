@@ -16,6 +16,7 @@ import { createServer as httpServer } from 'node:http';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { chromium, type Page } from 'playwright';
 import { herdrDevice } from '@byokit/herdr/device';
 import { DeviceLink, pairWithCode } from '@byokit/pair';
@@ -208,8 +209,18 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
   assert.doesNotMatch(said, /Pair .*\? \(y\/n\)/, 'restart asks no pairing approval');
   const grantsAfter = readFileSync(join(app, '.state/grants.json'));
   const ingressAfter = readFileSync(join(app, '.state/ingress.json'));
-  const grantsUnchanged = grantsAfter.equals(grantsBefore);
+  const before = JSON.parse(grantsBefore.toString()) as { lastSeen: number; [key: string]: unknown }[];
+  const after = JSON.parse(grantsAfter.toString()) as typeof before;
+  assert.equal(after.length, before.length, 'same grant count');
+  assert.ok(isDeepStrictEqual(before.map(({ lastSeen, ...identity }) => identity),
+    after.map(({ lastSeen, ...identity }) => identity)), 'every grant field except lastSeen unchanged');
+  for (let i = 0; i < before.length; i++) {
+    assert.ok(Number.isFinite(before[i].lastSeen) && Number.isFinite(after[i].lastSeen), 'finite lastSeen');
+    assert.ok(after[i].lastSeen >= before[i].lastSeen, 'lastSeen never decreases');
+  }
+  assert.ok(after[0].lastSeen > before[0].lastSeen, 'reconnecting grant records new activity');
   const ingressUnchanged = ingressAfter.equals(ingressBefore);
+  await text(page, '#tree .agent .who', 'project'); // subscription has repopulated before capture
   const proof = process.env.BYOKIT_EXAMPLE_RESTART_PROOF;
   if (proof) {
     mkdirSync(proof, { recursive: true });
@@ -217,15 +228,14 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
     writeFileSync(join(proof, 'restart-state.json'), JSON.stringify({
       url: page.url(), link: await page.locator('#link').textContent(), pairMs,
       pairingHidden: await page.locator('#pair').isHidden(), pairScreens,
-      grantsUnchanged, ingressUnchanged, restartedWithoutEnrol: true,
-      changedGrantFields: Object.keys(JSON.parse(grantsBefore.toString())[0]).filter((key) =>
-        JSON.stringify(JSON.parse(grantsBefore.toString())[0][key]) !== JSON.stringify(JSON.parse(grantsAfter.toString())[0][key])),
+      grantIdentityUnchanged: true, grantCount: after.length,
+      lastSeenBefore: before[0].lastSeen, lastSeenAfter: after[0].lastSeen,
+      ingressUnchanged, restartedWithoutEnrol: true,
       approvalAsked: false, hostOutput: said,
     }, null, 2));
   }
-  assert.ok(grantsUnchanged, 'grant bytes unchanged');
   assert.ok(ingressUnchanged, 'saved ingress reused');
-  console.log('Restart: same page connected; no re-pair, no approval, grant and ingress bytes unchanged.');
+  console.log('Restart: same page connected; no re-pair, no approval, full grant identity unchanged; lastSeen advances, ingress bytes unchanged.');
 
   assert.deepEqual(errors, []);
   await context.close();
