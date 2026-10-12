@@ -12,10 +12,14 @@ export function positiveLimit(value: number | undefined, fallback: number): numb
 
 // A baseline of the actual tree, independent of Git status and mtime granularity. Never traverse
 // symlinks or read special files; a changing/unreadable tree fails rather than claiming a full diff.
-export async function scanFiles(root: string, policy: AgentTurnFiles | undefined, resultName: string,
+export async function scanFiles(root: string, policy: AgentTurnFiles | false | undefined, resultName: string,
   active: () => void): Promise<Map<string, string>> {
+  // files:false skips the scan entirely: no walk, so a large tree (e.g. node_modules) cannot fail the turn.
+  if (policy === false) return new Map();
   const maxFiles = positiveLimit(policy?.maxFiles, 10000);
   const maxBytes = positiveLimit(policy?.maxBytes, 128 * 1024 * 1024);
+  // Read once: narrowing on the parameter does not persist into the walk closure below.
+  const exclude = policy?.exclude;
   let entries = 0;
   let bytes = 0;
   const found = new Map<string, string>();
@@ -29,7 +33,7 @@ export async function scanFiles(root: string, policy: AgentTurnFiles | undefined
       active();
       const path = join(dir, name);
       const rel = relative(root, path).split(sep).join('/');
-      if (name === '.git' || rel === resultName || policy?.exclude?.(rel)) continue;
+      if (name === '.git' || rel === resultName || exclude?.(rel)) continue;
       if (++entries > maxFiles) throw new Error('turn: file limit');
       const info = await lstat(path);
       if (info.isSymbolicLink()) {

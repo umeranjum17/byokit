@@ -139,6 +139,43 @@ test('done is an end after working, but an idle event and a working receipt with
   } finally { await missed.dispose(); }
 });
 
+test('a turn starts when the agent is already done: done at start and a stale done at subscribe are accepted', async () => {
+  const h = await harness();
+  try {
+    h.fake.setStatus(target.paneId, 'done');
+    // Deliver one stale done frame synchronously while the turn arms: the pre-arm check must
+    // ignore it like a stale idle instead of refusing the turn.
+    const inner = h.kit.subscribe.bind(h.kit);
+    let injected = false;
+    h.kit.subscribe = (function (subs: unknown, on: unknown, onError: unknown) {
+      const kinds = subs as { type?: unknown }[];
+      if (!injected && kinds.some((s) => s.type === 'pane.agent_status_changed')) {
+        injected = true;
+        (on as (e: unknown) => void)({ type: 'pane.agent_status_changed', pane_id: target.paneId, agent_status: 'done' });
+      }
+      return (inner as (...a: unknown[]) => HerdrSubscribeStop)(subs, on, onError);
+    } as unknown as typeof h.kit.subscribe);
+    h.afterPrompt(async () => { h.fake.setStatus(target.paneId, 'done'); });
+    const end = await h.kit.runTurn(target, { prompt: 'finish', cwd: h.cwd });
+    assert.equal(end.status, 'done');
+    assert.deepEqual(end.changedFiles, []);
+  } finally { await h.dispose(); }
+});
+
+test('files:false skips the file scan so a large tree cannot fail the turn', async () => {
+  const h = await harness();
+  try {
+    await mkdir(join(h.cwd, 'node_modules'));
+    for (let i = 0; i < 10001; i++) await writeFile(join(h.cwd, 'node_modules', `big-${i}.js`), 'export default 1;');
+    h.onPrompt(async () => { await writeFile(join(h.cwd, 'note.txt'), 'changed during the turn'); });
+    h.afterPrompt(async () => { h.fake.setStatus(target.paneId, 'done'); });
+    const end = await h.kit.runTurn(target, { prompt: 'finish', cwd: h.cwd, files: false });
+    assert.equal(end.status, 'done');
+    // Nothing was walked, so even the agent's own write during the turn is not reported.
+    assert.deepEqual(end.changedFiles, []);
+  } finally { await h.dispose(); }
+});
+
 test('missing, malformed, wrong-turn, schema-invalid, oversized and unsafe results never return unchecked bytes', async () => {
   const h = await harness();
   try {

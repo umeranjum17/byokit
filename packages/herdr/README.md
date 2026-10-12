@@ -462,6 +462,7 @@ targets, do not traverse symlinks, always exclude `.git`, and ignore special fil
 and restored during the turn do not appear. Use `files.exclude` to prune generated or sensitive
 folders. Each scan defaults to 10000 entries and 128 MiB of regular-file content; set
 `files.maxFiles`/`maxBytes` to change these limits. An incomplete scan rejects the call.
+Pass `files: false` to skip the scan entirely (`changedFiles` is then always empty).
 
 Reserve the pane and folder exclusively while the turn runs. Overlapping calls in one kit are
 refused, but changes by other apps or processes cannot be attributed to this agent. The supplied

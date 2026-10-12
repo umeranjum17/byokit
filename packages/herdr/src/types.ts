@@ -126,7 +126,8 @@ export type AgentTurnResultPolicy<T> = {
 };
 export type AgentTurnOptions<T = unknown> = {
   prompt: string; cwd: string; timeoutMs?: number; signal?: AbortSignal;
-  files?: AgentTurnFiles; result?: AgentTurnResultPolicy<T>;
+  /** Pass false to skip the file scan entirely (changedFiles is then always empty). */
+  files?: AgentTurnFiles | false; result?: AgentTurnResultPolicy<T>;
   onEnd?: (end: AgentTurnEnd<T>) => void;
 };
 export type AgentTurnResult<T = unknown> =
