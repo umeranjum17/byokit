@@ -138,9 +138,11 @@ when every account is resting, the end is `resting` with `until`, and Auto skips
 A conversation keeps its account: a later run on the same `sessionKey` stays on the account that holds the session,
 whatever `account` says. Naming another account ends `{ ok: false, kind: 'other' }` with words to show (`account.bound`).
 A conversation on an API-key account continues only when that account is named (`account.paid`). Both end after the
-binding read and before any room, model or agent request (a refusal reads the account listing once when the index is cold); an `auth: 'apiKey'` run first reads its key (`byokit.keys ready`), continues
-only an API-billed conversation and is refused other bindings the same way (`account.bound`). `kit.pick(member, { account, model?, needs? }, { sessionKey })` returns what that run would choose now,
-refusals included, without running. `steer` and `abort` accept the same `sessionKey` while its run is live.
+binding read and before any room, model or agent request (a refusal reads the account listing once when the index is
+cold); an `auth: 'apiKey'` run first reads its key (`byokit.keys ready`), continues only an API-billed conversation and
+is refused other bindings the same way (`account.bound`). `kit.pick(member, { account, model?, needs? }, { sessionKey })`
+returns what that run would choose now, refusals included, without running. `steer` and `abort` accept the same
+`sessionKey` while its run is live.
 
 
 For an owner who explicitly offers keys, `kit.addKey('ana', { authChoice: 'openai-api-key', apiKey })` returns
