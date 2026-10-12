@@ -10,7 +10,7 @@ import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfi
 import { GOOGLE_CLIENTS, googleProject, googleRevoke, googleRevokeUrl, googleRouteClient, isGoogleClient, withGoogle } from './flows/google.ts';
 import { CodeAssistSignedOutError, CodeAssistTierError, CodeAssistUnauthorizedError, codeAssistStream } from './flows/google-stream.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
-import { deviceFlow, offered, provider, route, routes, PROVIDERS, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
+import { deviceFlow, offered, planKey, provider, route, routes, PROVIDERS, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
 import { checkKeyModel, keyRespond, KeyRouteError, type KeyAsk, type KeyRuntime } from './key-routes.ts';
 import { claims, PORTABLE, portableEngine, signable, withDevice } from './engine.ts';
@@ -45,7 +45,7 @@ export type Loopback = (port: number, handle: (path: string) => Promise<{ status
 export type Platform = { kind?: 'node' | 'browser' | 'rn'; keys?: () => Promise<KeyRuntime>; engine: (credentials: CredentialStore, authBase?: string, deviceBase?: string) => AuthHost; signsIn: (pi: string) => boolean; loopback?: Loopback; endpoint?: EndpointDriver; cloudStream?: CloudStream };
 /** Phones and browsers: any provider whose catalogue row carries RFC 8628 device data (ChatGPT on its own flow), no
  *  listener. Key routes answer once `withKeys` from `@byokit/accounts/keys` adds their runtime, which this entry never imports. */
-export const portable: Platform = { kind: 'browser', engine: (c, base, deviceBase) => portableEngine(c, { base, deviceBase }), signsIn: (pi) => pi === CLAUDE_PLAN_ID || signable(pi) };
+export const portable: Platform = { kind: 'browser', engine: (c, base, deviceBase) => portableEngine(c, { base, deviceBase }), signsIn: (pi) => pi === CLAUDE_PLAN_ID || signable(pi) || planKey(pi) };
 
 export type ClaudePlanAsk = AnthropicAsk & { provider: 'claude';
   /** Which signed-in Claude account answers, resolved once before any request: `{ account: 'auto' | 'default' | id }`,
@@ -162,10 +162,14 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   private async resolveKey(member: M, key: string) {
     if (key.includes('.')) return this.accountKey(member, key);
     const index = await this.index(member);
-    const ids = (await this.store(member).list()).map((c) => this.publicKey(c.providerId)).filter((id) => this.providerKey(id) === key && (index.accounts?.[id]?.region ?? 'global') === 'global');
+    const ids = (await this.store(member).list()).map((c) => this.publicKey(c.providerId)).filter((id) => (this.providerKey(id) === key || this.routeProvider(id) === key) && (index.accounts?.[id]?.region ?? 'global') === 'global');
     const chosen = ids.includes(index.defaults.account ?? '') ? index.defaults.account! : ids[0] ?? key;
     this.preferred.set(`${member}:${key}`, chosen);
     return chosen;
+  }
+  /** A saved key account's provider, from its route; undefined for sign-in accounts and unknown routes. */
+  private routeProvider(id: string): string | undefined {
+    try { return route(this.providerKey(id)).provider; } catch { return undefined; }
   }
   private publicKey(key: string) { return this.providers.find((p) => p.pi === key)?.key ?? key; }
   private index(member: M) { return this.store(member).index(); }
@@ -772,8 +776,10 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   private async checked(member: M, key: string) {
     const p = this.offer(key);
     if (this.isKey(p)) this.keyRoute(key);
+    // Without the app's key store a key account can never be connected here: signed out, not a failure.
+    // A store that is present but broken still throws its sanitized error from keys().
     const ok = this.isKey(p)
-      ? !!(await this.keys(member, (store) => store.get(`accounts.${key}`)))
+      ? !!this.opts.keyStore && !!(await this.keys(member, (store) => store.get(`accounts.${key}`)))
       : !!(await (await this.runtime(member, key)).checkAuth(p.pi).catch(() => undefined));
     this.ready.set(`${member}:${key}`, ok);
     if (ok) this.lapsed.delete(`${member}:${key}`);
