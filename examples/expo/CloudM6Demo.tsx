@@ -12,7 +12,7 @@ const readKey = async () => { const key = await SecureStore.getItemAsync(M6_KEY)
 export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
   useKeepAwake();
   const [note, say] = useState('Checking the lab sign-ins…'), [id, setId] = useState(''), [ready, setReady] = useState(false);
-  const [model, setModel] = useState(false), [busy, setBusy] = useState(false), [attempted, setAttempted] = useState(false);
+  const [model, setModel] = useState(false), [signins, setSignins] = useState('Reading sign-ins…'), [busy, setBusy] = useState(false), [attempted, setAttempted] = useState(false);
   const link = useRef<DeviceLink | null>(null), started = useRef(0), budget = useRef<ReturnType<typeof trialBudget> | null>(null);
   const locked = useRef(false), cause = useRef('');
   const api = async (path: string) => {
@@ -42,9 +42,10 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
       await SecureStore.setItemAsync(M6_KEY, key, { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY });
       setReady(true); say('Lab key ready. It will be removed after this run.');
     });
-    Promise.all([SecureStore.getItemAsync(M6_KEY), accounts.signedIn(1, 'chatgpt'), SecureStore.getItemAsync(identityKey),
-      SecureStore.getItemAsync(recordKey)]).then(([key, signed, identity, record]) => {
-      setReady(!!key); setModel(signed); setAttempted(!!identity); setId(record ? JSON.parse(record).ref?.id ?? '' : '');
+    Promise.all([SecureStore.getItemAsync(M6_KEY), accounts.list(1), SecureStore.getItemAsync(identityKey),
+      SecureStore.getItemAsync(recordKey)]).then(([key, rows, identity, record]) => {
+      setSignins(rows.length ? rows.map(r => `${r.name} (${r.provider}, ${r.state})`).join('; ') : 'none');
+      setReady(!!key); setModel(rows.some(r => r.provider === 'claude' && r.state === 'ready')); setAttempted(!!identity); setId(record ? JSON.parse(record).ref?.id ?? '' : '');
       say(key ? 'Lab key ready.' : 'No lab key. Waiting for the approved USB import.');
     }).catch(e => say(e.message));
     return () => { sub.remove(); provider.create = create; link.current?.stop(); };
@@ -62,7 +63,7 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
     finally { locked.current = false; setBusy(false); }
   };
   const create = async () => {
-    if (!model) throw new Error('An existing phone-local ChatGPT sign-in is required; no new sign-in is authorized.');
+    if (!model) throw new Error('An existing phone-local Claude sign-in is required; no new sign-in is authorized.');
     const l = await api('/limits'), list = await api('/sandboxes?limit=200');
     if (!Array.isArray(list.sandboxes) || list.pageInfo?.hasMore) throw new Error('The complete machine count is unavailable.');
     budget.current = trialBudget(l, list.sandboxes.length); started.current = Date.now(); setAttempted(true);
@@ -102,7 +103,7 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
   const button = (name: string, label: string, run: () => Promise<void>, enabled = true) => <Pressable testID={name} accessibilityRole="button" disabled={busy || !enabled} onPress={() => void act(run)} style={{ padding: 14, backgroundColor: '#ddd', opacity: busy || !enabled ? .4 : 1 }}><Text style={{ color: '#111', fontSize: 17 }}>{label}</Text></Pressable>;
   return <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}><StatusBar barStyle="dark-content" /><ScrollView contentContainerStyle={{ padding: 24, paddingTop: 48, gap: 16 }}>
     <Text style={{ color: '#111', fontSize: 24, fontWeight: '600' }}>Umer's cloud computer</Text><Text style={{ color: '#111' }}>One Boat free-trial lab run. Model sign-in stays on this phone.</Text>
-    <Text testID="m6-key" style={{ color: '#111' }}>{ready ? 'Lab key present.' : 'No lab key stored.'}</Text><Text testID="m6-model" style={{ color: '#111' }}>{model ? 'Existing ChatGPT sign-in available.' : 'No ChatGPT sign-in. Main approval needed.'}</Text>
+    <Text testID="m6-key" style={{ color: '#111' }}>{ready ? 'Lab key present.' : 'No lab key stored.'}</Text><Text testID="m6-model" style={{ color: '#111' }}>{model ? 'Existing Claude sign-in available.' : 'No Claude sign-in. Main approval needed.'}</Text><Text testID="m6-signins" style={{ color: '#111' }}>{`Sign-ins on this phone: ${signins}`}</Text>
     <Text testID="m6-note" style={{ color: '#111', fontSize: 18 }}>{note}</Text><Text testID="m6-resource" style={{ color: '#111' }} selectable>{id ? `Machine: ${id}` : 'No task machine.'}</Text>
     {button('m6-create', 'Create', create, ready && model && !attempted)}{button('m6-install', 'Install', install, !!id && ready)}
     {button('m6-pair', 'Pair', pair, !!id && ready)}{button('m6-turn', 'One agent turn', turn, !!id && ready)}

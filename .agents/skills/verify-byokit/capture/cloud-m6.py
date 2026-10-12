@@ -40,8 +40,9 @@ try:
     adb('install', '-r', apk)
     adb('shell', 'am', 'start', '-W', '-n', app + '/.MainActivity'); opened = True
     wait('No lab key.'); shot('missing-key')
-    if not any('Existing ChatGPT sign-in available.' in n.get('text', '') for n in ui()):
-        raise RuntimeError('Existing phone-local ChatGPT sign-in unavailable; ask Main, do not sign in')
+    record['signins'] = next(n.get('text') for n in ui() if n.get('resource-id') == 'm6-signins')
+    if not any('Existing Claude sign-in available.' in n.get('text', '') for n in ui()):
+        raise RuntimeError('Existing phone-local Claude sign-in unavailable; ask Main, do not sign in')
     secret = Path(keyfile).read_bytes().strip()
     record['key_imported'] = True; (out / 'manifest.tmp').write_text(json.dumps(record)); (out / 'manifest.tmp').replace(out / 'manifest.json')
     adb('shell', 'content', 'write', '--uri', 'content://' + app + '.m6/key', data=secret)

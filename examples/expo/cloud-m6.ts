@@ -1,5 +1,5 @@
 // Lab-only consumer: the subscription stays on the phone; the cloud host holds only its own pairing keys.
-import { isFunctionCall, type Accounts } from '@byokit/accounts';
+import { isFunctionCall, provider, type Accounts, type AnthropicToolUse } from '@byokit/accounts';
 import type { DeviceLink } from '@byokit/pair';
 import type { HostRecipe } from '@byokit/cloud';
 export const M6_KEY = 'byokit.m6.provider';
@@ -47,15 +47,33 @@ export function cloudRecipe(url: string, name: string): HostRecipe {
       ['node', '-e', `require('node:fs').writeFileSync('host.mjs', ${JSON.stringify(M6_HOST)}, {mode:384})`]],
     run: { argv: ['node', '/home/user/byokit-m6/host.mjs', url.replace(/\/$/, '')], env: {} } };
 }
-export async function pairedTurn(accounts: Accounts<any, number>, link: Pick<DeviceLink, 'request'>) {
-  const prompt = 'Use get_machine to check my cloud computer, then greet Umer and summarize its operating system in one sentence.';
+const prompt = 'Use get_machine to check my cloud computer, then greet Umer and summarize its operating system in one sentence.';
+const schema = { type: 'object' as const, properties: { input: { type: 'string', maxLength: 512 } }, required: ['input'], additionalProperties: false };
+const checked = (args: unknown) => {
+  const a = args as Record<string, unknown> | null;
+  if (typeof a?.input !== 'string' || a.input.length > 512 || Object.keys(a).some(k => k !== 'input')) throw new Error('The machine tool arguments were invalid.');
+};
+/** One agent turn: the model calls the one machine-state tool, the paired cloud host answers it, and the model replies. */
+export async function pairedTurn(accounts: Accounts<any, number>, link: Pick<DeviceLink, 'request'>, plan: 'claude' | 'chatgpt' = 'claude') {
+  if (plan === 'claude') {
+    const ask = { provider: 'claude' as const, model: provider('claude').models.strong, max_tokens: 1024 };
+    const tools = [{ name: 'get_machine', description: 'Read the paired cloud computer state.', input_schema: schema }];
+    const first = await accounts.respond(1, { ...ask, system: 'Call only the approved machine-state tool.', messages: [{ role: 'user', content: prompt }], tools, tool_choice: { type: 'tool', name: 'get_machine' } });
+    const calls = first.raw.content.filter((c): c is AnthropicToolUse => c.type === 'tool_use');
+    if (calls.length !== 1 || calls[0].name !== 'get_machine') throw new Error('The model did not return the single approved machine-state tool call.');
+    checked(calls[0].input);
+    const state = await link.request('get.state');
+    const text = await accounts.respond(1, { ...ask, system: 'Use the tool result, not a guess. Answer in one short sentence.', messages: [{ role: 'user', content: prompt },
+      { role: 'assistant', content: first.raw.content }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: calls[0].id, content: JSON.stringify(state) }] }] });
+    if (!text.trim()) throw new Error('The agent returned no final answer.');
+    return { text, state };
+  }
   const first = await accounts.respond(1, { instructions: 'Call only the approved machine-state tool.', input: prompt, tools: [{ type: 'function', name: 'get_machine',
-    parameters: { type: 'object', properties: { input: { type: 'string', maxLength: 512 } }, required: ['input'], additionalProperties: false }, strict: true }], tool_choice: { type: 'function', name: 'get_machine' } });
+    parameters: schema, strict: true }], tool_choice: { type: 'function', name: 'get_machine' } });
   const calls = first.output.filter(isFunctionCall);
   if (calls.length !== 1 || calls[0].name !== 'get_machine' || !calls[0].call_id)
     throw new Error('The model did not return the single approved machine-state tool call.');
-  const args = JSON.parse(calls[0].arguments);
-  if (typeof args?.input !== 'string' || args.input.length > 512 || Object.keys(args).some(k => k !== 'input')) throw new Error('The machine tool arguments were invalid.');
+  checked(JSON.parse(calls[0].arguments));
   const state = await link.request('get.state');
   const text = await accounts.respond(1, { instructions: 'Use the tool result, not a guess. Answer in one short sentence.',
     input: [{ role: 'user', content: prompt }, ...first.output, { type: 'function_call_output', call_id: calls[0].call_id, output: JSON.stringify(state) }] });
