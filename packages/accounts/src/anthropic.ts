@@ -248,6 +248,10 @@ export function anthropicMessages(opts: Pick<AnthropicOptions, 'fetch' | 'base' 
       const safe = new ResponseError(claudeFailure(kind, until, http?.status), kind, until, http);
       const reason = e instanceof ResponseError ? e.reason : (e as Error | undefined)?.name;
       if (reason && /^[A-Za-z_]{1,64}$/.test(reason)) safe.reason = reason;
+      if (e instanceof ResponseError && e.status !== undefined) {
+        const secrets = Object.entries(opts.headers).filter(([k]) => /^(authorization|x-api-key)$/i.test(k)).map(([, v]) => v.replace(/^Bearer\s+/i, '')).filter(Boolean);
+        safe.detail = secrets.reduce((m, s) => m.split(s).join('[private]'), e.message).replace(/[A-Za-z0-9_+/=-]{32,}/g, '[private]').slice(0, 300);
+      }
       throw safe;
     }
   }

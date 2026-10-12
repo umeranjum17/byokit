@@ -21,6 +21,8 @@ export class ResponseError extends Error {
   retryAfter?: string;
   /** Safe-to-log cause: the provider's error type or the local error's name, never a message body. */
   reason?: string;
+  /** For diagnostic logs only, never shown: the provider's message with the request's credentials and any long token-like run removed. */
+  detail?: string;
   constructor(message: string, kind: Kind | null, until = 0, http?: { status: number; retryAfter?: string }) {
     super(message); this.kind = kind; this.until = until;
     if (http) { this.status = http.status; this.retryAfter = http.retryAfter; }

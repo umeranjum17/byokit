@@ -5,3 +5,4 @@
   - unreachable
   - otherwise, the HTTP status
 - The `ResponseError` also carries the HTTP `status` and a safe `reason`: Anthropic's error type, or the local error's name.
+- For diagnostic logs only, a failed Claude plan answer's `ResponseError.detail` carries Anthropic's message with the request credentials and any long token-like text removed. It is never shown.

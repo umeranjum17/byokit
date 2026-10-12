@@ -60,7 +60,8 @@ const step = <T>(call: string, run: () => Promise<T>) => run().catch((e: unknown
 export const diagnostic = (e: unknown) => {
   const x = (e ?? {}) as { call?: unknown; status?: unknown; kind?: unknown; reason?: unknown; name?: unknown };
   const safe = (v: unknown) => typeof v === 'number' || (typeof v === 'string' && /^[A-Za-z0-9 _.-]{1,64}$/.test(v)) ? v : undefined;
-  return 'M6 diagnostic ' + JSON.stringify({ call: safe(x.call), status: safe(x.status), kind: safe(x.kind), reason: safe(x.reason) ?? safe(x.name) });
+  const detail = typeof (x as { detail?: unknown }).detail === 'string' ? (x as { detail: string }).detail.slice(0, 300) : undefined; // already credential-redacted by the kit
+  return 'M6 diagnostic ' + JSON.stringify({ call: safe(x.call), status: safe(x.status), kind: safe(x.kind), reason: safe(x.reason) ?? safe(x.name), detail });
 };
 const ask = { provider: 'claude' as const, model: provider('claude').models.strong, max_tokens: 1024 };
 const tools = [{ name: 'get_machine', description: 'Read the paired cloud computer state.', input_schema: schema }];

@@ -45,7 +45,7 @@ for (const [call, name] of [[1, 'tool call'], [2, 'answer']] as const) {
     const error = await pairedTurn(await signedIn(server.fetch), link).then(() => assert.fail('the turn should fail'), (e: Error) => e);
     assert.equal(error.message, 'Claude could not answer (HTTP 400). Try again or sign in again.');
     const line = diagnostic(error);
-    assert.equal(line, `M6 diagnostic {"call":"${name}","status":400,"reason":"invalid_request_error"}`);
+    assert.equal(line, `M6 diagnostic {"call":"${name}","status":400,"reason":"invalid_request_error","detail":"echoes [private]"}`);
     assert.ok(!line.includes('recorded-access'));
   });
 }
