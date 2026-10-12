@@ -320,13 +320,17 @@ test('identity: same who refreshes, again with another who adds, no who never me
   let loseAdoptReply = false;
   let armMemberRead = false;
   let failMemberRead = false;
+  let armRosterRead = false;
+  let failRosterRead = false;
   const adopts: { from: string; to: string }[] = [];
   const refusing: typeof fake.factory = (ctx) => {
     const transport = fake.factory(ctx);
     return { ...transport, request: async (method, params, o) => {
+      if (method === 'agents.list' && failRosterRead) { failRosterRead = false; throw new Error('roster read failed'); }
       if (method !== 'byokit.accounts') return transport.request(method, params, o);
       const { action, agentId } = params as { action?: string; agentId?: string };
       if (action === 'seal' && armMemberRead) { armMemberRead = false; failMemberRead = true; }
+      if (action === 'seal' && armRosterRead) { armRosterRead = false; failRosterRead = true; }
       if (action === 'list' && failMemberRead && agentId === 'm1') { failMemberRead = false; return { ok: false }; }
       if (action !== 'adopt') return transport.request(method, params, o);
       adopts.push(params as { from: string; to: string });
@@ -552,10 +556,30 @@ test('identity: same who refreshes, again with another who adds, no who never me
     assert.equal((await ready('openai')).who, whoOf('canary-acct-w'));
     assert.equal((await rows()).length, 6);
 
+    // The member agent signs in again as another identity outside addAccount: its row follows the live profile, so the
+    // next sign-in as that identity refreshes the member row instead of adding one.
+    fake.signInAs({ accountId: 'canary-acct-h', expires: later + 12 });
+    await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done;
+    assert.equal((await add()).id, 'openai', 'the sign-in refreshes the member row');
+    assert.equal(index().accounts.openai!.who, whoOf('canary-acct-h'), 'the member row follows its live profile');
+    assert.equal((await ready('openai')).expiresAt, later + 12);
+    assert.equal((await rows()).length, 6);
+
+    // The roster cannot be read after the seal: the completed sign-in is kept as its own row, not discarded.
+    armRosterRead = true;
+    fake.signInAs({ accountId: 'canary-acct-r', expires: later + 13 });
+    const logBeforeRoster = lines.length;
+    const rosterKept = await add();
+    assert.equal(rosterKept.id, rosterKept.added, 'the sign-in keeps its own row');
+    assert.ok(lines.slice(logBeforeRoster).some((line) => line.includes('unreadable')), 'the kit logs it');
+    assert.equal((await ready(rosterKept.id)).who, whoOf('canary-acct-r'));
+    assert.equal((await ready(rosterKept.id)).expiresAt, later + 13);
+    assert.equal((await rows()).length, 7);
+
     // No who or account id reaches the app: rows, views, done results, errors, kit state or log lines.
     await assert.rejects(kit.addAccount('m1', { authChoice: 'openai', again: 'openai.000000' }, () => {}), (error: Error) => { seen.push(error.message); return true; });
     const out = JSON.stringify([seen, lines, kit.state]);
-    for (const id of ['a', 'b', 'e', 'f', 'w']) {
+    for (const id of ['a', 'b', 'e', 'f', 'w', 'h', 'r']) {
       assert.ok(!out.includes(whoOf(`canary-acct-${id}`)), `who of ${id} leaks`);
       assert.ok(!out.includes(`canary-acct-${id}`), `account id ${id} leaks`);
     }

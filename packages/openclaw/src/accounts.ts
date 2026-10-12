@@ -125,7 +125,7 @@ export function createAccounts(ctx: {
         dirty = true;
       }
       // Not while the member agent's own sign-in runs: settle decides whose that `who` is (it may be adopted away).
-      if (!entry.who && typeof profiles[0]?.who === 'string' && !signing.has(`${member}\n${provider}`)) { entry.who = profiles[0].who; dirty = true; }
+      if (typeof profiles[0]?.who === 'string' && entry.who !== profiles[0].who && !signing.has(`${member}\n${provider}`)) { entry.who = profiles[0].who; dirty = true; }
       const meta = metaOf(entry.route);
       memberRows.push({ id: provider, provider, route: entry.route, name: entry.name, label: meta.label,
         billing: meta.billing, state: stateOf(entry.route, profiles[0]?.status, entry.until),
@@ -478,16 +478,17 @@ export function createAccounts(ctx: {
         const sealed = await ctx.locks.exclusive([memberAgent, agent], async (): Promise<{ who?: string; keep?: [AccountId, IndexEntry]; dups: [AccountId, IndexEntry][] } | string> => {
           const answer = await ctx.request('byokit.accounts', { action: 'seal', agentId: agent, provider }) as { ok?: boolean; who?: string };
           if (!answer.ok) return 'Sign-in could not be saved. Try again.';
-          const roster = new Set((await ctx.request('agents.list') as { agents: { id: string }[] }).agents.map((a) => a.id));
+          const roster = await (ctx.request('agents.list') as Promise<{ agents: { id: string }[] }>)
+            .then((r) => new Set(r.agents.map((a) => a.id)), () => undefined);
           const held = await (ctx.request('byokit.accounts', { action: 'list', agentId: memberAgent }) as Promise<{ ok?: boolean; profiles?: LiveProfile[] }>)
             .catch(() => undefined);
-          const mergeable = held?.ok === true && Array.isArray(held.profiles);
-          if (!mergeable) ctx.log?.(`addAccount: ${memberAgent} profiles are unreadable; the sign-in is kept as its own row`);
+          const mergeable = roster !== undefined && held?.ok === true && Array.isArray(held.profiles);
+          if (!mergeable) ctx.log?.(`addAccount: the roster or ${memberAgent} profiles are unreadable; the sign-in is kept as its own row`);
           const memberHolds = (held?.profiles ?? []).some((p) => p.provider === provider && p.who === answer.who);
           const file = read(member);
-          if (mergeable && (await build(member, memberAgent, file, roster, held?.profiles ?? [])).dirty) write(member, file);
+          if (roster && mergeable && (await build(member, memberAgent, file, roster, held?.profiles ?? [])).dirty) write(member, file);
           const own = file.accounts[id];
-          const sharing = answer.who && mergeable ? Object.entries(file.accounts)
+          const sharing = answer.who && roster && mergeable ? Object.entries(file.accounts)
             .filter(([other, e]) => other.split('.')[0] === provider && e.who === answer.who && liveEntry(roster, memberHolds, e))
             .sort(([, a], [, b]) => a.addedAt - b.addedAt) : [];
           const keep = sharing[0];
