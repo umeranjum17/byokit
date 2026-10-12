@@ -41,7 +41,22 @@ function put(path: string, bytes: Uint8Array): void {
 // containing directory in `changed` instead of fsyncing it now. restore() fsyncs each distinct directory
 // once after every file is written, so a restore still makes each rename durable before it removes the
 // restoring marker, without one directory fsync per object. seal() and the stop path keep put().
+// When the live file already holds the exact bytes at the restore mode, the write (and its file fsync,
+// rename and directory fsync) is skipped: nothing on disk changes, so there is nothing to make durable.
+// Size is compared before reading; any read error (or a missing, changed or different-mode file) writes.
+function sameLiveFile(path: string, bytes: Uint8Array): boolean {
+  try {
+    const stat = lstatSync(path);
+    if (!stat.isFile()) return false;
+    if ((stat.mode & 0o777) !== 0o600) return false;
+    if (stat.size !== bytes.length) return false;
+    return readFileSync(path).equals(Buffer.from(bytes));
+  } catch {
+    return false;
+  }
+}
 function putRestore(path: string, bytes: Uint8Array, changed: Set<string>): void {
+  if (sameLiveFile(path, bytes)) return;
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const tmp = `${path}.sealing-${process.pid}`;
   try {
