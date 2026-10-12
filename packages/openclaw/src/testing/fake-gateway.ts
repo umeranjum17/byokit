@@ -199,6 +199,25 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     if (state === 'expired') return 'expired';
     return (expires as number) - now <= OAUTH_WARN_MS ? 'expiring' : 'ok';
   };
+  const entryPrimaryOf = (id: string): string | undefined => {
+    const entries = (configBox.config.agents as { entries?: Record<string, unknown> } | undefined)?.entries as Record<string, Record<string, unknown>> | undefined;
+    const entry = entries?.[id];
+    const ref = entry?.model;
+    if (typeof ref === 'string') return ref;
+    if (isPlainObject(ref) && typeof ref.primary === 'string') return ref.primary as string;
+    return undefined;
+  };
+  const primaryOfId = (id: string): string | undefined => entryPrimaryOf(id) ?? models.get(id);
+  const setPrimaryOfId = (id: string, primary: string): void => {
+    models.set(id, primary);
+    const entries = (configBox.config.agents as { entries?: Record<string, unknown> } | undefined)?.entries as Record<string, Record<string, unknown>> | undefined;
+    const entry = entries?.[id];
+    if (entry && isPlainObject(entry)) {
+      const current = entry.model;
+      if (isPlainObject(current)) current.primary = primary;
+      else entry.model = primary;
+    }
+  };
   const signInAgent = (id: string, provider: string, extra?: Partial<FakeProfile>) => {
     const agent = ensureAgent(id);
     if (!agent.providers.includes(provider)) agent.providers.push(provider);
@@ -206,7 +225,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     storeOf(id)[`${provider}:default`] = { provider, type: 'oauth', status: 'ok', access: 'fake-access',
       refresh: 'fake-refresh', expires: Date.now() + 30 * 86_400_000, accountId: `fake-${id}`, ...extra };
     orderOf(id)[provider] = [`${provider}:default`];
-    models.set(id, `${provider}/default@${provider}:default`);
+    setPrimaryOfId(id, `${provider}/default@${provider}:default`);
   };
 
   // Every transport the factory made; events fan out to all of them, drop() closes all of them.
@@ -363,7 +382,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
         const fromId = named.length === 1 ? named[0] : undefined;
         const credential = fromId ? storeOf(from)[fromId] : undefined;
         if (!fromId || !credential || credential.provider !== provider || whoOf(credential) !== p.who) return { ok: false };
-        const target = models.get(to);
+        const target = primaryOfId(to);
         if (typeof target !== 'string') return { ok: false };
         const toStore = storeOf(to), toOrder = orderOf(to);
         for (const [otherId, other] of Object.entries(toStore))
@@ -376,7 +395,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
         if (!Object.values(storeOf(from)).some((c) => c.provider === provider))
           ensureAgent(from).providers = ensureAgent(from).providers.filter((x) => x !== provider);
         const cut = target.lastIndexOf('@');
-        models.set(to, `${cut > 0 ? target.slice(0, cut) : target}@${fromId}`);
+        setPrimaryOfId(to, `${cut > 0 ? target.slice(0, cut) : target}@${fromId}`);
         return { ok: true };
       }
       const id = String(p.agentId ?? '');
@@ -385,7 +404,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       if (action === 'list')
         return { ok: true, profiles: Object.entries(store).map(([profileId, credential]) => ({ provider: credential.provider,
           profileId, type: credential.type, status: statusOf(credential, Date.now()), ...(whoOf(credential) ? { who: whoOf(credential) } : {}) })) };
-      if (action === 'clear') { profiles.set(id, {}); orders.set(id, {}); models.delete(id);
+      if (action === 'clear') { profiles.set(id, {}); orders.set(id, {});
         const cleared = agents.get(id);
         if (cleared) cleared.providers = [];
         return { ok: true }; }
@@ -400,7 +419,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
           ...(whoOf(credential) ? { who: whoOf(credential) } : {}) };
       }
       if (action === 'seal') {
-        const primary = models.get(id) ?? '';
+        const primary = primaryOfId(id) ?? '';
         const at = primary.lastIndexOf('@');
         if (at < 1) return { ok: false };
         const profileId = primary.slice(at + 1);
