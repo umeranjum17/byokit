@@ -344,7 +344,7 @@ test('identity: same who refreshes, again with another who adds, no who never me
   const kit = new OpenClawKit({ stateDir, transport: refusing, spawnEngine: false, callbackPort: 0, log: (line) => lines.push(line) });
   const seen: unknown[] = [];
   const whoOf = (accountId: string) => crypto.createHash('sha256').update(`openai\n${accountId}`).digest('hex').slice(0, 16);
-  const index = () => JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')) as { accounts: Record<string, { agent: string; addedAt: number; who?: string }> };
+  const index = () => JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')) as { accounts: Record<string, { agent: string; name: string; route: string; addedAt: number; until?: number; model?: string; who?: string }> };
   const rows = async () => { const listed = await kit.accounts('m1'); seen.push(listed); return listed.map((a) => [a.id, a.state]); };
   const ready = (id: string) => kit.callDynamic('byokit.accounts', { action: 'ready', agentId: index().accounts[id]!.agent, provider: 'openai' }) as
     Promise<{ ok: boolean; who?: string; expiresAt?: number }>;
