@@ -31,6 +31,7 @@ import { launchBroker } from './browser/broker.ts';
 import type {
   Account,
   AccountId,
+  AccountPick,
   Approval,
   CallOptions,
   Decision,
@@ -53,6 +54,7 @@ import type {
   Route,
   RunEnd,
   RunEvent,
+  RunSelection,
   RunSpec,
   OutputSchema,
   SchemaOutput,
@@ -964,8 +966,9 @@ export class OpenClawKit {
     return engineSignOut(this.signInCtx(), member, provider);
   }
 
-  // accounts (5.15, O14 steps S5, S6, S9 and S10): the per-member index with listing, adding, defaults, rename, models
-  // and room; `run({ account })` picks among them. Removing, `pick` and move arrive in later steps.
+  // accounts (5.15, O14 steps S5, S6 and S9-S11): the per-member index with listing, adding, defaults, rename, models
+  // and room; `run({ account })` and `pick` choose among them, held to the account a session is bound to. Removing and
+  // move arrive in later steps.
   accounts(member: Member): Promise<Account[]> {
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.accountsCtl.list(member);
@@ -979,6 +982,14 @@ export class OpenClawKit {
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room> {
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.accountsCtl.room(member, id, demand);
+  }
+
+  /** What `run` would decide now with this selection and key, refusals included; decides nothing and runs nothing. */
+  async pick(member: Member, sel: RunSelection, o?: { sessionKey?: string }): Promise<AccountPick> {
+    const accounts = this.accountsCtl;
+    if (!accounts) throw new Error('gateway not ready');
+    const binding = o?.sessionKey === undefined ? undefined : await accounts.bind(member, o.sessionKey);
+    return (await accounts.pick(member, sel, [], binding)).pick;
   }
 
   /** Sign in one more account: on the member agent while it holds none of the provider, else on a new sealed agent. */
