@@ -66,6 +66,14 @@
       "strong": "gpt-5.4"
     },
     "billing": "subscription",
+    "device": {
+      "authorization": "https://{host}/login/device/code",
+      "token": "https://{host}/login/oauth/access_token",
+      "exchange": "https://api.{host}/copilot_internal/v2/token",
+      "clientId": "Iv1.b507a08c87ecfe98",
+      "scope": "read:user",
+      "source": "https://github.com/login/device"
+    },
     "source": "https://github.blog/changelog/2026-01-16-github-copilot-now-supports-opencode",
     "multiAccount": {
       "terms": "grey",

@@ -42,6 +42,9 @@ const oauthMethods: Record<string, RouteVia[]> = {
 const planKeys = new Set(['kimi-coding', 'opencode-go', 'qwen-token-plan', 'qwen-token-plan-cn', 'qwen-token-plan-individual', 'xiaomi-token-plan-ams', 'xiaomi-token-plan-cn', 'xiaomi-token-plan-sgp', 'zai', 'zai-coding-cn']);
 const all = { node: 'yes', browser: 'yes', rn: 'yes' } as const;
 const node = { node: 'yes', browser: 'no', rn: 'no' } as const;
+// A device row whose provider answers no browser CORS preflight declares browser 'host': a web page signs in
+// through the app's host side, while a phone calls the provider directly (Copilot's device and exchange endpoints).
+const deviceBrowserHost = new Set(['github-copilot']);
 // These source methods need a host adapter until the dependent account-flow units land.
 // A host reports hostSide only when it actually supplies that route's driver.
 const host = { node: 'host', browser: 'host', rn: 'host' } as const;
@@ -91,7 +94,7 @@ export function generateRoutes(): Route[] {
         const portable = device || p.id === 'anthropic' && via === 'paste';
         add(p.id, p.id === 'openai-codex' ? 'ChatGPT' : p.id === 'anthropic' ? 'Claude' : p.name, via, billing,
           via === 'code' ? 'device' : via === 'browser' ? 'loopback' : 'paste', undefined,
-          { platforms: device ? (p.id === 'openai-codex' || portableDevice(p.id) ? all : node)
+          { platforms: device ? (deviceBrowserHost.has(p.id) ? { node: 'yes', browser: 'host', rn: 'yes' } : p.id === 'openai-codex' || portableDevice(p.id) ? all : node)
             : portable ? { node: 'yes', browser: 'host', rn: 'yes' } : node });
       }
     }

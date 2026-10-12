@@ -3252,14 +3252,17 @@ Acceptance for every package: its fixture rows, mocks and fakes in `npm test`; n
 - *`needs_client`.* `routeReadiness` (`packages/accounts/src/catalogue.ts`) answers `needs_client` when a Route declares
   `needs.client` and the app's host does not supply it in `host.clients`. That is a Route/host fact, not a property of a
   device descriptor: nothing here maps a missing `DeviceFlow.clientId` to `needs_client`, and the device rows this lane
-  defines (Grok, Kimi) already carry their client ids. Treating a device row with no client registration as `needs_client`
+  defines (Grok, Kimi, Copilot) already carry their client ids. Treating a device row with no client registration as `needs_client`
   is dependent work for the portable engine lane, not something this data-only slice implements.
 - *Model policy: not replicated.* Pi, after login, fetches the Copilot model catalog and best-effort POSTs
   `/models/{id}/policy {state:'enabled'}` for `unconfigured` models (`github-copilot.js:289-334`). That is a model-catalog
   step, not a sign-in step, and it is best-effort (a refused policy enable still leaves a usable credential). The portable
   path stops at the credential and makes no policy call; the catalogue's model list stays `pi-ai`'s static table.
-- *GHE host templating.* Copilot's `authorization`, `token` and `exchange` URLs carry `{host}`: the person's GitHub domain
-  (their GitHub Enterprise domain, blank for `github.com`), so one data row serves both public and enterprise.
+- *GHE host templating.* Copilot's `authorization`, `token` and `exchange` URLs carry `{host}`, but the portable runtime
+  is github.com-only for now: it hardcodes `github.com` and refuses an enterprise domain on browser and rn before any
+  store read, so one data row does not serve both public and enterprise. Copilot Enterprise plumbing (persist through
+  public sign-in, account metadata reload, and refresh-engine construction) is follow-up task
+  `byk-copilot-enterprise-domain`, not this lane.
 
 ## 12. Known facts builders must not re-derive
 
