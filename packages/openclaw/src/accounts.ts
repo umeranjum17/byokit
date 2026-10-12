@@ -17,7 +17,7 @@ type IndexEntry = { agent: string; name: string; route: string; addedAt: number;
 type IndexFile = { v: 1; accounts: Record<string, IndexEntry>; defaults: Defaults };
 
 type LiveProfile = { provider?: string; profileId?: string; type?: string; status?: string; who?: string };
-export const ACCOUNT_AGENT = /^[a-z][a-z0-9-]{0,31}--[0-9a-f]{6}$/;
+const ACCOUNT_AGENT = /^[a-z][a-z0-9-]{0,31}--[0-9a-f]{6}$/;
 const usable = (status: string | undefined): boolean => status === 'ok' || status === 'expiring' || status === 'static';
 const IDENTITY = 'IDENTITY.md';
 
@@ -41,7 +41,7 @@ const validEntry = (v: unknown): v is IndexEntry => !!v && typeof v === 'object'
 
 // Every agent any member's index names. An index that cannot be read or parsed throws: its accounts are unknown,
 // so no sweep may run.
-export function indexedAgents(root: string): Set<string> {
+function indexedAgents(root: string): Set<string> {
   const named = new Set<string>();
   let files: string[];
   try { files = readdirSync(join(root, 'accounts')); }
@@ -388,7 +388,10 @@ export function createAccounts(ctx: {
   // A late engine write cannot be ruled out by a bounded check, so after every removal (and on prepare, in
   // engine.ts without a roster) the kit removes the orphan account directories. The roster is strict: a failed read
   // must not look like an empty roster and let an engine-owned agent's directory go.
-  const sweep = async (): Promise<void> => sweepOrphans(ctx.root, await agentRoster());
+  const sweep = async (): Promise<void> => {
+    try { sweepOrphans(ctx.root, await agentRoster()); }
+    catch (error) { ctx.log?.(`removeAccount: orphans are not swept: ${error instanceof Error ? error.message : String(error)}`); }
+  };
   // Removing (5.15): a member-agent account goes through `models.authLogout` with its sealed profileIds, then its
   // entry is dropped. An account agent goes through `clear`, an empty `list`, `agents.delete` with
   // `deleteFiles: false`, removal of its state dir, then the entry is dropped. Refused `busy` while a run holds
@@ -411,7 +414,7 @@ export function createAccounts(ctx: {
         if (file.defaults.account === id) delete file.defaults.account;
         write(member, file);
       });
-      await sweep().catch((error: unknown) => ctx.log?.(`removeAccount: ${agent} orphans are not swept: ${error instanceof Error ? error.message : String(error)}`));
+      await sweep();
       return;
     }
     await ctx.locks.exclusive([agent, indexLock(member)], async () => {
@@ -444,7 +447,7 @@ export function createAccounts(ctx: {
       if (file.defaults.account === id) delete file.defaults.account;
       write(member, file);
     });
-    await sweep().catch((error: unknown) => ctx.log?.(`removeAccount: ${agent} orphans are not swept: ${error instanceof Error ? error.message : String(error)}`));
+    await sweep();
   }
 
   // Index edits take the index lock, as listing's own write does.
