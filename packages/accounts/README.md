@@ -589,6 +589,8 @@ primary slot, with the same shape and rules as the ChatGPT `select`: resolved on
 an explicit id never falls back to another account, and a limit or a lapsed sign-in rests or signs out only the account
 that ran (the primary is left ready). Omitting `select` keeps the primary Claude plan, exactly as before.
 
+A failed Claude plan answer throws a `ResponseError` whose message names the cause in plain words and never repeats the provider's text: a usage limit with the minutes until it resets, an expired sign-in, Claude busy, unreachable, a cancelled or timed-out request, or the HTTP status. It also carries `status`, `retryAfter` and a safe `reason`. `detail` is for diagnostic logs only and is credential-redacted; never show it.
+
 The manual HTTPS callback works without a local listener or an installed CLI. It uses PKCE (secure random verifier,
 SHA-256 challenge), independent state, strict `code#state` validation, and direct JSON exchange/refresh at
 `platform.claude.com/v1/oauth/token`. Refresh is single-flight for one store, saves an attempt before sending and commits the rotated credentials before

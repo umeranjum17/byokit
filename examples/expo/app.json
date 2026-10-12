@@ -71,6 +71,7 @@
           "ios": {}
         }
       ],
+      "./m6-plugin.cjs",
       "./icon-plugin.cjs",
       "./gradle-heap-plugin.cjs"
     ]

@@ -897,15 +897,15 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
           await this.logout(member, account).catch(() => {});
           this.forget(member, account);
           this.onExpired?.(member, account);
-          throw new ClaudePlanExpiredError();
+          throw new ClaudePlanExpiredError(e.message);
         }
         if (e instanceof ResponseError && e.kind) {
           // Mirror the ChatGPT branch: the exact account that ran rests or is marked, and a selected account's answer
           // carries its until. With no select the rethrow only fires when the acted kind differs, so the primary
           // path stays byte-identical.
           const acted = await this.failed(member, account, e, picked !== undefined);
-          if (acted && (picked !== undefined || acted.kind !== e.kind)) throw new ResponseError(e.message, acted.kind, acted.until,
-            e.status !== undefined ? { status: e.status, retryAfter: e.retryAfter } : undefined);
+          if (acted && (picked !== undefined || acted.kind !== e.kind)) throw Object.assign(new ResponseError(e.message, acted.kind, acted.until,
+            e.status !== undefined ? { status: e.status, retryAfter: e.retryAfter } : undefined), e.reason ? { reason: e.reason } : {}, e.detail ? { detail: e.detail } : {});
         }
         throw e;
       }

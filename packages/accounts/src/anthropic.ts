@@ -83,12 +83,18 @@ export type AnthropicOptions = {
 };
 
 const record = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
-const error = (status: number, value: unknown): ResponseError => {
+const error = (status: number, value: unknown, headers?: Headers): ResponseError => {
   const e = record(value) && record(value.error) ? value.error : {};
   const kind = status === 429 || e.type === 'rate_limit_error' ? 'rate_limit'
     : status === 401 || status === 403 || e.type === 'authentication_error' ? 'signed_out'
       : status >= 500 || e.type === 'overloaded_error' ? 'overloaded' : null;
-  return new ResponseError(typeof e.message === 'string' ? e.message : 'Anthropic could not answer. Try again.', kind);
+  // When a limit lifts: the plan's unified reset (epoch seconds), else Retry-After (seconds).
+  const reset = Number(headers?.get('anthropic-ratelimit-unified-reset')), retry = Number(headers?.get('retry-after'));
+  const until = kind !== 'rate_limit' ? 0 : reset > 0 ? reset * 1000 : retry > 0 ? Date.now() + retry * 1000 : 0;
+  const out = new ResponseError(typeof e.message === 'string' ? e.message : 'Anthropic could not answer. Try again.', kind, until,
+    { status, retryAfter: headers?.get('retry-after') ?? undefined });
+  if (typeof e.type === 'string' && /^[a-z_]{1,64}$/.test(e.type)) out.reason = e.type;
+  return out;
 };
 
 /** Recorded Messages SSE, split at arbitrary UTF-8/chunk boundaries. Completion requires message_stop. */
@@ -216,6 +222,15 @@ export function anthropic(opts: AnthropicOptions) {
   return anthropicMessages({ ...opts, headers: { 'x-api-key': opts.key } });
 }
 
+/** The plain-words Claude plan failure: usage limit with its reset, expired sign-in, busy, unreachable, or the HTTP status. */
+function claudeFailure(kind: ResponseError['kind'], until: number, status?: number, now = Date.now()): string {
+  if (kind === 'rate_limit') return 'You have hit your Claude plan usage limit.' + (until > now ? ` Try again in ~${Math.max(1, Math.round((until - now) / 60_000))} min.` : ' Try again later.');
+  if (kind === 'signed_out') return status === 403 ? 'Claude refused this sign-in (HTTP 403). Sign in with Claude again.' : 'Your Claude sign-in has expired. Sign in with Claude again.';
+  if (kind === 'overloaded') return 'Claude is busy right now. Try again in a few minutes.';
+  if (kind === 'network' && status === undefined) return 'Claude could not be reached. Check the connection and try again.';
+  return `Claude could not answer${status ? ` (HTTP ${status})` : ''}. Try again or sign in again.`;
+}
+
 /** Internal auth seam for the API-key and subscription routes. */
 export function anthropicMessages(opts: Pick<AnthropicOptions, 'fetch' | 'base' | 'betas'> & {
   headers: Record<string, string>; prepare?: (request: AnthropicRequest) => AnthropicRequest; safeErrors?: boolean;
@@ -227,22 +242,42 @@ export function anthropicMessages(opts: Pick<AnthropicOptions, 'fetch' | 'base' 
   async function respond(o: AnthropicAsk): Promise<string | AnthropicResult> {
     try { return await run(o); } catch (e) {
       if (!opts.safeErrors || e instanceof AnthropicIncompleteError) throw e;
-      throw new ResponseError('Claude could not answer. Try again or sign in again.', e instanceof ResponseError ? e.kind : 'network');
+      // Never the provider's message (it can echo a credential): plain words for the cause, plus status and reason.
+      const http = e instanceof ResponseError && e.status !== undefined ? { status: e.status, retryAfter: e.retryAfter } : undefined;
+      // A cancelled request says so and rests nothing; other local errors stay generic. Only a rejected fetch is "network" (run marks it).
+      const cancelled = !(e instanceof ResponseError) && ((e as Error | undefined)?.name === 'AbortError' || !!o.signal?.aborted);
+      const timedOut = !(e instanceof ResponseError) && ((e as Error | undefined)?.name === 'TimeoutError' || (o.signal?.reason as Error | undefined)?.name === 'TimeoutError');
+      const kind = e instanceof ResponseError ? e.kind : null, until = e instanceof ResponseError ? e.until : 0;
+      const message = timedOut ? 'Claude took too long to answer. Try again.' : cancelled ? 'The Claude request was cancelled.' : claudeFailure(kind, until, http?.status);
+      const safe = new ResponseError(message, kind, until, http);
+      const reason = e instanceof ResponseError ? e.reason : (e as Error | undefined)?.name;
+      if (reason && /^[A-Za-z_]{1,64}$/.test(reason)) safe.reason = reason;
+      if (e instanceof ResponseError && e.status !== undefined) {
+        const secrets = Object.entries(opts.headers).filter(([k]) => /^(authorization|x-api-key)$/i.test(k)).map(([, v]) => v.replace(/^Bearer\s+/i, '')).filter(Boolean);
+        safe.detail = secrets.reduce((m, s) => m.split(s).join('[private]'), e.message).replace(/[A-Za-z0-9_+/=-]{32,}/g, '[private]').slice(0, 300);
+      }
+      throw safe;
     }
   }
   async function run(o: AnthropicAsk): Promise<string | AnthropicResult> {
     const { onText, onEvent, signal, result, ...request } = o;
     if (!request.model || !Number.isSafeInteger(request.max_tokens) || request.max_tokens <= 0) throw new Error('Anthropic needs a model and a positive max_tokens.');
-    const res = await (opts.fetch ?? fetch)(`${(opts.base ?? 'https://api.anthropic.com').replace(/\/$/, '')}/v1/messages`, {
-      method: 'POST', signal,
-      headers: { 'content-type': 'application/json', accept: 'text/event-stream', 'anthropic-version': '2023-06-01', ...opts.headers,
-        ...(opts.betas?.length ? { 'anthropic-beta': opts.betas.join(',') } : {}) },
-      body: JSON.stringify({ ...(opts.prepare ? opts.prepare(request) : request), stream: true }),
-    });
+    let res: Response;
+    try {
+      res = await (opts.fetch ?? fetch)(`${(opts.base ?? 'https://api.anthropic.com').replace(/\/$/, '')}/v1/messages`, {
+        method: 'POST', signal,
+        headers: { 'content-type': 'application/json', accept: 'text/event-stream', 'anthropic-version': '2023-06-01', ...opts.headers,
+          ...(opts.betas?.length ? { 'anthropic-beta': opts.betas.join(',') } : {}) },
+        body: JSON.stringify({ ...(opts.prepare ? opts.prepare(request) : request), stream: true }),
+      });
+    } catch (e) {
+      if (!opts.safeErrors || !(e instanceof TypeError) || signal?.aborted) throw e;
+      const failed = new ResponseError(e.message, 'network'); failed.reason = e.name; throw failed;
+    }
     if (!res.ok) {
       let body: unknown;
       try { body = await res.json(); } catch {}
-      throw error(res.status, body);
+      throw error(res.status, body, res.headers);
     }
     const reader = anthropicSseReader(onText, onEvent);
     const body = res.body;
