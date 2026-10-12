@@ -35,7 +35,7 @@ npm install @byokit/ui
 ```
 
 React is an optional peer dependency, needed only for the hooks (`useSignIn`, `useRun`, `useApprovals`,
-`useHerdrTree`, `useBlocked`).
+`useHerdrTree`, `useBlocked`, `useConnect`, `useAccounts`, `useModelPicker`).
 
 ```ts
 import { phaseOf, stepOf } from '@byokit/ui/phase';
@@ -124,6 +124,7 @@ export function useChatGptSheet() {
 | `connectView(routes, step?)`, `connectStep(step, action)` | Every account route the kits list, grouped by how the person pays, with the picked row and its key card |
 | `signInFor(view, { read, start?, cancel })`, `useConnect({ routes, read, start?, cancel })` | `useSignIn`'s options for the picked sign-in row; the hook holds the step |
 | `accountRows(accounts, room, now)`, `rowsOf(source, now)`, `nameSuggestions(email, taken, provider?)` | One plain-words row per account (`ChatGPT · Work` / `Plus · 72% left this week`), the honest words for every sign-in state, and untaken account-name suggestions |
+| `useAccounts(source)`, `useModelPicker(source, initial?)` | React hooks: the rows live with `refresh()` and `remove()` (a failing room leaves only its row unknown; a mid-refresh remove still drops it), and the run picker with `select()` keeping the caller's selection across refreshes; `accountsSource(accounts, member, room?)` and `cliSource(cli, room?)` fill the source with one line per member (the openclaw adapter stays pending O14) |
 | Types | `Phase`, `SignInView`, `AccountView`, `UseSignIn`, `Route`, `RouteChoice`, `RouteCode`, `PairPhase`, `Role`, `DeviceKind`, `LinkStatus`; `RouteKind` from `@byokit/ui/route`; `Account`, `AccountRow`, `AccountAction`, `AccountsSource`, `Billing`, `Room`, `RoomSpan`, `SignInState` from `@byokit/ui/accounts` |
 
 Entry points: `@byokit/ui` (everything, including the React hooks), `@byokit/ui/phase`,
@@ -234,6 +235,32 @@ declare const reading: (account: Account) => Room;
 const rows = accountRows(list(), reading, Date.now());
 // rows → [{ title: 'ChatGPT · Work', detail: 'Plus · 72% left this week', state: 'ready', low: false, ... }]
 console.log(nameSuggestions('umer@example.com', rows.map((r) => r.title)));
+```
+
+In React, `useAccounts(source)` keeps those rows live (`refresh()` re-reads; `remove(id)` removes through
+the back end and drops the row even mid-refresh), and `useModelPicker(source)` keeps the run picker live
+(`select()` marks the selection at once and keeps it across refreshes). `accountsSource(accounts, member,
+room?)` fills the source from a live `@byokit/accounts` member and `cliSource(cli, room?)` from a live
+`cliAccounts()` kit, each with one line per member; the openclaw adapter stays pending O14:
+
+```ts
+import { accountsSource, cliSource, useAccounts, useModelPicker } from '@byokit/ui';
+import type { Accounts } from '@byokit/accounts';
+import { cliAccounts } from '@byokit/accounts/cli';
+import type { Account, Room } from '@byokit/ui/accounts';
+
+declare const accounts: Accounts<any, number>;
+declare const cli: ReturnType<typeof cliAccounts>;
+declare const reading: (account: Account) => Room;
+const fromMember = accountsSource(accounts, 1, reading);
+const fromCli = cliSource(cli, reading);
+
+export function useAccountList() {
+  return useAccounts(fromCli); // { rows, ready, error, refresh, remove }
+}
+export function useRunPicker() {
+  return useModelPicker(fromMember); // { rows, picker, selection, ready, error, select, refresh, remove }
+}
 ```
 
 ## Pairing words
