@@ -13,7 +13,7 @@ import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool 
 import { deviceFlow, offered, planKey, provider, route, routes, PROVIDERS, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
 import { checkKeyModel, keyRespond, KeyRouteError, type KeyAsk, type KeyRuntime } from './key-routes.ts';
-import { claims, PORTABLE, portableEngine, signable, withDevice } from './engine.ts';
+import { claims, PORTABLE, portableEngine, signable, validEnterpriseDomain, withDevice } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
 import type { ChatGPTRespondAccount } from './chatgpt-plan.ts';
@@ -1149,7 +1149,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       // A GitHub Enterprise domain signs in per-account on every platform: the device flow asks once at sign-in and
       // keeps the host on the credential, so refresh re-mints on the same host. Validation stays before any store is
       // read, never silently fallen back to the public host.
-      if (domain && (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(domain) || !domain.includes('.') || domain.includes('..')))
+      if (domain && !validEnterpriseDomain(domain))
         throw new Error('Enter a GitHub Enterprise domain, without a path or credentials.');
     }
     if (p.key === 'claude' && body.via === 'code') throw new Error('Claude uses a browser or a pasted code, not a device code.');

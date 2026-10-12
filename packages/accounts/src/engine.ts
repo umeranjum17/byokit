@@ -124,17 +124,10 @@ function copilotCredential(j: any, name: string, intermediate: string, enterpris
   // access/expires/refresh/type.
   return { type: 'oauth', access: j.token, refresh: intermediate, expires: j.expires_at * 1000, ...(enterprise ? { enterpriseUrl: enterprise } : {}) };
 }
-/** A GitHub Enterprise host from a sign-in answer or a kept credential: blank means github.com. The hostname rule
- *  mirrors the sign-in gate in accounts.ts; a kept value that fails it reads as the default host, never a refusal. */
-function enterpriseHost(value: unknown): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  try {
-    const url = trimmed.includes('://') ? new URL(trimmed) : new URL(`https://${trimmed}`);
-    if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(url.hostname) || !url.hostname.includes('.') || url.hostname.includes('..')) return undefined;
-    return url.hostname;
-  } catch { return undefined; }
+/** A GitHub Enterprise domain, as the sign-in gate and the engine both take it: a bare hostname, no scheme, path, port
+ *  or credentials. Blank (github.com) is the caller's to decide. */
+export function validEnterpriseDomain(domain: unknown): boolean {
+  return typeof domain === 'string' && /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(domain) && domain.includes('.') && !domain.includes('..');
 }
 async function copilotExchange(url: string, intermediate: string, name: string, signal?: AbortSignal, enterprise?: string) {
   let res: Response;
@@ -202,8 +195,8 @@ async function deviceLogin(pi: string, flow: DeviceFlow, name: string, base: str
   if (flow.exchange) {
     const raw = (await prompt({ type: 'text', message: 'GitHub Enterprise URL/domain (blank for github.com)', placeholder: 'company.ghe.com' })).trim();
     if (signal?.aborted) throw new Error('Login cancelled');
-    enterprise = raw ? enterpriseHost(raw) : undefined;
-    if (raw && !enterprise) throw new Error('Enter a GitHub Enterprise domain, without a path or credentials.');
+    if (raw && !validEnterpriseDomain(raw)) throw new Error('Enter a GitHub Enterprise domain, without a path or credentials.');
+    enterprise = raw || undefined;
   }
   const host = enterprise ?? 'github.com';
   const authorization = at(flow.authorization.replaceAll('{host}', host), base);
@@ -261,7 +254,10 @@ const deviceRefresh = (flow: DeviceFlow, name: string, base?: string) => async (
   if (flow.exchange) {
     // A kept Enterprise credential re-mints on its own host, read from the credential the way the pinned engine reads
     // it, so a freshly built engine refreshes the same account without asking again; github.com keeps its default host.
-    const enterprise = enterpriseHost(c.enterpriseUrl);
+    // A kept value that is not a valid domain ends the sign-in (the store's revoked path) and is never sent anywhere.
+    const kept = c.enterpriseUrl;
+    const enterprise = kept ? String(kept) : undefined;
+    if (enterprise !== undefined && !validEnterpriseDomain(enterprise)) throw Object.assign(new Error(`${name} sign-in needs to be connected again.`), { revoked: true });
     const stop = new AbortController();
     const t = setTimeout(() => stop.abort(), 15_000);
     try { return await copilotExchange(at(flow.exchange.replaceAll('{host}', enterprise ?? 'github.com'), base), c.refresh, name, stop.signal, enterprise); }
