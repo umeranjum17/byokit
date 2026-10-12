@@ -61,8 +61,10 @@ try:
     record['qualified'] = True; record['key_removed'] = True
 finally:
     try:
-        if record.get('machine') and not record['qualified']: tap('m6-stop'); wait('Cloud computer stopped and removed.', 360)
-        if secret: adb('shell', 'content', 'write', '--uri', 'content://' + app + '.m6/key', data=b''); wait('No lab key stored.'); record['key_removed'] = True
+        try:
+            if record.get('machine') and not record['qualified']: tap('m6-stop'); wait('Cloud computer stopped and removed.', 360)
+        finally:
+            if secret: adb('shell', 'content', 'write', '--uri', 'content://' + app + '.m6/key', data=b''); wait('No lab key stored.'); record['key_removed'] = True
     finally:
         if video and video.poll() is None:
             adb('shell', 'kill', '-INT', str(video_pid)); video.wait(timeout=20)

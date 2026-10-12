@@ -244,9 +244,9 @@ export function anthropicMessages(opts: Pick<AnthropicOptions, 'fetch' | 'base' 
       if (!opts.safeErrors || e instanceof AnthropicIncompleteError) throw e;
       // Never the provider's message (it can echo a credential): plain words for the cause, plus status and reason.
       const http = e instanceof ResponseError && e.status !== undefined ? { status: e.status, retryAfter: e.retryAfter } : undefined;
-      // Only a failed fetch (TypeError) is "unreachable"; a cancelled request says so and rests nothing; other local errors stay generic.
+      // A cancelled request says so and rests nothing; other local errors stay generic. Only a rejected fetch is "network" (run marks it).
       const cancelled = !(e instanceof ResponseError) && ((e as Error | undefined)?.name === 'AbortError' || !!o.signal?.aborted);
-      const kind = e instanceof ResponseError ? e.kind : e instanceof TypeError && !cancelled ? 'network' : null, until = e instanceof ResponseError ? e.until : 0;
+      const kind = e instanceof ResponseError ? e.kind : null, until = e instanceof ResponseError ? e.until : 0;
       const safe = new ResponseError(cancelled ? 'The Claude request was cancelled.' : claudeFailure(kind, until, http?.status), kind, until, http);
       const reason = e instanceof ResponseError ? e.reason : (e as Error | undefined)?.name;
       if (reason && /^[A-Za-z_]{1,64}$/.test(reason)) safe.reason = reason;
@@ -260,12 +260,18 @@ export function anthropicMessages(opts: Pick<AnthropicOptions, 'fetch' | 'base' 
   async function run(o: AnthropicAsk): Promise<string | AnthropicResult> {
     const { onText, onEvent, signal, result, ...request } = o;
     if (!request.model || !Number.isSafeInteger(request.max_tokens) || request.max_tokens <= 0) throw new Error('Anthropic needs a model and a positive max_tokens.');
-    const res = await (opts.fetch ?? fetch)(`${(opts.base ?? 'https://api.anthropic.com').replace(/\/$/, '')}/v1/messages`, {
-      method: 'POST', signal,
-      headers: { 'content-type': 'application/json', accept: 'text/event-stream', 'anthropic-version': '2023-06-01', ...opts.headers,
-        ...(opts.betas?.length ? { 'anthropic-beta': opts.betas.join(',') } : {}) },
-      body: JSON.stringify({ ...(opts.prepare ? opts.prepare(request) : request), stream: true }),
-    });
+    let res: Response;
+    try {
+      res = await (opts.fetch ?? fetch)(`${(opts.base ?? 'https://api.anthropic.com').replace(/\/$/, '')}/v1/messages`, {
+        method: 'POST', signal,
+        headers: { 'content-type': 'application/json', accept: 'text/event-stream', 'anthropic-version': '2023-06-01', ...opts.headers,
+          ...(opts.betas?.length ? { 'anthropic-beta': opts.betas.join(',') } : {}) },
+        body: JSON.stringify({ ...(opts.prepare ? opts.prepare(request) : request), stream: true }),
+      });
+    } catch (e) {
+      if (!(e instanceof TypeError) || signal?.aborted) throw e;
+      const failed = new ResponseError(e.message, 'network'); failed.reason = e.name; throw failed;
+    }
     if (!res.ok) {
       let body: unknown;
       try { body = await res.json(); } catch {}

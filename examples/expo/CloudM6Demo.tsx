@@ -4,7 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 import { useKeepAwake } from 'expo-keep-awake';
 import { boat, machine, type MachineRecord } from '@byokit/cloud';
 import { DeviceLink, pairWithOffer, secureDeviceStore } from '@byokit/pair';
-import { ResponseError, type Accounts } from '@byokit/accounts';
+import { ClaudePlanExpiredError, ResponseError, type Accounts } from '@byokit/accounts';
 import { claudeToolCall, cloudRecipe, diagnostic, stopAndRemove, M6_API, M6_KEY, pairedTurn, trialBudget } from './cloud-m6.ts';
 // One create and one turn per approved run: the build names the run, so an approved retry starts clean (pm clear is blocked on some phones).
 const run = process.env.EXPO_PUBLIC_M6_RUN ? '.' + process.env.EXPO_PUBLIC_M6_RUN : '';
@@ -65,7 +65,7 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
   };
   const act = async (run: () => Promise<void>) => {
     if (locked.current) return; locked.current = true; setBusy(true); cause.current = '';
-    try { await run(); } catch (e) { console.warn(diagnostic(e)); const key = await SecureStore.getItemAsync(M6_KEY); say(cause.current || (key ? String((e as Error).message).split(key).join('[private]') : e instanceof ResponseError ? e.message : `Lab step failed (${(e as Error & { code?: string }).code ?? (e as Error).name}); key already removed.`)); }
+    try { await run(); } catch (e) { console.warn(diagnostic(e)); const key = await SecureStore.getItemAsync(M6_KEY); say(cause.current || (key ? String((e as Error).message).split(key).join('[private]') : e instanceof ResponseError || e instanceof ClaudePlanExpiredError ? e.message : `Lab step failed (${(e as Error & { code?: string }).code ?? (e as Error).name}).`)); }
     finally { locked.current = false; setBusy(false); }
   };
   // The one approved Claude plan sign-in: Main opens the link and pastes the code here; nothing leaves this phone.
@@ -87,11 +87,12 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
   useEffect(() => {
     if (!id || !ready) return;
     const timer = setInterval(() => { if (!locked.current) void act(async () => {
-      try { const l = await api('/limits'), used = Math.max(0, (budget.current?.remaining ?? 0) - Math.min(l.subscriptionRemainingSeconds, l.creditBalanceSeconds)) + l.liveUsageSeconds;
-        if (!budget.current || !Number.isFinite(used) || l.sandboxPlanKey !== 'trial' || Date.now() - started.current > 1200000 ||
-            l.subscriptionRemainingSeconds < 900 || used >= Math.min(budget.current.budget, budget.current.stop) - 900) await stop();
-        else if (used >= budget.current.warn) say('USD 10 warning: stop now.');
-      } catch { await stop(); }
+      const l = await api('/limits').catch(() => null);
+      if (!l) return stop();
+      const used = Math.max(0, (budget.current?.remaining ?? 0) - Math.min(l.subscriptionRemainingSeconds, l.creditBalanceSeconds)) + l.liveUsageSeconds;
+      if (!budget.current || !Number.isFinite(used) || l.sandboxPlanKey !== 'trial' || Date.now() - started.current > 1200000 ||
+          l.subscriptionRemainingSeconds < 900 || used >= Math.min(budget.current.budget, budget.current.stop) - 900) return stop();
+      if (used >= budget.current.warn) say('USD 10 warning: stop now.');
     }); }, 15000);
     return () => clearInterval(timer);
   }, [id, ready]);

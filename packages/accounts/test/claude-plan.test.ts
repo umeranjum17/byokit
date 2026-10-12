@@ -146,6 +146,12 @@ test('a failed Claude plan answer names its cause in plain words and never echoe
       message: 'Claude could not answer (HTTP 400). Try again or sign in again.', kind: null, status: 400, reason: 'invalid_request_error', detail: 'tools.0: [private] is not valid [private]' },
     { reply: () => { throw new DOMException('The operation was aborted.', 'AbortError'); }, message: 'The Claude request was cancelled.', kind: null, reason: 'AbortError' },
     { reply: () => { throw new Error('a local fault'); }, message: 'Claude could not answer. Try again or sign in again.', kind: null, reason: 'Error' },
+    { reply: () => new Response([
+      'data: {"type":"message_start","message":{"id":"m","type":"message","role":"assistant","model":"x","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":1}}}',
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":"","citations":5}}',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"citations_delta","citation":{"type":"char_location"}}}',
+    ].map((line) => line + '\n\n').join(''), { headers: { 'content-type': 'text/event-stream' } }),
+    message: 'Claude could not answer. Try again or sign in again.', kind: null, reason: 'TypeError' },
   ];
   for (const c of cases) {
     const store = memoryStore(); await store.modify(id, async () => token(fixture.now + 3600_000));
