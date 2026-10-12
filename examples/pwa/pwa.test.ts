@@ -124,6 +124,120 @@ test('Grok in the built browser app: a dropped poll, approval, reload, sign-out;
   } finally { await context.close(); }
 });
 
+test('Add an account: every route grouped, Plans first, unavailable ones say why and cannot be tapped, a plan starts its card', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext({ serviceWorkers: 'block' });
+  try {
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.goto(site.url);
+    await part(page, 'chatgpt', 'signin').waitFor();
+    assert.equal(await page.locator('#add-sheet').isVisible(), false, 'closed until the person opens it');
+    await page.locator('#add-open').click();
+    const groups = await page.locator('#add-groups [data-group]').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.group));
+    assert.deepEqual(groups.slice(0, 2), ['plans', 'perUse'], 'Plans first, then Pay per use');
+    const { routes } = await import('@byokit/accounts');
+    assert.equal(await page.locator('#add-groups [data-route]').count(), routes({ platform: 'browser' }).length, 'every route is listed');
+    const lines = (g: string) => page.locator(`[data-group="${g}"] .route-line`).allTextContents();
+    assert.ok((await lines('plans')).every((l) => l.startsWith('Uses your ')), 'a plan says it uses your plan');
+    assert.ok((await lines('perUse')).every((l) => l.startsWith('Charged per use')), 'nothing billed per use is a plan');
+    const row = (id: string) => page.locator(`[data-route="${id}"]`);
+    assert.equal(await row('openai:code').locator('.route-name').textContent(), 'ChatGPT — sign in with a code', 'each card names its way in');
+    for (const g of groups) {
+      const unavailable = await page.locator(`[data-group="${g}"] .route`).evaluateAll((els) => els.map((e) => e.hasAttribute('data-unavailable')));
+      assert.deepEqual(unavailable, [...unavailable].sort((a, b) => Number(a) - Number(b)), `${g}: ready ways in before unavailable ones`);
+    }
+    for (const [id, words] of [['anthropic:paste', 'Needs the app on your computer.'], ['openai:browser', 'Not available on this device.']]) {
+      assert.equal(await row(id).isDisabled(), true, `${id} cannot be tapped`);
+      assert.equal(await row(id).getAttribute('data-unavailable'), '');
+      assert.equal(await row(id).locator('.route-status').textContent(), words);
+    }
+    await row('anthropic:paste').click({ force: true });
+    assert.equal(await page.locator('#add-sheet').isVisible(), true, 'an unavailable row does nothing');
+    assert.equal(await part(page, 'claude', 'sheet').isVisible(), false);
+    assert.equal(await row('openai:key').isDisabled(), true, 'a key this page has no form for is not offered');
+    assert.equal(await row('openai:key').getAttribute('data-unavailable'), null);
+    await row('openai:code').click();
+    await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).waitFor();
+    assert.equal(await page.locator('#add-sheet').isVisible(), false, 'the sheet closes on the card it started');
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'chatgpt', 'focus lands on that card');
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('Add sheet rows start their own card: a signed-in plan row adds another sign-in with its code; a tap while one waits starts nothing new', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext({ serviceWorkers: 'block' });
+  try {
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    const usercodes = () => openai.state.requests.filter((r) => r.path === '/api/accounts/deviceauth/usercode').length;
+    const shownCode = () => page.locator('#chatgpt [data-sheet]:not([hidden]) [data-code]').textContent();
+    await page.goto(site.url);
+    await part(page, 'chatgpt', 'signin').click();
+    const code = (await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).textContent())!;
+    const [provider] = await Promise.all([context.waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
+    await provider.fill('#code', code);
+    await provider.click('#continue');
+    await provider.close();
+    await page.locator('#chatgpt [data-email]').filter({ hasText: 'umer@example.com' }).waitFor();
+
+    await page.locator('#add-open').click();
+    await page.locator('[data-route="openai:code"]').click();
+    await page.waitForFunction((first) => {
+      const shown = document.querySelector('#chatgpt [data-sheet]:not([hidden]) [data-code]')?.textContent ?? '';
+      return shown.startsWith('MOCK-') && shown !== first;
+    }, code);
+    const added = await shownCode();
+    assert.equal(await part(page, 'chatgpt', 'signin').isVisible(), false, 'the card is not signed out');
+    assert.equal(await page.locator('#add-sheet').isVisible(), false, 'the sheet closes on the card it started');
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'chatgpt', 'focus lands on that card');
+
+    const started = usercodes();
+    await page.locator('#add-open').click();
+    await page.locator('[data-route="openai:code"]').click();
+    await page.waitForTimeout(1500);
+    assert.equal(usercodes(), started, 'a tap while that sign-in waits starts nothing new');
+    assert.equal(await shownCode(), added, 'the waiting code is the one shown');
+    assert.equal(await part(page, 'chatgpt', 'sheet').isVisible(), true, 'the pending sign-in stays on its card');
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('an added sign-in that runs out: the card is not stuck, its expiry words survive an unrelated redraw', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext({ serviceWorkers: 'block' });
+  try {
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.clock.install();
+    await page.goto(site.url);
+    await part(page, 'chatgpt', 'signin').click();
+    const code = (await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).textContent())!;
+    const [provider] = await Promise.all([context.waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
+    await provider.fill('#code', code);
+    await provider.click('#continue');
+    await provider.close();
+    await page.locator('#chatgpt [data-email]').filter({ hasText: 'umer@example.com' }).waitFor();
+
+    await page.locator('#add-open').click();
+    await page.locator('[data-route="openai:code"]').click();
+    await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).waitFor();
+    await page.clock.fastForward(16 * 60_000);
+    await part(page, 'chatgpt', 'add').waitFor({ state: 'visible' });
+    assert.equal(await part(page, 'chatgpt', 'sheet').isVisible(), false, 'the expired sheet is gone');
+    assert.equal(await part(page, 'chatgpt', 'note').getAttribute('data-tone'), 'expired', 'the card says the code ran out');
+    const words = await part(page, 'chatgpt', 'note').textContent();
+
+    await part(page, 'chatgpt', 'pick').dispatchEvent('change');
+    await page.waitForTimeout(300);
+    assert.equal(await part(page, 'chatgpt', 'note').isVisible(), true, 'the words survive an unrelated redraw');
+    assert.equal(await part(page, 'chatgpt', 'note').textContent(), words);
+    assert.equal(await part(page, 'chatgpt', 'add').isVisible(), true, 'Add another is back, so the card is not stuck');
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
 test('sign in with Claude in a browser: its page, the code pasted back, the plan named, an answer streamed', { timeout: 120_000 }, async () => {
   const fixture = (f: string) => JSON.parse(readFileSync(new URL(`../../fixtures/conformance/${f}`, import.meta.url), 'utf8'));
   const plan = fixture('claude-plan-typescript.json'), messages = fixture('claude-messages-typescript.json').cases[0];

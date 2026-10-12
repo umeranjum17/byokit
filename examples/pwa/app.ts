@@ -3,8 +3,11 @@
 // @byokit/ui's phases. Every connected plan and key lists first through the shared account rows, each with its
 // billing and room; the Add rows come after. Ask runs on one account chosen at the start through the shared run
 // picker: Auto takes the most room and says which one and why, and suggests the roomier account when yours is low.
-import { Accounts, billingWords, browserStore, planLabel, resolveSelection, roomOf, say, signInError, PROVIDERS, type Account, type ModelInfo, type Room } from '@byokit/accounts';
+// Add an account lists every route the kit has, grouped by @byokit/ui's connectView: Plans first, then Pay per use
+// and the rest, each with how it is paid for, how you sign in and whether it works here.
+import { Accounts, billingWords, browserStore, planLabel, resolveSelection, roomOf, say, signInError, PROVIDERS, type Account, type ModelInfo, type Room, type RouteView } from '@byokit/accounts';
 import { accountRows, bestMoveTarget, modelPicker, moveWords, type AccountRow, type Pick, type PickerView } from '@byokit/ui/accounts';
+import { connectView, type ConnectRow } from '@byokit/ui/connect';
 import { phaseOf } from '@byokit/ui/phase';
 import type { Reading, Window } from '@byokit/usage';
 import { windowsView } from '@byokit/usage/view';
@@ -264,21 +267,29 @@ function card(key: string) {
   let drawing = 0;
   let pendingAdd: string | undefined;
   let cancelledHere = false;
+  let signedIn = false;
+  type Said = { tone: '' | 'error' | 'expired' | 'info'; words: string };
+  // The last way an account being added ended, kept so the card still says it after the add is gone.
+  let failure: Said | undefined;
   async function draw() {
     const mine = ++drawing;
     const status = await accounts.status(ME, key);
     // Signed in, even while resting or when the plan lacks something: Ask says why, and Sign out stays.
     const ready = status.state === 'ready' || status.state === 'resting' || status.state === 'not_included';
+    signedIn = ready;
     const plan = ready ? await accounts.plan(ME, key) : null;
     const rows = (await accounts.list(ME)).filter((a) => a.provider === key);
     const self = { id: status.id, email: plan?.email };
     paintRows(rows, new Map(), self);
     await paintPick(rows, new Map(), self);
+    const adding = !!pendingAdd;
     const landed = pendingAdd ? accounts.view(ME, pendingAdd) : undefined;
     if (landed?.state === 'done' && pendingAdd) pendingAdd = undefined;
     // An account being added walks its own sheet, even while another one is already connected.
-    const shown = pendingAdd ? accounts.view(ME, pendingAdd) : accounts.view(ME, key);
+    const shown = pendingAdd ? landed : accounts.view(ME, key);
     const phase = phaseOf({ ready: !pendingAdd && status.state === 'ready', signIn: shown });
+    // A failed or expired add ends here, so its card goes back to Sign in or Add another under the banner it shows.
+    if (landed?.state === 'failed') pendingAdd = undefined;
     const waiting = shown?.state === 'waiting';
     if (mine !== drawing) return; // a later draw (a sign-out, say) already said how things are
     readReadings(rows).then((readings) => {
@@ -321,15 +332,17 @@ function card(key: string) {
       banner('', '');
       q('words').textContent = say('signIn.opening', { name });
       show('codewell', false); show('open', false); show('paste', false);
-    } else if (!ready || pendingAdd) {
+    } else if (!ready || adding) {
       // The sheet is gone; the sign-in button is the single primary again, under a banner saying what happened.
-      if (phase === 'expired') banner('expired', signInError(name, shown?.error ?? 'expired'));
-      else if (phase === 'cancelled') banner('info', say('signIn.cancelled'));
-      else if (phase === 'failed' || phase === 'busy' || phase === 'offline') {
-        banner(cancelledHere ? 'info' : 'error', cancelledHere ? say('signIn.cancelled') : signInError(name, shown?.error ?? 'failed'));
-      } else banner('', '');
+      const said: Said = phase === 'expired' ? { tone: 'expired', words: signInError(name, shown?.error ?? 'expired') }
+        : phase === 'cancelled' ? { tone: 'info', words: say('signIn.cancelled') }
+        : phase === 'failed' || phase === 'busy' || phase === 'offline'
+          ? (cancelledHere ? { tone: 'info', words: say('signIn.cancelled') } : { tone: 'error', words: signInError(name, shown?.error ?? 'failed') })
+          : { tone: '', words: '' };
+      banner(said.tone, said.words);
+      if (adding) failure = said;
       cancelledHere = false;
-    } else banner('', '');
+    } else banner(failure?.tone ?? '', failure?.words ?? '');
     if (shown?.state === 'failed') void 0; // banner above already said it, in this card's own words
     show('signin', !ready && !waiting && !pendingAdd);
     show('add', ready && !waiting && !pendingAdd);
@@ -346,8 +359,9 @@ function card(key: string) {
     b.textContent = 'Copied';
     window.setTimeout(() => { b.textContent = 'Copy'; }, 1200);
   };
-  q('signin').onclick = () => { banner('', ''); accounts.login(ME, key).then(draw); };
-  q('add').onclick = async () => {
+  const signIn = () => { failure = undefined; banner('', ''); return accounts.login(ME, key).then(draw); };
+  const addAnother = async () => {
+    failure = undefined;
     note('');
     try {
       const added = await accounts.add(ME, key, { fresh: true });
@@ -355,6 +369,10 @@ function card(key: string) {
     } catch (e: any) { note(e.message); }
     draw();
   };
+  q('signin').onclick = signIn;
+  q('add').onclick = addAnother;
+  // A row in the Add sheet starts this card's own way in. A sign-in already waiting here is shown, never doubled.
+  const start = () => (pendingAdd || accounts.view(ME, key)?.state === 'waiting' ? draw() : signedIn ? addAnother() : signIn());
   q('cancel').onclick = () => {
     cancelledHere = true;
     accounts.cancel(ME, pendingAdd ?? key);
@@ -426,14 +444,64 @@ function card(key: string) {
   };
   q('stop').onclick = () => settle();
   q('signout').onclick = async () => { settle(); await accounts.logout(ME, key); note(''); show('answer', false); draw(); };
-  return draw;
+  return { draw, start };
 }
 
 const $ = (id: string) => document.getElementById(id)!;
 // The picker is the catalogue's: every provider this platform can sign in to, in the order the kit offers them.
-const draws: Record<string, () => Promise<void>> = Object.fromEntries(accounts.providers.map((p) => [p.key, card(p.key)]));
+const cards: Record<string, ReturnType<typeof card>> = Object.fromEntries(accounts.providers.map((p) => [p.key, card(p.key)]));
 // An account being added reports under its own id, not its provider: redraw its card too, not only exact hits.
-accounts.onChange = (_member, key) => { const d = draws[key]; if (d) d(); else Object.values(draws).forEach((d) => d()); };
+accounts.onChange = (_member, key) => { const c = cards[key]; if (c) c.draw(); else Object.values(cards).forEach((c) => c.draw()); };
 Promise.all(accounts.providers.map((p) => accounts.signedIn(ME, p.key)))
-  .then(() => accounts.keepFresh([ME])).then(() => Object.values(draws).forEach((d) => d()));
+  .then(() => accounts.keepFresh([ME])).then(() => Object.values(cards).forEach((c) => c.draw()));
+
+/** The card a route signs in on, when this page has one: the provider with that route's upstream id. */
+const cardFor = (row: ConnectRow, routes: RouteView[]) => accounts.providers.find((p) => p.pi === routes.find((r) => r.id === row.id)?.upstream.id)?.key;
+/** Every route, grouped. A row is a button only when this page can start it: a ready sign-in with its card here.
+ *  Anything else stays listed and cannot be tapped, saying why: its readiness words, or that this page has no form for it. */
+function addSheet() {
+  const box = $('add-groups');
+  box.replaceChildren();
+  const routes = accounts.routes();
+  for (const g of connectView(routes).groups) {
+    const group = document.createElement('section');
+    group.className = 'group';
+    group.dataset.group = g.id;
+    const title = document.createElement('h3');
+    title.textContent = g.title;
+    const note = document.createElement('p');
+    note.className = 'company';
+    note.textContent = g.note;
+    group.append(title, note);
+    // Ready ways in first, then the ones that cannot be used here; each keeps the kit's order within its kind.
+    for (const r of [...g.rows].sort((a, b) => Number(b.ready) - Number(a.ready))) {
+      const key = r.does === 'signin' ? cardFor(r, routes) : undefined;
+      const row = document.createElement('button');
+      row.className = 'route';
+      row.type = 'button';
+      row.dataset.route = r.id;
+      // aria-disabled, not disabled: the row stays focusable, so its reason is still read out.
+      if (!key) row.setAttribute('aria-disabled', 'true');
+      if (!r.ready) row.dataset.unavailable = '';
+      const line = (cls: string, words: string) => { const s = document.createElement('span'); s.className = cls; s.textContent = words; row.append(s); };
+      // The way in names the card: one provider can have several (its page, a pasted code, a key).
+      line('route-name', `${r.name} — ${r.method[0].toLowerCase()}${r.method.slice(1)}`);
+      line('route-line', r.billingWords);
+      line('route-status', r.ready && !key ? 'Ready, but this page has no form for it yet.' : r.status);
+      row.onclick = () => {
+        if (!key) return;
+        $('add-sheet').hidden = true;
+        const el = $(key);
+        el.tabIndex = -1;
+        el.focus();
+        el.scrollIntoView({ block: 'start' });
+        void cards[key].start();
+      };
+      group.append(row);
+    }
+    box.append(group);
+  }
+}
+$('add-open').onclick = () => { addSheet(); $('add-sheet').hidden = false; $('add-title').focus(); $('add-sheet').scrollIntoView({ block: 'start' }); };
+$('add-close').onclick = () => { $('add-sheet').hidden = true; $('add-open').focus(); };
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');

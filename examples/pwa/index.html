@@ -68,12 +68,31 @@
   .card-actions .quiet { margin-top: 0; }
   input, textarea, select { font: inherit; box-sizing: border-box; width: 100%; padding: .7em .8em; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--ink); margin-top: .7em; }
   .answer { white-space: pre-wrap; margin: .8em 0 0; }
+  .add { margin-top: 1em; }
+  .add-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1em; }
+  .add-head h2 { font-size: 1.15em; margin: 0; }
+  .add-head .quiet { margin: 0; }
+  .group { margin-top: 1.1em; }
+  .group h3 { font-size: .95em; margin: 0; }
+  .route { font: inherit; display: grid; gap: .1em; width: 100%; text-align: left; background: var(--fill); color: var(--ink); border: 0; border-radius: 14px; padding: .7em .9em; margin-top: .5em; cursor: pointer; }
+  .route[aria-disabled] { background: none; box-shadow: inset 0 0 0 1px var(--line); cursor: default; }
+  .route-name { font-weight: 600; }
+  .route-line, .route-status { color: var(--soft); font-size: .85em; }
+  .route:not([aria-disabled]) .route-line, .route:not([aria-disabled]) .route-status { color: var(--ink); }
+  .route:not([aria-disabled]) .route-status { font-weight: 600; }
+  .route[data-unavailable] .route-name { color: var(--soft); }
   [hidden] { display: none !important; }
   @media (min-width: 900px) { body { max-width: 62em; } #cards { grid-template-columns: 1fr 1fr; align-items: start; } }
 </style>
 <h1>Umer&rsquo;s AI plans</h1>
 <p class="lede">Sign in with a plan you already pay for. Your sign-ins stay in this browser.</p>
 <p class="usage-link"><a href="usage.html">See plan usage</a></p>
+<button class="secondary" id="add-open" type="button">Add an account</button>
+<section class="card add" id="add-sheet" aria-labelledby="add-title" hidden>
+  <div class="add-head"><h2 id="add-title" tabindex="-1">Add an account</h2><button class="quiet" id="add-close" type="button">Close</button></div>
+  <p class="company">Plans you already pay for come first. Anything charged per use is listed, never chosen for you.</p>
+  <div id="add-groups"></div>
+</section>
 <div id="cards"></div>
 <template id="card">
   <section class="card" data-state="signed_out">
