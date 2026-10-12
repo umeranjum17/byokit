@@ -3,8 +3,11 @@
 // @byokit/ui's phases. Every connected plan and key lists first through the shared account rows, each with its
 // billing and room; the Add rows come after. Ask runs on one account chosen at the start through the shared run
 // picker: Auto takes the most room and says which one and why, and suggests the roomier account when yours is low.
-import { Accounts, billingWords, browserStore, planLabel, resolveSelection, roomOf, say, signInError, PROVIDERS, type Account, type ModelInfo, type Room } from '@byokit/accounts';
+// Add an account lists every route the kit has, grouped by @byokit/ui's connectView: Plans first, then Pay per use
+// and the rest, each with how it is paid for, how you sign in and whether it works here.
+import { Accounts, billingWords, browserStore, planLabel, resolveSelection, roomOf, say, signInError, PROVIDERS, type Account, type ModelInfo, type Room, type RouteView } from '@byokit/accounts';
 import { accountRows, bestMoveTarget, modelPicker, moveWords, type AccountRow, type Pick, type PickerView } from '@byokit/ui/accounts';
+import { connectView, type ConnectRow } from '@byokit/ui/connect';
 import { phaseOf } from '@byokit/ui/phase';
 import type { Reading, Window } from '@byokit/usage';
 import { windowsView } from '@byokit/usage/view';
@@ -436,4 +439,53 @@ const draws: Record<string, () => Promise<void>> = Object.fromEntries(accounts.p
 accounts.onChange = (_member, key) => { const d = draws[key]; if (d) d(); else Object.values(draws).forEach((d) => d()); };
 Promise.all(accounts.providers.map((p) => accounts.signedIn(ME, p.key)))
   .then(() => accounts.keepFresh([ME])).then(() => Object.values(draws).forEach((d) => d()));
+
+/** The card a route signs in on, when this page has one: the provider with that route's upstream id. */
+const cardFor = (row: ConnectRow, routes: RouteView[]) => accounts.providers.find((p) => p.pi === routes.find((r) => r.id === row.id)?.upstream.id)?.key;
+/** Every route, grouped. A row is a button only when this page can start it: a ready sign-in with its card here.
+ *  Anything else stays listed and cannot be tapped, saying why: its readiness words, or that this page has no form for it. */
+function addSheet() {
+  const box = $('add-groups');
+  box.replaceChildren();
+  const routes = accounts.routes();
+  for (const g of connectView(routes).groups) {
+    const group = document.createElement('section');
+    group.className = 'group';
+    group.dataset.group = g.id;
+    const title = document.createElement('h3');
+    title.textContent = g.title;
+    const note = document.createElement('p');
+    note.className = 'company';
+    note.textContent = g.note;
+    group.append(title, note);
+    for (const r of g.rows) {
+      const key = r.does === 'signin' ? cardFor(r, routes) : undefined;
+      const row = document.createElement('button');
+      row.className = 'route';
+      row.type = 'button';
+      row.dataset.route = r.id;
+      // aria-disabled, not disabled: the row stays focusable, so its reason is still read out.
+      if (!key) row.setAttribute('aria-disabled', 'true');
+      if (!r.ready) row.dataset.unavailable = '';
+      const line = (cls: string, words: string) => { const s = document.createElement('span'); s.className = cls; s.textContent = words; row.append(s); };
+      line('route-name', r.name);
+      line('route-line', `${r.billingWords} · ${r.method}`);
+      line('route-status', r.ready && !key ? 'Ready, but this page has no form for it yet.' : r.status);
+      row.onclick = () => {
+        if (!key) return;
+        $('add-sheet').hidden = true;
+        const card = $(key);
+        card.tabIndex = -1;
+        card.focus();
+        card.scrollIntoView({ block: 'start' });
+        const start = card.querySelector<HTMLButtonElement>('[data-signin]:not([hidden])') ?? card.querySelector<HTMLButtonElement>('[data-add]:not([hidden])');
+        start?.click();
+      };
+      group.append(row);
+    }
+    box.append(group);
+  }
+}
+$('add-open').onclick = () => { addSheet(); $('add-sheet').hidden = false; $('add-title').focus(); $('add-sheet').scrollIntoView({ block: 'start' }); };
+$('add-close').onclick = () => { $('add-sheet').hidden = true; $('add-open').focus(); };
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');

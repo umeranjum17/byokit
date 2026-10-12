@@ -202,6 +202,23 @@ const SCREENS: Screen[] = [
       await part(page, 'chatgpt', 'status').filter({ hasText: /isn't signed in/ }).waitFor();
     },
   },
+  // The sheet is longer than a screen: its top (Plans first), the ChatGPT row this page can start, and rows it cannot.
+  ...(['top', 'ready', 'unavailable'] as const).map((at): Screen => ({
+    id: `add-sheet-${at}`, path: '',
+    what: { top: 'Add an account: every route grouped by connectView, Plans first', ready: 'Add an account: the ChatGPT plan row, tappable, starts its card',
+      unavailable: 'Add an account: a row needing the host says why and cannot be tapped' }[at],
+    themes: [...themes],
+    formFactors: ['narrow', 'phone', 'desktop'],
+    interaction: `add-sheet-${at}`,
+    before: { via: 'ref' }, // the base page has no Add button: its before frame is the signed-out list it showed instead
+    async drive(page) {
+      await part(page, 'chatgpt', 'status').filter({ hasText: /isn't signed in/ }).waitFor();
+      if (!await page.locator('#add-open').count()) return;
+      await page.locator('#add-open').click();
+      if (at === 'top') await page.locator('#add-sheet').evaluate((e) => e.scrollIntoView({ block: 'start' }));
+      else await page.locator(`[data-route="${at === 'ready' ? 'openai:code' : 'anthropic:paste'}"]`).evaluate((e) => e.scrollIntoView({ block: 'center' }));
+    },
+  })),
   {
     id: 'signin',
     path: '',
