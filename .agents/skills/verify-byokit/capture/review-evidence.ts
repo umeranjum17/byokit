@@ -316,7 +316,7 @@ const SCREENS: Screen[] = [
       await connectChatGPT(page, { accountId: 'umer-work', email: 'umer@work.example', plan: 'team' }, true);
       await connectChatGPT(page, { accountId: 'umer-personal', email: 'umer@example.com', plan: 'plus' }, false);
       await askAuto(page, 'Which account am I?');
-      await part(page, 'chatgpt', 'picked').filter({ hasText: /Auto picks umer@work\.example/ }).waitFor();
+      await part(page, 'chatgpt', 'picked').filter({ hasText: /Right now that's ChatGPT: 60% left this week/ }).waitFor();
     },
   },
   {
@@ -336,7 +336,7 @@ const SCREENS: Screen[] = [
       openai.state.fail = { status: 429, body: JSON.stringify({ error: { code: 'rate_limit_exceeded', message: 'You have hit your usage limit' } }) };
       await askAuto(page, 'Now hit the limit', /usage limit/i);
       await askAuto(page, 'Who answers now?');
-      await part(page, 'chatgpt', 'picked').filter({ hasText: /Auto picks umer@example\.com/ }).waitFor();
+      await part(page, 'chatgpt', 'picked').filter({ hasText: /Right now that's ChatGPT: 30% left this week/ }).waitFor();
     },
   },
 ];
