@@ -1,0 +1,10 @@
+{
+  "name": "hosted-relay",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Deploy recipe for a hosted @byokit/relay. Not published.",
+  "dependencies": {
+    "@byokit/relay": "0.6.0"
+  }
+}
