@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { DeviceEventEmitter, Pressable, SafeAreaView, ScrollView, StatusBar, Text } from 'react-native';
+import { DeviceEventEmitter, Pressable, SafeAreaView, ScrollView, StatusBar, Text, TextInput } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { useKeepAwake } from 'expo-keep-awake';
 import { boat, machine, type MachineRecord } from '@byokit/cloud';
@@ -13,6 +13,7 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
   useKeepAwake();
   const [note, say] = useState('Checking the lab sign-ins…'), [id, setId] = useState(''), [ready, setReady] = useState(false);
   const [model, setModel] = useState(false), [signins, setSignins] = useState('Reading sign-ins…'), [busy, setBusy] = useState(false), [attempted, setAttempted] = useState(false);
+  const [signUrl, setSignUrl] = useState(''), [code, setCode] = useState('');
   const link = useRef<DeviceLink | null>(null), started = useRef(0), budget = useRef<ReturnType<typeof trialBudget> | null>(null);
   const locked = useRef(false), cause = useRef('');
   const api = async (path: string) => {
@@ -62,6 +63,14 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
     try { await run(); } catch (e) { const key = await SecureStore.getItemAsync(M6_KEY); say(cause.current || (key ? String((e as Error).message).split(key).join('[private]') : `Lab step failed (${(e as Error & { code?: string }).code ?? (e as Error).name}); key already removed.`)); }
     finally { locked.current = false; setBusy(false); }
   };
+  // The one approved Claude plan sign-in: Main opens the link and pastes the code here; nothing leaves this phone.
+  const claude = async () => { const v = await accounts.login(1, 'claude'); if (!v?.url) throw new Error('Claude did not offer a sign-in link.'); setSignUrl(v.url); say('Open the Claude link, then paste the code.'); };
+  const finish = async () => {
+    accounts.paste(1, 'claude', code); setCode(''); await accounts.finished(1, 'claude');
+    const rows = await accounts.list(1); const ok = rows.some(r => r.provider === 'claude' && r.state === 'ready');
+    setSignins(rows.map(r => `${r.name} (${r.provider}, ${r.state})`).join('; ') || 'none'); setModel(ok); setSignUrl('');
+    say(ok ? 'Claude sign-in ready.' : 'Claude sign-in did not finish.');
+  };
   const create = async () => {
     if (!model) throw new Error('An existing phone-local Claude sign-in is required; no new sign-in is authorized.');
     const l = await api('/limits'), list = await api('/sandboxes?limit=200');
@@ -105,6 +114,10 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
     <Text style={{ color: '#111', fontSize: 24, fontWeight: '600' }}>Umer's cloud computer</Text><Text style={{ color: '#111' }}>One Boat free-trial lab run. Model sign-in stays on this phone.</Text>
     <Text testID="m6-key" style={{ color: '#111' }}>{ready ? 'Lab key present.' : 'No lab key stored.'}</Text><Text testID="m6-model" style={{ color: '#111' }}>{model ? 'Existing Claude sign-in available.' : 'No Claude sign-in. Main approval needed.'}</Text><Text testID="m6-signins" style={{ color: '#111' }}>{`Sign-ins on this phone: ${signins}`}</Text>
     <Text testID="m6-note" style={{ color: '#111', fontSize: 18 }}>{note}</Text><Text testID="m6-resource" style={{ color: '#111' }} selectable>{id ? `Machine: ${id}` : 'No task machine.'}</Text>
+    {!model && !signUrl && button('m6-claude', 'Sign in to Claude', claude)}
+    {!!signUrl && <><Text testID="m6-claude-url" style={{ color: '#111' }} selectable>{signUrl}</Text>
+      <TextInput testID="m6-claude-code" value={code} onChangeText={setCode} secureTextEntry autoCorrect={false} autoCapitalize="none" placeholder="Paste the Claude code" placeholderTextColor="#555" style={{ color: '#111', borderWidth: 1, borderColor: '#888', padding: 12 }} />
+      {button('m6-claude-finish', 'Finish sign-in', finish, !!code)}</>}
     {button('m6-create', 'Create', create, ready && model && !attempted)}{button('m6-install', 'Install', install, !!id && ready)}
     {button('m6-pair', 'Pair', pair, !!id && ready)}{button('m6-turn', 'One agent turn', turn, !!id && ready)}
     {button('m6-stop', 'Stop and remove', stop, !!id && ready)}{button('m6-purge', 'Remove lab key', async () => { await purge(); say('Lab key removed.'); })}
