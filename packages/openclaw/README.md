@@ -137,8 +137,9 @@ and an ok end carries `account` and `model`. A chosen account that isn't signed 
 when every account is resting, the end is `resting` with `until`, and Auto skips a resting account until then.
 A conversation keeps its account: a later run on the same `sessionKey` stays on the account that holds the session,
 whatever `account` says. Naming another account ends `{ ok: false, kind: 'other' }` with words to show (`account.bound`).
-A conversation on an API-key account continues only when that account is named (`account.paid`). Both end before any
-request. `kit.pick(member, { account, model?, needs? }, { sessionKey })` returns what that run would choose now,
+A conversation on an API-key account continues only when that account is named (`account.paid`). Both end after the
+binding read and before any other request; an `auth: 'apiKey'` run continues only an API-billed conversation and is refused
+other bindings the same way (`account.bound`). `kit.pick(member, { account, model?, needs? }, { sessionKey })` returns what that run would choose now,
 refusals included, without running. `steer` and `abort` accept the same `sessionKey` while its run is live.
 
 

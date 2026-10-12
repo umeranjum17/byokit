@@ -57,6 +57,7 @@ export function createAccounts(ctx: {
   models(member: Member, id: AccountId): Promise<ModelInfo[]>;
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;
   bind(member: Member, sessionKey: string): Promise<Binding | undefined>;
+  keyRefusal(member: Member, binding: Binding): string | undefined;
   pick(member: Member, sel: RunSelection, skip?: readonly AccountId[], binding?: Binding): Promise<{ pick: AccountPick; agent?: string }>;
   rest(member: Member, id: AccountId, until: number): Promise<void>;
 } {
@@ -332,6 +333,34 @@ export function createAccounts(ctx: {
       return roomOf(row.provider, answer);
     });
 
+  // Runs step 2 reads the index alone, so a refusal makes no request: the accounts a binding holds, in list order, and
+  // the name a refusal shows (`account.another` when it holds none).
+  const boundOf = (file: IndexFile, binding: Binding): AccountId[] => binding.id !== undefined ? [binding.id]
+    : Object.entries(file.accounts).filter(([, e]) => e.agent === binding.agentId)
+      .sort(([a, x], [b, y]) => x.addedAt - y.addedAt || (a < b ? -1 : 1)).map(([id]) => id);
+  const nameOf = (file: IndexFile, ids: AccountId[]): string => {
+    const first = ids[0] === undefined ? undefined : file.accounts[ids[0]];
+    return first?.name ?? words('account.another');
+  };
+  // A pick's refusal: `bound` names an id outside the binding's accounts, `paid` an id other than an API-billed
+  // binding's own. A named id the index does not hold is left to the pick, which reports it as unknown.
+  const refusalOf = (file: IndexFile, binding: Binding, sel: RunSelection): { code: 'bound' | 'paid'; name: string } | undefined => {
+    const named = sel.account === 'auto' || sel.account === 'default' ? undefined : sel.account;
+    if (named !== undefined && file.accounts[named] === undefined) return undefined;
+    const ids = boundOf(file, binding);
+    const held = binding.id === undefined ? undefined : file.accounts[binding.id];
+    if (held && metaOf(held.route).billing === 'api' && named !== binding.id) return { code: 'paid', name: held.name };
+    if (named !== undefined && !ids.includes(named)) return { code: 'bound', name: nameOf(file, ids) };
+    return undefined;
+  };
+  // An API-key run (Runs step 2): its key continues only an API-billed binding; any other binding is refused.
+  const keyRefusal = (member: Member, binding: Binding): string | undefined => {
+    const file = read(member);
+    const held = binding.id === undefined ? undefined : file.accounts[binding.id];
+    if (held && metaOf(held.route).billing === 'api') return undefined;
+    return words('account.bound', { name: nameOf(file, boundOf(file, binding)) });
+  };
+
   // Runs step 1 (5.15): a key `agent:<member>--<hex6>:<tail>` of an indexed account agent is bound to that account; a
   // key `agent:<member>:<tail>` to whichever of the member's agents holds `agent:<that agent>:<tail>` (member agent
   // first), else unbound. Any other key is not the member's. With no account agent, the member agent and an unbound
@@ -360,32 +389,24 @@ export function createAccounts(ctx: {
 
   // Choosing (5.15): every listed account's room and models are read live once, then the pure `resolveSelection`
   // decides. A binding narrows it (Runs step 2): a key bound to an account agent resolves 'auto', 'default' and no id to
-  // that account, refuses another id (`bound`) and, when that account bills per use, anything but its own id (`paid`);
-  // a key bound to the member agent chooses only among its own accounts and refuses an id on another agent (`bound`).
+  // that account; a key bound to the member agent chooses only among its own accounts. A refusal (`bound`, `paid`) is
+  // decided from the index before any gateway request, so it has no `considered` rows.
   // An unknown id stays the caller bug it always was. `agent` is the picked account's engine agent. A model unavailable
   // only because the account is signed out or resting is still in its plan: the account's state and the run's ready
   // check judge that.
   // The pinned engine may hold no prepared model catalog for an agent added since it started, and refuses its models; that
   // row's models are then unknown (`undefined`), and `resolveSelection` host-validates its membership by provider.
   async function pick(member: Member, sel: RunSelection, skip: readonly AccountId[] = [], binding?: Binding): Promise<{ pick: AccountPick; agent?: string }> {
+    check(member);
+    const refusal = binding && refusalOf(read(member), binding, sel);
+    if (refusal) return { pick: { ok: false, code: refusal.code, reason: words(`account.${refusal.code}`, { name: refusal.name }), considered: [] } };
     const listed = await list(member);
     const rows = listed.filter((r) => !skip.includes(r.id));
     const file = read(member);
     const named = sel.account === 'auto' || sel.account === 'default' ? undefined : sel.account;
     const known = named === undefined || listed.some((r) => r.id === named);
-    let bound: AccountId[] | undefined;
-    let refusal: { code: 'bound' | 'paid'; name: string } | undefined;
-    if (binding?.id !== undefined && known) {
-      const held = listed.find((r) => r.id === binding.id);
-      bound = [binding.id];
-      if (held?.billing === 'api' && named !== binding.id) refusal = { code: 'paid', name: held.name };
-      else if (named !== undefined && named !== binding.id) refusal = { code: 'bound', name: held?.name ?? '' };
-      else sel = { ...sel, account: binding.id };
-    } else if (binding && known) {
-      bound = listed.filter((r) => file.accounts[r.id]?.agent === binding.agentId).map((r) => r.id);
-      if (named !== undefined && !bound.includes(named))
-        refusal = { code: 'bound', name: listed.find((r) => bound!.includes(r.id))?.name ?? '' };
-    }
+    if (binding?.id !== undefined && known) sel = { ...sel, account: binding.id };
+    const bound = binding && known ? boundOf(file, binding) : undefined;
     const reads = new Map(await Promise.all(rows.map(async (row) => {
       const entry = file.accounts[row.id]!;
       const models = await readModels(row, entry).then((ms) => ms.map((m) => (m.why ? { ...m, available: true } : m)), () => undefined);
@@ -393,8 +414,6 @@ export function createAccounts(ctx: {
     })));
     const chosen = resolveSelection(rows, file.defaults, sel, (a) => reads.get(a.id)!.room, Date.now(),
       (a) => reads.get(a.id)!.models, bound);
-    if (refusal) return { pick: { ok: false, code: refusal.code, reason: words(`account.${refusal.code}`, { name: refusal.name }),
-      considered: chosen.considered } };
     return { pick: chosen, ...(chosen.ok ? { agent: file.accounts[chosen.account.id]!.agent } : {}) };
   }
 
@@ -517,5 +536,5 @@ export function createAccounts(ctx: {
     return { id, paste: handle.paste, cancel: handle.cancel, done };
   }
 
-  return { list, add, rename, defaults, setDefaults, models, room, bind, pick, rest };
+  return { list, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, pick, rest };
 }

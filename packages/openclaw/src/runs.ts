@@ -93,7 +93,7 @@ export function createRuns(ctx: {
   ensure(member: Member): Promise<{ agentId: string }>;
   bridge: Pick<Bridge, 'register'>;
   tools: ReadonlySet<string>; // KitOptions.tools names, the only names a run's subset may carry
-  accounts?: Pick<ReturnType<typeof createAccounts>, 'bind' | 'pick' | 'rest'>; // 5.15: account runs
+  accounts?: Pick<ReturnType<typeof createAccounts>, 'bind' | 'keyRefusal' | 'pick' | 'rest'>; // 5.15: account runs
   locks?: ReturnType<typeof createLocks>;
   routes: Map<string, { session: string }>; // the caller's session key -> the account session its live run uses; steer and abort follow it
 }): {
@@ -133,11 +133,16 @@ export function createRuns(ctx: {
     for (const tool of spec.tools ?? [])
       if (!ctx.tools.has(tool)) throw new Error(`refused: "${tool}" is not one of this kit's tools`);
     const tail = spec.sessionKey.slice(spec.sessionKey.indexOf(':', 'agent:'.length) + 1);
-    // Runs step 1 (5.15): every run first finds the account its session is bound to. The API-key lane keeps its own history.
-    const binding = keyAgent || !ctx.accounts ? undefined : await ctx.accounts.bind(spec.member, spec.sessionKey);
-    // Step 3: with `account` and `needs` both absent, on a key no account agent holds, exactly the run on the member
-    // agent it always was.
-    if (binding?.id === undefined && spec.account === undefined && !spec.needs?.length) {
+    // Runs step 1 (5.15): every run first finds the account its session is bound to, the API-key lane included.
+    const binding = ctx.accounts ? await ctx.accounts.bind(spec.member, spec.sessionKey) : undefined;
+    // Step 2 on the API-key lane: only an API-billed conversation continues on its key; any other binding is refused.
+    if (keyAgent && ctx.accounts && binding) {
+      const message = ctx.accounts.keyRefusal(spec.member, binding);
+      if (message !== undefined) return { ok: false, kind: 'other', message };
+    }
+    // Step 3: with `account` and `needs` both absent, on a key no account agent holds (or an API-key run, whose
+    // binding is API-billed), exactly the run on the agent it always was.
+    if ((keyAgent || binding?.id === undefined) && spec.account === undefined && !spec.needs?.length) {
       const agentId = keyAgent ?? (await ctx.ensure(spec.member)).agentId;
       return start(spec, on, { agentId, sessionKey: keyAgent ? `agent:${keyAgent}:${tail}` : spec.sessionKey, idempotencyKey, system, picked, output });
     }

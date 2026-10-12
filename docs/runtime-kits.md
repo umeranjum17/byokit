@@ -1444,6 +1444,9 @@ cache.
    `account.paid`).
    Bound to the member agent with `spec.account` set: `'auto'` and `'default'` choose only among the member agent's
    own accounts (`bound` = those), and an id on another agent is refused with `account.bound`.
+   An `auth: 'apiKey'` run on a conversation bound to a subscription account or to the member agent is refused the same
+   way (`code: 'bound'`, words `account.bound`); on an API-billed binding it continues on the key. The refusals here read
+   the index alone, so only the binding read itself (step 1) reaches the Gateway before them.
 3. Bound to the member agent, or unbound, with `spec.account` absent and `spec.needs` absent or empty: exactly today's 5.8
    behavior on the member agent (existing requests stay byte-identical). A non-empty `spec.needs` with `spec.account`
    absent resolves as `account: 'default'`.
@@ -1588,6 +1591,7 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
 | `ago.hours` | {n} h |
 | `account.bound` | This conversation uses {name}. Move it to switch accounts. |
 | `account.paid` | This conversation uses {name}, which is billed per use. Choose {name} to keep going. |
+| `account.another` | another account (the `{name}` of a bound refusal whose conversation holds no account) |
 | `account.signOutFirst` | To add a different {provider} account, sign out of {provider} in your browser first. |
 | `account.legacyMember` | This person needs a new profile before adding more accounts. |
 

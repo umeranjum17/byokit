@@ -8,16 +8,18 @@
 // end signed-out with no agent request, and a run with neither account nor needs is exactly the run it was.
 // The S11 binding (O14k): a second run on one app key stays on the account that holds its session, pick equals the run's
 // account event (unbound, bound to an account agent, bound to the member agent), a bound key refuses another id and an
-// API-key conversation refuses 'auto' before any request, and steer and abort reach the engine key.
+// API-key conversation refuses 'auto' with no request but the binding read, an API-key run refuses a subscription- or
+// member-bound conversation, and steer and abort reach the engine key.
 import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { chmodSync, readFileSync, statSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, statSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { createLocks } from '../src/locks.ts';
+import { keyAgentId } from '../src/members.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import type { RunEvent, SignInView } from '../src/types.ts';
 
@@ -517,12 +519,17 @@ test('session binding: a run stays on the account that holds its session; pick e
         { account: event.account, model: event.model, how: event.how, why: event.why, considered: event.considered });
       return ran;
     };
-    // A refusal: run ends `other` with the pick's words, with no event and no agent request.
+    // A refusal: run ends `other` with the pick's words and no event. Its only gateway requests are the binding read's
+    // (`agents.list`, `sessions.resolve`): no room, model, sign-in or agent request follows it.
     const refuses = async (sessionKey: string, account: string | undefined, code: 'bound' | 'paid', message: string) => {
+      const from = fake.calls.length;
       const pick = await kit.pick('m1', { account: account ?? 'default' }, { sessionKey });
       assert.ok(!pick.ok && pick.code === code && pick.reason === message, JSON.stringify(pick));
-      const ran = await run({ sessionKey, ...(account !== undefined ? { account } : {}) });
-      assert.deepEqual([ran.end, ran.events, ran.requests], [{ ok: false, kind: 'other', message }, [], []]);
+      const events: RunEvent[] = [];
+      const end = await kit.run({ member: 'm1', message: 'hello', sessionKey, ...(account !== undefined ? { account } : {}) }, (e) => events.push(e));
+      assert.deepEqual([end, events], [{ ok: false, kind: 'other', message }, []]);
+      const reads = fake.calls.slice(from).map((c) => c.method).filter((m) => m !== 'agents.list' && m !== 'sessions.resolve');
+      assert.deepEqual(reads, []);
     };
 
     // Unbound: Auto takes the account with the most room, on its own agent under the app key's tail.
@@ -578,6 +585,41 @@ test('session binding: a run stays on the account that holds its session; pick e
     for (const account of ['auto', 'default', undefined, 'openai']) await refuses('agent:m1:chat:k', account, 'paid', paid);
     const kept = await run({ sessionKey: 'agent:m1:chat:k', account: 'anthropic.a0a0a0' });
     assert.ok(kept.end.ok && kept.end.account === 'anthropic.a0a0a0', JSON.stringify(kept.end));
+    // An API-key run continues only an API-billed conversation: a subscription- or member-bound one is refused, with no agent request.
+    assert.equal(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-test' }), 'ok');
+    const keyRun =(sessionKey: string) => kit.run({ member: 'm1', sessionKey, message: 'hello', auth: 'apiKey' });
+    const keyRefusal = (name: string) => ({ ok: false, kind: 'other', message: `This conversation uses ${name}. Move it to switch accounts.` });
+    const keyFrom = fake.calls.length;
+    assert.deepEqual(await keyRun('agent:m1:chat:1'), keyRefusal(names[second.id]!));
+    assert.deepEqual(await keyRun('agent:m1:chat:m'), keyRefusal(names.openai!));
+    assert.deepEqual(fake.calls.slice(keyFrom).filter((c) => c.method === 'agent'), []);
+    // An API-billed conversation continues on the key, and an unbound key starts there.
+    assert.ok((await keyRun('agent:m1:chat:k')).ok);
+    assert.ok((await keyRun('agent:m1:chat:new')).ok);
+    const keyLane = keyAgentId('m1');
+    assert.deepEqual(agentCalls().slice(-2).map((c) => { const p = c.params as { agentId: string; sessionKey: string }; return [p.agentId, p.sessionKey]; }),
+      [[keyLane, `agent:${keyLane}:chat:k`], [keyLane, `agent:${keyLane}:chat:new`]]);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('session binding: a member-bound conversation that holds no account names another account', async () => {
+  const stateDir = scratchDir('o14k-unnamed');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    // m2's conversation lives on its member agent, which holds no account: its only account is on an account agent.
+    await kit.run({ member: 'm2', sessionKey: 'agent:m2:chat:y', message: 'hello' });
+    await kit.call('agents.create', { name: 'm2--abcdef', workspace: join(stateDir, 'openclaw', 'workspaces', 'm2') });
+    mkdirSync(join(stateDir, 'openclaw', 'accounts'), { recursive: true });
+    writeFileSync(indexOf(stateDir, 'm2'), JSON.stringify({ v: 1, accounts: { 'openai.abcdef': { agent: 'm2--abcdef', name: 'Work', route: 'openai', addedAt: 1 } }, defaults: {} }, null, 2) + '\n');
+    const from = fake.calls.length;
+    const end = await kit.run({ member: 'm2', sessionKey: 'agent:m2:chat:y', message: 'hello', account: 'openai.abcdef' });
+    assert.deepEqual(end, { ok: false, kind: 'other', message: 'This conversation uses another account. Move it to switch accounts.' });
+    assert.deepEqual(fake.calls.slice(from).filter((c) => c.method === 'agent'), []);
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });
