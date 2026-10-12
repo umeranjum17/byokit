@@ -50,6 +50,18 @@ const browsers = new WeakMap<ZeroconfLike, Browser>();
 
 const asString = (v: unknown) => (typeof v === 'string' ? v : undefined);
 
+/**
+ * Whether a resolved `fullName` names the active service type. Android's
+ * react-native-zeroconf resolves deliver `host._type._protocol` with no trailing dot, while iOS/Bonjour delivers
+ * `host.local._type._protocol.`; a trailing `.local` domain suffix shows up too. Normalise all three (trim a
+ * trailing `.` and a trailing `.local`, case-insensitive) before matching, so every platform's resolve counts.
+ */
+function matchesType(fullName: string, type: string, protocol: string): boolean {
+  let name = fullName.toLowerCase().replace(/\.+$/, '');
+  if (name.endsWith('.local')) name = name.slice(0, -'.local'.length).replace(/\.+$/, '');
+  return name.endsWith(`_${type}._${protocol}`.toLowerCase());
+}
+
 const txtStrings = (txt: unknown): Record<string, string> =>
   txt !== null && typeof txt === 'object'
     ? Object.fromEntries(Object.entries(txt).filter(([, v]) => typeof v === 'string'))
@@ -78,7 +90,7 @@ function browser(zc: ZeroconfLike): Browser {
     if (!active) return;
     if (event === 'resolved') {
       const fullName = asString((value as RawService | null)?.fullName);
-      if (!fullName?.toLowerCase().endsWith(`_${active.options.type}._${active.options.protocol}.`.toLowerCase())) return;
+      if (fullName === undefined || !matchesType(fullName, active.options.type, active.options.protocol)) return;
     }
     if (event === 'error' && Date.now() < (state.ignoreNativeErrorsUntil ?? 0)) return;
     active.receive(event, value);
