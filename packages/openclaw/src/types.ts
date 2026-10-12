@@ -98,7 +98,7 @@ export type PlanWindow = {
 
 export type RunEnd<T = unknown> =
   | { ok: true; text: string; data?: T; usage?: RunUsage; planWindow?: PlanWindow; // data: validated schema; usage/window: engine reports
-    account?: AccountId; model?: string } // both exactly when the run used an account (5.15)
+    account?: AccountId; model?: string } // both exactly when the run used an account (5.15); model '' only when neither the pick nor the engine names one
   | { ok: false; aborted: true }
   | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other' | 'output'; until?: number; message: string };
 
@@ -237,6 +237,7 @@ export type AccountPick =
   | { ok: true; account: Account; model: string; how: 'chosen' | 'default' | 'auto'; why: PickWhy; reason: string;
       considered: Considered[] }
   | { ok: false; code: 'none' | 'not_included' | 'unknown_account' | 'bound' | 'paid'; reason: string;
-      considered: Considered[] };        // bound/paid: Runs step 2's refusals, reason its `account.*` words
+      considered: Considered[] }         // bound/paid: Runs step 2's refusals, reason its `account.*` words
+  | { ok: false; code: 'resting'; account: AccountId; until?: number; reason: string; considered: Considered[] };
 export type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // shared with @byokit/herdr

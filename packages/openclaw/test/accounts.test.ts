@@ -375,7 +375,7 @@ test('run on an account: account event first, Auto by room, resting skip, ready 
       return { models: [{ id: 'default', name: 'Default', provider: 'openai', available: true }] };
     });
     const refused = await run({ sessionKey: 'agent:m1:chat:refused', account: 'auto' });
-    assert.ok(refused.end.ok && refused.end.account === second.id && refused.end.model === '', JSON.stringify(refused.end));
+    assert.ok(refused.end.ok && refused.end.account === second.id && refused.end.model === 'openai/gpt-5.1', JSON.stringify(refused.end));
     assert.deepEqual([refused.requests[0]!.params].map((p) => { const { agentId, provider, model } = p as Record<string, unknown>;
       return { agentId, provider, model }; }), [{ agentId: agent, provider: undefined, model: undefined }]);
 
@@ -408,7 +408,28 @@ test('run on an account: account event first, Auto by room, resting skip, ready 
     assert.deepEqual([signedOut.events.map((e) => e.type), signedOut.requests], [['account'], []]);
     assert.ok(signedOut.events[0]?.type === 'account' && signedOut.events[0].account === second.id);
 
-    // The member account rests too: Auto has no candidate, so the run ends signed-out with no agent request.
+    // Every model of the member account is cooling down: Auto skips it and runs the next ready account; a chosen
+    // member ends resting with the earliest cooldown written to the index.
+    const resetAt = Date.now() + 20 * 60_000;
+    const third = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await third.done).view.state, 'done');
+    const thirdAgent = `m1--${third.id.slice('openai.'.length)}`;
+    fake.setUsage(thirdAgent, 'openai', [{ label: 'session', usedPercent: 50 }]);
+    fake.handle('models.list', (p) => ({ models: [{ id: 'default', name: 'Default', provider: 'openai',
+      ...(p.agentId === 'm1' ? { available: false, unavailableReason: 'cooldown', unavailableUntil: resetAt } : { available: true }) }] }));
+    const cooled = await run({ sessionKey: 'agent:m1:chat:cool', account: 'auto' });
+    const coolEvent = cooled.events[0];
+    assert.ok(coolEvent?.type === 'account' && coolEvent.account === third.id && coolEvent.how === 'auto', JSON.stringify(cooled.events));
+    assert.ok(coolEvent.considered.find((r) => r.id === 'openai')?.out === 'resting');
+    assert.deepEqual(cooled.requests.map((r) => (r.params as { agentId: string }).agentId), [thirdAgent]);
+    assert.ok(cooled.end.ok && cooled.end.account === third.id, JSON.stringify(cooled.end));
+    const cooling = await run({ sessionKey: 'agent:m1:chat:cooling', account: 'openai' });
+    assert.ok(!cooling.end.ok && 'kind' in cooling.end && cooling.end.kind === 'resting' && cooling.end.until === resetAt, JSON.stringify(cooling.end));
+    assert.deepEqual([cooling.events, cooling.requests], [[], []]);
+    assert.equal(JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts.openai.until, resetAt);
+
+    // Every account now rests: the Auto winner rests with no time named, and the next Auto has no candidate, so the
+    // run ends signed-out with no agent request.
     fake.failNext('agent', 'usage limit reached');
     const memberRested = await run({ sessionKey: 'agent:m1:chat:5', account: 'auto' });
     assert.ok(!memberRested.end.ok && 'kind' in memberRested.end && memberRested.end.kind === 'resting');

@@ -6,7 +6,7 @@ import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync }
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { createLocks } from './locks.ts';
-import { resolveSelection } from './pick.ts';
+import { providerOf, resolveSelection } from './pick.ts';
 import { KEY_PREFIX, MEMBER_ID, NEW_MEMBER_ID, untilListed } from './members.ts';
 import { routes, routeFor } from './routes.ts';
 import { words } from './words.ts';
@@ -192,6 +192,7 @@ export function createAccounts(ctx: {
         || candidate.provider.toLowerCase() !== provider.toLowerCase()) continue;
       if (typeof candidate.id !== 'string' || !candidate.id || typeof candidate.name !== 'string') continue;
       const id = candidate.id.includes('/') ? candidate.id : `${candidate.provider}/${candidate.id}`;
+      if (providerOf(id) !== provider.toLowerCase()) continue;
       const available = candidate.available === undefined
         ? candidate.unavailableReason === undefined : candidate.available === true;
       const info: ModelInfo = { id, name: candidate.name, available };

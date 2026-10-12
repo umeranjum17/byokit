@@ -143,6 +143,11 @@ export function createRuns(ctx: {
       ...(spec.model !== undefined ? { model: spec.model } : {}), ...(spec.needs ? { needs: spec.needs } : {}) });
     if (!pick.ok) {
       if (pick.code === 'unknown_account') throw new Error(`unknown account: ${spec.account}`); // a caller bug
+      if (pick.code === 'resting') {
+        const until = pick.until ?? Date.now() + REST_MS;
+        await ctx.accounts.rest(spec.member, pick.account, until);
+        return { ok: false, kind: 'resting', until, message: pick.reason };
+      }
       return { ok: false, kind: pick.code === 'none' ? 'signed-out' : pick.code === 'not_included' ? 'plan' : 'other', message: pick.reason };
     }
     // An unbound key runs on the picked account's agent, under the app key's tail. The run holds the agent's shared
@@ -265,8 +270,10 @@ export function createRuns(ctx: {
         const usage = usageOf(agentMeta);
         const planWindow = typeof agentMeta.provider === 'string'
           ? await planWindowOf(agentId, agentMeta.provider.toLowerCase()) : undefined;
+        const reported = typeof agentMeta.provider === 'string' && typeof agentMeta.model === 'string'
+          ? `${agentMeta.provider}/${agentMeta.model}`.toLowerCase() : '';
         return { ok: true, text, ...(parsed ? { data: parsed.data as SchemaOutput<S> } : {}), ...(usage ? { usage } : {}), ...(planWindow ? { planWindow } : {}),
-          ...(chosen ? { account: chosen.account.id, model: chosen.model } : {}) };
+          ...(chosen ? { account: chosen.account.id, model: chosen.model || reported } : {}) };
       }
       if (result.stopReason === 'aborted' || (abortedByEngine && result.status !== 'ok')) return { ok: false, aborted: true };
       const message = typeof result.error === 'string' ? result.error

@@ -42,6 +42,14 @@ function considerRows(accounts: readonly Account[], room: (a: Account) => Room, 
       else if (account.state !== 'ready' && !(account.state === 'resting' && finite(account.until) && account.until <= nowMs)) row.out = 'state';
       else if (account.billing !== 'subscription') row.out = 'billing';
     }
+    if (!row.out && models) {
+      const listed = models(account) ?? [];
+      if (listed.length && listed.every((m) => m.why === 'resting')) {
+        row.out = 'resting';
+        const untils = listed.map((m) => m.until).filter(finite);
+        if (untils.length) row.until = Math.min(...untils);
+      }
+    }
     if (!row.out && demand.length && models) {
       const available = models(account) ?? demand.filter((id) => id.split('/')[0]!.toLowerCase() === account.provider.toLowerCase())
         .map((id) => ({ id, name: id, available: true }));
@@ -120,6 +128,8 @@ export function resolveSelection(accounts: readonly Account[], defaults: Default
   if (named !== undefined) {
     const chosen = rows.find((c) => c.account.id === named);
     if (!chosen) return { ok: false, code: 'unknown_account', reason: words('auto.none', { provider: provider ?? '' }), considered };
+    if (chosen.row.out === 'resting') return { ok: false, code: 'resting', account: chosen.account.id, until: chosen.row.until,
+      reason: words('pick.out.resting', { time: finite(chosen.row.until) ? clock(chosen.row.until) : '' }), considered };
     if (chosen.row.out) return { ok: false, code: 'not_included', reason: words(`pick.out.${chosen.row.out}` as WordKey, { model: chosen.row.missing ?? '' }), considered };
     return finish(chosen.account, chosen.row, sel.account === 'default' ? 'default' : 'chosen', sel.account === 'default' ? 'default' : 'chosen');
   }
